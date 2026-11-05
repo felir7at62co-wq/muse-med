@@ -1,6 +1,7 @@
 version: 1
 scenario: text-turn
 profile: sdk
+writerOutput: true
 composition: sdk-upload
 recording: live
 environment:

@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/supermuse-model-access/guide.md
+/:
+  en: d0f836f1238c5ec0
+  zh: 71dd69f545d6993b
+/supermuse-model-access:
+  en: 742f046f43ff5d96
+  zh: 6aaa53b3bd179308
+/supermuse-model-access/change:
+  en: fedea030e1762447
+  zh: ef75def66df5ffd7
+/supermuse-model-access/migration:
+  en: 410708a11b1d7036
+  zh: 61416b12f85bf41b

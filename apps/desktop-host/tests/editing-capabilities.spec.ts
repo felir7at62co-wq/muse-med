@@ -41,7 +41,6 @@ it('keeps general guidance and runtime facts without restricting inherited or la
     await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
     let model = 'deepseek-flash'
     ctx.systemPrompt.variable('model', () => model)
-    ctx.systemPrompt.variable('cwd', () => '/editing-workspace')
     ctx.systemPrompt.section({ name: 'tool:guidance', order: 100, text: 'Load skills first.' })
     ctx.systemPrompt.context({ name: 'runtime:guidance', order: 1, text: 'Runtime instructions.' })
     const key = { preset: 'editing' }
@@ -95,7 +94,7 @@ it('keeps general guidance and runtime facts without restricting inherited or la
     expect(prompt).toContain(`http://127.0.0.1:${ctx.webServer.port}`)
     expect(prompt).toContain('你没有隐式读取到 DOM、路由或截图')
     expect(prompt).toContain('不启动替代服务器')
-    expect(prompt).toContain('你的工作目录是 /editing-workspace ；短剧工作间是其中的 short-drama/。')
+    expect(prompt).toContain('短剧工作间位于当前工作目录的 short-drama/ 下。')
     expect(prompt).toContain('Inherited screenplay_project')
     expect(prompt).toContain('Team rules.')
     expect(first.contexts.map(context => context.text)).toEqual(['Runtime instructions.', 'Subagent rules.'])

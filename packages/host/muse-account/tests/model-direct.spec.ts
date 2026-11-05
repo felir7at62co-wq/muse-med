@@ -31,6 +31,40 @@ async function drain(source: AsyncIterable<StreamChunk>): Promise<StreamChunk[]>
 }
 async function* finished(): AsyncGenerator<StreamChunk> { yield { type: 'finish', reason: { kind: 'stop' } } }
 
+it('settles a liveness check before releasing when the caller cancels its pending transport', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  const caller = new AbortController()
+  const entered = Promise.withResolvers<undefined>()
+  const checking = Promise.withResolvers<undefined>()
+  const releaseCheck = Promise.withResolvers<undefined>()
+  const calls: string[] = []
+  const fetcher: typeof fetch = async (_url, init) => {
+    calls.push(String(init?.method))
+    if (init?.method === 'GET') {
+      checking.resolve(undefined)
+      await releaseCheck.promise
+      throw new DOMException('cancelled check', 'AbortError')
+    }
+    return Response.json(init?.method === 'POST' ? lease() : {})
+  }
+  const result = drain(streamWithModelLease(
+    { baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }, 'glm-test', caller.signal,
+    async function* (_access, signal) {
+      entered.resolve(undefined)
+      await new Promise<void>((resolve) => { signal.addEventListener('abort', () => { resolve() }, { once: true }) })
+      yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'cancelled' } } }
+    },
+  ))
+  await entered.promise
+  await vi.advanceTimersByTimeAsync(1000)
+  await checking.promise
+  caller.abort()
+  expect(calls).toEqual(['POST', 'GET'])
+  releaseCheck.resolve(undefined)
+  expect(await result).toMatchObject([{ type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED' } } }])
+  expect(calls).toEqual(['POST', 'GET', 'DELETE'])
+})
+
 it('keeps content out of admission, acquires once, returns supplier chunks and releases on completion', async () => {
   const calls: string[] = []
   const fetcher: typeof fetch = async (url, init) => {

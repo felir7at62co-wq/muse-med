@@ -45,7 +45,6 @@ test('packs a reproducible native IM client and Muse migration entry without mod
   try {
     const archives = outputs.map(output => {
       const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD|^NODE_TEST_/iu.test(key)))
-      environment.npm_execpath = join(root, 'node_modules/pnpm/bin/pnpm.cjs')
       const result = spawnSync(process.execPath, [join(import.meta.dirname, 'build.mjs'), '--only', 'dsh-im', '--out', output], {
         cwd: root,
         env: environment,

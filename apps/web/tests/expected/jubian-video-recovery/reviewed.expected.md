@@ -1,0 +1,36 @@
+- region "Project video recovery":
+  - heading "Project video recovery" [level=3]
+  - paragraph: Choose a Muse project to recover its submitted video tasks. Review the video and audio decode results here.
+  - status: Recovery enabled
+  - text: Project folder
+  - textbox "Project folder": {{project}}
+  - button "Choose project folder"
+  - button "Enable recovery" [disabled]
+  - button "Disable recovery"
+  - button "Refresh"
+  - heading "Quality reports" [level=4]
+  - paragraph: {{project}}
+  - article:
+    - paragraph: Task 335343
+    - status: Approved
+    - paragraph: Local derivative
+    - paragraph: {{managed-video}}
+    - paragraph: Output 1
+    - paragraph: Video decodes
+    - paragraph: Audio decodes
+    - button "Deliver MP4 directly"
+    - paragraph: Jianying draft Fixture draft 335343
+    - paragraph: {{project}}\fixture-draft
+    - paragraph: Jianying export verified
+    - paragraph: {{editor-export}}
+    - paragraph: Video similarity 100%, audio similarity 100%
+    - button "Deliver with Jianying"
+    - button "Verify Jianying export"
+  - article:
+    - paragraph: Task 335344
+    - status: Returned for changes
+    - paragraph: Reason for return
+    - paragraph: Audio starts late. Please restore the opening line.
+    - paragraph: Output 1
+    - paragraph: Video decodes
+    - paragraph: Audio could not be decoded

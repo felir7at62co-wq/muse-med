@@ -17,12 +17,13 @@ import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import { fileSha256 } from './cache.ts'
 import { assertVideoHashesAllowed, assertVideosAllowed } from './video.ts'
-import { firstStreamOfType, probeMedia, runFfmpeg } from './ffmpeg.ts'
+import { createMediaToolkit, firstStreamOfType, probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { subtitleReviewWarnings, subtitleTextWarnings, readSubtitleCues } from './subtitles.ts'
-import { deliveryPolicyFor, readProjectDelivery } from './delivery-policy.ts'
-import { appendClips, formatTimelineDocument } from './timeline.ts'
-import type { MediaToolkit, ShotSource, SubtitleCue, Timeline, TimelineClip } from './types.ts'
+import { ENDING_AUDIO_ASSET, ENDING_EFFECT_ASSET, type ShippedEndingAsset } from './delivery.ts'
+import { deliveryPolicyFor, readProjectDelivery, resolveDeliveryPolicy } from './delivery-policy.ts'
+import { appendClips, formatTimelineDocument, readTimeline } from './timeline.ts'
+import type { MediaToolkit, RenderSettings, ShotSource, SubtitleCue, Timeline, TimelineClip } from './types.ts'
 
 /** Microseconds in one second. */
 const MICROSECONDS_PER_SECOND = 1_000_000
@@ -222,14 +223,45 @@ export async function readJsonDocument(path: string, description: string): Promi
 /** Build the episode master by mixing every shot's own sound onto the picture clock. */
 async function buildMaster(
   toolkit: MediaToolkit,
-  shots: readonly ResolvedShot[],
+  audioPaths: readonly string[],
   clips: readonly TimelineClip[],
   target: string,
 ): Promise<void> {
   const args: string[] = ['-y', '-v', 'error']
-  for (const shot of shots) args.push('-i', shot.audio)
+  for (const path of audioPaths) args.push('-i', path)
   args.push('-filter_complex', masterAudioFilter(clips), '-map', '[a]', '-c:a', 'pcm_s16le', '-ar', '48000', target)
   await runFfmpeg(toolkit, args)
+}
+
+/**
+ * Read the ending assets selected by the staged episode's delivery policy.
+ * @param input - The staging project and its verified timeline path.
+ * @returns The shipped audio and effect descriptors for a marked delivery, or absence for body-only animation.
+ */
+export async function stagedEpisodeEndingAssets(
+  input: { readonly project: string; readonly timelinePath: string },
+): Promise<{ readonly audio: ShippedEndingAsset; readonly effect: ShippedEndingAsset } | undefined> {
+  const timeline = await readTimeline(input.timelinePath)
+  const policy = await resolveDeliveryPolicy(input.project, timeline.delivery)
+  if (policy.endingSeconds === 0) return undefined
+  return { audio: ENDING_AUDIO_ASSET, effect: ENDING_EFFECT_ASSET }
+}
+
+/**
+ * Build the master from the embedded audio of clips already staged in the episode video directory.
+ * @param input - The staging project, two-digit episode, and authored timeline path.
+ * @param settings - The renderer's media binaries and optional process channel.
+ * @returns When the staged WAV is complete.
+ * @throws When the timeline or any of its staged audio inputs is unusable.
+ */
+export async function prepareStagedEpisodeAudio(
+  input: { readonly project: string; readonly episode: string; readonly timelinePath: string },
+  settings: Pick<RenderSettings, 'ffmpeg' | 'ffprobe' | 'channel'>,
+): Promise<void> {
+  const paths = episodePaths(input.project, input.episode)
+  const { clips } = await readTimeline(input.timelinePath)
+  const audioPaths = clips.map(clip => resolve(paths.videoDir, shotFileName(clip.shot)))
+  await buildMaster(createMediaToolkit(settings), audioPaths, clips, paths.masterAudio)
 }
 
 /**
@@ -277,7 +309,7 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
   written.push(paths.timeline)
 
   await mkdir(resolve(input.project, 'audio'), { recursive: true })
-  await buildMaster(input.toolkit, shots, timeline.clips, paths.masterAudio)
+  await buildMaster(input.toolkit, shots.map(shot => shot.audio), timeline.clips, paths.masterAudio)
   written.push(paths.masterAudio)
 
   const cues = await readSubtitleCues(input.subtitleSrt)

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-drama-skills",
-  "version": "0.2.1-alpha.1",
+  "version": "0.2.1-alpha.2",
   "private": true,
   "type": "module",
   "license": "UNLICENSED",
@@ -71,6 +71,9 @@
     "skills/tweet-drama-draft-build/scripts/jianying_draft.py",
     "skills/tweet-drama-draft-build/scripts/windows_aa_draft.py",
     "skills/tweet-drama-draft-build/scripts/windows/aa-draft.ps1",
+    "skills/tweet-drama-draft-build/scripts/windows/native-export.ps1",
+    "skills/tweet-drama-draft-build/scripts/windows/native-export-folder.ps1",
+    "skills/tweet-drama-draft-build/scripts/windows/native-export-open.ps1",
     "skills/tweet-drama-draft-build/scripts/paths.py",
     "skills/tweet-drama-key-manager/SKILL.md",
     "skills/tweet-drama-key-manager/scripts/check_keys.py",

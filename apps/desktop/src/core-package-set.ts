@@ -19,7 +19,7 @@ export const DESKTOP_DRAMA_SKILLS_PACKAGE = '@deepseek-ai/dsh-drama-skills'
 /** Reviewed IM Host and native client installed beside the account's independent remote bridge. */
 export const DESKTOP_FEISHU_PACKAGE = '@xmanrui/dsh-im'
 
-/** Reviewed ChatGPT subscription provider and its local account settings. */
+/** Codex subscription package retired from Supermuse profiles. */
 export const DESKTOP_CODEX_PACKAGE = 'dsh-codex-subscription'
 
 /** Reviewed native team workspace supplied by the Muse application. */
@@ -52,10 +52,13 @@ export const DESKTOP_HOST_RUNTIME_FILES = [
   'skills/media-link-import/scripts/import_media.py',
 ] as const
 
-/** Shot-writing skills required from their independently packed resource package. */
+/** Shot-writing and native delivery files required from the independently packed drama resources. */
 export const DESKTOP_DRAMA_SKILL_RUNTIME_FILES = [
   'skills/shot-script-creator-16-9-3d/SKILL.md',
   'skills/shot-script-creator-9-16/SKILL.md',
+  'skills/tweet-drama-draft-build/scripts/windows/native-export.ps1',
+  'skills/tweet-drama-draft-build/scripts/windows/native-export-folder.ps1',
+  'skills/tweet-drama-draft-build/scripts/windows/native-export-open.ps1',
 ] as const
 
 /** Muse entry, native IM client and Session routing files required from the Feishu tarball. */
@@ -72,13 +75,6 @@ export const DESKTOP_FEISHU_RUNTIME_FILES = [
   'LICENSE',
 ] as const
 
-/** Subscription Host, account settings and retained notices required in every product build. */
-export const DESKTOP_CODEX_RUNTIME_FILES = [
-  'lib/index.js', 'lib/client.js', 'lib/sketch-psd-worker.js',
-  'cordis.patch.yml', 'compatibility.json', 'icon-subscription.webp',
-  'SOURCE.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'BUNDLED_LICENSES.md',
-] as const
-
 /** Native team Host, browser module and attribution required from the Muse Bot tarball. */
 export const DESKTOP_MUSE_BOT_RUNTIME_FILES = [
   'index.js', 'src/host/agents.js', 'src/host/store.js', 'src/host/parts.js', 'src/host/muse-config.js',
@@ -87,7 +83,7 @@ export const DESKTOP_MUSE_BOT_RUNTIME_FILES = [
 
 /** Source-built community plugins and Muse download tools, with no registry substitution. */
 export const DESKTOP_SOURCE_PLUGINS = [
-  'dshmarket', 'dsh-ffmpeg', DESKTOP_CODEX_PACKAGE, DESKTOP_MUSE_BOT_PACKAGE,
+  'dshmarket', 'dsh-ffmpeg', DESKTOP_MUSE_BOT_PACKAGE,
   '@wenbin_wb/dsh-bridge', DESKTOP_FEISHU_PACKAGE, 'dsh-skill-mcp-panel',
   'muse-hongguo-search',
   'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-lvpaopao',

@@ -13,6 +13,8 @@ const textReadSchema = z.object({ path: z.string(), readCallId: z.string().trans
   status: z.enum(['complete', 'partial', 'truncated', 'snapshot_over_budget']), episodeLabels: z.array(z.string()),
   readWindowSha256: z.string(), readTextSha256: z.string().optional(), text: z.string().optional() })
 const readWindowSchema = z.object({ offset: z.number().int().positive(), totalLines: z.number().int().nonnegative(),
+  column: z.number().int().positive().optional(),
+  continuation: z.object({ offset: z.number().int().positive(), column: z.number().int().positive() }).optional(),
   lines: z.array(z.object({ number: z.number().int().positive(), text: z.string() })) })
 const readStateSchema = z.object({ cwd: z.string(), taskStartSeq: z.number().int().nonnegative().transform(SessionSeq).optional(),
   pending: z.array(z.string().transform(ToolCallId)),
@@ -54,10 +56,13 @@ export function installManuscriptVideoReads(ctx: Context, declaresOutput: (messa
         { path: meta.data.path, readCallId: event.data.message.toolCallId, readResultSeq: event.seq }] }
       const window = readWindowSchema.safeParse(event.data.meta)
       if (!/\.(?:md|txt)$/iu.test(meta.data.path) || !window.success) return { ...state, pending }
-      const { lines, totalLines, offset } = window.data, text = lines.map(line => line.text).join('\n')
+      const { lines, totalLines, offset, column = 1, continuation } = window.data
+      const text = lines.map(line => line.text).join('\n')
       const readWindowSha256 = createHash('sha256').update(text).digest('hex')
-      const complete = offset === 1 && lines.length === totalLines && lines.every((line, index) => line.number === index + 1)
-      const truncated = lines.some(line => /\.\.\. \(line truncated to \d+ chars\)$/u.test(line.text))
+      const complete = offset === 1 && column === 1 && lines.length === totalLines
+        && lines.every((line, index) => line.number === index + 1)
+      const truncated = continuation !== undefined
+        || lines.some(line => /\.\.\. \(line truncated to \d+ chars\)$/u.test(line.text))
       const episodeLabels = [...new Set(lines.flatMap(({ text }) => {
         const line = text.replace(/^\s*#{1,6}\s*/u, '').trim()
         const episode = /^第\s*([\d一二三四五六七八九十百零〇]+)\s*集/u.exec(line)?.[1]

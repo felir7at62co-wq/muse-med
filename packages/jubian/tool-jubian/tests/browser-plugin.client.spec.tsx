@@ -74,6 +74,65 @@ function injectedOf(slots: SlotRegistry): JubianTokenInjected {
 }
 
 describe('tool-jubian browser plugin', () => {
+
+  it.each(['desktop', 'workspace', 'absent'] as const)('forwards project recovery operations with the %s directory chooser', async (chooser) => {
+    const b = await bench()
+    const report = { idempotencyKey: 'video', taskId: 1, status: 'awaiting_review' as const,
+      digest: 'digest', mediaChecks: [], decision: null }
+    const status = { enabled: false, configurable: true, decoderAvailable: true, reports: [report] }
+    const face = {
+      status: vi.fn(async () => ({ ok: true as const, value: status })),
+      configure: vi.fn(async () => ({ ok: true as const, value: status })),
+      review: vi.fn(async () => ({ ok: true as const, value: report })),
+      adopt: vi.fn(async () => ({ ok: true as const, value: report })),
+      createDraft: vi.fn(async () => ({ ok: true as const, value: report })),
+      verifyExport: vi.fn(async () => ({ ok: true as const, value: report })),
+      deliverApprovedClip: vi.fn(async () => ({ ok: true as const, value: report })),
+      deliverApprovedMp4: vi.fn(async () => ({ ok: true as const, value: report })),
+      deliverApprovedEpisode: vi.fn(async () => ({ ok: true as const, value: {
+        episode: 1, approvedShots: 1, totalShots: 1, readiness: 'ready' as const, missing: [],
+      } })),
+    }
+    b.ctx.provide('remote.jubianVideoRecovery', face)
+    const desktopPick = vi.fn(async () => '/desktop')
+    const workspacePick = vi.fn(async () => '/workspace')
+    if (chooser !== 'absent') b.ctx.provide('uiWorkspace', { pickDirectory: workspacePick } as never)
+    if (chooser === 'desktop') vi.stubGlobal('__DSH_DIRECTORY_PICKER__', { pick: desktopPick })
+    try {
+      declare(b.slots)
+      await mountJubianTokenSettings(b.ctx, REMOTE)
+      const controls = injectedOf(b.slots).recovery!
+      expect(injectedOf(b.slots).recovery).toBe(controls)
+      await controls.status()
+      await controls.configure({ enabled: true, projectDir: '/project' })
+      const target = { idempotencyKey: 'video', digest: 'digest' }
+      const review = { ...target, action: 'approve' as const, reason: '' }
+      const media = { ...target, path: 'exports/video.mp4' }
+      await controls.review(review)
+      await controls.adopt(media)
+      await controls.createDraft(target)
+      await controls.verifyExport(media)
+      await controls.deliverApprovedClip(target)
+      await controls.deliverApprovedMp4(target)
+      await controls.deliverApprovedEpisode({ episode: 1, digest: 'episode-digest' })
+      expect(face.status).toHaveBeenCalledOnce()
+      expect(face.configure).toHaveBeenCalledWith({ enabled: true, projectDir: '/project' })
+      expect(face.review).toHaveBeenCalledWith(review)
+      expect(face.adopt).toHaveBeenCalledWith(media)
+      expect(face.createDraft).toHaveBeenCalledWith(target)
+      expect(face.verifyExport).toHaveBeenCalledWith(media)
+      expect(face.deliverApprovedClip).toHaveBeenCalledWith(target)
+      expect(face.deliverApprovedMp4).toHaveBeenCalledWith(target)
+      expect(face.deliverApprovedEpisode).toHaveBeenCalledWith({ episode: 1, digest: 'episode-digest' })
+      if (chooser === 'absent') expect(controls.pickDirectory).toBeUndefined()
+      else expect(await controls.pickDirectory!()).toBe(chooser === 'desktop' ? '/desktop' : '/workspace')
+      expect(workspacePick).toHaveBeenCalledTimes(chooser === 'workspace' ? 1 : 0)
+      expect(desktopPick).toHaveBeenCalledTimes(chooser === 'desktop' ? 1 : 0)
+    } finally {
+      vi.unstubAllGlobals()
+      await b.ctx.fiber.dispose()
+    }
+  })
   it('declares the slot registry, the locale, and the Remote service it mounts into', () => {
     expect(inject).toEqual(['slots', 'locale', 'remote'])
   })

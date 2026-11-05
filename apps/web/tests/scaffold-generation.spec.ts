@@ -8,6 +8,7 @@ import {
   parseSeedFixture,
   recordedSessionFixturePath,
   selectedSessionFixture,
+  webSessionExpectedPath,
 } from './scaffold.ts'
 
 const roots: string[] = []
@@ -86,6 +87,24 @@ describe('Web snapshot generation filenames', () => {
       .toBe(join(fixtures, 'session.v1.jsonl'))
     expect(() => recordedSessionFixturePath(join(fixtures, 'notes.jsonl'), 1))
       .toThrow('invalid Session fixture path')
+  })
+
+  it('selects separate writer output by role without changing canonical generation selection', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-web-writer-output-'))
+    roots.push(root)
+    const canonical = join(root, 'session.v4.jsonl')
+    const retained = JSON.stringify({ type: 'session', version: 4, id: '{{session:1}}', createdAt: 0, delegationDepth: 0 }) + '\n'
+    await writeFile(canonical, retained)
+    const output = webSessionExpectedPath(canonical, { writerOutput: true })
+    expect(output).toBe(join(root, 'writer.expected.jsonl'))
+    expect(webSessionExpectedPath(join(root, 'session.2.v3.jsonl'), { writerOutput: true }))
+      .toBe(join(root, 'writer.2.expected.jsonl'))
+    expect(webSessionExpectedPath(canonical, {})).toBe(canonical)
+    expect(() => webSessionExpectedPath(join(root, 'notes.jsonl'), { writerOutput: true })).toThrow('canonical Session fixture')
+    await expect(readFile(output, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+    await writeFile(output, 'current writer output\n')
+    await expect(selectedSessionFixture(canonical)).resolves.toBe(canonical)
+    await expect(readFile(canonical, 'utf8')).resolves.toBe(retained)
   })
 
   it('treats retained generations as one exact inventory role', async () => {

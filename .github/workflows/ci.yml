@@ -143,6 +143,14 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Restore coverage duration history
+        uses: actions/cache/restore@v6.1.0
+        with:
+          path: .coverage-times.json
+          key: coverage-times-Linux-${{ runner.environment }}-${{ vars.DSH_CI_FAILOVER_LINUX || 'enterprise' }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            coverage-times-Linux-${{ runner.environment }}-${{ vars.DSH_CI_FAILOVER_LINUX || 'enterprise' }}-
+
       # Redirect the Node compile cache (enabled by pnpm and TypeScript) off
       # the root partition's /tmp before the first pnpm call in this lane.
       - name: Redirect Node compile cache to runner temp
@@ -188,10 +196,21 @@ jobs:
           exit "$sandbox_status"
 
       - name: Prepare media test executables
-        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+        run: |
+          sudo apt-get update && sudo apt-get install --yes ffmpeg
+          ffmpeg_path=$(command -v ffmpeg)
+          echo "MUSE_RECOVERY_TEST_FFMPEG=$ffmpeg_path" >> "$GITHUB_ENV"
+          echo "DSH_FFMPEG_PATH=$ffmpeg_path" >> "$GITHUB_ENV"
 
       - name: Run exhaustive coverage
         run: pnpm run check:ci:coverage
+
+      - name: Save coverage duration history
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v6.1.0
+        with:
+          path: .coverage-times.json
+          key: coverage-times-Linux-${{ runner.environment }}-${{ vars.DSH_CI_FAILOVER_LINUX || 'enterprise' }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   node-24-bench:
     if: github.event_name == 'pull_request'
@@ -238,6 +257,20 @@ jobs:
         env:
           DSH_GATE_VERBOSE: '1'
         run: pnpm run check:ci:bench
+
+      # The report global teardown renders benchmarks/.dsh-report after the run,
+      # including after a failing budget assertion. A run that fails before
+      # recording any timing has no report, so missing files warn instead of
+      # failing the benchmark job a second time.
+      - name: Upload scaled benchmark report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: benchmark-report
+          path: benchmarks/.dsh-report/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
 
   node-24-consumers:
     if: github.event_name == 'pull_request'
@@ -436,6 +469,7 @@ jobs:
       DSH_GATE_FAIL_FAST: '1'
     strategy:
       fail-fast: false
+      max-parallel: 1
       matrix:
         include:
           - node: '22.19'
@@ -539,6 +573,7 @@ jobs:
   # Linux ARM64 and both macOS architectures run in ci-master.yml.
   python-runtime:
     if: github.event_name == 'pull_request'
+    needs: python-sdk
     name: python runtime / release-shaped matrix
     uses: ./.github/workflows/build-exe-for-python-sdk.yml
     with:
@@ -650,9 +685,9 @@ jobs:
         uses: actions/cache/restore@v6
         with:
           path: .coverage-times.json
-          key: coverage-times-${{ github.run_id }}
+          key: coverage-times-Windows-${{ runner.environment }}-${{ vars.DSH_CI_FAILOVER_WINDOWS || 'enterprise' }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
-            coverage-times-
+            coverage-times-Windows-${{ runner.environment }}-${{ vars.DSH_CI_FAILOVER_WINDOWS || 'enterprise' }}-
       - name: Enable Developer Mode (symlink support)
         shell: pwsh
         run: >-
@@ -686,6 +721,13 @@ jobs:
         shell: pwsh
         run: pnpm exec tsx scripts/prepare-ci-ffmpeg.ts
 
+      - name: Export media test executables
+        shell: pwsh
+        run: |
+          $ffmpegPath = (Get-Command ffmpeg -CommandType Application -ErrorAction Stop).Source
+          "MUSE_RECOVERY_TEST_FFMPEG=$ffmpegPath" >> $env:GITHUB_ENV
+          "DSH_FFMPEG_PATH=$ffmpegPath" >> $env:GITHUB_ENV
+
       - name: Run Windows coverage
         shell: pwsh
         run: pnpm run check:ci:coverage
@@ -697,7 +739,7 @@ jobs:
         uses: actions/cache/save@v6
         with:
           path: .coverage-times.json
-          key: coverage-times-${{ github.run_id }}
+          key: coverage-times-Windows-${{ runner.environment }}-${{ vars.DSH_CI_FAILOVER_WINDOWS || 'enterprise' }}-${{ github.run_id }}-${{ github.run_attempt }}
 
   windows-native-tests:
     if: github.event_name == 'pull_request'
@@ -750,7 +792,7 @@ jobs:
           --testTimeout 90000
           packages/shell/tool-pwsh/tests/loader.spec.ts
           packages/workflow/workflow-ptc/tests/workflow-ptc.spec.ts
-          packages/workflow/tool-ralph/tests/integration.spec.ts
+          packages/experimental/tool-ralph/tests/integration.spec.ts
           packages/subprocess/subprocess-local/tests/process-exit.spec.ts
 
   # Single stable required check for branch protection: require "all checks

@@ -25,13 +25,13 @@ export interface OxlintInvocation {
 }
 
 /**
- * Apply the repository worker bound to both Oxlint backends.
+ * Apply repository-owned configuration and the worker bound to both Oxlint backends.
  * @param args - Oxlint CLI arguments requested by the caller.
  * @param env - Environment inherited by the Oxlint process.
  * @returns the complete CLI arguments and child environment.
  */
 export function resolveOxlintInvocation(args: readonly string[], env: NodeJS.ProcessEnv): OxlintInvocation {
-  const resolvedArgs = [...args]
+  const resolvedArgs = [...args, '--disable-nested-config']
   if (env.CI === 'true' && !hasOutputFormat(args)) resolvedArgs.push('--format=default')
   const raw = env.DSH_OXLINT_THREADS
   if (raw === undefined || raw === '') return { args: resolvedArgs, env: { ...env } }

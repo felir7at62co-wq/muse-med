@@ -10,13 +10,17 @@
 
 桌面壳显示 **Muse**。Windows 快捷方式和可执行文件图标、macOS 安装包与“关于”使用保留原白蜘蛛的圆角黑底图标；Windows 应用窗口和托盘使用独立的透明底黑蜘蛛。Windows 可执行文件为 `muse-med.exe`；打包和上传校验统一使用发布文件名 `muse-med-${version}-${os}-${arch}.${ext}`。muse-med 使用自己的应用标识和更新源。已打包 muse-med 的会话、设置、凭据和插件使用 `~/.muse`；当旧的 `~/.muse-med` 目录存在而 `~/.muse` 不存在时，它继续读取旧目录，因此改用新 home 的版本不会让已安装副本的数据落空；`MUSE_MED_HOME` 可显式覆盖该位置，继承的 `DSH_HOME` 或 `MUSE_HOME` 都不会选中它，因为它们可能指向共享的 harness home。开发模式保留启动器管理的独立 home。
 
-Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包保留独立的 `0.2.1-alpha.1` 版本。“关于”只显示 Muse 产品版本和源码提交；崩溃报告仍保留 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
+Windows Supermuse 验收构建使用应用 ID `cn.aigcpipeline.supermuse.acceptance`。其可执行文件、安装快捷方式、默认安装目录、Electron 数据、更新缓存和默认主目录 `~/.supermuse` 均与常规 Muse 分开。该构建保留系统当前的 `dsh://` 关联，且不附带常规 Muse 的更新源。
+
+Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明。Electron、安装包文件名和更新版本比较使用该版本或其带编号的测试构建。内置 DSH 包使用 `0.2.1-alpha.2`。“关于”只显示 Muse 产品版本和源码提交；崩溃报告仍保留 DSH 版本及源码提交。产品版本变化不会改变应用 ID、数据目录或更新缓存身份。
 
 依赖校验也会检查与 Node 内置模块同名的 npm 包，包括 `buffer`，并要求链接的 Host 包解析到该发行版拥有的同一个包实例。
 
 视频预览使用鉴权 `/api/video` 流。Electron 转发字节范围与响应流，不复制完整视频。未经内容编码且状态为 200 或 206 的 GET/HEAD 响应保留合法的 `Content-Length`，供原生媒体跳转使用；编码响应与其他路由沿用普通解码响应头策略。关闭预览会取消其流，不停止 Agent 工作。
 
-Creator 和 Web Plugin Manager 在 Electron Node 模式下使用 Desktop 内置 pnpm，无需 PATH 中存在 pnpm。私有 Node 启动器环境仅应用于包操作。
+导出已审核通过的整集时，桌面端最多等待本机 Host 响应 30 分钟，供 Host 渲染并核验 MP4。请求使用当前 Host 的 cookie，并将取消信号传递给 Host。其他请求沿用各自的响应时限。
+
+Desktop 在 `resources/runtime/primary-runtime/dependencies/pnpm` 中携带一份 pnpm 分发包。构建时的生产依赖安装、安装版 `dsh` CLI、Creator 和 Web 插件管理器通过 Electron Node 模式执行其中的 `bin/pnpm.mjs`；包操作不要求 PATH 上存在 pnpm。私有 Node 启动器环境仅用于包操作。agent（智能体）的工作区依赖将同一份完整 primary-runtime 复制到 Harness 主目录，并使用其中的独立 Node 执行 pnpm。
 
 Platform 内嵌文档使用持久化 WebContentsView 分区，分区名由 Platform 来源和稳定账号 ID 的哈希决定。localStorage 中的页面偏好（包括已关闭的通知）在关闭视图和重启应用后保留；不同账号和来源使用独立存储。账号 ID 来自 Host 最近一次成功的资料读取；尚无该 ID 时，文档在一次性分区中打开，该分区不跨次保留偏好。打开持久分区会先清理 Cookie、文件系统、IndexedDB、Cache Storage、HTTP 与着色器缓存、Service Worker 及 HTTP 认证状态；一次性分区则清理其全部存储。关闭视图会销毁文档、移除请求拦截器并安排相同的清理，因此异常退出遗留的认证会在下一个文档加载前被清除。下次打开和应用退出都会等待该清理完成，更新安装也会在安装器接管退出前等待。清理失败会使该次打开失败，并在后续清理成功前阻止同一账号打开；其他账号不受影响。退出登录会销毁文档，但保留账号偏好供下次登录使用。同一凭证下账号 ID 迟到时，已以一次性分区打开的文档保持挂载；下次打开使用账号分区。[存储决策](../../.agents/notes/implemented/architecture/2026-09-22-platform-browser-storage.zh.md)说明保留策略。Host 通过私有 Node IPC 发送账号凭证；账号 RPC 和 Harness 渲染进程不接收 token。Platform preload 在页面脚本执行前通过一次同步 IPC 读取主进程中已准备的凭证。它暴露 displayMode、同步的 getAuthToken() 和 getLocale() getter，以及返回取消订阅函数的 onLocaleChange(listener)。两个 getter 都只读取 preload 内存，不再调用 IPC。bootstrap 包含 Desktop 已解析的语言（`zh_CN` 或 `en_US`）；Settings 语言变更会更新 preload 缓存并通知已打开的 Platform 文档，无需重载。Platform 在首屏渲染前应用该语言，且不将其持久化为浏览器偏好。主进程处理器仅校验调用来源并读取内存，不等待 Host、磁盘或网络。可信页面初始化失败时保留内嵌模式，由 getter 抛错，避免回退到浏览器凭证。只有受控 Platform 页面中、位于所配置签发来源的主 frame 能完成初始化。退登、凭证替换、Host 关闭及视图关闭都会销毁文档。跨来源文档导航被阻止。请求新窗口的 HTTPS 链接在系统浏览器中打开，不携带内嵌会话或 token；其他协议及带 URL 凭证的链接被拒绝。原生视图占据 Account 功能返回栏下方的视口。
 
@@ -84,6 +88,8 @@ Desktop 默认注册 `office-docx`、`office-pptx` 和 `office-xlsx`。这些技
 Desktop 私有的 `runtime/bin` 目录仅添加到包安装进程，不进入 PTC 和 agent shell 从 Host 继承的 PATH。该工具不修改 PATH、环境变量或用户包管理器配置。pnpm 的全局包、命令入口和 store 保留自身默认值及用户设置，包括环境不支持全局安装时的原生错误。不提供独立依赖更新器。[第一方 Runtime 决策](../../.agents/notes/implemented/feature/2026-09-14-desktop-primary-runtime.zh.md)记录这些选择。
 
 Node 准备内置解释器和 Python 库，无需系统 Python 或 pip。[下载锁](../../scripts/primary-runtime/lock.json)固定解释器压缩包、Python 分发包版本及目标平台 wheel 的 URL 和哈希；共享构建器从根开发依赖中解析 pnpm 固定版本。测试检查根 package-manager 版本和 Desktop 固定版本保持一致。每个目标的 wheel 文件名必须与分发包版本一致。所选目标、wheel 记录及分发包映射内部的键顺序，以及 wheel 条目顺序都会影响产物身份，编辑时须保留；锁文件顶层键的顺序不影响该身份。库 wheel 解压到 site-packages，各 wheel 的 `.data/scripts` 目录保留辅助文件，不生成命令行包装器。其他安装方案会被拒绝。本机目标检查在清理暂存目录后以及 macOS 签名后验证锁定 wheel 的集合与版本，允许解释器自带的 pip，并检查 Python 版本、Office 文档读写和依赖完整性，不写入字节码。独立 Node 可执行文件获得 V8 所需的 JIT 权限；x64 目标还获得 `com.apple.security.cs.allow-unsigned-executable-memory`，允许可执行代码页，包括在 Rosetta 下运行时。ARM64 Node 和 Office 辅助程序保留仅 JIT 权限。跨目标执行和签名安装需要对应的发布主机。`dev:desktop` 和 `start:desktop` 都会在启动 Electron 前准备 `.desktop-build/targets/<target>/runtime/primary-runtime`；首次准备可能需要下载锁定的依赖。准备未完成时，启动命令不能报告成功退出。
+
+Desktop/SDK 共享运行时构建器在复制或签名产物前，裁剪 NumPy 和 pandas 下名为 `tests` 的目录，并移除各分发包 `RECORD` 中对应的记录。它保留 `numpy.testing`、`pandas.testing`、`pandas._testing`、原生扩展和许可证。完整上游测试套件不可用；本机检查验证保留的 testing API、测试目录已移除，以及清单所列文件存在。
 
 | 决策 | 原因 | 直接结果 |
 |---|---|---|
@@ -200,7 +206,7 @@ macOS 开发启动器会持久保存已准备的 primary runtime 路径，使 La
 pnpm run dev:desktop
 ```
 
-社区插件之间的依赖必须匹配同批已校验 tarball 的版本。所有归档和依赖版本均在替换一次性项目之前检查。
+仓库和 Desktop 构建使用启动 `dev:desktop` 的 pnpm 可执行文件或 JavaScript 入口。社区插件之间的依赖必须匹配同批已校验 tarball 的版本。所有归档和依赖版本均在替换一次性项目之前检查。
 
 开发 Harness 状态默认写入 `apps/desktop/.desktop-build/development/home`，一次性 npm 项目位于 `apps/desktop/.desktop-build/development/project`，Electron 浏览器数据则位于 `apps/desktop/.desktop-build/development/electron-user-data`。因此，会话、设置、凭据、包链接和浏览器数据都不会进入用户正常使用的 Harness home；显式 `DSH_HOME` 只会替换开发 Harness home。Renderer DevTools 默认自动打开，Main、Renderer 和 dsh Host 调试端口依次为 9229、9222 和 9230。`DSH_DESKTOP_MAIN_INSPECT_PORT`、`DSH_DESKTOP_RENDERER_DEBUG_PORT` 与 `DSH_DESKTOP_HOST_INSPECT_PORT` 可以替换这些端口，`DSH_DESKTOP_OPEN_DEVTOOLS=0` 则保持 Renderer 调试窗口关闭。
 
@@ -218,7 +224,7 @@ Web 侧的对应命令是 `pnpm run dev:web` 与 `pnpm run start:web`，见[开�
 
 ### 启动引导
 
-Muse 在 Host 就绪后打开工作区。空白首启时，Web 客户端先提供 MUSE 账号登录，再检查是否有可用的模型提供方。登录成功后加载网关的共享模型目录，并授权模型调用、知识库和云端语音服务，无需填写供应商 API Key。服务器部署时准备[指定的官方 DeepSeek 和云映模型目录](../../services/muse-accounts/README.zh.md)，统一供应商密钥由服务器保管。桌面端显示账号供应的全部模型，不设置产品模型前缀过滤；自定义提供方和 Codex 仍可使用。产品预设默认值来自低于用户配置的 bundle 层，因此默认预设修改后会持久保存并在重启后生效。选择“稍后登录”或“稍后配置”后，仍可从侧栏进入对应设置。没有可用模型时，提示弹窗可直接打开模型设置；已有可用凭据则自动完成检查。
+Muse 在 Host 就绪后打开工作区。空白首启时，Web 客户端先提供 MUSE 账号登录，再检查是否有可用的模型提供方。登录成功后加载网关的共享模型目录，并授权模型调用、知识库和云端语音服务，无需填写供应商 API Key。服务器部署时准备[指定的官方 DeepSeek 和云映模型目录](../../services/muse-accounts/README.zh.md)，统一供应商密钥由服务器保管。Supermuse 只通过已登录的 Muse 账号调用模型。参见[模型访问迁移说明](../../docs/upgrade-guide/v0.2.1-alpha.1/supermuse-model-access/guide.zh.md)。产品预设默认值来自低于用户配置的 bundle 层，因此默认预设修改后会持久保存并在重启后生效。选择“稍后登录”或“稍后配置”后，仍可从侧栏进入对应设置。没有可用模型时，提示弹窗可直接打开模型设置；已有可用凭据则自动完成检查。
 
 侧栏主账号入口打开 MUSE 账号设置。Muse 不显示 DeepSeek Platform 的账号与余额入口、旧插画首启弹窗或原生 DeepSeek 凭据欢迎窗。DeepSeek 退出登录或会话失效不会隐藏工作区。原生 DeepSeek 的预置模型目录默认为空。用户仍可在模型设置中添加自己的原生 DeepSeek 模型和 API Key 引用；这些模型配置会持久保存并在重启后恢复。
 
@@ -259,9 +265,9 @@ Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-source
 
 未签名 CI 允许不使用发布者凭据的 ad-hoc 封装，在打包检查后将安装器、更新载荷、blockmap 和通道文件记录在 `unsigned-build.json` 中。手动触发接受 `target=win-x64`、`mac-arm64` 或 `all`；拉取请求保留双平台检查。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求真实产品版本、完整源码提交和已完成目标目录。不写 `--targets` 时要求双平台；`--targets win-x64` 只发布 Windows 二进制与更新 feed，Mac feed 保持不变。`--dry-run` 仅核对记录和本地哈希，不上传；公开下载字节通过核验后才更新通道。
 
-打包、上传以及手动 macOS 签名检查使用 `apps/desktop/.env.windows` 或 `.env.macos`，由目标平台选择。复制对应的 [Windows 模板](.env.windows.example) 或 [macOS 模板](.env.macos.example)，填写本机配置；Git 忽略这两个本地文件，安装产物也不包含它们。发布字段只从目标文件读取，不回退到系统或 shell 中的同名变量；`PATH`、代理和构建工具环境仍保留。发布版本是命令参数而非发布字段，上传从打包写下的完成记录中读取它。文件使用 UTF-8，支持 BOM；相对证书、SignTool、Apple API Key 和钥匙串路径以 `apps/desktop` 为基准，变量值不做 shell 展开，包含 `#` 或空格的密码需要引号。CI 同样在运行前生成目标文件。
+打包、上传和手动 macOS 签名检查读取目标平台的 dotenv 文件。本地 macOS 未签名打包允许省略该文件，此时使用 Muse 应用 ID，并关闭强制更新。复制对应的 [Windows 模板](.env.windows.example) 或 [macOS 模板](.env.macos.example)，填写本机配置；Git 忽略这两个本地文件，安装产物也不包含它们。发布字段只从目标文件读取，不回退到系统或 shell 中的同名变量；`PATH`、代理和构建工具环境仍保留。发布版本是命令参数而非发布字段，上传从打包写下的完成记录中读取它。文件使用 UTF-8，支持 BOM；相对证书、SignTool、Apple API Key 和钥匙串路径以 `apps/desktop` 为基准，变量值不做 shell 展开，包含 `#` 或空格的密码需要引号。CI 同样在运行前生成目标文件。
 
-每条打包命令在构建与下载前检查应用 ID、更新地址和该模式需要的签名配置，随后探测本次运行要用的外部工具：归档读取工具，以及 Windows 目标的安装器编译器。macOS 检查身份、Team ID、一套完整公证凭据、`CSC_LINK` 指定的可读本地 p12 文件、显式配置的 `CSC_KEY_PASSWORD`，以及引用的 API Key 和钥匙串文件；Windows 检查公开代码签名证书、SignTool 文件、容器名称和 PIN 格式。仅准备 Windows 资源或显式未签名打包不要求签名凭据。配置检查不验证 PIN 是否正确、Token 是否登录、钥匙串是否解锁或 Apple 是否接受凭据；实际签名与公证负责这些检查。`--build-version auto` 会访问目标 bucket，`--check` 下同样如此。单独运行相同检查：
+每条打包命令在构建与下载前检查应用 ID 和该模式需要的签名配置。常规 Muse 打包也会在需要时检查更新地址。每条命令随后探测归档读取工具，Windows 打包还会探测安装器编译器。macOS 检查身份、Team ID、一套完整公证凭据、`CSC_LINK` 指定的可读本地 p12 文件、显式配置的 `CSC_KEY_PASSWORD`，以及引用的 API Key 和钥匙串文件。Windows 检查公开代码签名证书、SignTool 文件、容器名称和 PIN 格式。仅准备 Windows 资源或显式未签名打包不要求签名凭据。配置检查不验证 PIN 是否正确、Token 是否登录、钥匙串是否解锁或 Apple 是否接受凭据。实际签名与公证负责这些检查。常规 Muse 配置更新目标后，`--build-version auto` 在 `--check` 下也会访问 bucket。以下命令可单独运行这些检查。
 
 ```sh
 pnpm --dir apps/desktop run check:package
@@ -310,7 +316,7 @@ Desktop 在本地打包工作区包，并通过目标捆绑的 Node 和 pnpm 安
 
 [Host 冒烟检查](scripts/smoke-runtime.ts) 在隔离 home 中启动，等待 credentials Service 就绪但不提供凭据，并先挂载完整产品预设再转换输入，因此同时检查该预设的工具和随包技能。它要求统一的短剧编导身份、Word 交付指导及本地记忆工具，并检查已退役的编辑模式别名解析到短剧模式。启用的专业技能和镜头脚本技能必须能通过作用域内 registry 从打包路径读取非空正文；对白精修与分集设计还必须随包携带对应方法文档。已退役的 Host 技能保持停用。准备阶段必须读到 Agent 释放后的完成记录，不能仅凭 Host 就绪判定成功；启动 60 秒后仍未就绪即失败。运行时根清单提供预设发现所用的完整 CLI、Desktop Host 和源码插件依赖图。
 
-打包应用运行编译后的 JavaScript 和预生成的 Typert 元数据，不编译 TypeScript 插件。打包要求包含转写技能与独立 Word 导出辅助程序，并排除已归档的写作技能。源码级调试导航和编辑器声明仍可从开发包中获取。[复制规则测试](tests/runtime-file-policy.spec.ts)覆盖排除项和保留资源；[产物 smoke](tests/fixtures/runtime-payload-smoke.mjs) 在 Host smoke 和最终清单验证之前，使用内置 Node 执行。产物 smoke 解析搜索工具使用的 ripgrep 可执行文件，并验证文本搜索和文件枚举。本地红果检查创建临时设备，通过回环地址运行原 Java 签名器，加载所提供的 CPython 3.11 离线模块并检查 AES。它等待所有托管子进程退出并删除私有主目录，不访问视频平台。首次启动相互竞争时，只有目标中的每个不可变源码文件都通过验证，才会复用该目标；目标不存在或被修改时仍报告安装失败。Windows 签名构建在依赖签名后运行这些检查；其他构建在 `prepare:dsh` 中运行。 经过验证的包集合选中 Codex provider 时，[Codex 检查](scripts/verify-codex-runtime.ts)要求源码固定的 provider、CLI 及声明的目标平台包全部位于产物内部，再使用内置 Node 在隔离主目录中执行 `--version`。已选中 provider 的可选下载缺失或可执行文件版本不符都会使准备失败。不含 Codex 的包集合不要求其源码清单或运行时。冻结的生产安装阶段为 pnpm 的完整 tarball 响应体设置有界的 30 分钟 `fetch-timeout`。锁文件元数据解析保留 pnpm 的默认截止时间和重试。构建者可将 `DSH_DESKTOP_FETCH_TIMEOUT_MS` 设为不超过 2,147,483,647 的正整数毫秒数；其他继承的 npm 配置仍被排除。[Host smoke](scripts/smoke-runtime.ts) 使用捆绑的 Python 创建 DOCX、XLSX 和 PPTX 输入，通过真实 Office 提供方逐一转换并检查 PDF 输出。每个组装后的应用（包括目录包和 Windows 未签名构建）都会针对 ASAR 重复产物和 Host 检查。归档完整性检查将归档内完整描述符与准备结果比对，并核对归档和解包目录中的文件内容与清单、归档内文件记录的执行标志，以及解包文件的物理权限。转换失败会在写入发布记录前终止打包；macOS DMG/ZIP 构建在公证前执行这些检查。
+打包应用运行编译后的 JavaScript 和预生成的 Typert 元数据，不编译 TypeScript 插件。打包要求包含转写技能与独立 Word 导出辅助程序，并排除已归档的写作技能。源码级调试导航和编辑器声明仍可从开发包中获取。[复制规则测试](tests/runtime-file-policy.spec.ts)覆盖排除项和保留资源；[产物 smoke](tests/fixtures/runtime-payload-smoke.mjs) 在 Host smoke 和最终清单验证之前，使用内置 Node 执行。产物 smoke 解析搜索工具使用的 ripgrep 可执行文件，并验证文本搜索和文件枚举。本地红果检查创建临时设备，通过回环地址运行原 Java 签名器，加载所提供的 CPython 3.11 离线模块并检查 AES。它等待所有托管子进程退出并删除私有主目录，不访问视频平台。首次启动相互竞争时，只有目标中的每个不可变源码文件都通过验证，才会复用该目标；目标不存在或被修改时仍报告安装失败。Windows 签名构建在依赖签名后运行这些检查；其他构建在 `prepare:dsh` 中运行。Supermuse 打包准备会拒绝包含 Codex 订阅提供方或其子代理运行时的包集合。冻结的生产安装阶段为 pnpm 的完整 tarball 响应体设置有界的 30 分钟 `fetch-timeout`。锁文件元数据解析保留 pnpm 的默认截止时间和重试。构建者可将 `DSH_DESKTOP_FETCH_TIMEOUT_MS` 设为不超过 2,147,483,647 的正整数毫秒数；其他继承的 npm 配置仍被排除。[Host smoke](scripts/smoke-runtime.ts) 使用捆绑的 Python 创建 DOCX、XLSX 和 PPTX 输入，通过真实 Office 提供方逐一转换并检查 PDF 输出。每个组装后的应用（包括目录包和 Windows 未签名构建）都会针对 ASAR 重复产物和 Host 检查。归档完整性检查将归档内完整描述符与准备结果比对，并核对归档和解包目录中的文件内容与清单、归档内文件记录的执行标志，以及解包文件的物理权限。转换失败会在写入发布记录前终止打包；macOS DMG/ZIP 构建在公证前执行这些检查。
 
 手动触发还会在一次性原生 runner 中验收本轮真实安装包，以及从按哈希锁定的官方 Muse 1.1.6 安装包进行升级。Windows 在同一个私有安装目录运行原始 EXE，并在全新安装和升级用例之间执行真实卸载程序；macOS 将只读 DMG 复制到私有应用路径后替换该副本。两个平台都比对新安装的每个文件、重复运行打包后的 Host smoke，并逐字节核对私有 Muse 与 Electron 数据目录中的会话和设置哨兵文件。独立的[候选更新检查](scripts/muse-candidate-update-acceptance.ts)在发布前通过生产更新器下载并验证本轮安装包；Windows 还执行本地更新对话框验收。这些检查不代表旧客户端已经自动重启进入新版界面，也不代表已在界面恢复会话。
 
@@ -388,7 +394,7 @@ Mac 打包从 `.env.macos` 读取三个调优字段：
 
 两个代理字段互相独立，拒绝 URL 中的凭证、路径、查询参数和片段。空值沿用继承的网络设置。显式下载代理会替换子进程的代理变量，仅绕过本地主机；它不修改系统设置。Windows 与独立 `release:pack` 保持现有并发默认值。公司代理地址仅写入 Git 忽略的本地文件；具体地址参见内部文档。
 
-Apple 工具使用 macOS 当前活动网络服务的 HTTP/HTTPS 代理。配置公证代理后，打包会检查代理可达性、保存该服务的设置，在两条产物任务期间启用代理，并在两条任务均结束后恢复原设置。对于原本关闭、服务器为空且端口为零的代理，恢复时仅关闭代理；临时服务器和端口可能保留，但不生效。仅生成目录的打包会在签名目录构建完成后的 App 公证期间启用代理。这会临时影响其他应用，并要求修改系统代理的权限；必须先禁用 PAC、自动发现、SOCKS 及需要认证的代理配置。打包和恢复在读取恢复记录或修改代理前获取同一个用户级 POSIX 文件锁；进程退出会释放锁的持有权，锁文件保留。该锁在首次使用时才加载 `@deepseek-ai/node-addon-system/flock`，而不是在脚本启动时加载，因此 `check:package` 和打包入口在未构建 `native/system` 的 checkout 上也能加载；加锁时若宿主 addon 二进制或入口的 JavaScript 缺失，加载器会先运行 `pnpm run build:native-system` 和 `pnpm --dir native/system run build:ts` 再加锁，因此恢复命令在这样的 checkout 上同样可用。这会阻止不同 checkout 的代理事务重叠；其他用户及网络设置工具不得同时修改这些设置。SIGINT/SIGTERM 会等待活动任务结束后恢复。强制终止或恢复失败后，先停止残留公证进程，再运行 `pnpm --dir apps/desktop run restore:mac-proxy`；保存的记录会保留到恢复成功。配置检查仅验证 URL 语法，不修改系统设置或连接代理。
+Apple 工具使用 macOS 当前活动网络服务的 HTTP/HTTPS 代理。配置公证代理后，打包会检查代理可达性、保存该服务的设置，在两条产物任务期间启用代理，并在两条任务均结束后恢复原设置。对于原本关闭、服务器为空且端口为零的代理，恢复时仅关闭代理；临时服务器和端口可能保留，但不生效。仅生成目录的打包会在签名目录构建完成后的 App 公证期间启用代理。这会临时影响其他应用，并要求修改系统代理的权限；必须先禁用 PAC、自动发现、SOCKS 及需要认证的代理配置。打包和恢复在读取恢复记录或修改代理前获取同一个用户级 POSIX 文件锁；进程退出会释放锁的持有权，锁文件保留。该锁在首次使用时才加载 `@deepseek-ai/node-addon-system/flock`，而不是在脚本启动时加载，因此 `check:package` 和打包入口在未构建 `native/system` 的 checkout 上也能加载；加锁时若宿主 addon 二进制或入口的 JavaScript 缺失，加载器会使用启动打包命令的 pnpm 可执行文件或 JavaScript 入口运行 `pnpm run build:native-system` 和 `pnpm --dir native/system run build:ts` 再加锁，因此恢复命令在这样的 checkout 上同样可用。这会阻止不同 checkout 的代理事务重叠；其他用户及网络设置工具不得同时修改这些设置。SIGINT/SIGTERM 会等待活动任务结束后恢复。强制终止或恢复失败后，先停止残留公证进程，再运行 `pnpm --dir apps/desktop run restore:mac-proxy`；保存的记录会保留到恢复成功。配置检查仅验证 URL 语法，不修改系统设置或连接代理。
 
 <a id="unsigned-installers"></a>
 
@@ -404,7 +410,7 @@ pnpm run package:desktop:win:x64:unsigned
 
 该命令要求设置 `DSH_DESKTOP_APP_ID` 并具备常规构建依赖，包括编译原生模块所需的 Python 和 Visual C++ 构建工具。Python 不在 `PATH` 中时，将 `PYTHON` 设置为其可执行文件路径。命令将安装包写入 `.desktop-build/targets/win-x64/unsigned-artifacts/`，记录 GitHub Releases 更新源且不含 publisher name，清除签名凭据，且不生成发布完成记录。它不需要 EV 凭据或更新源地址。签名打包和上传命令仍遵循正式发布要求。
 
-macOS 支持同一个显式 `--unsigned` 标志：`pnpm run package:desktop:mac:arm64 -- --unsigned` 或 `pnpm run package:desktop:mac:x64 -- --unsigned`。使用 UTF-8 的 `.env.macos`，包含 `DSH_DESKTOP_APP_ID=cn.muse.med` 和 `DSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false`。这类构建省略 Developer ID 签名、钥匙串导入和 Apple 公证，但会对完整应用进行 ad-hoc 签名，打包成功前必须通过 `codesign --verify --deep --strict`。DMG/ZIP 及 GitHub 更新元数据写到该目标的 `unsigned-artifacts/`，仍验证组装后的运行时。macOS 打包为签名和未签名构建准备从源码编译且架构匹配的 FFmpeg/ffprobe 载荷。未签名产物没有签名发布完成记录，通过 GitHub Releases 显式发布；COS 上传命令仍要求签名记录。用户需要在 Windows 允许未验证的发布者，或在 macOS 首次尝试打开后到“隐私与安全性”批准 Muse。
+macOS 支持同一个显式 `--unsigned` 标志：`pnpm run package:desktop:mac:arm64 -- --unsigned` 或 `pnpm run package:desktop:mac:x64 -- --unsigned`。省略 `.env.macos` 时，命令使用 `DSH_DESKTOP_APP_ID=cn.muse.med` 和 `DSH_DESKTOP_MANDATORY_UPDATE_CONFIG=false`。已有 UTF-8 文件时，命令使用其中的配置。这类构建省略 Developer ID 签名、钥匙串导入和 Apple 公证，但会对完整应用进行 ad-hoc 签名，打包成功前必须通过 `codesign --verify --deep --strict`。DMG/ZIP 及 GitHub 更新元数据写到该目标的 `unsigned-artifacts/`，仍验证组装后的运行时。macOS 打包为签名和未签名构建准备从源码编译且架构匹配的 FFmpeg/ffprobe 载荷。未签名产物没有签名发布完成记录，通过 GitHub Releases 显式发布；COS 上传命令仍要求签名记录。用户需要在 Windows 允许未验证的发布者，或在 macOS 首次尝试打开后到“隐私与安全性”批准 Muse。
 
 ad-hoc macOS 构建包含封装在签名内、绑定版本的手动更新标记。更新沿用配置的主源和备用源，选择完全匹配架构的 DMG，验证 SHA-512 和大小，再以只读方式挂载，验证应用标识、发布版本、可执行文件架构及完整代码签名，不执行其中的应用。用户另行确认后，更新器复验文件字节，沿用既有任务停止保护，打开已校验的 DMG 并退出 Muse。请将 Muse 拖入“应用程序”并替换原应用，复制完成后重新打开；账号数据、会话和设置保存在应用之外。稍后更新会保留运行任务，校验或安装包打开失败仍保留重试与 Host 恢复。这一路径不会自动替换应用，也不会把 ad-hoc 签名当成发布者身份认证。Developer ID 构建继续使用 Squirrel 的原生签名验证。[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-manual-mac-update/guide.zh.md)说明了早期未封装签名安装包的迁移方式。
 
@@ -460,6 +466,8 @@ NSIS 在安装阶段清理临时解压目录，完成后才显示完成页或自
 pnpm run package:desktop:win:x64
 ```
 
+为独立的 Supermuse 安装包签名时，在 `.env.windows` 中设置 `DSH_DESKTOP_APP_ID=cn.aigcpipeline.supermuse.acceptance`，然后使用相同的 EV 签名命令。Supermuse 没有更新源，无需配置更新地址或发布 ID。`--build-version auto` 根据本地产物目录编排版本号。签名安装包位于 `.desktop-build/targets/win-x64/supermuse-signed-artifacts/`，文件名为 `supermuse-<version>-win-x64.exe`。Windows 验证安装包的时间戳及签名者后，同一目录会生成 `supermuse-windows-build.json`。记录不包含上传地址。
+
 打包前插入并解锁 Token。electron-builder 钩子把每个产物交给采用 CRLF 的 `scripts/windows-sign.cmd`；该 CMD 只调用一次已配置的 SignTool，并指定 `/f`、SafeNet `/kc "[{{PIN}}]=容器"`、`/csp "eToken Base Cryptographic Provider"`和 SHA-256 文件摘要，不请求时间戳。随后钩子在隔离副本上完成 DigiCert SHA-256 RFC 3161 时间戳，不传递签名凭据。钩子不会改用 electron-builder 内置的 SignTool，也不会重试失败的签名请求。SignTool、证书、容器、PIN、Token 或签名不可用时，Windows 发布打包会失败，不会生成未签名产物。
 
 时间戳处理仅对正常退出但返回失败或警告的时间戳命令重试，最多尝试三次，间隔为一秒和两秒。每次均从同一份已验证的主签名开始。启动错误、终止状态不确定或验签失败会立即停止。SignTool 使用短的私有路径；发布时先把已验证字节复制到目标卷，再原子替换。最终必须通过 Windows 信任、证书、时间戳和规范化全文件相等检查。尝试耗尽后停止打包并保留证据，不再次调用硬件。参见[签名完成决策](../../.agents/notes/implemented/process/2026-09-17-windows-signature-completion.zh.md)。
@@ -491,7 +499,7 @@ macOS 打包在组装 App 时、代码签名前写入 `Contents/Resources/app-up
 
 更新页使用冷白色卡片、浅灰状态面板与圆角蓝色下载进度条；校验和安装阶段显示状态，不补造百分比。打包后的更新器使用按产品版本推导的 GitHub Releases 通道。
 
-打包会把 GitHub Releases 更新源写入包内的 `app-update.yml`：`provider: github` 加本产品的 owner、仓库与更新频道。只有该文件存在时更新器才会检查更新，因此所有目标都会检查，两个平台的未签名构建也一样。ad-hoc macOS 构建采用上文的已校验 DMG 手动安装流程，带发布者签名的 macOS 构建仍使用 Squirrel。Windows 未签名包不记录 `publisherName`，electron-updater 随后会接受下载到的安装包而不校验 Authenticode 签名；频道元数据里的 SHA-512 仍能拒绝损坏的下载，但没有任何环节确认发布者是谁。`upload:*` 命令仍为 `DSH_DESKTOP_AUTO_UPDATE_ENV` 选择的部署写入频道元数据。当频道元数据带有 `blockMapSize` 时，NSIS 差分包与 macOS ZIP 目标让 electron-updater 可以复用未变化的数据块；这里构建的 NSIS 辅助安装包把 block map 写到 `.exe.blockmap` 侧车文件，该模式不返回 `blockMapSize`，因此客户端会完整下载安装包而不用差分补丁。签名且供手动安装的 DMG 经过公证，但不生成 blockmap，因为它不是 macOS updater 的载荷。签名发布包含运行时与桌面壳。macOS 签名与公证凭据使用 electron-builder 的标准环境变量；Windows EV 签名使用上文所述的公开证书、已验证 SignTool、SafeNet 容器和 runner PIN。必填 Desktop 发布环境选择构建所验证的应用身份与平台签名身份。
+常规 Muse 打包会把 GitHub Releases 更新源写入包内的 `app-update.yml`：`provider: github` 加本产品的 owner、仓库与更新频道。只有该文件存在时更新器才会检查更新，因此所有目标都会检查，两个平台的未签名构建也一样。ad-hoc macOS 构建采用上文的已校验 DMG 手动安装流程，带发布者签名的 macOS 构建仍使用 Squirrel。Windows 未签名包不记录 `publisherName`，electron-updater 随后会接受下载到的安装包而不校验 Authenticode 签名；频道元数据里的 SHA-512 仍能拒绝损坏的下载，但没有任何环节确认发布者是谁。`upload:*` 命令仍为 `DSH_DESKTOP_AUTO_UPDATE_ENV` 选择的部署写入频道元数据。当频道元数据带有 `blockMapSize` 时，NSIS 差分包与 macOS ZIP 目标让 electron-updater 可以复用未变化的数据块；这里构建的 NSIS 辅助安装包把 block map 写到 `.exe.blockmap` 侧车文件，该模式不返回 `blockMapSize`，因此客户端会完整下载安装包而不用差分补丁。签名且供手动安装的 DMG 经过公证，但不生成 blockmap，因为它不是 macOS updater 的载荷。签名发布包含运行时与桌面壳。macOS 签名与公证凭据使用 electron-builder 的标准环境变量；Windows EV 签名使用上文所述的公开证书、已验证 SignTool、SafeNet 容器和 runner PIN。必填 Desktop 发布环境选择构建所验证的应用身份与平台签名身份。
 
 原生更新浮层在文档就绪且父窗口可见时显示，并在父窗口再次显示时恢复。关闭浮层会释放输入拦截和父窗口监听。[本地窗口验证](tests/README.zh.md#verification-overlay)无需启动工作区即可检查这些切换。
 
@@ -505,9 +513,31 @@ macOS 打包在组装 App 时、代码签名前写入 `Contents/Resources/app-up
 
 已确认 Host 退出但任务未成功收尾时，常规与强更弹窗均展示本地化恢复提示。两种语言都根据类型化的准备失败原因选择提示，翻译文案变化不会改变失败分类。“查看技术详情”默认折叠，仅展示退出状态、信号、关闭确认和截止时间事实，不展示插件 stderr。展开详情既不重试，也不授权安装。
 
+<a id="local-desktop-settings"></a>
+
+### 本地桌面设置
+
+[壳层配置决策](../../.agents/notes/implemented/architecture/2026-10-08-desktop-shell-configuration.zh.md)说明独立于 Host 的配置归属，以及评估现有设置迁移的标准。
+
+Electron 主进程在启动时读取一次 `app.getPath('userData')/desktop/settings.json`，独立于 Host 和 Cordis 配置。打包应用默认路径为 Windows 的 `%APPDATA%\@deepseek-ai\dsh-desktop\desktop\settings.json` 和 macOS 的 `~/Library/Application Support/@deepseek-ai/dsh-desktop/desktop/settings.json`。开发模式使用启动器打印的 `userData` 路径。`DSH_HOME` 不改变此文件的位置。
+
+首次启动（包括升级后首次启动）时，Desktop 会在文件缺失时创建以下内容：
+
+```json
+{
+  "updates": {
+    "allowTestAuthPopupWindow": false
+  }
+}
+```
+
+已有文件不会被覆盖；缺少 `updates` 对象或该字段时均按 `false` 处理。将字段设为 `true` 后完全退出并重启应用，即可允许测试鉴权弹窗。改回 `false` 并重启即可再次禁止。创建、读取或校验失败时使用默认值 `false`，不阻止启动。Desktop 尝试在 Electron 控制台记录包含文件路径的警告；日志不可用也不阻止启动。修正文件并重启后才会应用显式设置。未知字段会保留。安装更新保留此用户数据文件；Windows 卸载按[卸载规则](#windows-uninstall-rules)删除它。
+
+<a id="mandatory-update-policy"></a>
+
 ### 强制更新策略
 
-打包读取 `.env.windows` 或 `.env.macos`：`DSH_DESKTOP_AUTO_UPDATE_ENV=test`（默认值）选择 `DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN`；`production` 选择 `DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN`。模板将两个源站留空；在 Git 忽略的目标 dotenv 文件中填写所选部署的源站。在准备产物或签名前，所选源站必须配置，包括未签名和仅准备构建；未选环境的源站可不填。这些配置不会回退到父进程环境或另一部署环境。打包将选定策略与应用 ID 写入元数据；打包应用忽略运行时覆盖。
+打包读取 `.env.windows` 或 `.env.macos`：`DSH_DESKTOP_AUTO_UPDATE_ENV=test`（默认值）选择 `DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN`；`production` 选择 `DSH_DESKTOP_MANDATORY_UPDATE_PROD_ORIGIN`。模板将两个源站留空；在 Git 忽略的目标 dotenv 文件中填写所选部署的源站。本地 macOS 未签名构建缺少 `.env.macos` 时关闭此策略。其他构建启用该策略时需要配置所选源站。未选环境的源站可不填。这些配置不会回退到父进程环境或另一部署环境。打包将选定策略与应用 ID 写入元数据；打包应用忽略运行时覆盖。
 
 `DSH_DESKTOP_MANDATORY_UPDATE_CONFIG` JSON 提供测试登录源站，以及可选的轮询和下载页面选项；打包拒绝其中的 `origin` 和 `authentication`。页面白名单默认只包含所选服务源站；需要其他已批准下载页面源站时应显式配置。测试包选择 `feishu-test`，且必须在 `DSH_DESKTOP_MANDATORY_UPDATE_CONFIG` 中配置 `allowedAuthOrigins`；正式包选择 `anonymous`，并拒绝该字段。每个登录源站必须是没有凭据、路径、查询或片段的 HTTPS origin。登录窗口仅允许文档导航到所选策略源站和这些已配置源站。策略请求拒绝重定向；仅测试鉴权携带网关 Cookie。未打包开发模式则从此变量读取完整策略 JSON，并要求 `DSH_DESKTOP_APP_ID`；缺少 JSON 会禁用开发模式策略查询，仅匿名开发允许 HTTP `127.0.0.1`。用户发起常规检查时会并发触发策略检查，但不会等待或展示策略失败。只有已确认的强更决定可以关闭常规弹窗。测试环境鉴权会等待当前常规弹窗结束，取消或失败不会丢弃 updater 结果。
 
@@ -524,7 +554,9 @@ macOS 打包在组装 App 时、代码签名前写入 `Contents/Resources/app-up
 
 时长必须是 1000 至 2147483647 毫秒的整数。启动与定时轮询独立于业务请求；前台／恢复检查遵守下次到期时间，手动检查绕过该时间并复用在途请求。客户端发送已安装平台、架构、DSH_CLIENT_VERSION、内置 dsh 版本、当前语言与 UTC 偏移、空 bundle ID 和固定 Nightly。不使用业务登录凭据或安装 ID。
 
-启用 `feishu-test` 时，包含 `error.code: "UNAUTHENTICATED"` 的 HTTP 401 JSON 响应会在用户主动检查和打包应用首次启动检查时提供登录入口，不等待本地后端就绪。本地化说明指出这是测试版、需要飞书鉴权，且登录不会下载或安装更新。确认后先关闭说明，再打开配置源站根路径的沙箱窗口，不使用响应中的登录 URL。并发检查复用整个确认／登录流程，并聚焦已有窗口。在测试环境登录窗口按 F12 可打开独立的 DevTools 进行排查。取消后，定时或前台检查不会反复弹窗；用户可手动重试。
+启用 `feishu-test` 时，包含 `error.code: "UNAUTHENTICATED"` 的 HTTP 401 JSON 响应仅在本地 `updates.allowTestAuthPopupWindow` 为 `true` 时提供登录入口。该字段默认为 `false`，禁止启动、手动检查更新、强更刷新以及延迟或重复失败触发的整个鉴权弹窗流程。测试网关 Cookie 仅在当前进程有效。启动时关闭弹窗后，需要鉴权的网关无法在本次进程中提供新的强更决策；需开启设置、重启并登录后才能获取。策略请求仍需网关鉴权，鉴权失败不会解除已知强更阻塞。常规更新和产品账号鉴权保持独立。正式环境始终使用原有匿名策略请求，不受此设置影响。
+
+允许弹窗时，用户主动检查和打包应用首次启动检查会提供登录入口，不等待本地后端就绪。本地化说明指出这是测试版、需要飞书鉴权，且登录不会下载或安装更新。确认后先关闭说明，再打开配置源站根路径的沙箱窗口，不使用响应中的登录 URL。并发检查复用整个确认／登录流程，并聚焦已有窗口。在测试环境登录窗口按 F12 可打开独立的 DevTools 进行排查。取消后，定时或前台检查不会反复弹窗；用户可手动重试。
 
 登录和策略请求共用内存 Session，与产品窗口及 updater 隔离；应用重启后需要重新登录。关闭窗口取消登录，导航失败提供本地化重试提示。返回服务后重新查询策略；重定向、Cookie 或 HTTP 422 都不是有效策略决定。取消、登录过期及无效响应均保留已知强更阻塞。固定登录结果写入进程诊断及可选更新日志；登录控制器不记录 Cookie、OAuth 参数或远程错误原文。真实 Harness 网关/API 联调及 macOS 登录验收仍未完成。
 

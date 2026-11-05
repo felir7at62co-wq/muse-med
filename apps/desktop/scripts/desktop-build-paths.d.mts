@@ -37,6 +37,15 @@ export function resolveDesktopBuildTarget(
 export function desktopTargetBuildPaths(target: DesktopAutoUpdateTarget): DesktopTargetBuildPaths
 
 /**
+ * Select the output directory for an installer and its completion record.
+ * @param target Supported Desktop target name.
+ * @param unsigned Whether the build omits publisher signing.
+ * @param appId Packaged application ID.
+ * @returns The selected output path.
+ */
+export function desktopArtifactDirectory(target: DesktopAutoUpdateTarget, unsigned: boolean, appId?: string): string
+
+/**
  * Return the platform and architecture of the payload one release target prepares.
  * Windows is prepared as x64 only, so this differs from the build host on an arm64 Windows machine.
  * @param target - Supported Desktop target name.

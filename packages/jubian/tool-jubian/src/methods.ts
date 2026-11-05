@@ -28,7 +28,7 @@ import {
 import { resolvePostProcessModel, VIDEO_UPSCALE_MODEL, SUBTITLE_ERASE_MODELS } from '@deepseek-ai/dsh-jubian-api'
 import type { ImageAspectRatio, ImageModelSelection, ImageModelSelectors, ImageStyle, MediaKind,
   SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
-import { positiveInteger, prepareVideoMethod, resolveGenerateMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
+import { positiveInteger, prepareVideoMethod, recoverVideoSubmission, resolveGenerateMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
 import type { VideoBatchItem, VideoBatchOptions } from './native.ts'
 import { createFolderMethod, moveMethod, renameMethod } from './folders.ts'
 import { composedAssetName, resolveNaming, taskPrefix } from './naming.ts'
@@ -1574,6 +1574,9 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
     }
     case 'submit_video_batch':
       return await submitVideoBatchMethod(client, ledger, { items: args.video_previews }, deps.videoBatch, deps.assertVideoModel)
+    case 'reconcile_video':
+      return await recoverVideoSubmission(client, ledger, need(args.project_dir, 'project_dir'), requireKey(args.idempotency_key))
+        ?? { status: 'reconcile_required', task_id: null }
     case 'erase_subtitle': {
       requireKey(args.idempotency_key)
       const taskId = need(args.task_id)

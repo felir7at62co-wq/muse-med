@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { reviewedHostVersion } from './host-runtime.mjs'
 
 const sourceFilesSha256 = 'acc2308582ddf63e2dab6865da7a73b0a4bb00e2d153ce7bf6370a07a4dae913'
 const sourceBytes = readFileSync(new URL('./hongguo-source-files.json', import.meta.url))
@@ -10,7 +11,7 @@ const sourceFiles = JSON.parse(sourceBytes.toString('utf8'))
 
 /** Metadata included in the artifact's SOURCE.json. */
 export const hongguoHostCompatibility = {
-  hostToolApiVersion: '0.2.1-alpha.1', sourceFilesSha256,
+  hostToolApiVersion: reviewedHostVersion, sourceFilesSha256,
   activation: 'scoped creative presets; disabled global entry',
   tools: ['hongguo_search', 'hongguo_detail', 'hongguo_rankings', 'hongguo_collections'],
   credentialsRequired: false,

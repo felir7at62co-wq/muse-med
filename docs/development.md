@@ -86,6 +86,8 @@ tsdown --env.DSH_BUILD_FACE client
 pnpm run build:web
 ```
 
+`pnpm run build --artifacts-only` emits the same project and application artifacts while checking and compiling only the existing package references of each compiler face. Required Linux and Windows normal builds and public `typecheck` also check the repository-wide test and script programs. CI benchmark preparation additionally uses `--noCheck` for its disposable library outputs, relying on those required builds for diagnostics; other artifact builders keep package checking ([rationale](../.agents/notes/implemented/process/2026-10-05-pr-artifact-typechecks.md)).
+
 Both tsdown passes match `vendor/*`, `packages/*/*`, and `apps/cli`; the Host pass also matches `apps/desktop-host`. They neither scan build artifacts to discover Client packages nor maintain a Host/Client package filter list. Package-local tsdown configs select entries for the current phase through `DSH_BUILD_FACE`: an ordinary Client plugin produces both its Node loader and browser bundle during the Client phase; `api-remotes` uses `hostPhase: true` to produce its Host entry early and only its browser bundle during the Client phase. Tsdown consumes only the JavaScript emitted to `lib/types` by the preceding tsc phase. Tsdown builds the matched workspace members concurrently, so `apps/desktop`, whose main bundle inlines workspace devDependencies from their `lib/` output, bundles in its own step after the Host pass ([Desktop README](../apps/desktop/README.md#bundled-workspace-dependencies)).
 
 On memory-constrained machines, set `DSH_BUILD_CLIENT_CONCURRENCY=1` for a complete build to bound native Client bundles without filtering packages. Unset preserves native concurrency; watch mode rejects the bound. Package-local `build:prepare` or `build:before` hooks must compose the root hooks in bounded mode. See the [bounded-build decision](../.agents/notes/implemented/process/2026-09-23-bounded-client-build.md).
@@ -118,6 +120,8 @@ DEEPSEEK_BASE_URL=https://... # optional
 `DEEPSEEK_BASE_URL` is optional and defaults to the public API. Never commit real credentials. The real-API e2e suites self-skip when `DEEPSEEK_API_KEY` is not set.
 
 ### Git integrations
+
+Repository lint uses the root Oxlint configuration with automatic nested configuration disabled. Pinned community-plugin snapshots retain their upstream lint settings and remain excluded, while Muse-owned sibling files are checked.
 
 `.i18n.yaml` records use Git's default text merge. A record conflicts only when both branches changed language-specific content in the same heading section; resolve the Markdown, then rerun `pnpm run verify-translation-pairing --write <pair>`. If `pre-merge-commit` rejects an otherwise clean merge, Git leaves the complete result staged without a commit; repair the failure and run `git commit`, or run `git merge --abort`.
 

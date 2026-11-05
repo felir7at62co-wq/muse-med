@@ -69,12 +69,14 @@ const WAIT_POLL_INTERVAL_MS = 10
  * including when the first log harvest is still pending.
  * `waitForSubagentTurnEnd` waits until one background child has persisted a
  * closed model-work turn after its own descriptor; child progress has no ACP
- * update to wait on. Failures identify the child, turn, and deadline even if
- * the first log read is still pending; the underlying failure is retained as cause.
+ * update to wait on.
  * `waitForTitleAfterTurnEnd` additionally waits for a later durable title.
  * `waitForEventAfterTurnEnd` waits until a complete record of the given event
  * type follows the latest closed turn — for scenarios whose asserted state
  * (e.g. a goal pause) is appended only after cancellation reaches idle.
+ * Session-log wait timeouts identify the session or child and deadline even
+ * if the first log read is still pending; they retain the underlying failure
+ * as cause. Child waits also name the requested turn.
  * A standalone `cancel` may also wait for a cwd-relative readiness marker.
  * All wait timeouts default to 10s.
  */
@@ -558,23 +560,28 @@ async function waitForPersistedTurnStart(
   minimumTurn?: number,
 ): Promise<void> {
   let invalidRecord: { error: unknown } | undefined
-  await vi.waitFor(async () => {
-    const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
-    let openTurn: number | undefined
-    try {
-      openTurn = log === undefined ? undefined : latestOpenTurn(log.content)
-    } catch (error) {
-      // A malformed persisted record is a scenario bug, not a not-yet state:
-      // vi.waitFor retries every callback throw, so capture the validation
-      // failure, resolve the wait, and rethrow immediately below.
-      invalidRecord = { error }
-      return
-    }
-    if (openTurn === undefined || (minimumTurn !== undefined && openTurn < minimumTurn)) {
-      const detail = minimumTurn === undefined ? 'turn/start' : `turn/start at or beyond turn ${minimumTurn}`
-      throw new Error(`snapshot-harness: session "${sessionId}" did not persist ${detail} within ${timeoutMs}ms`)
-    }
-  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+  const detail = minimumTurn === undefined ? 'turn/start' : `turn/start at or beyond turn ${minimumTurn}`
+  const message = `snapshot-harness: session "${sessionId}" did not persist ${detail} within ${timeoutMs}ms`
+  try {
+    await vi.waitFor(async () => {
+      const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
+      let openTurn: number | undefined
+      try {
+        openTurn = log === undefined ? undefined : latestOpenTurn(log.content)
+      } catch (error) {
+        // A malformed persisted record is a scenario bug, not a not-yet state:
+        // vi.waitFor retries every callback throw, so capture the validation
+        // failure, resolve the wait, and rethrow immediately below.
+        invalidRecord = { error }
+        return
+      }
+      if (openTurn === undefined || (minimumTurn !== undefined && openTurn < minimumTurn)) {
+        throw new Error(message)
+      }
+    }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+  } catch (cause) {
+    throw new Error(message, { cause })
+  }
   if (invalidRecord !== undefined) throw invalidRecord.error
 }
 
@@ -709,12 +716,15 @@ async function waitForPersistedTitleAfterTurnEnd(
   sessionId: string,
   timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
 ): Promise<void> {
-  await vi.waitFor(async () => {
-    const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
-    if (log === undefined || !latestTitleFollowsTurnEnd(log.content)) {
-      throw new Error(`snapshot-harness: session "${sessionId}" did not persist session/title after turn/end within ${timeoutMs}ms`)
-    }
-  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+  const message = `snapshot-harness: session "${sessionId}" did not persist session/title after turn/end within ${timeoutMs}ms`
+  try {
+    await vi.waitFor(async () => {
+      const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
+      if (log === undefined || !latestTitleFollowsTurnEnd(log.content)) throw new Error(message)
+    }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+  } catch (cause) {
+    throw new Error(message, { cause })
+  }
 }
 
 /** Wait until a complete record of `type` follows the latest closed turn. */
@@ -724,12 +734,15 @@ async function waitForPersistedEventAfterTurnEnd(
   type: string,
   timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
 ): Promise<void> {
-  await vi.waitFor(async () => {
-    const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
-    if (log === undefined || !latestEventFollowsTurnEnd(log.content, type)) {
-      throw new Error(`snapshot-harness: session "${sessionId}" did not persist ${type} after turn/end within ${timeoutMs}ms`)
-    }
-  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+  const message = `snapshot-harness: session "${sessionId}" did not persist ${type} after turn/end within ${timeoutMs}ms`
+  try {
+    await vi.waitFor(async () => {
+      const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
+      if (log === undefined || !latestEventFollowsTurnEnd(log.content, type)) throw new Error(message)
+    }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+  } catch (cause) {
+    throw new Error(message, { cause })
+  }
 }
 
 /** Wait for a cwd-relative marker proving an external action reached readiness. */

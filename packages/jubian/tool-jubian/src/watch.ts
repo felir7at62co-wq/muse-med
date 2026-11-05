@@ -76,7 +76,14 @@ function currentOutput(row: VideoSubtask, raw: Record<string, unknown>, stage: W
   })
 }
 
-async function observe(client: JubianClient, args: WatchArgs, signal: AbortSignal): Promise<JobOutcome | undefined> {
+/**
+ * Check the provider's current completion evidence without waiting.
+ * @param client - Credential-aware provider transport.
+ * @param args - Accepted operation identity.
+ * @param signal - Cancellation for all provider reads.
+ * @returns Terminal evidence when verified, or undefined while unverified.
+ */
+export async function observe(client: JubianClient, args: WatchArgs, signal: AbortSignal): Promise<JobOutcome | undefined> {
   const response = await client.request({ method: 'GET', path: `/admin/aigc/video/task/${args.task_id}`, signal })
   const task = readTaskPage(response.data)
   if (task.task_id !== args.task_id || task.task_type === null || VIDEO_TASK_TYPES[task.task_type] !== args.stage) return

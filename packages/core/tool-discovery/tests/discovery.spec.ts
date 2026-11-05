@@ -21,6 +21,7 @@ import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import { z } from 'zod'
 import { MockAdapter, textResponse, toolCallResponse } from '../../agent-loop/tests/mock-adapter.ts'
 import * as Discovery from '../src/index.ts'
+import { mountWorkingDirectoryFixture } from '../../../subagent/subagent/tests/working-directory-fixture.ts'
 
 /** Test capabilities use normal registration and execution without external effects. */
 const capabilities = { inject: ['tools'], apply(ctx: Context) {
@@ -53,6 +54,7 @@ class AssemblyRuntime extends PtcRuntime {
 async function fixture(root: string, config: Partial<Discovery.Config> = {}) {
   const ctx = new Context()
   try {
+    await mountWorkingDirectoryFixture(ctx)
     await ctx.plugin(Loader)
     Object.assign(ctx.loader.builtins, { include: Include, llm: Llm, sessions: Sessions, projections: Projections,
       prompt: SystemPrompt, tools: Tools, agents: Agents, persistence: Persistence, loop: AgentLoop,
@@ -142,6 +144,113 @@ async function manage(f: Awaited<ReturnType<typeof fixture>>, agent: Agent,
 }
 
 describe('Loader-composed tool discovery', () => {
+  it('presents search and context calls and rejects execution without an initiating agent', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-calls-'))
+    const f = await fixture(root)
+    try {
+      const searchTool = f.ctx.tools.get('tool_search')!
+      expect(searchTool.presentCall!({ query: 'video' })).toMatchObject({ title: 'Discover tools', rawInput: 'video' })
+      expect(searchTool.presentCall!({ capability: 'video' })).toMatchObject({ rawInput: 'video' })
+      expect(searchTool.presentCall!({})).toMatchObject({ rawInput: '' })
+      expect(f.ctx.tools.get('tool_context')!.presentCall!({ operation: 'status' }))
+        .toMatchObject({ title: 'Manage tool context', rawInput: 'status' })
+      for (const name of ['tool_search', 'tool_context']) {
+        const response = await f.ctx.tools.execute({ name, arguments: name === 'tool_context' ? { operation: 'status' } : {},
+          callId: ToolCallId(`unowned-${name}`), signal: new AbortController().signal })
+        expect(response.isError).toBe(true)
+        expect(response.content.filter(block => block.type === 'text').map(block => block.text).join('')).toContain('requires an agent session')
+      }
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it.each([
+    [{ id: ' ', title: 'Blank', description: '', tools: ['video_*'] }],
+    [{ id: 'same', title: 'First', description: '', tools: ['video_*'] }, { id: 'same', title: 'Second', description: '', tools: ['export_word'] }],
+    [{ id: 'invalid', title: 'Pattern', description: '', tools: ['video_*_other'] }],
+  ])('rejects unusable capability registration %j', async (...capabilities) => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-config-'))
+    try {
+      await expect(fixture(root, { capabilities })).rejects.toThrow()
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('retains bounded names and omission counts when metadata is larger than the result budget', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-large-metadata-'))
+    const f = await fixture(root, { maxResultChars: 256, capabilities: [
+      { id: 'oversized'.repeat(40), title: 'Oversized', description: 'Long group', tools: ['video_inspect'] },
+      { id: 'small', title: 'Small', description: 'x'.repeat(1000), tools: ['export_word'] },
+    ] })
+    try {
+      const agent = await f.create('large-metadata')
+      const directory = await discover(f, agent, {})
+      expect(directory.text.length).toBeLessThanOrEqual(256)
+      expect(directory.value.capabilities).toEqual([{ id: 'small', title: 'Small', description: '', tool_count: 1 }])
+      expect(z.object({ omitted_capabilities: z.number() }).parse(JSON.parse(directory.text)).omitted_capabilities).toBe(1)
+      const longName = `oversized_tool_${'x'.repeat(250)}`
+      f.ctx.tools.register(defineTool({ name: longName, description: 'Large metadata '.repeat(30), parameters: {},
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, execute: async () => 'unused' }))
+      const result = await discover(f, agent, { query: longName })
+      expect(result.text.length).toBeLessThanOrEqual(256)
+      expect(result.value.loaded).toEqual([])
+      expect(result.value.omitted).toBe(result.value.matched)
+      expect(result.value.matched).toBeGreaterThan(0)
+      f.ctx.tools.register(defineTool({ name: 'compact_name', description: 'Large description '.repeat(30), parameters: {},
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, execute: async () => 'unused' }))
+      expect((await discover(f, agent, { query: 'compact_name' })).value.loaded)
+        .toEqual([{ name: 'compact_name', description: '', capabilities: [] }])
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it.each(['tool_search', 'tool_context'])('ignores malformed persisted %s receipts and keeps repeated discovery idempotent', async (name) => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-malformed-receipt-'))
+    const f = await fixture(root)
+    try {
+      const agent = await f.create('malformed-receipt')
+      const restore = f.ctx.on('tools/post-execute', async (exec, _result, next) => {
+        const decision = await next()
+        return exec.name === name ? { kind: 'accept' as const, content: [{ type: 'text' as const, text: '{' }] } : decision
+      })
+      if (name === 'tool_search') await search(f, agent, 'video_inspect')
+      else await manage(f, agent, 'load', ['video_inspect'])
+      expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })
+      restore()
+      await search(f, agent, 'video_inspect')
+      await search(f, agent, 'video_inspect')
+      expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: ['video_inspect'], pinned: [] })
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('attaches discovery to existing agents after reload and disposes an unowned agent safely', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-existing-agent-'))
+    const f = await fixture(root)
+    try {
+      const agent = await f.create('existing-agent')
+      const original = [...f.ctx.loader.entries()].find(row => row.options.id === 'discovery')!
+      await original.fiber!.dispose()
+      await f.ctx.plugin(Discovery, { alwaysLoad: ['base_read'] }).await()
+      expect(await shown(f.ctx, agent)).toEqual(['base_read', 'tool_context', 'tool_search'])
+      const handle = await f.ctx.agents.create({ sessionId: SessionId('discovery-denied-disposal'), meta: { cwd: root },
+        agentOptions: { provider: 'mock', model: 'mock' }, setup: (scope) => { scope.tools.restrict({ deny: ['tool_search'] }) } })
+      await handle.dispose()
+      expect(f.ctx.agents.get(handle.agent.id)).toBeUndefined()
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('does not reuse cached preferences after their owning provider is replaced', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-preference-owner-'))
+    const f = await fixture(root)
+    try {
+      const first = f.ctx.toolDiscovery.registerResidency({ matches: () => true, read: async () => ['video_inspect'], write: async () => {} })
+      const agent = await f.create('replaced-preference-owner')
+      expect(f.ctx.toolDiscovery.state(agent).pinned).toEqual(['video_inspect'])
+      await first()
+      f.ctx.toolDiscovery.registerResidency({ matches: () => true, read: async () => ['export_word'], write: async () => {} })
+      expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })
+      await f.ctx.toolDiscovery.refresh(agent)
+      expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: ['export_word'], pinned: ['export_word'] })
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
   it('includes authorized capability guidance in the first logged request without loading schemas', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-guidance-'))
     const f = await fixture(root)
@@ -246,7 +355,7 @@ describe('Loader-composed tool discovery', () => {
         }
       }
       const agent = await f.create(`discovery-spill-${mode}`, {
-        setup: (scope) => { if (mode === 'ptc') scope.tools.presentAs('both') },
+        setup: (scope) => { if (mode === 'ptc') scope.tools.presentAs('ptc') },
       })
       f.responses.push(mode === 'ptc'
         ? toolCallResponse('spill-search-ptc', 'run_code', { description: 'Find video tools.',
@@ -265,8 +374,15 @@ describe('Loader-composed tool discovery', () => {
       expect(result.loaded.length).toBeGreaterThan(0)
       expect(result.omitted).toBeGreaterThan(0)
       expect(save).not.toHaveBeenCalled()
-      expect(await shown(f.ctx, agent)).toEqual(['base_read', 'tool_context', 'tool_search', ...mode === 'ptc' ? ['run_code'] : [],
-        ...result.loaded.map(tool => tool.name)].sort())
+      if (mode === 'ptc') {
+        expect(await shown(f.ctx, agent)).toEqual(['run_code'])
+        const assembly = await f.ctx.systemPrompt.assemble({ agent, scope: agent })
+        const sdk = assembly.sections.find(section => section.name === 'tools:sdk')?.text
+        for (const { name } of result.loaded) expect(sdk).toContain(name)
+      } else {
+        expect(await shown(f.ctx, agent)).toEqual(['base_read', 'tool_context', 'tool_search',
+          ...result.loaded.map(tool => tool.name)].sort())
+      }
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
   })
 
@@ -345,7 +461,7 @@ describe('Loader-composed tool discovery', () => {
         const value = await find({ query: 'video_inspect', limit: 1 })
         return { logs: [], value }
       }
-      const agent = await f.create('discovery-nested', { setup: (scope) => { scope.tools.presentAs('both') } })
+      const agent = await f.create('discovery-nested', { setup: (scope) => { scope.tools.presentAs('ptc') } })
       f.responses.push(toolCallResponse('discover-nested', 'run_code', {
         description: 'Find the video inspection capability.',
         code: "return await tools.tool_search({query:'video_inspect',limit:1})",
@@ -354,8 +470,32 @@ describe('Loader-composed tool discovery', () => {
       const dispatch = agent.session.snapshotEvents().find(event => event.type === 'tool/ptc-dispatch')
       expect(dispatch?.data.name).toBe('tool_search')
       expect(dispatch?.data.isError).toBe(false)
-      expect(await shown(f.ctx, agent)).toEqual(['base_read', 'run_code', 'tool_context', 'tool_search', 'video_inspect'])
-      expect(f.adapter.requests[1]?.tools?.some(tool => tool.name === 'video_inspect')).toBe(true)
+      expect(await shown(f.ctx, agent)).toEqual(['run_code'])
+      const sdk = (await f.ctx.systemPrompt.assemble({ agent, scope: agent })).sections.find(section => section.name === 'tools:sdk')?.text
+      expect(sdk).toContain('video_inspect')
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('keeps unrelated PTC dispatches outside the discovery projection', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-unrelated-ptc-'))
+    const f = await fixture(root)
+    try {
+      await f.ctx.plugin(AssemblyRuntime)
+      const runtime = f.ctx.ptcRuntime
+      if (!(runtime instanceof AssemblyRuntime)) throw new Error('Missing test runtime')
+      runtime.behavior = async (request) => {
+        const read = request.bindings[0]?.functions.base_read
+        if (!read) throw new Error('Missing fixture read binding')
+        return { logs: [], value: await read({}) }
+      }
+      const agent = await f.create('unrelated-ptc', { setup: (scope) => { scope.tools.presentAs('ptc') } })
+      f.responses.push(toolCallResponse('unrelated-code', 'run_code', {
+        description: 'Read through a resident tool.', code: 'return await tools.base_read({})',
+      }), textResponse('Read.'))
+      await send(agent)
+      expect(agent.session.snapshotEvents().filter(event => event.type === 'tool/ptc-dispatch')
+        .map(event => event.data.name)).toEqual(['base_read'])
+      expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
   })
 
@@ -414,7 +554,14 @@ describe('Loader-composed tool discovery', () => {
     const f = await fixture(root)
     try {
       await f.ctx.plugin(AssemblyRuntime)
-      const agent = await f.create('discovery-sdk', { setup: (scope) => { scope.tools.presentAs('both') } })
+      const runtime = f.ctx.ptcRuntime
+      if (!(runtime instanceof AssemblyRuntime)) throw new Error('Missing test runtime')
+      runtime.behavior = async (request) => {
+        const find = request.bindings[0]?.functions.tool_search
+        if (!find) throw new Error('Missing search binding')
+        return { logs: [], value: await find({ query: 'video_inspect', limit: 1 }) }
+      }
+      const agent = await f.create('discovery-sdk', { setup: (scope) => { scope.tools.presentAs('ptc') } })
       const first = await f.ctx.systemPrompt.assemble({ agent, scope: agent })
       const guidance = first.sections.find(section => section.name === 'tools:discovery')
       expect(guidance?.text).toContain('"id":"video"')
@@ -422,7 +569,11 @@ describe('Loader-composed tool discovery', () => {
       expect(firstSdk).toContain('tool_search')
       expect(firstSdk).not.toContain('video_inspect')
       expect(firstSdk).not.toContain('export_word')
-      await search(f, agent, 'video_inspect')
+      f.responses.push(toolCallResponse('discover-sdk-ptc', 'run_code', {
+        description: 'Find the video inspection capability.',
+        code: "return await tools.tool_search({query:'video_inspect',limit:1})",
+      }), textResponse('Loaded.'))
+      await send(agent)
       const next = await f.ctx.systemPrompt.assemble({ agent, scope: agent })
       expect(next.sections.filter(section => section.name === 'tools:discovery')).toEqual([guidance])
       const nextSdk = next.sections.find(section => section.name === 'tools:sdk')?.text ?? ''
@@ -569,6 +720,7 @@ describe('Loader-composed tool discovery', () => {
       expect((await manage(f, agent, 'release', ['base_read', 'export_word']))?.isError).toBe(true)
       expect((await manage(f, agent, 'release', ['tool_context']))?.isError).toBe(true)
       expect((await manage(f, agent, 'load', []))?.isError).toBe(true)
+      expect((await manage(f, agent, 'load', ['  ']))?.isError).toBe(true)
       expect((await manage(f, agent, 'status', ['export_word']))?.isError).toBe(true)
       expect((await manage(f, agent, 'pin', ['missing_tool']))?.isError).toBe(true)
       expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })
@@ -673,7 +825,7 @@ describe('Loader-composed tool discovery', () => {
         if (!edit) throw new Error('Missing context binding')
         return { logs: [], value: await edit({ operation, tools: ['video_inspect'] }) }
       }
-      const agent = await f.create('context-ptc', { setup: (scope) => { scope.tools.presentAs('both') } })
+      const agent = await f.create('context-ptc', { setup: (scope) => { scope.tools.presentAs('ptc') } })
       f.responses.push(toolCallResponse('context-pin-ptc', 'run_code', { description: 'Pin video tool.', code: 'fixture' }), textResponse('Pinned.'))
       await send(agent)
       expect(f.ctx.toolDiscovery.state(agent).pinned).toEqual(['video_inspect'])

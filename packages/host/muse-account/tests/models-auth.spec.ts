@@ -1,10 +1,14 @@
 import { Context } from '@deepseek-ai/cordis'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import LlmRuntime, { ProviderRequestId } from '@deepseek-ai/dsh-llm'
 import { AttachmentId, AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type { PiAiAdapterOptions } from '@deepseek-ai/dsh-llm-pi-ai'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MuseModels } from '../src/models.ts'
+import { writeMuseSession } from '../src/session.ts'
 
 const captured = vi.hoisted(() => ({ options: undefined as PiAiAdapterOptions | undefined }))
 vi.mock('@deepseek-ai/dsh-llm-pi-ai', async (original) => {
@@ -14,6 +18,28 @@ vi.mock('@deepseek-ai/dsh-llm-pi-ai', async (original) => {
   } }
 })
 afterEach(() => { vi.unstubAllEnvs() })
+
+it('carries the deployment image-byte budget into each account provider profile', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'muse-model-image-budget-'))
+  const context = new Context()
+  await context.plugin(LlmRuntime)
+  const sessionFile = join(root, 'session.json')
+  const baseUrl = 'https://muse.example'
+  await writeMuseSession(sessionFile, { baseUrl, username: 'fixture', cookie: '__Host-muse=fixture-session' })
+  const owner = new MuseModels(context, { baseUrl, sessionFile, requestTimeoutMs: 1000,
+    modelRequestImageMaxBytes: 4096, fetcher: async () => Response.json({ providers: [{
+      id: 'studio', name: 'Studio', models: [{ id: 'image-writer', name: 'Image writer',
+        contextWindow: 10000, maxTokens: 1000, input: ['text', 'image'], reasoningEfforts: false }],
+    }] }) })
+  try {
+    await owner.refresh()
+    expect(captured.options?.profiles().get('muse-cloud-studio')?.maxRequestImageBytes).toBe(4096)
+  } finally {
+    await owner.dispose()
+    await context.fiber.dispose()
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 it('keeps the account adapter outside provider credential storage and ambient authentication', async () => {
   const context = new Context()

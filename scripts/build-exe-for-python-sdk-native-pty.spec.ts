@@ -1,8 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { resolveLinuxNodePtyAddon, resolveWindowsNodePtyAddons } from './build-exe-for-python-sdk-native-pty.ts'
+import { resolveLinuxNodePtyAddon, resolveWindowsNodePtyAddons, stageNodePtyPrebuild } from './executable-native-pty.ts'
 
 const roots: string[] = []
 
@@ -51,6 +51,24 @@ describe('resolveWindowsNodePtyAddons', () => {
       `Windows node-pty addons are missing: ${join(root, 'prebuilds', 'win32-x64', 'conpty.node')}, ${join(root, 'prebuilds', 'win32-x64', 'conpty_console_list.node')}`,
     )
   })
+})
+
+it('stages native prebuilds when pnpm hard-links an already deployed file', async () => {
+  const installed = temporaryPackage()
+  const staging = temporaryPackage()
+  const shared = createAddon(installed, 'prebuilds', 'win32-x64', 'conpty', 'conpty.dll')
+  const deployed = join(staging, 'prebuilds', 'win32-x64', 'conpty', 'conpty.dll')
+  mkdirSync(dirname(deployed), { recursive: true })
+  linkSync(shared, deployed)
+  const missing = createAddon(installed, 'prebuilds', 'win32-x64', 'conpty.node')
+  writeFileSync(missing, 'installed addon')
+  const foreign = createAddon(staging, 'prebuilds', 'linux-x64', 'pty.node')
+
+  await stageNodePtyPrebuild(installed, staging, 'win32-x64')
+
+  expect(statSync(deployed, { bigint: true }).ino).toBe(statSync(shared, { bigint: true }).ino)
+  expect(readFileSync(join(staging, 'prebuilds', 'win32-x64', 'conpty.node'), 'utf8')).toBe('installed addon')
+  expect(existsSync(foreign)).toBe(false)
 })
 
 function temporaryPackage(): string {

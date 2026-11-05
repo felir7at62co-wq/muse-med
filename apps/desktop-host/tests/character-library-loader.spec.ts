@@ -21,6 +21,7 @@ import { AttachmentId, AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
 import CharacterLibrary, { CharacterLibraryObjectStore, URBAN_PREFIX } from '@deepseek-ai/dsh-character-library'
 import type { CharacterLibraryObjectGet, CharacterLibraryObjectHead, CharacterLibraryObjectListPage, CharacterLibraryObjectListRequest } from '@deepseek-ai/dsh-character-library'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LlmRuntime, { createUserMessage, LlmAdapter, ToolCallId, type GenerateOptions, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -31,6 +32,7 @@ import * as CharacterReferenceTool from '@deepseek-ai/dsh-tool-character-referen
 
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import Tools from '@deepseek-ai/dsh-tools'
+import WorkingDirectory from '../../../packages/session/working-directory/src/index.ts'
 import { parse as parseYaml } from 'yaml'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -263,6 +265,11 @@ async function loadFixture() {
     "- name: 'fixture:settings'",
     "- name: '@deepseek-ai/dsh-character-library'",
     "- name: '@deepseek-ai/dsh-system-prompt'",
+    "- name: '@deepseek-ai/dsh-fs-local'",
+    '  config:',
+    `    cwd: ${JSON.stringify(root)}`,
+    "- name: '@deepseek-ai/dsh-session-projection'",
+    "- name: '@deepseek-ai/dsh-working-directory'",
     "- name: '@deepseek-ai/dsh-tools'",
     "- name: '@deepseek-ai/dsh-agent'",
     "- name: '@deepseek-ai/dsh-skill'",
@@ -288,6 +295,9 @@ async function loadFixture() {
     ['fixture:settings', LoaderFixtureSettings],
     ['@deepseek-ai/dsh-character-library', CharacterLibrary],
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
+    ['@deepseek-ai/dsh-fs-local', LocalFileSystem],
+    ['@deepseek-ai/dsh-session-projection', SessionProjectionRegistry],
+    ['@deepseek-ai/dsh-working-directory', WorkingDirectory],
     ['@deepseek-ai/dsh-tools', Tools],
     ['@deepseek-ai/dsh-agent', AgentRegistry],
     ['@deepseek-ai/dsh-skill', SkillRegistry],
@@ -322,7 +332,6 @@ async function loadFixture() {
   if (!(store instanceof LoaderFixtureStore)) throw new Error('Loader fixture store did not mount')
   await context.plugin(LlmRuntime)
   await context.plugin(SessionStore)
-  await context.plugin(SessionProjectionRegistry)
   await context.plugin(AgentLoop, { agents: [] })
   const agent = await context.agentLoop.create(SessionId('character-reference-direct'), {}, { cwd: root })
   return { context, store, agent, root }

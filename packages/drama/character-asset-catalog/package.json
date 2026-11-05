@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-character-asset-catalog",
   "description": "Source-neutral character reference metadata adaptation and verified read-only catalog records",
-  "version": "0.2.1-alpha.1",
+  "version": "0.2.1-alpha.2",
   "publishConfig": {
     "access": "public"
   },

@@ -41,7 +41,7 @@ it('requires a version bump before request headers can carry retired system text
     path: 'event:request/header.data.header.system',
     kind: 'type-changed',
     description: 'type changed',
-    requiresVersionBump: true,
+    requiresCompatibilityReview: true,
   }])
   expect(() => { assertV4RowAdmission({ type: 'request/header', data: { header: { system: 'retired text' } } }) })
     .toThrow('format v4 request/header rejects retired header.system')

@@ -19,9 +19,11 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-tool-jubian/remote'
-import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
+import type { RemoteResult, TypertRemoteContribution, TypertRemoteNamespaceMap } from '@deepseek-ai/dsh-typert-protocol'
 import { JubianTokenSection } from './JubianTokenSection.tsx'
+import type { VideoRecoveryControls } from './VideoRecoverySection.tsx'
 import type { JubianTokenInjected, JubianTokenOutcome, JubianTokenStatus } from './JubianTokenSection.tsx'
 import { en, zh, type JubianLocaleKey } from './locales.ts'
 
@@ -77,7 +79,7 @@ function outcomeOf(result: RemoteResult<JubianTokenStatus>): JubianTokenOutcome 
     : { ok: false, code: result.error.code, message: result.error.message }
 }
 
-/** Contribute the Jubian token page to Settings. */
+/** Contribute the Jubian page to Settings. */
 function registerSection(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'tool-jubian: token dictionaries')
 
@@ -135,13 +137,40 @@ function registerSection(ctx: ClientContext): void {
     })
   })
 
+  let recovery: VideoRecoveryControls | undefined
+  const settingsInputs = () => {
+    // The dotted Remote service key is optional on Hosts without recovery.
+    const remote = ctx.get('remote.jubianVideoRecovery') as TypertRemoteNamespaceMap['jubianVideoRecovery'] | undefined
+    if (remote === undefined) return injected()
+    if (recovery === undefined) {
+      const workspace = ctx.get('uiWorkspace')
+      const desktop = (globalThis as typeof globalThis & {
+        __DSH_DIRECTORY_PICKER__?: { pick: () => Promise<string | null> }
+      }).__DSH_DIRECTORY_PICKER__
+      const pick = desktop ? () => desktop.pick() : workspace ? () => workspace.pickDirectory() : undefined
+      recovery = {
+        status: () => remote.status(),
+        configure: input => remote.configure(input),
+        review: input => remote.review(input),
+        adopt: input => remote.adopt(input),
+        createDraft: input => remote.createDraft(input),
+        verifyExport: input => remote.verifyExport(input),
+        deliverApprovedClip: input => remote.deliverApprovedClip(input),
+        deliverApprovedMp4: input => remote.deliverApprovedMp4(input),
+        deliverApprovedEpisode: input => remote.deliverApprovedEpisode(input),
+        ...(pick === undefined ? {} : { pickDirectory: pick }),
+      }
+    }
+    return { ...injected(), recovery }
+  }
+
   ctx.slots.inject('settings.section', () => ctx.slots.register({
     name: 'settings.section',
     id: 'jubian',
     order: 16,
     label: () => t('nav'),
     locale: NS,
-    inject: injected,
+    inject: settingsInputs,
   }, JubianTokenSection))
 }
 

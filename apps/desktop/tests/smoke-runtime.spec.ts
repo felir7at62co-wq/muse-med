@@ -1,5 +1,5 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { join, dirname, relative, isAbsolute } from 'node:path'
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { join, dirname, relative, isAbsolute, basename } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runInNewContext } from 'node:vm'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -14,14 +14,32 @@ const editingModelInput = JSON.parse(readFileSync(new URL('./expected/editing-mo
 
 vi.mock('../src/profile-packages.ts', () => ({ recordDesktopRuntimeProfile: vi.fn(), validateDesktopPluginGraph: vi.fn() }))
 
-// External interpreter calls are isolated; the Office fixture writes the three
-// documents consumed by the Host checks, while downloader help needs no files.
-const { payload } = vi.hoisted(() => ({ payload: vi.fn(async (_file: string, args: string[]) => {
-  if (args.at(-1) === '--help') return { stdout: 'usage: download.py' }
-  const home = args[args.length - 1]!
-  for (const extension of ['docx', 'xlsx', 'pptx']) writeFileSync(join(home, `input.${extension}`), Buffer.from('fixture'))
-  return { stdout: '' }
-}) }))
+// The CLI fixture materializes and removes the package the smoke inspects on disk.
+const { payload, downloadHelp } = vi.hoisted(() => {
+  const downloadHelp = vi.fn(async () => ({ stdout: 'usage: download.py' }))
+  const payload = vi.fn(async (_file: string, args: string[], options: { cwd?: string }) => {
+    if (args[2] === 'plugin') {
+      const source = args[6]
+      if (options.cwd === undefined || source === undefined) throw new Error('Missing CLI fixture path')
+      const modules = join(options.cwd, 'profiles', 'desktop', 'node_modules')
+      if (args[5] === 'add' && source.startsWith('file:')) {
+        const path = source.slice('file:'.length)
+        mkdirSync(modules, { recursive: true })
+        cpSync(path, join(modules, basename(path)), { recursive: true })
+      } else if (args[5] === 'remove') {
+        rmSync(join(modules, source), { recursive: true })
+      } else {
+        throw new Error('Unexpected CLI fixture command')
+      }
+      return { stdout: '' }
+    }
+    if (args.at(-1) === '--help') return downloadHelp()
+    const home = args[args.length - 1]!
+    for (const extension of ['docx', 'xlsx', 'pptx']) writeFileSync(join(home, `input.${extension}`), Buffer.from('fixture'))
+    return { stdout: '' }
+  })
+  return { payload, downloadHelp }
+})
 vi.mock('node:child_process', async (importOriginal) => {
   const { promisify } = await import('node:util')
   return { ...await importOriginal<typeof import('node:child_process')>(),
@@ -60,7 +78,7 @@ function fixture(packaged = false) {
   const unpacked = (path: string) => path.replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
   const home = join(temporaryRoot, 'home')
   mkdirSync(home)
-  const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'creation']
+  const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'creation', 'bot-coordinator']
   const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
   for (const id of ids) {
     mkdirSync(dirname(presetPath(id)), { recursive: true })
@@ -123,7 +141,7 @@ function fixture(packaged = false) {
     writeFileSync(path, '# fixture')
     skills.push({ name, path, invocation: { modelInvocable: true } })
   }
-  const creationSkills = skills.filter(skill => skill.name !== 'desktop-user-skill')
+  const creationSkills = [...skills]
   const agent = { preset: 'short-drama' }
   const agentCtx = {}
   const dispose = vi.fn(async () => {})
@@ -218,7 +236,7 @@ it('defers preset checks until the Host-ready caller requests them', async () =>
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
   await f.request()
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(14)
 })
 
 it('rejects a product runtime without the Muse inbox feedback entry', async () => {
@@ -233,11 +251,11 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'short-drama')
   expect(f.ctx.tools.schemas).toHaveBeenCalledWith(f.agent)
   expect(f.ctx.systemPrompt.assemble).toHaveBeenCalledWith({ agent: { preset: 'short-drama' }, scope: { preset: 'short-drama' } })
-  expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.home })
+  expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: join(f.home, 'workspace') })
   expect(f.ctx.agentPresets.serviceFor).toHaveBeenCalledWith({ preset: 'creation' }, 'skills')
-  expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.home })
-  expect(f.dispose).toHaveBeenCalledTimes(12)
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
+  expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: join(f.home, 'workspace') })
+  expect(f.dispose).toHaveBeenCalledTimes(14)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(14)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
@@ -335,7 +353,7 @@ it('rejects extra agent-local tools in the minimal preset', async () => {
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['short-drama', 'ptc', 'standard', 'cordis', 'creation'])('rejects missing transcription in %s', async (preset) => {
+it.each(['short-drama', 'ptc', 'standard', 'cordis', 'creation', 'bot-coordinator'])('rejects missing transcription in %s', async (preset) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === preset
@@ -406,6 +424,13 @@ it('rejects Host readiness when the private preset smoke never completes', async
   let packageManager: unknown
   const start = vi.spyOn(DesktopHostProcess.prototype, 'start').mockImplementation(async function (this: DesktopHostProcess) {
     packageManager = Reflect.get(this, 'packageManager')
+    const projectDir: unknown = Reflect.get(this, 'projectDir')
+    if (typeof projectDir !== 'string') throw new Error('Missing smoke profile')
+    const name = 'desktop-runtime-product-smoke-plugin'
+    const source = join(dirname(dirname(projectDir)), name)
+    const manifest = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf8')) as { dependencies: Record<string, string> }
+    expect(manifest.dependencies[name]).toBe(`file:${source}`)
+    expect(readFileSync(join(projectDir, 'node_modules', name, 'index.js'))).toEqual(readFileSync(join(source, 'index.js')))
     return { pid: 2468, url: 'http://127.0.0.1:1/' }
   })
   const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html></html>'))
@@ -416,7 +441,7 @@ it('rejects Host readiness when the private preset smoke never completes', async
     const resources = primaryRuntimeFixture(root)
     await expect(smokeDesktopRuntime(root, process.execPath, runtime, {}, resources))
       .rejects.toThrow('product preset smoke did not complete')
-    expect(packageManager).toEqual({ pnpm: join(resources, 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resources, 'bin') })
+    expect(packageManager).toEqual({ pnpm: join(resources, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resources, 'bin') })
     expect(stop).toHaveBeenCalledOnce()
   } finally {
     start.mockRestore()
@@ -432,7 +457,7 @@ it.each([false, true])('runs downloader help from the native filesystem before H
     const f = fixture(archived)
     const root = f.root
     const runtime = runtimeFixture(root)
-    payload.mockRejectedValueOnce(new Error('Python cannot read download script'))
+    downloadHelp.mockRejectedValueOnce(new Error('Python cannot read download script'))
     await expect(smokeDesktopRuntime(root, process.execPath, runtime, {}, primaryRuntimeFixture(f.home)))
       .rejects.toThrow('Python cannot read download script')
     const invocation = payload.mock.calls.at(-1)
@@ -501,7 +526,7 @@ it.each(['missing', 'legacy-only', 'shadow'])('rejects %s custom skill isolation
 it('refuses a roster with additional presets before creating an agent', async () => {
   const f = fixture()
   f.ctx.agentPresets.list.mockResolvedValue([{ id: 'short-drama' }, { id: 'personal' }])
-  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the six product presets')
+  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the shipped product presets')
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
 })
 
@@ -578,6 +603,23 @@ it.each(['missing', 'without Word', 'without export'])('rejects editing delivery
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
+it('checks deferred editing descriptions in the authorized tool schemas', async () => {
+  const f = fixture()
+  const name = 'mcp__muse-account__muse_account_status'
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    result.tools = result.tools.filter(tool => tool.name !== name)
+    return result
+  })
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'short-drama'
+    ? [...schemas(key), { name, description: editingModelInput.tools[name] }]
+    : schemas(key))
+  await f.apply(f.ctx)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+})
+
 it.each(Object.keys(editingModelInput.tools))('rejects a changed model-visible description for %s', async (name) => {
   const f = fixture()
   const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
@@ -637,7 +679,7 @@ it('accepts an additional model-invocable virtual skill without a filesystem pat
   }])
   await f.apply(f.ctx)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
-  expect(f.dispose).toHaveBeenCalledTimes(12)
+  expect(f.dispose).toHaveBeenCalledTimes(14)
 })
 
 it.each(['audio-transcribe',
@@ -681,7 +723,7 @@ it('loads the transcription and shot-writing skills through the scoped registry'
   await f.apply(f.ctx)
   for (const name of ['audio-transcribe',
     'shot-script-creator-16-9-3d', 'shot-script-creator-9-16']) {
-    expect(f.ctx.skills.get).toHaveBeenCalledWith(name, { scope: f.agent, cwd: f.home })
+    expect(f.ctx.skills.get).toHaveBeenCalledWith(name, { scope: f.agent, cwd: join(f.home, 'workspace') })
   }
   for (const name of ['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import']) {
     const directory = join(f.root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name)

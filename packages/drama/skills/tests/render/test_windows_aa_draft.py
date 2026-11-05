@@ -4,6 +4,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -17,6 +18,85 @@ sys.path.insert(0, str(SCRIPTS))
 spec = importlib.util.spec_from_file_location('windows_aa_draft_tests', SCRIPTS / 'windows_aa_draft.py')
 aa = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(aa)
+
+
+@unittest.skipUnless(sys.platform == 'win32', 'Requires Windows PowerShell and System.Drawing')
+class JianyingFilteredDraftTests(unittest.TestCase):
+    def test_grid_and_list_select_only_an_isolated_result(self):
+        fixture = '''
+param([string]$ProductScript)
+$ErrorActionPreference = 'Stop'
+. $ProductScript
+
+$bitmap = [Drawing.Bitmap]::new(1168, 780)
+$graphics = [Drawing.Graphics]::FromImage($bitmap)
+$background = [Drawing.Color]::FromArgb(28, 28, 28)
+$backgroundBrush = [Drawing.SolidBrush]::new($background)
+$lines = @([pscustomobject]@{
+    Text = 'OCR text'
+    Words = @([pscustomobject]@{
+        BoundingRect = [pscustomobject]@{ X = 306; Y = 419; Width = 52 }
+    })
+})
+try {
+    $graphics.Clear($background)
+    foreach ($x in 954, 964) {
+        foreach ($y in 324, 331) { $bitmap.SetPixel($x, $y, [Drawing.Color]::White) }
+    }
+    $bitmap.SetPixel(959, 324, [Drawing.Color]::White)
+    $empty = Find-MuseJianyingFilteredDraft $bitmap @() 246 328
+    $graphics.FillRectangle([Drawing.Brushes]::Black, 246, 361, 98, 98)
+    $graphics.FillRectangle([Drawing.Brushes]::White, 246, 468, 32, 8)
+    $graphics.FillEllipse([Drawing.Brushes]::RoyalBlue, 364, 449, 50, 36)
+    $graphics.FillRectangle([Drawing.Brushes]::White, 362, 468, 8, 4)
+    $grid = Find-MuseJianyingFilteredDraft $bitmap $lines 246 328
+    $graphics.FillRectangle($backgroundBrush, 359, 449, 98, 40)
+    $graphics.FillRectangle([Drawing.Brushes]::White, 359, 468, 32, 8)
+    $flatTile = Find-MuseJianyingFilteredDraft $bitmap $lines 246 328
+    $graphics.FillRectangle($backgroundBrush, 359, 468, 98, 12)
+    $graphics.FillRectangle([Drawing.Brushes]::Black, 359, 361, 98, 98)
+    $twoColumns = Find-MuseJianyingFilteredDraft $bitmap $lines 246 328
+    $graphics.FillRectangle($backgroundBrush, 359, 361, 98, 98)
+    $graphics.FillRectangle([Drawing.Brushes]::Black, 246, 513, 98, 98)
+    $twoRows = Find-MuseJianyingFilteredDraft $bitmap $lines 246 328
+
+    $graphics.Clear($background)
+    $graphics.FillRectangle([Drawing.Brushes]::White, 954, 324, 11, 1)
+    $graphics.FillRectangle([Drawing.Brushes]::White, 954, 331, 11, 1)
+    $graphics.FillRectangle([Drawing.Brushes]::Black, 246, 402, 46, 42)
+    $list = Find-MuseJianyingFilteredDraft $bitmap $lines 246 328
+    [ordered]@{
+        grid = $grid
+        list = $list
+        emptyRejected = $null -eq $empty
+        flatTileRejected = $null -eq $flatTile
+        twoColumnsRejected = $null -eq $twoColumns
+        twoRowsRejected = $null -eq $twoRows
+    } | ConvertTo-Json -Compress
+} finally {
+    $backgroundBrush.Dispose()
+    $graphics.Dispose()
+    $bitmap.Dispose()
+}
+'''
+        powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        with tempfile.TemporaryDirectory() as folder:
+            script = Path(folder) / 'filtered-draft-fixture.ps1'
+            script.write_text(fixture, encoding='ascii')
+            result = subprocess.run(
+                [str(powershell), '-NoProfile', '-NonInteractive', '-STA', '-File', str(script),
+                 str(SCRIPTS / 'windows/native-export-open.ps1')],
+                capture_output=True, text=True, encoding='utf-8', timeout=30,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), {
+            'grid': {'X': 294, 'Y': 410, 'DoubleClick': False},
+            'list': {'X': 264, 'Y': 422, 'DoubleClick': True},
+            'emptyRejected': True,
+            'flatTileRejected': True,
+            'twoColumnsRejected': True,
+            'twoRowsRejected': True,
+        })
 
 
 class AaDraftTests(unittest.TestCase):
@@ -62,6 +142,37 @@ class AaDraftTests(unittest.TestCase):
 
     def plan(self):
         return aa.prepare_plan(self.request, str(self.drafts))
+
+    def test_approved_dialogue_free_clip_preserves_custom_geometry_audio_and_bytes(self):
+        source = self.sources[0]
+        sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+        request = {key: value for key, value in self.request.items() if key not in ('timeline', 'subtitle_srt')}
+        request.update(videos=[str(source)], approved_clip_sha256=sha256)
+        with patch.object(aa, 'probe', return_value={'duration_us': 2_100_000, 'video_duration_us': 2_000_000,
+                                                   'video': True, 'audio': True, 'width': 864, 'height': 496}):
+            plan, _ = aa.prepare_plan(request, str(self.drafts))
+            self.assertIsNone(plan['ratio'])
+            self.assertEqual((plan['delivery']['width'], plan['delivery']['height']), (864, 496))
+            self.assertEqual(plan['duration_us'], 2_000_000)
+            self.assertEqual(plan['subtitles'], [])
+            self.assertEqual(plan['audio']['master_gain'], 1)
+            self.assertEqual(plan['videos'][0]['source_sha256'], sha256)
+            self.assertEqual(Path(plan['videos'][0]['path']).read_bytes(), source.read_bytes())
+            result, _ = self.saved(plan)
+            full = json.loads(result['full']['json_result'])
+            full[0]['attributes'] = {'width': 0, 'height': 0}
+            result['full']['json_result'] = json.dumps(full)
+            with self.assertRaisesRegex(ValueError, 'canvas aspect ratio'):
+                aa.verify_readback(plan, result)
+            result['original_canvas'] = True
+            verified = aa.verify_readback(plan, result)
+            self.assertEqual(verified['geometry']['adaptive_source_canvas'], {'width': 864, 'height': 496})
+            full[1]['layout']['scale_x'] = 0.9
+            result['full']['json_result'] = json.dumps(full)
+            with self.assertRaisesRegex(ValueError, 'neutral layout'):
+                aa.verify_readback(plan, result)
+            with self.assertRaisesRegex(ValueError, 'approved clip hash changed'):
+                aa.prepare_plan({**request, 'approved_clip_sha256': '0' * 64}, str(self.drafts))
 
     def test_bgm_ceiling_keeps_embedded_source_gain_independent(self):
         timeline = json.loads(self.timeline.read_text())
@@ -519,7 +630,7 @@ class AaDraftTests(unittest.TestCase):
             {'start_us': 600000, 'end_us': 1789000, 'text': '答案是\n42'}])
 
     def test_uri_decoding_preserves_unicode_spaces_and_drive_prefix(self):
-        self.assertEqual(str(aa.native_source_path('local:///C:/dir%20one/%E5%8E%9F%E7%89%87.mp4')), 'C:/dir one/原片.mp4')
+        self.assertEqual(aa.native_source_path('local:///C:/dir%20one/%E5%8E%9F%E7%89%87.mp4').as_posix(), 'C:/dir one/原片.mp4')
         self.assertEqual(aa.native_source_path(self.sources[0].as_uri()), self.sources[0])
         self.assertEqual(aa.native_source_path(str(self.sources[0])), self.sources[0])
 

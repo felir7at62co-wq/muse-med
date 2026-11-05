@@ -1,0 +1,24 @@
+- region "Project video recovery":
+  - heading "Project video recovery" [level=3]
+  - paragraph: Choose a Muse project to recover its submitted video tasks. Review the video and audio decode results here.
+  - status: Recovery enabled
+  - paragraph: This Host has no video decoder configured
+  - text: Project folder
+  - textbox "Project folder": {{project}}
+  - button "Choose project folder"
+  - button "Enable recovery" [disabled]
+  - button "Disable recovery"
+  - button "Refresh"
+  - heading "Quality reports" [level=4]
+  - paragraph: {{project}}
+  - article:
+    - paragraph: Task 335345
+    - status: Approved
+    - paragraph: Output 1
+    - paragraph: Video decodes
+    - paragraph: Audio decodes
+    - paragraph: MP4 delivered directly
+    - paragraph: {{direct-export}}
+    - paragraph: SHA-256 {{media-sha256}}
+    - button "Deliver MP4 directly"
+    - paragraph: This Host has no Jianying draft generator configured

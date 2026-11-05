@@ -95,9 +95,23 @@ async function desktopComposition(
     console.warn(`muse-med: shipped presets shadow the packaged product presets: ${shadowedPresets.join(', ')}`)
   }
   layers.push([{ insert: productPresetRows }])
+  const bundledSkillDir = bundledSkillDirectory(runtimeDir)
+  const jubianConfig: unknown = rows.get('tool-jubian')?.config
+  if (typeof jubianConfig === 'object' && jubianConfig !== null && !Array.isArray(jubianConfig)
+    && Reflect.get(jubianConfig, 'videoRecoverySettings') === true) {
+    layers.push([{ insert: [{
+      id: 'desktop-approved-episode-render',
+      name: '@deepseek-ai/dsh-desktop-host/approved-episode-render',
+      config: {
+        ffmpegPath: process.env.DSH_FFMPEG_PATH || 'ffmpeg',
+        ffprobePath: process.env.DSH_FFPROBE_PATH || 'ffprobe',
+        fontsDir: process.env.MUSE_FONTS_DIR || 'C:/Windows/Fonts',
+        endingAssetsDir: join(bundledSkillDir, 'tweet-drama-background-render', 'assets'),
+      },
+    }] }])
+  }
   const skillFilesystem = rows.get('skill-filesystem')
   if (skillFilesystem === undefined) throw new Error('muse-med: profile has no skill-filesystem row')
-  const bundledSkillDir = bundledSkillDirectory(runtimeDir)
   const productSkillDir = productSkillDirectory(fileURLToPath(new URL('..', import.meta.url)))
   const userSkillDir = dshHomePath('skills')
   mkdirSync(userSkillDir, { recursive: true })
@@ -113,6 +127,15 @@ async function desktopComposition(
       customSkillDirs: desktopSkillDirectories(productSkillDir, userSkillDir, configuredSkillFilesystem?.config),
     },
   }])
+  const recovery = process.env.MUSE_VIDEO_RECOVERY
+  if (recovery !== undefined) {
+    const jubianConfig: unknown = rows.get('tool-jubian')?.config
+    if (typeof jubianConfig !== 'object' || jubianConfig === null || Array.isArray(jubianConfig)) {
+      throw new Error('muse-med: video recovery requires the Desktop Jubian tool')
+    }
+    const videoRecovery: unknown = JSON.parse(recovery)
+    layers.push([{ id: 'tool-jubian', config: { ...jubianConfig, videoRecovery } }])
+  }
   // Resolve bridge Config only after the setup service installs its startup hook.
   layers.push(feishuGateLayer([...rows.values()]))
   return { profile, patches: layers.slice(profile.layers.length + 1).flat(), moduleOverrides: bundledBridgeModules(runtimeDir) }
@@ -227,11 +250,12 @@ async function main(): Promise<void> {
     source: primarySource,
     root: join(resolveDshHome(), 'dsh-runtimes', 'dsh-primary-runtime'),
     docxReviewMode: 'advisory',
+    jianyingDraft: { automaticExportTimeoutMs: 180_000 },
   })
   installPlatformSessionPublisher(ctx, (session) => {
     if (process.connected) process.send?.({ type: 'platform-session', session })
   })
-  const url = ctx.connection.authenticatedUrl(`http://127.0.0.1:${String(ctx.webServer.port)}`)
+  const url = ctx.connection.authenticatedUrl(`${ctx.webServer.protocol}//127.0.0.1:${String(ctx.webServer.port)}`)
   if (process.connected) process.send({ type: 'ready', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION, url, injections: ctx.webServer.collectIndexInjections() }, (error) => { if (error !== null) console.error(error) })
 }
 

@@ -17,6 +17,9 @@ const embeddedSourceRoots = {
 
 test('packs every owned tool through pnpm without modifying source or exposing local credentials', async () => {
   const output = mkdtempSync(join(tmpdir(), 'muse-download-pack-'))
+  const pnpmRoot = join(repository, 'node_modules/pnpm')
+  const pnpmManifest = JSON.parse(readFileSync(join(pnpmRoot, 'package.json'), 'utf8'))
+  const pnpm = process.env.npm_execpath ?? join(pnpmRoot, pnpmManifest.bin.pnpm)
   const pins = JSON.parse(readFileSync(join(import.meta.dirname, 'owned-downloads.json'), 'utf8'))
   const names = Object.keys(pins)
   const before = names.map(name =>
@@ -24,7 +27,7 @@ test('packs every owned tool through pnpm without modifying source or exposing l
   try {
     const result = spawnSync(process.execPath, [join(import.meta.dirname, 'build-downloads.mjs'), '--out', output], {
       cwd: repository, encoding: 'utf8', timeout: 120000,
-      env: { ...process.env, npm_execpath: join(repository, 'node_modules/pnpm/bin/pnpm.cjs') },
+      env: { ...process.env, npm_execpath: pnpm },
     })
     assert.equal(result.error, undefined)
     assert.equal(result.signal, null)

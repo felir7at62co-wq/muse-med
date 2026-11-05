@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -71,6 +72,30 @@ async function mount(options: {
     ...options.config })
   return { registered, mounted, root }
 }
+
+it('records a rejection only with the current project user’s exact report approval text', async () => {
+  const projectDir = await mkdtemp(join(tmpdir(), 'jubian-review-project-'))
+  onTestFinished(() => rm(projectDir, { recursive: true, force: true }))
+  const key = 'review-fixture'
+  const directory = join(projectDir, 'video_tasks', 'review')
+  await mkdir(directory, { recursive: true })
+  const report = JSON.stringify({ status: 'awaiting_review', idempotency_key: key, task_id: 42 })
+  await writeFile(join(directory, createHash('sha256').update(key).digest('hex') + '.json'), report)
+  const { registered } = await mount({ config: {
+    videoRecovery: { projectDir, keys: [key], ffmpegPath: join(projectDir, 'fixture-ffmpeg') },
+  } })
+  const tool = registered.find(item => item.name === 'jubian_video_review')!
+  const digest = createHash('sha256').update(report).digest('hex')
+  const args = { action: 'reject', idempotency_key: key, digest }
+  const signal = new AbortController().signal
+  const execution = (role: string) => ({ signal, agent: { session: {
+    header: { cwd: projectDir },
+    deriveMessages: () => [{ role, source: { kind: 'user' },
+      content: [{ type: 'text', text: `reject ${key} ${digest}` }] }],
+  } } })
+  await expect(tool.execute(args, execution('assistant'))).rejects.toThrow('requires the exact decision')
+  await expect(tool.execute(args, execution('user'))).resolves.toMatchObject({ decision: { action: 'reject', digest } })
+})
 
 const managedInput = {
   method: 'image_generate', script_id: 1, asset_name: 'Fixture Character', asset_type: 1, prompt: 'fixture portrait',
@@ -418,7 +443,7 @@ describe('tool-jubian registration', () => {
     // three methods and their arguments must be visible in the schema.
     expect((storyboard.properties as Record<string, { enum?: string[] }>).method!.enum)
       .toEqual(['list', 'get', 'create', 'create_batch', 'save', 'edit_preview', 'edit_batch_preview', 'edit_apply',
-        'generate', 'select_assets', 'prepare_video', 'submit_video', 'submit_video_batch', 'erase_subtitle',
+        'generate', 'select_assets', 'prepare_video', 'submit_video', 'submit_video_batch', 'reconcile_video', 'erase_subtitle',
         'delete_preview', 'delete_apply', 'audio_preview', 'audio_apply'])
     expect((storyboard.properties as Record<string, Record<string, unknown>>).selections!).toMatchObject(
       { type: 'array',

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { pnpmInvocation } from '../../../../scripts/pnpm-invocation.ts';
 import { createHash } from 'node:crypto';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -29,7 +30,8 @@ try {
     scriptSha256: createHash('sha256').update(readFileSync(join(skill, 'scripts/download.py'))).digest('hex'), runtime }, null, 2) + '\n');
   const cli = process.env.npm_execpath;
   const packArgs = ['pack', '--json', '--pack-destination', output];
-  const result = spawnSync(cli ? process.execPath : 'npm', cli ? [cli, ...packArgs] : packArgs,
+  const invocation = cli ? pnpmInvocation(packArgs) : { command: 'npm', args: packArgs };
+  const result = spawnSync(invocation.command, invocation.args,
     { cwd: staging, encoding: 'utf8', env: { ...process.env, npm_config_ignore_scripts: 'true' } });
   if (result.error) throw result.error;
   if (result.status !== 0 || result.signal) throw new Error('Douyin package creation failed');

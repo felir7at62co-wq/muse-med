@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import test from 'node:test'
+import { reviewedHostVersion } from './host-runtime.mjs'
 
 const source = join(import.meta.dirname, '../dsh-bridge')
 const overlayPath = join(import.meta.dirname, 'bridge-desktop.mjs')
@@ -22,7 +23,7 @@ test('packs only authenticated Muse transport and refuses the retired Feishu roo
     assert.equal(manifest.exports['./remote'], './lib/remote.mjs')
     assert.equal(manifest.exports['./client'], undefined)
     assert.deepEqual(manifest.dependencies, {
-      ws: '8.21.3', '@deepseek-ai/dsh-muse-account': '0.2.1-alpha.1', '@xmanrui/dsh-im': '5.1.0',
+      ws: '8.21.3', '@deepseek-ai/dsh-muse-account': reviewedHostVersion, '@xmanrui/dsh-im': '5.1.0',
     })
     assert.equal(manifest.devDependencies, undefined)
     assert.equal(manifest.dsh.client, undefined)

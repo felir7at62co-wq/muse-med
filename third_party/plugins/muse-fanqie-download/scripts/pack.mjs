@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { pnpmInvocation } from '../../../../scripts/pnpm-invocation.ts';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
 if (args.length && (args.length !== 2 || args[0] !== '--out' || !isAbsolute(args[1]))) throw new Error('Usage: node scripts/pack.mjs [--out <absolute directory>]');
@@ -13,9 +14,10 @@ const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 if (!source.commit || source.hostVersion !== host.version || manifest.peerDependencies['@deepseek-ai/dsh-tools'] !== host.version
   || manifest.peerDependencies['@deepseek-ai/dsh-agent'] !== host.version) throw new Error('Rebuild host peer versions for this Muse release');
 mkdirSync(output, { recursive: true });
-const npm = process.env.npm_execpath;
-const options = { cwd: root, stdio: 'inherit', env: { ...process.env, npm_config_ignore_scripts: 'true' } };
-const result = npm ? spawnSync(process.execPath, [npm, 'pack', '--pack-destination', output], options)
-  : spawnSync('npm', ['pack', '--pack-destination', output], { ...options, shell: false });
+const packArgs = ['pack', '--pack-destination', output];
+const invocation = process.env.npm_execpath ? pnpmInvocation(packArgs) : { command: 'npm', args: packArgs };
+const result = spawnSync(invocation.command, invocation.args, {
+  cwd: root, stdio: 'inherit', env: { ...process.env, npm_config_ignore_scripts: 'true' },
+});
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;

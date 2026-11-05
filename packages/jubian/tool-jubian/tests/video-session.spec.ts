@@ -10,6 +10,7 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import Llm from '@deepseek-ai/dsh-llm'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import { mountLocalActivations, startTestActivation } from '../../../subagent/subagent/tests/local-activation.ts'
 import Subagents from '@deepseek-ai/dsh-subagent'
 import * as Spawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -54,17 +55,19 @@ async function fixture(defaultModel?: { modelId: string; platformId: string; res
 
 it('records the parent video choice before a fresh spawned child requests its model', async () => {
   const f = await fixture(defaults)
+  await mountLocalActivations(f.ctx)
   await f.ctx.plugin(Subagents)
   await f.ctx.plugin(Spawn, { providerName: 'spawn' })
   const options = await f.service.catalogue()
   const choice = options.find(option => option.maxDurationSeconds === 15)!
   await f.service.select(f.agent, choice.key, 0)
   f.script.push(textResponse('已按继承的视频模型核对本集。'))
-  const run = await f.ctx.subagents.start('spawn', { parent: f.agent,
-    prompt: [{ type: 'text', text: '核对本集所选视频模型与时长。' }], signal: new AbortController().signal })
+  const run = await startTestActivation(f.ctx, 'spawn', {
+    parent: f.agent, label: 'Verify episode video selection', prompt: [{ type: 'text', text: '核对本集所选视频模型与时长。' }],
+  })
   try {
+    const child = run.localAgent
     await run.result
-    const child = f.ctx.agents.get(run.id)!
     const inherited = selectedVideo(child.session)
     expect(inherited).toEqual({ ...choice, revision: 1 })
     expect(child.session.snapshotEvents().filter(event => event.type === 'jubian/video-selection')).toHaveLength(1)

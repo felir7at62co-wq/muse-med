@@ -27,7 +27,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
     const names = catalog.flatMap(entry => entry.schemas.map(s => s.name)).sort()
     expect(names).toEqual([
       'ask_user_question', 'audio_transcribe', 'bash', 'bash', 'bgm_match',
-      'cordis_inspect_list', 'cordis_inspect_query', 'create_goal', 'drama_assets', 'drama_bgm',
+      'cordis_inspect_list', 'cordis_inspect_query', 'create_goal', 'create_worktree', 'drama_assets', 'drama_bgm',
       'drama_character_reference_project', 'drama_character_reference_view', 'drama_character_references',
       'drama_draft_dir', 'drama_project', 'drama_render', 'drama_shot', 'drama_video',
       'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep',
@@ -44,8 +44,9 @@ describe('gen-tool-catalog collectToolCatalog', () => {
       'stagehand_act', 'stagehand_extract', 'stagehand_navigate', 'stagehand_observe', 'stagehand_screenshot',
       'stagehand_tabs', 'str_replace_editor', 'subagent', 'team_task_create', 'team_task_get',
       'team_task_list', 'team_task_update', 'terminal_close', 'terminal_list', 'terminal_open',
-      'terminal_read', 'terminal_send', 'terminal_signal', 'todo_update', 'todo_write', 'update_goal', 'video_contact_sheet', 'video_inspect', 'video_ocr',
-      'wait_agent', 'web_fetch', 'web_search', 'workflow', 'write',
+      'terminal_read', 'terminal_send', 'terminal_signal', 'todo_update', 'todo_write', 'tool_context', 'tool_search',
+      'update_goal', 'video_contact_sheet', 'video_inspect', 'video_ocr',
+      'wait_agent', 'web_fetch', 'web_search', 'workflow', 'working_directory', 'write',
     ])
     // Every tool carries a JSON-Schema `parameters` object (what the model sees).
     for (const entry of catalog) {
@@ -53,6 +54,11 @@ describe('gen-tool-catalog collectToolCatalog', () => {
         expect((schema.parameters as unknown as JsonSchema).type).toBe('object')
       }
     }
+    const directory = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-working-directory')
+    expect(directory?.sources.working_directory).toBe('packages/session/tool-working-directory/src/index.ts')
+    const parameters = directory?.schemas[0]?.parameters
+    expect(parameters).toHaveProperty('properties.cd.type', 'string')
+    expect(parameters?.required ?? []).not.toContain('cd')
   })
 
   it('resolves a runtime-spread enum to its literal members (the payoff over AST)', async () => {

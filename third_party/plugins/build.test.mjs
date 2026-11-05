@@ -3,9 +3,12 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { createRequire } from 'node:module'
+import { dirname, join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 import { hostRuntimeCompatibility, reviewedHostPackageVersion, reviewedHostVersion } from './compatibility/host-runtime.mjs'
+import { mcpDesktopCompatibility } from './compatibility/mcp-desktop.mjs'
 
 const sha256 = buffer => createHash('sha256').update(buffer).digest('hex')
 
@@ -19,15 +22,9 @@ function firstDifference(actual, expected) {
 /**
  * Create the two output directories one reproducible-build comparison needs.
  *
- * Both outputs must sit at the SAME directory depth: `build.mjs` stages every build in a
- * `.source-build-*` directory inside `--out` and links the toolchain into it with junctions, and
- * rolldown records every module it inlines in a `//#region` comment naming the file. Those paths
- * leave the staging tree for the checkout, so they are written relative to the emitted file (or
- * absolute when output and checkout sit on different Windows drives, which is why this only
- * reproduces with both on one drive). One extra `--out` level adds one `../` to each of the four
- * bundled `@heroicons/react` comments in the Codex client bundle, and the two tarballs then differ
- * in `lib/client.js` alone. Two `mkdtempSync` siblings under the OS temp root keep the depth equal;
- * nesting the second output inside the first cannot.
+ * Use sibling outputs because Rolldown records inlined dependency paths relative to the
+ * emitted file when the checkout and output share a drive. Different output depths can
+ * change those paths even when the dependencies are identical.
  *
  * @param {string} label Prefix naming the fixtures the two directories belong to.
  * @returns {[string, string]} The first and second output directories.
@@ -62,8 +59,6 @@ function assertSameBytes(actual, expected, message) {
 
 const root = resolve(import.meta.dirname, '../..')
 const pins = JSON.parse(readFileSync(join(import.meta.dirname, 'sources.json'), 'utf8'))
-const codexRuntimePath = join(import.meta.dirname, 'dsh-codex-subscription/src/subagent-runtime.js')
-const pinnedCodexRuntime = readFileSync(codexRuntimePath, 'utf8')
 const originals = new Map(Object.keys(pins).map(directory => {
   const manifest = JSON.parse(readFileSync(join(import.meta.dirname, directory, 'package.json'), 'utf8'))
   return [manifest.name, manifest]
@@ -86,6 +81,36 @@ test('rejects an unknown source', () => {
   assert.match(result.stderr, /unknown source/)
 })
 
+for (const kind of ['native', 'JavaScript']) {
+  test(`builds with the pinned community pnpm under a ${kind} root Corepack lifecycle`, async () => {
+    const require = createRequire(join(root, 'package.json'))
+    const pnpmRoot = dirname(require.resolve('pnpm/package.json'))
+    const { resolveInstalledBinary } = await import(pathToFileURL(join(pnpmRoot, 'native-binary.mjs')).href)
+    const entrypoint = kind === 'native' ? resolveInstalledBinary() : join(pnpmRoot, 'bin/pnpm.mjs')
+    assert.ok(entrypoint, 'the installed root pnpm has its native executable')
+    const output = mkdtempSync(join(tmpdir(), 'muse-corepack-community-'))
+    try {
+      const result = spawnSync(process.execPath, [join(root, 'third_party/plugins/build.mjs'), '--only', 'dsh-ffmpeg', '--out', output], {
+        cwd: root, encoding: 'utf8', timeout: 90_000,
+        env: { ...process.env, npm_execpath: entrypoint, COREPACK_ROOT: pnpmRoot },
+      })
+      assert.ifError(result.error)
+      assert.equal(result.status, 0, result.stdout + result.stderr)
+      const toolchain = JSON.parse(readFileSync(join(root, 'third_party/plugins/toolchain/package.json'), 'utf8'))
+      const version = toolchain.packageManager.slice('pnpm@'.length)
+      assert.ok((result.stdout + result.stderr).includes(`using pnpm v${version}`), 'the frozen install uses the toolchain version')
+      const archive = readdirSync(output).find(file => file.endsWith('.tgz'))
+      assert.ok(archive, 'the selected community source is packed')
+      const packed = spawnSync('tar', ['-xOzf', join(output, archive), 'package/SOURCE.json'], { encoding: 'utf8' })
+      assert.equal(packed.status, 0, packed.stderr)
+      assert.equal(JSON.parse(packed.stdout).toolchainLockSha256,
+        sha256(readFileSync(join(root, 'third_party/plugins/toolchain/pnpm-lock.yaml'))))
+    } finally {
+      rmSync(output, { recursive: true, force: true })
+    }
+  })
+}
+
 test('builds every desktop plugin with its declared runtime entries and notices', () => {
   const [first, second] = sameDepthOutputs('muse-all-plugins')
   try {
@@ -95,7 +120,7 @@ test('builds every desktop plugin with its declared runtime entries and notices'
     assert.equal(repeated.status, 0)
     const tarballs = readdirSync(first).filter(file => file.endsWith('.tgz'))
     assert.equal(tarballs.length, Object.values(pins).filter(pin => pin.desktop !== false).length)
-    assert.ok(tarballs.some(file => file.startsWith('dsh-codex-subscription-')))
+    assert.ok(tarballs.every(file => !file.startsWith('dsh-codex-subscription-')))
     for (const tarball of tarballs) assertSameBytes(readFileSync(join(second, tarball)), readFileSync(join(first, tarball)), `${tarball} must reproduce from clean source`)
     for (const tarball of tarballs) {
       const list = spawnSync('tar', ['-tzf', join(first, tarball)], { encoding: 'utf8' })
@@ -128,8 +153,7 @@ test('builds every desktop plugin with its declared runtime entries and notices'
           continue
         }
         const version = reviewedHostPackageVersion(dependency)
-        const expected = dependency === '@earendil-works/pi-ai' ? '0.87.1'
-          : version && !range.split(' || ').includes(version) ? `${range} || ${version}` : range
+        const expected = version && !range.split(' || ').includes(version) ? `${range} || ${version}` : range
         assert.equal(manifest.peerDependencies[dependency], expected)
       }
       for (const section of ['dependencies', 'peerDependencies', 'devDependencies', 'optionalDependencies']) {
@@ -139,28 +163,11 @@ test('builds every desktop plugin with its declared runtime entries and notices'
       assert.equal(sourceMetadata.status, 0)
       assert.deepEqual(JSON.parse(sourceMetadata.stdout).hostRuntimeCompatibility, hostRuntimeCompatibility)
       if (manifest.name === 'dsh-skill-mcp-panel') {
-        assert.deepEqual(JSON.parse(sourceMetadata.stdout).compatibilityOverlay, { builtInConnections: 1, globalCliShim: false, sharedAgentSkills: false })
+        assert.deepEqual(JSON.parse(sourceMetadata.stdout).compatibilityOverlay, mcpDesktopCompatibility)
       }
       const entries = value => typeof value === 'string' ? [value] : value && typeof value === 'object' ? Object.values(value).flatMap(entries) : []
       for (const entry of entries(manifest.exports).filter(entry => !entry.includes('*'))) {
         assert.ok(list.stdout.split(/\r?\n/).includes(`package/${entry.replace(/^\.\//, '')}`), `${tarball} omits ${entry}`)
-      }
-      if (tarball.startsWith('dsh-codex-subscription')) {
-        assert.match(list.stdout, /package\/lib\/client.js/)
-        assert.match(list.stdout, /package\/lib\/sketch-psd-worker.js/)
-        assert.match(list.stdout, /package\/THIRD_PARTY_NOTICES.md/)
-        assert.equal(readFileSync(codexRuntimePath, 'utf8'), pinnedCodexRuntime)
-        assert.match(pinnedCodexRuntime, /SUBAGENT_RUNTIME_VERSION = '0\.1\.5-rc\.3'/)
-        const runtime = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/lib/index.js'], { encoding: 'utf8' })
-        assert.equal(runtime.status, 0)
-        assert.ok(runtime.stdout.includes(reviewedHostVersion))
-        assert.doesNotMatch(runtime.stdout, /0\.1\.5-rc\.3/)
-        assert.match(runtime.stdout, /codexFilesystemPath/)
-        const metadata = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/SOURCE.json'], { encoding: 'utf8' })
-        assert.equal(metadata.status, 0)
-        assert.deepEqual(JSON.parse(metadata.stdout).compatibilityOverlay, {
-          subagentRuntimeVersion: reviewedHostVersion, piAiVersion: '0.87.1', piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true, opaqueModelMenus: true, viewportAnchoredModelMenus: true,
-        })
       }
     }
   } finally {
@@ -194,8 +201,9 @@ test('builds only account remote transport without the retired Feishu payload', 
 test('builds ffmpeg twice from source into identical licensed tarballs', () => {
   const [first, second] = sameDepthOutputs('muse-plugin-build-test')
   try {
+    const env = { ...process.env, DSH_FFMPEG_PATH: 'deployment-ffmpeg', DSH_FFPROBE_PATH: 'deployment-ffprobe' }
     for (const output of [first, second]) {
-      const result = spawnSync(process.execPath, [join(root, 'third_party/plugins/build.mjs'), '--only', 'dsh-ffmpeg', '--out', output], { cwd: root, stdio: 'inherit' })
+      const result = spawnSync(process.execPath, [join(root, 'third_party/plugins/build.mjs'), '--only', 'dsh-ffmpeg', '--out', output], { cwd: root, stdio: 'inherit', env })
       assert.equal(result.status, 0, 'source build must succeed')
     }
     const files = [first, second].map(output => join(output, readdirSync(output).find(file => file.endsWith('.tgz'))))
@@ -212,36 +220,15 @@ test('builds ffmpeg twice from source into identical licensed tarballs', () => {
   }
 })
 
-test('builds opaque Codex picker surfaces and records their reviewed overlay in the tarball', () => {
-  const output = mkdtempSync(join(tmpdir(), 'muse-codex-menu-build-'))
-  const retainedStylesPath = join(import.meta.dirname, 'dsh-codex-subscription/src/client-styles.js')
-  const retainedStyles = readFileSync(retainedStylesPath, 'utf8')
+test('rejects the retained Codex source without a Host qualification', () => {
+  const output = mkdtempSync(join(tmpdir(), 'muse-unreviewed-plugin-'))
   try {
     const result = spawnSync(process.execPath,
       [join(import.meta.dirname, 'build.mjs'), '--only', 'dsh-codex-subscription', '--out', output],
-      { cwd: root, stdio: 'inherit' })
-    assert.equal(result.signal, null, 'Codex staging build finishes without a signal')
-    assert.equal(result.status, 0, 'Codex staging build succeeds')
-    const tarball = join(output, readdirSync(output).find(file => file.endsWith('.tgz')))
-    const client = spawnSync('tar', ['-xOzf', tarball, 'package/lib/client.js'], { encoding: 'utf8' })
-    assert.equal(client.signal, null)
-    assert.equal(client.status, 0)
-    for (const selector of ['.codexModelSelectMenu,.codexModelSelectSubmenu', '.codexModelSelectGroupTitle']) {
-      const start = client.stdout.indexOf(`${selector}{`)
-      assert.ok(start >= 0, 'built picker selector exists: ' + selector)
-      const rule = client.stdout.slice(start).split('}')[0]
-      assert.match(rule, /background:var\(--dsw-alias-bg-base\);/)
-      assert.doesNotMatch(rule, /--dsw-specific-menu|backdrop-filter/)
-    }
-    const metadata = spawnSync('tar', ['-xOzf', tarball, 'package/SOURCE.json'], { encoding: 'utf8' })
-    assert.equal(metadata.signal, null)
-    assert.equal(metadata.status, 0)
-    assert.equal(JSON.parse(metadata.stdout).compatibilityOverlay.opaqueModelMenus, true)
-    assert.equal(JSON.parse(metadata.stdout).compatibilityOverlay.viewportAnchoredModelMenus, true)
-    assert.match(client.stdout, /\.codexModelSelectSubmenu\{position:static;/)
-    assert.match(client.stdout, /useAnchoredPosition/)
-    assert.match(client.stdout, /modelBack/)
-    assert.equal(readFileSync(retainedStylesPath, 'utf8'), retainedStyles)
+      { cwd: root, encoding: 'utf8' })
+    assert.equal(result.status, 1)
+    assert.match(result.stderr, /dsh-codex-subscription has no compatibility review for Host/u)
+    assert.deepEqual(readdirSync(output), [])
   } finally {
     rmSync(output, { recursive: true, force: true })
   }

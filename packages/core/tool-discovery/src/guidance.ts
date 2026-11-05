@@ -29,7 +29,7 @@ export function discoveryGuidance(
     }
   }
   for (const [index, { entry, description }] of included.entries()) {
-    const characters = Array.from(description.split(/\r?\n/, 1)[0]?.trim() ?? '').slice(0, maxDescriptionChars)
+    const characters = Array.from(description.split(/\r?\n/, 1).join('').trim()).slice(0, maxDescriptionChars)
     const allowance = Math.floor((maxDirectoryChars - JSON.stringify(directory).length) / (included.length - index))
     const currentLength = JSON.stringify(directory).length
     let low = 0

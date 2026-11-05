@@ -289,7 +289,7 @@ export class SessionProjectionRegistry extends Service {
         if (live.refs === 0) this.registrations.delete(key)
       }
     }.bind(this), 'sessionProjections.register()')
-    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; exact effect identity preserves ordered teardown.
+    // oxlint-disable-next-line typescript/no-misused-promises -- synchronous cleanup; keep the Cordis disposer so effects can adopt it.
     return dispose
   }
 

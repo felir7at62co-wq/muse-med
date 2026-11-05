@@ -125,9 +125,10 @@ export async function* streamWithModelLease(
     const current = await readMuseSession(options.sessionFile, options.baseUrl)
     if (current?.revision !== options.revision) throw new LlmError('Muse login changed', 'MISSING_CREDENTIAL')
     try { combined.throwIfAborted() }
-    catch (error) {
+    catch (_error) {
       if (signal.aborted) throw interruptedAccess(signal)
-      throw interruption() ?? error
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- Before check(), a non-caller abort is the deadline.
+      throw interruption()!
     }
     check()
     for await (const chunk of stream({ baseURL: lease.baseURL, apiKey: lease.apiKey }, combined)) {

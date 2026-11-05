@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.2/github-package-ssh/guide.md
+/:
+  en: a7375166f4f77ff2
+  zh: d9cb476ed5c2c700
+/github-plugin-installation-over-ssh-requires-a-git-rewrite:
+  en: 8d2dc984cebb1e0a
+  zh: 0f226a3471a58668
+/github-plugin-installation-over-ssh-requires-a-git-rewrite/change:
+  en: 138309af84dabab7
+  zh: 65056473b05bd4ba
+/github-plugin-installation-over-ssh-requires-a-git-rewrite/migration:
+  en: 3c17ebbef94ed89b
+  zh: 3122112d3e4821d0

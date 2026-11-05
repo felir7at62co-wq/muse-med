@@ -10,7 +10,11 @@ import { mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
 import * as DeepSeekApiKey from '../../../llm/llm-deepseek-api-key/src/index.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { createSessionTestController } from '../../../api/session-controller/tests/test-remote.ts'
+
+const directCredential = credentialRef('OWN_DEEPSEEK_KEY')
+const directTestKey = 'own-provider-test-value'
 
 export async function directProviderFixture(configured: boolean) {
   return await configurationFixture({ hmr: false, rows: [
@@ -18,17 +22,20 @@ export async function directProviderFixture(configured: boolean) {
     { id: 'settings', name: 'cordis:settings' },
     { id: 'credentials', name: 'cordis:credentials', config: {
       OTHER_PROVIDER_KEY: 'other-provider-test-value',
-      ...(configured ? { OWN_DEEPSEEK_KEY: 'own-provider-test-value' } : {}),
+      ...(configured ? { [directCredential]: directTestKey } : {}),
     } },
     { id: 'agent-default-model', name: 'cordis:model', config: { provider: 'deepseek-official', model: 'previous-default' } },
     { id: 'llm', name: 'cordis:llm' },
-    { id: 'direct-deepseek', name: 'cordis:deepseek', config: { apiKeyEnv: 'OWN_DEEPSEEK_KEY',
+    { id: 'direct-deepseek', name: 'cordis:deepseek', config: { apiKeyEnv: directCredential,
       models: [{ id: 'deepseek-flash', name: 'DeepSeek-Flash' }] } },
   ], builtins: { llm: LlmRuntime, credentials: MemoryCredentials, deepseek: DeepSeekApiKey } })
 }
 
-export async function oldSessionFixture(configured: boolean, cwd: string) {
-  const fixture = await directProviderFixture(configured)
+export async function oldSessionFixture(keepDirectCredential: boolean, cwd: string) {
+  const fixture = await directProviderFixture(true)
+  const setDirectCredential = (configured: boolean) => configured
+    ? fixture.ctx.credentials.set(directCredential, directTestKey)
+    : fixture.ctx.credentials.unset(directCredential)
   await fixture.ctx.plugin(SessionStore)
   await fixture.ctx.plugin(SessionProjectionRegistry)
   await fixture.ctx.plugin(SystemPrompt, { personaPrefix: 'You use {{model}}.' })
@@ -42,7 +49,8 @@ export async function oldSessionFixture(configured: boolean, cwd: string) {
     provider: 'deepseek-official', model: 'deepseek-flash',
   }, { cwd })
   const initialSelection = (await controller.selectModel({ sessionId: agent.id, provider: 'deepseek-official', model: 'deepseek-flash' })).selected
-  return { ...fixture, controller, driver, agent, initialSelection }
+  if (!keepDirectCredential) await setDirectCredential(false)
+  return { ...fixture, controller, driver, agent, initialSelection, setDirectCredential }
 }
 
 export function waitForIdle(context: Context, agent: Agent): Promise<void> {

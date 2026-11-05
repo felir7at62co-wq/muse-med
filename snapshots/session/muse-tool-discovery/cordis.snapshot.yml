@@ -31,3 +31,9 @@
 # The headless case does not consume generated Typert endpoints.
 - id: typert-loader
   disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true

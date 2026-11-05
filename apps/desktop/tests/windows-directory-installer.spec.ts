@@ -9,6 +9,12 @@ const require = createRequire(import.meta.url)
 const section = readFileSync(join(dirname(require.resolve('app-builder-lib/package.json')),
   'templates/nsis/installSection.nsh'), 'utf8')
 
+it('uses the same NSIS target as the electron-builder CLI', () => {
+  const requireFromBuilder = createRequire(require.resolve('electron-builder/package.json'))
+  const target = 'app-builder-lib/out/targets/nsis/NsisTarget.js'
+  expect(require.resolve(target)).toBe(requireFromBuilder.resolve(target))
+})
+
 it('keeps data cleanup out of the upstream template while retaining application removal and registration cleanup', () => {
   const source = readFileSync(join(dirname(require.resolve('app-builder-lib/package.json')), 'templates/nsis/uninstaller.nsh'), 'utf8')
   const adapted = directoryUninstaller(source)

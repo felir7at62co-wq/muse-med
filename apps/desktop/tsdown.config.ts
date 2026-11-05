@@ -56,6 +56,7 @@ export default defineConfig([
     plugins: [packagedImportsPlugin(mainProcessImports)],
     alias: {
       '../scripts/desktop-build-version.mjs': fileURLToPath(new URL('./scripts/desktop-build-version.mjs', import.meta.url)),
+      '../scripts/supermuse-identity.mjs': fileURLToPath(new URL('./scripts/supermuse-identity.mjs', import.meta.url)),
     },
     define: clientVersionDefine,
     onSuccess: async () => {

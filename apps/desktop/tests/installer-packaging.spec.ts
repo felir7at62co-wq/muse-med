@@ -1,6 +1,7 @@
 import { tmpdir } from 'node:os'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 import { Arch, Platform } from 'electron-builder'
 import { Packager } from 'app-builder-lib'
 import { describe, expect, it, vi } from 'vitest'
@@ -29,6 +30,42 @@ describe('installer preparation preserves application dependencies', () => {
     expect(config.publish).toEqual([expect.objectContaining({
       provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel: 'latest',
     })])
+  })
+
+  it('isolates Supermuse installation and disables the ordinary Muse update feed', async () => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const config = createElectronBuilderConfig({
+      DSH_DESKTOP_APP_ID: 'cn.aigcpipeline.supermuse.acceptance',
+      DSH_DESKTOP_UNSIGNED: '1',
+    }, 'win32', 'x64')
+    expect(config.productName).toBe('Supermuse')
+    expect(config.extraMetadata).toMatchObject({ name: 'supermuse', dshDesktopAppId: config.appId })
+    expect(config.extraMetadata).not.toHaveProperty('dshMandatoryUpdatePolicy')
+    expect(config.win.executableName).toBe('Supermuse')
+    expect(config.protocols).toEqual([])
+    expect(config.publish).toBeNull()
+  })
+
+  it('uses the isolated artifact directory and no update feed for signed Supermuse', async () => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const { desktopTargetBuildPaths } = await import('../scripts/desktop-build-paths.mjs')
+    const signing = await import('../scripts/windows-sign.mjs')
+    const sign = vi.fn(async () => undefined)
+    const signer = vi.spyOn(signing, 'createWindowsTokenSigner').mockReturnValue(sign)
+    const bootstrap = vi.spyOn(signing, 'installWindowsNsisBootstrapSigner').mockImplementation(() => undefined)
+    try {
+      const config = createElectronBuilderConfig({ DSH_DESKTOP_APP_ID: ' cn.aigcpipeline.supermuse.acceptance ' }, 'win32', 'x64')
+      expect(config.win.forceCodeSigning).toBe(true)
+      expect(config.win.signtoolOptions).toMatchObject({ sign, publisherName: undefined })
+      expect(config.publish).toBeNull()
+      expect(config.protocols).toEqual([])
+      expect(config.artifactName).toBe('supermuse-${version}-${os}-${arch}.${ext}')
+      expect(config.directories.output).toBe(join(desktopTargetBuildPaths('win-x64').root, 'supermuse-signed-artifacts'))
+      expect(sign).not.toHaveBeenCalled()
+    } finally {
+      bootstrap.mockRestore()
+      signer.mockRestore()
+    }
   })
 
   it('keeps nested video assets in the main Windows installer payload', async () => {

@@ -1,26 +1,31 @@
 /** Desktop model defaults keep the native provider available for explicit user configuration. */
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadOverlayPatches, composeEntries } from '@deepseek-ai/dsh-app-boot'
-import { expect, it } from 'vitest'
+import { expect, it, onTestFinished } from 'vitest'
 import LlmRuntime from '../../../packages/llm/llm/src/index.ts'
 import * as DeepSeekApiKey from '../../../packages/llm/llm-deepseek-api-key/src/index.ts'
 import { credentialRef } from '../../../packages/credentials/credentials/src/index.ts'
-import { MemoryCredentials } from '../../../packages/credentials/credentials/tests/memory.ts'
+import LocalCredentials from '../../../packages/credentials/credentials-local/src/index.ts'
 import { configurationFixture } from '../../../packages/settings/settings/tests/configuration-fixture.ts'
 
 async function fixture() {
+  const credentialHome = await mkdtemp(join(tmpdir(), 'muse-model-credentials-'))
+  onTestFinished(async () => { await rm(credentialHome, { recursive: true, force: true }) })
   const defaults = loadOverlayPatches('muse-default-models', fileURLToPath(new URL(
     '../config/defaults.cordis.patch.yml', import.meta.url,
   ))).filter(patch => patch.id === 'llm-deepseek')
   const rows = composeEntries([[{ insert: [
     { id: 'config-editor', name: 'cordis:editor' },
     { id: 'settings', name: 'cordis:settings' },
-    { id: 'credentials', name: 'cordis:credentials' },
+    { id: 'credentials', name: 'cordis:credentials', config: { dshHome: credentialHome, watch: false } },
     { id: 'llm', name: 'cordis:llm' },
     { id: 'llm-deepseek', name: 'cordis:deepseek' },
   ] }], defaults])
   return await configurationFixture({ hmr: false, rows,
-    builtins: { llm: LlmRuntime, credentials: MemoryCredentials, deepseek: DeepSeekApiKey } })
+    builtins: { llm: LlmRuntime, credentials: LocalCredentials, deepseek: DeepSeekApiKey } })
 }
 
 it('offers no unconfigured native DeepSeek model in a fresh Muse profile', async () => {
@@ -53,5 +58,6 @@ it('lets users configure their own native model and credential and keeps the mod
     .toMatchObject({ models: [expect.objectContaining(model)], apiKeyEnv: 'OWN_DEEPSEEK_KEY' })
   await ctx.fiber.dispose()
   const restored = await start()
+  expect(await restored.credentials.describe(credentialRef('OWN_DEEPSEEK_KEY'))).toMatchObject({ configured: true })
   expect(await restored.llm.listModels('deepseek-official')).toEqual(catalog)
 })

@@ -6,3 +6,4 @@ recording: authored
 header:
   class: muse-reverse-fanqie-tool-catalog
   pin: true
+writerOutput: true

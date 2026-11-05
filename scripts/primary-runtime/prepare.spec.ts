@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -32,6 +32,27 @@ it('rejects a corrupt cached pnpm executable before copying a runtime', async ()
     await writeFile(join(root, name), 'corrupt')
     await expect(preparePnpmRuntime('mac-arm64', join(root, 'output'), root)).rejects.toThrow('checksum mismatch')
     expect(await readFile(join(root, name), 'utf8')).toBe('corrupt')
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it('checks the supplied pnpm wrapper against the locked platform executable', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-pnpm-supplied-wrapper-'))
+  try {
+    const wrapper = join(root, 'wrapper')
+    const cache = join(root, 'cache')
+    const output = join(root, 'output')
+    const artifact = pnpmLock.targets['win-x64']
+    await mkdir(wrapper)
+    await mkdir(cache)
+    const manifest = join(wrapper, 'package.json')
+    const optionalDependencies = { [artifact.package]: pnpmLock.version }
+    await writeFile(manifest, JSON.stringify({ name: 'pnpm', version: '0.0.0', optionalDependencies }))
+    await expect(preparePnpmRuntime('win-x64', output, cache, wrapper)).rejects.toThrow('pnpm@0.0.0 does not match locked executable')
+
+    await writeFile(manifest, JSON.stringify({ name: 'pnpm', version: pnpmLock.version, optionalDependencies }))
+    const digest = Buffer.from(artifact.integrity.slice('sha512-'.length), 'base64').toString('hex')
+    await writeFile(join(cache, digest), 'corrupt')
+    await expect(preparePnpmRuntime('win-x64', output, cache, wrapper)).rejects.toThrow('checksum mismatch')
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
@@ -139,7 +160,11 @@ it('extracts a hash-verified cached library without a Python installer or networ
     const hash = createHash('sha256').update(libraryWheel).digest('hex')
     const archive = join(root, hash)
     await writeFile(archive, libraryWheel)
+    const original = await stat(archive)
     expect(await downloadPrimaryRuntimeAsset('https://unused.invalid/library.whl', hash, root)).toBe(archive)
+    const reused = await stat(archive)
+    expect(reused.ino).toBe(original.ino)
+    expect(reused.mtimeMs).toBe(original.mtimeMs)
     await unpackPrimaryRuntimeWheel(archive, join(root, 'site-packages'))
     expect(await readFile(join(root, 'site-packages/sample.py'), 'utf8')).toBe('sample = 42\n')
     await writeFile(archive, 'corrupt archive')
@@ -164,7 +189,8 @@ it('fully extracts a large deflate-compressed wheel entry', async () => {
     const archive = join(root, 'large.whl')
     await writeFile(archive, zipSync({ 'large.bin': expected }, { level: 6 }))
     await unpackPrimaryRuntimeWheel(archive, root)
-    expect(await readFile(join(root, 'large.bin'))).toEqual(expected)
+    // Native byte equality avoids a per-byte matcher traversal for this 1 MiB expected output.
+    expect((await readFile(join(root, 'large.bin'))).equals(expected)).toBe(true)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, globSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { capture } from '../../../scripts/release/process.ts'
-import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { desktopArtifactDirectory, desktopTargetBuildPaths } from './desktop-build-paths.mjs'
 import type { DesktopPackageTargetName } from './package-target.ts'
 
 /** Fixed identifiers of the packaging pipeline's steps, in execution order. */
@@ -99,12 +99,14 @@ function tarballName(manifestPath: string): string {
  * @param root - absolute repository root.
  * @param target - release target the run packages.
  * @param unsigned - whether artifacts omit publisher signing and notarization.
+ * @param appId - packaged application ID.
  * @returns The steps in execution order, with the paths each produces.
  */
 export function desktopPackageSteps(
   root: string,
   target: DesktopPackageTargetName,
   unsigned: boolean,
+  appId?: string,
 ): readonly DesktopPackageStep[] {
   const paths = desktopTargetBuildPaths(target)
   const repoPath = (absolute: string): string => relative(root, absolute).replaceAll('\\', '/')
@@ -114,7 +116,7 @@ export function desktopPackageSteps(
   const runtime = repoPath(paths.runtime)
   const packageSet = repoPath(paths.packageSet)
   const dsh = repoPath(paths.dsh)
-  const artifacts = repoPath(unsigned ? join(paths.root, 'unsigned-artifacts') : paths.artifacts)
+  const artifacts = repoPath(desktopArtifactDirectory(target, unsigned, appId))
   const packedTarball = (directory: string, note: string): DesktopPackageArtifact => {
     const file = tarballName(join(root, directory, 'package.json'))
     return { glob: `${packedDsh}/${file}`, label: `${file} (${note})`, kind: 'files' }
@@ -218,7 +220,7 @@ export function desktopPackageSteps(
     {
       id: 'S13',
       title: 'build the installer with electron-builder',
-      artifacts: [{ glob: artifacts, label: 'installer and update metadata', kind: 'directory' }],
+      artifacts: [{ glob: artifacts, label: 'installer and packaging metadata', kind: 'directory' }],
     },
   ]
 }

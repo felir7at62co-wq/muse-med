@@ -152,6 +152,12 @@ describe('explicit image catalogue selection', () => {
   })
 })
 
+it.each([null, 7])('rejects a malformed material inventory from the provider (%j)', async (data) => {
+  const { client } = stubClient(() => data)
+  await expect(assetMethod(client, ledger, { method: 'materials', script_id: 2708 }))
+    .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+})
+
 describe('jubian_video resolution guidance', () => {
   it.each([
     { status: 'succeeded', parent: 42, url: 'https://media.example/result.mp4', ready: 1 },
@@ -816,6 +822,24 @@ describe('jubian_video', () => {
     expect(sleep).not.toHaveBeenCalled()
     expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
     expect(await ledger.records()).toHaveLength(1)
+  })
+
+  it('reports the single active failed candidate when a parent also retains old generated rows', async () => {
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.method === 'POST') return 83749
+      if (request.path.includes('getGeneratedImageByAssetId')) return [
+        { assetId: 83749, id: null, assetUrl: null, hsAssetStatus: 'Active', isUsed: 0,
+          taskId: 545217, resultStatus: 'failed', resultMsg: 'provider failed' },
+        { assetId: 83749, id: 899, assetUrl: 'https://media.example/old.png', hsAssetStatus: 'inactive', isUsed: 1 },
+      ]
+      return { id: 83749, hsAssetStatus: null }
+    })
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'staging', asset_type: 2, prompt: 'p', idempotency_key: 'failed-active-candidate' },
+    imageDeps({ timeoutMs: 0 }))
+    expect(result).toMatchObject({ outcome: 'accepted', asset_status: 'failed' })
+    expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
   })
 
   it.each(['Active', null])('does not accept an unconfirmed image task with a URL when parent status is %s', async (parentStatus) => {

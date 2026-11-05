@@ -1179,6 +1179,29 @@ describe('refreshFixtureReplacements', () => {
 })
 
 describe('stabilizeRefreshLog', () => {
+  it.each([
+    { name: 'Windows escaped', cwd: String.raw`C:\scratch\sdk-snapshot-quoted"世界` },
+    { name: 'POSIX', cwd: '/tmp/sdk-snapshot-quoted"世界' },
+  ])('retains tokenized $name workspace paths while refreshing new semantic events', ({ cwd }) => {
+    const external = '/outside/keep-this.mp4'
+    const fresh = [
+      { type: 'session', id: 'fresh-session', createdAt: 200, cwd },
+      { type: 'user/message', seq: 1, time: 201, data: { content: [{ type: 'text', text: `Current working directory: ${JSON.stringify(cwd)}.` }] } },
+      { type: 'video/review', seq: 2, time: 202, data: { kind: 'start', review: { path: `${cwd}/sdk-video.mp4`, external, revision: 'new' } } },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n'
+    const existing = [
+      { type: 'session', id: 'saved-session', createdAt: 100, cwd: '{{cwd}}' },
+      { type: 'user/message', seq: 1, time: 101, data: { content: [{ type: 'text', text: 'Current working directory: "{{cwd}}".' }] } },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n'
+    const replacements = refreshFixtureReplacements([{ id: 'fresh-session', createdAt: 200, content: fresh }], [existing])
+    const refreshed = stabilize(tokenizeSessionFixtureCwd(fresh), existing, replacements, fixtureContext(fresh))
+    expect(refreshed.trimEnd().split('\n').map((line: string) => JSON.parse(line) as Record<string, unknown>)).toEqual([
+      { type: 'session', id: 'saved-session', createdAt: 100, cwd: '{{cwd}}' },
+      { type: 'user/message', seq: 1, time: 101, data: { content: [{ type: 'text', text: 'Current working directory: "{{cwd}}".' }] } },
+      { type: 'video/review', seq: 2, time: 202, data: { kind: 'start', review: { path: '{{cwd}}/sdk-video.mp4', external, revision: 'new' } } },
+    ])
+  })
+
   it('preserves unpacked member times when refresh first packs a chunk run', () => {
     const fresh = [
       '{"type":"session","id":"same","createdAt":200}',

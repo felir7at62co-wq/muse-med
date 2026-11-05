@@ -86,7 +86,6 @@ const DESKTOP_PROFILE_BUNDLES = [
   'dsh-ffmpeg', '@wenbin_wb/dsh-bridge',
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
   DESKTOP_FEISHU_PACKAGE,
-  DESKTOP_CODEX_PACKAGE,
   DESKTOP_MUSE_BOT_PACKAGE,
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
@@ -185,20 +184,17 @@ function projectManifest(projectDir: string): DesktopProjectManifest {
  * A profile stores the built-in bundle list of the release that wrote it, followed by its own
  * third-party bundles, so a release that appends a built-in bundle leaves the built-in list as a
  * true prefix of the stored list and the remainder is still that profile's third-party list. An
- * existing external Feishu, Codex subscription, or Muse Bot bundle is promoted into its built-in position. Other missing
+ * existing external Feishu or Muse Bot bundle is promoted into its built-in position. Other missing
  * middle bundles, reordered built-ins, and unknown bundles ahead of them remain invalid.
  *
  * @param stored - `dsh.profile.bundles` as an earlier release wrote it.
  * @returns Bundles stored after an incomplete built-in prefix, or undefined when the prefix is complete.
  */
 function pendingBuiltInBundles(stored: readonly string[]): readonly string[] | undefined {
-  const legacyCodexPosition = stored.indexOf(DESKTOP_CODEX_PACKAGE)
-  const normalized = legacyCodexPosition >= 0 && legacyCodexPosition < DESKTOP_PROFILE_BUNDLES.indexOf(DESKTOP_CODEX_PACKAGE)
-    ? stored.filter(bundle => bundle !== DESKTOP_CODEX_PACKAGE) : stored
-  const missingAt = DESKTOP_PROFILE_BUNDLES.findIndex((bundle, index) => normalized[index] !== bundle)
+  const missingAt = DESKTOP_PROFILE_BUNDLES.findIndex((bundle, index) => stored[index] !== bundle)
   if (missingAt === -1) return undefined
-  const tail = normalized.slice(missingAt)
-  const promoted = new Set<string>([DESKTOP_FEISHU_PACKAGE, DESKTOP_CODEX_PACKAGE, DESKTOP_MUSE_BOT_PACKAGE])
+  const tail = stored.slice(missingAt)
+  const promoted = new Set<string>([DESKTOP_FEISHU_PACKAGE, DESKTOP_MUSE_BOT_PACKAGE])
   if ([...promoted].some(bundle => tail.filter(candidate => candidate === bundle).length > 1)) {
     throw new Error('desktop project: profile bundle list contains a duplicate package')
   }
@@ -238,11 +234,12 @@ function profilePluginNames(projectDir: string): readonly string[] {
   const retired = manifest.dsh.profile.bundles.includes('@moyu-good/dsh-lark-bridge')
   const retiredPonytail = manifest.dsh.profile.bundles.includes('@mengyuly/dsh-ponytail')
   const retiredFeishu = manifest.dsh.profile.bundles.includes(RETIRED_FEISHU_PACKAGE)
+  const retiredCodex = manifest.dsh.profile.bundles.includes(DESKTOP_CODEX_PACKAGE)
   if (new Set(manifest.dsh.profile.bundles).size !== manifest.dsh.profile.bundles.length) {
     throw new Error('desktop project: profile bundle list contains a duplicate package')
   }
   const normalized = manifest.dsh.profile.bundles
-    .filter(bundle => bundle !== '@mengyuly/dsh-ponytail' && bundle !== RETIRED_FEISHU_PACKAGE)
+    .filter(bundle => bundle !== '@mengyuly/dsh-ponytail' && bundle !== RETIRED_FEISHU_PACKAGE && bundle !== DESKTOP_CODEX_PACKAGE)
     .map(bundle => bundle === '@moyu-good/dsh-lark-bridge' ? '@wenbin_wb/dsh-bridge' : bundle)
   const pending = pendingBuiltInBundles(normalized)
   const bundles = pending === undefined ? normalized : [...DESKTOP_PROFILE_BUNDLES, ...pending]
@@ -251,7 +248,7 @@ function profilePluginNames(projectDir: string): readonly string[] {
   }
   const plugins = bundles.slice(DESKTOP_PROFILE_BUNDLES.length)
   for (const plugin of plugins) assertPackageName(plugin)
-  if (pending !== undefined || retired || retiredPonytail || retiredFeishu) {
+  if (pending !== undefined || retired || retiredPonytail || retiredFeishu || retiredCodex) {
     backupProfileManifest(projectDir)
     if (retired) {
       const patchPath = join(projectDir, 'cordis.patch.yml')
@@ -279,7 +276,10 @@ function writeProfilePlugins(projectDir: string, plugins: readonly DesktopPlugin
       ...manifest.dsh,
       profile: {
         ...manifest.dsh.profile,
-        bundles: [...DESKTOP_PROFILE_BUNDLES, ...plugins.filter(plugin => plugin.enabled).map(plugin => plugin.name)],
+        bundles: [
+          ...DESKTOP_PROFILE_BUNDLES,
+          ...plugins.filter(plugin => plugin.enabled && plugin.name !== DESKTOP_CODEX_PACKAGE).map(plugin => plugin.name),
+        ],
       },
     },
   } satisfies DesktopProjectManifest)
@@ -492,6 +492,7 @@ export class DesktopProjectManager {
     switch (mutation.type) {
       case 'plugin-add': {
         const requestedName = packageNameFromSpec(mutation.spec)
+        if (requestedName === DESKTOP_CODEX_PACKAGE) throw new Error('Supermuse uses models supplied by the Muse account')
         if (this.currentRuntime().sharedPackages.some(entry => entry.name === requestedName)) {
           throw new Error(`desktop project: cannot install host-owned package ${requestedName}`)
         }
@@ -531,6 +532,7 @@ export class DesktopProjectManager {
         return
       case 'plugin-toggle': {
         assertPackageName(mutation.name)
+        if (mutation.enabled && mutation.name === DESKTOP_CODEX_PACKAGE) throw new Error('Supermuse uses models supplied by the Muse account')
         const plugins = pluginRecords(projectDir)
         if (!plugins.some(plugin => plugin.name === mutation.name)) throw new Error(`desktop project: plugin ${mutation.name} is not installed`)
         writeProfilePlugins(projectDir, plugins.map(plugin => (

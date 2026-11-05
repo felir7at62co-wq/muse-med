@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write third_party/plugins/README.md
 /community-plugin-source-and-builds:
-  en: 04bd99afb4a7fc79
-  zh: 5ae91f5b263363a1
+  en: 9ca818e8edc2947d
+  zh: e746cdb95fe64475
 /community-plugin-source-and-builds/build:
-  en: 4505d961891e1300
-  zh: 5b2adce0a51bb83d
+  en: 223e14a90b4888af
+  zh: 326a0cf98feab0c4
 /community-plugin-source-and-builds/compatibility-and-desktop-integration:
-  en: b9f9f74aa78a0a1a
-  zh: 6a118cba746175c7
+  en: 7503f086179dd0f7
+  zh: 572cb3f80ed7ccf6
 /community-plugin-source-and-builds/compatibility-and-desktop-integration/muse-remote-desktop-and-feishu:
   en: 9d561e4eef12e2c7
   zh: cc41ab167c532a45

@@ -2,30 +2,30 @@ import { describe, expect, it } from 'vitest'
 import { resolveOxlintInvocation } from './run-oxlint.ts'
 
 describe('Oxlint invocation', () => {
-  it('preserves the ordinary default invocation', () => {
+  it('uses repository configuration without retained nested plugin settings', () => {
     expect(resolveOxlintInvocation(['.'], { PATH: '/bin' })).toEqual({
-      args: ['.'],
+      args: ['.', '--disable-nested-config'],
       env: { PATH: '/bin' },
     })
   })
 
   it('bounds both worker pools from one setting', () => {
     expect(resolveOxlintInvocation(['.', '--fix'], { DSH_OXLINT_THREADS: '4', GOMAXPROCS: '12' })).toEqual({
-      args: ['.', '--fix', '--threads=4'],
+      args: ['.', '--fix', '--disable-nested-config', '--threads=4'],
       env: { DSH_OXLINT_THREADS: '4', GOMAXPROCS: '4' },
     })
   })
 
   it('uses location-preserving diagnostics in CI', () => {
     expect(resolveOxlintInvocation(['.'], { CI: 'true', DSH_OXLINT_THREADS: '4' })).toEqual({
-      args: ['.', '--format=default', '--threads=4'],
+      args: ['.', '--disable-nested-config', '--format=default', '--threads=4'],
       env: { CI: 'true', DSH_OXLINT_THREADS: '4', GOMAXPROCS: '4' },
     })
   })
 
   it('preserves an explicitly selected CI formatter', () => {
     expect(resolveOxlintInvocation(['.', '--format', 'github'], { CI: 'true' }).args)
-      .toEqual(['.', '--format', 'github'])
+      .toEqual(['.', '--format', 'github', '--disable-nested-config'])
   })
 
   it.each(['0', '-1', '1.5', 'auto'])('rejects invalid worker bound %s', (value) => {

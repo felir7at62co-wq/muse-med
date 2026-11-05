@@ -57,8 +57,8 @@ async function fixture(options: { duration?: number; range?: number; ptc?: boole
   const errors: string[] = []
   ctx.on('agent/error', ({ error }) => { errors.push(String(error)) })
   fixtures.push({ ctx, root })
-  await mountAgentLoopTestDependencies(ctx, { tools: { mode: options.ptc ? 'ptc' : 'native' } })
   await ctx.plugin(LocalFileSystem, { cwd: root })
+  await mountAgentLoopTestDependencies(ctx, { workingDirectory: true, tools: { mode: options.ptc ? 'ptc' : 'native' } })
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
   ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'danger-full-access', workspaceRoot: root }) } as never)

@@ -10,6 +10,13 @@ beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'jubian-ledger-')) 
 afterEach(async () => { await rm(root, { recursive: true, force: true }) })
 
 describe('JubianLedger', () => {
+  it.each(['invalid', [42]])('refuses malformed durable pre-dispatch task IDs: %j', async (beforeTaskIds) => {
+    await writeFile(join(root, '2026-09-01.ndjson'), JSON.stringify({ phase: 'begin',
+      record_id: 'invalid-task-history', idempotency_key: 'invalid-task-history', method: 'storyboard_native_submit',
+      at: '2026-09-01T00:00:00.000Z', request_sha256: 'request-digest', before_task_ids: beforeTaskIds }) + '\n')
+    await expect(new JubianLedger({ root }).find('invalid-task-history')).rejects.toThrow('invalid pre-dispatch task IDs')
+  })
+
   it('refuses a prepared intent under another key without recording it', async () => {
     const ledger = new JubianLedger({ root })
     await expect(ledger.beginChecked('claimed', async () => ({ idempotencyKey: 'different',

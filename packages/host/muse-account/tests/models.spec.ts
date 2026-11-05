@@ -53,6 +53,41 @@ afterEach(async () => {
   vi.unstubAllGlobals()
 })
 const sessionFile = (): string => join(root, 'session.json')
+
+it.each(['matching', 'preferred', 'fallback', 'empty-provider'] as const)(
+  'routes an internal-only request through the %s account candidate', async (candidate) => {
+    const fixture = await oldSessionFixture(true)
+    await login()
+    const providers = candidate === 'matching' ? [{ ...suppliedCatalog.providers[1], models: [
+      { ...suppliedCatalog.providers[1]!.models[0], defaultReasoningEffort: 'low' },
+    ] }]
+      : [catalog.providers[0], { ...catalog.providers[0], id: 'second', name: 'Second' }]
+    models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+      internalModelsOnly: true, fetcher: async () => Response.json({ providers }) })
+    await models.refresh()
+    const preferred = candidate === 'preferred' ? { provider: 'muse-cloud-studio', model: 'writer' }
+      : { provider: 'personal', model: 'private-model' }
+    await fixture.ctx.settings.replace('agent-default-model', preferred)
+    if (candidate === 'empty-provider') {
+      const list = fixture.ctx.llm.listModels.bind(fixture.ctx.llm)
+      vi.spyOn(fixture.ctx.llm, 'listModels').mockImplementation(provider =>
+        provider === 'muse-cloud-studio' ? Promise.resolve([]) : list(provider))
+    }
+    const request = { provider: 'deepseek-official', model: 'deepseek-flash',
+      ...(candidate === 'matching' && fixture.initialSelection.reasoningEffort !== undefined
+        ? { reasoningEffort: ReasoningEffortId(fixture.initialSelection.reasoningEffort) } : {}) }
+    const routed = await agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request', {
+      turn: 1, step: 1, signal: new AbortController().signal,
+    }, async () => request)
+    const expected = candidate === 'matching' ? { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash', reasoningEffort: ReasoningEffortId('low') }
+      : { provider: candidate === 'empty-provider' ? 'muse-cloud-second' : 'muse-cloud-studio', model: 'writer' }
+    expect(routed).toEqual(expected)
+    const existing = { ...expected, reasoningEffort: ReasoningEffortId('low') }
+    expect(await agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request', {
+      turn: 1, step: 2, signal: new AbortController().signal,
+    }, async () => existing)).toBe(existing)
+  },
+)
 async function login(username = 'alice'): Promise<void> {
   await writeMuseSession(sessionFile(), { baseUrl, username, cookie: `__Host-muse=${username}-session` })
 }
@@ -611,6 +646,37 @@ it.each(['plugin', 'desktop'] as const)('routes an existing unconfigured direct 
   ))
 })
 
+it('requires the signed-in Muse route even when the old direct provider has a key', async () => {
+  const fixture = await oldSessionFixture(true)
+  const server = await mockServer([{ events: textEvents }])
+  models = new MuseModels(fixture.ctx, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    internalModelsOnly: true, excludedProviderIds: ['aa'], fetcher: async () => Response.json(suppliedCatalog) })
+  const signal = new AbortController().signal
+  const { reasoningEffort, ...initialRoute } = fixture.initialSelection
+  const request = () => agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request',
+    { turn: 1, step: 1, signal },
+    () => Promise.resolve({ ...initialRoute,
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(reasoningEffort) }) }))
+  const attemptDirect = async () => await assemble(fixture.ctx, {
+    provider: 'deepseek-official', model: 'deepseek-flash', messages: [],
+  })
+  await models.refresh()
+  await expect(request()).rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
+  await expect(attemptDirect()).rejects.toMatchObject({ code: 'MISSING_CREDENTIAL' })
+
+  await writeMuseSession(sessionFile(), { baseUrl: server.url, username: 'alice', cookie: '__Host-muse=alice-session' })
+  await models.refresh()
+  await expect(attemptDirect()).rejects.toMatchObject({ code: 'UNKNOWN_MODEL' })
+  const rerouted = await request()
+  expect(rerouted).toEqual({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
+  expect(fixture.ctx.agentDefaultModel.currentSelection()).toEqual(rerouted)
+  expect(fixture.agent.session.snapshotEvents().filter(event => event.type === 'model/selection').at(-1)?.data)
+    .toEqual(rerouted)
+  const result = await assemble(fixture.ctx, { ...rerouted, messages: [] })
+  expect(result.finish).toEqual({ kind: 'stop' })
+  expect(server.paths).toEqual(['/api/desktop-models/deepseek-official/chat/completions'])
+  expect(server.headers[0]?.authorization).toBe('Bearer alice-session')
+})
 it('preserves an existing direct session with its own configured key', async () => {
   const fixture = await oldSessionFixture(true)
   await login()
@@ -651,6 +717,7 @@ it.each(['provider', 'reasoning'] as const)('retains a newer explicit %s selecti
   await models.refresh()
   const wanted = change === 'provider' ? { provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' }
     : { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'off' }
+  if (change === 'reasoning') await fixture.setDirectCredential(true)
   const userChange = fixture.controller.selectModel({ sessionId: fixture.agent.id, ...wanted })
   const repair = fixture.controller.selectModelIfCurrent({ sessionId: fixture.agent.id,
     provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }, fixture.initialSelection)
@@ -674,7 +741,9 @@ it.each(['provider', 'reasoning'] as const)('does not replace a newer %s choice 
   const config = await agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request', {
     turn: 1, step: 1, signal: new AbortController().signal,
   }, async () => {
-    await fixture.controller.selectModel({ sessionId: fixture.agent.id, ...wanted })
+    if (change === 'reasoning') await fixture.setDirectCredential(true)
+    try { await fixture.controller.selectModel({ sessionId: fixture.agent.id, ...wanted }) }
+    finally { if (change === 'reasoning') await fixture.setDirectCredential(false) }
     return assembled
   })
   expect(config).toEqual(assembled)

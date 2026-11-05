@@ -14,6 +14,7 @@ import * as Spawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
+import { mountLocalActivations, startTestActivation } from '../../../subagent/subagent/tests/local-activation.ts'
 import * as Jubian from '../src/index.ts'
 import { videoSelectionContext } from '../src/video-session.ts'
 
@@ -33,6 +34,7 @@ it('delivers a fresh subagent the parent video selection through the loaded serv
   try {
     await ctx.plugin(Llm); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
     await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
+    await mountLocalActivations(ctx)
     await ctx.plugin(Subagents); await ctx.plugin(Spawn, { providerName: 'spawn' })
     const entry = await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot: home, workspaceSecrets: false,
       sessionVideoSelection: true,
@@ -46,10 +48,12 @@ it('delivers a fresh subagent the parent video selection through the loaded serv
     const choice = (await service.catalogue()).find(option => option.maxDurationSeconds === 15)!
     const selected = await service.select(parent, choice.key, 0)
     const before = requests.length
-    const run = await ctx.subagents.start('spawn', { parent, prompt: [{ type: 'text', text: '核对当前模型与时长。' }], signal: new AbortController().signal })
+    const run = await startTestActivation(ctx, 'spawn', {
+      parent, label: 'Verify video selection', prompt: [{ type: 'text', text: '核对当前模型与时长。' }],
+    })
     try {
+      const child = run.localAgent
       await run.result
-      const child = ctx.agents.get(run.id)!
       expect(service.current(child)).toEqual(selected)
       expect(requests).toHaveLength(before)
       const contexts = adapter.requests[0]!.messages.filter(message => message.role === 'user'

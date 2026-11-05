@@ -7,7 +7,6 @@
 import { existsSync, globSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, extname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { JSDOM } from 'jsdom'
 import ts from 'typescript'
 import { applyEntryPatches, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
@@ -15,12 +14,13 @@ import { loadOverlayPatches } from '../packages/boot/app-boot/src/index.ts'
 import { bundlePatchPaths, composeEntries } from '../packages/boot/app-boot/src/profile.ts'
 import type { DshBundleManifest } from '../packages/util/package-manifest/src/types.ts'
 import { isAgentPresetEntry, isCordisGroupEntry, loadCordisYaml } from './cordis-yaml.ts'
+import { readProductModuleScripts } from './product-html.ts'
 import {
   collectRuntimeLocalSourceSpecifiers,
   collectRuntimeSourceSpecifiers,
 } from './verify-client-packages.ts'
 
-const EXPERIMENTAL_PREFIX = '@deepseek-ai/dsh-experimental-'
+import { isExperimentalPackageName } from './experimental-package-policy.ts'
 // The independently published entry package owns platform-engine dependencies.
 const EXTERNAL_KIT_PACKAGES = new Set(['@deepseek-ai/libreoffice-kit'])
 const PROFILE_SOURCE = 'packages/boot/app-boot/src/profile.ts'
@@ -107,7 +107,7 @@ export function verifyDefaultProductIsolation(root: string): ProductIsolationRes
   const sources = new Set<string>()
   const configs = new Set<string>()
   let webPluginCount = 0
-  const isExperimental = (pkg: Package): boolean => pkg.manifest.name.startsWith(EXPERIMENTAL_PREFIX)
+  const isExperimental = (pkg: Package): boolean => isExperimentalPackageName(pkg.manifest.name)
     || display(pkg.directory).startsWith('packages/experimental/')
   const add = (pkg: Package, origin: string): void => {
     if (isExperimental(pkg)) {
@@ -136,7 +136,7 @@ export function verifyDefaultProductIsolation(root: string): ProductIsolationRes
       return
     }
     const packageName = barePackageName(name)
-    if (packageName.startsWith(EXPERIMENTAL_PREFIX)) {
+    if (isExperimentalPackageName(packageName)) {
       failures.push(`${origin} -> ${name}: default product must not include experimental packages`)
       return
     }
@@ -268,24 +268,18 @@ export function verifyDefaultProductIsolation(root: string): ProductIsolationRes
 
   const html = resolve(root, 'apps/web/index.html')
   if (existsSync(html)) {
-    const dom = new JSDOM(readFileSync(html, 'utf8'))
-    try {
-      const entries = [...dom.window.document.querySelectorAll('script[type="module"]')]
-      if (entries.length === 0) failures.push('apps/web/index.html: missing default module entry')
-      for (const [index, entry] of entries.entries()) {
-        const src = entry.getAttribute('src')
-        if (src === null) {
-          scanSource(`${html}.inline-${String(index)}.js`, true, entry.textContent)
-          continue
-        }
-        if (/^(?:https?:)?\/\//.test(src)) {
-          failures.push(`apps/web/index.html: external default module entry cannot be checked: ${src}`)
-          continue
-        }
-        scanSource(resolve(root, 'apps/web', src.replace(/^\//, '')), true)
+    const entries = readProductModuleScripts(html)
+    if (entries.length === 0) failures.push('apps/web/index.html: missing default module entry')
+    for (const [index, { src, text }] of entries.entries()) {
+      if (src === null) {
+        scanSource(`${html}.inline-${String(index)}.js`, true, text)
+        continue
       }
-    } finally {
-      dom.window.close()
+      if (/^(?:https?:)?\/\//.test(src)) {
+        failures.push(`apps/web/index.html: external default module entry cannot be checked: ${src}`)
+        continue
+      }
+      scanSource(resolve(root, 'apps/web', src.replace(/^\//, '')), true)
     }
   } else failures.push('missing default Web entry apps/web/index.html')
 
@@ -293,7 +287,8 @@ export function verifyDefaultProductIsolation(root: string): ProductIsolationRes
     const { manifest } = pkg
     for (const section of RUNTIME_SECTIONS) {
       for (const [name, range] of Object.entries(manifest[section] ?? {})) {
-        if (pkg === cli && section === 'dependencies' && optionalBundles.has(name)) continue
+        const target = packages.get(name)
+        if (pkg === cli && section === 'dependencies' && optionalBundles.has(name) && target !== undefined && isExperimental(target)) continue
         dependency(name, range, pkg, `${manifest.name} ${section}`)
       }
     }

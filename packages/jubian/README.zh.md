@@ -36,6 +36,7 @@ kind: "package-group"
 - [工具子系统](../../docs/subsystems/tools.zh.md) —— 注册、参数校验、执行与模型可见结果。
 - [凭据子系统](../../docs/subsystems/credentials.zh.md) —— 主机负责的凭据查找与授权。
 - [Typert 子系统](../../docs/subsystems/typert.zh.md) —— 设置页消费方使用的类型化 Remote 方法。
+- [剧变视频恢复子系统](../../docs/subsystems/jubian-video-recovery.zh.md) —— 已恢复媒体审核与已批准交付服务。
 - [短剧包](../drama/README.zh.md) —— 提供方适配器之外的镜头准备、BGM 合成与分集交付。
 
 <a id="dev-note"></a>

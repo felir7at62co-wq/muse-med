@@ -11,6 +11,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import css from './JubianTokenSection.module.css'
+import { VideoRecoverySection, type VideoRecoveryControls } from './VideoRecoverySection.tsx'
 
 /**
  * What the Host reports about the stored token. Mirrors the credential seam's
@@ -41,6 +42,8 @@ export interface JubianTokenInjected {
   set: (value: string) => Promise<JubianTokenOutcome>
   /** Remove the stored token. */
   unset: () => Promise<JubianTokenOutcome>
+  /** Project recovery controls when the Host exposes them. */
+  recovery?: VideoRecoveryControls
 }
 
 /** Full component props assembled by the Settings slot renderer. */
@@ -69,7 +72,7 @@ function failureText(code: string, message: string): string {
  * @returns the settings page element tree.
  */
 export function JubianTokenSection(props: JubianTokenSectionProps): ReactNode {
-  const { t, describe, set, unset } = props
+  const { t, describe, set, unset, recovery } = props
   const [status, setStatus] = useState<JubianTokenStatus | undefined>(undefined)
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
@@ -153,6 +156,7 @@ export function JubianTokenSection(props: JubianTokenSectionProps): ReactNode {
         </Button>
       </div>
       {notice === undefined ? null : <p className={css.notice} role="status">{notice}</p>}
+      {recovery && <VideoRecoverySection controls={recovery} t={t} />}
     </div>
   )
 }

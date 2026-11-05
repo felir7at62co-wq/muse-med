@@ -118,6 +118,7 @@ vi.mock('../src/hongguo-runtime.ts', () => ({
   prepareDesktopHongguoEnvironment: vi.fn<typeof import('../src/hongguo-runtime.ts').prepareDesktopHongguoEnvironment>()
     .mockResolvedValue({}),
 }))
+vi.mock('../src/settings.ts', () => ({ readDesktopSettings: () => ({ updates: { allowTestAuthPopupWindow: false } }) }))
 vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/login-shell-environment.ts')>(),
   readDesktopLoginShellEnvironment: async (base: NodeJS.ProcessEnv) => ({ environment: base, failures: [] }),

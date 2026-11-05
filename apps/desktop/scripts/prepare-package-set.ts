@@ -19,7 +19,6 @@ import {
   DESKTOP_DRAMA_SKILLS_PACKAGE,
   DESKTOP_DRAMA_SKILL_RUNTIME_FILES,
   DESKTOP_CODEX_PACKAGE,
-  DESKTOP_CODEX_RUNTIME_FILES,
   DESKTOP_MUSE_BOT_PACKAGE,
   DESKTOP_MUSE_BOT_RUNTIME_FILES,
   DESKTOP_FEISHU_PACKAGE,
@@ -148,14 +147,6 @@ export function assertDesktopDramaSkillPackageFiles(files: readonly string[]): v
   assertPackageFiles(DESKTOP_DRAMA_SKILLS_PACKAGE, DESKTOP_DRAMA_SKILL_RUNTIME_FILES, files)
 }
 
-/** Require the reviewed subscription account Host, Client and notices from its source-built tarball.
- * @param files - Tarball paths rooted at `package/`.
- * @returns Nothing.
- */
-export function assertDesktopCodexPackageFiles(files: readonly string[]): void {
-  assertPackageFiles(DESKTOP_CODEX_PACKAGE, DESKTOP_CODEX_RUNTIME_FILES, files)
-}
-
 /**
  * Require the Muse IM Host, native client and migration files.
  * @param files - Tarball paths rooted at `package/`.
@@ -195,9 +186,11 @@ export function prepareDesktopPackageSet(inputs: readonly string[], output: stri
   const feishu = selected.find(packed => packed.manifest.name === DESKTOP_FEISHU_PACKAGE)
   if (feishu === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_FEISHU_PACKAGE}`)
   assertDesktopFeishuPackageFiles(tarballFiles(feishu.tarball))
-  const codex = selected.find(packed => packed.manifest.name === DESKTOP_CODEX_PACKAGE)
-  if (codex === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_CODEX_PACKAGE}`)
-  assertDesktopCodexPackageFiles(tarballFiles(codex.tarball))
+  for (const name of [DESKTOP_CODEX_PACKAGE, '@deepseek-ai/dsh-subagent-codex']) {
+    if (selected.some(packed => packed.manifest.name === name)) {
+      throw new Error('desktop package set: Supermuse closure must omit ' + name)
+    }
+  }
   const museBot = selected.find(packed => packed.manifest.name === DESKTOP_MUSE_BOT_PACKAGE)
   if (museBot === undefined) throw new Error(`desktop package set: selected closure omits ${DESKTOP_MUSE_BOT_PACKAGE}`)
   assertDesktopMuseBotPackageFiles(tarballFiles(museBot.tarball))

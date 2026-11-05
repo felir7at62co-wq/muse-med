@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-tool-character-reference",
   "description": "Read-only Agent lookup over the Host-owned public character reference library",
-  "version": "0.2.1-alpha.1",
+  "version": "0.2.1-alpha.2",
   "publishConfig": {
     "access": "public"
   },

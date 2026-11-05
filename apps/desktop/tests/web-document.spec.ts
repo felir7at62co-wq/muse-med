@@ -123,6 +123,60 @@ it('forwards upload bytes and cancellation with Host credentials while keeping t
   expect(await response.text()).toBe('stream')
 })
 
+it('keeps the episode delivery transport scoped to the owned Host and propagates cancellation', async () => {
+  const route = 'dsh-app://app/api/jubianVideoRecovery/deliverApprovedEpisode'
+  const received: { cookie: string | undefined; body: string }[] = []
+  const pending = Promise.withResolvers<undefined>()
+  const disconnected = Promise.withResolvers<undefined>()
+  const server = createServer((request, response) => {
+    let body = ''
+    request.setEncoding('utf8')
+    request.on('data', (chunk: string) => { body += chunk })
+    request.on('end', () => {
+      received.push({ cookie: request.headers.cookie, body })
+      if (request.url?.endsWith('?pending')) {
+        response.once('close', () => { disconnected.resolve(undefined) })
+        pending.resolve(undefined)
+      } else {
+        response.writeHead(200, { 'set-cookie': 'private' }).end('delivered')
+      }
+    })
+  })
+  onTestFinished(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => { if (error) reject(error); else resolve() })
+      server.closeAllConnections()
+    })
+  })
+  server.listen(0, '127.0.0.1')
+  await once(server, 'listening')
+  const address = server.address()
+  if (address === null || typeof address === 'string') throw new Error('HTTP fixture has no address')
+  const host = `http://127.0.0.1:${String(address.port)}`
+  const fetch = vi.fn(globalThis.fetch)
+  vi.stubGlobal('fetch', fetch)
+  const input = { method: 'POST', body: 'episode plan', headers: { cookie: 'untrusted' } }
+  const response = await forwardWebRequest(new Request(route, input), host, 'session=owned')
+  expect(await response.text()).toBe('delivered')
+  expect(response.headers.get('set-cookie')).toBeNull()
+  const cancel = new AbortController()
+  const request = new Request(`${route}?pending`, { ...input, signal: cancel.signal })
+  const aborted = forwardWebRequest(request, host, 'session=owned').catch((error: unknown) => error)
+  await pending.promise
+  cancel.abort()
+  expect(await aborted).toBe(cancel.signal.reason)
+  await disconnected.promise
+  expect(received).toEqual(Array.from({ length: 2 }, () => ({ cookie: 'session=owned', body: 'episode plan' })))
+  expect(fetch.mock.calls[0]?.[1]).toHaveProperty('dispatcher')
+  expect(fetch.mock.calls[1]?.[1]).toHaveProperty('dispatcher')
+
+  fetch.mockResolvedValueOnce(new Response('ordinary')).mockResolvedValueOnce(new Response('ordinary'))
+  expect(await (await forwardWebRequest(new Request(route), host, 'session=owned')).text()).toBe('ordinary')
+  expect(await (await forwardWebRequest(new Request(route, input), 'https://other.example/', 'session=owned')).text()).toBe('ordinary')
+  expect(fetch.mock.calls[2]?.[1]).not.toHaveProperty('dispatcher')
+  expect(fetch.mock.calls[3]?.[1]).not.toHaveProperty('dispatcher')
+})
+
 it('drops connection-level headers the Host wrote for its own transport', async () => {
   const fetch = vi.fn().mockResolvedValue(new Response('body', { headers: {
     'transfer-encoding': 'chunked', connection: 'keep-alive', 'keep-alive': 'timeout=5', trailer: 'x', te: 'trailers',

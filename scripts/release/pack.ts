@@ -1,6 +1,7 @@
 /**
- * Pack one release family's whole publish set into a single directory, in
- * publish order, and record that order for the publish step.
+ * Pack one release family's whole publish set into a single directory and
+ * record its publish order for the publish step. Default serial packs execute
+ * in that order; explicitly parallel packs use pnpm's bounded scheduler.
  *
  * The pack step is the release boundary: it runs without credentials, produces
  * every tarball from one commit, and hands the publish step exactly those bytes
@@ -30,7 +31,7 @@ import {
   type PackManifestMember,
 } from './pack-plan.ts'
 import { attempt, isEntry, runConcurrent } from './process.ts'
-import { PUBLISH_ORDER_FILE, tarballFiles } from './tarball.ts'
+import { PUBLISH_ORDER_FILE, packedManifest, tarballFiles } from './tarball.ts'
 
 /** Where pack output lands when `--out` is omitted. */
 const DEFAULT_OUTPUT = 'dist/npm'
@@ -125,6 +126,7 @@ async function packMember(
   if (!existsSync(tarball)) throw new Error(`${plan.member.name} produced no tarball at ${tarball}`)
   const payload = tarballFiles(tarball)
   family.validatePayload(plan.member, payload)
+  family.validatePackedManifest(plan.member, packedManifest(tarball))
   const inputsMatchPayload = inputsCoverPayload(plan.inputs.files, payload)
   if (!inputsMatchPayload) {
     console.log(

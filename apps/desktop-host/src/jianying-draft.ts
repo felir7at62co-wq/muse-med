@@ -1,13 +1,18 @@
 /** Generate editable Jianying drafts with the selected bundled, managed backend. */
-import { access, readFile, stat } from 'node:fs/promises'
-import { dirname, isAbsolute, join, resolve } from 'node:path'
+import { createHash } from 'node:crypto'
+import { access, lstat, mkdtemp, readFile, realpath, rmdir, stat, unlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-system-prompt'
+import { draftDirectory } from '@deepseek-ai/dsh-drama-settings'
+import type { ApprovedClipDraftService } from '@deepseek-ai/dsh-tool-jubian'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { resolvePrimaryRuntime } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import type { default as SubprocessRuntime, SubprocessOutcome } from '@deepseek-ai/dsh-subprocess'
 import z from '@deepseek-ai/schemastery'
+import { exportJianyingDraft } from './jianying-export.ts'
 
 /** Deployment-owned interpreter, process limits and bundled resource location. */
 export interface Config {
@@ -26,6 +31,8 @@ export interface Config {
   readonly windowsLandscapeSubtitleY?: number
   readonly timeoutMs: number
   readonly graceMs: number
+  /** Deadline for interactive native export; omit to disable the provider. */
+  readonly automaticExportTimeoutMs?: number
   readonly maxInputBytes: number
   readonly maxOutputBytes: number
 }
@@ -39,6 +46,7 @@ export const Config: z<Config> = z.object({
   windowsLandscapeSubtitleSize: z.number().min(0.01).max(100),
   windowsLandscapeSubtitleY: z.number().min(-16384).max(16384),
   timeoutMs: z.number().step(1).min(1).required(), graceMs: z.number().step(1).min(0).required(),
+  automaticExportTimeoutMs: z.number().step(1).min(1).max(2147483647),
   maxInputBytes: z.number().step(1).min(1).required(), maxOutputBytes: z.number().step(1).min(1).required(),
 })
 
@@ -145,7 +153,7 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
   const stdout = handle.collected.stdout?.readFrom(0)
   if (stdout === undefined || stdout.lossy) throw new Error('Draft generator output is missing or exceeds the output limit')
   if (!stdout.text.trim()) {
-    const stderr = handle.collected.stderr?.readFrom(0)?.text.trim()
+    const stderr = handle.collected.stderr?.readFrom(0).text.trim()
     throw new Error(`Draft generator returned no JSON (exit ${outcome.exitCode}): ${stderr || 'no diagnostic output'}`)
   }
   const value: unknown = JSON.parse(stdout.text)
@@ -164,6 +172,79 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
   return result
 }
 
+async function projectFile(project: string, path: string): Promise<string> {
+  if (!isAbsolute(path)) throw new Error('Draft input must be an absolute project file')
+  const actual = await realpath(path)
+  const nested = relative(project, actual)
+  if (!nested || nested === '..' || nested.startsWith('..' + sep) || isAbsolute(nested)
+    || relative(path, actual) !== '' || !(await lstat(actual)).isFile()) {
+    throw new Error('Draft input must be a regular file inside the project')
+  }
+  return actual
+}
+
+async function existingApprovedDraft(path: string, source: string, sha256: string, subtitle: string | undefined,
+  subtitleSha256: string | undefined): Promise<boolean> {
+  try {
+    const entry = await lstat(path)
+    if (!entry.isDirectory() || entry.isSymbolicLink()) throw new Error('Existing draft path is not a regular directory')
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false
+    throw error
+  }
+  const receiptPath = join(path, 'muse-review.json')
+  if (!(await lstat(receiptPath)).isFile()) throw new Error('Existing draft has no regular verification receipt')
+  const receipt: unknown = JSON.parse(await readFile(receiptPath, 'utf8'))
+  const materialMatches = (material: unknown, expectedPath: string, expectedDigest: string | undefined) =>
+    typeof material === 'object' && material !== null && 'source' in material && 'sha256' in material
+      && material.source === expectedPath && material.sha256 === expectedDigest
+  if (typeof receipt !== 'object' || receipt === null || !('backend' in receipt) || receipt.backend !== 'aa-jianying'
+    || !('materials' in receipt) || !Array.isArray(receipt.materials)
+    || !receipt.materials.some((material: unknown) => materialMatches(material, source, sha256))
+    || (subtitle !== undefined && !receipt.materials.some((material: unknown) => materialMatches(material, subtitle, subtitleSha256)))) {
+    throw new Error('Existing draft receipt does not match the reviewed source')
+  }
+  return true
+}
+
+async function createApprovedClipDraft(ctx: Context, config: Config,
+  input: Parameters<ApprovedClipDraftService['create']>[0], signal?: AbortSignal) {
+  if (process.platform !== 'win32') throw new Error('Native approved-clip drafts require Windows')
+  const selected = await draftDirectory(ctx.settings)
+  if (selected.status !== 'ready') throw new Error('Configure the Jianying drafts directory first')
+  const project = await realpath(input.projectDir)
+  const source = await projectFile(project, input.path)
+  const subtitle = input.subtitlePath === undefined ? undefined : await projectFile(project, input.subtitlePath)
+  const subtitleSha256 = subtitle === undefined ? undefined : createHash('sha256').update(await readFile(subtitle)).digest('hex')
+  const identity = createHash('sha256').update(input.sha256).update(subtitleSha256 ?? '').digest('hex').slice(0, 16)
+  const prefix = 'Supermuse-approved-' + String(input.taskId) + '-' + identity + '-'
+  const name = prefix + '01'
+  const path = join(selected.path, name)
+  signal?.throwIfAborted()
+  if (await existingApprovedDraft(path, source, input.sha256, subtitle, subtitleSha256)) {
+    return { path, name, editorOpenVerified: false }
+  }
+  const temp = await mkdtemp(join(tmpdir(), 'muse-jianying-approved-'))
+  const request = join(temp, 'draft.json')
+  try {
+    await writeFile(request, JSON.stringify({
+      project, episode: 1, name_prefix: prefix,
+      videos: [source], audio_mode: 'embedded', approved_clip_sha256: input.sha256,
+      ...(subtitle === undefined ? {} : { subtitle_srt: subtitle, approved_clip_subtitle_sha256: subtitleSha256 }),
+    }), { flag: 'wx', mode: 0o600 })
+    const draft = await generateJianyingDraft(ctx.subprocess, { request_file: request, drafts_dir: selected.path }, config, signal)
+    const saved = draft.drafts[0]
+    if (saved === undefined) throw new Error('Jianying did not return the saved draft')
+    return { path: saved.path, name: saved.name, editorOpenVerified: draft.editor_open_verified }
+  } finally {
+    try { await unlink(request) }
+    catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error
+    }
+    await rmdir(temp)
+  }
+}
+
 /** Loader identity for Desktop's single draft-building entry point. */
 export const name = 'desktop-jianying-draft'
 /** The tool registry, managed process owner and current tool guidance. */
@@ -175,6 +256,22 @@ export const inject = ['tools', 'subprocess', 'systemPrompt']
  * @param config - Runtime location and process limits.
  */
 export function apply(ctx: Context, config: Config): void {
+  if (process.platform === 'win32') {
+    const exportTimeout = config.automaticExportTimeoutMs
+    ctx.inject(['settings'], (settingsCtx) => {
+      settingsCtx.effect(() => settingsCtx.provide('approvedClipDraft', {
+        create: (input, signal) => createApprovedClipDraft(settingsCtx, config, input, signal),
+        ...(exportTimeout === undefined ? {} : {
+          export: (input: Parameters<NonNullable<ApprovedClipDraftService['export']>>[0], signal?: AbortSignal) => {
+            const { windowsPowerShellPath, graceMs } = config
+            const limits = { timeoutMs: exportTimeout, graceMs, ownerPid: process.ppid }
+            const runtime = windowsPowerShellPath === undefined ? limits : { ...limits, windowsPowerShellPath }
+            return exportJianyingDraft(settingsCtx.subprocess, input, runtime, signal)
+          },
+        }),
+      }))
+    })
+  }
   ctx.systemPrompt.section({ name: 'tool:jianying_draft',
     order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'), interpolate: false,
     text: `## 剪映草稿：当前原生入口

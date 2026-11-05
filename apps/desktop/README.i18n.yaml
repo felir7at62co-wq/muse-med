@@ -3,8 +3,8 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop/README.md
 /muse-desktop:
-  en: 9e4f913ceb827cb0
-  zh: 4cce87b45de4f4b6
+  en: 39f974555468b782
+  zh: 407251beffa12eca
 /muse-desktop/terminal-command:
   en: bef92953c237363f
   zh: d21d6effd21b8c00
@@ -15,8 +15,8 @@
   en: 8068346eccc0af07
   zh: a91982455452a30c
 /muse-desktop/key-technical-decisions/bundled-workspace-dependencies:
-  en: 5e51951bea5eb7ba
-  zh: c8ee6969b9bfe49f
+  en: 331ad6e4f751305a
+  zh: 817b24290f05d5cf
 /muse-desktop/bundled-command-runtime:
   en: 312049a0aafdedb3
   zh: 571507f4c89dc9f5
@@ -33,41 +33,44 @@
   en: cb3c06f2fcc235c2
   zh: c2a5c9a46ded324f
 /muse-desktop/develop:
-  en: 4828ebf79374cbcf
-  zh: e8b4854b5f1c2d45
+  en: fb5d6f9e70f59629
+  zh: d737d7f2a6e081d9
 /muse-desktop/develop/startup-onboarding:
-  en: dda0650862725702
-  zh: 6f9bf0c7c70fb18e
+  en: 3495c5f0e050238f
+  zh: 867d1acbd3376838
 /muse-desktop/package:
   en: 4cd8a8da6977928d
   zh: 9f624855a2edac37
 /muse-desktop/package/release-versions:
-  en: 67dc491a5211f7bf
-  zh: 6e0d3ec6ce898114
+  en: b2b50e2f2570aa47
+  zh: d9cf932b067dd6bc
 /muse-desktop/package/resuming-a-failed-run:
   en: 548a53cda22d92c5
   zh: 062a662b6ecdb8a0
 /muse-desktop/package/runtime-file-selection:
-  en: d376850bc4d3e6f3
-  zh: 5398069cd5e964ed
+  en: ea80d91b15e720ce
+  zh: 719292994c290572
 /muse-desktop/package/upload-updates:
-  en: a292bf149aef540a
-  zh: 4328f47bbd0cc979
+  en: 423f51df8336736b
+  zh: 86dbd9dd86327451
 /muse-desktop/package/unsigned-installers:
-  en: 8620b9d44e3058a2
-  zh: 13ce3b2ea0d81fb5
+  en: 161e1150d6f28416
+  zh: ee15c94358887374
 /muse-desktop/package/windows-installer-interface:
   en: e5952120794f0f49
   zh: 28d59be682c52ca8
 /muse-desktop/package/windows-ev-signing:
-  en: 67ce5a22d029c969
-  zh: 4129236adbe47010
+  en: a9cf1bad163ccef6
+  zh: 50bf208796bde809
 /muse-desktop/updates:
-  en: 28e0e0bd0bad3097
-  zh: bb494916177a0eb6
+  en: 729f8315d0384855
+  zh: 5a1839866e1fccae
+/muse-desktop/updates/local-desktop-settings:
+  en: 2e57457c44c85b5f
+  zh: 5b8510a3dc4c6c9d
 /muse-desktop/updates/mandatory-update-policy:
-  en: c00a0e7d32056ba9
-  zh: a76dae44cb513d6f
+  en: 0f3f71dcbfec66a2
+  zh: 2d3abc4cdd2683ad
 /muse-desktop/updates/local-updater-qualification:
   en: c7f8808e321712a7
   zh: 85c0aedd9a30ca47

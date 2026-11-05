@@ -3,7 +3,7 @@
 // guarded shell publications, and the native recovery actions. The Electron shell lifecycle suite
 // kept from upstream lives in `main-startup.spec.ts`.
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { rmSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import type { MessageBoxOptions, NotificationConstructorOptions } from 'electron'
@@ -451,6 +451,25 @@ describe('desktop main startup', () => {
       expect(harness.app.setAppUserModelId).toHaveBeenCalledExactlyOnceWith('com.muse.qa.test')
     } else {
       expect(harness.app.setAppUserModelId).not.toHaveBeenCalled()
+    }
+  })
+
+  it('starts installed Supermuse without replacing the ordinary Muse protocol registration', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'win32' })
+    const path = join(harness.appRoot, 'package.json')
+    const original = readFileSync(path)
+    writeFileSync(path, JSON.stringify({
+      name: 'supermuse', version: '1.0.0', dshDesktopAppId: 'cn.aigcpipeline.supermuse.acceptance',
+    }))
+    try {
+      await import('../src/main.ts')
+      await reachWorkspace()
+      expect(harness.app.setAsDefaultProtocolClient).not.toHaveBeenCalled()
+      expect(harness.app.setAppUserModelId).toHaveBeenCalledExactlyOnceWith('cn.aigcpipeline.supermuse.acceptance')
+      expect(process.env.DSH_HOME).toBe(join(homedir(), '.supermuse'))
+      expect(process.env.MUSE_HOME).toBe(join(homedir(), '.supermuse'))
+    } finally {
+      writeFileSync(path, original)
     }
   })
 

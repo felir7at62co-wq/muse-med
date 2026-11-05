@@ -1,10 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { DESKTOP_CODEX_RUNTIME_FILES, DESKTOP_MUSE_BOT_RUNTIME_FILES, DESKTOP_SOURCE_PLUGINS } from '../src/core-package-set.ts'
+import { DESKTOP_MUSE_BOT_RUNTIME_FILES, DESKTOP_SOURCE_PLUGINS } from '../src/core-package-set.ts'
 import {
   assertDesktopDramaSkillPackageFiles,
-  assertDesktopCodexPackageFiles,
   assertDesktopMuseBotPackageFiles,
   assertDesktopFeishuPackageFiles,
   assertDesktopHostPackageFiles,
@@ -90,7 +89,7 @@ describe('desktop package-set selection', () => {
   })
 
   it('refuses registry fallback when a source-owned plugin tarball is missing', () => {
-    for (const name of ['ds-bot', 'dshmarket', 'dsh-ffmpeg', 'dsh-codex-subscription', '@wenbin_wb/dsh-bridge', '@xmanrui/dsh-im', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
+    for (const name of ['ds-bot', 'dshmarket', 'dsh-ffmpeg', '@wenbin_wb/dsh-bridge', '@xmanrui/dsh-im', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download']) {
       const available = new Map([
         ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
         ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host', { dependencies: { [name]: '1.0.0' } })],
@@ -101,11 +100,12 @@ describe('desktop package-set selection', () => {
     }
   })
 
-  it('includes the source-built Codex account provider in the Desktop package closure', () => {
-    const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', ...DESKTOP_SOURCE_PLUGINS]
+  it('omits both Codex packages from the Supermuse closure even when their tarballs are available', () => {
+    const codex = ['dsh-codex-subscription', '@deepseek-ai/dsh-subagent-codex']
+    const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', ...DESKTOP_SOURCE_PLUGINS, ...codex]
     const available = new Map(names.map(name => [name, packed(name)]))
-    expect(selectDesktopPackageClosure(available, DESKTOP_SOURCE_PLUGINS).map(entry => entry.manifest.name))
-      .toContain('dsh-codex-subscription')
+    const selected = selectDesktopPackageClosure(available, DESKTOP_SOURCE_PLUGINS).map(entry => entry.manifest.name)
+    for (const name of codex) expect(selected).not.toContain(name)
   })
 
   it('does not activate a packed optional Codex CLI peer solely for subscription OAuth', () => {
@@ -125,14 +125,6 @@ describe('desktop package-set selection', () => {
     expect(selected).not.toContain('@deepseek-ai/dsh-subagent-codex')
     expect(selectDesktopPackageClosure(available, ['dsh-codex-subscription', '@deepseek-ai/dsh-subagent-codex'])
       .map(entry => entry.manifest.name)).toContain('@deepseek-ai/dsh-subagent-codex')
-  })
-
-  it('requires the subscription Host, login settings assets and notices in the release tarball', () => {
-    const files = DESKTOP_CODEX_RUNTIME_FILES.map(file => `package/${file}`)
-    expect(() => { assertDesktopCodexPackageFiles(files) }).not.toThrow()
-    for (const file of files) {
-      expect(() => { assertDesktopCodexPackageFiles(files.filter(value => value !== file)) }).toThrow(file.slice('package/'.length))
-    }
   })
 
   it('requires the Muse Bot Host, client and Apache attribution in the release tarball', () => {
@@ -213,10 +205,13 @@ describe('desktop package-set selection', () => {
     expect(() => { assertDesktopHostPackageFiles([...files, ...disabled]) }).not.toThrow()
   })
 
-  it('requires both shot-writing skills from the drama resource package', () => {
+  it('requires shot-writing skills and all native delivery scripts from the drama resource package', () => {
     const files = [
       'package/skills/shot-script-creator-16-9-3d/SKILL.md',
       'package/skills/shot-script-creator-9-16/SKILL.md',
+      'package/skills/tweet-drama-draft-build/scripts/windows/native-export.ps1',
+      'package/skills/tweet-drama-draft-build/scripts/windows/native-export-folder.ps1',
+      'package/skills/tweet-drama-draft-build/scripts/windows/native-export-open.ps1',
     ]
     expect(() => { assertDesktopDramaSkillPackageFiles(files) }).not.toThrow()
     for (const required of files) {

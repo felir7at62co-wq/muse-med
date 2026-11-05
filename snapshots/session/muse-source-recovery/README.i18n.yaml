@@ -3,5 +3,5 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write snapshots/session/muse-source-recovery/README.md
 /source-recovery-snapshot:
-  en: c3ae6e259a12895a
-  zh: 38fc88c5976b1806
+  en: 3799cda6146728b8
+  zh: 2d58b75de5af8035

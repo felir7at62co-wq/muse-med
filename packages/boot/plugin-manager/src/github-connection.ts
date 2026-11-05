@@ -19,7 +19,7 @@ export interface GithubConnectionOptions {
 /**
  * Check a GitHub repository before pnpm starts, without downloading or building its package.
  * Git reads the profile's Git and proxy configuration without invoking credential helpers or prompting.
- * Timeout and cancellation terminate its descendants too; pnpm owns authentication and transport fallback.
+ * Timeout and cancellation also terminate its descendants. Authentication errors go to pnpm.
  * @param spec The parsed installation address; npm packages, local paths and other hosts are not checked.
  * @param dir The profile directory where installation runs.
  * @param options The connection deadline, output bound and operation cancellation.

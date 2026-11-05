@@ -8,6 +8,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import { MemoryCredentials } from '../../../packages/credentials/credentials/tests/memory.ts'
+import { provideWorkingDirectoryFixture } from '../../../packages/test-support/agent-loop-testkit/src/working-directory-fixture.ts'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFilesystem from '@deepseek-ai/dsh-skill-filesystem'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -28,6 +29,7 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
   const ctx = new Context()
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(() => { throw new Error('Unexpected Jubian request') })
   try {
+    provideWorkingDirectoryFixture(ctx, root)
     const presetRows = yaml.load(await readFile(presetPath, 'utf8'), { schema: entryListSchema }) as Array<{ id: string; name: string; config?: Record<string, unknown> }>
     const hostPatches = loadOverlayPatches('muse-med', hostPatch)
     const jubian = hostPatches.flatMap(patch => patch.insert ?? []).find(row => row.id === 'tool-jubian')
@@ -58,7 +60,7 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
       ],
     })
     expect(persona?.prefix).not.toContain('Check the [exit code')
-    expect(persona?.suffix).toContain('{{cwd}}')
+    expect(persona?.suffix).toContain('short-drama/')
     expect(presetRows.find(row => row.id === 'tool-shot-script')).toMatchObject({
       name: '@deepseek-ai/dsh-tool-shot-script',
       config: { reviewMode: 'advisory', sessionVideoSelection: true },

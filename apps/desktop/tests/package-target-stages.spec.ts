@@ -60,6 +60,14 @@ function supervisor(failure?: string) {
   return { run, stages }
 }
 
+it('runs packaging stages directly with a native pnpm executable', async () => {
+  const { run } = supervisor()
+  const pnpm = 'C:\\Program Files\\pnpm\\pnpm.exe'
+  vi.stubEnv('npm_execpath', pnpm)
+  await packageTarget(parseDesktopPackageInvocation(['win-x64', '--unsigned'], 'win32', 'x64'), environment, run)
+  expect(run.run.mock.calls[0]?.slice(0, 3)).toEqual(['run build:official', pnpm, ['run', 'build:official']])
+})
+
 it('requires one signing preflight before building, then records only the complete release', async () => {
   const { run, stages } = supervisor()
   await packageTarget(parseDesktopPackageInvocation(['win-x64'], 'win32', 'x64'), environment, run)
@@ -84,7 +92,7 @@ it('requires one signing preflight before building, then records only the comple
   expect(writeFileSync).toHaveBeenCalledOnce()
   const record = JSON.parse(vi.mocked(writeFileSync).mock.calls[0]![1] as string) as { publicUrl: string }
   expect(record.publicUrl).toBe('https://updates.example.com/dsh-desk/0123456789abcdef0123456789abcdef/feeds/win-x64/')
-  expect(record).toMatchObject({ version: '1.0.0-beta.1', dshVersion: '0.2.1-alpha.1' })
+  expect(record).toMatchObject({ version: '1.0.0-beta.1', dshVersion: '0.2.1-alpha.2' })
 })
 
 it('initializes shared storage only after acquiring the preflight stage lock', async () => {
@@ -142,21 +150,32 @@ it('checks the assembled macOS runtime before notarizing and recording the relea
   expect(writeFileSync).toHaveBeenCalledOnce()
 })
 
-it.each([false, true])('checks unsigned Mac artifacts without Apple operations or a signed release record (directory=%s)', async (directory) => {
+it.each([
+  ['mac-arm64', false], ['mac-arm64', true], ['mac-x64', false], ['mac-x64', true],
+] as const)('builds unsigned %s with directory=%s without Apple credentials, notarization, or a release record', async (target, directory) => {
   const { run, stages } = supervisor()
-  await packageTarget(parseDesktopPackageInvocation(['mac-arm64', '--unsigned', ...(directory ? ['--dir'] : [])], 'darwin', 'arm64'), environment, run)
+  await packageTarget(parseDesktopPackageInvocation([target, '--unsigned', ...(directory ? ['--dir'] : [])], 'darwin', 'arm64'), {
+    ...environment, CSC_LINK: 'unused.p12', CSC_KEY_PASSWORD: 'unused-secret', APPLE_API_KEY: 'unused.p8',
+    DSH_DESKTOP_MACOS_SIGNING_IDENTITY: 'Unused identity', DSH_DESKTOP_MACOS_TEAM_ID: 'TEAMID1234',
+  }, run)
+  expect(stages.at(-2)).toBe(`exec electron-builder --config electron-builder.config.mjs --mac --${target === 'mac-arm64' ? 'arm64' : 'x64'} --publish never${directory ? ' --dir' : ''}`)
   expect(stages.at(-1)).toBe('exec tsx scripts/smoke-packaged-runtime.ts --unsigned')
-  expect(packageMacOSArtifacts).not.toHaveBeenCalled()
+  for (const call of run.run.mock.calls) {
+    expect(call[3].env).toMatchObject({ DSH_DESKTOP_UNSIGNED: '1', CSC_IDENTITY_AUTO_DISCOVERY: 'false' })
+    for (const key of ['CSC_LINK', 'CSC_KEY_PASSWORD', 'APPLE_API_KEY', 'DSH_DESKTOP_MACOS_SIGNING_IDENTITY', 'DSH_DESKTOP_MACOS_TEAM_ID']) {
+      expect(call[3].env).not.toHaveProperty(key)
+    }
+  }
   expect(withMacOSNotarizationProxy).not.toHaveBeenCalled()
+  expect(packageMacOSArtifacts).not.toHaveBeenCalled()
   expect(writeFileSync).not.toHaveBeenCalled()
-  for (const call of run.run.mock.calls) expect(call[3].env.DSH_DESKTOP_UNSIGNED).toBe('1')
 })
 
-it('rejects an unsigned Mac artifact whose assembled runtime fails verification', async () => {
-  const { run } = supervisor('exec tsx scripts/smoke-packaged-runtime.ts --unsigned')
+it('fails unsigned macOS packaging when the assembled runtime cannot run', async () => {
+  const { run, stages } = supervisor('exec tsx scripts/smoke-packaged-runtime.ts --unsigned')
   await expect(packageTarget(parseDesktopPackageInvocation(['mac-arm64', '--unsigned'], 'darwin', 'arm64'), environment, run))
     .rejects.toThrow('stage refused')
-  expect(packageMacOSArtifacts).not.toHaveBeenCalled()
+  expect(stages.at(-1)).toBe('exec tsx scripts/smoke-packaged-runtime.ts --unsigned')
   expect(writeFileSync).not.toHaveBeenCalled()
 })
 

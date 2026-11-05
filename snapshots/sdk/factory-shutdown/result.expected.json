@@ -32,7 +32,6 @@
     "turn/start",
     "agent/inbox/spliced",
     "subagent/catalog",
-    "subagent/descriptor",
     "step/start",
     "system/message",
     "user/message",

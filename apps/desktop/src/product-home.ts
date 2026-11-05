@@ -15,9 +15,11 @@ const HOME_DIR_NAME = '.muse'
  * credentials an existing installation left behind. A machine with neither, or
  * with both, uses `~/.muse`; `MUSE_MED_HOME` still overrides the result.
  * @param userHome - operating-system user home directory.
+ * @param supermuse - Whether the isolated Windows product owns this home.
  * @returns the absolute packaged product home path.
  */
-export function productHomeFor(userHome: string): string {
+export function productHomeFor(userHome: string, supermuse = false): string {
+  if (supermuse) return join(userHome, '.supermuse')
   const current = join(userHome, HOME_DIR_NAME)
   if (existsSync(current)) return current
   const legacy = join(userHome, LEGACY_HOME_DIR_NAME)

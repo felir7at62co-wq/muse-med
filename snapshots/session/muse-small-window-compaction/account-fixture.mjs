@@ -24,7 +24,8 @@ export const name = 'snapshot-small-window-compaction'
 /** Normal profile services used by the fixture account, request meter and tools. */
 export const inject = ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'tokenMeter', 'sessions']
 
-const resources = Array.from({ length: 7400 }, (_value, index) => `resource-${index.toString().padStart(5, '0')}`)
+/** Size the logged catalog so 20 documents stay below pressure and 25 exceed the shipped threshold. */
+const resources = Array.from({ length: 7000 }, (_value, index) => `resource-${index.toString().padStart(5, '0')}`)
 
 /** Stable sub-threshold tool values; the shipped pruner retains each complete result.
  * @param {string} resource - Resource selected from the real JSON Schema enumeration.

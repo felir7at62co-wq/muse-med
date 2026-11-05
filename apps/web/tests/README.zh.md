@@ -14,7 +14,7 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 
 普通场景以没有已登记 Workspace 或 Session、但持久化标记记录默认 Workspace 已被删除的状态启动，使显式文件夹选择场景自行决定 cwd。`launchWebScaffold({ firstUse: true })` 保留初始化资格，供启动场景使用。
 
-工作区文件引用录制将已录制 Session 保留的两个技能描述写入自有临时技能目录，以提供历史技能目录，不依赖个人或内置技能根目录。其键盘操作先选中草稿，再将选区折叠到末尾，使 macOS 和 Windows 都在同一位置插入下一个引用。
+工作区文件引用录制将已录制 Session 保留的两个技能描述写入自有临时技能目录，以提供历史技能目录，不依赖个人或内置技能根目录。其键盘操作先选中草稿，再将选区折叠到末尾，使 macOS 和 Windows 都在同一位置插入下一个引用。场景的 `writerOutput: true` 元数据将规范 Session 保留为 replay 输入，并在 `writer.expected.jsonl` 中比较完整当前输出。无密钥 refresh 写入该输出比较基准。record 模式将 replay 输入和 writer 输出比较基准均视为只读。
 
 [Muse 自定义模型](muse-personal-models.e2e.ts)从测试自有的本地端点发现模型，单独保存凭据，并验证设置列表、对话选择、重启持久化与适配器请求。场景加载内置桌面设置覆盖层，不操作已安装的 Muse 应用。
 
@@ -27,6 +27,10 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 SVG 交付场景在连接警告失败时附带有界的 Host WebSocket 观察结果：Ping 排队与写入完成、Pong 到达、关闭码及调用栈。真实升级钩子必须观察到传输连接，保持安装直到 Host 清理完成，再恢复自己的方法和监听器。它不记录帧正文、请求 URL 或未识别的关闭文本；通过的用例不打印诊断输出。
 
 权限选择器断言先等待选项行渲染，再检查数量或快照。安装生命周期场景独立拥有配置档和浏览器，将 Auto 安装为包，并在保持 HMR 启用的情况下通过插件管理器持久保存启停状态。目录响应完成后再执行原有 DOM 检查；当前权限发生变化，并不表示目录刷新已经完成。
+
+[空闲提交交接](idle-submission-handoff.e2e.ts)对 Host 帧和浏览器中的消息归位的等待使用 scaffold 的 30 秒 Turn 完成预算。Vitest 负责 scaffold 清理，使 replay 消耗检查错误不会覆盖场景中失败的断言。
+
+插件管理器的开关为 Host 的 profile 写入与 store 随后的 inventory 读取预留 `PLUGIN_TOGGLE_SETTLE_MS`（10 秒），这两步完成后才会重新发布 `aria-checked`；链路的实测值记录在该常量的 JSDoc 中。
 
 显式滚动使用 `support.ts` 的 `scrollIntoView`：旧元素脱离 DOM 时重新解析 locator，并在同一个浏览器任务中检查连接状态、执行原生滚动。各场景保留滚动后的可见性与几何断言。
 

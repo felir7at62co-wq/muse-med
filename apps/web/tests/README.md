@@ -14,7 +14,7 @@ On Linux, `--with-deps` installs dependencies through the system package manager
 
 Ordinary scenarios begin with no registered Workspace or Session and a durable marker recording a removed default Workspace, so explicit folder-selection scenarios retain control of their cwd. `launchWebScaffold({ firstUse: true })` leaves initialization eligible for startup scenarios.
 
-The workspace file-reference recording supplies its historical two-skill catalog through an owned temporary skill directory, using the descriptors retained in the recorded Session and independent of personal or bundled skill roots. Its keyboard gesture collapses a selected draft at the end before inserting the next reference on macOS and Windows.
+The workspace file-reference recording supplies its historical two-skill catalog through an owned temporary skill directory, using the descriptors retained in the recorded Session and independent of personal or bundled skill roots. Its keyboard gesture collapses a selected draft at the end before inserting the next reference on macOS and Windows. Its `writerOutput: true` metadata retains the canonical Session as replay input and compares the complete current output in `writer.expected.jsonl`. Keyless refresh writes that output oracle. Record mode treats replay inputs and writer oracles as read-only.
 
 [Muse personal models](muse-personal-models.e2e.ts) discovers a model from an owned local endpoint, saves its credential separately, and verifies settings rows, conversation selection, restart persistence and an adapter request. It boots the shipped desktop settings overlay without touching an installed Muse application.
 
@@ -27,6 +27,10 @@ State-sensitive cases use Workspace, admission, attachment, and model-stream bar
 The SVG delivery scenario includes bounded Host WebSocket observations in a connection-warning failure: Ping enqueue and write completion, Pong arrival, closure code and caller stack. Its real upgrade hook must observe the carrier, stays installed until Host cleanup finishes, and then restores its own methods and listeners. It records no frame bodies, request URLs, or unrecognized closure text; successful cases print no diagnostic output.
 
 Permission-picker assertions wait for rendered option rows before checking counts or snapshots. The install-lifetime scenario owns a separate profile and browser, installs Auto as a bundle, and persists enablement through Plugin Manager with HMR active. Catalog-response completion precedes the existing DOM checks; current permission alone does not confirm catalog completion.
+
+[Idle-submission handoff](idle-submission-handoff.e2e.ts) waits up to the scaffold's 30-second turn-completion budget for Host frames and browser placement. Vitest owns scaffold teardown so a replay-consumption error does not replace the failed scenario assertion.
+
+Plugin-manager switches wait up to `PLUGIN_TOGGLE_SETTLE_MS` (10 seconds) for the Host's profile write and the store's follow-up inventory read, the two steps that republish `aria-checked`; that constant's JSDoc records the measured chain.
 
 Explicit scrolling uses `scrollIntoView` from `support.ts`: it resolves the locator again when its old element detaches and checks connection in the same browser task as native scrolling. Scenarios retain their visibility and geometry assertions after scrolling.
 

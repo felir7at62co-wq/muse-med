@@ -34,9 +34,10 @@ async function fixture(t, options = {}) {
   await mkdir(nativeDirectory)
   const helperBytes = Buffer.from('# Synthetic fixture source root; this helper is never executed.\n')
   await writeFile(helperPath, helperBytes)
+  // Concurrent Windows builds can delay the filesystem checks for each test chunk.
   const transport = Object.freeze(ConnectionConfig({ transport: 'local', localPython: process.execPath,
     localHelper: helperPath, helperSha256: hash(helperBytes), cwd: root, downloadEnabled: true,
-    outputDir: '/ignored-native-output', maxMediaBytes: 100000, copyTimeoutMs: 1000 }))
+    outputDir: '/ignored-native-output', maxMediaBytes: 100000, copyTimeoutMs: 30000 }))
   t.after(async () => {
     try { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) }
     finally { if (previousHome === undefined) delete process.env.MUSE_HOME; else process.env.MUSE_HOME = previousHome }

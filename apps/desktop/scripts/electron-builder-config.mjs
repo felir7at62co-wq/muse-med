@@ -24,7 +24,8 @@ import { resolveDesktopAutoUpdateConfig, resolveDesktopGitHubUpdateConfig,
 import { resolveDesktopBuildCommit } from './desktop-build-commit.mjs'
 import { readDesktopProductVersion, resolveDesktopBuildVersion } from './desktop-build-version.mjs'
 import { resolveDesktopPolicyEnvironment } from './desktop-policy-environment.mjs'
-import { desktopTargetBuildPaths, resolveDesktopBuildTarget } from './desktop-build-paths.mjs'
+import { desktopArtifactDirectory, desktopTargetBuildPaths, resolveDesktopBuildTarget } from './desktop-build-paths.mjs'
+import { SUPERMUSE_WINDOWS_APP_ID, SUPERMUSE_WINDOWS_PRODUCT_NAME, SUPERMUSE_WINDOWS_PACKAGE_NAME } from './supermuse-identity.mjs'
 import { installWindowsDirectoryInstaller } from './windows-directory-installer.mjs'
 import { preserveWindowsRuntimeSignature, signWindowsCode } from './windows-runtime-signature.mjs'
 import { prepareWindowsAsarUnpack, verifyWindowsAsarUnpack } from './windows-asar-unpack.mjs'
@@ -52,7 +53,6 @@ export function createElectronBuilderConfig(
   preparedRuntimeVersion = undefined,
 ) {
   const appId = resolveDesktopAppId(env)
-  const policy = resolveDesktopPolicyEnvironment(env)
   const targetPlatform = env.DSH_DESKTOP_TARGET_PLATFORM
   const resolvedPlatform = targetPlatform ?? hostPlatform
   const resolvedArch = env.DSH_DESKTOP_TARGET_ARCH ?? hostArch
@@ -62,10 +62,13 @@ export function createElectronBuilderConfig(
   const unsigned = env.DSH_DESKTOP_UNSIGNED === '1'
   const packagesMacOS = targetPlatform === 'darwin' || (targetPlatform === undefined && hostPlatform === 'darwin')
   const packagesWindows = resolvedPlatform === 'win32'
+  const supermuse = packagesWindows && appId === SUPERMUSE_WINDOWS_APP_ID
+  const policy = supermuse ? undefined : resolveDesktopPolicyEnvironment(env)
   if (resolvedPlatform === 'win32') installWindowsDirectoryInstaller()
   const macOSSigning = packagesMacOS && !unsigned ? resolveMacOSSigningEnvironment(env) : undefined
   if (packagesMacOS && !unsigned) resolveMacOSNotarizationEnvironment(env)
-  const buildPaths = desktopTargetBuildPaths(resolveDesktopBuildTarget(env, hostPlatform, hostArch))
+  const target = resolveDesktopBuildTarget(env, hostPlatform, hostArch)
+  const buildPaths = desktopTargetBuildPaths(target)
   let primaryRuntimeDestination
   let dshDestination
   let windowsCode = []
@@ -95,7 +98,8 @@ export function createElectronBuilderConfig(
   if (windowsSigner !== undefined) {
     installWindowsNsisBootstrapSigner({ sign: windowsSigner })
   }
-  const update = unsigned ? resolveDesktopGitHubUpdateConfig(readDesktopProductVersion()) : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
+  const update = supermuse ? undefined : unsigned ? resolveDesktopGitHubUpdateConfig(readDesktopProductVersion())
+    : resolveDesktopAutoUpdateConfig(env, resolvedPlatform, resolvedArch)
   if (preparedRuntime !== undefined) buildPaths.dsh = preparedRuntime
   // electron-builder merges extraMetadata into the packaged manifest, so a build version here reaches
   // the artifact names, the update feed, and the installed app.getVersion() the updater compares against.
@@ -105,7 +109,7 @@ export function createElectronBuilderConfig(
   const packaged = resolveDesktopBuildCommit(env)
   return {
     appId,
-    protocols: [{ name: 'muse-med', schemes: ['dsh'] }],
+    protocols: supermuse ? [] : [{ name: 'muse-med', schemes: ['dsh'] }],
     // electron-builder derives the updater's cache directory from the packaged
     // package.json `name` (`AppInfo.updaterCacheDirName` in `app-builder-lib` is
     // `sanitizeFileName(name).toLowerCase() + '-updater'`) and no configuration
@@ -113,17 +117,17 @@ export function createElectronBuilderConfig(
     // sharing `%LOCALAPPDATA%\@deepseek-aidsh-desktop-updater` with the official
     // DeepSeek Harness. The packaged manifest restates the product name.
     extraMetadata: {
-      name: 'muse-med',
+      name: supermuse ? SUPERMUSE_WINDOWS_PACKAGE_NAME : 'muse-med',
       dshDesktopAppId: appId,
       ...policy === undefined ? {} : { dshMandatoryUpdatePolicy: policy },
       version: buildVersion,
       dshHarnessVersion: harnessVersion,
       ...packaged === undefined ? {} : { dshBuildCommit: packaged.commit, dshBuildDirty: packaged.dirty },
     },
-    productName: 'muse-med',
+    productName: supermuse ? SUPERMUSE_WINDOWS_PRODUCT_NAME : 'muse-med',
     icon: fileURLToPath(new URL('../renderer/icon.png', import.meta.url)),
-    artifactName: `muse-med-\${version}-\${os}-\${arch}.\${ext}`,
-    directories: { output: unsigned ? buildPaths.unsignedArtifacts : buildPaths.artifacts },
+    artifactName: `${supermuse && !unsigned ? SUPERMUSE_WINDOWS_PACKAGE_NAME : 'muse-med'}-\${version}-\${os}-\${arch}.\${ext}`,
+    directories: { output: desktopArtifactDirectory(target, unsigned, appId) },
     asar: true,
     electronDist: buildPaths.electron,
     electronFuses: { runAsNode: true },
@@ -212,7 +216,7 @@ export function createElectronBuilderConfig(
           schemaVersion: 1, version: buildVersion, appId, installationMode: 'manual-dmg',
         }, null, 2)}\n`)
       }
-      if (preparedRuntime === undefined && (resolvedPlatform === 'darwin' || resolvedPlatform === 'win32')) {
+      if (!supermuse && preparedRuntime === undefined && (resolvedPlatform === 'darwin' || resolvedPlatform === 'win32')) {
         const sources = resolveDesktopMuseUpdateSources(buildVersion, resolvedPlatform, resolvedArch)
         const path = join(resourcesDir, 'muse-update-sources.json')
         await writeFile(path, `${JSON.stringify(sources, null, 2)}\n`)
@@ -237,7 +241,7 @@ export function createElectronBuilderConfig(
         })
         await verifyWindowsAsarUnpack(buildPaths.dsh, context.packager.getResourcesDir(context.appOutDir), windowsCode)
       }
-      if (context.electronPlatformName !== 'darwin') return
+      if (context.electronPlatformName !== 'darwin' || unsigned) return
       const appPath = join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`)
       if (update !== undefined) {
         await verifyMacOSAppUpdateConfig(appPath, resolveMacOSAppUpdateFeed(context.packager.config.publish),
@@ -256,11 +260,11 @@ export function createElectronBuilderConfig(
     },
     win: {
       icon: fileURLToPath(new URL('../renderer/icon.ico', import.meta.url)),
-      executableName: 'muse-med',
+      executableName: supermuse ? SUPERMUSE_WINDOWS_PRODUCT_NAME : 'muse-med',
       forceCodeSigning: !unsigned,
       signtoolOptions: {
         sign: windowsSigner,
-        publisherName: windowsSigner === undefined ? undefined : resolveWindowsUpdatePublisher(env.DSH_DESKTOP_WINDOWS_CER_FILE),
+        publisherName: windowsSigner === undefined || supermuse ? undefined : resolveWindowsUpdatePublisher(env.DSH_DESKTOP_WINDOWS_CER_FILE),
         signingHashAlgorithms: ['sha256'],
       },
       target: ['nsis'],
@@ -283,9 +287,9 @@ export function createElectronBuilderConfig(
       differentialPackage: true,
     },
     detectUpdateChannel: false,
-    // Every target, unsigned included, records the product's GitHub Releases update source:
+    // The ordinary release records the product's GitHub Releases update source:
     // electron-builder writes this entry into the packaged `resources/app-update.yml`, which is
     // the Desktop updater's activation switch.
-    publish: [resolveDesktopGitHubUpdateConfig(buildVersion)],
+    publish: supermuse ? null : [resolveDesktopGitHubUpdateConfig(buildVersion)],
   }
 }

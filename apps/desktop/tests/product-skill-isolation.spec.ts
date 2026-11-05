@@ -22,6 +22,7 @@ import * as yaml from 'js-yaml'
 import { expect, it, vi } from 'vitest'
 import NativePreset from '../../desktop-host/src/native-preset.ts'
 import { desktopSkillDirectories } from '../../desktop-host/src/bundled-skills.ts'
+import { provideWorkingDirectoryFixture } from '../../../packages/test-support/agent-loop-testkit/src/working-directory-fixture.ts'
 
 const preset = fileURLToPath(new URL('../../desktop-host/presets/short-drama/agent.cordis.yml', import.meta.url))
 const patch = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
@@ -39,6 +40,7 @@ it.each(['literal', 'item-expression', 'array-expression', 'config-expression', 
     const custom = join(root, 'custom')
     ctx.provide('dirs', [custom])
     await mkdir(join(workspace, '.git'), { recursive: true })
+    provideWorkingDirectoryFixture(ctx, workspace)
     await mkdir(product, { recursive: true })
     for (const [directory, name] of [[user, 'user-creative'], [custom, 'custom-creative'],
       [join(workspace, '.muse/skills'), 'project-muse'], [join(workspace, '.dsh/skills'), 'project-dsh'],

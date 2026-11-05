@@ -52,8 +52,9 @@ afterEach(async () => {
 async function fixture(options: { ptc?: boolean; offload?: boolean; cutSeconds?: number; config?: Partial<Video.Config> } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-complete-video-'))), ctx = new Context()
   fixtures.push({ ctx, root })
-  await mountAgentLoopTestDependencies(ctx, { tools: { mode: options.ptc ? 'ptc' : 'native' } })
-  await ctx.plugin(LocalFileSystem, { cwd: root }); await ctx.plugin(LocalSubprocessRuntime)
+  await ctx.plugin(LocalFileSystem, { cwd: root })
+  await mountAgentLoopTestDependencies(ctx, { workingDirectory: true, tools: { mode: options.ptc ? 'ptc' : 'native' } })
+  await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
   ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'danger-full-access', workspaceRoot: root }) } as never)
   if (options.ptc) { await ctx.plugin(LocalSandbox); await ctx.plugin(NodeRuntime).await() }

@@ -284,7 +284,7 @@ class WindowsJobRunner {
     }
     await new Promise<void>((resolveImmediate) => { setImmediate(resolveImmediate) })
     if (this.finished) return
-    // IPC may set this field while start() is suspended above.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- IPC may set this field while start() is suspended above.
     if (this.terminateRequested) {
       await this.publishTerminalResult({ type: 'error', error: windowsStartCancelledError() }, 0)
       return
