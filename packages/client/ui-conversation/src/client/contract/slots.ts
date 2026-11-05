@@ -188,6 +188,12 @@ export interface UserTextNodeOwnerProps {
   readonly interactive: boolean
 }
 
+/** Current View supplied to non-flowing overlays by their owning Conversation. */
+export interface ConversationContentOverlayOwnerProps {
+  /** Resolved registered View, or null while no View is available. */
+  activeView: string | null
+}
+
 /** Complete props for the selected business node, including its Session scope. */
 export type UserTextNodeProps<Id extends UserTextId = UserTextId> =
   PropsRuntime<'conversation.user.text.node', Id>
@@ -242,10 +248,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.content.overlay': {
       kind: 'list'
       scope: 'session'
-      owner: {
-        /** Resolved registered View, or null while no View is available. */
-        activeView: string | null
-      }
+      owner: ConversationContentOverlayOwnerProps
     }
     /** Strict per-Session title, actions, and View navigation. */
     'conversation.session.header': {
