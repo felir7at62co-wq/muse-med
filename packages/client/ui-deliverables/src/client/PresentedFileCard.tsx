@@ -38,7 +38,7 @@ function DeliveredVideo({ source, name, t }: { source: string; name: string } & 
  * @param props - durable file metadata, Sidebar preview, Host capabilities, gesture status, and localized copy.
  * @returns the file card and its anchored action menu.
  */
-export function PresentedFileCard({ file, cwd, phase, host, onPreview, contextMenuProps, actions, videoSource, t }: {
+export function PresentedFileCard({ file, cwd, phase, host, onPreview, contextMenuProps, actions, videoSource, videoContent, t }: {
   file: PresentedPath
   cwd: string | undefined
   phase: PresentedOpenPhase | undefined
@@ -47,6 +47,7 @@ export function PresentedFileCard({ file, cwd, phase, host, onPreview, contextMe
   contextMenuProps: ContextMenuTriggerProps
   actions: ReactNode
   videoSource?: string | undefined
+  videoContent?: ReactNode
 } & PropsLocale<typeof NS>) {
   const reveal = host?.fileManager ?? 'directory'
   const name = basename(file.path)
@@ -74,6 +75,6 @@ export function PresentedFileCard({ file, cwd, phase, host, onPreview, contextMe
         <div className={css.actions}>{actions}</div>
       </div>
     </div>
-    {videoSource !== undefined && <DeliveredVideo key={videoSource} source={videoSource} name={name} t={t} />}
+    {videoContent ?? (videoSource !== undefined && <DeliveredVideo key={videoSource} source={videoSource} name={name} t={t} />)}
   </div>
 }

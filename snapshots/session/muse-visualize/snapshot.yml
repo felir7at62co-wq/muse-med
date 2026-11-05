@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-visualize
+profile: headless
+composition: muse-visualize
+recording: authored
+replay:
+  override: true
+header:
+  class: muse-visualize
+  pin: true
+workspace:
+  parent: outside-temp
+  final: true

@@ -83,6 +83,8 @@ The [Feishu migration helper](src/feishu-migration.ts) resolves a previous `acti
 
 ## Session tool discovery
 
+The resident `muse_feedback_submit` and `muse_feedback_status` tools use the signed-in Muse account and existing central inbox. Submission returns a confirmed receipt or an explicit uncertain outcome; status queries remain limited to the account's own feedback. See [Muse account feedback](../../packages/host/muse-account/README.md).
+
 The Desktop Host mounts one shared [tool discovery service](../../packages/core/tool-discovery/README.md). New Sessions use `short-drama` and retain native questions, file delivery, background Jobs, subagents and web tools. Existing `bot-coordinator` Sessions can recover through their retained general composition; that preset is hidden from new-conversation choices and does not restore Bot teams. Other registered tools remain searchable through capability groups. Session loading and pins remain scoped to the Session. Tool selection changes future declarations, while historical definitions and results remain subject to provider-specific history and cache handling.
 
 The product directory includes project settings, image overviews, native Jianying drafts, draft-root lookup, manuscript comparisons, Office delivery and connected knowledge sources. Chinese aliases cover common production requests without retaining every tool schema. Authorized deferred tools outside configured groups appear under the runtime's uncategorized group. Keyless tests compare shipped preset declarations with registered schemas; connected MCP tools, user overlays and dynamic registrations still depend on the active runtime.

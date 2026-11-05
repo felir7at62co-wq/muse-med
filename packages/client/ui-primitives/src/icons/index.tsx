@@ -288,6 +288,18 @@ export const IconDownloadOutlineRegular = productIcon('download-outline', 'regul
 /** Medium IconDownloadOutline artwork with a 1.3px stroke. */
 export const IconDownloadOutlineMedium = productIcon('download-outline', 'medium')
 
+/** Regular triangle without a surrounding circle for compact media buttons. */
+export const IconPlayTriangleOutlineRegular = productIcon('play-triangle-outline', 'regular')
+
+/** Medium triangle without a surrounding circle for compact media buttons. */
+export const IconPlayTriangleOutlineMedium = productIcon('play-triangle-outline', 'medium')
+
+/** Regular pause bars without a surrounding circle for compact media buttons. */
+export const IconPauseBarsOutlineRegular = productIcon('pause-bars-outline', 'regular')
+
+/** Medium pause bars without a surrounding circle for compact media buttons. */
+export const IconPauseBarsOutlineMedium = productIcon('pause-bars-outline', 'medium')
+
 /** Regular one-pixel IconPlayOutline artwork. */
 export const IconPlayOutlineRegular = productIcon('play-outline', 'regular')
 

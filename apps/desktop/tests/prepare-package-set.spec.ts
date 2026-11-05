@@ -93,7 +93,7 @@ describe('desktop package-set selection', () => {
   })
 
   it('refuses registry fallback when a source-owned plugin tarball is missing', () => {
-    for (const name of ['dshmarket', 'dsh-ffmpeg', 'dsh-codex-subscription', '@wenbin_wb/dsh-bridge', '@xmanrui/dsh-im', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-qimao-data', 'muse-source-research']) {
+    for (const name of ['dshmarket', 'dsh-ffmpeg', 'dsh-plugin-subscriptions', '@wenbin_wb/dsh-bridge', '@xmanrui/dsh-im', 'dsh-skill-mcp-panel', 'deep-view', '@nagi-ovo/dsh-visualize', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-qimao-data', 'muse-source-research', 'muse-skill-evolution']) {
       const available = new Map([
         ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
         ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host', { dependencies: { [name]: '1.0.0' } })],
@@ -104,29 +104,30 @@ describe('desktop package-set selection', () => {
     }
   })
 
-  it('includes the source-built Codex account provider in the Desktop package closure', () => {
-    const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', ...DESKTOP_SOURCE_PLUGINS]
+  it('includes the source-built subscription providers in the Desktop package closure', () => {
+    const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', ...DESKTOP_SOURCE_PLUGINS, 'dsh-codex-subscription']
     const available = new Map(names.map(name => [name, packed(name)]))
-    expect(selectDesktopPackageClosure(available, { platform: 'darwin', arch: 'arm64' }, DESKTOP_SOURCE_PLUGINS).map(entry => entry.manifest.name))
-      .toContain('dsh-codex-subscription')
+    const selected = selectDesktopPackageClosure(available, { platform: 'darwin', arch: 'arm64' }, DESKTOP_SOURCE_PLUGINS).map(entry => entry.manifest.name)
+    expect(selected).toContain('dsh-plugin-subscriptions')
+    expect(selected).not.toContain('dsh-codex-subscription')
   })
 
   it('does not activate a packed optional Codex CLI peer solely for subscription OAuth', () => {
     const available = new Map([
       ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
       ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host')],
-      ['dsh-codex-subscription', packed('dsh-codex-subscription', {
+      ['dsh-plugin-subscriptions', packed('dsh-plugin-subscriptions', {
         peerDependencies: { '@deepseek-ai/dsh-subagent-codex': '1.0.0', '@deepseek-ai/dsh-llm': '1.0.0' },
         peerDependenciesMeta: { '@deepseek-ai/dsh-subagent-codex': { optional: true } },
       })],
       ['@deepseek-ai/dsh-subagent-codex', packed('@deepseek-ai/dsh-subagent-codex')],
       ['@deepseek-ai/dsh-llm', packed('@deepseek-ai/dsh-llm')],
     ])
-    const selected = selectDesktopPackageClosure(available, { platform: 'darwin', arch: 'arm64' }, ['dsh-codex-subscription']).map(entry => entry.manifest.name)
-    expect(selected).toContain('dsh-codex-subscription')
+    const selected = selectDesktopPackageClosure(available, { platform: 'darwin', arch: 'arm64' }, ['dsh-plugin-subscriptions']).map(entry => entry.manifest.name)
+    expect(selected).toContain('dsh-plugin-subscriptions')
     expect(selected).toContain('@deepseek-ai/dsh-llm')
     expect(selected).not.toContain('@deepseek-ai/dsh-subagent-codex')
-    expect(selectDesktopPackageClosure(available, { platform: 'darwin', arch: 'arm64' }, ['dsh-codex-subscription', '@deepseek-ai/dsh-subagent-codex'])
+    expect(selectDesktopPackageClosure(available, { platform: 'darwin', arch: 'arm64' }, ['dsh-plugin-subscriptions', '@deepseek-ai/dsh-subagent-codex'])
       .map(entry => entry.manifest.name)).toContain('@deepseek-ai/dsh-subagent-codex')
   })
 
@@ -142,7 +143,7 @@ describe('desktop package-set selection', () => {
     const names = ['@deepseek-ai/dsh', '@deepseek-ai/dsh-desktop-host', ...DESKTOP_SOURCE_PLUGINS, 'ds-bot', 'muse-bot']
     const available = new Map(names.map(name => [name, packed(name)]))
     const selected = selectDesktopPackageClosure(available, { platform: 'darwin', arch: 'arm64' }, DESKTOP_SOURCE_PLUGINS).map(entry => entry.manifest.name)
-    expect(selected).toContain('dsh-codex-subscription')
+    expect(selected).toContain('dsh-plugin-subscriptions')
     expect(selected).not.toContain('ds-bot')
     expect(selected).not.toContain('muse-bot')
     for (const name of ['ds-bot', 'muse-bot']) available.delete(name)
@@ -153,11 +154,11 @@ describe('desktop package-set selection', () => {
     const available = new Map([
       ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
       ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host')],
-      ['dsh-codex-subscription', packed('dsh-codex-subscription', {
+      ['dsh-plugin-subscriptions', packed('dsh-plugin-subscriptions', {
         peerDependencies: { '@deepseek-ai/dsh-subagent-codex': '1.0.0' }, peerDependenciesMeta: metadata,
       })],
     ])
-    expect(() => selectDesktopPackageClosure(available, { platform: 'darwin', arch: 'arm64' }, ['dsh-codex-subscription'])).toThrow('invalid peer')
+    expect(() => selectDesktopPackageClosure(available, { platform: 'darwin', arch: 'arm64' }, ['dsh-plugin-subscriptions'])).toThrow('invalid peer')
   })
 
   it('selects the IM package and account bridge without retaining the retired Feishu archive', () => {

@@ -23,6 +23,9 @@
   // this client-registered project must not also hold them (one program
   // cannot see both sides of the cordis Context merges).
   "exclude": [
+    "tests/session-video.e2e.ts",
+    "tests/muse-visualize.e2e.ts",
+    "tests/muse-session-views.e2e.ts",
     "tests/yunying-acceptance.e2e.ts",
     "tests/bot-sidebar-rail.e2e.ts",
     "tests/sidebar-drawer.e2e.ts",

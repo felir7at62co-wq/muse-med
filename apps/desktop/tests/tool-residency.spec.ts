@@ -22,7 +22,7 @@ const patches = loadOverlayPatches('muse-med', fileURLToPath(new URL('../../desk
 const row = patches.flatMap(patch => patch.insert ?? []).find(entry => entry.id === 'tool-discovery')
 if (row?.config === undefined) throw new Error('Desktop discovery configuration is missing')
 const config = row.config as Discovery.Config
-const core = ['read', 'write', 'bash', 'read_image', 'video_inspect', 'ask_user_question', 'present', 'todo_write', 'todo_update']
+const core = ['read', 'write', 'bash', 'read_image', 'video_inspect', 'ask_user_question', 'show_view', 'visualize', 'muse_feedback_submit', 'muse_feedback_status', 'present', 'todo_write', 'todo_update']
 const professional = ['drama_shot', 'manuscript_revision', 'drama_project', 'source_recover', 'muse_production',
   'jubian_catalog', 'jubian_organize', 'jubian_find', 'drama_character_reference_project',
   'drama_character_references', 'drama_character_reference_view', 'drama_render']
@@ -76,7 +76,7 @@ it('keeps daily conversation tools in the first model request without loading pr
     expect(names).toEqual(expect.arrayContaining([...core, 'tool_search', 'tool_context']))
     for (const name of [...professional, 'mcp__example__read']) expect(names).not.toContain(name)
     expect(f.ctx.tools.get('mcp__example__read', agent)).toBeDefined()
-    for (const name of ['show_view', 'ask_user', 'request_secret', 'start_task']) expect(config.alwaysLoad).not.toContain(name)
+    for (const name of ['ask_user', 'request_secret', 'start_task']) expect(config.alwaysLoad).not.toContain(name)
   } finally { await f.dispose() }
 })
 

@@ -84,17 +84,17 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
       'experimental-inspector', 'session-inspector', 'speech-to-text', 'ui-voice-input']) {
       expect(rows.find(row => row.id === id), id).toBeUndefined()
     }
-    expect(rows.find(row => row.id === 'codex-subscription')).toMatchObject({ name: 'dsh-codex-subscription' })
-    expect(profile.layers.map(layer => layer.packageName)).toContain('dsh-codex-subscription')
-    expect(readFileSync(join(project, 'package.json'), 'utf8')).toContain('dsh-codex-subscription')
+    expect(rows.find(row => row.id === 'llm-subscriptions')).toMatchObject({ name: 'dsh-plugin-subscriptions' })
+    expect(profile.layers.map(layer => layer.packageName)).toContain('dsh-plugin-subscriptions')
+    expect(readFileSync(join(project, 'package.json'), 'utf8')).toContain('dsh-plugin-subscriptions')
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-mcp-resources')).toEqual([
       { id: 'mcp-resources', name: '@deepseek-ai/dsh-mcp-resources' },
     ])
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-mcp-client')).toEqual([])
     expect(rows.find(row => row.id === 'webserver')).toMatchObject({ name: '@deepseek-ai/dsh-host-webserver' })
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-muse-account')).toEqual([
-      { id: 'muse-account', name: '@deepseek-ai/dsh-muse-account', inject: ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'museDesktopBridge', 'connection', 'webServer'], config: {
-        remoteAccess: true, webSearch: true, excludedModelPrefixes: [], excludedProviderIds: ['aa'], hiddenProviderIds: ['yunying'],
+      { id: 'muse-account', name: '@deepseek-ai/dsh-muse-account', inject: ['tools', 'llm', 'sessions', 'sessionProjections', 'agentDefaultModel', 'museDesktopBridge', 'connection', 'webServer'], config: {
+        remoteAccess: true, webSearch: true, feedbackTools: true, excludedModelPrefixes: [], excludedProviderIds: ['aa'], hiddenProviderIds: ['yunying'],
         visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' },
           { providerId: 'yunying', modelId: 'gpt-6.1-sol' }], requestTimeoutMs: 60000,
         excludedModels: [

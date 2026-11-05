@@ -34,6 +34,7 @@ kind: "package-reference"
   name: '@deepseek-ai/dsh-tool-discovery'
   config:
     alwaysLoad: [read, write, edit, skill]
+    excludeFromSearch: [read]
     keywords:
       video_inspect: [抽帧, 人物动作, 切镜]
     capabilities:
@@ -49,9 +50,12 @@ kind: "package-reference"
 
 `alwaysLoad` 使用精确工具名，可以列出提供方稍后才会注册的名称。`tool_search` 与 `tool_context` 始终包含在内。只有调用 agent 当前获准使用的工具才会被展示或搜索；在此列出受限工具不会授予访问权限。
 
+`excludeFromSearch` 默认为 `[]`，只接受 `alwaysLoad` 中的非空精确名称；通配符、前后空白及非常驻名称会使插件激活失败。这些工具仍在首次请求中可用，但不会进入搜索索引、全局或分类搜索结果、工具计数和初始能力目录。排除搜索不改变授权，也不改变 `tool_context` 对基础工具的保护。
+
 | 字段 | 默认值 | 含义 |
 |---|---|---|
 | `alwaysLoad` | 必填 | 搜索前即展示的定义 |
+| `excludeFromSearch` | `[]` | 不进入发现元数据与结果的 `alwaysLoad` 精确名称 |
 | `maxResults` | `8` | 单次搜索最多加载的工具数，范围为1至32 |
 | `maxDescriptionChars` | `320` | 每项结果描述的 Unicode 字符上限，范围为1至2048 |
 | `k1` | `1.2` | BM25 词频饱和参数，范围为0.01至10 |
@@ -74,7 +78,7 @@ kind: "package-reference"
 | 不提供 `query` 和 `capability` | 列出能力组摘要，不加载工具 |
 | 仅提供 `capability` | 浏览该组工具，并加载至配置或请求的数量上限 |
 | 同时提供 `query` 和 `capability` | 先在该组内搜索，零命中或明确提到其他组的工具名或配置别名时重试全局搜索 |
-| 仅提供 `query` | 搜索全部获准工具，包括未分类工具 |
+| 仅提供 `query` | 搜索全部可搜索的获准工具，包括未分类工具 |
 
 未知能力组 id 会返回可用目录，不加载工具。未配置能力组时，目录通过 `uncategorized` 展示未分组工具，带 query 的搜索覆盖全部获准目录。`limit` 必须在1至 `maxResults` 之间，目录请求也适用。`offset` 默认为零，必须是非负安全整数。浏览和查询可沿用同样的 query 与 capability，使用 `next_offset` 继续翻页；每页仅加载该页返回的工具。目录与配置不变时，结果顺序保持稳定。
 

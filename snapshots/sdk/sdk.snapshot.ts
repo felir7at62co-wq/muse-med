@@ -125,6 +125,10 @@ interface SdkAssertions {
   modelRequestsFile?: string
   /** Replay caller-owned commands between turns; profile fixtures own any in-turn commands. */
   replayStandaloneCommands?: boolean
+  /** Require standalone native commands to succeed before continuing the scenario. */
+  successfulStandaloneCommands?: boolean
+  /** Direct native Agent children do not emit managed-subagent completion notifications. */
+  subagentFinished?: boolean
   /** Submit all manifest images with each standalone command, including rejected invocations. */
   commandAttachments?: boolean
   /** Native plan-review choices in the order the fixture requests them. */
@@ -153,6 +157,12 @@ interface SdkAssertions {
 }
 
 const SDK_ASSERTIONS: Readonly<Record<string, SdkAssertions>> = {
+  'muse-skill-evolution': {
+    expectedFinalResponse: 'LEARNED_SKILL_LOADED',
+    replayStandaloneCommands: true,
+    successfulStandaloneCommands: true,
+    subagentFinished: false,
+  },
   'output-continuation': { expectedFinalResponse: 'COMPLETE_SEGMENT' },
   'approval': {
     approvalOutcomes: ['allowed-once', 'rejected'],
@@ -677,7 +687,9 @@ function collectCommandNotifications(
   observe: (notification: HarnessNotification) => void,
 ): void {
   const run = result.events.find(event => event.type === 'command/run')
-  if (run === undefined) throw new Error('Command RunResult has no command/run event')
+  if (run === undefined) throw new Error(`Command RunResult has no command/run event: ${JSON.stringify({
+    finishReason: result.finishReason, finalResponse: result.finalResponse, eventTypes: result.events.map(event => event.type),
+  })}`)
   const commandId = run.data.commandId
   const done = result.events.find(event => event.type === 'command/done' && event.data.commandId === commandId)
   if (done === undefined || done.type !== 'command/done') throw new Error('Command RunResult has no command/done event')
@@ -919,6 +931,9 @@ async function runScenario(scenario: CorpusScenario): Promise<{
             { type: 'text', text: action.line },
           ] : action.line)
           expect(execution.sessionId).toBe(sessionId)
+          if (assertions.successfulStandaloneCommands === true) {
+            expect(execution.finishReason, execution.finalResponse).toBe('completed')
+          }
           if (scenario.name === 'plan-review' && action === actions.find(item => item.kind === 'command')) {
             expect(execution).toMatchObject({ finalResponse: 'SDK_PLAN_APPROVED', finishReason: 'completed' })
             expect(execution.events.filter(event => event.type === 'turn/end'))
@@ -1135,6 +1150,7 @@ async function verifyHeaders(
   scenario: CorpusScenario,
   ordered: readonly PersistedLog[],
   ctx: NormalizeContext,
+  expectedContents: readonly string[],
   dshSdkChildConfig?: Readonly<Record<string, unknown>>,
 ): Promise<void> {
   const pin = headerPin(scenario)
@@ -1171,6 +1187,9 @@ async function verifyHeaders(
   for (const [logIndex, log] of ordered.entries()) {
     const headers = normalizedHeaders(log.content, ctx)
     const prompts = normalizedSystemPrompts(log.content, ctx)
+    const childFixture = expectedContents[logIndex]
+    const literalChildHeaders = logIndex > 0 && childFixture !== undefined
+      ? normalizedHeaders(childFixture, contextOfContents(expectedContents)) : []
     if (headers.length > 0) {
       expect(systemPromptPrecedesRequests(log.content), `${scenario.name}: session ${logIndex} has a system/message before its first request/header`).toBe(true)
       expect(prompts.length, `${scenario.name}: session ${logIndex} system/message count`)
@@ -1178,6 +1197,12 @@ async function verifyHeaders(
     }
     for (const [index, header] of headers.entries()) {
       const selectedSchemas = childSchemas.get(logIndex)?.[index]
+      const literalChildHeader = literalChildHeaders[index]
+      if (selectedSchemas === undefined && typeof literalChildHeader === 'object' && literalChildHeader !== null
+        && !Object.hasOwn(literalChildHeader, 'tools')) {
+        expect(header, `${scenario.name}: tool-free session ${logIndex} header ${index + 1}`).toEqual(literalChildHeader)
+        continue
+      }
       const base = reconstructed[index] ?? reconstructed[0]
       const configured = logIndex === 1 && dshSdkChildConfig !== undefined
         ? { ...base as JsonObject, config: dshSdkChildConfig }
@@ -1680,7 +1705,7 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       const actualSnapshots = normalizeSessionSnapshots(ordered.map(log => log.content), actualContext, { nativeWriterOutput: true })
       const expectedSnapshots = normalizeSessionSnapshots(expectedContents, expectedContext, { nativeWriterOutput: true })
       expect(actualSnapshots.map(records), `${scenario.name}: sessions`).toEqual(expectedSnapshots.map(records))
-      await verifyHeaders(scenario, ordered, actualContext, assertions.dshSdkChild?.agentConfig)
+      await verifyHeaders(scenario, ordered, actualContext, expectedContents, assertions.dshSdkChild?.agentConfig)
 
       // Genuine SDK protocol cases retain their secondary wire projections.
       const finalResult = results.at(-1)
@@ -1765,7 +1790,7 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       }
       if (ordered.length > 1 && assertions.dshSdkChild === undefined) {
         expect(observedMethods.has('subagent.started')).toBe(true)
-        expect(observedMethods.has('subagent.finished')).toBe(true)
+        expect(observedMethods.has('subagent.finished')).toBe(assertions.subagentFinished ?? true)
       }
     })
   }

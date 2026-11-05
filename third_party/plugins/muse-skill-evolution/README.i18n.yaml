@@ -1,0 +1,25 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write third_party/plugins/muse-skill-evolution/README.md
+/:
+  en: 8e7f3bfab6015f44
+  zh: fc0884d12c1a56f8
+/muse-skill-evolution:
+  en: bb4369c9cafdbe93
+  zh: 687fd8404d38673c
+/muse-skill-evolution/learning-and-ownership:
+  en: d02b88874783fc10
+  zh: 4b9072e901e08e32
+/muse-skill-evolution/management-and-files:
+  en: de5efef90e7ae5cc
+  zh: a3471115288a3da9
+/muse-skill-evolution/configuration-and-model-use:
+  en: ad0679c2c0425307
+  zh: 1f4357fda5830eef
+/muse-skill-evolution/model-experience:
+  en: 86e8faef7a1f6a91
+  zh: 3ea1d082f6f49855
+/muse-skill-evolution/development:
+  en: 174a706134328752
+  zh: 3073ed171dc6ef4a

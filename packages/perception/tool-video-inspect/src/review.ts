@@ -1,6 +1,6 @@
 /** Complete-episode image observation with durable, source-specific progress. */
 import { randomUUID, createHash } from 'node:crypto'
-import { dirname, relative, resolve } from 'node:path'
+import { dirname, relative } from 'node:path'
 import { z } from 'zod'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionId } from '@deepseek-ai/dsh-session'
@@ -226,10 +226,29 @@ export async function applyCompleteReview(ctx: Context, config: Config,
         const byId = args.review_id === undefined ? undefined : Object.values(saved).filter(review => review.id === args.review_id)
         if (byId !== undefined && byId.length !== 1) throw Error('VIDEO_REVIEW_ID: review_id须唯一对应本会话已保存的视频记录。')
         const selected = byId?.[0]
-        const selectedPath = args.file_path === undefined ? selected?.path : resolve(policy.workspaceRoot, args.file_path)
+        const selectedPath = args.file_path ?? selected?.path
         if (selectedPath === undefined) throw Error('VIDEO_REVIEW_SELECTOR: 需要file_path或本会话已保存的review_id。')
-        if (selected !== undefined && selectedPath !== selected.path) throw Error('VIDEO_REVIEW_SELECTOR: file_path与review_id不指向同一保存记录。')
-        const snapshot = selected ?? saved[selectedPath]
+        const suppliedTarget = args.file_path === undefined ? undefined
+          : await ctx.fs.resolve(args.file_path, { cwd: policy.workspaceRoot, signal })
+        if (selected !== undefined && suppliedTarget !== undefined) {
+          const savedTarget = await ctx.fs.resolve(selected.path, { cwd: policy.workspaceRoot, signal })
+          if (suppliedTarget.targetKey !== savedTarget.targetKey) throw Error('VIDEO_REVIEW_SELECTOR: file_path与review_id不指向同一保存记录。')
+        }
+        let snapshot = selected ?? (suppliedTarget === undefined ? undefined : saved[suppliedTarget.displayPath])
+        if (snapshot === undefined && suppliedTarget !== undefined) {
+          const matching: VideoReview[] = []
+          for (const review of Object.values(saved)) {
+            try {
+              const target = await ctx.fs.resolve(review.path, { cwd: policy.workspaceRoot, signal })
+              if (target.targetKey === suppliedTarget.targetKey) matching.push(review)
+            } catch (_error: unknown) {
+              // An unresolvable saved source cannot identify the supplied path.
+              signal.throwIfAborted()
+            }
+          }
+          if (matching.length > 1) throw Error('VIDEO_REVIEW_SELECTOR: file_path对应多个保存记录，请提供review_id。')
+          snapshot = matching[0]
+        }
         const savedDescription = (review: VideoReview): ReviewResult => ({ ...taskResult(review, 0),
           frames: [], frames_not_shown: review.frames.length, event_groups: [],
           notice: review.follow_up?.status === 'closed'
@@ -364,11 +383,11 @@ export async function applyCompleteReview(ctx: Context, config: Config,
         }
         const describe = async (review: VideoReview, batch = false): Promise<ReviewResult> =>
           publishDescription(await prepareDescription(review, batch))
-        const target = await ctx.fs.resolve(selectedPath, { cwd: policy.workspaceRoot, signal })
+        const target = suppliedTarget ?? await ctx.fs.resolve(selectedPath, { cwd: policy.workspaceRoot, signal })
         const info = await ctx.fs.stat(target, signal)
         if (!info || info.type !== 'file' || info.size === undefined || info.size > config.maxSourceBytes) throw Error('Video input must be a bounded regular file')
         if (args.method === 'reopen') {
-          const review = reviewsOf(readReviews, session)[target.displayPath]
+          const review = snapshot
           if (review === undefined) throw Error('VIDEO_REVIEW_REQUIRED: 未找到对应来源的已保存记录。')
           if (review.source_version !== info.version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: 视频版本已变，请重新scan；后续跟进状态未改变。')
           if (review.follow_up?.status === 'closed' || args.reason !== undefined) {
@@ -380,7 +399,7 @@ export async function applyCompleteReview(ctx: Context, config: Config,
           return savedDescription(review)
         }
         await ctx.fs.readByteRange(target, { offset: 0, length: 1 }, signal)
-        const path = target.displayPath, source = ctx.fs.processPath(target)
+        const path = snapshot?.path ?? target.displayPath, source = ctx.fs.processPath(target)
         let review = reviewsOf(readReviews, session)[path]
         if (args.method === 'metadata' || args.method === 'scan' && (review === undefined || review.source_version !== info.version || !review.scan_complete)) {
           const metadata = await probeVideo(ctx, config.ffprobePath, source, policy, signal,

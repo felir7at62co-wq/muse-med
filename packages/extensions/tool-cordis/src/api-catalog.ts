@@ -3630,6 +3630,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'sessionVideo',
+    summary: 'Native Host plugin; Remote methods take only Session-bound source identities.',
+    description: 'Native Host plugin; Remote methods take only Session-bound source identities.',
+    methods: [
+      {
+        signature: '@Remote({ resources: { session: sessionId => sessionId } }) async list(sessionId: SessionId, signal: AbortSignal): Promise<SessionVideoInventory>',
+        description: 'List only video sources explicitly recorded by this conversation.',
+        parameters: [{ name: 'sessionId', description: 'Authorized Session identity.' }, { name: 'signal', description: 'Caller cancellation.' }],
+        returns: 'Versioned local or provider sources and explicit coverage diagnostics.',
+      },
+      {
+        signature: '@Remote({ resources: { session: sessionId => sessionId } }) async detect(sessionId: SessionId, sourceId: SessionVideoSourceId, sourceVersion: string, signal: AbortSignal): Promise<SessionVideoAnalysis>',
+        description: 'Detect visual cuts in one exact source version without generating or replacing media.',
+        parameters: [{ name: 'sessionId', description: 'Authorized Session identity.' }, { name: 'sourceId', description: 'Identity returned by this Session\'s inventory.' }, { name: 'sourceVersion', description: 'Inventory version the user selected.' }, { name: 'signal', description: 'Cancels download, probe and cut detection.' }],
+        returns: 'Complete original-video intervals, or a failed result with no invented shots.',
+      },
+    ],
+  },
+  {
     key: 'settings',
     summary: 'Project Config schemas into forms and own optional instance-level UI policy.',
     description: 'Project Config schemas into forms and own optional instance-level UI policy.',
@@ -7937,11 +7956,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MuseFeedbackReceipt',
-    declaration: 'export interface MuseFeedbackReceipt {\n    readonly id: MuseFeedbackId;\n    readonly revision: number;\n}',
+    declaration: 'export interface MuseFeedbackReceipt {\n    readonly id: MuseFeedbackId;\n    readonly revision: number;\n    readonly deduplication?: \'available\' | \'unavailable\';\n}',
   },
   {
     name: 'MuseFeedbackRequest',
-    declaration: 'export interface MuseFeedbackRequest {\n    readonly sessionId: SessionId;\n    readonly target: {\n        readonly kind: \'session\';\n    } | {\n        readonly kind: \'message\';\n        readonly messageId: MessageId;\n        readonly rating: \'positive\' | \'negative\';\n    };\n    readonly category?: FeedbackCategory;\n    readonly text?: string;\n    readonly includeDiagnostics: boolean;\n}',
+    declaration: 'export interface MuseFeedbackRequest {\n    readonly sessionId: SessionId;\n    readonly target: {\n        readonly kind: \'session\';\n    } | {\n        readonly kind: \'message\';\n        readonly messageId: MessageId;\n        readonly rating: \'positive\' | \'negative\';\n    };\n    readonly category?: FeedbackCategory;\n    readonly text?: string;\n    readonly includeDiagnostics: boolean;\n    readonly title?: string;\n    readonly kind?: \'bug\' | \'suggestion\' | \'other\';\n    readonly requestId?: string;\n}',
   },
   {
     name: 'MuseVoiceLeaseId',
@@ -9452,8 +9471,32 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SessionUpdateQueueValue {\n    readonly accepted: true;\n}',
   },
   {
+    name: 'SessionVideoAnalysis',
+    declaration: 'export interface SessionVideoAnalysis {\n    readonly sourceId: SessionVideoSourceId;\n    readonly sourceVersion: string;\n    readonly state: \'ready\' | \'failed\';\n    readonly durationSeconds: number | null;\n    readonly width: number | null;\n    readonly height: number | null;\n    readonly shots: readonly SessionVideoShot[];\n    readonly method: \'ffmpeg-scene\';\n    readonly threshold: number;\n    readonly issue: string | null;\n}',
+  },
+  {
+    name: 'SessionVideoInventory',
+    declaration: 'export interface SessionVideoInventory {\n    readonly sessionId: SessionId;\n    readonly sources: readonly SessionVideoSource[];\n    readonly complete: boolean;\n    readonly issues: readonly string[];\n}',
+  },
+  {
     name: 'SessionVideoSelection',
     declaration: 'export type SessionVideoSelection = VideoModelOption & {\n    revision: number;\n};',
+  },
+  {
+    name: 'SessionVideoShot',
+    declaration: 'export interface SessionVideoShot {\n    readonly id: SessionVideoShotId;\n    readonly index: number;\n    readonly startSeconds: number;\n    readonly endSeconds: number;\n    readonly thumbnail: null;\n}',
+  },
+  {
+    name: 'SessionVideoShotId',
+    declaration: 'export type SessionVideoShotId = Branded<\'SessionVideoShotId\'>;',
+  },
+  {
+    name: 'SessionVideoSource',
+    declaration: 'export interface SessionVideoSource {\n    readonly id: SessionVideoSourceId;\n    readonly label: string;\n    readonly origin: \'workspace\' | \'presented\' | \'attachment\' | \'generated\';\n    readonly path: string | null;\n    readonly eventSeq: number;\n    readonly presentedIndex: number | null;\n    readonly callId: string | null;\n    readonly status: \'local\' | \'remote-only\' | \'missing\' | \'unsupported\';\n    readonly version: string | null;\n    readonly playbackUrl: string | null;\n    readonly remoteUrl: string | null;\n    readonly issue: string | null;\n}',
+  },
+  {
+    name: 'SessionVideoSourceId',
+    declaration: 'export type SessionVideoSourceId = Branded<\'SessionVideoSourceId\'>;',
   },
   {
     name: 'SessionWaitOutput',

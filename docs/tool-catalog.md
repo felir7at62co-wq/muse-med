@@ -15,6 +15,7 @@ This table connects model-visible tool names to the plugin package and service s
 
 | Tool package | Model-visible names | Requires | Writes / affects | Shipped aliases | Deployment note |
 | --- | --- | --- | --- | --- | --- |
+| `@deepseek-ai/dsh-muse-account` | `muse_feedback_status`, `muse_feedback_submit` | `ctx.tools`, `signed-in Muse account for execution` | `tool/call`, `tool/result`, `explicit feedback submission to the central inbox` | - | Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed. |
 | `@deepseek-ai/dsh-plugin-manager` | `plugin_manager` | `ctx.tools`, `ctx.pluginManager`, `ctx.sandboxPolicy` | `tool/call`, `tool/result`, `user/message` | - | - |
 | `@deepseek-ai/dsh-plugin-market` | `plugin_market` | `ctx.tools`, `ctx.pluginMarket` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
@@ -62,6 +63,78 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-episode-render` | `drama_render`, `drama_video` | `ctx.tools`, `ffmpeg and ffprobe on PATH (or configured), the project layout it reads and writes (video/, audio/, editing/, exports/)` | `tool/call`, `tool/result`, `on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt`, `on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/`, `on drama_video ban/unban: project-local video-bans.json; media bytes are unchanged` | - | `drama_video` stores reversible, labelled SHA256 exclusions without review evidence; release is not approval. `drama_render` refuses banned selected bytes in `prepare`/`render`, while `verify` reports risks without deleting media. Its methods: `prepare` lays out render inputs without encoding picture, `render` produces the delivery and reports its measured resolution, frame rate, bitrate, duration, size, and encoder, and `verify` checks the delivered file. Prepare snapshots project delivery canvas and medium. Animation adds no ending or watermark; photorealistic keeps the AI-content mark and a two-second ending frozen from the proved tail frame. Missing legacy medium preserves marked delivery with a warning. The bitrate target is 24M, ceiling 30M and floor 4.6 Mbps. A render that cannot proceed throws with its repair instruction; a delivered file that misses the specification returns `ok: false` with per-check repairs. |
 | `@deepseek-ai/dsh-tool-drama-assets` | `drama_assets` | `ctx.tools`, `ctx.credentials`, `the project layout (assets_manifest.json, _probe/asset-reconcile.json, project_config.json, source-backed requirements and optional shot plans)` | `tool/call`, `tool/result`, `on reconcile/dispose: _probe/asset-reconcile.json under the project root` | - | `shared_usage_preview` reads complete current shared-project asset, material, episode and package inventories, counts distinct bound packages and reports same-period voice candidates without granting deletion. `usage_preview` reads exact local compiled references and voice gaps without network or writes. `reconcile` reads the remote project’s asset and material lists and the manifest and writes the evidence the host’s reconcile gate reads, and `dispose` records one disposition in it without any remote read. `match_preview` reads source-backed requirements, the project bible, formal assets and recognized voice references, returning `reuse_ready`, `needs_review`, `missing` or `blocked`. `reuse_preview` groups those recommendations across shots and optionally checks an ordered material-selection plan while preserving unrelated materials and card configuration. Both previews are read-only and verify source-file byte SHA-256, line numbers and exact source text; a candidate digest is not source SHA-256. `apply_allowed=false` means the preview grants no write permission. After user authorization, the model uses the existing `jubian_storyboard.select_assets` tool; voices remain on `audio_preview` / `audio_apply`. The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate’s inputs. |
 | `@deepseek-ai/dsh-tool-character-reference` | `drama_character_reference_project`, `drama_character_reference_view`, `drama_character_references` | `ctx.tools`, `ctx.settings`, `ctx.characterLibrary (the Host-owned read-only character library)`, `current Session human message only when multiple projects need selection`, `ctx.attachments and ctx.llm for image view` | `tool/call`, `tool/result with image attachment on view` | - | `drama_character_reference_project` lists Host-verified projects; the Agent may inspect a sole valid project without another human step, while multiple projects require a current human message naming one. Selection returns a bounded, validated character roster without a local path. `drama_character_references` rereads the selected bible and returns up to three metadata-ranked candidates with stable Catalog IDs and original-image SHA-256 values; search alone does not show images. `drama_character_reference_view` rechecks a candidate and saves its verified image as a model-visible attachment only when the model route supports images. Main roles are eligible by default; supporting roles require a bounded story-specific reason. None of these tools grants approval, reuse, binding or production rights, writes TOS, or requests paid generation. |
+
+<a id="deepseek-aidsh-muse-account"></a>
+
+## `@deepseek-ai/dsh-muse-account`
+
+### `muse_feedback_status`
+
+Read the current status and maintainer reply for a Muse feedback receipt owned by the signed-in account. This does not submit feedback, change its state, or access other users' reports. Resolved describes the inbox status; report the maintainer reply without inventing a released version.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "The 32-character lowercase hexadecimal feedback receipt ID."
+    }
+  },
+  "required": [
+    "id"
+  ]
+}
+```
+
+Source: [`packages/host/muse-account/src/feedback-tools.ts`](../packages/host/muse-account/src/feedback-tools.ts)
+
+### `muse_feedback_submit`
+
+Submit a product problem or suggestion to the Muse feedback inbox when the user asks to report it. Describe the actual and expected behavior and known reproduction steps in text. Uses the signed-in account and current conversation. Never claim success without a submitted receipt. Reuse the same requestId and identical content for the same submission; there is no automatic retry. Do not include conversation excerpts unless the user explicitly requested them.
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Short feedback title, at most 120 characters."
+    },
+    "category": {
+      "type": "string",
+      "description": "Problem, feature suggestion, or other feedback.",
+      "enum": [
+        "bug",
+        "suggestion",
+        "other"
+      ]
+    },
+    "text": {
+      "type": "string",
+      "description": "User feedback, actual behavior, expected behavior and known reproduction steps; at most 5000 characters."
+    },
+    "requestId": {
+      "type": "string",
+      "description": "Stable key for this submission, 1–128 ASCII letters, digits, dots, underscores, colons or hyphens, beginning with a letter or digit. Reuse unchanged after an uncertain result."
+    },
+    "includeDiagnostics": {
+      "type": "boolean",
+      "description": "Include bounded visible request and answer excerpts only when the user explicitly asked. Defaults to false."
+    }
+  },
+  "required": [
+    "title",
+    "category",
+    "text",
+    "requestId"
+  ]
+}
+```
+
+Source: [`packages/host/muse-account/src/feedback-tools.ts`](../packages/host/muse-account/src/feedback-tools.ts)
+
+Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed.
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 

@@ -44,7 +44,7 @@ FactoryComponentPropsOf<'conversation.chat.user.content'>) {
             ))}
         </div>
       )}
-      {showBubble && <UserMessageBubble data-message-bubble="" data-text-interaction-source="">
+      {showBubble && <UserMessageBubble className={css.userBubble} data-message-bubble="" data-text-interaction-source="">
         {renderFactorySlot('conversation.user.text', { text, facts, interactive, ellipsis })}
         {extraBlocks.map((block, index) => (
           <JsonBlock key={index} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />

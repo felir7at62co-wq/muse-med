@@ -1,0 +1,12 @@
+# Mount the Muse Desktop video plugins over the isolated Web scaffold.
+- insert:
+    - id: session-video
+      name: '@deepseek-ai/dsh-session-video'
+      config:
+        analysisWidth: 64
+        commandTimeoutMs: 15000
+        maxDurationSeconds: 10
+    - id: ui-session-video
+      name: '@deepseek-ai/dsh-client-ui-session-video'
+      config:
+        pixelsPerSecond: 80

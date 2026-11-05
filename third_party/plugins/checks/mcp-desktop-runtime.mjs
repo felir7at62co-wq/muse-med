@@ -15,7 +15,7 @@ import chokidar from 'chokidar'
 import { McpManagerGateway } from './lib/mcp/gateway.js'
 import { mcpListResultSchema } from './lib/mcp/wire.js'
 import { apply } from './lib/index.js'
-import { currentVersion, fetchUpdateCheck } from './lib/version.js'
+import { currentVersion } from './lib/version.js'
 
 test('excludes shared agent skills from panel management and nested discovery while retaining Muse skills', async (t) => {
   const dir = await mkdtemp(join(tmpdir(), 'muse-panel-skill-roots-'))
@@ -297,24 +297,20 @@ test('rolls back only newly written batch targets after a real filesystem write 
 })
 
 
-test('reports the installed stable version and preserves detection of a genuinely newer release', async (t) => {
+test('the compatibility update endpoint returns the bundled version without network access', async (t) => {
   assert.equal(currentVersion(), '2.3.5')
-  let tag = 'v2.3.5'
-  const calls = []
-  t.mock.method(globalThis, 'fetch', async (url) => {
-    calls.push(String(url))
-    assert.equal(String(url), 'https://api.github.com/repos/Fishquito7/dsh-skill-mcp-panel/releases/latest')
-    return new Response(JSON.stringify({ tag_name: tag }), { status: 200 })
-  })
-  assert.deepEqual(await fetchUpdateCheck(), { latest: '2.3.5', updateAvailable: false, rateLimited: false })
-  tag = 'v2.3.6'
-  assert.deepEqual(await fetchUpdateCheck(), { latest: '2.3.6', updateAvailable: true, rateLimited: false })
-  tag = 'v2.1.2'
-  assert.deepEqual(await fetchUpdateCheck(), { latest: '2.1.2', updateAvailable: false, rateLimited: false })
-  assert.equal(calls.length, 3)
+  const network = t.mock.method(globalThis, 'fetch', () => { throw new Error('Update checks must not use the network') })
+  const ctx = new Context()
+  try {
+    ctx.provide('typert', { register: () => () => {} })
+    ctx.provide('skills', { registerProvider: () => () => {} })
+    apply(ctx)
+    assert.deepEqual(await ctx.get('skillsViewer').checkUpdate(), { current: '2.3.5', latest: null, updateAvailable: false })
+    assert.equal(network.mock.callCount(), 0)
+  } finally { await ctx.fiber.dispose() }
 })
 
-test('both rendered panel tabs clear a stale update notice but retain future Muse-managed updates', async () => {
+test('both rendered panel tabs omit update notices and never request release checks', async () => {
   const fixture = await readFile(new URL('./test-panel-render.mjs', import.meta.url), 'utf8')
   const marker = '// ── 1. 技能页签'
   assert.ok(fixture.includes(marker))
@@ -328,16 +324,14 @@ test('both rendered panel tabs clear a stale update notice but retain future Mus
   for(const tab of ['skills','mcp']){
     reset(skills,tab);
     const base=tab==='skills'?rpc:mcpFace;
-    let view=await mount({...base,checkUpdateRemote:async()=>({current:'2.3.5',latest:'2.3.6',updateAvailable:true})});
-    check(tab+' opens and shows a genuine future update through Muse',()=>{
-      const text=textOf(view);assert(text.includes('2.3.6'),'future version absent');
-      assert(text.includes('Muse'),'managed application guidance absent');
-      assert(!text.includes('dsh-panel update'),'unsupported global CLI instruction visible');
+    let calls=0;
+    const view=await mount({...base,checkUpdateRemote:async()=>{calls++;return {current:'2.3.5',latest:'99.0.0',updateAvailable:true};}});
+    check(tab+' omits update checks and banners',()=>{
+      assert(calls===0,'page queried upstream update status');
+      const text=textOf(view);assert(!text.includes('99.0.0'),'update version visible');
+      assert(!text.includes('发现新版本')&&!text.includes('Update available'),'update notice visible');
+      assert(!text.includes('dsh-panel update'),'global update action visible');
     });
-    view=await mount({...base,checkUpdateRemote:async()=>({current:'2.3.5',latest:'2.3.5',updateAvailable:false})});
-    check(tab+' clears the previous banner after the installed version catches up',()=>assert(!textOf(view).includes('2.3.6'),'stale update remains'));
-    view=await mount({...base,checkUpdateRemote:async()=>({current:'2.3.5',latest:'2.4.0',updateAvailable:true})});
-    check(tab+' continues to show later releases',()=>assert(textOf(view).includes('2.4.0'),'future updates were suppressed'));
   }
   if(failures)process.exit(1);
   `

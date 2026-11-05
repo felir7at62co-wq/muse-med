@@ -8,7 +8,7 @@ import type { PresentedOpenController } from './present-open.ts'
 import type { ChangesDiffStore } from './changes-diff.ts'
 import type { ChangesSummaryStore } from './changes-summary.ts'
 import { ChangedFiles } from './ChangedFiles.tsx'
-import { changesForClosing, presentedForClosing, type ChangesTurnData, type PresentedPath } from './turn-deliverables.ts'
+import { basename, changesForClosing, presentedForClosing, type ChangesTurnData, type PresentedPath } from './turn-deliverables.ts'
 import type { NS } from './locales.ts'
 import { changesSummaryUrl, type ChangesReviewCoordinates } from '../changes.ts'
 import { presentedFileUrl } from '../presented.ts'
@@ -55,7 +55,7 @@ export function selectDeliverables(owner: TurnTailOwnerProps): DeliverablesMatch
  * @param props - closing Turn, file actions, and localized copy.
  * @returns file rows, or null when the Turn declares none.
  */
-export function DeliverablesTail(props: PropsRuntime<'conversation.chat.turnTail'> & PropsLocale<typeof NS> & InjectFace<DeliverablesInjected> & PropsRenderSlots<'deliverables.file.actions'>) {
+export function DeliverablesTail(props: PropsRuntime<'conversation.chat.turnTail'> & PropsLocale<typeof NS> & InjectFace<DeliverablesInjected> & PropsRenderSlots<'deliverables.file.actions' | 'deliverables.video'>) {
   const matched = selectDeliverables(props)
   return matched === null ? null : <Deliverables {...props} matched={matched} />
 }
@@ -69,10 +69,13 @@ export function DeliverablesTail(props: PropsRuntime<'conversation.chat.turnTail
  */
 export function Deliverables({
   matched, openFile, useContextMenu, t, sessionId, useSessions, openPresented, openChangesReview, usePresentedOpen, usePresentedHost,
-  useChangesDiff, loadChangesDiff, useChangesSummary, reloadPresentedHost, loadChangesSummary, useShowCodeDiff, renderSlot, videoSourceUrl,
+  useChangesDiff, loadChangesDiff, useChangesSummary, reloadPresentedHost, loadChangesSummary, useShowCodeDiff,
+  renderSlot, renderSlotChain, videoSourceUrl,
 }: Pick<TurnTailOwnerProps, 'openFile'> & {
   matched: DeliverablesMatch
-} & PropsLocale<typeof NS> & Pick<SessionStandardProps, 'sessionId'> & Pick<GlobalStandardProps, 'useSessions' | 'useContextMenu'> & InjectFace<DeliverablesInjected> & PropsRenderSlots<'deliverables.file.actions'>) {
+} & PropsLocale<typeof NS> & Pick<SessionStandardProps, 'sessionId'>
+  & Pick<GlobalStandardProps, 'useSessions' | 'useContextMenu'> & InjectFace<DeliverablesInjected>
+  & PropsRenderSlots<'deliverables.file.actions' | 'deliverables.video'>) {
   const { getTriggerProps } = useContextMenu()
   const [expanded, setExpanded] = useState(false)
   const showCodeDiff = useShowCodeDiff(value => value)
@@ -108,20 +111,27 @@ export function Deliverables({
       </div>}
       {host !== null && host !== 'error' && !host.available && <span className={css.hostStatus}>{t('presented.unavailable')}</span>}
       <div className={css.presented} data-presented-files-row data-single={matched.presented.length === 1 ? true : undefined}>
-        {presented.map(file => <PresentedFileCard key={`${file.seq}:${file.index}`} file={file} cwd={cwd}
-          phase={states[presentedFileUrl(sessionId, file.seq, file.index)]}
-          host={host === 'error' ? null : host} t={t}
-          onPreview={() => { openFile(file.path) }}
-          videoSource={['mp4', 'm4v', 'webm', 'mov'].includes(fileExtension(file.path).toLowerCase())
-            ? videoSourceUrl(sessionId, file.seq, file.index) : undefined}
-          contextMenuProps={getTriggerProps({ kind: 'file', value: { sessionId, path: file.path } })}
-          actions={renderSlot('deliverables.file.actions', {
-            actionUrl: presentedFileUrl(sessionId, file.seq, file.index),
-            available: host !== null && host !== 'error' && host.available,
-            pending: states[presentedFileUrl(sessionId, file.seq, file.index)] === 'opening'
+        {presented.map((file) => {
+          const videoSource = ['mp4', 'm4v', 'webm', 'mov'].includes(fileExtension(file.path).toLowerCase())
+            ? videoSourceUrl(sessionId, file.seq, file.index) : undefined
+          return <PresentedFileCard key={`${file.seq}:${file.index}`} file={file} cwd={cwd}
+            phase={states[presentedFileUrl(sessionId, file.seq, file.index)]}
+            host={host === 'error' ? null : host} t={t}
+            onPreview={() => { openFile(file.path) }}
+            videoSource={videoSource}
+            videoContent={videoSource !== undefined
+              ? renderSlotChain('deliverables.video', { sourceUrl: videoSource,
+                label: file.description ?? basename(file.path), path: file.path, seq: file.seq, index: file.index,
+              }, { fallback: null }) : undefined}
+            contextMenuProps={getTriggerProps({ kind: 'file', value: { sessionId, path: file.path } })}
+            actions={renderSlot('deliverables.file.actions', {
+              actionUrl: presentedFileUrl(sessionId, file.seq, file.index),
+              available: host !== null && host !== 'error' && host.available,
+              pending: states[presentedFileUrl(sessionId, file.seq, file.index)] === 'opening'
               || states[presentedFileUrl(sessionId, file.seq, file.index)] === 'revealing',
-            onAction: (action, application) => openPresented(sessionId, file.seq, file.index, action, application),
-          })} />)}
+              onAction: (action, application) => openPresented(sessionId, file.seq, file.index, action, application),
+            })} />
+        })}
       </div>
       {collapsible && <button type="button" className={css.toggle}
         aria-expanded={expanded}

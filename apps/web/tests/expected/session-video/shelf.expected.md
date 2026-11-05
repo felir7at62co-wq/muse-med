@@ -1,0 +1,12 @@
+- region "Conversation videos":
+  - button "Conversation videos" [expanded]: Muse
+  - combobox "Conversation videos":
+    - option "three-shots.mp4" [selected]
+  - button "Regenerate this shot"
+  - text: three-shots.mp4
+  - button "Play"
+  - group "Video shots":
+    - button "Shot 1 · 0.00–1.00"
+    - button "Shot 2 · 1.00–2.00" [pressed]
+    - button "Shot 3 · 2.00–3.00"
+    - slider "Playback position"

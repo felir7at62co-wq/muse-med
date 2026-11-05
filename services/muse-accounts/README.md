@@ -15,6 +15,12 @@ This directory contains the separately deployed Muse account gateway. It serves 
 
 An account with `admin: true` can open `/account` → account management, or `/admin`, to see account state, linked Feishu names and organization identifiers, recent login and explicit task activity, and connected Desktop counts. Online accounts are deduplicated across computers; connections do not establish human interaction. Registered accounts include legacy and test accounts. Linked-user counts include accounts with a verified Feishu binding. Today and seven-day activity use the latest explicit task event in the Asia/Shanghai calendar and omit disabled accounts; historical activity before reporting was enabled is unavailable. Ordinary accounts cannot open the page. Viewing this metadata does not expose private conversations or manuscripts.
 
+## Feedback inbox
+
+Authenticated accounts submit issues and suggestions with `POST /api/muse.feedback`, and read their own records through `GET /api/muse.feedback` or `GET /api/muse.feedback/<id>`. Administrators can read all records, export them, and update status and replies with revision checks. Submission and processing retain the existing same-origin checks; feedback is untrusted user material rather than an instruction to execute code or publish a release.
+
+Clients may include a `requestId` of 1–128 ASCII characters, starting with a letter or digit and otherwise using letters, digits, `.`, `_`, `:`, or `-`. Within one account, repeating that ID with the same title, body, category, and normalized screenshots returns the original record with HTTP 201, including any later status and revision. Reusing it for different content returns HTTP 409. The ID and SHA-256 content fingerprint are persisted atomically with the record, so deduplication survives restart and runs before the daily submission quota. Clients without an ID retain independent submissions. Keep the same ID and content when reconciling an uncertain submission; there is no automatic retry. A single gateway process owns an inbox directory.
+
 <a id="feishu-login"></a>
 ## Feishu login
 

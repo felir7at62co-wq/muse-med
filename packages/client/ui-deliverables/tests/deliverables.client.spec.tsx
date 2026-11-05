@@ -50,6 +50,7 @@ function openProps(controller = new PresentedOpenController(), summaries = new C
     useContextMenu: contextMenuHook(openMenu),
     SessionProvider: ({ children }: { children?: import('react').ReactNode }) => <>{children}</>,
     renderSlot: renderFileActions,
+    renderSlotChain: (_key: 'deliverables.video', _props: object, options?: { fallback?: import('react').ReactNode }) => options?.fallback ?? null,
     useChangesDiff: <T,>(select: (state: ReturnType<typeof diffs.state.getSnapshot>) => T): T => select(diffs.state.getSnapshot()),
     loadChangesDiff: vi.fn((...args: Parameters<ChangesDiffStore['load']>) => diffs.load(...args)),
     useShowCodeDiff: <T,>(select: (value: boolean) => T): T => select(true),

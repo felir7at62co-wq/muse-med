@@ -53,6 +53,8 @@ An existing conversation with an unconfigured direct route can use the same exac
 
 The message rating and task feedback dialogs submit to the Muse opinion inbox through the [account UI](../../client/ui-muse-account/README.md). A submission uses the saved Desktop account and retains its category and local Session/message identifiers. The optional related-excerpt checkbox starts clear; selected diagnostics contain only bounded visible request and answer text, with known credentials removed. No tool arguments, tool results, reasoning, attachments, or full Session log are sent. A confirmed inbox receipt closes the form; login, network, and account-switch failures retain the draft. An uncertain result requires checking the inbox before another submission. Administrators review all submitted opinions at `/feedback`; ordinary users see their own.
 
+With `feedbackTools: true`, `muse_feedback_submit` submits an explicit user problem or suggestion from the calling Agent’s Session, and `muse_feedback_status` reads a receipt owned by the signed-in account. The tools expose no administrator operations. Submission requires a stable `requestId`, title, category and text; related visible excerpts remain opt-in. Retain the original key and identical content after an uncertain result. A matching legacy-server receipt is still confirmed, but reports unavailable duplicate protection and must not be resubmitted. Changing captured excerpts or feedback text under an existing key is rejected as a conflict. Status replies omit transcript, attachments and history, and remove known credentials. A saved submission is distinct from a fix or a released version.
+
 ### Account-authorized web search
 
 With `webSearch: true`, Muse Desktop selects the `muse` search provider while retaining the existing `http` provider for `web_fetch`. The existing `web_search` tool sends each query and optional result count to the same-origin `/api/web/search` endpoint using the saved Muse session. Official search API keys remain on the server; local `DEEPSEEK_API_KEY`, model credentials and DeepSeek Account sign-in are not required. Non-Muse profiles retain their configured search providers.
@@ -91,6 +93,7 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `webSearch` | `false` | Register the `muse` search provider when the web service is present; Muse Desktop enables it. |
 | `searchRequestTimeoutMs` | 60,000 | Independent account-authorized search timeout in milliseconds, from 1,000 to 120,000. |
 | `modelRequestImageMaxBytes` | Adapter default (`20 MiB`) | Optional positive safe integer limiting accumulated base64 images per model request. Mount `compaction-image-offload` to log omission of the oldest image occurrences and retry; source attachments remain readable. This does not limit text output. |
+| `feedbackTools` | `false` | Register explicit user submission and owner-scoped receipt-query tools; Muse Desktop enables them. |
 | `feedbackExcerptChars` | 1,000 | Visible characters per optional related request or answer excerpt, from 100 to 1,200. |
 | `activityReportIntervalMs` | 30,000 | Minimum interval between activity reports for one login, from 1,000 to 3,600,000 milliseconds. |
 | `activityRequestTimeoutMs` | 5,000 | Best-effort activity request deadline, from 100 to 30,000 milliseconds. |
@@ -100,7 +103,7 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `remoteAckTimeoutMs` | 15,000 | Handshake and acknowledgement deadline, from 1,000 to 120,000 milliseconds. |
 | `remoteReconnectMaxIntervalMs` | 60,000 | Maximum network reconnection interval, from 1,000 to 300,000 milliseconds. |
 
-The [configuration catalog](../../../docs/config-catalog.md) is generated from plugin schemas. Mount `tools`, `llm`, `sessionProjections` and `agentDefaultModel` before this plugin; the Desktop Host composition supplies these required services. This package is included in the Desktop Host profile and is not a standalone application launcher.
+The [configuration catalog](../../../docs/config-catalog.md) is generated from plugin schemas. Mount `tools`, `llm`, `sessionProjections`, `agentDefaultModel` and `sessions` before this plugin; the Desktop Host composition supplies these required services. This package is included in the Desktop Host profile and is not a standalone application launcher.
 
 ### Desktop access from the website
 
@@ -158,7 +161,7 @@ Model requests use the selected account provider and model. Optional account sea
 
 #### Token effect
 
-The package adds no tool schemas or system-prompt text. Optional account search uses the existing web tool schema and appends its returned sources to the conversation.
+When `feedbackTools` is enabled, two feedback tool schemas join the model request; receipt results enter normal tool history. With it disabled, the package adds no tool schemas or system-prompt text. Optional account search uses the existing web tool schema and appends its returned sources to the conversation.
 
 #### KV Cache effect
 

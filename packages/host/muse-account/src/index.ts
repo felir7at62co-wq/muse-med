@@ -12,6 +12,7 @@ import { MuseModels } from './models.ts'
 import { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
 import { MuseAccountService } from './service.ts'
 import { MuseFeedbackClient, feedbackSecrets } from './feedback.ts'
+import { mountMuseFeedbackTools } from './feedback-tools.ts'
 import { MuseDesktopRemote } from './desktop-remote.ts'
 import { mountMuseActivity } from './activity.ts'
 import { mountMuseWebSearch } from './web-search.ts'
@@ -27,12 +28,13 @@ export type { MuseVoiceLeaseId, MuseVoiceSlotRequest, MuseVoiceSlotsOptions } fr
 export type { MuseAsrJob, MuseAsrSegment, MuseAsrPurpose, MuseAsrMetadata } from './asr.ts'
 export { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
 export type * from './types.ts'
+export { mountMuseFeedbackTools } from './feedback-tools.ts'
 
 /** Cordis plugin name used by Loader diagnostics. */
 export const name = 'muse-account'
 
 /** Registries, Session model state and default selection used by account-authorized requests. */
-export const inject = ['tools', 'llm', 'sessionProjections', 'agentDefaultModel']
+export const inject = ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'sessions']
 
 /** Product-configured gateway and optional account storage directory. */
 export interface Config {
@@ -74,6 +76,8 @@ export interface Config {
   readonly asrRequestTimeoutMs: number
   /** Maximum visible characters in each optional related request and answer excerpt. */
   readonly feedbackExcerptChars: number
+  /** Register explicit feedback submission and owner-scoped status tools. */
+  readonly feedbackTools: boolean
   /** Minimum interval between best-effort human-task activity reports for the same login. */
   readonly activityReportIntervalMs: number
   /** Maximum lifetime of one best-effort activity request, independent of model or task work. */
@@ -110,6 +114,7 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
   modelRequestImageMaxBytes: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
   asrRequestTimeoutMs: Schema.number().step(1).min(10_000).max(1_800_000).default(300_000),
   feedbackExcerptChars: Schema.number().step(1).min(100).max(1_200).default(1_000),
+  feedbackTools: Schema.boolean().default(false),
   activityReportIntervalMs: Schema.number().step(1).min(1_000).max(3_600_000).default(30_000),
   activityRequestTimeoutMs: Schema.number().step(1).min(100).max(30_000).default(5_000),
   remoteAccess: Schema.boolean().default(false),
@@ -186,8 +191,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   const feedback = new MuseFeedbackClient({ baseUrl, sessionFile: join(accountHome, 'session.json'),
     requestTimeoutMs: config.requestTimeoutMs, excerptChars: config.feedbackExcerptChars,
-    readMessages: request => ctx.get('sessions')?.get(request.sessionId)?.deriveMessages(),
+    readMessages: request => ctx.sessions.get(request.sessionId)?.deriveMessages(),
     secrets: () => feedbackSecrets(ctx) })
+  if (config.feedbackTools) mountMuseFeedbackTools(ctx, feedback)
   const voiceSlots = new MuseVoiceSlotsClient({ baseUrl, sessionFile: join(accountHome, 'session.json'),
     requestTimeoutMs: config.requestTimeoutMs })
   const browserLogin = new MuseBrowserLogin({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs })

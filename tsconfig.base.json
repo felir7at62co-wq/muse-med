@@ -435,6 +435,10 @@
       "@deepseek-ai/dsh-muse-account/desktop-bridge": ["./packages/host/muse-account/src/desktop-bridge.ts"],
       "@deepseek-ai/dsh-muse-account/types": ["./packages/host/muse-account/src/types.ts"],
       "@deepseek-ai/dsh-subagent-in-process-driver": ["./packages/subagent/subagent-in-process-driver/src"],
+      "@deepseek-ai/dsh-client-ui-session-video": ["./packages/client/ui-session-video/src/index.ts"],
+      "@deepseek-ai/dsh-client-ui-session-video/client": ["./packages/client/ui-session-video/src/client/index.ts"],
+      "@deepseek-ai/dsh-client-ui-session-video/types": ["./packages/client/ui-session-video/src/types.ts"],
+      "@deepseek-ai/dsh-session-video/types": ["./packages/drama/session-video/src/types.ts"],
       // BEGIN generated package aliases — pnpm run gen-tsconfig-paths
       "@deepseek-ai/dsh-acp": ["./packages/acp/acp/src"],
       "@deepseek-ai/dsh-acp-app": ["./packages/bundle/acp-app/src"],
@@ -576,6 +580,7 @@
       "@deepseek-ai/dsh-session-title-first-prompt-llm": ["./packages/session/session-title-first-prompt-llm/src"],
       "@deepseek-ai/dsh-session-title-llm": ["./packages/session/session-title-llm/src"],
       "@deepseek-ai/dsh-session-turn-outline": ["./packages/session/session-turn-outline/src"],
+      "@deepseek-ai/dsh-session-video": ["./packages/drama/session-video/src"],
       "@deepseek-ai/dsh-session-workspace": ["./packages/util/session-workspace/src"],
       "@deepseek-ai/dsh-settings": ["./packages/settings/settings/src"],
       "@deepseek-ai/dsh-shell": ["./packages/shell/shell/src"],

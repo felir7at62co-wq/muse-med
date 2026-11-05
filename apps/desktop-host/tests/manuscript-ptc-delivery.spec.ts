@@ -11,7 +11,8 @@ it.each(['src', 'lib'] as const)('delivers through actual PTC bindings in %s whi
     label: `manuscript creation PTC delivery ${mode}`, tempDirPrefix: 'manuscript-ptc-delivery-',
     binScript: fileURLToPath(new URL('../../cli/src/bin.ts', import.meta.url)), configPath: patch,
     binArgs: ['--profile', 'headless', '--patch', patch, '--json', '用创作模式完成四集短剧，核对最终稿后交付文件。'],
-    ...mode === 'src' ? { tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)), sourceImport: 'tsx/esm' } : {},
+    tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
+    ...mode === 'src' ? { sourceImport: 'tsx/esm' } : {},
     mode, env: { DSH_EXAMPLE_MODE: mode },
     inspect: async (cwd) => {
       const actual: unknown = JSON.parse(await readFile(join(cwd, '_ptc-delivery-probe.json'), 'utf8'))

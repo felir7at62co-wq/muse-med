@@ -600,7 +600,7 @@ it.each(['plugin', 'desktop'] as const)('routes an existing unconfigured direct 
   if (!Array.isArray(desktopRow?.inject)) throw new Error('Muse Desktop model injections are not an array')
   const inject = composition === 'plugin' ? accountInject
     : desktopRow.inject.filter((key: unknown): key is string => typeof key === 'string'
-      && ['tools', 'llm', 'sessionProjections', 'agentDefaultModel'].includes(key))
+      && ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'sessions'].includes(key))
   const mounted = fixture.ctx.plugin({ inject, apply: (scope: Context) => {
     const owned = new MuseModels(scope, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
       fetcher: async () => Response.json(suppliedCatalog) })

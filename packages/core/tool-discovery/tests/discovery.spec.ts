@@ -160,6 +160,67 @@ async function manage(f: Awaited<ReturnType<typeof fixture>>, agent: Agent,
 }
 
 describe('Loader-composed tool discovery', () => {
+  it('keeps excluded resident tools in the first request while omitting their search metadata', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-resident-search-'))
+    const f = await fixture(root, {
+      excludeFromSearch: ['base_read'], keywords: { base_read: ['uniqueresidentkeyword'] },
+      capabilities: [
+        { id: 'resident-only', title: 'Resident only', description: 'Already available.', tools: ['base_read'] },
+        { id: 'mixed', title: 'Mixed tools', description: 'Read or inspect.', tools: ['base_read', 'video_inspect'] },
+      ],
+    })
+    try {
+      const agent = await f.create('resident-search', { setup: (scope) => { scope.tools.restrict({ deny: ['secret_delete'] }) } })
+      f.responses.push(textResponse('Ready.'))
+      await send(agent)
+      expect(f.adapter.requests[0]?.tools?.map(tool => tool.name).sort()).toEqual(['base_read', 'tool_context', 'tool_search'])
+      const guidance = (await f.ctx.systemPrompt.assemble({ agent, scope: agent })).sections
+        .find(section => section.name === 'tools:discovery')?.text
+      expect(guidance).not.toContain('resident-only')
+      const directory = await discover(f, agent, {})
+      expect(directory.value.capabilities).not.toContainEqual(expect.objectContaining({ id: 'resident-only' }))
+      expect(directory.value.capabilities).toContainEqual(expect.objectContaining({ id: 'mixed', tool_count: 1 }))
+      for (const query of ['base_read', 'uniqueresidentkeyword']) {
+        for (const capability of [undefined, 'mixed']) {
+          const found = await discover(f, agent, { query, ...(capability === undefined ? {} : { capability }) })
+          expect(found.value.loaded).toEqual([])
+          expect(found.value.matched).toBe(0)
+        }
+      }
+      const deferred = await discover(f, agent, { query: 'video_inspect' })
+      expect(deferred.value.loaded.map(tool => tool.name)).toEqual(['video_inspect'])
+      expect((await manage(f, agent, 'release', ['base_read']))?.isError).toBe(true)
+      expect(await shown(f.ctx, agent)).toContain('base_read')
+      const discovery = [...f.ctx.loader.entries()].find(row => row.options.id === 'discovery')
+      if (!discovery?.fiber) throw new Error('Missing Loader discovery entry')
+      await discovery.fiber.dispose()
+      expect(f.ctx.tools.get('tool_search', agent)).toBeUndefined()
+      expect(await shown(f.ctx, agent)).toEqual(['base_read', 'export_word', 'video_inspect'])
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('retains the default search behavior for resident tool names', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-default-resident-'))
+    const f = await fixture(root)
+    try {
+      expect(Discovery.Config({ alwaysLoad: ['base_read'] }).excludeFromSearch).toEqual([])
+      const agent = await f.create('default-resident-search')
+      expect((await discover(f, agent, { query: 'base_read' })).value.loaded.map(tool => tool.name)).toEqual(['base_read'])
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it.each([
+    { alwaysLoad: ['base_read'], excludeFromSearch: ['video_inspect'] },
+    { alwaysLoad: ['base_read'], excludeFromSearch: [''] },
+    { alwaysLoad: ['base_read'], excludeFromSearch: [' base_read'] },
+    { alwaysLoad: ['base_*'], excludeFromSearch: ['base_*'] },
+  ])('rejects nonresident or nonexact search exclusions at Loader activation: %j', async (config) => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-invalid-exclusion-'))
+    try {
+      await expect(fixture(root, config).then(async (loaded) => { await loaded.dispose() })).rejects.toThrow('excludeFromSearch entries must be exact tool names in alwaysLoad')
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+
   it('includes authorized capability guidance in the first logged request without loading schemas', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-guidance-'))
     const f = await fixture(root)

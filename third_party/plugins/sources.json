@@ -18,7 +18,14 @@
           "sha256": "5fcbf3d212f798b52eb670f66dfb4c8d482beefe282554397b7ade9bb4b41035"
         }
       }
-    }
+    },
+    "desktop": false
+  },
+  "dsh-plugin-subscriptions": {
+    "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+    "version": "0.9.12",
+    "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+    "license": "MIT"
   },
   "dsh-bridge": {
     "repository": "https://github.com/wenbin-wb/dsh-bridge",
@@ -67,5 +74,169 @@
     "version": "0.2.4",
     "commit": "f823773b07ec6ca29d60b31c31af30218a68000d",
     "license": "Apache-2.0"
+  },
+  "deep-view": {
+    "repository": "https://github.com/felir7at62co-wq/deep-view",
+    "upstreamRepository": "https://github.com/Fei2411/deep-view",
+    "version": "0.1.2",
+    "commit": "4c8bc4afae5296547ee4f243b82fa2e9258443d1",
+    "license": "Apache-2.0",
+    "localModifications": {
+      "description": "Use native root-session ownership, atomic pending records and stable answer delivery; retain input and show recoverable client failures.",
+      "files": {
+        "client.js": {
+          "upstreamSha256": "2e81d2d8e678dd969164fb347daff6cc60a0c3936d02e1d37a4a997aa12d1fce",
+          "sha256": "29f709ebc09aa642fa7035843be1a2b9aa485c148059ce8aa557d279fff1a52f"
+        },
+        "index.js": {
+          "upstreamSha256": "d21ad135fa09f1815bce82aab3743de9031fd69c04a83f58643c0a847badedab",
+          "sha256": "c352761523cac29c71353c77184e98abfa7465ac9bc154ed23b71d7a1a5c4dba"
+        },
+        "package.json": {
+          "upstreamSha256": "b92009cd707600704570389005c9a528d0bf227410b96764a8fd9276008c9215",
+          "sha256": "5946ec40c81d14e3ec27842280b390f1c778d509b927c542c90d4075568b6be0"
+        },
+        "src/client/index.js": {
+          "upstreamSha256": "a47ee2f7efbe731d5b7b47704e893ac47fea5b97bec95eda0c63061005f0a90a",
+          "sha256": "20ae4627022d488164f13ddb56dbab8b170dd0e8b19a8e9d6712240f98a33e2c"
+        },
+        "src/client/tail.js": {
+          "upstreamSha256": "e2ba722a02050bb3f6ef1f13c771757a5a1ecc23e75c5a969dd8f64e62e582b3",
+          "sha256": "d25222fcbc2e98d6fada2683813df56ab329241318dcdb7ea4e9e46b773cae12"
+        },
+        "src/host/install.js": {
+          "upstreamSha256": "f93932cf8a8ff5108c2dc2c8df1f85417cd68bec5b6919747fad1670b3ff19fa",
+          "sha256": "501dc0206b9fddd98b6c69f4a43ad9557ef823b0b5671ffe3f40e5fc8c7244a0"
+        },
+        "src/host/pending.js": {
+          "upstreamSha256": "cb3fbf96070970e9f6c33e846a51ee710cf001420334b98ef6d6438187c25a4e",
+          "sha256": "28cc1b021177711cacd124332449131037c36c4bb794be43ff65341272690aa1"
+        },
+        "src/react/styles.js": {
+          "upstreamSha256": "312c3c294ed74af30e2783e355aba228efd6b3fb3a6665e03c00f223c8274118",
+          "sha256": "03bc86a593c94a21b690ec0279768beff48054580e74a53bccfe5d57b3a6f814"
+        },
+        "test/fake-ctx.js": {
+          "upstreamSha256": "ae595158ff0fee27eec9fe03e2d2c2bfb1c3de65b26c8bbaf302e981d408c867",
+          "sha256": "776deb6c5c16e3553c2c5e612cce47aa71e7e4365e58f642a348e90a63615fb5"
+        },
+        "test/harness-resolve.mjs": {
+          "upstreamSha256": "b4a472d330c560dae74197251adfa6092a27a26189a8a457f3d6a8df1b73d3c7",
+          "sha256": "13650c3244da832c1b0c8750064584d20c6070e3b5aec53770e947cc20b146c9"
+        },
+        "test/host.test.js": {
+          "upstreamSha256": "7ea106cb891ef448bc147fa0db2ea417d4ecc8797b5aefa2b189e5d4353b61ad",
+          "sha256": "98b86b92328698bcccd47b7cb4b796764aada3f9134e2960f0332ebd218678a1"
+        },
+        "test/pending.test.js": {
+          "upstreamSha256": null,
+          "sha256": "0df1f7fb3566d526fa63f24ef283ccc6ca2a0b16e98cc1ce2fa2a6eb80673edd"
+        },
+        "test/render.test.js": {
+          "upstreamSha256": "0eedc0168749a6da5e016674c8c2d53bb07233ede04d76d73c675cc67dc342e9",
+          "sha256": "899ff46d9fb72f80a0180542e01ddda34ab3aaf310182610b4d08622ecdf237f"
+        }
+      }
+    }
+  },
+  "dsh-visualize": {
+    "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+    "upstreamRepository": "https://github.com/Nagi-ovo/dsh-visualize",
+    "version": "0.1.7",
+    "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+    "license": "BSD-3-Clause",
+    "localModifications": {
+      "description": "Admit the reviewed Muse Host; isolate Session cards, preserve partial save receipts, bind native Client lifecycles and locale, protect frame and composer ownership, and render Desktop pages in place.",
+      "files": {
+        "lib/client.js": {
+          "upstreamSha256": "80f8c71122db3bd59e13b544a6fa5b795134c1301c7acdb1dca7e2ff342e54e9",
+          "sha256": "e07c1da0e81a8ad6323b4b40048396c19a343eda3705bfe7872bbc660b95ca48"
+        },
+        "lib/index.d.ts": {
+          "upstreamSha256": "b11dc6126ae2a51937fe9c2aa13f7490fbf07a92152ebb3f282410398425ca03",
+          "sha256": "c86ffb39449dd6dc135be3383fe2dc7cc0fbe386161d0a1dada61f2067d5164a"
+        },
+        "lib/index.js": {
+          "upstreamSha256": "00e961e047026887116be5b5097af4a933c023385700f787c50fbea00ca3a3d7",
+          "sha256": "dee5e8134b4148e3ee55651ddaa9e46e745b8035aa5d24ace2fd5c32c84059a4"
+        },
+        "package.json": {
+          "upstreamSha256": "8a174bf1598bd301666b358a517c0e000f7be615c16b64067b919b9572bdccb9",
+          "sha256": "ccbcfd32844c875b20075c565c83442728b8cd76b823f27ea2ff6af69fbef634"
+        },
+        "pnpm-lock.yaml": {
+          "upstreamSha256": "2b21d7de7c93248f5a923303307f2b3aba17f1a438f706e1fd6514da60d2d5df",
+          "sha256": "78d90c6e4084fc58417c3b47ca1684f9b7e44a3cf9c81609ca3ec4f61efc40fd"
+        },
+        "src/client/StreamingPreview.tsx": {
+          "upstreamSha256": "3432ae6beea5765dcc0174c99a57c981ed2fe50c63a1ced99b35d0e99faeb006",
+          "sha256": "3b30bd38ff01eed7e423f732da523d020b16979eacf0c5921e0bff958c6bf64b"
+        },
+        "src/client/TurnCards.tsx": {
+          "upstreamSha256": "758dba0856a94568176a142dd915fcccfb6d1c63f21bdf155687795ae2259ec0",
+          "sha256": "59a04b09187b245df6e5efbd436b7ee0a0e47abc67372a2db4702bd54a5272c0"
+        },
+        "src/client/VisualizeCard.tsx": {
+          "upstreamSha256": "bbe05e38b2bc903a2860fa9d361ee935eb3520e2ac61e8390323af0cae02bc60",
+          "sha256": "ea1b8d1999d8bb4ad2f92503d61627cdf6a354472ca136d8599af5a10e690b44"
+        },
+        "src/client/index.tsx": {
+          "upstreamSha256": "181c1178eafaf7c6aba44a86ce5940c367af143f4540fae290aaec972e88e24e",
+          "sha256": "982751956af9160b87c97499330b69ed2bd0bfce21f143986dbfa1a8c999dfb3"
+        },
+        "src/client/prompt-bridge.ts": {
+          "upstreamSha256": "435a64345e7b6f6a814519bd3cf7cd02e29a8de51bfbb2cc14e97b0ecf88f689",
+          "sha256": "816bd96c76878691c25e965a6b93dc45ce34e0d788f362ddad038284c61122bf"
+        },
+        "src/client/settings-locale.ts": {
+          "upstreamSha256": "1ff2f3a9a375870faaf6cafb9434b8fdb50ebf628acc2a47e450a0ae2ac6b35f",
+          "sha256": "c42a0b31315efe3ba2afc2a8b2dff02150cbad8046ed6f2d3b02e3cd87df8060"
+        },
+        "src/client/settings.tsx": {
+          "upstreamSha256": "1e1da552b8fdc9d0c4d07b6793916cb9e6344b8b5ed8d81be58f15d7deebd139",
+          "sha256": "80f44ea0cfe8faff1d4523b27ca7dae9395b04760660f52d9ae6a69ae079ae20"
+        },
+        "src/storage.ts": {
+          "upstreamSha256": "4f3ff4878ca81a7f4c87e97a4ce8bd0ba6e96b008f3b19d21f4d9e82612e1e18",
+          "sha256": "930444fbffc3f26cc3e9bb7ce2dff5a00a6ceea6df5652e02031240fcc0ad7a5"
+        },
+        "src/tool.ts": {
+          "upstreamSha256": "403dfd8dab2fd4b724b0938e0dd77bcfc00190afde15b94114ff4720484319f4",
+          "sha256": "7ad7a74eca4e07f2aa740fa5f3b0052e9348dcd2335112dea9a3ab9efe05671f"
+        },
+        "tests/frame-height.spec.tsx": {
+          "upstreamSha256": null,
+          "sha256": "c8aae257492f3bed4f148f92b16609e7eb1e8080296f92aa104caf3e2a303ef6"
+        },
+        "tests/frame-images.spec.tsx": {
+          "upstreamSha256": "1de0ffb8023914a8bb506ccce20aa7cde28b14f33696fea21c41943719a6c969",
+          "sha256": "4e03261cb5951041456dc9effa76bb5cb2c443209d41730355f7c6c734b3c67a"
+        },
+        "tests/page-launcher.spec.tsx": {
+          "upstreamSha256": "d7604f98217ae6936ffbaff08774b18757967a816ffe231ec1c1cdf214cf4f93",
+          "sha256": "fa876e6bda1a66955750ca4eec8ef3913e2d881eeda63d261748229d237da71d"
+        },
+        "tests/prompt-bridge.spec.tsx": {
+          "upstreamSha256": "3814e0693775f1324bb47f5597482b464222051bd660a0df956e7c2c3b59b5e2",
+          "sha256": "16f070ba538088b0af9753e252662b86a75353637c5ee5821b6f0ed109266cae"
+        },
+        "tests/storage-commit.spec.ts": {
+          "upstreamSha256": null,
+          "sha256": "8557d023dc4b329319502925e8a73b909b42b60f2839117d54a7a9e4db534203"
+        },
+        "tests/storage.spec.ts": {
+          "upstreamSha256": "a56c830a0b9adfbc6944f0b2c8c4468ccebece02dfef8103d979b83d9e0e365e",
+          "sha256": "c273778eef2e260c866a718657dc1196e97b7df6e6656be53d4551919fe40b8b"
+        },
+        "tests/turn-cards.spec.tsx": {
+          "upstreamSha256": "e7e359b505b17cab121843fbe9979e0a39fc9e7c12e5c013a8646eaf989f1ef0",
+          "sha256": "674e074c47d7c49b324c4b3b81e9d9c281641593187f1b2e881a0d8b49bb314e"
+        },
+        "tests/tool.spec.ts": {
+          "upstreamSha256": "8947246170a19a9531096d234c83f7305a2e5a93023e2bbe75f15581b9e69514",
+          "sha256": "8de817a3e658d8ce6983516be51542310c5c372746d2f02781b4990595d681b3"
+        }
+      }
+    }
   }
 }

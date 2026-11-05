@@ -7,13 +7,16 @@ import { selectCommunitySources } from './source-selection.mjs'
 const pins = JSON.parse(readFileSync(new URL('./sources.json', import.meta.url), 'utf8'))
 const owned = JSON.parse(readFileSync(new URL('./owned-downloads.json', import.meta.url), 'utf8'))
 
-test('default builds select seven retained sources and seven owned plugins without archived Bot', () => {
+test('default builds select resident cards and owned learning without archived Bot', () => {
   const selected = selectCommunitySources(pins)
-  assert.deepEqual(selected, ['dshmarket', 'dsh-codex-subscription', 'dsh-bridge', 'dsh-ffmpeg', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'dsh-im'])
-  assert.equal(Object.keys(owned).length, 7)
-  assert.equal(selected.length + Object.keys(owned).length, 14)
+  assert.deepEqual(selected, ['dshmarket', 'dsh-plugin-subscriptions', 'dsh-bridge', 'dsh-ffmpeg', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'dsh-im', 'deep-view', 'dsh-visualize'])
+  assert.equal(owned['muse-skill-evolution'].version, '0.1.0')
   assert.ok(!selected.includes('ds-bot'))
   assert.ok(!selected.includes('dsh-feishu'))
+  assert.ok(!selected.includes('dsh-codex-subscription'))
+  assert.equal(pins['dsh-codex-subscription'].desktop, false)
+  assert.equal(pins['dsh-plugin-subscriptions'].version, '0.9.12')
+  assert.equal(pins['dsh-plugin-subscriptions'].license, 'MIT')
 })
 
 test('only explicit selection enables an archived Bot or retired source compatibility build', () => {

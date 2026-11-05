@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-skill-evolution
+profile: sdk
+composition: sdk-muse-skill-evolution
+recording: authored
+header:
+  class: sdk-muse-skill-evolution
+  pin: true
+  childSystemPrompts: [1]
+workspace:
+  final: true

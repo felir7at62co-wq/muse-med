@@ -1,0 +1,46 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-session-video/README.md
+/:
+  en: 0b5055b682df0e60
+  zh: 53d51e92926d7412
+/deepseek-ai-dsh-client-ui-session-video:
+  en: 5975ddfb05253476
+  zh: 4e7b4cc65df1b1ab
+/deepseek-ai-dsh-client-ui-session-video/summary:
+  en: 406b23e16d745de3
+  zh: 25fb386fc7851a93
+/deepseek-ai-dsh-client-ui-session-video/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: ce40cab8e7534137
+/deepseek-ai-dsh-client-ui-session-video/use-this-package:
+  en: 9ae7aa35ecb5b3e7
+  zh: 90af295d2de4f289
+/deepseek-ai-dsh-client-ui-session-video/understand-the-implementation:
+  en: c2e9511d5970a254
+  zh: 591f4aa40cb90d7c
+/deepseek-ai-dsh-client-ui-session-video/further-exploration:
+  en: bb8788e866685672
+  zh: 24c8a9e64c9fbd2c
+/deepseek-ai-dsh-client-ui-session-video/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-client-ui-session-video/model-experience/shot-modification-draft:
+  en: 880c93a3a04c08fc
+  zh: b09cf4e1eee46443
+/deepseek-ai-dsh-client-ui-session-video/model-experience/shot-modification-draft/what-the-model-sees:
+  en: dc23381bb9c22686
+  zh: c4951754c7ceaf1b
+/deepseek-ai-dsh-client-ui-session-video/model-experience/shot-modification-draft/token-effect:
+  en: 4feb0c2048593daa
+  zh: 51bc55b85cbfe020
+/deepseek-ai-dsh-client-ui-session-video/model-experience/shot-modification-draft/kv-cache-effect:
+  en: 019e487a9219f3d0
+  zh: 16c1b942ab2e2bcd
+/deepseek-ai-dsh-client-ui-session-video/known-limitations-and-deferred-work:
+  en: e081205dbbf4ae83
+  zh: 3efc19a5ad0a1303
+/deepseek-ai-dsh-client-ui-session-video/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea
