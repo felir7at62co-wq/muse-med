@@ -643,7 +643,7 @@ describe('prepare_video', () => {
     const provider: FakeProvider = { calls: [], storyboard: structuredClone(STORYBOARD), tasks: [], subtasks: {} }
     const result = await prepareVideoMethod(clientFor(provider), ledger,
       { storyboard_id: 916953, project_dir: await project() })
-    expect(result.next).toContain('生成前请按系统提示词中的固定自检清单')
+    expect(result.next).toContain('仅当本次请求包含已授权生成时，按系统提示词中的固定自检清单')
     expect(result.next).not.toContain('角色/场景/道具/音频是否都已@引用')
     expect(result.next).toContain('submit_video 或 submit_video_batch')
     expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
@@ -757,6 +757,26 @@ describe('prepare_video', () => {
     expect(await ledger.records()).toEqual([])
   })
 
+  it('preserves a supplied prompt exactly and does not bind people mentioned outside the visible cast', async () => {
+    const prompt = '  出镜人物：陆沉舟、苏晚\r\n'
+      + `${PROMPT}。\r\n陆沉舟穿旧西装，说：“明天徐耀会来。”\r\n`
+      + '沈川的画外心声：“我记得母亲。”\r\n动作保持过去时描述，停留2秒。  '
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) }, tasks: [], subtasks: {} }
+    const result = await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953,
+      project_dir: await project() })
+    const preview = JSON.parse(await readFile(String(result.preview_path), 'utf8')) as NativeVideoPreview
+    expect(JSON.parse(String(preview.payload.modelConfig))).toMatchObject({ prompt })
+    expect(preview.assetSummary.orderedAssets.map(asset => asset.materialKey)).toEqual(['lead', 'guest'])
+    expect(provider.calls.filter(call => call.path.startsWith('/aigc/asset/')).map(call => call.path))
+      .toEqual(['/aigc/asset/81285', '/aigc/asset/83670'])
+    expect(result.next).toContain('用户最新请求若为只预览或先看，到此展示结果')
+    expect(result.next).toContain('不沿用此前制作授权进入付费提交')
+    expect(preview.nextAction).toContain('不沿用此前制作授权提交')
+    expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+    expect(await ledger.records()).toEqual([])
+  })
+
   it.each([
     { label: 'conflicting image group order', prompt: '@[苏晚](guest) @[陆沉舟](lead) @[苏晚](guest)' },
     { label: 'unknown marker', prompt: '@[陆沉舟](lead) @[未知](unknown) @[苏晚](guest)' },
@@ -801,7 +821,7 @@ describe('prepare_video', () => {
 
 describe('submit_video', () => {
   it.each([false, true])('preserves payload formatting and reconciles one synthetic submission, multiline=%s', async (multiline) => {
-    const prompt = multiline ? `${PROMPT}\n\n【镜头1】\n先放下水桶，再说话。` : PROMPT
+    const prompt = multiline ? `  ${PROMPT}\r\n\r\n【镜头1】\r\n先放下水桶，再说话。  ` : PROMPT
     const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, duration: '10', prompt }) }, tasks: [], subtasks: {} }
     const { previewPath, idempotencyKey } = await prepared(provider)
@@ -2094,6 +2114,27 @@ it.each([false, true])('does not charge a formatted prompt again after a compact
   await expect(submitVideoBatchMethod(client, ledger, { items: [{ preview_path: previewPath,
     idempotency_key: preview.idempotencyKey }] })).rejects.toThrow(originalKey)
   expect(putCalls(provider)).toHaveLength(0)
+  expect(await ledger.records()).toHaveLength(1)
+})
+
+it('reconciles a previously trimmed multiline prompt without submitting its preserved-whitespace version again', async () => {
+  const prompt = `  ${PROMPT}\r\n【镜头1】\r\n陆沉舟说：“明天徐耀会来。”  `
+  const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+    modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) } }
+  const client = clientFor(provider)
+  const preview = await prepareVideoMethod(client, ledger, { storyboard_id: 916953, project_dir: await project() })
+  const payload = preview.payload as Record<string, unknown>
+  const config = JSON.parse(String(payload.modelConfig)) as Record<string, unknown>
+  const originalPayload = { ...payload, modelConfig: JSON.stringify({ ...config, prompt: prompt.trim() }) }
+  const originalKey = stableSha256(submissionSemantics(originalPayload))
+  expect(originalKey).not.toBe(preview.idempotencyKey)
+  await ledger.begin({ idempotencyKey: originalKey, method: 'storyboard_native_submit', scriptId: 2708,
+    requestSha256: bodyHash(originalPayload), quotedAmount: '1.00', quoteUnit: 'CNY' })
+  expect(await submitVideoMethod(client, ledger, { preview_path: String(preview.preview_path),
+    idempotency_key: String(preview.idempotencyKey) })).toMatchObject({
+    status: 'reconcile_conflict', put_sent: false, original_idempotency_key: originalKey,
+  })
+  expect(putCalls(provider)).toEqual([])
   expect(await ledger.records()).toHaveLength(1)
 })
 

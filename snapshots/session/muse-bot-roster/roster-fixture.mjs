@@ -79,7 +79,7 @@ export async function apply(ctx) {
       systemPrompt: ctx.systemPrompt,
       effect: (execute, label) => ctx.effect(execute, label),
       tools: {
-        register: tool => ['list_bots', 'remember', 'recall', 'forget'].includes(tool.name) ? ctx.effect(() => ctx.tools.register(tool)) : () => {},
+        register: tool => ['list_bots', 'create_bot', 'remember', 'recall', 'forget'].includes(tool.name) ? ctx.effect(() => ctx.tools.register(tool)) : () => {},
         guard: () => () => {},
       },
       on: () => () => {},

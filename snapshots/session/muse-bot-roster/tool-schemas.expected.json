@@ -1,6 +1,63 @@
 {
   "initial": [
     {
+      "name": "create_bot",
+      "description": "Main Bot only. Create a persistent Bot for a new ongoing specialist role. Check list_bots and reuse a suitable Bot first; use subagent tools for short, bounded tasks. Creation starts a greeting, not the assigned work. Send the actual task once afterward with message_bot to establish its reply back to you.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Short display name, e.g. \"Researcher\" or \"Editor\""
+          },
+          "role": {
+            "type": "string",
+            "description": "Two-to-four character role label shown under the name"
+          },
+          "instructions": {
+            "type": "string",
+            "description": "What this Bot is responsible for and how it should work"
+          },
+          "brief": {
+            "type": "string",
+            "description": "Background explaining why the user wants this ongoing role. This is not a task assignment; send the self-contained task afterward with message_bot to receive its result."
+          },
+          "preset": {
+            "type": "string",
+            "description": "Registered agent preset for the new Bot. Defaults to short-drama for Muse specialist work; bot-coordinator supplies general coordination."
+          },
+          "resident_tools": {
+            "type": "array",
+            "description": "Exact tool names to keep resident for this Bot. Tools remain subject to its existing permissions; it can later search, pin or release them with tool_search and tool_context.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "model": {
+            "type": "string",
+            "description": "Model the Bot runs on, as provider/model or a model id. Only when the user names one; otherwise the model you run on."
+          },
+          "effort": {
+            "type": "string",
+            "description": "Thinking level for the model, as list_models shows it. Only when the user names one."
+          },
+          "work_dir": {
+            "type": "string",
+            "description": "Full path of the folder to work in, where commands and file tools start. Only when the user asks for it"
+          },
+          "avatar": {
+            "type": "string",
+            "description": "Profile picture: a local image path (a relative path starts in your working folder) or a data URL. PNG, JPEG, WebP, or GIF; square, 256x256 recommended, up to 120 KB. Images are not resized."
+          }
+        },
+        "required": [
+          "name",
+          "role",
+          "instructions"
+        ]
+      }
+    },
+    {
       "name": "create_goal",
       "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
       "parameters": {

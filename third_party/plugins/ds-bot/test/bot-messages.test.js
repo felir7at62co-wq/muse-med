@@ -113,6 +113,30 @@ async function start(seed) {
 
 const textOf = content => content.map(block => block.text ?? '').join('\n')
 
+for (const kind of ['max-tokens', 'aborted']) {
+  for (const partial of ['', 'Episodes 1–3 are written; episodes 4–8 remain.']) {
+    test(`a turn ending with ${kind} reports incomplete work with ${partial === '' ? 'no' : 'partial'} output`, async (t) => {
+      const { agentOf, emit, tool, exchanges, stop } = await start(team())
+      t.after(stop)
+      await tool('message_bot', { to: 'Writer', message: 'Write episodes 1–8 and return their paths.' }, 'a')
+      const request = agentOf('b').calls[0][1]
+      emit('b', 'turn/start', { turn: 1 })
+      emit('b', 'user/message', { content: request.content, source: request.source })
+      if (partial !== '') emit('b', 'assistant/message', { message: { content: [{ type: 'text', text: partial }] } })
+      emit('b', 'turn/end', { turn: 1, reason: kind === 'aborted' ? { kind, reason: { kind: 'user' } } : { kind } })
+      await settled(() => agentOf('a').calls.length === 1)
+      const reply = agentOf('a').calls[0][1]
+      const answer = textOf(reply.content)
+      assert.match(answer, /assigned work is not confirmed complete/)
+      assert.match(answer, kind === 'max-tokens' ? /output token limit/ : /was stopped/)
+      if (partial !== '') assert.ok(answer.includes(partial))
+      assert.equal(reply.source.replyTo, request.source.exchangeId)
+      assert.deepEqual((await exchanges()).map(entry => entry.role), ['request', 'reply'])
+      assert.equal(agentOf('b').calls.length, 1, 'reporting the outcome does not repeat the task')
+    })
+  }
+}
+
 test('message_bot steers by default; on an idle Bot it opens the next turn', async (t) => {
   const { agents, emit, tool, stop } = await start(team())
   t.after(stop)
@@ -366,6 +390,22 @@ const replySource = (role, extra = {}) => ({ kind: SOURCE_KIND, role, senderSess
 const textBlock = (content) => [{ type: 'text', text: content }]
 const assistantText = text => ({ message: { content: textBlock(text) } })
 
+test('a group receives the incomplete-work notice with an output-limited member result', () => {
+  const { rt, emit, delivered } = turnsHost()
+  rt.groupOwners.set('b', { roomId: 'ops' })
+  let result
+  rt.roomWaiters.set('x1', { resolve: text => { result = text }, touch() {} })
+  emit('b', 'turn/start', { turn: 1 })
+  emit('b', 'user/message', { content: textBlock('Review episodes 1–8.'), source: replySource('room', { roomId: 'ops' }) })
+  emit('b', 'assistant/message', assistantText('Episodes 4–8 remain.'))
+  emit('b', 'turn/end', { turn: 1, reason: { kind: 'max-tokens' } })
+  assert.match(result, /output token limit/)
+  assert.match(result, /assigned work is not confirmed complete/)
+  assert.match(result, /Episodes 4–8 remain/)
+  assert.equal(rt.roomWaiters.has('x1'), false)
+  assert.equal(delivered.length, 0)
+})
+
 test('a stopped notice routes the acknowledgement back like a request', () => {
   const { rt, emit, delivered } = turnsHost()
   emit('b', 'turn/start', { turn: 1 })
@@ -426,7 +466,7 @@ test('a joined request in a stopped turn tells its sender, and is not handed bac
   assert.equal(delivered.length, 1)
   assert.equal(delivered[0].toId, 'a')
   assert.equal(delivered[0].replyTo, 'e1')
-  assert.match(delivered[0].text, /was stopped before it could answer/)
+  assert.match(delivered[0].text, /was stopped before it could finish answering/)
 })
 
 test('a joined request gets the failure notice when the model call fails', () => {
@@ -626,7 +666,7 @@ test('a stopped turn answers at once, and what it handed on comes back to it alo
   const { take, end } = await handedOn(team)
   emit('b', 'turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
   await settled(() => callsOf(agents, 'a').length === 1)
-  assert.equal(textOf(callsOf(agents, 'a')[0][1].content), '[Reply from Writer]\nWriter was stopped before it could answer your message.')
+  assert.match(textOf(callsOf(agents, 'a')[0][1].content), /^\[Reply from Writer\]\nWriter was stopped before it could finish answering your message\. The assigned work is not confirmed complete/)
 
   take('c')
   end('c', 'reviewed')

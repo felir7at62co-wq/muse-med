@@ -603,7 +603,7 @@ describe('preview construction and validation', () => {
     expect(PREVIEW.operation).toBe('prepare_storyboard_native_video')
     expect(PREVIEW.payload.isGenerate).toBe(1)
     expect(PREVIEW.estimatedSubmissions).toBe(1)
-    expect(PREVIEW.nextAction).toBe('核对 preview 的项目、主体、配置、预计费用与已有任务；在用户已授权范围内调用 submit_video，超出范围先取得授权。prepare 本身不 PUT、不创建任务、不收费。')
+    expect(PREVIEW.nextAction).toBe('核对 preview 的项目、主体、配置、预计费用与已有任务。用户最新请求若为只预览或先看，到此展示结果，不沿用此前制作授权提交；本次请求包含已授权生成时才调用 submit_video。prepare 本身不 PUT、不创建任务、不收费。')
     expect(PREVIEW.assetSummary.orderedAssets[0]).toEqual({ assetId: 'asset-lead', materialAssetId: 81285,
       materialKey: 'lead', materialName: '陆沉舟｜西装', imageUrl: URL_LEAD })
     const config = JSON.parse(String(PREVIEW.payload.modelConfig)) as Record<string, unknown>

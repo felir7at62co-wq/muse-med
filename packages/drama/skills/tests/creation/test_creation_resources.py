@@ -23,6 +23,16 @@ FIXED_INSTALL_ROOT = re.compile(
 
 
 class CreationResourcesTests(unittest.TestCase):
+    def test_supplied_prompts_and_preview_only_requests_keep_their_scope(self):
+        text = (SKILLS / "tweet-drama-shot-asset-match/SKILL.md").read_text(encoding="utf-8")
+        for requirement in ("只机械替换", "不追加素材用途段", "不扫描正文所有姓名扩充名单",
+                            "声音参考独立按真实说话人绑定", "不沿用旧授权", "model_config.prompt"):
+            self.assertIn(requirement, text)
+        contract = (SKILLS / "tweet-drama-shot-asset-match/references/io-contract.md").read_text(encoding="utf-8")
+        for requirement in ("change only the authorized asset placeholders", "numbered-reference mapping",
+                            "An explicit on-screen cast controls image selection", "A preview-only request ends with the preview"):
+            self.assertIn(requirement, contract)
+
     def test_central_reuse_remains_a_preview_without_agent_issued_approval(self):
         text = (SKILLS / "tweet-drama-shot-asset-match/SKILL.md").read_text(encoding="utf-8")
         for requirement in ("reuse_preview", "plan_path", "apply_allowed=false", "不自动绑定", "approved"):

@@ -22,6 +22,22 @@ export function turnFailure(error) {
 
 export const failureLine = failure => `${failure.code}${failure.status ? ` ${failure.status}` : ''}${failure.message ? `: ${failure.message.slice(0, 200)}` : ''}`
 
+/**
+ * Add a termination notice without declaring the assignment complete.
+ * @param {string} name Bot whose turn ended.
+ * @param {string} text Preserved output, possibly empty.
+ * @param {object} [reason] Recorded turn-end reason.
+ * @returns {string} Output with an incomplete-work notice for stopped or output-limited turns.
+ */
+export function partialTurnReply(name, text, reason) {
+  const note = reason?.kind === 'max-tokens'
+    ? `${name}'s turn reached its output token limit. The assigned work is not confirmed complete; check the partial result and remaining scope before continuing.`
+    : reason?.kind === 'aborted'
+      ? `${name} was stopped before it could finish answering your message. The assigned work is not confirmed complete; check what was already done before continuing.`
+      : undefined
+  return note === undefined ? text : [note, text].filter(Boolean).join('\n\n')
+}
+
 // The reply a sender waits for, sent the way a finished turn sends it: the work it was
 // for closes, and the answer goes up to the Bot that asked. `id` is the Session the
 // answer comes from; `source` is the trigger the turn answered.
@@ -590,19 +606,19 @@ export function install(rt) {
           const reply = (wroteCall ? texts.map(stripWrittenCalls) : texts).join('\n\n').trim()
           return wroteCall && reply === '' ? 'Tried to run a tool but wrote the call as text, so it did not run.' : reply
         }
-        const groupReply = () => rt.withRoomSteps?.(held, replyText()) ?? replyText()
-        // Whoever the turn answers gets the same three-way rule: a failure notice,
-        // the turn's text (or a stopped-before-answer line), or nothing.
         const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
+        const groupReply = () => partialTurnReply(name, rt.withRoomSteps?.(held, replyText()) ?? replyText(), reason)
+        // The sender receives the failure or output, including a termination
+        // notice when a stopped or output-limited turn leaves completion unknown.
         const answer = (source, reply) => {
           if (!expectsReply(source) || answersUser(source)) return
           if (failure !== undefined) {
             // The sender was told a reply comes later; without this it would wait forever.
             tellSender(id, source, `${name} could not answer your message: its model call failed (${failureLine(failure)}). Tell the user if it matters; do not retry right away.`)
-          } else if (reply !== '' || reason?.kind === 'aborted') {
+          } else if (reply !== '' || reason?.kind === 'aborted' || reason?.kind === 'max-tokens') {
             // A turn stopped before it could answer still owes the sender a line,
             // or it would wait forever for a reply that never comes.
-            tellSender(id, source, reply !== '' ? reply : `${name} was stopped before it could answer your message.`)
+            tellSender(id, source, partialTurnReply(name, reply, reason))
           }
         }
         // Work a Bot asked for, also when what came back for it opens the turn: while
@@ -613,9 +629,9 @@ export function install(rt) {
           if (!rt.ownsWork?.(rt.selfOf(id), work)) return answer(source, reply)
           const asker = rt.workAsker(work)
           if (failure !== undefined || reason?.kind === 'aborted') return answer(asker, reply)
-          if (rt.waitsWork(work)) return rt.holdWork(work, reply)
+          if (rt.waitsWork(work)) return rt.holdWork(work, partialTurnReply(name, reply, reason))
           // With what came back, the answer may pass what one message carries.
-          const text = rt.answerText(work, reply, name)
+          const text = partialTurnReply(name, rt.answerText(work, reply, name), reason)
           if (text.length <= MESSAGE_INLINE_MAX) return tellSender(id, asker, text)
           void rt.attachLong(text, `Answer from ${name}.txt`)
             .then(long => tellSender(id, asker, text, long))

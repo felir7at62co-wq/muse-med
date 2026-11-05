@@ -22,7 +22,7 @@ test('a vendored checkout discovers its own harness without an environment overr
   const env = { ...process.env }
   delete env.DSH_HARNESS
   const result = spawnSync(process.execPath, [
-    '--import', join(import.meta.dirname, 'harness-resolve.mjs'),
+    '--import', pathToFileURL(join(import.meta.dirname, 'harness-resolve.mjs')).href,
     '--input-type=module', '-e', 'process.stdout.write(process.env.DSH_HARNESS)',
   ], { env, encoding: 'utf8' })
   assert.equal(result.status, 0, result.stderr)
