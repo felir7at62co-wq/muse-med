@@ -6,8 +6,6 @@ recording: authored
 header:
   class: muse-erase-estimate
   pin: true
-  systemPromptSource: muse-upscale-pricing
-  toolSchemasSource: muse-upscale-pricing
 writerOutput: true
 workspace:
   final: true
