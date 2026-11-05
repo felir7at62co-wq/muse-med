@@ -1544,32 +1544,56 @@ describe('source-bounded runtime catalogs', () => {
     }
   })
 
-  it.each([true, false])('replaces identical entries when bounded mode changes from %s', async (initialBounded) => {
-    const home = await tempDir('bounded-mode-change')
-    const first = await setup(home, initialBounded ? { catalogSourceLimits: { 'muse-market': 3 } } : {})
-    first.skills.register({ name: 'same-skill', description: 'Same summary', source: 'muse-market', content: 'Body' })
-    const session = Session.create(SessionId('bounded-mode-change'))
-    openMessageTurn(session)
-    await fireStep(first, sessionAgent(session), 1, 1)
-    await first.fiber.dispose()
+  it.each([
+    ['bundled', 'other-bundled'],
+    ['muse-market', 'other-bundled'],
+  ])('publishes a complete catalog for %s and %s when the market cap omits nothing', async (firstSource, secondSource) => {
+    const home = await tempDir('complete-capped-catalog')
+    const ctx = await setup(home, { catalogSourceLimits: { 'muse-market': 1 } })
+    try {
+      ctx.skills.register({ name: 'alpha', description: 'First', source: firstSource, content: 'Body' })
+      ctx.skills.register({ name: 'beta', description: 'Second', source: secondSource, content: 'Body' })
+      const session = Session.create(SessionId('complete-capped-catalog'))
+      openMessageTurn(session)
+      await fireStep(ctx, sessionAgent(session), 1, 1)
 
-    const second = await setup(home, initialBounded ? {} : { catalogSourceLimits: { 'muse-market': 3 } })
-    second.skills.register({ name: 'same-skill', description: 'Same summary', source: 'muse-market', content: 'Body' })
-    await fireStep(second, sessionAgent(session), 1, 2)
-    const catalogs = catalogMessages(session)
-    expect(catalogs).toHaveLength(2)
-    expect(catalogs[0]?.data.source).toMatchObject({ entries: [{ name: 'same-skill', description: 'Same summary' }] })
-    expect(catalogs[1]?.data.source).toMatchObject({ update: true, entries: [{ name: 'same-skill', description: 'Same summary' }] })
-    if (initialBounded) {
-      expect(catalogs[0]?.data.source).toHaveProperty('bounded', true)
-      expect(catalogs[1]?.data.source).not.toHaveProperty('bounded')
-    } else {
+      const catalogs = catalogMessages(session)
+      expect(catalogs).toHaveLength(1)
+      expect(catalogs[0]?.data.source).toMatchObject({ entries: [
+        { name: 'alpha', description: 'First' }, { name: 'beta', description: 'Second' },
+      ] })
       expect(catalogs[0]?.data.source).not.toHaveProperty('bounded')
-      expect(catalogs[1]?.data.source).toHaveProperty('bounded', true)
+      expect(JSON.stringify(catalogs[0]?.data.content)).toContain('The following skills are available in this session')
+    } finally {
+      await ctx.fiber.dispose()
     }
-    await fireStep(second, sessionAgent(session), 1, 3)
-    expect(catalogMessages(session)).toHaveLength(2)
-    await second.fiber.dispose()
+  })
+
+  it.each([true, false])('replaces identical entries when actual truncation changes from %s', async (initialBounded) => {
+    const home = await tempDir('bounded-mode-change')
+    const ctx = await setup(home, { catalogSourceLimits: { 'muse-market': 1 } })
+    try {
+      ctx.skills.register({ name: 'same-skill', description: 'Same summary', source: 'muse-market', content: 'Body' })
+      const registerExtra = () => ctx.skills.register({ name: 'z-extra', description: 'Extra summary', source: 'muse-market', content: 'Body' })
+      const removeExtra = initialBounded ? registerExtra() : undefined
+      const session = Session.create(SessionId('bounded-mode-change'))
+      const agent = sessionAgent(session)
+      openMessageTurn(session)
+      await fireStep(ctx, agent, 1, 1)
+      if (removeExtra === undefined) registerExtra()
+      else removeExtra()
+      await fireStep(ctx, agent, 1, 2)
+
+      const catalogs = catalogMessages(session)
+      expect(catalogs).toHaveLength(2)
+      expect(catalogs[0]?.data.source).toMatchObject({ entries: [{ name: 'same-skill', description: 'Same summary' }] })
+      expect(catalogs[1]?.data.source).toMatchObject({ update: true, entries: [{ name: 'same-skill', description: 'Same summary' }] })
+      expect(catalogs.map(event => Object.hasOwn(event.data.source, 'bounded'))).toEqual([initialBounded, !initialBounded])
+      await fireStep(ctx, agent, 1, 3)
+      expect(catalogMessages(session)).toHaveLength(2)
+    } finally {
+      await ctx.fiber.dispose()
+    }
   })
 
   it.each([0, -1, 1.5])('rejects a source entry limit of %s before registration', async (limit) => {
@@ -1619,7 +1643,8 @@ describe('source-bounded runtime catalogs', () => {
 
     const catalogs = catalogMessages(session)
     expect(catalogs).toHaveLength(2)
-    expect(catalogs[1]?.data.source).toMatchObject({ bounded: true, entries: [{ name: 'live-skill', description: 'Live skill' }] })
+    expect(catalogs[1]?.data.source).toMatchObject({ entries: [{ name: 'live-skill', description: 'Live skill' }] })
+    expect(catalogs[1]?.data.source).not.toHaveProperty('bounded')
     expect(catalogs[1]?.data.source).not.toHaveProperty('update')
     await ctx.fiber.dispose()
   })

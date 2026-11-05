@@ -39,7 +39,7 @@ export interface SkillCatalogSource {
   readonly form: 'catalog'
   /** Marks a replacement catalog rather than this session's first publication. */
   readonly update?: true
-  /** Source-specific exposure limits apply; unlisted skills may still be permitted. */
+  /** Source-specific exposure limits omitted eligible summaries. */
   readonly bounded?: true
   /** Exactly the entries this message published, in catalog order. */
   readonly entries: readonly { readonly name: string; readonly description: string }[]
@@ -89,7 +89,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const catalogDescriptionMaxLength = config.catalogDescriptionMaxLength ?? DEFAULT_CATALOG_DESCRIPTION_MAX_LENGTH
   const scopedCatalogOwner = config.scopedCatalogOwner ?? false
   const catalogSourceLimits = config.catalogSourceLimits ?? {}
-  const bounded = Object.keys(catalogSourceLimits).length > 0
+  const hasSourceLimits = Object.keys(catalogSourceLimits).length > 0
   assertPositiveInteger('catalogDescriptionMaxLength', catalogDescriptionMaxLength, 3)
   for (const [source, limit] of Object.entries(catalogSourceLimits)) {
     assertPositiveInteger(`catalogSourceLimits.${source}`, limit)
@@ -97,13 +97,9 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const skillTool = defineTool({
     name: 'skill',
-    description: bounded
-      ? 'Load the full instructions for a permitted skill. Use an exact name from the selected summaries or supplied by the user before acting on the task.'
-      : 'Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.',
+    description: 'Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.',
     parameters: {
-      name: { type: 'string', required: true, description: bounded
-        ? 'The exact skill name from a listed summary or supplied by the user.'
-        : 'The exact skill name from the available skills list.' },
+      name: { type: 'string', required: true, description: 'The exact skill name from the available skills list.' },
     },
     output: {
       schema: {
@@ -264,9 +260,11 @@ export function apply(ctx: Context, config: Config = {}): void {
       }
       return decision
     }
-    const skills = selectCatalogSkills(snapshot.skills.filter(isModelInvocable), decision.messages,
-      bounded && history.latestEntries === undefined ? agent.session.deriveMessages() : [], catalogSourceLimits,
+    const invocableSkills = snapshot.skills.filter(isModelInvocable)
+    const skills = selectCatalogSkills(invocableSkills, decision.messages,
+      hasSourceLimits && history.latestEntries === undefined ? agent.session.deriveMessages() : [], catalogSourceLimits,
       history.latestEntries?.map(entry => entry.name))
+    const bounded = skills.length < invocableSkills.length
     const entries = catalogSourceEntries(skills, catalogDescriptionMaxLength)
     const digest = digestCatalogEntries(entries, bounded)
     const existing = catalogMessage(decision.messages)

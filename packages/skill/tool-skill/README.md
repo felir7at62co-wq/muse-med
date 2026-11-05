@@ -55,10 +55,10 @@ Source limits are opt-in. The [Muse Desktop composition](../../../apps/desktop-h
 
 ### What the model gets
 
-- **A session catalog.** When model-invocable skills exist and the `skill` tool is visible, the agent receives a durable user-role message before its first request, listing selected skill names and capped routing summaries; the message tells the model to load a skill with the tool before acting on it, and never to infer instructions from the summary alone. Without source limits, every eligible summary is selected.
+- **A session catalog.** When model-invocable skills exist and the `skill` tool is visible, the agent receives a durable user-role message before its first request, listing selected skill names and capped routing summaries; the message tells the model to load a skill with the tool before acting on it, and never to infer instructions from the summary alone. When every eligible summary fits, the catalog lists them all.
 - **A loader tool.** The model calls `skill` with the exact skill name and receives the full instruction body plus resource guidance in a canonical `<skill_content>` block; the result is retained as ordinary tool history.
 - **Explicit user invocation.** While this exact `skill` tool is visible, a `/name` token in direct user input that names a user-invocable skill injects that skill's instructions into the step, without the model having to load it.
-- **Live catalog updates.** Later membership, routing summary, visibility, task selection, or exposure-mode changes append a replacement catalog; removing every skill appends an empty catalog that retires older names. Bounded catalogs identify their entries as selected summaries, not the complete permission list.
+- **Live catalog updates.** Later membership, routing summary, visibility, task selection, or exposure-mode changes append a replacement catalog; removing every skill appends an empty catalog that retires older names. Catalogs that omit eligible summaries identify their entries as a selection.
 
 ### Observable success and failures
 
@@ -91,7 +91,7 @@ At each eligible `agent/pre-step`, the plugin snapshots the calling session's sk
 
 The visibility check compares the exact registered tool definition, so an unrelated scoped same-name shadow removes both the schema and its guidance. A visible active loader with `scopedCatalogOwner: true` owns its registry's catalog and rechecks visibility after discovery; other instances leave that catalog intact. Without this opt-in, an ancestor treats a nested loader as a same-name shadow. The plugin works globally or inside one agent's composition.
 
-When source limits are configured, the durable source carries optional `bounded: true`, even when every summary fits. Its absence identifies a complete catalog and preserves compatibility with earlier records. Other persisted values are not accepted as a usable catalog. Switching bounded mode republishes the catalog even when the entries are unchanged; the [persistence acknowledgement](../../../docs/persistence-changes/2026-11-02-bounded-skill-catalog.md) records the optional-field compatibility.
+When a source limit omits eligible summaries, the durable source carries optional `bounded: true`. Its absence identifies a complete catalog and preserves compatibility with earlier records. Other persisted values do not describe a usable catalog. A transition between complete and selected summaries republishes the catalog even when the entries are unchanged. The [persistence acknowledgement](../../../docs/persistence-changes/2026-11-02-bounded-skill-catalog.md) records the optional-field compatibility.
 
 ### Summary selection
 
@@ -125,7 +125,7 @@ Read these pages when the package-level contract is not enough. They move from t
 
 #### What the model sees
 
-If model-invocable skills exist and this exact `skill` tool is visible, the agent receives a durable user-role catalog before the first request. The default template below includes every eligible summary. Configured source limits use the bounded templates instead, with one data-dependent line per selected summary. Changes append replacements; an empty replacement explicitly retires older names. Every template tells the model to follow a user-invoked `<skill_content>` block instead of loading that skill again.
+If model-invocable skills exist and this exact `skill` tool is visible, the agent receives a durable user-role catalog before the first request. The default template below includes every eligible summary. When a source limit omits eligible summaries, the bounded templates list the selected summaries. Changes append replacements; an empty replacement explicitly retires older names. Every template tells the model to follow a user-invoked `<skill_content>` block instead of loading that skill again.
 
 ##### Skill catalog template
 
@@ -173,11 +173,11 @@ A user may also invoke a skill directly; its <skill_content> block then appears 
 </system-reminder>
 ```
 
-##### Empty bounded replacement catalog template
+##### Empty replacement catalog template
 
 ```markdown
 <system-reminder>
-The selected skill summaries changed. This selection replaces earlier recommended summaries; it is not the complete directory of permitted skills:
+The available skill catalog changed. This complete catalog replaces every earlier available-skills list in this session:
 
 <available_skills>
 </available_skills>
@@ -199,7 +199,7 @@ The initial durable catalog follows the existing reusable prefix. Changed entrie
 
 #### What the model sees
 
-The model sees the generated [`skill` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-skill) by default. Bounded mode changes the tool description to `Load the full instructions for a permitted skill. Use an exact name from the selected summaries or supplied by the user before acting on the task.` and the `name` parameter description to `The exact skill name from a listed summary or supplied by the user.` The accepted parameters and invocation permissions stay unchanged.
+The model sees the generated [`skill` schema](../../../docs/tool-catalog.md#deepseek-aidsh-tool-skill). The selected catalog explains when to use an exact skill name supplied by the user.
 
 #### Token effect
 

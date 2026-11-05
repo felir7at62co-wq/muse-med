@@ -55,10 +55,10 @@ agent 可以在会话期间发现并加载 skill。如果存在模型可调用 s
 
 ### 模型得到什么
 
-- **会话目录。** 当存在模型可调用 skill 且 `skill` 工具可见时，agent 会在首次请求前收到一条持久的用户角色消息，列出选中的 skill 名称与有长度上限的路由摘要；该消息告诉模型在着手任务前先用工具加载 skill，且绝不能仅凭摘要推断指令。未设置来源限额时，所有符合条件的摘要都会选中。
+- **会话目录。** 当存在模型可调用 skill 且 `skill` 工具可见时，agent 会在首次请求前收到一条持久的用户角色消息，列出选中的 skill 名称与有长度上限的路由摘要；该消息告诉模型在着手任务前先用工具加载 skill，且绝不能仅凭摘要推断指令。限额能容纳所有符合条件的摘要时，目录会完整列出这些摘要。
 - **加载工具。** 模型以精确的 skill 名称调用 `skill`，并收到完整指令正文以及规范的 `<skill_content>` 块中的资源指引；该结果作为普通工具历史保留。
 - **用户显式调用。** 本插件的精确 `skill` 工具可见时，直接用户输入中的 `/name` token 若指名某个用户可调用 skill，会把该 skill 的指令注入该步骤，而无需模型自行加载。
-- **实时目录更新。** 后续成员关系、路由摘要、可见性、任务选取或展示模式变化会追加替换目录；删除全部 skill 时会追加空目录，停用较早的名称。有限额目录会明确说明条目是选出的摘要，而不是完整的权限列表。
+- **实时目录更新。** 后续成员关系、路由摘要、可见性、任务选取或展示模式变化会追加替换目录；删除全部 skill 时会追加空目录，停用较早的名称。目录省略部分符合条件的摘要时，会明确说明当前展示的是选出的摘要。
 
 ### 可观察的成功与失败
 
@@ -91,7 +91,7 @@ agent 可以在会话期间发现并加载 skill。如果存在模型可调用 s
 
 可见性检查比较已注册的精确工具定义，因此无关的作用域内同名遮蔽项会同时移除 schema 及其指引。启用 `scopedCatalogOwner: true` 的可见活跃 loader 拥有其注册表的目录，并在发现结束后复核可见性；其他实例不会移除该目录。未显式启用时，祖先实例会把嵌套 loader 视作同名遮蔽项。该插件既可全局挂载，也可挂在单个 agent 的组合内。
 
-配置来源限额时，持久来源会携带可选的 `bounded: true`，即使所有摘要都能容纳也一样。该字段缺省时表示完整目录，并兼容较早的记录。其他持久值不会被视为可用目录。切换有限额模式时，即使条目没有变化，也会重新发布目录；[持久化确认记录](../../../docs/persistence-changes/2026-11-02-bounded-skill-catalog.zh.md)说明了这个可选字段的兼容性。
+来源限额省略符合条件的摘要时，持久来源携带可选的 `bounded: true`。该字段缺省时表示完整目录，并兼容较早的记录。其他持久值不会被视为可用目录。完整目录与选取目录互相切换时，即使条目没有变化，也会重新发布目录。[持久化确认记录](../../../docs/persistence-changes/2026-11-02-bounded-skill-catalog.zh.md)说明了这个可选字段的兼容性。
 
 ### 摘要选取
 
@@ -125,7 +125,7 @@ agent 可以在会话期间发现并加载 skill。如果存在模型可调用 s
 
 #### 模型看到什么
 
-如果存在模型可调用 skill，且可见的正是这个 `skill` 工具，agent 会在第一个请求前收到一条持久的用户角色目录。下方默认模板包含所有符合条件的摘要。配置来源限额时，改用有限额模板，为每条选中摘要渲染一条随数据而定的目录行。变化会追加替换目录；空替换会显式停用较早的名称。每个模板都会告诉模型遵循用户调用的 `<skill_content>` 块，而不是再次加载该 skill。
+如果存在模型可调用 skill，且可见的正是这个 `skill` 工具，agent 会在第一个请求前收到一条持久的用户角色目录。下方默认模板包含所有符合条件的摘要。来源限额省略符合条件的摘要时，使用有限额模板列出选中的摘要。变化会追加替换目录；空替换会显式停用较早的名称。每个模板都会告诉模型遵循用户调用的 `<skill_content>` 块，而不是再次加载该 skill。
 
 ##### Skill 目录模板
 
@@ -173,11 +173,11 @@ A user may also invoke a skill directly; its <skill_content> block then appears 
 </system-reminder>
 ```
 
-##### 清空后的有限额替换目录模板
+##### 空替换目录模板
 
 ```markdown
 <system-reminder>
-The selected skill summaries changed. This selection replaces earlier recommended summaries; it is not the complete directory of permitted skills:
+The available skill catalog changed. This complete catalog replaces every earlier available-skills list in this session:
 
 <available_skills>
 </available_skills>
@@ -199,7 +199,7 @@ A user may still invoke a skill directly; its <skill_content> block then appears
 
 #### 模型看到什么
 
-默认情况下，模型会看到生成的 [`skill` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-skill)。有限额模式将工具描述改为 `Load the full instructions for a permitted skill. Use an exact name from the selected summaries or supplied by the user before acting on the task.`，并将 `name` 参数描述改为 `The exact skill name from a listed summary or supplied by the user.`。接受的参数和调用权限保持不变。
+模型会看到生成的 [`skill` schema](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-skill)。选取目录说明何时可以使用用户提供的精确技能名。
 
 #### Token 影响
 

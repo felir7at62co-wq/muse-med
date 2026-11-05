@@ -24,8 +24,8 @@
   en: dd5e772c36610b90
   zh: 8764cd306954a6a4
 /deepseek-ai-dsh-tool-skill/use-this-package/what-the-model-gets:
-  en: 0fa572fa91733de9
-  zh: 09c16b1320a3210f
+  en: 871d38efd3bd9600
+  zh: 70b053fc8c5e70aa
 /deepseek-ai-dsh-tool-skill/use-this-package/observable-success-and-failures:
   en: 813f1a7ab04d283e
   zh: 4adfcffcbb131d54
@@ -39,8 +39,8 @@
   en: e12de58ab157150e
   zh: 6a744c2b1faa2b9b
 /deepseek-ai-dsh-tool-skill/understand-the-implementation/catalog-lifecycle:
-  en: c88b872cb369dc52
-  zh: 972f716bbef801d5
+  en: 3fce18b884b7647f
+  zh: e0fb58be4c53a97b
 /deepseek-ai-dsh-tool-skill/understand-the-implementation/summary-selection:
   en: 8fdab953287d3488
   zh: 918a05452686d558
@@ -57,8 +57,8 @@
   en: ed929c61dd301a56
   zh: 376c8d69b6fa7df6
 /deepseek-ai-dsh-tool-skill/model-experience/session-catalog/what-the-model-sees:
-  en: 86196f3af58e6b2b
-  zh: b60fcc6279a954a7
+  en: 747ff5cffcf75ce5
+  zh: 409ae6ebd32483e9
 /deepseek-ai-dsh-tool-skill/model-experience/session-catalog/what-the-model-sees/skill-catalog-template:
   en: 8ca9241e26124ce3
   zh: d083f87eaae40e15
@@ -68,9 +68,9 @@
 /deepseek-ai-dsh-tool-skill/model-experience/session-catalog/what-the-model-sees/bounded-replacement-catalog-template:
   en: 1152d7f48822fed8
   zh: be112487c0faee1f
-/deepseek-ai-dsh-tool-skill/model-experience/session-catalog/what-the-model-sees/empty-bounded-replacement-catalog-template:
-  en: d088f848baf44497
-  zh: b6946ddf77673aeb
+/deepseek-ai-dsh-tool-skill/model-experience/session-catalog/what-the-model-sees/empty-replacement-catalog-template:
+  en: a4a5d02382a8a542
+  zh: c3efe9820c4aa5a7
 /deepseek-ai-dsh-tool-skill/model-experience/session-catalog/token-effect:
   en: 4ac639cfb05c57ef
   zh: 6e0a7e4776578173
@@ -81,8 +81,8 @@
   en: e4c7376d4f29dbd5
   zh: 6b7a9eaf69c9ea53
 /deepseek-ai-dsh-tool-skill/model-experience/tool-schema/what-the-model-sees:
-  en: 2cfa65e91015ad6a
-  zh: e24de84318734647
+  en: 40cf6c0ebd1a6e14
+  zh: 544f255a4893663e
 /deepseek-ai-dsh-tool-skill/model-experience/tool-schema/token-effect:
   en: 4a8881f7a361cb7f
   zh: cba76f0578a36953
