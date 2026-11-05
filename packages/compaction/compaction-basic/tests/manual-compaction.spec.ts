@@ -30,6 +30,7 @@ import type {
   SummarizationInput,
   SummaryResult,
 } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
+import { CompactionCommitError } from '../src/region.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -407,6 +408,33 @@ describe('compactNow through the real loop', () => {
 })
 
 describe('compactNow transaction and failure classification', () => {
+  it('retains a non-Error commit cause with a bounded failure message', () => {
+    const cause = { reason: 'fixture rejected transaction' }
+    const error = new CompactionCommitError(cause)
+    expect(error.message).toBe('compaction transaction could not be committed')
+    expect(error.cause).toBe(cause)
+  })
+
+  it('propagates a standalone opening-write failure without committing a bracket', async () => {
+    const { compact, flushes } = detachedService()
+    const session = closedConversation(2)
+    let released = 0
+    const agent = fakeAgent(session, () => () => { released += 1 })
+    const failure = new Error('opening record rejected')
+    const append = session.append.bind(session)
+    const fault = vi.spyOn(session, 'append').mockImplementation(((type: string, ...rest: never[]) => {
+      if (type === 'compaction/start') throw failure
+      return (append as (...args: never[]) => unknown)(type as never, ...rest)
+    }) as never)
+    try {
+      await expect(compact.compactNow(agent, SIGNAL)).rejects.toBe(failure)
+      expect(released).toBe(1)
+      expect(compact.calls).toHaveLength(0)
+      expect(compactEvents(session)).toEqual([])
+      expect(flushes()).toBe(0)
+    } finally { fault.mockRestore() }
+  })
+
   it('returns null without writing a bracket for history that cannot be compacted', async () => {
     const { compact } = detachedService()
     const session = Session.create(SessionId('empty'))

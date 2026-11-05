@@ -166,6 +166,31 @@ function lastReason(agent: Agent) {
 }
 
 describe('final working-context admission', () => {
+  it.each([
+    { capacity: 'safe', contextWindow: 10_000, model: 'limited', error: undefined },
+    { capacity: 'unsafe', contextWindow: 1_600, model: 'limited', error: 'WORKING_CONTEXT_LIMIT' },
+    { capacity: 'unknown', contextWindow: 10_000, model: 'unknown-context', error: 'CONTEXT_BUDGET_UNAVAILABLE' },
+  ])('admits above-target input with zero retries only for $capacity model capacity', async ({ contextWindow, model, error }) => {
+    const { ctx, agent, adapter } = await harness({
+      workingTokenLimit: 1_000, maxOverflowRetries: 0, modelPolicies: [],
+    }, { contextWindow, model, seed: [] })
+    await send(agent, `ZERO_RETRY_INPUT; ${'N'.repeat(6_000)}`)
+    const measured = ctx.tokenMeter.measureWorkingContext(agent.session).totalTokens
+    expect(measured).toBeGreaterThan(1_000)
+    expect(adapter.summaries).toHaveLength(0)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'compaction/start')).toHaveLength(0)
+    if (error === undefined) {
+      expect(measured).toBeLessThan(contextWindow - 256)
+      expect(adapter.requests).toHaveLength(1)
+      expect(JSON.stringify(adapter.requests[0]?.messages)).toContain('ZERO_RETRY_INPUT')
+      expect(lastReason(agent)).toEqual({ kind: 'completed' })
+    } else {
+      if (model !== 'unknown-context') expect(measured).toBeGreaterThan(contextWindow - 256)
+      expect(adapter.requests).toHaveLength(0)
+      expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: error } })
+    }
+  })
+
   it.each(['error', 'empty'] as const)('continues a normal short input with retained 498K context when the summary is %s', async (mode) => {
     const { agent, adapter } = await harness({ adaptiveBudget: true,
       thresholdRatio: 0.45, headroomTokens: 16_384, retainTokens: 65_536, maxTokens: 16_384,

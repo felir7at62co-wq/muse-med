@@ -700,6 +700,35 @@ describe('FileSystemSkillProvider', () => {
     })
   })
 
+  it('propagates a pending root read failure after provider disposal begins', async () => {
+    const root = await tempDir('skill-root-disposed-read')
+    await writeSkill(root, 'waiting-skill', 'Waiting skill')
+    const ctx = new Context()
+    onTestFinished(() => ctx.fiber.dispose())
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    const entered = Promise.withResolvers<undefined>()
+    const read = Promise.withResolvers<string>()
+    fs.readTextOverride = async () => { entered.resolve(undefined); return await read.promise }
+    const provider = new SkillFileSystem.FileSystemSkillProvider(ctx, {
+      signal: new AbortController().signal, invalidate: () => {},
+    }, { includeDefaultRoots: false, customSkillDirs: [root], watch: false })
+    onTestFinished(() => provider.dispose())
+    const failure = new Error('late root read failed')
+    const discovery = provider.list({})
+    const rejected = expect(discovery).rejects.toBe(failure)
+    try {
+      await entered.promise
+      const disposal = provider.dispose()
+      read.reject(failure)
+      await rejected
+      await disposal
+    } finally {
+      read.reject(failure)
+      await Promise.allSettled([discovery, provider.dispose()])
+    }
+  })
+
   it('selects a readable same-name skill while the preferred root fails and restores priority on recovery', async () => {
     const home = await tempDir('skill-root-fallback')
     const preferred = join(home, 'preferred')

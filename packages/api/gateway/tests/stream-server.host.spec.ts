@@ -1,9 +1,10 @@
 import { once } from 'node:events'
-import { createServer, type Server } from 'node:http'
+import { createServer, type IncomingMessage, type Server } from 'node:http'
+import type { Duplex } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
 import { remoteErrorOf, type PeerId, type PeerScope } from '@deepseek-ai/dsh-typert-protocol'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import WebSocket from 'ws'
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
+import WebSocket, { WebSocketServer } from 'ws'
 import {
   RemoteStreamMuxServer,
   type RemoteStreamFailureMapper,
@@ -32,6 +33,47 @@ afterEach(async () => {
 })
 
 describe('Remote stream mux server carrier lifecycle', () => {
+  it('terminates an upgrade whose completion callback arrives after update pause', async () => {
+    const peer = await fixturePeer()
+    onTestFinished(() => peer.dispose())
+    const entry = await startMux(async () => (async function* () {})(), undefined, undefined, undefined, peer)
+    const intercepted = Promise.withResolvers<{ readonly socket: WebSocket; readonly complete: () => void }>()
+    const upgrade = vi.spyOn(WebSocketServer.prototype, 'handleUpgrade')
+    upgrade.mockImplementation(function (
+      this: WebSocketServer, request: IncomingMessage, socket: Duplex, head: Buffer,
+      done: Parameters<WebSocketServer['handleUpgrade']>[3],
+    ) {
+      upgrade.mockRestore()
+      this.handleUpgrade(request, socket, head, (websocket) => {
+        intercepted.resolve({ socket: websocket, complete: () => { done(websocket, request) } })
+      })
+    })
+    const client = new WebSocket(entry.url)
+    const closed = new Promise<void>((resolve) => { client.once('close', () => { resolve() }) })
+    const opened = once(client, 'open')
+    void opened.catch(() => undefined)
+    try {
+      const handshake = await intercepted.promise
+      await opened
+      const terminate = vi.spyOn(handshake.socket, 'terminate')
+      try {
+        await entry.mux.pause()
+        const count = terminate.mock.calls.length
+        handshake.complete()
+        expect(terminate).toHaveBeenCalledTimes(count + 1)
+        await closed
+        expect(client.readyState).toBe(WebSocket.CLOSED)
+      } finally { terminate.mockRestore() }
+    } finally {
+      upgrade.mockRestore()
+      if (client.readyState !== WebSocket.CLOSED) {
+        client.on('error', () => undefined)
+        client.terminate()
+        await closed
+      }
+    }
+  })
+
   it('pauses new socket streams and waits for cancelled stream cleanup before resuming', async () => {
     const opened = Promise.withResolvers<undefined>()
     const started = Promise.withResolvers<undefined>()
