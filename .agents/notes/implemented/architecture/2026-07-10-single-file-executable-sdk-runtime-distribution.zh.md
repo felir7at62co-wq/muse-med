@@ -48,7 +48,9 @@ exe 的 VFS 内是**构建产物形态的真实包树**（各包的 `lib/` + 真
 
 ### 构建流水线与产物
 
-如果 pnpm 用硬链接把已部署的 `node-pty` 预编译文件指向源安装中的文件，运行时构建会保留这些文件。可下载的 Office 和 pnpm 资源使用工作区锁文件中的 SHA-512 完整性值，包含独立的包管理器文档。同一包的同一版本如果有冲突的完整性值，构建会失败。
+运行时构建使用 Brotli 压缩的 SEA 资源。如果 pnpm 用硬链接把已部署的 `node-pty` 预编译文件指向源安装中的文件，运行时构建会保留这些文件。可下载的 Office 和 pnpm 资源使用工作区锁文件中的 SHA-512 完整性值，包含独立的包管理器文档。同一包的同一版本如果有冲突的完整性值，构建会失败。
+
+安装后的运行时解包锁定版本的 pnpm 包装器和对应平台的可执行文件。SEA 内含写入主运行时的两份 OCR 模型声明。提取原生 addon 时识别任意 Windows 盘符下的精确 snapshot 目录。ESM 快照 URL 统一使用固定的虚拟文件根目录。
 
 [`scripts/build-exe-for-python-sdk.ts`](../../../../scripts/build-exe-for-python-sdk.ts)：运行时闭包校验 → `pnpm run build` →（清空后）从工作区锁文件部署生产依赖闭包 **直接写入** `python/sdk-runtime/src/deepseek_harness_runtime/runtime/node/`，其中包含作为载体根目录 `runtime-bootstrap.mjs` 的 [`python/sdk-runtime/runtime-bootstrap.mjs`](../../../../python/sdk-runtime/runtime-bootstrap.mjs) → 将暂存依赖中的符号链接替换为目标文件内容，删除包管理器的 `.bin` 链接，并在仍有任何符号链接时失败 → 验证已部署的 bootstrap，并注入以该文件为 bin 的 pkg 配置及覆盖动态读取 profile、bundle、前端、preset、原生库与配置文件的 assets → 暂存目标平台的 `node-pty` addon → 每个构建目标调用一次 `pkg --sea` → 将 `deepseek-harness-sdk-runtime-<platform>-<arch>` 写入 `dist-exe/`，并将它与轻量资源清单及 Office skill 资源一同拷回运行时目录。该 bootstrap 由 Python runtime 拥有；普通启动时它调用公开 CLI export，而提供方私有选择会分派到同一个 `@deepseek-ai/dsh-subprocess-local/runner` 核心，不改变 CLI 语法，也不增加另一个可执行文件；[原生 containment 参考](../../../../packages/subprocess/subprocess-local/README.zh.md)负责这条私有路径。Linux CI 会在匹配的 manylinux 2.28 容器中重新构建 `pty.node`，使打包的 addon 符合 wheel 的 glibc 基线。每个目标都会把对应的原生 `@vscode/ripgrep` 二进制复制到可执行文件旁，作为必需的 `-rg` 伴随文件；pkg 运行时通过 `process.pkg` 选择该伴随文件，普通 Node 执行则直接使用 `@vscode/ripgrep`。macOS 使用对应目标的预构建产物，并额外生成所需的 `-spawn-helper`。pnpm 为部署目录生成独立锁文件。提升布局把生产包放入部署目录，关闭对等依赖自动安装可防止未声明的对等依赖扩大闭包。只有 pnpm 在载荷根目录记录了相同依赖标识时，暂存步骤才删除对应的嵌套工作区副本。部署进程沿用工作区生命周期脚本规则，并把已审核的本地文件路径映射到部署锁文件中的等价绝对文件 URL。[`pnpm-workspace.yaml`](../../../../pnpm-workspace.yaml) 将传递的 `@deepseek-ai/cosmokit` 与 `@deepseek-ai/schemastery` semver 请求覆盖到固定的 vendor 源码，使部署从工作区解析这些未发布名称。 生产部署允许未使用的工作区补丁，因为开发工具可能不属于运行时闭包；闭包内包的补丁应用失败仍会中止部署。工作区安装继续严格校验未使用的补丁。
 

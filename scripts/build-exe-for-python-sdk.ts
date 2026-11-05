@@ -18,7 +18,7 @@ import { pathToFileURL } from 'node:url'
 import { resolveLinuxNodePtyAddon, resolveWindowsNodePtyAddons, stageNodePtyPrebuild } from './executable-native-pty.ts'
 import { officeSidecarArchives, runtimeNpmArchive, OFFICE_ASSET_IGNORES } from './build-exe-for-python-sdk-office.ts'
 import { deduplicateStagedWorkspacePackages, materializeStagedLinks } from './build-exe-for-python-sdk-staging.ts'
-import { prepareOfficeSkillAssets } from './primary-runtime/prepare.ts'
+import { prepareOfficeSkillAssets, PRIMARY_RUNTIME_NOTICE_FILES } from './primary-runtime/prepare.ts'
 import primaryLock from './primary-runtime/lock.json' with { type: 'json' }
 
 const root = resolve(import.meta.dirname, '..')
@@ -47,6 +47,7 @@ const DEPLOY_ONLY_DOCS = ['README.md', 'README.zh.md', 'README.i18n.yaml']
 const ASSET_GLOBS = [
   'package.json',
   '*.mjs',
+  ...PRIMARY_RUNTIME_NOTICE_FILES,
   'node_modules/**/*.js',
   'node_modules/**/*.cjs',
   'node_modules/**/*.mjs',
@@ -342,6 +343,9 @@ class SingleExeBuild {
     } finally {
       for (const entry of Object.values(entries)) await rm(entry, { force: true })
     }
+    for (const notice of PRIMARY_RUNTIME_NOTICE_FILES) {
+      await copyFile(join(root, 'scripts', 'primary-runtime', notice), join(this.staging, notice))
+    }
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
     await writeFile(manifestPath, `${JSON.stringify({ ...manifest, ...patch }, null, 2)}\n`)
     await this.run('resource helper imports', process.execPath, ['--input-type=module', '--eval',
@@ -365,6 +369,8 @@ class SingleExeBuild {
       'pkg',
       this.staging,
       '--sea',
+      '--compress',
+      'Brotli',
       '--targets',
       target.spec,
       '--output',

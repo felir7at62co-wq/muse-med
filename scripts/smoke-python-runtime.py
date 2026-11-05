@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import argparse
 from collections import deque
+from collections.abc import Iterator
+from contextlib import contextmanager
 import difflib
 import importlib
 import importlib.metadata
@@ -896,11 +898,25 @@ def main() -> None:
     print(f"smoke-python-runtime: {args.scenario} passed")
 
 
+@contextmanager
+def smoke_resource_directory(prefix: str) -> Iterator[Path]:
+    """Expose ordinary paths to the runtime and clean up beyond Windows MAX_PATH."""
+    temporary_base = Path(tempfile.gettempdir()).resolve()
+    cleanup_base = str(temporary_base)
+    if IS_WINDOWS and not cleanup_base.startswith("\\\\?\\"):
+        cleanup_base = (
+            "\\\\?\\UNC\\" + cleanup_base[2:] if cleanup_base.startswith("\\\\")
+            else "\\\\?\\" + cleanup_base
+        )
+    with tempfile.TemporaryDirectory(prefix=prefix, dir=cleanup_base) as temporary:
+        yield temporary_base / Path(temporary).name
+
+
 def smoke_sdk_authoring(base_url: str, executable: Path, update_snapshots: bool) -> None:
     """Query the bundled Python and switch skills without replacing that environment."""
 
-    with tempfile.TemporaryDirectory(prefix="dsh-sdk-authoring-cache-") as cache_directory:
-        _smoke_sdk_authoring_cached(base_url, executable, update_snapshots, Path(cache_directory))
+    with smoke_resource_directory("dsh-sdk-authoring-cache-") as cache_directory:
+        _smoke_sdk_authoring_cached(base_url, executable, update_snapshots, cache_directory)
 
 
 def _smoke_sdk_authoring_cached(base_url: str, executable: Path, update_snapshots: bool, cache: Path) -> None:
@@ -929,8 +945,11 @@ def _smoke_sdk_authoring_cached(base_url: str, executable: Path, update_snapshot
                 request_timeout_seconds=60,
             ) as harness:
                 result = harness.run(AUTHORING_PROMPT, session_id="authoring")
-            assert result.final_response == EXPECTED_TEXT, result.final_response
             requests = MockModelHandler.requests[first:]
+            assert result.final_response == EXPECTED_TEXT, (
+                mode, result.final_response, [event for event in result.events if event.get("type") == "turn/end"],
+                [advertised_tool_names(request) for request in requests],
+            )
             assert len(requests) == 2, requests
             prompt = json.dumps(requests[0], ensure_ascii=False)
             for name in ("office-docx", "office-pptx", "office-xlsx"):
@@ -969,8 +988,7 @@ def smoke_sdk_office(executable: Path) -> None:
     """Relocate the wheel payload and convert a real DOCX with the target platform engine."""
     from deepseek_harness import DeepSeekHarness
 
-    with tempfile.TemporaryDirectory(prefix="dsh-sdk-office-") as temporary:
-        root = Path(temporary).resolve()
+    with smoke_resource_directory("dsh-sdk-office-") as root:
         relocated = root / executable.name
         stem = executable.name.removesuffix(".exe")
         resources = executable.with_name(stem.removeprefix("deepseek-harness-sdk-runtime-"))
@@ -1895,8 +1913,10 @@ def smoke_sdk_snapshot_mode(
                 raise AssertionError("second advanced child log has no workflow-subagent result")
 
         files = build_snapshot_files(result, logs, child_ids, root)
+        directory = ADVANCED_SNAPSHOT_DIRECTORY if mode == "native" else ADVANCED_SNAPSHOT_ROOT / "advanced-ptc"
+        filenames = ADVANCED_SNAPSHOT_FILENAMES if mode == "native" else ("result.json", "session.v4.jsonl")
         compare_snapshot_files(
-            files, update_snapshots, ADVANCED_SNAPSHOT_DIRECTORY, ADVANCED_SNAPSHOT_FILENAMES,
+            files, update_snapshots, directory, filenames,
             native_writer_output=True, writer_expected=True,
         )
 
@@ -2391,7 +2411,7 @@ def assert_session_log(sessions: Path, cwd: Path, *expected_texts: str) -> None:
     logs = latest_persisted_session_paths(sessions)
     if len(logs) != 1:
         raise AssertionError(f"expected one JSONL session log under {sessions}, found {logs}")
-    content = logs[0].read_text()
+    content = logs[0].read_text(encoding="utf-8")
     assert_persisted_session_version(logs[0], content)
     lines = content.splitlines()
     header = json.loads(lines[0])

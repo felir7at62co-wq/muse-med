@@ -1439,7 +1439,7 @@
       }
     },
     {
-      "type": "turn/end",
+      "type": "video/review",
       "seq": 63,
       "time": 0,
       "data": {
@@ -1485,7 +1485,7 @@
     },
     {
       "type": "video/review",
-      "seq": 71,
+      "seq": 64,
       "time": 0,
       "data": {
         "kind": "update",
@@ -1522,7 +1522,7 @@
     },
     {
       "type": "turn/end",
-      "seq": 72,
+      "seq": 65,
       "time": 0,
       "data": {
         "turn": 1,
@@ -4371,7 +4371,7 @@
       "payload": {
         "sessionId": "{{parent}}",
         "event": {
-          "type": "turn/end",
+          "type": "video/review",
           "seq": 63,
           "time": 0,
           "data": {
@@ -4423,7 +4423,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "video/review",
-          "seq": 71,
+          "seq": 64,
           "time": 0,
           "data": {
             "kind": "update",
@@ -4466,7 +4466,7 @@
         "sessionId": "{{parent}}",
         "event": {
           "type": "turn/end",
-          "seq": 72,
+          "seq": 65,
           "time": 0,
           "data": {
             "turn": 1,

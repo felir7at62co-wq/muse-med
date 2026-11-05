@@ -16,6 +16,9 @@ import pnpmLock from './pnpm-lock.json' with { type: 'json' }
 import { preparePnpmRuntime } from './pnpm.ts'
 import { prunePrimaryRuntimePythonTests } from './prune-python-tests.ts'
 
+/** OCR model notices copied into each primary runtime payload. */
+export const PRIMARY_RUNTIME_NOTICE_FILES = ['ocr-models-notice.txt', 'ocr-models-license.txt'] as const
+
 /**
  * Download or reuse an archive only when its bytes match the release lock.
  * @param url - Locked archive URL.
@@ -130,7 +133,7 @@ export function primaryRuntimePayloadDigest(
     format: 6, target, pythonVersion, pythonRelease, nodeVersion: pnpmVersion === undefined ? undefined : nodeVersion,
     artifact: runtimeLock.targets[target], wheels, pythonPackages, pnpm: pnpmVersion,
     pnpmExecutable: pnpmVersion === undefined ? undefined : pnpmLock.targets[target],
-    ocrNotices: ['ocr-models-notice.txt', 'ocr-models-license.txt'].map(filename =>
+    ocrNotices: PRIMARY_RUNTIME_NOTICE_FILES.map(filename =>
       createHash('sha256').update(readFileSync(join(import.meta.dirname, filename))).digest('hex')),
   })).digest('hex')
 }
@@ -207,7 +210,12 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
       await downloadNodeRuntime(target, node, paths.downloads)
       mkdirSync(join(node, 'node_modules'))
       writeFileSync(join(node, 'node_modules', 'README.txt'), 'Reserved for bundled Node packages. pnpm uses its default installation directories.\n')
-      pnpmVersion = await preparePnpmRuntime(target, join(dependencies, 'pnpm'), paths.downloads)
+      let wrapper: string | undefined
+      if (options.pnpmArchive !== undefined) {
+        wrapper = join(staging, 'pnpm-wrapper')
+        await downloadRuntimeNpmPackage(options.pnpmArchive, wrapper, paths.downloads)
+      }
+      pnpmVersion = await preparePnpmRuntime(target, join(dependencies, 'pnpm'), paths.downloads, wrapper)
     }
     await extractTar({ file: await pythonArchive(target, paths.downloads), cwd: dependencies })
     const manifest: PrimaryRuntimeManifest = {
@@ -224,8 +232,8 @@ export async function preparePrimaryRuntime(options: PreparePrimaryRuntimeOption
       await unpackPrimaryRuntimeWheel(await downloadPrimaryRuntimeAsset(wheel.url, wheel.sha256, paths.downloads), entries.pythonPackages)
     }
     prunePrimaryRuntimePythonTests(entries.pythonPackages)
-    for (const filename of ['ocr-models-notice.txt', 'ocr-models-license.txt']) {
-      cpSync(join(import.meta.dirname, filename), join(output, filename))
+    for (const filename of PRIMARY_RUNTIME_NOTICE_FILES) {
+      writeFileSync(join(output, filename), readFileSync(join(import.meta.dirname, filename)))
     }
     writeFileSync(join(output, 'runtime.json'), `${JSON.stringify(manifest, undefined, 2)}\n`)
     const destination = join(paths.runtime, 'primary-runtime')

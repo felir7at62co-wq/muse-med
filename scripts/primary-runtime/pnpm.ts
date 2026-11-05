@@ -46,15 +46,23 @@ export async function unpackVerifiedPnpmArchive(bytes: Uint8Array, destination: 
  * @param target - Platform of the runtime being assembled.
  * @param destination - Directory receiving the pnpm package.
  * @param cache - Directory holding verified executable archives.
+ * @param wrapper - Verified extracted wrapper, or the build host's installed wrapper when omitted.
  * @returns Version of the bundled pnpm package.
  */
-export async function preparePnpmRuntime(target: PnpmRuntimeTarget, destination: string, cache: string): Promise<string> {
-  const require = createRequire(import.meta.url)
-  const manifestPath = require.resolve('pnpm/package.json')
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as { version: string; optionalDependencies?: Record<string, string> }
+export async function preparePnpmRuntime(
+  target: PnpmRuntimeTarget,
+  destination: string,
+  cache: string,
+  wrapper = dirname(createRequire(import.meta.url).resolve('pnpm/package.json')),
+): Promise<string> {
+  const manifest = JSON.parse(await readFile(join(wrapper, 'package.json'), 'utf8')) as {
+    name: string
+    version: string
+    optionalDependencies?: Record<string, string>
+  }
   const artifact = lock.targets[target]
-  if (manifest.version !== lock.version || manifest.optionalDependencies?.[artifact.package] !== lock.version) {
-    throw new Error(`primary runtime: pnpm ${manifest.version} does not match locked executable ${artifact.package}@${lock.version}`)
+  if (manifest.name !== 'pnpm' || manifest.version !== lock.version || manifest.optionalDependencies?.[artifact.package] !== lock.version) {
+    throw new Error(`primary runtime: ${manifest.name}@${manifest.version} does not match locked executable ${artifact.package}@${lock.version}`)
   }
   const expectedDigest = artifact.integrity.slice('sha512-'.length)
   const cacheName = Buffer.from(expectedDigest, 'base64').toString('hex')
@@ -81,7 +89,7 @@ export async function preparePnpmRuntime(target: PnpmRuntimeTarget, destination:
     } finally { await rm(staging, { recursive: true, force: true }) }
   }
   await rm(destination, { recursive: true, force: true })
-  await copyPnpmWrapper(dirname(manifestPath), destination)
+  await copyPnpmWrapper(wrapper, destination)
   const packageDir = join(destination, 'node_modules', ...artifact.package.split('/'))
   await mkdir(packageDir, { recursive: true })
   await unpackVerifiedPnpmArchive(bytes, packageDir)

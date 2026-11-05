@@ -35,6 +35,27 @@ it('rejects a corrupt cached pnpm executable before copying a runtime', async ()
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
+it('checks the supplied pnpm wrapper against the locked platform executable', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'dsh-pnpm-supplied-wrapper-'))
+  try {
+    const wrapper = join(root, 'wrapper')
+    const cache = join(root, 'cache')
+    const output = join(root, 'output')
+    const artifact = pnpmLock.targets['win-x64']
+    await mkdir(wrapper)
+    await mkdir(cache)
+    const manifest = join(wrapper, 'package.json')
+    const optionalDependencies = { [artifact.package]: pnpmLock.version }
+    await writeFile(manifest, JSON.stringify({ name: 'pnpm', version: '0.0.0', optionalDependencies }))
+    await expect(preparePnpmRuntime('win-x64', output, cache, wrapper)).rejects.toThrow('pnpm@0.0.0 does not match locked executable')
+
+    await writeFile(manifest, JSON.stringify({ name: 'pnpm', version: pnpmLock.version, optionalDependencies }))
+    const digest = Buffer.from(artifact.integrity.slice('sha512-'.length), 'base64').toString('hex')
+    await writeFile(join(cache, digest), 'corrupt')
+    await expect(preparePnpmRuntime('win-x64', output, cache, wrapper)).rejects.toThrow('checksum mismatch')
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 it('copies pnpm without generated local shims but keeps its bundled downloader', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-pnpm-wrapper-'))
   try {
