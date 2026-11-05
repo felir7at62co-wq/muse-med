@@ -93,10 +93,17 @@ export interface UiWorkspace {
    * @throws `workspace-required` when there is no Workspace, or a Session creation or naming error.
    */
   startPresetSession(agentPreset: string, open?: PresetSessionOpener, title?: string): Promise<void>
-  /** Clear the current selection after archiving its Session. */
-  archiveSession: IWorkspaces['archiveSession']
-  /** Restore the unarchived Session to its recorded Workspace position. */
-  unarchiveSession: IWorkspaces['unarchiveSession']
+  /**
+   * Archive a Session and clear it when it is the current selection.
+   * @param sessionId - Session to archive.
+   * @param options - `stopActivity` asks the Host to stop the Session's running work instead of refusing.
+   */
+  archiveSession(sessionId: SessionId, options?: { readonly stopActivity?: boolean }): Promise<void>
+  /**
+   * Unarchive a Session, restoring it to its recorded Workspace position.
+   * @param sessionId - Session to unarchive.
+   */
+  unarchiveSession(sessionId: SessionId): Promise<void>
   /**
    * Pin a Session on the Host, then lead it in its accounts' saved orders
    * (its Workspace group or Ungrouped, and the flat list). The order write

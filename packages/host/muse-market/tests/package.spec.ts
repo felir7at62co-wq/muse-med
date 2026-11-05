@@ -113,7 +113,7 @@ describe('market publication archives', () => {
       expect(() => readMarketPackage(zipSync({ ...files, 'muse-package.json': invalid }), limits, [])).toThrow('invalid-manifest')
     }
     const entries = unzipSync(createMarketPackage(manifest, files, limits, []))
-    const data = JSON.parse(Buffer.from(entries['muse-package.json']!).toString('utf8'))
+    const data = JSON.parse(Buffer.from(entries['muse-package.json']!).toString('utf8')) as MarketManifest & { files: readonly object[] }
     for (const invalid of [[], [null, null], [{ path: 1 }, {}], [data.files[0], data.files[0]]]) {
       const archive = zipSync({ ...entries, 'muse-package.json': Buffer.from(JSON.stringify({ ...data, files: invalid })) })
       expect(() => readMarketPackage(archive, limits, [])).toThrow('file-mismatch')

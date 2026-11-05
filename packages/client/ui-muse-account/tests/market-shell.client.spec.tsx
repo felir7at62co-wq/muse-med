@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { useSyncExternalStore, type ComponentProps } from 'react'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
 import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
 import { MarketGuide, rememberMarketGuide, shouldShowMarketGuide } from '../src/client/MarketGuide.tsx'
 import { MarketBotModeLink, MarketPage, MarketPanelIcon } from '../src/client/MarketPage.tsx'
 import { MarketReleaseDetails } from '../src/client/MarketReleaseDetails.tsx'
 import { createMarketFeedback, MarketFeedbackOverlay } from '../src/client/market-feedback.tsx'
+import { marketEn, marketZh } from '../src/client/market-locales.ts'
 import { marketFixture } from './market-fixture.client.ts'
 
 vi.mock('../src/client/MarketGuide.module.css', () => ({ default: {} }))
@@ -60,11 +62,13 @@ it('explains browser use without requiring access to blocked browser storage', (
 it('renders the shell market and accessible navigation with the library glyph', async () => {
   const navigation = { getSnapshot: () => true, subscribe: () => () => {}, openSession: vi.fn(async () => true) }
   const onOpen = vi.fn()
-  const { container } = render(<>
-    <MarketPanelIcon size={24} active />
-    <MarketBotModeLink t={t} wide navigation={navigation} onOpen={onOpen} />
-  </>)
+  const runtime = await SlotTestRuntime.create()
+  onTestFinished(() => runtime.dispose())
+  await runtime.declare({ 'sidebar.panellist': { kind: 'list', scope: 'root' } })
+  runtime.slots.register({ name: 'sidebar.panellist', id: 'muse-market' }, MarketPanelIcon)
+  const { container } = runtime.renderSlot('sidebar.panellist', { size: 24, active: true })
   expect(container.querySelector('svg[width="24"]')).not.toBeNull()
+  render(<MarketBotModeLink t={t} wide navigation={navigation} onOpen={onOpen} />)
   const shortcut = screen.getByRole('button', { name: 'nav' })
   expect(shortcut.textContent).toContain('nav')
   fireEvent.click(shortcut)
@@ -92,18 +96,26 @@ it('shows a usable details dialog when stylesheet classes are unavailable', () =
   expect(within(dialog).queryByRole('heading', { name: 'examples' })).toBeNull()
 })
 
-it('renders success and failure outcomes independently of the market panel', () => {
+it('renders success and failure outcomes independently of the market panel', async () => {
+  const runtime = await SlotTestRuntime.create()
+  onTestFinished(() => runtime.dispose())
   const feedback = createMarketFeedback()
-  const useOutcome: ComponentProps<typeof MarketFeedbackOverlay>['useOutcome'] = selector =>
-    useSyncExternalStore(feedback.hooks.outcome.subscribe, () => selector(feedback.hooks.outcome.getSnapshot()))
-  render(<MarketFeedbackOverlay useOutcome={useOutcome} dismiss={feedback.dismiss} t={t} />)
-  expect(screen.queryByText('done')).toBeNull()
+  onTestFinished(feedback.dispose)
+  const locale = new LocaleRuntime(runtime.ctx)
+  locale.setLocale('zh')
+  locale.register('settings.museMarket', { zh: marketZh, en: marketEn })
+  runtime.slots.installLocale(locale)
+  await runtime.declare({ 'shell.overlay': { kind: 'list', scope: 'root' } })
+  runtime.slots.register({ name: 'shell.overlay', id: 'muse-market.feedback', locale: 'settings.museMarket',
+    inject: () => ({ hooks: feedback.hooks, dismiss: feedback.dismiss }) }, MarketFeedbackOverlay)
+  runtime.renderSlot('shell.overlay', {})
+
+  expect(screen.queryByText(marketZh.done)).toBeNull()
   act(() => { feedback.report('done', false) })
-  expect(screen.getByText('done')).toBeDefined()
+  expect(screen.getByText(marketZh.done)).toBeDefined()
   act(() => { feedback.report('error.generic', true) })
-  expect(screen.getByText('error.generic')).toBeDefined()
-  expect(screen.queryByText('done')).toBeNull()
+  expect(screen.getByText(marketZh['error.generic'])).toBeDefined()
+  expect(screen.queryByText(marketZh.done)).toBeNull()
   act(() => { feedback.dismiss() })
-  expect(screen.queryByText('error.generic')).toBeNull()
-  feedback.dispose()
+  expect(screen.queryByText(marketZh['error.generic'])).toBeNull()
 })

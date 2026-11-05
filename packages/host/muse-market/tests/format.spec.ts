@@ -114,7 +114,7 @@ it('validates rewritten metadata and resulting ZIP limits before binding a portr
   const manifestPath = 'muse-package.json'
   const bytes = await readFile(new URL('./fixtures/handoff/storyboard-director-1.0.0.zip', import.meta.url))
   const entries = unzipSync(bytes)
-  const raw: Record<string, unknown> = JSON.parse(Buffer.from(entries[manifestPath]!).toString('utf8'))
+  const raw = JSON.parse(Buffer.from(entries[manifestPath]!).toString('utf8')) as Record<string, unknown>
   const write = (value: unknown) => Buffer.from(JSON.stringify(value))
   const archive = zipSync({ ...entries, 'skills/': new Uint8Array() })
   expect(previewMarketPackage(archive, limits, allowed)).toEqual(previewMarketPackage(bytes, limits, allowed))

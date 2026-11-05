@@ -170,7 +170,7 @@ it('tracks overlapping Bot selections without reserving unrelated or stale prese
   ctx.emit('agent-preset/selected', first, `market-${bot.release.id}`)
   ctx.emit('agent-preset/selected', second, `market-${bot.release.id}`)
   await ctx.museMarket.installed()
-  const ledger = JSON.parse(await readFile(join(root, 'installations.json'), 'utf8'))
+  const ledger = JSON.parse(await readFile(join(root, 'installations.json'), 'utf8')) as { references: Record<string, readonly MarketReleaseId[]> }
   expect(ledger.references).toEqual({ [first]: [bot.release.id], [second]: [bot.release.id] })
   await ctx.museMarket.remove(skill.release.id)
   await expect(ctx.museMarket.remove(staleId as MarketReleaseId)).rejects.toMatchObject({ details: { code: 'not-installed' } })
@@ -229,9 +229,10 @@ it.each(['ledger', 'disposer'] as const)('preserves a Bot selected while disable
   })
   try { await ctx.museMarket.enable(local.release.id, true) }
   finally { registration.mockRestore() }
-  const enable = MuseMarketLocal.prototype.enable
-  const updating = vi.spyOn(MuseMarketLocal.prototype, 'enable').mockImplementationOnce(async function (this: MuseMarketLocal, ...args) {
-    const result = await enable.apply(this, args)
+  const ledger = new MuseMarketLocal({ root, limits, allowedPlugins: [] })
+  const enable = ledger.enable.bind(ledger)
+  const updating = vi.spyOn(MuseMarketLocal.prototype, 'enable').mockImplementationOnce(async (...args) => {
+    const result = await enable(...args)
     if (boundary === 'ledger') { entered.resolve(undefined); await resume.promise }
     return result
   })

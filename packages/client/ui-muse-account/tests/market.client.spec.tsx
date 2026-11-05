@@ -385,11 +385,12 @@ it('renders the backend handoff installation records and enables their exact loc
 })
 function originalCatalog(count: number): MarketLegacyResource[] {
   return Array.from({ length: count }, (_, index) => ({
-    id: index === 0 ? 'muse/bots/storyboard-director-16-9' : 'muse/skills/original-' + index,
-    kind: index === 0 ? 'bot' : 'skill', title: 'Original resource ' + index,
+    id: index === 0 ? 'muse/bots/storyboard-director-16-9' : 'muse/skills/original-' + String(index),
+    kind: index === 0 ? 'bot' : 'skill', title: 'Original resource ' + String(index),
     description: 'Original creative workflow', category: index === 0 ? 'Camera' : 'Resources', version: '0.1.0',
     requirements: ['Available local model'], requiredSkills: index === 0 ? ['script'] : [],
-    validation: '', sha256: index.toString(16).padStart(64, '0'), href: 'https://muse.test/market/downloads/original-' + index + '.zip',
+    validation: '', sha256: index.toString(16).padStart(64, '0'),
+    href: 'https://muse.test/market/downloads/original-' + String(index) + '.zip',
   }))
 }
 

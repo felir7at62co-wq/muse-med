@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { load } from 'js-yaml'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveFiles } from 'electron-updater/out/providers/Provider.js'
-import { createMuseMirrorPlan, recordMuseUnsignedBuild } from '../scripts/muse-release-mirror.mjs'
+import { collectMuseArtifactHashes, createMuseMirrorPlan, recordMuseUnsignedBuild } from '../scripts/muse-release-mirror.mjs'
 import { selectMacOSUpdateDiskImage } from '../src/macos-manual-updater.ts'
 import { verifyMacOSUpdateBytes } from '../src/macos-update-package.ts'
 import { desktopUpdateIdentity } from '../src/update-sources.ts'
@@ -46,7 +46,7 @@ const signingThumbprint = 'D'.repeat(40)
 async function signedWindowsFixture() {
   const f = await fixture()
   const directory = f.artifactDirectories['win-x64']!
-  const { artifacts } = JSON.parse(await readFile(join(directory, 'unsigned-build.json'), 'utf8'))
+  const artifacts = await collectMuseArtifactHashes('win-x64', f.version, directory)
   const recordPath = join(directory, 'win-x64-release.json')
   const record = { schemaVersion: 1, version: f.version, target: 'win-x64', commit: f.sourceCommit, dirty: false,
     dshVersion: '0.2.1-alpha.1', environment: 'production', publicUrl: 'https://download.deepseek.com/dsh-desk/feeds/win-x64/',

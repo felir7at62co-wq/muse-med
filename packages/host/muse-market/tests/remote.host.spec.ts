@@ -229,7 +229,7 @@ it('dispatches original discovery and package operations through the Host Gatewa
   await expect(call('review', { id: cloudRelease.id, revision: 1, action: 'approve', note: 'Approved' }))
     .resolves.toEqual({ ok: true, value: { ...cloudRelease, revision: 2, reviewNote: 'Approved' } })
   expect(requested.at(-1)).toEqual({ path: `/api/market/v1/releases/${cloudRelease.id}/review`, cookie })
-  expect(reviews.map(body => JSON.parse(body))).toEqual([{ revision: 1, action: 'approve', note: 'Approved' }])
+  expect(reviews.map((body): unknown => JSON.parse(body))).toEqual([{ revision: 1, action: 'approve', note: 'Approved' }])
   const importedArchive = { base64: exported.base64 }
   await expect(call('installPackage', { id: cloudRelease.id })).resolves.toEqual({ ok: true, value: { release: cloudRelease, enabled: false } })
   await expect(call('importPackage', importedArchive)).resolves.toEqual({ ok: true, value: { release: cloudRelease, enabled: false } })

@@ -117,8 +117,8 @@ it('uses shipped static and animated assets only for the bound portrait or exact
   expect(stockMarketPresentation(sample)).toMatchObject({ role: bot.manifest.title, animation: stockDirectorAnimation })
   expect(boundMarketPresentation(bot.manifest)).toBeUndefined()
   expect(boundMarketPresentation({ ...bot.manifest, portrait: 'storyboard-director' })).toMatchObject({ animation: stockDirectorAnimation })
-  expect(boundMarketPresentation({ ...bot.manifest, portrait: 'storyboard-director', presetPortrait: 'video-editor' }))
-    .toMatchObject({ posterUrl: expect.stringContaining('video-editor') })
+  expect(boundMarketPresentation({ ...bot.manifest, portrait: 'storyboard-director', presetPortrait: 'video-editor' })?.posterUrl)
+    .toContain('video-editor')
 })
 
 it('shows known market errors without leaking unknown upstream details', () => {
