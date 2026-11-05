@@ -1,6 +1,6 @@
 /** Legacy recovery deployment configuration through the real Loader, tool registry and Session. */
 import { createHash } from 'node:crypto'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, realpath, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -172,7 +172,7 @@ it.each(['fixed-explicit', 'fixed-default', 'dynamic-env', 'dynamic-absent'] as 
       expect(await f.ctx.jubianVideoRecovery.status()).toMatchObject({ configurable: false, enabled: true, projectDir: f.projectDir })
     } else if (mode === 'dynamic-env') {
       await f.ctx.jubianVideoRecovery.configure({ enabled: true, projectDir: f.projectDir })
-      expect(Recovery.runVideoRecovery).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), f.projectDir,
+      expect(Recovery.runVideoRecovery).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), await realpath(f.projectDir),
         undefined, 25, expect.any(AbortSignal), expect.any(Function), expect.any(Function))
       expect(await f.ctx.jubianVideoRecovery.status()).toMatchObject({ configurable: true, enabled: true })
     } else expect(await f.ctx.jubianVideoRecovery.status()).toMatchObject({ configurable: true, decoderAvailable: false })
