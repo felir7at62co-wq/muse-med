@@ -115,8 +115,9 @@ describe('card-bound existing source discovery', () => {
     const { client } = fixture(path => path.includes('/byStoryboard/') ? { total: 2, rows: [task()] }
       : path.includes('/task/list?') ? { total: 1, rows: [task(77, { storyboardId: 2165140 })] }
         : path.includes('/sub/list?') ? { total: 1, rows: [result] } : undefined)
-    expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'unknown', complete: false,
-      sources: [], issues: expect.arrayContaining(['HISTORY_TASK_MISMATCH']) })
+    const inventory = await readVideoSources(client, args, defaults)
+    expect(inventory).toMatchObject({ status: 'unknown', complete: false, sources: [] })
+    expect(inventory.issues).toContain('HISTORY_TASK_MISMATCH')
   })
   it('recovers complete coverage from a verified project inventory after unreadable linked history', async () => {
     const { client } = fixture(path => path.includes('/byStoryboard/') ? null
@@ -127,8 +128,10 @@ describe('card-bound existing source discovery', () => {
   it('keeps original running task identity and never asks for a new generation', async () => {
     const { client } = fixture(path => path.endsWith('/task/77') ? task(77, { taskStatus: 'running' })
       : path.includes('/sub/list?') ? { total: 0, rows: [] } : undefined)
-    expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'pending', complete: true,
-      sources: [], tasks: [{ task_id: 77, status: 'running' }], next: expect.stringContaining('继续查询原 task_id') })
+    const inventory = await readVideoSources(client, args, defaults)
+    expect(inventory).toMatchObject({ status: 'pending', complete: true,
+      sources: [], tasks: [{ task_id: 77, status: 'running' }] })
+    expect(inventory.next).toContain('继续查询原 task_id')
   })
   it('keeps waiting for an independently running child even when the parent reports success', async () => {
     const { client } = fixture(path => path.includes('/sub/list?')
@@ -142,8 +145,9 @@ describe('card-bound existing source discovery', () => {
   })
   it('stops a repeated child page without exhausting every configured page', async () => {
     const { client, calls } = fixture(path => path.includes('/sub/list?') ? { total: 2, rows: [child()] } : undefined)
-    expect(await readVideoSources(client, args, { ...defaults, pageSize: 1 })).toMatchObject({ status: 'available', complete: false,
-      issues: expect.arrayContaining(['CHILD_IDENTITY_MISMATCH', 'CHILD_SCAN_INCOMPLETE']) })
+    const inventory = await readVideoSources(client, args, { ...defaults, pageSize: 1 })
+    expect(inventory).toMatchObject({ status: 'available', complete: false })
+    expect(inventory.issues).toEqual(expect.arrayContaining(['CHILD_IDENTITY_MISMATCH', 'CHILD_SCAN_INCOMPLETE']))
     expect(calls.filter(call => call.path.includes('/sub/list?'))).toHaveLength(2)
   })
   it('reports unknown after an unreadable lookup instead of declaring absence', async () => {
@@ -153,18 +157,21 @@ describe('card-bound existing source discovery', () => {
   it('does not treat a bare project task page as the complete project history', async () => {
     const { client } = fixture(path => path.includes('/byStoryboard/') ? { total: 2, rows: [] }
       : path.includes('/task/list?') ? [task(76, { storyboardId: 2165140 })] : undefined)
-    expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'unknown', complete: false,
-      sources: [], issues: expect.arrayContaining(['TASK_SCAN_INCOMPLETE']) })
+    const inventory = await readVideoSources(client, args, defaults)
+    expect(inventory).toMatchObject({ status: 'unknown', complete: false, sources: [] })
+    expect(inventory.issues).toContain('TASK_SCAN_INCOMPLETE')
   })
   it('does not treat a bare child page as the complete task result history', async () => {
     const { client } = fixture(path => path.includes('/sub/list?') ? [child()] : undefined)
-    expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'unknown', complete: false,
-      sources: [], issues: expect.arrayContaining(['CHILD_SCAN_INCOMPLETE']) })
+    const inventory = await readVideoSources(client, args, defaults)
+    expect(inventory).toMatchObject({ status: 'unknown', complete: false, sources: [] })
+    expect(inventory.issues).toContain('CHILD_SCAN_INCOMPLETE')
   })
   it('only reports none_found after an explicit complete empty original-card history', async () => {
     const { client } = fixture(path => path.includes('/byStoryboard/') ? [] : undefined)
-    expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'none_found', complete: true,
-      next: expect.stringContaining('不是新生成授权') })
+    const inventory = await readVideoSources(client, args, defaults)
+    expect(inventory).toMatchObject({ status: 'none_found', complete: true })
+    expect(inventory.next).toContain('不是新生成授权')
   })
   it.each([
     ['card', { id: 2165139, scriptId: 9 }],
@@ -194,8 +201,9 @@ describe('card-bound existing source discovery', () => {
   it('marks a repeated paginated task inventory unknown without looping indefinitely', async () => {
     const { client } = fixture(path => path.includes('/byStoryboard/') ? null
       : path.includes('/task/list?') ? { total: 2, rows: [task()] } : undefined)
-    expect(await readVideoSources(client, args, { ...defaults, pageSize: 1 })).toMatchObject({ status: 'available', complete: false,
-      issues: expect.arrayContaining(['TASK_IDENTITY_MISMATCH', 'TASK_SCAN_INCOMPLETE']) })
+    const inventory = await readVideoSources(client, args, { ...defaults, pageSize: 1 })
+    expect(inventory).toMatchObject({ status: 'available', complete: false })
+    expect(inventory.issues).toEqual(expect.arrayContaining(['TASK_IDENTITY_MISMATCH', 'TASK_SCAN_INCOMPLETE']))
   })
   it('propagates cancellation before issuing a read', async () => {
     const { client, calls } = fixture()
@@ -248,9 +256,10 @@ describe('task page coverage', () => {
   it('sends page_size and explicitly reports a partial project page', async () => {
     const { client, calls } = fixture(path => path.includes('/task/list?') ? { total: 26, rows: [task()] } : undefined)
     const ledger = new JubianLedger({ root: '/unused-video-page-fixture' })
-    expect(await videoMethod(client, ledger, { method: 'tasks', script_id: 5542, page_num: 1, page_size: 50 }))
-      .toMatchObject({ tasks: { total: 26, returned: 1, page_num: 1, page_size: 50, complete: false,
-        has_more: true, next_page: 2, total_verified: true }, guidance: expect.stringContaining('仅是本页') })
+    const page = await videoMethod(client, ledger, { method: 'tasks', script_id: 5542, page_num: 1, page_size: 50 })
+    expect(page).toMatchObject({ tasks: { total: 26, returned: 1, page_num: 1, page_size: 50, complete: false,
+      has_more: true, next_page: 2, total_verified: true } })
+    expect(page.guidance).toContain('仅是本页')
     expect(calls[0]?.path).toContain('taskType=1&pageNum=1&pageSize=50')
   })
   it('keeps a next page when the provider may have clamped a later page below the requested size', async () => {

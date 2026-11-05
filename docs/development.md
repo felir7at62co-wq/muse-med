@@ -121,6 +121,8 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 ### Git integrations
 
+Repository lint uses the root Oxlint configuration with automatic nested configuration disabled. Pinned community-plugin snapshots retain their upstream lint settings and remain excluded, while Muse-owned sibling files are checked.
+
 `.i18n.yaml` records use Git's default text merge. A record conflicts only when both branches changed language-specific content in the same heading section; resolve the Markdown, then rerun `pnpm run verify-translation-pairing --write <pair>`. If `pre-merge-commit` rejects an otherwise clean merge, Git leaves the complete result staged without a commit; repair the failure and run `git commit`, or run `git merge --abort`.
 
 lefthook is configured in `lefthook.yml` as a fast local checkpoint:

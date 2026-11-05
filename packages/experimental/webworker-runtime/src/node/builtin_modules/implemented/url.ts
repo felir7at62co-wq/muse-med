@@ -69,5 +69,6 @@ type NodeFace = Partial<Omit<typeof import('node:url'), 'URL' | 'URLSearchParams
 
 /** CommonJS default export: the members `require()` hands a caller of this module. */
 export default {
+  // oxlint-disable-next-line typescript/no-deprecated -- Worker imports retain Node's legacy resolve entry point.
   fileURLToPath, pathToFileURL, resolve, URL: UrlClass, URLSearchParams: UrlSearchParamsClass,
 } satisfies NodeFace

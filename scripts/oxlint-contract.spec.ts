@@ -85,6 +85,30 @@ async function writeContractConfig(suffix: string): Promise<string> {
 }
 
 describe('Oxlint executable contract', () => {
+  it('retains pinned plugin exclusions when the upstream snapshot owns a nested config', async () => {
+    const directory = join(fixtureRoot, 'third_party/plugins/ds-bot')
+    const probe = join(fixtureRoot, 'scripts', `pinned-nested-probe-${randomUUID()}.ts`)
+    await mkdir(directory, { recursive: true })
+    await writeFile(join(directory, '.oxlintrc.json'), JSON.stringify({ rules: { 'no-undef': 'error' } }))
+    await writeFile(join(directory, 'client.js'), 'missingUpstreamGlobal()\n')
+    await writeFile(probe, 'export function ownedProbe(): Promise<void> { return Promise.resolve() }\nownedProbe()\n')
+    try {
+      const args = ['--format', 'unix', 'third_party/plugins/ds-bot', relative(fixtureRoot, probe)]
+      const nested = runOxlint(args)
+      expect(nested.error).toBeUndefined()
+      expect(normalizedOutput(nested)).toContain('client.js:')
+      const result = runRepositoryOxlint(args)
+      const output = normalizedOutput(result)
+      expect(result.error).toBeUndefined()
+      expect(result.status, output).toBe(1)
+      expect(output).toContain('typescript(no-floating-promises)')
+      expect(output).not.toContain('client.js:')
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+      await rm(probe, { force: true })
+    }
+  }, 90_000)
+
   it.each(['.oxlintrc.json', '.oxlintrc.staged.json'])('protects only pinned community source directories in %s', async (config) => {
     const sources: unknown = JSON.parse(await readFile(join(sourceRepositoryRoot, 'third_party/plugins/sources.json'), 'utf8'))
     if (!isRecord(sources)) throw new Error('Community source manifest must be an object')

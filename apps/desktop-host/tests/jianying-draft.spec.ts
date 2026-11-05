@@ -389,8 +389,10 @@ it.runIf(process.platform === 'win32')('runs embedded source audio through the s
     argv: [process.execPath, '-e', script, f.input.request_file, f.input.drafts_dir] }))
   try {
     await writeFile(f.input.request_file, '\ufeff' + JSON.stringify({ episode: 95, name_prefix: 'candidate-', audio_mode: 'embedded' }))
-    await f.ctx.plugin(Draft, { ...f.config, ffmpegPath: 'C:\\media\\ffmpeg.exe', ffprobePath: 'C:\\media\\ffprobe.exe',
-      windowsPowerShellPath: 'C:\\Windows\\powershell.exe' })
+    const config: Draft.Config = Object.assign({}, f.config, {
+      ffmpegPath: 'C:\\media\\ffmpeg.exe', ffprobePath: 'C:\\media\\ffprobe.exe', windowsPowerShellPath: 'C:\\Windows\\powershell.exe',
+    })
+    await f.ctx.plugin(Draft, config)
     const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
       callId: ToolCallId('aa-source-audio'), signal: f.signal })
     expect(response.isError, JSON.stringify(response.content)).not.toBe(true)

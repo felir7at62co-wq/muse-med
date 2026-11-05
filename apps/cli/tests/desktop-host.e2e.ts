@@ -202,7 +202,7 @@ it.skipIf(!recoveryFfmpeg).each([{ mode: 'configured keys', discover: false }, {
     const second = start(true)
     await second.wait('ready')
     await second.wait('provider-read')
-    await vi.waitFor(() => expect(existsSync(reportPath)).toBe(true), { timeout: 10_000 })
+    await vi.waitFor(() => { expect(existsSync(reportPath)).toBe(true) }, { timeout: 10_000 })
     const bytes = readFileSync(reportPath)
     expect(JSON.parse(bytes.toString('utf8'))).toMatchObject({
       status: 'awaiting_review', task_id: taskId,
@@ -235,9 +235,9 @@ function startRecoveryHost(entry: string, root: string, configuration: object) {
     env: { ...process.env, DSH_HOME: root, MUSE_HOST_RECOVERY_FIXTURE: JSON.stringify(configuration) },
     stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
   const messages: Array<{ type: string; method?: string }> = []
-  child.on('message', (message: { type: string; method?: string }) => messages.push(message))
+  child.on('message', (message: { type: string; method?: string }) => { messages.push(message) })
   let stderr = ''
-  child.stderr!.setEncoding('utf8').on('data', (chunk) => { stderr += chunk })
+  child.stderr!.setEncoding('utf8').on('data', (chunk: string) => { stderr += chunk })
   const drained = finished(child.stderr!, { cleanup: true })
   const exited = new Promise<number | null>((resolve, reject) => {
     child.once('exit', resolve)
@@ -257,13 +257,13 @@ function startRecoveryHost(entry: string, root: string, configuration: object) {
         child.off('error', onError)
       }
       const onError = (error: Error) => { cleanup(); reject(error) }
-      const onExit = (code: number | null) => onError(
-        new Error(`Host exited before ${type} with ${String(code)}: ${stderr}`))
+      const onExit = (code: number | null) => { onError(
+        new Error(`Host exited before ${type} with ${String(code)}: ${stderr}`)) }
       const onMessage = (message: (typeof messages)[number]) => {
         if (message.type === 'fatal') onError(new Error(JSON.stringify(message)))
         else if (message.type === type) { cleanup(); resolve(message) }
       }
-      const deadline = setTimeout(() => onError(new Error(`Waiting for ${type}: ${stderr}`)), 10_000)
+      const deadline = setTimeout(() => { onError(new Error(`Waiting for ${type}: ${stderr}`)) }, 10_000)
       child.on('message', onMessage)
       child.once('exit', onExit)
       child.once('error', onError)

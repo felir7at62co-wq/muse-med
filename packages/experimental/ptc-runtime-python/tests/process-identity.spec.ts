@@ -8,9 +8,10 @@ vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>()
   return {
     ...actual,
-    readFileSync(...args: Parameters<typeof actual.readFileSync>) {
-      if (args[0] === '/proc/123/stat' && String(args[1]) === 'utf8') return procRead(args[0])
-      return actual.readFileSync(...args)
+    readFileSync(path: Parameters<typeof actual.readFileSync>[0], options?: BufferEncoding | Parameters<typeof actual.readFileSync>[1]) {
+      const resolved = typeof options === 'string' ? { encoding: options } : options
+      if (path === '/proc/123/stat' && resolved?.encoding === 'utf8') return procRead(path)
+      return actual.readFileSync(path, resolved ?? {})
     },
   }
 })

@@ -589,7 +589,7 @@ describe('real Loader composition', () => {
     const directory = dirname(fixture.certFile)
     // A valid key that pairs with nothing, plus an empty and an absent file.
     const otherKey = generateKeyPairSync('rsa', { modulusLength: 2048 })
-      .privateKey.export({ type: 'pkcs8', format: 'pem' }).toString()
+      .privateKey.export({ type: 'pkcs8', format: 'pem' })
     const otherKeyFile = join(directory, 'tls-other-key.pem')
     const emptyFile = join(directory, 'tls-empty.pem')
     await writeFile(otherKeyFile, otherKey)

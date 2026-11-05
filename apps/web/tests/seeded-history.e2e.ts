@@ -229,7 +229,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
   let seededThroughSeq = -1
   let openingWindow: unknown
   let hostClock: ReturnType<typeof pinHostClock> | undefined
-  let unpinBrowserClock: (() => void) | undefined
+  let unpinBrowserClock: (() => Promise<void>) | undefined
 
   beforeAll(async () => {
     // Seeded and later command timestamps share the renderer's fixture day across midnight.
@@ -302,7 +302,7 @@ describe('web e2e: seeded history renders through cold resume', () => {
       await browser?.close()
       await scaffold?.close()
     } finally {
-      unpinBrowserClock?.()
+      await unpinBrowserClock?.()
       hostClock?.mockRestore()
     }
   })

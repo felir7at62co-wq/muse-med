@@ -8,6 +8,7 @@ import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { storyboardEditMethod } from '../src/storyboard-edit.ts'
 import { JubianClient, JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { stableSha256, submissionSemantics } from '@deepseek-ai/dsh-jubian-api'
@@ -1810,7 +1811,7 @@ describe('submit_video_batch', () => {
           env: { ...process.env, TSX_TSCONFIG_PATH: 'tsconfig.base.json' },
           timeout: 10_000, windowsHide: true,
         })
-      return JSON.parse(stdout)
+      return z.object({ calls: z.array(z.string()), failures: z.array(z.unknown()) }).parse(JSON.parse(stdout))
     }
     const recovered = await recover()
     expect(recovered.failures).toEqual([])
@@ -1824,8 +1825,7 @@ describe('submit_video_batch', () => {
       media_checks: [{ sha256: expectedMediaDigest, video: true, audio: true }],
     })
     const report = await reviewRecoveredVideo(projectDir, item.idempotency_key)
-    expect(typeof report.digest).toBe('string')
-    const digest = String(report.digest)
+    const digest = z.string().parse(report.digest)
     await expect(reviewRecoveredVideo(projectDir, item.idempotency_key, { action: 'reject', digest: 'stale' }))
       .rejects.toThrow('report changed')
     await expect(reviewRecoveredVideo(projectDir, item.idempotency_key, { action: 'approve', digest }))

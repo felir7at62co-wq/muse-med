@@ -33,7 +33,8 @@ it('records a verified free erasure without an allowance, replays its key, and r
       } else if (path === '/aigc/storyboard/subtitleEraser') {
         posts++
         expect(price).toBe(0)
-        expect(JSON.parse(String(init?.body))).toMatchObject({ scriptId: 2708, modelId: 'ark-erase-video-subtitle-pro',
+        if (typeof init?.body !== 'string') throw new Error('Expected erasure JSON request body')
+        expect(JSON.parse(init.body)).toMatchObject({ scriptId: 2708, modelId: 'ark-erase-video-subtitle-pro',
           platformId: 'AI_MEDIA_KIT', standardId: 67, taskType: 10 })
         expect(await ledger.find('verified-free')).toMatchObject({ method: 'erase_subtitle', script_id: 2708,
           quoted_amount: '0.00', quote_unit: 'CNY', quote_standard_id: 67, outcome: null })
@@ -47,8 +48,10 @@ it('records a verified free erasure without an allowance, replays its key, and r
   expect(first).toMatchObject({ replayed: false, outcome: 'accepted', accepted_task_id: '429001' })
   expect(first.next).toContain('0 元/条')
   expect(calls).toHaveLength(4)
-  expect(await ledger.find('verified-free')).toMatchObject({ quoted_amount: '0.00', quote_unit: 'CNY',
-    quote_standard_id: 67, quote_observed_at: expect.any(String), outcome: 'accepted' })
+  const recorded = await ledger.find('verified-free')
+  expect(recorded).toMatchObject({ quoted_amount: '0.00', quote_unit: 'CNY',
+    quote_standard_id: 67, outcome: 'accepted' })
+  expect(recorded?.quote_observed_at).toEqual(expect.any(String))
   expect(await storyboardMethod(client, ledger, args)).toMatchObject({ replayed: true, outcome: 'accepted' })
   expect(calls).toHaveLength(4)
   price = 0.5

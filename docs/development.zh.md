@@ -125,6 +125,8 @@ DEEPSEEK_BASE_URL=https://... # optional
 
 ### Git 集成
 
+仓库 lint 使用根目录的 Oxlint 配置，并禁用自动加载嵌套配置。固定版本的社区插件源码快照保留上游 lint 设置并保持排除，Muse 自有的同级文件继续接受检查。
+
 `.i18n.yaml` 记录使用 Git 默认文本合并。只有当两个分支都修改了同一标题分节中的语言特有内容时，记录才会冲突；先解决 Markdown 冲突，再重新运行 `pnpm run verify-translation-pairing --write <pair>`。如果 `pre-merge-commit` 拒绝原本能干净完成的合并，Git 会把完整结果留在暂存区但不创建提交；请修复失败后运行 `git commit`，或运行 `git merge --abort`。
 
 lefthook 在 `lefthook.yml` 中配置，作为快速的本地检查点：

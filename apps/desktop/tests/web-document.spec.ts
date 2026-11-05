@@ -135,7 +135,7 @@ it('keeps the episode delivery transport scoped to the owned Host and propagates
     request.on('end', () => {
       received.push({ cookie: request.headers.cookie, body })
       if (request.url?.endsWith('?pending')) {
-        response.once('close', () => disconnected.resolve(undefined))
+        response.once('close', () => { disconnected.resolve(undefined) })
         pending.resolve(undefined)
       } else {
         response.writeHead(200, { 'set-cookie': 'private' }).end('delivered')
@@ -161,7 +161,7 @@ it('keeps the episode delivery transport scoped to the owned Host and propagates
   expect(response.headers.get('set-cookie')).toBeNull()
   const cancel = new AbortController()
   const request = new Request(`${route}?pending`, { ...input, signal: cancel.signal })
-  const aborted = forwardWebRequest(request, host, 'session=owned').catch(error => error)
+  const aborted = forwardWebRequest(request, host, 'session=owned').catch((error: unknown) => error)
   await pending.promise
   cancel.abort()
   expect(await aborted).toBe(cancel.signal.reason)
