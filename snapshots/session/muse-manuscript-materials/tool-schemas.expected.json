@@ -229,7 +229,7 @@
     },
     {
       "name": "manuscript_revision",
-      "description": "支持Word/Markdown/文本。materials显式读取当前采用稿current、参考原作reference与修订候选candidate，返回实际正文、版本及已读未读范围。continuity使用当前模型在独立只读会话审校所选正文的因果、跨集承接与人物状态，返回具体原句和未核实项；不自动改稿或声称全剧通过。compare/status对照返稿差异，review检查候选是否保留返稿修改，measure只统计同范围文字量；这些动作不作语义审校。",
+      "description": "支持Word/Markdown/文本。materials显式读取当前稿current、参考reference与候选candidate的正文、版本和范围。continuity使用当前模型在独立只读会话检查所选正文因果与跨集状态，返回原句和未知项，不自动改稿。delivery声明候选文件按实际核对范围交付或明确按草稿交付，将返回的files[].label原样用作present描述；文件变化需重新核验。compare/status对照返稿，review检查候选是否保留返稿修改，measure只统计同范围文字量，这些动作不作语义审校。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -241,8 +241,21 @@
               "review",
               "measure",
               "materials",
-              "continuity"
+              "continuity",
+              "delivery"
             ]
+          },
+          "delivery_mode": {
+            "type": "string",
+            "description": "delivery必填：reviewed只声明实际核对范围；draft明确未核验或仍有问题，不冒称修复完成。",
+            "enum": [
+              "reviewed",
+              "draft"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "description": "draft交付说明未核验范围或未解决项。"
           },
           "task": {
             "type": "string",
@@ -314,7 +327,7 @@
           },
           "candidate_paths": {
             "type": "array",
-            "description": "完整候选正文，按交付顺序；measure时与source_paths覆盖相同范围。",
+            "description": "完整候选正文，按交付顺序；delivery是实际待交付文件；measure与source_paths覆盖相同范围。",
             "items": {
               "type": "string"
             }

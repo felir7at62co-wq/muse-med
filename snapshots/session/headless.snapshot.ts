@@ -541,6 +541,30 @@ async function prepareSubtitleOverlayExpectedWorkspace(cwd: string, scenarioDir:
   return expectedRoot
 }
 
+function expandManuscriptDeliveryLedger(text: string, cwd: string, parentSession: string, owner: 'native' | 'ptc' = 'native'): string {
+  const ledger = JSON.parse(text) as JsonObject
+  if (!Array.isArray(ledger.baselines)) throw new Error('manuscript delivery oracle requires baselines')
+  const files = new Set(owner === 'ptc' ? ['ptc-final.md'] : ['final.md', 'partial.md', 'final.docx', 'unpresented.md'])
+  ledger.baselines = ledger.baselines.map((baseline: JsonObject) => {
+    if (typeof baseline.path !== 'string' || !baseline.path.startsWith('{{cwd}}/')) {
+      throw new Error('manuscript delivery expected path must start with {{cwd}}/')
+    }
+    const filename = baseline.path.slice('{{cwd}}/'.length)
+    if (!files.has(filename)) throw new Error('manuscript delivery expected filename is not owned')
+    if (baseline.session !== '{{session:1}}') throw new Error('manuscript delivery expected owner must be {{session:1}}')
+    return { ...baseline, path: join(cwd, filename), session: parentSession }
+  })
+  return `${JSON.stringify(ledger)}\n`
+}
+
+async function prepareManuscriptDeliveryExpectedWorkspace(cwd: string, scenarioDir: string, parentSession: string, owner: 'native' | 'ptc'): Promise<string> {
+  const expectedRoot = join(cwd, '.snapshot-patches', 'expected-manuscript-delivery')
+  await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true, verbatimSymlinks: true })
+  const file = join(expectedRoot, '.muse', 'manuscript-revisions', 'ledger.json')
+  await writeFile(file, expandManuscriptDeliveryLedger(await readFile(file, 'utf8'), await realpath(cwd), parentSession, owner))
+  return expectedRoot
+}
+
 function expandDouyinExpectedReceipt(text: string, cwd: string): string {
   const receipt = JSON.parse(text) as JsonObject
   for (const field of ['path', 'receipt']) {
@@ -1411,6 +1435,25 @@ describe('headless recorded-session snapshots', () => {
     expect(expanded.text).toBe(report.text)
     expect(() => expandSubtitleOverlayExpectedReport(JSON.stringify({ ...report, plan_path: '/unowned/path' }), cwd))
       .toThrow('expected paths must start with {{cwd}}/')
+  })
+
+  it('manuscript delivery oracle expands only owned paths and the independently recorded parent identity', () => {
+    const cwd = join(tmpdir(), 'declared-manuscript-fixture-root')
+    const baseline = { path: '{{cwd}}/final.md', sha256: 'a'.repeat(64), text: 'Keep literal {{cwd}} and {{session:1}} in manuscript text.', session: '{{session:1}}' }
+    const ledger = { version: 1, baselines: [baseline], reviews: {} }
+    expect(JSON.parse(expandManuscriptDeliveryLedger(JSON.stringify(ledger), cwd, 'actual-parent'))).toEqual({
+      ...ledger, baselines: [{ ...baseline, path: join(cwd, 'final.md'), session: 'actual-parent' }],
+    })
+    expect(() => expandManuscriptDeliveryLedger(JSON.stringify({ ...ledger, baselines: [{ ...baseline, path: '{{cwd}}/other.md' }] }), cwd, 'actual-parent'))
+      .toThrow('filename is not owned')
+    expect(() => expandManuscriptDeliveryLedger(JSON.stringify({ ...ledger, baselines: [{ ...baseline, session: '{{session:2}}' }] }), cwd, 'actual-parent'))
+      .toThrow('owner must be {{session:1}}')
+    expect(() => expandManuscriptDeliveryLedger(JSON.stringify(ledger), cwd, 'actual-parent', 'ptc'))
+      .toThrow('filename is not owned')
+    const changedHash = { ...ledger, baselines: [{ ...baseline, sha256: 'b'.repeat(64) }] }
+    const actual = JSON.parse(expandManuscriptDeliveryLedger(JSON.stringify(ledger), cwd, 'actual-parent'))
+    const changedExpected = JSON.parse(expandManuscriptDeliveryLedger(JSON.stringify(changedHash), cwd, 'actual-parent'))
+    expect(() => expect(actual).toEqual(changedExpected)).toThrow()
   })
 
   it('subtitle overlay workspace expected preserves the source oracle and detects changed business fields and extra files', async () => {
@@ -2542,6 +2585,12 @@ describe('headless recorded-session snapshots', () => {
             }
             if (scenario.name === 'worktree') {
               await verifyWorktree(actualLogs[0]!.content, await realpath(cwd))
+            }
+            if (scenario.name === 'muse-manuscript-final-delivery' || scenario.name === 'muse-manuscript-ptc-delivery') {
+              const parentId = actualLogs[0]?.header.id
+              if (typeof parentId !== 'string') throw new Error('manuscript delivery requires the independent actual parent identity')
+              expectedWorkspaceRoot = await prepareManuscriptDeliveryExpectedWorkspace(cwd, scenario.dir, parentId,
+                scenario.name === 'muse-manuscript-ptc-delivery' ? 'ptc' : 'native')
             }
             finalWorkspace = await captureWorkspaceSnapshot(cwd, {
               ignoredRootEntries: ignoredWorkspaceEntries,
