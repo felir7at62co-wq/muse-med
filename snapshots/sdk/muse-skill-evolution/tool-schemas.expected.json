@@ -2,13 +2,13 @@
   "initial": [
     {
       "name": "muse_skill_evolution",
-      "description": "Inspect learned Skills, review proposals, apply a proposal, reject it, or restore an owned version. Changes affect only this plugin's muse-learned Skills. Inspect the current hash before apply or undo; user-edited and unrelated Skills are never overwritten. Learning does not alter the model or grant tool permissions.",
+      "description": "Inspect learned Skills, review proposals, apply a proposal, reject it, or restore an owned version, or inspect automatic product feedback receipts. A submitted receipt only confirms inbox intake, not a PR or fix. Changes affect only this plugin's muse-learned Skills. Inspect the current hash before apply or undo; user-edited and unrelated Skills are never overwritten. Learning does not alter the model or grant tool permissions.",
       "parameters": {
         "type": "object",
         "properties": {
           "action": {
             "type": "string",
-            "description": "Read status, list Skills or proposals, view content, apply/reject a proposal, list versions, or restore a saved version.",
+            "description": "Read status, list Skills or proposals, view content, apply/reject a proposal, list versions, restore a saved version, or read automatic feedback candidates and receipts.",
             "enum": [
               "status",
               "list",
@@ -17,7 +17,8 @@
               "apply",
               "reject",
               "history",
-              "undo"
+              "undo",
+              "feedback"
             ]
           },
           "id": {

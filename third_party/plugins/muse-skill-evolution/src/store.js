@@ -4,6 +4,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rm, rmdir } from 'node:fs/pr
 import { isAbsolute, join } from 'node:path'
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { isSkillName } from '@deepseek-ai/dsh-skill'
+import { feedbackIdentity, parseFeedback, validateFeedbackRecord } from './feedback.js'
 
 const VERSION = 1
 const hash = text => createHash('sha256').update(text).digest('hex')
@@ -13,6 +14,10 @@ const ownedName = name => isSkillName(name) && name.startsWith('muse-learned-') 
 const versionId = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(value)
 const sha = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
 const own = (value, key) => Object.hasOwn(value, key) ? value[key] : undefined
+const validateFeedbackProblem = record => {
+  if (Object.hasOwn(record, 'feedbackProblem') && (!object(record.feedbackProblem) || record.feedbackProblem.state !== 'rejected'
+    || record.feedbackProblem.code !== 'invalid-feedback' || Object.keys(record.feedbackProblem).length !== 2)) throw new Error('Invalid feedback validation outcome')
+}
 const render = (name, description, content) => `---\nname: ${name}\ndescription: ${JSON.stringify(description)}\n---\n\n${content.trim()}\n`
 async function optional(path) {
   try { return await readFile(path, 'utf8') } catch (error) { if (error.code === 'ENOENT') return undefined; throw error }
@@ -38,6 +43,15 @@ function validateState(state) {
     if (!object(version) || version.id !== id || !versionId(id) || !ownedName(version.name) || !sha(version.sha256)
       || typeof version.description !== 'string' || typeof version.content !== 'string'
       || hash(render(version.name, version.description, version.content)) !== version.sha256) throw new Error('Invalid Skill version record')
+  }
+  for (const [id, record] of Object.entries(state.runs)) {
+    if (!object(record) || record.id !== id) throw new Error('Invalid Skill review run')
+    validateFeedbackProblem(record)
+    if (Object.hasOwn(record, 'feedback')) {
+      validateFeedbackRecord(record.feedback)
+      if (record.feedback.request.sessionId !== record.source?.sessionId) throw new Error('Feedback source does not match its original run')
+    }
+    if (record.feedback?.state === 'duplicate' && state.runs[record.feedback.duplicateOf]?.feedback?.hash !== record.feedback.hash) throw new Error('Invalid duplicate feedback reference')
   }
   if (state.root !== undefined && (typeof state.root !== 'string' || !isAbsolute(state.root))) throw new Error('Invalid generated Skill root')
   if (state.lastRecovery !== undefined && (!object(state.lastRecovery) || state.lastRecovery.state !== 'blocked'
@@ -180,7 +194,56 @@ export function createEvolutionStore(options, io = { writeAtomic: writeFileAtomi
     recordRun: record => run(async () => {
       if (!object(record) || typeof record.id !== 'string' || !record.id || !['queued', 'running', 'none', 'proposed', 'applied', 'failed', 'blocked'].includes(record.state)) throw new Error('Invalid Skill review run')
       if (!Object.hasOwn(state.runs, record.id) && Object.keys(state.runs).length >= maxRuns) throw new Error('The configured review run limit was reached; retained runs were not removed')
-      const next = clone(state); next.runs = { ...next.runs, [record.id]: clone(record) }; await persist(next)
+      validateFeedbackProblem(record)
+      if (Object.hasOwn(record, 'feedback')) validateFeedbackRecord(record.feedback)
+      const retained = own(state.runs, record.id)?.feedback
+      if (retained !== undefined && record.feedback !== undefined && JSON.stringify(retained) !== JSON.stringify(record.feedback)) throw new Error('Feedback outcomes must use their owned settlement method')
+      const next = clone(state); next.runs = { ...next.runs, [record.id]: { ...clone(record), ...(retained === undefined ? {} : { feedback: clone(retained) }) } }; await persist(next)
+    }),
+    /** Atomically retain a candidate and reserve at most one exact-content submission across Hosts. */
+    claimFeedback: (runId, candidate, { evidenceCount, submit, maxPerDay, now, reason } = {}) => run(async () => {
+      const current = own(state.runs, runId)
+      if (!current || !object(current.source) || typeof current.source.sessionId !== 'string' || !current.source.sessionId) throw new Error('Feedback requires an existing source run')
+      if (!Number.isSafeInteger(maxPerDay) || maxPerDay < 0 || !Number.isSafeInteger(now) || now < 0 || typeof submit !== 'boolean') throw new Error('Invalid feedback submission limits')
+      const parsed = parseFeedback(candidate, evidenceCount)
+      const identity = feedbackIdentity(parsed, current.source.sessionId)
+      if (current.feedback !== undefined) {
+        if (current.feedback.hash !== identity.hash) throw new Error('This run already owns different feedback')
+        return { send: false, feedback: clone(current.feedback) }
+      }
+      const previous = Object.values(state.runs).find(entry => entry.feedback?.hash === identity.hash && entry.feedback.state !== 'duplicate')
+      const day = new Date(now).toISOString().slice(0, 10)
+      const used = Object.values(state.runs).filter(entry => entry.feedback?.attemptedAt !== undefined
+        && new Date(entry.feedback.attemptedAt).toISOString().slice(0, 10) === day).length
+      const feedback = { version: 1, ...identity, candidate: parsed, evidenceCount, createdAt: now,
+        ...(previous ? { state: 'duplicate', duplicateOf: previous.id }
+          : !submit || !writable() ? { state: 'proposed', code: reason ?? 'disabled' }
+            : used >= maxPerDay ? { state: 'limited', code: 'daily-limit' }
+              : { state: 'sending', attemptedAt: now }) }
+      validateFeedbackRecord(feedback)
+      const next = clone(state); next.runs[runId].feedback = feedback; await persist(next)
+      return { send: feedback.state === 'sending', feedback: clone(feedback) }
+    }),
+    /** Settle only the original reserved request; confirmed late results can resolve an interrupted unknown. */
+    settleFeedback: (runId, requestHash, outcome, now) => run(async () => {
+      const current = own(state.runs, runId)?.feedback
+      if (!current || current.hash !== requestHash || !['sending', 'unknown'].includes(current.state)
+        || !object(outcome) || !['submitted', 'unknown', 'rejected', 'blocked'].includes(outcome.state)
+        || !Number.isSafeInteger(now) || now < 0) throw new Error('Feedback settlement does not match an outstanding request')
+      const feedback = { ...clone(current), ...clone(outcome), finishedAt: now }
+      if (outcome.code === undefined) delete feedback.code
+      if (Object.keys(outcome).some(key => !['state', 'code', 'receipt'].includes(key))) throw new Error('Invalid feedback settlement fields')
+      validateFeedbackRecord(feedback)
+      const next = clone(state); next.runs[runId].feedback = feedback; await persist(next); return clone(feedback)
+    }),
+    /** Mark interrupted intents uncertain without creating another send authorization. */
+    recoverFeedback: () => run(async () => {
+      const next = clone(state); let changed = false
+      for (const record of Object.values(next.runs)) {
+        if (record.feedback?.state !== 'sending') continue
+        record.feedback = { ...record.feedback, state: 'unknown', code: 'interrupted' }; changed = true
+      }
+      if (changed) await persist(next)
     }),
     addProposal: candidate => run(async () => {
       if (Object.keys(state.proposals).length >= maxProposals) throw new Error('The configured Skill proposal limit was reached; retained proposals were not removed')

@@ -24,6 +24,7 @@ export const DESKTOP_PROFILE_BUNDLES = [
   '@deepseek-ai/dsh-feishu-settings', 'dsh-skill-mcp-panel', '@deepseek-ai/dsh-desktop-host', 'muse-hongguo-search',
   DESKTOP_FEISHU_PACKAGE,
   DESKTOP_CODEX_PACKAGE,
+  'muse-skill-evolution',
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
 const RETIRED_FEISHU_PACKAGE = '@dsh-feishu/dsh-feishu'
@@ -75,7 +76,7 @@ function pendingBuiltInBundles(stored: readonly string[]): readonly string[] | u
   const missingAt = DESKTOP_PROFILE_BUNDLES.findIndex((bundle, index) => normalized[index] !== bundle)
   if (missingAt === -1) return undefined
   const tail = normalized.slice(missingAt)
-  const promoted = new Set<string>([DESKTOP_FEISHU_PACKAGE, DESKTOP_CODEX_PACKAGE])
+  const promoted = new Set<string>([DESKTOP_FEISHU_PACKAGE, DESKTOP_CODEX_PACKAGE, 'muse-skill-evolution'])
   if ([...promoted].some(bundle => tail.filter(candidate => candidate === bundle).length > 1)) {
     throw new Error('desktop project: profile bundle list contains a duplicate package')
   }

@@ -8,7 +8,7 @@ import { assertSkillWriteAllowed } from './permissions.js'
  * @param {object} store - Owned Skill storage.
  * @param {object} options - Complete output character budget.
  */
-export function mountEvolutionTools(ctx, store, { outputMaxChars, enabled, autoApplyOwned, maxReviewsPerDay }) {
+export function mountEvolutionTools(ctx, store, { outputMaxChars, enabled, autoApplyOwned, maxReviewsPerDay, autoSubmitFeedback, maxFeedbackPerDay }) {
   const bounded = (action, data, offset) => {
     if (!Array.isArray(data)) {
       const result = { action, state: 'ready', data }
@@ -26,9 +26,9 @@ export function mountEvolutionTools(ctx, store, { outputMaxChars, enabled, autoA
   }
   ctx.tools.register(defineTool({
     name: 'muse_skill_evolution',
-    description: 'Inspect learned Skills, review proposals, apply a proposal, reject it, or restore an owned version. Changes affect only this plugin\'s muse-learned Skills. Inspect the current hash before apply or undo; user-edited and unrelated Skills are never overwritten. Learning does not alter the model or grant tool permissions.',
+    description: 'Inspect learned Skills, review proposals, apply a proposal, reject it, or restore an owned version, or inspect automatic product feedback receipts. A submitted receipt only confirms inbox intake, not a PR or fix. Changes affect only this plugin\'s muse-learned Skills. Inspect the current hash before apply or undo; user-edited and unrelated Skills are never overwritten. Learning does not alter the model or grant tool permissions.',
     parameters: {
-      action: { type: 'string', required: true, enum: ['status', 'list', 'proposals', 'view', 'apply', 'reject', 'history', 'undo'], description: 'Read status, list Skills or proposals, view content, apply/reject a proposal, list versions, or restore a saved version.' },
+      action: { type: 'string', required: true, enum: ['status', 'list', 'proposals', 'view', 'apply', 'reject', 'history', 'undo', 'feedback'], description: 'Read status, list Skills or proposals, view content, apply/reject a proposal, list versions, restore a saved version, or read automatic feedback candidates and receipts.' },
       id: { type: 'string', description: 'Proposal ID for view, apply or reject.' },
       name: { type: 'string', description: 'Exact learned Skill name for view, history or undo.' },
       baselineHash: { type: 'string', description: 'Current SHA-256 from list/view. Required by undo; apply also validates its proposal baseline.' },
@@ -49,9 +49,16 @@ export function mountEvolutionTools(ctx, store, { outputMaxChars, enabled, autoA
           for (const run of runs) reviewStates[run.state] = (reviewStates[run.state] ?? 0) + 1
           const latest = runs.sort((a, b) => (b.finishedAt ?? b.startedAt ?? b.queuedAt ?? 0) - (a.finishedAt ?? a.startedAt ?? a.queuedAt ?? 0))[0]
           const { work: _work, lines: _lines, ...latestRun } = latest ?? {}
-          result = { enabled, autoApplyOwned, maxReviewsPerDay, ...store.state(), reviewStates, ...(latest ? { latestRun } : {}) }
+          const feedbackStates = {}
+          for (const run of runs) {
+            if (run.feedback !== undefined) feedbackStates[run.feedback.state] = (feedbackStates[run.feedback.state] ?? 0) + 1
+            else if (run.feedbackProblem !== undefined) feedbackStates.rejected = (feedbackStates.rejected ?? 0) + 1
+          }
+          result = { enabled, autoApplyOwned, maxReviewsPerDay, autoSubmitFeedback, maxFeedbackPerDay, feedbackStates, ...store.state(), reviewStates, ...(latest ? { latestRun } : {}) }
           break
         }
+        case 'feedback': result = store.runs().filter(run => run.feedback !== undefined || run.feedbackProblem !== undefined).map(run => ({ runId: run.id, source: run.source,
+          ...(run.feedback === undefined ? {} : { feedback: run.feedback }), ...(run.feedbackProblem === undefined ? {} : { feedbackProblem: run.feedbackProblem }) })); break
         case 'list': result = await store.list(); break
         case 'proposals': result = store.proposals().map(({ content: _content, ...proposal }) => proposal); break
         case 'view':

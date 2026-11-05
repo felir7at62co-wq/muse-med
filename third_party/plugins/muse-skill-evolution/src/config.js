@@ -5,6 +5,8 @@ import Schema from '@deepseek-ai/schemastery'
 export const Config = Schema.object({
   enabled: Schema.boolean().default(true),
   autoApplyOwned: Schema.boolean().default(true),
+  autoSubmitFeedback: Schema.boolean().default(true),
+  maxFeedbackPerDay: Schema.number().step(1).min(0).max(1000).default(4),
   home: Schema.string(),
   skillsRoot: Schema.string(),
   idleMs: Schema.number().step(1).min(0).max(86_400_000).default(600_000),

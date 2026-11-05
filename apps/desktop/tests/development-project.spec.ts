@@ -65,8 +65,12 @@ describe('desktop development project', () => {
       file: join(communityArtifactsDir, 'ds-bot-0.2.4.tgz') }, ['package'])
     const project = prepareDevelopmentProject({ repositoryRoot, communityArtifactsDir,
       projectDir: join(root, 'project'), cliDir, hostDir, dependencyDir, release: release(), target: 'mac-arm64' })
-    const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')) as { dependencies: Record<string, string> }
+    const manifest = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8')) as {
+      dependencies: Record<string, string>
+      dsh: { profile: { bundles: string[] } }
+    }
     expect(manifest.dependencies).not.toHaveProperty('ds-bot')
+    expect(manifest.dsh.profile.bundles.filter(bundle => bundle === 'muse-skill-evolution')).toHaveLength(1)
     expect(existsSync(join(project, 'node_modules/ds-bot'))).toBe(false)
     expect(readFileSync(join(archived, 'lib/index.js'), 'utf8')).toContain('Archived Bot must not load')
   })

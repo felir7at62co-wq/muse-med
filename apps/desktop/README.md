@@ -61,6 +61,8 @@ Muse automatically [continues output-limited answers](../../packages/core/agent-
 
 New tasks offer **Short drama mode**. Other packaged presets remain registered for historical Session recovery and cannot be selected for new tasks.
 
+Desktop loads [independent Skill learning](../../third_party/plugins/muse-skill-evolution/README.md) in fresh and upgraded profiles. After eligible work and the configured idle delay, its tool-free reviewer can write owned Markdown Skills and submit bounded product suggestions through the signed-in Muse feedback inbox. Feedback is enabled by `autoSubmitFeedback`, has its own daily limit and saved receipts, and does not create or merge PRs. User overrides in `cordis.patch.yml` remain effective, including disabling the plugin or feedback. Closing the window keeps the Host running; quitting stops learning until Muse runs again.
+
 ## Terminal command
 
 The application menu's **Manage dsh Command…** entry, immediately below **Check for Updates…**, shows the current command and offers Install, Repair, and Remove. The command uses Desktop's installed runtime and the ordinary [dsh CLI](../cli/README.md), including when the Desktop application is closed. Open a new terminal after installation and run `dsh --version`.

@@ -31,8 +31,13 @@ export async function apply(ctx, input = {}) {
   await store.ready()
   const runtime = new EvolutionRuntime(ctx, { store, config })
   ctx.effect(() => async () => { closed = true; await runtime.dispose(); await store.close() }, 'muse-skill-evolution: runtime')
+  ctx.inject(['museAccount'], inner => {
+    const close = runtime.attachFeedback(inner.museAccount)
+    inner.effect(() => close, 'muse-skill-evolution: account submissions')
+  })
   mountEvolutionProvider(ctx, store)
   mountEvolutionTools(ctx, store, { outputMaxChars: config.toolOutputMaxChars, enabled: config.enabled,
-    autoApplyOwned: config.autoApplyOwned, maxReviewsPerDay: config.maxReviewsPerDay })
+    autoApplyOwned: config.autoApplyOwned, maxReviewsPerDay: config.maxReviewsPerDay,
+    autoSubmitFeedback: config.autoSubmitFeedback, maxFeedbackPerDay: config.maxFeedbackPerDay })
   await runtime.start()
 }
