@@ -8,7 +8,7 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import AgentPresetRegistry from '@deepseek-ai/dsh-agent-preset-registry'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import Tools, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import * as DramaGate from '@deepseek-ai/dsh-guard-drama'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -71,6 +71,23 @@ it('offers short-drama and coordinator presets while keeping recorded editing se
     const creation = (await ctx.agentPresets.list()).find(row => row.id === 'creation')
     expect(creation?.name).toBeUndefined()
     expect(creation?.description).toBeUndefined()
+    for (const id of presets) {
+      const { content } = await ctx.agentPresets.readDocument(id)
+      const rows = yaml.load(content, { schema: entryListSchema }) as Array<{
+        id: string
+        config?: { prefix?: string; suffix?: string }
+      }>
+      const persona = rows.find(row => row.id === 'persona')?.config
+      expect(() => renderPrompt({
+        sections: [
+          { name: 'deployment:persona-prefix', text: persona?.prefix ?? '' },
+          { name: 'deployment:persona-suffix', text: persona?.suffix ?? '' },
+        ],
+        contexts: [],
+        tools: [],
+        variables: { provider: 'muse', model: 'test-model' },
+      }), id).not.toThrow()
+    }
     const document = await ctx.agentPresets.readDocument('short-drama')
     const source = document.content
     const rows = yaml.load(source, { schema: entryListSchema }) as Array<{ id: string; config?: { prefix?: string } }>

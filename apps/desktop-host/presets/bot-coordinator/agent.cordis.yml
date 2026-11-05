@@ -22,12 +22,10 @@
 # ── identity ────────────────────────────────────────────────────────────────
 
 # The preset's own persona, shadowing the deployment default for this agent.
-# `{{model}}` and `{{cwd}}` resolve from the agent's own route and workspace.
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
     prefix: ''
-    suffix: Your working directory is {{cwd}}.
 
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'
