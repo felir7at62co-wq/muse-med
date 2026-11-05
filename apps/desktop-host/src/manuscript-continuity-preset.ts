@@ -7,6 +7,7 @@ import { PERSONA_PREFIX_SECTION } from '@deepseek-ai/dsh-system-prompt'
 import { STRUCTURED_OUTPUT_TOOL } from '@deepseek-ai/dsh-subagent'
 import Schema from '@deepseek-ai/schemastery'
 import type {} from './manuscript-revisions.ts'
+import { continuityAssessmentSchema, continuityAssessmentProblem } from './manuscript-continuity-assessment.ts'
 
 /** Loader identity for the private review composition. */
 export const name = 'muse-manuscript-continuity-preset'
@@ -34,8 +35,15 @@ interface ReviewTurn {
 export function apply(ctx: Context, config: Config): void {
   const turns = new WeakMap<Session, ReviewTurn>()
   ctx.tools.restrict({ futureAllow: [STRUCTURED_OUTPUT_TOOL], includeOwn: true })
-  ctx.tools.guard(execution => execution.name === STRUCTURED_OUTPUT_TOOL ? undefined
-    : 'Manuscript continuity review permits only structured_output; no execution or file access is allowed.')
+  ctx.tools.guard((execution) => {
+    if (execution.name !== STRUCTURED_OUTPUT_TOOL) {
+      return 'Manuscript continuity review permits only structured_output; no execution or file access is allowed.'
+    }
+    const parsed = continuityAssessmentSchema.safeParse(execution.arguments)
+    if (!parsed.success) return 'CONTINUITY_INVALID_SUBMISSION: supply the required structured review fields and evidence arrays.'
+    const problem = continuityAssessmentProblem(parsed.data)
+    return problem === undefined ? undefined : `CONTINUITY_INVALID_SUBMISSION: ${problem}`
+  })
   ctx.effect(() => ctx.systemPrompt.section({ name: PERSONA_PREFIX_SECTION,
     order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'), complete: true,
     text: 'You review screenplay continuity using only the supplied numbered material lines. '

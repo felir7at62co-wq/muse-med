@@ -396,3 +396,41 @@ it('keeps denying requests if a faulty child disposal rejects while the child re
     await release?.()
   }
 })
+
+it.each(['consistent', 'issues', 'unknown'] as const)('rejects invalid structured status %s before commit and accepts uncertain resubmission', async (status) => {
+  const unknowns = ['材料没有明确给出该事件的时间。', '所给范围不足以确认人物已获知该消息。']
+  const fixture = await runtime([
+    (options) => {
+      const submitted = { status, findings: [], unknowns: status === 'consistent' ? unknowns : [] }
+      const tool = options.tools!.find(tool => tool.name === 'structured_output')!
+      expect(validateJsonSchemaValue(tool.parameters, submitted)).toEqual([])
+      return toolCallResponse('invalid-status', 'structured_output', submitted)
+    },
+    (options) => {
+      const feedback = options.messages.filter(message => message.role === 'tool').flatMap(message => message.content)
+      expect(JSON.stringify(feedback)).toContain('CONTINUITY_INVALID_SUBMISSION')
+      if (status === 'consistent') expect(JSON.stringify(feedback)).toContain('Do not discard actual unknowns')
+      return toolCallResponse('corrected-status', 'structured_output', { status: 'unknown', findings: [], unknowns })
+    },
+  ])
+  const result = await fixture.service.review([{ role: 'current', path: 'current.md' }], '如实保留待核实项', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'unknown', reason: 'reviewed', unknowns, file_verification: 'verified', reviewer: { requests: 2 } })
+  const events = fixture.childSessions[0]!.snapshotEvents().filter(event => event.type === 'tool/result')
+  expect(events).toHaveLength(2)
+  expect(events[0]?.data.message.isError).toBe(true)
+  expect(events[1]?.data.message.isError ?? false).toBe(false)
+  expect(fixture.adapter.requests).toHaveLength(3)
+  expect(fixture.ctx.agents.list().map(agent => agent.id)).toEqual([fixture.parent.id])
+})
+
+it('keeps an invalid structured submission within the same total request cap', async () => {
+  const fixture = await runtime([toolCallResponse('invalid-status', 'structured_output', {
+    status: 'consistent', findings: [], unknowns: ['仍有实质问题需要核实。'],
+  })], { continuityMaxRequests: 1 })
+  const result = await fixture.service.review([{ role: 'current', path: 'current.md' }], '核对并保留不确定项', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'unknown', reason: 'budget', reviewer: { requests: 1 } })
+  expect(fixture.adapter.requests).toHaveLength(2)
+  const events = fixture.childSessions[0]!.snapshotEvents().filter(event => event.type === 'tool/result')
+  expect(events[0]?.data.message.isError).toBe(true)
+  expect(fixture.ctx.agents.list().map(agent => agent.id)).toEqual([fixture.parent.id])
+})

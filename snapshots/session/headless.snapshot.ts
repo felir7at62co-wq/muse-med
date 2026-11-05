@@ -541,10 +541,10 @@ async function prepareSubtitleOverlayExpectedWorkspace(cwd: string, scenarioDir:
   return expectedRoot
 }
 
-function expandManuscriptDeliveryLedger(text: string, cwd: string, parentSession: string, owner: 'native' | 'ptc' = 'native'): string {
+function expandManuscriptDeliveryLedger(text: string, cwd: string, parentSession: string, owner: 'native' | 'ptc' | 'no-receipt' = 'native'): string {
   const ledger = JSON.parse(text) as JsonObject
   if (!Array.isArray(ledger.baselines)) throw new Error('manuscript delivery oracle requires baselines')
-  const files = new Set(owner === 'ptc' ? ['ptc-final.md'] : ['final.md', 'partial.md', 'final.docx', 'unpresented.md'])
+  const files = new Set(owner === 'ptc' ? ['ptc-final.md'] : owner === 'no-receipt' ? ['final.md'] : ['final.md', 'partial.md', 'final.docx', 'unpresented.md'])
   ledger.baselines = ledger.baselines.map((baseline: JsonObject) => {
     if (typeof baseline.path !== 'string' || !baseline.path.startsWith('{{cwd}}/')) {
       throw new Error('manuscript delivery expected path must start with {{cwd}}/')
@@ -557,7 +557,7 @@ function expandManuscriptDeliveryLedger(text: string, cwd: string, parentSession
   return `${JSON.stringify(ledger)}\n`
 }
 
-async function prepareManuscriptDeliveryExpectedWorkspace(cwd: string, scenarioDir: string, parentSession: string, owner: 'native' | 'ptc'): Promise<string> {
+async function prepareManuscriptDeliveryExpectedWorkspace(cwd: string, scenarioDir: string, parentSession: string, owner: 'native' | 'ptc' | 'no-receipt'): Promise<string> {
   const expectedRoot = join(cwd, '.snapshot-patches', 'expected-manuscript-delivery')
   await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true, verbatimSymlinks: true })
   const file = join(expectedRoot, '.muse', 'manuscript-revisions', 'ledger.json')
@@ -2586,11 +2586,11 @@ describe('headless recorded-session snapshots', () => {
             if (scenario.name === 'worktree') {
               await verifyWorktree(actualLogs[0]!.content, await realpath(cwd))
             }
-            if (scenario.name === 'muse-manuscript-final-delivery' || scenario.name === 'muse-manuscript-ptc-delivery') {
+            if (['muse-manuscript-final-delivery', 'muse-manuscript-ptc-delivery', 'muse-manuscript-no-receipt'].includes(scenario.name)) {
               const parentId = actualLogs[0]?.header.id
               if (typeof parentId !== 'string') throw new Error('manuscript delivery requires the independent actual parent identity')
               expectedWorkspaceRoot = await prepareManuscriptDeliveryExpectedWorkspace(cwd, scenario.dir, parentId,
-                scenario.name === 'muse-manuscript-ptc-delivery' ? 'ptc' : 'native')
+                scenario.name === 'muse-manuscript-ptc-delivery' ? 'ptc' : scenario.name === 'muse-manuscript-no-receipt' ? 'no-receipt' : 'native')
             }
             finalWorkspace = await captureWorkspaceSnapshot(cwd, {
               ignoredRootEntries: ignoredWorkspaceEntries,

@@ -9,10 +9,13 @@ import { LlmError, type MessageId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { delegationDepthOf, type SubagentActivation } from '@deepseek-ai/dsh-subagent'
 import type { ObjectJsonSchema } from '@deepseek-ai/dsh-tools'
-import { z } from 'zod'
+import { continuityAssessmentSchema, continuityAssessmentProblem, type ContinuityAssessment }
+  from './manuscript-continuity-assessment.ts'
 import { readManuscript, type DocumentLimits } from './manuscript-document.ts'
 import { readManuscriptMaterials, type ManuscriptMaterialsDocument, type ManuscriptMaterialsInput,
   type ManuscriptMaterialsLimits, type ManuscriptMaterialsResult } from './manuscript-materials.ts'
+
+export { continuityAssessmentSchema, type ContinuityAssessment, type ContinuityFinding } from './manuscript-continuity-assessment.ts'
 
 /** Independently mounted preset; it does not inherit the editing conversation. */
 export const CONTINUITY_REVIEW_PRESET = 'muse-manuscript-continuity-reviewer'
@@ -28,21 +31,6 @@ export interface ManuscriptContinuityConfig extends ManuscriptMaterialsLimits {
   continuityMaxCorrections: number
 }
 
-const evidenceSchema = z.strictObject({ role: z.enum(['current', 'reference', 'candidate']),
-  path: z.string().min(1), file_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-  text_sha256: z.string().regex(/^[a-f0-9]{64}$/u), line: z.number().int().positive(),
-  quote: z.string().min(1).refine(quote => quote.trim().length > 0) })
-const findingSchema = z.strictObject({
-  category: z.enum(['event_order', 'character_state', 'information_state', 'object_state', 'transition']),
-  description: z.string().min(1).refine(value => value.trim().length > 0), evidence: z.array(evidenceSchema).min(2),
-})
-/** JSON returned through the child's committed structured_output tool. */
-export const continuityAssessmentSchema = z.strictObject({ status: z.enum(['consistent', 'issues', 'unknown']),
-  findings: z.array(findingSchema), unknowns: z.array(z.string().min(1).refine(value => value.trim().length > 0)) })
-/** Validated review finding with two or more exact, distinct material citations. */
-export type ContinuityFinding = z.infer<typeof findingSchema>
-/** Semantic judgment before file freshness is checked again. */
-export type ContinuityAssessment = z.infer<typeof continuityAssessmentSchema>
 /** Host-owned outcome; expected failures never depend on parsing a provider error message. */
 export type ContinuityReason = 'reviewed' | 'invalid_result' | 'invalid_evidence' | 'no_model' | 'budget' | 'setup_failed'
   | 'route_changed' | 'timeout' | 'reviewer_failed' | 'file_changed' | 'file_unavailable' | 'cleanup_failed'
@@ -77,14 +65,16 @@ const citationProperties: NonNullable<ObjectJsonSchema['properties']> = {
 
 function outputSchema(properties: NonNullable<ObjectJsonSchema['properties']>): ObjectJsonSchema {
   return { type: 'object', additionalProperties: false, required: ['status', 'findings', 'unknowns'], properties: {
-    status: { type: 'string', enum: ['consistent', 'issues', 'unknown'] },
+    status: { type: 'string', enum: ['consistent', 'issues', 'unknown'],
+      description: 'consistent requires findings=[] and unknowns=[]. issues requires findings. unknown requires substantive unknowns. Never discard real uncertainties just to select consistent.' },
     findings: { type: 'array', items: { type: 'object', additionalProperties: false,
       required: ['category', 'description', 'evidence'], properties: {
         category: { type: 'string', enum: ['event_order', 'character_state', 'information_state', 'object_state', 'transition'] },
         description: { type: 'string' }, evidence: { type: 'array', items: { type: 'object', additionalProperties: false,
           required: ['role', 'path', 'file_sha256', 'text_sha256', 'line', 'quote'], properties } },
       } } },
-    unknowns: { type: 'array', items: { type: 'string' } },
+    unknowns: { type: 'array', items: { type: 'string' },
+      description: 'Substantive uncertainties or missing evidence. A nonempty array cannot accompany consistent; preserve actual uncertainties and select unknown, or issues when evidenced findings are also present.' },
   } }
 }
 /** Static result vocabulary; actual review tools further restrict material identity values. */
@@ -142,10 +132,7 @@ export function validateContinuityAssessment(raw: unknown, materials: Manuscript
   const parsed = continuityAssessmentSchema.safeParse(raw)
   if (!parsed.success) return unknown('invalid_result', 'Structured result is absent or invalid.')
   const value = parsed.data
-  if (value.findings.length > maxFindings
-    || value.status === 'consistent' && (value.findings.length > 0 || value.unknowns.length > 0)
-    || value.status === 'issues' && value.findings.length === 0
-    || value.status === 'unknown' && value.unknowns.length === 0) {
+  if (value.findings.length > maxFindings || continuityAssessmentProblem(value) !== undefined) {
     return unknown('invalid_result', 'Judgment and reported coverage do not agree.')
   }
   for (const finding of value.findings) {

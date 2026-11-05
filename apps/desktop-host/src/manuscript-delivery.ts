@@ -98,9 +98,14 @@ export function manuscriptDeliveryIntent(text: string): { writing: boolean; cont
   const subject = /剧本|短剧|分集|分场|剧情|台词|对白|screenplay|short drama/iu.test(positive)
   const action = /重写|改写|创作|写作|编写|续写|改稿|润色|精修|写|修改|修订|rewrite|write|revise/iu.test(positive)
     || /(?:生成|generate).{0,12}(?:剧本|短剧|分集|分场|screenplay)/iu.test(positive)
+  const fileRequest = text.replace(/(?:不需要|不必|不要|不用|无需|勿|不)(?:再|另外|额外)?(?:(?:生成|导出|保存|交付|提供|输出)(?:\s*[或和、/]\s*(?:生成|导出|保存|交付|提供|输出))*)?\s*(?:文件|文档|Word|DOCX|Markdown)(?:\s*(?:格式)?(?:文件|文档))?/giu, '')
+  const file = /(?:交付|生成|导出|保存|提供|给我?|发送|发我|输出|做成|转成).{0,24}(?:文件|文档|\bword\b|\bdocx\b|\bmarkdown\b)/iu.test(fileRequest)
+    || /(?:文件|文档|\bword\b|\bdocx\b|\bmarkdown\b).{0,12}(?:交付|导出|保存|给我|发我)/iu.test(fileRequest)
+  const instructionOnly = /^(?:请)?(?:解释|讲解|介绍|说明|演示|如何|怎么|怎样|explain|how to)/iu.test(text.trim())
+    && !/(?:然后|同时|另外|并且|并|再)(?:帮我|实际|直接|现在|请你)(?:重写|改写|编写|修改|生成|导出|交付)/u.test(text)
   return { writing: subject && action,
     continuation: /^\s*(?:继续|接着|然后继续|给我文件|把.{0,12}(?:文件|Word|文档)给我|继续改|continue)[。！!\s]*$/iu.test(text),
-    file: /交付|文件|导出|word|docx|markdown|保存|文档/iu.test(text) }
+    file: file && !instructionOnly }
 }
 
 /** Recognize screenplay body structure only after an actual writing request identified a path.
@@ -190,7 +195,7 @@ function joinPresented(state: DeliveryState): DeliveryState {
  * @returns Host-only projection definition; no client or Session event vocabulary is added.
  */
 function manuscriptDeliveryProjection(maxDocuments: number): ProjectionDefinition<'muse.manuscript-delivery', DeliveryState> {
-  return { key: 'muse.manuscript-delivery', stateVersion: 1, stateSchema,
+  return { key: 'muse.manuscript-delivery', stateVersion: 2, stateSchema,
     init: header => ({ task_id: '', writing: false, file_request: false, cwd: header.cwd ?? '', turn: 0, corrections: 0,
       fingerprint: '', overflow: false, rows: [], outputs: [], calls: [], packets: [], presented: [] }),
     apply(state, event) { return foldDelivery(state, event, maxDocuments) } }
@@ -205,7 +210,7 @@ function foldDelivery(state: DeliveryState, event: SessionEvent, max: number): D
     }
     if (event.data.source.kind !== 'user') return state
     const intent = manuscriptDeliveryIntent(textOf(event.data.content))
-    if (intent.continuation && state.writing) return state
+    if (intent.continuation && state.writing) return intent.file && !state.file_request ? { ...state, file_request: true } : state
     return { ...state, task_id: String(event.seq), writing: intent.writing, file_request: intent.writing && intent.file,
       corrections: 0, fingerprint: '', overflow: false, rows: [], outputs: [], calls: [], packets: [], presented: [] }
   }
@@ -540,7 +545,7 @@ export class ManuscriptDelivery {
     pending.lease.finish()
   }
 
-  /** Inject one logged reminder only for an observed, still-unpresented screenplay output.
+  /** Continue an explicit screenplay file request within the configured reminder budget.
    * @param agent - Owning Agent, whose inbox gives newer human input priority.
    * @param signal - Stopping-turn cancellation.
    */
@@ -570,12 +575,17 @@ export class ManuscriptDelivery {
           if (code !== 'ENOENT') this.reportReadFailure(path, error)
         }
       }
-      if (pending.length === 0) return
-      const fingerprint = JSON.stringify(versions.toSorted())
+      const missingReceipt = pending.length === 0 && state.writing && state.file_request
+        && !state.rows.some(row => row.presented)
+      if (pending.length === 0 && !missingReceipt) return
+      const fingerprint = missingReceipt ? 'no_verified_screenplay_delivery' : JSON.stringify(versions.toSorted())
       if (fingerprint === state.fingerprint || this.handle.stateOf(agent.session).task_id !== state.task_id
         || agent.inbox.nextStep.length > 0 || agent.inbox.nextTurn.length > 0) return
+      const instruction = missingReceipt
+        ? '本轮用户要求实际剧本文件，但当前没有已核实的本机文件交付回执。请先确认已有执行或任务的结果，再实际生成、回读并交付文件；不要重复启动已有任务。代码块、外部执行标签和文本链接不代表 Muse 已在本机执行或生成文件。文件不存在时如实说明，不猜测路径或声称文件已完成；能够继续时完成真实工具调用，核对最终版本或明确登记为草稿，再使用返回标签 present。'
+        : `以下明确输出的剧本文件尚未成功 present：${pending.join('、')}。请核对最终文件并调用 manuscript_revision delivery，选择 reviewed 或明确标为 draft，再用返回的逐字 label 作为 present.description。局部审校只能注明实际范围；有未解问题可交付明确草稿，不需逐项请用户批准。不要凭回复文字声称文件已完成交付。`
       agent.inject(createUserMessage({ source: { kind: 'muse-manuscript', form: 'notice', summary: '剧本文件尚无有效交付回执' },
-        content: [{ type: 'text', text: `以下明确输出的剧本文件尚未成功 present：${pending.join('、')}。请核对最终文件并调用 manuscript_revision delivery，选择 reviewed 或明确标为 draft，再用返回的逐字 label 作为 present.description。局部审校只能注明实际范围；有未解问题可交付明确草稿，不需逐项请用户批准。不要凭回复文字声称文件已完成交付。` },
+        content: [{ type: 'text', text: instruction },
           { type: 'text', text: JSON.stringify({ manuscript_delivery_notice: { task_id: state.task_id, fingerprint, attempt: state.corrections + 1 } }) }] }))
     })
   }

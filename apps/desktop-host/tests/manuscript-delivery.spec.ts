@@ -114,6 +114,55 @@ it('requires actual scene and dramatic structure together', () => {
   expect(hasManuscriptDeliveryStructure('# 剧本报告\n第1集\n市场：稳步增长')).toBe(false)
 })
 
+it.each([
+  ['重写这份剧本，不要文件，只在聊天里给正文。', false],
+  ['重写剧本，不需要生成文件。', false],
+  ['重写剧本，无需导出Word。', false],
+  ['重写剧本，不要生成Word文档，只给正文。', false],
+  ['阅读剧本文件并提出修改建议。', false],
+  ['解释如何重写剧本并导出Word。', false],
+  ['先讨论怎么改写四集短剧，直接在聊天里说明，不要生成或提供文件。', false],
+  ['解释剧本的问题，然后直接重写并交付Word。', true],
+  ['Rewrite the screenplay wording.', false],
+  ['重写剧本，不用Word，给Markdown文件。', true],
+  ['重写剧本并交付Word。', true],
+])('recognizes an actual file request without overriding its exclusions: %s', (request, file) => {
+  expect(manuscriptDeliveryIntent(request).file).toBe(file)
+})
+
+it('continues a requested screenplay file once when no tool has verified or presented an output', async () => {
+  const f = await runtime()
+  await f.service.remind(f.agent, signal)
+  await f.service.remind(f.agent, signal)
+  expect(f.injected).toHaveLength(1)
+  const text = f.injected[0]!.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
+  expect(text).toContain('当前没有已核实的本机文件交付回执')
+  expect(text).toContain('代码块、外部执行标签和文本链接不代表')
+  expect(text).not.toContain(join(f.root, 'final.md'))
+  expect(f.session.snapshotEvents().filter(event => event.type === 'deliverables/presented')).toHaveLength(0)
+})
+
+it('keeps the current writing task when a later continuation explicitly asks for its file', async () => {
+  const f = await runtime()
+  human(f.session, '重写剧本，不要文件，只给聊天正文。')
+  await f.service.remind(f.agent, signal)
+  expect(f.injected).toHaveLength(0)
+  human(f.session, '给我文件')
+  await f.service.remind(f.agent, signal)
+  expect(f.injected).toHaveLength(1)
+})
+
+it.each([
+  '重写剧本，不需要生成文件，只给聊天正文。',
+  '仅解释这段外部执行标签 code_stdout 的含义。',
+  '仅翻译剧本对白并导出Word，不改写剧情。',
+])('does not continue ordinary explanations, inline writing or translation as missing files: %s', async (request) => {
+  const f = await runtime()
+  human(f.session, request)
+  await f.service.remind(f.agent, signal)
+  expect(f.injected).toHaveLength(0)
+})
+
 it('blocks unreviewed direct present, accepts explicit draft and rejects a stale same-path declaration', async () => {
   const f = await runtime()
   expect(await f.present()).toMatchObject({ isError: true, error: { info: { code: 'MANUSCRIPT_DELIVERY_REQUIRED' } } })

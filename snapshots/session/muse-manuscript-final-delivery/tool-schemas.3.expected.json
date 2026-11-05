@@ -18,7 +18,8 @@
               "consistent",
               "issues",
               "unknown"
-            ]
+            ],
+            "description": "consistent requires findings=[] and unknowns=[]. issues requires findings. unknown requires substantive unknowns. Never discard real uncertainties just to select consistent."
           },
           "findings": {
             "type": "array",
@@ -104,7 +105,8 @@
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "Substantive uncertainties or missing evidence. A nonempty array cannot accompany consistent; preserve actual uncertainties and select unknown, or issues when evidenced findings are also present."
           }
         }
       }
