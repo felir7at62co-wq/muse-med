@@ -288,7 +288,6 @@ const TOOL_PACKAGES: ToolPackage[] = [
     requires: ['ctx.fs', 'ctx.tools', 'ctx.attachments', 'ctx.llm', 'ctx.sandboxPolicy when filesystem confinement is enabled'],
     writes: ['tool/call', 'tool/result', 'guarded project artifact', 'accepted screenplay and source map'],
     async mount(ctx) {
-      await ctx.plugin(LocalFileSystem)
       await ctx.plugin(CatalogAttachmentStore)
       await ctx.plugin(LlmRuntime)
       await ctx.plugin(ScreenplayProject)
@@ -317,7 +316,6 @@ const TOOL_PACKAGES: ToolPackage[] = [
     requires: ['ctx.tools', 'ctx.fs', 'ctx.subprocess', 'ctx.attachments', 'ctx.sandboxPolicy', 'FFmpeg and FFprobe'],
     writes: ['tool/call', 'tool/result with timestamped image attachments', 'optional project-relative JSON manifest'],
     async mount(ctx) {
-      await ctx.plugin(LocalFileSystem)
       await ctx.plugin(LocalSubprocessRuntime)
       await ctx.plugin(CatalogAttachmentStore)
       await ctx.plugin(SandboxPolicy)

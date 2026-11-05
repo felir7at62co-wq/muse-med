@@ -9,6 +9,15 @@
 
 ```mermaid
 flowchart LR
+  pkg_tool_jubian["tool-jubian"]
+  svc_approvedClipDraft["ctx.approvedClipDraft<br/>Approved clip drafts"]
+  pkg_desktop_host["desktop-host"]
+  svc_approvedEpisodeRenderer["ctx.approvedEpisodeRenderer<br/>Approved episode rendering"]
+  svc_jubianVideoRecovery["ctx.jubianVideoRecovery<br/>Project video review and delivery"]
+  pkg_experimental_translator["experimental-translator"]
+  svc_translator["ctx.translator<br/>Translation requests"]
+  pkg_experimental_client_ui_cot_translation["experimental-client-ui-cot-translation"]
+  svc_cotTranslation["ctx.cotTranslation<br/>Conversation translation controls"]
   pkg_tool_discovery["tool-discovery"]
   svc_toolDiscovery["ctx.toolDiscovery<br/>Per-agent tool discovery and residency"]
   pkg_character_library["character-library"]
@@ -17,7 +26,6 @@ flowchart LR
   svc_characterLibraryObjectStore["ctx.characterLibraryObjectStore<br/>Character reference object reads"]
   pkg_character_library_tos["character-library-tos"]
   svc_characterReferenceAuthority["ctx.characterReferenceAuthority<br/>Current-project character reference identity"]
-  pkg_tool_jubian["tool-jubian"]
   pkg_api_agent_notes["api-agent-notes"]
   svc_agentNotes["ctx.agentNotes<br/>Configured Agent Notes editor"]
   pkg_api_remotes["api-remotes"]
@@ -351,6 +359,8 @@ flowchart LR
   pkg_deepseek_account --> svc_deepseekAccount
   pkg_deepseek_account_platform --> svc_deepseekAccount
   pkg_deepseek_llm_api_extensions --> svc_deepseekLlmApiExtensions
+  pkg_desktop_host --> svc_approvedClipDraft
+  pkg_desktop_host --> svc_approvedEpisodeRenderer
   pkg_dsh_bridge --> svc_museDesktopBridge
   pkg_experimental_agent_team --> svc_agentTeams
   pkg_experimental_api_speech_to_text --> svc_speechController
@@ -452,8 +462,11 @@ flowchart LR
   pkg_token_meter --> svc_tokenMeter
   pkg_tool_character_reference --> svc_characterReferenceAuthority
   pkg_tool_discovery --> svc_toolDiscovery
+  pkg_tool_jubian --> svc_approvedClipDraft
+  pkg_tool_jubian --> svc_approvedEpisodeRenderer
   pkg_tool_jubian --> svc_jubianImage
   pkg_tool_jubian --> svc_jubianToken
+  pkg_tool_jubian --> svc_jubianVideoRecovery
   pkg_tool_jubian --> svc_jubianVideoSelection
   pkg_tool_subagent --> svc_subagentModelSelection
   pkg_tools --> svc_tools
@@ -484,6 +497,8 @@ flowchart LR
   svc_approval --> pkg_acp
   svc_approval --> pkg_tool_bash
   svc_approval --> pkg_tools
+  svc_approvedClipDraft --> pkg_tool_jubian
+  svc_approvedEpisodeRenderer --> pkg_tool_jubian
   svc_attachments --> pkg_api_session_controller
   svc_attachments --> pkg_llm_deepseek
   svc_attachments --> pkg_llm_pi_ai
@@ -638,6 +653,11 @@ flowchart LR
 
 | ctx 键 | 角色 | 所属包 | 实现 | 直接消费方 | 配套插件 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
+| `ctx.approvedClipDraft` | `seam` | [`tool-jubian`](../packages/jubian/tool-jubian) | `desktop-host` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | 通过已配置的剪辑器提供方，用已审核的镜头生成草稿。 |
+| `ctx.approvedEpisodeRenderer` | `seam` | [`tool-jubian`](../packages/jubian/tool-jubian) | `desktop-host` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | 使用已锁定并核验的输入副本渲染整集。 |
+| `ctx.jubianVideoRecovery` | `service` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | - | - | 恢复项目视频任务，记录审核决定和已通过的交付。 |
+| `ctx.translator` | `service` | [`experimental-translator`](../packages/experimental/translator) | - | [`experimental-client-ui-cot-translation`](../packages/experimental/client-ui-cot-translation) | - | 解析提供方选择并翻译所请求的文本。 |
+| `ctx.cotTranslation` | `service` | [`experimental-client-ui-cot-translation`](../packages/experimental/client-ui-cot-translation) | - | - | - | 按 Session 的翻译偏好处理已授权的翻译请求。 |
 | `ctx.toolDiscovery` | `core` | [`tool-discovery`](../packages/core/tool-discovery) | - | [`tool-discovery`](../packages/core/tool-discovery) | - | 选择已授权工具定义并记录会话加载，Bot 适配器可保存常驻名称。 |
 | `ctx.characterLibrary` | `core` | [`character-library`](../packages/drama/character-library) | - | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | 校验历史 metadata 与有界图片，供人物参考检索使用；推荐结果不授予发布、绑定或生成权限。 |
 | `ctx.characterLibraryObjectStore` | `seam` | [`character-library`](../packages/drama/character-library) | [`character-library-tos`](../packages/drama/character-library-tos) | [`character-library`](../packages/drama/character-library) | - | 通过 Host 管理的凭据，列出固定历史前缀下的对象、读取 metadata，并获取有界图片字节。 |

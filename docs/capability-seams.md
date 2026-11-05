@@ -7,6 +7,15 @@ A service can be a core spine service, a swappable capability seam, a bundle/com
 
 ```mermaid
 flowchart LR
+  pkg_tool_jubian["tool-jubian"]
+  svc_approvedClipDraft["ctx.approvedClipDraft<br/>Approved clip drafts"]
+  pkg_desktop_host["desktop-host"]
+  svc_approvedEpisodeRenderer["ctx.approvedEpisodeRenderer<br/>Approved episode rendering"]
+  svc_jubianVideoRecovery["ctx.jubianVideoRecovery<br/>Project video review and delivery"]
+  pkg_experimental_translator["experimental-translator"]
+  svc_translator["ctx.translator<br/>Translation requests"]
+  pkg_experimental_client_ui_cot_translation["experimental-client-ui-cot-translation"]
+  svc_cotTranslation["ctx.cotTranslation<br/>Conversation translation controls"]
   pkg_tool_discovery["tool-discovery"]
   svc_toolDiscovery["ctx.toolDiscovery<br/>Per-agent tool discovery and residency"]
   pkg_character_library["character-library"]
@@ -15,7 +24,6 @@ flowchart LR
   svc_characterLibraryObjectStore["ctx.characterLibraryObjectStore<br/>Character reference object reads"]
   pkg_character_library_tos["character-library-tos"]
   svc_characterReferenceAuthority["ctx.characterReferenceAuthority<br/>Current-project character reference identity"]
-  pkg_tool_jubian["tool-jubian"]
   pkg_api_agent_notes["api-agent-notes"]
   svc_agentNotes["ctx.agentNotes<br/>Configured Agent Notes editor"]
   pkg_api_remotes["api-remotes"]
@@ -349,6 +357,8 @@ flowchart LR
   pkg_deepseek_account --> svc_deepseekAccount
   pkg_deepseek_account_platform --> svc_deepseekAccount
   pkg_deepseek_llm_api_extensions --> svc_deepseekLlmApiExtensions
+  pkg_desktop_host --> svc_approvedClipDraft
+  pkg_desktop_host --> svc_approvedEpisodeRenderer
   pkg_dsh_bridge --> svc_museDesktopBridge
   pkg_experimental_agent_team --> svc_agentTeams
   pkg_experimental_api_speech_to_text --> svc_speechController
@@ -450,8 +460,11 @@ flowchart LR
   pkg_token_meter --> svc_tokenMeter
   pkg_tool_character_reference --> svc_characterReferenceAuthority
   pkg_tool_discovery --> svc_toolDiscovery
+  pkg_tool_jubian --> svc_approvedClipDraft
+  pkg_tool_jubian --> svc_approvedEpisodeRenderer
   pkg_tool_jubian --> svc_jubianImage
   pkg_tool_jubian --> svc_jubianToken
+  pkg_tool_jubian --> svc_jubianVideoRecovery
   pkg_tool_jubian --> svc_jubianVideoSelection
   pkg_tool_subagent --> svc_subagentModelSelection
   pkg_tools --> svc_tools
@@ -482,6 +495,8 @@ flowchart LR
   svc_approval --> pkg_acp
   svc_approval --> pkg_tool_bash
   svc_approval --> pkg_tools
+  svc_approvedClipDraft --> pkg_tool_jubian
+  svc_approvedEpisodeRenderer --> pkg_tool_jubian
   svc_attachments --> pkg_api_session_controller
   svc_attachments --> pkg_llm_deepseek
   svc_attachments --> pkg_llm_pi_ai
@@ -636,6 +651,11 @@ flowchart LR
 
 | ctx key | Role | Owner | Implementations | Direct consumers | Companion plugins | Note |
 | --- | --- | --- | --- | --- | --- | --- |
+| `ctx.approvedClipDraft` | `seam` | [`tool-jubian`](../packages/jubian/tool-jubian) | `desktop-host` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Creates drafts from approved clips through the configured editor provider. |
+| `ctx.approvedEpisodeRenderer` | `seam` | [`tool-jubian`](../packages/jubian/tool-jubian) | `desktop-host` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Renders the episode from verified copies of the locked inputs. |
+| `ctx.jubianVideoRecovery` | `service` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | - | - | Recovers project video tasks and records review decisions and approved deliveries. |
+| `ctx.translator` | `service` | [`experimental-translator`](../packages/experimental/translator) | - | [`experimental-client-ui-cot-translation`](../packages/experimental/client-ui-cot-translation) | - | Resolves provider choices and translates requested text. |
+| `ctx.cotTranslation` | `service` | [`experimental-client-ui-cot-translation`](../packages/experimental/client-ui-cot-translation) | - | - | - | Applies Session translation preferences to authorized translation requests. |
 | `ctx.toolDiscovery` | `core` | [`tool-discovery`](../packages/core/tool-discovery) | - | [`tool-discovery`](../packages/core/tool-discovery) | - | Selects authorized tool definitions and records session loading; optional Bot adapters own durable preferred names. |
 | `ctx.characterLibrary` | `core` | [`character-library`](../packages/drama/character-library) | - | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | Validates historical metadata and bounded images for character-reference search; recommendations grant no publication, binding or generation permission. |
 | `ctx.characterLibraryObjectStore` | `seam` | [`character-library`](../packages/drama/character-library) | [`character-library-tos`](../packages/drama/character-library-tos) | [`character-library`](../packages/drama/character-library) | - | Lists objects, reads metadata and retrieves bounded image bytes from fixed historical prefixes through Host-owned credentials. |

@@ -88,7 +88,16 @@ export interface Config extends ImageRouteConfig {
   /** Serve the authenticated recovery settings in the local desktop application. */
   videoRecoverySettings?: boolean
   /** Opt-in project and original batch submission keys for startup recovery. */
-  videoRecovery?: { projectDir: string; keys?: string[]; ffmpegPath: string; decodeTimeoutMs?: number }
+  videoRecovery?: {
+    /** Absolute path to the project whose recorded submissions the worker checks. */
+    projectDir: string
+    /** Original submission keys to check. Omit to check all recorded submissions for the project. */
+    keys?: string[]
+    /** Absolute path to FFmpeg for video and audio decoding. */
+    ffmpegPath: string
+    /** Timeout in milliseconds for media decoding. Defaults to the configured watch timeout. */
+    decodeTimeoutMs?: number
+  }
   /** Rows per read-only existing-video history page; integer 1..100, default 100. */
   videoSourcePageSize?: number
   /** Maximum pages per existing-video history scan; integer 1..100, default 20. */

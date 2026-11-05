@@ -108,6 +108,46 @@ const GROUP_ORDER = [
 
 const SERVICE_ROLES: ServiceRole[] = [
   {
+    key: 'approvedClipDraft',
+    pkg: 'tool-jubian',
+    title: 'Approved clip drafts',
+    mode: 'seam',
+    implementations: ['desktop-host'],
+    consumers: ['tool-jubian'],
+    note: 'Creates drafts from approved clips through the configured editor provider.',
+  },
+  {
+    key: 'approvedEpisodeRenderer',
+    pkg: 'tool-jubian',
+    title: 'Approved episode rendering',
+    mode: 'seam',
+    implementations: ['desktop-host'],
+    consumers: ['tool-jubian'],
+    note: 'Renders the episode from verified copies of the locked inputs.',
+  },
+  {
+    key: 'jubianVideoRecovery',
+    pkg: 'tool-jubian',
+    title: 'Project video review and delivery',
+    mode: 'service',
+    note: 'Recovers project video tasks and records review decisions and approved deliveries.',
+  },
+  {
+    key: 'translator',
+    pkg: 'experimental-translator',
+    title: 'Translation requests',
+    mode: 'service',
+    consumers: ['experimental-client-ui-cot-translation'],
+    note: 'Resolves provider choices and translates requested text.',
+  },
+  {
+    key: 'cotTranslation',
+    pkg: 'experimental-client-ui-cot-translation',
+    title: 'Conversation translation controls',
+    mode: 'service',
+    note: 'Applies Session translation preferences to authorized translation requests.',
+  },
+  {
     key: 'toolDiscovery',
     pkg: 'tool-discovery',
     title: 'Per-agent tool discovery and residency',
