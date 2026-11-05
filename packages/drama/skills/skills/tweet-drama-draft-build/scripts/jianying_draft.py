@@ -87,11 +87,13 @@ BGM_VOLUME = 1.0
 WATERMARK_TEXT = "内容由AI生成"
 WATERMARK_TRACK = "AI内容标识"
 WATERMARK_FONT_SIZE = _DEFAULT_DRAFT_STYLE['watermark']['font_size_ui']
+WATERMARK_REFERENCE_FONT_SIZE = 6.0
+"""Editor UI size used to calibrate the estimated text width, independent of the current default."""
 
 
 def watermark_position(width: int, height: int, font_size_ui: float = WATERMARK_FONT_SIZE) -> tuple[float, float]:
     """Adjust the lower-right text center for its estimated width; preview remains necessary."""
-    text_width = len(WATERMARK_TEXT) * 44 * height / 1920 * font_size_ui / WATERMARK_FONT_SIZE
+    text_width = len(WATERMARK_TEXT) * 44 * height / 1920 * font_size_ui / WATERMARK_REFERENCE_FONT_SIZE
     return max(0.0, 0.90 - text_width / width), -0.8625
 
 
@@ -152,7 +154,7 @@ def draft_ending_plan(timeline_path, clips: dict, project=None) -> dict:
             "请实际预览，超宽时依据真实字词时间选择语义切点，不自动缩小或按字数均分。",
         ])
     if (policy['add_watermark'] and len(WATERMARK_TEXT) * 44 * policy['height'] / 1920
-            * style['watermark']['font_size_ui'] / WATERMARK_FONT_SIZE > policy['width'] * 0.8):
+            * style['watermark']['font_size_ui'] / WATERMARK_REFERENCE_FONT_SIZE > policy['width'] * 0.8):
         style_warnings.append(
             f"AI 内容标识字号 {style['watermark']['font_size_ui']:g} 的估算宽度超过画布安全区域；"
             "已保留项目字号，请预览确认是否越界，并按需调整 delivery.draft_style.watermark.font_size_ui。")

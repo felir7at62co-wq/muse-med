@@ -127,6 +127,22 @@ describe('delivery metadata', () => {
 })
 
 describe('medium delivery resolution', () => {
+  it('inherits an omitted watermark without changing snapshot subtitle selection or reset semantics', async () => {
+    const path = await project({ delivery: { draft_style: {
+      watermark: { font_size_ui: 7 }, subtitle: { font_family: 'Project font', font_size_ui: 18 },
+    } } })
+    expect((await resolveDeliveryPolicy(path, { ...animation, draft_style: {
+      subtitle: { font_size_ui: 11 },
+    } })).delivery.draft_style).toEqual({ watermark: { font_size_ui: 7 }, subtitle: { font_size_ui: 11 } })
+    expect((await resolveDeliveryPolicy(path, { ...animation, draft_style: {} })).delivery.draft_style).toEqual({})
+    expect((await resolveDeliveryPolicy(path, { ...animation, draft_style: { watermark: {} } })).delivery.draft_style)
+      .toEqual({ watermark: {} })
+    for (const size of [6, 8]) {
+      expect((await resolveDeliveryPolicy(path, { ...animation, draft_style: {
+        watermark: { font_size_ui: size },
+      } })).delivery.draft_style).toEqual({ watermark: { font_size_ui: size } })
+    }
+  })
   it('inherits missing sections independently without merging fields into a saved section', async () => {
     const path = await project({ visual_medium: 'animation_3d', delivery: {
       subtitle: { font_family: 'Changed font', font_size_px: 80 }, audio: { master_gain: 0, bgm_gain: 0.5 } } })
