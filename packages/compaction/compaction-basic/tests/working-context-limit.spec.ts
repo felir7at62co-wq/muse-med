@@ -7,7 +7,7 @@ import { createMessage, createSystemMessage, createUserMessage, isAgentLoopReque
 import type { GenerateOptions, LlmResolvedModelInfo, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as LlmRetry from '@deepseek-ai/dsh-llm-retry'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import { CompactionId } from '@deepseek-ai/dsh-compaction'
@@ -467,6 +467,22 @@ describe('final working-context admission', () => {
     const message = createUserMessage({ content: [{ type: 'text', text: 'short checkpoint' }], source: { kind: 'user' } })
     await summarizeWithLlm(ctx, config, { messages: [message] }, agent)
     expect(adapter.summaries).toHaveLength(1)
+  })
+
+  it('prices the selected summary without charging stale or non-message meter rows', async () => {
+    const { agent, adapter, ctx } = await harness()
+    const header = agent.session.snapshotEvents().find(event => event.type === 'request/header')
+    if (header === undefined) throw new Error('missing historical request header')
+    const measurement = ctx.tokenMeter.measure(agent.session)
+    vi.spyOn(ctx.tokenMeter, 'measure').mockReturnValue({ ...measurement, nodes: [...measurement.nodes,
+      { seq: header.seq, tokens: 200_000, heuristicTokens: 200_000 },
+      { seq: SessionSeq(200_000), tokens: 200_000, heuristicTokens: 200_000 },
+    ] })
+    const config = resolveConfig({ adaptiveBudget: true, maxTokens: 64, headroomTokens: 0,
+      summarizationProvider: 'mock', summarizationModel: 'bounded-summary' })
+    await summarizeWithLlm(ctx, config, { messages: agent.session.deriveMessages() }, agent)
+    expect(adapter.summaries).toHaveLength(1)
+    expect(adapter.summaries[0]).toMatchObject({ model: 'bounded-summary', maxTokens: 64 })
   })
 
   it('keeps an adapter without context metadata usable within the configured fixed budget', async () => {

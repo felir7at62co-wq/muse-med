@@ -30,11 +30,32 @@ describe('source-bound subtitle width fitting', () => {
   it('leaves an already fitting cue unchanged', async () => {
     expect((await fitSubtitleCues([cue], evidence(), async () => true)).cues).toEqual([cue])
   })
+
+  it('keeps interior spaces when splitting on a recognized word boundary', async () => {
+    const spaced = { ...cue, text: '今天 我们 一起 去 做饭' }
+    const result = await fitSubtitleCues([spaced], evidence(), async text => fits(text.replaceAll(' ', '')))
+    expect(result.warnings).toEqual([])
+    expect(result.cues.map(item => item.text)).toEqual(['今天 我们', '一起 去', '做饭'])
+  })
+
+  it.each(['今天我们一起去做饭吧!', '\uF900天我们一起去做饭'])(
+    'preserves text whose characters cannot map directly to Han recognition words: %s', async (text) => {
+      const original = { ...cue, text }
+      const result = await fitSubtitleCues([original], evidence(), fits)
+      expect(result.cues).toEqual([original])
+      expect(result.warnings).toHaveLength(1)
+    },
+  )
+
   it('does not invent boundaries when words overlap, are missing, or a width probe fails', async () => {
     const input = evidence()
     const overlapping = { ...input, words: input.words.map((word, i) => i === 1 ? { ...word, start_seconds: 0.4 } : word) }
     const incomplete = { ...input, matches: input.matches.slice(0, -1) }
-    for (const [coverage, probe] of [[overlapping, fits], [incomplete, fits], [input, async () => null]] as const) {
+    const unmatched = { ...input, words: input.words.slice(1) }
+    const unknownSegment = async (text: string): Promise<boolean | null> => text === cue.text ? false : null
+    for (const [coverage, probe] of [
+      [overlapping, fits], [incomplete, fits], [unmatched, fits], [input, async () => null], [input, unknownSegment],
+    ] as const) {
       const result = await fitSubtitleCues([cue], coverage, probe)
       expect(result.cues).toEqual([cue])
       expect(result.warnings).toHaveLength(1)

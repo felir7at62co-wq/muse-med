@@ -122,6 +122,13 @@ describe('delivery metadata', () => {
     const path = await project()
     await writeFile(join(path, 'project_config.json'), JSON.stringify({ project_name: 'Legacy project' }))
     expect(await readProjectDelivery(path)).toEqual(DEFAULT_DELIVERY)
+    const visual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
+      font_size_px: 48, outline_px: 2, center_y_ratio: 0.74, max_width_ratio: 0.9 }
+    expect(await readProjectDelivery(path, visual)).toEqual({ ...DEFAULT_DELIVERY, subtitle_visual: visual })
+  })
+
+  it('requires a deployment subtitle visual before enforcing it', async () => {
+    await expect(readProjectDelivery(await project(), undefined, true)).rejects.toThrow('产品字幕视觉配置缺失')
   })
   it('reports unreadable project configuration instead of treating it as missing', async () => {
     const path = await project()

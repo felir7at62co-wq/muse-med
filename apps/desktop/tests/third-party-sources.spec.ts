@@ -1,5 +1,5 @@
-import { readFile, readdir, stat } from 'node:fs/promises'
 import { execFileSync } from 'node:child_process'
+import { readFile, readdir, stat } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -16,7 +16,11 @@ it('exports the maintained catalog loader only in the product build overlay', as
   expect(upstream.exports['./catalog']).toBeUndefined()
 })
 
-it('retains pinned community source and licenses without tracked installed runtime data', async () => {
+it('retains pinned community source and licenses without tracking installed runtime data', async () => {
+  const trackedRuntime = execFileSync('git', [
+    'ls-files', '-z', '--', ':(glob)*/node_modules', ':(glob)*/node_modules/**',
+  ], { cwd: root, encoding: 'utf8' })
+  expect(trackedRuntime.split('\0').filter(Boolean)).toEqual([])
   const pins = JSON.parse(await readFile(join(root, 'sources.json'), 'utf8')) as Record<string, {
     repository: string
     version: string

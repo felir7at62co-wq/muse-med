@@ -161,13 +161,10 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     await expect.poll(() => existsSync(marker), { timeout: 20_000 }).toBe(true)
     const runningProcess = page.locator('[data-turn-process]')
     expect(await runningProcess.count()).toBe(0)
-    await expect.poll(
-      () => page.getByRole('status').filter({ hasText: 'Receiving response' }).isVisible(),
-      { timeout: 10_000 },
-    ).toBe(true)
     await page.locator('[data-streaming="true"]')
       .getByText('partial', { exact: true })
       .waitFor({ timeout: 10_000 })
+    await page.getByRole('status').filter({ hasText: /^Receiving response$/ }).waitFor({ timeout: 10_000 })
     // Only the user bubble owns a footer (clock + copy; user bubbles carry no
     // branch action): the narration is not the answer yet.
     const copyButtons = page.getByRole('button', { name: 'Copy' })

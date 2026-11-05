@@ -65,8 +65,10 @@ it('uses only the Muse session at the fixed same-origin endpoint and maps citeab
 
 it('preserves result-count bounds without changing anonymous fetching', async () => {
   const { provider, fetcher } = await fixture()
-  fetcher.mockResolvedValueOnce(Response.json({ results: [{ url: 'https://a.example' }, { url: 'https://b.example' }] }))
+  const results = [{ url: 'https://a.example' }, { url: 'https://b.example' }]
+  fetcher.mockResolvedValueOnce(Response.json({ results })).mockResolvedValueOnce(Response.json({ results }))
   expect(await provider.search({ query: 'q', maxResults: 1 })).toEqual({ sources: [{ url: 'https://a.example' }], truncated: true })
+  expect(await provider.search({ query: 'q' })).toEqual({ sources: results, truncated: false })
 })
 
 it('returns all valid sources when no result limit is requested', async () => {
@@ -99,8 +101,8 @@ it.each([401, 403, 429, 502, 503, 504, 302])('contains rejected HTTP %s diagnost
   expect(fetcher).toHaveBeenCalledOnce()
 })
 
-it.each(['not JSON', JSON.stringify({ results: [{ url: 'not a URL' }] }),
-  JSON.stringify({ results: [{ url: 'javascript:alert(1)' }] }),
+it.each([null, 'not JSON', JSON.stringify({ results: [{ url: 'javascript:alert(1)' }] }),
+  JSON.stringify({ results: [{ url: 'not a URL' }] }),
   JSON.stringify({ results: [{ url: 'https://username:secret@example.com' }] }),
   JSON.stringify({ results: [{ url: 4 }] }), 'x'.repeat(1024 * 1024 + 1)])(
   'rejects invalid or oversized search replies without exposing their body', async (body) => {

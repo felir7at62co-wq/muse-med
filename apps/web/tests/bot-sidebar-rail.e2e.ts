@@ -300,8 +300,9 @@ it('retains painted desktop rails and restores classic presentation when the she
           expect(result.toggle!.left).toBeGreaterThanOrEqual(result.sidebar.left)
           expect(result.toggle!.right).toBeLessThanOrEqual(result.sidebar.right)
           expect(result.main.left).toBeGreaterThanOrEqual(result.sidebar.right)
+          // Chromium paints the sidebar hairline as one pixel at this scale.
           expect(result.button!.left).toBeGreaterThanOrEqual(result.sidebar.left - 0.5)
-          expect(result.button!.right).toBeLessThanOrEqual(result.sidebar.right + 0.5)
+          expect(result.button!.right).toBeLessThanOrEqual(result.sidebar.right)
           expect(result.button!.top).toBeGreaterThanOrEqual(platform === 'web' ? 0 : 40)
           expect(result.pageWidth).toBe(result.viewportWidth)
           expect(result.pageHeight).toBe(result.viewportHeight)

@@ -371,6 +371,41 @@ jobs:
             Pop-Location
           }
 
+      - name: Run installed-wheel SDK turn from a non-C drive
+        if: runner.os == 'Windows' && runner.environment == 'github-hosted'
+        shell: pwsh
+        run: |
+          $smokePython = "${{ steps.smoke-venv-windows.outputs.python }}"
+          $runnerTemp = (& $smokePython -c 'import os; from pathlib import Path; print(Path(os.environ["RUNNER_TEMP"]).resolve(strict=True))').Trim()
+          if ($LASTEXITCODE -ne 0 -or $runnerTemp -notmatch '^[A-BD-Z]:\\') {
+            throw "Expected a resolved non-C runner temp directory, got '$runnerTemp'"
+          }
+          # Python's default Windows temp directory is on C:. The SDK smoke uses
+          # tempfile for its workspace and the workspace as the runtime cwd.
+          $name = "dsh-sdk-non-c-$([guid]::NewGuid().ToString('N'))"
+          $scratch = (New-Item -ItemType Directory -Path (Join-Path $runnerTemp $name) -ErrorAction Stop).FullName
+          try {
+            $env:TMPDIR = $scratch
+            $env:TEMP = $scratch
+            $env:TMP = $scratch
+            $env:PKG_NATIVE_CACHE_PATH = Join-Path $scratch 'native-cache'
+            Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+            Remove-Item Env:DSH_RUNTIME_MODE -ErrorAction SilentlyContinue
+            Push-Location -LiteralPath $scratch
+            try {
+              & $smokePython "$env:GITHUB_WORKSPACE\scripts\smoke-python-runtime.py" --scenario sdk-default --installed-wheel
+              if ($LASTEXITCODE -ne 0) { throw "Installed-wheel non-C SDK turn failed with exit code $LASTEXITCODE" }
+            } finally {
+              Pop-Location
+            }
+          } finally {
+            $target = (Resolve-Path -LiteralPath $scratch -ErrorAction Stop).ProviderPath
+            if ((Split-Path -Parent $target) -ne $runnerTemp -or (Split-Path -Leaf $target) -ne $name) {
+              throw "Refusing cleanup outside the owned runner temp directory: $target"
+            }
+            Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop
+          }
+
       - name: Preflight installed-wheel real API test (POSIX)
         if: >-
           inputs.ci

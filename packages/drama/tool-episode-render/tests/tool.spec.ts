@@ -326,13 +326,19 @@ describe('subtitle overlay application', () => {
   it('allocates an independent subtitle candidate when no output path is supplied', async () => {
     const prepared = await preparedProject(), channel = callChannel(prepared.project)
     const subtitlePlan = await plan(prepared.project, join(prepared.project, 'video/02/shot_001.mp4'))
+    await writeFile(prepared.subtitle, srtDocument([
+      { start: '00:00:01,680', end: '00:00:03,580', text: '台词' },
+      { start: '00:00:04,000', end: '00:00:05,000', text: '补充台词！' },
+    ]))
     const report = await run({ method: 'subtitle_overlay', project: prepared.project, episode: 2,
-      timeline: prepared.timeline, subtitleSrt: prepared.subtitle, subtitlePlan }, settingsWith(channel.channel))
+      timeline: prepared.timeline, subtitleSrt: prepared.subtitle, subtitlePlan },
+    { ...settingsWith(channel.channel), normalizeSubtitleText: true })
     expect(report.subtitle_overlay?.resolved_srt).toContain(join(prepared.project, 'editing/subtitle-overlays/ep02-'))
     expect(report.subtitle_overlay?.retained_cue_indexes).toEqual([1])
     expect(report.written).toHaveLength(2)
     expect(channel.calls).toEqual([])
-    expect(await readFile(prepared.subtitle, 'utf8')).toContain('台词')
+    expect(await readFile(prepared.subtitle, 'utf8')).toContain('补充台词！')
+    expect(await readFile(report.subtitle_overlay?.resolved_srt ?? '', 'utf8')).not.toContain('！')
   })
 
   it('normalizes only the remaining display cues in an overlay export', async () => {
@@ -368,13 +374,25 @@ describe('subtitle overlay application', () => {
     expect(channel.calls).toEqual([])
   })
 
-  it('prepares byte-identical videos before resolving the optional plan while keeping the authored installed SRT', async () => {
+  it.each([false, true])('keeps the authored SRT when preparing an overlay with normalizeSubtitleText=%s', async (normalizeSubtitleText) => {
     const prepared = await preparedProject(), channel = callChannel(prepared.project)
     const subtitlePlan = await plan(prepared.project, join(prepared.project, 'media/p1-clean.mp4'))
+    const speechTranscripts = join(prepared.project, 'receipts.json')
+    await writeFile(speechTranscripts, '{"shots":[]}')
+    const visual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
+      font_size_px: 48, outline_px: 2, center_y_ratio: 0.74, max_width_ratio: 0.9 }
+    await writeFile(join(prepared.project, 'project_config.json'), JSON.stringify({ project_bible: { delivery: {
+      width: 480, height: 854, subtitle: { font_size_px: 20 },
+    } } }))
     const result = await run({ method: 'prepare', project: prepared.project, episode: 2, shots: prepared.shots,
-      subtitleSrt: prepared.subtitle, subtitlePlan }, settingsWith(channel.channel))
+      subtitleSrt: prepared.subtitle, subtitlePlan, speechTranscripts },
+    { ...settingsWith(channel.channel), normalizeSubtitleText, defaultSubtitleVisual: visual, enforceSubtitleVisual: true })
     expect(result.subtitle_overlay?.retained_cue_indexes).toEqual([1])
     expect(result.render_preview?.subtitle.path).toBe(result.subtitle_overlay?.resolved_srt)
+    expect(result.warnings.join('\n')).toContain('已有烧录字幕的覆盖计划未自动重新切分')
+    const timeline: unknown = JSON.parse(await readFile(prepared.timeline, 'utf8'))
+    expect(timeline).toMatchObject({ delivery: { subtitle_visual: visual } })
+    expect(timeline).not.toHaveProperty('delivery.subtitle.font_size_px')
     expect(await readFile(join(prepared.project, 'editing/02.srt'), 'utf8')).toContain('台词')
     expect(await readFile(result.subtitle_overlay?.resolved_srt ?? '', 'utf8')).not.toContain('台词')
   })
@@ -396,12 +414,19 @@ describe('subtitle overlay application', () => {
   it('burns only resolved cues and returns their bound report during final render', async () => {
     const prepared = await preparedProject(), channel = callChannel(prepared.project)
     const subtitlePlan = await plan(prepared.project, join(prepared.project, 'video/02/shot_001.mp4'))
+    await writeFile(prepared.subtitle, srtDocument([
+      { start: '00:00:01,680', end: '00:00:03,580', text: '台词' },
+      { start: '00:00:04,000', end: '00:00:05,000', text: '另一句！' },
+    ]))
     const result = await run({ method: 'render', ...prepared, episode: 2, subtitleSrt: prepared.subtitle,
-      lastShot: 1, subtitlePlan }, settingsWith(channel.channel))
+      lastShot: 1, subtitlePlan }, { ...settingsWith(channel.channel), normalizeSubtitleText: true })
     expect(result.subtitle_overlay?.retained_cue_indexes).toEqual([1])
     expect(result.render_preview?.subtitle.path).toBe(result.subtitle_overlay?.resolved_srt)
-    expect(await readFile(join(prepared.project, 'exports/.render_cache/02/display.ass'), 'utf8')).not.toContain('台词')
-    expect(await readFile(prepared.subtitle, 'utf8')).toContain('台词')
+    const ass = await readFile(join(prepared.project, 'exports/.render_cache/02/display.ass'), 'utf8')
+    expect(ass).not.toContain('台词')
+    expect(ass).toContain('另一句')
+    expect(ass).not.toContain('！')
+    expect(await readFile(prepared.subtitle, 'utf8')).toContain('另一句！')
     expect(result.written).toContain(result.subtitle_overlay?.decision_report)
   })
 
@@ -497,6 +522,7 @@ describe('resolveSettings', () => {
       masterVolume: 1.2,
       bgmVolume: 0.3,
       maxBgmVolume: 1,
+      defaultEndingEffectFit: 'source_once',
       preferNvenc: false,
       fontsDir: 'D:/Fonts',
       subtitleFontFamily: 'Noto Sans CJK SC',
@@ -507,6 +533,7 @@ describe('resolveSettings', () => {
       masterVolume: 1.2,
       bgmVolume: 0.3,
       maxBgmVolume: 1,
+      defaultEndingEffectFit: 'source_once',
       preferNvenc: false,
       fontsDir: 'D:/Fonts',
       subtitleFontFamily: 'Noto Sans CJK SC',
@@ -824,9 +851,52 @@ describe('runDramaRender', () => {
     expect(await readFile(files.subtitle, 'utf8')).toBe(original)
   })
 
+  it('reports omitted display intervals when inspecting a normalized subtitle layout', async () => {
+    const files = await preparedProject()
+    const source = srtDocument([{ start: '00:00:01,000', end: '00:00:02,000', text: '！' }])
+    await writeFile(files.subtitle, source)
+    const report = await run({ method: 'subtitle_layout', project: files.project, episode: 2,
+      timeline: files.timeline, subtitleSrt: files.subtitle },
+    { ...settingsWith(callChannel(files.project).channel), normalizeSubtitleText: true })
+    expect(report.subtitle_layout?.status).toBe('not_requested')
+    expect(report.warnings.join('\n')).toContain('勿据此认定该时段无对白')
+    expect(await readFile(files.subtitle, 'utf8')).toBe(source)
+  })
+
+  it('keeps repeated cues and reports unmeasured width when no visual is configured', async () => {
+    const files = await preparedProject()
+    await writeFile(files.subtitle, srtDocument([
+      { start: '00:00:01,000', end: '00:00:02,000', text: '同一句！' },
+      { start: '00:00:03,000', end: '00:00:04,000', text: '同一句！' },
+    ]))
+    const speechTranscripts = join(files.project, 'receipts.json')
+    await writeFile(speechTranscripts, '{"shots":[]}')
+    const report = await run({ method: 'prepare', project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle, speechTranscripts },
+    { ...settingsWith(callChannel(files.project).channel), normalizeSubtitleText: true })
+    expect(report.warnings.filter(warning => warning.includes('宽度未测得'))).toHaveLength(2)
+    const candidate = report.render_preview?.subtitle.path ?? ''
+    expect((await readFile(candidate, 'utf8')).match(/^同一句$/gmu)).toHaveLength(2)
+  })
+
+  it('reports invalid speech comparison timing without discarding the display candidate', async () => {
+    const files = await preparedProject()
+    await writeFile(files.subtitle, srtDocument([{ start: '00:00:01,000', end: '00:00:01,000', text: '台词！' }]))
+    const speechTranscripts = join(files.project, 'receipts.json')
+    await writeFile(speechTranscripts, '{"shots":[]}')
+    const report = await run({ method: 'prepare', project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle, speechTranscripts },
+    { ...settingsWith(callChannel(files.project).channel), normalizeSubtitleText: true })
+    expect(report.warnings.join('\n')).toContain('最终 SRT 含无效时间')
+    expect(await readFile(report.render_preview?.subtitle.path ?? '', 'utf8')).toContain('台词')
+  })
+
   it('prepares a shared single-line candidate from source-bound word times and measured widths', async () => {
     const files = await preparedProject()
-    const original = '1\n00:00:01,000 --> 00:00:04,000\n今天我们一起去做饭！\n'
+    const original = srtDocument([
+      { start: '00:00:01,000', end: '00:00:04,000', text: '今天我们一起去做饭！' },
+      { start: '00:00:05,000', end: '00:00:08,000', text: '今天我们一起去做饭！' },
+    ])
     await writeFile(files.subtitle, original, 'utf8')
     const audio = join(files.project, 'media', 'p1-clean.mp4')
     const hash = createHash('sha256').update(await readFile(audio)).digest('hex')
@@ -864,6 +934,7 @@ describe('runDramaRender', () => {
     expect(text).toContain('一起去')
     expect(text).toContain('做饭')
     expect(text, report.warnings.join('\n')).toContain('00:00:02,000')
+    expect(text).toContain('00:00:05,000 --> 00:00:08,000\n今天我们一起去做饭')
     expect(text).not.toContain('！')
     expect(await readFile(files.subtitle, 'utf8')).toBe(original)
 
@@ -880,8 +951,9 @@ describe('runDramaRender', () => {
     expect(unchanged).toContain('00:00:05,000 --> 00:00:08,000')
   })
 
-  it('captures the configured ending fit in new timelines for both render and editable drafts', async () => {
+  it.each(['absent', 'missing an ending fit'] as const)('captures the deployment ending fit when the old timeline is %s', async (prior) => {
     const files = await preparedProject()
+    if (prior === 'absent') await rm(files.timeline)
     await run({ method: 'prepare', project: files.project, episode: 2,
       shots: files.shots, subtitleSrt: files.subtitle },
     { ...settingsWith(callChannel(files.project).channel), defaultEndingEffectFit: 'stretch_to_window' })
@@ -901,15 +973,40 @@ describe('runDramaRender', () => {
     })
   })
 
-  it('preserves an existing explicit ending choice when preparing again', async () => {
+  it.each([
+    ['source_once', 'stretch_to_window'], ['stretch_to_window', 'source_once'],
+  ] as const)('preserves existing ending choice %s when preparing again', async (previous, configured) => {
     const files = await preparedProject()
     await writePlaceholder(files.timeline, JSON.stringify({ ...JSON.parse(await readFile(files.timeline, 'utf8')),
-      ending_effect_fit: 'source_once' }))
+      ending_effect_fit: previous }))
     await run({ method: 'prepare', project: files.project, episode: 2,
       shots: files.shots, subtitleSrt: files.subtitle },
-    { ...settingsWith(callChannel(files.project).channel), defaultEndingEffectFit: 'stretch_to_window' })
+    { ...settingsWith(callChannel(files.project).channel), defaultEndingEffectFit: configured })
     const timeline: unknown = JSON.parse(await readFile(files.timeline, 'utf8'))
-    expect(timeline).toMatchObject({ ending_effect_fit: 'source_once' })
+    expect(timeline).toMatchObject({ ending_effect_fit: previous })
+  })
+
+  it.each([
+    ['{"ending_effect_fit":"legacy-fit"}', '旧时间线的片尾适配值无效'],
+    ['{', '旧时间线无法解析'],
+  ])('reports unusable prior ending metadata and writes the deployment fit', async (prior, warning) => {
+    const files = await preparedProject()
+    await writeFile(files.timeline, prior)
+    const report = await run({ method: 'prepare', project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle },
+    { ...settingsWith(callChannel(files.project).channel), defaultEndingEffectFit: 'stretch_to_window' })
+    expect(report.warnings.join('\n')).toContain(warning)
+    expect(JSON.parse(await readFile(files.timeline, 'utf8'))).toMatchObject({ ending_effect_fit: 'stretch_to_window' })
+  })
+
+  it('propagates a timeline read error other than a missing file', async () => {
+    const files = await preparedProject(), channel = callChannel(files.project)
+    await rm(files.timeline)
+    await mkdir(files.timeline)
+    await expect(run({ method: 'prepare', project: files.project, episode: 2,
+      shots: files.shots, subtitleSrt: files.subtitle },
+    { ...settingsWith(channel.channel), defaultEndingEffectFit: 'stretch_to_window' })).rejects.toMatchObject({ code: 'EISDIR' })
+    expect(channel.calls).toEqual([])
   })
 
   it.each([
