@@ -63,7 +63,6 @@ const harness = await vi.hoisted(async () => {
   let dialogShown = deferred()
   let quitCompleted = deferred()
   let policyBlocked = deferred()
-  let embeddedPolicy: unknown
   let closeWindowsOnQuit = false
   let updateState: DesktopUpdateState = { phase: 'idle' }
   let platformDisposeDeferred: ReturnType<typeof deferred> | undefined
@@ -171,7 +170,12 @@ const harness = await vi.hoisted(async () => {
   const calls: string[] = []
   const appData = mkdtempSync(paths.join(tmpdir(), 'dsh-desktop-app-data-'))
   const appRoot = mkdtempSync(paths.join(tmpdir(), 'dsh-main-app-'))
-  writeFileSync(paths.join(appRoot, 'package.json'), '{}')
+  function writeManifest(policy?: unknown) {
+    writeFileSync(paths.join(appRoot, 'package.json'), JSON.stringify({
+      dshDesktopAppId: 'com.deepseek.dsh', dshMandatoryUpdatePolicy: policy,
+    }))
+  }
+  writeManifest()
   writeFileSync(paths.join(appRoot, 'muse-product.json'), '{"version":"1.0.0-beta.1"}\n')
   const app = Object.assign(new EventEmitter(), {
     isPackaged: true,
@@ -254,8 +258,7 @@ const harness = await vi.hoisted(async () => {
     get hostStarted() { return hostStarted }, get navigated() { return navigated },
     get dialogShown() { return dialogShown }, get quitCompleted() { return quitCompleted },
     get policyBlocked() { return policyBlocked },
-    get embeddedPolicy() { return embeddedPolicy },
-    set embeddedPolicy(value: unknown) { embeddedPolicy = value },
+    set embeddedPolicy(value: unknown) { writeManifest(value) },
     nextNavigation() { navigated = deferred(); return navigated.promise },
     nextHostStart() { hostStarted = deferred(); return hostStarted.promise },
     deferPlatformDispose() { platformDisposeDeferred = deferred(); return platformDisposeDeferred },
@@ -286,7 +289,7 @@ const harness = await vi.hoisted(async () => {
       preparing = deferred(); prepared = deferred(); hostStarted = deferred()
       navigated = deferred(); dialogShown = deferred(); quitCompleted = deferred()
       policyBlocked = deferred()
-      embeddedPolicy = undefined
+      writeManifest()
       platformDisposeDeferred = undefined
       platformCloseDeferred = undefined
     },
@@ -331,15 +334,6 @@ vi.mock('../src/background-notice.ts', () => ({ DesktopBackgroundNotice: class {
   readonly close = harness.backgroundNotice.close
   readonly dispose = harness.backgroundNotice.dispose
 } }))
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const original = await importOriginal<typeof import('node:fs/promises')>()
-  return { ...original, readFile: vi.fn((path: Parameters<typeof original.readFile>[0], encoding?: 'utf8') => {
-    if (path === join(harness.appRoot, 'package.json')) {
-      return Promise.resolve(JSON.stringify({ dshDesktopAppId: 'com.deepseek.dsh', dshMandatoryUpdatePolicy: harness.embeddedPolicy }))
-    }
-    return encoding === undefined ? original.readFile(path) : original.readFile(path, encoding)
-  }) }
-})
 vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/login-shell-environment.ts')>(),
   readDesktopLoginShellEnvironment: harness.loginShell,
