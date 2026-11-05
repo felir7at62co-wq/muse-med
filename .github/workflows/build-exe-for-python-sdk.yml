@@ -393,6 +393,53 @@ jobs:
           & "${{ steps.smoke-venv-windows.outputs.python }}" -I "$env:GITHUB_WORKSPACE\python\sdk\tests\run_installed_commands.py"
           if ($LASTEXITCODE -ne 0) { throw "Installed-wheel native command tests failed with exit code $LASTEXITCODE" }
 
+      - name: Run installed-wheel SDK turn from a non-C drive
+        if: runner.os == 'Windows' && runner.environment == 'github-hosted'
+        shell: pwsh
+        run: |
+          $smokePython = "${{ steps.smoke-venv-windows.outputs.python }}"
+          $runnerTemp = (& $smokePython -c 'import os; from pathlib import Path; print(Path(os.environ["RUNNER_TEMP"]).resolve(strict=True))').Trim()
+          if ($LASTEXITCODE -ne 0 -or $runnerTemp -notmatch '^[A-BD-Z]:\\') {
+            throw "Expected a resolved non-C runner temp directory, got '$runnerTemp'"
+          }
+          $name = "dsh-sdk-non-c-$([guid]::NewGuid().ToString('N'))"
+          $scratch = (New-Item -ItemType Directory -Path (Join-Path $runnerTemp $name) -ErrorAction Stop).FullName
+          try {
+            $env:TMPDIR = $scratch
+            $env:TEMP = $scratch
+            $env:TMP = $scratch
+            $env:PKG_NATIVE_CACHE_PATH = (New-Item -ItemType Directory -Path (Join-Path $scratch 'native-cache') -ErrorAction Stop).FullName
+            foreach ($variable in @(Get-ChildItem Env: | Where-Object { $_.Name -like 'MUSE_*' })) {
+              Remove-Item -LiteralPath "Env:$($variable.Name)" -ErrorAction Stop
+            }
+            foreach ($selector in @('PYTHONPATH', 'DSH_RUNTIME_MODE', 'NODE_PATH', 'NODE_OPTIONS', 'PKG_EXECPATH',
+                'DSH_PRIMARY_RUNTIME', 'DSH_OFFICE_SIDECAR', 'DSH_BUNDLED_PRIMARY_RUNTIME', 'DSH_RUNTIME_DOWNLOAD')) {
+              Remove-Item -LiteralPath "Env:$selector" -ErrorAction SilentlyContinue
+            }
+            $env:DSH_HOME = Join-Path $scratch 'dsh-home'
+            $env:DSH_AGENTS_HOME = Join-Path $scratch 'agents'
+            $env:DSH_RESOURCE_CACHE = Join-Path $scratch 'resources'
+            $env:DSH_TELEMETRY_DISABLED = '1'
+            Push-Location -LiteralPath $scratch
+            try {
+              $locations = (& $smokePython -c 'import json, os, tempfile; from pathlib import Path; print(json.dumps([str(Path.cwd().resolve(strict=True)), str(Path(tempfile.gettempdir()).resolve(strict=True)), str(Path(os.environ["PKG_NATIVE_CACHE_PATH"]).resolve(strict=True))]))').Trim()
+              if ($LASTEXITCODE -ne 0) { throw 'Could not verify non-C smoke locations' }
+              foreach ($location in @($locations | ConvertFrom-Json)) {
+                if ($location -notmatch '^[A-BD-Z]:\\') { throw "Expected a non-C smoke location, got '$location'" }
+              }
+              & $smokePython "$env:GITHUB_WORKSPACE\scripts\smoke-python-runtime.py" --scenario sdk-default --installed-wheel
+              if ($LASTEXITCODE -ne 0) { throw "Installed-wheel non-C SDK turn failed with exit code $LASTEXITCODE" }
+            } finally {
+              Pop-Location
+            }
+          } finally {
+            $target = (Resolve-Path -LiteralPath $scratch -ErrorAction Stop).ProviderPath
+            if ((Split-Path -Parent $target) -ne $runnerTemp -or (Split-Path -Leaf $target) -ne $name) {
+              throw "Refusing cleanup outside the owned runner temp directory: $target"
+            }
+            Remove-Item -LiteralPath $target -Recurse -Force -ErrorAction Stop
+          }
+
       - name: Preflight installed-wheel real API test (POSIX)
         if: >-
           inputs.ci

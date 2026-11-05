@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, copyFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { delimiter, dirname, join } from 'node:path'
+import { delimiter, dirname, join, toNamespacedPath } from 'node:path'
 import { expect, it } from 'vitest'
 
 async function fixture() {
@@ -18,6 +18,19 @@ async function fixture() {
   await file(join(resources, 'downloads.json'), JSON.stringify({ identity: 'a'.repeat(64), office: [], pnpm: {} }))
   await mkdir(dirname(bootstrap), { recursive: true })
   await copyFile(new URL('../python/sdk-runtime/runtime-bootstrap.mjs', import.meta.url), bootstrap)
+  // POSIX output paths do not expose the Windows namespace prefix.
+  const conversions = join(root, 'path-conversions.jsonl')
+  await file(conversions, '')
+  await writeFile(bootstrap, (await readFile(bootstrap, 'utf8')).replace("from 'node:path'", "from './fixture-path.mjs'"))
+  await file(join(root, 'node/fixture-path.mjs'), `
+    import { appendFileSync } from 'node:fs';
+    import { toNamespacedPath as hostPath } from 'node:path';
+    export * from 'node:path';
+    export function toNamespacedPath(path) {
+      appendFileSync(process.env.DSH_FIXTURE_PATH_CONVERSIONS, JSON.stringify(path) + '\\n');
+      return hostPath(path);
+    }
+  `)
   await file(join(root, 'node/node_modules/@deepseek-ai/dsh-http-proxy/package.json'), '{"type":"module","exports":"./index.mjs"}')
   await file(join(root, 'node/node_modules/@deepseek-ai/dsh-http-proxy/index.mjs'), 'export async function installProxyFromEnvironment(env) { if (typeof env.get !== "function") throw new Error("missing environment lookup"); return async () => {} }')
   await file(join(root, 'node/node_modules/@deepseek-ai/dsh-sandbox-windows-acl/package.json'), '{"type":"module","exports":{"./runner":"./runner.mjs"}}')
@@ -52,6 +65,7 @@ async function fixture() {
       await writeFile(join(destination, 'bin', process.platform === 'win32' ? 'node.exe' : 'node'), 'node');
     }
     export async function preparePrimaryRuntime({ output }) {
+      if (process.env.DSH_FIXTURE_PRIMARY_FAIL) throw new Error('fixture primary preparation must not run');
       if (process.env.DSH_RUNTIME_DOWNLOAD !== undefined) throw new Error("private selector leaked");
       await mkdir(join(output, 'primary-runtime'), { recursive: true });
       await writeFile(join(output, 'primary-runtime/runtime.json'), '{}');
@@ -74,7 +88,8 @@ async function fixture() {
   `)
   function run(resource?: string, extra: NodeJS.ProcessEnv = {}, args: string[] = []) {
     const child = spawn(process.execPath, [bootstrap, ...args], {
-      env: { ...process.env, DSH_RESOURCE_CACHE: cache, DSH_RUNTIME_DOWNLOAD: resource, DSH_BUNDLED_PRIMARY_RUNTIME: undefined,
+      env: { ...process.env, DSH_RESOURCE_CACHE: cache, DSH_RUNTIME_DOWNLOAD: resource,
+        DSH_FIXTURE_PATH_CONVERSIONS: conversions, DSH_BUNDLED_PRIMARY_RUNTIME: undefined,
         DSH_PRIMARY_RUNTIME: undefined, DSH_OFFICE_SIDECAR: undefined, DSH_BUNDLED_OFFICE_CLI: undefined, ...extra },
       stdio: ['pipe', 'pipe', 'pipe'],
     })
@@ -91,14 +106,16 @@ async function fixture() {
     })
     return { child, ready, done }
   }
-  return { root, cache, run, file }
+  const pathConversions = async (): Promise<string[]> => (await readFile(conversions, 'utf8')).split('\n')
+    .filter(Boolean).map(line => JSON.parse(line) as string)
+  return { root, cache, run, file, pathConversions }
 }
 
 it('supplies downloaded Node and pnpm to profile and CLI package operations without changing the host PATH', async () => {
   const { root, cache, run, file } = await fixture()
   try {
     await run('primary').done
-    const primary = join(cache, 'a'.repeat(64), 'primary', 'primary-runtime')
+    const primary = toNamespacedPath(join(cache, 'a'.repeat(64), 'primary', 'primary-runtime'))
     await file(join(primary, 'runtime.json'), JSON.stringify({ node: '24.9.0', pnpm: '11.0.0' }))
     const node = join(primary, 'dependencies/node/bin', process.platform === 'win32' ? 'node.exe' : 'node')
     for (const args of [[], ['plugin', '--profile', 'sdk', 'add', 'local-bundle']]) {
@@ -139,7 +156,7 @@ it('starts without downloading, independently downloads either resource, and reu
     await expect(readdir(cache)).rejects.toMatchObject({ code: 'ENOENT' })
     const primary = await run('primary').done
     expect(primary.code, primary.stderr).toBe(0)
-    expect(JSON.parse(primary.stdout)).toBe(join(cache, 'a'.repeat(64), 'primary', 'primary-runtime'))
+    expect(JSON.parse(primary.stdout)).toBe(toNamespacedPath(join(cache, 'a'.repeat(64), 'primary', 'primary-runtime')))
     await expect(readdir(join(cache, 'a'.repeat(64), 'office'))).rejects.toMatchObject({ code: 'ENOENT' })
     const office = await run('office').done
     expect(office.code, office.stderr).toBe(0)
@@ -188,5 +205,63 @@ it('leaves ordinary CLI arguments to the CLI and rejects an invalid private down
     expect(rejected.code).toBe(1)
     expect(rejected.stderr).toContain('DSH_RUNTIME_DOWNLOAD must select office or primary')
     await expect(readdir(cache)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it.each(['fresh', 'completed'])('exposes the host-native primary path from a long %s cache without changing its identity', async (state) => {
+  const { root, run, file, pathConversions } = await fixture()
+  const cache = join(root, 'cache-'.repeat(18), 'nested-'.repeat(12))
+  const resource = join(cache, 'a'.repeat(64), 'primary')
+  const primary = join(resource, 'primary-runtime')
+  const completedManifest = JSON.stringify({ node: '24.9.0', pnpm: '11.28.5', fixture: 'existing' }) + '\n'
+  try {
+    expect(join(primary, 'dependencies', 'python', 'python.exe').length).toBeGreaterThan(260)
+    if (state === 'completed') {
+      await file(join(primary, 'runtime.json'), completedManifest)
+      await file(join(resource, 'complete'), 'a'.repeat(64))
+    }
+    const downloaded = await run('primary', { DSH_RESOURCE_CACHE: cache,
+      ...state === 'completed' ? { DSH_FIXTURE_PRIMARY_FAIL: '1' } : {} }).done
+    expect(downloaded.code, downloaded.stderr).toBe(0)
+    expect(JSON.parse(downloaded.stdout)).toBe(toNamespacedPath(primary))
+    const reused = await run('primary', { DSH_RESOURCE_CACHE: toNamespacedPath(cache), DSH_FIXTURE_PRIMARY_FAIL: '1' }).done
+    expect(reused.code, reused.stderr).toBe(0)
+    expect(reused.stdout).toBe(downloaded.stdout)
+    const startup = await run(undefined, { DSH_RESOURCE_CACHE: toNamespacedPath(cache), DSH_FIXTURE_PRIMARY_FAIL: '1', PATH: '' }).done
+    expect(startup.code, startup.stderr).toBe(0)
+    const expected = toNamespacedPath(primary)
+    expect(JSON.parse(startup.stdout)).toMatchObject({ primary: expected })
+    if (state === 'completed') {
+      const node = join(expected, 'dependencies/node/bin', process.platform === 'win32' ? 'node.exe' : 'node')
+      expect(JSON.parse(startup.stdout)).toMatchObject({ packageManager: {
+        command: node, args: [join(expected, 'dependencies/pnpm/bin/pnpm.mjs')],
+        env: { PATH: `${dirname(node)}${delimiter}` },
+      }, hostPath: '' })
+    }
+    expect(await readFile(join(resource, 'complete'), 'utf8')).toBe('a'.repeat(64))
+    expect(await readFile(join(primary, 'runtime.json'), 'utf8')).toBe(state === 'completed' ? completedManifest : '{}')
+    expect(await readdir(join(cache, 'a'.repeat(64)))).toEqual(['primary'])
+    const converted = await pathConversions()
+    const primaryConversions = converted.filter(path => toNamespacedPath(path) === toNamespacedPath(primary))
+    expect(primaryConversions, JSON.stringify(converted)).toHaveLength(3)
+    expect(converted.filter(path => path === join(cache, 'a'.repeat(64), '.primary-')))
+      .toHaveLength(state === 'fresh' ? 1 : 0)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it.each(['primary', 'office'])('cleans failed long-cache %s staging before an explicit retry', async (kind) => {
+  const { root, run, pathConversions } = await fixture()
+  const cache = join(root, 'failed-cache-'.repeat(10), 'nested-'.repeat(12))
+  try {
+    const failed = await run(kind, { DSH_RESOURCE_CACHE: cache, DSH_FIXTURE_PRIMARY_FAIL: '1', DSH_FIXTURE_FAIL: '1' }).done
+    expect(failed.code).toBe(1)
+    expect(failed.stderr).toContain(kind === 'primary' ? 'fixture primary preparation must not run' : 'fixture download failed')
+    expect(await readdir(join(cache, 'a'.repeat(64)))).toEqual([])
+    const retry = await run(kind, { DSH_RESOURCE_CACHE: cache }).done
+    expect(retry.code, retry.stderr).toBe(0)
+    const destination = join(cache, 'a'.repeat(64), kind)
+    expect(JSON.parse(retry.stdout)).toBe(kind === 'primary' ? toNamespacedPath(join(destination, 'primary-runtime')) : destination)
+    expect(await readFile(join(destination, 'complete'), 'utf8')).toBe('a'.repeat(64))
+    expect((await pathConversions()).filter(path => path === join(cache, 'a'.repeat(64), `.${kind}-`))).toHaveLength(2)
   } finally { await rm(root, { recursive: true, force: true }) }
 })

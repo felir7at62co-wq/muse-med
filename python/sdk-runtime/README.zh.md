@@ -23,6 +23,8 @@ primary_runtime = download_primary_runtime()
 
 `download_office()` 下载锁定版本的 npm Kit、目标引擎及完整依赖树，并准备运行 Kit CLI 的独立 Node。`download_primary_runtime()` 独立下载 CPython、锁定的 Python 库、Node、pnpm 和 Office skills。两者返回绝对资源目录，并复用完整缓存。创作下载会在返回前校验目标平台、解释器、库目录与 skills。现有本地 `installPrimaryRuntime()` 操作仍只复制已有载荷，不执行下载。 共享构建器采用 [NumPy/pandas 测试文件裁剪规则](../../apps/desktop/README.zh.md#bundled-workspace-dependencies)。
 
+在 Windows 上，返回的创作环境路径保留宿主路径 API 提供的扩展长度前缀。向解释器和原生库传递路径时应保留该前缀；其他宿主保留其普通路径。
+
 `DSH_RESOURCE_CACHE` 指定绝对缓存根目录，默认为 `~/.cache/deepseek-harness/resources`。资源身份包含发布版本锁定的输入。下载会校验归档哈希和包身份、保留执行权限，并原子发布完整目录。下载失败后可重试。`DSH_RESOURCE_DOWNLOAD_TIMEOUT_MS` 限制每个归档的下载耗时，包含响应内容；默认值为 `300000`，接受 `1` 到 `2147483647` 的整数。下载遵循 Harness 代理环境策略。已安装的 wheel 文件不会被修改。不同发布版本使用独立缓存目录；不再使用的版本需手动删除。下载使用锁定的上游 URL，不提供 registry 或镜像覆盖。
 
 后续启动时，打包 bootstrap 将已下载资源提供给 SDK profile。`DSH_PRIMARY_RUNTIME` 覆盖缓存中的创作环境；空值禁用其查询和包管理器选择。`DSH_OFFICE_SIDECAR` 可选择包含独立 Node 的绝对 sidecar 目录。用户可自行提供 Python 环境和文档库，无需下载创作环境。选择任一种资源即可使用 Office skills；仅有创作环境时，skills 中的 Kit CLI 被禁用。外部创作载荷保留 `primary-runtime/` 及同级 `office-skills/` 布局。SDK 原位读取资源，不复制到 `DSH_HOME`。`sdk-minimal` profile 不挂载这些提供方。
@@ -55,6 +57,8 @@ Office 操作技能通过 profile 的 shell 命令调用配置的 Node 和 Kit C
 ## 打包后的 profile 解析
 
 `dsh` 在显式指定的主目录下初始化随附 profile、组合其 bundle patch，并从可执行程序的虚拟文件系统加载内置插件。运行时解析使用内存中的 generation，不创建磁盘符号链接或代理包。fallback 导入使用记录的声明包路径，包括可执行程序虚拟文件系统内的路径，因此内置配置项与外部插件 peer 共享内置的 Cordis／模块实例。原生共享库与 Windows ConPTY addon 会同其他原生 addon 一起打包；ripgrep 与 macOS PTY helper 仍是可执行伴随程序。
+
+同一个虚拟文件在不同 Windows 盘符下使用同一个模块 URL。URL 查询参数和片段保留其含义；虚拟 `/snapshot` 树以外的文件 URL（包括网络共享）保留解析器返回的结果。
 
 Python 与打包的 bootstrap 共享资源布局：`<cache>/<identity>/office/`、`node/bin/node[.exe]` 与 `node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js`。自动发现 Office 缓存要求 `complete` 标记匹配清单 identity；显式 `DSH_OFFICE_SIDECAR` 要求 Node 与 CLI 文件存在。Python bootstrap 从显式下载或选择的 sidecar 解析 Office kit，让原生辅助程序与 URL Worker 使用真实文件系统路径。仓库构建与显式 Python 下载共用资源准备实现。kit 负责文档操作；Office smoke 从已加载技能获取 CLI 路径，并在空 PATH 下执行 capabilities 和 DOCX 转换。
 

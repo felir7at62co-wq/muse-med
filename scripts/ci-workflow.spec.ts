@@ -1355,6 +1355,36 @@ describe('Python release workflows', () => {
     }
   })
 
+  it('qualifies the installed Windows wheel from a non-C working, temporary and native cache drive', () => {
+    const build = workflowJob(loadWorkflow('.github/workflows/build-exe-for-python-sdk.yml'), 'build')
+    if (!Array.isArray(build.steps)) throw new TypeError('Python wheel builder must define steps')
+    const steps = build.steps.filter(isRecord)
+    const installIndex = steps.findIndex(step => step.id === 'smoke-venv-windows')
+    const testIndex = steps.findIndex(step => step.name === 'Run installed-wheel SDK turn from a non-C drive')
+    expect(installIndex).toBeGreaterThanOrEqual(0)
+    expect(testIndex).toBeGreaterThan(installIndex)
+    const step = steps[testIndex]
+    expect(step).toMatchObject({ if: "runner.os == 'Windows' && runner.environment == 'github-hosted'", shell: 'pwsh' })
+    expect(step).not.toHaveProperty('continue-on-error')
+    for (const expected of ['steps.smoke-venv-windows.outputs.python', 'RUNNER_TEMP', '^[A-BD-Z]:',
+      'TMPDIR', 'TEMP', 'TMP', 'PKG_NATIVE_CACHE_PATH', 'MUSE_*', 'PYTHONPATH', 'DSH_RUNTIME_MODE',
+      'DSH_PRIMARY_RUNTIME', 'DSH_OFFICE_SIDECAR', 'NODE_PATH', 'NODE_OPTIONS', 'PKG_EXECPATH',
+      "DSH_TELEMETRY_DISABLED = '1'", 'tempfile.gettempdir()', 'Path.cwd().resolve(strict=True)',
+      '--scenario sdk-default --installed-wheel', 'if ($LASTEXITCODE -ne 0)', 'Pop-Location',
+      'Refusing cleanup outside the owned runner temp directory']) {
+      expect(step?.run).toContain(expected)
+    }
+    if (typeof step?.run !== 'string') throw new TypeError('Non-C wheel smoke must define a command')
+    const drivePatterns = [...step.run.matchAll(/-notmatch '([^']+)'/g)].map(match => new RegExp(match[1]!, 'i'))
+    expect(drivePatterns).toHaveLength(2)
+    for (const pattern of drivePatterns) {
+      for (const path of [String.raw`D:\runner\temp`, String.raw`z:\owned\cache`]) expect(pattern.test(path)).toBe(true)
+      for (const path of [String.raw`C:\runner\temp`, String.raw`c:\cache`, String.raw`D:relative`, String.raw`\\server\share`, '/tmp']) {
+        expect(pattern.test(path)).toBe(false)
+      }
+    }
+  })
+
   it('uses the shared macOS deployment-target check in GitLab', () => {
     const workflow = loadWorkflow('.gitlab-ci.yml')
     const runtimeWheel = workflow['.runtime-wheel']
