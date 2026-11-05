@@ -85,6 +85,32 @@ async function harness(script: Response[], always = false, recoveryAttempts = 1)
 }
 
 describe('bounded local request recovery', () => {
+  it('keeps one agent recovery pending while another agent finishes and is disposed', async () => {
+    const test = await harness([loop(), done(), done()])
+    const entered = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    test.ctx.on('agent/request-error', async (_payload, next) => {
+      entered.resolve(undefined)
+      await release.promise
+      return next()
+    }, { prepend: true })
+    const run = test.run()
+    await entered.promise
+    const other = await test.ctx.agents.create({ sessionId: SessionId('argument-recovery-unrelated'),
+      agentOptions: { provider: 'mock', model: 'mock' } })
+    try {
+      other.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Finish an independent task.' }] }))
+      await other.agent.whenIdle()
+      await other.dispose()
+    } finally {
+      release.resolve(undefined)
+    }
+    await run
+    expect(test.adapter.requests).toHaveLength(3)
+    expect(test.effects.forbidden).toBe(0)
+    expect(test.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
+  })
+
   it('retains earlier effects and failed raw output while resampling only the unsettled response', async () => {
     const test = await harness([
       [call('retained'), { type: 'finish', reason: { kind: 'tool-calls' } }], loop(),

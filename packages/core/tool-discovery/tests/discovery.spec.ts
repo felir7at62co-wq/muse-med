@@ -144,6 +144,113 @@ async function manage(f: Awaited<ReturnType<typeof fixture>>, agent: Agent,
 }
 
 describe('Loader-composed tool discovery', () => {
+  it('presents search and context calls and rejects execution without an initiating agent', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-calls-'))
+    const f = await fixture(root)
+    try {
+      const searchTool = f.ctx.tools.get('tool_search')!
+      expect(searchTool.presentCall!({ query: 'video' })).toMatchObject({ title: 'Discover tools', rawInput: 'video' })
+      expect(searchTool.presentCall!({ capability: 'video' })).toMatchObject({ rawInput: 'video' })
+      expect(searchTool.presentCall!({})).toMatchObject({ rawInput: '' })
+      expect(f.ctx.tools.get('tool_context')!.presentCall!({ operation: 'status' }))
+        .toMatchObject({ title: 'Manage tool context', rawInput: 'status' })
+      for (const name of ['tool_search', 'tool_context']) {
+        const response = await f.ctx.tools.execute({ name, arguments: name === 'tool_context' ? { operation: 'status' } : {},
+          callId: ToolCallId(`unowned-${name}`), signal: new AbortController().signal })
+        expect(response.isError).toBe(true)
+        expect(response.content.filter(block => block.type === 'text').map(block => block.text).join('')).toContain('requires an agent session')
+      }
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it.each([
+    [{ id: ' ', title: 'Blank', description: '', tools: ['video_*'] }],
+    [{ id: 'same', title: 'First', description: '', tools: ['video_*'] }, { id: 'same', title: 'Second', description: '', tools: ['export_word'] }],
+    [{ id: 'invalid', title: 'Pattern', description: '', tools: ['video_*_other'] }],
+  ])('rejects unusable capability registration %j', async (...capabilities) => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-config-'))
+    try {
+      await expect(fixture(root, { capabilities })).rejects.toThrow()
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('retains bounded names and omission counts when metadata is larger than the result budget', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-large-metadata-'))
+    const f = await fixture(root, { maxResultChars: 256, capabilities: [
+      { id: 'oversized'.repeat(40), title: 'Oversized', description: 'Long group', tools: ['video_inspect'] },
+      { id: 'small', title: 'Small', description: 'x'.repeat(1000), tools: ['export_word'] },
+    ] })
+    try {
+      const agent = await f.create('large-metadata')
+      const directory = await discover(f, agent, {})
+      expect(directory.text.length).toBeLessThanOrEqual(256)
+      expect(directory.value.capabilities).toEqual([{ id: 'small', title: 'Small', description: '', tool_count: 1 }])
+      expect(z.object({ omitted_capabilities: z.number() }).parse(JSON.parse(directory.text)).omitted_capabilities).toBe(1)
+      const longName = `oversized_tool_${'x'.repeat(250)}`
+      f.ctx.tools.register(defineTool({ name: longName, description: 'Large metadata '.repeat(30), parameters: {},
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, execute: async () => 'unused' }))
+      const result = await discover(f, agent, { query: longName })
+      expect(result.text.length).toBeLessThanOrEqual(256)
+      expect(result.value.loaded).toEqual([])
+      expect(result.value.omitted).toBe(result.value.matched)
+      expect(result.value.matched).toBeGreaterThan(0)
+      f.ctx.tools.register(defineTool({ name: 'compact_name', description: 'Large description '.repeat(30), parameters: {},
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, execute: async () => 'unused' }))
+      expect((await discover(f, agent, { query: 'compact_name' })).value.loaded)
+        .toEqual([{ name: 'compact_name', description: '', capabilities: [] }])
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it.each(['tool_search', 'tool_context'])('ignores malformed persisted %s receipts and keeps repeated discovery idempotent', async (name) => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-malformed-receipt-'))
+    const f = await fixture(root)
+    try {
+      const agent = await f.create('malformed-receipt')
+      const restore = f.ctx.on('tools/post-execute', async (exec, _result, next) => {
+        const decision = await next()
+        return exec.name === name ? { kind: 'accept' as const, content: [{ type: 'text' as const, text: '{' }] } : decision
+      })
+      if (name === 'tool_search') await search(f, agent, 'video_inspect')
+      else await manage(f, agent, 'load', ['video_inspect'])
+      expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })
+      restore()
+      await search(f, agent, 'video_inspect')
+      await search(f, agent, 'video_inspect')
+      expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: ['video_inspect'], pinned: [] })
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('attaches discovery to existing agents after reload and disposes an unowned agent safely', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-existing-agent-'))
+    const f = await fixture(root)
+    try {
+      const agent = await f.create('existing-agent')
+      const original = [...f.ctx.loader.entries()].find(row => row.options.id === 'discovery')!
+      await original.fiber!.dispose()
+      await f.ctx.plugin(Discovery, { alwaysLoad: ['base_read'] }).await()
+      expect(await shown(f.ctx, agent)).toEqual(['base_read', 'tool_context', 'tool_search'])
+      const handle = await f.ctx.agents.create({ sessionId: SessionId('discovery-denied-disposal'), meta: { cwd: root },
+        agentOptions: { provider: 'mock', model: 'mock' }, setup: (scope) => { scope.tools.restrict({ deny: ['tool_search'] }) } })
+      await handle.dispose()
+      expect(f.ctx.agents.get(handle.agent.id)).toBeUndefined()
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
+  it('does not reuse cached preferences after their owning provider is replaced', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-preference-owner-'))
+    const f = await fixture(root)
+    try {
+      const first = f.ctx.toolDiscovery.registerResidency({ matches: () => true, read: async () => ['video_inspect'], write: async () => {} })
+      const agent = await f.create('replaced-preference-owner')
+      expect(f.ctx.toolDiscovery.state(agent).pinned).toEqual(['video_inspect'])
+      await first()
+      f.ctx.toolDiscovery.registerResidency({ matches: () => true, read: async () => ['export_word'], write: async () => {} })
+      expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })
+      await f.ctx.toolDiscovery.refresh(agent)
+      expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: ['export_word'], pinned: ['export_word'] })
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
   it('includes authorized capability guidance in the first logged request without loading schemas', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-guidance-'))
     const f = await fixture(root)
@@ -369,6 +476,29 @@ describe('Loader-composed tool discovery', () => {
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
   })
 
+  it('keeps unrelated PTC dispatches outside the discovery projection', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-unrelated-ptc-'))
+    const f = await fixture(root)
+    try {
+      await f.ctx.plugin(AssemblyRuntime)
+      const runtime = f.ctx.ptcRuntime
+      if (!(runtime instanceof AssemblyRuntime)) throw new Error('Missing test runtime')
+      runtime.behavior = async (request) => {
+        const read = request.bindings[0]?.functions.base_read
+        if (!read) throw new Error('Missing fixture read binding')
+        return { logs: [], value: await read({}) }
+      }
+      const agent = await f.create('unrelated-ptc', { setup: (scope) => { scope.tools.presentAs('ptc') } })
+      f.responses.push(toolCallResponse('unrelated-code', 'run_code', {
+        description: 'Read through a resident tool.', code: 'return await tools.base_read({})',
+      }), textResponse('Read.'))
+      await send(agent)
+      expect(agent.session.snapshotEvents().filter(event => event.type === 'tool/ptc-dispatch')
+        .map(event => event.data.name)).toEqual(['base_read'])
+      expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
+
   it('loads only committed successful receipts, leaving failed searches unchanged', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-commit-'))
     const f = await fixture(root)
@@ -590,6 +720,7 @@ describe('Loader-composed tool discovery', () => {
       expect((await manage(f, agent, 'release', ['base_read', 'export_word']))?.isError).toBe(true)
       expect((await manage(f, agent, 'release', ['tool_context']))?.isError).toBe(true)
       expect((await manage(f, agent, 'load', []))?.isError).toBe(true)
+      expect((await manage(f, agent, 'load', ['  ']))?.isError).toBe(true)
       expect((await manage(f, agent, 'status', ['export_word']))?.isError).toBe(true)
       expect((await manage(f, agent, 'pin', ['missing_tool']))?.isError).toBe(true)
       expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })

@@ -98,7 +98,6 @@ export function apply(ctx: Context, config: Config): void {
       if (failure.code !== TOOL_ARGUMENT_LOOP || recovery?.pending !== true) return next()
       recovery.pending = false
       signal.throwIfAborted()
-      if (!active) throw new LlmError(failure.message, TOOL_ARGUMENT_LOOP)
       return Promise.resolve({ kind: 'retry' })
     }, { prepend: true })
     ctx.on('llm/stream', (options, next) => {

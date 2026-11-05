@@ -67,6 +67,17 @@ async function collect(stream: AsyncIterable<StreamChunk>, chunks: StreamChunk[]
 }
 
 describe('explicit configuration and request selection', () => {
+  it('uses zero recovery when the direct plugin application omits the optional budget', async () => {
+    const ctx = new Context()
+    contexts.add(ctx)
+    await ctx.plugin(LlmRuntime)
+    const adapter = new ScriptedAdapter([blockEnd(0, repeatedMembers(2))])
+    ctx.llm.registerAdapter(['scripted'], adapter)
+    guard.apply(ctx, { repeatedPropertyLimit: 2 })
+    await expect(collect(ctx.llm.stream(request()))).rejects.toMatchObject({ code: guard.TOOL_ARGUMENT_LOOP })
+    expect(adapter.requests).toBe(1)
+  })
+
   it('keeps named plugin exports without a default', () => {
     expect('default' in guard).toBe(false)
     expect(guard.name).toBe('tool-argument-loop')

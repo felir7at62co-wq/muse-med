@@ -12,7 +12,9 @@ import {
   prepareEpisode,
   prepareStagedEpisodeAudio,
   resolveShots,
+  stagedEpisodeEndingAssets,
 } from '../src/prepare.ts'
+import { ENDING_AUDIO_ASSET, ENDING_EFFECT_ASSET } from '../src/delivery.ts'
 import type { SubtitleCue } from '../src/types.ts'
 import { cleanup, probeHandler, sizeOf, srtDocument, stubChannel, tempProject, writePlaceholder, type StubHandler } from './harness.ts'
 
@@ -165,6 +167,17 @@ describe('cueOverrunWarnings', () => {
 })
 
 describe('prepareStagedEpisodeAudio', () => {
+  it.each(['animation_3d', 'photorealistic'] as const)('selects the shipped ending assets for the authored %s delivery', async (medium) => {
+    const project = await tempProject()
+    temporary.push(project)
+    const paths = episodePaths(project, '02')
+    await writePlaceholder(join(project, 'project_config.json'), JSON.stringify({ project_bible: { visual_medium: medium } }))
+    await writePlaceholder(paths.timeline, JSON.stringify({ clips: [{ shot: 1, start_us: 0, duration_us: 1_000_000 }],
+      delivery: { visual_medium: medium, width: 64, height: 64, fps: 25 } }))
+    const assets = await stagedEpisodeEndingAssets({ project, timelinePath: paths.timeline })
+    expect(assets).toEqual(medium === 'photorealistic' ? { audio: ENDING_AUDIO_ASSET, effect: ENDING_EFFECT_ASSET } : undefined)
+  })
+
   it('places the staged clips’ embedded audio on the authored clock without changing the timeline', async () => {
     const project = await tempProject()
     temporary.push(project)
