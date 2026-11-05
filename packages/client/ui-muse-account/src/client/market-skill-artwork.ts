@@ -42,7 +42,7 @@ const portraitsByName = new Map<string, MarketPresetPortraitId>([
   ['trope-adaptation', 'adaptation-planner'],
   ['tweet-drama-asset-extract', 'asset-librarian'],
   ['tweet-drama-asset-vision-check', 'visual-consistency-reviewer'],
-  ['tweet-drama-background-render', 'environment-designer'],
+  ['tweet-drama-background-render', 'compositor'],
   ['tweet-drama-core', 'production-manager'],
   ['tweet-drama-delivery', 'delivery-coordinator'],
   ['tweet-drama-draft-build', 'video-editor'],
