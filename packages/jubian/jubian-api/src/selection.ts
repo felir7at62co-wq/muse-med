@@ -268,13 +268,14 @@ export function buildSubjectSelection(input: SubjectSelectionInput): SubjectSele
     if (httpUrl(asset.url ?? asset.assetUrl) !== officialUrl) invalid()
     const existing = existingByKey.get(key) ?? []
     if (existing.length > 1) invalid()
-    // The provider's own material fields are preserved: this PUT saves one
-    // selection, and dropping a field the provider owns would be a silent edit
-    // of everything else the storyboard already carried.
+    // Preserve unrelated provider fields while refreshing the selected identity and name aliases.
     const material: Record<string, unknown> = { ...(existing[0] ?? {}) }
     material.assetId = trusted
     material.materialAssetId = row.assetId
     material.fileName = row.assetName
+    for (const field of ['assetName', 'materialName']) {
+      if (field in material) material[field] = row.assetName
+    }
     material.materialKey = key
     material.materialType = 'image'
     material.materialUrl = officialUrl
