@@ -8,7 +8,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import remote from '@deepseek-ai/dsh-session-video/remote'
 import { createVideoStore } from './store.ts'
 import { NS, en, zh } from './locales.ts'
-import { VideoShelf } from './VideoShelf.tsx'
+import { VideoShelf, VideoShelfSpacer } from './VideoShelf.tsx'
 import { DeliveredVideoCard, GeneratedVideoCards } from './InlineVideoCard.tsx'
 import type { VideoInjected } from './face.ts'
 import { readSessionVideoConfig } from '../config.ts'
@@ -42,7 +42,10 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       },
     }
     scope.slots.inject('conversation.chat.pinned', () => scope.slots.register({
-      name: 'conversation.chat.pinned', id: 'muse-session-video', locale: NS, store, inject: () => injected,
+      name: 'conversation.chat.pinned', id: 'muse-session-video-spacer',
+    }, VideoShelfSpacer))
+    scope.slots.inject('conversation.content.overlay', () => scope.slots.register({
+      name: 'conversation.content.overlay', id: 'muse-session-video', locale: NS, store, inject: () => injected,
     }, VideoShelf))
     scope.slots.inject('deliverables.video', () => scope.slots.register({
       name: 'deliverables.video', select: () => true, locale: NS, store, inject: () => injected,

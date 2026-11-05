@@ -30,7 +30,7 @@
 
 /* Floating controls leave the transcript at the top while the backdrop fades
    it beneath the pointer-transparent drag band. Windows already clears its caption. */
-.headerFloating {
+.headerFloating:where(:not(:has([data-conversation-session-presentation='standard']))) {
   position: absolute;
   z-index: 21;
   inset: 0 0 auto;
@@ -41,6 +41,8 @@
   background: transparent;
 }
 
+.headerFade:has(+ .header [data-conversation-session-presentation='standard']) { display: none; }
+
 .headerFade {
   position: absolute;
   z-index: 18;
@@ -50,17 +52,17 @@
   background: linear-gradient(to bottom, var(--dsw-alias-bg-base), transparent);
 }
 
-.headerFloating:where(:not(:has(.tabs))) {
+.headerFloating:where(:not(:has([data-conversation-session-presentation='standard']))):where(:not(:has(.tabs))) {
   padding-bottom: 22px;
 }
 
-.headerFloating .titleRow {
+.headerFloating:where(:not(:has([data-conversation-session-presentation='standard']))) .titleRow {
   pointer-events: none;
 }
 
 /* Keep a single-line title inside the band before the centered 132px control.
    Leading clearance already consumes that band on macOS with a hidden sidebar. */
-.headerFloating .floatingTitle {
+.headerFloating:where(:not(:has([data-conversation-session-presentation='standard']))) .floatingTitle {
   display: flex;
   flex: 0 1 auto;
   align-items: center;
@@ -69,26 +71,26 @@
   max-width: min(320px, max(32px, calc(50% - 100px - var(--dsh-frame-leading-clearance, 0px) / 2)));
 }
 
-.headerFloating .floatingTitle .crumb {
+.headerFloating:where(:not(:has([data-conversation-session-presentation='standard']))) .floatingTitle .crumb {
   min-width: 0;
   max-width: 100%;
 }
 
-.headerFloating .floatingTitle .viewsMoreAnchor {
+.headerFloating:where(:not(:has([data-conversation-session-presentation='standard']))) .floatingTitle .viewsMoreAnchor {
   pointer-events: auto;
 }
 
-.headerFloating .floatingTitle .viewsMore {
+.headerFloating:where(:not(:has([data-conversation-session-presentation='standard']))) .floatingTitle .viewsMore {
   margin-top: 0;
 }
 
-.headerFloating .headerUtilities {
+.headerFloating:where(:not(:has([data-conversation-session-presentation='standard']))) .headerUtilities {
   margin-inline-start: auto;
 }
 
-.headerFloating .headerLeading,
-.headerFloating .headerUtilities,
-.headerFloating .headerCorner {
+.headerFloating:where(:not(:has([data-conversation-session-presentation='standard']))) .headerLeading,
+.headerFloating:where(:not(:has([data-conversation-session-presentation='standard']))) .headerUtilities,
+.headerFloating:where(:not(:has([data-conversation-session-presentation='standard']))) .headerCorner {
   pointer-events: auto;
 }
 
@@ -523,6 +525,14 @@
   --dsh-composer-card-max-width: min(calc(100% - 16px), 952px);
   --dsh-composer-side-clearance: 8px;
   --dsh-composer-dock-inset: 8px;
+}
+
+/* Outside the Chat frame's query-container stacking context. This host creates
+   no stacking context, so each occupant can layer its expanded panel separately. */
+.contentOverlays {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 .scrollBody {

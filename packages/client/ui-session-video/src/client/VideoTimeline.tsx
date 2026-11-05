@@ -58,7 +58,8 @@ function tickInterval(pixelsPerSecond: number): number {
 
 /**
  * Render real shot filmstrips, a ruler, and a 22px draggable playhead.
- * Pointer capture persists across controlled seeks; dragging ends on release, cancellation,
+ * Pressing the handle preserves its position; dragging measures the rendered filmstrip
+ * and retains the pointer offset at any page scale. Capture ends on release, cancellation,
  * lost capture, window blur, or unmount. Arrow keys
  * move by one second; Home and End seek the media endpoints. Endpoint gutters retain
  * the complete handle, and edge fades reflect actual remaining horizontal travel.
@@ -69,9 +70,11 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
   onSeek, onSelectShot, labels }: VideoTimelineProps): ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null)
   const laneRef = useRef<HTMLDivElement>(null)
+  const trackRef = useRef<HTMLDivElement>(null)
+  const suppressClick = useRef(false)
   const [edges, setEdges] = useState({ before: false, after: false })
   const [dragPointer, setDragPointer] = useState<number | null>(null)
-  const capture = useRef<{ target: HTMLDivElement; pointerId: number } | null>(null)
+  const capture = useRef<{ target: HTMLDivElement; pointerId: number; offset: number; originX: number; moved: boolean } | null>(null)
   const releaseCapture = useCallback(() => {
     const current = capture.current
     capture.current = null
@@ -94,11 +97,12 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
   }, [])
 
   const seekAt = useCallback((clientX: number) => {
-    const lane = laneRef.current
-    if (lane === null) return
-    const left = lane.getBoundingClientRect().left + PLAYHEAD_HALF_WIDTH
-    onSeek(Math.max(0, Math.min(duration, (clientX - left) / pixelsPerSecond)))
-  }, [duration, onSeek, pixelsPerSecond])
+    const track = trackRef.current
+    if (track === null) return
+    const bounds = track.getBoundingClientRect()
+    if (bounds.width <= 0) return
+    onSeek(Math.max(0, Math.min(duration, (clientX - bounds.left) / bounds.width * duration)))
+  }, [duration, onSeek])
 
   useLayoutEffect(() => {
     const scroll = scrollRef.current
@@ -128,11 +132,18 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
     const owner = capture.current?.target
     if (owner === undefined) return
     const move = (event: globalThis.PointerEvent) => {
-      if (event.pointerId === dragPointer && capture.current?.pointerId === dragPointer) seekAt(event.clientX)
+      const drag = capture.current
+      if (event.pointerId !== dragPointer || drag?.pointerId !== dragPointer) return
+      if (event.clientX !== drag.originX) drag.moved = true
+      if (drag.moved) seekAt(event.clientX - drag.offset)
     }
     const finish = (event: globalThis.PointerEvent) => {
       if (event.pointerId !== dragPointer || capture.current?.pointerId !== dragPointer) return
-      if (event.type === 'pointerup') seekAt(event.clientX)
+      const drag = capture.current
+      if (event.type === 'pointerup') {
+        if (drag.moved) seekAt(event.clientX - drag.offset)
+        suppressClick.current = true
+      }
       releaseCapture()
       setDragPointer(null)
     }
@@ -160,10 +171,11 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
     event.preventDefault()
     const target = event.currentTarget
     target.focus({ preventScroll: true })
-    capture.current = { target, pointerId: event.pointerId }
+    const bounds = target.getBoundingClientRect()
+    capture.current = { target, pointerId: event.pointerId,
+      offset: event.clientX - bounds.left - bounds.width / 2, originX: event.clientX, moved: false }
     target.setPointerCapture(event.pointerId)
     setDragPointer(event.pointerId)
-    seekAt(event.clientX)
   }
 
   function moveWithKeyboard(event: KeyboardEvent<HTMLDivElement>): void {
@@ -187,10 +199,13 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
   return <div className={styles.window}>
     <div ref={scrollRef} className={styles.scroll} role="group" aria-label={labels.timeline}
       tabIndex={0} onScroll={updateEdges}>
-      <div ref={laneRef} className={styles.lane} style={laneStyle} onClick={(event) => {
-        if (event.target instanceof Element && event.target.closest('[role="slider"]')) return
-        seekAt(event.clientX)
-      }}>
+      <div ref={laneRef} className={styles.lane} style={laneStyle}
+        onPointerDownCapture={() => { suppressClick.current = false }} onClickCapture={(event) => {
+          if (suppressClick.current && event.detail > 0) { suppressClick.current = false; event.stopPropagation() }
+        }} onClick={(event) => {
+          if (event.target instanceof Element && event.target.closest('[role="slider"]')) return
+          seekAt(event.clientX)
+        }}>
         <div className={styles.ruler} aria-hidden="true">
           {ticks.map((time, index) => {
             const major = index % 4 === 0 || time === duration
@@ -201,7 +216,7 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
             </span>
           })}
         </div>
-        <div className={styles.track}>
+        <div ref={trackRef} className={styles.track} style={{ width: `${width}px` }}>
           {shots.map((shot, index) => {
             const shotStyle: TimelineStyle = {
               '--video-shot-left': `${shot.startSeconds * pixelsPerSecond}px`,
@@ -214,7 +229,7 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
               aria-pressed={shot.id === selectedShotId} onClick={(event) => {
                 event.stopPropagation()
                 onSelectShot(shot.id)
-                if (event.detail === 0) onSeek(shot.startSeconds)
+                if (event.detail === 0 || event.clientX === 0 && event.clientY === 0) onSeek(shot.startSeconds)
                 else seekAt(event.clientX)
               }} />
           })}

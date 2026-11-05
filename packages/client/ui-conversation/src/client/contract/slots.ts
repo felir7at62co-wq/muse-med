@@ -236,6 +236,17 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     }
     /** Resident navigation container, including when no Session is selected. */
     'conversation.header': { kind: 'single'; scope: 'session-maybe' }
+    /** Strict Session adapter for the shared body's overlay position. */
+    'conversation.content.overlayHost': { kind: 'single'; scope: 'session' }
+    /** Non-flowing Session overlays outside the Chat stacking context; occupants own their panel rank below dialogs. */
+    'conversation.content.overlay': {
+      kind: 'list'
+      scope: 'session'
+      owner: {
+        /** Resolved registered View, or null while no View is available. */
+        activeView: string | null
+      }
+    }
     /** Strict per-Session title, actions, and View navigation. */
     'conversation.session.header': {
       kind: 'single'
@@ -370,6 +381,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       props: ConversationContentInputProps
       children: {
         'conversation.session': { kind: 'single'; scope: 'session' }
+        'conversation.content.overlayHost': { kind: 'single'; scope: 'session' }
         'conversation.composer': { kind: 'chain'; scope: 'session' }
         'conversation.composer.bar': { kind: 'single'; scope: 'session-maybe' }
         'conversation.input.dock': { kind: 'list'; scope: 'session' }
@@ -689,6 +701,17 @@ export type ConversationHeaderProps =
   PropsRuntime<'conversation.header'>
   & InjectFace<ConversationHeaderInjected>
   & PropsRenderSlots<'conversation.header.leading' | 'conversation.session.header'>
+
+/** Registered Views read by the strict Session overlay adapter. */
+export interface ConversationOverlayHostInjected {
+  readonly hooks: { readonly conversationViews: ObservableSnapshot<readonly ViewTab[]> }
+}
+
+/** Full props of the strict Session overlay adapter. */
+export type ConversationOverlayHostProps = PropsRuntime<'conversation.content.overlayHost'>
+  & PropsStore<ConversationStore>
+  & InjectFace<ConversationOverlayHostInjected>
+  & PropsRenderSlots<'conversation.content.overlay'>
 
 /** Full props of the strict Session header. */
 export type ConversationSessionHeaderSlotProps =

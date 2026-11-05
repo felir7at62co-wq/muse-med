@@ -8,11 +8,22 @@ import { useCurtainPresence } from './useCurtainPresence.ts'
 import { assembleTimeline } from './timeline.ts'
 import css from './VideoShelf.module.css'
 
-/** Mount the spider control outside the clipped Chat scroll surface.
- * @param props - Native Session context and this plugin's declared store.
- * @returns The compact toggle and one expandable player bubble.
+/** Keep the Chat header footprint independent of the overlay's expanded height.
+ * @returns The non-interactive pinned spacer.
  */
-export function VideoShelf(props: PropsRuntime<'conversation.chat.pinned'> & VideoShared) {
+export function VideoShelfSpacer() {
+  return <div className={css.spacer} data-muse-video-spacer aria-hidden="true" />
+}
+
+/** Mount the spider control only beside the active Chat view.
+ * @param props - Native Session context and this plugin's declared store.
+ * @returns The overlay player bubble, or null while another view is active.
+ */
+export function VideoShelf(props: PropsRuntime<'conversation.content.overlay'> & VideoShared) {
+  return props.activeView === 'chat' ? <VideoShelfContents {...props} /> : null
+}
+
+function VideoShelfContents(props: PropsRuntime<'conversation.content.overlay'> & VideoShared) {
   const { useStore, actions, sessionId, useSession, useChat, listVideos, detectShots, pixelsPerSecond, inputActions, useInput, t } = props
   const sources = useStore(state => state.sources)
   const open = useStore(state => state.open)
@@ -80,7 +91,7 @@ export function VideoShelf(props: PropsRuntime<'conversation.chat.pinned'> & Vid
   }
   return <div className={css.seat} data-muse-video-shelf data-open={open || undefined} data-present={present || undefined}>
     <section className={css.bubble} aria-label={t('library')}>
-      <div className={css.heading}>
+      <div className={css.heading} data-muse-video-heading>
         {source !== undefined && <div className={css.sourcePill} data-muse-video-source-pill
           data-open={open || undefined} aria-hidden={!open} ref={(element) => { if (element) element.inert = !open }}>
           <select aria-label={t('library')} value={source.id} onChange={(event) => {
@@ -94,6 +105,18 @@ export function VideoShelf(props: PropsRuntime<'conversation.chat.pinned'> & Vid
           <span className={css.spider} aria-hidden="true" /><span>{t('brand')}</span>
           {open ? <IconChevronUpOutlineRegular /> : <IconChevronDownOutlineRegular />}
         </button>
+        {source !== undefined && <div className={css.sourceControls} data-muse-video-redo
+          data-open={open || undefined} aria-hidden={!open} ref={(element) => { if (element) element.inert = !open }}>
+          <Tooltip label={t('selectShotToRedo')} disabled={shot !== undefined || !open} portal>
+            <span><Button size="sm" disabled={shot === undefined} onClick={() => {
+              if (shot === undefined) return
+              const prompt = t('redoPrompt', { name: shot.source.label, source: shot.source.path ?? shot.source.id, id: shot.id,
+                start: shot.localStart.toFixed(3), end: shot.localEnd.toFixed(3) })
+              const span = { start: draftLength, end: draftLength, draftRev }
+              if (inputActions.insertText(`\n\n${prompt}`, span)) inputActions.persistDraft()
+            }}><IconRefreshOutlineRegular /><span className={css.redoLabel}>{t('redo')}</span></Button></span>
+          </Tooltip>
+        </div>}
       </div>
       <div className={css.curtain} aria-hidden={!open} ref={(element) => {
         curtain.current = element
@@ -102,17 +125,6 @@ export function VideoShelf(props: PropsRuntime<'conversation.chat.pinned'> & Vid
         <div className={css.curtainInner}>
           {present && <div className={css.contents}>
             {source === undefined ? <p className={css.status} role="status">{t(loadError ? 'unavailable' : 'empty')}</p> : <>
-              <div className={css.sourceControls}>
-                <Tooltip label={t('selectShotToRedo')} disabled={shot !== undefined} portal>
-                  <span><Button size="sm" disabled={shot === undefined} onClick={() => {
-                    if (shot === undefined) return
-                    const prompt = t('redoPrompt', { name: shot.source.label, source: shot.source.path ?? shot.source.id, id: shot.id,
-                      start: shot.localStart.toFixed(3), end: shot.localEnd.toFixed(3) })
-                    const span = { start: draftLength, end: draftLength, draftRev }
-                    if (inputActions.insertText(`\n\n${prompt}`, span)) inputActions.persistDraft()
-                  }}><IconRefreshOutlineRegular />{t('redo')}</Button></span>
-                </Tooltip>
-              </div>
               {source.playbackUrl !== null ? <VideoPlayer active={open} source={source} analysis={analyses[source.id]} t={t}
                 shots={timeline.shots} offset={timeline.offsets[source.id] ?? 0}
                 duration={timeline.duration} pixelsPerSecond={pixelsPerSecond} zoom={zoom} onZoom={setZoom}
