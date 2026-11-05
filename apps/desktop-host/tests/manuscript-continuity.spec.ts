@@ -203,6 +203,51 @@ it('uses the newly selected model in a real isolated child and records its mater
   expect(fixture.ctx.agents.list().map(agent => agent.id)).toEqual([fixture.parent.id])
 })
 
+it.each(['继续', '继续，另外第三集不要动'])('records the original human requirement and complete continuation %s in the isolated reviewer prompt', async (followup) => {
+  let encoded = ''
+  const fixture = await runtime([(options) => {
+    encoded = options.messages.flatMap(message => message.role === 'user'
+      ? message.content.flatMap(block => block.type === 'text' && block.text.startsWith('{"task"') ? [block.text] : []) : []).join('\n')
+    return toolCallResponse('continued-review', 'structured_output', { status: 'consistent', findings: [], unknowns: [] })
+  }])
+  const text = '请修正 candidate.md 的剧情前后混乱，遵守 mainline.md 的已认可要求并保留用户新增台词，输出真实 final.md。先实际完整读取两份文件；下一次模型请求读到正文后再生成最终稿。随后独立审校最终文件，按真实结论声明交付并 present；未核实或仍有问题时如实说明。不要只写代码示例、外部执行标签或下载链接。'
+  const request = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] })
+  const continuation = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: followup }] })
+  fixture.parent.session.append('user/message', request, { surfaceOp: 'append' })
+  fixture.parent.session.append('user/message', continuation, { surfaceOp: 'append' })
+  const result = await fixture.service.review([{ role: 'current', path: 'current.md' }], '核对最终稿', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'consistent', reason: 'reviewed', reviewer: { requests: 1 } })
+  expect(JSON.parse(encoded)).toMatchObject({ user_request: { message_id: request.id, text },
+    user_continuations: [{ message_id: continuation.id, text: followup }] })
+  expect(fixture.childSessions[0]!.snapshotEvents().some(event => event.type === 'user/message'
+    && JSON.stringify(event.data.content).includes(text))).toBe(true)
+  expect(encoded).not.toContain('Parent-only history.')
+})
+
+it('returns unknown without spawning when complete human requirements exceed the configured material limit', async () => {
+  const fixture = await runtime([], { maxMaterialChars: 150 })
+  fixture.parent.session.append('user/message', createUserMessage({ source: { kind: 'user' },
+    content: [{ type: 'text', text: '修正剧情并保留台词。'.repeat(20) }] }), { surfaceOp: 'append' })
+  fixture.parent.session.append('user/message', createUserMessage({ source: { kind: 'user' },
+    content: [{ type: 'text', text: '继续' }] }), { surfaceOp: 'append' })
+  const result = await fixture.service.review([{ role: 'current', path: 'current.md' }], '核对最终稿', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'unknown', reason: 'task_context_limit', file_verification: 'verified',
+    reviewer: { requests: 0, session_id: null } })
+  expect(result.unknowns[0]).toContain('configured character limit')
+  expect(fixture.childSessions).toHaveLength(0)
+})
+
+it('returns unknown without a child when a retained continuation has no recoverable human requirement', async () => {
+  const fixture = await runtime([])
+  const continuation = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '继续' }] })
+  vi.spyOn(fixture.parent.session, 'deriveMessages').mockReturnValue([continuation])
+  const result = await fixture.service.review([{ role: 'current', path: 'current.md' }], '核对最终稿', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'unknown', reason: 'task_context_missing', file_verification: 'verified',
+    reviewer: { requests: 0, session_id: null } })
+  expect(result.unknowns).toEqual(['The continued human requirement is unavailable; restate it before reviewing.'])
+  expect(fixture.childSessions).toHaveLength(0)
+})
+
 it('rejects reference as an identity in a current-only child through the actual structured tool', async () => {
   const fixture = await runtime([
     (options) => {

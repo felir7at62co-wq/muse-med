@@ -52,9 +52,13 @@ Office 组合全局注册 `manuscript_revision`，对照实际上一稿与返回
 
 `continuity` 动作接收相同的显式稿件和 `task`，使用父会话当前选择的模型启动独立只读审校。审校接收完整所选材料，不继承写作者的聊天历史，只能提交 `structured_output`。问题通过提取正文行的准确引文定位因果缺口、事件顺序、人物或道具状态及重复事件。状态与问题／未知项数组自相矛盾时，提交入口先拒绝记录结构化结果，并在同一请求预算内返回工具反馈；不会静默清除不确定项。Host 核验每条引文和文件版本；证据无效、文件变化、没有结果或预算耗尽时返回未核实，不判为通过。结果列明审校子会话和核对范围；范围内一致不代表未读集数或创作品质通过。审校不修改文件。正常停止但未提交结构化结果时，最多记录并补发 `continuityMaxCorrections` 次提交提醒，仍计入同一请求总预算；推理文本不充当审校结果。卸载所属插件时先停止入场并等待活动审校结束，再移除其限制和预设。`continuityMaxRequests`、`continuityMaxOutputTokens`、`continuityTimeoutMs` 与 `continuityMaxFindings` 限制单次审校；取消会停止子会话并等待清理。
 
+“继续”和“继续，另外第三集不要动”等明确续接在独立审校输入中保留最近一条此前真人要求、完整续接文字及各自日志标识。其他真人请求开始新的要求；助手文字和稿件内的指令不提供任务要求。完整要求与续接文字须符合 `maxMaterialChars`；超限或续接所指原要求不可恢复时返回未核实，不启动审校子会话。
+
 只读 `measure` 动作通过显式 `source_paths` 与 `candidate_paths` 比较同一故事范围，不建立返稿基线。结果包含文件哈希、各文件与合计计数、差额及增幅。计数含标题和人物名，分别统计文字数字数与非空白字符数，两者均不估算 Word 字数或净正文。`max_growth_percent` 传入用户的增幅上限；纯 ASR 对白不能充当含画面动作剧本的等量来源。
 
 `delivery` 动作通过 `candidate_paths` 登记实际最终文件，并返回每个文件的标签。编写或修改剧本的任务中，`present` 要求当前文件字节匹配已有一致性审校的 `reviewed` 登记，或附说明的明确 `draft` 登记；描述须原样使用返回标签。实际核对的集数或行范围保留在标签中，局部审校不代表全文通过。文件字节变化后登记失效。Word 交付须核对最终 Word，不继承 Markdown 审校。对已有待交付文件却停止，或用户明确要求剧本文件却没有核实交付回执的轮次，最多追加配置次数的已记录提醒。代码块、外部执行标签与文本链接不代表本机执行或文件交付；提醒不猜测路径、不执行引用代码，取消和新的真人请求不触发续接。自动识别要求常见场次标题与戏剧动作或对白同时存在；其他自定义格式可显式登记最终文件，启用相同的版本与标签检查。普通报告、仅翻译与仅格式转换保持原交付方式。`continuityDeliveryChecks` 默认启用上述检查，`continuityMaxDeliveryCorrections` 限制提醒次数。参见[交付迁移指南](../../docs/upgrade-guide/v0.2.2-rc.1/muse-manuscript-delivery/guide.zh.md)。
+
+改稿任务的已复核交付须以所选原稿作为 `current`，不同路径的最终文件作为 `candidate` 对照；只审最终文件的内部核对不能批准改稿交付。已有已复核登记在交付时也须满足相同检查。全新创作无需虚构原稿，可进行内部审校；明确草稿仍可交付。[交付迁移指南](../../docs/upgrade-guide/v0.2.2-rc.1/muse-manuscript-delivery/guide.zh.md)说明调用步骤。
 
 本地记录保留在工作区的 `.muse/manuscript-revisions/` 下。Office 的 `manuscriptRevisions` 设置控制资源限额，对照不静默截断。差异作为已记录的上下文进入模型。参见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-manuscript-protection/guide.zh.md)。
 

@@ -247,7 +247,7 @@
           },
           "delivery_mode": {
             "type": "string",
-            "description": "delivery必填：reviewed只声明实际核对范围；draft明确未核验或仍有问题，不冒称修复完成。",
+            "description": "delivery必填，同时提供candidate_paths。reviewed只声明实际核对范围；改稿须先continuity对照不同路径的current原稿和candidate最终稿，只审最终稿不能声明改稿已复核。draft明确未核验或仍有问题，不冒称修复完成。",
             "enum": [
               "reviewed",
               "draft"
@@ -263,7 +263,7 @@
           },
           "documents": {
             "type": "array",
-            "description": "materials/continuity使用：恰好一份current，最多一份candidate，reference仅供参考。逐文件显式选集或提取文本行；省略范围读取全文，超限时缩小范围，不截断。",
+            "description": "materials/continuity使用：恰好一份current，最多一份candidate，reference仅供参考。修订已有剧本时，将所选原稿作为current，不同路径的最终稿作为candidate；不要只把最终稿设为current而遗漏原稿及保留要求。全新创作可仅审current。逐文件显式选集或提取文本行；省略范围读取全文，超限时缩小范围，不截断。",
             "items": {
               "type": "object",
               "additionalProperties": false,

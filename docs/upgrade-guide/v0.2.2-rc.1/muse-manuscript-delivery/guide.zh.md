@@ -18,5 +18,5 @@ description: "Muse 剧本交付要求当前版本的范围审校或明确草稿�
 ## 迁移
 
 1. Muse 内置配置已提供所需服务。加载 `@deepseek-ai/dsh-desktop-host/manuscript-revisions` 的自定义配置还须加载 `@deepseek-ai/dsh-session-projection`。独立一致性审校另需 [Host README](../../../../apps/desktop-host/README.zh.md) 所述的 Agent 注册、预设与 spawn 提供方。
-2. 修改剧本后保存最终交付文件，以 `action: continuity` 和显式稿件、范围调用 `manuscript_revision`。随后传入 `action: delivery`、`candidate_paths` 和 `delivery_mode: reviewed`；也可以使用 `delivery_mode: draft`，并以 `note` 说明尚未完成的检查。将返回的每个 `files[].label` 原样用作对应 `present` 描述。
+2. 修改剧本后保存最终交付文件，以 `action: continuity` 调用 `manuscript_revision`，将所选原稿设为 `current`，不同路径的最终文件设为 `candidate`，并明确范围。只审最终文件不能进行改稿任务的 `reviewed` 交付；已有登记在 `present` 时也须满足相同检查。全新创作可使用无原稿的内部审校。随后传入 `action: delivery`、`candidate_paths` 和 `delivery_mode: reviewed`；也可以使用 `delivery_mode: draft`，并以 `note` 说明尚未完成的检查。将返回的每个 `files[].label` 原样用作对应 `present` 描述。
 3. 验证文件变化及扩大到未查范围的标签会被拒绝，而明确草稿可以交付。只有有意停用此交付策略时才调整 Office 的 `manuscriptRevisions.continuityDeliveryChecks`；`continuityMaxDeliveryCorrections` 限制完成提醒次数。

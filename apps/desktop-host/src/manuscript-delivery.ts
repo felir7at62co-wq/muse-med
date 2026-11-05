@@ -12,7 +12,11 @@ import type {} from '@deepseek-ai/dsh-tool-executor-ptc'
 import { z } from 'zod'
 import { continuityFilesUnchanged, CONTINUITY_REVIEW_PRESET } from './manuscript-continuity.ts'
 import { isManuscript, readManuscript, type DocumentLimits } from './manuscript-document.ts'
+import { manuscriptDeliveryIntent, manuscriptTaskRequest, ManuscriptTaskContextLimitError,
+  type ManuscriptTaskRequest } from './manuscript-task-intent.ts'
 import type {} from './manuscript-revisions.ts'
+
+export { manuscriptDeliveryIntent } from './manuscript-task-intent.ts'
 
 /** Deployment limits; completed deliveries never become a global adopted-manuscript selection. */
 export interface ManuscriptDeliveryConfig extends DocumentLimits {
@@ -87,25 +91,6 @@ function parseBlocks<T>(content: readonly ContentBlock[], schema: z.ZodType<T>):
 export function manuscriptDeliveryMetadata(value: string): z.infer<typeof metadataFactSchema> | null {
   const parsed = z.union([reviewSchema, declarationSchema.omit({ note: true })]).safeParse(json(value))
   return parsed.success ? { manuscript_delivery_fact: parsed.data } : null
-}
-
-/** Classify actual user requests, preserving short continuations and excluding negated editing or screenplay creation.
- * @param text - Human-authored request, never manuscript contents or model prose.
- * @returns Writing, continuation, file requirement, or a new unrelated task.
- */
-export function manuscriptDeliveryIntent(text: string): { writing: boolean; continuation: boolean; file: boolean } {
-  const positive = text.replace(/(?:不需要|不|勿|无需|不要|不必)(?:再)?(?:进行|涉及|做)?(?:剧本|短剧|分集|分场|剧情|台词|对白)?(?:新增|改写|重写|修改|改稿|改变|续写|润色|创作|写作|修订)(?:\s*[\/、和或]\s*(?:新增|改写|重写|修改|改稿|改变|续写|润色|创作|修订))*(?:剧情|内容|稿件|剧本)?/gu, '')
-  const subject = /剧本|短剧|分集|分场|剧情|台词|对白|screenplay|short drama/iu.test(positive)
-  const action = /重写|改写|创作|写作|编写|续写|改稿|润色|精修|写|修改|修订|rewrite|write|revise/iu.test(positive)
-    || /(?:生成|generate).{0,12}(?:剧本|短剧|分集|分场|screenplay)/iu.test(positive)
-  const fileRequest = text.replace(/(?:不需要|不必|不要|不用|无需|勿|不)(?:再|另外|额外)?(?:(?:生成|导出|保存|交付|提供|输出)(?:\s*[或和、/]\s*(?:生成|导出|保存|交付|提供|输出))*)?\s*(?:文件|文档|Word|DOCX|Markdown)(?:\s*(?:格式)?(?:文件|文档))?/giu, '')
-  const file = /(?:交付|生成|导出|保存|提供|给我?|发送|发我|输出|做成|转成).{0,24}(?:文件|文档|\bword\b|\bdocx\b|\bmarkdown\b)/iu.test(fileRequest)
-    || /(?:文件|文档|\bword\b|\bdocx\b|\bmarkdown\b).{0,12}(?:交付|导出|保存|给我|发我)/iu.test(fileRequest)
-  const instructionOnly = /^(?:请)?(?:解释|讲解|介绍|说明|演示|如何|怎么|怎样|explain|how to)/iu.test(text.trim())
-    && !/(?:然后|同时|另外|并且|并|再)(?:帮我|实际|直接|现在|请你)(?:重写|改写|编写|修改|生成|导出|交付)/u.test(text)
-  return { writing: subject && action,
-    continuation: /^\s*(?:继续|接着|然后继续|给我文件|把.{0,12}(?:文件|Word|文档)给我|继续改|continue)[。！!\s]*$/iu.test(text),
-    file: file && !instructionOnly }
 }
 
 /** Recognize screenplay body structure only after an actual writing request identified a path.
@@ -195,7 +180,7 @@ function joinPresented(state: DeliveryState): DeliveryState {
  * @returns Host-only projection definition; no client or Session event vocabulary is added.
  */
 function manuscriptDeliveryProjection(maxDocuments: number): ProjectionDefinition<'muse.manuscript-delivery', DeliveryState> {
-  return { key: 'muse.manuscript-delivery', stateVersion: 3, stateSchema,
+  return { key: 'muse.manuscript-delivery', stateVersion: 4, stateSchema,
     init: header => ({ task_id: '', writing: false, file_request: false, cwd: header.cwd ?? '', turn: 0, corrections: 0,
       fingerprint: '', overflow: false, rows: [], outputs: [], calls: [], packets: [], presented: [] }),
     apply(state, event) { return foldDelivery(state, event, maxDocuments) } }
@@ -399,9 +384,25 @@ export class ManuscriptDelivery {
     if (pending?.size === 0) this.commits.delete(session)
   }
 
+  private reviewBasisProblem(review: Review | null | undefined, agent: Agent): Error | undefined {
+    let task: ManuscriptTaskRequest
+    try { task = manuscriptTaskRequest(agent.session.deriveMessages(), this.config.maxTextChars) }
+    catch (error) {
+      if (!(error instanceof ManuscriptTaskContextLimitError)) throw error
+      return failure('MANUSCRIPT_DELIVERY_BASELINE_REQUIRED', '完整真人任务要求超过核对预算，不能声明已复核；请缩小本轮要求或明确交付草稿。')
+    }
+    if (task.request === null && task.continuations.length > 0) {
+      return failure('MANUSCRIPT_DELIVERY_BASELINE_REQUIRED', '无法恢复续接所指的原真人任务要求，不能将内部自审声明为已复核；请补充本轮要求或明确交付草稿。')
+    }
+    if (!task.revision) return undefined
+    if (review?.target.role === 'candidate' && review.documents.some(document => document.role === 'current'
+      && document.path !== review.target.path)) return undefined
+    return failure('MANUSCRIPT_DELIVERY_BASELINE_REQUIRED', '本轮是修订已有剧本。只审最终稿不足以交付为已复核；请用 continuity 同时明确所选原稿 current 和不同路径的最终稿 candidate，核对原要求及改动后再声明。也可明确标为草稿。')
+  }
+
   /** Bind an explicit final output version and its honest reviewed range or draft label.
    * @param candidatePaths - Explicit final file paths, relative to the owning Session workspace.
-   * @param mode - Reviewed versions require a fresh consistent receipt; draft is explicitly unreviewed.
+   * @param mode - Reviewed revisions require a consistent comparison of selected original and final files; draft is explicitly unreviewed.
    * @param note - Required nonblank explanation for draft delivery, separate from the mandatory label.
    * @param agent - Owning Session; no other Session's receipts are consulted.
    * @param signal - Caller cancellation.
@@ -431,6 +432,8 @@ export class ManuscriptDelivery {
             || !await continuityFilesUnchanged(review.documents, this.config, checkSignal)) {
             throw failure('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED', '最终文件缺少有效的一致性审校，或仍有未解决的问题；请重新审校或明确标为草稿。')
           }
+          const basisProblem = this.reviewBasisProblem(review, agent)
+          if (basisProblem !== undefined) throw basisProblem
           const target = review.documents.find(document => sameIdentity(document, review.target))
           if (target === undefined) throw failure('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED', '审校结果缺少目标文件范围。')
           label = labelOf(review)
@@ -481,6 +484,10 @@ export class ManuscriptDelivery {
         if (declaration.mode === 'reviewed' && (!await continuityFilesUnchanged(bound.dependencies, this.config, signal)
           || row.unresolved.length > 0 || row.unresolved_overflow || row.review?.status !== 'consistent')) {
           return denial(failure('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED', '审校材料已变化或仍有待解决问题，请重新审校或声明草稿。'))
+        }
+        if (declaration.mode === 'reviewed') {
+          const basisProblem = this.reviewBasisProblem(row.review, agent)
+          if (basisProblem !== undefined) return denial(basisProblem)
         }
         if (file.description !== bound.label) return denial(failure('MANUSCRIPT_DELIVERY_LABEL_REQUIRED', `present.description 必须逐字使用服务返回的标签：${bound.label}`))
         if (declaration.mode === 'draft') mode = 'draft'

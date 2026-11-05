@@ -44,6 +44,7 @@ async function runtime(seed?: { session: Session; root: string }) {
   if (seed === undefined) {
     cleanups.push(() => rm(root, { recursive: true, force: true }))
     await writeFile(join(root, 'final.md'), body)
+    await writeFile(join(root, 'adopted.md'), body)
   }
   const ctx = new Context()
   cleanups.push(() => ctx.fiber.dispose())
@@ -71,9 +72,11 @@ async function runtime(seed?: { session: Session; root: string }) {
     logResult(session, 'manuscript_revision', { action: 'delivery', candidate_paths: paths, delivery_mode: mode }, result)
     return result
   }
-  async function review(status: 'consistent' | 'issues' | 'unknown', lines?: { start: number; end: number }, referenceVersion?: string) {
-    const materials = await readManuscriptMaterials([{ role: 'current', path: 'final.md', ...(lines === undefined ? {} : { lines }) }], root, config, signal)
-    const target = materials.documents[0]!
+  async function review(status: 'consistent' | 'issues' | 'unknown', lines?: { start: number; end: number }, referenceVersion?: string, selfOnly = false) {
+    const materials = await readManuscriptMaterials(selfOnly
+      ? [{ role: 'current', path: 'final.md', ...(lines === undefined ? {} : { lines }) }]
+      : [{ role: 'current', path: 'adopted.md' }, { role: 'candidate', path: 'final.md', ...(lines === undefined ? {} : { lines }) }], root, config, signal)
+    const target = materials.documents.find(document => document.role === (selfOnly ? 'current' : 'candidate'))!
     if (referenceVersion !== undefined) materials.documents.push({ ...target, role: 'reference', path: join(root, 'reference.md'), file_sha256: referenceVersion })
     const value = { state: 'continuity', advisory: true, scope: 'returned_text_lines_only', status, reason: 'reviewed',
       target: { role: target.role, path: target.path, file_sha256: target.file_sha256, text_sha256: target.text_sha256 },
@@ -177,7 +180,7 @@ it('replays an older delivery checkpoint instead of retaining its report misclas
     val: { ...z.record(z.string(), z.unknown()).parse(current.val), writing: true, file_request: true } }
   const restored = f.ctx.sessionProjections.restore({ [key]: stale }, f.session.snapshotEvents(),
     SessionLogOffset(0), f.session.header, SessionLogOffset(0))
-  expect(restored.checkpoint[key]).toMatchObject({ ver: 3, val: { writing: false, file_request: false } })
+  expect(restored.checkpoint[key]).toMatchObject({ ver: 4, val: { writing: false, file_request: false } })
 })
 
 it('blocks unreviewed direct present, accepts explicit draft and rejects a stale same-path declaration', async () => {
@@ -200,6 +203,48 @@ it('requires fresh review dependencies and canonical uniqueness before declaring
   expect((await f.present(declaration.files[0]!.label)).isError).toBe(false)
   await expect(f.declare('draft', ['final.md', './final.md'], '未复核')).rejects.toThrow('同一规范路径')
   await expect(f.declare('draft', Array.from({ length: 5 }, () => 'final.md'), '未复核')).rejects.toThrow('分批交付')
+})
+
+it('requires selected original and candidate materials before a continued revision can be declared reviewed', async () => {
+  const f = await runtime()
+  human(f.session, '继续')
+  await f.review('consistent', undefined, undefined, true)
+  await expect(f.declare('reviewed')).rejects.toThrow('MANUSCRIPT_DELIVERY_BASELINE_REQUIRED')
+  const draft = await f.declare('draft', ['final.md'], '只完成最终稿内部核对，尚未对照原稿。')
+  expect((await f.present(draft.files[0]!.label)).isError).toBe(false)
+  await f.review('consistent')
+  const reviewed = await f.declare('reviewed')
+  expect((await f.present(reviewed.files[0]!.label)).isError).toBe(false)
+})
+
+it('permits a new screenplay to use a full internal review without inventing an original draft', async () => {
+  const f = await runtime()
+  human(f.session, '创作全新的三集短剧并交付文件。')
+  await f.review('consistent', undefined, undefined, true)
+  const declaration = await f.declare('reviewed')
+  expect((await f.present(declaration.files[0]!.label)).isError).toBe(false)
+})
+
+it('does not infer a new creation when only a continuation remains in restored human context', async () => {
+  const previous = await runtime()
+  const id = SessionId(`orphan-continuation-${++serial}`)
+  const session = Session.create(id, [], { ...previous.session.header, id })
+  session.append('turn/start', { turn: 1 })
+  const f = await runtime({ root: previous.root, session })
+  human(f.session, '继续')
+  await f.review('consistent', undefined, undefined, true)
+  await expect(f.declare('reviewed')).rejects.toThrow('MANUSCRIPT_DELIVERY_BASELINE_REQUIRED')
+  const draft = await f.declare('draft', ['final.md'], '原任务要求不可恢复，暂交草稿。')
+  expect((await f.present(draft.files[0]!.label)).isError).toBe(false)
+})
+
+it('rejects a persisted reviewed declaration that used only the final draft for a revision', async () => {
+  const f = await runtime()
+  await f.review('consistent', undefined, undefined, true)
+  const legacy = { ...await f.declare('draft', ['final.md'], '旧版收据对照。'), mode: 'reviewed' }
+  logResult(f.session, 'manuscript_revision', { action: 'delivery' }, legacy)
+  expect(await f.present(legacy.files[0]!.label)).toMatchObject({ isError: true,
+    error: { info: { code: 'MANUSCRIPT_DELIVERY_BASELINE_REQUIRED' } } })
 })
 
 it.each(['issues', 'unknown'] as const)('does not clear earlier %s with an unrelated partial consistent review', async (status) => {
