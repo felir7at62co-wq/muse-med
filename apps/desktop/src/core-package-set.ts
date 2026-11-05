@@ -82,9 +82,9 @@ export const DESKTOP_CODEX_RUNTIME_FILES = [
 /** Source-built community plugins and Muse tools, with no registry substitution. */
 export const DESKTOP_SOURCE_PLUGINS = [
   'dshmarket', 'dsh-ffmpeg', DESKTOP_CODEX_PACKAGE,
-  '@wenbin_wb/dsh-bridge', DESKTOP_FEISHU_PACKAGE, 'dsh-skill-mcp-panel',
+  '@wenbin_wb/dsh-bridge', DESKTOP_FEISHU_PACKAGE, 'dsh-skill-mcp-panel', 'deep-view', '@nagi-ovo/dsh-visualize',
   'muse-hongguo-search',
-  'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-qimao-data', 'muse-source-research', 'muse-lvpaopao',
+  'muse-hongguo-download', 'muse-douyin-download', 'muse-reverse-tools', 'muse-fanqie-download', 'muse-qimao-data', 'muse-source-research', 'muse-skill-evolution', 'muse-lvpaopao',
 ] as const
 
 /** One immutable npm tarball in the Desktop core package set. */

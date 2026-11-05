@@ -87,7 +87,7 @@ import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import * as ToolAudioTranscribe from '@deepseek-ai/dsh-tool-audio-transcribe'
 import * as ScreenplayProject from '@deepseek-ai/dsh-screenplay-project'
 import * as ToolVideoInspect from '@deepseek-ai/dsh-tool-video-inspect'
-import type { MuseAccountService } from '@deepseek-ai/dsh-muse-account'
+import { mountMuseFeedbackTools, type MuseAccountService } from '@deepseek-ai/dsh-muse-account'
 import * as ToolShotScript from '@deepseek-ai/dsh-tool-shot-script'
 import * as DramaSettings from '@deepseek-ai/dsh-drama-settings'
 import SettingsForms from '@deepseek-ai/dsh-settings'
@@ -230,6 +230,21 @@ export interface ToolPackage {
  * guard proves it is exhaustive against the on-disk glob.
  */
 const TOOL_PACKAGES: ToolPackage[] = [
+  {
+    pkg: '@deepseek-ai/dsh-muse-account',
+    dir: 'muse-account',
+    source: 'packages/host/muse-account/src/feedback-tools.ts',
+    requires: ['ctx.tools', 'signed-in Muse account for execution'],
+    writes: ['tool/call', 'tool/result', 'explicit feedback submission to the central inbox'],
+    mount(ctx) {
+      mountMuseFeedbackTools(ctx, {
+        submit: () => Promise.reject(new Error('Catalog collection cannot submit feedback')),
+        get: () => Promise.reject(new Error('Catalog collection cannot query feedback')),
+      })
+      return Promise.resolve()
+    },
+    note: 'Muse Desktop keeps submission and receipt status resident. Only the signed-in account can submit or inspect its own feedback; no administrator capability is exposed.',
+  },
   {
     pkg: '@deepseek-ai/dsh-plugin-manager',
     dir: 'plugin-manager',

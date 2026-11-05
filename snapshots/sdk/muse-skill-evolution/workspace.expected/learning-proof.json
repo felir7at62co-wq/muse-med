@@ -1,0 +1,11 @@
+{
+  "chatOnlyReviews": 0,
+  "completedToolCalls": 2,
+  "nativeReviewSessions": 1,
+  "reviewRequests": 1,
+  "reviewTools": 0,
+  "sameRoute": true,
+  "createdSkill": "muse-learned-verify-file",
+  "nextTurnCatalog": true,
+  "nextTurnLoadedBody": true
+}

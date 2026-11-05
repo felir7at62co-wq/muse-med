@@ -37,6 +37,7 @@ export const CREATION_SKILL_NAMES: readonly string[] = [
   'tweet-drama-shot-asset-match',
   'tweet-drama-voice-continuity',
   'video-review',
+  'visualize',
   'wechat-shortdrama-harvest',
 ]
 const allowed = new Set(CREATION_SKILL_NAMES)

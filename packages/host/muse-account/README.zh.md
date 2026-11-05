@@ -53,6 +53,8 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 
 回答评分与任务反馈弹窗通过[账号 UI](../../client/ui-muse-account/README.zh.md)提交到 Muse 意见箱。提交使用桌面保存的账号，并保留分类、本地会话及消息标识。相关摘录的可选勾选框默认关闭；勾选后只附有限长度的可见请求和回答文字，并移除已知凭据。不发送工具参数、工具结果、思考内容、附件或完整会话日志。意见箱保存凭据经确认后表单才关闭；登录、网络和账号切换失败保留草稿。提交结果不确定时，应先查看意见箱再决定是否重试。管理员在 `/feedback` 查看全部意见，普通用户只能查看自己的意见。
 
+启用 `feedbackTools: true` 后，`muse_feedback_submit` 从实际调用 Agent 的会话提交用户明确提出的问题或建议，`muse_feedback_status` 查询当前登录账号拥有的反馈收据。工具不提供管理员操作。提交需提供稳定的 `requestId`、标题、类型和正文；相关可见摘录仍默认不附带。结果不确定时保留原编号及完全相同的内容。旧服务器返回的匹配收据仍可确认保存，但会报告不支持重复保护，此时不得再次提交。原编号下若反馈文字或捕获的摘录发生变化，服务器会拒绝并报告冲突。状态结果不含会话正文、附件或处理历史，并移除已知凭据。已保存反馈不代表问题已修复或新版已发布。
+
 ### 账号授权的网页搜索
 
 配置 `webSearch: true` 时，Muse Desktop 选择 `muse` 搜索提供方，`web_fetch` 继续使用现有 `http` 提供方。原有 `web_search` 工具使用已保存的 Muse 会话，把每条查询及可选结果数发送到同源 `/api/web/search` 接口。官方搜索 API Key 保留在服务器，不要求本地 `DEEPSEEK_API_KEY`、模型凭据或 DeepSeek Account 登录。非 Muse profile 保留各自配置的搜索提供方。
@@ -91,6 +93,7 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 | `webSearch` | `false` | web 服务存在时注册 `muse` 搜索提供方；Muse Desktop 启用此项。 |
 | `searchRequestTimeoutMs` | 60,000 | 独立的账号授权搜索超时毫秒数，可设为 1,000 至 120,000。 |
 | `modelRequestImageMaxBytes` | 适配器默认值（`20 MiB`） | 每次模型请求累计 base64 图片字节上限，可设为正安全整数。挂载 `compaction-image-offload` 后记录最早图片的卸载并重试，来源附件仍可读取；不限制正文输出。 |
+| `feedbackTools` | `false` | 注册明确的用户反馈提交及本人收据查询工具；Muse 桌面启用。 |
 | `feedbackExcerptChars` | 1,000 | 每条可选相关请求或回答摘录的可见字数，可设为 100 至 1,200。 |
 | `activityReportIntervalMs` | 30,000 | 同一登录两次使用情况上报的最短间隔，范围 1,000–3,600,000 毫秒。 |
 | `activityRequestTimeoutMs` | 5,000 | 尽力上报使用情况的请求时限，范围 100–30,000 毫秒。 |
@@ -100,7 +103,7 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 | `remoteAckTimeoutMs` | 15,000 | 握手和数据确认超时，可设为 1,000 至 120,000 毫秒。 |
 | `remoteReconnectMaxIntervalMs` | 60,000 | 网络断开后的最大重连间隔，可设为 1,000 至 300,000 毫秒。 |
 
-[配置目录](../../../docs/config-catalog.zh.md)由插件 schema 生成。装载本插件前需挂载 `tools`、`llm`、`sessionProjections` 和 `agentDefaultModel`；桌面 Host 组合已提供这些必需服务。本包已包含在桌面 Host 配置中，不是独立应用启动入口。
+[配置目录](../../../docs/config-catalog.zh.md)由插件 schema 生成。装载本插件前需挂载 `tools`、`llm`、`sessionProjections`、`agentDefaultModel` 和 `sessions`；桌面 Host 组合已提供这些必需服务。本包已包含在桌面 Host 配置中，不是独立应用启动入口。
 
 ### Desktop access from the website
 
@@ -158,7 +161,7 @@ Host 转写调用同时接受调用方取消信号与请求超时。取消会终
 
 #### Token effect
 
-本包不增加工具 schema 或系统提示词文本。可选账号搜索沿用原有网页工具 schema，并将返回的来源追加到会话。
+启用 `feedbackTools` 时，模型请求增加两个反馈工具 schema，收据结果进入正常工具历史。关闭时，本包不增加工具 schema 或系统提示词文本。可选账号搜索沿用原有网页工具 schema，并将返回的来源追加到会话。
 
 #### KV Cache effect
 

@@ -6,7 +6,7 @@
 
 [owned-downloads.json](owned-downloads.json) 单独固定 Muse 红果和抖音下载 bundle 的版本。清单还包含本地[逆向工具](muse-reverse-tools/README.zh.md)和独立[番茄下载器](muse-fanqie-download/README.zh.md)及[绿泡泡下载器](muse-lvpaopao/README.zh.md)。各包 README 说明配置与验证限制；它们不改变保留的上游清单。
 
-源码清单中 `desktop: false` 的条目和已归档的 `ds-bot` 源码均不参与默认构建。默认交付包含七个保留源码插件和七个 Muse 自有插件。`dsh-plugin-subscriptions` 提供当前订阅 bundle；旧 Codex 固定版本与源码保留，供显式恢复构建使用。桌面打包独立选择包闭包，不会复制所有可用 tarball。`--only dsh-plugin-subscriptions` 选择当前订阅产物；`--only dsh-codex-subscription` 选择归档兼容路径。
+源码清单中 `desktop: false` 的条目和已归档的 `ds-bot` 源码均不参与默认构建。`dsh-plugin-subscriptions` 提供当前订阅 bundle；旧 Codex 固定版本与源码保留，供显式恢复构建使用。桌面打包独立选择包闭包，不会复制所有可用 tarball。`--only dsh-plugin-subscriptions` 选择当前订阅产物；`--only dsh-codex-subscription` 选择归档兼容路径。
 
 ## 构建
 
@@ -72,6 +72,14 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。归档的 Codex 构
 同一飞书机器人的私聊和群聊都使用其 IM 设置中选择的工作区。各聊天共享该目录的文件和素材，但分别保存 Session 历史。启动时会清除单个聊天的工作区覆盖，并解除 Session 工作目录与机器人工作区不同的绑定；目录匹配的绑定保留原 Session ID。后续对话命令不能重新建立私有目录覆盖，也不能绑定其他聊天当前使用的 Session。选择其他机器人工作区后，其所有聊天的后续工作都使用新目录。旧 Session 日志与文件留在原位置，适配层不会搬迁。
 
 Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence` 依赖，使工作区校验可以读取活跃或已持久化的 Session 头部信息。隔离 IM 检查以离线平台传输验证迁移、真实 Loader 和 Agent API、群提及、控制归属及原 Session 历史恢复。服务访问受限的 Cordis 插件通过真实 Host gateway 新建私聊和群聊 Session，验证两者使用同一所选工作区且历史独立；缺少依赖的反例会在请求模型前拒绝未声明的 Session 访问。构建检查比较两份完整 tarball，核对原生 Client 和许可证，并确认保留的上游文件未被改动。这些检查不认证真实机器人，也不能证明租户权限已配置。
+
+### 普通会话卡片
+
+保留的 [Deep View](deep-view/README.md) 插件为普通 Muse 会话提供 `show_view`，支持表格、图表、选择和表单等结构化视图。交互回答通过所属 Session 返回；简单问题仍可使用原生 `ask_user_question`。源码固定记录公开 fork 与上游修订，构建器使用当前运行时验证其 Host 和浏览器入口。Bot 团队保持归档。
+
+独立的 [Skill 进化插件](muse-skill-evolution/README.zh.md)复盘新完成的工具任务，创建自有技能并保留提案及回退版本。原生持久化复盘会话使用任务所选模型。其 README 说明复盘限制、正常模型用量及文件权限。
+
+保留的 [Visualize](dsh-visualize/README.md) 插件展示交互式 HTML 卡片及独立页面。桌面外壳拒绝 Blob 弹窗，因此页面视图在对话内展开；Web 可另开标签页。`visualize`、`show_view` 和原生 `ask_user_question` 保持常驻，并从 Tool Search 中排除。内置编写技能在 Muse 创作目录中可用。卡片按钮可以填入所属会话的输入框，由用户发送草稿；已有草稿和附件会保留。卡片更新限制在所属 Session 内。若文件提交后保存中断，错误回执分别说明片段和图片清单的状态；再次修改前应读取回执路径，不盲目重复旧替换。
 
 ### 已归档的 Muse Bot
 

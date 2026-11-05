@@ -2743,8 +2743,8 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-muse-account`
 
-- `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel`
-- `source`: [`packages/host/muse-account/src/index.ts:38`](../packages/host/muse-account/src/index.ts)
+- `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel` · `sessions`
+- `source`: [`packages/host/muse-account/src/index.ts:40`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -2787,6 +2787,8 @@ export interface Config {
   readonly asrRequestTimeoutMs: number
   /** Maximum visible characters in each optional related request and answer excerpt. */
   readonly feedbackExcerptChars: number
+  /** Register explicit feedback submission and owner-scoped status tools. */
+  readonly feedbackTools: boolean
   /** Minimum interval between best-effort human-task activity reports for the same login. */
   readonly activityReportIntervalMs: number
   /** Maximum lifetime of one best-effort activity request, independent of model or task work. */
@@ -4508,6 +4510,8 @@ export interface Config {
 export interface Config {
   /** Names whose definitions are available before a search; providers may register later. */
   alwaysLoad: string[]
+  /** Exact alwaysLoad names omitted from search results, indexes and capability directories. */
+  excludeFromSearch?: string[]
   /** Maximum definitions loaded by one search. */
   maxResults?: number
   /** Maximum Unicode characters of each result description. */

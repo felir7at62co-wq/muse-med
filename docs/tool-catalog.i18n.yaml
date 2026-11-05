@@ -9,8 +9,17 @@
   en: 8578d3ecd3382486
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: 1d90a32e3b9bf76f
-  zh: 4d910649bb0511e3
+  en: 5e3e9bc537db809b
+  zh: 42162520561059e0
+/tool-schema-catalog/deepseek-ai-dsh-muse-account:
+  en: 08c09d3279885ad6
+  zh: 08c09d3279885ad6
+/tool-schema-catalog/deepseek-ai-dsh-muse-account/muse-feedback-status:
+  en: 65cb53ead3d79365
+  zh: 6364366516248ae2
+/tool-schema-catalog/deepseek-ai-dsh-muse-account/muse-feedback-submit:
+  en: 4b4d72e87344cf29
+  zh: 07883682a5eec17f
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762

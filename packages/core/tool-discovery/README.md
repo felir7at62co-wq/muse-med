@@ -34,6 +34,7 @@ Mount this plugin once in the Host composition that provides `tools`, `agents`, 
   name: '@deepseek-ai/dsh-tool-discovery'
   config:
     alwaysLoad: [read, write, edit, skill]
+    excludeFromSearch: [read]
     keywords:
       video_inspect: [抽帧, 人物动作, 切镜]
     capabilities:
@@ -49,9 +50,12 @@ Mount this plugin once in the Host composition that provides `tools`, `agents`, 
 
 `alwaysLoad` contains exact tool names and may name providers that register later. `tool_search` and `tool_context` are always included. Only tools currently authorized for the calling agent are presented or searchable; naming a restricted tool here does not grant access.
 
+`excludeFromSearch` defaults to `[]` and accepts only nonempty exact names from `alwaysLoad`; wildcards, surrounding whitespace, and nonresident names fail activation. Those tools remain available in the first request but are omitted from search indexes, global and scoped results, tool counts, and the initial capability directory. Exclusion changes neither authorization nor the constant-tool protections in `tool_context`.
+
 | Field | Default | Meaning |
 |---|---|---|
 | `alwaysLoad` | required | Definitions presented before a search |
+| `excludeFromSearch` | `[]` | Exact `alwaysLoad` names omitted from discovery metadata and results |
 | `maxResults` | `8` | Maximum tools loaded by one search, from 1 to 32 |
 | `maxDescriptionChars` | `320` | Unicode-character limit for each result description, from 1 to 2048 |
 | `k1` | `1.2` | BM25 term-frequency saturation, from 0.01 to 10 |
@@ -74,7 +78,7 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 | Neither `query` nor `capability` | List capability summaries without loading tools |
 | `capability` only | Browse that group's tools and load up to the configured or requested limit |
 | `query` and `capability` | Search within that group; retry globally for a miss or an explicit name or configured alias in another group |
-| `query` only | Search across all authorized tools, including uncategorized tools |
+| `query` only | Search across all searchable authorized tools, including uncategorized tools |
 
 An unknown capability id returns the available directory without loading tools. Without configured groups, the directory exposes unassigned tools through `uncategorized` and query searches cover the full authorized catalog. `limit` must be between 1 and `maxResults`, including directory requests. `offset` defaults to zero and must be a nonnegative safe integer. For browsing and queries, continue with `next_offset` using the same query and capability; each page loads only its returned tools. Ordering remains stable while the catalog and configuration remain unchanged.
 

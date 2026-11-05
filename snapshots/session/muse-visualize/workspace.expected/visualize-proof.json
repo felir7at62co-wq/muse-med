@@ -1,0 +1,17 @@
+{
+  "preset": "short-drama",
+  "requests": 4,
+  "firstRequestIncludesVisualize": true,
+  "skillRead": true,
+  "calls": [
+    "skill",
+    "visualize",
+    "visualize"
+  ],
+  "discoveryCalls": 0,
+  "createdAndUpdated": true,
+  "stableCardPath": true,
+  "persistedMeta": true,
+  "savedFileMatchesMeta": true,
+  "externalResources": false
+}

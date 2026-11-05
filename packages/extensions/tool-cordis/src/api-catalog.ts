@@ -7937,11 +7937,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'MuseFeedbackReceipt',
-    declaration: 'export interface MuseFeedbackReceipt {\n    readonly id: MuseFeedbackId;\n    readonly revision: number;\n}',
+    declaration: 'export interface MuseFeedbackReceipt {\n    readonly id: MuseFeedbackId;\n    readonly revision: number;\n    readonly deduplication?: \'available\' | \'unavailable\';\n}',
   },
   {
     name: 'MuseFeedbackRequest',
-    declaration: 'export interface MuseFeedbackRequest {\n    readonly sessionId: SessionId;\n    readonly target: {\n        readonly kind: \'session\';\n    } | {\n        readonly kind: \'message\';\n        readonly messageId: MessageId;\n        readonly rating: \'positive\' | \'negative\';\n    };\n    readonly category?: FeedbackCategory;\n    readonly text?: string;\n    readonly includeDiagnostics: boolean;\n}',
+    declaration: 'export interface MuseFeedbackRequest {\n    readonly sessionId: SessionId;\n    readonly target: {\n        readonly kind: \'session\';\n    } | {\n        readonly kind: \'message\';\n        readonly messageId: MessageId;\n        readonly rating: \'positive\' | \'negative\';\n    };\n    readonly category?: FeedbackCategory;\n    readonly text?: string;\n    readonly includeDiagnostics: boolean;\n    readonly title?: string;\n    readonly kind?: \'bug\' | \'suggestion\' | \'other\';\n    readonly requestId?: string;\n}',
   },
   {
     name: 'MuseVoiceLeaseId',

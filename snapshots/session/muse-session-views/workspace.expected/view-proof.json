@@ -1,0 +1,15 @@
+{
+  "calls": [
+    "call_view_table",
+    "call_view_options"
+  ],
+  "answerMessages": 1,
+  "selection": "先优化反馈工具",
+  "authenticatedReplyRequests": 2,
+  "unauthenticatedRejected": true,
+  "pendingClosed": true,
+  "modelReadAnswer": true,
+  "botToolsUsed": false,
+  "firstRequestIncludesView": true,
+  "discoveryCalls": 0
+}

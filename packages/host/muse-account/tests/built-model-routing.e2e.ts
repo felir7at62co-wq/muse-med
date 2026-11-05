@@ -85,7 +85,7 @@ it.each(['package', 'desktop'] as const)('loads the built %s Muse composition, r
     name: 'cordis:muse-account-built',
     ...(composition === 'desktop' ? {
       inject: row.inject.filter((key: unknown): key is string => typeof key === 'string'
-        && ['tools', 'llm', 'sessionProjections', 'agentDefaultModel'].includes(key)),
+        && ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'sessions'].includes(key)),
     } : {}),
     config: { ...(composition === 'desktop' ? productConfig : {}), baseUrl, accountHome: home, remoteAccess: false },
   })

@@ -19,6 +19,7 @@
 
 | 工具包 | 模型可见名称 | 依赖 | 写入／影响 | 随产品发布的别名 | 部署说明 |
 | --- | --- | --- | --- | --- | --- |
+| `@deepseek-ai/dsh-muse-account` | `muse_feedback_status`, `muse_feedback_submit` | `ctx.tools`、执行时已登录的 Muse 账号 | `tool/call`、`tool/result`、向中心意见箱显式提交反馈 | - | Muse 桌面端常驻提供反馈提交和回执状态查询。仅支持当前登录账号提交和查看本人反馈，不开放管理员能力。 |
 | `@deepseek-ai/dsh-plugin-manager` | `plugin_manager` | `ctx.tools`, `ctx.pluginManager`, `ctx.sandboxPolicy` | `tool/call`, `tool/result`, `user/message` | - | - |
 | `@deepseek-ai/dsh-plugin-market` | `plugin_market` | `ctx.tools`, `ctx.pluginMarket` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-mcp-resources` | `list_mcp_resource_templates`, `list_mcp_resources`, `read_mcp_resource` | `ctx.tools`, `ctx.mcpResources` | `tool/call`, `tool/result` | - | - |
@@ -66,6 +67,78 @@
 | `@deepseek-ai/dsh-tool-episode-render` | `drama_render`、`drama_video` | `ctx.tools`, `ffmpeg and ffprobe on PATH (or configured), the project layout it reads and writes (video/, audio/, editing/, exports/)` | `tool/call`, `tool/result`, `on prepare: video/<episode>/shot_00N.mp4, audio/<episode>.wav, editing/<episode>-timeline.json, editing/<episode>.srt`, `on render: the delivered MP4 and the render log under exports/.render_cache/<episode>/`, `drama_video ban/unban 写入项目内 video-bans.json；媒体字节不变` | - | `drama_video` 记录带标签、可逆的 SHA256 禁用决定，不要求审核证据；解除禁用不等于批准。`drama_render` 在 `prepare`/`render` 中拒绝已禁用的选用字节，`verify` 则报告风险，不删除媒体。`prepare` 构建渲染输入并保存项目画布和视觉类型快照，`render` 出片并回报实测的分辨率、帧率、码率、时长、大小与编码器，`verify` 检查成片。3D 漫不新增片尾或水印；仿真人保留 AI 标记及真实尾帧定格的两秒片尾。旧项目缺类型时告警并保留带标识交付；目标码率 24M、上限 30M、下限 4.6 Mbps。无法进行下去的渲染会抛错并给修法；不符合规格的成片返回 `ok: false` 与逐项修法。 |
 | `@deepseek-ai/dsh-tool-drama-assets` | `drama_assets` | `ctx.tools`, `ctx.credentials`, `the project layout (assets_manifest.json, _probe/asset-reconcile.json, project_config.json, source-backed requirements and optional shot plans)` | `tool/call`, `tool/result`, `on reconcile/dispose: _probe/asset-reconcile.json under the project root` | - | `shared_usage_preview` reads complete current shared-project asset, material, episode and package inventories, counts distinct bound packages and reports same-period voice candidates without granting deletion. `usage_preview` reads exact local compiled references and voice gaps without network or writes. `reconcile` reads the remote project’s asset and material lists and the manifest and writes the evidence the host’s reconcile gate reads, and `dispose` records one disposition in it without any remote read. `match_preview` reads source-backed requirements, the project bible, formal assets and recognized voice references, returning `reuse_ready`, `needs_review`, `missing` or `blocked`. `reuse_preview` groups those recommendations across shots and optionally checks an ordered material-selection plan while preserving unrelated materials and card configuration. Both previews are read-only and verify source-file byte SHA-256, line numbers and exact source text; a candidate digest is not source SHA-256. `apply_allowed=false` means the preview grants no write permission. After user authorization, the model uses the existing `jubian_storyboard.select_assets` tool; voices remain on `audio_preview` / `audio_apply`. The tool never calls a Jubian write method and never bills; the disposition verdicts (`blocking`, `ignored_without_note`, `ready`) are the gate’s inputs. |
 | `@deepseek-ai/dsh-tool-character-reference` | `drama_character_reference_project`、`drama_character_reference_view`、`drama_character_references` | `ctx.tools`、`ctx.settings`、`ctx.characterLibrary（Host 管理的只读人物素材库）`、多项目选择时的当前人类消息、`ctx.attachments` 与 `ctx.llm`（看图时） | `tool/call`、`tool/result`；看图时保存图像附件 | - | `drama_character_reference_project` 列出 Host 校验的项目与角色；唯一有效项目可直接采用，多项目须由当前人类消息明确指名。`drama_character_references` 最多返回三张经 metadata 初排的候选，附稳定 Catalog ID 和原图 SHA-256；检索本身不展示图片。`drama_character_reference_view` 重新核对候选，仅当当前模型路由支持图像时，才将验证后的图片保存为模型可见附件。主角默认可检索；配角须有明确的剧情相关理由。这些工具均不授予批准、复用、绑定或生产使用权，不写入 TOS，也不请求付费生成。 |
+
+<a id="deepseek-aidsh-muse-account"></a>
+
+## `@deepseek-ai/dsh-muse-account`
+
+### `muse_feedback_status`
+
+读取当前登录账号本人反馈回执的处理状态与维护者回复。不会提交反馈、改变状态或访问其他用户的反馈。resolved 仅表示意见箱中的状态；应转述维护者回复，不得编造已发布的版本。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "The 32-character lowercase hexadecimal feedback receipt ID."
+    }
+  },
+  "required": [
+    "id"
+  ]
+}
+```
+
+来源：[`packages/host/muse-account/src/feedback-tools.ts`](../packages/host/muse-account/src/feedback-tools.ts)
+
+### `muse_feedback_submit`
+
+在用户要求报告时，将产品问题或建议提交到 Muse 意见箱。正文应描述实际行为、预期行为和已知的复现步骤。使用当前登录账号和当前会话；没有已提交回执时，不得声称提交成功。同一提交须复用相同的 requestId 和完全相同的内容；不会自动重试。仅在用户明确要求时附带会话摘录。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Short feedback title, at most 120 characters."
+    },
+    "category": {
+      "type": "string",
+      "description": "Problem, feature suggestion, or other feedback.",
+      "enum": [
+        "bug",
+        "suggestion",
+        "other"
+      ]
+    },
+    "text": {
+      "type": "string",
+      "description": "User feedback, actual behavior, expected behavior and known reproduction steps; at most 5000 characters."
+    },
+    "requestId": {
+      "type": "string",
+      "description": "Stable key for this submission, 1–128 ASCII letters, digits, dots, underscores, colons or hyphens, beginning with a letter or digit. Reuse unchanged after an uncertain result."
+    },
+    "includeDiagnostics": {
+      "type": "boolean",
+      "description": "Include bounded visible request and answer excerpts only when the user explicitly asked. Defaults to false."
+    }
+  },
+  "required": [
+    "title",
+    "category",
+    "text",
+    "requestId"
+  ]
+}
+```
+
+来源：[`packages/host/muse-account/src/feedback-tools.ts`](../packages/host/muse-account/src/feedback-tools.ts)
+
+Muse 桌面端常驻提供反馈提交和回执状态查询。仅支持当前登录账号提交和查看本人反馈，不开放管理员能力。
 
 <a id="deepseek-aidsh-plugin-manager"></a>
 

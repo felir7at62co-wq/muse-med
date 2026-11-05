@@ -25,6 +25,8 @@ export const inject = ['tools', 'agents', 'sessionProjections']
 export interface Config {
   /** Names whose definitions are available before a search; providers may register later. */
   alwaysLoad: string[]
+  /** Exact alwaysLoad names omitted from search results, indexes and capability directories. */
+  excludeFromSearch?: string[]
   /** Maximum definitions loaded by one search. */
   maxResults?: number
   /** Maximum Unicode characters of each result description. */
@@ -55,6 +57,7 @@ export interface Config {
 /** Loader-validated discovery settings. */
 export const Config: z<Config> = z.object({
   alwaysLoad: z.array(z.string()).required(),
+  excludeFromSearch: z.array(z.string()).default([]),
   maxResults: z.natural().min(1).max(32).default(8),
   maxDescriptionChars: z.natural().min(1).max(2048).default(320),
   k1: z.number().min(0.01).max(10).default(1.2),
@@ -161,6 +164,12 @@ function boundedResult(
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const settings = Config(config)
+  const searchExclusions = new Set(settings.excludeFromSearch ?? [])
+  for (const name of searchExclusions) {
+    if (!name.trim() || name !== name.trim() || name.includes('*') || !settings.alwaysLoad.includes(name)) {
+      throw new Error(`excludeFromSearch entries must be exact tool names in alwaysLoad: ${JSON.stringify(name)}`)
+    }
+  }
   const maxResults = settings.maxResults ?? 8
   const maxDescriptionChars = settings.maxDescriptionChars ?? 320
   const ranking = { k1: settings.k1 ?? 1.2, b: settings.b ?? 0.75 }
@@ -249,7 +258,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       const capability = args.capability?.trim()
       const limit = args.limit ?? maxResults
       if (limit < 1 || limit > maxResults) throw new Error(`limit must be between 1 and ${maxResults}`)
-      const tools = ctx.tools.schemas(exec.agent, exec.toolSet).filter(tool => ctx.tools.executable(tool.name, exec.agent, exec.toolSet) !== undefined).filter(tool => tool.name !== 'tool_search' && tool.name !== 'tool_context' && tool.name !== 'run_code')
+      const tools = ctx.tools.schemas(exec.agent, exec.toolSet).filter(tool => ctx.tools.executable(tool.name, exec.agent, exec.toolSet) !== undefined).filter(tool => !searchExclusions.has(tool.name) && tool.name !== 'tool_search' && tool.name !== 'tool_context' && tool.name !== 'run_code')
       const offset = args.offset ?? 0
       if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('offset must be a nonnegative safe integer')
       const groups = discoverableCapabilities(capabilities, tools.map(tool => tool.name), core)
@@ -281,6 +290,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     if (ctx.tools.get('tool_search', context.scope, context.toolSet) !== definition) return assembly
     const authorized = ctx.tools.schemas(context.scope, context.toolSet)
       .filter(tool => ctx.tools.executable(tool.name, context.scope, context.toolSet) !== undefined)
+      .filter(tool => !searchExclusions.has(tool.name))
       .map(tool => tool.name)
     const summaries = capabilitySummaries(discoverableCapabilities(capabilities,
       authorized.filter(tool => tool !== 'run_code'), core), authorized)

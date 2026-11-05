@@ -177,10 +177,11 @@
 
     - id: muse-account
       name: '@deepseek-ai/dsh-muse-account'
-      inject: [tools, llm, sessionProjections, agentDefaultModel, museDesktopBridge, connection, webServer]
+      inject: [tools, llm, sessions, sessionProjections, agentDefaultModel, museDesktopBridge, connection, webServer]
       config:
         baseUrl: !!js process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'
         webSearch: true
+        feedbackTools: true
         excludedModelPrefixes: []
         excludedModels:
           - { providerId: yunying, modelId: claude-opus-5-5 }
@@ -204,7 +205,8 @@
     - id: tool-discovery
       name: '@deepseek-ai/dsh-tool-discovery'
       config:
-        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect]
+        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, show_view, visualize, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect]
+        excludeFromSearch: [ask_user_question, show_view, visualize]
         maxResults: 8
         maxDescriptionChars: 320
         maxResultChars: 6000
@@ -250,8 +252,13 @@
           douyin_download_task: [抖音下载任务, 抖音下载进度, 抖音断点恢复, 恢复抖音下载, 取消抖音下载]
           screenplay_export_docx: [Word, docx, 导出剧本, 剧本文档]
           load_workspace_dependencies: [Word, docx, Office, 文档处理, 工作间依赖]
+          muse_skill_evolution: [技能进化, 技能学习, 经验复盘, 技能提案, 技能版本, 撤回技能]
 
         capabilities:
+          - id: interaction
+            title: 对话交互与反馈
+            description: 展示交互卡片、收集选择与表单，提交和查询本人的产品反馈。
+            tools: [ask_user_question, show_view, visualize, muse_feedback_submit, muse_feedback_status]
           - id: workspace
             title: 文件与工作间
             description: 查找、读取、编辑项目文件并交付文档。
@@ -281,9 +288,9 @@
             description: 采集红果与七猫公开数据，保存观测快照、比较指标、人工核验作品关系并生成选材报告，搜索和下载小说、剧目及视频素材。
             tools: ['hongguo_*', 'douyin_*', 'fanqie_*', 'qimao_*', source_snapshot, source_report, work_mapping, lvpaopao, jubian_find, jubian_snatch, jubian_watch, jubian_claim]
           - id: knowledge
-            title: MCP 与项目资料
-            description: 读取已连接的 MCP 资源与项目资料。
-            tools: [source_recover, read_mcp_resource, list_mcp_resources, list_mcp_resource_templates]
+            title: 技能、MCP 与项目资料
+            description: 管理学习技能与版本，读取已连接的 MCP 资源与项目资料。
+            tools: [source_recover, read_mcp_resource, list_mcp_resources, list_mcp_resource_templates, muse_skill_evolution]
           - id: coordination
             title: 子任务与跟进
             description: 委派子任务、查看执行状态、管理后台工作并安排定时跟进。
