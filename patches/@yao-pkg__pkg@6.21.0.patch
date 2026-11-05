@@ -1,5 +1,5 @@
 diff --git a/prelude/sea-bootstrap.bundle.js b/prelude/sea-bootstrap.bundle.js
-index ac14980e953134f2285e326a5111cf52de717cf5..1b1c00d1274cba5f63487898a9d940e8870f4f19 100644
+index ac14980e953134f2285e326a5111cf52de717cf5..d847bd2d6df34e7859f12fcb4aec2b303f36ed5a 100644
 --- a/prelude/sea-bootstrap.bundle.js
 +++ b/prelude/sea-bootstrap.bundle.js
 @@ -63,6 +63,25 @@ var require_bootstrap_shared = __commonJS({
@@ -124,11 +124,18 @@ index ac14980e953134f2285e326a5111cf52de717cf5..1b1c00d1274cba5f63487898a9d940e8
    }
  });
 
-@@ -5560,7 +5621,6 @@ var require_sea_bootstrap_core = __commonJS({
+@@ -5560,7 +5621,12 @@ var require_sea_bootstrap_core = __commonJS({
      var insideSnapshot = vfs.insideSnapshot;
      var SNAPSHOT_PREFIX = vfs.SNAPSHOT_PREFIX;
-     shared.patchDlopen(insideSnapshot);
+-    shared.patchDlopen(insideSnapshot);
 -    shared.patchChildProcess(entrypoint2);
++    shared.patchDlopen(function(filename) {
++      if (insideSnapshot(filename)) return true;
++      if (process.platform !== "win32") return false;
++      // Node's namespaced addon path can use the working directory's drive.
++      var match = /^[A-Za-z]:[\\/]snapshot([\\/].+)$/.exec(filename);
++      return match !== null && vfs.provider.internalModuleStat(match[1]) === 0;
++    });
      shared.setupProcessPkg(entrypoint2, manifest2.entrypoint);
      if (manifest2.debug) {
        shared.installDiagnostic(SNAPSHOT_PREFIX);
