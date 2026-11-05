@@ -209,6 +209,38 @@ it('streams only an owned manifest file without exposing Response headers or pri
   expect(address(value.fetcher.mock.calls[1]![0])).toBe(origin + `/api/media/jobs/${id}/files/video.mp4`)
 })
 
+it.each([
+  ['video (1).mp4', 'video%20(1).mp4'], ['cover image.jpg', 'cover%20image.jpg'],
+  ['video.mp4 ', 'video.mp4%20'], ['a'.repeat(128), 'a'.repeat(128)],
+])('retains an exact safe manifest filename through file lookup and URL encoding: %j', async (name, encoded) => {
+  const value = await fixture(), entry = { ...saved.files[0]!, name }
+  value.fetcher.mockResolvedValueOnce(Response.json({ ...saved, files: [entry] }))
+    .mockResolvedValueOnce(new Response('abc', { headers: { 'content-length': '3' } }))
+  await expect(value.client.withFile(id, name, async (transfer) => {
+    expect(transfer.file).toEqual(entry)
+    return await new Response(transfer.body).text()
+  })).resolves.toBe('abc')
+  expect(value.fetcher).toHaveBeenCalledTimes(2)
+  expect(address(value.fetcher.mock.calls[1]![0])).toBe(origin + `/api/media/jobs/${id}/files/${encoded}`)
+})
+
+it('does not substitute a sanitized alias for the exact manifest member', async () => {
+  const value = await fixture(), consume = vi.fn()
+  value.fetcher.mockResolvedValueOnce(Response.json({ ...saved, files: [{ ...saved.files[0]!, name: 'video (1).mp4' }] }))
+  await expect(value.client.withFile(id, 'video_1.mp4', consume)).rejects.toMatchObject({ code: 'not-found' })
+  expect(value.fetcher).toHaveBeenCalledTimes(1)
+  expect(consume).not.toHaveBeenCalled()
+})
+
+it.each(['../video.mp4', 'dir/video.mp4', 'dir\\video.mp4', '.video.mp4', 'video..mp4', 'v'.repeat(129),
+  'video.mp4\n', 'video.mp4\r\n'])('rejects an unsafe wire manifest name before requesting file bytes: %j', async (name) => {
+  const value = await fixture(), consume = vi.fn()
+  value.fetcher.mockResolvedValueOnce(Response.json({ ...saved, files: [{ ...saved.files[0]!, name }] }))
+  await expect(value.client.withFile(id, name, consume)).rejects.toMatchObject({ code: 'invalid-response' })
+  expect(value.fetcher).toHaveBeenCalledTimes(1)
+  expect(consume).not.toHaveBeenCalled()
+})
+
 it('blocks publication after an account change during streamed import', async () => {
   const value = await fixture()
   value.fetcher.mockResolvedValueOnce(Response.json(saved)).mockResolvedValueOnce(new Response('abc'))

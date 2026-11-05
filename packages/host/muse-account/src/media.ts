@@ -13,8 +13,10 @@ const jobId = z.string().regex(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f
   .transform(value => brandString<MuseMediaJobId>(value))
 const requestId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u).transform(value => brandString<MuseMediaRequestId>(value))
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
+/** Gateway manifest filenames are preserved exactly for owned retrieval and local import. */
+export const mediaFileNameSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._() -]{0,127}$/u).refine(value => !value.includes('..'))
 const file = z.object({
-  name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._() -]{0,127}$/u).refine(value => !value.includes('..')),
+  name: mediaFileNameSchema,
   bytes: count.positive(), sha256: z.string().regex(/^[a-f0-9]{64}$/u), kind: z.enum(['video', 'image', 'cover', 'live_video', 'metadata']),
 })
 const coverage = z.object({
