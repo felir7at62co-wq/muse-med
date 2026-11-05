@@ -1079,6 +1079,9 @@ importers:
       '@deepseek-ai/dsh-skill-office':
         specifier: workspace:*
         version: link:../../packages/skill/skill-office
+      '@deepseek-ai/dsh-subagent':
+        specifier: workspace:*
+        version: link:../../packages/subagent/subagent
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:*
         version: link:../../packages/core/system-prompt
@@ -1203,6 +1206,9 @@ importers:
       '@deepseek-ai/dsh-storage-domain':
         specifier: workspace:*
         version: link:../../packages/storage/storage-domain
+      '@deepseek-ai/dsh-subagent-spawn-in-process':
+        specifier: workspace:*
+        version: link:../../packages/subagent/subagent-spawn-in-process
       '@deepseek-ai/dsh-subprocess':
         specifier: workspace:*
         version: link:../../packages/subprocess/subprocess

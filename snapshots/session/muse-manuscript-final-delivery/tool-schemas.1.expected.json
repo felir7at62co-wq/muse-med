@@ -1,0 +1,116 @@
+{
+  "initial": [
+    {
+      "name": "structured_output",
+      "description": "Report your final structured result. Call this exactly once, when your answer is complete; the arguments must match this tool's parameter schema exactly.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "findings",
+          "unknowns"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "consistent",
+              "issues",
+              "unknown"
+            ],
+            "description": "consistent requires findings=[] and unknowns=[]. issues requires findings. unknown requires substantive unknowns. Never discard real uncertainties just to select consistent."
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "category",
+                "description",
+                "evidence"
+              ],
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "event_order",
+                    "character_state",
+                    "information_state",
+                    "object_state",
+                    "transition"
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "role",
+                      "path",
+                      "file_sha256",
+                      "text_sha256",
+                      "line",
+                      "quote"
+                    ],
+                    "properties": {
+                      "role": {
+                        "type": "string",
+                        "enum": [
+                          "current",
+                          "candidate"
+                        ],
+                        "description": "Copy the exact document.role identity label. reference means only a document whose role is reference, never an earlier passage or a flashback."
+                      },
+                      "path": {
+                        "type": "string",
+                        "description": "Copy the exact path of that same material document; do not infer or rewrite it.",
+                        "enum": [
+                          "{{cwd}}/current.md",
+                          "{{cwd}}/final.md"
+                        ]
+                      },
+                      "file_sha256": {
+                        "type": "string",
+                        "description": "Copy file_sha256 verbatim from the same document as role and path.",
+                        "enum": [
+                          "eabc7d83bde939ae6d8ecead0b08b56daeba6cc2ea3229c13452b819c8571d6d"
+                        ]
+                      },
+                      "text_sha256": {
+                        "type": "string",
+                        "description": "Copy text_sha256 verbatim from the same document as role and path.",
+                        "enum": [
+                          "eabc7d83bde939ae6d8ecead0b08b56daeba6cc2ea3229c13452b819c8571d6d"
+                        ]
+                      },
+                      "line": {
+                        "type": "integer"
+                      },
+                      "quote": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "unknowns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Substantive uncertainties or missing evidence. A nonempty array cannot accompany consistent; preserve actual uncertainties and select unknown, or issues when evidenced findings are also present."
+          }
+        }
+      }
+    }
+  ],
+  "changes": []
+}

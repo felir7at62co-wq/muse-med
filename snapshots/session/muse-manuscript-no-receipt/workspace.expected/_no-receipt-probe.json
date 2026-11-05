@@ -1,0 +1,31 @@
+{
+  "mode": "main",
+  "fakeCodeWasNotExecuted": true,
+  "loggedGenericNotices": 1,
+  "noticeActuallyReceived": true,
+  "toolCalls": [
+    {
+      "id": "actual-write",
+      "name": "write"
+    },
+    {
+      "id": "actual-readback",
+      "name": "read"
+    },
+    {
+      "id": "actual-review",
+      "name": "manuscript_revision"
+    },
+    {
+      "id": "actual-declare",
+      "name": "manuscript_revision"
+    },
+    {
+      "id": "actual-present",
+      "name": "present"
+    }
+  ],
+  "reviewerRequests": 1,
+  "successfulPresentEvents": 1,
+  "reminderBeforeActualExecution": true
+}

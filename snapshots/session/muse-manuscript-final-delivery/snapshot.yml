@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-manuscript-final-delivery
+profile: headless
+composition: muse-manuscript-final-delivery
+recording: authored
+header:
+  class: muse-manuscript-final-delivery
+  pin: true
+  childSystemPrompts: [1, 2, 3, 4]
+  childToolSchemas: [1, 2, 3, 4]
+workspace:
+  final: true

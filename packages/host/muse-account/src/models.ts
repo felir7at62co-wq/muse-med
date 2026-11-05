@@ -24,6 +24,7 @@ import { MuseGatewayError } from './gateway.ts'
 import { clearModelAccess, saveModelAccess } from './model-access.ts'
 import { safeMuseModelStream } from './model-errors.ts'
 import { streamWithModelLease } from './model-direct.ts'
+import { MuseModelRequestTrace } from './model-request-trace.ts'
 
 const supplierAccess = z.object({
   baseURL: z.string().max(2048).refine((value) => {
@@ -73,6 +74,7 @@ class MusePiAiAdapter extends PiAiAdapter {
     private readonly providerSelectable: (provider: string) => boolean,
     private readonly modelSelectable: (provider: string, model: string) => boolean,
     private readonly streamOverride: (provider: string, model: string) => DirectStream | undefined,
+    private readonly trace: MuseModelRequestTrace,
   ) {
     super(options)
   }
@@ -99,10 +101,10 @@ class MusePiAiAdapter extends PiAiAdapter {
     return { ...prepared,
       model: defaultEffort === undefined || prepared.model.reasoning === undefined ? prepared.model
         : { ...prepared.model, reasoning: { ...prepared.model.reasoning, defaultEffort } },
-      stream: options => safeMuseModelStream(() => {
+      stream: options => this.trace.stream(options, () => safeMuseModelStream(() => {
         const signal = options.signal === undefined ? authorization : AbortSignal.any([authorization, options.signal])
         return direct ? direct(options, signal) : prepared.stream({ ...options, signal })
-      }),
+      })),
     }
   }
 
@@ -137,22 +139,28 @@ export class MuseModels {
   private queue = Promise.resolve()
   private readonly stop = new AbortController()
   private readonly adapter: PiAiAdapter
+  private readonly trace: MuseModelRequestTrace
   private readonly selectionRepairs = new Set<Promise<void>>()
   private readonly disposeAgentCreated: () => void
 
   constructor(private readonly ctx: Context, private readonly options: MuseModelsOptions) {
+    const trace = this.trace = new MuseModelRequestTrace(options.baseUrl, (record) => { ctx.logger.info(JSON.stringify(record)) })
     const adapterOptions: PiAiAdapterOptions = {
+      prepareHeaders: (request, headers) => trace.headers(request,
+        ctx.waterfall('llm-pi-ai/request-headers', request, headers, () => headers)),
       profiles: () => this.profiles,
       resolveApiKey: async (_provider, profile) => {
         const session = await readMuseSession(options.sessionFile, options.baseUrl)
         if (this.stop.signal.aborted || !session || session.revision !== this.revisions.get(profile)) {
           throw new LlmError('Please sign in to Muse and refresh the model list', 'MISSING_CREDENTIAL')
         }
-        const key = this.keys.get(profile)
-        if (key !== undefined) return key
         const token = session.cookie.slice(session.cookie.indexOf('=') + 1)
+        trace.credential(session.cookie)
+        trace.credential(token)
+        const key = this.keys.get(profile)
+        if (key !== undefined) return trace.credential(key)
         if (!/^[A-Za-z0-9_-]+$/.test(token)) throw new LlmError('Muse session is invalid', 'MISSING_CREDENTIAL')
-        return token
+        return trace.credential(token)
       },
       auth: {
         credentials: {
@@ -165,17 +173,18 @@ export class MuseModels {
       resolveAttachments: () => ctx.get('attachments'),
       resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(attachments, () => undefined, ref),
       onProviderFailure: ({ provider, model, code, status, requestId }) => {
+        if (this.stop.signal.aborted) return
         ctx.logger.warn(
           `Muse model request failed: provider=${JSON.stringify(provider)}`
           + ` model=${JSON.stringify(model)} code=${JSON.stringify(code)}`
-          + ` status=${status ?? 'unavailable'} requestId=${JSON.stringify(requestId ?? null)}`,
+          + ` status=${status ?? 'unavailable'} requestId=${JSON.stringify(trace.identifier(requestId, 'id'))}`,
         )
       },
     }
     this.adapter = new MusePiAiAdapter(adapterOptions, (provider, model) => this.defaultEfforts.get(`${provider}:${model}`),
       () => this.authorization.signal, provider => this.providerSelectable(provider),
       (provider, model) => this.modelSelectable(provider, model),
-      (provider, model) => this.directStream(adapterOptions, provider, model))
+      (provider, model) => this.directStream(adapterOptions, provider, model), trace)
     this.disposeAgentCreated = ctx.on('agent/created', async ({ agent, signal }) => {
       await this.repairSelection(agent, signal ?? this.stop.signal)
       return undefined
@@ -191,7 +200,7 @@ export class MuseModels {
       (access, requestSignal) => {
         const profiles = resolveProfiles({ [provider]: { ...spec, baseURL: access.baseURL, headers: {} } })
         const adapter = new PiAiAdapter({ ...adapterOptions, profiles: () => profiles,
-          resolveApiKey: () => Promise.resolve(access.apiKey) })
+          resolveApiKey: () => Promise.resolve(this.trace.credential(access.apiKey)) })
         return adapter.stream({ ...options, signal: requestSignal })
       })
   }
@@ -203,6 +212,7 @@ export class MuseModels {
   async dispose(): Promise<void> {
     this.stop.abort()
     this.authorization.abort()
+    this.trace.dispose()
     this.disposeAgentCreated()
     this.registration?.()
     this.registration = undefined
