@@ -1,4 +1,5 @@
-/** Mount a product preset and discover the source Muse MCP catalog over loopback. */
+/** Mount a product preset, check its working-directory context, and discover the source Muse MCP catalog over loopback. */
+import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -8,10 +9,9 @@ import { applyLoopbackServerEffect } from '../loopback-fixture-server.mjs'
 import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
 import { stageSourceMusePlugins } from './source-plugin-layout.mjs'
 
-const [{ Service }, { PERSONA_SUFFIX_SECTION }, { default: NativePreset }, McpClient,
+const [{ Service }, { default: NativePreset }, McpClient,
   { createMuseAccountMcpServer }, { createMuseKbReader }, CharacterLibrary, CharacterLibraryTos] = await Promise.all([
   importSnapshotPackage('@deepseek-ai/cordis', new URL('../../../apps/desktop-host/package.json', import.meta.url)),
-  importSnapshotPackage('@deepseek-ai/dsh-system-prompt', new URL('../../../packages/mcp/mcp-client/package.json', import.meta.url)),
   importSnapshotModule(new URL('../../../apps/desktop-host/src/native-preset.ts', import.meta.url),
     new URL('../../../apps/desktop-host/lib/native-preset.js', import.meta.url)),
   importSnapshotModule(new URL('../../../packages/mcp/mcp-client/src/index.ts', import.meta.url),
@@ -161,28 +161,29 @@ export async function apply(ctx, config) {
     id: presetId,
     directory: productPresetDirectory,
   })
-  ctx.on('agent/created', async ({ agent }) => {
-    await ctx.agentPresets.mount(agent.ctx, requestedPreset)
-    // Legacy presets need a path delimiter for stable workspace normalization.
-    if (presetId !== 'short-drama') {
-      agent.ctx.effect(() => agent.ctx.systemPrompt.section({
-        name: PERSONA_SUFFIX_SECTION,
-        order: agent.ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX'),
-        text: '当前工作目录是 {{cwd}} 。',
-      }))
-    }
-    if (config.hidePlatformShellTools === true) {
-      agent.ctx.effect(() => agent.ctx.tools.restrict({ futureDeny: ['bash', 'pwsh'] }))
-      for (const [name, order] of [
-        ['tool:bash', 'TOOL_BASH'],
-        ['tool:pwsh', 'TOOL_PWSH'],
-      ]) {
-        agent.ctx.effect(() => agent.ctx.systemPrompt.section({
-          name,
-          order: agent.ctx.systemPrompt.getSectionOrder(order),
-          text: '',
-        }))
+  await ctx.inject(['workingDirectory'], (directoryCtx) => {
+    directoryCtx.on('agent/created', async ({ agent }) => {
+      await ctx.agentPresets.mount(agent.ctx, requestedPreset)
+      agent.ctx.on('llm/stream', async function* (options, next) {
+        const expected = `Current working directory: ${JSON.stringify(directoryCtx.workingDirectory.get(agent.session))}.`
+        const contexts = options.messages.filter(message => message.source?.kind === 'runtime-context')
+        assert.ok(contexts.some(message => message.content.some(block => block.type === 'text' && block.text.includes(expected))),
+          'current project working directory reaches the model through runtime context')
+        yield* next()
+      })
+      if (config.hidePlatformShellTools === true) {
+        agent.ctx.effect(() => agent.ctx.tools.restrict({ futureDeny: ['bash', 'pwsh'] }))
+        for (const [name, order] of [
+          ['tool:bash', 'TOOL_BASH'],
+          ['tool:pwsh', 'TOOL_PWSH'],
+        ]) {
+          agent.ctx.effect(() => agent.ctx.systemPrompt.section({
+            name,
+            order: agent.ctx.systemPrompt.getSectionOrder(order),
+            text: '',
+          }))
+        }
       }
-    }
-  })
+    })
+  }).await()
 }
