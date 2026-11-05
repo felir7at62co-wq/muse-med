@@ -110,15 +110,15 @@ export async function apply(ctx, config) {
   await ctx.plugin(SnapshotLvpaopaoBridge)
   await ctx.plugin(CharacterLibraryTos, CharacterLibraryTos.Config({})).await()
   await ctx.plugin(CharacterLibrary.default).await()
-  const requireSdk = createRequire(new URL('../../../packages/mcp/mcp-client/package.json', import.meta.url))
-  const importSdk = async name => {
+  const importSdk = async (name, owner) => {
+    const requireSdk = createRequire(owner)
     const manifestUrl = new URL('../package.json', pathToFileURL(requireSdk.resolve(name)))
     const manifest = JSON.parse(await readFile(manifestUrl, 'utf8'))
     return import(new URL(manifest.exports['.'].import.default, manifestUrl).href)
   }
   const [{ createMcpHandler }, { toNodeHandler }] = await Promise.all([
-    importSdk('@modelcontextprotocol/server'),
-    importSdk('@modelcontextprotocol/node'),
+    importSdk('@modelcontextprotocol/server', new URL('../../../packages/host/muse-account/package.json', import.meta.url)),
+    importSdk('@modelcontextprotocol/node', new URL('../../../packages/mcp/mcp-client/package.json', import.meta.url)),
   ])
   let kb
   await ctx.effect(async () => {
