@@ -21,7 +21,7 @@ import {
   launchWebScaffold, recordFixture, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { createChatScrollFixture } from './chat-scroll-fixture.ts'
-import { openSettings, connectFreshWorkspace, expandOwningTurnProcess, newEnglishPage, saveFailureShot, WEB_FIXTURE_TIME } from './support.ts'
+import { connectFreshWorkspace, expandOwningTurnProcess, newEnglishPage, saveFailureShot, WEB_FIXTURE_TIME } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/turn-tail-actions', import.meta.url))
 const FIXTURE = join(SNAPSHOT_DIR, 'session.v3.jsonl')
@@ -163,7 +163,7 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     const runningProcess = page.locator('[data-turn-process]')
     expect(await runningProcess.count()).toBe(0)
     await expect.poll(
-      () => page.getByRole('status').filter({ hasText: 'Deep diving' }).isVisible(),
+      () => page.getByRole('status').filter({ hasText: 'Receiving response' }).isVisible(),
       { timeout: 10_000 },
     ).toBe(true)
     await page.locator('[data-streaming="true"]')
@@ -274,7 +274,7 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     expect(await process.getAttribute('aria-expanded')).toBe('false')
     expect(await tool.isVisible()).toBe(false)
 
-    await openSettings(page, 'en')
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Settings' })
     await dialog.getByText('Work details', { exact: true }).locator('../..')
       .getByRole('button', { name: 'Detailed', exact: true }).click()
@@ -304,7 +304,7 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
       await process.click()
     }
 
-    await openSettings(page, 'en')
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
     const restored = page.getByRole('dialog', { name: 'Settings' })
     await restored.getByText('Work details', { exact: true }).locator('../..')
       .getByRole('button', { name: label, exact: true }).click()

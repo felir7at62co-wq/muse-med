@@ -20,6 +20,8 @@ The workspace file-reference recording supplies its historical two-skill catalog
 
 Same-day message goldens use the shared `WEB_FIXTURE_TIME`: seeded transcripts pass it as `createdAt` and pin the browser calendar with `pinBrowserClock`; scenarios that submit live messages also use `pinHostClock` and restore it after teardown. These clocks advance with real elapsed time while keeping native timers intact, so midnight does not change a scenario's date labels.
 
+Root-only recorded-session owners can preserve canonical replay inputs with [`writerOutput`](../../../packages/test-support/session-snapshot/README.md). The scaffold compares the driven root against a separate current-writer oracle and checks its exact inventory; it rejects child canonical roles for this Web option. Refresh may check the inventory before teardown harvests the root oracle; replay always requires it.
+
 ## Completion observations
 
 Desktop onboarding waits for the published balance result through a [read-only account observer](fixtures/plugins/fixture-onboarding-account/client.js). A held post-return response separates request arrival and enabled navigation from the failed result reaching the account subscription; the fixture disposes that subscription when its Client plugin stops.

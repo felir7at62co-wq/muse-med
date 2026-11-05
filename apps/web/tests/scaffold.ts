@@ -56,6 +56,7 @@ import {
   stabilizeFixtureMessageIds,
   stabilizeRefreshLog,
   writesCurrentSessionFixtures,
+  writerSnapshotName,
   type NormalizeContext,
 } from '@deepseek-ai/dsh-session-snapshot'
 import type { Profile, ProfileContext } from '@deepseek-ai/dsh-app-boot'
@@ -1225,6 +1226,23 @@ function stableSessionFixture(
   return stable
 }
 
+/** The Web scaffold compares one driven root Session and exactly one writer oracle. */
+function assertRootWriterRoles(entries: readonly string[]): void {
+  if (sessionFixtureFiles(entries).some(fixture => fixture.index !== 0)) {
+    throw new Error('Web writerOutput requires a root-only Session owner; child Session fixtures are not supported')
+  }
+  const extra = entries.filter(name => name.startsWith('writer') && name.endsWith('.expected.jsonl') && name !== writerSnapshotName(0))
+  if (extra.length > 0) throw new Error(`Web writerOutput has an unexpected writer oracle: ${extra.join(', ')}`)
+}
+
+/**
+ * Compare the driven root Session with its canonical input or separate writer oracle.
+ * @param sessions - Sessions observed by this scaffold.
+ * @param fixturePath - Selected canonical replay input owned by the scenario.
+ * @param mode - Replay compares; refresh updates only the declared output target.
+ * @param webUrl - Run-local Web URL for header sidecar normalization.
+ * @param harnessHome - Run-local Harness home replaced by its stable token.
+ */
 async function assertReplaySession(
   sessions: readonly Session[],
   fixturePath: string,
@@ -1232,12 +1250,16 @@ async function assertReplaySession(
   webUrl: string,
   harnessHome: string,
 ): Promise<void> {
-  let expected = await readFile(fixturePath, 'utf8')
+  const canonical = await readFile(fixturePath, 'utf8')
   const fixtureDir = dirname(fixturePath)
   const manifestPath = join(fixtureDir, 'snapshot.yml')
   const manifest = parseSnapshotManifest(await readFile(manifestPath, 'utf8'), manifestPath)
-  let expectedPath = fixturePath
-  const userPrompts = fixtureUserPrompts(expected)
+  if (manifest.writerOutput === true) assertRootWriterRoles(await readdir(fixtureDir))
+  const writerPath = join(fixtureDir, writerSnapshotName(0))
+  let expectedPath = manifest.writerOutput === true ? writerPath : fixturePath
+  let expected = manifest.writerOutput === true && mode !== 'refresh'
+    ? await readFile(writerPath, 'utf8') : canonical
+  const userPrompts = fixtureUserPrompts(canonical)
   const candidates = sessions.filter((session) => {
     if (session.header.origin === 'subagent' || session.header.isSeeded) return false
     const actual = session.snapshotEvents().flatMap((event) => {
@@ -1252,9 +1274,10 @@ async function assertReplaySession(
   const sessionCwd = session.header.cwd
   if (sessionCwd === undefined) throw new Error(`${fixturePath}: replayed session has no cwd`)
   const actual = rawSessionLog(session)
-  if (mode === 'refresh' && writesCurrentSessionFixtures(manifest, mode)) {
-    expected = stableSessionFixture(session, expected, sessionCwd, harnessHome)
-    expectedPath = recordedSessionFixturePath(fixturePath, session.header.version)
+  if (mode === 'refresh' && (manifest.writerOutput === true || writesCurrentSessionFixtures(manifest, mode))) {
+    const existing = existsSync(expectedPath) ? await readFile(expectedPath, 'utf8') : canonical
+    expected = stableSessionFixture(session, existing, sessionCwd, harnessHome)
+    if (manifest.writerOutput !== true) expectedPath = recordedSessionFixturePath(fixturePath, session.header.version)
     await writeFile(expectedPath, expected)
   }
   const expectedHeader = JSON.parse(expected.split('\n').find(line => line.trim() !== '') ?? '{}') as {
@@ -1270,7 +1293,7 @@ async function assertReplaySession(
     ?.split(harnessHome).join('{{harnessHome}}')
   const expectedSnapshot = normalizeSessionSnapshots([normalizeWebSessionVolatiles(expected)], expectedContext)[0]
     ?.split(harnessHome).join('{{harnessHome}}')
-  expect(actualSnapshot, `${fixturePath}: persisted replay`).toBe(expectedSnapshot)
+  expect(actualSnapshot, `${expectedPath}: persisted replay`).toBe(expectedSnapshot)
 
   if (manifest.header?.pin !== true) return
   const normalizePrompt = (value: string): string => value
@@ -1753,8 +1776,9 @@ export async function compareOrRefreshGolden(goldenPath: string, actual: string,
  * files and every committed JSONL is a header-scrubbed, typed-redaction fixed point.
  * @param dir - the scenario snapshot directory.
  * @param expected - the exact expected file inventory.
+ * @param mode - Refresh may inspect before the root writer oracle is harvested; replay requires it.
  */
-export async function assertFixtureInventory(dir: string, expected: string[]): Promise<void> {
+export async function assertFixtureInventory(dir: string, expected: string[], mode = webSnapshotMode()): Promise<void> {
   const entries = (await readdir(dir)).sort()
   const ownsManifest = entries.includes('snapshot.yml')
   const artifacts = entries.filter(name => name !== 'snapshot.yml')
@@ -1762,11 +1786,15 @@ export async function assertFixtureInventory(dir: string, expected: string[]): P
     const fixture = parseSessionFixtureName(name)
     return fixture === undefined ? name : sessionFixtureName(fixture.index, 0)
   }))].sort()
-  expect(roleInventory(artifacts)).toEqual(roleInventory(expected))
+  let expectedArtifacts = expected
   if (ownsManifest) {
     const manifestPath = join(dir, 'snapshot.yml')
     const manifest = parseSnapshotManifest(await readFile(manifestPath, 'utf8'), manifestPath)
     expect(manifest.profile).toBe('web')
+    if (manifest.writerOutput === true) {
+      assertRootWriterRoles(artifacts)
+      if (mode !== 'refresh' || artifacts.includes(writerSnapshotName(0))) expectedArtifacts = [...expected, writerSnapshotName(0)]
+    }
     if (manifest.session === undefined) {
       expect(
         artifacts.some(name => parseSessionFixtureName(name)?.index === 0),
@@ -1776,6 +1804,7 @@ export async function assertFixtureInventory(dir: string, expected: string[]): P
       expect(existsSync(resolve(dir, manifest.session.source)), `${dir}: session source`).toBe(true)
     }
   }
+  expect(roleInventory(artifacts)).toEqual(roleInventory(expectedArtifacts))
   for (const entry of artifacts.filter(name => name.endsWith('.jsonl'))) {
     const content = await readFile(join(dir, entry), 'utf8')
     expect(scrubModelRequestBulk(content), `${dir}/${entry} carries prompt text or tool-schema bulk`).toBe(content)
