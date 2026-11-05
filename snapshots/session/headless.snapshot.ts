@@ -1,6 +1,7 @@
 /** Recorded-session replay through the shipped headless `dsh` profile. */
 
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
+import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
 import { cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -10,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import ts from 'typescript'
 import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
+import { runDramaRender } from '@deepseek-ai/dsh-tool-episode-render'
 import { releasedV0SessionFormatCodec } from '@deepseek-ai/dsh-session-format-v0-to-v1'
 import type { SessionFormatEvent, SessionFormatMigrationContext } from '@deepseek-ai/dsh-session-format'
 import { assertWorkspaceOutsideTemp, outsideTempWorkspaceParent } from '../../scripts/snapshot-workspace-parent.ts'
@@ -1276,6 +1278,40 @@ describe('headless recorded-session snapshots', () => {
       const expectedRoot = await prepareSubtitleOverlayExpectedWorkspace(alias, join(snapshotsRoot, 'drama-subtitle-overlay'))
       const report = JSON.parse(await readFile(join(expectedRoot, 'editing', 'review-overlay.srt.decision-report.json'), 'utf8')) as JsonObject
       expect(report.plan_path).toBe(join(await realpath(workspace), 'subtitle-plan.json'))
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it('binds visual speech evidence to the real source bytes and rejects a changed digest', async () => {
+    const owner = join(snapshotsRoot, 'drama-subtitle-visual-review')
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-visual-speech-evidence-'))
+    const cwd = join(directory, 'workspace'), alias = join(directory, 'alias')
+    try {
+      await cp(join(owner, 'workspace.expected'), cwd, { recursive: true })
+      await symlink(cwd, alias, process.platform === 'win32' ? 'junction' : 'dir')
+      const expectedHash = await expectedVisualSpeechHash(cwd, owner)
+      expect(await expectedVisualSpeechHash(alias, owner)).toBe(expectedHash)
+      const review = () => runDramaRender({ method: 'speech_coverage', project: cwd, episode: 1,
+        shots: 'shots.json', timeline: 'editing/01-timeline.json', subtitleSrt: 'editing/01.srt', speechTranscripts: 'receipts.json' }, {
+        ffmpeg: 'unused-speech-review-ffmpeg', ffprobe: 'unused-speech-review-ffprobe',
+        masterVolume: 1, bgmVolume: 0, preferNvenc: false, fontsDir: '', subtitleFontFamily: 'SimHei', watermarkFontFamily: 'SimHei',
+      })
+      const report = await review()
+      expect(report.speech_coverage).toMatchObject({ evidence_sha256: expectedHash, evidence_complete: true, listening_verified: false })
+      const session = (value: typeof report) => JSON.stringify({ type: 'tool/result', data: { message: {
+        toolCallId: 'call_visual_speech', content: [{ type: 'text', text: JSON.stringify(value, null, 2) }],
+      } } }) + '\n'
+      const log = session(report)
+      expect(visualSpeechRecords(log, expectedHash, true)).toEqual(records(log))
+      const tampered = visualSpeechRecords(log, '0'.repeat(64), false).map(row => JSON.stringify(row)).join('\n')
+      expect(() => visualSpeechRecords(tampered, expectedHash, true)).toThrow('Speech evidence digest differs')
+      await writeFile(join(cwd, 'source.mp4'), 'Changed source bytes after the reviewed receipt.\n')
+      const changed = await review()
+      expect(changed.speech_coverage?.evidence_complete).toBe(false)
+      expect(changed.speech_coverage?.evidence_sha256).not.toBe(expectedHash)
+      expect(() => visualSpeechRecords(session(changed), expectedHash, true)).toThrow('Speech evidence digest differs')
+      expect(await expectedVisualSpeechHash(cwd, owner)).toBe(expectedHash)
     } finally {
       await rm(directory, { recursive: true, force: true })
     }
