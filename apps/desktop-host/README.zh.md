@@ -48,6 +48,8 @@ Office 组合全局注册 `manuscript_revision`，对照实际上一稿与返回
 
 对照展示新增、改写和删除的段落。可选候选稿对照返回差异，不拒绝写入、导出或交付。Agent 依据用户当前要求和最新返稿处理；旧授权记录仍可读取，但不作为前提。
 
+只读 `materials` 动作要求显式传入 `documents`：恰好一份当前采用稿 `current`、最多一份修订候选 `candidate`，以及可选参考原作 `reference`。文件与提取正文哈希标识各版本，参考稿不替代采用稿。读取返回完整所选集及相邻内容、明确的提取正文行范围或全文，并列明已读与未读范围。Word 行号指提取正文行，段内换行也计行。`maxMaterialChars` 限制本次返回的正文总量；超限时要求缩小范围，不把预览冒充完整读取。读取不修改文件，不代表已作语义审校，也不建立持久采用稿选择。
+
 只读 `measure` 动作通过显式 `source_paths` 与 `candidate_paths` 比较同一故事范围，不建立返稿基线。结果包含文件哈希、各文件与合计计数、差额及增幅。计数含标题和人物名，分别统计文字数字数与非空白字符数，两者均不估算 Word 字数或净正文。`max_growth_percent` 传入用户的增幅上限；纯 ASR 对白不能充当含画面动作剧本的等量来源。
 
 本地记录保留在工作区的 `.muse/manuscript-revisions/` 下。Office 的 `manuscriptRevisions` 设置控制资源限额，对照不静默截断。差异作为已记录的上下文进入模型。参见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-manuscript-protection/guide.zh.md)。

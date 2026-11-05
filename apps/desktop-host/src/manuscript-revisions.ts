@@ -16,6 +16,7 @@ import { compareManuscriptLengths, measureManuscriptLength, type ManuscriptLengt
 import { isManuscriptGuidancePath, manuscriptGuidanceCandidates, manuscriptReadGuidanceCandidates } from './manuscript-advisories.ts'
 import { ManuscriptVideoEvidence, manuscriptDeclaredOutputs } from './manuscript-video-evidence.ts'
 import { installManuscriptVideoReads } from './manuscript-video-reads.ts'
+import { materialDocumentsSchema, readManuscriptMaterials } from './manuscript-materials.ts'
 
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
@@ -36,6 +37,8 @@ export interface Config {
   maxParagraphs: number
   maxEditLength: number
   maxDocuments: number
+  /** Maximum unabridged material text returned by one explicit reading request. */
+  maxMaterialChars: number
   maxLedgerBytes: number
   lockWaitMs: number
   maxRepeatFindings: number
@@ -53,6 +56,7 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   maxParagraphs: Schema.number().step(1).min(1).default(10_000),
   maxEditLength: Schema.number().step(1).min(1).default(20_000),
   maxDocuments: Schema.number().step(1).min(1).default(64),
+  maxMaterialChars: Schema.number().step(1).min(1).default(40_000),
   maxLedgerBytes: Schema.number().step(1).min(1).default(32 * 1024 * 1024),
   lockWaitMs: Schema.number().step(1).min(1).default(5000),
   maxRepeatFindings: Schema.number().step(1).min(1).default(40),
@@ -73,12 +77,13 @@ type Ledger = z.infer<typeof ledgerSchema>
 type Review = z.infer<typeof reviewSchema>
 
 const argumentsSchema = z.strictObject({
-  action: z.enum(['compare', 'status', 'review', 'authorize', 'measure']),
+  action: z.enum(['compare', 'status', 'review', 'authorize', 'measure', 'materials']),
   baseline_path: z.string().min(1).optional(), revised_path: z.string().min(1).optional(),
   source_paths: z.array(z.string().min(1)).min(1).optional(),
   candidate_paths: z.array(z.string().min(1)).min(1).optional(),
   max_growth_percent: z.number().min(0).optional(),
   change_id: z.string().optional(), authorization_quote: z.string().optional(),
+  documents: materialDocumentsSchema.optional(),
 })
 
 function context(text: string, summary = '用户返稿修改与保留范围') {
@@ -215,6 +220,10 @@ export class ManuscriptRevisions {
   async request(raw: unknown, agent: Agent, signal: AbortSignal): Promise<string> {
     const args = argumentsSchema.parse(raw), cwd = agent.session.header.cwd
     if (cwd === undefined) throw Error('MANUSCRIPT_WORKSPACE: 此工具需要工作区。')
+    if (args.action === 'materials') {
+      if (!args.documents) throw Error('materials 需要 documents，明确 current、reference 与 candidate 的实际文件；不自动选稿。')
+      return JSON.stringify(await readManuscriptMaterials(args.documents, cwd, this.config, signal))
+    }
     if (args.action === 'measure') {
       if (!args.source_paths?.length || !args.candidate_paths?.length) {
         throw Error('measure 需要 source_paths 和 candidate_paths，明确本轮对应范围；不会用返稿基线代替原作。')
@@ -315,9 +324,17 @@ export function apply(ctx: Context, config: Config): void {
   const guidanceNotices = new WeakMap<Agent, string>()
   ctx.tools.register(defineTool({
     name: 'manuscript_revision',
-    description: '支持Word/Markdown/文本。compare对照上一稿与最新返稿，status读取差异，review可选对照候选稿；没有基线时如实说明。measure只读统计同范围来源与成稿的文字数字数、差额和倍率，不使用或修改返稿基线。仅提供提示，不拦截保存、导出或交付。',
+    description: '支持Word/Markdown/文本。materials显式读取当前采用稿current、参考原作reference与修订候选candidate，返回实际正文、版本及已读未读范围，不把参考稿当采用稿，不代表剧情已审校。compare对照上一稿与最新返稿，status读取差异，review可选对照候选稿；没有基线时如实说明。measure只读统计同范围文字量，不使用或修改返稿基线。',
     parameters: {
-      action: { type: 'string', required: true, enum: ['compare', 'status', 'review', 'measure'] },
+      action: { type: 'string', required: true, enum: ['compare', 'status', 'review', 'measure', 'materials'] },
+      documents: { type: 'array', description: 'materials使用：恰好一份current，最多一份candidate，reference仅供参考。逐文件显式选集或提取文本行；省略范围读取全文，超限时缩小范围，不截断。',
+        items: { type: 'object', additionalProperties: false, properties: {
+          role: { type: 'string', required: true, enum: ['current', 'reference', 'candidate'] }, path: { type: 'string', required: true },
+          episodes: { type: 'array', items: { type: 'integer' }, description: '完整指定集及其实际相邻集；不与lines同时使用。' },
+          lines: { type: 'object', additionalProperties: false,
+            properties: { start: { type: 'integer', required: true }, end: { type: 'integer', required: true } },
+            description: '1起始、两端包含的提取正文行号；Word换行也计行，不是Word段落号。' },
+        } } },
       baseline_path: { type: 'string', description: '实际上一稿路径；同路径返稿已有交付快照时可省略。' },
       revised_path: { type: 'string', description: '用户最新返稿的真实本地路径。' },
       source_paths: { type: 'array', items: { type: 'string' }, description: 'measure使用的本轮对应完整来源文件；与candidate_paths覆盖相同范围，不把仅有对白的ASR与含动作场景的成稿当作同口径正文。' },
