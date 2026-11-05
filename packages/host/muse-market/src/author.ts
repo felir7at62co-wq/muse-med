@@ -1,7 +1,7 @@
 /** Explicit local Skill resources collected for a creator-reviewed publication. */
 import { lstat, readdir, readFile } from 'node:fs/promises'
 import { join, isAbsolute } from 'node:path'
-import { stringify, parseDocument } from 'yaml'
+import { stringify } from 'yaml'
 import type { SkillDefinition } from '@deepseek-ai/dsh-skill'
 import type { MarketLimits } from './types.ts'
 import { MarketError, marketPath } from './package.ts'
@@ -46,22 +46,4 @@ export async function collectMarketSkills(skills: readonly SkillDefinition[], li
     add(`skills/${skill.name}/SKILL.md`, Buffer.from(`---\n${frontmatter}---\n${skill.content}`))
   }
   return files
-}
-
-/** Parse a local Bot declaration without evaluating executable YAML tags.
- * @param content Preset's declared YAML plugin list.
- * @returns JSON plugin rows with local entry identities removed.
- */
-export function marketPresetRows(content: string): unknown {
-  const document = parseDocument(content)
-  if (document.errors.length || document.warnings.length) throw new MarketError('non-portable-bot')
-  const strip = (value: unknown): unknown => {
-    if (!Array.isArray(value)) throw new MarketError('non-portable-bot')
-    return value.map((row: unknown) => {
-      if (!row || typeof row !== 'object' || Array.isArray(row)) throw new MarketError('non-portable-bot')
-      const { id: _id, ...fields } = row as Record<string, unknown>
-      return fields.group === true ? { ...fields, config: strip(fields.config) } : fields
-    })
-  }
-  return strip(document.toJSON())
 }

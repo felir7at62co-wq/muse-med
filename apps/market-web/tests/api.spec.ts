@@ -63,8 +63,8 @@ it('validates team identity and sends explicit ZIP uploads with the caller-retai
   await client.close()
 })
 
-it('sends the selected preset in a Bot ZIP and reads it back from the saved release', async () => {
-  const { release, bytes } = await fixture('storyboard-director')
+it('binds the automatic Skill portrait in the uploaded ZIP and reads it back from the saved release', async () => {
+  const { release, bytes } = await fixture()
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async (_url, options) => {
     const sent = new Uint8Array(await new Response(options?.body).arrayBuffer())
     const { manifest } = readMarketPackage(sent, config.limits, config.allowedPlugins)
@@ -79,6 +79,38 @@ it('sends the selected preset in a Bot ZIP and reads it back from the saved rele
   } finally {
     await client.close()
   }
+})
+
+it('requests only Skills and excludes archived Bot releases from stale catalogue responses', async () => {
+  const skill = await fixture(), bot = await fixture('storyboard-director')
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response({ items: [bot.release, skill.release] }))
+  const client = createMarketBrowserClient(config, fetcher)
+  try {
+    expect(await client.actions.catalog('', '', true)).toEqual([skill.release])
+    expect(fetcher.mock.calls[0]?.[0]).toBe('/api/market/v1/catalog?q=&kind=skill&mine=true')
+  } finally { await client.close() }
+})
+
+it('rejects Bot previews, direct uploads and direct downloads before issuing requests', async () => {
+  const { release, bytes } = await fixture('storyboard-director')
+  const fetcher = vi.fn<typeof fetch>()
+  const client = createMarketBrowserClient(config, fetcher)
+  try {
+    await expect(client.actions.previewArchive(bytes)).rejects.toThrow('skill-only')
+    await expect(client.actions.uploadArchive(bytes, release.publisherId, 'blocked-request-1')).rejects.toThrow('skill-only')
+    await expect(client.actions.downloadArchive(release)).rejects.toThrow('skill-only')
+    expect(fetcher).not.toHaveBeenCalled()
+  } finally { await client.close() }
+})
+
+it('rejects a Bot release returned by an obsolete upload or review endpoint', async () => {
+  const skill = await fixture(), bot = await fixture('storyboard-director')
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => response(bot.release))
+  const client = createMarketBrowserClient(config, fetcher)
+  try {
+    await expect(client.actions.uploadArchive(skill.bytes, skill.release.publisherId, 'stale-request-1')).rejects.toThrow('skill-only')
+    await expect(client.actions.review(bot.release.id, 1, 'approve', '')).rejects.toThrow('skill-only')
+  } finally { await client.close() }
 })
 
 it('shows bounded package validation failures without exposing raw error bodies', async () => {

@@ -5,7 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { MarketPublications } from '../src/client/MarketPublications.tsx'
 import type { MarketSectionProps } from '../src/client/MarketSection.tsx'
 import type { MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
-import { marketFixture } from './market-fixture.client.ts'
+import { marketFixture, marketBotFixture } from './market-fixture.client.ts'
 import { marketZh, marketEn, type MarketLocaleKey } from '../src/client/market-locales.ts'
 import { resolve } from 'node:path'
 
@@ -24,12 +24,22 @@ function harness() {
   return { catalog, review, props }
 }
 
+it('omits historical Bot publications returned by an older cloud catalogue', async () => {
+  const h = harness()
+  h.catalog.mockResolvedValue([marketBotFixture, draft])
+  render(<MarketPublications {...h.props} admin />)
+  await screen.findByRole('heading', { name: draft.manifest.title })
+  expect(h.catalog).toHaveBeenCalledWith('', 'skill', true)
+  expect(screen.queryByRole('heading', { name: marketBotFixture.manifest.title })).toBeNull()
+  expect(screen.getAllByRole('article')).toHaveLength(1)
+})
+
 it('submits the shown revision only after explicit confirmation and keeps pending distinct from published', async () => {
   const h = harness(), response = Promise.withResolvers<MarketRelease>()
   h.review.mockReturnValueOnce(response.promise)
   render(<MarketPublications {...h.props} />)
   await screen.findByText('publication.draft')
-  expect(h.catalog).toHaveBeenCalledWith('', '', true)
+  expect(h.catalog).toHaveBeenCalledWith('', 'skill', true)
   fireEvent.click(screen.getByRole('button', { name: 'review.submit' }))
   expect(h.review).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'confirmReview' }))

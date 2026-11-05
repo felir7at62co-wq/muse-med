@@ -206,7 +206,7 @@ Cloud administrator model discovery uses the same pi-ai listing parser as local 
 
 ## Muse market
 
-The optional [Bot & Skills market](MARKET.md) uses a separate `dsh` profile and an authenticated loopback proxy. Its public website and cloud publications can remain available while Desktop is offline. The route and bundled page are source-level integration surfaces, not evidence of deployment or final frontend acceptance; enabling them requires both market policy and gateway configuration. `market-gateway.test.mjs` is the no-build route/proxy check; the end-to-end `market.test.mjs` requires the Host market and webserver packages to be built first.
+The optional [Skills market](MARKET.md) uses a separate `dsh` profile and an authenticated loopback proxy. Its public website and cloud Skill publications can remain available while Desktop is offline. Enabling it requires both market policy and gateway configuration. Deployment and frontend acceptance require separate verification. `market-gateway.test.mjs` checks routes and the proxy without a build. The end-to-end `market.test.mjs` requires the Host market and webserver packages to be built first.
 
 ## Verification and release
 

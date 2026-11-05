@@ -88,6 +88,19 @@ async function invite(origin: string): Promise<string> {
   return replyId(await response.json())
 }
 
+it('rejects a direct authenticated Bot ZIP upload before creating a cloud release', async () => {
+  const fixture = await setup()
+  await fixture.open()
+  const publisher = await invite(fixture.origin)
+  const bytes = createMarketPackage({ ...manifest, kind: 'bot', skills: [], plugins: [] }, {}, limits, [])
+  const uploaded = await api(fixture.origin, '/uploads', author, { method: 'POST', headers: {
+    'content-type': 'application/zip', 'x-market-publisher': publisher, 'idempotency-key': 'retired-bot-upload',
+  }, body: Buffer.from(bytes) })
+  expect(await outcome(uploaded)).toEqual({ status: 400, body: { error: 'skill-only' } })
+  expect(await outcome(await api(fixture.origin, '/catalog?mine=true', author)))
+    .toEqual({ status: 200, body: { items: [] } })
+})
+
 it('validates the administrator policy, bounded limits and private secret before registering a route', async () => {
   const fixture = await setup()
   const { root, policy, policyFile, secretFile, writePolicy } = fixture

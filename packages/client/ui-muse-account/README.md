@@ -25,27 +25,27 @@ This client plugin adds a Muse account entry to the Desktop sidebar and Settings
 <a id="use-this-package"></a>
 ## Use this package
 
-The sidebar opens the Bot & Skills market in the main panel; Settings retains a shortcut. Discovery, details, local packages and creator controls share the existing Host Remote. Scroll long release details within the dialog while its title and close button stay visible. Downloading and enabling are separate actions, and only confirmed Host results update local state. Existing sessions keep their bound versions. **My capabilities** shows the activation and actions for each installation. Discovery uses the exact installed release when present and otherwise recognizes a ZIP import with identical bytes.
+The sidebar opens the Skill market in the main panel; Settings retains a shortcut. Discovery, details, local packages and creator controls share the existing Host Remote. Scroll long release details within the dialog while its title and close button stay visible. Downloading and enabling are separate actions, and only confirmed Host results update local state. Existing sessions keep their bound versions. **My capabilities** shows each Skill installation's activation and actions. Discovery uses the exact installed release when present and otherwise recognizes a ZIP import with identical bytes.
 
 Discovery shows published releases and the original Muse collection. A guide introduces discovery and installation on the first visit. Closing it saves the choice on the current client. **Market guide** opens it again.
 
 The desktop market can import an original package by its listed digest and then enable it from discovery or My capabilities. Enabled original Skill details show the command to use it in a Muse conversation. The website and desktop market both offer the original archive download. Imported originals are ineligible for publication or export as a release package.
 
-Run Bot opens a new task bound to the enabled Bot version on its card, in the current or most recent Workspace. It saves the Bot's release title as the Session title before opening the task. In Muse Bot mode, team registration uses this saved title and adds a suffix when the name is already taken. The action requires a Workspace and leaves the current task and the default Agent unchanged. The Muse Bot sidebar footer opens the market.
+Enabled Skills are available by their invocation names in Muse conversations. The Muse Bot sidebar footer also opens the Skill market.
 
-In the market, **Create Skill** opens the Skill form in the separate creation and upload page. Switch to **Create Bot** to package a local Bot with a matching portrait, or **Upload ZIP** to select an existing package. The form previews the listing and lets you export the package or upload a private draft. The creator center lists cloud releases and review actions.
+In the market, **Create Skill** opens the Skill form in the separate creation and upload page. **Upload ZIP** selects an existing Skill package. The form previews the listing and lets you export the package or upload a private draft. The creator center lists cloud Skill releases and review actions. The UI excludes historical Bot records, and the Host and browser adapters enforce Skill-only operations.
 
-Bot cards and creator previews use a shared square portrait area. Built-in artwork uses the same visible size for static portraits and animation frames, with each portrait's proportions preserved.
+Skill cards and creator previews use a shared square portrait area. Built-in artwork uses the same visible size for static portraits and animation frames, with each portrait's proportions preserved.
 
-Skill cards, author previews, and ZIP previews choose the same illustration from the Skill name and purpose. The editor updates the illustration as you select a local Skill or enter its details.
+Skill cards, author previews, and ZIP previews automatically choose the same Muse character from the Skill name and purpose. The shared library includes 50 characters. The editor updates the character as you select a local Skill or enter its details.
 
-The [standalone website](../../../apps/market-web/README.md) uses the same market page through an explicit browser adapter. It previews ZIP metadata locally, uploads only after confirmation and downloads a digest-verified archive. Browser downloads do not install or enable a capability. The handoff Bot's exact archive digest selects its local sample portrait.
+The [standalone website](../../../apps/market-web/README.md) uses the same market page through an explicit browser adapter. It previews Skill ZIP metadata locally, uploads only after confirmation and downloads a digest-verified archive. Browser downloads do not install or enable a capability.
 
 Creator center separates cloud releases from local packages. Preparing or exporting stays local; uploading creates a private cloud draft with a different identity, retaining the same upload request key for retries. Team membership and administrator status come from the server. Submission, approval, rejection with a required note and withdrawal use the displayed revision and show only server-confirmed states. Cloud conflicts refresh the list without automatically retrying a transition. These controls do not implement authorization in the browser.
 
-Muse matches a built-in portrait from the Bot title, description and category and stores its identifier in the prepared ZIP. Upload previews keep a portrait already bound to the ZIP. If the ZIP has no binding, Muse matches a portrait from the metadata and binds it when uploading the cloud draft.
+Muse matches a built-in portrait from the Skill name, title, description and category and stores its identifier in the prepared ZIP. Upload previews keep a portrait already bound to the ZIP. If the ZIP has no binding, Muse matches a portrait from the metadata and binds it when uploading the cloud draft.
 
-Bot cards and author previews share portraits, hover, focus and click introductions, and optional sprite playback. Reduced motion, hidden or offscreen artwork, and loading failures retain a static portrait.
+Skill cards and author previews share portraits, hover, focus and click introductions, and optional sprite playback. Reduced motion, hidden or offscreen artwork, and loading failures retain a static portrait.
 
 Desktop mounts this plugin beside the Host `muse-account` row. Open **Settings → MUSE** or the sidebar **MUSE** entry and choose **Sign in with Feishu**. With Feishu enabled, the gateway opens the official Feishu authorization page directly. After authorization, confirm the matching device code; the page automatically displays the account after the Host saves its login. Reopen the website or check the result after a connection failure, or cancel the pending login. Closing the account page cancels an unredeemed approval; an already-running save settles first. The first-run dialog uses the same sign-in flow. Existing Host login interfaces and account data remain available.
 
@@ -103,7 +103,7 @@ The UI does not change the model request prefix.
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- Cloud operations require the configured account gateway and market service. The static design preview uses mocked operations and does not prove a cloud connection. The market matches built-in artwork. The creator form keeps custom introduction text for the current preview only.
+- Cloud operations require the configured account gateway and market service. The static design preview uses mocked operations and does not prove a cloud connection. The market automatically matches built-in artwork from Skill metadata.
 
 - Account operations require the configured Muse gateway. The Host package documents the deployment and same-user file-access limits.
 

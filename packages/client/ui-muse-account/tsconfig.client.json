@@ -68,7 +68,6 @@
     "src/client/MarketAuthorPreview.tsx",
     "src/client/MarketCharacter.tsx",
     "src/client/MarketCatalogArtwork.tsx",
-    "src/client/MarketSkillGlyph.tsx",
     "src/client/MarketCreatorPage.tsx",
     "src/client/MarketGuide.tsx",
     "src/client/MarketPage.tsx",

@@ -13,14 +13,13 @@ import { downloadMarketFile } from './market-download.ts'
 import { marketFailure } from './market-errors.ts'
 import type { MarketLocaleKey } from './market-locales.ts'
 import type { MarketActions } from './market-mount.ts'
-import { matchMarketPresetPortrait, matchUnboundMarketPresetPortrait } from './market-preset-portraits.ts'
-import { boundMarketPresentation } from './market-stock-art.ts'
+import { matchUnboundMarketPresetPortrait, resolveMarketSkillArtwork } from './market-skill-artwork.ts'
 import type { MarketWebActions } from './market-web-types.ts'
 import creator from './MarketCreatorPage.module.css'
 import market from './MarketSection.module.css'
 
 /** Local authoring modes available in the desktop market. */
-export type MarketCreatorKind = 'skill' | 'bot' | 'upload'
+export type MarketCreatorKind = 'skill' | 'upload'
 
 /** Authoring callbacks and the capabilities supplied by the active market carrier. */
 export type MarketCreatorPageProps = Pick<MarketSectionProps, 't' | 'reportOutcome'> & {
@@ -39,14 +38,13 @@ type ReadState = { phase: 'loading' } | { phase: 'error'; error: MarketLocaleKey
 
 const authorModes = [
   { kind: 'skill', labelKey: 'creatorNewSkill' },
-  { kind: 'bot', labelKey: 'creatorNewBot' },
   { kind: 'upload', labelKey: 'creatorUploadZip' },
 ] as const
 
 const emptyMetadata = { name: '', title: '', description: '', version: '1.0.0', license: '', category: '', examples: '', requirements: '' }
 
 function isAuthorPackage(item: MarketInstallation): boolean {
-  return item.legacySource === undefined && item.release.status === 'draft'
+  return item.release.manifest.kind === 'skill' && item.legacySource === undefined && item.release.status === 'draft'
 }
 
 /** Render the authoring panel with a separate explicit confirmation for cloud upload.
@@ -62,13 +60,11 @@ export function MarketCreatorPage(props: MarketCreatorPageProps): ReactNode {
   const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const [publisher, setPublisher] = useState('')
-  const [bot, setBot] = useState('')
   const [skill, setSkill] = useState('')
-  const [botSkills, setBotSkills] = useState<string[]>([])
-  const [forms, setForms] = useState({ skill: emptyMetadata, bot: emptyMetadata })
+  const [metadata, setMetadata] = useState(emptyMetadata)
   const [localPackages, setLocalPackages] = useState<MarketInstallation[]>([])
   const [selectedPackage, setSelectedPackage] = useState('')
-  const [prepared, setPrepared] = useState<Record<'bot' | 'skill', MarketInstallation | undefined>>({ bot: undefined, skill: undefined })
+  const [prepared, setPrepared] = useState<MarketInstallation>()
   const [detail, setDetail] = useState<MarketRelease>()
   const [uploaded, setUploaded] = useState<MarketRelease['id']>()
   const activeOperation = useRef<symbol | null>(null)
@@ -89,7 +85,6 @@ export function MarketCreatorPage(props: MarketCreatorPageProps): ReactNode {
       if (!active) return
       const publishers = identity?.publishers ?? []
       setPublisher(publishers[0]?.id ?? '')
-      setBot(sources?.bots[0]?.id ?? '')
       setLocalPackages((packages ?? []).filter(isAuthorPackage))
       setRead({ phase: 'ready', signedIn: identity !== undefined, publishers, ...(sources === undefined ? {} : { sources }) })
     }, (error: unknown) => { if (active) setRead({ phase: 'error', error: marketFailure(error) }) })
@@ -107,33 +102,30 @@ export function MarketCreatorPage(props: MarketCreatorPageProps): ReactNode {
     finally { if (current()) { activeOperation.current = null; setBusy(false) } }
   }
 
-  const isBot = kind === 'bot'
-  const formKind = isBot ? 'bot' : 'skill'
-  const metadata = forms[formKind]
-  const selectedSkills = isBot ? botSkills : skill ? [skill] : []
-  const presetPortrait = isBot ? matchMarketPresetPortrait(metadata).id : undefined
+  const selectedSkills = skill ? [skill] : []
+  const presetPortrait = resolveMarketSkillArtwork({ ...metadata, skills: selectedSkills.map(name => ({ name })) })
   const readyPackage = kind === 'upload' ? localPackages.find(item => item.release.id === selectedPackage)
-    : prepared[kind]
+    : prepared
   const readyManifest = readyPackage?.release.manifest
   const archivePortrait = readyManifest && matchUnboundMarketPresetPortrait(readyManifest)
-  const archivePresentation = kind === 'upload' && readyManifest && boundMarketPresentation(readyManifest, archivePortrait)
   const publishers = read.phase === 'ready' ? read.publishers : []
   const sources = read.phase === 'ready' ? read.sources : undefined
   const acceptPackage = (item: MarketInstallation): void => {
+    if (item.release.manifest.kind !== 'skill') throw Error('skill-only')
     setLocalPackages(previous => [...previous.filter(row => row.release.id !== item.release.id), item])
     setSelectedPackage(item.release.id)
     setUploaded(undefined)
   }
   const invalidatePrepared = (): void => {
-    setPrepared(previous => ({ ...previous, [formKind]: undefined }))
+    setPrepared(undefined)
   }
   const prepare = (hostActions: MarketActions): void => {
     void run(async (current) => {
-      const manifest: MarketManifest = { ...metadata, formatVersion: 1, kind: formKind, skills: [],
-        ...(presetPortrait ? { presetPortrait } : {}), examples: metadata.examples.split('\n').filter(Boolean),
+      const manifest: MarketManifest = { ...metadata, formatVersion: 1, kind: 'skill', skills: [],
+        presetPortrait, examples: metadata.examples.split('\n').filter(Boolean),
         requirements: metadata.requirements.split('\n').filter(Boolean) }
-      const item = await hostActions.prepare(manifest, selectedSkills, isBot ? bot : '')
-      if (current()) { setPrepared(previous => ({ ...previous, [formKind]: item })); acceptPackage(item) }
+      const item = await hostActions.prepare(manifest, selectedSkills)
+      if (current()) { acceptPackage(item); setPrepared(item) }
     })
   }
   const importZip = (hostActions: MarketActions, file: File): void => {
@@ -200,21 +192,11 @@ export function MarketCreatorPage(props: MarketCreatorPageProps): ReactNode {
         </div> : <div className={`${market.authorLayout} ${creator.layout}`}>
           <form className={`${market.form} ${creator.card}`} onSubmit={(event) => { event.preventDefault(); prepare(host) }}>
             <h2 className={creator.sectionTitle}>{t('publicationInfo')}</h2><p className={creator.sectionHint}>{t('prepareDescription')}</p>
-            {isBot && <label className={market.field}>{t('sourceBot')}<select value={bot} disabled={busy || !sources?.bots.length}
-              onChange={(event) => { setBot(event.target.value); invalidatePrepared() }}>
-              {!sources?.bots.length && <option value="">{t('creatorNoBots')}</option>}
-              {sources?.bots.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select></label>}
             <fieldset className={`${market.skills} ${creator.sources}`} disabled={busy}>
-              <legend>{t(isBot ? 'sourceSkills' : 'creatorSourceSkill')}</legend>
+              <legend>{t('creatorSourceSkill')}</legend>
               {!sources?.skills.length && <span>{t('creatorNoSkills')}</span>}
               {sources?.skills.map(item => <label key={item.name}>
-                {isBot ? <input type="checkbox" checked={botSkills.includes(item.name)}
-                  onChange={(event) => {
-                    invalidatePrepared()
-                    setBotSkills(previous => event.target.checked ? [...previous, item.name] : previous.filter(name => name !== item.name))
-                  }} />
-                  : <input type="radio" name="market-skill" checked={skill === item.name} onChange={() => { setSkill(item.name); invalidatePrepared() }} />}
+                <input type="radio" name="market-skill" checked={skill === item.name} onChange={() => { setSkill(item.name); invalidatePrepared() }} />
                 {item.name}</label>)}
             </fieldset>
             {publisherField}
@@ -227,23 +209,24 @@ export function MarketCreatorPage(props: MarketCreatorPageProps): ReactNode {
                     onChange={(event) => {
                       const value = event.target.value
                       invalidatePrepared()
-                      setForms(previous => ({ ...previous, [formKind]: { ...previous[formKind], [key]: value } }))
+                      setMetadata(previous => ({ ...previous, [key]: value }))
                     }} />
                 </label>
               })}
             </div>
-            <Button type="submit" variant="primary" disabled={busy || (isBot ? !bot : !skill)}>{t('prepare')}</Button>
+            <Button type="submit" variant="primary" disabled={busy || !skill}>{t('prepare')}</Button>
           </form>
-          <div className={creator.preview}><MarketAuthorPreview key={isBot ? bot : 'skill'} metadata={metadata}
+          <div className={creator.preview}><MarketAuthorPreview metadata={metadata}
             version={metadata.version} publisher={publishers.find(item => item.id === publisher)?.title ?? ''}
-            bot={isBot} skillNames={selectedSkills} t={t} presetPortrait={presetPortrait} /></div>
+            skillNames={selectedSkills} t={t} /></div>
         </div>}
         {readyPackage && <section className={`${market.form} ${creator.card}`}>
           <h2 className={creator.sectionTitle}>{t('creatorPrepared')}</h2>
-          {kind === 'upload' && readyPackage.release.manifest.kind === 'skill' && <MarketSkillArtwork
-            metadata={readyPackage.release.manifest} label={readyPackage.release.manifest.title} />}
-          {archivePresentation && <>
-            <MarketCharacter presentation={archivePresentation} introduceLabel={t('introduce')} sampleLabel={t('samplePortrait')} />
+          {kind === 'upload' && <>
+            <MarketCharacter presentation={{ role: readyPackage.release.manifest.title,
+              introduction: readyPackage.release.manifest.description }}
+            introduceLabel={t('introduce')} sampleLabel={t('samplePortrait')}
+            artwork={<MarketSkillArtwork metadata={readyPackage.release.manifest} label={readyPackage.release.manifest.title} />} />
             <p className={market.previewHint}>{t('boundPortraitHint')}</p>
           </>}
           <p>{readyPackage.release.manifest.title} · {readyPackage.release.manifest.version}</p>

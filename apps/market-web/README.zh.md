@@ -9,7 +9,7 @@ kind: "reference"
 
 ## 概述
 
-浏览公开 Bot 与 Skill 版本，在本地预览 ZIP，再上传为团队私有草稿。网页与桌面复用 [Muse 市场界面](../../packages/client/ui-muse-account/README.zh.md)；下载的发布包在 Muse 中导入和启用。
+浏览公开 Skill 版本，在本地预览 Skill ZIP，再上传为团队私有草稿。网页与桌面复用 [Muse 市场界面](../../packages/client/ui-muse-account/README.zh.md)；下载的发布包在 Muse 中导入和启用。
 
 ## 目录
 
@@ -24,13 +24,13 @@ kind: "reference"
 
 此私有工作区应用通过 Vite 的构建产物部署。
 
-安装工作区依赖后，在仓库根目录运行 `pnpm --filter @deepseek-ai/dsh-market-web run build`。构建写入 `tmp/market-cloud-web/`，资源绝对路径前缀为 `/market/ui/`。在 `/market/` 与 `/market/manage` 提供 HTML，在 `/market/ui/assets/` 提供资源，在 `/market/ui/config.json` 提供公开配置。管理路径显示创作者的发行列表。该路径带 `?view=upload` 时打开独立上传页，返回操作打开发行列表。公开发现页同时读取 /market/catalog.json 的首批资源，原始 ZIP 和 TGZ 继续通过 /market/downloads/ 下载。部署时同时保留这些路由和发行接口。查询结果中若已有摘要相同的新版发行，发现页只展示该发行。`/api/market/v1/*` 与 `/account` 继续由现有认证网关处理；此应用不读取或构造浏览器 Cookie。[网关部署参考](../../services/muse-accounts/MARKET.md)负责私有进程配置。
+安装工作区依赖后，在仓库根目录运行 `pnpm --filter @deepseek-ai/dsh-market-web run build`。构建写入 `tmp/market-cloud-web/`，资源绝对路径前缀为 `/market/ui/`。在 `/market/` 与 `/market/manage` 提供 HTML，在 `/market/ui/assets/` 提供资源，在 `/market/ui/config.json` 提供公开配置。管理路径显示创作者的 Skill 发行列表。该路径带 `?view=upload` 时打开独立上传页，返回操作打开发行列表。公开发现页同时从 `/market/catalog.json` 读取首批 Skill，并通过 `/market/downloads/` 下载其 ZIP 包。部署时同时保留这些 Skill 路由和发行接口。查询结果中若已有摘要相同的新版发行，发现页只展示该发行。`/api/market/v1/*` 与 `/account` 继续由现有认证网关处理。此应用不读取或构造浏览器 Cookie。[网关部署参考](../../services/muse-accounts/MARKET.md)负责私有进程配置。
 
 公开 JSON 包含 `limits`（`archiveBytes`、`expandedBytes`、`fileCount`）、`allowedPlugins`、`requestTimeoutMs` 与 `metadataBytes`。创建接口适配层前校验这些值。配置缺失或无效时显示重试入口。发布包限制和允许的插件须与云端策略一致；本地元数据预览不代表服务端接受该包。确认上传创建私有草稿，重试保留原请求标识。下载先核对字节数与 SHA-256，再创建浏览器文件。
 
 HTML 与配置不缓存，带内容摘要的资源可使用不可变缓存。页面需要同源脚本、连接、图片和字体；预制图片、预览及内嵌字体也使用 `data:` 或 `blob:` URL。组件样式需要支持内联样式。部署 CSP 保留对象、框架与基准地址限制。部署提供对应路由时，`/market/legacy` 与 `/market/basic` 分别链接到保留的资源页和网关管理页。
 
-首批资源按目录 ID 选择 Bot 形象，并按分类展示 Skill 插画。发现页的 Bot 形象支持动画，并遵循减少动态效果设置。
+首批 Skill 根据名称和用途匹配 Muse 角色。发现页的角色支持动画，并遵循减少动态效果设置。
 
 浏览者接近当前列表末尾时，发现页自动显示下一批首批资源。
 
@@ -44,4 +44,4 @@ HTML 与配置不缓存，带内容摘要的资源可使用不可变缓存。页
 
 网页优先使用市场中文词条，缺少的词条从共享中文词表补充，查找顺序与桌面一致。
 
-选择 Bot ZIP 后，预览沿用发布包已绑定的形象，或根据标题、描述和分类从 50 个内置角色中自动匹配。浏览器将匹配结果绑定到上传的 ZIP，审核页和发现页据此显示同一形象。
+选择 Skill ZIP 后，预览沿用发布包已绑定的形象，或根据技能名称、标题、描述和分类从 50 个 Muse 内置角色中自动匹配。浏览器将匹配结果绑定到上传的 ZIP，审核页和发现页据此显示同一形象。浏览器排除历史 Bot 目录项，并在发出请求前拒绝 Bot 预览、上传和下载。

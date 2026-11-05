@@ -21,7 +21,7 @@ test('market routes stay independent from Desktop startup and bind only validate
  const request=(path,options={})=>fetch(base+path,{redirect:'manual',...options});
  const login=async username=>(await request('/login',{method:'POST',headers:{origin},body:new URLSearchParams({username,password:'pw'})})).headers.get('set-cookie').split(';')[0];
  const adminCookie=await login('admin'),authorCookie=await login('author');
- const page=await request('/market');assert.equal(page.status,200);assert.match(await page.text(),/Bot 与 Skills 市场/);assert.match(page.headers.get('content-security-policy'),/script-src 'self'/);
+ const page=await request('/market');assert.equal(page.status,200);assert.match(await page.text(),/Skills 市场/);assert.match(page.headers.get('content-security-policy'),/script-src 'self'/);
  assert.equal((await request('/market/client.js')).status,200);assert.equal((await request('/market/style.css')).status,200);assert.equal((await request('/market/missing')).status,404);
  assert.deepEqual(await(await request('/api/market/v1/catalog')).json(),{ok:true,actor:null});assert.equal(calls.at(-1).actor,null);
  assert.deepEqual(await(await request('/api/market/v1/me',{headers:{cookie:authorCookie}})).json(),{ok:true,actor:author.id});assert.equal(calls.at(-1).actor.username,'author');assert.equal(calls.at(-1).actor.admin,false);

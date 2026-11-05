@@ -5,7 +5,6 @@ import type { MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
 import type { MarketSectionProps } from './MarketSection.tsx'
 import { marketFailure } from './market-errors.ts'
 import type { MarketPublicationActions } from './market-web-types.ts'
-import type { MarketPresentation } from './MarketCharacter.tsx'
 import { MarketReleaseCard } from './MarketReleaseCard.tsx'
 import css from './MarketSection.module.css'
 
@@ -16,7 +15,7 @@ type ReviewAction = 'submit' | 'approve' | 'reject' | 'withdraw'
  * @returns Cloud list with revision-fenced review dialogs; it never changes local installations.
  */
 export function MarketPublications({ actions, publishers, admin, reportOutcome,
-  onDetails, onDownload, localBusy, t, presentations, browserMode = false }: {
+  onDetails, onDownload, localBusy, t, browserMode = false }: {
   actions: MarketPublicationActions
   publishers: readonly { id: string; title: string }[]
   admin: boolean
@@ -25,7 +24,6 @@ export function MarketPublications({ actions, publishers, admin, reportOutcome,
   onDownload: (release: MarketRelease) => void
   localBusy: boolean
   t: MarketSectionProps['t']
-  presentations?: Readonly<Record<string, MarketPresentation>> | undefined
   browserMode?: boolean
 }): ReactNode {
   const [items, setItems] = useState<MarketRelease[]>([])
@@ -37,8 +35,8 @@ export function MarketPublications({ actions, publishers, admin, reportOutcome,
   const read = async (token: symbol): Promise<void> => {
     setPhase('loading')
     try {
-      const rows = await actions.catalog('', '', true)
-      if (operation.current === token) { setItems(rows); setPhase('ready') }
+      const rows = await actions.catalog('', 'skill', true)
+      if (operation.current === token) { setItems(rows.filter(row => row.manifest.kind === 'skill')); setPhase('ready') }
     } catch (_error) {
       // The cloud catalog retains prior results and uses bounded copy instead of upstream diagnostics.
       if (operation.current === token) setPhase('error')
@@ -85,7 +83,7 @@ export function MarketPublications({ actions, publishers, admin, reportOutcome,
       if (owned && (release.status === 'draft' || release.status === 'rejected')) possible.push('submit')
       if (admin && release.status === 'pending') possible.push('approve', 'reject')
       if (owned && release.status === 'published') possible.push('withdraw')
-      return <MarketReleaseCard key={release.id} release={release} presentation={presentations?.[release.id]} showStatus t={t}>
+      return <MarketReleaseCard key={release.id} release={release} showStatus t={t}>
         {release.reviewNote && <p>{t('reviewNote')}: {release.reviewNote}</p>}
         <div className={css.actions}><Button variant="outline" onClick={() => { onDetails(release) }}>{t('details')}</Button>
           <Button disabled={busy || localBusy || phase !== 'ready'} onClick={() => { onDownload(release) }}>{t(browserMode ? 'browserDownload' : 'download')}</Button>

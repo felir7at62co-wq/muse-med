@@ -16,10 +16,7 @@ import AgentLoop from '../../packages/core/agent-loop/lib/index.js';
 import SystemPrompt from '../../packages/core/system-prompt/lib/index.js';
 import Presets from '../../packages/preset/agent-preset-registry/lib/index.js';
 import Skills from '../../packages/skill/skill/lib/index.js';
-import * as Persona from '../../packages/preset/persona/lib/index.js';
-import * as ToolSkill from '../../packages/skill/tool-skill/lib/index.js';
 import MuseMarket from '../../packages/host/muse-market/lib/index.js';
-import * as BotSkills from '../../packages/host/muse-market/lib/bot-skills.js';
 import * as CloudHost from '../../packages/host/muse-market/lib/cloud-host.js';
 import {WebServer} from '../../packages/host/webserver/lib/index.js';
 import {bindMarketPortrait} from '../../packages/host/muse-market/lib/format.js';
@@ -33,7 +30,7 @@ import {createMarketProxy} from './market-proxy.mjs';
 const listen=server=>new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',()=>{server.off('error',reject);resolve('http://127.0.0.1:'+server.address().port);});});
 const close=server=>new Promise((resolve,reject)=>{if(!server?.listening){resolve();return;}server.close(error=>error?reject(error):resolve());server.closeAllConnections();});
 
-test('browser publishes a Bot and a Skill through review and a reader installs the reviewed packages in Muse Host',async t=>{
+test('browser publishes a Skill through review and a reader installs and reuses it in Muse Host',async t=>{
  const root=await mkdtemp(join(tmpdir(),'muse-market-host-http-'));let cloud,native,proxy,browser,gateway,front;
  t.after(async()=>{try{await browser?.close();await native?.fiber.dispose();await close(front);await close(gateway);}finally{try{await proxy?.close();await cloud?.fiber.dispose();}finally{await rm(root,{recursive:true,force:true});}}});
  const allowedPlugins=['@deepseek-ai/dsh-persona','@deepseek-ai/dsh-tool-skill'];
@@ -60,13 +57,13 @@ test('browser publishes a Bot and a Skill through review and a reader installs t
  browser=createMarketBrowserClient(marketWebConfig({limits,allowedPlugins,requestTimeoutMs:5000,metadataBytes:1048576}),wire);
  assert.equal((await browser.actions.identity()).publishers[0].id,publisherId);
  const releases=[],archives=[];
- for(const name of ['storyboard-director','storyboard-starter']){
+ for(const name of ['storyboard-starter']){
   const bytes=new Uint8Array(await readFile(new URL('../../packages/host/muse-market/tests/fixtures/handoff/'+name+'-1.0.0.zip',import.meta.url)));
   assert.equal((await browser.actions.previewArchive(bytes)).name,name);
-  const portrait=name==='storyboard-director'?'coding-assistant':undefined;
+  const portrait='storyboard-reviewer';
   const release=await browser.actions.uploadArchive(bytes,publisherId,'browser-host-'+name,portrait);
   assert.equal(release.status,'draft');assert.equal(release.manifest.presetPortrait,portrait);
-  const expected=portrait?bindMarketPortrait(bytes,portrait,limits,allowedPlugins):bytes;
+  const expected=bindMarketPortrait(bytes,portrait,limits,allowedPlugins);
   assert.equal(marketDigest((await browser.actions.downloadArchive(release)).bytes),marketDigest(expected));releases.push(release);archives.push(expected);
  }
  const reader=createMarketBrowserClient(marketWebConfig({limits,allowedPlugins,requestTimeoutMs:5000,metadataBytes:1048576}),
@@ -87,33 +84,31 @@ test('browser publishes a Bot and a Skill through review and a reader installs t
  }
  const visible=await reader.actions.catalog('','',false);
  assert.deepEqual(visible.map(row=>row.id).sort(),releases.map(row=>row.id).sort());
- assert.equal(visible.find(row=>row.manifest.kind==='bot')?.manifest.presetPortrait,'coding-assistant');
+ assert.equal(visible[0]?.manifest.presetPortrait,'storyboard-reviewer');
  const accountHome=join(root,'account'),marketRoot=join(root,'local');await mkdir(accountHome);await writeMuseSession(join(accountHome,'session.json'),{baseUrl:base,cookie:readerCookie,username:'fixture-reader'});
  const boot=async()=>{
   const ctx=new Context();await ctx.plugin(Loader);ctx.loader.builtins.group=Group;
   for(const plugin of [Llm,Sessions,Projections,Tools,Agents,Skills])await ctx.plugin(plugin);
   await ctx.plugin(SystemPrompt,{personaPrefix:''});await ctx.plugin(AgentLoop,{agents:[]});
   await ctx.plugin(Presets,{default:'standard',selectablePresets:['standard']});await ctx.agentPresets.register({id:'standard',plugins:[]});
-  const modules=new Map([['@deepseek-ai/dsh-persona',Persona],['@deepseek-ai/dsh-tool-skill',ToolSkill],['@deepseek-ai/dsh-muse-market/bot-skills',BotSkills]]);
-  ctx.loader.internal={version:'v2',loadCache:new Map(),register(){throw Error('Unexpected hook');},getOrCreateModuleJob(){throw Error('Unexpected module job');},resolveSync(){throw Error('Unexpected module resolution');},load(){throw Error('Unexpected module load');},async import(name){if(!modules.has(name))throw Error('Unexpected fixture plugin '+name);return modules.get(name);}};
   await ctx.plugin(MuseMarket,{baseUrl:base,root:marketRoot,accountHome,requestTimeoutMs:5000,...limits,allowedPlugins});return ctx;
  };
- native=await boot();assert.equal((await native.museMarket.catalog('','',false)).length,2);
+ native=await boot();assert.equal((await native.museMarket.catalog('','',false)).length,1);
  const local=[];
  for(const [index,release]of releases.entries()){
-  const item=index===0?await native.museMarket.importPackage(Buffer.from((await reader.actions.downloadArchive(release)).bytes).toString('base64')):await native.museMarket.install(release.id);assert.equal(item.enabled,false);assert.equal(item.release.sha256,release.sha256);assert.equal(item.release.id,index===0?release.sha256:release.id);
+  const item=await native.museMarket.install(release.id);assert.equal(item.enabled,false);assert.equal(item.release.sha256,release.sha256);assert.equal(item.release.id,release.id);
+  const imported=await native.museMarket.importPackage(Buffer.from((await reader.actions.downloadArchive(release)).bytes).toString('base64'));assert.deepEqual(imported,item);
   assert.equal(marketDigest(Buffer.from((await native.museMarket.exportPackage(item.release.id)).base64,'base64')),marketDigest(archives[index]));
   assert.equal((await native.museMarket.enable(item.release.id,true)).enabled,true);local.push(item);
  }
- const preset='market-'+local[0].release.id;
+ const preset='standard';
  assert.equal((await native.agentPresets.resolveForCreation(preset)).id,preset);
- const created=await native.agents.create({sessionId:SessionId('http-installed-bot'),setup:async scope=>{await native.agentPresets.mount(scope,preset);}});
+ const created=await native.agents.create({sessionId:SessionId('http-installed-skill'),setup:async scope=>{await native.agentPresets.mount(scope,preset);}});
  const definition=await native.skills.get('storyboard-starter',{scope:created.agent});assert.ok(definition?.content);assert.equal(definition.source,'muse-market');
- assert.ok((await native.skills.get('storyboard-review',{scope:created.agent}))?.content);
  await native.fiber.dispose();native=undefined;native=await boot();
- const restored=await native.museMarket.installed();assert.equal(restored.length,2);assert.ok(restored.every(row=>row.enabled));assert.deepEqual(restored.map(row=>row.release.id).sort(),local.map(row=>row.release.id).sort());
+ const restored=await native.museMarket.installed();assert.equal(restored.length,1);assert.ok(restored.every(row=>row.enabled));assert.deepEqual(restored.map(row=>row.release.id).sort(),local.map(row=>row.release.id).sort());
  assert.equal((await native.agentPresets.resolveForCreation(preset)).id,preset);
- const resumed=await native.agents.create({sessionId:SessionId('http-installed-bot'),setup:async scope=>{await native.agentPresets.mount(scope,preset);}});
+ const resumed=await native.agents.create({sessionId:SessionId('http-installed-skill'),setup:async scope=>{await native.agentPresets.mount(scope,preset);}});
  assert.equal((await native.skills.get('storyboard-starter',{scope:resumed.agent}))?.content,definition.content);
  assert.equal(tenantStarts,0);
 });

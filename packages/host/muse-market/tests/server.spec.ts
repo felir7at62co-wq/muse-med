@@ -85,6 +85,26 @@ function changeDatabase(root: string, sql: string) {
   try { database.exec(sql) } finally { database.close() }
 }
 
+it('rejects new Bot uploads and hides stored historical Bots from every active route', async () => {
+  const { root, store, publisher } = await setup()
+  const bot: MarketManifest = { ...manifest, kind: 'bot', skills: [], plugins: [] }
+  await expect(store.upload(author, publisher, 'retired-bot', createMarketPackage(bot, {}, limits, [])))
+    .rejects.toMatchObject({ code: 'skill-only' })
+  expect(store.list(admin, { mine: true })).toEqual([])
+  expect(() => store.list(null, { kind: 'bot' })).toThrow('invalid-query')
+  const draft = await store.upload(author, publisher, 'original-skill', archive())
+  const database = new DatabaseSync(join(root, 'market.sqlite'))
+  try {
+    database.prepare("UPDATE releases SET manifest=?,status='published' WHERE id=?").run(JSON.stringify(bot), draft.id)
+    expect(store.list(null, {})).toEqual([])
+    expect(store.list(admin, { mine: true })).toEqual([])
+    expect(() => store.get(draft.id, admin)).toThrow('not-found')
+    await expect(store.download(draft.id, author)).rejects.toThrow('not-found')
+    await expect(store.transition(admin, draft.id, draft.revision, 'withdraw', '')).rejects.toThrow('not-found')
+    expect(database.prepare('SELECT id FROM releases WHERE id=?').get(draft.id)?.id).toBe(draft.id)
+  } finally { database.close() }
+})
+
 it('reopens the existing schema, rejects a newer schema and refuses unsafe storage configuration', async () => {
   const { root, config, store, publisher } = await setup()
   await store.close()

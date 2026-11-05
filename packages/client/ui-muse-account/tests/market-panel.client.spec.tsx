@@ -46,12 +46,10 @@ it('registers the same market ID in the sidebar and main panel and releases ever
   expect(slots.entries('main')[0]?.options.key).toBe('muse-market')
   expect(slots.entries('main')[0]?.component).toBe(MarketPage)
   const main = slots.entries('main')[0]?.inject?.() as {
-    onRunBot: (id: MarketRelease['id'], title: string) => Promise<void>
     onOpenCreator: (kind: MarketCreatorKind) => void
   }
-  const installId = 'a'.repeat(64) as MarketRelease['id']
-  await main.onRunBot(installId, '16:9 分镜导演')
-  expect(startPresetSession).toHaveBeenCalledExactlyOnceWith(`market-${installId}`, navigation.openSession, '16:9 分镜导演')
+  expect(startPresetSession).not.toHaveBeenCalled()
+  expect(main).not.toHaveProperty('onRunBot')
   const creator = slots.entries('main').find(entry => entry.options.key === 'muse-market-creator')
   expect(creator?.component).toBe(MarketCreatorPanel)
   const creatorProps = creator?.inject?.() as { getInitialKind: () => MarketCreatorKind; onBack: () => void }
@@ -66,7 +64,7 @@ it('registers the same market ID in the sidebar and main panel and releases ever
   expect(slots.entries('sidebar.footer.action')[0]?.component).toBe(MarketBotModeLink)
   expect(slots.entries('sidebar.footer.action')[0]?.inject?.()).toMatchObject({ navigation })
   expect(slots.entries('sidebar.panellist')[0]?.options.id).toBe('muse-market')
-  expect(resolveSlotLabel(slots.entries('sidebar.panellist')[0]?.options.label)).toBe('Bot 与 Skills 市场')
+  expect(resolveSlotLabel(slots.entries('sidebar.panellist')[0]?.options.label)).toBe('Skill 市场')
   const shortcut = slots.entries('settings.section')[0]!
   expect(shortcut.component).toBe(MarketSettingsLink)
   const props = shortcut.inject?.() as { onOpen: () => void }
@@ -136,12 +134,12 @@ it('forwards panel operations through the mounted Remote and surfaces only bound
   const legacyCatalog = vi.fn(async () => ok([]))
   const installed = vi.fn(async () => ok([item]))
   const identity = vi.fn(async () => ok({ publishers: [], admin: false }))
-  const sources = vi.fn(async () => ok({ website: 'https://muse.test/market', skills: [], bots: [] }))
+  const sources = vi.fn(async () => ok({ website: 'https://muse.test/market', skills: [] }))
   const installPackage = vi.fn(async () => ok(item))
   const enable = vi.fn(async () => ok({ ...item, enabled: true }))
   const installLegacy = vi.fn(async () => ok(item))
   const removePackage = vi.fn(async () => ok(undefined))
-  const exportPackage = vi.fn(async () => ok({ name: 'bot.zip', base64: 'WklQ' }))
+  const exportPackage = vi.fn(async () => ok({ name: 'skill.zip', base64: 'WklQ' }))
   const importPackage = vi.fn(async () => ok(item))
   const prepare = vi.fn(async () => ok(item))
   const publishDraft = vi.fn(async () => ok(release))
@@ -160,34 +158,34 @@ it('forwards panel operations through the mounted Remote and surfaces only bound
   const actions = props.actions
   expect(props.onRunBot).toBeUndefined()
 
-  await expect(actions.catalog('director', 'bot', false)).resolves.toEqual([release])
-  await expect(actions.legacyCatalog('wide', 'bot')).resolves.toEqual([])
+  await expect(actions.catalog('director', 'skill', false)).resolves.toEqual([release])
+  await expect(actions.legacyCatalog('wide', 'skill')).resolves.toEqual([])
   await expect(actions.installed()).resolves.toEqual([item])
   await expect(actions.identity()).resolves.toMatchObject({ admin: false })
   await expect(actions.sources()).resolves.toMatchObject({ website: 'https://muse.test/market' })
   await expect(actions.install(release.id)).resolves.toBe(item)
   await expect(actions.enable(release.id, true)).resolves.toMatchObject({ enabled: true })
-  await expect(actions.installLegacy('muse/bots/director', release.sha256)).resolves.toBe(item)
+  await expect(actions.installLegacy('muse/skills/director', release.sha256)).resolves.toBe(item)
   await expect(actions.remove(release.id)).resolves.toBeUndefined()
-  await expect(actions.exportPackage(release.id)).resolves.toEqual({ name: 'bot.zip', base64: 'WklQ' })
+  await expect(actions.exportPackage(release.id)).resolves.toEqual({ name: 'skill.zip', base64: 'WklQ' })
   await expect(actions.importPackage('WklQ')).resolves.toBe(item)
-  await expect(actions.prepare(release.manifest, ['review'], 'director')).resolves.toBe(item)
+  await expect(actions.prepare(release.manifest, ['review'])).resolves.toBe(item)
   await expect(actions.publishDraft(release.id, release.publisherId, 'request')).resolves.toBe(release)
   await expect(actions.review(release.id, 1, 'submit', 'ready')).resolves.toBe(release)
 
-  expect(catalog).toHaveBeenCalledExactlyOnceWith('director', 'bot', false)
-  expect(legacyCatalog).toHaveBeenCalledExactlyOnceWith('wide', 'bot')
+  expect(catalog).toHaveBeenCalledExactlyOnceWith('director', 'skill', false)
+  expect(legacyCatalog).toHaveBeenCalledExactlyOnceWith('wide', 'skill')
   expect(installPackage).toHaveBeenCalledExactlyOnceWith(release.id)
   expect(enable).toHaveBeenCalledExactlyOnceWith(release.id, true)
-  expect(installLegacy).toHaveBeenCalledExactlyOnceWith('muse/bots/director', release.sha256)
+  expect(installLegacy).toHaveBeenCalledExactlyOnceWith('muse/skills/director', release.sha256)
   expect(removePackage).toHaveBeenCalledExactlyOnceWith(release.id)
   expect(exportPackage).toHaveBeenCalledExactlyOnceWith(release.id)
   expect(importPackage).toHaveBeenCalledExactlyOnceWith('WklQ')
-  expect(prepare).toHaveBeenCalledExactlyOnceWith(release.manifest, ['review'], 'director')
+  expect(prepare).toHaveBeenCalledExactlyOnceWith(release.manifest, ['review'])
   expect(publishDraft).toHaveBeenCalledExactlyOnceWith(release.id, release.publisherId, 'request')
   expect(review).toHaveBeenCalledExactlyOnceWith(release.id, 1, 'submit', 'ready')
   expect(slots.entries('shell.overlay')[0]?.inject?.()).toHaveProperty('dismiss', expect.any(Function))
-  expect(resolveSlotLabel(slots.entries('settings.section')[0]?.options.label)).toBe('Bot 与 Skills 市场')
+  expect(resolveSlotLabel(slots.entries('settings.section')[0]?.options.label)).toBe('Skill 市场')
 
   catalog.mockResolvedValueOnce({ ok: false, error: new RemoteError('muse-market/operation-failed', 'private diagnostic', { code: 'login-required' }) })
   await expect(actions.catalog('', '', false)).rejects.toThrow(/^login-required$/)

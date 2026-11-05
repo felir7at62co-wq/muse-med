@@ -863,7 +863,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   MarketLegacyResource: 'Original distribution records are owned by packages/host/muse-market/README.md and src/types.ts',
   MarketInstallation: 'Local activation records are owned by packages/host/muse-market/README.md and src/types.ts',
   MarketManifest: 'Portable publication metadata is owned by packages/host/muse-market/README.md and src/types.ts',
-  MarketPresetPortraitId: 'Bot portrait identifiers are owned by packages/host/muse-market/README.md and src/types.ts',
+  MarketPresetPortraitId: 'Skill character identifiers are owned by packages/host/muse-market/README.md and src/types.ts',
   MarketReleaseId: 'Immutable release identifiers are owned by packages/host/muse-market/README.md and src/types.ts',
   MarketPublisherId: 'Authenticated publisher identifiers are owned by packages/host/muse-market/README.md and src/types.ts',
   AuthoritativeCharacterReference: 'Host character-reference authority fields are owned by packages/drama/tool-character-reference/README.md and src/authority.ts',

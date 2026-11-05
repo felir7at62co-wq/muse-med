@@ -1884,13 +1884,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: '@Remote(\'catalog\') async catalog(q: string, kind: string, mine: boolean): Promise<MarketRelease[]>',
         description: 'Search public releases or the signed-in creator\'s drafts.',
-        parameters: [{ name: 'q', description: 'Search text.' }, { name: 'kind', description: 'Bot or Skill filter; empty selects both.' }, { name: 'mine', description: 'Whether to include the creator\'s private releases.' }],
+        parameters: [{ name: 'q', description: 'Search text.' }, { name: 'kind', description: 'Skill filter, or empty for all available Skills.' }, { name: 'mine', description: 'Whether to include the creator\'s private releases.' }],
         returns: 'Matching release metadata.',
       },
       {
         signature: '@Remote(\'legacyCatalog\') async legacyCatalog(query: string, kind: string): Promise<MarketLegacyResource[]>',
-        description: 'List the original public Bot and Skill distributions for discovery.',
-        parameters: [{ name: 'query', description: 'Search text.' }, { name: 'kind', description: 'Optional Bot or Skill filter. An empty string includes both.' }],
+        description: 'List the original public Skill distributions for discovery.',
+        parameters: [{ name: 'query', description: 'Search text.' }, { name: 'kind', description: 'Skill filter, or empty for all available Skills.' }],
         returns: 'Matching metadata and original download links.',
       },
       {
@@ -1906,15 +1906,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'Downloaded releases, including disabled versions.',
       },
       {
-        signature: '@Remote(\'sources\') async sources(): Promise<{ website: string; skills: { name: string; description: string }[]; bots: { id: string; name: string }[] }>',
+        signature: '@Remote(\'sources\') async sources(): Promise<{ website: string; skills: { name: string; description: string }[] }>',
         description: 'List local authoring sources without reading or uploading their resources.',
         parameters: [],
-        returns: 'Discoverable Skill names and configured Bot identities.',
+        returns: 'Discoverable Skill names and the market website.',
       },
       {
-        signature: '@Remote(\'prepare\') async prepare(metadata: MarketManifest, skillNames: string[], botId: string): Promise<MarketInstallation>',
+        signature: '@Remote(\'prepare\') async prepare(metadata: MarketManifest, skillNames: string[]): Promise<MarketInstallation>',
         description: 'Prepare selected local resources for inspection and export before any upload.',
-        parameters: [{ name: 'metadata', description: 'Creator-entered publication information; execution fields are rebuilt from selected sources.' }, { name: 'skillNames', description: 'Explicit local Skill selection.' }, { name: 'botId', description: 'Local Bot identity, or empty for a standalone Skill.' }],
+        parameters: [{ name: 'metadata', description: 'Creator-entered publication information; execution fields are rebuilt from selected sources.' }, { name: 'skillNames', description: 'Explicit local Skill selection.' }],
         returns: 'A disabled local publication available for export and private draft upload.',
       },
       {
@@ -1956,7 +1956,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: '@Remote(\'publishDraft\') async publishDraft( id: MarketReleaseId, publisherId: MarketPublisherId, requestId: string, presetPortrait?: MarketPresetPortraitId, ): Promise<MarketRelease>',
         description: 'Upload a selected installed release as a private cloud draft.',
-        parameters: [{ name: 'id', description: 'Installed release identity.' }, { name: 'publisherId', description: 'Explicitly selected publisher.' }, { name: 'requestId', description: 'Stable upload idempotency key.' }, { name: 'presetPortrait', description: 'Automatic portrait for a Bot whose archive has no portrait binding.' }],
+        parameters: [{ name: 'id', description: 'Installed release identity.' }, { name: 'publisherId', description: 'Explicitly selected publisher.' }, { name: 'requestId', description: 'Stable upload idempotency key.' }, { name: 'presetPortrait', description: 'Automatically matched Skill portrait when the archive has no binding.' }],
         returns: 'The cloud draft; public submission is a separate action.',
       },
       {

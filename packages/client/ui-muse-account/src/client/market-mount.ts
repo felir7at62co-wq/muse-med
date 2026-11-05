@@ -7,7 +7,6 @@ import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { MarketBotModeLink, MarketCreatorPanel, MarketPage, MarketPanelIcon, MarketSettingsLink } from './MarketPage.tsx'
 import type { MarketCreatorKind } from './MarketCreatorPage.tsx'
-import type { MarketSectionProps } from './MarketSection.tsx'
 import { createMarketFeedback, MarketFeedbackOverlay } from './market-feedback.tsx'
 import { marketZh, marketEn, type MarketLocaleKey } from './market-locales.ts'
 
@@ -71,14 +70,7 @@ export async function mountMuseMarket(ctx: Context): Promise<() => Promise<void>
       context.layout.selectPanel(creatorId)
     }
     context.slots.inject('main', () => context.slots.register({ name: 'main', key: panelId, locale: 'settings.museMarket',
-      inject: () => {
-        const workspace = context.get('uiWorkspace')
-        const onRunBot: MarketSectionProps['onRunBot'] = workspace ? (id, title) => {
-          const navigation = context.get('museBotMarketNavigation')
-          return workspace.startPresetSession(`market-${id}`, navigation?.openSession, title)
-        } : undefined
-        return { actions, reportOutcome: feedback.report, onOpenCreator, ...(onRunBot ? { onRunBot } : {}) }
-      } }, MarketPage))
+      inject: () => ({ actions, reportOutcome: feedback.report, onOpenCreator }) }, MarketPage))
     context.slots.inject('main', () => context.slots.register({ name: 'main', key: creatorId, locale: 'settings.museMarket',
       inject: () => ({ actions, reportOutcome: feedback.report, getInitialKind: () => initialKind, onBack: onOpen }) }, MarketCreatorPanel))
     context.slots.inject('sidebar.panellist', () => context.slots.register({ name: 'sidebar.panellist', id: panelId,

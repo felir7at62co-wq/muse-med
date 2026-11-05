@@ -2,8 +2,8 @@ import { afterEach, expect, it } from 'vitest'
 import { mkdtemp, mkdir, writeFile, symlink, unlink, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { collectMarketSkills, marketPresetRows } from '../src/author.ts'
-import { marketSkill, marketManifest } from '../src/package.ts'
+import { collectMarketSkills } from '../src/author.ts'
+import { marketSkill } from '../src/package.ts'
 import type { SkillDefinition } from '@deepseek-ai/dsh-skill'
 
 const roots: string[] = []
@@ -46,17 +46,4 @@ it('only collects portable local resources and counts synthesized Skill instruct
   await expect(collectMarketSkills([skill('relative')], limits)).rejects.toThrow('invalid-path')
   await expect(collectMarketSkills([{ ...definition, resourceBase: { kind: 'url', url: 'https://example.test' } }], limits))
     .rejects.toThrow('non-local-skill')
-})
-
-it('removes local row identities and rejects executable or unapproved Bot configuration', () => {
-  expect(marketPresetRows('- id: local\n  name: allowed\n  config: {}')).toEqual([{ name: 'allowed', config: {} }])
-  expect(marketPresetRows('- id: local-group\n  name: cordis:group\n  group: true\n  config:\n    - id: local-child\n      name: allowed'))
-    .toEqual([{ name: 'cordis:group', group: true, config: [{ name: 'allowed' }] }])
-  for (const invalid of ['name: allowed', '- null', '- allowed', '- [allowed]', '- group: true\n  config: {}']) {
-    expect(() => marketPresetRows(invalid)).toThrow('non-portable-bot')
-  }
-  expect(() => marketPresetRows('- name: allowed\n  disabled: !!js process.env.SECRET')).toThrow('non-portable-bot')
-  const metadata = { formatVersion: 1, kind: 'bot', name: 'review', title: 'Review', description: 'Review', version: '1.0.0', license: 'MIT', category: 'script', examples: [], requirements: [], skills: [] }
-  expect(() => marketManifest({ ...metadata, plugins: [{ name: 'allowed', inject: ['global'] }] }, ['allowed'])).toThrow('invalid-manifest')
-  expect(() => marketManifest({ ...metadata, plugins: [{ name: 'allowed', config: { file: '/etc/passwd' } }] }, ['allowed'])).toThrow('invalid-manifest')
 })

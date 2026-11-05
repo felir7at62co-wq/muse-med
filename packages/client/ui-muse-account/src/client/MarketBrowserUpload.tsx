@@ -7,8 +7,7 @@ import type { MarketSectionProps } from './MarketSection.tsx'
 import type { MarketWebActions } from './market-web-types.ts'
 import { MarketCharacter } from './MarketCharacter.tsx'
 import { MarketSkillArtwork } from './MarketCatalogArtwork.tsx'
-import { boundMarketPresentation } from './market-stock-art.ts'
-import { matchUnboundMarketPresetPortrait } from './market-preset-portraits.ts'
+import { matchUnboundMarketPresetPortrait } from './market-skill-artwork.ts'
 import { marketFailure } from './market-errors.ts'
 import css from './MarketSection.module.css'
 
@@ -43,6 +42,7 @@ export function MarketBrowserUpload({ actions, publishers, onUploaded, reportOut
       if (operation.current !== token) return
       const manifest = await actions.previewArchive(bytes)
       if (operation.current !== token) return
+      if (manifest.kind !== 'skill') throw Error('skill-only')
       setSelection({ name: file.name, bytes, manifest })
     } catch (failure) {
       if (operation.current === token) setError(marketFailure(failure))
@@ -58,9 +58,7 @@ export function MarketBrowserUpload({ actions, publishers, onUploaded, reportOut
     const key = keys.current.get(publisher) ?? randomUUID()
     keys.current.set(publisher, key)
     try {
-      const release = autoPortrait
-        ? await actions.uploadArchive(selection.bytes, publisher, key, autoPortrait)
-        : await actions.uploadArchive(selection.bytes, publisher, key)
+      const release = await actions.uploadArchive(selection.bytes, publisher, key, autoPortrait)
       if (operation.current !== token) return
       keys.current.clear(); setSelection(undefined); setError(undefined)
       onUploaded(release); reportOutcome('draft', false)
@@ -71,7 +69,6 @@ export function MarketBrowserUpload({ actions, publishers, onUploaded, reportOut
     }
   }
   const blocked = phase !== 'idle'
-  const selectedPresentation = manifest && boundMarketPresentation(manifest, autoPortrait)
   return <section className={css.browserUpload} aria-label={t('browserUploadTitle')}>
     <div><h3>{t('browserUploadTitle')}</h3><p>{t('browserUploadHint', { limit: String(actions.archiveBytes / 1024 / 1024) })}</p></div>
     <div className={css.authorLayout}><form className={css.form} onSubmit={(event) => { event.preventDefault(); void upload() }}>
@@ -86,7 +83,7 @@ export function MarketBrowserUpload({ actions, publishers, onUploaded, reportOut
       {selection && <><p className={css.meta}>{selection.name}</p><dl className={css.detailFacts}>
         <dt>{t('label')}</dt><dd>{selection.manifest.title}</dd><dt>{t('version')}</dt><dd>{selection.manifest.version}</dd>
         <dt>{t('license')}</dt><dd>{selection.manifest.license}</dd><dt>{t('category')}</dt><dd>{selection.manifest.category}</dd>
-        <dt>{t('sourceSkillsShort')}</dt><dd>{selection.manifest.skills.map(row => row.name).join(', ') || t('noSelectedSkills')}</dd>
+        <dt>{t('sourceSkillsShort')}</dt><dd>{selection.manifest.skills.map(row => row.name).join(', ')}</dd>
       </dl><p>{selection.manifest.description}</p><p className={css.previewHint}>{t('browserPreviewHint')}</p></>}
       <Button type="submit" variant="primary" disabled={blocked || !selection || !publishers.some(row => row.id === publisher)}>{t('upload')}</Button>
     </form><div className={css.browserPreview}>
@@ -94,15 +91,14 @@ export function MarketBrowserUpload({ actions, publishers, onUploaded, reportOut
       {!selection && <div className={css.empty}>
         <h3>{t('browserArchivePending')}</h3><p>{t('browserArchivePendingHint')}</p>
       </div>}
-      {selection && (selection.manifest.kind === 'skill'
-        ? <MarketSkillArtwork metadata={selection.manifest} label={selection.manifest.title} />
-        : <>
-          <MarketCharacter presentation={selectedPresentation ?? {
-            role: selection.manifest.title, introduction: selection.manifest.description,
-          }}
-          introduceLabel={t('introduce')} sampleLabel={t('samplePortrait')} />
-          <p className={css.previewHint}>{t(selectedPresentation ? 'boundPortraitHint' : 'stockArtworkHint')}</p>
-        </>)}
+      {selection && <>
+        <MarketCharacter presentation={{
+          role: selection.manifest.title, introduction: selection.manifest.description,
+        }}
+        introduceLabel={t('introduce')} sampleLabel={t('samplePortrait')}
+        artwork={<MarketSkillArtwork metadata={selection.manifest} label={selection.manifest.title} />} />
+        <p className={css.previewHint}>{t('boundPortraitHint')}</p>
+      </>}
     </div></div>
   </section>
 }

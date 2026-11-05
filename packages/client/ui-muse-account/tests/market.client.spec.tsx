@@ -7,7 +7,7 @@ import { rememberMarketGuide } from '../src/client/MarketGuide.tsx'
 import type { MarketActions } from '../src/client/market-mount.ts'
 import type { MarketInstallation, MarketLegacyResource, MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
 import { marketZh, marketEn } from '../src/client/market-locales.ts'
-import { marketFixture, marketPresentations } from './market-fixture.client.ts'
+import { marketFixture, marketBotFixture } from './market-fixture.client.ts'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
@@ -22,7 +22,7 @@ function harness() {
   const actions = {
     catalog: vi.fn<MarketActions['catalog']>(async () => [release]), installed: vi.fn(async () => local),
     legacyCatalog: vi.fn<MarketActions['legacyCatalog']>(async () => []),
-    sources: vi.fn<MarketActions['sources']>(async () => ({ website: 'https://muse.test/market', skills: [], bots: [] })),
+    sources: vi.fn<MarketActions['sources']>(async () => ({ website: 'https://muse.test/market', skills: [] })),
     identity: vi.fn<MarketActions['identity']>(async () => ({ publishers: [], admin: false })),
     install: vi.fn<MarketActions['install']>(async () => { const item = { release, enabled: false }; local = [item]; return item }),
     installLegacy: vi.fn<MarketActions['installLegacy']>(),
@@ -36,7 +36,7 @@ function harness() {
 
 it('shows the original desktop catalog alongside releases and keeps original downloads separate', async () => {
   const h = harness()
-  const original = { id: 'muse/bots/storyboard-director-16-9', kind: 'bot' as const, title: 'Original storyboard director',
+  const original = { id: 'muse/skills/storyboard-director-16-9', kind: 'skill' as const, title: 'Original storyboard director',
     description: 'Plan widescreen shots', category: 'script', version: '0.1.0', requirements: [], requiredSkills: [],
     validation: 'Manual installation', sha256: 'd'.repeat(64), href: 'https://muse.test/market/downloads/director.tgz' }
   h.actions.legacyCatalog.mockResolvedValue([original, { ...original, id: 'muse/skills/review', kind: 'skill',
@@ -50,7 +50,7 @@ it('shows the original desktop catalog alongside releases and keeps original dow
   expect(link.getAttribute('target')).toBe('_blank')
   expect(h.actions.install).not.toHaveBeenCalled()
   expect(h.actions.installLegacy).not.toHaveBeenCalled()
-  expect(h.actions.legacyCatalog).toHaveBeenCalledExactlyOnceWith('', '')
+  expect(h.actions.legacyCatalog).toHaveBeenCalledExactlyOnceWith('', 'skill')
   h.actions.installLegacy.mockRejectedValueOnce(new Error('legacy-catalog-changed'))
   fireEvent.click(screen.getByRole('button', { name: 'legacyImport' }))
   await waitFor(() => { expect(h.props.reportOutcome).toHaveBeenCalledWith('error.legacy-catalog-changed', true) })
@@ -58,30 +58,24 @@ it('shows the original desktop catalog alongside releases and keeps original dow
   expect(screen.queryByRole('button', { name: 'enable' })).toBeNull()
 })
 
-it('imports the selected original Bot digest, then enables and starts its local version', async () => {
-  const h = harness()
-  const bot = marketFixture.find(row => row.manifest.kind === 'bot')!
-  const source = { id: 'muse/bots/storyboard-director-16-9', kind: 'bot' as const, title: bot.manifest.title,
-    description: bot.manifest.description, category: bot.manifest.category, version: bot.manifest.version,
-    requirements: [], requiredSkills: [], validation: '', sha256: 'd'.repeat(64), href: 'https://muse.test/market/downloads/director.tgz' }
-  const local = { release: bot, enabled: false, legacySource: { id: source.id, sha256: source.sha256 } }
+it('imports the selected original Skill digest and enables its local version separately', async () => {
+  const h = harness(), skill = marketFixture[0]!
+  const source = { id: 'muse/skills/storyboard-director', kind: 'skill' as const, title: skill.manifest.title,
+    description: skill.manifest.description, category: skill.manifest.category, version: skill.manifest.version,
+    requirements: [], requiredSkills: [], validation: '', sha256: 'd'.repeat(64), href: 'https://muse.test/market/downloads/director.zip' }
+  const local = { release: skill, enabled: false, legacySource: { id: source.id, sha256: source.sha256 } }
   h.actions.legacyCatalog.mockResolvedValue([source])
   h.actions.installLegacy.mockResolvedValue(local)
   h.actions.enable.mockResolvedValueOnce({ ...local, enabled: true })
-  const onRunBot = vi.fn(async () => {})
-  render(<MarketSection {...h.props} onRunBot={onRunBot} />)
-
+  render(<MarketSection {...h.props} />)
   fireEvent.click(await screen.findByRole('button', { name: 'legacyImport' }))
   expect(h.actions.installLegacy).toHaveBeenCalledExactlyOnceWith(source.id, source.sha256)
   const enable = await screen.findByRole('button', { name: 'enable' })
   expect(h.actions.enable).not.toHaveBeenCalled()
-  expect(screen.queryByRole('button', { name: 'runBot' })).toBeNull()
   expect(screen.getByRole('link', { name: 'legacyDownload' }).getAttribute('href')).toBe(source.href)
-
   fireEvent.click(enable)
-  fireEvent.click(await screen.findByRole('button', { name: 'runBot' }))
+  expect(await screen.findByText('enabled')).toBeDefined()
   expect(h.actions.enable).toHaveBeenCalledExactlyOnceWith(local.release.id, true)
-  expect(onRunBot).toHaveBeenCalledExactlyOnceWith(local.release.id, local.release.manifest.title)
 })
 
 it('shows usage for an enabled original Skill after reloading and excludes it from local publications', async () => {
@@ -136,63 +130,65 @@ it('recognizes a ZIP import by digest and enables its local identity from the cl
   expect(h.actions.enable).toHaveBeenCalledWith(localId, true)
 })
 
-it('keeps the activation and actions of byte-identical Bot installations separate', async () => {
-  const h = harness()
-  const bot = marketFixture.find(row => row.manifest.kind === 'bot')!
-  const cloud = { release: bot, enabled: true }
-  const local = { release: { ...bot, id: bot.sha256 as MarketRelease['id'], publisher: 'Local import' }, enabled: false }
-  h.actions.catalog.mockResolvedValue([bot])
+it('keeps activation of byte-identical Skill installations separate', async () => {
+  const h = harness(), skill = marketFixture[0]!
+  const cloud = { release: skill, enabled: true }
+  const local = { release: { ...skill, id: skill.sha256 as MarketRelease['id'], publisher: 'Local import' }, enabled: false }
+  h.actions.catalog.mockResolvedValue([skill])
   h.actions.installed.mockResolvedValueOnce([local, cloud]).mockResolvedValue([cloud, local])
   h.actions.enable.mockResolvedValueOnce({ ...local, enabled: true })
-  const onRunBot = vi.fn(async () => {})
-  render(<MarketSection {...h.props} onRunBot={onRunBot} t={(key, args) => key === 'creator' ? String(args?.publisher) : key} />)
-
-  expect(await screen.findByRole('button', { name: 'runBot' })).toBeDefined()
+  render(<MarketSection {...h.props} t={(key, args) => key === 'creator' ? String(args?.publisher) : key} />)
+  await screen.findByText('enabled')
   fireEvent.click(screen.getByRole('button', { name: 'installed' }))
   const localCard = within((await screen.findByText(local.release.publisher)).closest('article')!)
   const cloudCard = within(screen.getByText(cloud.release.publisher).closest('article')!)
   expect(localCard.getByText('disabled')).toBeDefined()
-  expect(localCard.queryByRole('button', { name: 'runBot' })).toBeNull()
   expect(cloudCard.getByText('enabled')).toBeDefined()
-
-  const runCloud = cloudCard.getByRole('button', { name: 'runBot' })
-  await waitFor(() => { expect(runCloud.hasAttribute('disabled')).toBe(false) })
-  fireEvent.click(runCloud)
-  expect(onRunBot).toHaveBeenNthCalledWith(1, cloud.release.id, bot.manifest.title)
-  const enable = localCard.getByRole('button', { name: 'enable' })
-  await waitFor(() => { expect(enable.hasAttribute('disabled')).toBe(false) })
-  fireEvent.click(enable)
+  fireEvent.click(localCard.getByRole('button', { name: 'enable' }))
+  await localCard.findByText('enabled')
   expect(h.actions.enable).toHaveBeenCalledExactlyOnceWith(local.release.id, true)
-  const runLocal = await localCard.findByRole('button', { name: 'runBot' })
-  await waitFor(() => { expect(runLocal.hasAttribute('disabled')).toBe(false) })
-  fireEvent.click(runLocal)
-  expect(onRunBot).toHaveBeenNthCalledWith(2, local.release.id, bot.manifest.title)
 })
 
-it('starts only an enabled Bot and passes its installed ID and title', async () => {
+it('excludes historic Bots from discovery, installed packages and filter categories', async () => {
   const h = harness()
-  const bot = marketFixture.find(row => row.manifest.kind === 'bot')!
-  const localId = bot.sha256 as MarketRelease['id']
-  const installation = { release: { ...bot, id: localId }, enabled: false }
-  h.actions.catalog.mockResolvedValue([bot, release])
-  h.actions.installed.mockResolvedValue([installation, { release, enabled: true }])
-  h.actions.enable.mockResolvedValueOnce({ ...installation, enabled: true })
-  const onRunBot = vi.fn(async () => {})
-  render(<MarketSection {...h.props} onRunBot={onRunBot} />)
-  const enable = await screen.findByRole('button', { name: 'enable' })
+  h.actions.catalog.mockResolvedValue([marketBotFixture, release])
+  h.actions.installed.mockResolvedValue([{ release: marketBotFixture, enabled: true }, { release, enabled: true }])
+  h.actions.legacyCatalog.mockResolvedValue([{ id: 'muse/bots/old', kind: 'bot', title: 'Old public Bot',
+    description: 'Historic package', category: 'Bot category', version: '0.1.0', requirements: [], requiredSkills: [],
+    validation: '', sha256: 'e'.repeat(64), href: 'https://muse.test/old.zip' }])
+  render(<MarketSection {...h.props} />)
+  await screen.findByRole('heading', { name: release.manifest.title })
+  expect(screen.queryByRole('heading', { name: marketBotFixture.manifest.title })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Old public Bot' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Bot category' })).toBeNull()
+  expect(screen.queryByRole('group', { name: 'typeFilter' })).toBeNull()
+  expect(h.actions.catalog).toHaveBeenCalledWith('', 'skill', false)
+  expect(h.actions.legacyCatalog).toHaveBeenCalledWith('', 'skill')
+  fireEvent.click(screen.getByRole('button', { name: 'installed' }))
+  await screen.findByText('enabled')
+  expect(screen.queryByRole('heading', { name: marketBotFixture.manifest.title })).toBeNull()
   expect(screen.queryByRole('button', { name: 'runBot' })).toBeNull()
-  await waitFor(() => { expect(enable.hasAttribute('disabled')).toBe(false) })
-  fireEvent.click(enable)
-  const start = await screen.findByRole('button', { name: 'runBot' })
-  await waitFor(() => { expect(start.hasAttribute('disabled')).toBe(false) })
-  fireEvent.click(start)
-  expect(onRunBot).toHaveBeenCalledExactlyOnceWith(localId, bot.manifest.title)
+})
+
+it('rejects a Bot import returned by an older Host before adding a local Skill card', async () => {
+  const h = harness()
+  h.actions.importPackage.mockResolvedValue({ release: marketBotFixture, enabled: false })
+  render(<MarketSection {...h.props} />)
+  await screen.findByRole('heading', { name: release.manifest.title })
+  fireEvent.click(screen.getByRole('button', { name: 'installed' }))
+  await screen.findByText('emptyInstalledHint')
+  const file = new File(['ZIP'], 'historic-bot.zip')
+  Object.defineProperty(file, 'arrayBuffer', { value: async () => new TextEncoder().encode('ZIP').buffer })
+  fireEvent.change(screen.getByLabelText('import'), { target: { files: [file] } })
+  await waitFor(() => { expect(h.props.reportOutcome).toHaveBeenCalledWith('error.skill-only', true) })
+  expect(screen.queryByRole('heading', { name: marketBotFixture.manifest.title })).toBeNull()
+  expect(screen.getByText('emptyInstalledHint')).toBeDefined()
 })
 
 it('renders bounded failures when opening creator records', async () => {
   const h = harness(); h.actions.identity.mockRejectedValue(Error('secret response with cookie'))
   render(<MarketSection {...h.props} />)
-  await screen.findByText('Review scenes')
+  await screen.findByRole('heading', { name: 'Review scenes' })
   const publish = screen.getByRole('button', { name: 'publish' })
   await waitFor(() => { expect(publish.hasAttribute('disabled')).toBe(false) }); fireEvent.click(publish)
   expect(await screen.findByText('readFailed')).toBeDefined()
@@ -202,33 +198,33 @@ it('renders bounded failures when opening creator records', async () => {
 
 it('keeps Chinese and English market dictionaries aligned', () => { expect(Object.keys(marketEn).sort()).toEqual(Object.keys(marketZh).sort()) })
 
-it('introduces the Bot by hover and touch without downloading or enabling it', async () => {
+it('introduces the matched Skill character by hover and touch without enabling it', async () => {
   const h = harness(); h.actions.catalog.mockResolvedValue(marketFixture)
-  render(<MarketSection {...h.props} presentations={marketPresentations} />)
+  render(<MarketSection {...h.props} />)
   const buttons = await screen.findAllByRole('button', { name: 'introduce' })
-  fireEvent.pointerEnter(buttons[0]!.parentElement!)
-  const introduction = marketPresentations['1'.repeat(32)]!.introduction
-  expect(await screen.findByText(introduction)).toBeDefined()
-  fireEvent.keyDown(window, { key: 'Escape' })
-  await waitFor(() => { expect(screen.queryByText(introduction)).toBeNull() })
+  const introduction = marketFixture[0]!.manifest.description
+  fireEvent.pointerEnter(buttons[0]!)
+  await waitFor(() => { expect(screen.getAllByText(introduction)).toHaveLength(2) })
+  fireEvent.pointerLeave(buttons[0]!)
+  await waitFor(() => { expect(screen.getAllByText(introduction)).toHaveLength(1) })
   fireEvent.click(buttons[1]!)
-  expect(screen.getByText(introduction)).toBeDefined()
+  expect(screen.getAllByText(introduction)).toHaveLength(2)
   fireEvent.keyDown(buttons[1]!, { key: 'Escape' })
-  expect(screen.queryByText(introduction)).toBeNull()
+  expect(screen.getAllByText(introduction)).toHaveLength(1)
   expect(h.actions.install).not.toHaveBeenCalled(); expect(h.actions.enable).not.toHaveBeenCalled()
 })
 
-it('matches the desktop Bot portrait as the metadata changes and prepares that exact preset', async () => {
+it('matches the desktop Skill portrait as the metadata changes and prepares that exact preset', async () => {
   const h = harness()
   h.actions.sources.mockResolvedValue({ website: 'https://muse.test/market',
-    bots: [{ id: 'director', name: 'Director' }], skills: [] })
+    skills: [{ name: 'review', description: 'Review' }] })
   const bot = marketFixture[0]!
   const prepared = { ...bot, status: 'draft' as const,
     manifest: { ...bot.manifest, title: '编程助手', presetPortrait: 'coding-assistant' as const } }
   h.actions.identity.mockResolvedValue({ publishers: [{ id: bot.publisherId, title: bot.publisher }], admin: false })
   h.actions.prepare.mockResolvedValue({ release: prepared, enabled: false })
-  render(<MarketCreatorPage actions={h.actions} t={h.props.t} reportOutcome={h.props.reportOutcome} onBack={vi.fn()} initialKind="bot" />)
-  await screen.findByRole('combobox', { name: 'sourceBot' })
+  render(<MarketCreatorPage actions={h.actions} t={h.props.t} reportOutcome={h.props.reportOutcome} onBack={vi.fn()} initialKind="skill" />)
+  fireEvent.click(await screen.findByRole('radio', { name: 'review' }))
   const title = screen.getByRole('textbox', { name: 'label' })
   fireEvent.change(title, { target: { value: '调色师' } })
   expect(screen.getByRole('img', { name: '调色师' }).getAttribute('src')).toContain('colorist')
@@ -240,7 +236,7 @@ it('matches the desktop Bot portrait as the metadata changes and prepares that e
   expect(h.actions.prepare).not.toHaveBeenCalled()
   fireEvent.submit(screen.getByRole('button', { name: 'prepare' }).closest('form')!)
   await waitFor(() => {
-    expect(h.actions.prepare).toHaveBeenCalledWith(expect.objectContaining({ kind: 'bot', presetPortrait: 'coding-assistant' }), [], 'director')
+    expect(h.actions.prepare).toHaveBeenCalledWith(expect.objectContaining({ kind: 'skill', presetPortrait: 'coding-assistant' }), ['review'])
   })
   const upload = await screen.findByRole<HTMLButtonElement>('button', { name: 'upload' })
   expect(upload.disabled).toBe(false)
@@ -263,23 +259,23 @@ it('shows loading, then retryable read failure without an empty-market claim or 
   expect(screen.getByRole('alert').textContent).toBe('readFailed')
   expect(screen.queryByText('emptyDiscovery')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'retry' }))
-  expect(await screen.findByText('Review scenes')).toBeDefined()
+  expect(await screen.findByRole('heading', { name: 'Review scenes' })).toBeDefined()
   expect(screen.queryByRole('alert')).toBeNull()
   expect(h.props.reportOutcome).not.toHaveBeenCalled()
 })
 
 it('retains publications after a failed refresh and distinguishes a successful empty search', async () => {
   const h = harness(); render(<MarketSection {...h.props} />)
-  await screen.findByText('Review scenes')
+  await screen.findByRole('heading', { name: 'Review scenes' })
   h.actions.catalog.mockRejectedValueOnce(Error('generic'))
   fireEvent.click(screen.getByRole('button', { name: 'search' }))
   expect(await screen.findByText('readFailedRetained')).toBeDefined()
-  expect(screen.getByText('Review scenes')).toBeDefined()
+  expect(screen.getByRole('heading', { name: 'Review scenes' })).toBeDefined()
   expect(screen.queryByText('emptyDiscovery')).toBeNull()
   h.actions.catalog.mockResolvedValueOnce([])
   fireEvent.click(screen.getByRole('button', { name: 'retry' }))
   expect(await screen.findByText('emptyDiscovery')).toBeDefined()
-  expect(screen.queryByText('Review scenes')).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Review scenes' })).toBeNull()
 })
 
 it('keeps failed download and enable actions retryable without reporting success', async () => {
@@ -307,10 +303,10 @@ it('ignores a completed query from a replaced adapter', async () => {
   second.actions.catalog.mockResolvedValue(marketFixture)
   const view = render(<MarketSection {...first.props} />)
   view.rerender(<MarketSection {...second.props} />)
-  await screen.findByText('分镜入门工作法')
+  await screen.findByRole('heading', { name: '分镜入门工作法' })
   await act(async () => { oldCatalog.resolve([release]) })
-  expect(screen.queryByText('Review scenes')).toBeNull()
-  expect(screen.getByText('分镜入门工作法')).toBeDefined()
+  expect(screen.queryByRole('heading', { name: 'Review scenes' })).toBeNull()
+  expect(screen.getByRole('heading', { name: '分镜入门工作法' })).toBeDefined()
 })
 
 it('reports confirmed operations to the shell after the page unmounts', async () => {
@@ -335,7 +331,7 @@ it('opens publication details without downloading and returns to the selected ca
   await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
 })
 
-it('sends the selected type immediately and filters categories without another Host query', async () => {
+it('requests Skills and filters categories without another Host query', async () => {
   const h = harness()
   h.actions.catalog.mockImplementation(async (_query, kind) => marketFixture.filter(row => !kind || row.manifest.kind === kind))
   render(<MarketSection {...h.props} />)
@@ -344,18 +340,18 @@ it('sends the selected type immediately and filters categories without another H
   fireEvent.click(screen.getByRole('button', { name: '分镜创作' }))
   expect(screen.queryByRole('heading', { name: '分镜入门工作法' })).toBeNull()
   expect(h.actions.catalog).toHaveBeenCalledTimes(calls)
-  fireEvent.click(screen.getByRole('button', { name: 'skill' }))
+  fireEvent.click(screen.getByRole('button', { name: 'allCategories' }))
   expect(await screen.findByRole('heading', { name: '分镜入门工作法' })).toBeDefined()
   expect(h.actions.catalog).toHaveBeenLastCalledWith('', 'skill', false)
-  expect(screen.queryByRole('heading', { name: '分镜导演' })).toBeNull()
+  expect(screen.getByRole('heading', { name: '分镜导演' })).toBeDefined()
 })
 
 it('opens the dedicated Skill and upload pages directly from the market', async () => {
   const h = harness()
   h.actions.sources.mockResolvedValue({ website: 'https://muse.test/market',
-    bots: [{ id: 'director', name: 'Director' }], skills: [] })
+    skills: [{ name: 'review', description: 'Review' }] })
   render(<MarketSection {...h.props} />)
-  await screen.findByText('Review scenes')
+  await screen.findByRole('heading', { name: 'Review scenes' })
   fireEvent.click(screen.getByRole('button', { name: 'creatorNewSkill' }))
   expect(h.props.onOpenCreator).toHaveBeenLastCalledWith('skill')
   fireEvent.click(screen.getAllByRole('button', { name: 'uploadEntry' })[0]!)
@@ -369,24 +365,26 @@ it('renders the backend handoff installation records and enables their exact loc
   const fixture = JSON.parse(readFileSync(resolve('packages/host/muse-market/tests/fixtures/handoff/local-installations.json'), 'utf8')) as {
     installations: MarketInstallation[]
   }
+  const skill = fixture.installations.find(item => item.release.manifest.kind === 'skill')!
+  const bot = fixture.installations.find(item => item.release.manifest.kind === 'bot')!
   h.actions.installed.mockResolvedValue(fixture.installations)
-  h.actions.enable.mockResolvedValue({ release: fixture.installations[0]!.release, enabled: true })
+  h.actions.enable.mockResolvedValue({ release: skill.release, enabled: true })
   render(<MarketSection {...h.props} />)
-  await screen.findByText('Review scenes')
+  await screen.findByRole('heading', { name: 'Review scenes' })
   fireEvent.click(screen.getByRole('button', { name: 'installed' }))
-  await screen.findByRole('heading', { name: fixture.installations[0]!.release.manifest.title })
-  expect(screen.getByRole('heading', { name: fixture.installations[1]!.release.manifest.title })).toBeDefined()
+  await screen.findByRole('heading', { name: skill.release.manifest.title })
+  expect(screen.queryByRole('heading', { name: bot.release.manifest.title })).toBeNull()
   expect(h.actions.install).not.toHaveBeenCalled()
   const enable = screen.getAllByRole('button', { name: 'enable' })[0]!
   await waitFor(() => { expect(enable.hasAttribute('disabled')).toBe(false) })
   fireEvent.click(enable)
-  expect(h.actions.enable).toHaveBeenCalledWith(fixture.installations[0]!.release.id, true)
-  expect(fixture.installations[0]!.release.id).toHaveLength(64)
+  expect(h.actions.enable).toHaveBeenCalledWith(skill.release.id, true)
+  expect(skill.release.id).toHaveLength(64)
 })
 function originalCatalog(count: number): MarketLegacyResource[] {
   return Array.from({ length: count }, (_, index) => ({
-    id: index === 0 ? 'muse/bots/storyboard-director-16-9' : 'muse/skills/original-' + String(index),
-    kind: index === 0 ? 'bot' : 'skill', title: 'Original resource ' + String(index),
+    id: 'muse/skills/original-' + String(index),
+    kind: 'skill', title: 'Original resource ' + String(index),
     description: 'Original creative workflow', category: index === 0 ? 'Camera' : 'Resources', version: '0.1.0',
     requirements: ['Available local model'], requiredSkills: index === 0 ? ['script'] : [],
     validation: '', sha256: index.toString(16).padStart(64, '0'),
@@ -464,7 +462,7 @@ it('opens the guide on demand, remembers dismissal, and searches the entered nam
   const searchForm = query.closest('form')!
   fireEvent.submit(searchForm)
   fireEvent.submit(searchForm)
-  expect(h.actions.catalog.mock.calls).toEqual([['', '', false], ['wide shots', '', false]])
+  expect(h.actions.catalog.mock.calls).toEqual([['', 'skill', false], ['wide shots', 'skill', false]])
   await act(async () => { pending.resolve([release]) })
 })
 

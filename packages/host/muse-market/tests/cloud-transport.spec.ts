@@ -16,9 +16,9 @@ const release: MarketRelease = {
   publisherId: 'b'.repeat(32) as MarketRelease['publisherId'],
   publisher: 'Studio', sha256: 'c'.repeat(64), bytes: 4, status: 'published', reviewNote: '',
   revision: 3, createdAt: '2026-11-02T00:00:00.000Z',
-  manifest: { formatVersion: 1, kind: 'bot', name: 'review', title: 'Review',
+  manifest: { formatVersion: 1, kind: 'skill', name: 'review', title: 'Review',
     description: 'Review scenes', version: '1.0.0', category: 'Production', license: 'MIT',
-    examples: [], requirements: [], skills: [], plugins: [] },
+    examples: [], requirements: [], skills: [{ name: 'review', path: 'skills/review/SKILL.md' }] },
 }
 
 async function start(handler: RequestListener, archiveBytes = 1024 * 1024) {
@@ -65,15 +65,34 @@ it('uses a stored cookie only for the matching origin and leaves anonymous resou
   })
   await expect(cloud.identity()).rejects.toMatchObject({ code: 'login-required', status: 401 })
   expect(requests).toEqual([])
-  await expect(cloud.list('view scenes', 'bot', false)).resolves.toEqual([release])
+  await expect(cloud.list('view scenes', 'skill', false)).resolves.toEqual([release])
   await login()
   await expect(cloud.list('', '', true)).resolves.toEqual([release])
   await expect(cloud.legacyCatalog('', '')).resolves.toEqual([])
   expect(requests).toEqual([
-    { url: '/api/market/v1/catalog?q=view+scenes&kind=bot&mine=false', origin, cookie: undefined },
-    { url: '/api/market/v1/catalog?q=&kind=&mine=true', origin, cookie },
+    { url: '/api/market/v1/catalog?q=view+scenes&kind=skill&mine=false', origin, cookie: undefined },
+    { url: '/api/market/v1/catalog?q=&kind=skill&mine=true', origin, cookie },
     { url: '/market/catalog.json', origin, cookie: undefined },
   ])
+})
+
+it('filters stale Bot catalogue entries and refuses their direct download before fetching bytes', async () => {
+  const bot = { ...release, manifest: { ...release.manifest, kind: 'bot', plugins: [] } }
+  const paths: string[] = []
+  const { cloud, login } = await start((request, response) => {
+    paths.push(request.url ?? '')
+    response.end(JSON.stringify(request.url?.includes('/catalog?') ? { items: [bot, release] } : bot))
+  })
+  await expect(cloud.list('', 'bot', false)).rejects.toMatchObject({ code: 'skill-only' })
+  await expect(cloud.legacyCatalog('', 'bot')).rejects.toMatchObject({ code: 'skill-only' })
+  await expect(cloud.downloadLegacy('muse/bots/review', 'a'.repeat(64))).rejects.toMatchObject({ code: 'skill-only' })
+  expect(paths).toEqual([])
+  await login()
+  await expect(cloud.list('', '', false)).resolves.toEqual([release])
+  await expect(cloud.download(release.id)).rejects.toMatchObject({ code: 'skill-only' })
+  expect(paths.some(path => path.endsWith('/download'))).toBe(false)
+  await expect(cloud.upload(release.publisherId, 'retired-response', Buffer.from('data'))).rejects.toMatchObject({ code: 'skill-only' })
+  await expect(cloud.review(release.id, 1, 'approve', '')).rejects.toMatchObject({ code: 'skill-only' })
 })
 
 it.each([[303, 'login-required'], [401, 'login-required'], [403, 'publisher-required'],
@@ -85,7 +104,7 @@ it.each([[303, 'login-required'], [401, 'login-required'], [403, 'publisher-requ
       response.writeHead(status, { location: '/login' }).end('Gateway response')
     })
     await expect(cloud.list('', '', false)).rejects.toMatchObject({ code, status })
-    expect(paths).toEqual(['/api/market/v1/catalog?q=&kind=&mine=false'])
+    expect(paths).toEqual(['/api/market/v1/catalog?q=&kind=skill&mine=false'])
   },
 )
 

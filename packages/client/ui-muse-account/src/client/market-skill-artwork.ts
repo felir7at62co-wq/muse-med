@@ -1,124 +1,84 @@
-/** Resolve a Skill's cover from the same metadata in discovery, authoring, and ZIP previews. */
-import type { MarketSkillGlyphId } from './MarketSkillGlyph.tsx'
+/** One automatic Skill character assignment for authoring, discovery, and downloaded packages. */
+import type { MarketManifest, MarketPresetPortraitId } from '@deepseek-ai/dsh-muse-market/types'
+import { matchMarketPresetPortrait } from './market-preset-portraits.ts'
 
-type MarketSkillArtworkId = MarketSkillGlyphId | 'storyboard'
-
-/** Identity and purpose fields shared by published and local Skill metadata. */
+/** Purpose and immutable portrait binding shared by original and published Skills. */
 export interface MarketSkillArtworkMetadata {
   name: string
   title: string
   description: string
   category: string
   skills?: readonly { name: string }[]
+  presetPortrait?: MarketPresetPortraitId
 }
 
-const artworkByName = new Map<string, MarketSkillArtworkId>([
-  ['anime-3d-assets', 'cube'],
-  ['audio-transcribe', 'sound'],
-  ['commercial-drama-poster', 'poster'],
-  ['douyin-download', 'download'],
-  ['guzhuang-sweet-romance-3d', 'portrait'],
-  ['jubian-asset-library', 'folder'],
-  ['jubian-snatch', 'download'],
-  ['media-link-import', 'link'],
-  ['muse-dialogue-polish', 'dialogue'],
-  ['muse-episode-design', 'calendar'],
-  ['muse-llm-wiki', 'book'],
-  ['muse-project-participation', 'calendar'],
-  ['muse-script-doctor', 'qa'],
-  ['muse-script-editing', 'pen'],
-  ['muse-storyboard-checklist', 'storyboard'],
-  ['novel-to-script', 'translate'],
-  ['office-docx', 'document'],
-  ['office-pptx', 'presentation'],
-  ['office-xlsx', 'table'],
-  ['screenplay-format', 'document'],
-  ['screenplay-project', 'qa'],
-  ['shot-script-creator-16-9', 'frames-wide'],
-  ['shot-script-creator-9-16', 'frames-vertical'],
-  ['storyboard-starter', 'storyboard'],
-  ['transcript-to-novel', 'book'],
-  ['transcript-to-script', 'translate'],
-  ['trope-adaptation', 'workflow'],
-  ['tweet-drama-asset-extract', 'image'],
-  ['tweet-drama-asset-vision-check', 'research'],
-  ['tweet-drama-background-render', 'clapper'],
-  ['tweet-drama-core', 'workflow'],
-  ['tweet-drama-delivery', 'package'],
-  ['tweet-drama-draft-build', 'captions'],
-  ['tweet-drama-early-shot-script', 'camera'],
-  ['tweet-drama-key-manager', 'key'],
-  ['tweet-drama-pipeline', 'workflow'],
-  ['tweet-drama-project-bible', 'book'],
-  ['tweet-drama-project-inspect', 'qa'],
-  ['tweet-drama-script-convert', 'translate'],
-  ['tweet-drama-script-split', 'frames'],
-  ['tweet-drama-shot-asset-match', 'link'],
-  ['tweet-drama-voice-continuity', 'voice'],
-  ['urban-sweet-romance-3d', 'portrait'],
+const portraitsByName = new Map<string, MarketPresetPortraitId>([
+  ['anime-3d-assets', '3d-asset-artist'],
+  ['audio-transcribe', 'sound-designer'],
+  ['commercial-drama-poster', 'commercial-poster-designer'],
+  ['douyin-download', 'media-archivist'],
+  ['guzhuang-sweet-romance-3d', 'character-designer'],
+  ['jubian-asset-library', 'asset-librarian'],
+  ['jubian-snatch', 'media-archivist'],
+  ['media-link-import', 'media-archivist'],
+  ['muse-dialogue-polish', 'dialogue-polish'],
+  ['muse-episode-design', 'episode-planner'],
+  ['muse-llm-wiki', 'knowledge-librarian'],
+  ['muse-project-participation', 'production-manager'],
+  ['muse-script-doctor', 'screenplay-editor'],
+  ['muse-script-editing', 'screenplay-editor'],
+  ['muse-storyboard-checklist', 'storyboard-reviewer'],
+  ['novel-to-script', 'novel-adaptation'],
+  ['office-docx', 'document-specialist'],
+  ['office-pptx', 'presentation-designer'],
+  ['office-xlsx', 'spreadsheet-analyst'],
+  ['screenplay-format', 'screenplay-editor'],
+  ['screenplay-project', 'project-bible'],
+  ['shot-script-creator-16-9', 'horizontal-storyboard-director'],
+  ['shot-script-creator-9-16', 'vertical-storyboard-director'],
+  ['storyboard-starter', 'storyboard-reviewer'],
+  ['transcript-to-novel', 'adaptation-planner'],
+  ['transcript-to-script', 'adaptation-planner'],
+  ['trope-adaptation', 'adaptation-planner'],
+  ['tweet-drama-asset-extract', 'asset-librarian'],
+  ['tweet-drama-asset-vision-check', 'visual-consistency-reviewer'],
+  ['tweet-drama-background-render', 'environment-designer'],
+  ['tweet-drama-core', 'production-manager'],
+  ['tweet-drama-delivery', 'delivery-coordinator'],
+  ['tweet-drama-draft-build', 'video-editor'],
+  ['tweet-drama-early-shot-script', 'horizontal-storyboard-director'],
+  ['tweet-drama-key-manager', 'workflow-automation'],
+  ['tweet-drama-pipeline', 'workflow-automation'],
+  ['tweet-drama-project-bible', 'project-bible'],
+  ['tweet-drama-project-inspect', 'video-qa'],
+  ['tweet-drama-script-convert', 'screenplay-editor'],
+  ['tweet-drama-script-split', 'episode-planner'],
+  ['tweet-drama-shot-asset-match', 'asset-librarian'],
+  ['tweet-drama-voice-continuity', 'voice-casting'],
+  ['urban-sweet-romance-3d', 'character-designer'],
   ['video-review', 'video-qa'],
-  ['wechat-shortdrama-harvest', 'download'],
+  ['wechat-shortdrama-harvest', 'media-archivist'],
 ])
 
-const artworkByCategory = new Map<string, MarketSkillArtworkId>([
-  ['分镜创作', 'storyboard'], ['镜头分镜', 'storyboard'], ['storyboard', 'storyboard'],
-  ['剧本创作', 'pen'], ['script', 'pen'], ['writing', 'pen'],
-  ['角色与资产', 'cube'], ['assets', 'cube'],
-  ['媒体与交付', 'clapper'], ['短剧制作', 'clapper'], ['media', 'clapper'],
-  ['海报宣发', 'poster'], ['poster', 'poster'],
-  ['制作工具', 'terminal'], ['tools', 'terminal'],
-  ['办公文档', 'document'], ['office', 'document'], ['documents', 'document'],
-  ['编程开发', 'code'], ['code', 'code'], ['coding', 'code'],
-])
-
-const purposePatterns: readonly (readonly [RegExp, MarketSkillArtworkId])[] = [
-  [/(?:横屏|16\s*:\s*9).*(?:分镜|镜头脚本)/u, 'frames-wide'],
-  [/(?:竖屏|9\s*:\s*16).*(?:分镜|镜头脚本)/u, 'frames-vertical'],
-  [/分镜|镜头脚本|\bstoryboard\b/u, 'storyboard'],
-  [/表格|\b(?:excel|xlsx|spreadsheet)\b/u, 'table'],
-  [/演示文稿|\b(?:powerpoint|pptx|slides)\b/u, 'presentation'],
-  [/海报|\bposter\b/u, 'poster'],
-  [/密钥|\bapi keys?\b/u, 'key'],
-  [/资产库|\basset library\b/u, 'folder'],
-  [/画面提示词|图像提示词|\bimage prompts?\b/u, 'prompt'],
-  [/语音转写|\btranscription\b/u, 'sound'],
-  [/声线|配音|\bvoice\b/u, 'voice'],
-  [/字幕|\b(?:subtitles?|captions?)\b/u, 'captions'],
-  [/台词|对白|\bdialogue\b/u, 'dialogue'],
-  [/剪辑|\bvideo editing\b/u, 'edit'],
-  [/视频审阅|视频质检|\bvideo review\b/u, 'video-qa'],
-  [/核对|审核|检查|验收|\bquality check\b/u, 'qa'],
-  [/素材导入|媒体导入|视频获取|\b(?:download|media import)\b/u, 'download'],
-  [/翻译|格式转换|\b(?:translation|convert)\b/u, 'translate'],
-  [/知识库|\b(?:wiki|knowledge base)\b/u, 'book'],
-  [/流水线|自动化|\b(?:pipeline|workflow)\b/u, 'workflow'],
-  [/打包交付|交付模板|\bdelivery package\b/u, 'package'],
-  [/剧本|\bscreenplay\b/u, 'pen'],
-]
-
-function normalized(value: string): string {
-  return value.normalize('NFKC').trim().toLowerCase()
+function namedPortrait(name: string): MarketPresetPortraitId | undefined {
+  return portraitsByName.get(name.normalize('NFKC').trim().toLowerCase().replace(/^muse\/skills\//u, ''))
 }
 
-function namedArtwork(value: string): MarketSkillArtworkId | undefined {
-  return artworkByName.get(normalized(value).replace(/^muse\/skills\//u, ''))
-}
-
-/** Select an illustration using the bundled Skill name, package identity, and stated purpose.
- * @param metadata Metadata available before and after packaging a Skill.
- * @returns The shared cover identifier. Unknown purposes use a document illustration.
+/** Assign a character by the published binding, primary Skill identity, and stated purpose.
+ * @param metadata Metadata available before and after preparing the same Skill archive.
+ * @returns A built-in profession character with consistent framing in every market view.
  */
-export function resolveMarketSkillArtwork(metadata: MarketSkillArtworkMetadata): MarketSkillArtworkId {
+export function resolveMarketSkillArtwork(metadata: MarketSkillArtworkMetadata): MarketPresetPortraitId {
+  if (metadata.presetPortrait) return metadata.presetPortrait
   const primarySkill = metadata.skills?.[0]
-  const named = (primarySkill && namedArtwork(primarySkill.name)) ?? namedArtwork(metadata.name)
-  if (named) return named
+  const named = (primarySkill && namedPortrait(primarySkill.name)) ?? namedPortrait(metadata.name)
+  return named ?? matchMarketPresetPortrait(metadata).id
+}
 
-  const title = normalized(metadata.title)
-  const titled = purposePatterns.find(([pattern]) => pattern.test(title))?.[1]
-  const declared = titled ?? artworkByCategory.get(normalized(metadata.category))
-  if (declared) return declared
-
-  const description = normalized(metadata.description)
-  const [match, additional] = purposePatterns.filter(([pattern]) => pattern.test(description))
-  return match && !additional ? match[1] : 'document'
+/** Bind an automatic character before an unbound Skill archive is uploaded.
+ * @param manifest Validated archive metadata.
+ * @returns The matching character, or undefined when a binding already exists.
+ */
+export function matchUnboundMarketPresetPortrait(manifest: MarketManifest): MarketPresetPortraitId | undefined {
+  return manifest.kind === 'skill' && !manifest.presetPortrait ? resolveMarketSkillArtwork(manifest) : undefined
 }

@@ -13,7 +13,6 @@
 .search { display: flex; align-items: center; gap: 8px; }
 .query { flex: 1; min-width: 0; }
 .filters { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.kindTabs { display: flex; align-items: center; gap: 4px; background: var(--dsw-alias-market-surface); padding: 4px; border-radius: var(--dsw-radius-lg); }
 .categoryTabs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .notice { min-height: 22px; color: var(--dsw-alias-label-secondary); }
@@ -32,7 +31,6 @@
 .cardActions > button:first-child { flex: 1; }
 .cardActions > button:nth-child(2) { flex: 1; }
 .meta { color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 18px; }
-.skillMedia { position: relative; padding: 8px; }
 .contribute { align-items: start; }
 .contributeArt { width: 100%; display: grid; place-items: center; padding: 8px; }
 .contribute > p { color: var(--dsw-alias-label-secondary); }

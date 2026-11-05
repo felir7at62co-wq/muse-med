@@ -72,27 +72,29 @@ export class MuseMarketCloud {
 
   /** Search the public catalog or the current creator's publications.
    * @param q Search text.
-   * @param kind Optional Bot or Skill filter.
+   * @param kind Skill filter, or empty for all available Skills.
    * @param mine Whether to request creator-visible drafts.
    * @returns Validated release metadata.
    */
   async list(q: string, kind: string, mine: boolean): Promise<MarketRelease[]> {
-    const value = await this.json('/catalog?' + new URLSearchParams({ q, kind, mine: String(mine) }).toString(), {}, mine)
+    if (kind && kind !== 'skill') throw new MarketError('skill-only')
+    const value = await this.json('/catalog?' + new URLSearchParams({ q, kind: 'skill', mine: String(mine) }).toString(), {}, mine)
     if (!value || typeof value !== 'object' || !('items' in value) || !Array.isArray(value.items)) throw new MarketError('invalid-response')
-    return value.items.map(item => marketRelease(item, this.config.allowedPlugins))
+    return value.items.map(item => marketRelease(item, this.config.allowedPlugins)).filter(item => item.manifest.kind === 'skill')
   }
 
   /** Read the original public distributions without account credentials.
    * @param query Search text.
-   * @param kind Optional Bot or Skill filter. An empty string includes both.
+   * @param kind Skill filter, or empty for all available Skills.
    * @returns Validated metadata and original download links on the configured cloud origin.
    */
   async legacyCatalog(query: string, kind: string): Promise<MarketLegacyResource[]> {
+    if (kind && kind !== 'skill') throw new MarketError('skill-only')
     const bytes = await this.bytes('/market/catalog.json', {}, 1024 * 1024, 'anonymous')
     let value: unknown
     try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes)) }
     catch { throw new MarketError('invalid-response') }
-    return marketLegacyCatalog(value, query, kind, this.origin)
+    return marketLegacyCatalog(value, query, 'skill', this.origin)
   }
 
   /** Download the exact original archive advertised by the current public catalog.
@@ -102,6 +104,7 @@ export class MuseMarketCloud {
    */
   async downloadLegacy(id: string, sha256: string): Promise<{ resource: MarketLegacyResource; archive: Uint8Array }> {
     if (!marketLegacyId(id) || !/^[a-f0-9]{64}$/.test(sha256)) throw new MarketError('invalid-release')
+    if (!id.startsWith('muse/skills/')) throw new MarketError('skill-only')
     const resource = (await this.legacyCatalog('', '')).find(row => row.id === id)
     if (!resource) throw new MarketError('legacy-not-found', 404)
     if (resource.sha256 !== sha256) throw new MarketError('legacy-catalog-changed', 409)
@@ -133,6 +136,7 @@ export class MuseMarketCloud {
   async download(id: string): Promise<{ release: MarketRelease; archive: Uint8Array }> {
     if (!/^[a-f0-9]{32,64}$/.test(id)) throw new MarketError('invalid-release')
     const release = marketRelease(await this.json(`/releases/${id}`, {}), this.config.allowedPlugins)
+    if (release.manifest.kind !== 'skill') throw new MarketError('skill-only')
     const archive = await this.bytes(`/api/market/v1/releases/${id}/download`, {}, this.config.archiveBytes, 'required')
     return { release, archive }
   }
@@ -146,7 +150,9 @@ export class MuseMarketCloud {
   async upload(publisherId: string, requestId: string, archive: Uint8Array): Promise<MarketRelease> {
     const value = await this.json('/uploads', { method: 'POST', headers: { 'content-type': 'application/zip',
       'x-market-publisher': publisherId, 'idempotency-key': requestId }, body: Buffer.from(archive) })
-    return marketRelease(value, this.config.allowedPlugins)
+    const release = marketRelease(value, this.config.allowedPlugins)
+    if (release.manifest.kind !== 'skill') throw new MarketError('skill-only')
+    return release
   }
 
   /** Apply an explicit creator submission or administrator review action.
@@ -158,8 +164,10 @@ export class MuseMarketCloud {
    */
   async review(id: string, revision: number, action: string, note: string): Promise<MarketRelease> {
     if (!/^[a-f0-9]{32,64}$/.test(id)) throw new MarketError('invalid-release')
-    return marketRelease(await this.json(`/releases/${id}/review`, { method: 'POST', headers: { 'content-type': 'application/json' },
+    const release = marketRelease(await this.json(`/releases/${id}/review`, { method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ revision, action, note }) }), this.config.allowedPlugins)
+    if (release.manifest.kind !== 'skill') throw new MarketError('skill-only')
+    return release
   }
 
   /** Abort requests and await body-reader cleanup before the Host unloads. */

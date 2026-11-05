@@ -66,18 +66,19 @@ function legacyResource(value: unknown, origin: string): MarketLegacyResource {
 /** Validate and filter the original public market catalog for discovery.
  * @param value Untrusted catalog JSON.
  * @param query Search words matched against titles, descriptions and categories.
- * @param kind Optional Bot or Skill filter. An empty string includes both.
+ * @param kind Skill filter, or empty for all available Skills.
  * @param origin Validated cloud origin for Desktop download links. Omit for same-origin website links.
  * @returns Matching original resources with download links confined to the market's download directory.
  */
 export function marketLegacyCatalog(value: unknown, query: string, kind: string, origin = ''): MarketLegacyResource[] {
+  if (kind && kind !== 'skill') throw new MarketError('skill-only')
   if (!marketRecord(value) || !Array.isArray(value.entries) || value.entries.length > 500) throw new MarketError('invalid-response')
   const entries = value.entries.map((entry: unknown) => legacyResource(entry, origin))
   if (new Set(entries.map(entry => entry.id)).size !== entries.length) throw new MarketError('invalid-response')
   const words = query.toLowerCase().trim().split(/\s+/)
   return entries.filter((entry) => {
     const searchable = [entry.title, entry.description, entry.category].join(' ').toLowerCase()
-    return (!kind || kind === entry.kind) && words.every(word => searchable.includes(word))
+    return entry.kind === 'skill' && words.every(word => searchable.includes(word))
   })
 }
 
@@ -139,7 +140,7 @@ export function marketManifest(value: unknown, allowedPlugins: readonly string[]
       && typeof item.path === 'string' && marketPath(item.path) && item.path === `skills/${item.name}/SKILL.md`)
     || new Set(skillRows.map(item => (item as Record<string, unknown>).name)).size !== skillRows.length
     || value.portrait !== undefined && (value.kind !== 'bot' || !isMarketPortrait(value.portrait))
-    || value.presetPortrait !== undefined && (value.kind !== 'bot' || !isMarketPresetPortrait(value.presetPortrait))
+    || value.presetPortrait !== undefined && !isMarketPresetPortrait(value.presetPortrait)
     || value.kind === 'skill' && (skillRows.length !== 1 || value.plugins !== undefined)
     || value.kind === 'bot' && value.plugins !== undefined && !plugins(value.plugins, new Set(allowedPlugins))) throw new MarketError('invalid-manifest')
   const skills = skillRows as { name: string; path: string }[]
@@ -204,7 +205,9 @@ export function marketRelease(value: unknown, allowedPlugins: readonly string[])
  * @returns Validated metadata; the server still validates resource bodies and digests on upload.
  */
 export function previewMarketPackage(archive: Uint8Array, limits: MarketLimits, allowedPlugins: readonly string[]): MarketManifest {
-  return marketManifest(readPreviewArchive(archive, limits, false).value, allowedPlugins)
+  const manifest = marketManifest(readPreviewArchive(archive, limits, false).value, allowedPlugins)
+  if (manifest.kind !== 'skill') throw new MarketError('skill-only')
+  return manifest
 }
 
 function readPreviewArchive(archive: Uint8Array, limits: MarketLimits, includeResources: boolean) {
@@ -235,8 +238,8 @@ function readPreviewArchive(archive: Uint8Array, limits: MarketLimits, includeRe
   return { entries, value }
 }
 
-/** Write the selected built-in portrait into a Bot archive before upload.
- * @param archive Original Bot archive.
+/** Write an automatically matched built-in portrait into a publication before upload.
+ * @param archive Original publication archive.
  * @param portrait Selected built-in portrait.
  * @param limits Deployment resource bounds.
  * @param allowedPlugins Deployment-owned Bot plugin allowlist.
@@ -247,13 +250,8 @@ export function bindMarketPortrait(
 ): Uint8Array {
   const { entries, value } = readPreviewArchive(archive, limits, true)
   if (!marketRecord(value)) throw new MarketError('invalid-manifest')
-  const manifest = { ...value }
-  if (isMarketPortrait(portrait)) {
-    manifest.portrait = portrait
-    delete manifest.presetPortrait
-  } else {
-    manifest.presetPortrait = portrait
-  }
+  if (value.kind !== 'skill') throw new MarketError('skill-only')
+  const manifest = { ...value, presetPortrait: portrait }
   marketManifest(manifest, allowedPlugins)
   entries['muse-package.json'] = new TextEncoder().encode(JSON.stringify(manifest))
   if (entries['muse-package.json'].length > 128 * 1024

@@ -16,18 +16,7 @@ export const museFallbackFraming: MarketPortraitFraming = [0.9613, -0.19, -0.06]
 
 const screenplayEditorFraming: MarketPortraitFraming = [0.9444, 1.63, -0.52]
 
-/** Framing for original Bot catalog portraits, keyed by catalog slug. */
-export const catalogPortraitFraming: Readonly<Record<string, MarketPortraitFraming>> = {
-  'storyboard-director-16-9': directorPosterFraming,
-  'codex-coding': [0.9343, 1.79, -0.16],
-  'claude-code-coding': [0.9236, 0.12, 0.08],
-  'anime-3d-assets': [0.9243, 1.24, 0.28],
-  'short-drama-director': [0.9350, 2.43, 0.20],
-  'screenplay-editor': screenplayEditorFraming,
-  'commercial-poster-designer': [0.9274, 0.56, -0.28],
-}
-
-/** Framing for the portraits offered in Bot creation and upload. */
+/** Equalized silhouette framing for the characters assigned to Skill purposes. */
 export const presetPortraitFraming: Readonly<Record<MarketPresetPortraitId, MarketPortraitFraming>> = {
   'short-drama-writer': [0.9430, 1.63, -0.46],
   'screenplay-editor': screenplayEditorFraming,

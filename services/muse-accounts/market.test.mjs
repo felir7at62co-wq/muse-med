@@ -29,7 +29,7 @@ test('offline-desktop gateway serves the public market and authenticates invitat
  const login=async username=>(await fetch(base+'/login',{method:'POST',headers:{origin},body:new URLSearchParams({username,password:'pw'}),redirect:'manual'})).headers.get('set-cookie').split(';')[0];
  const cookies={admin:await login('admin'),author:await login('author'),reader:await login('reader')};
  const api=(path,account,method='GET',body,extra={})=>fetch(base+'/api/market/v1'+path,{method,headers:{...(account?{cookie:cookies[account]}:{}),...(method==='POST'?{origin}:{}),...extra},...(body!==undefined?{body:typeof body==='string'||body instanceof Uint8Array?body:JSON.stringify(body)}:{})});
- const page=await fetch(base+'/market');assert.equal(page.status,200);assert.match(await page.text(),/Bot 与 Skills 市场/);assert.match(page.headers.get('content-security-policy'),/script-src 'self'/);
+ const page=await fetch(base+'/market');assert.equal(page.status,200);assert.match(await page.text(),/Skills 市场/);assert.match(page.headers.get('content-security-policy'),/script-src 'self'/);
  assert.equal((await fetch(base+'/market/client.js')).status,200);
  assert.deepEqual(await(await api('/catalog')).json(),{items:[]});assert.equal((await api('/me')).status,401);
  const denied=await fetch(base+'/api/market/v1/publishers',{method:'POST',headers:{cookie:cookies.admin,origin:'https://evil.test'},body:'{}'});assert.equal(denied.status,403);

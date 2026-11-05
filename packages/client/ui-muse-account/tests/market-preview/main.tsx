@@ -9,7 +9,7 @@ import type { MarketActions } from '../../src/client/market-mount.ts'
 import type { MarketInstallation } from '@deepseek-ai/dsh-muse-market/types'
 import type { MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
 import { marketZh, marketEn, type MarketLocaleKey } from '../../src/client/market-locales.ts'
-import { marketFixture, marketPresentations } from '../market-fixture.client.ts'
+import { marketFixture } from '../market-fixture.client.ts'
 import '../../../ui-theme/src/styles/base.css'
 import '../../../ui-theme/src/styles/design-platform.css'
 import '../../../ui-theme/src/styles/gradient-shadow-text.css'
@@ -30,8 +30,7 @@ const actions: MarketActions = {
       && `${row.manifest.title} ${row.manifest.description} ${row.publisher}`.includes(query))
   },
   installed: async () => [...local.values()],
-  sources: async () => ({ website: '/#market', bots: [{ id: 'storyboard-director', name: '分镜导演' }],
-    skills: [{ name: 'storyboard-starter', description: '分镜入门工作法' }] }),
+  sources: async () => ({ website: '/#market',     skills: [{ name: 'storyboard-starter', description: '分镜入门工作法' }] }),
   identity: async () => ({ publishers: [{ id: 'a'.repeat(32), title: 'Muse 联调制作组' }], admin: scenario === 'admin-review' }),
   install: async (id) => {
     if (scenario === 'download-failure' && failNext) { failNext = false; throw Error('generic') }
@@ -75,12 +74,12 @@ function Preview() {
     setOutcome(previous => ({ key, failed, sequence: (previous?.sequence ?? 0) + 1 }))
   }
   return <div className="preview-shell">
-    <div className="preview-workspace"><details className="preview-debug"><summary>前后端集成分支预览 · 一个 Bot + 一个 Skill · 页面操作仍使用模拟数据</summary>
+    <div className="preview-workspace"><details className="preview-debug"><summary>前后端集成分支预览 · 两个 Skill · 页面操作仍使用模拟数据</summary>
       <header className="preview-header"><span>本页复用市场主区域组件</span>
         <div><label>接口演练<select aria-label="接口演练" value={mode} onChange={(event) => {
           scenario = event.target.value; failNext = true; local.clear()
           cloud.clear(); for (const row of marketFixture) cloud.set(row.id, scenario === 'admin-review'
-            ? { ...row, status: row.manifest.kind === 'bot' ? 'draft' : 'pending' } : row)
+            ? { ...row, status: 'pending' } : row)
           if (scenario === 'enable-failure') local.set(marketFixture[0]!.id, { release: marketFixture[0]!, enabled: false })
           setMode(scenario); setInstance(value => value + 1); setOutcome(undefined); setPanel('market')
         }}><option value="normal">正常</option><option value="read-failure">读取失败一次</option><option value="empty">空列表</option>
@@ -89,9 +88,9 @@ function Preview() {
         <button onClick={() =>{  setEnglish(value => !value) }}>{english ? '中文' : 'English'}</button>
         <button onClick={() => { setDark(!dark); document.body.toggleAttribute('data-ds-dark-theme', !dark) }}>{dark ? '浅色' : '深色'}</button>
         <Button onClick={() =>{  setPanel(panel === 'market' ? 'settings' : 'market') }}>{panel === 'market' ? '设置入口预览' : '返回市场'}</Button>
-        </div></header><p className="preview-note">已按后端字段对齐；本页不连接云端。可选择管理员审核演示，检查五种发行状态；Bot 形象按用途自动匹配</p></details>
+        </div></header><p className="preview-note">已按后端字段对齐；本页不连接云端。可选择管理员审核演示，检查五种发行状态；Skill 形象按用途自动匹配</p></details>
     <main id="market" className="preview-canvas">{panel === 'market'
-      ? <MarketPage key={instance} actions={actions} presentations={marketPresentations} t={t} reportOutcome={reportOutcome}
+      ? <MarketPage key={instance} actions={actions} t={t} reportOutcome={reportOutcome}
         onOpenCreator={(kind) => { setCreatorKind(kind); setPanel('creator') }} />
       : panel === 'creator'
         ? <MarketCreatorPanel actions={actions} getInitialKind={() => creatorKind}

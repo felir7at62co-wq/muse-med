@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { afterEach, expect, it, vi } from 'vitest'
 import { MarketCreatorPage } from '../src/client/MarketCreatorPage.tsx'
 import type { MarketActions } from '../src/client/market-mount.ts'
-import { marketFixture } from './market-fixture.client.ts'
+import { marketFixture, marketBotFixture } from './market-fixture.client.ts'
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
@@ -17,7 +17,7 @@ function harness() {
     installed: vi.fn<MarketActions['installed']>(async () => []),
     identity: vi.fn<MarketActions['identity']>(async () => ({ publishers: [{ id: draft.publisherId, title: 'Studio' }], admin: false })),
     sources: vi.fn<MarketActions['sources']>(async () => ({ website: 'https://muse.test/market',
-      bots: [], skills: [{ name: 'review', description: 'Review scenes' }, { name: 'script', description: 'Write a script' }] })),
+      skills: [{ name: 'review', description: 'Review scenes' }, { name: 'script', description: 'Write a script' }] })),
     prepare: vi.fn<MarketActions['prepare']>(async () => ({ release: draft, enabled: false })),
     publishDraft: vi.fn<MarketActions['publishDraft']>(async () => draft),
     install: vi.fn(), installLegacy: vi.fn(), enable: vi.fn(), remove: vi.fn(),
@@ -43,7 +43,7 @@ it('prepares one selected local Skill for export even without a publishing login
   }
   fireEvent.click(prepare)
 
-  expect(props.actions.prepare).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ kind: 'skill', name: 'review', skills: [] }), ['review'], '')
+  expect(props.actions.prepare).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ kind: 'skill', name: 'review', skills: [] }), ['review'])
   expect((await screen.findByRole<HTMLButtonElement>('button', { name: 'export' })).disabled).toBe(false)
   expect(screen.getByRole<HTMLButtonElement>('button', { name: 'upload' }).disabled).toBe(true)
   expect(props.actions.publishDraft).not.toHaveBeenCalled()
@@ -60,22 +60,37 @@ it('offers local prepared ZIP packages and uploads only the explicitly selected 
     { release: { ...draft, id: '2'.repeat(64) as typeof draft.id, manifest: { ...draft.manifest, title: 'Original archive' } },
       enabled: false, legacySource: { id: 'muse/skills/review', sha256: 'f'.repeat(64) } },
     { release: { ...skill, id: '3'.repeat(32) as typeof draft.id, manifest: { ...skill.manifest, title: 'Cloud download' } }, enabled: false },
+    { release: { ...marketBotFixture, status: 'draft' }, enabled: false },
   ])
   render(<MarketCreatorPage {...props} initialKind="upload" />)
   const selector = await screen.findByRole('combobox', { name: 'localPackages' })
   expect(screen.getAllByRole('option').some(option => option.textContent?.includes('Original archive'))).toBe(false)
   expect(screen.getAllByRole('option').some(option => option.textContent?.includes('Cloud download'))).toBe(false)
+  expect(screen.queryByRole('option', { name: /Historical Bot/u })).toBeNull()
   fireEvent.change(selector, { target: { value: draft.id } })
   expect(props.actions.publishDraft).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'upload' }))
-  expect(props.actions.publishDraft).toHaveBeenCalledExactlyOnceWith(draft.id, draft.publisherId, expect.any(String))
+  expect(props.actions.publishDraft).toHaveBeenCalledExactlyOnceWith(draft.id, draft.publisherId, expect.any(String), 'horizontal-storyboard-director')
   expect(await screen.findByRole('dialog', { name: draft.manifest.title })).toBeDefined()
   expect(props.actions.catalog).not.toHaveBeenCalled()
 })
 
-it('automatically matches the imported Bot ZIP portrait and passes it with the confirmed upload', async () => {
+it('rejects a Bot returned by an older ZIP import without offering upload or export', async () => {
   const props = harness()
-  const source = marketFixture.find(row => row.manifest.kind === 'bot')!
+  props.actions.importPackage.mockResolvedValue({ release: marketBotFixture, enabled: false })
+  render(<MarketCreatorPage {...props} initialKind="upload" />)
+  const file = new File(['ZIP'], 'historic-bot.zip')
+  Object.defineProperty(file, 'arrayBuffer', { value: async () => new TextEncoder().encode('ZIP').buffer })
+  fireEvent.change(await screen.findByLabelText('browserArchive'), { target: { files: [file] } })
+  await waitFor(() => { expect(props.reportOutcome).toHaveBeenCalledWith('error.skill-only', true) })
+  expect(screen.queryByRole('button', { name: 'upload' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'export' })).toBeNull()
+  expect(props.actions.publishDraft).not.toHaveBeenCalled()
+})
+
+it('automatically matches the imported Skill ZIP portrait and passes it with the confirmed upload', async () => {
+  const props = harness()
+  const source = marketFixture[0]!
   const imported = { ...source, status: 'draft' as const,
     manifest: { ...source.manifest, title: '电影调色师', category: '影视后期', description: '为短剧统一色彩。' } }
   props.actions.importPackage.mockResolvedValue({ release: imported, enabled: false })
@@ -97,12 +112,12 @@ it('automatically matches the imported Bot ZIP portrait and passes it with the c
 it('retries a failed authoring identity and renders source availability from the new read', async () => {
   const props = harness()
   props.actions.identity.mockRejectedValueOnce(Error('cloud-unavailable'))
-  props.actions.sources.mockResolvedValue({ website: 'https://muse.test/market', skills: [], bots: [] })
-  render(<MarketCreatorPage {...props} initialKind="bot" />)
+  props.actions.sources.mockResolvedValue({ website: 'https://muse.test/market', skills: [] })
+  render(<MarketCreatorPage {...props} initialKind="skill" />)
   expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'error.cloud-unavailable')
   fireEvent.click(screen.getByRole('button', { name: 'retry' }))
   expect(await screen.findByText('creatorNoSkills')).toBeDefined()
-  expect(screen.getByRole('option', { name: 'creatorNoBots' })).toBeDefined()
+  expect(screen.queryByRole('button', { name: 'creatorNewBot' })).toBeNull()
   expect(screen.getByRole<HTMLButtonElement>('button', { name: 'prepare' }).disabled).toBe(true)
   expect(props.actions.identity).toHaveBeenCalledTimes(2)
 })
@@ -137,14 +152,13 @@ it('explains that the web authoring page requires sign-in', async () => {
   expect(screen.queryByLabelText('browserArchive')).toBeNull()
 })
 
-it('prepares the selected Bot and Skills once, exports its bytes and supports changing the publishing team', async () => {
+it('prepares the selected Skill once, exports its bytes and supports changing the publishing team', async () => {
   const props = harness()
   const bot = marketFixture[0]!
   const release = { ...bot, status: 'draft' as const, manifest: { ...bot.manifest, presetPortrait: 'video-editor' as const } }
   const other = { id: 'd'.repeat(32), title: 'Other studio' }
   const first = Promise.withResolvers<Awaited<ReturnType<MarketActions['prepare']>>>()
   props.actions.sources.mockResolvedValue({ website: 'https://muse.test/market',
-    bots: [{ id: 'director', name: 'Director' }, { id: 'editor', name: 'Editor' }],
     skills: [{ name: 'review', description: 'Review' }, { name: 'script', description: 'Write' }] })
   props.actions.identity.mockResolvedValue({ publishers: [{ id: release.publisherId, title: 'Studio' }, other], admin: false })
   props.actions.prepare.mockReturnValueOnce(first.promise)
@@ -159,12 +173,9 @@ it('prepares the selected Bot and Skills once, exports its bytes and supports ch
   const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
   render(<MarketCreatorPage {...props} />)
   await screen.findByRole('radio', { name: 'review' })
-  fireEvent.click(screen.getByRole('button', { name: 'creatorNewBot' }))
-
-  fireEvent.change(await screen.findByRole('combobox', { name: 'sourceBot' }), { target: { value: 'editor' } })
-  fireEvent.click(screen.getByRole('checkbox', { name: 'review' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'script' }))
-  fireEvent.click(screen.getByRole('checkbox', { name: 'review' }))
+  expect(screen.queryByRole('button', { name: 'creatorNewBot' })).toBeNull()
+  fireEvent.click(screen.getByRole('radio', { name: 'review' }))
+  fireEvent.click(screen.getByRole('radio', { name: 'script' }))
   for (const [name, value] of Object.entries({
     name: 'film-editor', label: '电影剪辑师', summary: '镜头剪辑与后期', license: 'MIT', category: '影视后期',
   })) fireEvent.change(screen.getByRole('textbox', { name }), { target: { value } })
@@ -172,7 +183,7 @@ it('prepares the selected Bot and Skills once, exports its bytes and supports ch
   fireEvent.submit(form)
   fireEvent.submit(form)
   expect(props.actions.prepare).toHaveBeenCalledExactlyOnceWith(
-    expect.objectContaining({ kind: 'bot', name: 'film-editor', presetPortrait: 'video-editor' }), ['script'], 'editor',
+    expect.objectContaining({ kind: 'skill', name: 'film-editor', presetPortrait: 'video-editor' }), ['script'],
   )
 
   await act(async () => { first.resolve({ release, enabled: false }) })

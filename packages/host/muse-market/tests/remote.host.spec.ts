@@ -20,7 +20,7 @@ import { expect, it, onTestFinished, vi } from 'vitest'
 import { zipSync } from 'fflate'
 import MuseMarket from '../src/index.ts'
 import { MuseMarketCloud } from '../src/cloud.ts'
-import { createMarketPackage, marketDigest, readMarketPackage } from '../src/package.ts'
+import { marketDigest, readMarketPackage } from '../src/package.ts'
 import type { MarketManifest, MarketRelease } from '../src/types.ts'
 
 it('dispatches original discovery and package operations through the Host Gateway', async () => {
@@ -111,11 +111,8 @@ it('dispatches original discovery and package operations through the Host Gatewa
   expect(claims?.('museMarket/removePackage')).toBe(true)
   expect(claims?.('museMarket/install')).toBe(false)
   expect(claims?.('museMarket/remove')).toBe(false)
-  await expect(call('legacyCatalog', { query: 'DIRECTOR video', kind: 'bot' })).resolves.toEqual({ ok: true, value: [{
-    id: original.id, kind: original.kind, title: original.name, description: original.description,
-    category: original.category, version: original.version, validation: original.validation, sha256: original.sha256,
-    requirements: original.requirements, requiredSkills: [], href: `${baseUrl}/market/${original.package}`,
-  }] })
+  await expect(call('legacyCatalog', { query: 'DIRECTOR video', kind: 'bot' })).resolves.toMatchObject({ ok: false, error: { details: { code: 'skill-only' } } })
+  await expect(call('legacyCatalog', { query: '', kind: '' })).resolves.toMatchObject({ ok: true, value: [{ id: originalSkill.id }] })
   expect(requested).toEqual([{ path: '/market/catalog.json', cookie: undefined }])
   payload = { entries: [{ ...original, package: 'downloads/../redirect.zip' }] }
   await expect(call('legacyCatalog', { query: '', kind: '' })).resolves.toMatchObject({ ok: false, error: { details: { code: 'invalid-response' } } })
@@ -148,9 +145,9 @@ it('dispatches original discovery and package operations through the Host Gatewa
   await expect(call('installPackage', { id: 'invalid' })).resolves.toEqual({ ok: false, error: invalidRelease })
   await expect(ctx.museMarket.install('invalid' as Parameters<MuseMarket['install']>[0])).rejects.toMatchObject(invalidRelease)
 
-  const manifest: MarketManifest = { formatVersion: 1, kind: 'bot', name: 'remote-review', title: 'Remote review',
+  const manifest: MarketManifest = { formatVersion: 1, kind: 'skill', name: 'remote-review', title: 'Remote review',
     description: 'Local Remote regression', version: '1.0.0', license: 'MIT', category: 'test',
-    examples: [], requirements: [], skills: [], plugins: [] }
+    examples: [], requirements: [], skills: [{ name: 'editor', path: 'skills/editor/SKILL.md' }] }
   const absentId = 'e'.repeat(32)
   for (const [method, args] of [
     ['enable', { id: absentId, enabled: true }],
@@ -164,10 +161,10 @@ it('dispatches original discovery and package operations through the Host Gatewa
       .resolves.toMatchObject({ ok: false, error: { details: { code: 'invalid-archive' } } })
   }
   for (const skillNames of [null, ['missing', 'missing'], Array.from({ length: 65 }, (_, index) => `skill-${index}`)]) {
-    await expect(call('prepare', { metadata: manifest, skillNames, botId: '' }))
+    await expect(call('prepare', { metadata: manifest, skillNames }))
       .resolves.toMatchObject({ ok: false, error: { details: { code: 'invalid-selection' } } })
   }
-  await expect(call('prepare', { metadata: manifest, skillNames: ['missing'], botId: '' }))
+  await expect(call('prepare', { metadata: manifest, skillNames: ['missing'] }))
     .resolves.toMatchObject({ ok: false, error: { details: { code: 'missing-skill' } } })
   const selectedSkill: SkillDefinition = { name: 'editor', description: 'Local editor', content: 'Review the source.',
     source: 'custom', provider: 'remote-test', invocation: { modelInvocable: true, userInvocable: true } }
@@ -176,12 +173,12 @@ it('dispatches original discovery and package operations through the Host Gatewa
     async get() { return selectedSkill },
   })))
   expect(await ctx.museMarket.sources()).toEqual({ website: `${baseUrl}/market`,
-    skills: [{ name: 'editor', description: 'Local editor' }], bots: [{ id: 'standard', name: 'standard' }] })
-  const standalone = await ctx.museMarket.prepare(manifest, [selectedSkill.name], '')
+    skills: [{ name: 'editor', description: 'Local editor' }] })
+  const standalone = await ctx.museMarket.prepare(manifest, [selectedSkill.name])
   expect(standalone.release.manifest).toMatchObject({ kind: 'skill', skills: [{ name: 'editor', path: 'skills/editor/SKILL.md' }] })
   expect(standalone.release.manifest.plugins).toBeUndefined()
   await ctx.museMarket.remove(standalone.release.id)
-  await expect(call('prepare', { metadata: { ...manifest, presetPortrait: 'video-editor' }, skillNames: [], botId: 'standard' }))
+  await expect(call('prepare', { metadata: { ...manifest, presetPortrait: 'video-editor' }, skillNames: ['editor'] }))
     .resolves.toMatchObject({ ok: true, value: { release: { manifest: { presetPortrait: 'video-editor' } }, enabled: false } })
   const [prepared] = await ctx.museMarket.installed()
   if (!prepared) throw new Error('Prepared Bot missing from local storage')
@@ -200,7 +197,7 @@ it('dispatches original discovery and package operations through the Host Gatewa
   expect(await ctx.museMarket.exportPackage(id)).toEqual(exported)
   await expect(call('removePackage', { id })).resolves.toEqual({ ok: true, value: undefined })
   expect(await ctx.museMarket.installed()).toEqual([])
-  const originalArchive = Buffer.from(createMarketPackage(manifest, {}, limits, [])).toString('base64')
+  const originalArchive = (await ctx.museMarket.exportPackage((await ctx.museMarket.prepare(manifest, ['editor'])).release.id)).base64
   const repeated = await ctx.museMarket.importPackage(originalArchive)
   const unboundArgs = { id: repeated.release.id, publisherId, requestId: 'automatic-portrait-request' }
   upload.mockClear()
@@ -221,9 +218,9 @@ it('dispatches original discovery and package operations through the Host Gatewa
   const cloudRelease: MarketRelease = { ...prepared.release, id: '1'.repeat(32) as MarketRelease['id'],
     publisherId: '2'.repeat(32) as MarketRelease['publisherId'], publisher: 'Fixture studio', status: 'published' }
   cloudFixture.download = { release: cloudRelease, archive }
-  await expect(call('catalog', { q: 'Remote review', kind: 'bot', mine: false }))
+  await expect(call('catalog', { q: 'Remote review', kind: 'skill', mine: false }))
     .resolves.toEqual({ ok: true, value: [cloudRelease] })
-  expect(requested.at(-1)).toEqual({ path: '/api/market/v1/catalog?q=Remote+review&kind=bot&mine=false', cookie })
+  expect(requested.at(-1)).toEqual({ path: '/api/market/v1/catalog?q=Remote+review&kind=skill&mine=false', cookie })
   await expect(call('identity', {})).resolves.toEqual({ ok: true, value: identity })
   expect(requested.at(-1)).toEqual({ path: '/api/market/v1/me', cookie })
   await expect(call('review', { id: cloudRelease.id, revision: 1, action: 'approve', note: 'Approved' }))
@@ -242,7 +239,7 @@ it('dispatches original discovery and package operations through the Host Gatewa
   expect(upload.mock.calls.map(([publisher, key, bytes]) => [publisher, key, Buffer.from(bytes)]))
     .toEqual([[publisherId, requestId, archive]])
 
-  await expect(call('prepare', { metadata: { ...manifest, presetPortrait: 'video-editor' }, skillNames: [], botId: 'standard' }))
+  await expect(call('prepare', { metadata: { ...manifest, presetPortrait: 'video-editor' }, skillNames: ['editor'] }))
     .resolves.toMatchObject({ ok: true, value: { release: { id, status: 'draft' }, enabled: false } })
   expect((await ctx.museMarket.installed()).map(item => [item.release.id, item.enabled]))
     .toEqual([[cloudRelease.id, true], [id, false]])

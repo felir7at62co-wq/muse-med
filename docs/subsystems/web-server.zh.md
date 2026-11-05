@@ -226,15 +226,15 @@ async botSkillProvider(releaseId: string): Promise<SkillProvider>
 
 /** Search public releases or the signed-in creator's drafts.
  * @param q Search text.
- * @param kind Bot or Skill filter; empty selects both.
+ * @param kind Skill filter, or empty for all available Skills.
  * @param mine Whether to include the creator's private releases.
  * @returns Matching release metadata.
  */
 @Remote('catalog') async catalog(q: string, kind: string, mine: boolean): Promise<MarketRelease[]>
 
-/** List the original public Bot and Skill distributions for discovery.
+/** List the original public Skill distributions for discovery.
  * @param query Search text.
- * @param kind Optional Bot or Skill filter. An empty string includes both.
+ * @param kind Skill filter, or empty for all available Skills.
  * @returns Matching metadata and original download links.
  */
 @Remote('legacyCatalog') async legacyCatalog(query: string, kind: string): Promise<MarketLegacyResource[]>
@@ -250,17 +250,16 @@ async botSkillProvider(releaseId: string): Promise<SkillProvider>
 @Remote('installed') async installed(): Promise<MarketInstallation[]>
 
 /** List local authoring sources without reading or uploading their resources.
- * @returns Discoverable Skill names and configured Bot identities.
+ * @returns Discoverable Skill names and the market website.
  */
-@Remote('sources') async sources(): Promise<{ website: string; skills: { name: string; description: string }[]; bots: { id: string; name: string }[] }>
+@Remote('sources') async sources(): Promise<{ website: string; skills: { name: string; description: string }[] }>
 
 /** Prepare selected local resources for inspection and export before any upload.
  * @param metadata Creator-entered publication information; execution fields are rebuilt from selected sources.
  * @param skillNames Explicit local Skill selection.
- * @param botId Local Bot identity, or empty for a standalone Skill.
  * @returns A disabled local publication available for export and private draft upload.
  */
-@Remote('prepare') async prepare(metadata: MarketManifest, skillNames: string[], botId: string): Promise<MarketInstallation>
+@Remote('prepare') async prepare(metadata: MarketManifest, skillNames: string[]): Promise<MarketInstallation>
 
 /** Download a selected release into local storage without enabling it.
  * @param id Selected cloud release identity.
@@ -304,7 +303,7 @@ async botSkillProvider(releaseId: string): Promise<SkillProvider>
  * @param id Installed release identity.
  * @param publisherId Explicitly selected publisher.
  * @param requestId Stable upload idempotency key.
- * @param presetPortrait Automatic portrait for a Bot whose archive has no portrait binding.
+ * @param presetPortrait Automatically matched Skill portrait when the archive has no binding.
  * @returns The cloud draft; public submission is a separate action.
  */
 @Remote('publishDraft') async publishDraft( id: MarketReleaseId, publisherId: MarketPublisherId, requestId: string, presetPortrait?: MarketPresetPortraitId, ): Promise<MarketRelease>

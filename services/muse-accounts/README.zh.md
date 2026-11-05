@@ -207,7 +207,7 @@ Muse LLM Wiki 通过既有 `/api/kb/access` 接口复用当前 Muse 登录，不
 
 ## Muse market
 
-可选 [Bot 与 Skills 市场](MARKET.md) 使用独立 `dsh` profile 和带认证的回环代理。桌面离线时仍可访问公开网站与云端发布内容。当前路由和内置页面只是源码级联调面，不代表已经部署或最终前端已验收；启用此功能需要同时配置市场策略与账号网关。`market-gateway.test.mjs` 是无需构建产物的路由／代理检查；端到端 `market.test.mjs` 须先构建 Host 市场与 WebServer 包。
+可选 [Skills 市场](MARKET.md)使用独立 `dsh` profile 和带认证的回环代理。桌面离线时仍可访问公开网站与云端 Skill 发布内容。启用此功能需要同时配置市场策略与账号网关。部署与前端验收需要单独验证。`market-gateway.test.mjs` 无需构建即可检查路由和代理。端到端 `market.test.mjs` 须先构建 Host 市场与 WebServer 包。
 
 ## Verification and release
 

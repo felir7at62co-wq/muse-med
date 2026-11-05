@@ -10,34 +10,28 @@ const limits = { archiveBytes: 1048576, expandedBytes: 4194304, fileCount: 64 }
 const allowed = ['@deepseek-ai/dsh-persona', '@deepseek-ai/dsh-tool-skill']
 const sample = async () => readFile(new URL('./fixtures/handoff/storyboard-starter-1.0.0.zip', import.meta.url))
 
-it.each([['storyboard-director', 'bot'], ['storyboard-starter', 'skill']])('previews the exact %s handoff archive', async (name, kind) => {
-  const bytes = await readFile(new URL('./fixtures/handoff/' + name + '-1.0.0.zip', import.meta.url))
+it('previews Skill packages and rejects retired Bot previews', async () => {
+  const bytes = await sample()
   expect(previewMarketPackage(bytes, limits, allowed)).toEqual(readMarketPackage(bytes, limits, allowed).manifest)
-  expect(previewMarketPackage(bytes, limits, allowed).kind).toBe(kind)
+  const bot = await readFile(new URL('./fixtures/handoff/storyboard-director-1.0.0.zip', import.meta.url))
+  expect(readMarketPackage(bot, limits, allowed).manifest.kind).toBe('bot')
+  expect(() => previewMarketPackage(bot, limits, allowed)).toThrow('skill-only')
+  expect(() => bindMarketPortrait(bot, 'video-editor', limits, allowed)).toThrow('skill-only')
 })
 
-it('binds every selectable portrait while retaining compatible legacy metadata and resource bytes', async () => {
-  const bytes = await readFile(new URL('./fixtures/handoff/storyboard-director-1.0.0.zip', import.meta.url))
-  const legacy = bindMarketPortrait(bytes, 'storyboard-director', limits, allowed)
-  const { files, manifest: legacyManifest } = readMarketPackage(legacy, limits, allowed)
+it('binds every automatic Skill portrait and preserves the resource bytes', async () => {
+  const bytes = await sample()
+  const { files, manifest } = readMarketPackage(bytes, limits, allowed)
   expect(new Set(marketPresetPortraitIds).size).toBe(50)
-  for (const portrait of marketPresetPortraitIds) {
-    const archive = bindMarketPortrait(legacy, portrait, limits, allowed)
-    const expected = portrait === 'screenplay-editor'
-      ? { ...legacyManifest, portrait }
-      : { ...legacyManifest, presetPortrait: portrait }
+  for (const presetPortrait of marketPresetPortraitIds) {
+    const archive = bindMarketPortrait(bytes, presetPortrait, limits, allowed)
+    const expected = { ...manifest, presetPortrait }
     expect(previewMarketPackage(archive, limits, allowed)).toEqual(expected)
-    const publication = readMarketPackage(archive, limits, allowed)
-    expect(publication.manifest).toEqual(expected)
-    expect(publication.files).toEqual(files)
+    expect(readMarketPackage(archive, limits, allowed).files).toEqual(files)
   }
-  const updated = bindMarketPortrait(legacy, 'video-editor', limits, allowed)
-  expect(previewMarketPackage(bindMarketPortrait(updated, 'screenplay-editor', limits, allowed), limits, allowed))
-    .toEqual({ ...legacyManifest, portrait: 'screenplay-editor' })
-  expect(() => marketManifest({ ...legacyManifest, portrait: 'video-editor' }, allowed)).toThrow('invalid-manifest')
-  expect(() => marketManifest({ ...legacyManifest, presetPortrait: 'unknown-portrait' }, allowed)).toThrow('invalid-manifest')
-  const skillArchive = await sample()
-  expect(() => bindMarketPortrait(skillArchive, 'video-editor', limits, allowed)).toThrow('invalid-manifest')
+  expect(() => marketManifest({ ...manifest, portrait: 'video-editor' }, allowed)).toThrow('invalid-manifest')
+  expect(() => marketManifest({ ...manifest, presetPortrait: 'unknown-portrait' }, allowed)).toThrow('invalid-manifest')
+  expect(() => bindMarketPortrait(bytes, 'storyboard-director', limits, allowed)).toThrow('invalid-manifest')
 })
 
 it('keeps metadata preview separate from server resource acceptance', async () => {
@@ -76,7 +70,7 @@ it('checks the legacy response envelope, identities and dependency lists', () =>
   expect(marketLegacyCatalog({ entries: [row] }, 'EXAMPLE script', 'skill')).toEqual([
     expect.objectContaining({ href: '/market/downloads/example.zip', requiredSkills: ['storyboard'] }),
   ])
-  expect(marketLegacyCatalog({ entries: [row] }, '', 'bot')).toEqual([])
+  expect(() => marketLegacyCatalog({ entries: [row] }, '', 'bot')).toThrow('skill-only')
   for (const invalid of [null, {}, { entries: Array(501).fill(row) }, { entries: [row, row] },
     { entries: [{ ...row, requiredSkills: 'storyboard' }] }, { entries: [{ ...row, requiredSkills: [1] }] }]) {
     expect(() => marketLegacyCatalog(invalid, '', '')).toThrow('invalid-response')
@@ -110,9 +104,28 @@ it('validates nested declarative plugin configuration with an explicit depth lim
   expect(() => marketManifest({ ...bot, plugins: [{ name: allowed[0], config: nested }] }, allowed)).toThrow('invalid-manifest')
 })
 
+it('reads historical Bot portrait and scoped-loader metadata without admitting a market preview', async () => {
+  const { manifest } = readMarketPackage(await sample(), limits, allowed)
+  const bot = { ...manifest, kind: 'bot', skills: [] }
+  const loader = '@deepseek-ai/dsh-tool-skill'
+  for (const portrait of ['storyboard-director', 'screenplay-editor']) {
+    expect(marketManifest({ ...bot, portrait }, allowed).portrait).toBe(portrait)
+  }
+  expect(marketManifest(bot, allowed).plugins).toEqual([])
+  for (const row of [null, [], {}, { name: 42 }, { name: loader, disabled: 'yes' }, { name: loader, inject: ['global'] }]) {
+    expect(() => marketManifest({ ...bot, plugins: [row] }, allowed)).toThrow('invalid-manifest')
+  }
+  expect(() => marketManifest({ ...bot, portrait: 'unknown' }, allowed)).toThrow('invalid-manifest')
+  for (const config of [undefined, {}, { scopedCatalogOwner: false }]) {
+    expect(() => marketManifest({ ...bot, plugins: [{ name: loader, config }] }, allowed)).toThrow('invalid-manifest')
+  }
+  expect(marketManifest({ ...bot, plugins: [{ name: loader, config: { scopedCatalogOwner: true } }] }, allowed).plugins)
+    .toEqual([{ name: loader, config: { scopedCatalogOwner: true } }])
+})
+
 it('validates rewritten metadata and resulting ZIP limits before binding a portrait', async () => {
   const manifestPath = 'muse-package.json'
-  const bytes = await readFile(new URL('./fixtures/handoff/storyboard-director-1.0.0.zip', import.meta.url))
+  const bytes = await sample()
   const entries = unzipSync(bytes)
   const raw = JSON.parse(Buffer.from(entries[manifestPath]!).toString('utf8')) as Record<string, unknown>
   const write = (value: unknown) => Buffer.from(JSON.stringify(value))

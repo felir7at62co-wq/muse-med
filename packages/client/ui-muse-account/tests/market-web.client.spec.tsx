@@ -4,9 +4,8 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { MarketCreatorPanel } from '../src/client/MarketPage.tsx'
 import { MarketSection } from '../src/client/MarketSection.tsx'
 import { MarketBrowserUpload } from '../src/client/MarketBrowserUpload.tsx'
-import * as marketArtwork from '../src/client/market-stock-art.ts'
 import type { MarketWebActions } from '../src/client/market-web-types.ts'
-import { marketFixture } from './market-fixture.client.ts'
+import { marketFixture, marketBotFixture } from './market-fixture.client.ts'
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 function fixture() {
@@ -19,11 +18,11 @@ function fixture() {
     review: vi.fn<MarketWebActions['review']>(async () => ({ ...release, status: 'pending', revision: 2 })),
     previewArchive: vi.fn<MarketWebActions['previewArchive']>(async () => release.manifest),
     uploadArchive: vi.fn<MarketWebActions['uploadArchive']>(async () => release),
-    downloadArchive: vi.fn<MarketWebActions['downloadArchive']>(async () => ({ name: 'bot.zip', bytes: new Uint8Array([1, 2]) })),
+    downloadArchive: vi.fn<MarketWebActions['downloadArchive']>(async () => ({ name: 'skill.zip', bytes: new Uint8Array([1, 2]) })),
   } satisfies MarketWebActions
   return { release, actions, reportOutcome: vi.fn(), onOpenCreator: vi.fn(), t: (key: string) => key }
 }
-function file(bytes: Uint8Array, name = 'bot.zip'): File {
+function file(bytes: Uint8Array, name = 'skill.zip'): File {
   const value = new File([Uint8Array.from(bytes)], name, { type: 'application/zip' })
   Object.defineProperty(value, 'arrayBuffer', { value: async () => Uint8Array.from(bytes).buffer })
   return value
@@ -33,7 +32,7 @@ it('opens creator drafts directly for the authenticated web view without local i
   const f = fixture()
   render(<MarketSection {...f} mode="web" initialView="publish" />)
   expect(await screen.findByText('publication.draft')).toBeDefined()
-  expect(f.actions.catalog).toHaveBeenCalledWith('', '', true)
+  expect(f.actions.catalog).toHaveBeenCalledWith('', 'skill', true)
   expect(screen.queryByRole('button', { name: 'installed' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'enable' })).toBeNull()
   expect(screen.getByRole('link', { name: 'browserAccount' }).getAttribute('href')).toBe('/account')
@@ -62,13 +61,13 @@ it('keeps public discovery usable for anonymous visitors and explains where priv
   const creator = within(screen.getByText('emptyWebDiscoveryHint').parentElement!).getByRole('button', { name: 'publish' })
   fireEvent.click(creator)
   expect(await screen.findByText('browserSignInHint')).toBeDefined()
-  expect(f.actions.catalog).not.toHaveBeenCalledWith('', '', true)
+  expect(f.actions.catalog).not.toHaveBeenCalledWith('', 'skill', true)
 })
 
 it('offers the original archive download without installing it on the standalone market', async () => {
   const f = fixture()
   const href = 'https://muse.test/market/downloads/director.tgz'
-  f.actions.legacyCatalog.mockResolvedValue([{ id: 'muse/bots/storyboard-director-16-9', kind: 'bot', title: 'Original director',
+  f.actions.legacyCatalog.mockResolvedValue([{ id: 'muse/skills/storyboard-director-16-9', kind: 'skill', title: 'Original director',
     description: 'Plan widescreen shots', category: 'script', version: '0.1.0', requirements: [], requiredSkills: [],
     validation: '', sha256: 'd'.repeat(64), href }])
   render(<MarketSection {...f} mode="web" />)
@@ -110,7 +109,7 @@ it('previews a ZIP locally, requires confirmation and retains its idempotency ke
   expect(f.actions.uploadArchive).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'upload' }))
   await waitFor(() => { expect(f.reportOutcome).toHaveBeenCalledWith('error.cloud-unavailable', true) })
-  expect(screen.getByText('bot.zip')).toBeDefined()
+  expect(screen.getByText('skill.zip')).toBeDefined()
   expect(onUploaded).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'upload' }))
   await waitFor(() => { expect(onUploaded).toHaveBeenCalledWith(f.release) })
@@ -141,7 +140,7 @@ it('discards stale local previews after selecting a different file', async () =>
   expect(screen.queryByText('Stale title')).toBeNull()
 })
 
-it('automatically matches a Bot portrait by purpose and binds the previewed preset on upload', async () => {
+it('automatically matches a Skill portrait by purpose and binds the previewed preset on upload', async () => {
   const f = fixture(), onUploaded = vi.fn()
   f.actions.previewArchive.mockResolvedValueOnce({
     ...f.release.manifest, name: 'film-color-grading', title: '电影调色师', category: '影视后期',
@@ -159,7 +158,7 @@ it('automatically matches a Bot portrait by purpose and binds the previewed pres
   expect(f.actions.uploadArchive).toHaveBeenCalledWith(archive, f.release.publisherId, expect.any(String), 'colorist')
 })
 
-it('previews a Bot archive with its saved portrait and uploads the existing binding', async () => {
+it('previews a Skill archive with its saved portrait and uploads the existing binding', async () => {
   const f = fixture(), onUploaded = vi.fn()
   f.actions.previewArchive.mockResolvedValueOnce({ ...f.release.manifest, presetPortrait: 'coding-assistant' })
   render(<MarketBrowserUpload {...f} publishers={[{ id: f.release.publisherId, title: f.release.publisher }]} onUploaded={onUploaded} />)
@@ -169,10 +168,10 @@ it('previews a Bot archive with its saved portrait and uploads the existing bind
   expect(portrait.getAttribute('src')).toContain('coding-assistant')
   fireEvent.click(screen.getByRole('button', { name: 'upload' }))
   await waitFor(() => { expect(onUploaded).toHaveBeenCalledWith(f.release) })
-  expect(f.actions.uploadArchive).toHaveBeenCalledWith(archive, f.release.publisherId, expect.any(String))
+  expect(f.actions.uploadArchive).toHaveBeenCalledWith(archive, f.release.publisherId, expect.any(String), undefined)
 })
 
-it('uploads a Skill archive without selecting a Bot portrait', async () => {
+it('uploads a Skill archive with its automatic character', async () => {
   const f = fixture(), onUploaded = vi.fn()
   f.actions.previewArchive.mockResolvedValueOnce(marketFixture[1]!.manifest)
   render(<MarketBrowserUpload {...f} publishers={[{ id: f.release.publisherId, title: f.release.publisher }]} onUploaded={onUploaded} />)
@@ -182,7 +181,7 @@ it('uploads a Skill archive without selecting a Bot portrait', async () => {
   expect(screen.queryByRole('combobox', { name: 'releasePortrait' })).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'upload' }))
   await waitFor(() => { expect(onUploaded).toHaveBeenCalledWith(f.release) })
-  expect(f.actions.uploadArchive).toHaveBeenCalledWith(archive, f.release.publisherId, expect.any(String))
+  expect(f.actions.uploadArchive).toHaveBeenCalledWith(archive, f.release.publisherId, expect.any(String), 'storyboard-reviewer')
 })
 
 it('keeps the browser upload form unavailable without an admitted publishing team', () => {
@@ -268,14 +267,15 @@ it.each(['accepted', 'rejected'] as const)('suppresses an upload %s after the br
   expect(screen.getByLabelText<HTMLInputElement>('browserArchive').disabled).toBe(false)
 })
 
-it('still previews the Bot description if the artwork resolver has no presentation', async () => {
-  const f = fixture()
-  vi.spyOn(marketArtwork, 'boundMarketPresentation').mockReturnValue(undefined)
-  render(<MarketBrowserUpload {...f} publishers={[{ id: f.release.publisherId, title: f.release.publisher }]} onUploaded={vi.fn()} />)
+it('rejects a Bot ZIP returned by an older preflight before confirmation or upload', async () => {
+  const f = fixture(), onUploaded = vi.fn()
+  f.actions.previewArchive.mockResolvedValueOnce(marketBotFixture.manifest)
+  render(<MarketBrowserUpload {...f} publishers={[{ id: f.release.publisherId, title: f.release.publisher }]} onUploaded={onUploaded} />)
   fireEvent.change(screen.getByLabelText('browserArchive'), { target: { files: [file(Uint8Array.of(1))] } })
-  expect(await screen.findByText('stockArtworkHint')).toBeDefined()
-  fireEvent.click(screen.getByText('introduce', { selector: 'button' }))
-  expect(screen.getAllByText(f.release.manifest.description)).toHaveLength(2)
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'error.skill-only')
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'upload' }).disabled).toBe(true)
+  expect(f.actions.uploadArchive).not.toHaveBeenCalled()
+  expect(onUploaded).not.toHaveBeenCalled()
 })
 it('downloads a selected release directly from public discovery', async () => {
   const f = fixture(), published = { ...f.release, status: 'published' as const }

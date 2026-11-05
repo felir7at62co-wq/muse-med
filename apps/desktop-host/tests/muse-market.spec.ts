@@ -20,7 +20,6 @@ import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import Presets from '@deepseek-ai/dsh-agent-preset-registry'
 import * as Persona from '@deepseek-ai/dsh-persona'
 import MuseMarket from '@deepseek-ai/dsh-muse-market'
-import * as BotSkills from '@deepseek-ai/dsh-muse-market/bot-skills'
 import { createMarketPackage, marketDigest } from '@deepseek-ai/dsh-muse-market/package'
 import { zipSync } from 'fflate'
 import { expect, it, vi } from 'vitest'
@@ -132,7 +131,6 @@ it('composes the shipped market policy without network access or opening retired
       ['@deepseek-ai/dsh-muse-market', MuseMarket],
       ['@deepseek-ai/dsh-persona', Persona],
       ['@deepseek-ai/dsh-tool-skill', ToolSkill],
-      ['@deepseek-ai/dsh-muse-market/bot-skills', BotSkills],
     ])
     ctx.loader.internal = { version: 'v2', loadCache: new Map(),
       register() { throw new Error('Unexpected loader hooks') },
@@ -147,32 +145,23 @@ it('composes the shipped market policy without network access or opening retired
       baseUrl: 'http://127.0.0.1:9', root: join(root, 'market'), accountHome: join(root, 'account'),
     } }])
     expect(ctx.museMarket).toBeDefined()
-    const archive = createMarketPackage({ formatVersion: 1, kind: 'bot', name: 'fixture-bot',
-      title: 'Fixture Bot', description: 'Offline composition fixture', version: '1.0.0', license: 'MIT',
+    const archive = createMarketPackage({ formatVersion: 1, kind: 'skill', name: 'fixture-skill',
+      title: 'Fixture Skill', description: 'Offline composition fixture', version: '1.0.0', license: 'MIT',
       category: 'test', examples: [], requirements: [],
       skills: [{ name: 'fixture-skill', path: 'skills/fixture-skill/SKILL.md' }],
-      plugins: [{ name: '@deepseek-ai/dsh-persona', config: { prefix: 'Offline market persona' } },
-        { name: '@deepseek-ai/dsh-tool-skill', config: { scopedCatalogOwner: true } }],
     }, { 'skills/fixture-skill/SKILL.md': Buffer.from('---\nname: fixture-skill\ndescription: Fixture skill\n---\nVerified fixture body') },
     { archiveBytes: 1024 * 1024, expandedBytes: 1024 * 1024, fileCount: 32 }, ['@deepseek-ai/dsh-persona', '@deepseek-ai/dsh-tool-skill'])
     const installed = await ctx.museMarket.importPackage(Buffer.from(archive).toString('base64'))
     expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['bot-coordinator', 'short-drama'])
     await ctx.museMarket.enable(installed.release.id, true)
-    const marketId = `market-${installed.release.id}`
-    await expect(ctx.agentPresets.resolveForCreation(marketId)).resolves.toMatchObject({ id: marketId })
     await expect(ctx.agentPresets.resolveForCreation('retired')).rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
-    expect(ctx.agentPresets.inspectCompositions().filter(row => row.id === marketId)).toEqual([])
-
-    const adapter = new MarketFixtureAdapter([fixtureReply('local Bot answer')])
+    const adapter = new MarketFixtureAdapter([fixtureReply('local Skill answer')])
     ctx.llm.registerAdapter(['market-fixture'], adapter)
     const { agent } = await ctx.agents.create({ sessionId: SessionId('market-product-fixture'),
       agentOptions: { provider: 'market-fixture', model: 'scripted-offline' },
       setup: async (scope) => { await ctx.agentPresets.mount(scope, 'short-drama') } })
-    await ctx.agentPresets.select(agent, marketId)
-    expect(ctx.agentPresets.composedPreset(agent.ctx)).toBe(marketId)
+    expect(ctx.agentPresets.composedPreset(agent.ctx)).toBe('short-drama')
     expect((await ctx.skills.get('fixture-skill', { scope: agent }))?.content).toBe('Verified fixture body')
-    const prompt = await ctx.systemPrompt.assemble({ agent, scope: agent })
-    expect(prompt.sections.some(section => section.text === 'Offline market persona')).toBe(true)
     await fixtureTurn(ctx, agent, 'Use fixture-skill for this task')
     expect(adapter.requests).toHaveLength(1)
     const catalogs = skillCatalogs(agent.session.snapshotEvents())
@@ -185,7 +174,7 @@ it('composes the shipped market policy without network access or opening retired
       callId: ToolCallId('market-fixture-load'), signal: new AbortController().signal })
     expect(loaded.isError).toBe(false)
     expect(JSON.stringify(loaded.content)).toContain('Verified fixture body')
-    await expect(ctx.museMarket.enable(installed.release.id, false)).rejects.toMatchObject({ details: { code: 'release-in-use' } })
+    await expect(ctx.museMarket.enable(installed.release.id, false)).resolves.toMatchObject({ enabled: false })
     expect(fetchProbe).not.toHaveBeenCalled()
   } finally {
     await ctx.fiber.dispose()
@@ -349,18 +338,14 @@ it('replays bounded market catalogs and explicit bodies through the shipped Load
   }
 }, 60_000)
 
-it('records a turn with the original Bot persona, current Host tools, and an imported legacy Skill', async () => {
+it('records an imported legacy Skill running with the current Muse persona and tools', async () => {
   let ctx = new Context()
-  const bot = await readFile(new URL('../../../packages/host/muse-market/tests/fixtures/legacy-bot/storyboard-director-16-9-0.1.0.tgz', import.meta.url))
   const skillName = 'shot-script-creator-16-9'
   const skillBody = 'Verified legacy horizontal shot instructions.'
   const skill = zipSync({ [`${skillName}/SKILL.md`]: Buffer.from(`---\nname: ${skillName}\ndescription: Legacy storyboard\n---\n${skillBody}\n`) },
     { mtime: new Date(1980, 0, 1) })
-  const botPath = 'downloads/bot-storyboard-director-16-9-0.1.0.tgz'
   const skillPath = 'downloads/skill-shot-script-creator-16-9-0.1.0.zip'
-  const botId = 'muse/bots/storyboard-director-16-9'
   const skillId = `muse/skills/${skillName}`
-  const botDigest = '53c53c34ee234b1c3b4fd2c81075b3d717b43415692a87a7310e9a868e377129'
   const skillDigest = marketDigest(skill)
   const catalogRow = { version: '0.1.0', category: '镜头分镜', description: 'Legacy storyboard', requirements: [], validation: '' }
   const root = await mkdtemp(join(tmpdir(), 'muse-market-legacy-'))
@@ -373,10 +358,8 @@ it('records a turn with the original Bot persona, current Host tools, and an imp
     switch (url.pathname) {
       case '/market/catalog.json':
         return Response.json({ entries: [
-          { ...catalogRow, id: botId, kind: 'bot', name: '16:9 分镜导演', package: botPath, sha256: botDigest },
           { ...catalogRow, id: skillId, kind: 'skill', name: '16:9 横屏镜头脚本', package: skillPath, sha256: skillDigest },
         ] })
-      case `/market/${botPath}`: return new Response(new Uint8Array(bot))
       case `/market/${skillPath}`: return new Response(new Uint8Array(skill))
       default: throw new Error(`Unexpected market fixture request ${url.pathname}`)
     }
@@ -427,17 +410,14 @@ it('records a turn with the original Bot persona, current Host tools, and an imp
   }
   try {
     await mountMarket(ctx, true)
-    const installedBot = await ctx.museMarket.installLegacy(botId, botDigest)
     const installedSkill = await ctx.museMarket.installLegacy(skillId, skillDigest)
-    expect([installedBot, installedSkill].map(row => row.enabled)).toEqual([false, false])
-    expect(requests).toEqual(['/market/catalog.json', `/market/${botPath}`, '/market/catalog.json', `/market/${skillPath}`])
-    await ctx.museMarket.enable(installedBot.release.id, true)
+    expect(installedSkill.enabled).toBe(false)
+    expect(requests).toEqual(['/market/catalog.json', `/market/${skillPath}`])
     await ctx.museMarket.enable(installedSkill.release.id, true)
-    const marketPreset = `market-${installedBot.release.id}`
     await ctx.fiber.dispose()
     ctx = new Context()
     const registerNativePreset = await mountMarket(ctx, false)
-    expect((await ctx.museMarket.installed()).map(row => row.enabled)).toEqual([true, true])
+    expect((await ctx.museMarket.installed()).map(row => row.enabled)).toEqual([true])
     await registerNativePreset()
     const adapter = new MarketFixtureAdapter([
       fixtureCall('load-legacy-skill', 'skill', { name: skillName }),
@@ -447,15 +427,13 @@ it('records a turn with the original Bot persona, current Host tools, and an imp
     const { agent } = await ctx.agents.create({ sessionId: SessionId('market-legacy-recording'), meta: { cwd: root },
       agentOptions: { provider: 'market-fixture', model: 'scripted-offline' },
       setup: async (scope) => { await ctx.agentPresets.mount(scope, 'short-drama') } })
-    await ctx.agentPresets.select(agent, marketPreset)
     expect(ctx.tools.get('native_fixture', agent)).toBeDefined()
     expect((await ctx.skills.get(skillName, { scope: agent }))?.source).toBe('muse-market')
     await fixtureTurn(ctx, agent, '把开门和放下信件写成横屏分镜。')
     expect(adapter.requests).toHaveLength(2)
     const events = agent.session.snapshotEvents()
     const system = events.find(event => event.type === 'system/message')
-    expect(JSON.stringify(system)).toContain('你是 Muse 16:9 分镜导演')
-    expect(JSON.stringify(system)).not.toContain('Native fixture persona')
+    expect(JSON.stringify(system)).toContain('Native fixture persona')
     const projection = events.flatMap<object>((event) => {
       switch (event.type) {
         case 'agent-preset/selected': return [{ kind: 'preset', id: event.data.agentPreset }]

@@ -7,7 +7,7 @@ import type { CharacterAnimation, CharacterVersionId } from './market-character-
 import { marketPortraitStyle, museFallbackFraming, directorSpriteFraming, type MarketPortraitFraming } from './market-portrait-framing.ts'
 import { marketPosterFraming, stockDirectorAnimation } from './market-stock-art.ts'
 
-/** Display-only character information; it does not alter a Bot's persona or permissions. */
+/** Display-only identity and artwork for a Skill's market introduction. */
 export interface MarketPresentation {
   /** Profession displayed alongside the portrait. */
   role: string
@@ -17,7 +17,7 @@ export interface MarketPresentation {
   posterUrl?: string | undefined
   /** Measured silhouette for a locally selected poster. */
   posterFraming?: MarketPortraitFraming | undefined
-  /** Immutable display-media revision, separate from the installed Bot version. */
+  /** Immutable display-media revision, separate from the installed Skill version. */
   characterVersion?: CharacterVersionId
   /** Optional approved sprite sequences; absent or failed media stays static. */
   animation?: CharacterAnimation

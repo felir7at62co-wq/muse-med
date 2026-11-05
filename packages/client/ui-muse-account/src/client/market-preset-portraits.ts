@@ -1,7 +1,7 @@
-/** Localized labels and deterministic recommendations for built-in Bot portraits. */
-import type { MarketManifest, MarketPresetPortraitId } from '@deepseek-ai/dsh-muse-market/types'
+/** Localized labels and deterministic recommendations for built-in Skill characters. */
+import type { MarketPresetPortraitId } from '@deepseek-ai/dsh-muse-market/types'
 
-/** Selectable portrait and its labels in the market's supported languages. */
+/** Automatically assigned character and its localized profession labels. */
 export interface MarketPresetPortrait {
   readonly id: MarketPresetPortraitId
   readonly name: string
@@ -32,7 +32,7 @@ const entries = {
   'shot-compiler': ['direction', '镜头组接师', 'Shot Assembly Editor', '镜头组接|镜头衔接|镜头拼接|镜头整理|shot assembly|shot sequencing'],
   'animatic-planner': ['direction', '动态分镜策划', 'Animatic Planner', '动态分镜|分镜动画|动态预演|动画预演|animatic|previsualization|previs'],
   'virtual-camera-operator': ['direction', '虚拟摄像操作员', 'Virtual Camera Operator', '虚拟摄像|虚拟摄影机|虚拟机位|虚拟相机|virtual camera|virtual cinematography'],
-  '3d-asset-artist': ['visual', '3D资产师', '3D Asset Artist', '3d资产|三维资产|3d建模|三维建模|3d模型|3d assets|3d modeling|3d model'],
+  '3d-asset-artist': ['visual', '3D资产师', '3D Asset Artist', '3d资产|三维资产|3d建模|三维建模|3d模型|3d动漫|3d 动漫|三维动漫|pbr材质|pbr 材质|3d assets|3d modeling|3d model|pbr materials'],
   'character-designer': ['visual', '角色设计师', 'Character Designer', '角色设计|人设设计|人物造型|人设图|角色概念|character design|character concept'],
   'environment-designer': ['visual', '场景设计师', 'Environment Designer', '场景设计|环境设计|背景设计|场景概念|environment design|background design|set design'],
   'prop-designer': ['visual', '道具设计师', 'Prop Designer', '道具设计|道具概念|影视道具|prop design|prop concept'],
@@ -43,9 +43,9 @@ const entries = {
   'image-prompt-designer': ['visual', '图像提示词设计师', 'Image Prompt Designer', '图像提示词|图片提示词|生图提示词|绘图提示词|文生图|图像生成|image prompt|image generation|text to image'],
   'asset-librarian': ['visual', '素材管理员', 'Asset Librarian', '素材管理|素材库|资产目录|素材标签|asset library|asset catalog|asset management'],
   'video-editor': ['masters', '剪辑师', 'Video Editor', '视频剪辑|影视剪辑|粗剪|精剪|剪片|剪辑|video editing|film editing|timeline edit'],
-  'sound-designer': ['masters', '声音设计师', 'Sound Designer', '音效设计|声音设计|混音|拟音|音频处理|sound design|sound effects|audio mixing|foley'],
+  'sound-designer': ['masters', '声音设计师', 'Sound Designer', '音效设计|声音设计|混音|拟音|音频处理|语音转写|sound design|sound effects|audio mixing|foley|audio transcription|transcription'],
   'subtitle-specialist': ['masters', '字幕师', 'Subtitle Specialist', '字幕生成|字幕翻译|字幕校对|字幕制作|字幕|subtitling|subtitles|captioning|captions|srt'],
-  'voice-casting': ['masters', '配音选角', 'Voice Casting Director', '配音演员|配音选角|角色配音|配音|配音导演|voice casting|voiceover|dubbing|voice acting'],
+  'voice-casting': ['masters', '配音选角', 'Voice Casting Director', '配音演员|配音选角|角色配音|配音|配音导演|voice casting|voiceover|dubbing|voice acting|voice'],
   colorist: ['masters', '调色师', 'Colorist', '影视调色|视频调色|色彩校正|调色|color grading|colour grading|color correction'],
   compositor: ['masters', '特效合成师', 'VFX Compositor', '特效合成|视觉特效|影视特效|画面合成|抠像|compositing|vfx|chroma key'],
   'delivery-coordinator': ['masters', '交付协调', 'Delivery Coordinator', '成片交付|交付清单|视频交付|交付流程|media delivery|deliverables|delivery checklist'],
@@ -60,7 +60,7 @@ const entries = {
   'document-specialist': ['masters', '文档编辑', 'Document Specialist', '文档生成|文档排版|文档处理|文档润色|文档撰写|办公文档|文档|document editing|document writing|word processing'],
   'spreadsheet-analyst': ['masters', '表格分析', 'Spreadsheet Analyst', '数据分析|电子表格|数据表格|工作表|表格|spreadsheet|data analysis|excel|csv'],
   'presentation-designer': ['masters', '演示设计', 'Presentation Designer', '演示文稿|汇报幻灯片|幻灯片|幻灯片排版|演示文档|presentation design|slides|slide deck|powerpoint|ppt'],
-  'coding-assistant': ['masters', '编程助手', 'Coding Assistant', '软件开发|代码生成|代码审查|代码调试|编程|程序员|写代码|coding|code review|software development|debugging|codex|claude code'],
+  'coding-assistant': ['masters', '编程助手', 'Coding Assistant', '软件开发|代码生成|代码审查|代码调试|编程|程序员|写代码|coding|code review|software development|debugging|codex|claude code|python|javascript|typescript'],
   'workflow-automation': ['masters', '流程自动化', 'Workflow Automation Engineer', '工作流自动化|自动化流程|工作流|流程编排|任务编排|workflow automation|workflow orchestration|workflow|automation'],
 } satisfies Record<MarketPresetPortraitId, PortraitEntry>
 
@@ -95,12 +95,12 @@ const matchers = marketPresetPortraits.map(portrait => ({
     }),
 }))
 
-const fallback = catalogPortrait('screenplay-editor')
+const fallback = catalogPortrait('document-specialist')
 
 /** Match a preset using bilingual purpose and manifest metadata. Higher-specificity
  * phrases outrank generic terms, with explicit purpose and title weighted above summaries.
- * @param fields Bot purpose and optional manifest metadata.
- * @returns Best-scoring preset, or the screenplay editor for unrecognized purposes.
+ * @param fields Skill purpose and optional manifest metadata.
+ * @returns Best-scoring character, or the document specialist for unrecognized purposes.
  */
 export function matchMarketPresetPortrait(fields: {
   purpose?: string
@@ -128,13 +128,4 @@ export function matchMarketPresetPortrait(fields: {
     if (score > bestScore) { best = portrait; bestScore = score }
   }
   return best
-}
-
-/** Resolve the portrait to bind when uploading a Bot archive.
- * @param manifest Validated archive metadata.
- * @returns A matching preset for an unbound Bot, or undefined when the archive can be uploaded as-is.
- */
-export function matchUnboundMarketPresetPortrait(manifest: MarketManifest): MarketPresetPortraitId | undefined {
-  if (manifest.kind === 'bot' && !manifest.presetPortrait && !manifest.portrait) return matchMarketPresetPortrait(manifest).id
-  return undefined
 }

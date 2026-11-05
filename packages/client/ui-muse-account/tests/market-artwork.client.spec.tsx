@@ -1,43 +1,111 @@
 // @vitest-environment jsdom
-/** Market artwork previews, portrait failures, and accessible introductions. */
+/** Automatic Skill characters, normalized portraits, and accessible introductions. */
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, expect, it } from 'vitest'
 import { MarketAuthorPreview } from '../src/client/MarketAuthorPreview.tsx'
-import { MarketCatalogBot, MarketSkillArtwork } from '../src/client/MarketCatalogArtwork.tsx'
+import { MarketSkillArtwork } from '../src/client/MarketCatalogArtwork.tsx'
 import { MarketArtwork, MarketCharacter } from '../src/client/MarketCharacter.tsx'
+import { MarketReleaseCard } from '../src/client/MarketReleaseCard.tsx'
 import { marketFailure } from '../src/client/market-errors.ts'
+import { marketPresetPortraitUrls } from '../src/client/market-preset-portrait-urls.ts'
+import { marketPresetPortraits } from '../src/client/market-preset-portraits.ts'
 import { resolveMarketSkillArtwork } from '../src/client/market-skill-artwork.ts'
-import { boundMarketPresentation, stockDirectorAnimation, stockMarketPresentation } from '../src/client/market-stock-art.ts'
+import { stockDirectorAnimation } from '../src/client/market-stock-art.ts'
 import { marketFixture } from './market-fixture.client.ts'
 
 afterEach(cleanup)
 
 const blank = { name: '', title: '', description: '', category: '' }
-const bot = marketFixture[0]!
 const skill = marketFixture[1]!
 
-it('switches a missing catalog Bot portrait to its fallback and loads a different role', () => {
-  const fallback = <span>Static artwork</span>
-  const view = render(<MarketCatalogBot id="muse/bots/unknown" label="Unknown Bot" fallback={fallback} />)
-  expect(screen.getByText('Static artwork')).toBeDefined()
-  view.rerender(<MarketCatalogBot id="muse/bots/anime-3d-assets" label="Asset designer" fallback={fallback} />)
-  const asset = screen.getByRole('img', { name: 'Asset designer' })
-  expect(asset.getAttribute('src')).toContain('catalog-anime-3d-assets.png')
-  fireEvent.error(asset)
-  expect(screen.queryByRole('img')).toBeNull()
-  expect(screen.getByText('Static artwork')).toBeDefined()
-  view.rerender(<MarketCatalogBot id="codex-coding" label="Coder" fallback={fallback} />)
-  expect(screen.getByRole('img', { name: 'Coder' }).getAttribute('src')).toContain('catalog-codex-coding.png')
+it('renders every profession character with shared framing and preserves accessible fallback after an image failure', () => {
+  const view = render(<MarketSkillArtwork metadata={blank} label="Skill" />)
+  for (const { id } of marketPresetPortraits) {
+    view.rerender(<MarketSkillArtwork metadata={{ ...blank, presetPortrait: id }} label="Skill" />)
+    const image = screen.getByRole('img', { name: 'Skill' })
+    expect(image.getAttribute('src')).toBe(marketPresetPortraitUrls[id])
+    expect(image.getAttribute('style')).toContain('scale(')
+  }
+  fireEvent.error(screen.getByRole('img', { name: 'Skill' }))
+  expect(screen.getByRole('img', { name: 'Skill' }).localName).toBe('span')
+  view.rerender(<MarketSkillArtwork metadata={{ ...blank, name: 'anime-3d-assets' }} label="3D asset Skill" />)
+  expect(screen.getByRole('img', { name: '3D asset Skill' }).getAttribute('src')).toBe(marketPresetPortraitUrls['3d-asset-artist'])
 })
 
-it('keeps a Skill illustration accessible when its storyboard image fails', () => {
-  render(<MarketSkillArtwork metadata={skill.manifest} label="Storyboard" />)
-  const image = screen.getByRole('img', { name: 'Storyboard' })
-  expect(image.getAttribute('src')).toContain('storyboard-skill-kit.png')
-  fireEvent.error(image)
-  const fallback = screen.getByRole('img', { name: 'Storyboard' })
-  expect(fallback.localName).toBe('svg')
-  expect(fallback.querySelector('path')).not.toBeNull()
+it('assigns purpose-specific characters from primary Skill identity, package identity, and metadata', () => {
+  const cases = [
+    ['anime-3d-assets', '3d-asset-artist'],
+    ['audio-transcribe', 'sound-designer'],
+    ['commercial-drama-poster', 'commercial-poster-designer'],
+    ['douyin-download', 'media-archivist'],
+    ['guzhuang-sweet-romance-3d', 'character-designer'],
+    ['jubian-asset-library', 'asset-librarian'],
+    ['jubian-snatch', 'media-archivist'],
+    ['media-link-import', 'media-archivist'],
+    ['muse-dialogue-polish', 'dialogue-polish'],
+    ['muse-episode-design', 'episode-planner'],
+    ['muse-llm-wiki', 'knowledge-librarian'],
+    ['muse-project-participation', 'production-manager'],
+    ['muse-script-doctor', 'screenplay-editor'],
+    ['muse-script-editing', 'screenplay-editor'],
+    ['muse-storyboard-checklist', 'storyboard-reviewer'],
+    ['novel-to-script', 'novel-adaptation'],
+    ['office-docx', 'document-specialist'],
+    ['office-pptx', 'presentation-designer'],
+    ['office-xlsx', 'spreadsheet-analyst'],
+    ['screenplay-format', 'screenplay-editor'],
+    ['screenplay-project', 'project-bible'],
+    ['shot-script-creator-16-9', 'horizontal-storyboard-director'],
+    ['shot-script-creator-9-16', 'vertical-storyboard-director'],
+    ['storyboard-starter', 'storyboard-reviewer'],
+    ['transcript-to-novel', 'adaptation-planner'],
+    ['transcript-to-script', 'adaptation-planner'],
+    ['trope-adaptation', 'adaptation-planner'],
+    ['tweet-drama-asset-extract', 'asset-librarian'],
+    ['tweet-drama-asset-vision-check', 'visual-consistency-reviewer'],
+    ['tweet-drama-background-render', 'environment-designer'],
+    ['tweet-drama-core', 'production-manager'],
+    ['tweet-drama-delivery', 'delivery-coordinator'],
+    ['tweet-drama-draft-build', 'video-editor'],
+    ['tweet-drama-early-shot-script', 'horizontal-storyboard-director'],
+    ['tweet-drama-key-manager', 'workflow-automation'],
+    ['tweet-drama-pipeline', 'workflow-automation'],
+    ['tweet-drama-project-bible', 'project-bible'],
+    ['tweet-drama-project-inspect', 'video-qa'],
+    ['tweet-drama-script-convert', 'screenplay-editor'],
+    ['tweet-drama-script-split', 'episode-planner'],
+    ['tweet-drama-shot-asset-match', 'asset-librarian'],
+    ['tweet-drama-voice-continuity', 'voice-casting'],
+    ['urban-sweet-romance-3d', 'character-designer'],
+    ['video-review', 'video-qa'],
+    ['wechat-shortdrama-harvest', 'media-archivist'],
+  ] as const
+  for (const [name, portrait] of cases) {
+    expect(resolveMarketSkillArtwork({ ...blank, name: 'muse/skills/' + name })).toBe(portrait)
+    expect(resolveMarketSkillArtwork({ ...blank, name: 'renamed-package', title: 'Other purpose', skills: [{ name }] })).toBe(portrait)
+  }
+  expect(resolveMarketSkillArtwork({ ...blank, title: '字幕校对' })).toBe('subtitle-specialist')
+  expect(resolveMarketSkillArtwork({ ...blank, category: '视频剪辑' })).toBe('video-editor')
+  expect(resolveMarketSkillArtwork({ ...blank, description: 'Prepare voice references' })).toBe('voice-casting')
+  expect(resolveMarketSkillArtwork(blank)).toBe('document-specialist')
+})
+
+it('shows the same 3D Skill character in author preview and a published card with an accessible purpose introduction', () => {
+  const metadata = { ...skill.manifest, name: 'anime-3d-assets', title: '3D 动漫漫剧资产', description: '设计人物、场景、道具的 PBR 材质',
+    skills: [{ name: 'anime-3d-assets', path: 'skills/anime-3d-assets/SKILL.md' }] }
+  const view = render(<>
+    <MarketAuthorPreview metadata={metadata} version="0.1.1" publisher="Creator" skillNames={['anime-3d-assets']} t={key => key} />
+    <MarketReleaseCard release={{ ...skill, manifest: metadata }} t={key => key}><span>Download</span></MarketReleaseCard>
+  </>)
+  const preview = within(screen.getByRole('complementary', { name: 'preview' }))
+  const card = within(view.container.querySelector('article')!)
+  const previewImage = preview.getByRole('img', { name: metadata.title })
+  const publishedImage = card.getByRole('img', { name: metadata.title })
+  expect(previewImage.getAttribute('src')).toBe(marketPresetPortraitUrls['3d-asset-artist'])
+  expect(publishedImage.getAttribute('src')).toBe(previewImage.getAttribute('src'))
+  expect(publishedImage.getAttribute('style')).toBe(previewImage.getAttribute('style'))
+  fireEvent.click(card.getAllByRole('button', { name: 'introduce' })[0]!)
+  expect(card.getAllByText(metadata.description)).toHaveLength(2)
 })
 
 it('retains the correct artwork label and supplied framing after a failed custom portrait', () => {
@@ -53,11 +121,11 @@ it('retains the correct artwork label and supplied framing after a failed custom
   expect(screen.queryByText('Default artwork')).toBeNull()
 })
 
-it('introduces the character by pointer, focus or touch and dismisses it with Escape', () => {
-  const presentation = { role: 'Director', introduction: 'I plan shots' }
+it('introduces the Skill character by pointer, focus or touch and dismisses it with Escape', () => {
+  const presentation = { role: 'Storyboard Skill', introduction: 'I plan shots' }
   const view = render(<MarketCharacter presentation={presentation} artwork={<span>Original artwork</span>}
-    introduceLabel="Meet the Bot" sampleLabel="Default artwork" />)
-  const [portrait, caption] = screen.getAllByRole('button', { name: 'Meet the Bot' })
+    introduceLabel="Meet the Skill" sampleLabel="Default artwork" />)
+  const [portrait, caption] = screen.getAllByRole('button', { name: 'Meet the Skill' })
   const character = view.container.firstElementChild!
   expect(character.getAttribute('data-introducing')).toBe('false')
   fireEvent.pointerEnter(character)
@@ -76,49 +144,33 @@ it('introduces the character by pointer, focus or touch and dismisses it with Es
   fireEvent.keyDown(caption!, { key: 'Escape' })
   expect(caption!.getAttribute('aria-expanded')).toBe('false')
   expect(screen.queryByText('I plan shots')).toBeNull()
+  fireEvent.click(caption!)
+  expect(screen.getByText('I plan shots')).toBeDefined()
+  fireEvent.click(caption!)
+  expect(screen.queryByText('I plan shots')).toBeNull()
   expect(screen.getByText('Original artwork')).toBeDefined()
 })
 
 it('keeps custom sprite dimensions independent from stock director framing', () => {
   const animation = { ...stockDirectorAnimation, sheetUrl: '/custom-sheet.png', cellWidth: 200, cellHeight: 100 }
   const presentation = { role: 'Custom director', introduction: 'I plan shots', animation }
-  const view = render(<MarketCharacter presentation={presentation} introduceLabel="Meet the Bot" sampleLabel="Default artwork" />)
+  const view = render(<MarketCharacter presentation={presentation} introduceLabel="Meet the Skill" sampleLabel="Default artwork" />)
   const sprite = view.container.querySelector('svg[viewBox="0 0 200 100"]')
   expect(sprite?.getAttribute('style')).toBeNull()
   expect(sprite?.querySelector('image')?.getAttribute('href')).toBe('/custom-sheet.png')
+  view.rerender(<MarketCharacter presentation={{ ...presentation, animation: stockDirectorAnimation }}
+    introduceLabel="Meet the Skill" sampleLabel="Default artwork" />)
+  expect(view.container.querySelector('svg[viewBox="0 0 627 627"]')?.getAttribute('style')).toContain('scale(1.2084)')
 })
 
-it('previews a missing Bot brief and applies edited role and introduction copy only to the preview', () => {
-  render(<MarketAuthorPreview metadata={blank} version="" publisher="" bot skillNames={[]}
-    presetPortrait={undefined} t={key => key} />)
+it('previews an unfinished Skill with a character, title, and source guidance', () => {
+  render(<MarketAuthorPreview metadata={blank} version="" publisher="" skillNames={[]} t={key => key} />)
   const preview = within(screen.getByRole('complementary', { name: 'preview' }))
-  expect(preview.getByRole('heading', { name: 'untitledBot' })).toBeDefined()
-  expect(preview.getByText('summaryPlaceholder')).toBeDefined()
+  expect(preview.getByRole('heading', { name: 'untitledSkill' })).toBeDefined()
+  expect(preview.getByRole('img', { name: 'untitledSkill' }).getAttribute('src')).toBe(marketPresetPortraitUrls['document-specialist'])
   expect(preview.getByText('publisherPending · versionPending')).toBeDefined()
   expect(preview.getByText('noSelectedSkills')).toBeDefined()
-  fireEvent.change(preview.getByRole('textbox', { name: 'role' }), { target: { value: 'Storyboard artist' } })
-  fireEvent.change(preview.getByRole('textbox', { name: 'introduction' }), { target: { value: 'I sketch scenes' } })
-  const introduce = preview.getAllByRole('button', { name: 'introduce' })[1]!
-  fireEvent.click(introduce)
-  expect(preview.getByRole('img', { name: 'Storyboard artist' })).toBeDefined()
-  expect(document.getElementById(introduce.getAttribute('aria-controls')!)?.textContent).toBe('I sketch scenes')
-})
-
-it('chooses a cover only when a Skill description has one distinct purpose', () => {
-  expect(resolveMarketSkillArtwork({ ...blank, description: 'Prepare voice references' })).toBe('voice')
-  expect(resolveMarketSkillArtwork({ ...blank, description: 'Prepare voice and subtitles' })).toBe('document')
-  expect(resolveMarketSkillArtwork(blank)).toBe('document')
-})
-
-it('uses shipped static and animated assets only for the bound portrait or exact sample release', () => {
-  const sample = { ...bot, sha256: 'f10f9df6c7b45d6950ee52aa5375416cec6eb020af8df84d646ab5f00af054fc' }
-  expect(stockMarketPresentation(bot)).toBeUndefined()
-  expect(stockMarketPresentation({ ...sample, manifest: skill.manifest })).toBeUndefined()
-  expect(stockMarketPresentation(sample)).toMatchObject({ role: bot.manifest.title, animation: stockDirectorAnimation })
-  expect(boundMarketPresentation(bot.manifest)).toBeUndefined()
-  expect(boundMarketPresentation({ ...bot.manifest, portrait: 'storyboard-director' })).toMatchObject({ animation: stockDirectorAnimation })
-  expect(boundMarketPresentation({ ...bot.manifest, portrait: 'storyboard-director', presetPortrait: 'video-editor' })?.posterUrl)
-    .toContain('video-editor')
+  expect(preview.queryByRole('textbox')).toBeNull()
 })
 
 it('shows known market errors without leaking unknown upstream details', () => {

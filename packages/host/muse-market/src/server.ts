@@ -124,7 +124,9 @@ export class MuseMarketCatalog {
     identity(id)
     const row = this.database.prepare('SELECT r.*,p.title AS publisher FROM releases r JOIN publishers p ON p.id=r.publisherId WHERE r.id=?').get(id)
     if (!row || row.status !== 'published' && (!actor || !this.owns(actor, String(row.publisherId)))) throw new MarketError('not-found', 404)
-    return rowRelease(row, this.config.allowedPlugins)
+    const release = rowRelease(row, this.config.allowedPlugins)
+    if (release.manifest.kind !== 'skill') throw new MarketError('not-found', 404)
+    return release
   }
 
   /** Search the public directory or the signed-in creator's releases.
@@ -134,11 +136,10 @@ export class MuseMarketCatalog {
    */
   list(actor: MarketActor | null, query: { q?: string; kind?: string; mine?: boolean }): MarketRelease[] {
     if (query.mine && !actor) throw new MarketError('login-required', 401)
-    if ((query.q?.length ?? 0) > 200 || query.kind && !['bot', 'skill'].includes(query.kind)) throw new MarketError('invalid-query')
+    if ((query.q?.length ?? 0) > 200 || query.kind && query.kind !== 'skill') throw new MarketError('invalid-query')
     const words = (query.q ?? '').toLowerCase().split(/\s+/).filter(Boolean)
-    const conditions = [query.mine ? actor?.admin ? '1' : 'EXISTS(SELECT 1 FROM members m WHERE m.publisherId=r.publisherId AND m.accountId=?)' : "r.status='published'"]
+    const conditions = ["json_extract(r.manifest,'$.kind')='skill'", query.mine ? actor?.admin ? '1' : 'EXISTS(SELECT 1 FROM members m WHERE m.publisherId=r.publisherId AND m.accountId=?)' : "r.status='published'"]
     const parameters: string[] = query.mine && actor && !actor.admin ? [actor.id] : []
-    if (query.kind) { conditions.push("json_extract(r.manifest,'$.kind')=?"); parameters.push(query.kind) }
     for (const word of words) {
       conditions.push("instr(lower(json_extract(r.manifest,'$.title')||' '||json_extract(r.manifest,'$.description')||' '||json_extract(r.manifest,'$.category')||' '||p.title),?)>0")
       parameters.push(word)
@@ -181,6 +182,7 @@ export class MuseMarketCatalog {
         return this.get(String(previous.id), actor)
       }
       const { manifest } = readMarketPackage(archive, this.config.limits, this.config.allowedPlugins)
+      if (manifest.kind !== 'skill') throw new MarketError('skill-only')
       const count = this.database.prepare('SELECT COUNT(*) AS count FROM releases').get()?.count
       if (Number(count) >= this.config.maxReleases) throw new MarketError('catalog-full', 507)
       if (this.database.prepare('SELECT 1 FROM releases WHERE publisherId=? AND name=? AND version=?').get(publisherId, manifest.name, manifest.version)) throw new MarketError('version-exists', 409)

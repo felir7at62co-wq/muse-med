@@ -18,7 +18,7 @@ export interface MarketSkill {
   readonly name: string
   readonly path: string
 }
-/** Identifiers in the selectable Bot portrait library. */
+/** Identifiers in the shared Skill character library. */
 export const marketPresetPortraitIds = [
   'short-drama-writer', 'screenplay-editor', 'dialogue-polish', 'adaptation-planner',
   'outline-architect', 'episode-planner', 'plot-continuity', 'character-biography',
@@ -35,7 +35,7 @@ export const marketPresetPortraitIds = [
   'coding-assistant', 'workflow-automation',
 ] as const
 
-/** One portrait in the selectable Bot library. */
+/** One automatically matched character for a Skill. */
 export type MarketPresetPortraitId = typeof marketPresetPortraitIds[number]
 
 /** Bot portraits supported by the original archive field. */

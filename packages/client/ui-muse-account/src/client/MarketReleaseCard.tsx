@@ -1,10 +1,9 @@
 /** Shared publication card for discovery, private cloud releases and local installations. */
 import type { ReactNode } from 'react'
 import type { MarketLegacyResource, MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
-import { MarketArtwork, MarketCharacter, type MarketPresentation } from './MarketCharacter.tsx'
+import { MarketCharacter } from './MarketCharacter.tsx'
 import type { MarketSectionProps } from './MarketSection.tsx'
-import { boundMarketPresentation, stockMarketPresentation } from './market-stock-art.ts'
-import { MarketCatalogBot, MarketSkillArtwork } from './MarketCatalogArtwork.tsx'
+import { MarketSkillArtwork } from './MarketCatalogArtwork.tsx'
 import css from './MarketSection.module.css'
 
 /** Render shared role artwork and immutable publication information with caller-owned actions.
@@ -18,29 +17,20 @@ export function MarketReleaseCard(props: ({
   resource: MarketLegacyResource
   release?: never
 }) & {
-  presentation?: MarketPresentation | undefined
   showStatus?: boolean
   t: MarketSectionProps['t']
   children: ReactNode
 }): ReactNode {
-  const { release, resource, presentation, showStatus, t, children } = props
-  const stock = presentation || !release ? undefined : stockMarketPresentation(release)
+  const { release, resource, showStatus, t, children } = props
   const manifest = release ? release.manifest : resource
-  const character = (release && boundMarketPresentation(release.manifest)) ?? presentation ?? stock ?? { role: manifest.title, introduction: resource && manifest.kind === 'bot'
-    ? t('legacyBotIntroduction', { role: manifest.title, description: manifest.description }) : manifest.description }
   return <article className={css.card}>
-    <div className={css.cardHeading}><span className={css.badge}>{t(manifest.kind)}</span>
+    <div className={css.cardHeading}><span className={css.badge}>{t('skill')}</span>
       <span className={css.meta}>{showStatus && release ? t(`publication.${release.status}`) : manifest.category}</span></div>
-    {manifest.kind === 'bot'
-      ? <MarketCharacter presentation={character} introduceLabel={t('introduce')} sampleLabel={t('samplePortrait')}
-        artwork={resource && <MarketCatalogBot id={resource.id} label={manifest.title}
-          fallback={<MarketArtwork label={manifest.title} sampleLabel={t('samplePortrait')} />} />} />
-      : <div className={css.skillMedia}>
-        <MarketSkillArtwork metadata={resource ? { ...resource, name: resource.id } : release.manifest} label={manifest.title} />
-      </div>}
+    <MarketCharacter presentation={{ role: manifest.title, introduction: manifest.description }}
+      introduceLabel={t('introduce')} sampleLabel={t('samplePortrait')}
+      artwork={<MarketSkillArtwork metadata={resource ? { ...resource, name: resource.id } : release.manifest} label={manifest.title} />} />
     <h3>{manifest.title}</h3><p className={css.cardSummary}>{manifest.description}</p>
     <p className={css.publisherLine}>{t('creator', { publisher: release?.publisher ?? t('legacySource'), version: manifest.version })}</p>
-    {stock && <p className={css.meta}>{t('stockArtworkHint')}</p>}
     <div className={css.cardActions}>{children}</div>
   </article>
 }

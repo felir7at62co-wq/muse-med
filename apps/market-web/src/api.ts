@@ -13,7 +13,7 @@ export interface MarketWebConfig {
 
 /** Validate the website's public resource policy before starting API requests.
  * @param input Untrusted public configuration JSON.
- * @returns Explicit browser request bounds and admitted Bot plugins.
+ * @returns Browser request bounds and module validation for historical records.
  */
 export function marketWebConfig(input: unknown): MarketWebConfig {
   if (!marketRecord(input) || !marketRecord(input.limits) || !Array.isArray(input.allowedPlugins)
@@ -88,7 +88,7 @@ export function createMarketBrowserClient(config: MarketWebConfig, fetcher: type
         if (response.status === 400 || response.status === 404) {
           const value = jsonValue(await readMarketBody(response, Math.min(config.metadataBytes, 16384)))
           if (marketRecord(value) && typeof value.error === 'string') {
-            if (['invalid-manifest', 'invalid-path', 'expanded-limit', 'invalid-release', 'archive-too-large'].includes(value.error)) {
+            if (['invalid-manifest', 'invalid-path', 'expanded-limit', 'invalid-release', 'archive-too-large', 'skill-only'].includes(value.error)) {
               throw new MarketError(value.error, response.status)
             }
             if (['invalid-archive', 'file-mismatch', 'missing-skill', 'undeclared-skill', 'invalid-skill'].includes(value.error)) {
@@ -116,15 +116,20 @@ export function createMarketBrowserClient(config: MarketWebConfig, fetcher: type
   }
   const json = async (path: string, init?: RequestInit): Promise<unknown> => jsonValue(await request('/api/market/v1' + path, init))
   const releaseId = (id: string): void => { if (!/^[a-f0-9]{32,64}$/.test(id)) throw new MarketError('invalid-release') }
+  const skillRelease = (value: unknown): MarketRelease => {
+    const release = marketRelease(value, config.allowedPlugins)
+    if (release.manifest.kind !== 'skill') throw new MarketError('skill-only')
+    return release
+  }
   return {
     actions: {
       archiveBytes: config.limits.archiveBytes,
-      legacyCatalog: async (query, kind) => marketLegacyCatalog(
-        jsonValue(await request('/market/catalog.json', {}, Math.min(config.metadataBytes, 1024 * 1024))), query, kind),
-      catalog: async (q, kind, mine) => {
-        const value = await json('/catalog?' + new URLSearchParams({ q, kind, mine: String(mine) }).toString())
+      legacyCatalog: async query => marketLegacyCatalog(
+        jsonValue(await request('/market/catalog.json', {}, Math.min(config.metadataBytes, 1024 * 1024))), query, 'skill'),
+      catalog: async (q, _kind, mine) => {
+        const value = await json('/catalog?' + new URLSearchParams({ q, kind: 'skill', mine: String(mine) }).toString())
         if (!marketRecord(value) || !Array.isArray(value.items)) throw new MarketError('invalid-response')
-        return value.items.map(row => marketRelease(row, config.allowedPlugins))
+        return value.items.map(row => marketRelease(row, config.allowedPlugins)).filter(row => row.manifest.kind === 'skill')
       },
       identity: async () => {
         const value = await json('/me')
@@ -138,13 +143,15 @@ export function createMarketBrowserClient(config: MarketWebConfig, fetcher: type
       },
       previewArchive: archive => Promise.resolve().then(() => previewMarketPackage(archive, config.limits, config.allowedPlugins)),
       uploadArchive: async (archive, publisherId, requestId, portrait) => {
+        previewMarketPackage(archive, config.limits, config.allowedPlugins)
         if (portrait) archive = bindMarketPortrait(archive, portrait, config.limits, config.allowedPlugins)
         if (!/^[a-f0-9]{32}$/.test(publisherId) || !/^[A-Za-z0-9_-]{8,128}$/.test(requestId)) throw new MarketError('invalid-selection')
         if (!archive.length || archive.length > config.limits.archiveBytes) throw new MarketError('archive-too-large', 413)
-        return marketRelease(await json('/uploads', { method: 'POST', headers: { 'content-type': 'application/zip',
-          'x-market-publisher': publisherId, 'idempotency-key': requestId }, body: new Blob([Uint8Array.from(archive)]) }), config.allowedPlugins)
+        return skillRelease(await json('/uploads', { method: 'POST', headers: { 'content-type': 'application/zip',
+          'x-market-publisher': publisherId, 'idempotency-key': requestId }, body: new Blob([Uint8Array.from(archive)]) }))
       },
       downloadArchive: async (release: MarketRelease) => {
+        if (release.manifest.kind !== 'skill') throw new MarketError('skill-only')
         releaseId(release.id)
         const bytes = await request('/api/market/v1/releases/' + release.id + '/download', {}, config.limits.archiveBytes)
         const hash = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', Uint8Array.from(bytes)))
@@ -155,8 +162,8 @@ export function createMarketBrowserClient(config: MarketWebConfig, fetcher: type
       },
       review: async (id, revision, action, note) => {
         releaseId(id)
-        return marketRelease(await json('/releases/' + id + '/review', { method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ revision, action, note }) }), config.allowedPlugins)
+        return skillRelease(await json('/releases/' + id + '/review', { method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ revision, action, note }) }))
       },
     },
     close: async () => { lifetime.abort(); await Promise.allSettled(pending) },

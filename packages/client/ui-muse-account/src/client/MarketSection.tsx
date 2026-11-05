@@ -6,7 +6,6 @@ import type { MarketInstallation, MarketLegacyResource, MarketRelease } from '@d
 import type { MarketActions } from './market-mount.ts'
 import type { MarketLocaleKey } from './market-locales.ts'
 import css from './MarketSection.module.css'
-import { type MarketPresentation } from './MarketCharacter.tsx'
 import type { MarketCreatorKind } from './MarketCreatorPage.tsx'
 import { MarketReleaseDetails } from './MarketReleaseDetails.tsx'
 import characterCss from './MarketCharacter.module.css'
@@ -25,10 +24,7 @@ export type MarketSectionProps = PropsLocale<'settings.museMarket'> & InjectFace
   initialView?: 'discover' | 'publish'
   /** Shell-owned feedback survives navigation away from this page. */
   reportOutcome: (key: MarketLocaleKey, failed: boolean) => void
-  onRunBot?: (id: MarketRelease['id'], title: string) => Promise<void>
   onOpenCreator: (kind: MarketCreatorKind) => void
-  /** Display-only data keyed by immutable release ID; supplied separately from package manifests. */
-  presentations?: Readonly<Record<string, MarketPresentation>>
 }> & ({ mode?: 'host'; actions: MarketActions } | { mode: 'web'; actions: MarketWebActions })
 
 /** Render discovery, installed versions with their own actions, and cloud publication records.
@@ -36,7 +32,7 @@ export type MarketSectionProps = PropsLocale<'settings.museMarket'> & InjectFace
  * @returns Market page content.
  */
 export function MarketSection(props: MarketSectionProps): ReactNode {
-  const { t, actions, presentations, reportOutcome, onRunBot, onOpenCreator } = props
+  const { t, actions, reportOutcome, onOpenCreator } = props
   const hostActions = props.mode === 'web' ? undefined : props.actions
   const webActions = props.mode === 'web' ? props.actions : undefined
   const [signedIn, setSignedIn] = useState<boolean>()
@@ -50,7 +46,7 @@ export function MarketSection(props: MarketSectionProps): ReactNode {
   const [sources, setSources] = useState<Awaited<ReturnType<MarketActions['sources']>>>()
   const [publishers, setPublishers] = useState<{ id: string; title: string }[]>([])
   const [admin, setAdmin] = useState(false)
-  const [query, setQuery] = useState(''), [kind, setKind] = useState('')
+  const [query, setQuery] = useState('')
   const [category, setCategory] = useState('')
   const [detail, setDetail] = useState<MarketRelease>()
   const [busy, setBusy] = useState(false)
@@ -66,24 +62,25 @@ export function MarketSection(props: MarketSectionProps): ReactNode {
     catch (error) { if (!webActions || pending.current === token) reportOutcome(marketFailure(error), true) }
     finally { if (pending.current === token) { pending.current = null; setBusy(false) } }
   }
-  const read = async (target: typeof tab, token: symbol, filters = { query, kind }): Promise<void> => {
+  const read = async (target: typeof tab, token: symbol): Promise<void> => {
     setBusy(true); setLoadState({ phase: 'loading' })
     try {
       const [rows, local, found, identity, legacy] = await Promise.all([
         hostActions ? hostActions.installed() : [], hostActions?.sources(),
-        target === 'discover' ? actions.catalog(filters.query, filters.kind, false) : undefined,
+        target === 'discover' ? actions.catalog(query, 'skill', false) : undefined,
         target === 'publish' || webActions ? actions.identity().catch((error: unknown) => {
           if (webActions && marketFailure(error) === 'error.login-required') return undefined
           throw error
         }) : undefined,
-        target === 'discover' ? actions.legacyCatalog(filters.query, filters.kind).catch(() => null) : undefined,
+        target === 'discover' ? actions.legacyCatalog(query, 'skill').catch(() => null) : undefined,
       ])
       if (pending.current !== token) return
-      setInstalled(rows); setSources(local)
+      setInstalled(rows.filter(row => row.release.manifest.kind === 'skill')); setSources(local)
       if (found) {
-        setReleases(found); setCategory(''); setVisibleResources(resourceBatchSize)
-        const digests = new Set(found.map(row => row.sha256))
-        setResources((legacy ?? []).filter(row => !digests.has(row.sha256)))
+        const skills = found.filter(row => row.manifest.kind === 'skill')
+        setReleases(skills); setCategory(''); setVisibleResources(resourceBatchSize)
+        const digests = new Set(skills.map(row => row.sha256))
+        setResources((legacy ?? []).filter(row => row.kind === 'skill' && !digests.has(row.sha256)))
         setLegacyFailed(legacy === null)
       }
       if (webActions) setSignedIn(Boolean(identity))
@@ -95,12 +92,13 @@ export function MarketSection(props: MarketSectionProps): ReactNode {
       if (pending.current === token) { pending.current = null; setBusy(false) }
     }
   }
-  const refresh = (target: typeof tab = tab, filters = { query, kind }): void => {
+  const refresh = (target: typeof tab = tab): void => {
     if (pending.current) return
     const token = Symbol(); pending.current = token
-    void read(target, token, filters)
+    void read(target, token)
   }
   const acceptInstallation = (item: MarketInstallation): void => {
+    if (item.release.manifest.kind !== 'skill') throw Error('skill-only')
     setInstalled(previous => [...previous.filter(row => row.release.id !== item.release.id), item])
   }
   useEffect(() => {
@@ -129,8 +127,6 @@ export function MarketSection(props: MarketSectionProps): ReactNode {
   const legacyRows = tab === 'discover' ? resources.filter(row => !category || row.category === category) : []
   const categories = [...new Set([...releases.map(row => row.manifest.category), ...resources.map(row => row.category)])]
   const openUpload = (): void => { onOpenCreator('upload') }
-  const leadBot = legacyRows.find(row => row.id === 'muse/bots/storyboard-director-16-9') ?? legacyRows.find(row => row.kind === 'bot')
-  const leadSkill = legacyRows.find(row => row.kind === 'skill')
   const resourceCount = legacyRows.length
   const canLoadMore = loadState.phase === 'ready' && visibleResources < resourceCount
   useEffect(() => {
@@ -152,7 +148,7 @@ export function MarketSection(props: MarketSectionProps): ReactNode {
       observer.disconnect()
     }
   }, [canLoadMore, visibleResources, resourceCount])
-  const featured = !kind && !category && (hostActions || rows.length === 0) && leadBot && leadSkill ? [leadBot, leadSkill] : []
+  const featured = !category && (hostActions || rows.length === 0) ? legacyRows.slice(0, 2) : []
   const remainingLegacy = legacyRows.filter(row => !featured.includes(row))
   const showContribution = tab === 'discover' && rows.length + legacyRows.length > 0 && loadState.phase === 'ready'
   const renderActivation = (local: MarketInstallation, host: MarketActions): ReactNode => <>
@@ -161,8 +157,6 @@ export function MarketSection(props: MarketSectionProps): ReactNode {
       const item = await host.enable(local.release.id, !local.enabled)
       if (current()) acceptInstallation(item)
     })}>{t(local.enabled ? 'disable' : 'enable')}</Button>
-    {local.enabled && local.release.manifest.kind === 'bot' && onRunBot && <Button variant="primary"
-      disabled={busy} onClick={() => void run(() => onRunBot(local.release.id, local.release.manifest.title), 'botTaskCreated')}>{t('runBot')}</Button>}
   </>
   const renderLegacyCard = (resource: MarketLegacyResource): ReactNode => {
     const local = installed.find(item => item.legacySource?.id === resource.id && item.legacySource.sha256 === resource.sha256)
@@ -203,10 +197,6 @@ export function MarketSection(props: MarketSectionProps): ReactNode {
         value={query} disabled={busy} maxLength={200} onChange={(event) => { setQuery(event.target.value) }} />
       <Button type="submit" variant="outline" disabled={busy}>{t('search')}</Button>
     </form><div className={css.filters}>
-      <div className={css.kindTabs} role="group" aria-label={t('typeFilter')}>{(['', 'bot', 'skill'] as const).map(value => <Button key={value}
-        variant={kind === value ? 'primary' : 'ghost'} disabled={busy} aria-pressed={kind === value} onClick={() => {
-          setKind(value); refresh('discover', { query, kind: value })
-        }}>{t(value || 'all')}</Button>)}</div>
       <div className={css.categoryTabs} role="group" aria-label={t('category')}>{['', ...categories].map(value => <Button key={value}
         size="sm" variant={category === value ? 'outline' : 'ghost'} disabled={busy} aria-pressed={category === value}
         onClick={() => { setCategory(value); setVisibleResources(resourceBatchSize) }}>{value || t('allCategories')}</Button>)}</div>
@@ -222,7 +212,7 @@ export function MarketSection(props: MarketSectionProps): ReactNode {
     {tab === 'publish' && loadState.phase === 'ready' && <>
       {webActions && !signedIn && <div className={css.empty}><p>{t('browserSignInHint')}</p><a href="/login">{t('browserSignIn')}</a></div>}
       {(!webActions || signedIn) && <MarketPublications actions={actions} publishers={publishers} admin={admin}
-        reportOutcome={reportOutcome} onDetails={setDetail} localBusy={busy} t={t} presentations={presentations}
+        reportOutcome={reportOutcome} onDetails={setDetail} localBusy={busy} t={t}
         browserMode={Boolean(webActions)}
         onDownload={(release) => {
           void run(current => downloadRelease(release, current), webActions ? 'archiveDownloaded' : 'done')
@@ -246,7 +236,7 @@ export function MarketSection(props: MarketSectionProps): ReactNode {
       {rows.map((release) => {
         const local = installed.find(item => item.release.id === release.id)
           ?? installed.find(item => item.release.sha256 === release.sha256)
-        return <MarketReleaseCard key={release.id} release={release} presentation={presentations?.[release.id]} t={t}>
+        return <MarketReleaseCard key={release.id} release={release} t={t}>
           <Button variant="outline" onClick={() => { setDetail(release) }}>{t('details')}</Button>
           {webActions ? <Button variant="primary" disabled={busy} icon={<IconDownloadOutlineRegular size={18} />} onClick={() => void run(current => downloadRelease(release, current), 'archiveDownloaded')}>{t('browserDownload')}</Button> : hostActions && (!local ? <Button variant="primary" disabled={busy} icon={<IconDownloadOutlineRegular size={18} />} onClick={() => void run(async (current) => { const item = await hostActions.install(release.id); if (current()) acceptInstallation(item) })}>{t('download')}</Button> : <>
             {renderActivation(local, hostActions)}

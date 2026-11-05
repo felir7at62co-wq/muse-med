@@ -1,5 +1,5 @@
 ---
-description: "Configure the separate Muse market profile and its authenticated account-gateway proxy."
+description: "Configure the separate Muse Skill market profile and its authenticated account-gateway proxy."
 kind: "reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](MARKET.zh.md)
 
 ## Summary
 
-The account gateway serves `/market` before desktop forwarding. A separate `dsh` profile owns the SQLite catalog, bounded package validation and private file storage. The browser can use the market while its Desktop is offline. This page describes deployment configuration; it does not establish production capacity or partner acceptance.
+The account gateway serves the Skill market at `/market` before desktop forwarding. A separate `dsh` profile owns the SQLite catalog, bounded package validation and private file storage. The browser can use the market while its Desktop is offline. This page describes deployment configuration. Production capacity and partner acceptance require separate verification.
 
 ## Table of Contents
 
@@ -50,7 +50,7 @@ Set `MUSE_MARKET_CONFIG` on the account gateway to a separate administrator-owne
 
 The port must match `MUSE_MARKET_PORT`. If the gateway and catalog run as different OS users, give each user its own owner-only secret file with the same secret value and set the corresponding path separately. Policy files cannot be symlinks or writable by group/other users; the secret file must additionally be owner-only on POSIX. The gateway forwards its authenticated account identity with the shared secret and streams bounded uploads and downloads. Browser-supplied actor headers and cookies are not forwarded. The catalog rejects direct unauthenticated access. `MUSE_MARKET_CONFIG` absent keeps all market routes disabled; an invalid configured file fails startup.
 
-An administrator opens the website creator center and creates a publishing team for an existing account ID. Invited authors upload a ZIP as a private draft, inspect the exported content and submit it. Administrators download and inspect the exact package and verify examples before approval. Draft content is immutable: fixes use a new version. Review requires the revision currently displayed. Public distribution stops on withdrawal; installed files remain available locally. The [package reference](../../packages/host/muse-market/README.md) owns publication format, local enablement and recovery limits.
+An administrator opens the website creator center and creates a publishing team for an existing account ID. Invited authors upload a Skill ZIP as a private draft, inspect the exported content and submit it. Administrators download and inspect the exact package and verify examples before approval. Draft content is immutable, so fixes use a new version. Review requires the revision currently displayed. Withdrawal stops public distribution, while installed files remain available locally. The directory and release API expose Skills only and reject new Bot uploads. Historical database records, local package files and existing session bindings remain stored for recovery. The [package reference](../../packages/host/muse-market/README.md) owns publication format, local enablement and recovery limits.
 
 The [shared market website](../../apps/market-web/README.md) can replace the gateway HTML at the reverse proxy while keeping account and API routes on the gateway. Its public configuration contains resource limits and admitted plugin names, never the gateway secret or storage paths.
 
@@ -63,7 +63,7 @@ For a consistent filesystem backup, stop the market profile gracefully, copy its
 
 Build before running `node --test services/muse-accounts/market.test.mjs`; this integration uses the built cloud plugin, real HTTP carrier, authenticated gateway and streaming proxy. Verify `/market` is public, anonymous `/api/market/v1/me` returns 401, invited authors can upload, readers cannot see drafts, and disabling an account revokes subsequent access. Linux/macOS installation checks, a real partner example and production backup restoration remain release acceptance requirements.
 
-After building the website TypeScript program and market package, `node --test services/muse-accounts/market-host.test.mjs` exercises the actual browser adapter, authenticated gateway, cloud catalog and Muse Host together. It imports the two handoff archives through browser download and Host download, enables their exact versions, reads Bot and standalone Skill instructions through a real agent scope, then verifies restart recovery. Its accounts, ports and data roots are isolated fixtures; it does not validate a production browser login or make a model request.
+After building the website TypeScript program and market package, `node --test services/muse-accounts/market-host.test.mjs` exercises the actual browser adapter, authenticated gateway, cloud catalog and Muse Host together. It uploads a Skill with its portrait binding, submits it for review, publishes it and verifies reader visibility. The reader downloads and imports the exact archive, enables the Skill, reads its instructions through a real agent scope and verifies restart recovery. Its accounts, ports and data roots are isolated fixtures. Production browser login and model requests require separate verification.
 
 <a id="dev-note"></a>
 ## Dev Note
