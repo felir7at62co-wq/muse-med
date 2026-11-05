@@ -1,4 +1,4 @@
-/** Muse exposes one creative Agent without preset or plugin-management navigation. */
+/** Muse hides preset and plugin-management navigation for its product Agent presets. */
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
@@ -24,9 +24,9 @@ beforeAll(async () => {
     default: string
     selectablePresets: string[]
   }
-  expect(policy).toEqual({ default: 'short-drama', selectablePresets: ['short-drama'] })
+  expect(policy).toEqual({ default: 'short-drama', selectablePresets: ['short-drama', 'bot-coordinator'] })
   const definitions: PresetDefinition[] = []
-  for (const id of ['short-drama', 'creation', 'standard', 'ptc', 'cordis', 'minimal']) {
+  for (const id of ['short-drama', 'bot-coordinator', 'creation', 'standard', 'ptc', 'cordis', 'minimal']) {
     const meta = load(await readFile(join(root, 'presets', id, 'preset.yml'), 'utf8')) as {
       name?: string
       description?: string
@@ -59,14 +59,14 @@ it('hides preset selection, mode labels and plugin management for the unified Ag
   await connectFreshWorkspace(page, scaffold.workspaceCwd, 'workspace')
   for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
-    expect(await page.getByRole('button', { name: /短剧模式|编辑模式|短剧编导/ }).count()).toBe(0)
+    expect(await page.getByRole('button', { name: /短剧模式|编辑模式|短剧编导|团队主控/ }).count()).toBe(0)
     expect(await page.getByRole('button', { name: 'Plugins', exact: true }).count()).toBe(0)
     if (evidenceDir) await page.screenshot({ path: join(evidenceDir, `unified-agent-${theme}.png`) })
   }
   await openSettings(page, 'en')
   expect(await page.getByRole('button', { name: 'Agent presets', exact: true }).count()).toBe(0)
   expect(await page.getByRole('button', { name: 'Built-in plugins', exact: true }).count()).toBe(0)
-  expect((await scaffold.ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama'])
+  expect((await scaffold.ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['short-drama', 'bot-coordinator'])
   if (evidenceDir) await page.screenshot({ path: join(evidenceDir, 'unified-agent-settings.png') })
   expect(consoleWatch.pageErrors).toEqual([])
 })

@@ -76,7 +76,7 @@ async function scrollRowIntoWindow(needle: string): Promise<HTMLElement> {
 it('renders durable record images in the Trajectory details panel from the shared cache', async () => {
   // The virtual ledger needs a measurable viewport; jsdom reports zero
   // heights, so pin one and neutralize the imperative tail scroll.
-  vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600)
   Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
     configurable: true,
     value: () => {},
