@@ -1,5 +1,5 @@
 /**
- * Enforce the MIT license declaration for repository-owned DSH npm packages.
+ * Enforce DSH package license declarations, including retained third-party terms.
  * @module scripts/verify-dsh-package-licenses
  */
 
@@ -14,7 +14,7 @@ const DSH_PACKAGE_NAME = /^@deepseek-ai\/dsh(?:-|$)/
 export interface DshPackageLicenseReport {
   /** Number of DSH package manifests checked. */
   packageCount: number
-  /** Repository-relative diagnostics for non-MIT declarations. */
+  /** Repository-relative diagnostics for incorrect license declarations. */
   failures: string[]
 }
 
@@ -65,12 +65,14 @@ export function inspectDshPackageLicenses(root: string): DshPackageLicenseReport
     if (typeof name !== 'string' || !DSH_PACKAGE_NAME.test(name)) continue
 
     packageCount++
+    const normalizedFile = file.split(sep).join('/')
     const privateResource = isDramaSkillsResourcePackage(dirname(file).split(sep).join('/'), name)
       && manifest.private === true && manifest.license === 'UNLICENSED'
-    if (manifest.license !== 'MIT' && !privateResource) {
-      const normalizedFile = file.split(sep).join('/')
+    const expectedLicense = normalizedFile === 'packages/core/tool-discovery/package.json'
+      && name === '@deepseek-ai/dsh-tool-discovery' ? 'MIT AND Apache-2.0' : 'MIT'
+    if (manifest.license !== expectedLicense && !privateResource) {
       failures.push(
-        `${normalizedFile}: ${name} must declare "license": "MIT"; found ${printable(manifest.license)}.`,
+        `${normalizedFile}: ${name} must declare "license": ${JSON.stringify(expectedLicense)}; found ${printable(manifest.license)}.`,
       )
     }
   }

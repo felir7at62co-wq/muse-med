@@ -1,7 +1,7 @@
 /** Check that maintained packages have effective product use or an explicit non-default role. */
 
 import { existsSync, globSync, readFileSync, statSync } from 'node:fs'
-import { dirname, extname, relative, resolve } from 'node:path'
+import { basename, dirname, extname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { JSDOM } from 'jsdom'
 import ts from 'typescript'
@@ -17,6 +17,7 @@ import { collectRuntimeLocalSourceSpecifiers, collectRuntimeSourceSpecifiers } f
 const PROFILE_SOURCE = 'packages/boot/app-boot/src/profile.ts'
 const ON_DEMAND_SOURCE = 'packages/boot/app-boot/src/official-bundle-packages.ts'
 const PROFILES = ['acp', 'web', 'headless', 'sdk', 'sdk-minimal']
+const DESKTOP_HOST = 'apps/desktop-host'
 const PICKER_SOURCE = 'packages/host/directory-picker-auto/src/index.ts'
 const DYNAMIC_MOUNTS: Readonly<Record<string, readonly string[]>> = {
   [PICKER_SOURCE]: ['BACKEND_PACKAGES', 'SURFACE_PACKAGES'],
@@ -25,6 +26,7 @@ const DYNAMIC_MOUNTS: Readonly<Record<string, readonly string[]>> = {
 interface Package {
   directory: string
   name: string
+  exports: Readonly<Record<string, unknown>>
   bundle?: DshBundleManifest
   client: boolean
   generatedRemote: boolean
@@ -84,7 +86,8 @@ export function verifyProductUse(
     if (typeof manifest.name !== 'string' || manifest.name === '') throw new Error(`${path}: missing package name`)
     if (packages.has(manifest.name)) throw new Error(`${path}: duplicate package name ${manifest.name}`)
     const remote = manifest.exports?.['./remote']
-    const pkg: Package = { directory: dirname(path), name: manifest.name, client: manifest.dsh?.client !== undefined,
+    const pkg: Package = {
+      directory: dirname(path), name: manifest.name, exports: manifest.exports ?? {}, client: manifest.dsh?.client !== undefined,
       generatedRemote: isRecord(remote) && remote.default === './lib/typert.remote-client.js'
         && remote.types === './lib/typert.remote-client.d.ts',
       ...(manifest.dsh?.bundle === undefined ? {} : { bundle: manifest.dsh.bundle }) }
@@ -122,6 +125,10 @@ export function verifyProductUse(
     }
     const file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true)
     const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node) && node.expression.getText(file) === 'import.meta.resolve') {
+        const specifier = node.arguments[0]
+        if (specifier !== undefined && ts.isStringLiteralLike(specifier)) reference(specifier.text, path, reach)
+      }
       if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'URL') {
         const first = node.arguments?.[0]
         const base = node.arguments?.[1]
@@ -151,7 +158,14 @@ export function verifyProductUse(
     if (pkg !== undefined) reach.packages.add(pkg.directory)
     // Typert Remote contributions contain generated descriptors and external codecs, with no workspace runtime imports.
     if (pkg?.generatedRemote && specifier === `${pkg.name}/remote`) return
-    const target = resolveModule(normalized, from)
+    const exported = pkg?.exports[`.${specifier.slice(name.length)}`]
+    const types = isRecord(exported) && typeof exported.types === 'string'
+      ? /^\.\/lib\/types\/(.+)\.d\.ts$/u.exec(exported.types)?.[1] : undefined
+    const desktop = pkg?.directory === DESKTOP_HOST && typeof exported === 'string'
+      ? /^\.\/lib\/(.+)\.js$/u.exec(exported)?.[1] : undefined
+    const source = types ?? desktop
+    const target = resolveModule(normalized, from) ?? (pkg !== undefined && source !== undefined
+      ? sourceFile(resolve(root, pkg.directory, 'src', `${source}.ts`)) : undefined)
     if (target !== undefined) scanSource(target, reach)
     else if (pkg !== undefined && !/\.(?:json|css|svg|ya?ml)$/.test(specifier)) {
       failures.push(`${display(from)}: ${specifier} does not resolve to workspace source; add a tsconfig.base.json paths mapping`)
@@ -219,6 +233,31 @@ export function verifyProductUse(
     for (const bundle of optionals) scanEntries(composeEntries(layers([...webBundles, bundle], optional)), profilePath, optional)
   }
   for (const path of ['apps/cli/src/bin.ts', 'apps/desktop/src/main.ts']) scanSource(resolve(root, path), defaults)
+  const desktopHost = directories.get(resolve(root, DESKTOP_HOST))
+  if (desktopHost !== undefined) {
+    scanSource(resolve(root, DESKTOP_HOST, 'src/index.ts'), defaults)
+    const profilePath = resolve(root, 'apps/desktop/src/project-manager.ts')
+    const packageSetPath = resolve(root, 'apps/desktop/src/core-package-set.ts')
+    const packageSet = ts.createSourceFile(packageSetPath, readFileSync(packageSetPath, 'utf8'), ts.ScriptTarget.Latest, true)
+    const desktopProfile = ts.createSourceFile(profilePath, readFileSync(profilePath, 'utf8'), ts.ScriptTarget.Latest, true)
+    const aliases = Object.fromEntries(['DESKTOP_FEISHU_PACKAGE', 'DESKTOP_MUSE_BOT_PACKAGE']
+      .map(name => [name, literalDeclaration(packageSet, name)]))
+    const bundles = stringList(literalDeclaration(desktopProfile, 'DESKTOP_PROFILE_BUNDLES', aliases), profilePath)
+    const patch = resolve(root, DESKTOP_HOST, 'config/desktop.cordis.patch.yml')
+    configs.add(patch)
+    const workspaceBundles = bundles.filter(name => name.startsWith('@deepseek-ai/dsh-') || packages.has(name))
+    const rows = composeEntries([...layers(workspaceBundles, defaults),
+      loadOverlayPatches('verify-product-use', patch)])
+    scanEntries(rows, patch, defaults)
+    for (const path of globSync(`${DESKTOP_HOST}/presets/*/agent.cordis.yml`, { cwd: root })) {
+      if (rows.some(row => row.id === `preset-${basename(dirname(path))}` && row.disabled !== true)) continue
+      const source = resolve(root, path)
+      const preset: unknown = loadCordisYaml(readFileSync(source, 'utf8'))
+      configs.add(source)
+      if (!Array.isArray(preset)) failures.push(`${display(source)}: Desktop preset requires an entry array`)
+      else scanEntries(preset, source, defaults)
+    }
+  }
   const htmlPath = resolve(root, 'apps/web/index.html')
   const dom = new JSDOM(readFileSync(htmlPath, 'utf8'))
   try {
@@ -285,9 +324,10 @@ function stringList(value: unknown, origin: string): string[] {
   return value
 }
 
-function literalDeclaration(file: ts.SourceFile, name: string): unknown {
+function literalDeclaration(file: ts.SourceFile, name: string, aliases: Readonly<Record<string, unknown>> = {}): unknown {
   const read = (node: ts.Expression): unknown => {
     if (ts.isStringLiteralLike(node)) return node.text
+    if (ts.isIdentifier(node) && Object.hasOwn(aliases, node.text)) return aliases[node.text]
     if (ts.isArrayLiteralExpression(node)) return node.elements.map(read)
     if (ts.isObjectLiteralExpression(node)) return Object.fromEntries(node.properties.map((property) => {
       if (!ts.isPropertyAssignment(property) || !ts.isIdentifier(property.name) && !ts.isStringLiteralLike(property.name)) {

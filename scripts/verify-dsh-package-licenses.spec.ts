@@ -57,6 +57,21 @@ describe('DSH package license gate', () => {
     ])
   })
 
+  it('requires the retained Codex license only for tool discovery', () => {
+    const root = createWorkspace()
+    const path = 'packages/core/tool-discovery/package.json'
+    const name = '@deepseek-ai/dsh-tool-discovery'
+    writeManifest(root, path, { name, license: 'MIT AND Apache-2.0' })
+    expect(inspectDshPackageLicenses(root)).toEqual({ packageCount: 2, failures: [] })
+
+    writeManifest(root, path, { name, license: 'MIT' })
+    writeManifest(root, 'packages/core/agent/package.json', { name, license: 'MIT AND Apache-2.0' })
+    expect(inspectDshPackageLicenses(root).failures).toEqual([
+      'packages/core/agent/package.json: @deepseek-ai/dsh-tool-discovery must declare "license": "MIT"; found "MIT AND Apache-2.0".',
+      'packages/core/tool-discovery/package.json: @deepseek-ai/dsh-tool-discovery must declare "license": "MIT AND Apache-2.0"; found "MIT".',
+    ])
+  })
+
   it('accepts UNLICENSED only for the private drama skill resource package', () => {
     const root = createWorkspace()
     writeManifest(root, 'packages/drama/skills/package.json', {

@@ -363,6 +363,15 @@ describe('package payload constraints', () => {
         .toContainEqual(expect.stringContaining('resource package file must be a declared skill resource'))
     }
   })
+  it('rejects PowerShell scripts outside the declared Windows draft helpers', () => {
+    const dir = 'packages/drama/skills'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    for (const file of ['skills/tweet-drama-draft-build/scripts/windows/other.ps1',
+      'skills/tweet-drama-core/scripts/windows/native-export.ps1']) {
+      expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, file] } }))
+        .toContainEqual(expect.stringContaining('resource package file must be a declared skill resource'))
+    }
+  })
   it.each([
     ['./art/icon.svg', ['art/icon.svg']],
     [{ import: './art/icon.svg', default: './art/fallback.svg' }, ['art/icon.svg', 'art/fallback.svg']],
@@ -475,6 +484,7 @@ it.each([
   'packages/host/feishu-settings',
   'packages/jubian/jubian',
   'packages/jubian/tool-jubian',
+  'packages/core/tool-discovery',
 ])('requires canonical runtime, patch, and emitted declarations for %s', (dir) => {
   const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
   expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])

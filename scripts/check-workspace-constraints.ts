@@ -70,7 +70,9 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
     'lib/index.js', 'lib/native-preset.js', 'config/desktop.cordis.patch.yml',
     'presets', 'skills', 'config/defaults.cordis.patch.yml', 'lib/cli.js',
     'lib/creation-policy.js', 'lib/creation-skills.js', 'lib/short-drama-guidance.js', 'lib/editing-policy.js',
-    'lib/manuscript-revisions.js', 'lib/manuscript-source-review.js', 'lib/jianying-draft.js', 'lib/hindsight.js', 'lib/feishu-migration.js',
+    'lib/manuscript-revisions.js', 'lib/manuscript-source-review.js', 'lib/jianying-draft.js',
+    'lib/approved-episode-render.js', 'lib/hindsight.js', 'lib/feishu-migration.js', 'lib/source-recovery.js',
+    'licenses',
   ],
   // Sourcemaps stay out by payload policy; the worker-preview surface
   // (dist/preview.html and dist/preview/) backs opt-in experimental
@@ -197,6 +199,7 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh-experimental-speech-to-text-sensevoice': ['runtime/assets.json'],
   // Local OCR executes these fixed bridges relative to the bundled plugin entry.
   '@deepseek-ai/dsh-tool-video-inspect': ['scripts/ocr_bridge.ps1', 'scripts/ocr_bridge.py'],
+  '@deepseek-ai/dsh-tool-discovery': ['NOTICE', 'LICENSE-Codex'],
   // The isolated Node bootstrap is a separately launched bundle.
   '@deepseek-ai/dsh-ptc-runtime-node': ['lib/process.js'],
   // The Inspector owns a Worker and a mirrored frontend outside package export paths.
@@ -584,7 +587,11 @@ function checkDramaSkillsResourceManifest(manifest: PackageManifest): string[] {
       && ['references/images/female-quality-reference.png', 'references/images/male-quality-layout.png',
         'references/images/rejected-cartoon.png', 'references/images/rejected-flat-cg.png',
         'references/images/target-quality.png'].includes(resource)
-    if (match?.[1] === undefined || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference)) {
+    const windowsDraftScript = match?.[1] === 'tweet-drama-draft-build' && resource !== undefined
+      && ['scripts/windows/aa-draft.ps1', 'scripts/windows/native-export.ps1',
+        'scripts/windows/native-export-folder.ps1', 'scripts/windows/native-export-open.ps1'].includes(resource)
+    if (match?.[1] === undefined
+      || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference || windowsDraftScript)) {
       errors.push(`${label}: resource package file must be a declared skill resource: ${file}`)
       continue
     }

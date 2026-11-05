@@ -18,7 +18,7 @@ describe('hook/* session events', () => {
       expect(ev.data).toMatchObject({ turn: 1, point: 'PreToolUse', dialect: 'claude-code', handlerId: 'h1', matcher: 'Bash' })
     }
     // Log-only: no surfaceOp on the event.
-    expect((ev as unknown as { surfaceOp?: unknown }).surfaceOp).toBeUndefined()
+    expect(ev).not.toHaveProperty('surfaceOp')
   })
 
   it.each([{}, { matcher: undefined }])('omits an absent or undefined matcher from the event (%j)', (matcher) => {

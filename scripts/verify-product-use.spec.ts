@@ -129,6 +129,29 @@ describe('product package use', () => {
     expect(failures(root)).toBe('')
   })
 
+  it('reaches the Desktop Host profile, active presets, and package resources', () => {
+    const root = fixture()
+    const host = '@deepseek-ai/dsh-desktop-host'
+    const resource = '@deepseek-ai/dsh-desktop-resource'
+    const hostDir = 'apps/desktop-host'
+    pkg(root, candidateDir, candidate)
+    pkg(root, 'packages/core/desktop-resource', resource)
+    pkg(root, hostDir, host, { dsh: { bundle: { patch: './config/defaults.cordis.patch.yml' } } })
+    write(root, 'apps/desktop/src/core-package-set.ts', `
+export const DESKTOP_FEISHU_PACKAGE = 'external-feishu'
+export const DESKTOP_MUSE_BOT_PACKAGE = 'external-muse-bot'
+`)
+    write(root, 'apps/desktop/src/project-manager.ts',
+      `const DESKTOP_PROFILE_BUNDLES = ['${base}', '${host}', DESKTOP_FEISHU_PACKAGE, DESKTOP_MUSE_BOT_PACKAGE] as const`)
+    write(root, `${hostDir}/src/index.ts`, `import.meta.resolve('${resource}/package.json')`)
+    write(root, `${hostDir}/config/defaults.cordis.patch.yml`, [{ insert: [{ id: 'preset-desktop', name: core }] }])
+    write(root, `${hostDir}/config/desktop.cordis.patch.yml`, [{ id: 'preset-desktop', disabled: true }])
+    write(root, `${hostDir}/presets/desktop/agent.cordis.yml`, [{ name: candidate }])
+    expect(failures(root)).toBe('')
+    write(root, `${hostDir}/config/desktop.cordis.patch.yml`, [])
+    expect(failures(root)).toContain(`${candidateDir} (${candidate}): no product runtime use`)
+  })
+
   it.each(['acp', 'headless', 'sdk', 'sdk-minimal'])('composes the %s profile independently', (name) => {
     const root = fixture()
     pkg(root, candidateDir, candidate, { dsh: { bundle: { patch: './feature.patch.yml' } } })
