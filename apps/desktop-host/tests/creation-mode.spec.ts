@@ -12,6 +12,7 @@ import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
+import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import Llm, { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
@@ -23,6 +24,7 @@ import * as ToolPresentation from '@deepseek-ai/dsh-agent-tool-presentation'
 import { PtcRuntime, type PtcRunRequest, type PtcRunSpec, type PtcRunResult } from '@deepseek-ai/dsh-ptc-runtime'
 import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
 import { expect, it } from 'vitest'
+import WorkingDirectory from '../../../packages/session/working-directory/src/index.ts'
 import NativePreset from '../src/native-preset.ts'
 import * as CreationPolicy from '../src/creation-policy.ts'
 import * as ManuscriptRevisions from '../src/manuscript-revisions.ts'
@@ -61,6 +63,8 @@ async function fixture() {
     await ctx.plugin(Sessions)
     await ctx.plugin(SessionProjections)
     await ctx.plugin(SystemPrompt)
+    await ctx.plugin(LocalFileSystem, { cwd: root })
+    await ctx.plugin(WorkingDirectory, { defaultDirectory: root })
     await ctx.plugin(Tools)
     await ctx.plugin(RuntimeProbe)
     await ctx.plugin(AgentRegistry)

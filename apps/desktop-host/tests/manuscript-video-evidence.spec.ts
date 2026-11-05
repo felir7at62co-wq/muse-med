@@ -23,6 +23,7 @@ import { z } from 'zod'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
 import * as RevisionPlugin from '../src/manuscript-revisions.ts'
 import * as ToolFs from '../../../packages/fs/tool-fs/src/index.ts'
+import WorkingDirectory from '../../../packages/session/working-directory/src/index.ts'
 import { installReviewState, VideoReviewId, reviewsOf, saveReview } from '../../../packages/perception/tool-video-inspect/src/review-state.ts'
 import { bindReviewEvents } from '../../../packages/perception/tool-video-inspect/src/review-events.ts'
 import { ManuscriptVideoEvidence, manuscriptDeclaredOutputs, manuscriptEpisodeNumber, manuscriptEvidenceFrames,
@@ -109,6 +110,7 @@ async function fixture(script = [textResponse('已完成。')], config: Partial<
   await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalFileSystem, { cwd: root, ...filesystem })
+  await ctx.plugin(WorkingDirectory, { defaultDirectory: root })
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
   ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'danger-full-access', workspaceRoot: root }) } as never)
   await ctx.plugin(ToolFs)
@@ -1207,16 +1209,36 @@ it('keeps multiple same-episode read sources ambiguous without selecting the ear
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('照常交付')
 })
 
-it.each(['partial', 'truncated'])('does not treat a %s native read as a complete baseline', async (kind) => {
-  const f = await fixture([toolCallResponse('read-window', 'read', { file_path: 'source.md', ...kind === 'partial' ? { limit: 2 } : {} }),
+it.each([
+  { kind: 'line window', args: { limit: 2 }, status: 'partial' },
+  { kind: 'noninitial column', args: { column: 2 }, status: 'partial' },
+  { kind: 'capped line', args: {}, status: 'truncated' },
+])('does not treat a $kind native read as a complete baseline', async ({ args, status }) => {
+  const f = await fixture([toolCallResponse('read-window', 'read', { file_path: 'source.md', ...args }),
     toolCallResponse('write-new', 'write', { file_path: 'draft.md', content: '第4集\n4-1 家 日 内\n甲：当前稿。' }), textResponse('正常交付。')])
-  await writeFile(join(f.root, 'source.md'), `第4集\n4-1 家 日 内\n甲：${kind === 'truncated' ? '长'.repeat(12_000) : '原句'}。\n`)
+  await writeFile(join(f.root, 'source.md'), `第4集\n4-1 家 日 内\n甲：${status === 'truncated' ? '长'.repeat(12_000) : '原句'}。\n`)
   await f.run('精修后保存为draft.md。')
   const report = f.evidence()[0]?.scenes[0]?.read_source_revision
-  expect(report?.status).toBe(kind)
+  expect(report?.status).toBe(status)
   expect(report?.hunks).toEqual([])
   expect(manuscriptTextReadSnapshots(f.ctx, f.agent.session)?.reads[0]?.text).toBeUndefined()
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('正常交付')
+  if (status === 'truncated') {
+    const legacyEvents = f.agent.session.snapshotEvents().map((event) => {
+      if (event.type !== 'tool/result' || event.data.message.toolCallId !== 'read-window') return event
+      expect(event.data.meta).toMatchObject({ continuation: { offset: 3 } })
+      const meta = z.object({ path: z.string(), offset: z.number(), totalLines: z.number(),
+        lines: z.array(z.object({ number: z.number(), text: z.string() })) }).parse(event.data.meta)
+      const lines = meta.lines.map(line => line.number === 3
+        ? { ...line, text: `${line.text}... (line truncated to ${line.text.length} chars)` } : line)
+      return { ...event, data: { ...event.data, meta: { ...meta, lines } } }
+    })
+    const legacyId = SessionId('legacy-capped-line')
+    const legacy = Session.create(legacyId, legacyEvents, { ...f.agent.session.header, id: legacyId })
+    const snapshot = manuscriptTextReadSnapshots(f.ctx, legacy)?.reads[0]
+    expect(snapshot?.status).toBe('truncated')
+    expect(snapshot?.text).toBeUndefined()
+  }
 })
 
 it('ignores an unread legacy bound source and retains the actual complete same-episode read', async () => {

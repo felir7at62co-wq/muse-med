@@ -21,6 +21,7 @@ import { readManuscript } from '../src/manuscript-document.ts'
 import { LocalFileSystem } from '../../../packages/fs/fs-local/src/index.ts'
 import * as FsPolicy from '../../../packages/fs/fs-observation-policy/src/index.ts'
 import * as ToolFs from '../../../packages/fs/tool-fs/src/index.ts'
+import WorkingDirectory from '../../../packages/session/working-directory/src/index.ts'
 
 const roots: string[] = [], contexts: Context[] = []
 const signal = new AbortController().signal
@@ -210,6 +211,7 @@ it('bounds the number of requested files and validates an explicitly supplied to
 it('uses ordinary read and guarded edit without the removed manuscript work tool', async () => {
   const f = await fixture()
   await f.ctx.plugin(LocalFileSystem, { cwd: f.root })
+  await f.ctx.plugin(WorkingDirectory, { defaultDirectory: f.root })
   await f.ctx.plugin(FsPolicy)
   await f.ctx.plugin(ToolFs)
   await f.ctx.plugin(RevisionPlugin, f.config)
@@ -250,6 +252,7 @@ it.each([
     textResponse('继续处理正文。'),
   ])
   await f.ctx.plugin(LocalFileSystem, { cwd: f.root })
+  await f.ctx.plugin(WorkingDirectory, { defaultDirectory: f.root })
   await f.ctx.plugin(ToolFs)
   await f.ctx.plugin(RevisionPlugin, f.config)
   f.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: request }] }))
@@ -269,6 +272,7 @@ it.each([
 it('does not repeat an unchanged guidance read advisory or inspect arbitrary manuscript prose as project rules', async () => {
   const f = await fixture()
   await f.ctx.plugin(LocalFileSystem, { cwd: f.root })
+  await f.ctx.plugin(WorkingDirectory, { defaultDirectory: f.root })
   await f.ctx.plugin(ToolFs)
   await f.ctx.plugin(RevisionPlugin, f.config)
   await writeFile(join(f.root, '写作规范.md'), '不合并台词。')
