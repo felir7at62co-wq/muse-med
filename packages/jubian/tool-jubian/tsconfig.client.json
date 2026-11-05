@@ -12,7 +12,11 @@
     "src/client/locales.ts",
     "src/client/mount.ts",
     "src/client/VideoModelSelect.tsx",
-    "src/client/video-directory.ts"
+    "src/client/video-directory.ts",
+    "src/client/recovery-directory.ts",
+    "src/client/VideoRecoverySection.tsx",
+    "src/types.ts",
+    "src/video-session-types.ts"
   ],
   "references": [
     {
@@ -50,6 +54,18 @@
     },
     {
       "path": "../../api/session-controller/tsconfig.client.json"
+    },
+    {
+      "path": "../../api/remote-access/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/connection/tsconfig.client.json"
+    },
+    {
+      "path": "../../client/ui-layout"
+    },
+    {
+      "path": "../../util/brand"
     }
   ]
 }

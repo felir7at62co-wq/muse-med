@@ -47,18 +47,24 @@ it.each([true, false])('captures one derivative with audio=%s and keeps the prov
   expect(await artifactHash(f.source)).toBe(hash('edited video'))
   const digest = adopted.digest
   if (typeof digest !== 'string') throw new Error('Expected review digest')
-  await reviewRecoveredVideo(f.project, f.key, { action: 'approve', digest })
-  await expect(reviewRecoveredVideo(f.project, f.key, { action: 'approve', digest }))
-    .resolves.toMatchObject({ decision: { action: 'approve', digest } })
-  await expect(reviewRecoveredVideo(f.project, f.key, { action: 'reject', digest }))
-    .rejects.toThrow('different video review decision')
+  if (audio) {
+    await reviewRecoveredVideo(f.project, f.key, { action: 'approve', digest })
+    await expect(reviewRecoveredVideo(f.project, f.key, { action: 'approve', digest }))
+      .resolves.toMatchObject({ decision: { action: 'approve', digest } })
+    await expect(reviewRecoveredVideo(f.project, f.key, { action: 'reject', digest }))
+      .rejects.toThrow('different video review decision')
+  } else {
+    await expect(reviewRecoveredVideo(f.project, f.key, { action: 'approve', digest })).rejects.toThrow('passing picture and audio')
+    expect((await reviewRecoveredVideo(f.project, f.key)).decision).toBeNull()
+    await reviewRecoveredVideo(f.project, f.key, { action: 'reject', digest })
+  }
   await expect(f.adopt()).rejects.toThrow('undecided provider report')
 })
 
 it.each([{ status: 'provider_failed' }, { idempotency_key: 'other-key' }])
 ('refuses adoption for a report with %j', async (evidence) => {
   const f = await fixture(evidence)
-  await expect(f.adopt()).rejects.toThrow('undecided provider report')
+  await expect(f.adopt()).rejects.toThrow('idempotency_key' in evidence ? 'another original key' : 'undecided provider report')
 })
 
 it.each(['video_tasks/review/hidden.mp4', 'video_tasks/../edited.mp4', 'exports/edited.mp4',
@@ -105,7 +111,7 @@ it.each(['decode', 'altered-managed', 'decision', 'changed-report', 'abort'] as 
   expect((await readdir(f.directory)).filter(name => name.startsWith('artifact-'))).toEqual([])
 })
 
-it('detects changes to the adopted bytes and original evidence', async () => {
+it('reports changed adopted bytes but refuses changed immutable evidence', async () => {
   const f = await fixture()
   const adopted = await f.adopt()
   const derivative = adopted.derivative
@@ -113,7 +119,8 @@ it('detects changes to the adopted bytes and original evidence', async () => {
     || typeof derivative.path !== 'string') throw new Error('Expected managed derivative path')
   const path = join(f.project, derivative.path)
   await writeFile(path, 'changed')
-  await expect(reviewRecoveredVideo(f.project, f.key)).rejects.toThrow('derivative or original report changed')
+  expect(await reviewRecoveredVideo(f.project, f.key)).toMatchObject({ digest: adopted.digest,
+    source: { kind: 'derivative', state: 'changed', path: derivative.path, sha256: hash('edited video') } })
   await writeFile(path, 'edited video')
   await writeFile(f.path, (await readFile(f.path, 'utf8')) + '\n')
   await expect(reviewRecoveredVideo(f.project, f.key)).rejects.toThrow('derivative or original report changed')

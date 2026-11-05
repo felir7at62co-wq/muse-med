@@ -1,6 +1,7 @@
 import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
+import SubprocessLocal from '@deepseek-ai/dsh-subprocess-local'
 import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -31,6 +32,9 @@ const bundledSkillDir = fileURLToPath(new URL('../../../packages/drama/skills/sk
 it('loads desktop Jubian on the Host and short-drama skill tools from the bundled source root', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-short-drama-loader-'))
   const ctx = new Context()
+  vi.stubEnv('MUSE_HOME', root)
+  vi.stubEnv('DSH_HOME', root)
+  vi.stubEnv('DSH_FFMPEG_PATH', undefined)
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(() => { throw new Error('Unexpected Jubian request') })
   try {
     const presetRows = yaml.load(await readFile(presetPath, 'utf8'), { schema: entryListSchema }) as Array<{ id: string; name: string; config?: Record<string, unknown> }>
@@ -84,6 +88,7 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
       { id: 'tools', name: '@deepseek-ai/dsh-tools' },
       { id: 'native-executor', name: 'test:native-executor' },
       { id: 'fs', name: 'test:fs' },
+      { id: 'subprocess', name: 'test:subprocess' },
       { id: 'projections', name: 'test:projections' },
       { id: 'working-directory', name: 'test:working-directory' },
       { id: 'agents', name: '@deepseek-ai/dsh-agent' },
@@ -99,6 +104,7 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     ctx.loader.builtins.include = Include
     const modules = new Map<string, unknown>([
       ['test:native-executor', NativeExecutor],
+      ['test:subprocess', SubprocessLocal],
       ['test:fs', LocalFileSystem], ['test:projections', SessionProjections], ['test:working-directory', WorkingDirectory],
       ['@deepseek-ai/dsh-system-prompt', SystemPrompt], ['@deepseek-ai/dsh-tools', Tools],
       ['@deepseek-ai/dsh-agent', AgentRegistry], ['@deepseek-ai/dsh-skill', SkillRegistry],
@@ -118,6 +124,7 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
 
     expect(ctx.get('jubianImage')).toBeDefined()
+    expect(await ctx.jubianVideoRecovery.status()).toMatchObject({ enabled: false, projectDir: null })
     expect(ctx.tools.get('jubian_video')?.description).toContain('image_generate 会真实计费')
     const listed = await ctx.skills.list()
     expect(listed.map(row => row.name)).not.toContain('jubian-asset-library')
@@ -147,5 +154,6 @@ it('loads desktop Jubian on the Host and short-drama skill tools from the bundle
     fetch.mockRestore()
     await ctx.fiber.dispose()
     await rm(root, { recursive: true, force: true })
+    vi.unstubAllEnvs()
   }
 })

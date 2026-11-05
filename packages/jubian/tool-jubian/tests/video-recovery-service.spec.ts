@@ -2,13 +2,14 @@
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import SubprocessLocal from '@deepseek-ai/dsh-subprocess-local'
+import { downloadMedia } from '@deepseek-ai/dsh-jubian-api'
 import type { PeerId } from '@deepseek-ai/dsh-typert-protocol'
-import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest'
 import { JubianVideoRecovery } from '../src/video-recovery-service.ts'
 import * as Recovery from '../src/video-recovery.ts'
 import * as Files from 'node:fs/promises'
@@ -16,9 +17,14 @@ import * as media from '../src/video-media-check.ts'
 import { resolveVideoRecovery } from '../src/video-recovery-config.ts'
 import type { VideoRecoveryDigest } from '../src/types.ts'
 
+vi.mock('@deepseek-ai/dsh-jubian-api', async original => ({
+  ...await original<typeof import('@deepseek-ai/dsh-jubian-api')>(), downloadMedia: vi.fn(),
+}))
+
 vi.mock('node:fs/promises', async original => ({ ...await original<typeof import('node:fs/promises')>() }))
 
 const hash = (bytes: string | Buffer) => createHash('sha256').update(bytes).digest('hex')
+beforeEach(() => { vi.mocked(downloadMedia).mockReset().mockRejectedValue(new Error('No media transfer is allowed')) })
 afterEach(() => { vi.restoreAllMocks() })
 
 async function fixture() {
@@ -47,6 +53,27 @@ async function fixture() {
   const service = ctx.jubianVideoRecovery
   const input = { idempotencyKey: key, digest: brandString<VideoRecoveryDigest>(hash(evidence)) }
   return { root, project, directory, preview, ledger, key, settingsPath, options, ctx, fiber, service, input, fetch }
+}
+
+function permitOriginalReads(f: Awaited<ReturnType<typeof fixture>>, bytes = 'approved bytes'): void {
+  const mediaUrl = 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture/approved.mp4'
+  f.fetch.mockImplementation(async (input, init) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+    let data: object
+    if (init?.method === 'GET' && url.pathname.endsWith('/admin/aigc/video/task/42')) {
+      data = { id: 42, taskType: 1, taskStatus: 'succeeded' }
+    } else if (init?.method === 'POST' && url.pathname.endsWith('/admin/aigc/video/task/sub/list')) {
+      if (typeof init.body !== 'string') throw new Error('Expected a JSON request body')
+      expect(JSON.parse(init.body)).toEqual({ aigcVideoTaskId: 42 })
+      data = { total: 1, rows: [{ id: 51, aigcVideoTaskId: 42, taskStatus: 'succeeded', resultList: [
+        { firstResultId: 151, taskType: 1, resultStatus: 'succeeded', lastTaskType: 1,
+          lastResultStatus: 'succeeded', tosVideoUrl: mediaUrl, lastTosVideoUrl: mediaUrl },
+      ] }] }
+    } else throw new Error('Unexpected provider operation ' + String(init?.method) + ' ' + url.pathname)
+    return new Response(JSON.stringify({ code: 200, data }))
+  })
+  vi.mocked(downloadMedia).mockResolvedValueOnce({ bytes: Buffer.from(bytes), sha256: 'sha256:' + hash(bytes),
+    kind: 'video', media_type: 'video/mp4' })
 }
 
 function invocation(ctx: Context, signal: AbortSignal): JubianVideoRecovery {
@@ -259,7 +286,7 @@ it('retains an optional rejection reason as absent through a single reopening', 
   expect((await f.service.review({ ...f.input, action: 'read' })).decision).toBe('approve')
 })
 
-it.each(['invalid-media-hash', 'failed-track', 'extra-output'] as const)('keeps approval separate from technical deliverability: %s', async (kind) => {
+it.each(['invalid-media-hash', 'failed-track', 'extra-output', 'no-output'] as const)('refuses a new approval without unique passing technical evidence: %s', async (kind) => {
   const f = await fixture()
   await f.service.configure({ enabled: false, projectDir: f.project })
   const reportPath = join(f.directory, hash(f.key) + '.json')
@@ -267,10 +294,13 @@ it.each(['invalid-media-hash', 'failed-track', 'extra-output'] as const)('keeps 
   if (kind === 'invalid-media-hash') report.media_checks[0]!.sha256 = 'unrecognized-media-id'
   if (kind === 'failed-track') report.media_checks[0]!.audio = false
   if (kind === 'extra-output') report.media_checks.push({ ...report.media_checks[0]! })
+  if (kind === 'no-output') report.media_checks = []
   await writeFile(reportPath, JSON.stringify(report))
   const current = await f.service.review({ ...f.input, action: 'read' })
-  await f.service.review({ ...f.input, digest: current.digest, action: 'approve' })
+  await expect(f.service.review({ ...f.input, digest: current.digest, action: 'approve' })).rejects.toThrow('passing picture and audio')
+  expect((await f.service.review({ ...f.input, action: 'read' })).decision).toBeNull()
   await expect(f.service.deliverApprovedMp4({ ...f.input, digest: current.digest })).rejects.toThrow('passing picture and audio')
+  expect(f.fetch).not.toHaveBeenCalled()
 })
 
 it('reports a malformed direct receipt without exposing a delivered path', async () => {
@@ -426,4 +456,236 @@ it('uses only a readonly project provider when an approved original cache needs 
   expect(f.fetch).toHaveBeenCalled()
   expect(f.fetch.mock.calls.every(([, init]) => init?.method === 'GET' || init?.method === 'POST')).toBe(true)
   expect(await f.ledger.records()).toHaveLength(1)
+})
+
+
+it('inspects an unmaterialized provider source locally and acquires it only for explicit approval', async () => {
+  const f = await fixture()
+  const cache = join(f.directory, 'original-' + hash('approved bytes') + '.mp4')
+  await unlink(cache)
+  await f.service.configure({ enabled: false, projectDir: f.project })
+  const expected = { kind: 'provider', state: 'unmaterialized', path: 'video_tasks/review/' + basename(cache),
+    sha256: hash('approved bytes') }
+  expect((await f.service.status()).reports[0]?.source).toEqual(expected)
+  expect((await f.service.review({ ...f.input, action: 'read' })).source).toEqual(expected)
+  expect(f.fetch).not.toHaveBeenCalled()
+  expect(downloadMedia).not.toHaveBeenCalled()
+  permitOriginalReads(f)
+  const approved = await f.service.review({ ...f.input, action: 'approve' })
+  expect(approved).toMatchObject({ digest: f.input.digest, decision: 'approve', source: { ...expected, state: 'verified' } })
+  expect(await readFile(cache, 'utf8')).toBe('approved bytes')
+  expect(f.fetch.mock.calls.map(([, init]) => init?.method)).toEqual(['GET', 'POST'])
+  expect(await f.ledger.records()).toHaveLength(1)
+  await unlink(cache)
+  f.fetch.mockClear().mockRejectedValue(new Error('offline'))
+  expect((await f.service.review({ ...f.input, action: 'approve' })).source.state).toBe('unmaterialized')
+  expect(f.fetch).not.toHaveBeenCalled()
+})
+
+it('does not approve or replace provider bytes that differ from recorded checks', async () => {
+  const f = await fixture(), cache = join(f.directory, 'original-' + hash('approved bytes') + '.mp4')
+  await unlink(cache)
+  await f.service.configure({ enabled: false, projectDir: f.project })
+  permitOriginalReads(f, 'foreign provider bytes')
+  await expect(f.service.review({ ...f.input, action: 'approve' })).rejects.toThrow('differ from the approved output')
+  expect((await f.service.review({ ...f.input, action: 'read' })).decision).toBeNull()
+  await expect(readFile(cache)).rejects.toThrow()
+  await writeFile(cache, 'occupied foreign bytes')
+  f.fetch.mockClear().mockRejectedValue(new Error('No replacement request is permitted'))
+  expect((await f.service.status()).reports[0]?.source.state).toBe('changed')
+  await expect(f.service.review({ ...f.input, action: 'approve' })).rejects.toThrow('Managed video bytes differ')
+  expect(await readFile(cache, 'utf8')).toBe('occupied foreign bytes')
+  expect(f.fetch).not.toHaveBeenCalled()
+})
+
+it('rechecks the immutable report after acquiring provider media before recording approval', async () => {
+  const f = await fixture(), cache = join(f.directory, 'original-' + hash('approved bytes') + '.mp4')
+  await unlink(cache)
+  await f.service.configure({ enabled: false, projectDir: f.project })
+  permitOriginalReads(f)
+  vi.mocked(downloadMedia).mockReset().mockImplementationOnce(async () => {
+    const report = join(f.directory, hash(f.key) + '.json')
+    await writeFile(report, (await readFile(report, 'utf8')) + '\n')
+    return { bytes: Buffer.from('approved bytes'), sha256: 'sha256:' + hash('approved bytes'), kind: 'video', media_type: 'video/mp4' }
+  })
+  await expect(f.service.review({ ...f.input, action: 'approve' })).rejects.toThrow('changed before approval')
+  expect(await readFile(cache, 'utf8')).toBe('approved bytes')
+  expect((await f.service.review({ ...f.input, action: 'read' })).decision).toBeNull()
+  await expect(readFile(join(f.directory, hash(f.key) + '.json.decision.json'))).rejects.toThrow()
+})
+
+it.each(['missing', 'changed', 'unreadable'] as const)('keeps immutable derivative review available with a %s source', async (problem) => {
+  const f = await fixture()
+  vi.spyOn(media, 'decodeVideoFile').mockResolvedValue({ video: true, audio: true })
+  await f.service.configure({ enabled: false, projectDir: f.project })
+  await writeFile(join(f.project, 'video_tasks', 'edited.mp4'), 'edited bytes')
+  const adopted = await f.service.adopt({ ...f.input, path: 'video_tasks/edited.mp4' })
+  if (adopted.derivative === undefined) throw new Error('Expected adopted derivative')
+  const captured = join(f.project, adopted.derivative.path)
+  await unlink(captured)
+  if (problem === 'changed') await writeFile(captured, 'foreign bytes')
+  if (problem === 'unreadable') await Files.symlink(join(f.project, 'video_tasks', 'edited.mp4'), captured, 'file')
+  const current = await f.service.review({ ...f.input, action: 'read' })
+  expect(current).toMatchObject({ digest: adopted.digest, decision: null,
+    source: { kind: 'derivative', state: problem, path: adopted.derivative.path, sha256: hash('edited bytes') } })
+  expect((await f.service.status()).reports[0]?.digest).toBe(adopted.digest)
+  await expect(f.service.review({ ...f.input, digest: adopted.digest, action: 'approve' })).rejects.toThrow('verified current source')
+  expect(f.fetch).not.toHaveBeenCalled()
+  expect(downloadMedia).not.toHaveBeenCalled()
+  await f.service.review({ ...f.input, digest: adopted.digest, action: 'reject', reason: '缺少当前文件' })
+  const reopened = await f.service.review({ ...f.input, digest: adopted.digest, action: 'reopen', reason: '恢复后核对' })
+  expect(reopened.source.state).toBe(problem)
+  if (problem !== 'missing') await unlink(captured)
+  await writeFile(captured, 'edited bytes')
+  const restored = await f.service.review({ ...f.input, action: 'read' })
+  expect(restored).toMatchObject({ digest: reopened.digest, source: { state: 'verified' } })
+  await f.service.review({ ...f.input, digest: restored.digest, action: 'approve' })
+  expect(await f.ledger.records()).toHaveLength(1)
+})
+
+it('replays an approved derivative export and repairs its receipt offline without its managed source', async () => {
+  const f = await fixture()
+  vi.spyOn(media, 'decodeVideoFile').mockResolvedValue({ video: true, audio: true })
+  await f.service.configure({ enabled: false, projectDir: f.project })
+  await writeFile(join(f.project, 'video_tasks', 'edited.mp4'), 'edited bytes')
+  const adopted = await f.service.adopt({ ...f.input, path: 'video_tasks/edited.mp4' })
+  if (adopted.derivative === undefined) throw new Error('Expected derivative')
+  const input = { ...f.input, digest: adopted.digest }
+  await f.service.review({ ...input, action: 'approve' })
+  const delivered = await f.service.deliverApprovedMp4(input)
+  if (delivered.directDelivery === undefined) throw new Error('Expected direct output')
+  const path = join(f.project, delivered.directDelivery.path), identity = await stat(path)
+  const captured = join(f.project, adopted.derivative.path)
+  await unlink(captured)
+  expect((await f.service.status()).reports[0]).toMatchObject({ source: { state: 'missing' }, directDelivery: delivered.directDelivery })
+  expect((await f.service.deliverApprovedMp4(input)).directDelivery).toEqual(delivered.directDelivery)
+  await unlink(join(f.directory, adopted.digest + '.direct-delivery.json'))
+  await f.service.deliverApprovedMp4(input)
+  expect(await stat(path)).toMatchObject({ ino: identity.ino, dev: identity.dev })
+  await unlink(path)
+  await expect(f.service.deliverApprovedMp4(input)).rejects.toThrow()
+  await writeFile(path, 'occupied foreign output')
+  await expect(f.service.deliverApprovedMp4(input)).rejects.toThrow('different bytes')
+  expect(await readFile(path, 'utf8')).toBe('occupied foreign output')
+  expect(f.fetch).not.toHaveBeenCalled()
+  expect(downloadMedia).not.toHaveBeenCalled()
+})
+
+
+it.each(['provider', 'derivative'] as const)('reports an unreadable %s source without hiding its review or fetching media', async (kind) => {
+  const f = await fixture()
+  await f.service.configure({ enabled: false, projectDir: f.project })
+  let digest = f.input.digest, path = join(f.directory, 'original-' + hash('approved bytes') + '.mp4')
+  if (kind === 'derivative') {
+    vi.spyOn(media, 'decodeVideoFile').mockResolvedValue({ video: true, audio: true })
+    await writeFile(join(f.project, 'video_tasks', 'edited.mp4'), 'edited bytes')
+    const adopted = await f.service.adopt({ ...f.input, path: 'video_tasks/edited.mp4' })
+    if (adopted.derivative === undefined) throw new Error('Expected derivative')
+    digest = adopted.digest; path = join(f.project, adopted.derivative.path)
+  }
+  const original = Files.lstat
+  const inspect = vi.spyOn(Files, 'lstat').mockImplementation(async (input) => {
+    if (String(input) === path) throw Object.assign(new Error('source read denied'), { code: 'EACCES' })
+    return original(input)
+  })
+  expect((await f.service.review({ ...f.input, action: 'read' })).source).toMatchObject({ kind, state: 'unreadable' })
+  expect((await f.service.status()).reports[0]?.digest).toBe(digest)
+  await expect(f.service.review({ ...f.input, digest, action: 'approve' })).rejects.toThrow()
+  expect((await f.service.review({ ...f.input, digest, action: 'reject' })).decision).toBe('reject')
+  expect(f.fetch).not.toHaveBeenCalled()
+  expect(downloadMedia).not.toHaveBeenCalled()
+  inspect.mockRestore()
+  expect((await f.service.review({ ...f.input, action: 'read' })).source.state).toBe('verified')
+})
+
+it('reports an original disappearing inside the bounded hash read as unmaterialized', async () => {
+  const f = await fixture(), path = join(f.directory, 'original-' + hash('approved bytes') + '.mp4')
+  await f.service.configure({ enabled: false, projectDir: f.project })
+  let reads = 0
+  const original = Files.lstat
+  vi.spyOn(Files, 'lstat').mockImplementation(async (input) => {
+    if (String(input) === path && ++reads === 2) await unlink(path)
+    return original(input)
+  })
+  expect((await f.service.review({ ...f.input, action: 'read' })).source).toMatchObject({ kind: 'provider', state: 'unmaterialized' })
+  expect(f.fetch).not.toHaveBeenCalled()
+})
+
+it('propagates cancellation during local source verification instead of returning an unreadable source', async () => {
+  const f = await fixture(), path = join(f.directory, 'original-' + hash('approved bytes') + '.mp4')
+  await f.service.configure({ enabled: false, projectDir: f.project })
+  const cancellation = new AbortController(), original = Files.realpath
+  vi.spyOn(Files, 'realpath').mockImplementation(async (input) => {
+    const value = await original(input)
+    if (String(input) === path) cancellation.abort(new Error('source verification cancelled'))
+    return value
+  })
+  await expect(invocation(f.ctx, cancellation.signal).review({ ...f.input, action: 'read' })).rejects.toThrow('source verification cancelled')
+  expect(f.fetch).not.toHaveBeenCalled()
+})
+
+it.each(['filename', 'sha256', 'originalDigest'] as const)('does not disguise invalid immutable adoption %s as missing source', async (field) => {
+  const f = await fixture()
+  vi.spyOn(media, 'decodeVideoFile').mockResolvedValue({ video: true, audio: true })
+  await f.service.configure({ enabled: false, projectDir: f.project })
+  await writeFile(join(f.project, 'video_tasks', 'edited.mp4'), 'edited bytes')
+  const adopted = await f.service.adopt({ ...f.input, path: 'video_tasks/edited.mp4' })
+  if (adopted.derivative === undefined) throw new Error('Expected derivative')
+  await unlink(join(f.project, adopted.derivative.path))
+  const path = join(f.directory, hash(f.key) + '.json.decision.json')
+  const record = JSON.parse(await readFile(path, 'utf8')) as Record<string, string>
+  record[field] = field === 'filename' ? '../outside.mp4' : field === 'sha256' ? 'invalid-sha' : '0'.repeat(64)
+  await writeFile(path, JSON.stringify(record))
+  await expect(f.service.review({ ...f.input, action: 'read' })).rejects.toThrow()
+  await expect(f.service.status()).rejects.toThrow('cannot be read')
+  expect(f.fetch).not.toHaveBeenCalled()
+  expect(downloadMedia).not.toHaveBeenCalled()
+})
+
+
+it.each(['invalid-media-hash', 'failed-track', 'extra-output'] as const)('retains legacy approval facts but refuses delivery with %s', async (kind) => {
+  const f = await fixture()
+  await f.service.configure({ enabled: false, projectDir: f.project })
+  const path = join(f.directory, hash(f.key) + '.json')
+  const report = JSON.parse(await readFile(path, 'utf8')) as { media_checks: { sha256: string; video: boolean; audio: boolean }[] }
+  if (kind === 'invalid-media-hash') report.media_checks[0]!.sha256 = 'unknown-legacy-hash'
+  if (kind === 'failed-track') report.media_checks[0]!.audio = false
+  if (kind === 'extra-output') report.media_checks.push({ ...report.media_checks[0]! })
+  const bytes = JSON.stringify(report)
+  await writeFile(path, bytes)
+  await writeFile(path + '.decision.json', JSON.stringify({ action: 'approve', digest: hash(bytes) }))
+  const current = await f.service.review({ ...f.input, action: 'read' })
+  expect(current).toMatchObject({ digest: hash(bytes), decision: 'approve' })
+  await expect(f.service.deliverApprovedMp4({ ...f.input, digest: current.digest })).rejects.toThrow('passing picture and audio')
+  expect(f.fetch).not.toHaveBeenCalled()
+})
+
+it('keeps a canonical ancestor alias usable for local source inspection', async () => {
+  const f = await fixture(), alias = join(f.root, 'ancestor-alias')
+  await Files.symlink(f.root, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  expect(await Recovery.reviewRecoveredVideo(join(alias, 'project'), f.key)).toMatchObject({
+    digest: f.input.digest, source: { kind: 'provider', state: 'verified', sha256: hash('approved bytes') },
+  })
+})
+
+it('does not verify a source redirected outside the captured project after directory inspection', async () => {
+  const f = await fixture(), foreign = join(f.root, 'foreign-review')
+  await mkdir(foreign)
+  const filename = 'original-' + hash('approved bytes') + '.mp4', source = join(f.directory, filename)
+  await writeFile(join(foreign, filename), 'approved bytes')
+  const original = Files.realpath
+  let replaced = false
+  vi.spyOn(Files, 'realpath').mockImplementation(async (input) => {
+    if (String(input) === source && !replaced) {
+      replaced = true
+      await Files.rename(f.directory, f.directory + '.retained')
+      await Files.symlink(foreign, f.directory, process.platform === 'win32' ? 'junction' : 'dir')
+    }
+    return original(input)
+  })
+  expect(await Recovery.reviewRecoveredVideo(f.project, f.key)).toMatchObject({
+    digest: f.input.digest, source: { kind: 'provider', state: 'unreadable' },
+  })
+  expect(replaced).toBe(true)
+  expect(f.fetch).not.toHaveBeenCalled()
 })

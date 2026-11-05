@@ -15,6 +15,8 @@ import type {
   JubianTokenSectionProps,
   JubianTokenStatus,
 } from '../src/client/JubianTokenSection.tsx'
+import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
+import { RecoveryDirectory } from '../src/client/recovery-directory.ts'
 import { en, type JubianLocaleKey } from '../src/client/locales.ts'
 
 afterEach(cleanup)
@@ -36,12 +38,22 @@ function ok(status: JubianTokenStatus): JubianTokenOutcome {
 
 /** Props for one render, with a stubbed Host face. */
 function props(overrides: Partial<JubianTokenSectionProps> = {}): JubianTokenSectionProps {
+  const recovery = new RecoveryDirectory()
   return {
     t,
     close: vi.fn(),
     describe: async () => ok(ABSENT),
     set: async () => ok(CONFIGURED),
     unset: async () => ok(ABSENT),
+    useRecoveryState: bindSnapshotSelector(recovery.state),
+    setRecoveryProjectDir: (path) => { recovery.setProjectDir(path) },
+    chooseRecoveryProject: () => recovery.chooseProject(),
+    configureRecovery: enabled => recovery.configure(enabled),
+    refreshRecovery: () => recovery.refresh(),
+    openRecoveryAction: (action, report) => { recovery.open(action, report) },
+    closeRecoveryDialog: () => { recovery.closeDialog() },
+    confirmRecoveryDialog: (id, text) => recovery.confirm(id, text),
+    deliverRecovery: report => recovery.deliver(report),
     ...overrides,
   } as JubianTokenSectionProps
 }

@@ -1,0 +1,31 @@
+- region "Project video recovery":
+  - heading "Project video recovery" [level=3]
+  - paragraph: Review recorded video tasks and deliver an approved MP4 without generating another video.
+  - status: Recovery enabled
+  - text: Project folder
+  - textbox "Project folder": {{project}}
+  - button "Enable recovery" [disabled]
+  - button "Disable recovery"
+  - button "Refresh reports"
+  - article:
+    - heading "Task 4201" [level=4]
+    - text: Approved
+    - paragraph: Provider original
+    - paragraph: Video decodes · Audio decodes
+    - paragraph: The original video is not cached locally.
+    - group: Video file and review details
+    - paragraph: MP4 delivered directly
+    - code: exports/Muse-approved-4201-{{original-review}}.mp4
+    - code: SHA-256 {{original-sha}}
+    - button "Deliver MP4 directly"
+  - article:
+    - heading "Task 4202" [level=4]
+    - text: Approved
+    - paragraph: Local imported version
+    - paragraph: Video decodes · Audio decodes
+    - paragraph: The recorded local video is currently missing.
+    - group: Video file and review details
+    - paragraph: MP4 delivered directly
+    - code: exports/Muse-approved-4202-{{imported-review}}.mp4
+    - code: SHA-256 {{imported-sha}}
+    - button "Deliver MP4 directly"

@@ -1,4 +1,4 @@
-/** Browser entry binding the generated `jubianToken` Remote artifact to its Settings page. */
+/** Browser entry binding the generated Jubian Remote artifact to credential and recovery settings. */
 
 import jubianTokenRemote from '@deepseek-ai/dsh-tool-jubian/remote'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -14,7 +14,7 @@ export type {
 } from './mount.ts'
 
 /**
- * Mount the generated token Remote contribution and the Settings page over it.
+ * Mount the generated Jubian Remote contribution and the credential and recovery Settings page.
  * @param ctx - Client context carrying the slot registry, locale, and Remote service.
  * @returns a disposer that removes the page registrations and the namespace.
  */

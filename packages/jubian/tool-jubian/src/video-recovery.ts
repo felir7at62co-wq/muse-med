@@ -13,7 +13,7 @@ import { z } from 'zod'
 import { recoverVideoSubmission } from './native.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { recordedVideoPreview, recoveryProject } from './video-recovery-project.ts'
-import type { ApprovedClipDirectDelivery, VideoArtifactSha256 } from './types.ts'
+import type { ApprovedClipDirectDelivery, VideoArtifactSha256, VideoRecoverySource } from './types.ts'
 import { observe, watchArgs } from './watch.ts'
 import { VideoMediaDrainError, type checkVideoMedia } from './video-media-check.ts'
 
@@ -87,6 +87,15 @@ const reportSchema = z.record(z.string(), jsonValueSchema)
 const outputSchema = z.object({ outputs: z.array(z.object({ video_url: z.string().min(1) })).min(1) })
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/)
 const rejectionSchema = z.object({ action: z.literal('reject'), digest: sha256Schema, reason: z.string().optional() })
+const reviewDecisionSchema = z.discriminatedUnion('action', [
+  z.object({ action: z.literal('approve'), digest: sha256Schema, reason: z.undefined().optional() }),
+  rejectionSchema,
+])
+const recoveryEvidenceSchema = z.object({
+  idempotency_key: z.string(), task_id: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  status: z.enum(['awaiting_review', 'provider_failed']),
+  media_checks: z.array(z.object({ sha256: z.string(), video: z.boolean(), audio: z.boolean() })),
+})
 const reopeningSchema = z.object({ rejectionSha256: sha256Schema, reason: z.string().trim().min(1).max(1000) })
 const derivativeSchema = z.object({
   kind: z.literal('derivative'),
@@ -130,33 +139,59 @@ export async function artifactHash(path: string, signal?: AbortSignal): Promise<
   }
 }
 
-/**
- * Read the current review, record a decision, or reopen a rejected artifact once.
- * @param projectDir - Authorized project directory.
- * @param key - Original submission key.
- * @param decision - Optional decision or reason to reopen the exact rejected report digest.
- * @param signal - Optional cancellation of report reads and writes before publication.
- * @returns Original evidence, active digest, optional derivative, recorded decision and any prior rejection.
- */
-export async function reviewRecoveredVideo(projectDir: string, key: string,
-  decision?: { action: 'approve' | 'reject' | 'reopen'; digest: string; reason?: string }, signal?: AbortSignal): Promise<Record<string, JsonValue>> {
-  const path = reviewPath(projectDir, key)
+type DerivativeView = { path: string; sha256: string; video: true; audio: boolean }
+type SourceCandidate = { kind: 'provider' | 'derivative'; path: string; sha256: string; taskId: number; passing: boolean }
+type ReviewMetadata = {
+  projectDir: string
+  evidence: Record<string, JsonValue>
+  digest: string
+  derivative: DerivativeView | null
+  candidate: SourceCandidate | undefined
+  decisionPath: string
+  decisionBytes: string | undefined
+  recorded: JsonValue
+  reopeningPath: string
+  reopeningBytes: string | undefined
+  reopenedFrom: JsonValue | undefined
+}
+
+function candidateFor(parsed: z.infer<typeof recoveryEvidenceSchema>, derivative: DerivativeView | null): SourceCandidate | undefined {
+  if (parsed.status !== 'awaiting_review') return undefined
+  if (derivative !== null) return { kind: 'derivative', path: derivative.path, sha256: derivative.sha256,
+    taskId: parsed.task_id, passing: derivative.audio }
+  const [check] = parsed.media_checks
+  if (check === undefined || parsed.media_checks.length !== 1) return undefined
+  const sha256 = /^sha256:([a-f0-9]{64})$/u.exec(check.sha256)?.[1]
+  if (sha256 === undefined) return undefined
+  return { kind: 'provider', path: 'video_tasks/review/original-' + sha256 + '.mp4', sha256,
+    taskId: parsed.task_id, passing: check.video && check.audio }
+}
+
+function validateDecision(recorded: JsonValue, digest: string): void {
+  if (recorded === null) return
+  if (reviewDecisionSchema.parse(recorded).digest !== digest) throw new Error('The decision belongs to another report')
+}
+
+async function readReviewMetadata(projectDir: string, key: string, signal?: AbortSignal): Promise<ReviewMetadata> {
+  signal?.throwIfAborted()
+  await reportDirectory(reviewPath(projectDir, key), false)
+  const root = await realpath(projectDir), path = reviewPath(root, key)
   await reportDirectory(path, false)
   await regularReport(path)
-  const report = await readFile(path, 'utf8')
+  const report = await readFile(path, { encoding: 'utf8', signal })
   let digest = createHash('sha256').update(report).digest('hex')
   const evidence = reportSchema.parse(JSON.parse(report))
+  const facts = recoveryEvidenceSchema.parse(evidence)
+  if (facts.idempotency_key !== key) throw new Error('The video report belongs to another original key')
   let decisionPath = path + '.decision.json'
   const initial = await optionalReport(decisionPath, signal)
   let decisionBytes = initial
   let recorded: JsonValue = initial === undefined ? null : jsonValueSchema.parse(JSON.parse(initial))
-  let derivative: JsonValue = null
-  if (initial !== undefined && recorded !== null && typeof recorded === 'object' && !Array.isArray(recorded) && recorded.kind === 'derivative') {
+  let derivative: DerivativeView | null = null
+  if (initial !== undefined && recorded !== null && typeof recorded === 'object'
+    && !Array.isArray(recorded) && recorded.kind === 'derivative') {
     const adoption = derivativeSchema.parse(recorded)
-    const managed = join(dirname(path), adoption.filename)
-    if (adoption.originalDigest !== digest || adoption.sha256 !== await artifactHash(managed, signal)) {
-      throw new Error('The adopted video derivative or original report changed')
-    }
+    if (adoption.originalDigest !== digest) throw new Error('The adopted video derivative or original report changed')
     digest = createHash('sha256').update(report).update('\0').update(initial).digest('hex')
     derivative = {
       path: 'video_tasks/review/' + adoption.filename, sha256: adoption.sha256, video: adoption.video, audio: adoption.audio,
@@ -167,19 +202,6 @@ export async function reviewRecoveredVideo(projectDir: string, key: string,
   }
   const reopeningPath = decisionPath + '.reopen.json'
   const reopeningBytes = await optionalReport(reopeningPath, signal)
-  if (decision?.action === 'reopen') {
-    const rejection = rejectionSchema.safeParse(recorded)
-    if (reopeningBytes !== undefined || !rejection.success || decisionBytes === undefined
-      || rejection.data.digest !== digest || decision.digest !== digest
-      || evidence.status !== 'awaiting_review' || evidence.idempotency_key !== key) {
-      throw new Error('Only the current rejected review can be reopened once')
-    }
-    const reopening = reopeningSchema.parse({
-      rejectionSha256: createHash('sha256').update(decisionBytes).digest('hex'), reason: decision.reason,
-    })
-    if (!await publishOnce(reopeningPath, reopening, signal)) throw new Error('The rejected review has already been reopened')
-    return await reviewRecoveredVideo(projectDir, key, undefined, signal)
-  }
   let reopenedFrom: JsonValue | undefined
   if (reopeningBytes !== undefined) {
     const rejection = rejectionSchema.parse(recorded)
@@ -194,23 +216,101 @@ export async function reviewRecoveredVideo(projectDir: string, key: string,
     const active = await optionalReport(decisionPath, signal)
     recorded = active === undefined ? null : jsonValueSchema.parse(JSON.parse(active))
   }
+  validateDecision(recorded, digest)
+  return { projectDir: root, evidence, digest, derivative, candidate: candidateFor(facts, derivative), decisionPath, decisionBytes,
+    recorded, reopeningPath, reopeningBytes, reopenedFrom }
+}
+
+function sourceState(candidate: SourceCandidate, state: 'verified' | 'changed' | 'unreadable'): VideoRecoverySource {
+  const identity = { path: candidate.path, sha256: brandString<VideoArtifactSha256>(candidate.sha256) }
+  return candidate.kind === 'provider' ? { kind: 'provider', ...identity, state } : { kind: 'derivative', ...identity, state }
+}
+
+async function inspectSource(projectDir: string, candidate: SourceCandidate | undefined,
+  signal?: AbortSignal): Promise<VideoRecoverySource> {
+  signal?.throwIfAborted()
+  if (candidate === undefined) return { kind: 'none', state: 'unverifiable' }
+  const path = join(projectDir, candidate.path)
+  try {
+    await reportDirectory(path, false)
+    await regularReport(path)
+    const canonical = await realpath(path)
+    signal?.throwIfAborted()
+    if (relative(path, canonical) !== '') return sourceState(candidate, 'unreadable')
+    const actual = await artifactHash(path, signal)
+    signal?.throwIfAborted()
+    return sourceState(candidate, actual === candidate.sha256 ? 'verified' : 'changed')
+  } catch (error) {
+    signal?.throwIfAborted()
+    if (missing(error) || (error instanceof Error && missing(error.cause))) {
+      const identity = { path: candidate.path, sha256: brandString<VideoArtifactSha256>(candidate.sha256) }
+      return candidate.kind === 'provider'
+        ? { kind: 'provider', ...identity, state: 'unmaterialized' } : { kind: 'derivative', ...identity, state: 'missing' }
+    }
+    return sourceState(candidate, 'unreadable')
+  }
+}
+
+/**
+ * Read immutable review facts and current local source state, or explicitly record a decision.
+ * New approvals require passing tracks and a matching current source.
+ * Reads, rejections and recorded decision reuse may report an unavailable source.
+ * @param projectDir - Authorized project directory.
+ * @param key - Original submission key.
+ * @param decision - Optional decision or reason to reopen the exact rejected report digest.
+ * @param signal - Cancellation of reads and writes before publication.
+ * @param clientForProject - Explicit read transport for a new provider approval only; acquisition requires signal.
+ * @returns Original evidence, unchanged active digest, current source state, derivative and persisted decision.
+ */
+export async function reviewRecoveredVideo(projectDir: string, key: string,
+  decision?: { action: 'approve' | 'reject' | 'reopen'; digest: string; reason?: string }, signal?: AbortSignal,
+  clientForProject?: () => JubianClient): Promise<Record<string, JsonValue>> {
+  let metadata = await readReviewMetadata(projectDir, key, signal)
+  if (decision?.action === 'reopen') {
+    const rejection = rejectionSchema.safeParse(metadata.recorded)
+    if (metadata.reopeningBytes !== undefined || !rejection.success || metadata.decisionBytes === undefined
+      || rejection.data.digest !== metadata.digest || decision.digest !== metadata.digest
+      || metadata.evidence.status !== 'awaiting_review' || metadata.evidence.idempotency_key !== key) {
+      throw new Error('Only the current rejected review can be reopened once')
+    }
+    const reopening = reopeningSchema.parse({
+      rejectionSha256: createHash('sha256').update(metadata.decisionBytes).digest('hex'), reason: decision.reason,
+    })
+    if (!await publishOnce(metadata.reopeningPath, reopening, signal)) throw new Error('The rejected review has already been reopened')
+    return reviewRecoveredVideo(metadata.projectDir, key, undefined, signal)
+  }
   if (decision !== undefined) {
-    if (decision.digest !== digest || evidence.status !== 'awaiting_review' || evidence.idempotency_key !== key) {
+    if (decision.digest !== metadata.digest || metadata.evidence.status !== 'awaiting_review'
+      || metadata.evidence.idempotency_key !== key) {
       throw new Error('Video review report changed or is not awaiting review')
     }
-    if (recorded === null && await publishOnce(decisionPath, decision, signal)) {
-      recorded = decision
+    if (decision.action === 'approve' && metadata.recorded === null) {
+      const candidate = metadata.candidate
+      if (candidate === undefined || !candidate.passing) throw new Error('Video approval requires passing picture and audio evidence')
+      if (candidate.kind === 'provider' && clientForProject !== undefined) {
+        if (signal === undefined) throw new Error('Provider acquisition requires operation cancellation')
+        await materializeApprovedProviderVideo(metadata.projectDir, candidate.taskId, candidate.sha256, clientForProject, signal)
+      }
+      metadata = await readReviewMetadata(projectDir, key, signal)
+      if (metadata.digest !== decision.digest) throw new Error('Video review report changed before approval')
+      const source = await inspectSource(metadata.projectDir, metadata.candidate, signal)
+      if (source.state !== 'verified') throw new Error('Video approval requires a verified current source')
+    }
+    if (metadata.recorded === null && await publishOnce(metadata.decisionPath, decision, signal)) {
+      metadata.recorded = decision
     } else {
-      const existing = await optionalReport(decisionPath, signal)
-      recorded = existing === undefined ? null : jsonValueSchema.parse(JSON.parse(existing))
-      if (recorded === null || typeof recorded !== 'object' || Array.isArray(recorded)
-        || recorded.action !== decision.action || recorded.digest !== decision.digest || recorded.reason !== decision.reason) {
+      const existing = await optionalReport(metadata.decisionPath, signal)
+      metadata.recorded = existing === undefined ? null : jsonValueSchema.parse(JSON.parse(existing))
+      if (metadata.recorded === null || typeof metadata.recorded !== 'object' || Array.isArray(metadata.recorded)
+        || metadata.recorded.action !== decision.action || metadata.recorded.digest !== decision.digest
+        || metadata.recorded.reason !== decision.reason) {
         throw new Error('A different video review decision is already recorded')
       }
     }
   }
-  return { evidence, digest, derivative, decision: recorded,
-    ...(reopenedFrom === undefined ? {} : { reopened_from: reopenedFrom }) }
+  const source = await inspectSource(metadata.projectDir, metadata.candidate, signal)
+  return { evidence: metadata.evidence, digest: metadata.digest, derivative: metadata.derivative, decision: metadata.recorded, source,
+    ...(metadata.reopenedFrom === undefined ? {} : { reopened_from: metadata.reopenedFrom }) }
 }
 
 /**
@@ -306,10 +406,10 @@ function outputUrls(result: string | undefined): string[] {
 }
 
 /**
- * Materialize one approved provider output without changing its report or decision.
+ * Materialize exact provider bytes for an explicit approval or delivery without changing the report or decision.
  * @param projectDir - Authorized project whose review directory owns the copy.
  * @param taskId - Verified generation operation recorded in the approved report.
- * @param sha256 - Approved bare SHA-256 digest of the original output.
+ * @param sha256 - Recorded bare SHA-256 digest of the original output.
  * @param clientForProject - Creates the project's read-only provider client on a cache miss.
  * @param signal - Cancellation for provider reads and local publication.
  * @returns Absolute path to the project-owned bytes matching the approved digest.
@@ -596,6 +696,7 @@ export async function runVideoRecovery(client: JubianClient, ledger: JubianLedge
         pending.delete(key)
         finished.add(key)
       } catch (error) {
+        if (error instanceof VideoMediaDrainError) throw error
         if (isAborted(signal)) return
         void error // A failed read remains pending for the next operator-configured poll.
         onError(key)

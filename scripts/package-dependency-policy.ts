@@ -21,6 +21,7 @@ const REQUIRED_SERVICE_PEERS = {
   '@deepseek-ai/dsh-tool-jubian': [
     '@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-muse-account', '@deepseek-ai/dsh-session',
     '@deepseek-ai/dsh-session-projection', '@deepseek-ai/dsh-system-prompt', '@deepseek-ai/dsh-user-questions',
+    '@deepseek-ai/dsh-working-directory',
   ],
 } as const satisfies Readonly<Record<string, readonly string[]>>
 
@@ -83,7 +84,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'describePayload', 'readProjectBudget', 'updateProjectBudget',
   ],
   '@deepseek-ai/dsh-jubian-api': [
-    'FAILED_STATUSES', 'MODEL_TASK_TYPES', 'SUCCESS_STATUSES', 'VIDEO_TASK_TYPES',
+    'FAILED_STATUSES', 'MEDIA_LIMITS', 'MODEL_TASK_TYPES', 'SUCCESS_STATUSES', 'VIDEO_TASK_TYPES',
     'alignedReferenceSize', 'assertImageReferenceConsistency', 'buildImageRequest', 'buildNativeVideoPreview', 'buildReferenceObjectKey',
     'buildSubjectSelection', 'buildSubtitleEraseRequest', 'buildVideoUpscaleRequest', 'childrenOf',
     'classifyExistingNativeMatches', 'classifyNewNativeCandidates', 'downloadMedia', 'encodeVoiceSlot', 'extractAppScriptUrl',
@@ -116,6 +117,8 @@ const PEER_REQUIRED_HOST_EXPORTS = {
   // appendPluginRecord writes through the Session class's private log; pluginRecordOf is stateless.
   '@deepseek-ai/dsh-session': ['SESSION_FORMAT_VERSION', 'appendPluginRecord', 'pluginRecordOf'],
   '@deepseek-ai/dsh-session-persistence': ['SessionPersistenceNotFoundError'],
+  // Recovery recognizes the subprocess provider's missing-executable class with instanceof.
+  '@deepseek-ai/dsh-subprocess': ['SubprocessExecutableNotFoundError'],
   '@deepseek-ai/dsh-tools': ['defineTool'],
   // Readers recognize a deadline's TimeoutReason only by `instanceof` against their own copy.
   '@deepseek-ai/dsh-timeout': ['deadline'],

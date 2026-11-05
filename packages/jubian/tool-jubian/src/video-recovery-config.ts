@@ -155,7 +155,8 @@ export async function mountVideoRecovery(ctx: Context, config: ResolvedVideoReco
                 throw new Error('Video review requires the exact latest user decision, original key and report digest')
               }
               return reviewRecoveredVideo(project.directory, args.idempotency_key,
-                { action: args.action, digest: args.digest }, signal)
+                { action: args.action, digest: args.digest }, signal,
+                args.action === 'approve' ? () => options.clientForProject(project.directory) : undefined)
             })
             operations.add(operation)
             void operation.then(() => { operations.delete(operation) }, () => { operations.delete(operation) })

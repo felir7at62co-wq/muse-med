@@ -1,0 +1,29 @@
+- region "Project video recovery":
+  - heading "Project video recovery" [level=3]
+  - paragraph: Review recorded video tasks and deliver an approved MP4 without generating another video.
+  - status: Recovery enabled
+  - text: Project folder
+  - textbox "Project folder": {{project}}
+  - button "Enable recovery" [disabled]
+  - button "Disable recovery"
+  - button "Refresh reports"
+  - article:
+    - heading "Task 4201" [level=4]
+    - text: Awaiting review
+    - paragraph: Provider original
+    - paragraph: Video decodes · Audio decodes
+    - paragraph: Current source file verified
+    - group: Video file and review details
+    - button "Approve video"
+    - button "Reject video"
+    - button "Import local video"
+  - article:
+    - heading "Task 4202" [level=4]
+    - text: Awaiting review
+    - paragraph: Provider original
+    - paragraph: Video decodes · Audio could not be decoded
+    - paragraph: Current source file verified
+    - group: Video file and review details
+    - button "Approve video" [disabled]
+    - button "Reject video"
+    - button "Import local video"

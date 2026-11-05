@@ -1,6 +1,5 @@
 /**
- * Source-safe registration of the Jubian token Settings page and the Remote
- * namespace it calls.
+ * Source-safe registration of the Jubian Settings page and its generated Remote namespaces.
  *
  * Split from the browser entry because the entry imports the generated
  * `./remote` artifact, which exists only after a Host build: this module holds
@@ -19,8 +18,13 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
+import type {} from '@deepseek-ai/dsh-api-remote-access/client'
 import type {} from '@deepseek-ai/dsh-tool-jubian/remote'
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
+import { RecoveryDirectory, type RecoveryClient } from './recovery-directory.ts'
+import { RecoveryToast, type RecoveryInjected, type RecoveryToastInjected } from './VideoRecoverySection.tsx'
 import { JubianTokenSection } from './JubianTokenSection.tsx'
 import type { JubianTokenInjected, JubianTokenOutcome, JubianTokenStatus } from './JubianTokenSection.tsx'
 import { en, zh, ja, es, fr, de, ru, pt, type JubianLocaleKey } from './locales.ts'
@@ -35,7 +39,7 @@ export type { JubianLocaleKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** Jubian token section copy. */
+    /** Jubian credential and project-video recovery copy. */
     'settings.jubian': JubianLocaleKey
   }
 }
@@ -77,12 +81,63 @@ function outcomeOf(result: RemoteResult<JubianTokenStatus>): JubianTokenOutcome 
     : { ok: false, code: result.error.code, message: result.error.message }
 }
 
-/** Contribute the Jubian token page to Settings. */
+/** Contribute credentials, recovery controls and shell feedback through Settings-owned facts. */
 function registerSection(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'tool-jubian: token dictionaries')
 
   const t = ctx.locale.bind(NS)
+  const recovery = new RecoveryDirectory()
+  ctx.effect(() => () => { recovery.dispose() })
+  const recoveryFace: RecoveryInjected = {
+    hooks: { recoveryState: recovery.state },
+    setRecoveryProjectDir: (path) => { recovery.setProjectDir(path) },
+    chooseRecoveryProject: () => recovery.chooseProject(),
+    configureRecovery: enabled => recovery.configure(enabled),
+    refreshRecovery: () => recovery.refresh(),
+    openRecoveryAction: (action, report) => { recovery.open(action, report) },
+    closeRecoveryDialog: () => { recovery.closeDialog() },
+    confirmRecoveryDialog: (id, text) => recovery.confirm(id, text),
+    deliverRecovery: report => recovery.deliver(report),
+  }
+  ctx.inject(['remote.jubianVideoRecovery', 'connection'], (scope) => {
+    const connection = scope.get('connection') as ConnectionHandle
+    const client: RecoveryClient = {
+      status: () => scope.remote.jubianVideoRecovery.status(),
+      configure: input => scope.remote.jubianVideoRecovery.configure(input),
+      review: input => scope.remote.jubianVideoRecovery.review(input),
+      adopt: input => scope.remote.jubianVideoRecovery.adopt(input),
+      deliverApprovedMp4: input => scope.remote.jubianVideoRecovery.deliverApprovedMp4(input),
+    }
+    let generation: object | undefined
+    let release: (() => void) | undefined
+    const update = (): void => {
+      const current = connection.generation.getSnapshot()
+      if (current === generation) return
+      release?.()
+      generation = current
+      release = current === undefined ? undefined : recovery.connect(client)
+    }
+    scope.effect(() => connection.generation.subscribe(update))
+    scope.effect(() => () => { release?.() })
+    update()
+  })
+  const desktopPicker = (globalThis as typeof globalThis & {
+    __DSH_DIRECTORY_PICKER__?: { pick: () => Promise<string | null> }
+  }).__DSH_DIRECTORY_PICKER__
+  ctx.inject(['remoteAccess'], (scope) => {
+    if (desktopPicker === undefined) return
+    return scope.remoteAccess.whenAccess('directoryPicker/pick', () =>
+      recovery.offerPicker(() => desktopPicker.pick()))
+  })
+  const toastFace = (): RecoveryToastInjected => ({
+    hooks: { recoveryNotice: recovery.notice },
+    dismissRecoveryNotice: (sequence) => { recovery.dismissNotice(sequence) },
+  })
+  ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+    name: 'shell.overlay', id: 'jubian-recovery-toast', locale: NS, inject: toastFace,
+  }, RecoveryToast))
   const injected = (): JubianTokenInjected => ({
+    ...recoveryFace,
     describe: async (): Promise<JubianTokenOutcome> => outcomeOf(await ctx.remote.jubianToken.describe()),
     set: async (value: string): Promise<JubianTokenOutcome> => outcomeOf(await ctx.remote.jubianToken.set(value)),
     unset: async (): Promise<JubianTokenOutcome> => outcomeOf(await ctx.remote.jubianToken.unset()),
@@ -146,9 +201,9 @@ function registerSection(ctx: ClientContext): void {
 }
 
 /**
- * Mount one generated token Remote contribution, then register the page over it.
+ * Mount the generated Jubian Remote contribution and register its Settings page.
  * @param ctx - Client context carrying the slot registry, locale, and Remote service.
- * @param contribution - the generated `jubianToken` descriptors this page calls.
+ * @param contribution - Generated Jubian descriptors used by the Settings page.
  * @returns a disposer that removes the page registrations and the namespace.
  */
 export async function mountJubianTokenSettings(

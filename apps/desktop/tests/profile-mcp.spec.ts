@@ -125,6 +125,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
           contextChars: 24, maxMatches: 100,
         },
         sessionVideoSelection: true,
+        videoRecoverySettings: true,
         defaultVideoModel: { modelId: 'doubao-seedance-2-5-260628', platformId: 'FANG_ZHOU', resolution: '480p' },
       } },
     ])

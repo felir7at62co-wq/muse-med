@@ -219,6 +219,7 @@ describe('package dependency scope', () => {
       '@deepseek-ai/dsh-tool-jubian': [
         '@deepseek-ai/dsh-agent', '@deepseek-ai/dsh-muse-account', '@deepseek-ai/dsh-session',
         '@deepseek-ai/dsh-session-projection', '@deepseek-ai/dsh-system-prompt', '@deepseek-ai/dsh-user-questions',
+        '@deepseek-ai/dsh-working-directory',
       ],
     })
     expect(PACKAGE_DEPENDENCY_POLICY.configurationOnlyDevDependencies).toEqual({
@@ -1285,4 +1286,56 @@ describe('root-provided type packages', () => {
     expect(packages.map(pkg => pkg.manifestPath)).toEqual(['packages/client/ui-probe/package.json'])
     expect(collectRootTypePackageViolations(rootManifest, packages)).toEqual([])
   })
+})
+
+
+it.each([
+  ['@deepseek-ai/dsh-subprocess', 'SubprocessExecutableNotFoundError'],
+  ['@deepseek-ai/dsh-jubian-api', 'MEDIA_LIMITS'],
+] as const)('keeps the recovery export %s#%s on the provider peer', async (dependency, exportName) => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-recovery-peer-policy-'))
+  roots.push(root)
+  const subject = pkg('@fixture/recovery-consumer', 'packages/g/probe/package.json', {
+    devDependencies: { [CORDIS]: 'workspace:~', [dependency]: 'workspace:*' },
+    peerDependencies: { [CORDIS]: 'workspace:~', [dependency]: 'workspace:*' },
+  })
+  const source = join(root, subject.dir, 'src/index.ts')
+  mkdirSync(dirname(source), { recursive: true })
+  writeFileSync(source, `import { ${exportName} } from '${dependency}'\nexport const value = ${exportName}\n`)
+  const workspaceNames = new Set([CORDIS, subject.name, dependency])
+  const captured = await readPackageDependencyFacts(root, subject, 'client-host', workspaceNames, PACKAGE_DEPENDENCY_POLICY)
+  const state = { facts: [captured], packages: [], policyViolations: [], workspaceNames }
+  expect(collectPackageDependencyViolations(state)).toEqual([])
+  subject.manifest.dependencies = { [dependency]: 'workspace:*' }
+  delete subject.manifest.devDependencies?.[dependency]
+  delete subject.manifest.peerDependencies?.[dependency]
+  expect(collectPackageDependencyViolations(state)).toContainEqual(
+    expect.stringContaining(`${dependency} must be matching peerDependencies + devDependencies`),
+  )
+})
+
+
+it('requires the fixed recovery working-directory service as a real Jubian peer', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-recovery-service-peer-'))
+  roots.push(root)
+  const dependency = '@deepseek-ai/dsh-working-directory'
+  const peers = [...new Set([...(PACKAGE_DEPENDENCY_POLICY.requiredServicePeers?.['@deepseek-ai/dsh-tool-jubian'] ?? []), dependency])]
+  const declarations = Object.fromEntries(peers.map(name => [name, 'workspace:*']))
+  const subject = pkg('@deepseek-ai/dsh-tool-jubian', 'packages/g/probe/package.json', {
+    devDependencies: { [CORDIS]: 'workspace:~', ...declarations },
+    peerDependencies: { [CORDIS]: 'workspace:~', ...declarations },
+  })
+  const source = join(root, subject.dir, 'src/index.ts')
+  mkdirSync(dirname(source), { recursive: true })
+  writeFileSync(source, peers.map(name => `import type {} from '${name}'\n`).join('') + 'export function apply() {}\n')
+  const workspaceNames = new Set([CORDIS, subject.name, ...peers])
+  const captured = await readPackageDependencyFacts(root, subject, 'client-host', workspaceNames, PACKAGE_DEPENDENCY_POLICY)
+  const state = { facts: [captured], packages: [], policyViolations: [], workspaceNames }
+  expect(collectPackageDependencyViolations(state)).toEqual([])
+  subject.manifest.dependencies = { [dependency]: 'workspace:*' }
+  delete subject.manifest.devDependencies?.[dependency]
+  delete subject.manifest.peerDependencies?.[dependency]
+  expect(collectPackageDependencyViolations(state)).toContainEqual(
+    expect.stringContaining(`${dependency} must be matching peerDependencies + devDependencies`),
+  )
 })

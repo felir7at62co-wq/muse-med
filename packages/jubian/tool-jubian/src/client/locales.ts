@@ -1,4 +1,133 @@
-/** Copy dictionaries for the Jubian token Settings section. */
+/** Locale-owned copy for Jubian credentials, project-video recovery and conversation selection. */
+
+/** English recovery copy also supplies the six existing fallback dictionaries. */
+const recoveryEn = {
+  'recoveryWorking': 'Working on video data',
+  'recoveryFile': 'Reviewed file',
+  'recoveryExpectedFile': 'Expected reviewed file',
+  'recoveryDetails': 'Video file and review details',
+  'recoverySourceVerified': 'Current source file verified',
+  'recoveryApproveDownloadHint': 'Approval will download and verify the provider original without generating another video.',
+  'recoverySourceUnverifiable': 'The report does not identify one verifiable video file',
+  'recoveryPendingHint': 'Closing this dialog does not undo a submitted action. Check the reports for the result.',
+  'recoverySavedProject': 'Reports belong to {path}',
+  'recoveryTitle': 'Project video recovery',
+  'recoveryHint': 'Review recorded video tasks and deliver an approved MP4 without generating another video.',
+  'recoveryEnabled': 'Recovery enabled',
+  'recoveryDisabled': 'Recovery disabled',
+  'recoveryOffline': 'Connection unavailable. Previously loaded reports remain visible.',
+  'recoveryQueryFailed': 'Could not refresh video reports. Retry to read the current state.',
+  'recoveryFolder': 'Project folder',
+  'recoveryChoose': 'Choose folder',
+  'recoveryEnable': 'Enable recovery',
+  'recoveryDisable': 'Disable recovery',
+  'recoveryRefresh': 'Refresh reports',
+  'recoveryFolderRequired': 'Enter the project folder first',
+  'recoveryProjectUnavailable': 'The saved project folder is unavailable. Choose its current location.',
+  'recoveryDecoderUnavailable': 'The video decoder is unavailable. Existing reports and approved MP4 delivery remain accessible.',
+  'recoveryEmpty': 'No recorded video reports in this project',
+  'recoveryTask': 'Task {id}',
+  'recoveryAwaiting': 'Awaiting review',
+  'recoveryApproved': 'Approved',
+  'recoveryRejected': 'Rejected',
+  'recoveryProviderFailed': 'Provider generation failed',
+  'recoveryOriginal': 'Provider original',
+  'recoveryDerivative': 'Local imported version',
+  'recoveryVideoOk': 'Video decodes',
+  'recoveryVideoBad': 'Video could not be decoded',
+  'recoveryAudioOk': 'Audio decodes',
+  'recoveryAudioBad': 'Audio could not be decoded',
+  'recoveryApprove': 'Approve video',
+  'recoveryReject': 'Reject video',
+  'recoveryReopen': 'Reopen review',
+  'recoveryImport': 'Import local video',
+  'recoveryDeliver': 'Deliver MP4 directly',
+  'recoveryDelivered': 'MP4 delivered directly',
+  'recoveryDeliveryMissing': 'The delivered file is missing. Deliver again to restore the approved bytes.',
+  'recoveryDeliveryChanged': 'The export file has changed. It will not be overwritten.',
+  'recoveryDeliveryUnreadable': 'The delivered file could not be verified',
+  'recoveryReason': 'Reason',
+  'recoveryLocalPath': 'Local video path',
+  'recoveryPathExample': 'video_tasks/edited.mp4',
+  'recoveryDialogHint': 'This action applies to the video report currently shown.',
+  'recoveryCancel': 'Cancel',
+  'recoveryClose': 'Close',
+  'recoverySha': 'SHA-256 {hash}',
+  'recoveryConfiguredNotice': 'Recovery settings saved',
+  'recoveryApprovedNotice': 'Video approved',
+  'recoveryRejectedNotice': 'Video rejected',
+  'recoveryReopenedNotice': 'Review reopened',
+  'recoveryImportedNotice': 'Local video imported',
+  'recoveryDeliveredNotice': 'Approved MP4 delivered',
+  'recoverySourceUnmaterialized': 'The original video is not cached locally.',
+  'recoverySourceMissing': 'The recorded local video is currently missing.',
+  'recoverySourceChanged': 'The current video bytes differ from the recorded file.',
+  'recoverySourceUnreadable': 'The current video could not be verified',
+} as const
+
+const recoveryZh = {
+  'recoveryWorking': '正在处理视频数据',
+  'recoveryFile': '已复核的文件',
+  'recoveryExpectedFile': '需要核对的原文件',
+  'recoveryDetails': '视频文件与复核详情',
+  'recoverySourceVerified': '当前源文件已核对',
+  'recoveryApproveDownloadHint': '批准时会下载并核对提供方原片，不会重新生成视频',
+  'recoverySourceUnverifiable': '报告尚未指向一份可核对的视频文件',
+  'recoveryPendingHint': '关闭窗口不会撤销已经提交的操作，请在报告中查看结果',
+  'recoverySavedProject': '报告所属项目：{path}',
+  'recoveryTitle': '项目视频恢复',
+  'recoveryHint': '核对已记录的视频任务，复核后直接交付批准的 MP4，不会重新生成视频',
+  'recoveryEnabled': '恢复已开启',
+  'recoveryDisabled': '恢复已关闭',
+  'recoveryOffline': '连接暂不可用，已加载的报告会继续保留',
+  'recoveryQueryFailed': '暂时无法刷新视频报告，请重试读取当前状态',
+  'recoveryFolder': '项目目录',
+  'recoveryChoose': '选择目录',
+  'recoveryEnable': '开启恢复',
+  'recoveryDisable': '关闭恢复',
+  'recoveryRefresh': '刷新报告',
+  'recoveryFolderRequired': '请先填写项目目录',
+  'recoveryProjectUnavailable': '保存的项目目录暂不可用，请选择它现在的位置',
+  'recoveryDecoderUnavailable': '视频解码器暂不可用，仍可读取已有报告和交付已批准的 MP4',
+  'recoveryEmpty': '这个项目暂无已记录的视频报告',
+  'recoveryTask': '任务 {id}',
+  'recoveryAwaiting': '等待复核',
+  'recoveryApproved': '已批准',
+  'recoveryRejected': '已拒绝',
+  'recoveryProviderFailed': '提供方生成失败',
+  'recoveryOriginal': '提供方原视频',
+  'recoveryDerivative': '本地导入版',
+  'recoveryVideoOk': '画面可解码',
+  'recoveryVideoBad': '画面无法解码',
+  'recoveryAudioOk': '音频可解码',
+  'recoveryAudioBad': '音频无法解码',
+  'recoveryApprove': '批准视频',
+  'recoveryReject': '拒绝视频',
+  'recoveryReopen': '重新复核',
+  'recoveryImport': '导入本地视频',
+  'recoveryDeliver': '直接交付 MP4',
+  'recoveryDelivered': 'MP4 已直接交付',
+  'recoveryDeliveryMissing': '交付文件已丢失，可再次交付以恢复批准的原字节',
+  'recoveryDeliveryChanged': '导出文件已被修改，系统不会覆盖它',
+  'recoveryDeliveryUnreadable': '暂时无法核对交付文件',
+  'recoveryReason': '原因',
+  'recoveryLocalPath': '本地视频路径',
+  'recoveryPathExample': 'video_tasks/edited.mp4',
+  'recoveryDialogHint': '本次操作只针对当前显示的视频报告',
+  'recoveryCancel': '取消',
+  'recoveryClose': '关闭',
+  'recoverySha': 'SHA-256 {hash}',
+  'recoveryConfiguredNotice': '恢复设置已保存',
+  'recoveryApprovedNotice': '视频已批准',
+  'recoveryRejectedNotice': '视频已拒绝',
+  'recoveryReopenedNotice': '已重新开启复核',
+  'recoveryImportedNotice': '本地视频已导入',
+  'recoveryDeliveredNotice': '已交付批准的 MP4',
+  'recoverySourceUnmaterialized': '原视频当前没有本地缓存',
+  'recoverySourceMissing': '记录中的本地视频当前不存在',
+  'recoverySourceChanged': '当前视频内容与记录不一致',
+  'recoverySourceUnreadable': '暂时无法核对当前视频',
+} as const
 
 /**
  * Simplified Chinese dictionary and key source of truth.
@@ -9,6 +138,7 @@
  * here carries a translated copy of one.
  */
 export const zh = {
+  ...recoveryZh,
   nav: '剧变',
   videoSelector: '视频模型',
   videoModel: '视频模型',
@@ -39,6 +169,7 @@ export type JubianLocaleKey = keyof typeof zh
 
 /** English dictionary checked against the Chinese key set. */
 export const en = {
+  ...recoveryEn,
   nav: 'Jubian',
   videoSelector: 'Video model',
   videoModel: 'Model',
@@ -66,6 +197,7 @@ export const en = {
 
 /** English fallback for Japanese interface copy. */
 export const ja = {
+  ...recoveryEn,
   'nav': en['nav'],
   'videoSelector': en['videoSelector'],
   'videoModel': en['videoModel'],
@@ -93,6 +225,7 @@ export const ja = {
 
 /** English fallback for Spanish interface copy. */
 export const es = {
+  ...recoveryEn,
   'nav': en['nav'],
   'videoSelector': en['videoSelector'],
   'videoModel': en['videoModel'],
@@ -120,6 +253,7 @@ export const es = {
 
 /** English fallback for French interface copy. */
 export const fr = {
+  ...recoveryEn,
   'nav': en['nav'],
   'videoSelector': en['videoSelector'],
   'videoModel': en['videoModel'],
@@ -147,6 +281,7 @@ export const fr = {
 
 /** English fallback for German interface copy. */
 export const de = {
+  ...recoveryEn,
   'nav': en['nav'],
   'videoSelector': en['videoSelector'],
   'videoModel': en['videoModel'],
@@ -174,6 +309,7 @@ export const de = {
 
 /** English fallback for Russian interface copy. */
 export const ru = {
+  ...recoveryEn,
   'nav': en['nav'],
   'videoSelector': en['videoSelector'],
   'videoModel': en['videoModel'],
@@ -201,6 +337,7 @@ export const ru = {
 
 /** English fallback for Portuguese interface copy. */
 export const pt = {
+  ...recoveryEn,
   'nav': en['nav'],
   'videoSelector': en['videoSelector'],
   'videoModel': en['videoModel'],

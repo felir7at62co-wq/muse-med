@@ -73,7 +73,11 @@
     "@deepseek-ai/dsh-experimental-cot-translation-bundle": "workspace:*",
     "@deepseek-ai/dsh-experimental-worktree": "workspace:*",
     "@deepseek-ai/dsh-experimental-plugin-market-bundle": "workspace:*",
-    "@deepseek-ai/dsh-experimental-forge-bundle": "workspace:*"
+    "@deepseek-ai/dsh-experimental-forge-bundle": "workspace:*",
+    "@deepseek-ai/dsh-jubian": "workspace:*",
+    "@deepseek-ai/dsh-jubian-api": "workspace:*",
+    "@deepseek-ai/dsh-tool-jubian": "workspace:*",
+    "@deepseek-ai/dsh-host-directory-picker": "workspace:*"
   },
   "dependencies": {
     "@deepseek-ai/dsh-message-quotes": "workspace:*"

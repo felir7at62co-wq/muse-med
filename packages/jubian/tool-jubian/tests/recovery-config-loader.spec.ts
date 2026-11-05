@@ -1,11 +1,13 @@
 /** Fixed recovery authorization uses the actual Loader, native executor and effective working directory. */
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import FileSystem from '@deepseek-ai/dsh-fs-local'
-import { JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { JUBIAN_TOKEN_REF, JubianLedger } from '@deepseek-ai/dsh-jubian'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
+import { downloadMedia } from '@deepseek-ai/dsh-jubian-api'
 import Llm, { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
 import Projections from '@deepseek-ai/dsh-session-projection'
@@ -18,13 +20,18 @@ import * as Recovery from '../src/video-recovery.ts'
 import { VideoMediaDrainError } from '../src/video-media-check.ts'
 import * as Media from '../src/video-media-check.ts'
 import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
 import * as Jubian from '../src/index.ts'
 
+vi.mock('@deepseek-ai/dsh-jubian-api', async original => ({
+  ...await original<typeof import('@deepseek-ai/dsh-jubian-api')>(), downloadMedia: vi.fn(),
+}))
+
 const hash = (text: string) => createHash('sha256').update(text).digest('hex')
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
+beforeEach(() => { vi.mocked(downloadMedia).mockReset().mockRejectedValue(new Error('No media transfer is allowed')) })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 
 async function fixture() {
   const f = await configurationFixture({ hmr: false, rows: [
@@ -46,7 +53,10 @@ async function fixture() {
   const ledger = new JubianLedger({ root: ledgerRoot })
   await ledger.begin({ idempotencyKey: key, method: 'storyboard_native_submit', requestSha256: 'original',
     scriptId: 1, beforeTaskIds: [], videoPreviewPath: preview })
-  const report = JSON.stringify({ idempotency_key: key, task_id: 42, status: 'awaiting_review', media_checks: [] })
+  const original = 'catalog-approved-bytes'
+  const report = JSON.stringify({ idempotency_key: key, task_id: 42, status: 'awaiting_review',
+    media_checks: [{ sha256: 'sha256:' + hash(original), video: true, audio: true }] })
+  await writeFile(join(project, 'video_tasks', 'review', 'original-' + hash(original) + '.mp4'), original)
   await writeFile(join(project, 'video_tasks', 'review', hash(key) + '.json'), report)
   const config = { ledgerRoot, workspaceSecrets: false, videoRecovery: {
     projectDir: project, ffmpegPath: process.execPath, keys: [key] }, watchPollIntervalMs: 10 }
@@ -173,4 +183,74 @@ it('fails a fixed deployment project before registering the review tool and drai
   const f = await fixture()
   await expect(f.mount({ videoRecovery: { ...f.config.videoRecovery, projectDir: join(f.home, 'missing-project') } })).rejects.toThrow()
   expect(f.ctx.tools.get('jubian_video_review')).toBeUndefined()
+})
+
+
+it('acquires an unmaterialized original only for an exact explicit fixed approval command', async () => {
+  const f = await fixture(), original = 'catalog-approved-bytes'
+  const cache = join(f.project, 'video_tasks', 'review', 'original-' + hash(original) + '.mp4')
+  await unlink(cache)
+  await f.ctx.credentials.set(credentialRef(JUBIAN_TOKEN_REF), 'offline-fixed-fixture')
+  const mediaUrl = 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture/fixed-approved.mp4'
+  const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url)
+    expect(url.host).toBe('fixed-recovery.invalid')
+    let data: object
+    if (init?.method === 'GET' && url.pathname.endsWith('/admin/aigc/video/task/42')) {
+      data = { id: 42, taskType: 1, taskStatus: 'succeeded' }
+    } else if (init?.method === 'POST' && url.pathname.endsWith('/admin/aigc/video/task/sub/list')) {
+      if (typeof init.body !== 'string') throw new Error('Expected a JSON request body')
+      expect(JSON.parse(init.body)).toEqual({ aigcVideoTaskId: 42 })
+      data = { total: 1, rows: [{ id: 51, aigcVideoTaskId: 42, taskStatus: 'succeeded', resultList: [
+        { firstResultId: 151, taskType: 1, resultStatus: 'succeeded', lastTaskType: 1,
+          lastResultStatus: 'succeeded', tosVideoUrl: mediaUrl, lastTosVideoUrl: mediaUrl },
+      ] }] }
+    } else throw new Error('Unexpected fixed provider operation ' + String(init?.method))
+    return new Response(JSON.stringify({ code: 200, data }))
+  })
+  vi.stubGlobal('fetch', fetch)
+  await f.mount({ baseUrl: 'https://fixed-recovery.invalid/prod-api' })
+  const agent = await f.ctx.agentLoop.create(SessionId('explicit-fixed-approval'), { provider: 'mock', model: 'mock' }, { cwd: f.project })
+  expect(await f.call({ action: 'read', idempotency_key: f.key }, agent)).toMatchObject({
+    isError: false, value: { source: { kind: 'provider', state: 'unmaterialized', sha256: hash(original) } },
+  })
+  const args = { action: 'approve', idempotency_key: f.key, digest: f.digest }
+  expect(await f.call(args, agent)).toMatchObject({ isError: true })
+  expect(fetch).not.toHaveBeenCalled()
+  expect(downloadMedia).not.toHaveBeenCalled()
+  agent.session.append('user/message', createUserMessage({ source: { kind: 'user' },
+    content: [{ type: 'text', text: `approve ${f.key} ${f.digest}` }] }), { surfaceOp: 'append' })
+  vi.mocked(downloadMedia).mockResolvedValueOnce({ bytes: Buffer.from(original), sha256: 'sha256:' + hash(original),
+    kind: 'video', media_type: 'video/mp4' })
+  expect(await f.call(args, agent)).toMatchObject({ isError: false, value: {
+    decision: { action: 'approve', digest: f.digest }, source: { kind: 'provider', state: 'verified', sha256: hash(original) },
+  } })
+  expect(await readFile(cache, 'utf8')).toBe(original)
+  expect(fetch.mock.calls.map(([, init]) => init?.method)).toEqual(['GET', 'POST'])
+  expect(await f.ledger.records()).toHaveLength(1)
+})
+
+
+it('records an exact fixed rejection without materializing its missing provider source', async () => {
+  const f = await fixture(), original = 'catalog-approved-bytes'
+  await unlink(join(f.project, 'video_tasks', 'review', 'original-' + hash(original) + '.mp4'))
+  await f.mount()
+  const agent = await f.ctx.agentLoop.create(SessionId('fixed-reject-missing-source'), { provider: 'mock', model: 'mock' }, { cwd: f.project })
+  agent.session.append('user/message', createUserMessage({ source: { kind: 'user' },
+    content: [{ type: 'text', text: `reject ${f.key} ${f.digest}` }] }), { surfaceOp: 'append' })
+  expect(await f.call({ action: 'reject', idempotency_key: f.key, digest: f.digest }, agent)).toMatchObject({
+    isError: false, value: { decision: { action: 'reject', digest: f.digest }, source: { kind: 'provider', state: 'unmaterialized' } },
+  })
+  expect(downloadMedia).not.toHaveBeenCalled()
+})
+
+
+it('leaves both recovery entry points inactive when neither mode is configured', async () => {
+  const f = await fixture()
+  await f.mount({ videoRecovery: undefined })
+  expect(f.ctx.tools.get('jubian_video_review')).toBeUndefined()
+  expect(f.ctx.get('jubianVideoRecovery')).toBeUndefined()
+  expect(f.ctx.tools.get('jubian_storyboard')).toBeDefined()
+  expect(downloadMedia).not.toHaveBeenCalled()
+  expect(await f.ledger.records()).toHaveLength(1)
 })

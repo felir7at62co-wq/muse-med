@@ -74,6 +74,26 @@ export interface ApprovedClipDirectDelivery {
   readonly sha256: VideoArtifactSha256
 }
 
+/**
+ * Current source availability, excluded from the immutable review digest.
+ * A known source carries its project-relative expected managed path and bare expected captured SHA-256.
+ * Missing, changed or unreadable states do not report the current file's hash; only verified confirms matching regular bytes.
+ */
+export type VideoRecoverySource =
+  | {
+    readonly kind: 'provider'
+    readonly path: string
+    readonly sha256: VideoArtifactSha256
+    readonly state: 'verified' | 'unmaterialized' | 'changed' | 'unreadable'
+  }
+  | {
+    readonly kind: 'derivative'
+    readonly path: string
+    readonly sha256: VideoArtifactSha256
+    readonly state: 'verified' | 'missing' | 'changed' | 'unreadable'
+  }
+  | { readonly kind: 'none'; readonly state: 'unverifiable' }
+
 /** Decoder evidence and the operator's decision for one original submission. */
 export interface VideoRecoveryReview {
   readonly idempotencyKey: string
@@ -81,6 +101,8 @@ export interface VideoRecoveryReview {
   readonly status: 'awaiting_review' | 'provider_failed'
   readonly digest: VideoRecoveryDigest
   readonly mediaChecks: readonly { readonly sha256: string; readonly video: boolean; readonly audio: boolean }[]
+  /** Read-only local verification; provider absence does not assert download history. */
+  readonly source: VideoRecoverySource
   readonly derivative?: { readonly path: string; readonly sha256: VideoArtifactSha256 }
   readonly directDelivery?: ApprovedClipDirectDelivery
   /** A saved receipt exists but its current output cannot be reported as delivered. */

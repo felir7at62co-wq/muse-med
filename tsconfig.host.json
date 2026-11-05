@@ -8,6 +8,7 @@
     "rewriteRelativeImportExtensions": false
   },
   "include": [
+    "apps/web/tests/jubian-video-recovery.e2e.ts",
     "apps/web/tests/muse-session-views.e2e.ts",
     "apps/web/tests/muse-visualize.e2e.ts",
     "apps/web/tests/sidebar-drawer.e2e.ts",

@@ -34,7 +34,8 @@ async function fixture() {
   const review = join(project, 'video_tasks', 'review')
   await mkdir(review, { recursive: true })
   const key = 'review-original'
-  const evidence = JSON.stringify({ idempotency_key: key, task_id: 42, status: 'awaiting_review', media_checks: [] })
+  const evidence = JSON.stringify({ idempotency_key: key, task_id: 42, status: 'awaiting_review',
+    media_checks: [{ sha256: 'sha256:' + hash('reviewed bytes'), video: true, audio: true }] })
   const report = join(review, hash(key) + '.json')
   await writeFile(report, evidence)
   const digest = hash(evidence)
@@ -42,7 +43,8 @@ async function fixture() {
   await writeFile(source, 'reviewed bytes')
   const controller = new AbortController()
   const client = new JubianClient({ credential: async () => 'fixture', fetch: async () => { throw new Error('Unexpected provider request') } })
-  return { project, review, key, report, digest, source, controller,
+  return { project, review, key, report, digest, source, controller, client,
+    cache: () => writeFile(join(review, 'original-' + hash('reviewed bytes') + '.mp4'), 'reviewed bytes'),
     output: join(project, 'exports', 'Muse-approved-42-' + digest + '.mp4'),
     receipt: join(review, digest + '.direct-delivery.json'),
     deliver: () => publishApprovedVideo(project, 42, digest, source, hash('reviewed bytes'), controller.signal),
@@ -87,6 +89,7 @@ it.each(['wrong-entry', 'link-race', 'link-denied', 'link-string', 'link-no-code
 
 it.each(['string', 'no-code', 'denied'] as const)('preserves report creation failure %s', async (kind) => {
   const f = await fixture()
+  await f.cache()
   const create = vi.spyOn(files, 'link').mockRejectedValueOnce(kind === 'string' ? 'Publication denied'
     : kind === 'no-code' ? new Error('Publication denied') : Object.assign(new Error('Publication denied'), { code: 'EACCES' }))
   onTestFinished(() => { create.mockRestore() })
@@ -95,6 +98,7 @@ it.each(['string', 'no-code', 'denied'] as const)('preserves report creation fai
 
 it('rejects an undecidable persisted null decision', async () => {
   const f = await fixture()
+  await f.cache()
   await writeFile(f.report + '.decision.json', 'null')
   await expect(reviewRecoveredVideo(f.project, f.key, { action: 'approve', digest: f.digest }))
     .rejects.toThrow('different video review decision')
@@ -102,6 +106,7 @@ it('rejects an undecidable persisted null decision', async () => {
 
 it('refuses a concurrently claimed decision that disappears before its read', async () => {
   const f = await fixture()
+  await f.cache()
   const publish = vi.spyOn(files, 'link').mockRejectedValueOnce(Object.assign(new Error('Decision claimed'), { code: 'EEXIST' }))
   onTestFinished(() => { publish.mockRestore() })
   await expect(reviewRecoveredVideo(f.project, f.key, { action: 'approve', digest: f.digest }))
@@ -291,4 +296,30 @@ it('retains the inode of a same-byte output published after its first existence 
   const delivered = await f.deliver()
   expect(delivered.path).toBe('exports/Muse-approved-42-' + f.digest + '.mp4')
   expect(await files.readFile(target, 'utf8')).toBe('reviewed bytes')
+})
+
+
+it('requires the actual current provider source even when a low-level caller supplies only recorded checks', async () => {
+  const f = await fixture()
+  const unavailable = await reviewRecoveredVideo(f.project, f.key)
+  expect(unavailable).toMatchObject({ digest: f.digest, decision: null, source: { kind: 'provider', state: 'unmaterialized' } })
+  await expect(reviewRecoveredVideo(f.project, f.key, { action: 'approve', digest: f.digest })).rejects.toThrow('verified current source')
+  expect((await reviewRecoveredVideo(f.project, f.key)).decision).toBeNull()
+  await f.cache()
+  expect(await reviewRecoveredVideo(f.project, f.key, { action: 'approve', digest: f.digest })).toMatchObject({
+    digest: f.digest, source: { state: 'verified' }, decision: { action: 'approve', digest: f.digest },
+  })
+  await files.unlink(join(f.review, 'original-' + hash('reviewed bytes') + '.mp4'))
+  expect(await reviewRecoveredVideo(f.project, f.key, { action: 'approve', digest: f.digest })).toMatchObject({
+    digest: f.digest, source: { state: 'unmaterialized' }, decision: { action: 'approve', digest: f.digest },
+  })
+})
+
+
+it('refuses explicit provider acquisition without an owning cancellation signal', async () => {
+  const f = await fixture(), factory = vi.fn(() => f.client)
+  await expect(reviewRecoveredVideo(f.project, f.key, { action: 'approve', digest: f.digest }, undefined, factory))
+    .rejects.toThrow('operation cancellation')
+  expect(factory).not.toHaveBeenCalled()
+  expect((await reviewRecoveredVideo(f.project, f.key)).decision).toBeNull()
 })

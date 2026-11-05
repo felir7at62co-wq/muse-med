@@ -1,15 +1,15 @@
 /**
- * Jubian token Settings page, browser half.
+ * Jubian credential settings and project-video recovery controls.
  *
- * One form over one `jubianToken` Remote namespace: a password field, Save,
- * Clear, and the credential seam's own status line. The page never receives
- * the token back — every call answers with configured / source / writable — so
- * the field is emptied after a successful write, and the status line is the
- * only evidence that a value is stored.
+ * The credential form receives only configured/source/writable status and
+ * clears the input after a successful write; it never reads the token back.
+ * Recovery reports and explicit decisions use the registration-owned domain
+ * controller, while transient outcomes remain in the shell after navigation.
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { VideoRecoverySection, type RecoveryInjected } from './VideoRecoverySection.tsx'
 import css from './JubianTokenSection.module.css'
 
 /**
@@ -31,7 +31,7 @@ export type JubianTokenOutcome =
   | { readonly ok: false; readonly code: string; readonly message: string }
 
 /** Registration-side face the page calls; every method reports failures as values. */
-export interface JubianTokenInjected {
+export interface JubianTokenInjected extends RecoveryInjected {
   /** Read the current status of the stored token. */
   describe: () => Promise<JubianTokenOutcome>
   /**
@@ -153,6 +153,7 @@ export function JubianTokenSection(props: JubianTokenSectionProps): ReactNode {
         </Button>
       </div>
       {notice === undefined ? null : <p className={css.notice} role="status">{notice}</p>}
+      <VideoRecoverySection {...props} />
     </div>
   )
 }

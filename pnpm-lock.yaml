@@ -866,6 +866,9 @@ importers:
       '@deepseek-ai/dsh-session-projection':
         specifier: workspace:*
         version: link:../../packages/session/session-projection
+      '@deepseek-ai/dsh-subprocess-local':
+        specifier: workspace:*
+        version: link:../../packages/subprocess/subprocess-local
       '@deepseek-ai/dsh-tool-executor-native':
         specifier: workspace:*
         version: link:../../packages/core/tool-executor-native
@@ -1262,6 +1265,18 @@ importers:
         specifier: workspace:*
         version: link:../../packages/session/message-quotes
     devDependencies:
+      '@deepseek-ai/dsh-host-directory-picker':
+        specifier: workspace:*
+        version: link:../../packages/host/directory-picker
+      '@deepseek-ai/dsh-tool-jubian':
+        specifier: workspace:*
+        version: link:../../packages/jubian/tool-jubian
+      '@deepseek-ai/dsh-jubian-api':
+        specifier: workspace:*
+        version: link:../../packages/jubian/jubian-api
+      '@deepseek-ai/dsh-jubian':
+        specifier: workspace:*
+        version: link:../../packages/jubian/jubian
       '@deepseek-ai/cordis-plugin-group':
         specifier: workspace:~
         version: link:../../vendor/group
@@ -14364,6 +14379,9 @@ importers:
 
   packages/jubian/tool-jubian:
     dependencies:
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:*
+        version: link:../../util/brand
       '@deepseek-ai/dsh-atomic-write':
         specifier: workspace:*
         version: link:../../util/atomic-write
@@ -14374,6 +14392,15 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@deepseek-ai/dsh-client-ui-layout':
+        specifier: workspace:*
+        version: link:../../client/ui-layout
+      '@deepseek-ai/dsh-client-connection':
+        specifier: workspace:*
+        version: link:../../client/connection
+      '@deepseek-ai/dsh-api-remote-access':
+        specifier: workspace:*
+        version: link:../../api/remote-access
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis
@@ -14395,9 +14422,6 @@ importers:
       '@deepseek-ai/dsh-api-session-controller':
         specifier: workspace:*
         version: link:../../api/session-controller
-      '@deepseek-ai/dsh-brand':
-        specifier: workspace:*
-        version: link:../../util/brand
       '@deepseek-ai/dsh-fs-local':
         specifier: workspace:*
         version: link:../../fs/fs-local

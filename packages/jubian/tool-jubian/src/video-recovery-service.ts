@@ -54,6 +54,15 @@ const decisionSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('reject'), digest: digestSchema, reason: reasonSchema.optional() }),
 ])
 const reopenedSchema = z.object({ digest: digestSchema, rejectionReason: z.string().nullable(), reason: reasonSchema })
+const sourceSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('provider'), path: z.string(),
+    sha256: digestSchema.transform(value => brandString<VideoArtifactSha256>(value)),
+    state: z.enum(['verified', 'unmaterialized', 'changed', 'unreadable']) }),
+  z.object({ kind: z.literal('derivative'), path: z.string(),
+    sha256: digestSchema.transform(value => brandString<VideoArtifactSha256>(value)),
+    state: z.enum(['verified', 'missing', 'changed', 'unreadable']) }),
+  z.object({ kind: z.literal('none'), state: z.literal('unverifiable') }),
+])
 
 function missing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
@@ -79,14 +88,12 @@ async function readConfiguration(path: string, signal: AbortSignal): Promise<Con
 
 function reportView(report: Awaited<ReturnType<typeof reviewRecoveredVideo>>, key: string): VideoRecoveryReview {
   const evidence = evidenceSchema.parse(report.evidence)
-  if (evidence.idempotency_key !== key) throw new Error('The video report belongs to another original key')
   const digest = brandString<VideoRecoveryDigest>(digestSchema.parse(report.digest))
   const derivative = report.derivative === null ? null : derivativeSchema.parse(report.derivative)
   const decision = report.decision === null ? null : decisionSchema.parse(report.decision)
   const reopened = reopenedSchema.optional().parse(report.reopened_from)
-  if (decision !== null && decision.digest !== digest) throw new Error('The decision belongs to another report')
   return {
-    idempotencyKey: key, taskId: evidence.task_id, status: evidence.status, digest,
+    idempotencyKey: key, taskId: evidence.task_id, status: evidence.status, digest, source: sourceSchema.parse(report.source),
     mediaChecks: derivative === null ? evidence.media_checks : [
       { sha256: derivative.sha256, video: derivative.video, audio: derivative.audio },
     ],
@@ -227,11 +234,13 @@ export class JubianVideoRecovery extends TypertRemoteService {
       }
       if (input.action === 'read') return withDelivery(project.directory, previous, signal)
       const digest = digestSchema.parse(input.digest)
-      if (previous.digest !== digest || previous.status !== 'awaiting_review') throw refusal('Read the current report before recording a decision')
+      if (previous.digest !== digest || previous.status !== 'awaiting_review') {
+        throw refusal('Read the current report before recording a decision')
+      }
       signal.throwIfAborted()
       return reportView(await reviewRecoveredVideo(project.directory, input.idempotencyKey, {
         action: input.action, digest, ...(reason === undefined ? {} : { reason }),
-      }, signal), input.idempotencyKey)
+      }, signal, input.action === 'approve' ? () => this.options.clientForProject(project.directory) : undefined), input.idempotencyKey)
     }))
   }
 
@@ -267,13 +276,18 @@ export class JubianVideoRecovery extends TypertRemoteService {
       const report = reportView(
         await reviewRecoveredVideo(project.directory, input.idempotencyKey, undefined, signal), input.idempotencyKey)
       const sha = approvedSourceSha(report)
-      if (report.digest !== input.digest || sha === undefined) throw refusal('Select an approved video with passing picture and audio checks')
+      if (report.digest !== input.digest || sha === undefined) {
+        throw refusal('Select an approved video with passing picture and audio checks')
+      }
       const existing = await recoverApprovedVideoDelivery(project.directory, report.taskId, report.digest, sha, signal)
       if (existing !== undefined) {
         const current = reportView(
           await reviewRecoveredVideo(project.directory, input.idempotencyKey, undefined, signal), input.idempotencyKey)
         if (current.digest !== report.digest || approvedSourceSha(current) !== sha) throw refusal('The approval changed before delivery')
         return { ...current, directDelivery: existing }
+      }
+      if (report.derivative !== undefined && report.source.state !== 'verified') {
+        throw refusal('The reviewed derivative source is unavailable; restore the exact approved file')
       }
       const source = report.derivative === undefined
         ? await materializeApprovedProviderVideo(project.directory, report.taskId, sha,

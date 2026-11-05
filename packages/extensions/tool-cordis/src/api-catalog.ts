@@ -10634,11 +10634,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'VideoRecoveryReview',
-    declaration: 'export interface VideoRecoveryReview {\n    readonly idempotencyKey: string;\n    readonly taskId: number;\n    readonly status: \'awaiting_review\' | \'provider_failed\';\n    readonly digest: VideoRecoveryDigest;\n    readonly mediaChecks: readonly {\n        readonly sha256: string;\n        readonly video: boolean;\n        readonly audio: boolean;\n    }[];\n    readonly derivative?: {\n        readonly path: string;\n        readonly sha256: VideoArtifactSha256;\n    };\n    readonly directDelivery?: ApprovedClipDirectDelivery;\n    readonly directDeliveryProblem?: \'missing\' | \'changed\' | \'unreadable\';\n    readonly decision: \'approve\' | \'reject\' | null;\n    readonly reason?: string;\n    readonly reopenedFrom?: {\n        readonly digest: VideoRecoveryDigest;\n        readonly rejectionReason: string | null;\n        readonly reason: string;\n    };\n}',
+    declaration: 'export interface VideoRecoveryReview {\n    readonly idempotencyKey: string;\n    readonly taskId: number;\n    readonly status: \'awaiting_review\' | \'provider_failed\';\n    readonly digest: VideoRecoveryDigest;\n    readonly mediaChecks: readonly {\n        readonly sha256: string;\n        readonly video: boolean;\n        readonly audio: boolean;\n    }[];\n    readonly source: VideoRecoverySource;\n    readonly derivative?: {\n        readonly path: string;\n        readonly sha256: VideoArtifactSha256;\n    };\n    readonly directDelivery?: ApprovedClipDirectDelivery;\n    readonly directDeliveryProblem?: \'missing\' | \'changed\' | \'unreadable\';\n    readonly decision: \'approve\' | \'reject\' | null;\n    readonly reason?: string;\n    readonly reopenedFrom?: {\n        readonly digest: VideoRecoveryDigest;\n        readonly rejectionReason: string | null;\n        readonly reason: string;\n    };\n}',
   },
   {
     name: 'VideoRecoveryReviewInput',
     declaration: 'export interface VideoRecoveryReviewInput {\n    readonly action: \'read\' | \'approve\' | \'reject\' | \'reopen\';\n    readonly idempotencyKey: string;\n    readonly digest?: VideoRecoveryDigest;\n    readonly reason?: string;\n}',
+  },
+  {
+    name: 'VideoRecoverySource',
+    declaration: 'export type VideoRecoverySource = {\n    readonly kind: \'provider\';\n    readonly path: string;\n    readonly sha256: VideoArtifactSha256;\n    readonly state: \'verified\' | \'unmaterialized\' | \'changed\' | \'unreadable\';\n} | {\n    readonly kind: \'derivative\';\n    readonly path: string;\n    readonly sha256: VideoArtifactSha256;\n    readonly state: \'verified\' | \'missing\' | \'changed\' | \'unreadable\';\n} | {\n    readonly kind: \'none\';\n    readonly state: \'unverifiable\';\n};',
   },
   {
     name: 'VideoRecoveryStatus',
