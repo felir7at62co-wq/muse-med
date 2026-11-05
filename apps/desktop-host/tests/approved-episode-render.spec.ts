@@ -30,7 +30,9 @@ async function fixture(medium: 'animation_3d' | 'photorealistic' = 'animation_3d
   ], builtins: { renderer: Renderer } })
   const project = join(home, 'project')
   const review = join(project, 'video_tasks', 'review')
-  const outputPath = join(review, 'private-candidate.mp4')
+  // Equivalent Windows drive casing must retain the same directory identity.
+  const outputPath = join(review, 'private-candidate.mp4').replace(/^[A-Za-z]:/u,
+    drive => drive === drive.toUpperCase() ? drive.toLowerCase() : drive.toUpperCase())
   const paths = {
     projectConfig: join(project, 'project_config.json'),
     timeline: join(project, 'timeline.json'),

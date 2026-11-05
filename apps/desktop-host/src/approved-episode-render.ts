@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto'
 import { constants, createReadStream, createWriteStream } from 'node:fs'
 import { link, lstat, mkdir, mkdtemp, open, realpath, rm } from 'node:fs/promises'
-import { basename, dirname, extname, join, resolve } from 'node:path'
+import { basename, dirname, extname, join, relative } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import { createFileCaptureChannel, prepareStagedEpisodeAudio, runDramaRender, shotFileName,
@@ -66,7 +66,7 @@ async function stageInput(path: string, target: string, sha256: string, label: s
 async function assertOutput(path: string): Promise<void> {
   const parent = dirname(path)
   const actual = await realpath(parent)
-  if (resolve(parent) !== actual) throw new Error('Episode output directory must be a local project directory')
+  if (relative(parent, actual) !== '') throw new Error('Episode output directory must be a local project directory')
   try {
     const entry = await lstat(path)
     if (!entry.isFile() || entry.isSymbolicLink()) throw new Error('Episode output already exists with an invalid file type')
@@ -84,13 +84,13 @@ async function renderApprovedEpisode(input: ApprovedEpisodeRenderInput, signal: 
   await assertOutput(input.outputPath)
   const tasks = join(root, 'video_tasks')
   const tasksInfo = await lstat(tasks)
-  if (!tasksInfo.isDirectory() || tasksInfo.isSymbolicLink() || await realpath(tasks) !== tasks) {
+  if (!tasksInfo.isDirectory() || tasksInfo.isSymbolicLink() || relative(tasks, await realpath(tasks)) !== '') {
     throw new Error('Episode task directory must be a real project directory')
   }
   const stagingParent = join(tasks, 'episode-render-staging')
   await mkdir(stagingParent, { recursive: true })
   const parentInfo = await lstat(stagingParent)
-  if (!parentInfo.isDirectory() || parentInfo.isSymbolicLink() || await realpath(stagingParent) !== stagingParent) {
+  if (!parentInfo.isDirectory() || parentInfo.isSymbolicLink() || relative(stagingParent, await realpath(stagingParent)) !== '') {
     throw new Error('Episode staging directory must be a real project directory')
   }
   const stage = await mkdtemp(join(stagingParent, 'render-'))
