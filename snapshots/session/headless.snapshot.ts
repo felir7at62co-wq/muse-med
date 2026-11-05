@@ -1,6 +1,7 @@
 /** Recorded-session replay through the shipped headless `dsh` profile. */
 
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
+import { expectedSourceRecoveryEvidence, sourceRecoveryLog, type SourceRecoveryEvidence } from './muse-source-recovery/evidence.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
 import { cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -538,6 +539,89 @@ async function prepareSubtitleOverlayExpectedWorkspace(cwd: string, scenarioDir:
   const report = join(expectedRoot, 'editing', 'review-overlay.srt.decision-report.json')
   await writeFile(report, expandSubtitleOverlayExpectedReport(await readFile(report, 'utf8'), await realpath(cwd)))
   return expectedRoot
+}
+
+async function verifyVideoObservation(cwd: string, scenarioDir: string, expectedRoot: string, log: string): Promise<void> {
+  const events = parseSessionLog(log)
+  const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+  expect(results.map(result => result.isError)).toEqual([false, false, false, false, false, false, false, false, false, false, false, false])
+  const firstDelivery = events.findIndex(event => event.type === 'deliverables/presented')
+  const observationsBeforeDelivery = events.slice(0, firstDelivery)
+    .flatMap(event => event.type !== 'video/review' ? []
+      : event.data.kind === 'start' ? event.data.review.frames : event.data.frames)
+    .filter(frame => frame.observation !== undefined)
+  expect(firstDelivery).toBeGreaterThan(0)
+  expect(observationsBeforeDelivery).toHaveLength(0)
+  expect(results.flatMap(result => result.content).filter(block => block.type === 'image')).toHaveLength(7)
+  expect(events.some(event => event.type === 'deliverables/presented')).toBe(true)
+  const started = events.find(event => event.type === 'video/review' && event.data.kind === 'start')
+  if (started?.type !== 'video/review' || started.data.kind !== 'start') throw Error('Missing video observation start')
+  const template = await readFile(join(scenarioDir, 'report.expected.json'), 'utf8')
+  const expected = JSON.parse(template.replaceAll('{{id:1}}', started.data.review.id)) as { path: string }
+  expected.path = await realpath(join(cwd, 'fixture.mp4'))
+  const finalText = results[6]?.content.find(block => block.type === 'text')
+  if (finalText?.type !== 'text') throw Error('Missing completed observation report')
+  const report = JSON.parse(finalText.text) as { observation_report: string }
+  const saved = await readFile(report.observation_report, 'utf8')
+  expect(JSON.parse(saved)).toEqual(expected)
+  const timelineText = results[8]?.content.find(block => block.type === 'text')
+  if (timelineText?.type !== 'text') throw Error('Missing source timeline')
+  const { source_timeline: timeline } = JSON.parse(timelineText.text) as { source_timeline: {
+    semantic_assessment: string; scope: { full_episode: boolean }; windows: { frames: object[]; event_notes: object[];
+      speech_segment_ids: string[] }[]; speech: { segments: object[]; continuous_speech_candidates: object[] }
+  } }
+  expect(timeline.semantic_assessment).toBe('not_performed')
+  expect(timeline.scope.full_episode).toBe(true)
+  expect(timeline.windows.flatMap(window => window.frames)).toHaveLength(5)
+  expect(timeline.windows[0]?.event_notes).toHaveLength(1)
+  expect(timeline.windows[0]?.speech_segment_ids).toEqual(['S00001', 'S00002'])
+  expect(timeline.speech.continuous_speech_candidates).toHaveLength(1)
+  const comparisonText = results[9]?.content.find(block => block.type === 'text')
+  if (comparisonText?.type !== 'text') throw Error('Missing saved-draft comparison')
+  const { comparison } = JSON.parse(comparisonText.text) as { comparison: {
+    advisory: boolean; semantic_assessment: string; observations: object[]; draft: { numbered_text: string };
+    event_groups: { evidence_current: boolean; speech_segment_ids: string[];
+      evidence: { frame_id: string; visible: string }[] }[];
+    speech: { segments: object[]; continuous_speech_candidates: object[] }
+  } }
+  expect(comparison.advisory).toBe(true)
+  expect(comparison.semantic_assessment).toBe('not_performed')
+  expect(comparison.observations).toHaveLength(5)
+  expect(comparison.event_groups).toHaveLength(1)
+  expect(comparison.event_groups[0]?.evidence_current).toBe(true)
+  expect(comparison.event_groups[0]?.speech_segment_ids).toEqual(['S00001', 'S00002'])
+  expect(comparison.event_groups[0]?.evidence.map(frame => frame.frame_id)).toEqual(['F00001', 'F00003'])
+  expect(comparison.event_groups[0]?.evidence[0]?.visible).toContain('没有人物')
+  expect(comparison.speech.segments).toHaveLength(2)
+  expect(comparison.speech.continuous_speech_candidates).toHaveLength(1)
+  expect(comparison.draft.numbered_text).toContain('2: ▲合成画面从黑色切换为白色。')
+  const revisitText = results[10]?.content.find(block => block.type === 'text')
+  if (revisitText?.type !== 'text') throw Error('Missing cached-frame revisit')
+  const revisit = JSON.parse(revisitText.text) as {
+    complete: boolean; pending: number; frames: { id: string; revisited: boolean; observation: object }[]
+  }
+  expect(revisit.complete).toBe(true)
+  expect(revisit.pending).toBe(0)
+  expect(revisit.frames.map(frame => frame.id)).toEqual(['F00001', 'F00003'])
+  expect(revisit.frames.every(frame => frame.revisited && frame.observation)).toBe(true)
+  const eventText = results[7]?.content.find(block => block.type === 'text')
+  if (eventText?.type !== 'text') throw Error('Missing grouped-event report')
+  const eventReport = JSON.parse(eventText.text) as { observation_report: string }
+  const eventTemplate = await readFile(join(scenarioDir, 'events-report.expected.json'), 'utf8')
+  const eventExpected = JSON.parse(eventTemplate.replaceAll('{{id:1}}', started.data.review.id)) as {
+    path: string; transcript_reference: { path: string }
+  }
+  eventExpected.path = expected.path
+  eventExpected.transcript_reference.path = await realpath(join(cwd, 'transcript.json'))
+  const eventSaved = await readFile(eventReport.observation_report, 'utf8')
+  expect(JSON.parse(eventSaved)).toEqual(eventExpected)
+  expect(eventReport.observation_report).not.toBe(report.observation_report)
+  const expectedEvents = join(expectedRoot, '.muse', 'video-observations', basename(eventReport.observation_report))
+  await mkdir(dirname(expectedEvents), { recursive: true })
+  await writeFile(expectedEvents, eventSaved)
+  const expectedReport = join(expectedRoot, '.muse', 'video-observations', basename(report.observation_report))
+  await mkdir(dirname(expectedReport), { recursive: true })
+  await writeFile(expectedReport, saved)
 }
 
 async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<PreparedWorkspace> {
@@ -1317,6 +1401,58 @@ describe('headless recorded-session snapshots', () => {
     }
   })
 
+  it('admits only independently checked observation files into the complete expected workspace', async () => {
+    const owner = scenarios.find(scenario => scenario.name === 'muse-video-observation')
+    if (owner === undefined) throw new Error('Missing video observation fixture')
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-observation-evidence-'))
+    try {
+      const prepared = await seedWorkspace(owner, cwd)
+      const expectedRoot = prepared.expectedRoot
+      if (expectedRoot === undefined) throw new Error('Missing prepared observation workspace')
+      const id = 'fixture-observation'
+      const log = (await readFile(join(owner.dir, 'writer.expected.jsonl'), 'utf8'))
+        .replaceAll('{{cwd}}', cwd.replaceAll('\\', '/')).replaceAll('{{id:1}}', id)
+      const results = parseSessionLog(log).flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+      const reportPath = (index: number): string => {
+        const block = results[index]?.content.find(block => block.type === 'text')
+        if (block?.type !== 'text') throw new Error('Missing observation result')
+        return (JSON.parse(block.text) as { observation_report: string }).observation_report
+      }
+      const report = JSON.parse((await readFile(join(owner.dir, 'report.expected.json'), 'utf8')).replaceAll('{{id:1}}', id)) as {
+        path: string
+        source_version: string
+        frames: { image: { attachmentId: string } }[]
+      }
+      report.path = await realpath(join(cwd, 'fixture.mp4'))
+      const grouped = JSON.parse((await readFile(join(owner.dir, 'events-report.expected.json'), 'utf8')).replaceAll('{{id:1}}', id)) as {
+        path: string
+        transcript_reference: { path: string; sha256: string }
+        event_groups: { observation_digest: string }[]
+      }
+      grouped.path = report.path
+      grouped.transcript_reference.path = await realpath(join(cwd, 'transcript.json'))
+      await mkdir(dirname(reportPath(6)), { recursive: true })
+      await writeFile(reportPath(6), JSON.stringify(report, null, 2) + '\n')
+      await writeFile(reportPath(7), JSON.stringify(grouped, null, 2) + '\n')
+      await verifyVideoObservation(cwd, owner.dir, expectedRoot, log)
+      const accepted = await captureExpectedWorkspaceSnapshot(expectedRoot)
+      expect(await captureWorkspaceSnapshot(cwd, { ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES })).toEqual(accepted)
+      for (const tamper of ['source-version', 'frame-bytes', 'transcript-bytes', 'event-evidence']) {
+        const changedReport = structuredClone(report), changedGrouped = structuredClone(grouped)
+        if (tamper === 'source-version') changedReport.source_version = 'different-source-version'
+        if (tamper === 'frame-bytes') changedReport.frames[0]!.image.attachmentId = 'sha256:' + '0'.repeat(64)
+        if (tamper === 'transcript-bytes') changedGrouped.transcript_reference.sha256 = '0'.repeat(64)
+        if (tamper === 'event-evidence') changedGrouped.event_groups[0]!.observation_digest = '0'.repeat(64)
+        await writeFile(reportPath(6), JSON.stringify(changedReport, null, 2) + '\n')
+        await writeFile(reportPath(7), JSON.stringify(changedGrouped, null, 2) + '\n')
+        await expect(verifyVideoObservation(cwd, owner.dir, expectedRoot, log), tamper).rejects.toThrow()
+        expect(await captureExpectedWorkspaceSnapshot(expectedRoot), 'Rejected evidence cannot change the prepared oracle').toEqual(accepted)
+      }
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
+  })
+
   it('seeds resumed ASR receipts with a canonical workspace through a directory alias', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'dsh-asr-workspace-alias-'))
     try {
@@ -1753,6 +1889,7 @@ describe('headless recorded-session snapshots', () => {
       let finalWorkspace: WorkspaceSnapshotEntry[] | undefined
       let expectedWorkspaceRoot: string | undefined
       let preparedExpectedWorkspace: WorkspaceSnapshotEntry[] | undefined
+      let sourceRecoveryEvidence: SourceRecoveryEvidence | undefined
       let visualSpeechHash: string | undefined
       const spillRoot = await mkdtemp(join(tmpdir(), 'acp-snap-spill-'))
       const locatorRoot = snapshotSpillRoot(join(scenario.dir, fixtureFiles[0] as string))
@@ -1819,6 +1956,10 @@ describe('headless recorded-session snapshots', () => {
           },
           inspect: async (cwd) => {
             actualLogs = await persistedSessions(cwd)
+            if (scenario.name === 'muse-source-recovery') {
+              sourceRecoveryEvidence = await expectedSourceRecoveryEvidence(cwd, scenario.dir)
+              sourceRecoveryLog(actualLogs[0]!.content, sourceRecoveryEvidence, true)
+            }
             if (scenario.name === 'drama-subtitle-visual-review') {
               const expectedHash = await expectedVisualSpeechHash(cwd, scenario.dir)
               visualSpeechHash = expectedHash
@@ -1827,6 +1968,10 @@ describe('headless recorded-session snapshots', () => {
                 .map(row => JSON.stringify(row)).join('\n')
               expect(() => visualSpeechRecords(tampered, expectedHash, true))
                 .toThrow('Speech evidence digest differs from independently derived inputs')
+            }
+            if (scenario.name === 'muse-video-observation') {
+              if (expectedWorkspaceRoot === undefined) throw new Error('Video observation has no prepared expected workspace')
+              await verifyVideoObservation(cwd, scenario.dir, expectedWorkspaceRoot, actualLogs[0]!.content)
             }
             if (retainedToolInput !== undefined) {
               verifyToolResultWriterParity(primaryFixture, actualLogs[0]!.content)
@@ -1867,6 +2012,9 @@ describe('headless recorded-session snapshots', () => {
             finalWorkspace = await captureWorkspaceSnapshot(cwd, {
               ignoredRootEntries: ignoredWorkspaceEntries,
             })
+            if (expectedWorkspaceRoot !== undefined) {
+              preparedExpectedWorkspace = await captureExpectedWorkspaceSnapshot(expectedWorkspaceRoot)
+            }
             if (scenario.name === 'worktree') {
               // The linked checkout's .git pointer contains the temporary source path; Git assertions verify it separately.
               finalWorkspace = finalWorkspace.filter(entry => entry.path !== '.agents/worktrees/isolated/.git')
@@ -1908,6 +2056,10 @@ describe('headless recorded-session snapshots', () => {
         if (mode === 'refresh') await writeSessionFixtures(scenario, actualLogs, fixtures, actualContext)
       }
       expected = [...await expectedSessionFixtures(scenario, expected)]
+      if (scenario.name === 'muse-source-recovery') {
+        if (sourceRecoveryEvidence === undefined) throw new Error('Source recovery evidence was not checked')
+        expected[0] = sourceRecoveryLog(expected[0]!, sourceRecoveryEvidence, false)
+      }
       const outputLog = expected[0]
       if (outputLog === undefined) throw new Error(`${scenario.name}: CLI projection has no primary session`)
       expect(result.stdout).toBe(`${finalTextFromSession(outputLog)}\n`)

@@ -10,3 +10,4 @@ header:
   toolSchemasSource: muse-attention-audio
 workspace:
   final: true
+writerOutput: true

@@ -9,21 +9,12 @@ const recovery = await importSnapshotModule(new URL('../../../apps/desktop-host/
   new URL('../../../apps/desktop-host/lib/source-recovery.js', import.meta.url))
 const present = await importSnapshotPackage('@deepseek-ai/dsh-tool-present', host)
 export const name = 'source-recovery-fixture'
-export const inject = ['tools', 'fs', 'sessionQuery', 'toolResultPruner']
+export const inject = ['tools', 'sessionQuery', 'toolResultPruner']
 
 /** @param {import('@deepseek-ai/cordis').Context} ctx - Isolated shipped-profile context. */
 export async function apply(ctx) {
   await ctx.plugin(recovery)
   await ctx.plugin(present)
-  ctx.effect(() => {
-    // Keep the actual filesystem identity while making this fixture's model-facing source path stable.
-    const originalResolve = ctx.fs.resolve.bind(ctx.fs)
-    ctx.fs.resolve = async (path, options) => {
-      const target = await originalResolve(path, options)
-      return path === 'source.txt' ? { ...target, displayPath: 'source.txt' } : target
-    }
-    return () => { ctx.fs.resolve = originalResolve }
-  })
   ctx.effect(() => {
     const original = globalThis.fetch
     globalThis.fetch = async () => { throw Error('source recovery snapshot refuses network') }

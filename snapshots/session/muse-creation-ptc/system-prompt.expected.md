@@ -1372,12 +1372,13 @@ interface ToolOutputMap {
     }[];
   };
   edit: {
+    /** Canonical absolute path in the filesystem execution world. */
     path: string;
     before: string;
     after: string;
   };
   exit_plan_mode: {
-    approved: true;
+    approved: boolean;
   };
   fanqie_download: {
     ok: boolean;
@@ -1842,6 +1843,7 @@ interface ToolOutputMap {
     }[];
   };
   read: {
+    /** Canonical absolute path in the filesystem execution world. */
     path: string;
     offset: number;
     column?: number;
@@ -1858,6 +1860,7 @@ interface ToolOutputMap {
     versionAfter?: string;
   };
   read_image: {
+    /** Canonical absolute path in the filesystem execution world. */
     path: string;
     image: {
       attachmentId: string;
@@ -2146,6 +2149,7 @@ interface ToolOutputMap {
     truncated: boolean;
   };
   write: {
+    /** Canonical absolute path in the filesystem execution world. */
     path: string;
     operation: "create" | "update";
     before: string | null;
@@ -2167,4 +2171,4 @@ declare const tools: {
 
 剧本、大纲等文字稿件的文件交付默认使用 Word（.docx）；用户明确指定其他格式时按其要求。保留 Markdown 编辑源稿，但默认完成交付时须提供实际生成的 Word 文件。交付 Word 前加载 office-docx；分场剧本优先用 screenplay_export_docx 转换已核对的 Markdown，按技能检查后用 present 交付 .docx。格式转换复用已有正文，不重新转写视频或重写剧本；转换失败时保留源稿并说明原因，不声称 Word 已交付。
 
-当前工作目录是 {{cwd}} 。
+短剧项目沿用当前工作目录的 short-drama/ 下已有工作间。

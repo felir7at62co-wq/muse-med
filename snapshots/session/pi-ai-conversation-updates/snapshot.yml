@@ -9,3 +9,4 @@ header:
   toolSchemasSource: dynamic-tool-updates
   changes: 2
   promptChanges: 1
+writerOutput: true
