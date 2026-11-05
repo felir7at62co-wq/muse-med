@@ -1,7 +1,7 @@
 /** Conversation-owned single-player shelf and real cut ranges across its videos. */
 import { useEffect, useRef, useState } from 'react'
 import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import { Button, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular, IconRefreshOutlineRegular, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { VideoShared } from './face.ts'
 import { VideoPlayer } from './VideoPlayer.tsx'
 import { useCurtainPresence } from './useCurtainPresence.ts'
@@ -103,12 +103,15 @@ export function VideoShelf(props: PropsRuntime<'conversation.chat.pinned'> & Vid
           {present && <div className={css.contents}>
             {source === undefined ? <p className={css.status} role="status">{t(loadError ? 'unavailable' : 'empty')}</p> : <>
               <div className={css.sourceControls}>
-                {shot && <Button size="sm" onClick={() => {
-                  const prompt = t('redoPrompt', { name: shot.source.label, source: shot.source.path ?? shot.source.id, id: shot.id,
-                    start: shot.localStart.toFixed(3), end: shot.localEnd.toFixed(3) })
-                  const span = { start: draftLength, end: draftLength, draftRev }
-                  if (inputActions.insertText(`\n\n${prompt}`, span)) inputActions.persistDraft()
-                }}><IconRefreshOutlineRegular />{t('redo')}</Button>}
+                <Tooltip label={t('selectShotToRedo')} disabled={shot !== undefined} portal>
+                  <span><Button size="sm" disabled={shot === undefined} onClick={() => {
+                    if (shot === undefined) return
+                    const prompt = t('redoPrompt', { name: shot.source.label, source: shot.source.path ?? shot.source.id, id: shot.id,
+                      start: shot.localStart.toFixed(3), end: shot.localEnd.toFixed(3) })
+                    const span = { start: draftLength, end: draftLength, draftRev }
+                    if (inputActions.insertText(`\n\n${prompt}`, span)) inputActions.persistDraft()
+                  }}><IconRefreshOutlineRegular />{t('redo')}</Button></span>
+                </Tooltip>
               </div>
               {source.playbackUrl !== null ? <VideoPlayer active={open} source={source} analysis={analyses[source.id]} t={t}
                 shots={timeline.shots} offset={timeline.offsets[source.id] ?? 0}

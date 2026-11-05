@@ -24,7 +24,7 @@ type ViewsMoreMenuProps =
   & Pick<ConversationSessionHeaderSlotProps, 'renderSlot'>
   & { readonly label: string; readonly current: boolean; readonly fallbackEntries?: boolean }
 
-/** The View tab row's More launcher; its menu rows come from `conversation.session.header.views.actions`. */
+/** View navigation launcher; its menu rows come from `conversation.session.header.views.actions`. */
 function ViewsMoreMenu({ label, current, entries, onOpen, onPinnedChange, renderSlot, fallbackEntries = false }: ViewsMoreMenuProps) {
   const [open, setOpen] = useState(false)
   const onDismiss = (): void => { setOpen(false) }
@@ -151,12 +151,16 @@ export function ConversationSessionHeader({
       <div className={css.titleRow}>
         {!hideChrome && (
           <>
-            {floating && <div className={clsx(css.titleCluster, css.floatingTitle)}>
+            {floating && <div className={css.floatingTitle}>
               <nav className={css.crumbs} aria-label={t('session.hierarchy')}>
                 <span className={clsx(css.crumb, css.crumbCurrent)} data-conversation-floating-title>
                   {ancestry.at(-1)?.displayTitle ?? sessionId}
                 </span>
               </nav>
+              {tabs.length > 1 && <ViewsMoreMenu label={t('session.moreViews')} current={false} fallbackEntries
+                entries={tabs.map(tab => ({ id: tab.id, label: tab.label,
+                  pinned: !unpinned.includes(tab.id), active: tab.id === active?.id }))}
+                onOpen={selectView} onPinnedChange={setPinned} renderSlot={renderSlot} />}
             </div>}
             {!floating && <div className={css.titleCluster}>
               <nav className={css.crumbs} aria-label={t('session.hierarchy')}>
@@ -218,13 +222,7 @@ export function ConversationSessionHeader({
               </div>
             </div>}
             <div className={css.headerUtilities}>
-              {floating && <>
-                {renderSlot('conversation.session.header.actions', {})}
-                {tabs.length > 1 && <ViewsMoreMenu label={t('session.moreViews')} current={false} fallbackEntries
-                  entries={tabs.map(tab => ({ id: tab.id, label: tab.label,
-                    pinned: !unpinned.includes(tab.id), active: tab.id === active?.id }))}
-                  onOpen={selectView} onPinnedChange={setPinned} renderSlot={renderSlot} />}
-              </>}
+              {floating && renderSlot('conversation.session.header.actions', {})}
               {renderSlot('conversation.session.header.utilities', {})}
             </div>
           </>

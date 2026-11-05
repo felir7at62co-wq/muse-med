@@ -36,4 +36,18 @@ describe('conversation header geometry', () => {
     expect(css.match(/\.viewTabs\s*\{([^}]*)\}/)?.[1]).toContain('gap: 32px')
     expect(css.match(/\.tabs\s*\{([^}]*)\}/)?.[1]).toContain('gap: 16px 20px')
   })
+
+  it('shrinks the floating title without clipping or fading its adjacent More views button', () => {
+    const title = css.match(/\.headerFloating \.floatingTitle\s*\{([^}]*)\}/)?.[1]
+    expect(title).toContain('display: flex')
+    expect(title).toContain('min-width: 0')
+    expect(title).toContain('gap: 4px')
+    expect(title).toContain('--dsh-frame-leading-clearance')
+    expect(title).not.toMatch(/overflow|mask-image/)
+    expect(css.match(/\.crumbs\s*\{([^}]*)\}/)?.[1]).toContain('overflow: hidden')
+    expect(css.match(/^\.crumb\s*\{([^}]*)\}/m)?.[1]).toContain('text-overflow: ellipsis')
+    expect(css.match(/^\.viewsMoreAnchor\s*\{([^}]*)\}/m)?.[1]).toContain('flex: none')
+    expect(css.match(/\.headerFloating \.floatingTitle \.viewsMoreAnchor\s*\{([^}]*)\}/)?.[1]).toContain('pointer-events: auto')
+    expect(css.match(/\.headerFloating \.floatingTitle \.viewsMore\s*\{([^}]*)\}/)?.[1]).toContain('margin-top: 0')
+  })
 })

@@ -149,6 +149,7 @@ function mount(
     /** Isolate header capability checks from the composer's required layout observers. */
     headerOnly?: boolean
     headerPresentation?: 'standard' | 'floating'
+    displayTitle?: string
   } = {},
 ) {
   const sessionId = 'sessionId' in options ? options.sessionId : SID
@@ -160,7 +161,7 @@ function mount(
     running: false, retainedBy: {}, blank: false, updatedAt: 2,
   }
   const childRow = {
-    id: SID, displayTitle: 'Child', parentId: options.nestedSubagent === true ? parent : root,
+    id: SID, displayTitle: options.displayTitle ?? 'Child', parentId: options.nestedSubagent === true ? parent : root,
     cwd: '/projects/one', running: false, retainedBy: { mainView: 1 }, blank: options.summaryBlank ?? false, updatedAt: 3,
     ...(options.summaryOrigin === undefined ? {} : { origin: options.summaryOrigin }),
   }
@@ -1078,13 +1079,32 @@ describe('Floating conversation header', () => {
 
   it('keeps the standard header title, ancestry and tabs available', () => {
     const b = mount(sessionSnapshotOf(), undefined, undefined, {
-      headerPresentation: 'standard', headerOnly: true, summaryOrigin: 'subagent',
+      headerPresentation: 'standard', headerOnly: true, summaryOrigin: 'subagent', entryActions: true,
     })
     const ancestry = b.view.getByRole('navigation', { name: zh['session.hierarchy'] })
     expect(ancestry.textContent).toContain('Root')
     expect(ancestry.textContent).toContain('Child')
-    expect(b.view.getByRole('tablist')).toBeTruthy()
+    const tabs = b.view.getByRole('tablist')
+    const more = b.view.getByRole('button', { name: zh['session.moreViews'] })
+    expect(tabs.parentElement?.contains(more)).toBe(true)
+    expect(ancestry.parentElement?.contains(more)).toBe(false)
     expect(b.view.container.querySelector('[data-conversation-floating-title]')).toBeNull()
+  })
+
+  it('keeps More views beside a long floating title and leaves native controls on the right', () => {
+    const displayTitle = 'Long session title '.repeat(30)
+    const b = mount(sessionSnapshotOf(), undefined, undefined, {
+      headerPresentation: 'floating', headerOnly: true, displayTitle,
+    })
+    const title = b.view.getByRole('navigation', { name: zh['session.hierarchy'] })
+    const more = b.view.getByRole('button', { name: zh['session.moreViews'] })
+    expect(title.textContent).toBe(displayTitle)
+    expect(title.nextElementSibling?.contains(more)).toBe(true)
+    expect(title.parentElement?.contains(b.view.getByTestId('view-conversation.session.header.actions'))).toBe(false)
+    expect(title.parentElement?.contains(b.view.getByTestId('view-conversation.session.header.utilities'))).toBe(false)
+    expect(title.parentElement?.contains(b.view.getByTestId('view-conversation.session.header.corner'))).toBe(false)
+    fireEvent.click(more)
+    expect(screen.getByRole('menuitem', { name: 'Trajectory' })).toBeTruthy()
   })
 
   it('switches every View through its own menu when no customization plugin is installed', () => {

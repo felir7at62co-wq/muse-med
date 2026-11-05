@@ -47,9 +47,9 @@ The shelf reserves one compact header footprint; its expanded curtain floats ove
 
 Opening the spider control displays the recorded inventory and analyzes available versioned sources. Missing media, incomplete inventory and failed detection retain explicit status and Retry controls. A failed analysis contributes no invented shot. The combined timeline keeps each source's original local time range; selecting a shot opens its source and seeks to that range.
 
-The video-name selector is a separate capsule on the spider header row and fades with the curtain; it switches sources without repeating the filename over the picture. Timeline zoom adjusts horizontal scale while preserving original media time and shot ranges.
+The video-name selector sits directly on the spider header row without a filled capsule and fades with the curtain; it switches sources without repeating the filename over the picture. Timeline zoom adjusts horizontal scale while preserving original media time and shot ranges.
 
-The modification action appends the source, shot identity and original time range to the existing input draft. It neither sends the draft nor replaces a video. Delivered video contributions replace only the playback body; native file preview and opening actions remain with Deliverables.
+When a video is available, the modification control stays visible in the expanded curtain. It is disabled until a timeline shot is selected; hovering it explains this requirement. Once a shot is selected, the action appends the source, shot identity and original time range to the existing input draft. It neither sends the draft nor replaces a video. Delivered video contributions replace only the playback body; native file preview and opening actions remain with Deliverables.
 
 -----
 
