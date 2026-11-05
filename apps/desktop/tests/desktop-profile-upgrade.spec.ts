@@ -39,6 +39,31 @@ it.each(['missing', 'already-installed'] as const)('activates independent Skill 
   expect(readdirSync(root).filter(file => file.endsWith('.bak'))).toEqual(backups)
 })
 
+it.each(['missing', 'installed', 'reversed'] as const)('mounts card bundles once from a %s older profile and retains explicit disables', (layout) => {
+  const root = mkdtempSync(join(tmpdir(), 'muse-card-profile-upgrade-')); roots.push(root)
+  const cards = ['deep-view', '@nagi-ovo/dsh-visualize']
+  const before = DESKTOP_PROFILE_BUNDLES.filter(bundle => !cards.includes(bundle))
+  const installed = layout === 'missing' ? [] : layout === 'reversed' ? [...cards].reverse() : cards
+  const manifest = { name: '@deepseek-ai/dsh-desktop-runtime', private: true, version: '0.0.0',
+    dependencies: { custom: 'file:../custom', 'deep-view': '0.1.2', '@nagi-ovo/dsh-visualize': '0.1.7' },
+    dsh: { profile: { bundles: [...before, 'custom', ...installed, 'other'] } } }
+  const original = JSON.stringify(manifest)
+  const patch = '- id: deep-view\n  disabled: true\n- id: dsh-visualize\n  config:\n    htmlMode: true\n'
+  writeFileSync(join(root, 'package.json'), original)
+  writeFileSync(join(root, 'cordis.patch.yml'), patch)
+  migrateDesktopProductProfile(root)
+  const parsed = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as typeof manifest
+  expect(parsed.dsh.profile.bundles).toEqual([...DESKTOP_PROFILE_BUNDLES, 'custom', 'other'])
+  for (const name of cards) expect(parsed.dsh.profile.bundles.filter(bundle => bundle === name)).toHaveLength(1)
+  expect(parsed.dependencies).toEqual(manifest.dependencies)
+  expect(readFileSync(join(root, 'cordis.patch.yml'), 'utf8')).toBe(patch)
+  const backups = readdirSync(root).filter(file => file.endsWith('.bak'))
+  expect(backups).toHaveLength(1)
+  expect(readFileSync(join(root, backups[0] ?? ''), 'utf8')).toBe(original)
+  migrateDesktopProductProfile(root)
+  expect(readdirSync(root).filter(file => file.endsWith('.bak'))).toEqual(backups)
+})
+
 it.each(['ds-bot', 'muse-bot'])('retires %s while retaining full state, source package specs, unrelated plugins and exact private backups', (bot) => {
   const root = mkdtempSync(join(tmpdir(), 'muse-profile-upgrade-')); roots.push(root)
   const manifest = { name: '@deepseek-ai/dsh-desktop-runtime', private: true, version: '0.0.0', dependencies: { [bot]: '0.2.4', custom: 'file:../custom' },

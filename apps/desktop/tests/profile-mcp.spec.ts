@@ -62,6 +62,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     // it tests a tree no Desktop launch ever mounts.
     const overlay = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
     expect(profile.skippedBundles).toEqual([])
+    expect(profile.layers.map(layer => layer.packageName)).toEqual(expect.arrayContaining(['deep-view', '@nagi-ovo/dsh-visualize']))
     const warnings: string[] = []
     const rows = composeEntries([
       ...profile.layers.map(layer => layer.patches),
@@ -69,6 +70,9 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
       loadOverlayPatches('muse-med', overlay),
     ], message => warnings.push(message))
 
+    for (const [id, name] of [['deep-view', 'deep-view'], ['dsh-visualize', '@nagi-ovo/dsh-visualize']]) {
+      expect(rows.filter(row => row.id === id)).toEqual([{ id, name }])
+    }
     for (const id of ['agent-notes', 'ui-settings-agent-notes']) {
       expect(rows.find(row => row.id === id), id).toMatchObject({ disabled: true })
     }
