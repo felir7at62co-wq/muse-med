@@ -5,5 +5,5 @@
 {"type":"agent/inbox/spliced","data":{"target":"next-turn","start":0,"inserted":[{"content":[{"type":"text","text":"Exercise active child shutdown."}],"source":{"kind":"user"},"role":"user","id":"{{message:1}}"}]}}
 {"type":"turn/start","data":{"turn":1}}
 {"type":"agent/inbox/spliced","data":{"target":"next-turn","start":0,"removedCount":1,"inserted":[]}}
-{"type":"subagent/catalog","data":{"version":0,"childId":"{{session:2}}","childCreatedAt":0,"mode":"one-shot","label":"shutdown-child"}}
+{"type":"subagent/catalog","data":{"version":0,"childId":"{{session:2}}","childCreatedAt":0,"mode":"continuable","label":"shutdown-child"}}
 {"type":"turn/end","data":{"turn":1,"reason":{"kind":"aborted","reason":{"kind":"disposed"}}}}
