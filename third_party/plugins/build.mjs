@@ -38,6 +38,8 @@ mkdirSync(output, { recursive: true })
 
 function run(args, cwd, environment = {}, command = process.execPath) {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD|^NODE_TEST_/iu.test(key)))
+  // The inherited Corepack marker disables pnpm's project-specific version selection.
+  Reflect.deleteProperty(env, 'COREPACK_ROOT')
   Reflect.deleteProperty(env, 'MUSE_HOME')
   Reflect.deleteProperty(env, 'MUSE_MED_HOME')
   Reflect.deleteProperty(env, 'DSH_FFMPEG_PATH')

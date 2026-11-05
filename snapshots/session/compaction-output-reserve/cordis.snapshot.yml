@@ -1,5 +1,5 @@
-# With 1,800 tokens of headroom, a 1,000-token output reservation lowers the
-# trigger from 6,782 to 5,782, between the history and its condensed replacement.
+# A 1,000-token output reservation lowers the current catalog pressure trigger
+# from 7,568 to 6,660, between the initial request and its alpha marker result.
 
 - id: agent-instructions
   disabled: true
@@ -31,7 +31,9 @@
             name: DeepSeek
             models:
               - id: deepseek-v4-flash
-                contextWindow: 8582
+                contextWindow: 9460
                 defaultMaxTokens: 1000
     - id: compaction-working-directory
       name: '../../../packages/test-support/session-snapshot/tests/fixtures/compaction-working-directory.ts'
+    - id: snapshot-pressure-compaction
+      name: './pressure-fixture.mjs'
