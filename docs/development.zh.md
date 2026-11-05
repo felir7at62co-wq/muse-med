@@ -141,7 +141,13 @@ vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `v
 
 未设置 failover 时，仓库副本使用标准 GitHub Linux 和 Windows 运行器。上游仓库保留其企业运行器池；显式 failover 设置仍使用选定的池。
 
-上游 Issue/Project 策略、加权审批及 Cloudflare 预览工作流仅在配置所指向的上游仓库运行。副本可在仓库变量中设置 `DSH_RUN_REAL_API_E2E=true`，并在仓库密钥中配置 `DEEPSEEK_API_KEY_EXTERNAL`，启用真实 API CI；密钥预检及不受信任 PR 的排除规则仍然适用。
+上游 Issue 策略、Issue 生命周期和加权审批用于自动管理上游 Project 与评审。仓库限制使这些功能不适用于 Muse 和其他副本；各自所属的策略测试仍随静态门禁运行。
+
+[真实 API 工作流](../.github/workflows/e2e.yml)在 Muse 和上游默认启用。其他副本通过仓库变量 `DSH_RUN_REAL_API_E2E=true` 选择启用。只有 head 仓库的完整名称与当前仓库一致，且作者不是 Dependabot 的拉取请求，才能使用密钥。必须配置仓库密钥 `DEEPSEEK_API_KEY_EXTERNAL`；缺少密钥会导致预检失败，而不是以跳过测试的方式通过。
+
+[PR 预览工作流](../.github/workflows/build-preview-cloudflare.yml)构建 Muse 市场、运行基于测试夹具的浏览器检查，并保存已验证的预览产物。提供该产物需要 [Muse 账号网关](../apps/market-web/README.zh.md)；该 job 不会将其部署到 Cloudflare，也不验证真实模型回复。Cloudflare 部署仍仅面向上游。
+
+[Desktop 安装包工作流](../.github/workflows/muse-desktop.yml)仅在手动触发且设置 `upload_draft_release=true` 和 `target=all` 时，将已验证的安装包复制到现有发布草稿中。普通拉取请求构建不发布安装包。
 
 keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若干宽粒度 lane，并在受支持的 Node 版本上运行一组较小的兼容性检查。产物消费方在各自 lane 内等待一次 build。必需 benchmark 在标准 GitHub 托管 Linux 上独立运行；[benchmark 运行器说明](../benchmarks/AGENTS.md)拥有路由及 job 超时。单独的真实 API 工作流按其配置的 worker 上限运行 `pnpm run test:e2e`。当前门禁和 job 清单以 [scripts/run-gates.ts](../scripts/run-gates.ts) 和工作流文件为准。
 

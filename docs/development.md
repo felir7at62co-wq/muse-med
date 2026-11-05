@@ -137,7 +137,13 @@ Contributors can opt into the comprehensive local gate set with `pnpm run check:
 
 Without a failover setting, repository copies use standard GitHub Linux and Windows runners. The upstream repository retains its enterprise pools; explicit failover settings retain their selected pools.
 
-Upstream Issue/Project policy, weighted approval, and Cloudflare preview workflows run only in their configured upstream repository. Copies enable real-API CI with `DSH_RUN_REAL_API_E2E=true` in repository variables and `DEEPSEEK_API_KEY_EXTERNAL` in repository secrets; the key preflight and untrusted-PR exclusions remain required.
+Upstream Issue policy, Issue lifecycle, and weighted approval automate upstream Project and review administration. Their repository restrictions make them inapplicable to Muse and other copies; their owning policy tests still run with the static gates.
+
+The [real-API workflow](../.github/workflows/e2e.yml) is enabled by default in Muse and upstream. Other copies opt in with the repository variable `DSH_RUN_REAL_API_E2E=true`. A pull request can use the key only when its head repository's full name matches the current repository and its author is not Dependabot. The repository secret `DEEPSEEK_API_KEY_EXTERNAL` is required; a missing key fails preflight rather than passing with skipped tests.
+
+The [PR preview workflow](../.github/workflows/build-preview-cloudflare.yml) builds the Muse market, runs fixture-backed browser checks, and saves a verified preview artifact. Serving that artifact requires the [Muse account gateway](../apps/market-web/README.md); the job does not deploy it to Cloudflare or verify real-model responses. Cloudflare deployment remains upstream-only.
+
+The [Desktop installer workflow](../.github/workflows/muse-desktop.yml) copies verified installers into existing release drafts only on manual dispatch with `upload_draft_release=true` and `target=all`. Ordinary pull-request builds do not publish installers.
 
 The keyless [CI workflow](../.github/workflows/ci.yml) groups independent gates into broad lanes and runs a smaller compatibility signal across supported Node versions. Artifact consumers wait for one build within their lane. Required benchmarks run separately on standard GitHub-hosted Linux; the [benchmark runner reference](../benchmarks/AGENTS.md) owns routing and the job timeout. The separate real-API workflow runs `pnpm run test:e2e` with its configured worker bound. See [scripts/run-gates.ts](../scripts/run-gates.ts) and the workflow files for the current gate and job inventory.
 

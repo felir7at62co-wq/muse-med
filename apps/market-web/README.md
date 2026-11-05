@@ -39,6 +39,8 @@ The discovery page reveals additional original resources as the reader approache
 
 `pnpm exec tsc -b apps/market-web` compiles the browser adapter for the built integration test. `pnpm exec vitest run apps/market-web/tests/api.spec.ts` verifies bounded responses, authenticated transport, archive validation and request teardown. The [gateway integration reference](../../services/muse-accounts/MARKET.md#operations) describes the built browser-to-Host test. With `DSH_SNAPSHOT=replay`, `pnpm run test:web:built apps/market-web/tests/browser.e2e.ts` builds the production website into a test-owned directory and verifies role cards, hover stability, local upload preflight, exact browser downloads and mobile layout against fixture identities. Browser downloads do not confirm installation, enablement or a model response.
 
+Set `DSH_MARKET_PREBUILT_DIR` to an absolute build directory to run the production website checks against existing files instead of rebuilding them. The directory must contain a nonempty `index.html` and an `assets` directory; invalid input fails the check. Test cleanup preserves that directory. The PR preview workflow uses this mode to verify the artifact it uploads; the separate component preview fixture still builds into its own temporary directory.
+
 <a id="dev-note"></a>
 ## Dev Note
 

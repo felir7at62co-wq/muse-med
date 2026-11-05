@@ -1,9 +1,9 @@
 name: Build PR preview
 
-# Every push to a pull request publishes that pull request's preview to
-# Cloudflare Pages under its own branch alias, behind Cloudflare Access. The
-# upload carries build products only: the workflow never grants the deployment
-# platform access to this repository's sources.
+# Pull requests produce a verified build artifact in their own repository.
+# Trusted upstream pull requests also publish to the upstream Cloudflare Pages
+# project behind Access; Muse artifacts require the Muse account gateway and
+# are not an online preview deployment.
 
 on:
   pull_request:
@@ -32,9 +32,12 @@ env:
 
 jobs:
   preview:
-    if: github.repository == 'deepseek-harness/deepseek-harness'
-    runs-on: ubuntu-24.04
-    name: cloudflare pages preview
+    if: github.repository == 'deepseek-harness/deepseek-harness' || github.repository == 'felir7at62co-wq/muse-med'
+    runs-on: ${{ github.repository == 'felir7at62co-wq/muse-med' && 'windows-2025' || 'ubuntu-24.04' }}
+    name: build and verify preview
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@v7
         with:
@@ -51,10 +54,11 @@ jobs:
       - name: Configure pnpm store path
         id: pnpm-store
         run: |
-          store_root="$HOME/.local/share/pnpm/store"
-          echo "PNPM_CONFIG_STORE_DIR=$store_root" >> "$GITHUB_ENV"
-          store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)
-          echo "path=$store_path" >> "$GITHUB_OUTPUT"
+          $storeRoot = Join-Path $env:RUNNER_TEMP 'preview-pnpm-store'
+          $env:PNPM_CONFIG_STORE_DIR = $storeRoot
+          "PNPM_CONFIG_STORE_DIR=$storeRoot" | Out-File -FilePath $env:GITHUB_ENV -Append
+          $storePath = pnpm store path --silent
+          "path=$storePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       # Read-only: the preview lane consumes the default-branch cache without
       # putting cache upload on its own path.
@@ -75,6 +79,8 @@ jobs:
         run: pnpm run build
 
       - name: Build the preview page and pack the VFS image
+        if: github.repository == 'deepseek-harness/deepseek-harness'
+        shell: bash
         env:
           DSH_CLIENT_TITLE: DSH preview pr-${{ github.event.pull_request.number }}
         run: pnpm --filter @deepseek-ai/dsh-web-frontend run build:preview
@@ -84,11 +90,58 @@ jobs:
       # injecting window.__DSH_BOOT__; replacing it with the worker page makes
       # the deployment root the usable entry instead of a page that never boots.
       - name: Shape the upload
+        if: github.repository == 'deepseek-harness/deepseek-harness'
+        shell: bash
         run: |
           find apps/web/dist -name '*.map' -delete
           cp apps/web/dist/preview.html apps/web/dist/index.html
 
+      - name: Build Muse market preview artifact
+        if: github.repository == 'felir7at62co-wq/muse-med'
+        run: pnpm --filter @deepseek-ai/dsh-market-web run build
+
+      - name: Verify Muse artifact files
+        if: github.repository == 'felir7at62co-wq/muse-med'
+        run: |
+          $index = Get-Item -LiteralPath tmp/market-cloud-web/index.html -ErrorAction Stop
+          if ($index.Length -eq 0) { throw 'Market preview HTML is empty' }
+          if (!(Test-Path -LiteralPath tmp/market-cloud-web/assets -PathType Container)) { throw 'Market preview assets are missing' }
+          Get-ChildItem -LiteralPath tmp/market-cloud-web -Filter '*.map' -Recurse -File | Remove-Item
+
+      - name: Install Muse browser test dependencies
+        if: github.repository == 'felir7at62co-wq/muse-med'
+        run: pnpm --filter @deepseek-ai/dsh-market-web exec playwright install chromium
+
+      - name: Verify Muse market browser behavior
+        if: github.repository == 'felir7at62co-wq/muse-med'
+        env:
+          DSH_SNAPSHOT: replay
+          DSH_MARKET_PREBUILT_DIR: ${{ github.workspace }}/tmp/market-cloud-web
+        run: pnpm run test:web:built apps/market-web/tests/browser.e2e.ts
+
+      - name: Save verified preview artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: preview-pr-${{ github.event.pull_request.number }}
+          path: ${{ github.repository == 'felir7at62co-wq/muse-med' && 'tmp/market-cloud-web/' || 'apps/web/dist/' }}
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Summarize Muse preview artifact
+        if: github.repository == 'felir7at62co-wq/muse-med'
+        run: |
+          @'
+          ### Muse market preview artifact
+          The production market build and fixture-backed browser regression passed.
+          Download the preview-pr artifact from this workflow run.
+          This is a build artifact, not an online preview deployment or a real-model acceptance result.
+          Serve the HTML and assets with the existing same-origin Muse account gateway; see apps/market-web/README.md.
+          No Cloudflare credentials are used and no production service is deployed.
+          '@ | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+
       - name: Upload to Cloudflare Pages
+        if: github.repository == 'deepseek-harness/deepseek-harness' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
+        shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -113,6 +166,8 @@ jobs:
       # Accept-Encoding is sent because a browser sends it; the assertion is
       # about what the platform does with a body that is already compressed.
       - name: Verify the protected deployment serves the image
+        if: github.repository == 'deepseek-harness/deepseek-harness' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
+        shell: bash
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
@@ -152,6 +207,8 @@ jobs:
       # idempotent: a pull request opened before this workflow existed never
       # sees an `opened` event, and every later push must not restate the URL.
       - name: Comment the preview URL
+        if: github.repository == 'deepseek-harness/deepseek-harness' && github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.user.login != 'dependabot[bot]'
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}

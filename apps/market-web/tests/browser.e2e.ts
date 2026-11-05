@@ -1,8 +1,8 @@
 /** Built market smoke with fixture releases and local authoring. */
 import { createServer, type ServerResponse } from 'node:http'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, extname, join } from 'node:path'
+import { basename, extname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { chromium, type Browser, type Locator, type Page } from 'playwright'
 import { build as viteBuild, preview as vitePreview } from 'vite'
@@ -16,6 +16,58 @@ const publisherId = 'b'.repeat(32) as MarketRelease['publisherId']
 const csp = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
   + "font-src 'self' data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"
 const audioSkill = { name: 'audio-transcribe', title: '录音转文字', description: '把录音转成文字。', category: '媒体与交付' }
+
+async function prepareMarketWebsite(prebuilt: string | undefined): Promise<{
+  output: string
+  needsBuild: boolean
+  dispose: () => Promise<void>
+}> {
+  if (prebuilt !== undefined) {
+    if (!prebuilt.trim() || !isAbsolute(prebuilt)) {
+      throw Error('DSH_MARKET_PREBUILT_DIR must name an absolute built market directory')
+    }
+    const output = resolve(prebuilt)
+    const invalid = 'Market prebuilt directory requires non-empty index.html and an assets directory: ' + output
+    const [index, assets] = await Promise.all([stat(join(output, 'index.html')), stat(join(output, 'assets'))]).catch((cause: unknown) => {
+      throw Error(invalid, { cause })
+    })
+    if (!index.isFile() || !index.size || !assets.isDirectory()) throw Error(invalid)
+    return { output, needsBuild: false, dispose: () => Promise.resolve() }
+  }
+  const root = await mkdtemp(join(tmpdir(), 'muse-market-website-'))
+  return { output: join(root, 'web'), needsBuild: true, dispose: () => rm(root, { recursive: true, force: true }) }
+}
+
+it('keeps supplied website bytes and rejects incomplete prebuilt directories', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'muse-market-prebuilt-'))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
+  const complete = join(root, 'complete'), html = '<html>prebuilt market</html>'
+  await mkdir(join(complete, 'assets'), { recursive: true })
+  await writeFile(join(complete, 'index.html'), html)
+  const website = await prepareMarketWebsite(complete)
+  expect(website.needsBuild).toBe(false)
+  await website.dispose()
+  expect(await readFile(join(website.output, 'index.html'), 'utf8')).toBe(html)
+  await expect(prepareMarketWebsite('')).rejects.toThrow('DSH_MARKET_PREBUILT_DIR must name')
+  await expect(prepareMarketWebsite('relative-market-build')).rejects.toThrow('DSH_MARKET_PREBUILT_DIR must name')
+  await expect(prepareMarketWebsite(join(root, 'missing'))).rejects.toThrow('Market prebuilt directory requires')
+  const missingAssets = join(root, 'missing-assets')
+  await mkdir(missingAssets)
+  await writeFile(join(missingAssets, 'index.html'), html)
+  await expect(prepareMarketWebsite(missingAssets)).rejects.toThrow('Market prebuilt directory requires')
+  const indexDirectory = join(root, 'index-directory')
+  await mkdir(join(indexDirectory, 'index.html'), { recursive: true })
+  await mkdir(join(indexDirectory, 'assets'))
+  await expect(prepareMarketWebsite(indexDirectory)).rejects.toThrow('Market prebuilt directory requires')
+  await writeFile(join(complete, 'index.html'), '')
+  await expect(prepareMarketWebsite(complete)).rejects.toThrow('Market prebuilt directory requires')
+  await writeFile(join(complete, 'index.html'), html)
+  const assetsFile = join(root, 'assets-file')
+  await mkdir(assetsFile)
+  await writeFile(join(assetsFile, 'index.html'), html)
+  await writeFile(join(assetsFile, 'assets'), 'not a directory')
+  await expect(prepareMarketWebsite(assetsFile)).rejects.toThrow('Market prebuilt directory requires')
+})
 
 async function fixture(name: string, id: string): Promise<{ release: MarketRelease; bytes: Uint8Array }> {
   const path = new URL('../../../packages/host/muse-market/tests/fixtures/handoff/' + name + '-1.0.0.zip', import.meta.url)
@@ -72,8 +124,8 @@ it('shows only Skills, retains matching characters through previews and download
   const extraSkills = Array.from({ length: 13 }, (_, index) => ({
     ...originalEntries[1]!, id: 'muse/skills/extra-' + String(index), name: '额外技能 ' + String(index),
   }))
-  const root = await mkdtemp(join(tmpdir(), 'muse-market-website-'))
-  const output = join(root, 'web'), build = pathToFileURL(output + '/')
+  const website = await prepareMarketWebsite(process.env.DSH_MARKET_PREBUILT_DIR)
+  const output = website.output, build = pathToFileURL(output + '/')
   const resources: { browser?: Browser } = {}
   const server = createServer((request, response) => {
     const task = (async () => {
@@ -118,11 +170,11 @@ it('shows only Skills, retains matching characters through previews and download
         })
       } finally {
         await Promise.all(pending)
-        await rm(root, { recursive: true, force: true })
+        await website.dispose()
       }
     }
   })
-  await viteBuild({ configFile: fileURLToPath(new URL('../vite.config.ts', import.meta.url)), logLevel: 'silent',
+  if (website.needsBuild) await viteBuild({ configFile: fileURLToPath(new URL('../vite.config.ts', import.meta.url)), logLevel: 'silent',
     build: { outDir: output, emptyOutDir: false } })
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)

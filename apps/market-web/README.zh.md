@@ -39,6 +39,8 @@ HTML 与配置不缓存，带内容摘要的资源可使用不可变缓存。共
 
 `pnpm exec tsc -b apps/market-web` 编译供构建后集成测试使用的浏览器适配层。`pnpm exec vitest run apps/market-web/tests/api.spec.ts` 验证受限响应、认证传输、发布包校验及请求释放。[网关联调参考](../../services/muse-accounts/MARKET.md#operations)说明构建后网页到 Host 的测试。设置 `DSH_SNAPSHOT=replay` 后，`pnpm run test:web:built apps/market-web/tests/browser.e2e.ts` 将正式网页构建到测试专用目录，使用隔离身份素材验证角色卡片、悬停稳定性、本地上传预览、浏览器下载字节与手机布局。网页下载不代表完成安装、启用或模型回答。
 
+将 `DSH_MARKET_PREBUILT_DIR` 设为构建目录的绝对路径，可直接使用现有文件运行正式网页检查，无需重新构建。该目录必须包含非空的 `index.html` 与 `assets` 目录；无效输入会使检查失败。测试清理保留该目录。PR 预览工作流通过此模式验证将要上传的产物；独立的组件预览测试夹具仍构建到自己的临时目录。
+
 <a id="dev-note"></a>
 ## 开发说明
 
