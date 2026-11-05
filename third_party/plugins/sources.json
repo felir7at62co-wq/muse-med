@@ -52,7 +52,7 @@
     "commit": "ae3fb4a4b6d723c5e1ec0a3c933f80d19f686dc1",
     "license": "MIT",
     "localModifications": {
-      "description": "Own each OAuth flow and callback listener in the panel lifecycle, cancel and drain admitted work, and redeem authorization codes once across concurrent polls.",
+      "description": "Own each OAuth flow and callback listener in the panel lifecycle, cancel and drain admitted work, redeem authorization codes once across concurrent polls, and reject unsafe skill import paths before writing payloads inside their staging directory.",
       "files": {
         "src/mcp/gateway.ts": {
           "upstreamSha256": "eb173c15272b291120fb172235a93aa78c4aa481273eca2968a8f77b245203fe",
@@ -64,11 +64,27 @@
         },
         "README.md": {
           "upstreamSha256": "7b8271254dfd1f0ac99653b5853816bd3f644580c42bfba20d1ee1aef25f6592",
-          "sha256": "c8c677c6a83f35384d7bc0818a8cc893009fe0e729a28346e56d68c4aeac17bd"
+          "sha256": "f4579a8013f3f77e9fcdebb01fdd4db9ab8b750e434f83d9a9397d98e8a63c36"
         },
         "README.en.md": {
           "upstreamSha256": "b9d48f3bd71d8de20053140d1a2aad3972248a728c4c6a2338a1b8a91031a9fd",
-          "sha256": "006b13d4ad507c82469f429bd62a74c6832307d9791bf0ba778ab88285e31afd"
+          "sha256": "babd476b4fabf445fc1ffd752d2c2021c430d3b0d636daa9c491355c1ee01ef1"
+        },
+        "src/skill-import.ts": {
+          "upstreamSha256": "b668b99b81add6e1ead9429172bda84bf6b0f598349d98bd2d11559e9fa37772",
+          "sha256": "110fdda03a8aaef4d3a855bfa322354d07dc663cadf11611e3594ffb3a11a794"
+        },
+        "src/cli-skill.ts": {
+          "upstreamSha256": "7bea9e663ead5886c2c31677dff6ee28cd81432da7cea9b70fdcf79e18302f11",
+          "sha256": "d04d8415b6fd83d587f3c82340184b79feb927fe82fc0982fd07318787c27a36"
+        },
+        "src/index.ts": {
+          "upstreamSha256": "f0bda90ca7933edbd1aa36c88014a8709e97e2b4336b38e2f2589d64c8078a8a",
+          "sha256": "374dbb736919b129da4d550d33989872c715d6234324e95bfdb430bbba997d03"
+        },
+        "test-skill-import.mjs": {
+          "upstreamSha256": "e7b65ec433aa0c328d98114a749e8b674810b62f60c41e27e2c8e26ca0ce211c",
+          "sha256": "c11ea2904e95f7dbbba327a8346d4ec853eedb7b4972cd16a3733608a8b8cc4c"
         }
       }
     }

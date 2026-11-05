@@ -22,6 +22,7 @@
  * 分类结果，不需要各写一套。
  */
 import { unzipSync } from "fflate";
+import { isAbsolute, relative, resolve, sep } from "node:path";
 import { MAX_RECURSE_DEPTH, SKIP_DIR_NAMES } from "./skill-files.js";
 
 /** 分类输入：只要相对路径（正斜杠分隔）。 */
@@ -49,6 +50,34 @@ export type ImportPlan = { candidates: ImportCandidate[]; skipped: ImportSkip[] 
 /** 上传/读盘路径归一：反斜杠转正斜杠、去掉开头的 "./" 与结尾的 "/"。 */
 export function normalizeImportPath(path: string): string {
   return String(path).replaceAll("\\", "/").replace(/^\.\/+/, "").replace(/\/+$/, "");
+}
+
+/**
+ * 校验归档/上传条目的可移植相对路径，拒绝父目录段及驱动器路径。
+ * @param path - 归档或上传文件的原始路径。
+ * @returns 保留载荷层次的正斜杠相对路径。
+ */
+export function validateImportPath(path: string): string {
+  const normalized = normalizeImportPath(path);
+  if (!normalized || normalized.startsWith("/") || /^[A-Za-z]:/.test(normalized) || normalized.includes("\0")
+    || normalized.split("/").some((segment) => segment === "." || segment === "..")) throw new Error("非法文件路径：" + path);
+  return normalized;
+}
+
+/**
+ * 写入前解析载荷目的地；目的文件必须位于当前技能自己的暂存目录内。
+ * @param staging - 当前技能拥有的暂存目录。
+ * @param path - 载荷相对路径。
+ * @returns 暂存目录内目的文件的本机绝对路径。
+ */
+export function resolveImportTarget(staging: string, path: string): string {
+  const normalized = normalizeImportPath(path);
+  if (!normalized || isAbsolute(normalized) || /^[A-Za-z]:/.test(normalized) || normalized.includes("\0")) throw new Error("非法文件路径：" + path);
+  const root = resolve(staging);
+  const target = resolve(root, normalized);
+  const inside = relative(root, target);
+  if (!inside || inside === ".." || inside.startsWith(".." + sep) || isAbsolute(inside)) throw new Error("文件路径超出技能暂存目录：" + path);
+  return target;
 }
 
 type TreeNode = { dirs: Map<string, TreeNode>; files: Map<string, string> };
@@ -174,7 +203,7 @@ export function describeSkips(skipped: ImportSkip[]): string {
 export function expandTopLevelZips(entries: { path: string; data: Buffer }[]): { path: string; data: Buffer }[] {
   const out: { path: string; data: Buffer }[] = [];
   for (const entry of entries) {
-    const path = normalizeImportPath(entry.path);
+    const path = validateImportPath(entry.path);
     if (path.includes("/") || !path.toLowerCase().endsWith(".zip")) {
       out.push({ path, data: entry.data });
       continue;
@@ -188,7 +217,7 @@ export function expandTopLevelZips(entries: { path: string; data: Buffer }[]): {
     for (const name of Object.keys(zipEntries)) {
       if (name === "" || name.endsWith("/")) continue; // 目录条目
       if (name.startsWith("__MACOSX/") || name.split("/").includes("__MACOSX")) continue; // macOS 打包垃圾
-      out.push({ path: normalizeImportPath(name), data: Buffer.from(zipEntries[name]) });
+      out.push({ path: validateImportPath(name), data: Buffer.from(zipEntries[name]) });
     }
   }
   return out;

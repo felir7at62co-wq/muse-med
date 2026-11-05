@@ -15,7 +15,7 @@ import {
   validateFrontmatter,
   winnerEntry
 } from "./skill-files.js";
-import { classifySkillImport, describeSkips, expandTopLevelZips, normalizeImportPath } from "./skill-import.js";
+import { classifySkillImport, describeSkips, expandTopLevelZips, normalizeImportPath, resolveImportTarget } from "./skill-import.js";
 import {
   batchMigrateEntries,
   migrateEntry,
@@ -1003,14 +1003,14 @@ export class SkillsViewerGateway extends TypertRemoteService {
       const staging = join(stagingBase, String(index));
       try {
         for (const write of skill.writes) {
-          const filePath = join(staging, write.relative);
+          const filePath = resolveImportTarget(staging, write.relative);
           await mkdir(dirname(filePath), { recursive: true });
           await writeFile(filePath, write.relative.toLowerCase().endsWith(".md") ? normalizeSkillText(write.data) : write.data);
         }
         if (skill.kind === "bundle") {
           await rename(staging, skill.target);
         } else {
-          await rename(join(staging, skill.writes[0].relative), skill.target);
+          await rename(resolveImportTarget(staging, skill.writes[0].relative), skill.target);
           await rm(staging, { recursive: true, force: true }).catch(() => {});
         }
         written.push({ name: skill.name, kind: skill.kind, target: skill.target });

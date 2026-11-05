@@ -37,7 +37,7 @@ import {
   validateFrontmatter,
   winnerEntry
 } from "./skill-files.js";
-import { classifySkillImport, describeSkips, expandTopLevelZips } from "./skill-import.js";
+import { classifySkillImport, describeSkips, expandTopLevelZips, resolveImportTarget } from "./skill-import.js";
 import {
   batchMigrateEntries,
   migrateEntry,
@@ -260,7 +260,7 @@ async function addSkill(sourceArg, flags, roots, entries) {
     const staging = join(stagingBase, String(index));
     try {
       for (const file of skill.files) {
-        const dest = join(staging, file.relative);
+        const dest = resolveImportTarget(staging, file.relative);
         await mkdir(dirname(dest), { recursive: true });
         if (file.entry.data !== undefined) await writeFile(dest, file.relative.toLowerCase().endsWith(".md") ? normalizeMdText(file.entry.data) : file.entry.data);
         else if (file.relative.toLowerCase().endsWith(".md")) await writeFile(dest, await readNormalizedMd(file.entry.full));
@@ -269,7 +269,7 @@ async function addSkill(sourceArg, flags, roots, entries) {
       if (skill.kind === "bundle") {
         await rename(staging, skill.target);
       } else {
-        await rename(join(staging, skill.files[0].relative), skill.target);
+        await rename(resolveImportTarget(staging, skill.files[0].relative), skill.target);
         await rm(staging, { recursive: true, force: true }).catch(() => {});
       }
       added.push({ name: skill.name, kind: skill.kind, target: skill.target });
