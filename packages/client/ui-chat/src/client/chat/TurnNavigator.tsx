@@ -124,7 +124,8 @@ function TurnNavigatorRail(
     },
     observeElementOffset: (instance, notify) => {
       initialization.current.publishOffset = notify
-      const dispose = observeElementOffset(instance, notify)
+      // Fixed-height marks need no scroll-time size compensation or DOM extent reads.
+      const dispose = observeElementOffset(instance, (offset) => { notify(offset, false) })
       return () => {
         dispose?.()
         initialization.current.placed = false
@@ -193,8 +194,8 @@ function TurnNavigatorRail(
     }
     const target = center - height / 2
     const max = Math.max(0, virtualizer.getTotalSize() - height)
-    const delta = Math.max(0, Math.min(max, target)) - current
-    if (delta !== 0) virtualizer.scrollBy(delta, { behavior })
+    const offset = Math.max(0, Math.min(max, target))
+    if (offset !== current) elementScroll(offset, { behavior }, virtualizer)
   }, [virtualizer])
 
   useImperativeHandle(ref, (): TurnNavigatorHandle => ({
