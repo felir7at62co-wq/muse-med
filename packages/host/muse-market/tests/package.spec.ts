@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { zipSync, unzipSync } from 'fflate'
 import { createMarketPackage, readMarketPackage, marketManifest, marketPath } from '../src/package.ts'
 import type { MarketManifest } from '../src/types.ts'
+import { underreportedStoredZip } from './fixtures/stored-zip.ts'
 
 const limits = { archiveBytes: 1024 * 1024, expandedBytes: 2 * 1024 * 1024, fileCount: 32 }
 const manifest: MarketManifest = { formatVersion: 1, kind: 'skill', name: 'test-skill', title: 'Test', description: 'Test skill',
@@ -94,5 +95,38 @@ describe('market publication archives', () => {
   it('normalizes an omitted Bot plugin list at the untrusted parser boundary', () => {
     const { plugins: _plugins, ...withoutPlugins } = { ...manifest, kind: 'bot' as const, plugins: [] }
     expect(marketManifest(withoutPlugins, []).plugins).toEqual([])
+  })
+
+  it('ignores portable directory entries and rejects unsafe and reserved entries', () => {
+    const entries = unzipSync(createMarketPackage(manifest, files, limits, []))
+    expect(readMarketPackage(zipSync({ 'skills/': new Uint8Array(), ...entries }), limits, []).manifest).toEqual(manifest)
+    for (const path of ['../', 'PUBLICATION.ZIP']) {
+      expect(() => readMarketPackage(zipSync({ [path]: new Uint8Array(), ...entries }), limits, [])).toThrow('invalid-path')
+    }
+    expect(() => readMarketPackage(new Uint8Array(24).fill(65), limits, [])).toThrow('invalid-archive')
+    expect(() => readMarketPackage(new Uint8Array(), limits, [])).toThrow('archive-too-large')
+  })
+
+  it('rejects missing, oversized, malformed, or undeclared archive metadata', () => {
+    expect(() => readMarketPackage(zipSync(files), limits, [])).toThrow('invalid-manifest')
+    for (const invalid of [new Uint8Array(128 * 1024 + 1), Buffer.from('{'), Buffer.from('null'), Buffer.from('{}')]) {
+      expect(() => readMarketPackage(zipSync({ ...files, 'muse-package.json': invalid }), limits, [])).toThrow('invalid-manifest')
+    }
+    const entries = unzipSync(createMarketPackage(manifest, files, limits, []))
+    const data = JSON.parse(Buffer.from(entries['muse-package.json']!).toString('utf8'))
+    for (const invalid of [[], [null, null], [{ path: 1 }, {}], [data.files[0], data.files[0]]]) {
+      const archive = zipSync({ ...entries, 'muse-package.json': Buffer.from(JSON.stringify({ ...data, files: invalid })) })
+      expect(() => readMarketPackage(archive, limits, [])).toThrow('file-mismatch')
+    }
+  })
+
+  it('counts the actual payload when a stored ZIP misstates the expanded size', () => {
+    const entries = unzipSync(createMarketPackage(manifest, files, limits, []))
+    const path = 'skills/test-skill/references/example.md'
+    const { [path]: first, ...remaining } = entries
+    const archive = underreportedStoredZip({ [path]: first!, ...remaining })
+    const declaredBytes = Object.values(remaining).reduce((sum, file) => sum + file.length, 0)
+    expect(readMarketPackage(archive, limits, []).manifest).toEqual(manifest)
+    expect(() => readMarketPackage(archive, { ...limits, expandedBytes: declaredBytes }, [])).toThrow('expanded-limit')
   })
 })

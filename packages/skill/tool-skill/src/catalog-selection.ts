@@ -18,8 +18,7 @@ export function invokedSkillNames(messages: readonly UserMessage[]): string[] {
     for (const block of message.content) {
       if (block.type !== 'text') continue
       for (const match of block.text.matchAll(SKILL_GESTURE)) {
-        const name = match[2]
-        if (name !== undefined) names.add(name)
+        names.add(match[2] as string)
       }
     }
   }

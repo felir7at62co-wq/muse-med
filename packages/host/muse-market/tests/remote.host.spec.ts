@@ -10,6 +10,7 @@ import Group from '@deepseek-ai/cordis-plugin-group'
 import Sessions from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import Skills from '@deepseek-ai/dsh-skill'
+import type { SkillDefinition } from '@deepseek-ai/dsh-skill'
 import Presets from '@deepseek-ai/dsh-agent-preset-registry'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import TypertGateway from '@deepseek-ai/dsh-api-gateway'
@@ -37,6 +38,8 @@ it('dispatches original discovery and package operations through the Host Gatewa
   let downloadBytes = skillArchive
   let payload: unknown = { entries: [original, originalSkill] }
   const cloudFixture: { download?: { release: MarketRelease; archive: Buffer } } = {}
+  const identity = { admin: true, publishers: [{ id: '2'.repeat(32), title: 'Fixture studio' }] }
+  const reviews: string[] = []
   const server = createServer((request, response) => {
     requested.push({ path: request.url, cookie: request.headers.cookie })
     if (request.url === '/market/' + originalSkill.package) {
@@ -44,11 +47,27 @@ it('dispatches original discovery and package operations through the Host Gatewa
       return
     }
     const cloudDownload = cloudFixture.download
+    if (cloudDownload && request.url === `/api/market/v1/releases/${cloudDownload.release.id}/review`) {
+      let body = ''
+      request.setEncoding('utf8').on('data', (chunk: string) => { body += chunk }).on('end', () => {
+        reviews.push(body)
+        response.end(JSON.stringify({ ...cloudDownload.release, revision: 2, reviewNote: 'Approved' }))
+      })
+      return
+    }
     if (cloudDownload && request.url === `/api/market/v1/releases/${cloudDownload.release.id}/download`) {
       response.end(cloudDownload.archive)
       return
     }
     response.setHeader('content-type', 'application/json')
+    if (request.url === '/api/market/v1/me') {
+      response.end(JSON.stringify(identity))
+      return
+    }
+    if (request.url?.startsWith('/api/market/v1/catalog?')) {
+      response.end(JSON.stringify({ items: cloudDownload ? [cloudDownload.release] : [] }))
+      return
+    }
     response.end(JSON.stringify(cloudDownload && request.url === `/api/market/v1/releases/${cloudDownload.release.id}`
       ? cloudDownload.release : payload))
   })
@@ -132,6 +151,36 @@ it('dispatches original discovery and package operations through the Host Gatewa
   const manifest: MarketManifest = { formatVersion: 1, kind: 'bot', name: 'remote-review', title: 'Remote review',
     description: 'Local Remote regression', version: '1.0.0', license: 'MIT', category: 'test',
     examples: [], requirements: [], skills: [], plugins: [] }
+  const absentId = 'e'.repeat(32)
+  for (const [method, args] of [
+    ['enable', { id: absentId, enabled: true }],
+    ['exportPackage', { id: absentId }],
+    ['publishDraft', { id: absentId, publisherId: identity.publishers[0]!.id, requestId: 'absent' }],
+  ] as const) {
+    await expect(call(method, args)).resolves.toMatchObject({ ok: false, error: { details: { code: 'not-installed' } } })
+  }
+  for (const base64 of ['?bad', 'AB==', 'A'.repeat(Math.ceil(limits.archiveBytes / 3) * 4 + 4)]) {
+    await expect(call('importPackage', { base64 }))
+      .resolves.toMatchObject({ ok: false, error: { details: { code: 'invalid-archive' } } })
+  }
+  for (const skillNames of [null, ['missing', 'missing'], Array.from({ length: 65 }, (_, index) => `skill-${index}`)]) {
+    await expect(call('prepare', { metadata: manifest, skillNames, botId: '' }))
+      .resolves.toMatchObject({ ok: false, error: { details: { code: 'invalid-selection' } } })
+  }
+  await expect(call('prepare', { metadata: manifest, skillNames: ['missing'], botId: '' }))
+    .resolves.toMatchObject({ ok: false, error: { details: { code: 'missing-skill' } } })
+  const selectedSkill: SkillDefinition = { name: 'editor', description: 'Local editor', content: 'Review the source.',
+    source: 'custom', provider: 'remote-test', invocation: { modelInvocable: true, userInvocable: true } }
+  ctx.effect(() => ctx.skills.registerProvider(() => ({ name: selectedSkill.provider,
+    async list() { return [{ ...selectedSkill, locator: selectedSkill.name, rank: 1 }] },
+    async get() { return selectedSkill },
+  })))
+  expect(await ctx.museMarket.sources()).toEqual({ website: `${baseUrl}/market`,
+    skills: [{ name: 'editor', description: 'Local editor' }], bots: [{ id: 'standard', name: 'standard' }] })
+  const standalone = await ctx.museMarket.prepare(manifest, [selectedSkill.name], '')
+  expect(standalone.release.manifest).toMatchObject({ kind: 'skill', skills: [{ name: 'editor', path: 'skills/editor/SKILL.md' }] })
+  expect(standalone.release.manifest.plugins).toBeUndefined()
+  await ctx.museMarket.remove(standalone.release.id)
   await expect(call('prepare', { metadata: { ...manifest, presetPortrait: 'video-editor' }, skillNames: [], botId: 'standard' }))
     .resolves.toMatchObject({ ok: true, value: { release: { manifest: { presetPortrait: 'video-editor' } }, enabled: false } })
   const [prepared] = await ctx.museMarket.installed()
@@ -172,6 +221,15 @@ it('dispatches original discovery and package operations through the Host Gatewa
   const cloudRelease: MarketRelease = { ...prepared.release, id: '1'.repeat(32) as MarketRelease['id'],
     publisherId: '2'.repeat(32) as MarketRelease['publisherId'], publisher: 'Fixture studio', status: 'published' }
   cloudFixture.download = { release: cloudRelease, archive }
+  await expect(call('catalog', { q: 'Remote review', kind: 'bot', mine: false }))
+    .resolves.toEqual({ ok: true, value: [cloudRelease] })
+  expect(requested.at(-1)).toEqual({ path: '/api/market/v1/catalog?q=Remote+review&kind=bot&mine=false', cookie })
+  await expect(call('identity', {})).resolves.toEqual({ ok: true, value: identity })
+  expect(requested.at(-1)).toEqual({ path: '/api/market/v1/me', cookie })
+  await expect(call('review', { id: cloudRelease.id, revision: 1, action: 'approve', note: 'Approved' }))
+    .resolves.toEqual({ ok: true, value: { ...cloudRelease, revision: 2, reviewNote: 'Approved' } })
+  expect(requested.at(-1)).toEqual({ path: `/api/market/v1/releases/${cloudRelease.id}/review`, cookie })
+  expect(reviews.map(body => JSON.parse(body))).toEqual([{ revision: 1, action: 'approve', note: 'Approved' }])
   const importedArchive = { base64: exported.base64 }
   await expect(call('installPackage', { id: cloudRelease.id })).resolves.toEqual({ ok: true, value: { release: cloudRelease, enabled: false } })
   await expect(call('importPackage', importedArchive)).resolves.toEqual({ ok: true, value: { release: cloudRelease, enabled: false } })

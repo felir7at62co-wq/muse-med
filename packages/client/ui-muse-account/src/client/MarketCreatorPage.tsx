@@ -156,7 +156,9 @@ export function MarketCreatorPage(props: MarketCreatorPageProps): ReactNode {
       const release = portrait ? await hostActions.publishDraft(id, publisherId, requestId, portrait)
         : await hostActions.publishDraft(id, publisherId, requestId)
       uploadKeys.current.delete(key)
-      if (current()) { setUploaded(id); setDetail(release) }
+      if (!current()) return
+      setUploaded(id)
+      setDetail(release)
     }, 'draft')
   }
   const publisherField = <label className={market.field}>{t('publisher')}<select value={publisher} disabled={busy || !publishers.length}

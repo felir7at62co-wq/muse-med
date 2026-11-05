@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { createLegacySkillPackage } from '../src/legacy-skill.ts'
 import { marketDigest, readMarketPackage } from '../src/package.ts'
 import type { MarketLegacyResource } from '../src/types.ts'
+import { underreportedStoredZip } from './fixtures/stored-zip.ts'
 
 const limits = { archiveBytes: 1024 * 1024, expandedBytes: 2 * 1024 * 1024, fileCount: 32 }
 const instructions = Buffer.from('---\r\nname: review\r\ndescription: Review scripts\r\n---\r\nReview the supplied script.\r\n')
@@ -45,6 +46,16 @@ describe('original Skill ZIP conversion', () => {
     expect(() => createLegacySkillPackage(selected, archive, { ...limits, expandedBytes: 20 }, [])).toThrow('expanded-limit')
   })
 
+  it('refuses missing instructions, malformed ZIPs and dishonest expanded sizes', () => {
+    const malformed = Buffer.alloc(24, 65)
+    expect(() => createLegacySkillPackage(resource('review', malformed), malformed, limits, [])).toThrow('invalid-archive')
+    const noInstructions = zipSync({ 'review/note.md': Buffer.from('Only a reference') })
+    expect(() => createLegacySkillPackage(resource('review', noInstructions), noInstructions, limits, [])).toThrow('missing-skill')
+    const underreported = underreportedStoredZip({ 'review/SKILL.md': instructions })
+    expect(() => createLegacySkillPackage(resource('review', underreported), underreported, { ...limits, expandedBytes: 1 }, []))
+      .toThrow('expanded-limit')
+  })
+
   it.each(['office-docx', 'office-pptx', 'office-xlsx'])('relocates the exact reviewed Office helper for %s', (name) => {
     const original = `---\nname: ${name}\ndescription: Office fixture\n---\nUse <skill-directory>/../${helperPath} with the workspace Python.\n`
     const archive = zipSync({ [`${name}/SKILL.md`]: Buffer.from(original), [helperPath]: officeHelper })
@@ -60,5 +71,9 @@ describe('original Skill ZIP conversion', () => {
     expect(() => createLegacySkillPackage(resource('office-docx', changed), changed, limits, [])).toThrow('digest-mismatch')
     const duplicate = zipSync({ 'office-docx/SKILL.md': body, [helperPath]: officeHelper, [`office-docx/${helperPath}`]: officeHelper })
     expect(() => createLegacySkillPackage(resource('office-docx', duplicate), duplicate, limits, [])).toThrow('invalid-path')
+    for (const instructions of [Buffer.from('The helper is not referenced'), Buffer.concat([body, Buffer.from([255])])]) {
+      const invalid = zipSync({ 'office-docx/SKILL.md': instructions, [helperPath]: officeHelper })
+      expect(() => createLegacySkillPackage(resource('office-docx', invalid), invalid, limits, [])).toThrow('invalid-skill')
+    }
   })
 })

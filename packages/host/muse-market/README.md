@@ -25,6 +25,8 @@ Installers can download or import verified Bot and Skill releases without enabli
 <a id="use-this-package"></a>
 ## Use this package
 
+Desktop and the cloud market profile install this private package from a workspace-built tarball. The tarball contains the Host plugin, cloud profile entry, package format helpers and generated Remote modules.
+
 The [Desktop composition](../../../apps/desktop-host/config/desktop.cordis.patch.yml) mounts the Host service beside `agentPresets` and `skills`. Its Remote API supports a separate market UI for discovery, local installation management and publication preparation; this package does not add a Desktop settings or main-area market page. `sources().website` opens the [market website](../../../apps/market-web/README.md). `baseUrl` is an HTTPS origin; HTTP is accepted only for loopback testing. `root` defaults to `dshHomePath('muse-market')`. Compressed bytes, expanded bytes, file count, request timeout and accepted Bot modules are validated configuration fields. A download remains disabled until explicitly enabled. Enabled Bots appear in the new-session preset selector.
 
 The `./cloud-host` plugin uses a dedicated loopback `webServer` and an absolute administrator-owned policy file. The gateway authenticates users and forwards bounded streams with a private shared secret; the market profile rejects unauthenticated actor assertions. See [gateway deployment](../../../services/muse-accounts/README.md#muse-market) for configuration and launch.

@@ -64,7 +64,7 @@ Bot 卡片和制作预览共享形象，在悬停、聚焦或点击时展示介�
 <a id="understand-the-implementation"></a>
 ## 实现方式
 
-市场装配挂载生成的 `museMarket` contribution、主区域、侧栏入口、设置快捷入口及主框架持有的操作反馈。[媒体适配类型](src/client/market-character-generation.ts)说明独立的生成任务和形象版本；适配层校验接口数据和媒体元数据。原有账号装配和 Host 实现保持独立。客户端测试素材使用 `.client.ts` 后缀，防止 Host 聚合程序导入 TSX。
+市场装配挂载生成的 `museMarket` contribution、主区域、侧栏入口、设置快捷入口及主框架持有的操作反馈。[角色媒体](src/client/market-character-generation.ts)描述市场卡片展示的预制动画帧和形象版本。原有账号装配和 Host 实现保持独立。客户端测试素材使用 `.client.ts` 后缀，防止 Host 聚合程序导入 TSX。
 
 帧图播放器按原图坐标裁切单个图块，防止相邻帧进入留白区域。每个实例有独立的裁切 ID，卡片和作者预览可以同时展示。悬停和聚焦切换已加载的帧序列，不重新建立可见性检测，也不退回静态形象。预制帧图样例的四个图块周围保留透明间隔。
 

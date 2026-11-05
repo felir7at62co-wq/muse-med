@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest'
-import { mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, symlink, unlink, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { collectMarketSkills, marketPresetRows } from '../src/author.ts'
@@ -28,12 +28,33 @@ it('rejects sensitive files, oversized resources and linked directories', async 
   await expect(collectMarketSkills([skill(selected)], limits)).rejects.toThrow('invalid-path')
   await rm(join(selected, '.env')); await writeFile(join(selected, 'large.txt'), 'x'.repeat(50))
   await expect(collectMarketSkills([skill(selected)], { ...limits, expandedBytes: 10 })).rejects.toThrow('expanded-limit')
-  const linked = join(root, 'linked'); await symlink(selected, linked, process.platform === 'win32' ? 'junction' : 'dir')
-  await expect(collectMarketSkills([skill(linked)], limits)).rejects.toThrow('linked-resource')
+  const target = join(root, 'target'); await mkdir(target)
+  const linked = join(selected, 'linked'); await symlink(target, linked, process.platform === 'win32' ? 'junction' : 'dir')
+  try {
+    await expect(collectMarketSkills([skill(linked)], limits)).rejects.toThrow('linked-resource')
+    await expect(collectMarketSkills([skill(selected)], limits)).rejects.toThrow('linked-resource')
+  } finally { await unlink(linked) }
+})
+
+it('only collects portable local resources and counts synthesized Skill instructions', async () => {
+  const { resourceBase: _base, ...definition } = skill('unused')
+  const files = await collectMarketSkills([definition], limits)
+  expect(Object.keys(files)).toEqual(['skills/review/SKILL.md'])
+  await expect(collectMarketSkills([{ ...definition, name: '../escape' }], limits)).rejects.toThrow('invalid-path')
+  await expect(collectMarketSkills([definition], { ...limits, fileCount: 1 })).rejects.toThrow('expanded-limit')
+  await expect(collectMarketSkills([definition], { ...limits, expandedBytes: 1 })).rejects.toThrow('expanded-limit')
+  await expect(collectMarketSkills([skill('relative')], limits)).rejects.toThrow('invalid-path')
+  await expect(collectMarketSkills([{ ...definition, resourceBase: { kind: 'url', url: 'https://example.test' } }], limits))
+    .rejects.toThrow('non-local-skill')
 })
 
 it('removes local row identities and rejects executable or unapproved Bot configuration', () => {
   expect(marketPresetRows('- id: local\n  name: allowed\n  config: {}')).toEqual([{ name: 'allowed', config: {} }])
+  expect(marketPresetRows('- id: local-group\n  name: cordis:group\n  group: true\n  config:\n    - id: local-child\n      name: allowed'))
+    .toEqual([{ name: 'cordis:group', group: true, config: [{ name: 'allowed' }] }])
+  for (const invalid of ['name: allowed', '- null', '- allowed', '- [allowed]', '- group: true\n  config: {}']) {
+    expect(() => marketPresetRows(invalid)).toThrow('non-portable-bot')
+  }
   expect(() => marketPresetRows('- name: allowed\n  disabled: !!js process.env.SECRET')).toThrow('non-portable-bot')
   const metadata = { formatVersion: 1, kind: 'bot', name: 'review', title: 'Review', description: 'Review', version: '1.0.0', license: 'MIT', category: 'script', examples: [], requirements: [], skills: [] }
   expect(() => marketManifest({ ...metadata, plugins: [{ name: 'allowed', inject: ['global'] }] }, ['allowed'])).toThrow('invalid-manifest')

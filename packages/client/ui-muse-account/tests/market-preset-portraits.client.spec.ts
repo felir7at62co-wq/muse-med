@@ -1,5 +1,6 @@
 import { expect, it } from 'vitest'
-import { findMarketPresetPortrait, marketPresetPortraits, matchMarketPresetPortrait } from '../src/client/market-preset-portraits.ts'
+import { findMarketPresetPortrait, marketPresetPortraits, matchMarketPresetPortrait, matchUnboundMarketPresetPortrait } from '../src/client/market-preset-portraits.ts'
+import { marketFixture } from './market-fixture.client.ts'
 
 it('makes all 50 presets selectable and matches each name in both market languages', () => {
   expect(marketPresetPortraits).toHaveLength(50)
@@ -24,4 +25,13 @@ it('matches English words without accepting a substring and falls back for uncla
   expect(matchMarketPresetPortrait({ description: 'Prepare a color-grading palette' }).id).toBe('colorist')
   expect(matchMarketPresetPortrait({ title: 'SRTicle' }).id).toBe('screenplay-editor')
   expect(matchMarketPresetPortrait({ title: '我的助手' }).id).toBe('screenplay-editor')
+})
+
+it('uses tags for matching and keeps the existing portrait binding on imported packages', () => {
+  expect(matchMarketPresetPortrait({ tags: ['Video Editor'] }).id).toBe('video-editor')
+  const bot = marketFixture[0]!.manifest
+  expect(matchUnboundMarketPresetPortrait({ ...bot, title: 'Muse 竖屏分镜导演助手', description: '', category: '' })).toBe('vertical-storyboard-director')
+  expect(matchUnboundMarketPresetPortrait({ ...bot, presetPortrait: 'video-editor' })).toBeUndefined()
+  expect(matchUnboundMarketPresetPortrait({ ...bot, portrait: 'storyboard-director' })).toBeUndefined()
+  expect(matchUnboundMarketPresetPortrait(marketFixture[1]!.manifest)).toBeUndefined()
 })

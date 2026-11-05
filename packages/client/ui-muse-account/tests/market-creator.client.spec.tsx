@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MarketCreatorPage } from '../src/client/MarketCreatorPage.tsx'
 import type { MarketActions } from '../src/client/market-mount.ts'
 import { marketFixture } from './market-fixture.client.ts'
 
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 
 const skill = marketFixture.find(row => row.manifest.kind === 'skill')!
 const draft = { ...skill, status: 'draft' as const }
@@ -92,4 +92,187 @@ it('automatically matches the imported Bot ZIP portrait and passes it with the c
   fireEvent.click(screen.getByRole('button', { name: 'upload' }))
   expect(props.actions.publishDraft).toHaveBeenCalledExactlyOnceWith(imported.id, draft.publisherId, expect.any(String), 'colorist')
   expect(await screen.findByRole('dialog', { name: imported.manifest.title })).toBeDefined()
+})
+
+it('retries a failed authoring identity and renders source availability from the new read', async () => {
+  const props = harness()
+  props.actions.identity.mockRejectedValueOnce(Error('cloud-unavailable'))
+  props.actions.sources.mockResolvedValue({ website: 'https://muse.test/market', skills: [], bots: [] })
+  render(<MarketCreatorPage {...props} initialKind="bot" />)
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'error.cloud-unavailable')
+  fireEvent.click(screen.getByRole('button', { name: 'retry' }))
+  expect(await screen.findByText('creatorNoSkills')).toBeDefined()
+  expect(screen.getByRole('option', { name: 'creatorNoBots' })).toBeDefined()
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'prepare' }).disabled).toBe(true)
+  expect(props.actions.identity).toHaveBeenCalledTimes(2)
+})
+
+it.each(['resolved', 'rejected'] as const)('ignores an authoring read that %s after its adapter is replaced', async (outcome) => {
+  const old = harness(), replacement = harness()
+  const first = Promise.withResolvers<Awaited<ReturnType<MarketActions['identity']>>>()
+  old.actions.identity.mockReturnValueOnce(first.promise)
+  const view = render(<MarketCreatorPage {...old} />)
+  view.rerender(<MarketCreatorPage {...replacement} />)
+  expect(await screen.findByRole('radio', { name: 'review' })).toBeDefined()
+
+  await act(async () => {
+    if (outcome === 'resolved') first.resolve({ admin: false, publishers: [] })
+    else first.reject(Error('cloud-unavailable'))
+  })
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(screen.getByRole('option', { name: 'Studio' })).toBeDefined()
+})
+
+it('explains that the web authoring page requires sign-in', async () => {
+  const props = harness()
+  const unavailable = async (): Promise<never> => { throw Error('unused') }
+  render(<MarketCreatorPage mode="web" initialKind="upload" actions={{
+    archiveBytes: 4096, identity: async () => { throw Error('login-required') }, catalog: async () => [],
+    legacyCatalog: async () => [], review: unavailable, previewArchive: unavailable, uploadArchive: unavailable,
+    downloadArchive: unavailable,
+  }} onBack={props.onBack} t={props.t} reportOutcome={props.reportOutcome} />)
+
+  expect(await screen.findByText('browserSignInHint')).toBeDefined()
+  expect(screen.getByRole('link', { name: 'browserSignIn' }).getAttribute('href')).toBe('/login')
+  expect(screen.queryByLabelText('browserArchive')).toBeNull()
+})
+
+it('prepares the selected Bot and Skills once, exports its bytes and supports changing the publishing team', async () => {
+  const props = harness()
+  const bot = marketFixture[0]!
+  const release = { ...bot, status: 'draft' as const, manifest: { ...bot.manifest, presetPortrait: 'video-editor' as const } }
+  const other = { id: 'd'.repeat(32), title: 'Other studio' }
+  const first = Promise.withResolvers<Awaited<ReturnType<MarketActions['prepare']>>>()
+  props.actions.sources.mockResolvedValue({ website: 'https://muse.test/market',
+    bots: [{ id: 'director', name: 'Director' }, { id: 'editor', name: 'Editor' }],
+    skills: [{ name: 'review', description: 'Review' }, { name: 'script', description: 'Write' }] })
+  props.actions.identity.mockResolvedValue({ publishers: [{ id: release.publisherId, title: 'Studio' }, other], admin: false })
+  props.actions.prepare.mockReturnValueOnce(first.promise)
+  props.actions.publishDraft.mockResolvedValue(release)
+  props.actions.exportPackage.mockResolvedValue({ name: 'editor.zip', base64: 'WklQ' })
+  const create = vi.fn(() => 'blob:editor'), revoke = vi.fn()
+  class DownloadURL extends URL {
+    static override createObjectURL = create
+    static override revokeObjectURL = revoke
+  }
+  vi.stubGlobal('URL', DownloadURL)
+  const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  render(<MarketCreatorPage {...props} />)
+  await screen.findByRole('radio', { name: 'review' })
+  fireEvent.click(screen.getByRole('button', { name: 'creatorNewBot' }))
+
+  fireEvent.change(await screen.findByRole('combobox', { name: 'sourceBot' }), { target: { value: 'editor' } })
+  fireEvent.click(screen.getByRole('checkbox', { name: 'review' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'script' }))
+  fireEvent.click(screen.getByRole('checkbox', { name: 'review' }))
+  for (const [name, value] of Object.entries({
+    name: 'film-editor', label: '电影剪辑师', summary: '镜头剪辑与后期', license: 'MIT', category: '影视后期',
+  })) fireEvent.change(screen.getByRole('textbox', { name }), { target: { value } })
+  const form = screen.getByRole('button', { name: 'prepare' }).closest('form')!
+  fireEvent.submit(form)
+  fireEvent.submit(form)
+  expect(props.actions.prepare).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ kind: 'bot', name: 'film-editor', presetPortrait: 'video-editor' }), ['script'], 'editor',
+  )
+
+  await act(async () => { first.resolve({ release, enabled: false }) })
+  vi.useFakeTimers({ toFake: ['setTimeout'] })
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'export' })) })
+  expect(props.actions.exportPackage).toHaveBeenCalledExactlyOnceWith(release.id)
+  expect(download).toHaveBeenCalledOnce()
+  await act(async () => { await vi.runAllTimersAsync() })
+  expect(revoke).toHaveBeenCalledExactlyOnceWith('blob:editor')
+  vi.useRealTimers()
+
+  fireEvent.click(screen.getByRole('button', { name: 'upload' }))
+  const details = await screen.findByRole('dialog', { name: release.manifest.title })
+  fireEvent.click(within(details).getByRole('button', { name: 'close' }))
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'upload' }).disabled).toBe(true)
+  fireEvent.change(screen.getByRole('combobox', { name: 'publisher' }), { target: { value: other.id } })
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'upload' }).disabled).toBe(false)
+  fireEvent.click(screen.getByRole('button', { name: 'upload' }))
+  await screen.findByRole('dialog', { name: release.manifest.title })
+  expect(props.actions.publishDraft).toHaveBeenLastCalledWith(release.id, other.id, expect.any(String))
+})
+
+it('does not apply a preparation that completes after the authoring adapter changes', async () => {
+  const old = harness(), replacement = harness()
+  const pending = Promise.withResolvers<Awaited<ReturnType<MarketActions['prepare']>>>()
+  old.actions.prepare.mockReturnValueOnce(pending.promise)
+  const view = render(<MarketCreatorPage {...old} />)
+  fireEvent.click(await screen.findByRole('radio', { name: 'review' }))
+  fireEvent.submit(screen.getByRole('button', { name: 'prepare' }).closest('form')!)
+  expect(old.actions.prepare).toHaveBeenCalledOnce()
+  view.rerender(<MarketCreatorPage {...replacement} />)
+  await screen.findByRole('radio', { name: 'review' })
+
+  await act(async () => { pending.resolve({ release: draft, enabled: false }) })
+  expect(screen.queryByText('creatorPrepared')).toBeNull()
+  expect(old.reportOutcome).toHaveBeenCalledExactlyOnceWith('done', false)
+})
+
+it('rejects oversized ZIPs before reading them and reuses a successfully imported package', async () => {
+  const props = harness()
+  props.actions.importPackage.mockResolvedValue({ release: draft, enabled: false })
+  render(<MarketCreatorPage {...props} initialKind="upload" />)
+  const picker = await screen.findByLabelText('browserArchive')
+  fireEvent.change(picker, { target: { files: [] } })
+  const tooLarge = new File([], 'large.zip')
+  const read = vi.fn()
+  Object.defineProperties(tooLarge, { size: { value: 64 * 1024 * 1024 + 1 }, arrayBuffer: { value: read } })
+  fireEvent.change(picker, { target: { files: [tooLarge] } })
+  await waitFor(() => { expect(props.reportOutcome).toHaveBeenCalledWith('error.expanded-limit', true) })
+  expect(read).not.toHaveBeenCalled()
+  expect(props.actions.importPackage).not.toHaveBeenCalled()
+
+  const zip = new File(['ZIP'], 'skill.zip')
+  Object.defineProperty(zip, 'arrayBuffer', { value: async () => new TextEncoder().encode('ZIP').buffer })
+  fireEvent.change(picker, { target: { files: [zip] } })
+  await screen.findByText('creatorPrepared')
+  await act(async () => { fireEvent.change(picker, { target: { files: [zip] } }) })
+  expect(props.actions.importPackage).toHaveBeenCalledTimes(2)
+  expect(screen.getAllByRole('option', { name: draft.manifest.title + ' · ' + draft.manifest.version })).toHaveLength(1)
+})
+
+it.each(['file-read', 'Host-import', 'Host-export'] as const)('ignores retired ZIP work at %s', async (stage) => {
+  const old = harness(), replacement = harness()
+  const file = new File(['ZIP'], 'skill.zip')
+  const bytes = Promise.withResolvers<ArrayBuffer>()
+  const imported = Promise.withResolvers<Awaited<ReturnType<MarketActions['importPackage']>>>()
+  const exported = Promise.withResolvers<Awaited<ReturnType<MarketActions['exportPackage']>>>()
+  const encoded = new TextEncoder().encode('ZIP').buffer
+  Object.defineProperty(file, 'arrayBuffer', { value: () => stage === 'file-read' ? bytes.promise : Promise.resolve(encoded) })
+  old.actions.importPackage.mockImplementation(() => stage === 'Host-import' ? imported.promise : Promise.resolve({ release: draft, enabled: false }))
+  old.actions.exportPackage.mockReturnValue(exported.promise)
+  const view = render(<MarketCreatorPage {...old} initialKind="upload" />)
+  fireEvent.change(await screen.findByLabelText('browserArchive'), { target: { files: [file] } })
+  if (stage === 'Host-import') await waitFor(() => { expect(old.actions.importPackage).toHaveBeenCalledOnce() })
+  if (stage === 'Host-export') fireEvent.click(await screen.findByRole('button', { name: 'export' }))
+  view.rerender(<MarketCreatorPage {...replacement} initialKind="upload" />)
+  await screen.findByLabelText('browserArchive')
+
+  await act(async () => {
+    bytes.resolve(encoded)
+    imported.resolve({ release: draft, enabled: false })
+    exported.resolve({ name: 'retired.zip', base64: 'WklQ' })
+  })
+  expect(screen.queryByText('creatorPrepared')).toBeNull()
+  if (stage === 'file-read') expect(old.actions.importPackage).not.toHaveBeenCalled()
+  expect(old.reportOutcome).toHaveBeenLastCalledWith('done', false)
+})
+
+it('reports a confirmed upload after changing the authoring adapter without opening retired details', async () => {
+  const old = harness(), replacement = harness()
+  const response = Promise.withResolvers<typeof draft>()
+  old.actions.installed.mockResolvedValue([{ release: draft, enabled: false }])
+  old.actions.publishDraft.mockReturnValueOnce(response.promise)
+  const view = render(<MarketCreatorPage {...old} initialKind="upload" />)
+  fireEvent.change(await screen.findByRole('combobox', { name: 'localPackages' }), { target: { value: draft.id } })
+  fireEvent.click(screen.getByRole('button', { name: 'upload' }))
+  view.rerender(<MarketCreatorPage {...replacement} initialKind="upload" />)
+  await screen.findByLabelText('browserArchive')
+
+  await act(async () => { response.resolve(draft) })
+  expect(old.reportOutcome).toHaveBeenCalledExactlyOnceWith('draft', false)
+  expect(screen.queryByRole('dialog')).toBeNull()
 })

@@ -55,6 +55,7 @@ describe('first-batch Bot compatibility', () => {
     expect(legacyBotCompatibility(wrongIdentity)).toBeUndefined()
     expect(legacyBotCompatibility(wrongPin)).toBeUndefined()
     expect(() => createLegacyBotPackage(wrongIdentity, archive, limits, allowed)).toThrow('unsupported-legacy-package')
+    expect(() => createLegacyBotPackage({ ...storyboard, kind: 'skill' }, archive, limits, allowed)).toThrow('unsupported-legacy-package')
     expect(() => createLegacyBotPackage(storyboard, archive.subarray(1), limits, allowed)).toThrow('digest-mismatch')
     expect(() => createLegacyBotPackage(storyboard, archive, { ...limits, archiveBytes: 2 }, allowed)).toThrow('archive-too-large')
     expect(() => createLegacyBotPackage(storyboard, archive, limits, ['@deepseek-ai/dsh-persona'])).toThrow('invalid-manifest')

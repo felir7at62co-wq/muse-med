@@ -166,7 +166,7 @@ export function marketSkill(body: string, expected: string): {
 } {
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/.exec(body)
   if (!match) throw new MarketError('invalid-skill')
-  const parsed = parseDocument(match[1] ?? '')
+  const parsed = parseDocument(match[1] as string)
   if (parsed.errors.length || parsed.warnings.length) throw new MarketError('invalid-skill')
   const data: unknown = parsed.toJSON()
   if (!marketRecord(data) || data.name !== expected || !text(data.description, 2000) || !match[2]?.trim()

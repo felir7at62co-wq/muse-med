@@ -1933,7 +1933,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: '@Remote(\'importPackage\') async importPackage(base64: string): Promise<MarketInstallation>',
         description: 'Import an explicitly selected local publication without uploading it.',
         parameters: [{ name: 'base64', description: 'Complete publication archive encoded by the local file picker.' }],
-        returns: 'The disabled local installation.',
+        returns: 'The matching verified installation and its activation state, or a new disabled local installation.',
       },
       {
         signature: '@Remote(\'enable\') async enable(id: MarketReleaseId, enabled: boolean): Promise<MarketInstallation>',

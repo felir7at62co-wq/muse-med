@@ -93,30 +93,19 @@ export interface UiWorkspace {
    * @throws `workspace-required` when there is no Workspace, or a Session creation or naming error.
    */
   startPresetSession(agentPreset: string, open?: PresetSessionOpener, title?: string): Promise<void>
-  /**
-   * Archive a Session and clear it when it is the current selection.
-   * @param sessionId - Session to archive.
-   * @param options - `stopActivity` asks the Host to stop the Session's running work instead of refusing.
-   */
-  archiveSession(sessionId: SessionId, options?: { readonly stopActivity?: boolean }): Promise<void>
-  /**
-   * Unarchive a Session, restoring it to its recorded Workspace position.
-   * @param sessionId - Session to unarchive.
-   */
-  unarchiveSession(sessionId: SessionId): Promise<void>
+  /** Clear the current selection after archiving its Session. */
+  archiveSession: IWorkspaces['archiveSession']
+  /** Restore the unarchived Session to its recorded Workspace position. */
+  unarchiveSession: IWorkspaces['unarchiveSession']
   /**
    * Pin a Session on the Host, then lead it in its accounts' saved orders
    * (its Workspace group or Ungrouped, and the flat list). The order write
    * reads the memberships current at completion, so reorders that landed
    * while the Host call was pending keep their positions.
-   * @param sessionId - Session to pin.
    */
-  pinSession(sessionId: SessionId): Promise<void>
-  /**
-   * Unpin a Session on the Host; saved positions stay as they are.
-   * @param sessionId - Session to unpin.
-   */
-  unpinSession(sessionId: SessionId): Promise<void>
+  pinSession: IWorkspaces['pinSession']
+  /** Preserve saved positions when removing a Session pin. */
+  unpinSession: IWorkspaces['unpinSession']
   /**
    * Open the Host-native directory picker.
    * @returns the selected directory, or null when cancelled.

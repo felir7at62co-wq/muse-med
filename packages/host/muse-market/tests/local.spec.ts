@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { MuseMarketLocal } from '../src/local.ts'
@@ -88,4 +88,125 @@ it('detects standalone Skill conflicts by callable name instead of package name'
   await distinct.install(alpha.release, alpha.archive); await distinct.install(beta.release, beta.archive)
   await distinct.enable(alpha.release.id, true)
   await expect(distinct.enable(beta.release.id, true)).resolves.toMatchObject({ enabled: true })
+})
+
+async function setupLocal() {
+  const root = await mkdtemp(join(tmpdir(), 'muse-market-local-')); roots.push(root)
+  const config = { root, limits, allowedPlugins: [] }
+  const local = new MuseMarketLocal(config)
+  await local.ready()
+  return { local, config, root, ledger: join(root, 'installations.json') }
+}
+
+it('rejects a relative storage path and links at the root or packages directory', async () => {
+  const { root, config } = await setupLocal()
+  expect(() => new MuseMarketLocal({ ...config, root: 'relative-root' })).toThrow('Market root must be absolute')
+  const actual = join(root, 'actual')
+  await mkdir(actual)
+  const link = join(root, 'linked-root')
+  await symlink(actual, link, 'junction')
+  try {
+    await expect(new MuseMarketLocal({ ...config, root: link }).ready()).rejects.toThrow('invalid-storage')
+  } finally { await unlink(link) }
+  const packages = join(root, 'packages')
+  await rename(packages, join(root, 'empty-packages'))
+  await symlink(actual, packages, 'junction')
+  try { await expect(new MuseMarketLocal(config).ready()).rejects.toThrow('invalid-storage') }
+  finally { await unlink(packages) }
+  expect(await readdir(actual)).toEqual([])
+})
+
+it('refuses malformed or conflicting durable records and retains valid converted package metadata', async () => {
+  const { local, ledger } = await setupLocal()
+  const { release, archive } = skillPublication('review', 'review')
+  const installation = { release, enabled: false }
+  const source = { id: 'muse/skills/review', sha256: release.id }
+  const valid = { version: 1, installations: [installation], references: { session: [release.id] } }
+  const badLegacy = [{}, { ...source, id: 'review' }, { ...source, id: 'muse/bots/review' },
+    { ...source, sha256: 0 }, { ...source, sha256: 'short' }, { ...source, sha256: 'f'.repeat(64) }]
+  const invalid = [null, 42, [], { ...valid, version: 2 }, { ...valid, installations: {} },
+    { ...valid, references: null }, { ...valid, references: 42 }, { ...valid, references: [] },
+    ...[null, 42, [], {}, ...badLegacy.map(legacySource => ({ ...installation, legacySource }))]
+      .map(item => ({ ...valid, installations: [item] })),
+    { ...valid, installations: [installation, installation] },
+    ...[null, 'not-an-array', [42], ['missing']].map(session => ({ ...valid, references: { session } })),
+  ]
+  await writeFile(ledger, '{')
+  await expect(local.list()).rejects.toBeInstanceOf(SyntaxError)
+  for (const value of invalid) {
+    await writeFile(ledger, JSON.stringify(value))
+    await expect(local.list()).rejects.toThrow('invalid-ledger')
+  }
+  await writeFile(ledger, JSON.stringify({ version: 1, installations: [], references: {} }))
+  const installed = await local.install(release, archive, source)
+  expect(installed.legacySource).toEqual(source)
+  expect(await local.list()).toEqual([installed])
+  await expect(local.install(release, archive, { ...source, id: 'muse/skills/other' })).rejects.toMatchObject({
+    code: 'release-conflict', status: 409,
+  })
+  expect(await local.install(release, archive, source)).toEqual(installed)
+})
+
+it('rejects manifest mismatches and junctions in the verified cache', async () => {
+  const { local, root } = await setupLocal()
+  const { release, archive } = skillPublication('review', 'review')
+  const incorrect = { ...release, manifest: { ...release.manifest, title: 'Different title' } }
+  await expect(local.install(incorrect, archive)).rejects.toThrow('manifest-mismatch')
+  await expect(local.install({ ...release, bytes: release.bytes + 1 }, archive)).rejects.toThrow('digest-mismatch')
+  await local.install(release, archive)
+  await expect(local.verify(incorrect)).rejects.toThrow('modified-installation')
+  await expect(local.verify({ ...release, bytes: release.bytes + 1 })).rejects.toThrow('modified-installation')
+
+  const packageRoot = local.directory(release)
+  const movedRoot = join(root, 'moved-package')
+  await rename(packageRoot, movedRoot)
+  await symlink(movedRoot, packageRoot, 'junction')
+  try { await expect(local.verify(release)).rejects.toThrow('modified-installation') }
+  finally { await unlink(packageRoot); await rename(movedRoot, packageRoot) }
+
+  const skillRoot = join(packageRoot, 'skills', 'review')
+  const movedSkill = join(root, 'moved-skill')
+  await rename(skillRoot, movedSkill)
+  await symlink(movedSkill, skillRoot, 'junction')
+  try { await expect(local.verify(release)).rejects.toThrow('modified-installation') }
+  finally { await unlink(skillRoot); await rename(movedSkill, skillRoot) }
+  await writeFile(join(skillRoot, 'SKILL.md'), 'changed instructions')
+  await expect(local.verify(release)).rejects.toThrow('modified-installation')
+})
+
+it('removes an incomplete staging directory when conflicting archive paths cannot be extracted', async () => {
+  const { local, root } = await setupLocal()
+  const original = publication('1.0.0').release
+  const archive = createMarketPackage(original.manifest, { resource: Buffer.from('file'),
+    'resource/child.txt': Buffer.from('nested file') }, limits, [])
+  const release = { ...original, sha256: marketDigest(archive), bytes: archive.byteLength }
+  await expect(local.install(release, archive)).rejects.toSatisfy((error: NodeJS.ErrnoException) => /EEXIST|ENOTDIR/.test(error.code ?? ''))
+  expect(await local.list()).toEqual([])
+  expect(await readdir(join(root, 'packages'))).toEqual([])
+  expect((await readdir(root)).some(name => name.startsWith('.pending-'))).toBe(false)
+})
+
+it('keeps the ledger clean when the package cache parent is no longer a directory', async () => {
+  const { local, root } = await setupLocal()
+  const packages = join(root, 'packages')
+  await rename(packages, join(root, 'moved-packages'))
+  await writeFile(packages, 'not a directory')
+  const { release, archive } = publication('1.0.0')
+  await expect(local.install(release, archive)).rejects.toSatisfy((error: NodeJS.ErrnoException) => /ENOTDIR|ENOENT/.test(error.code ?? ''))
+  expect(await local.list()).toEqual([])
+})
+
+it('protects enabled or referenced installations and rejects operations on missing releases', async () => {
+  const { local } = await setupLocal()
+  const { release, archive } = publication('1.0.0')
+  await expect(local.enable(release.id, true)).rejects.toMatchObject({ code: 'not-installed', status: 404 })
+  await expect(local.reference('new-session', [release.id])).rejects.toMatchObject({ code: 'not-installed', status: 404 })
+  await expect(local.remove(release.id)).rejects.toMatchObject({ code: 'not-installed', status: 404 })
+  await local.install(release, archive)
+  await local.enable(release.id, true)
+  await expect(local.remove(release.id)).rejects.toMatchObject({ code: 'disable-first', status: 409 })
+  await local.enable(release.id, false)
+  await local.reference('existing-session', [release.id])
+  await expect(local.remove(release.id)).rejects.toMatchObject({ code: 'release-in-use', status: 409 })
+  await expect(local.binding('existing-session')).resolves.toEqual([release])
 })

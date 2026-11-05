@@ -516,9 +516,6 @@ importers:
       '@deepseek-ai/dsh-mcp-resources':
         specifier: workspace:*
         version: link:../../packages/mcp/mcp-resources
-      '@deepseek-ai/dsh-muse-market':
-        specifier: workspace:*
-        version: link:../../packages/host/muse-market
       '@deepseek-ai/dsh-persona':
         specifier: workspace:*
         version: link:../../packages/preset/persona
@@ -739,6 +736,9 @@ importers:
       '@deepseek-ai/dsh-loader-smoke':
         specifier: workspace:*
         version: link:../../packages/test-support/loader-smoke
+      '@deepseek-ai/dsh-muse-market':
+        specifier: workspace:*
+        version: link:../../packages/host/muse-market
       '@deepseek-ai/dsh-plugin-package-inventory-deepseek':
         specifier: workspace:*
         version: link:../../packages/llm/plugin-package-inventory-deepseek

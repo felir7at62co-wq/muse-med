@@ -170,6 +170,7 @@ describe('source-bounded catalog selection', () => {
 describe('explicit skill gestures', () => {
   it('preserves mid-sentence, whitespace-bounded grammar and first-seen deduplication', () => {
     expect(invokedSkillNames([user('Use /alpha now\n/beta /alpha')])).toEqual(['alpha', 'beta'])
+    expect(invokedSkillNames([user('/0 /v2-tool\t/v2-tool'), user('/3d-assets /0')])).toEqual(['0', 'v2-tool', '3d-assets'])
     expect(invokedSkillNames([user('/alpha/path foo/beta 5/8 /alpha, //beta /Bad /beta_thing')])).toEqual([])
   })
 

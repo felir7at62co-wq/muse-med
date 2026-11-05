@@ -8,6 +8,7 @@ import { MarketError, marketDigest, marketManifest, readMarketPackage } from './
 import type { MarketActor, MarketLimits, MarketPublisherId, MarketRelease, MarketReleaseId } from './types.ts'
 
 const SCHEMA_VERSION = 1
+const releasePrefix = '/releases/'
 
 /** Explicit cloud storage and upload policy. */
 export interface MarketServerConfig {
@@ -251,7 +252,7 @@ export class MuseMarketCatalog {
 
 /** Serve market APIs after gateway session and Origin validation.
  * @param catalog Open cloud catalog.
- * @param request Incoming gateway request.
+ * @param request Incoming gateway request with an undecoded body.
  * @param response Owned HTTP response.
  * @param actor Gateway-authenticated identity, never request JSON.
  * @param limits Request byte limits.
@@ -265,16 +266,16 @@ export async function handleMarket(catalog: MuseMarketCatalog, request: Incoming
     response.end(JSON.stringify(value))
   }
   try {
-    const url = new URL(request.url ?? '/', 'http://localhost')
+    const url = new URL(String(request.url), 'http://localhost')
     const path = url.pathname.replace(/^\/api\/market\/v1/, '')
     if (request.method === 'GET' && path === '/catalog') {
       reply(200, { items: catalog.list(actor, { q: url.searchParams.get('q') ?? '', kind: url.searchParams.get('kind') ?? '', mine: url.searchParams.get('mine') === 'true' }) }); return
     }
-    if (request.method === 'GET' && /^\/releases\/[a-f0-9]+$/.test(path)) { reply(200, catalog.get(path.split('/')[2] ?? '', actor)); return }
+    if (request.method === 'GET' && /^\/releases\/[a-f0-9]+$/.test(path)) { reply(200, catalog.get(path.slice(releasePrefix.length), actor)); return }
     if (!actor) throw new MarketError('login-required', 401)
     if (request.method === 'GET' && path === '/me') { reply(200, { publishers: catalog.publishers(actor), admin: actor.admin }); return }
     if (request.method === 'GET' && /^\/releases\/[a-f0-9]+\/download$/.test(path)) {
-      const id = path.split('/')[2] ?? ''
+      const id = path.slice(releasePrefix.length, -'/download'.length)
       const release = catalog.get(id, actor), bytes = await catalog.download(id, actor)
       response.writeHead(200, { 'content-type': 'application/zip', 'content-length': bytes.byteLength,
         'content-disposition': `attachment; filename="${release.manifest.name}-${release.manifest.version}.zip"`,
@@ -282,17 +283,17 @@ export async function handleMarket(catalog: MuseMarketCatalog, request: Incoming
       response.end(bytes); return
     }
     if (request.method !== 'POST') throw new MarketError('not-found', 404)
-    if (path === '/uploads') releaseUpload = catalog.reserveUpload(actor, String(request.headers['x-market-publisher'] ?? ''))
+    const publisher = String(request.headers['x-market-publisher'] ?? '')
+    if (path === '/uploads') releaseUpload = catalog.reserveUpload(actor, publisher)
     const maximum = path === '/uploads' ? limits.archiveBytes : 16384
     const chunks: Uint8Array[] = []; let size = 0
     for await (const chunk of request.iterator({ destroyOnReturn: false })) {
-      const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+      const bytes = chunk as Uint8Array
       size += bytes.byteLength
       if (size > maximum) { request.resume(); throw new MarketError('request-too-large', 413) }
       chunks.push(bytes)
     }
     if (path === '/uploads') {
-      const publisher = String(request.headers['x-market-publisher'] ?? '')
       const requestId = String(request.headers['idempotency-key'] ?? '')
       reply(201, await catalog.upload(actor, publisher, requestId, Buffer.concat(chunks))); return
     }
@@ -304,7 +305,7 @@ export async function handleMarket(catalog: MuseMarketCatalog, request: Incoming
       reply(201, { id: await catalog.invite(actor, input.title, input.accountId) }); return
     }
     if (/^\/releases\/[a-f0-9]+\/review$/.test(path) && Number.isSafeInteger(input.revision) && typeof input.action === 'string') {
-      reply(200, await catalog.transition(actor, path.split('/')[2] ?? '', Number(input.revision), input.action, typeof input.note === 'string' ? input.note : '')); return
+      reply(200, await catalog.transition(actor, path.slice(releasePrefix.length, -'/review'.length), Number(input.revision), input.action, typeof input.note === 'string' ? input.note : '')); return
     }
     throw new MarketError('invalid-request')
   } catch (error) {

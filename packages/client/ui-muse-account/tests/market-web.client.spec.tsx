@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { MarketCreatorPanel } from '../src/client/MarketPage.tsx'
 import { MarketSection } from '../src/client/MarketSection.tsx'
 import { MarketBrowserUpload } from '../src/client/MarketBrowserUpload.tsx'
+import * as marketArtwork from '../src/client/market-stock-art.ts'
 import type { MarketWebActions } from '../src/client/market-web-types.ts'
 import { marketFixture } from './market-fixture.client.ts'
 
@@ -58,7 +59,7 @@ it('keeps public discovery usable for anonymous visitors and explains where priv
   render(<MarketSection {...f} mode="web" />)
   expect(await screen.findByText('emptyWebDiscoveryHint')).toBeDefined()
   expect(screen.getByRole('link', { name: 'browserSignIn' })).toBeDefined()
-  const creator = screen.getAllByRole('button', { name: 'publish' })[0]!
+  const creator = within(screen.getByText('emptyWebDiscoveryHint').parentElement!).getByRole('button', { name: 'publish' })
   fireEvent.click(creator)
   expect(await screen.findByText('browserSignInHint')).toBeDefined()
   expect(f.actions.catalog).not.toHaveBeenCalledWith('', '', true)
@@ -182,4 +183,151 @@ it('uploads a Skill archive without selecting a Bot portrait', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'upload' }))
   await waitFor(() => { expect(onUploaded).toHaveBeenCalledWith(f.release) })
   expect(f.actions.uploadArchive).toHaveBeenCalledWith(archive, f.release.publisherId, expect.any(String))
+})
+
+it('keeps the browser upload form unavailable without an admitted publishing team', () => {
+  const f = fixture()
+  const onUploaded = vi.fn()
+  render(<MarketBrowserUpload {...f} publishers={[]} onUploaded={onUploaded} />)
+  const upload = screen.getByRole<HTMLButtonElement>('button', { name: 'upload' })
+
+  expect(upload.disabled).toBe(true)
+  expect(screen.getByRole('option', { name: 'noPublisher' })).toBeDefined()
+  expect(screen.getByLabelText<HTMLInputElement>('browserArchive').disabled).toBe(true)
+  fireEvent.submit(upload.closest('form')!)
+  expect(f.actions.uploadArchive).not.toHaveBeenCalled()
+  expect(onUploaded).not.toHaveBeenCalled()
+})
+
+it('keeps only the latest browser ZIP when an earlier file read or preflight rejects late', async () => {
+  const f = fixture()
+  const earlyFile = new File([Uint8Array.of(1)], 'first.zip', { type: 'application/zip' })
+  const firstBytes = Promise.withResolvers<ArrayBuffer>()
+  const secondPreview = Promise.withResolvers<typeof f.release.manifest>()
+  Object.defineProperty(earlyFile, 'arrayBuffer', { value: () => firstBytes.promise })
+  f.actions.previewArchive.mockReturnValueOnce(secondPreview.promise)
+  render(<MarketBrowserUpload {...f} publishers={[{ id: f.release.publisherId, title: f.release.publisher }]} onUploaded={vi.fn()} />)
+  const picker = screen.getByLabelText('browserArchive')
+
+  fireEvent.change(picker, { target: { files: [] } })
+  expect(f.actions.previewArchive).not.toHaveBeenCalled()
+  fireEvent.change(picker, { target: { files: [earlyFile] } })
+  fireEvent.change(picker, { target: { files: [file(new Uint8Array([2]), 'second.zip')] } })
+  await waitFor(() => { expect(f.actions.previewArchive).toHaveBeenCalledOnce() })
+  fireEvent.change(picker, { target: { files: [file(new Uint8Array([3]), 'current.zip')] } })
+  expect(await screen.findByText('current.zip')).toBeDefined()
+
+  await act(async () => {
+    firstBytes.resolve(Uint8Array.of(1).buffer)
+    secondPreview.reject(new Error('stale preflight'))
+  })
+  expect(f.actions.previewArchive).toHaveBeenCalledTimes(2)
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(screen.queryByText('first.zip')).toBeNull()
+  expect(screen.queryByText('second.zip')).toBeNull()
+})
+
+it('uploads for the selected publisher and fences an overlapping form submission', async () => {
+  const f = fixture(), onUploaded = vi.fn(), pending = Promise.withResolvers<typeof f.release>()
+  const team = { id: 'b'.repeat(32), title: 'Other studio' }
+  f.actions.uploadArchive.mockReturnValueOnce(pending.promise)
+  render(<MarketBrowserUpload {...f} publishers={[{ id: f.release.publisherId, title: f.release.publisher }, team]}
+    onUploaded={onUploaded} />)
+  fireEvent.change(screen.getByRole('combobox', { name: 'publisher' }), { target: { value: team.id } })
+  fireEvent.change(screen.getByLabelText('browserArchive'), { target: { files: [file(Uint8Array.of(2))] } })
+  await screen.findByText('browserPreviewHint')
+  const form = screen.getByRole('button', { name: 'upload' }).closest('form')!
+
+  fireEvent.submit(form)
+  fireEvent.submit(form)
+  expect(f.actions.uploadArchive.mock.calls[0]?.[1]).toBe(team.id)
+  expect(f.actions.uploadArchive).toHaveBeenCalledOnce()
+
+  await act(async () => { pending.resolve(f.release) })
+  expect(onUploaded).toHaveBeenCalledExactlyOnceWith(f.release)
+})
+
+it.each(['accepted', 'rejected'] as const)('suppresses an upload %s after the browser adapter is replaced', async (result) => {
+  const old = fixture(), replacement = fixture(), onUploaded = vi.fn()
+  const pending = Promise.withResolvers<typeof old.release>()
+  const publishers = [{ id: old.release.publisherId, title: old.release.publisher }]
+  old.actions.uploadArchive.mockReturnValueOnce(pending.promise)
+  const view = render(<MarketBrowserUpload {...old} publishers={publishers} onUploaded={onUploaded} />)
+  fireEvent.change(screen.getByLabelText('browserArchive'), { target: { files: [file(Uint8Array.of(5))] } })
+  await screen.findByText('browserPreviewHint')
+  fireEvent.click(screen.getByRole('button', { name: 'upload' }))
+  view.rerender(<MarketBrowserUpload {...replacement} publishers={publishers} onUploaded={onUploaded} />)
+
+  await act(async () => {
+    if (result === 'accepted') pending.resolve(old.release)
+    else pending.reject(Error('cloud-unavailable'))
+  })
+  expect(onUploaded).not.toHaveBeenCalled()
+  expect(old.reportOutcome).not.toHaveBeenCalled()
+  expect(screen.getByText('browserArchivePending')).toBeDefined()
+  expect(screen.getByLabelText<HTMLInputElement>('browserArchive').disabled).toBe(false)
+})
+
+it('still previews the Bot description if the artwork resolver has no presentation', async () => {
+  const f = fixture()
+  vi.spyOn(marketArtwork, 'boundMarketPresentation').mockReturnValue(undefined)
+  render(<MarketBrowserUpload {...f} publishers={[{ id: f.release.publisherId, title: f.release.publisher }]} onUploaded={vi.fn()} />)
+  fireEvent.change(screen.getByLabelText('browserArchive'), { target: { files: [file(Uint8Array.of(1))] } })
+  expect(await screen.findByText('stockArtworkHint')).toBeDefined()
+  fireEvent.click(screen.getByText('introduce', { selector: 'button' }))
+  expect(screen.getAllByText(f.release.manifest.description)).toHaveLength(2)
+})
+it('downloads a selected release directly from public discovery', async () => {
+  const f = fixture(), published = { ...f.release, status: 'published' as const }
+  f.actions.catalog.mockResolvedValueOnce([published])
+  const revoke = vi.fn()
+  class DownloadURL extends URL {
+    static override createObjectURL = vi.fn(() => 'blob:published')
+    static override revokeObjectURL = revoke
+  }
+  vi.stubGlobal('URL', DownloadURL)
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  render(<MarketSection {...f} mode="web" />)
+  const download = await screen.findByRole('button', { name: 'browserDownload' })
+  vi.useFakeTimers({ toFake: ['setTimeout'] })
+
+  await act(async () => { fireEvent.click(download) })
+  expect(f.actions.downloadArchive).toHaveBeenCalledExactlyOnceWith(published)
+  expect(f.reportOutcome).toHaveBeenCalledExactlyOnceWith('archiveDownloaded', false)
+  expect(click).toHaveBeenCalledOnce()
+  await act(async () => { await vi.runAllTimersAsync() })
+  expect(revoke).toHaveBeenCalledWith('blob:published')
+})
+
+it.each(['resolved', 'rejected'] as const)('drops a Web download that %s after leaving the market', async (result) => {
+  const f = fixture(), published = { ...f.release, status: 'published' as const }
+  const pending = Promise.withResolvers<Awaited<ReturnType<MarketWebActions['downloadArchive']>>>()
+  f.actions.catalog.mockResolvedValueOnce([published])
+  f.actions.downloadArchive.mockReturnValueOnce(pending.promise)
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  const view = render(<MarketSection {...f} mode="web" />)
+  fireEvent.click(await screen.findByRole('button', { name: 'browserDownload' }))
+  view.unmount()
+
+  await act(async () => {
+    if (result === 'resolved') pending.resolve({ name: 'retired.zip', bytes: Uint8Array.of(1) })
+    else pending.reject(Error('cloud-unavailable'))
+  })
+  expect(f.reportOutcome).not.toHaveBeenCalled()
+  expect(click).not.toHaveBeenCalled()
+})
+
+it('keeps a preview but prevents submission when publishing access changes', async () => {
+  const f = fixture(), onUploaded = vi.fn()
+  const view = render(<MarketBrowserUpload {...f} publishers={[{ id: f.release.publisherId, title: f.release.publisher }]}
+    onUploaded={onUploaded} />)
+  fireEvent.change(screen.getByLabelText('browserArchive'), { target: { files: [file(Uint8Array.of(2))] } })
+  await screen.findByText('browserPreviewHint')
+  view.rerender(<MarketBrowserUpload {...f} publishers={[{ id: 'other', title: 'Other team' }]} onUploaded={onUploaded} />)
+  const upload = screen.getByRole<HTMLButtonElement>('button', { name: 'upload' })
+
+  expect(upload.disabled).toBe(true)
+  fireEvent.submit(upload.closest('form')!)
+  expect(f.actions.uploadArchive).not.toHaveBeenCalled()
+  expect(onUploaded).not.toHaveBeenCalled()
 })

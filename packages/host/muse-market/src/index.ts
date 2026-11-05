@@ -12,7 +12,7 @@ import { collectMarketSkills, marketPresetRows } from './author.ts'
 import { createMarketSkillProvider } from './skills.ts'
 import { createLegacyBotPackage, legacyBotCompatibility } from './legacy-bot.ts'
 import { createLegacySkillPackage } from './legacy-skill.ts'
-import type { MarketInstallation, MarketLegacyResource, MarketLimits, MarketManifest, MarketPresetPortraitId, MarketRelease, MarketReleaseId, MarketPublisherId } from './types.ts'
+import type { MarketInstallation, MarketLegacyResource, MarketLimits, MarketManifest, MarketPlugin, MarketPresetPortraitId, MarketRelease, MarketReleaseId, MarketPublisherId } from './types.ts'
 import type { PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
 import type { SkillProvider } from '@deepseek-ai/dsh-skill'
 
@@ -76,7 +76,7 @@ export default class MuseMarket extends TypertRemoteService {
       this.reserveSelectionReference(releaseId, sessionId)
       this.observe(async () => {
         const installed = (await this.local.list()).find(item => item.release.id === releaseId)
-        if (!installed || installed.release.manifest.kind !== 'bot' || this.presetId(installed.release) !== presetId) {
+        if (!installed || installed.release.manifest.kind !== 'bot') {
           this.releaseSelectionReference(releaseId, sessionId)
           return
         }
@@ -158,7 +158,8 @@ export default class MuseMarket extends TypertRemoteService {
     const { release, legacySource } = installation
     if (this.activations.has(release.id)) return
     await this.local.verify(release)
-    const rows: PresetDefinition['plugins'][number][] = [...(release.manifest.plugins ?? [])]
+    // The publication parser always supplies plugin rows for Bot releases.
+    const rows: PresetDefinition['plugins'][number][] = [...release.manifest.plugins as readonly MarketPlugin[]]
     if (release.manifest.skills.length) rows.push({ name: '@deepseek-ai/dsh-muse-market/bot-skills', config: { releaseId: release.id } })
     const resolvePlugins = legacySource === undefined ? undefined : () => this.legacyComposition(legacySource, rows)
     // The restored market row can start before Desktop registers its native presets.

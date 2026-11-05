@@ -108,3 +108,81 @@ it('records the five cloud statuses and administrator controls in both locales',
   }
   await expect(`${JSON.stringify(output, null, 2)}\n`).toMatchFileSnapshot(resolve('packages/client/ui-muse-account/tests/expected/publications.txt'))
 })
+
+it('retries an initial failure and exposes browser review details to administrators', async () => {
+  const h = harness()
+  const pending = { ...draft, status: 'pending' as const, reviewNote: 'Check the examples.' }
+  h.catalog.mockRejectedValueOnce(new Error('private catalog failure')).mockResolvedValueOnce([]).mockResolvedValueOnce([pending])
+  render(<MarketPublications {...h.props} admin browserMode />)
+
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'readFailed')
+  fireEvent.click(screen.getByRole('button', { name: 'retry' }))
+  expect(await screen.findByText('noCloudPublications')).toBeDefined()
+  fireEvent.click(screen.getByRole('button', { name: 'refresh' }))
+  expect(await screen.findByText('reviewNote: Check the examples.')).toBeDefined()
+  expect(screen.getByRole('link', { name: 'browserManagePublishers' }).getAttribute('href')).toBe('/market/basic')
+  fireEvent.click(screen.getByRole('button', { name: 'details' }))
+  expect(h.props.onDetails).toHaveBeenCalledExactlyOnceWith(pending)
+  fireEvent.click(screen.getByRole('button', { name: 'review.approve' }))
+  expect(within(screen.getByRole('dialog')).getByText('reviewPackageFirst')).toBeDefined()
+  fireEvent.click(screen.getByRole('button', { name: 'closeReview' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(h.review).not.toHaveBeenCalled()
+})
+
+it('holds a busy review in place and changes only the confirmed release', async () => {
+  const h = harness(), result = Promise.withResolvers<MarketRelease>()
+  const other: MarketRelease = { ...marketFixture[1]!, status: 'published' }
+  h.catalog.mockResolvedValue([draft, other])
+  h.review.mockReturnValueOnce(result.promise)
+  render(<MarketPublications {...h.props} />)
+
+  fireEvent.click(await screen.findByRole('button', { name: 'review.submit' }))
+  const dialog = screen.getByRole('dialog')
+  const confirm = within(dialog).getByRole('button', { name: 'confirmReview' })
+  const form = confirm.closest('form')!
+  fireEvent.submit(form)
+  fireEvent.submit(form)
+  fireEvent.click(within(dialog).getByRole('button', { name: 'closeReview' }))
+  expect(screen.getByRole('dialog')).toBe(dialog)
+  expect(h.review).toHaveBeenCalledExactlyOnceWith(draft.id, draft.revision, 'submit', '')
+
+  await act(async () => { result.resolve({ ...draft, status: 'pending', revision: 2 }) })
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.getByText('publication.pending')).toBeDefined()
+  expect(screen.getByText('publication.published')).toBeDefined()
+})
+
+it('discards a rejected catalog read after its Host is replaced', async () => {
+  const old = harness(), replacement = harness()
+  const stale = Promise.withResolvers<MarketRelease[]>()
+  old.catalog.mockReturnValueOnce(stale.promise)
+  const view = render(<MarketPublications {...old.props} />)
+  view.rerender(<MarketPublications {...replacement.props} />)
+  expect(await screen.findByText('publication.draft')).toBeDefined()
+
+  await act(async () => { stale.reject(new Error('retired Host')) })
+  expect(screen.queryByRole('alert')).toBeNull()
+})
+
+it.each(['confirmed', 'conflict'] as const)('reports a %s review to the shell after replacing its Host', async (outcome) => {
+  const old = harness(), replacement = harness(), pending = Promise.withResolvers<MarketRelease>()
+  old.review.mockReturnValueOnce(pending.promise)
+  replacement.catalog.mockResolvedValue([{ ...draft, status: 'withdrawn' }])
+  const view = render(<MarketPublications {...old.props} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'review.submit' }))
+  fireEvent.click(screen.getByRole('button', { name: 'confirmReview' }))
+  view.rerender(<MarketPublications {...replacement.props} />)
+  expect(await screen.findByText('publication.withdrawn')).toBeDefined()
+
+  await act(async () => {
+    if (outcome === 'confirmed') pending.resolve({ ...draft, status: 'pending' })
+    else pending.reject(new Error('cloud-conflict'))
+  })
+  expect(old.props.reportOutcome).toHaveBeenCalledExactlyOnceWith(
+    outcome === 'confirmed' ? 'reviewDone' : 'error.cloud-conflict', outcome === 'conflict',
+  )
+  expect(screen.queryByText('publication.pending')).toBeNull()
+  expect(old.catalog).toHaveBeenCalledOnce()
+  expect(replacement.catalog).toHaveBeenCalledOnce()
+})

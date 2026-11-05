@@ -24,7 +24,7 @@ export const inject = ['webServer']
 export async function apply(ctx: Context, config: Config): Promise<() => Promise<void>> {
   if (ctx.webServer.host !== '127.0.0.1' || !isAbsolute(config.policyFile)) throw new Error('Market requires loopback and an absolute policy path')
   const metadata = await lstat(config.policyFile)
-  if (!metadata.isFile() || metadata.isSymbolicLink() || process.platform !== 'win32' && (metadata.mode & 0o022) !== 0) throw new Error('Market policy must be administrator-owned')
+  if (!metadata.isFile() || (metadata.mode & 0o022) !== 0 && process.platform !== 'win32') throw new Error('Market policy must be administrator-owned')
   const input: unknown = JSON.parse(await readFile(config.policyFile, 'utf8'))
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Invalid market policy')
   const value = input as Record<string, unknown>
@@ -44,7 +44,7 @@ export async function apply(ctx: Context, config: Config): Promise<() => Promise
       fileCount: bounded(limits.fileCount, 1, 4096),
     } }
   const secretMetadata = await lstat(value.secretFile)
-  if (!secretMetadata.isFile() || secretMetadata.isSymbolicLink() || process.platform !== 'win32' && (secretMetadata.mode & 0o077) !== 0) throw new Error('Market secret file must be private')
+  if (!secretMetadata.isFile() || (secretMetadata.mode & 0o077) !== 0 && process.platform !== 'win32') throw new Error('Market secret file must be private')
   const secret = (await readFile(value.secretFile, 'utf8')).trim()
   if (!/^[A-Za-z0-9_-]{32,256}$/.test(secret)) throw new Error('Invalid market gateway secret')
   const expected = Buffer.from(`Bearer ${secret}`), catalog = await MuseMarketCatalog.open(resolved)

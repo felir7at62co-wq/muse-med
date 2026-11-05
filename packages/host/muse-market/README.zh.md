@@ -25,6 +25,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+桌面端与云端市场 profile 通过工作区构建的 tarball 安装这个私有包。tarball 包含 Host 插件、云端 profile 入口、发布包格式工具和生成的 Remote 模块。
+
 [桌面组合](../../../apps/desktop-host/config/desktop.cordis.patch.yml) 在 `agentPresets` 和 `skills` 旁挂载 Host 服务。其 Remote API 可供独立市场 UI 完成发现、本地安装管理及发布包制作；本包不添加桌面设置页或主区域市场页。`sources().website` 打开[市场网页](../../../apps/market-web/README.zh.md)。`baseUrl` 是 HTTPS 源站；仅回环测试接受 HTTP。`root` 默认使用 `dshHomePath('muse-market')`。压缩大小、展开大小、文件数、请求超时和允许的 Bot 模块都是经过校验的配置字段。下载后保持未启用，需明确启用。已启用的 Bot 出现在新会话的模式选择器中。
 
 `./cloud-host` 插件使用独立的回环 `webServer` 和绝对路径的管理员策略文件。网关验证用户身份，以私有共享密钥转发受限数据流；市场 profile 拒绝未经认证的身份声明。配置及启动见[网关部署](../../../services/muse-accounts/README.zh.md#muse-market)。

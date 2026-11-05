@@ -5,14 +5,14 @@ import { MarketSection, type MarketSectionProps } from '../src/client/MarketSect
 import { MarketCreatorPage } from '../src/client/MarketCreatorPage.tsx'
 import { rememberMarketGuide } from '../src/client/MarketGuide.tsx'
 import type { MarketActions } from '../src/client/market-mount.ts'
-import type { MarketInstallation, MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
+import type { MarketInstallation, MarketLegacyResource, MarketRelease } from '@deepseek-ai/dsh-muse-market/types'
 import { marketZh, marketEn } from '../src/client/market-locales.ts'
 import { marketFixture, marketPresentations } from './market-fixture.client.ts'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 beforeEach(rememberMarketGuide)
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers() })
 const release: MarketRelease = { id: 'a'.repeat(32) as MarketRelease['id'], publisherId: 'b'.repeat(32) as MarketRelease['publisherId'],
   publisher: 'Team', sha256: 'c'.repeat(64), bytes: 1024, revision: 1, reviewNote: '', status: 'published', createdAt: '2026-11-02T00:00:00Z',
   manifest: { formatVersion: 1, kind: 'skill', name: 'review', title: 'Review scenes', description: 'Review every scene', version: '1.0.0',
@@ -382,4 +382,223 @@ it('renders the backend handoff installation records and enables their exact loc
   fireEvent.click(enable)
   expect(h.actions.enable).toHaveBeenCalledWith(fixture.installations[0]!.release.id, true)
   expect(fixture.installations[0]!.release.id).toHaveLength(64)
+})
+function originalCatalog(count: number): MarketLegacyResource[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: index === 0 ? 'muse/bots/storyboard-director-16-9' : 'muse/skills/original-' + index,
+    kind: index === 0 ? 'bot' : 'skill', title: 'Original resource ' + index,
+    description: 'Original creative workflow', category: index === 0 ? 'Camera' : 'Resources', version: '0.1.0',
+    requirements: ['Available local model'], requiredSkills: index === 0 ? ['script'] : [],
+    validation: '', sha256: index.toString(16).padStart(64, '0'), href: 'https://muse.test/market/downloads/original-' + index + '.zip',
+  }))
+}
+
+it('loads original catalog pages on intersection and ignores a retired observer', async () => {
+  const h = harness()
+  h.actions.legacyCatalog.mockResolvedValue(originalCatalog(26))
+  const observers: IntersectionProbe[] = []
+  class IntersectionProbe {
+    readonly observe = vi.fn()
+    readonly disconnect = vi.fn()
+    constructor(readonly report: (entries: { isIntersecting: boolean }[]) => void) { observers.push(this) }
+  }
+  vi.stubGlobal('IntersectionObserver', IntersectionProbe)
+  const view = render(<MarketSection {...h.props} />)
+  await screen.findByRole('heading', { name: 'Original resource 0' })
+  expect(observers).toHaveLength(1)
+  expect(observers[0]!.observe).toHaveBeenCalledOnce()
+  expect(screen.queryByRole('heading', { name: 'Original resource 12' })).toBeNull()
+  expect(screen.getAllByText('Available local model')).toHaveLength(12)
+  expect(screen.getByText('sourceSkillsShort: script')).toBeDefined()
+  expect(screen.getAllByRole('button', { name: 'uploadEntry' })).toHaveLength(2)
+  act(() => { observers[0]!.report([{ isIntersecting: false }]) })
+  expect(screen.queryByRole('heading', { name: 'Original resource 12' })).toBeNull()
+
+  act(() => { observers[0]!.report([{ isIntersecting: true }]) })
+  expect(screen.getByRole('heading', { name: 'Original resource 12' })).toBeDefined()
+  expect(screen.queryByRole('heading', { name: 'Original resource 25' })).toBeNull()
+  expect(observers[0]!.disconnect).toHaveBeenCalled()
+  act(() => { observers[0]!.report([{ isIntersecting: true }]) })
+  expect(screen.queryByRole('heading', { name: 'Original resource 25' })).toBeNull()
+  act(() => { observers[1]!.report([{ isIntersecting: true }]) })
+  expect(screen.getByRole('heading', { name: 'Original resource 25' })).toBeDefined()
+  view.unmount()
+  expect(observers[1]!.disconnect).toHaveBeenCalled()
+})
+
+it('keeps every legacy item usable when the browser has no intersection observer', async () => {
+  const h = harness()
+  h.actions.legacyCatalog.mockResolvedValue(originalCatalog(15))
+  vi.stubGlobal('IntersectionObserver', undefined)
+  render(<MarketSection {...h.props} />)
+  expect(await screen.findByRole('heading', { name: 'Original resource 14' })).toBeDefined()
+  fireEvent.click(screen.getByRole('button', { name: 'Camera' }))
+  expect(screen.getByRole('heading', { name: 'Original resource 0' })).toBeDefined()
+  expect(screen.queryByRole('heading', { name: 'Original resource 14' })).toBeNull()
+})
+
+it('keeps the modern catalog usable during a legacy outage and retries the failed source', async () => {
+  const h = harness()
+  h.actions.legacyCatalog.mockRejectedValueOnce(Error('legacy network unavailable')).mockResolvedValueOnce(originalCatalog(1))
+  render(<MarketSection {...h.props} />)
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'legacyUnavailable')
+  expect(screen.getByRole('heading', { name: release.manifest.title })).toBeDefined()
+  fireEvent.click(screen.getByRole('button', { name: 'retry' }))
+  expect(await screen.findByRole('heading', { name: 'Original resource 0' })).toBeDefined()
+  expect(screen.queryByRole('alert')).toBeNull()
+})
+
+it('opens the guide on demand, remembers dismissal, and searches the entered name', async () => {
+  const h = harness()
+  render(<MarketSection {...h.props} />)
+  await screen.findByRole('heading', { name: release.manifest.title })
+  fireEvent.click(screen.getByRole('button', { name: 'guideEntry' }))
+  const guide = screen.getByRole('dialog', { name: 'guideTitle' })
+  fireEvent.click(within(guide).getByRole('button', { name: 'guideSkip' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  const query = screen.getByRole('textbox', { name: 'query' })
+  fireEvent.change(query, { target: { value: 'wide shots' } })
+  const pending = Promise.withResolvers<MarketRelease[]>()
+  h.actions.catalog.mockReturnValueOnce(pending.promise)
+  const searchForm = query.closest('form')!
+  fireEvent.submit(searchForm)
+  fireEvent.submit(searchForm)
+  expect(h.actions.catalog.mock.calls).toEqual([['', '', false], ['wide shots', '', false]])
+  await act(async () => { pending.resolve([release]) })
+})
+
+it('commits the first navigation when two market tabs receive clicks before rendering', async () => {
+  const h = harness()
+  render(<MarketSection {...h.props} />)
+  await screen.findByRole('heading', { name: release.manifest.title })
+  const creator = screen.getByRole('button', { name: 'publish' })
+  const installed = screen.getByRole('button', { name: 'installed' })
+  act(() => {
+    creator.click()
+    installed.click()
+  })
+  await screen.findByRole('region', { name: 'cloudPublications' })
+  expect(creator.getAttribute('aria-pressed')).toBe('true')
+  expect(installed.getAttribute('aria-pressed')).toBe('false')
+  expect(h.actions.installed).toHaveBeenCalledTimes(2)
+})
+
+it('uses bounded read errors and ignores a rejection from a retired market adapter', async () => {
+  const old = harness(), replacement = harness(), first = Promise.withResolvers<MarketRelease[]>()
+  old.actions.catalog.mockReturnValueOnce(first.promise)
+  replacement.actions.catalog.mockRejectedValueOnce(Error('login-required'))
+  const view = render(<MarketSection {...old.props} />)
+  view.rerender(<MarketSection {...replacement.props} />)
+  expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'error.login-required')
+  await act(async () => { first.reject(Error('retired adapter')) })
+  expect(screen.getByRole('alert')).toHaveProperty('textContent', 'error.login-required')
+})
+
+it('checks ZIP size and uses the returned local installation for refresh, export, and removal', async () => {
+  const h = harness()
+  const local = { release, enabled: false }
+  const imported = Promise.withResolvers<MarketInstallation>()
+  const file = new File(['ZIP'], 'review.zip', { type: 'application/zip' })
+  const oversized = new File([], 'oversized.zip')
+  const readOversized = vi.fn()
+  Object.defineProperty(file, 'arrayBuffer', { value: async () => new TextEncoder().encode('ZIP').buffer })
+  Object.defineProperties(oversized, { size: { value: 64 * 1024 * 1024 + 1 }, arrayBuffer: { value: readOversized } })
+  h.actions.importPackage.mockReturnValueOnce(imported.promise)
+  h.actions.exportPackage.mockResolvedValue({ name: file.name, base64: 'WklQ' })
+  const create = vi.fn(() => 'blob:review'), revoke = vi.fn()
+  class DownloadURL extends URL {
+    static override createObjectURL = create
+    static override revokeObjectURL = revoke
+  }
+  vi.stubGlobal('URL', DownloadURL)
+  const download = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+  render(<MarketSection {...h.props} />)
+  await screen.findByRole('heading', { name: release.manifest.title })
+  fireEvent.click(screen.getByRole('button', { name: 'installed' }))
+  await screen.findByText('emptyInstalledHint')
+  const picker = screen.getByLabelText('import')
+  fireEvent.change(picker, { target: { files: [] } })
+  fireEvent.change(picker, { target: { files: [oversized] } })
+  await waitFor(() => { expect(h.props.reportOutcome).toHaveBeenCalledWith('error.expanded-limit', true) })
+  expect(readOversized).not.toHaveBeenCalled()
+  expect(h.actions.importPackage).not.toHaveBeenCalled()
+
+  fireEvent.change(picker, { target: { files: [file] } })
+  fireEvent.change(picker, { target: { files: [file] } })
+  await waitFor(() => { expect(h.actions.importPackage).toHaveBeenCalledExactlyOnceWith('WklQ') })
+  await act(async () => { imported.resolve(local) })
+  expect(screen.getByText('disabled')).toBeDefined()
+  vi.useFakeTimers({ toFake: ['setTimeout'] })
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'export' })) })
+  expect(h.actions.exportPackage).toHaveBeenCalledExactlyOnceWith(release.id)
+  expect(download).toHaveBeenCalledOnce()
+  await act(async () => { await vi.runAllTimersAsync() })
+  expect(revoke).toHaveBeenCalledWith('blob:review')
+  vi.useRealTimers()
+
+  h.actions.installed.mockResolvedValueOnce([local])
+  fireEvent.click(screen.getByRole('button', { name: 'refresh' }))
+  await waitFor(() => { expect(screen.getByRole<HTMLButtonElement>('button', { name: 'remove' }).disabled).toBe(false) })
+  fireEvent.click(screen.getByRole('button', { name: 'remove' }))
+  expect(await screen.findByText('emptyInstalledHint')).toBeDefined()
+  expect(h.actions.remove).toHaveBeenCalledExactlyOnceWith(release.id)
+  const empty = screen.getByText('emptyInstalledHint').parentElement!
+  fireEvent.click(within(empty).getByRole('button', { name: 'discover' }))
+  expect(await screen.findByRole('heading', { name: release.manifest.title })).toBeDefined()
+})
+
+it.each(['enable', 'installLegacy', 'importPackage', 'remove', 'cloudDownload'] as const)(
+  'reports the confirmed %s result without mutating a replaced market panel', async (operation) => {
+    const old = harness(), replacement = harness()
+    const local = { release, enabled: false }
+    const pending = Promise.withResolvers<MarketInstallation>(), remove = Promise.withResolvers<undefined>()
+    let start = () => {}
+    let expected = 'done'
+    if (operation === 'enable' || operation === 'remove') {
+      old.actions.installed.mockResolvedValue([local])
+      old.actions.enable.mockReturnValueOnce(pending.promise)
+      old.actions.remove.mockReturnValueOnce(remove.promise)
+      start = () => { fireEvent.click(screen.getByRole('button', { name: operation })) }
+    } else if (operation === 'installLegacy') {
+      old.actions.legacyCatalog.mockResolvedValue(originalCatalog(1))
+      old.actions.installLegacy.mockReturnValueOnce(pending.promise)
+      expected = 'legacyImported'
+      start = () => { fireEvent.click(screen.getByRole('button', { name: 'legacyImport' })) }
+    } else if (operation === 'importPackage') {
+      old.actions.importPackage.mockReturnValueOnce(pending.promise)
+      start = () => {
+        const file = new File(['ZIP'], 'review.zip')
+        Object.defineProperty(file, 'arrayBuffer', { value: async () => new TextEncoder().encode('ZIP').buffer })
+        fireEvent.change(screen.getByLabelText('import'), { target: { files: [file] } })
+      }
+    } else {
+      old.actions.install.mockReturnValueOnce(pending.promise)
+      start = () => { fireEvent.click(screen.getByRole('button', { name: 'download' })) }
+    }
+    const view = render(<MarketSection {...old.props} {...operation === 'cloudDownload' ? { initialView: 'publish' } : {}} />)
+    await screen.findByRole('heading', { name: release.manifest.title })
+    if (operation === 'importPackage') {
+      fireEvent.click(screen.getByRole('button', { name: 'installed' }))
+      await screen.findByText('emptyInstalledHint')
+    }
+    start()
+    if (operation === 'importPackage') await waitFor(() => { expect(old.actions.importPackage).toHaveBeenCalledOnce() })
+    if (operation === 'cloudDownload') expect(old.actions.install).toHaveBeenCalledExactlyOnceWith(release.id)
+    view.rerender(<MarketSection {...replacement.props} />)
+    await act(async () => {
+      pending.resolve({ ...local, enabled: true })
+      remove.resolve(undefined)
+    })
+    expect(old.props.reportOutcome).toHaveBeenCalledExactlyOnceWith(expected, false)
+    expect(screen.queryByText('enabled')).toBeNull()
+  },
+)
+
+it('installs an explicitly downloaded publication from the creator center without enabling it', async () => {
+  const h = harness()
+  render(<MarketSection {...h.props} initialView="publish" />)
+  fireEvent.click(await screen.findByRole('button', { name: 'download' }))
+  await waitFor(() => { expect(h.props.reportOutcome).toHaveBeenCalledWith('done', false) })
+  expect(h.actions.install).toHaveBeenCalledExactlyOnceWith(release.id)
+  expect(h.actions.enable).not.toHaveBeenCalled()
 })

@@ -74,13 +74,6 @@
 .publications { display: flex; flex-direction: column; gap: 16px; }
 .publications > .previewHeading h3 { margin: 0; font-size: 16px; line-height: 24px; font-weight: 500; }
 .publication { display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 0.5px solid var(--dsw-alias-market-border); border-radius: var(--dsw-radius-md); }
-.generator { display: flex; flex-direction: column; gap: 12px; padding-top: 16px; border-top: 0.5px solid var(--dsw-alias-market-border); }
-.generationStatus, .generationResult { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13px; line-height: 20px; }
-.generationResult { flex-direction: column; align-items: stretch; }
-.candidates { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 12px; border: 0.5px solid var(--dsw-alias-market-border); border-radius: var(--dsw-radius-md); min-width: 0; }
-.candidates legend { font-size: 13px; }
-.candidate { display: flex; flex-direction: column; gap: 8px; align-items: start; padding: 8px; border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-layer-1); font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
-.candidate img { width: 100%; height: 140px; object-fit: contain; }
 @container market (max-width: 980px) { .hero { flex-direction: column; align-items: stretch; } .discoveryTools { min-width: 0; } .grid, .skeletons { grid-template-columns: repeat(2, minmax(0, 1fr)); } .masthead { flex-wrap: wrap; gap: 12px; } }
 @container market (max-width: 620px) { .grid, .skeletons, .authorLayout { grid-template-columns: 1fr; } .navigation { order: 3; width: 100%; justify-content: center; margin: 0; gap: 8px; } .brand { font-size: 22px; } .preview { position: static; } }
 @media (prefers-reduced-motion: reduce) { .card { transition: none; } }

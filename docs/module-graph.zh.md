@@ -323,6 +323,7 @@ flowchart TD
     pkg_host_product_telemetry_otel["host-product-telemetry-otel"]
     pkg_host_webserver["host-webserver"]
     pkg_muse_account["muse-account"]
+    pkg_muse_market["muse-market"]
   end
   subgraph group_identity["packages/identity"]
     pkg_anonymous_user_id["anonymous-user-id"]
@@ -1618,6 +1619,7 @@ flowchart TD
 | [`host-directory-picker-native`](../packages/host/directory-picker-native) | `host` | — |
 | [`host-open-in-app`](../packages/host/open-in-app) | `host` | — |
 | [`host-webserver`](../packages/host/webserver) | `host` | — |
+| [`muse-market`](../packages/host/muse-market) | `host` | — |
 | [`jubian`](../packages/jubian/jubian) | `jubian` | — |
 | [`jubian-api`](../packages/jubian/jubian-api) | `jubian` | — |
 | [`session-format`](../packages/session/session-format) | `session` | — |

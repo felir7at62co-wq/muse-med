@@ -119,6 +119,6 @@ export function resolveMarketSkillArtwork(metadata: MarketSkillArtworkMetadata):
   if (declared) return declared
 
   const description = normalized(metadata.description)
-  const described = purposePatterns.filter(([pattern]) => pattern.test(description))
-  return (described.length === 1 ? described.at(0)?.[1] : undefined) ?? 'document'
+  const [match, additional] = purposePatterns.filter(([pattern]) => pattern.test(description))
+  return match && !additional ? match[1] : 'document'
 }

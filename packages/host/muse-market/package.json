@@ -54,8 +54,16 @@
     "bundle": "tsdown"
   },
   "files": [
-    "lib/**/*.js",
-    "lib/**/*.d.ts",
+    "lib/index.js",
+    "lib/package.js",
+    "lib/server.js",
+    "lib/skills.js",
+    "lib/cloud-host.js",
+    "lib/bot-skills.js",
+    "lib/format.js",
+    "lib/types.js",
+    "lib/types/**/*.js",
+    "lib/types/**/*.d.ts",
     "lib/typert.host.js",
     "lib/typert.host.d.ts",
     "lib/typert.remote-client.js",

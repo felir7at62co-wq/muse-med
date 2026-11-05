@@ -64,7 +64,7 @@ The sidebar shows one account button beside connection and update status. The ex
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-Market registration mounts the generated `museMarket` contribution, main panel, sidebar entry, Settings shortcut and shell-owned operation feedback. [Media adapter types](src/client/market-character-generation.ts) describe separate generation jobs and character revisions; adapters validate their wire data and media metadata. The original account registration and Host implementation remain independent. Client test fixtures use the `.client.ts` suffix so the Host aggregate does not import TSX.
+Market registration mounts the generated `museMarket` contribution, main panel, sidebar entry, Settings shortcut and shell-owned operation feedback. [Character media](src/client/market-character-generation.ts) describes the prebuilt sprite cells and revisions displayed in market cards. The original account registration and Host implementation remain independent. Client test fixtures use the `.client.ts` suffix so the Host aggregate does not import TSX.
 
 The sprite player clips each cell in source-image coordinates, keeping neighboring frames out of letterbox margins. Each instance owns its clipping ID so discovery cards and author previews can coexist. Hover and focus switch loaded frame sequences without restarting visibility tracking or returning to the fallback portrait. The prepared sprite fixture includes transparent gutters around all four frames.
 

@@ -39,21 +39,26 @@ export function MarketAnimation({ animation, introducing, label, fallback, frami
     return () => { observer?.disconnect(); motion.removeEventListener('change', update); document.removeEventListener('visibilitychange', update) }
   }, [])
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined, index = 0
-    setFrame({ sequence: frames, index: 0 })
-    if (!playing) return
-    const next = (): void => {
-      const duration = frames[index]?.durationMs
-      if (duration === undefined) return
-      timer = setTimeout(() => {
-        index = (index + 1) % frames.length; setFrame({ sequence: frames, index }); next()
-      }, duration)
+    if (!playing) {
+      setFrame({ sequence: frames, index: 0 })
+      return
     }
-    next()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const advance = (sequence: ReturnType<typeof frames.entries>): void => {
+      const current = sequence.next()
+      if (current.done) {
+        advance(frames.entries())
+        return
+      }
+      const [index, currentFrame] = current.value
+      setFrame({ sequence: frames, index })
+      timer = setTimeout(() => { advance(sequence) }, currentFrame.durationMs)
+    }
+    advance(frames.entries())
     return () => { clearTimeout(timer) }
   }, [frames, playing])
   const index = frame.sequence === frames ? frame.index : 0
-  const cell = frames[index]?.cell ?? frames[0]?.cell ?? 0
+  const cell = frames[index]?.cell ?? 0
   return <span ref={container} className={css.animation} data-playing={playing}>
     {!playing && fallback}
     {failedSheet !== animation.sheetUrl && <span className={css.sprite} hidden={!playing}>

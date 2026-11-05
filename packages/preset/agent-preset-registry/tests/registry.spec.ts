@@ -77,6 +77,20 @@ describe('declarative preset revisions', () => {
     expect(ctx.agentPresets.presetPlugins('variant')).toEqual(contribution('base').plugins)
   })
 
+  it('returns a detached preset composition only while its declaration is registered', async () => {
+    const ctx = await setup()
+    const base = contribution('base')
+    expect(ctx.agentPresets.presetPlugins(base.id)).toBeUndefined()
+    const declaration = await declare(ctx, { ...base, activation: 'on-demand' })
+    const copy = ctx.agentPresets.presetPlugins(base.id)
+    expect(copy).toEqual(base.plugins)
+    expect(copy).not.toBe(base.plugins)
+    expect(copy?.[0]?.config).not.toBe(base.plugins[0]?.config)
+    expect(ctx.agentPresets.inspectCompositions()).toEqual([])
+    await declaration.dispose()
+    expect(ctx.agentPresets.presetPlugins(base.id)).toBeUndefined()
+  })
+
   it('eagerly scopes tool and prompt registrations and shares one revision across Agents', async () => {
     const ctx = await setup()
     await declare(ctx, contribution('standard'))

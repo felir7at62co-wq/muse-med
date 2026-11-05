@@ -876,6 +876,29 @@ describe('UiWorkspaceService', () => {
     expect(b.sessions.retain).not.toHaveBeenCalled()
   })
 
+  it('preserves newer navigation when a preset opener declines after being superseded', async () => {
+    const current = summary('previous', { cwd: '/w/current' })
+    const b = bench({ sessions: sessionState([current]), workspaces: workspaceState([workspace('current', [current.id])]) })
+    b.uiWorkspace.openSession(current.id)
+    b.sessions.retain.mockClear()
+    const entered = Promise.withResolvers<AbortSignal>(), declined = Promise.withResolvers<boolean>()
+    const open = vi.fn((_id: SessionId, signal: AbortSignal) => {
+      entered.resolve(signal)
+      return declined.promise
+    })
+    const opening = b.uiWorkspace.startPresetSession('market-release', open)
+    try {
+      const signal = await entered.promise
+      b.uiWorkspace.openSession(sid('manual'))
+      expect(signal.aborted).toBe(true)
+    } finally {
+      declined.resolve(false)
+      await opening
+    }
+    expect(open).toHaveBeenCalledExactlyOnceWith(sid('created-current'), expect.any(AbortSignal))
+    expect(b.sessions.retain).toHaveBeenCalledExactlyOnceWith(sid('manual'), { source: 'mainView' })
+  })
+
   it('saves the fresh preset task title before the product surface opens it', async () => {
     const current = summary('previous', { cwd: '/w/current' })
     const b = bench({ sessions: sessionState([current]), workspaces: workspaceState([workspace('current', [current.id])]) })

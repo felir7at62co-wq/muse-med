@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { MuseMarketCatalog } from '../src/server.ts'
+import { DatabaseSync } from 'node:sqlite'
+import { MuseMarketCatalog, type MarketServerConfig } from '../src/server.ts'
 import { createMarketPackage } from '../src/package.ts'
 import type { MarketManifest } from '../src/types.ts'
 
@@ -22,10 +23,11 @@ const manifest: MarketManifest = { formatVersion: 1, kind: 'skill', name: 'scrip
 function archive(version = '1.0.0') {
   return createMarketPackage({ ...manifest, version }, { 'skills/script-review/SKILL.md': Buffer.from('---\nname: script-review\ndescription: Review scripts\n---\nReview the script.\n') }, limits, [])
 }
-async function setup() {
+async function setup(bounds: Partial<Pick<MarketServerConfig, 'maxReleases' | 'maxActiveUploads'>> = {}) {
   const root = await mkdtemp(join(tmpdir(), 'muse-market-')); roots.push(root)
-  const store = await MuseMarketCatalog.open({ root, limits, allowedPlugins: [], maxReleases: 20, maxActiveUploads: 2 }); stores.push(store)
-  return { root, store, publisher: await store.invite(admin, 'Production team', author.id) }
+  const config = { root, limits, allowedPlugins: [], maxReleases: 20, maxActiveUploads: 2, ...bounds }
+  const store = await MuseMarketCatalog.open(config); stores.push(store)
+  return { root, config, store, publisher: await store.invite(admin, 'Production team', author.id) }
 }
 
 describe('invited market publications', () => {
@@ -76,4 +78,106 @@ describe('invited market publications', () => {
     await expect(store.transition(admin, draft.id, pending.revision, 'approve', '')).rejects.toThrow('corrupt-storage')
     expect(store.get(draft.id, author).status).toBe('pending')
   })
+})
+
+function changeDatabase(root: string, sql: string) {
+  const database = new DatabaseSync(join(root, 'market.sqlite'))
+  try { database.exec(sql) } finally { database.close() }
+}
+
+it('reopens the existing schema, rejects a newer schema and refuses unsafe storage configuration', async () => {
+  const { root, config, store, publisher } = await setup()
+  await store.close()
+  const reopened = await MuseMarketCatalog.open(config); stores.push(reopened)
+  expect(reopened.publishers(author)).toEqual([{ id: publisher, title: 'Production team' }])
+  await reopened.close()
+  changeDatabase(root, 'PRAGMA user_version=2')
+  await expect(MuseMarketCatalog.open(config)).rejects.toThrow('Unsupported market schema version')
+
+  for (const invalid of [{ ...config, root: 'relative' }, { ...config, maxReleases: 0 },
+    { ...config, maxReleases: 1.5 }, { ...config, maxActiveUploads: 0 }, { ...config, maxActiveUploads: 1.5 },
+    { ...config, limits: { ...limits, archiveBytes: 0 } }]) {
+    await expect(MuseMarketCatalog.open(invalid)).rejects.toThrow('Invalid market configuration')
+  }
+  const other = join(root, 'other')
+  await mkdir(other)
+  const linkedRoot = join(root, 'linked-root')
+  await symlink(other, linkedRoot, 'junction')
+  try { await expect(MuseMarketCatalog.open({ ...config, root: linkedRoot })).rejects.toThrow('Market root cannot be a link') }
+  finally { await unlink(linkedRoot) }
+  const blobs = join(other, 'blobs')
+  await symlink(root, blobs, 'junction')
+  try { await expect(MuseMarketCatalog.open({ ...config, root: other })).rejects.toThrow('Market blobs cannot be a link') }
+  finally { await unlink(blobs) }
+})
+
+it('bounds admission across publisher accounts and refuses new work after close', async () => {
+  const { store, publisher } = await setup({ maxActiveUploads: 1, maxReleases: 1 })
+  const otherTeam = await store.invite(admin, 'Second team', stranger.id)
+  const active = store.reserveUpload(author, publisher)
+  expect(() => store.reserveUpload(stranger, otherTeam)).toThrow('upload-busy')
+  active()
+  const other = store.reserveUpload(stranger, otherTeam)
+  other()
+
+  const bytes = archive()
+  const draft = await store.upload(author, publisher, 'last-release', bytes)
+  expect(await store.upload(author, publisher, 'last-release', bytes)).toEqual(draft)
+  await expect(store.upload(stranger, otherTeam, 'over-capacity', archive('2.0.0'))).rejects.toMatchObject({
+    code: 'catalog-full', status: 507,
+  })
+  await store.close()
+  expect(() => store.reserveUpload(author, publisher)).toThrow('closed')
+  await expect(store.invite(admin, 'Closed team', author.id)).rejects.toMatchObject({ code: 'closed', status: 503 })
+})
+
+it('validates shared content-addressed storage across independent releases and protects downloads against links', async () => {
+  const { store, root, publisher } = await setup()
+  const second = await store.invite(admin, 'Second team', author.id)
+  const third = await store.invite(admin, 'Third team', author.id)
+  const bytes = archive()
+  const draft = await store.upload(author, publisher, 'first-upload', bytes)
+  await expect(store.upload(author, second, 'first-upload', bytes)).rejects.toThrow('idempotency-conflict')
+  const reused = await store.upload(author, second, 'second-upload', bytes)
+  expect(reused.id).not.toBe(draft.id)
+  expect(reused.sha256).toBe(draft.sha256)
+  const blob = join(root, 'blobs', draft.sha256 + '.zip')
+  await writeFile(blob, 'corrupt')
+  await expect(store.upload(author, third, 'third-upload', bytes)).rejects.toMatchObject({ code: 'corrupt-storage', status: 500 })
+  expect(store.list(author, { mine: true })).toHaveLength(2)
+
+  const moved = join(root, 'corrupt-blob')
+  await rename(blob, moved)
+  await symlink(root, blob, 'junction')
+  try { await expect(store.download(draft.id, author)).rejects.toMatchObject({ code: 'corrupt-storage', status: 500 }) }
+  finally { await unlink(blob); await rename(moved, blob) }
+})
+
+it('reports filesystem write errors without recording a release', async () => {
+  const { store, root, publisher } = await setup()
+  const blobs = join(root, 'blobs')
+  await rename(blobs, join(root, 'empty-blobs'))
+  await writeFile(blobs, 'not a directory')
+  await expect(store.upload(author, publisher, 'cannot-write', archive())).rejects.toSatisfy(
+    (error: NodeJS.ErrnoException) => /ENOTDIR|ENOENT/.test(error.code ?? ''),
+  )
+  expect(store.list(admin, { mine: true })).toEqual([])
+})
+
+it('rolls back publisher invitations and release reviews if a SQLite write aborts', async () => {
+  const { store, root, publisher } = await setup()
+  await expect(store.invite(admin, '   ', stranger.id)).rejects.toThrow('invalid-publisher')
+  await expect(store.invite(admin, 'x'.repeat(101), stranger.id)).rejects.toThrow('invalid-publisher')
+  await expect(store.invite(admin, 'Invalid actor ID', 'short')).rejects.toThrow('not-found')
+  changeDatabase(root, "CREATE TRIGGER deny_member BEFORE INSERT ON members BEGIN SELECT RAISE(ABORT,'fixture denied membership'); END;")
+  await expect(store.invite(admin, 'Rolled back team', stranger.id)).rejects.toThrow('fixture denied membership')
+  expect(store.publishers(admin)).toEqual([{ id: publisher, title: 'Production team' }])
+  expect(store.publishers(stranger)).toEqual([])
+  changeDatabase(root, 'DROP TRIGGER deny_member;')
+  const draft = await store.upload(author, publisher, 'first-upload', archive())
+  changeDatabase(root, "CREATE TRIGGER deny_review BEFORE INSERT ON reviews BEGIN SELECT RAISE(ABORT,'fixture denied review'); END;")
+  await expect(store.transition(author, draft.id, draft.revision, 'submit', '')).rejects.toThrow('fixture denied review')
+  expect(store.get(draft.id, author)).toEqual(draft)
+  changeDatabase(root, 'DROP TRIGGER deny_review;')
+  expect(await store.transition(author, draft.id, draft.revision, 'submit', '')).toMatchObject({ status: 'pending', revision: 2 })
 })

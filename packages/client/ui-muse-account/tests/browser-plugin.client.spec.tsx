@@ -178,4 +178,14 @@ describe('MUSE account browser plugin', () => {
     expect(b.logout).toHaveBeenCalledOnce()
     await b.ctx.fiber.dispose()
   })
+
+  it('disposes the account contribution when the market Remote cannot mount', async () => {
+    const b = await bench()
+    b.mount.mockResolvedValueOnce(b.disposeMount).mockRejectedValueOnce(new Error('Market Remote unavailable'))
+
+    await expect(apply(b.ctx)).rejects.toThrow('Market Remote unavailable')
+
+    expect(b.disposeMount).toHaveBeenCalledOnce()
+    expect(b.slots.entries('settings.section')).toHaveLength(0)
+  })
 })

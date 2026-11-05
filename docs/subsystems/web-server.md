@@ -277,7 +277,7 @@ async botSkillProvider(releaseId: string): Promise<SkillProvider>
 
 /** Import an explicitly selected local publication without uploading it.
  * @param base64 Complete publication archive encoded by the local file picker.
- * @returns The disabled local installation.
+ * @returns The matching verified installation and its activation state, or a new disabled local installation.
  */
 @Remote('importPackage') async importPackage(base64: string): Promise<MarketInstallation>
 
