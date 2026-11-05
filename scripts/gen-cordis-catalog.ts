@@ -50,6 +50,8 @@ export { REGION_BEGIN, REGION_END }
  * errors, so the partition can never silently drift from the service API.
  */
 export const SERVICE_PAGE: Record<string, string> = {
+  translator: 'translation.md',
+  cotTranslation: 'translation.md',
   characterLibrary: 'character-library.md',
   characterLibraryObjectStore: 'character-library.md',
   characterReferenceAuthority: 'character-library.md',
@@ -88,6 +90,9 @@ export const SERVICE_PAGE: Record<string, string> = {
   credentials: 'credentials.md',
   credentialsController: 'credentials.md',
   jubianToken: 'credentials.md',
+  jubianVideoRecovery: 'jubian-video-recovery.md',
+  approvedClipDraft: 'jubian-video-recovery.md',
+  approvedEpisodeRenderer: 'jubian-video-recovery.md',
   jubianVideoSelection: 'settings.md',
   jubianImage: 'settings.md',
   settingsController: 'settings.md',

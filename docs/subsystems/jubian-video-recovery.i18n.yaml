@@ -1,0 +1,7 @@
+# Bilingual-pair consistency record for jubian-video-recovery.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/subsystems/jubian-video-recovery.md
+/jubian-video-recovery:
+  en: 0e5c9a95af877a49
+  zh: 08199eb2ff19c27e

@@ -36,6 +36,7 @@ Choose the entry point that matches the caller:
 - [Tools subsystem](../../docs/subsystems/tools.md) — registration, argument validation, execution, and model-facing results.
 - [Credentials subsystem](../../docs/subsystems/credentials.md) — credential lookup and authorization owned by the host.
 - [Typert subsystem](../../docs/subsystems/typert.md) — typed Remote methods used by the Settings consumers.
+- [Jubian video recovery subsystem](../../docs/subsystems/jubian-video-recovery.md) — recovered media review and approved delivery services.
 - [Drama packages](../drama/README.md) — shot preparation, BGM composition, and episode delivery outside the provider adapter.
 
 <a id="dev-note"></a>

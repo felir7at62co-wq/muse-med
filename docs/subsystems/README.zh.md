@@ -61,6 +61,7 @@
 | [web-server.md](web-server.zh.md) | HTTP 载体：`WebRouteKind`/`WebRoute`、匹配顺序、可认领的回退席位、index 渲染挂接点 |
 | [webhook.md](webhook.zh.md) | 通过身份验证的提供方交付、任意程序化规则，以及发起 Workspace 会话创建后不等待结果 |
 | [character-library.md](character-library.zh.md) | 只读人物参考、有界 TOS 读取与图片实看 |
+| [jubian-video-recovery.md](jubian-video-recovery.zh.md) | 已恢复媒体审核、已批准镜头草稿与剧集渲染 |
 | [storage.md](storage.zh.md) | 存储子系统：后端约定（`StorageBackend`）、`StorageForms`、`DomainSpec`/`Domain`、`domain/changed` |
 | [workspace.md](workspace.zh.md) | 工作区注册表：`Workspace`/`WorkspaceId`、注册与解析、与会话 `cwd` 的关系 |
 | [web-client.md](web-client.zh.md) | 浏览器架构：启动、Remote 通信、配对的 Client model、UI 适配器、Conversation 组装、slot 与重连语义 |

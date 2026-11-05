@@ -453,6 +453,38 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'approvedClipDraft',
+    summary: 'Host provider for creating editable local drafts from approved media.',
+    description: 'Host provider for creating editable local drafts from approved media.',
+    methods: [
+      {
+        signature: 'create(input: { projectDir: string; path: string; sha256: string; taskId: number; subtitlePath?: string }, signal?: AbortSignal): Promise<{ path: string; name: string; editorOpenVerified: boolean }>',
+        description: 'Create or recover the editor draft for the supplied reviewed media.',
+        parameters: [{ name: 'input', description: 'Selected project, absolute media path, exact SHA-256 and task ID.' }, { name: 'signal', description: 'Cancellation of local draft generation.' }],
+        returns: 'The saved editor draft identity and open verification.',
+      },
+      {
+        signature: 'export?(input: { draftName: string; draftPath: string; outputPath: string }, signal?: AbortSignal): Promise<{ path: string }>',
+        description: 'Render the verified draft to a new local MP4.',
+        parameters: [{ name: 'input', description: 'Exact draft identity and absolute output path.' }, { name: 'signal', description: 'Cancellation of editor automation.' }],
+        returns: 'The completed export path.',
+      },
+    ],
+  },
+  {
+    key: 'approvedEpisodeRenderer',
+    summary: 'Host renderer that composes a project-authored episode from approved clips.',
+    description: 'Host renderer that composes a project-authored episode from approved clips.',
+    methods: [
+      {
+        signature: 'render(input: { readonly projectDir: string readonly episode: number readonly clips: readonly { readonly shot: number; readonly path: string; readonly sha256: string }[] readonly timelinePath: string readonly subtitlePath: string readonly mixProfilePath: string readonly bgmPath?: string readonly inputHashes: ApprovedEpisodeInputHashes /** Absolute private candidate path. The renderer must not replace an existing file. */ readonly outputPath: string }, signal: AbortSignal): Promise<{ readonly durationSeconds: number readonly checks: readonly { readonly id: string; readonly ok: boolean; readonly detail: string }[] }>',
+        description: 'Render and inspect an episode using the current deployment\'s media tools.',
+        parameters: [{ name: 'input', description: 'Approved sources and explicit project-owned editing inputs.' }, { name: 'signal', description: 'Cancellation of rendering and verification.' }],
+        returns: 'Render measurements and checks from the episode renderer.',
+      },
+    ],
+  },
+  {
     key: 'attachments',
     summary: 'Immutable binary attachment service.',
     description: 'Immutable binary attachment service. Implementations validate bytes before publishing a reference.',
@@ -1578,6 +1610,67 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [],
         returns: 'the same facts {@link describe} reports after the removal.',
         throws: ['RemoteError when the provider refuses the write.'],
+      },
+    ],
+  },
+  {
+    key: 'jubianVideoRecovery',
+    summary: 'Project recovery settings and explicit human decisions over the authenticated Gateway.',
+    description: 'Project recovery settings and explicit human decisions over the authenticated Gateway.',
+    methods: [
+      {
+        signature: '@Remote async status(): Promise<VideoRecoveryStatus>',
+        description: 'Read the saved switch and reports belonging to the selected project.',
+        parameters: [],
+        returns: 'The current settings and report rows without provider URLs or credentials.',
+      },
+      {
+        signature: '@Remote async configure(input: VideoRecoveryConfigurationInput): Promise<VideoRecoveryStatus>',
+        description: 'Save the local operator\'s choice and switch the background worker.',
+        parameters: [{ name: 'input', description: 'Switch value and, when changing it, the absolute project directory.' }],
+        returns: 'The persisted configuration and the newly selected project\'s reports.',
+      },
+      {
+        signature: '@Remote async review(input: VideoRecoveryReviewInput): Promise<VideoRecoveryReview>',
+        description: 'Read a report, record a decision, or reopen a rejected artifact for one more review.',
+        parameters: [{ name: 'input', description: 'Recorded submission key and the exact digest for any change.' }],
+        returns: 'The current report, its durable decision and any earlier rejection.',
+      },
+      {
+        signature: '@Remote async adopt(input: VideoRecoveryAdoptionInput): Promise<VideoRecoveryReview>',
+        description: 'Capture and decode one local derivative before making it the review target.',
+        parameters: [{ name: 'input', description: 'Submission key, current digest and project-relative MP4 path.' }],
+        returns: 'The active derivative, decoder results and updated review digest.',
+      },
+      {
+        signature: '@Remote async deliverApprovedMp4(input: ApprovedClipDeliveryInput): Promise<VideoRecoveryReview>',
+        description: 'Publish the exact approved MP4 as a project export without an editor.',
+        parameters: [{ name: 'input', description: 'Submission key and its approved review digest.' }],
+        returns: 'The report with the direct delivery receipt.',
+      },
+      {
+        signature: '@Remote async deliverApprovedEpisode(input: { episode: number; digest: string }): Promise<ApprovedEpisodeDeliverySummary>',
+        description: 'Render and verify the selected episode from its exact approved report set.',
+        parameters: [{ name: 'input', description: 'Episode number and the current authored plan digest.' }],
+        returns: 'The durable project-relative MP4 receipt.',
+      },
+      {
+        signature: '@Remote async createDraft(input: ApprovedClipDeliveryInput): Promise<VideoRecoveryReview>',
+        description: 'Create the editor draft from the exact approved project artifact.',
+        parameters: [{ name: 'input', description: 'Submission key and its approved review digest.' }],
+        returns: 'The report and saved draft identity.',
+      },
+      {
+        signature: '@Remote async deliverApprovedClip(input: ApprovedClipDeliveryInput): Promise<VideoRecoveryReview>',
+        description: 'Create or reuse the approved draft, render a new MP4, and verify both tracks.',
+        parameters: [{ name: 'input', description: 'Submission key and exact approved review digest.' }],
+        returns: 'The report with the new export and comparison scores.',
+      },
+      {
+        signature: '@Remote async verifyExport(input: VideoRecoveryAdoptionInput): Promise<VideoRecoveryReview>',
+        description: 'Verify a local editor export against the artifact reviewed for the draft.',
+        parameters: [{ name: 'input', description: 'Submission key, approved digest and project-relative export path.' }],
+        returns: 'The report with the export digest and comparison results.',
       },
     ],
   },
@@ -5111,6 +5204,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ApprovalRequestEvent {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: ToolCallId;\n    readonly reason?: string;\n    readonly displayReason?: {\n        readonly en: string;\n        readonly [locale: string]: string;\n    };\n    readonly signal?: AbortSignal;\n}',
   },
   {
+    name: 'ApprovedClipDelivery',
+    declaration: 'export interface ApprovedClipDelivery {\n    readonly draft: {\n        readonly path: string;\n        readonly name: string;\n    };\n    readonly export?: {\n        readonly path: string;\n        readonly sha256: string;\n        readonly videoSimilarity: number;\n        readonly audioSimilarity: number;\n    };\n}',
+  },
+  {
+    name: 'ApprovedClipDeliveryInput',
+    declaration: 'export interface ApprovedClipDeliveryInput {\n    readonly idempotencyKey: string;\n    readonly digest: string;\n}',
+  },
+  {
+    name: 'ApprovedClipDirectDelivery',
+    declaration: 'export interface ApprovedClipDirectDelivery {\n    readonly path: string;\n    readonly sha256: string;\n}',
+  },
+  {
+    name: 'ApprovedEpisodeDelivery',
+    declaration: 'export interface ApprovedEpisodeDelivery {\n    readonly path: string;\n    readonly sha256: string;\n    readonly durationSeconds: number;\n    readonly inputHashes?: ApprovedEpisodeInputHashes;\n    readonly checks: readonly {\n        readonly id: string;\n        readonly ok: boolean;\n        readonly detail: string;\n    }[];\n}',
+  },
+  {
+    name: 'ApprovedEpisodeDeliverySummary',
+    declaration: 'export interface ApprovedEpisodeDeliverySummary {\n    readonly episode: number;\n    readonly approvedShots: number;\n    readonly totalShots: number;\n    readonly readiness: \'ready\' | \'incomplete\' | \'invalid\';\n    readonly digest?: string;\n    readonly missing: readonly string[];\n    readonly delivery?: ApprovedEpisodeDelivery;\n}',
+  },
+  {
+    name: 'ApprovedEpisodeInputHashes',
+    declaration: 'export interface ApprovedEpisodeInputHashes {\n    readonly projectConfig: string;\n    readonly timeline: string;\n    readonly subtitle: string;\n    readonly mixProfile: string;\n    readonly bgm?: string;\n}',
+  },
+  {
     name: 'ArchiveSessionOptions',
     declaration: 'export interface ArchiveSessionOptions {\n    readonly stopActivity?: boolean;\n}',
   },
@@ -6320,7 +6437,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmCallControls',
-    declaration: 'export interface LlmCallControls {\n    reasoningEffort?: ReasoningEffortId;\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n}',
+    declaration: 'export interface LlmCallControls {\n    reasoningEffort?: ReasoningEffortId;\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    responseFormat?: {\n        readonly type: \'json_object\';\n    };\n}',
   },
   {
     name: 'LlmConfigurableProvider',
@@ -8236,7 +8353,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SubagentStartRequest',
-    declaration: 'export interface SubagentStartRequest {\n    readonly cwd?: string;\n    readonly label?: string;\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: ObjectJsonSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: ToolRestriction;\n    readonly persona?: string;\n}',
+    declaration: 'export interface SubagentStartRequest {\n    readonly cwd?: string;\n    readonly label?: string;\n    readonly prompt: ContentBlock[];\n    readonly parent: Agent;\n    readonly signal: AbortSignal;\n    readonly agentOptions?: AgentOptions;\n    readonly outputSchema?: ObjectJsonSchema;\n    readonly maxDepth?: number;\n    readonly toolFilter?: SubagentToolRestriction;\n    readonly persona?: string;\n}',
   },
   {
     name: 'SubagentStopReason',
@@ -8881,6 +8998,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'VideoModelOption',
     declaration: 'export type VideoModelOption = {\n    key: string;\n    modelId: string;\n    modelName: string;\n    platformId: string;\n    standardId: number;\n    resolution: string;\n    genTypes: number[];\n    ratios: string[];\n    maxDurationSeconds: number | null;\n};',
+  },
+  {
+    name: 'VideoRecoveryAdoptionInput',
+    declaration: 'export interface VideoRecoveryAdoptionInput {\n    readonly idempotencyKey: string;\n    readonly digest: string;\n    readonly path: string;\n}',
+  },
+  {
+    name: 'VideoRecoveryConfigurationInput',
+    declaration: 'export interface VideoRecoveryConfigurationInput {\n    readonly enabled: boolean;\n    readonly projectDir?: string;\n}',
+  },
+  {
+    name: 'VideoRecoveryReview',
+    declaration: 'export interface VideoRecoveryReview {\n    readonly idempotencyKey: string;\n    readonly taskId: number;\n    readonly status: \'awaiting_review\' | \'provider_failed\';\n    readonly digest: string;\n    readonly mediaChecks: readonly {\n        readonly sha256: string;\n        readonly video: boolean;\n        readonly audio: boolean;\n    }[];\n    readonly derivative?: {\n        readonly path: string;\n        readonly sha256: string;\n    };\n    readonly delivery?: ApprovedClipDelivery;\n    readonly directDelivery?: ApprovedClipDirectDelivery;\n    readonly decision: \'approve\' | \'reject\' | null;\n    readonly reason?: string;\n    readonly reopenedFrom?: {\n        readonly digest: string;\n        readonly rejectionReason: string | null;\n        readonly reason: string;\n    };\n}',
+  },
+  {
+    name: 'VideoRecoveryReviewInput',
+    declaration: 'export interface VideoRecoveryReviewInput {\n    readonly action: \'read\' | \'approve\' | \'reject\' | \'reopen\';\n    readonly idempotencyKey: string;\n    readonly digest?: string;\n    readonly reason?: string;\n}',
+  },
+  {
+    name: 'VideoRecoveryStatus',
+    declaration: 'export interface VideoRecoveryStatus {\n    readonly enabled: boolean;\n    readonly projectDir: string | null;\n    readonly configurable: boolean;\n    readonly decoderAvailable: boolean;\n    readonly draftAvailable?: boolean;\n    readonly automaticExportAvailable?: boolean;\n    readonly episodeRendererAvailable?: boolean;\n    readonly reports: readonly VideoRecoveryReview[];\n    readonly episodes?: readonly ApprovedEpisodeDeliverySummary[];\n}',
   },
   {
     name: 'WebBootBatch',
