@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/storyboard-create-materials/guide.md
+/:
+  en: 1530f609176a945b
+  zh: 44d576062d6b617b
+/create-storyboards-before-selecting-materials:
+  en: 29d6ed9dd3d42079
+  zh: 534271886652d359
+/create-storyboards-before-selecting-materials/change:
+  en: 5447e04a22edc92f
+  zh: 1382c559e24ea41c
+/create-storyboards-before-selecting-materials/migration:
+  en: 59dbc7701daa7748
+  zh: 58a707851e172a0c
