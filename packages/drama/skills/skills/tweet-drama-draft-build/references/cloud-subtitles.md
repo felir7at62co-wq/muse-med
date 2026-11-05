@@ -37,3 +37,13 @@ Changing the display spelling does not move its measured start or end. Split a s
 The existing aligner finds matching characters. An unrecognized first or last word can shorten the matched span even when the sentence otherwise matches. Compare derived anchors with the original cloud word times and the source audio before accepting the corrected line. Preserve verified start/end values in the derived alignment; do not edit raw JSON to make a comparison pass. Estimated or partially matched output remains a candidate, not verified timing.
 
 Map shot-local measurements through the actual source in-point, destination offset and any explicitly selected speed. Reuse a final SRT only when those selections still agree. After a source change, recover matching evidence for that source; after an edit change, update affected placements without rerunning unchanged recognition. Final text matching alone does not establish audiovisual synchronization.
+
+## Final display text review
+
+Build the ordered `shots[].lines` plan from dialogue checked against the formal script. Do not derive that plan from ASR or a generation prompt alone. Before importing a draft or rendering, compare the exact full-display SRT selected for this episode, including retained embedded dialogue, with that plan:
+
+```sh
+python -B <skill-directory>/scripts/align_subtitles.py --project <project> --episode 2 --lines <script-lines.json> --review-srt <selected.srt>
+```
+
+The command reads text only and prints JSON. It compares dialogue in order, ignoring spaces, supported punctuation, and line breaks. `text_matches` means the text agrees with the supplied plan; `needs_review` lists differing script and subtitle text, affected script shots, and actual cue times. For omissions, adjacent cues are context, not the time of the missing words. The command does not establish that the supplied plan matches the formal script; it does not listen, rewrite text or certify full-episode timing. It requires explicit nonempty `--lines` and `--review-srt` paths and refuses recognition/alignment options, even with empty values. Explicit `lines: []` declares a silent shot; an empty SRT cannot hide nonempty planned dialogue. Review only flagged passages, preserve measured times when fixing spelling, and rerun the check on the revised SRT. Leave unresolved differences or a missing script marked as unreviewed on the draft; do not present them as verified final subtitles.

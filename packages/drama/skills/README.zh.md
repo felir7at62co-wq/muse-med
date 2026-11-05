@@ -60,6 +60,8 @@ Agent 按剧本与已确认项目要求准备角色、场景和道具需求。[�
 
 [资产匹配技能](skills/tweet-drama-shot-asset-match/SKILL.md)区分稳定角色、父资产与已采用图片版本。用户要求保留的提示词只作已授权的机械占位替换；明确出镜名单决定图片选材，画外说话人和台词提及者不扩绑图片。只预览请求在展示预览后结束，不沿用此前制作授权继续提交。新增换装或状态图时显式复用已认可人脸参考，素材记录保留材质 ID、URL 与审核依据。候选不自动替换已认可出演。分镜保存的图片引用冲突时明确重选来源，而不是再次付费生成；普通视觉不确定性采用集中预览，不新增审批工具。共享参考可减少可避免的身份变化，但不保证生成模型始终保留同一张脸。
 
+[完整显示字幕文字核对](skills/tweet-drama-draft-build/references/cloud-subtitles.md#final-display-text-review)通过 `align_subtitles.py --review-srt`，将选定 SRT 与显式有序台词计划比较。它只读文字，输出 text_matches 或 needs_review，始终保留 listening_verified: false；忽略支持的标点与空白后的相等，不证明计划来源、核听或全片时序通过。它不提交 ASR，也不改写输入。普通对齐还会提示等长识别文字差异，不改变选定剧本文字或实测字幕位置。
+
 草稿生成通过 `drama_draft_dir` 读取本机设置；编辑器根目录缺失或无效时询问用户，再通过同一工具保存用户提供的路径。请求 JSON、时间线 JSON 与 SRT 接受带或不带 BOM 的 UTF-8，保留输入原始字节。字幕对齐默认使用已完成的 Muse 云端收据，核对字词时间戳与源文件 SHA-256。全部匹配的台词保留实测时间；锚点无效、重叠或超出镜头时失败，不改写时间后仍标为已对齐。草稿字幕导入同样保留起止时间，拒绝没有逐句对齐时间的长句，详见[输入要求](skills/tweet-drama-draft-build/references/io-contract.md)。显式离线识别需要另行准备依赖和模型。
 
 [草稿技能](skills/tweet-drama-draft-build/SKILL.md)通过同一工具选择 Windows `audio_mode: "embedded"`，保留视频原声和独立 BGM；未声明模式时兼容独立音轨请求。随包 aa剪映适配器使用已安装剪映的原生 CLI，检查实际能力，失败时明确报告而不换用其它渲染器。[云转写字幕指引](skills/tweet-drama-draft-build/references/cloud-subtitles.md)复用同源收据与实测时间戳，在派生文件中显式纠错并保留字词时间和原始证据。制作草稿本身不要求重新提交转写或编码预览。 Windows 原声模式仅为 `9:16` 添加片尾，`16:9` 在正文结束；原文件保留与原生帧落位偏差分别记录。
