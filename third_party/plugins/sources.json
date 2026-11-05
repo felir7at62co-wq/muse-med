@@ -86,7 +86,7 @@
       "files": {
         "client.js": {
           "upstreamSha256": "2e81d2d8e678dd969164fb347daff6cc60a0c3936d02e1d37a4a997aa12d1fce",
-          "sha256": "d5047ceb236d617d13de2bc0695fe5926832e37a7194bbd5553774fbbe498957"
+          "sha256": "29f709ebc09aa642fa7035843be1a2b9aa485c148059ce8aa557d279fff1a52f"
         },
         "index.js": {
           "upstreamSha256": "d21ad135fa09f1815bce82aab3743de9031fd69c04a83f58643c0a847badedab",

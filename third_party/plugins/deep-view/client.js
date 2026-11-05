@@ -3,6 +3,7 @@ window.__ModuleLoader__.load({
   id: 'deep-view',
   factory: (require) => {
 const module = { exports: {} }
+"use strict";
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
@@ -2470,36 +2471,88 @@ var SettledView = ({ replyText }) => {
   return (0, import_react5.createElement)("div", { className: "dv-q-inline" }, (0, import_react5.createElement)(WidgetCard, { title: view.title ?? "", view: view.view, settled: true, answer }));
 };
 var InteractiveView = ({ callId, sessionId, useConversation }) => {
+  const ui = useViewUi();
   const order = useConversation?.((snapshot) => snapshot?.views?.get?.("chat")?.order?.length ?? 0) ?? 0;
   const replyText = useConversation?.((snapshot) => findReplyText(snapshot, callId));
   const [record, setRecord] = (0, import_react5.useState)(void 0);
   const [revision, setRevision] = (0, import_react5.useState)(0);
   const [flying, setFlying] = (0, import_react5.useState)(false);
+  const [verified, setVerified] = (0, import_react5.useState)(false);
+  const [error, setError] = (0, import_react5.useState)(null);
+  const [answer, setAnswer] = (0, import_react5.useState)(void 0);
+  const operation = (0, import_react5.useRef)(null);
+  (0, import_react5.useEffect)(() => {
+    const owner = { controller: new AbortController(), busy: false };
+    operation.current = owner;
+    return () => {
+      owner.controller.abort();
+      operation.current = null;
+    };
+  }, []);
   (0, import_react5.useEffect)(() => {
     if (typeof sessionId !== "string" || replyText !== void 0) return void 0;
-    let alive = true;
-    call("pending", { sessionId }).then((value) => {
-      if (alive) setRecord(value);
+    const controller = new AbortController();
+    setVerified(false);
+    call("pending", { sessionId }, controller.signal).then((value) => {
+      if (controller.signal.aborted) return;
+      setRecord(value);
+      setVerified(true);
+      setError(null);
     }).catch(() => {
-      if (alive) setRecord(null);
+      if (!controller.signal.aborted) setError("Could not load this view. Refresh its status to try again.");
     });
     return () => {
-      alive = false;
+      controller.abort();
     };
   }, [sessionId, order, replyText, revision]);
   if (replyText !== void 0) return (0, import_react5.createElement)(SettledView, { replyText });
-  if (flying === "gone" || record === void 0 || record === null || record.callId !== callId) return null;
-  const run2 = (make) => {
-    if (flying) return;
+  if (flying === "gone" || record === null || record !== void 0 && record.callId !== callId) return null;
+  const run2 = (op, payload) => {
+    const owner = operation.current;
+    if (owner === null || owner.busy || !verified || record.answerPending === true || answer !== void 0) return;
+    owner.busy = true;
     setFlying(true);
-    void Promise.resolve().then(make).then(() => setFlying("gone")).catch(() => {
-      setFlying(false);
-      setRevision((value) => value + 1);
+    setError(null);
+    void call(op, payload, owner.controller.signal).then(() => {
+      if (owner.controller.signal.aborted) return;
+      if (op === "reply") setAnswer({ id: record.id, action: payload.action, values: payload.values });
+      else setFlying("gone");
+    }).catch(() => {
+      if (owner.controller.signal.aborted) return;
+      setVerified(false);
+      setError(op === "reply" ? "Could not confirm this answer. Refresh the view status before trying again." : "Could not close this view. Refresh its status to try again.");
+    }).finally(() => {
+      owner.busy = false;
+      if (!owner.controller.signal.aborted) setFlying((value) => value === "gone" ? value : false);
     });
   };
-  const onSubmit = (action, values) => run2(() => call("reply", { sessionId, viewId: record.id, action, values }));
-  const onDismiss = () => run2(() => call("dismiss", { sessionId }));
-  return (0, import_react5.createElement)("div", { className: "dv-q-inline" }, (0, import_react5.createElement)(WidgetCard, { title: record.title ?? "", view: record.view, onSubmit, onDismiss, busy: flying === true }));
+  const onSubmit = (action, values) => run2("reply", { sessionId, viewId: record.id, action, values });
+  const onDismiss = () => run2("dismiss", { sessionId, viewId: record.id });
+  const pending = record?.answerPending === true;
+  return (0, import_react5.createElement)(
+    "div",
+    { className: "dv-q-inline" },
+    record === void 0 ? null : (0, import_react5.createElement)(WidgetCard, {
+      title: record.title ?? "",
+      view: record.view,
+      onSubmit: answer === void 0 ? onSubmit : void 0,
+      onDismiss: answer === void 0 ? onDismiss : void 0,
+      settled: answer !== void 0,
+      answer,
+      busy: flying === true || !verified || pending
+    }),
+    error !== null || pending ? (0, import_react5.createElement)(
+      "div",
+      { className: "dv-view-callout", "data-tone": "warn", role: error === null ? "status" : "alert" },
+      (0, import_react5.createElement)("div", { className: "dv-view-callout-text" }, ui.t(error ?? "An answer is awaiting confirmation. Refresh its status; do not submit a different answer.")),
+      (0, import_react5.createElement)("button", {
+        type: "button",
+        className: "dv-q-btn",
+        disabled: flying === true,
+        onClick: () => setRevision((value) => value + 1)
+      }, ui.t("Refresh status"))
+    ) : null
+  );
 };
 var TailView = ({ call: call2, sessionId, useConversation }) => {
   const shown = checkShownView(call2.args?.title, call2.args?.view);
@@ -2517,7 +2570,7 @@ function ViewsTail({ turn, sessionId, useConversation }) {
   }), () => source?.getSnapshot());
   const views = data?.views ?? [];
   if (views.length === 0) return null;
-  return views.map((item) => (0, import_react5.createElement)(TailView, { key: item.callId, call: item, sessionId, useConversation }));
+  return views.map((item) => (0, import_react5.createElement)(TailView, { key: `${sessionId}:${item.callId}`, call: item, sessionId, useConversation }));
 }
 
 // src/core/reply.js
@@ -2711,7 +2764,12 @@ var en = {
   "Progress": "Progress",
   "Your answer": "Your answer",
   "This view tried to open a page and was stopped.": "This view tried to open a page and was stopped.",
-  "(skipped)": "(skipped)"
+  "(skipped)": "(skipped)",
+  "Refresh status": "Refresh status",
+  "Could not load this view. Refresh its status to try again.": "Could not load this view. Refresh its status to try again.",
+  "Could not confirm this answer. Refresh the view status before trying again.": "Could not confirm this answer. Refresh the view status before trying again.",
+  "Could not close this view. Refresh its status to try again.": "Could not close this view. Refresh its status to try again.",
+  "An answer is awaiting confirmation. Refresh its status; do not submit a different answer.": "An answer is awaiting confirmation. Refresh its status; do not submit a different answer."
 };
 var zh = {
   "Cancel": "取消",
@@ -2737,7 +2795,12 @@ var zh = {
   "Progress": "进度",
   "Your answer": "你的回答",
   "This view tried to open a page and was stopped.": "此视图试图打开页面，已被停止。",
-  "(skipped)": "（已跳过）"
+  "(skipped)": "（已跳过）",
+  "Refresh status": "刷新状态",
+  "Could not load this view. Refresh its status to try again.": "无法读取视图，请刷新状态重试",
+  "Could not confirm this answer. Refresh the view status before trying again.": "暂无法确认回答是否已提交，请先刷新视图状态",
+  "Could not close this view. Refresh its status to try again.": "未能关闭视图，请刷新状态重试",
+  "An answer is awaiting confirmation. Refresh its status; do not submit a different answer.": "回答正在等待确认，请刷新状态，不要改答"
 };
 var withUi = (Component) => function DeepUiView(props) {
   return (0, import_react7.createElement)(ViewUi.Provider, { value: { t: props.t ?? ((key) => key), Markdown: import_dsh_client_ui_primitives.MarkdownText } }, (0, import_react7.createElement)(Component, props));
