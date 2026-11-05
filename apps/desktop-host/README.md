@@ -166,6 +166,6 @@ While the native tool is mounted, its standing system guidance also reaches cont
 
 ## Approved episode MP4
 
-Project directory checks use the host's path comparison rules, including Windows drive-letter casing.
+Output directories must stay within the canonical project root. Windows accepts drive-case and 8.3 aliases after checking physical directory identity and rejecting symbolic links or junctions in the output directory and its ancestors.
 
 Desktop builds the episode's original audio from the embedded audio of the exact approved clips on the project's authored timeline. The same timeline controls picture and subtitle placement. Before encoding, the Host verifies the staged clips, project configuration, timeline, subtitles, mix profile, any selected background music, and any required packaged ending assets. A missing embedded audio stream stops preparation. The renderer gives the delivery service a private candidate MP4 after verification. On cancellation, the Host waits for the media process to close before cleaning up the staging directory. See [Jubian video recovery and delivery](../../packages/jubian/tool-jubian/README.md).
