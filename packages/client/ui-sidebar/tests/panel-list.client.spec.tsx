@@ -2,7 +2,7 @@
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 /** Global panel rows and DOM focus through the production slot renderer. */
 import type { Context } from '@deepseek-ai/cordis'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, waitFor, within } from '@testing-library/react'
 import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
@@ -23,12 +23,17 @@ const ALPHA = 'sidebar-test-alpha' as MainPanelId
 const BETA = 'sidebar-test-beta' as MainPanelId
 const runtimes = new Set<SlotTestRuntime>()
 
+beforeEach(() => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false }))
+})
+
 afterEach(async () => {
   try {
     for (const runtime of runtimes) await runtime.dispose()
   } finally {
     runtimes.clear()
     cleanup()
+    vi.unstubAllGlobals()
   }
 })
 

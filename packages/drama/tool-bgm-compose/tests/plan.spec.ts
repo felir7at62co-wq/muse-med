@@ -346,3 +346,35 @@ it('reports shared source identity in immediate neighboring episodes even after 
   })
   expect(distant.some(row => row.rule === 'R7')).toBe(false)
 })
+
+
+it.each([
+  { name: 'catalog ID when only one side has a digest',
+    left: { track_id: 'catalog-1', source_sha256: 'a'.repeat(64) },
+    right: { track_id: 'catalog-1' }, sharedPath: false, repeats: true },
+  { name: 'catalog ID across different encodings',
+    left: { track_id: 'catalog-1', source_sha256: 'a'.repeat(64) },
+    right: { track_id: 'catalog-1', source_sha256: 'b'.repeat(64) }, sharedPath: false, repeats: true },
+  { name: 'SHA catalog ID across different encodings',
+    left: { track_id: `sha256:${'c'.repeat(64)}`, source_sha256: 'a'.repeat(64) },
+    right: { track_id: `SHA256:${'C'.repeat(64)}`, source_sha256: 'b'.repeat(64) }, sharedPath: false, repeats: true },
+  { name: 'SHA catalog ID against the original source digest',
+    left: { track_id: `sha256:${'a'.repeat(64)}`, source_sha256: 'b'.repeat(64) },
+    right: { source_sha256: 'a'.repeat(64) }, sharedPath: false, repeats: true },
+  { name: 'digest across distinct catalog IDs',
+    left: { track_id: 'catalog-1', source_sha256: 'a'.repeat(64) },
+    right: { track_id: 'catalog-2', source_sha256: `SHA256:${'A'.repeat(64)}` }, sharedPath: false, repeats: true },
+  { name: 'different comparable identities despite a shared path',
+    left: { track_id: 'catalog-1', source_sha256: 'a'.repeat(64) },
+    right: { track_id: 'catalog-2', source_sha256: 'b'.repeat(64) }, sharedPath: true, repeats: false },
+  { name: 'source path without comparable identities',
+    left: { track_id: 'catalog-1' }, right: { source_sha256: 'b'.repeat(64) }, sharedPath: true, repeats: true },
+])('checks neighboring reuse by $name', ({ left, right, sharedPath, repeats }) => {
+  const current = { track: 'current', source: 'music.mp3', start_seconds: 0, end_seconds: 8 }
+  const selected: BgmBatchRow = { episode: '02', segments: [{ ...current, ...left }] }
+  const neighbor: BgmBatchRow = { episode: '01', segments: [
+    { ...current, track: 'previous', source: sharedPath ? current.source : 'another-file.mp3', ...right },
+  ] }
+  const findings = auditBgmBatch(selected, { project: '/project', batch: [neighbor], boundaries: [0] })
+  expect(findings.some(row => row.rule === 'R7')).toBe(repeats)
+})

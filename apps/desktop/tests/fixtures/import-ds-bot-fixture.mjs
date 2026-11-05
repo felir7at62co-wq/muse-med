@@ -7,8 +7,8 @@ const cliManifest = new URL('../../../cli/package.json', import.meta.url).href
 /**
  * Resolve DS Bot's Harness peers from the CLI workspace in built Loader runs.
  * @template T
- * @param {() => Promise<T>} load - Imports of the DS Bot modules used by a fixture.
- * @returns {Promise<T>} The imported fixture dependencies.
+ * @param {() => Promise<T>} load - imports of the DS Bot modules used by a fixture.
+ * @returns {Promise<T>} the imported fixture dependencies.
  */
 export async function importDsBotFixture(load) {
   if (process.env.DSH_EXAMPLE_MODE !== 'lib') return load()

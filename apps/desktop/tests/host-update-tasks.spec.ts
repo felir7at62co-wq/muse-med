@@ -64,13 +64,25 @@ function request(next: () => Promise<void>) {
 describe('Desktop Host update task protection', () => {
   it('cancels and drains an admitted streaming HTTP read before locking', async () => {
     const aborted = Promise.withResolvers<undefined>()
+    const releaseDrain = Promise.withResolvers<undefined>()
+    let drained = false
     const server = createServer((incoming, response) => {
-      void ctx.waterfall('connection/request', incoming, response, () => bridge(incoming, response, {
-        requestBodyMode: () => 'buffered', fetch: async request => new Response(new ReadableStream<Uint8Array>({ start(controller) {
-          controller.enqueue(new TextEncoder().encode('frame'))
-          request.signal.addEventListener('abort', () => { controller.close(); aborted.resolve(undefined) }, { once: true })
-        } })),
-      }))
+      void ctx.waterfall('connection/request', incoming, response, async () => {
+        await bridge(incoming, response, {
+          requestBodyMode: () => 'buffered',
+          fetch: async request => new Response(new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new TextEncoder().encode('frame'))
+              request.signal.addEventListener('abort', () => { aborted.resolve(undefined) }, { once: true })
+            },
+            async pull(controller) {
+              await releaseDrain.promise
+              controller.close()
+            },
+          })),
+        })
+        drained = true
+      })
     })
     server.listen(0, '127.0.0.1')
     await once(server, 'listening')
@@ -79,14 +91,23 @@ describe('Desktop Host update task protection', () => {
     try {
       const response = await fetch(`http://127.0.0.1:${address.port}/api/video`)
       expect(response.status).toBe(200)
-      expect(await inspect('lock')).toBe(false)
-      await aborted.promise
+      if (response.body === null) throw new Error('missing streaming response body')
+      const reader = response.body.getReader()
+      expect(await reader.read()).toEqual({ done: false, value: new TextEncoder().encode('frame') })
+      const disconnected = reader.read().catch((error: unknown) => error)
+      const locking = inspect('lock').then(active => ({ active, drained }))
+      await Promise.race([aborted.promise, locking])
+      expect(drained).toBe(false)
+      releaseDrain.resolve(undefined)
+      expect(await locking).toEqual({ active: false, drained: true })
+      expect(await disconnected).toMatchObject({ cause: { code: 'UND_ERR_SOCKET' } })
       await inspect('unlock')
-      await response.body?.cancel()
     } finally {
-      server.closeAllConnections()
+      releaseDrain.resolve(undefined)
+      const closed = once(server, 'close')
       server.close()
-      await once(server, 'close')
+      server.closeAllConnections()
+      await closed
     }
   })
   it.each(['running', 'nextTurn', 'nextStep'] as const)('counts %s agent work without stopping it', async (kind) => {

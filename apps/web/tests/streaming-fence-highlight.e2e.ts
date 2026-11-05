@@ -161,6 +161,7 @@ describe.skipIf(MODE === 'record')('web e2e: streaming code-fence highlighting',
     expect(midTree.lines).toHaveLength(3)
     expect(midTree.lines.flat().map(span => span.style)).toContain('color: var(--shiki-token-keyword);')
 
+    await page.locator('[data-chat-running][data-phase="responding"]').waitFor({ timeout: 10_000 })
     const aria = await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(
       MID_EXPECTED,

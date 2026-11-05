@@ -194,9 +194,9 @@ it('requires the explicit local comparison inputs and rejects unrelated overlay 
     expect(() => Renderer.resolveCall(args)).toThrow(`需要 ${label}`)
   }
   expect(() => Renderer.resolveCall({ ...base, subtitlePlan: 'overlay.json' })).toThrow('最终完整显示')
-  const prepare = Renderer.resolveCall({ method: 'prepare', project: '.', episode: 1, shots: 'shots.json',
+  const prepared = Renderer.resolveCall({ method: 'prepare', project: '.', episode: 1, shots: 'shots.json',
     subtitleSrt: 'final.srt', speechTranscripts: 'map.json' })
-  expect(prepare.method).toBe('prepare')
-  expect(prepare).toHaveProperty('transcriptsPath', expect.stringMatching(/map\.json$/u))
+  if (prepared.method !== 'prepare') throw new Error('Expected a prepare call')
+  expect(prepared.transcriptsPath).toMatch(/map\.json$/u)
   expect(() => Renderer.resolveCall({ method: 'prepare', project: '.', episode: 1, speechDecisions: 'decisions.json' })).toThrow('仅用于 speech_coverage')
 })

@@ -114,10 +114,12 @@ it('preserves child admission metadata when a parent compaction instance has no 
   await agent.whenIdle()
 
   expect(adapter.requests).toHaveLength(1)
-  expect(agent.session.requestContext()).toHaveProperty('workingTokenLimit', 5_000)
-  expect(agent.session.requestContext()).toHaveProperty('workingContextTokens', expect.any(Number))
+  const context = agent.session.requestContext()
+  expect(context?.workingTokenLimit).toBe(5_000)
+  expect(typeof context?.workingContextTokens).toBe('number')
   const contextEvents = agent.session.snapshotEvents().filter(event => event.type === 'request/context')
   expect(contextEvents).toHaveLength(2)
-  expect(contextEvents.at(-1)?.data).toHaveProperty('workingTokenLimit', 5_000)
-  expect(contextEvents.at(-1)?.data).toHaveProperty('workingContextTokens', expect.any(Number))
+  const persisted = contextEvents.at(-1)?.data
+  expect(persisted?.workingTokenLimit).toBe(5_000)
+  expect(typeof persisted?.workingContextTokens).toBe('number')
 })

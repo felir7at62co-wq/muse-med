@@ -654,6 +654,11 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
     })
     await copyFile(join(museLegacySkills, 'video-review.skill.txt'), join(cwd, '.dsh/skills/video-review/SKILL.md'))
   },
+  async 'muse-current-delivery-review'(cwd) {
+    await workspaceSetups['muse-creation-skills']!(cwd)
+    await copyFile(join(repoRoot, 'apps/desktop-host/skills/video-review/SKILL.md'),
+      join(cwd, '.dsh/skills/video-review/SKILL.md'))
+  },
   async 'muse-audio-transcribe-skill-legacy'(cwd) {
     await workspaceSetups['muse-editing-skill']!(cwd)
     await copyFile(join(repoRoot, 'snapshots/session/muse-audio-transcribe-skill/audio-transcribe.skill.txt'), join(cwd, '.dsh/skills/audio-transcribe/SKILL.md'))
@@ -883,8 +888,8 @@ function sessionReferenceSpillExpected(actual: readonly JsonObject[], expectedLo
   return expected
 }
 
-// These scenarios tokenize absolute workspace paths before replay redacts them.
-const workspaceBudgetScenarios = new Set([
+// These fixtures measure text containing host-specific workspace paths before path redaction.
+const workspaceSensitiveBudgetScenarios = new Set([
   'compaction-summary-failure-recovery',
   'muse-creation-parse-recovery',
   'muse-creation-ptc',
@@ -901,7 +906,7 @@ const workspaceBudgetScenarios = new Set([
   'muse-working-budget-stop',
 ])
 
-function workspaceBudgetExpected(actual: readonly JsonObject[], expected: readonly JsonObject[]): readonly JsonObject[] {
+function workspaceBudgetExpected(actual: readonly JsonObject[], expected: JsonObject[]): JsonObject[] {
   if (actual.length !== expected.length) return expected
   return expected.map((row, index) => {
     if (row.type !== 'request/context') return row
@@ -1135,8 +1140,8 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 
 describe('headless recorded-session snapshots', () => {
   it('preserves the recorded working budget decision and other context fields', () => {
-    const context = (estimate: number, limit = 100) => ({
-      type: 'request/context', data: { model: 'test-model', workingContextTokens: estimate, workingTokenLimit: limit },
+    const context = (estimate: number) => ({
+      type: 'request/context', data: { model: 'test-model', workingContextTokens: estimate, workingTokenLimit: 100 },
     })
     const expected = [context(90)]
     const belowLimit = [context(95)]
@@ -1146,7 +1151,7 @@ describe('headless recorded-session snapshots', () => {
     expect(() => workspaceBudgetExpected([context(101)], expected)).toThrow(/relative to budget/)
     expect(workspaceBudgetExpected([], expected)).toEqual(expected)
     expect(() => workspaceBudgetExpected([{ type: 'request/context', data: {} }], expected)).toThrow(/must report/)
-    const changedLimit = [context(95, 101)]
+    const changedLimit = [{ ...belowLimit[0], data: { ...belowLimit[0]!.data, workingTokenLimit: 101 } }]
     expect(changedLimit).not.toEqual(workspaceBudgetExpected(changedLimit, expected))
   })
 
@@ -2286,7 +2291,7 @@ describe('headless recorded-session snapshots', () => {
       const expectedSnapshots = normalizeSessionSnapshots(expected, contextOf(expected), { nativeWriterOutput: true })
       for (const [index, actual] of actualSnapshots.entries()) {
         const actualRecords = records(actual)
-        let expectedRecords: readonly JsonObject[] = scenario.name === 'session-reference-spill' && index === 0
+        let expectedRecords: object[] = scenario.name === 'session-reference-spill' && index === 0
           ? sessionReferenceSpillExpected(
             actualRecords,
             expectedSnapshots[index] as string,
@@ -2297,8 +2302,8 @@ describe('headless recorded-session snapshots', () => {
           if (visualSpeechHash === undefined) throw new Error('Visual speech inputs were not checked')
           expectedRecords = visualSpeechRecords(expectedSnapshots[index] as string, visualSpeechHash, false)
         }
-        if (index === 0 && workspaceBudgetScenarios.has(scenario.name)) {
-          expectedRecords = workspaceBudgetExpected(actualRecords, expectedRecords)
+        if (index === 0 && workspaceSensitiveBudgetScenarios.has(scenario.name)) {
+          expectedRecords = workspaceBudgetExpected(actualRecords, expectedRecords as JsonObject[])
         }
         expect(actualRecords, `${scenario.name}: session ${index}`).toEqual(expectedRecords)
       }

@@ -200,7 +200,7 @@ let mountedRemote: RemoteMock | undefined
  * Register the per-test jsdom setup and teardown the assembled boot needs:
  * English pinned before boot so role/text locators stay deterministic across
  * localized component migrations (the newEnglishPage e2e convention), the
- * observers, font events, and frame callbacks jsdom lacks, and a full reset of the document,
+ * observers, media queries, font events, and frame callbacks jsdom lacks, and a full reset of the document,
  * the boot globals, and the injected plugin styles afterwards.
  */
 export function installAssembledBootEnv(): void {
@@ -228,6 +228,14 @@ export function installAssembledBootEnv(): void {
     Object.defineProperty(navigator, 'languages', { value: ['en-US'], configurable: true })
     Object.defineProperty(navigator, 'language', { value: 'en-US', configurable: true })
     document.title = 'DeepSeek Harness'
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => true,
+    }))
     vi.stubGlobal('ResizeObserver', ResizeObserverStub)
     vi.stubGlobal('EventSource', EventSourceStub)
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) =>

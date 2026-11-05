@@ -218,8 +218,9 @@ it('does not start the candidate after metadata consumes the remaining authoriza
   let clock = Date.parse('2030-01-01T00:00:00.000Z')
   const uploaded: string[] = []
   const fetchImpl: typeof fetch = async (url) => {
-    if (typeof url !== 'string') throw new Error('Expected a signed upload URL string')
-    uploaded.push(url); clock = Date.parse(f.config.expiresAtUtc)
+    const address = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url
+    uploaded.push(address)
+    clock = Date.parse(f.config.expiresAtUtc)
     return new Response(null, { status: 200 })
   }
   await expect(exportMuseCiCandidate({ ...f.options, now: () => clock, fetchImpl })).rejects.toThrow('export authorization expired')
@@ -231,9 +232,9 @@ it('retains only non-secret metadata when candidate upload fails without reporti
   const f = await fixture(), uploaded: string[] = []
   let metadata: string | undefined
   const fetchImpl: typeof fetch = async (url, init) => {
-    if (typeof url !== 'string') throw new Error('Expected a signed upload URL string')
-    uploaded.push(url)
-    if (url === f.config.objects.transfer.url) {
+    const address = typeof url === 'string' ? url : url instanceof URL ? url.href : url.url
+    uploaded.push(address)
+    if (address === f.config.objects.transfer.url) {
       metadata = await new Response(init?.body).text()
       return new Response(null, { status: 200 })
     }

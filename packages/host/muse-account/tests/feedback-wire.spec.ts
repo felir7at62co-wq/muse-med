@@ -6,10 +6,10 @@ import { WorkspaceAnalyzer } from '../../../typert/generator/src/analyzer.ts'
 import { FaceModelEmitter } from '../../../typert/generator/src/emitter.ts'
 import { expect, it } from 'vitest'
 
-// Compiler analysis reads the Host program before the generated codec can be imported.
 it('validates feedback identifiers and ratings through the generated Host wire codec', { timeout: Math.max(30000, Number(process.env.DSH_COVERAGE_TEST_TIMEOUT_MS ?? 0)) }, async () => {
+  // The Host build checks TypeScript diagnostics. This test exercises the emitted codec.
   const workspace = new WorkspaceAnalyzer({ root: resolve(import.meta.dirname, '../../../..'),
-    faces: ['host'], packages: ['@deepseek-ai/dsh-muse-account'] }).analyze()
+    faces: ['host'], packages: ['@deepseek-ai/dsh-muse-account'], checkDiagnostics: false }).analyze()
   const host = workspace.faces.find(candidate => candidate.face === 'host')
   if (!host) throw new Error('Muse account has no Host face')
   const artifact = new FaceModelEmitter(host).emit('@deepseek-ai/dsh-muse-account')

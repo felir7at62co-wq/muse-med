@@ -1,3 +1,22 @@
+# Use the recorded POSIX tool schema and runner on every replay host.
+- id: sandbox
+  config:
+    runnerCommand:
+      - bash
+      - -c
+      - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+      - passthrough-runner
+    runnerFailureSignatures:
+      - 'passthrough-runner: profile rejected'
+- id: bash-sandbox
+  disabled: false
+- id: pwsh-sandbox
+  disabled: true
+- id: tool-bash
+  disabled: false
+- id: tool-pwsh
+  disabled: true
+
 # A 9,210-token model minus 1,000 output and 1,800 headroom tokens gives a
 # 6,410-token trigger, between the initial request and its marker result.
 

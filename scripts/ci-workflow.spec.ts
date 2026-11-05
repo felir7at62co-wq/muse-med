@@ -62,14 +62,6 @@ describe('CI workflow', () => {
     expect(steps).toContainEqual(expect.objectContaining({
       run: 'pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned',
     }))
-    expect(steps).toContainEqual(expect.objectContaining({
-      if: "github.event_name == 'workflow_dispatch' && matrix.target == 'win-x64' && inputs.export_candidate_to_tos",
-      env: {
-        MUSE_RELEASE_TARGET: '${{ matrix.target }}',
-        MUSE_CI_TOS_CANDIDATE_UPLOAD: '${{ secrets.MUSE_CI_TOS_CANDIDATE_UPLOAD }}',
-      },
-      run: 'node apps/desktop/scripts/export-muse-ci-candidate.mjs',
-    }))
     const modelCheck = steps.find(step => step.name === 'Check model relay behavior')
     const packagingCheck = steps.find(step => step.name === 'Check packaging behavior')
     expect(modelCheck?.run).toBe('node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs')

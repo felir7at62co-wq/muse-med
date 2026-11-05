@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import type { RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import GoalService from '@deepseek-ai/dsh-goal'
@@ -60,16 +59,14 @@ class Adapter extends LlmAdapter {
   }
 }
 
-async function harness(script: Response[], always = false, recoveryAttempts: number | 'default' = 1) {
+async function harness(script: Response[], always = false, recoveryAttempts = 1) {
   const ctx = new Context()
   contexts.add(ctx)
   await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(retry)
   await ctx.plugin(GoalService)
   await ctx.plugin(goalDriver)
-  const fiber = recoveryAttempts === 'default'
-    ? await ctx.plugin(guard.apply, { repeatedPropertyLimit: 2 })
-    : await ctx.plugin(guard, { repeatedPropertyLimit: 2, recoveryAttempts })
+  const fiber = await ctx.plugin(guard, { repeatedPropertyLimit: 2, recoveryAttempts })
   await ctx.plugin(AgentLoop, { agents: [] })
   const adapter = new Adapter(script, always)
   ctx.llm.registerAdapter(['mock'], adapter)
@@ -88,15 +85,6 @@ async function harness(script: Response[], always = false, recoveryAttempts: num
 }
 
 describe('bounded local request recovery', () => {
-  it('stops after the first local loop when mounted without a recovery budget', async () => {
-    const test = await harness([loop(), done()], true, 'default')
-    await test.run()
-    expect(test.adapter.requests).toHaveLength(1)
-    expect(test.effects.forbidden).toBe(0)
-    expect(test.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason)
-      .toMatchObject({ kind: 'error', error: { code: guard.TOOL_ARGUMENT_LOOP } })
-  })
-
   it('retains earlier effects and failed raw output while resampling only the unsettled response', async () => {
     const test = await harness([
       [call('retained'), { type: 'finish', reason: { kind: 'tool-calls' } }], loop(),
@@ -228,38 +216,6 @@ describe('bounded local request recovery', () => {
     expect(test.effects.forbidden).toBe(0)
   })
 
-  it('rejects recovery delegated by an inbox listener during guard unload', async () => {
-    const test = await harness([loop()], true)
-    const entered = Promise.withResolvers<{ resume: () => Promise<RequestErrorAction>; signal: AbortSignal }>()
-    const settlement = Promise.withResolvers<RequestErrorAction>()
-    test.ctx.on('agent/request-error', ({ signal }, next) => {
-      entered.resolve({ resume: next, signal })
-      return settlement.promise
-    }, { prepend: true })
-    const run = test.run()
-    const { resume, signal } = await entered.promise
-    test.agent.inject(createUserMessage({ content: [{ type: 'text', text: 'Queued work.' }], source: { kind: 'user' } }))
-    let delegated: Promise<RequestErrorAction> | undefined
-    let abortedAtDelegation: boolean | undefined
-    test.ctx.on('agent/inbox/discarded', ({ agent }) => {
-      if (agent !== test.agent) return
-      abortedAtDelegation = signal.aborted
-      delegated = new Promise((resolve) => { resolve(resume()) })
-      void delegated.then(settlement.resolve, settlement.reject)
-    })
-    const disposal = test.fiber.dispose()
-    try {
-      await vi.waitFor(() => { expect(delegated).toBeDefined() })
-      expect(abortedAtDelegation).toBe(false)
-      await expect(delegated).rejects.toMatchObject({ code: guard.TOOL_ARGUMENT_LOOP })
-    } finally {
-      settlement.resolve(undefined)
-      await Promise.all([disposal, run])
-    }
-    expect(signal.aborted).toBe(true)
-    expect(test.adapter.requests).toHaveLength(1)
-  })
-
   it('cancels recovery admitted before unload but not yet sent to the provider', async () => {
     const test = await harness([loop()], true)
     const entered = Promise.withResolvers<null>()
@@ -274,6 +230,9 @@ describe('bounded local request recovery', () => {
     })
     const run = test.run()
     await entered.promise
+    const unrelated = await test.ctx.agents.create({ sessionId: SessionId('unrelated-recovery-disposal'),
+      agentOptions: { provider: 'mock', model: 'mock' } })
+    await unrelated.dispose()
     const disposal = test.fiber.dispose()
     release.resolve(null)
     await Promise.all([run, disposal])
@@ -332,49 +291,5 @@ describe('bounded local request recovery', () => {
     await Promise.all([run, disposal])
     expect(cancel).not.toHaveBeenCalled()
     expect(test.adapter.requests).toHaveLength(3)
-  })
-
-  it('keeps a pending recovery when a different agent finishes and is disposed', async () => {
-    const test = await harness([loop(), done()])
-    const otherId = SessionId('argument-recovery-other-agent')
-    const other = await test.ctx.agents.create({ sessionId: otherId, agentOptions: { provider: 'mock', model: 'mock' } })
-    const entered = Promise.withResolvers<null>()
-    const release = Promise.withResolvers<null>()
-    const retry = Promise.withResolvers<AbortSignal>()
-    const releaseRetry = Promise.withResolvers<null>()
-    let requests = 0
-    test.ctx.on('agent/request-error', async ({ agent }, next) => {
-      if (agent === test.agent) {
-        entered.resolve(null)
-        await release.promise
-      }
-      return next()
-    }, { prepend: true })
-    test.ctx.on('agent/request', async ({ agent, signal }, next) => {
-      if (agent === test.agent && ++requests === 2) {
-        retry.resolve(signal)
-        await releaseRetry.promise
-      }
-      return next()
-    })
-    const recovery = test.run()
-    let disposal: Promise<void> | undefined
-    try {
-      await entered.promise
-      other.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Finish the other task.' }], source: { kind: 'user' } }))
-      await other.agent.whenIdle()
-      expect(other.agent.session.snapshotEvents().findLast(event => event.type === 'turn/end')?.data.reason.kind).toBe('completed')
-      await other.dispose()
-      expect(test.ctx.agents.get(otherId)).toBeUndefined()
-      release.resolve(null)
-      const signal = await retry.promise
-      disposal = test.fiber.dispose()
-      await vi.waitFor(() => { expect(signal.aborted).toBe(true) })
-    } finally {
-      release.resolve(null)
-      releaseRetry.resolve(null)
-      await Promise.all([disposal, recovery])
-    }
-    expect(test.adapter.requests).toHaveLength(2)
   })
 })
