@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SOURCE_COMMIT: d8745ca2eda7b431b251260cb973ae722c6144af
+  SOURCE_COMMIT: 05a993f1aab48a0990c2432f5025b11cdf0c2322
   PRIMARY_NODE_VERSION: '24'
   DSH_TELEMETRY_DISABLED: '1'
   DSH_EXAMPLE_MODE: lib
@@ -153,8 +153,33 @@ jobs:
             const names = [...new Set(selected)].sort()
             await save('selected-owners.json', names)
             await save('blocked-failures.json', blocked)
-            await writeFile(join(output, 'selected-pattern.txt'), '\\breplays (?:' + names.map(escape).join('|') + ') through dsh --profile headless$')
+            await writeFile(join(output, 'selected-pattern.txt'), '\\b(?:replays|refreshs) (?:' + names.map(escape).join('|') + ') through dsh --profile headless$')
             await writeFile(process.env.GITHUB_OUTPUT, 'count=' + names.length + '\n', { flag: 'a' })
+          }
+
+          async function verifyExecuted(name, prefix) {
+            const selected = await json(join(output, 'selected-owners.json'))
+            const report = await json(join(output, name))
+            const pattern = new RegExp('^' + prefix + ' ([A-Za-z0-9_-]+) through dsh --profile headless$', 'u')
+            const results = new Map()
+            for (const file of report.testResults ?? []) {
+              for (const assertion of file.assertionResults ?? []) {
+                const match = pattern.exec(assertion.title ?? '')
+                if (match === null) continue
+                if (!selected.includes(match[1])) {
+                  if (['passed', 'failed'].includes(assertion.status)) throw new Error('An unselected scenario executed: ' + match[1])
+                  continue
+                }
+                if (results.has(match[1]) || !['passed', 'failed'].includes(assertion.status)) {
+                  throw new Error('Selected scenario was duplicated or not executed: ' + match[1])
+                }
+                results.set(match[1], assertion.status)
+              }
+            }
+            if (selected.length !== results.size || selected.some(name => !results.has(name))) {
+              throw new Error('Selected scenario execution does not match the exact owner inventory')
+            }
+            return results
           }
 
           async function prepareReviewPatch() {
@@ -162,21 +187,9 @@ jobs:
             const selected = await json(join(output, 'selected-owners.json'))
             const passed = new Set()
             if (selected.length > 0) {
-              const refreshPassed = new Set()
-              const refresh = await json(join(output, 'linux-refresh.json'))
-              for (const file of refresh.testResults ?? []) {
-                for (const assertion of file.assertionResults ?? []) {
-                  const match = /^replays ([A-Za-z0-9_-]+) through dsh --profile headless$/u.exec(assertion.title ?? '')
-                  if (assertion.status === 'passed' && match !== null && selected.includes(match[1])) refreshPassed.add(match[1])
-                }
-              }
-              const replay = await json(join(output, 'linux-post-refresh-replay.json'))
-              for (const file of replay.testResults ?? []) {
-                for (const assertion of file.assertionResults ?? []) {
-                  const match = /^replays ([A-Za-z0-9_-]+) through dsh --profile headless$/u.exec(assertion.title ?? '')
-                  if (assertion.status === 'passed' && match !== null && refreshPassed.has(match[1])) passed.add(match[1])
-                }
-              }
+              const refresh = await verifyExecuted('linux-refresh.json', 'refreshs')
+              const replay = await verifyExecuted('linux-post-refresh-replay.json', 'replays')
+              for (const name of selected) if (refresh.get(name) === 'passed' && replay.get(name) === 'passed') passed.add(name)
             }
             const tracked = git(['diff', '--name-only', '-z', '--', 'snapshots']).split('\0').filter(Boolean)
             const untracked = git(['ls-files', '--others', '--exclude-standard', '-z', '--', 'snapshots']).split('\0').filter(Boolean)
@@ -220,6 +233,8 @@ jobs:
               break
             }
             case 'select': await selectFailedOwners(); break
+            case 'verify-refresh': await verifyExecuted('linux-refresh.json', 'refreshs'); break
+            case 'verify-post': await verifyExecuted('linux-post-refresh-replay.json', 'replays'); break
             case 'guard': await prepareReviewPatch(); break
             default: throw new Error('Unknown diagnostic helper operation')
           }
@@ -256,7 +271,7 @@ jobs:
           pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t "$pattern" --reporter=default --reporter=json --outputFile=.local/pr128/diagnostics/linux-refresh.json 2>&1 | tee .local/pr128/diagnostics/linux-refresh.log
           status=${PIPESTATUS[0]}
           echo "$status" > .local/pr128/diagnostics/linux-refresh.exit
-          exit 0
+          node .local/pr128/diagnostic.mjs verify-refresh
 
       - name: Replay the same exact selection after refresh without writes
         if: steps.select.outputs.count != '0'
@@ -269,7 +284,7 @@ jobs:
           pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t "$pattern" --reporter=default --reporter=json --outputFile=.local/pr128/diagnostics/linux-post-refresh-replay.json 2>&1 | tee .local/pr128/diagnostics/linux-post-refresh-replay.log
           status=${PIPESTATUS[0]}
           echo "$status" > .local/pr128/diagnostics/linux-post-refresh-replay.exit
-          exit 0
+          node .local/pr128/diagnostic.mjs verify-post
 
       - name: Verify immutable Sessions and emit a text-only review patch
         if: always() && steps.select.outcome == 'success'
