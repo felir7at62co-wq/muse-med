@@ -1,5 +1,5 @@
 import { afterEach, expect, it } from 'vitest'
-import { mkdir, mkdtemp, readdir, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { MuseMarketLocal } from '../src/local.ts'
@@ -191,9 +191,14 @@ it('keeps the ledger clean when the package cache parent is no longer a director
   const packages = join(root, 'packages')
   await rename(packages, join(root, 'moved-packages'))
   await writeFile(packages, 'not a directory')
+  const entries = (await readdir(root)).sort()
+  // Windows can report EINVAL when a directory rename traverses a file.
+  const errorCodes = process.platform === 'win32' ? ['ENOTDIR', 'ENOENT', 'EINVAL'] : ['ENOTDIR', 'ENOENT']
   const { release, archive } = publication('1.0.0')
-  await expect(local.install(release, archive)).rejects.toSatisfy((error: NodeJS.ErrnoException) => /ENOTDIR|ENOENT/.test(error.code ?? ''))
+  await expect(local.install(release, archive)).rejects.toSatisfy((error: NodeJS.ErrnoException) => errorCodes.includes(error.code ?? ''))
   expect(await local.list()).toEqual([])
+  expect(await readFile(packages, 'utf8')).toBe('not a directory')
+  expect((await readdir(root)).sort()).toEqual(entries)
 })
 
 it('protects enabled or referenced installations and rejects operations on missing releases', async () => {
