@@ -434,6 +434,7 @@ class WindowsJobRunner {
     this.host.off('disconnect', this.onDisconnect)
     this.host.exitCode = exitCode
     if (disconnect && this.host.connected) {
+      if (this.host.disconnect === undefined) throw new Error('subprocess runner: connected IPC has no disconnect method')
       this.host.disconnect()
     }
     this.completion.resolve()
@@ -477,6 +478,7 @@ export async function reportSpawnRunnerFailure(
     try { await sendMessage(host, { type: 'error', error: serializeRunnerError(error) }) } catch { /* No transport remains. */ }
     host.exitCode = 127
     if (host.connected) {
+      if (host.disconnect === undefined) throw new Error('subprocess runner: connected IPC has no disconnect method')
       host.disconnect()
     }
     return

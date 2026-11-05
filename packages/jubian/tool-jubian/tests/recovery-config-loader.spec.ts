@@ -101,7 +101,7 @@ it.each(['missing', 'assistant', 'image-only', 'wrong-digest', 'missing-digest',
       owner.session.append('assistant/message', {
         message: createAssistantMessage({ content: [{ type: 'text', text: `${action} recorded-video ${digest}` }],
           source: { provider: 'mock', model: 'mock' } }),
-        turn: 1, step: 1,
+        turn: 1, step: 1, stream: [],
       }, { surfaceOp: 'append' })
     } else if (decision !== 'missing') {
       owner.session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [

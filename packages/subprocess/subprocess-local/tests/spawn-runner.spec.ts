@@ -700,6 +700,22 @@ describe('Windows Job runner protocol owner', () => {
     expect(missingSend.exitCode).toBe(127)
   })
 
+  it('reports a connected IPC host whose optional disconnect operation is unavailable', async () => {
+    const admission = new FakeRunnerHost()
+    Object.defineProperty(admission, 'send', { value: undefined })
+    Object.defineProperty(admission, 'disconnect', { value: undefined })
+    await expect(runSpawnRunner(WINDOWS_RUNNER_SELECTION, ['--', 'tool.exe'], hostArgument(admission), internals()))
+      .rejects.toThrow('connected IPC has no disconnect method')
+    expect(admission.exitCode).toBe(127)
+
+    const reporting = new FakeRunnerHost()
+    Object.defineProperty(reporting, 'disconnect', { value: undefined })
+    await expect(reportSpawnRunnerFailure(WINDOWS_RUNNER_SELECTION, new Error('early'), hostArgument(reporting)))
+      .rejects.toThrow('connected IPC has no disconnect method')
+    expect(reporting.sent).toMatchObject([{ type: 'error' }])
+    expect(reporting.exitCode).toBe(127)
+  })
+
   it('sends target-exit only after suspended Job launch and closes runner stdio', async () => {
     const host = new FakeRunnerHost()
     const closeFileDescriptor = vi.fn()
