@@ -11,11 +11,11 @@ import { build as bundle } from 'tsdown'
 import { spawn } from 'node:child_process'
 import { executableDeployArgs, executableDeployEnvironment, pnpmInvocation } from './executable-packaging.ts'
 import { existsSync, statSync } from 'node:fs'
-import { chmod, copyFile, cp, glob, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, cp, glob, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 import { pathToFileURL } from 'node:url'
-import { resolveLinuxNodePtyAddon, resolveWindowsNodePtyAddons } from './executable-native-pty.ts'
+import { resolveLinuxNodePtyAddon, resolveWindowsNodePtyAddons, stageNodePtyPrebuild } from './executable-native-pty.ts'
 import { officeSidecarArchives, runtimeNpmArchive, OFFICE_ASSET_IGNORES } from './build-exe-for-python-sdk-office.ts'
 import { deduplicateStagedWorkspacePackages, materializeStagedLinks } from './build-exe-for-python-sdk-staging.ts'
 import { prepareOfficeSkillAssets } from './primary-runtime/prepare.ts'
@@ -433,7 +433,8 @@ class SingleExeBuild {
    * @param target - the pkg target whose native addon is being staged.
    */
   private async prepareNativePty(target: Target): Promise<void> {
-    const stagedBuild = join(this.staging, 'node_modules', 'node-pty', 'build')
+    const stagedPackageDirectory = join(this.staging, 'node_modules', 'node-pty')
+    const stagedBuild = join(stagedPackageDirectory, 'build')
     if (this.cli.dryRun) console.log(`build-exe-for-python-sdk: [dry-run] rm -rf ${stagedBuild}`)
     else await rm(stagedBuild, { recursive: true, force: true })
     const packageDirectory = join(
@@ -446,15 +447,8 @@ class SingleExeBuild {
     )
     const platform = target.platform === 'macos' ? 'darwin' : target.platform === 'win' ? 'win32' : target.platform
     const selected = `${platform}-${target.arch}`
-    const prebuilds = join(this.staging, 'node_modules/node-pty/prebuilds')
     if (this.cli.dryRun) console.log(`build-exe-for-python-sdk: [dry-run] keep only node-pty prebuilds ${selected}`)
-    else {
-      const source = join(packageDirectory, 'prebuilds', selected)
-      if (existsSync(source)) await cp(source, join(prebuilds, selected), { recursive: true })
-      for (const entry of await readdir(prebuilds, { withFileTypes: true })) {
-        if (entry.isDirectory() && entry.name !== selected) await rm(join(prebuilds, entry.name), { recursive: true, force: true })
-      }
-    }
+    else await stageNodePtyPrebuild(packageDirectory, stagedPackageDirectory, selected)
     if (target.platform === 'win') {
       if (target.arch !== 'x64') {
         throw new Error('build-exe-for-python-sdk: Windows supports x64 only.')
@@ -466,7 +460,7 @@ class SingleExeBuild {
           + `target ${target.platform}-${target.arch} does not match host ${host.platform}-${host.arch}.`,
         )
       }
-      resolveWindowsNodePtyAddons(join(this.staging, 'node_modules', 'node-pty'), target.arch)
+      resolveWindowsNodePtyAddons(stagedPackageDirectory, target.arch)
       return
     }
     if (target.platform !== 'linux') return

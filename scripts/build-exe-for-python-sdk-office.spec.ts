@@ -146,3 +146,20 @@ it('takes npm integrity from the workspace lock without querying registry metada
   await writeFile(lockfile, JSON.stringify({ packages: { '@scope/fixture@1.2.3': { resolution: { integrity: 'sha256-invalid' } } } }))
   await expect(runtimeNpmArchive('@scope/fixture', '1.2.3', lockfile)).rejects.toThrow('missing SHA-512 integrity')
 })
+
+it('resolves npm archives across pnpm lock documents and rejects contradictory entries', async () => {
+  const { root } = await fixture()
+  const lockfile = join(root, 'pnpm-lock.yaml')
+  const integrity = `sha512-${Buffer.alloc(64, 7).toString('base64')}`
+  const otherIntegrity = `sha512-${Buffer.alloc(64, 8).toString('base64')}`
+  const manager = JSON.stringify({ packages: { 'pnpm@12.5.1': { resolution: { integrity } } } })
+  const workspace = JSON.stringify({ packages: {
+    'pnpm@12.5.1': { resolution: { integrity } },
+    '@scope/fixture@1.2.3': { resolution: { integrity: otherIntegrity } },
+  } })
+  await writeFile(lockfile, `---\n${manager}\n---\n${workspace}\n`)
+  await expect(runtimeNpmArchive('pnpm', '12.5.1', lockfile)).resolves.toMatchObject({ integrity })
+  await expect(runtimeNpmArchive('@scope/fixture', '1.2.3', lockfile)).resolves.toMatchObject({ integrity: otherIntegrity })
+  await writeFile(lockfile, `---\n${manager}\n---\n${workspace.replace(integrity, otherIntegrity)}\n`)
+  await expect(runtimeNpmArchive('pnpm', '12.5.1', lockfile)).rejects.toThrow('conflicting integrity for pnpm@12.5.1')
+})

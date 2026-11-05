@@ -1,7 +1,31 @@
 /** Resolve the native node-pty input used by the SDK and SSH executable builders. */
 
-import { existsSync } from 'node:fs'
+import { existsSync, lstatSync } from 'node:fs'
+import { cp, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+
+/**
+ * Stage the selected prebuild, retaining files that already share the installed file's inode.
+ * @param packageDirectory - installed node-pty package directory.
+ * @param stagedPackageDirectory - deployed node-pty package directory.
+ * @param selected - prebuild directory name for the target platform and architecture.
+ * @returns resolves after the target prebuild is staged and other targets are removed.
+ */
+export async function stageNodePtyPrebuild(packageDirectory: string, stagedPackageDirectory: string, selected: string): Promise<void> {
+  const source = join(packageDirectory, 'prebuilds', selected)
+  const prebuilds = join(stagedPackageDirectory, 'prebuilds')
+  if (existsSync(source)) {
+    await cp(source, join(prebuilds, selected), { recursive: true, filter: (from, to) => {
+      const destinationStat = lstatSync(to, { bigint: true, throwIfNoEntry: false })
+      if (!destinationStat?.isFile() || destinationStat.ino === 0n || destinationStat.dev === 0n) return true
+      const sourceStat = lstatSync(from, { bigint: true })
+      return sourceStat.ino !== destinationStat.ino || sourceStat.dev !== destinationStat.dev
+    } })
+  }
+  for (const entry of await readdir(prebuilds, { withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name !== selected) await rm(join(prebuilds, entry.name), { recursive: true, force: true })
+  }
+}
 
 /**
  * Prefer the workflow's manylinux build and fall back to node-pty's target prebuild.

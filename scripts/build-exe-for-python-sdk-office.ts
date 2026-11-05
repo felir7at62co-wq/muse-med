@@ -2,7 +2,7 @@
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { downloadRuntimeNpmPackage, type RuntimeNpmArchive } from './primary-runtime/prepare.ts'
-import { load as parseYaml } from 'js-yaml'
+import { loadAll } from 'js-yaml'
 import { officePackageDirectories } from './libreoffice-packages.mjs'
 
 /** pkg applies these exclusions to dependency `files` as well as root asset globs. */
@@ -18,17 +18,24 @@ export interface OfficePackageArchive extends RuntimeNpmArchive {
 }
 
 /**
- * Resolve one installed npm version against its reviewed workspace lock integrity.
+ * Resolve one installed npm version against its reviewed workspace lock integrity across YAML documents.
  * @param name - Published package name.
  * @param version - Exact installed version.
  * @param lockfile - Workspace lock recording the exact published archive.
- * @returns Locked npm tarball identity; rejects versions without SHA-512 integrity.
+ * @returns Locked npm tarball identity; rejects absent, invalid, or conflicting SHA-512 integrity.
  */
 export async function runtimeNpmArchive(name: string, version: string, lockfile = join(import.meta.dirname, '../pnpm-lock.yaml')): Promise<RuntimeNpmArchive> {
-  const lock = parseYaml(await readFile(lockfile, 'utf8')) as { packages?: Record<string, { resolution?: { integrity?: string } }> }
-  const integrity = lock.packages?.[`${name}@${version}`]?.resolution?.integrity
+  type LockDocument = { packages?: Record<string, { resolution?: { integrity?: string } } | null> }
+  const lock = loadAll(await readFile(lockfile, 'utf8')) as (LockDocument | null | undefined)[]
+  const key = `${name}@${version}`
+  const integrities = new Set(lock.flatMap((document) => {
+    const entry = document?.packages?.[key]
+    return entry === undefined ? [] : [entry?.resolution?.integrity]
+  }))
+  if (integrities.size > 1) throw new Error(`runtime npm lock: conflicting integrity for ${key}`)
+  const [integrity] = integrities
   if (typeof integrity !== 'string' || !/^sha512-[A-Za-z0-9+/]+={0,2}$/u.test(integrity)) {
-    throw new Error(`runtime npm lock: missing SHA-512 integrity for ${name}@${version}`)
+    throw new Error(`runtime npm lock: missing SHA-512 integrity for ${key}`)
   }
   return { name, version, url: `https://registry.npmjs.org/${name}/-/${name.split('/').at(-1)}-${version}.tgz`, integrity }
 }
