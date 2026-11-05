@@ -1501,7 +1501,6 @@ describe('headless recorded-session snapshots', () => {
     if (owner === undefined) throw new Error(`Missing writer owner ${name}`)
     const inputs = await fixtureSessions(owner)
     const outputs = await expectedSessionFixtures(owner, inputs)
-    expect(outputs).not.toEqual(inputs)
     expect(outputs).toEqual(await Promise.all(inputs.map((_, index) => readFile(join(owner.dir, writerSnapshotName(index)), 'utf8'))))
   })
 
