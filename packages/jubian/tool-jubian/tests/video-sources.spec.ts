@@ -1,5 +1,5 @@
 /** Existing videos remain extractable across model choices; incomplete inventory never establishes absence. */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { JubianClient, JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { readVideoSources, resolveVideoSourceOptions } from '../src/video-sources.ts'
 import { videoMethod } from '../src/methods.ts'
@@ -298,4 +298,185 @@ it.each([0, -1, 1001, 1.5])('rejects invalid source bounds before querying: %s',
 
 it.each([0, 2047, 1000001, 2048.5])('rejects invalid complete-result character bounds: %s', (value) => {
   expect(() => resolveVideoSourceOptions({ videoSourceMaxResultChars: value })).toThrow()
+})
+
+
+it.each([
+  { label: 'missing card', path: '/aigc/storyboard/2165139', value: null, issue: 'UNREADABLE_CARD' },
+  { label: 'array card', path: '/aigc/storyboard/2165139', value: [], issue: 'UNREADABLE_CARD' },
+  { label: 'bad task detail', path: '/admin/aigc/video/task/77', value: null, issue: 'UNREADABLE_TASK' },
+  { label: 'missing child total', path: '/admin/aigc/video/task/sub/list?', value: { rows: [child()] }, issue: 'UNSTABLE_CHILD_TOTAL' },
+  { label: 'invalid task id', path: '/aigc/storyboard/byStoryboard/', value: [{ id: -1 }], issue: 'TASK_IDENTITY_MISMATCH' },
+  { label: 'duplicate task', path: '/aigc/storyboard/byStoryboard/', value: [task(), task()], issue: 'TASK_IDENTITY_MISMATCH' },
+  { label: 'task project mismatch', path: '/aigc/storyboard/byStoryboard/', value: [task(77, { scriptId: 9 })], issue: 'TASK_IDENTITY_MISMATCH' },
+  { label: 'missing parent status', path: '/admin/aigc/video/task/77', value: task(77, { taskStatus: null }), issue: 'TASK_STATUS_UNKNOWN' },
+  { label: 'missing child status', path: '/admin/aigc/video/task/sub/list?', value: { total: 1, rows: [child(88, { taskStatus: null })] }, issue: 'CHILD_STATUS_UNKNOWN' },
+  { label: 'empty successful media', path: '/admin/aigc/video/task/sub/list?', value: { total: 1, rows: [child(88, { resultList: [] })] }, issue: 'SUCCESS_WITHOUT_MEDIA' },
+  { label: 'invalid media address', path: '/admin/aigc/video/task/sub/list?', value: { total: 1, rows: [child(88, { resultList: [{ tosVideoUrl: 'not a url' }] })] }, issue: 'UNREADABLE_MEDIA_URL' },
+  { label: 'insecure media address', path: '/admin/aigc/video/task/sub/list?', value: { total: 1, rows: [child(88, { resultList: [{ tosVideoUrl: 'http://media.example/a.mp4' }] })] }, issue: 'UNREADABLE_MEDIA_URL' },
+])('retains an explicit diagnostic for $label', async ({ label, path, value, issue }) => {
+  const { client } = fixture(current => label === 'missing parent status' && current.includes('/byStoryboard/')
+    ? [task(77, { taskStatus: null })] : current.startsWith(path) ? value : undefined)
+  const result = await readVideoSources(client, args, defaults)
+  expect(result.complete).toBe(false)
+  expect(result.issues).toContain(issue)
+})
+
+it('validates project and card identities before any network request', async () => {
+  const { client, calls } = fixture()
+  await expect(readVideoSources(client, { ...args, script_id: 0 }, defaults)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+  await expect(readVideoSources(client, { ...args, storyboard_id: 0 }, defaults)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+  expect(calls).toEqual([])
+})
+
+it('accepts numeric-string identities and the alternate original-card id field', async () => {
+  const { client } = fixture(path => path === '/aigc/storyboard/2165139' ? { storyboardId: '2165139', scriptId: '5542' }
+    : path.includes('/byStoryboard/') ? [task(77, { id: '77', scriptId: '5542' })] : undefined)
+  expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'available', complete: true })
+})
+
+it('stops task hydration at its explicit limit while retaining verified sources', async () => {
+  const { client, calls } = fixture(path => path.includes('/byStoryboard/') ? [task(), task(78)] : undefined)
+  expect(await readVideoSources(client, args, { ...defaults, taskLimit: 1 })).toMatchObject({
+    status: 'available', complete: false, issues: ['TASK_LIMIT'], coverage: { tasks_checked: 1 },
+  })
+  expect(calls.some(call => call.path.endsWith('/task/78'))).toBe(false)
+})
+
+it('propagates cancellation without converting it to incomplete evidence', async () => {
+  const { client, calls } = fixture()
+  const controller = new AbortController()
+  controller.abort(new Error('cancel source read'))
+  await expect(readVideoSources(client, args, defaults, controller.signal)).rejects.toThrow('cancel source read')
+  expect(calls).toEqual([])
+})
+
+
+it.each([
+  { label: 'original card unavailable', select: (path: string) => path === '/aigc/storyboard/2165139', data: null, error: new Error('offline'), issue: 'READ_FAILED' },
+  { label: 'task history unavailable', select: (path: string) => path.includes('/byStoryboard/') || path.includes('/task/list?'), data: null, error: new JubianError('NETWORK_ERROR'), issue: 'TASK_SCAN_INCOMPLETE' },
+  { label: 'task details unavailable', select: (path: string) => path.endsWith('/task/77'), data: null, error: new Error('offline'), issue: 'READ_FAILED' },
+  { label: 'child history unavailable', select: (path: string) => path.includes('/sub/list?'), data: null, error: new Error('offline'), issue: 'CHILD_SCAN_INCOMPLETE' },
+])('preserves incomplete coverage when $label', async ({ select, error, issue }) => {
+  const { client } = fixture()
+  const request = client.request.bind(client)
+  const spy = vi.spyOn(client, 'request').mockImplementation(async (input) => {
+    if (select(input.path)) throw error
+    return request(input)
+  })
+  try {
+    const result = await readVideoSources(client, args, defaults)
+    expect(result.complete).toBe(false)
+    expect(result.issues).toContain(issue)
+  } finally { spy.mockRestore() }
+})
+
+it.each([
+  { label: 'single-envelope history', select: (path: string) => path.includes('/byStoryboard/'), data: task(), layout: 'array-single' as const, issue: null },
+  { label: 'invalid child list', select: (path: string) => path.includes('/sub/list?'), data: {}, layout: 'object-data' as const, issue: 'UNREADABLE_HISTORY' },
+  { label: 'list alias', select: (path: string) => path.includes('/sub/list?'), data: { total: 1, list: [child()] }, layout: 'object-data' as const, issue: null },
+  { label: 'missing child media', select: (path: string) => path.includes('/sub/list?'), data: { total: 1, rows: [child(88, { resultList: [] })] }, layout: 'object-data' as const, issue: 'SUCCESS_WITHOUT_MEDIA' },
+])('reads $label without inventing missing evidence', async ({ select, data, layout, issue }) => {
+  const { client } = fixture()
+  const request = client.request.bind(client)
+  const spy = vi.spyOn(client, 'request').mockImplementation(async input => select(input.path)
+    ? { data, envelope_layout: layout, transport: { http_status: 200, application_code: 200 }, response_sha256: null }
+    : request(input))
+  try {
+    const result = await readVideoSources(client, args, defaults)
+    if (issue === null) expect(result).toMatchObject({ status: 'available', complete: true })
+    else expect(result.issues).toContain(issue)
+  } finally { spy.mockRestore() }
+})
+
+it.each([
+  { label: 'parent and child lack card ownership', parent: task(77, { storyboardId: null }), linked: task(77, { storyboardId: null }), result: child(88, { storyboardId: null }), issue: 'CHILD_CARD_UNKNOWN' },
+  { label: 'child is missing its status', parent: task(), linked: task(), result: child(88, { taskStatus: null }), issue: 'CHILD_STATUS_UNKNOWN' },
+  { label: 'child schema is invalid', parent: task(), linked: task(), result: child(88, { resultList: [null] }), issue: 'UNREADABLE_CHILD' },
+])('does not reuse media when $label', async ({ parent, linked, result, issue }) => {
+  const { client } = fixture(path => path.includes('/byStoryboard/') ? [linked]
+    : path.endsWith('/task/77') ? parent : path.includes('/sub/list?') ? { total: 1, rows: [result] } : undefined)
+  const evidence = await readVideoSources(client, args, defaults)
+  expect(evidence.sources).toEqual([])
+  expect(evidence.issues).toContain(issue)
+})
+
+it('rejects a changing child total after retaining the first verified result', async () => {
+  const { client } = fixture(path => path.includes('/sub/list?')
+    ? { total: path.includes('pageNum=1') ? 2 : 3, rows: [child()] } : undefined)
+  const result = await readVideoSources(client, args, defaults)
+  expect(result).toMatchObject({ status: 'available', complete: false, issues: includesIssues(['UNSTABLE_CHILD_TOTAL']) })
+})
+
+it('rejects an empty project page before its declared total is reached', async () => {
+  const { client } = fixture(path => path.includes('/byStoryboard/') ? { total: 1, rows: [] }
+    : path.includes('/task/list?') ? { total: 1, rows: [] } : undefined)
+  const result = await readVideoSources(client, args, defaults)
+  expect(result.issues).toContain('INCOMPLETE_TASK_PAGE')
+})
+
+it('passes a live cancellation signal through every source request', async () => {
+  const { client } = fixture(path => path.includes('/task/list?') ? { total: 1, rows: [task()] } : undefined)
+  const controller = new AbortController()
+  const request = vi.spyOn(client, 'request')
+  expect(await readVideoSources(client, args, defaults, controller.signal)).toMatchObject({ complete: true })
+  expect(request.mock.calls.every(([input]) => input.signal === controller.signal)).toBe(true)
+  const ledger = new JubianLedger({ root: '/unused-video-page-fixture' })
+  expect(await videoMethod(client, ledger, { method: 'sources', ...args }, { videoSources: defaults, signal: controller.signal }))
+    .toMatchObject({ sources: { complete: true } })
+  expect(await videoMethod(client, ledger, { method: 'sources', ...args }))
+    .toMatchObject({ sources: { complete: true } })
+  expect(await videoMethod(client, ledger, { method: 'tasks', script_id: args.script_id }, { signal: controller.signal }))
+    .toHaveProperty('tasks')
+})
+
+it('propagates provider cancellation before the caller aborts', async () => {
+  const { client } = fixture()
+  const error = new Error('provider cancelled')
+  error.name = 'AbortError'
+  vi.spyOn(client, 'request').mockRejectedValueOnce(error)
+  await expect(readVideoSources(client, args, defaults)).rejects.toBe(error)
+})
+
+it.each([
+  { label: 'incomplete project scan', linked: { total: 2, rows: [task()] }, project: { total: 2, rows: [] } },
+  { label: 'invalid linked identity', linked: { total: 2, rows: [task(-1)] }, project: { total: 0, rows: [] } },
+  { label: 'repeated linked ownership', linked: { total: 3, rows: [task(), task()] }, project: { total: 1, rows: [task()] } },
+])('retains incomplete evidence for $label', async ({ linked, project }) => {
+  const { client } = fixture(path => path.includes('/byStoryboard/') ? linked
+    : path.includes('/task/list?') ? project : undefined)
+  const result = await readVideoSources(client, args, defaults)
+  expect(result.coverage.history).toBe('project')
+  expect(result.coverage.tasks_checked).toBeLessThanOrEqual(1)
+})
+
+it('retains a failed linked-history read after a complete project fallback', async () => {
+  const { client } = fixture(path => path.includes('/task/list?') ? { total: 1, rows: [task()] } : undefined)
+  const request = client.request.bind(client)
+  vi.spyOn(client, 'request').mockImplementation(async (input) => {
+    if (input.path.includes('/byStoryboard/')) throw new JubianError('NETWORK_ERROR')
+    return request(input)
+  })
+  expect(await readVideoSources(client, args, defaults)).toMatchObject({ complete: false, issues: ['NETWORK_ERROR'] })
+})
+
+it('requires a total on singleton child history envelopes', async () => {
+  const { client } = fixture()
+  const request = client.request.bind(client)
+  vi.spyOn(client, 'request').mockImplementation(async input => input.path.includes('/sub/list?')
+    ? { data: child(), envelope_layout: 'array-single', transport: { http_status: 200, application_code: 200 }, response_sha256: null }
+    : request(input))
+  expect((await readVideoSources(client, args, defaults)).issues).toContain('UNSTABLE_CHILD_TOTAL')
+})
+
+it.each([
+  { label: 'foreign parent detail', parent: task(77, { storyboardId: 12 }), result: child(), issue: 'LINKED_CARD_MISMATCH' },
+  { label: 'foreign child without known parent ownership', parent: task(77, { storyboardId: null }), result: child(88, { storyboardId: 12 }), issue: 'TASK_CARD_UNKNOWN' },
+  { label: 'alternate child identifier', parent: task(), result: child(88, { id: null, subTaskId: 88 }), issue: null },
+])('checks $label independently of an unowned listing', async ({ parent, result, issue }) => {
+  const { client } = fixture(path => path.includes('/byStoryboard/') ? [task(77, { storyboardId: null })]
+    : path.endsWith('/task/77') ? parent : path.includes('/sub/list?') ? { total: 1, rows: [result] } : undefined)
+  const evidence = await readVideoSources(client, args, defaults)
+  if (issue === null) expect(evidence.sources).toHaveLength(1)
+  else expect(evidence.issues).toContain(issue)
 })

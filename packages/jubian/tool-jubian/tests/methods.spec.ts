@@ -65,6 +65,12 @@ beforeEach(async () => {
 })
 afterEach(async () => { await rm(root, { recursive: true, force: true }) })
 
+it('rejects an absent material inventory instead of inferring an empty page', async () => {
+  const { client } = stubClient(() => null)
+  await expect(assetMethod(client, ledger, { method: 'materials', script_id: 2708 }))
+    .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+})
+
 /** A provider stub for the paid image path, with a scripted sequence of asset statuses. */
 function imageProvider(catalogue: unknown = IMAGE_CATALOGUE, statuses: (string | null)[] = ['Active']) {
   let reads = 0
@@ -1317,6 +1323,24 @@ describe('jubian_video', () => {
     expect(result.next).toContain('尚未确认出演')
     expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
     expect(calls.some(call => call.path.includes('confirm'))).toBe(false)
+  })
+
+  it('reports a failed active candidate alongside an older selected image', async () => {
+    const candidate = { ...GENERATED_IMAGE[0]!, resultStatus: 'Failed', resultMsg: 'insufficient credits' }
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.path.includes('getGeneratedImageByAssetId')) return [
+        { ...GENERATED_IMAGE[0]!, id: 899, isUsed: 1 }, candidate,
+      ]
+      if (request.method === 'GET') return { id: 83749, hsAssetStatus: null }
+      return 83749
+    })
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: 'failed-candidate-before-parent' },
+    imageDeps({ timeoutMs: 100, pollMs: 100 }))
+    expect(result).toMatchObject({ outcome: 'accepted', parent_asset_id: 83749,
+      asset_status: 'failed', generation_status: 'failed', material_id: null, image_url: null })
+    expect(calls.map(call => call.method)).toEqual(['GET', 'POST', 'GET', 'GET'])
   })
 
   it.each(['wrong-parent', 'inactive', 'ambiguous'])

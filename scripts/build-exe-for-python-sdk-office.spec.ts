@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
-import { copyOfficeSidecar } from './build-exe-for-python-sdk-office.ts'
+import { copyOfficeSidecar, restoreOfficeDeployment } from './build-exe-for-python-sdk-office.ts'
 
 const temporaryDirectories: string[] = []
 
@@ -47,6 +47,27 @@ it('copies package-owned data, licenses, helper permissions, and nested dependen
   expect(await readFile(join(destination, 'node_modules/@deepseek-ai/libreoffice-kit/node_modules/decoder/node_modules/codec/package.json'), 'utf8')).toContain('codec')
   await expect(stat(join(destination, 'node_modules/codec'))).rejects.toMatchObject({ code: 'ENOENT' })
   if (process.platform !== 'win32') expect((await stat(join(destination, 'node_modules/@deepseek-ai/libreoffice-kit-wasm/bin/helper'))).mode & 0o111).toBe(0o111)
+})
+
+it('completes a deployment that omitted transitive Office packages and its native engine', async () => {
+  const { staging: source, destination: staging, packageAt, root } = await fixture()
+  const kit = await packageAt('@deepseek-ai/libreoffice-kit', {
+    dependencies: { decoder: '1' }, optionalDependencies: { '@deepseek-ai/libreoffice-kit-win32-x64': '1' },
+  })
+  await packageAt('@deepseek-ai/libreoffice-kit-win32-x64')
+  const decoder = await packageAt('decoder', { dependencies: { codec: '1' } }, kit)
+  await packageAt('codec', { version: '1.0.0' }, decoder)
+  await packageAt('codec', { version: '2.0.0' })
+  await packageAt('@deepseek-ai/libreoffice-kit', {
+    dependencies: { decoder: '1' }, optionalDependencies: { '@deepseek-ai/libreoffice-kit-win32-x64': '1' },
+  }, staging)
+  expect(await restoreOfficeDeployment(source, staging, { platform: 'win32', arch: 'x64' })).toHaveLength(3)
+  expect(await restoreOfficeDeployment(source, staging, { platform: 'win32', arch: 'x64' })).toEqual([])
+  const sidecar = join(root, 'completed-office')
+  expect(await copyOfficeSidecar(staging, sidecar, { platform: 'win32', arch: 'x64' })).toHaveLength(4)
+  expect(await readFile(join(sidecar,
+    'node_modules/@deepseek-ai/libreoffice-kit/node_modules/decoder/node_modules/codec/package.json'), 'utf8')).toContain('1.0.0')
+  await expect(stat(join(sidecar, 'node_modules/codec'))).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
 it('copies installed target optionals and leaves other platforms and absent optionals out', async () => {

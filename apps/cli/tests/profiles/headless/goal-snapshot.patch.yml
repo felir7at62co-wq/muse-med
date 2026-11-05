@@ -25,6 +25,9 @@
     - id: llm-replay
       name: '@deepseek-ai/dsh-llm-replay'
 
+    - id: headless-title-fence
+      name: './tests/fixtures/headless-title-fence.ts'
+
 - id: session-log-deepseek
   config:
     enabled: false

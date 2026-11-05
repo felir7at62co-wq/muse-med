@@ -10,6 +10,12 @@ function document(name: string, description: string, keywords?: string[]): ToolS
 }
 
 describe('local tool metadata search', () => {
+  it('does not interpret empty normalized catalog names as explicit mentions', () => {
+    const index = new ToolSearchIndex([document('  ', 'Read content'), document('read', 'Read content')], ranking)
+    expect(index.explicitNames('content')).toEqual([])
+    expect(index.explicitNames('read content')).toEqual(['read'])
+  })
+
   it('finds Chinese task words in descriptions and configurable keywords', () => {
     const index = new ToolSearchIndex([
       document('video_inspect', '查看视频中的人物动作与转场', ['抽帧', '镜头变化']),

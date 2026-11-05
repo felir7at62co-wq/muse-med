@@ -493,6 +493,19 @@ describe('Typert Remote streams', () => {
     expect(startup.pending).toBe(0)
   })
 
+  it('keeps stream admission paused when application readiness arrives during an update', async () => {
+    const startup = new StartupProbe()
+    const { ctx } = await setup(true, {}, startup)
+    await ctx.serial('connection/update-pause')
+    startup.commit()
+    expect(await acceptsSocket(ctx)).toBe(false)
+    await expect(ctx.typertGateway.stream({ namespace: 'feed', method: 'sync', args: { label: 'paused' } }))
+      .rejects.toThrow('Remote stream admission is paused')
+
+    await ctx.serial('connection/update-resume')
+    expect(await acceptsSocket(ctx)).toBe(true)
+  })
+
   it('withdraws a pending WebSocket startup subscription when the Gateway unloads', async () => {
     const startup = new StartupProbe()
     const { ctx } = await setup(true, {}, startup)
@@ -961,6 +974,36 @@ describe('Typert Remote streams', () => {
       namespace: 'feed', method: 'sync', args: { label: 'ignored' }, signal: abortedBeforeIteration.signal,
     })
     await expect(collect(preCancelled)).rejects.toThrow('Remote invocation "feed/sync" was aborted')
+  })
+
+  it('releases the update hold when a caller throws into a live stream', async () => {
+    const { ctx, service } = await setup(false)
+    const source = await ctx.typertGateway.stream({ namespace: 'feed', method: 'follow', args: { label: 'local' } })
+    const iterator = source[Symbol.asyncIterator]()
+    await expect(iterator.next()).resolves.toEqual({ done: false, value: 'local:ready' })
+
+    const failure = new Error('caller stopped consuming')
+    await expect(iterator.throw?.(failure)).rejects.toBe(failure)
+    expect(service.returns).toBe(1)
+    await ctx.serial('connection/update-pause')
+    await ctx.serial('connection/update-resume')
+  })
+
+  it('releases update holds for an iterator without return or throw methods', async () => {
+    const { ctx } = await setup(false)
+    const gateway = ctx.get('typertGateway')
+    if (!(gateway instanceof TypertGatewayService)) throw new Error('fixture Gateway service is unavailable')
+    const source: AsyncIterable<string> = {
+      [Symbol.asyncIterator]: () => ({ next: async () => ({ done: false, value: 'ready' }) }),
+    }
+    const returned = await gateway['holdLocalStream'](async () => source)
+    await expect(returned[Symbol.asyncIterator]().return?.()).resolves.toEqual({ done: true, value: undefined })
+
+    const thrown = await gateway['holdLocalStream'](async () => source)
+    const failure = new Error('caller stopped consuming')
+    await expect(thrown[Symbol.asyncIterator]().throw?.(failure)).rejects.toBe(failure)
+    await ctx.serial('connection/update-pause')
+    await ctx.serial('connection/update-resume')
   })
 
   it('keeps unary and stream invocation modes distinct', async () => {

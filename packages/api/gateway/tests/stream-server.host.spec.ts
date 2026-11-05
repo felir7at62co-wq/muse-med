@@ -69,6 +69,28 @@ describe('Remote stream mux server carrier lifecycle', () => {
     await once(restored, 'close')
   })
 
+  it('terminates an upgrade that completes after admission is paused', async () => {
+    const entry = await startMux(async (_endpoint, _payload, _uplink, _peer, control) => waitForAbort(control.signal))
+    const server = entry.mux['server']
+    const paused = Promise.withResolvers<undefined>()
+    server.once('headers', () => {
+      void entry.mux.pause().then(() => { paused.resolve(undefined) }, paused.reject)
+    })
+    const client = new WebSocket(entry.url)
+    const closed = once(client, 'close')
+    try {
+      await Promise.race([
+        paused.promise,
+        closed.then(() => { throw new Error('WebSocket closed before the upgrade headers') }),
+      ])
+      expect([...server.clients].some(socket => socket.readyState === WebSocket.OPEN)).toBe(false)
+      expect((await closed)[0]).toBe(1006)
+    } finally {
+      if (client.readyState !== WebSocket.CLOSED) client.terminate()
+      await closed.catch(() => undefined)
+    }
+  })
+
   it('does not close a new socket when an invalidated pause finishes late', async () => {
     const started = Promise.withResolvers<undefined>()
     const cleaning = Promise.withResolvers<undefined>()
