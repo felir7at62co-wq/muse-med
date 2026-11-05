@@ -184,6 +184,13 @@ Native draft configuration `maxBgmGain` defaults to 8 (accepted range 0–8); Mu
 
 While the native tool is mounted, its standing system guidance also reaches continued conversations: reload the current draft skill and use the native request-file entry instead of historical absolute development paths or `DraftGenerator` shell recipes. Independent dialogue import must succeed before source-video sound is muted; existing drafts are not migrated. This is Agent guidance, not shell interception, a new approval step, or proof that a free-running model will always follow it.
 
+<a id="episode-execution-supervision"></a>
+## Episode execution supervision
+
+The internal [episode guardian](src/episode-render-worker-core.ts) starts work after an explicitly composed named `dsh` profile becomes ready. Stdin EOF or premature closure cancels its task. It awaits both command completion and an empty managed process range before publishing drain evidence; an unconfirmed range cannot authorize another encoder. Publication normalizes parsed records, replays identical evidence and refuses conflicting occupied records.
+
+Consumers use the [episode execution library](../../packages/jubian/tool-jubian/README.md#episode-execution-library) for durable admission and retain raw child ownership through preparation and shutdown. A recovered process lock alone does not establish media exit. The default Desktop composition registers no episode-export provider or worker, and the helpers give no guarantee of guardian survival inside a Windows parent Job.
+
 ## Desktop computer use
 
 Windows x64 Desktop includes the pinned Cua Driver executable and its required files. For computer tasks, the Agent loads eight basic tools together through the existing tool context, reuses the selected window and checks fresh state after input. Users do not install a driver or configure an MCP server. The driver runs in a separate process; an unavailable driver leaves Muse running and reports that capability as unavailable.

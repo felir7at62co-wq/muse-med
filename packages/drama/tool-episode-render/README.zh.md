@@ -53,6 +53,8 @@ kind: "package-reference"
 
 上面的字体族是部署默认值，不是模型工具参数。两者都必须是非空白字符串，不能包含逗号或换行；无效值会被 Config 校验拒绝。项目可以按下文覆盖正文字幕字族，但不能覆盖水印字族。提供 Noto Sans CJK SC 的部署可将两个默认值设为 `Noto Sans CJK SC`。选择字族不会修改 `fontsDir` 或安装字体：libass 必须能访问它，否则可能回退到其他已安装字体。需要标记与片尾时，拼接后统一烧录一份 ASS，因此片尾全程使用同一水印字体族。
 
+库调用方可从包根入口导入 `ProcessChannel` 和 `MediaCommandOutcome`，为 `runDramaRender` 使用的托管媒体通道声明类型。
+
 ### 可撤销的视频禁用
 
 调用 `drama_video`，提供 `project`、`method: "ban"`、现有本地 `video` 和非空字符串列表 `labels`，例如 `["人物对调","字幕错误"]`；`reason` 可选。不要求审图证据。工具自行计算文件哈希：同字节副本共享决定，同路径重新生成的不同字节相互独立。`inspect` 查询一个决定，`list` 返回全部决定（含已解除项），`unban` 解除误标或撤回的禁用，不改源审核记录。旧文件已不存在时，`inspect` 与 `unban` 可以用列表返回的精确 `sha256` 代替 `video`，二者互斥。不要仅为让导出通过而解除禁用。

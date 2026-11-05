@@ -138,6 +138,12 @@
     },
     {
       "path": "../../packages/mcp/mcp-client"
+    },
+    {
+      "path": "../../packages/drama/tool-episode-render"
+    },
+    {
+      "path": "../../packages/jubian/tool-jubian/tsconfig.host.json"
     }
   ]
 }

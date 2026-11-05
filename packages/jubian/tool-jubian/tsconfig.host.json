@@ -51,7 +51,10 @@
     "src/video-recovery.ts",
     "src/video-media-check.ts",
     "src/video-recovery-service.ts",
-    "src/video-recovery-config.ts"
+    "src/video-recovery-config.ts",
+    "src/episode-delivery.ts",
+    "src/episode-delivery-job.ts",
+    "src/episode-execution.ts"
   ],
   "references": [
     {

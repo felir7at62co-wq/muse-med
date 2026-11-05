@@ -506,6 +506,13 @@ Each review identifies its expected project-relative source path and captured SH
 
 Unload stops admission, aborts and joins admitted initialization, requests, worker reads, native processes and file operations. Completed atomic settings writes and published decisions or receipts remain committed when their response is cancelled. Atomic replacement does not promise power-loss durability. A missing saved project is reported as unavailable and can be replaced or disabled without preventing Host startup.
 
+<a id="episode-execution-library"></a>
+### Episode execution library
+
+The `@deepseek-ai/dsh-tool-jubian/episode-delivery` library binds one logical attempt to immutable input and approval identities, with a separate identity for every physical execution. Strict versioned records distinguish missing files from invalid content. Arming persists the execution reference before the running record or first media command. A successor cannot execute without matching prior running and drain evidence; every armed execution UUID remains occupied as the attempt advances. Callers verify current human approval before admission; recorded approval references do not authorize a new decision.
+
+`EpisodeExecutionOwner` separates short durable admission from serial work. Repeated identical admissions share one completion. Disposal stops admission synchronously, cancels queued and running work, and awaits every admitted operation. Queue settlement alone does not certify media drain; consumers must verify guardian evidence. The library registers no model tools, Remote methods or automatic startup scan. Process ownership belongs to the [Desktop guardian](../../../apps/desktop-host/README.md#episode-execution-supervision).
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 

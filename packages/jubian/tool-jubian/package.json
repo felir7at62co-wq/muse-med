@@ -41,7 +41,11 @@
       "types": "./lib/types/video-session-types.d.ts",
       "default": "./lib/types/video-session-types.js"
     },
-    "./locale/*.json": "./locale/*.json"
+    "./locale/*.json": "./locale/*.json",
+    "./episode-delivery": {
+      "types": "./lib/types/episode-delivery.d.ts",
+      "default": "./lib/types/episode-delivery.js"
+    }
   },
   "files": [
     "locale/*.json",

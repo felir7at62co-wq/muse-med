@@ -509,6 +509,13 @@ Settings 入口可用绝对路径 `videoRecoveryFfmpegPath` 覆盖解码器；�
 
 卸载先停止接收新操作，再取消并等待已接收的初始化、请求、工作者读取、原生进程和文件操作。已经原子写完的设置、已发布的决定或回执不会因响应取消而回滚。原子替换不承诺断电持久性。保存的项目丢失时报告不可用，仍可更换或关闭，不阻断 Host 启动。
 
+<a id="episode-execution-library"></a>
+### 整集执行库
+
+`@deepseek-ai/dsh-tool-jubian/episode-delivery` 库把一个逻辑任务绑定到不可变的输入与审批身份，并为每次实际执行保留独立身份。严格的版本化记录区分文件缺失与内容无效。登记执行时，先持久化执行引用，再写运行记录或启动首个媒体命令。后续执行必须具有与前次运行相符的退出证据；任务推进后，所有已登记执行 UUID 仍被占用。调用方须在登记前核验当前人工批准，记录中的审批引用不授权新的决定。
+
+`EpisodeExecutionOwner` 将短暂的持久化登记与串行工作分开。相同的重复登记共享同一次完成结果。dispose（资源释放）同步停止接收登记，取消排队及运行中的工作，并等待全部已登记操作结束。队列结束本身不能证明媒体进程已退出，调用方仍须核验守护者证据。该库不注册模型工具、Remote 方法或自动启动扫描。进程所有权由 [Desktop 守护者](../../../apps/desktop-host/README.zh.md#episode-execution-supervision)负责。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
