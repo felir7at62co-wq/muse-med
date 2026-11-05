@@ -6,7 +6,7 @@ These retained source snapshots record Muse community-plugin dependencies. [sour
 
 [owned-downloads.json](owned-downloads.json) separately pins the Muse Hongguo and Douyin download bundles. The inventory also includes the local [reverse tools](muse-reverse-tools/README.md) and independent [Fanqie downloader](muse-fanqie-download/README.md) and [Lvpaopao downloads](muse-lvpaopao/README.md). Their READMEs own configuration and verification limits; they do not change the retained upstream inventory.
 
-Entries with `desktop: false` in the source inventory and archived `ds-bot` source are omitted from default builds. The default delivery contains eight retained-source plugins and seven Muse-owned plugins. `dsh-plugin-subscriptions` supplies the active subscription bundle; the old Codex pin and source remain for explicit recovery builds. Desktop packaging independently selects its package closure and does not copy every available tarball. `--only dsh-plugin-subscriptions` selects the current subscription artifact; `--only dsh-codex-subscription` selects the archived compatibility path.
+Entries with `desktop: false` in the source inventory and archived `ds-bot` source are omitted from default builds. `dsh-plugin-subscriptions` supplies the active subscription bundle; the old Codex pin and source remain for explicit recovery builds. Desktop packaging independently selects its package closure and does not copy every available tarball. `--only dsh-plugin-subscriptions` selects the current subscription artifact; `--only dsh-codex-subscription` selects the archived compatibility path.
 
 ## Build
 
@@ -76,6 +76,8 @@ The Muse wrapper and native Feishu plugin explicitly declare `sessions` and `ses
 ### Ordinary-session cards
 
 The retained [Deep View](deep-view/README.md) plugin provides `show_view` in ordinary Muse conversations. Its structured views include tables, charts, choices and forms. Interactive answers return through the owning Session; native `ask_user_question` remains available for simple questions. The source pin records the public fork and upstream revision, and the builder qualifies its Host and browser entry against the current runtime. Bot teams remain archived.
+
+The independent [Skill evolution plugin](muse-skill-evolution/README.md) reviews newly completed tool-assisted work, creates owned Skills and retains proposals and rollback versions. Native persisted review Sessions use the task's selected model route. Its README owns review limits, normal model usage and file permissions.
 
 ### Archived Muse Bot
 

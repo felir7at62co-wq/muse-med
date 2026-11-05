@@ -93,7 +93,7 @@ describe('desktop package-set selection', () => {
   })
 
   it('refuses registry fallback when a source-owned plugin tarball is missing', () => {
-    for (const name of ['dshmarket', 'dsh-ffmpeg', 'dsh-plugin-subscriptions', '@wenbin_wb/dsh-bridge', '@xmanrui/dsh-im', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-qimao-data', 'muse-source-research']) {
+    for (const name of ['dshmarket', 'dsh-ffmpeg', 'dsh-plugin-subscriptions', '@wenbin_wb/dsh-bridge', '@xmanrui/dsh-im', 'dsh-skill-mcp-panel', 'deep-view', 'muse-hongguo-search', 'muse-hongguo-download', 'muse-douyin-download', 'muse-qimao-data', 'muse-source-research', 'muse-skill-evolution']) {
       const available = new Map([
         ['@deepseek-ai/dsh', packed('@deepseek-ai/dsh')],
         ['@deepseek-ai/dsh-desktop-host', packed('@deepseek-ai/dsh-desktop-host', { dependencies: { [name]: '1.0.0' } })],

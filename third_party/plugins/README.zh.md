@@ -6,7 +6,7 @@
 
 [owned-downloads.json](owned-downloads.json) 单独固定 Muse 红果和抖音下载 bundle 的版本。清单还包含本地[逆向工具](muse-reverse-tools/README.zh.md)和独立[番茄下载器](muse-fanqie-download/README.zh.md)及[绿泡泡下载器](muse-lvpaopao/README.zh.md)。各包 README 说明配置与验证限制；它们不改变保留的上游清单。
 
-源码清单中 `desktop: false` 的条目和已归档的 `ds-bot` 源码均不参与默认构建。默认交付包含八个保留源码插件和七个 Muse 自有插件。`dsh-plugin-subscriptions` 提供当前订阅 bundle；旧 Codex 固定版本与源码保留，供显式恢复构建使用。桌面打包独立选择包闭包，不会复制所有可用 tarball。`--only dsh-plugin-subscriptions` 选择当前订阅产物；`--only dsh-codex-subscription` 选择归档兼容路径。
+源码清单中 `desktop: false` 的条目和已归档的 `ds-bot` 源码均不参与默认构建。`dsh-plugin-subscriptions` 提供当前订阅 bundle；旧 Codex 固定版本与源码保留，供显式恢复构建使用。桌面打包独立选择包闭包，不会复制所有可用 tarball。`--only dsh-plugin-subscriptions` 选择当前订阅产物；`--only dsh-codex-subscription` 选择归档兼容路径。
 
 ## 构建
 
@@ -76,6 +76,8 @@ Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence
 ### 普通会话卡片
 
 保留的 [Deep View](deep-view/README.md) 插件为普通 Muse 会话提供 `show_view`，支持表格、图表、选择和表单等结构化视图。交互回答通过所属 Session 返回；简单问题仍可使用原生 `ask_user_question`。源码固定记录公开 fork 与上游修订，构建器使用当前运行时验证其 Host 和浏览器入口。Bot 团队保持归档。
+
+独立的 [Skill 进化插件](muse-skill-evolution/README.zh.md)复盘新完成的工具任务，创建自有技能并保留提案及回退版本。原生持久化复盘会话使用任务所选模型。其 README 说明复盘限制、正常模型用量及文件权限。
 
 ### 已归档的 Muse Bot
 

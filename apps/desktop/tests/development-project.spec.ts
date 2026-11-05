@@ -168,6 +168,7 @@ describe('desktop development project', () => {
     ['muse-fanqie-download', 'owned-downloads.json'],
     ['muse-qimao-data', 'owned-downloads.json'],
     ['muse-source-research', 'owned-downloads.json'],
+    ['muse-skill-evolution', 'owned-downloads.json'],
     ['muse-lvpaopao', 'owned-downloads.json'],
   ])('manages %s without modifying the linked workspace packages', async (pluginName, pinFile) => {
     const root = temporaryRoot()
