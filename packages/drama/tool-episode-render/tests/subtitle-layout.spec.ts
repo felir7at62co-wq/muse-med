@@ -237,24 +237,29 @@ async function nativeInput(family: string) {
     directory: join(root, 'evidence'), run }
 }
 
-it.skipIf(!ffmpeg || !ffprobe || !hasZhuque)('measures bundled Zhuque text against the usable width and flags an unsplit long sentence', async () => {
+it.skipIf(!ffmpeg || !ffprobe || !hasZhuque).each([
+  { fontSize: 48, outline: 2 }, { fontSize: 46, outline: 1.25 },
+])('measures bundled Zhuque text against the usable width and flags an unsplit long sentence, $fontSize px / $outline px', async ({ fontSize, outline }) => {
   const family = 'Zhuque Fangsong (technical preview)'
   const input = { ...await nativeInput(family), delivery: { width: 480, height: 854, fps: 60,
-    subtitle_visual: { ...visual, reference_width: 480, reference_height: 854, font_size_px: 48,
+    subtitle_visual: { ...visual, reference_width: 480, reference_height: 854, font_size_px: fontSize, outline_px: outline,
       center_y_ratio: 0.736747073, max_width_ratio: 0.9, font_family: family } } }
   const result = await measureSubtitleLayout({ ...input, cues: [cue('可我现在每天按时起'),
     cue('可我现在每天按时起每天都干活再继续努力', 2)] })
   expect(result.report.status, result.warnings.join('\n')).toBe('measured')
   expect(result.report.entries[0]?.fontselect_trace.join('\n')).toContain('ZhuqueFangsong-Regular')
+  expect(result.report.entries[0]?.outline_allowance_px).toBe(outline * 2)
   expect(result.report.entries[0]?.fits_available_width).toBe(true)
   expect(result.report.entries[1]?.fits_available_width).toBe(false)
   expect(result.warnings.join('\n')).toContain('实际字词时间')
 }, 60_000)
 
-it.skipIf(!ffmpeg || !ffprobe || !hasZhuque)('splits an overwide line using real Zhuque measurements and fixture word boundaries', async () => {
+it.skipIf(!ffmpeg || !ffprobe || !hasZhuque).each([
+  { fontSize: 48, outline: 2 }, { fontSize: 46, outline: 1.25 },
+])('splits an overwide line using real Zhuque measurements and fixture word boundaries, $fontSize px / $outline px', async ({ fontSize, outline }) => {
   const family = 'Zhuque Fangsong (technical preview)'
   const input = { ...await nativeInput(family), delivery: { width: 480, height: 854, fps: 60,
-    subtitle_visual: { ...visual, reference_width: 480, reference_height: 854, font_size_px: 48,
+    subtitle_visual: { ...visual, reference_width: 480, reference_height: 854, font_size_px: fontSize, outline_px: outline,
       center_y_ratio: 0.736747073, max_width_ratio: 0.9, font_family: family } } }
   const words: SpeechCoverageWord[] = [
     { id: '1', shot: 1, clip_index: 0, word_index: 0, text: '可我现在每天按时起', source_start_seconds: 64.528,

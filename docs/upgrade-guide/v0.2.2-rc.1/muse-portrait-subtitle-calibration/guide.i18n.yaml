@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/muse-portrait-subtitle-calibration/guide.md
+/:
+  en: 9ce82aa2ce0c3a81
+  zh: 8a4d390edbd1da2e
+/muse-portrait-subtitle-calibration:
+  en: d8f18ea0e0d39617
+  zh: 10ee3b97d0794527
+/muse-portrait-subtitle-calibration/change:
+  en: 9943b52a40701666
+  zh: 01bd1d13f0bdce8f
+/muse-portrait-subtitle-calibration/migration:
+  en: 94cbcb3dad42bfef
+  zh: 27022b5c7c586c50

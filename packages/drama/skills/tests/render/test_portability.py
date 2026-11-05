@@ -83,7 +83,7 @@ class PortabilityTests(unittest.TestCase):
         policy = load('python_forced_subtitle_policy', RENDER / 'scripts/delivery_policy.py')
         render = load('python_forced_subtitle_render', RENDER / 'scripts/render_episode.py')
         visual = {'schema_version': 1, 'reference_width': 480, 'reference_height': 854,
-                  'font_size_px': 48, 'outline_px': 2, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
+                  'font_size_px': 46, 'outline_px': 1.25, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
             project = Path(temporary)
             config_path = project / 'project_config.json'
@@ -106,7 +106,7 @@ class PortabilityTests(unittest.TestCase):
                 self.assertNotIn('subtitle', selected)
                 render.write_ass(srt, ass, False, 480, 854, selected)
                 text = ass.read_text(encoding='utf-8-sig')
-                self.assertIn('Style: Default,Zhuque Fangsong (technical preview),108.028,', text)
+                self.assertIn('Style: Default,Zhuque Fangsong (technical preview),103.527,', text)
                 self.assertIn(r'{\an5\pos(540,1416.028)\q2}你好 世界', text)
             self.assertEqual(config_path.read_text(encoding='utf-8'), original_config)
             self.assertEqual(json.dumps(timeline), original_timeline)
