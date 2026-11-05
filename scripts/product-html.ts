@@ -10,8 +10,8 @@ import { JSDOM } from 'jsdom'
 export function readProductModuleScripts(filename: string): readonly { src: string | null; text: string }[] {
   const dom = new JSDOM(readFileSync(filename, 'utf8'))
   try {
-    return Array.from(dom.window.document.querySelectorAll('script[type="module"]'), script => ({
-      src: script.getAttribute('src'), text: script.textContent,
+    return Array.from(dom.window.document.querySelectorAll<HTMLScriptElement>('script[type="module"]'), script => ({
+      src: script.getAttribute('src'), text: script.text,
     }))
   } finally {
     dom.window.close()
