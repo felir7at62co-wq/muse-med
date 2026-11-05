@@ -43,13 +43,15 @@ The Muse Desktop composition mounts this UI and the [Session video service](../.
 
 The Host validates this non-secret presentation policy and includes it in the page bootstrap. A new page reads the resolved value before registering the surface. It is separate from media-processing limits owned by the Session video service.
 
-The shelf reserves one compact header footprint; its expanded curtain floats over the transcript without moving messages or the composer. Opening and closing both ease smoothly, and closing content stays mounted only until its exit transition finishes.
+The shelf reserves one compact header footprint; its expanded curtain floats over the transcript without moving messages or the composer. Opening and closing use the same 900 ms eased transition, and closing content stays mounted only until its exit transition finishes. Reduced-motion preferences remove this transition.
 
 Opening the spider control displays the recorded inventory and analyzes available versioned sources. Missing media, incomplete inventory and failed detection retain explicit status and Retry controls. A failed analysis contributes no invented shot. The combined timeline keeps each source's original local time range; selecting a shot opens its source and seeks to that range.
 
-The video-name selector sits directly on the spider header row without a filled capsule and fades with the curtain; it switches sources without repeating the filename over the picture. Timeline zoom adjusts horizontal scale while preserving original media time and shot ranges.
+The video-name selector sits directly on the spider header row without a filled capsule and fades with the curtain; it switches sources without repeating the filename over the picture. The centered playback button and right-aligned zoom controls sit between the picture and timeline ruler with equal space above and below. Timeline zoom adjusts horizontal scale while preserving original media time and shot ranges.
 
-When a video is available, the modification control stays visible in the expanded curtain. It is disabled until a timeline shot is selected; hovering it explains this requirement. Once a shot is selected, the action appends the source, shot identity and original time range to the existing input draft. It neither sends the draft nor replaces a video. Delivered video contributions replace only the playback body; native file preview and opening actions remain with Deliverables.
+Pressing the playhead preserves its position. Dragging maps the pointer through the filmstrip's actual on-screen bounds and retains the initial grab offset, including at different page zoom levels.
+
+When a video is available, the modification control stays visible at the right of the expanded spider header, with no filled background or shadow. It is disabled until a timeline shot is selected; hovering it explains this requirement. Once a shot is selected, the action appends the source, shot identity and original time range to the existing input draft. It neither sends the draft nor replaces a video. Delivered video contributions replace only the playback body; native file preview and opening actions remain with Deliverables.
 
 -----
 
@@ -59,7 +61,7 @@ When a video is available, the modification control stays visible in the expande
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The plugin mounts its generated `sessionVideo` Remote contribution, registers the session-scoped `conversation.chat.pinned` list item and contributes to the native delivery-video chain and closing-Turn surface. Queries use caller cancellation; closing pauses retained playback, and unmounting players releases their media source. The absorption preview preserves the original inline card's layout position and respects reduced-motion preferences. Collection also hides the surrounding native delivery panel; reverse scrolling or teardown restores its original visibility, inert state and ARIA attributes. The spider control, expanded player and inline video card share a dark material with light labels in both page themes.
+The plugin mounts its generated `sessionVideo` Remote contribution, registers the session-scoped `conversation.content.overlay` shelf and a fixed `conversation.chat.pinned` spacer, and contributes to the native delivery-video chain and closing-Turn surface. The shelf mounts only while Chat is active; its expanded layer sits above transcript popovers. Queries use caller cancellation; closing pauses retained playback, and unmounting players releases their media source. The absorption preview remains in its original Chat frame and finds the receiving anchor only inside that frame's enclosing conversation. It preserves the original inline card's layout position and respects reduced-motion preferences. Collection also hides the surrounding native delivery panel; reverse scrolling or teardown restores its original visibility, inert state and ARIA attributes. The spider control, expanded player and inline video card share a dark material with light labels in both page themes.
 
 | Source | Responsibility |
 |---|---|

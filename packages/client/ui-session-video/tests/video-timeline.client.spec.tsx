@@ -48,11 +48,17 @@ function props(overrides: Partial<VideoTimelineProps> = {}): VideoTimelineProps 
   }
 }
 
-function geometry(scroll: HTMLElement, width = 200, total = 622) {
+function geometry(scroll: HTMLElement, width = 200, total = 622, scale = 1) {
   Object.defineProperty(scroll, 'clientWidth', { configurable: true, value: width })
   Object.defineProperty(scroll, 'scrollWidth', { configurable: true, value: total })
   const lane = scroll.firstElementChild as HTMLElement
-  lane.getBoundingClientRect = () => new DOMRect(100 - scroll.scrollLeft, 0, total, 78)
+  lane.getBoundingClientRect = () => new DOMRect(100 - scroll.scrollLeft * scale, 0, total * scale, 78 * scale)
+  const track = lane.querySelector<HTMLElement>('[style*="width:"]')!
+  track.getBoundingClientRect = () => new DOMRect(100 - scroll.scrollLeft * scale + 11 * scale, 30 * scale,
+    Number.parseFloat(track.style.width) * scale, 42 * scale)
+  const playhead = lane.querySelector<HTMLElement>('[role="slider"]')!
+  playhead.getBoundingClientRect = () => new DOMRect(100 - scroll.scrollLeft * scale
+    + (Number.parseFloat(lane.style.getPropertyValue('--video-playhead-position')) - 11) * scale, 0, 22 * scale, 76 * scale)
   return lane
 }
 
@@ -153,23 +159,23 @@ describe('VideoTimeline', () => {
     expect(input.onSeek).not.toHaveBeenCalled()
     fireEvent.pointerDown(slider, { pointerId: 1, button: 0, clientX: 111 })
     expect(document.activeElement).toBe(slider)
-    expect(input.onSeek).toHaveBeenLastCalledWith(0)
+    expect(input.onSeek).not.toHaveBeenCalled()
     expect(capture.set).toHaveBeenCalledWith(1)
     fireEvent.pointerDown(slider, { pointerId: 2, button: 0, clientX: 300 })
     fireEvent.pointerMove(window, { pointerId: 2, clientX: 260 })
     fireEvent.pointerUp(window, { pointerId: 2, clientX: 260 })
-    expect(input.onSeek).toHaveBeenCalledTimes(1)
+    expect(input.onSeek).not.toHaveBeenCalled()
     fireEvent.pointerMove(window, { pointerId: 1, clientX: 211 })
     expect(input.onSeek).toHaveBeenLastCalledWith(5)
     fireEvent.pointerUp(window, { pointerId: 1, clientX: 900 })
     expect(input.onSeek).toHaveBeenLastCalledWith(10)
     fireEvent.pointerMove(window, { pointerId: 1, clientX: 111 })
-    expect(input.onSeek).toHaveBeenCalledTimes(3)
+    expect(input.onSeek).toHaveBeenCalledTimes(2)
     expect(capture.release).toHaveBeenCalledWith(1)
   })
 
   it('scrubs by touch and cancels on pointercancel, window blur, and unmount', () => {
-    const input = props()
+    const input = props({ currentTime: 2 })
     const view = render(<VideoTimeline {...input} />)
     geometry(view.getByRole('group'))
     const slider = view.getByRole('slider')
@@ -179,15 +185,15 @@ describe('VideoTimeline', () => {
     expect(input.onSeek).toHaveBeenLastCalledWith(4)
     fireEvent.pointerCancel(window, { pointerId: 4 })
     fireEvent.pointerMove(window, { pointerId: 4, clientX: 900 })
-    expect(input.onSeek).toHaveBeenCalledTimes(2)
+    expect(input.onSeek).toHaveBeenCalledTimes(1)
     fireEvent.pointerDown(slider, { pointerId: 5, pointerType: 'touch', clientX: 151 })
     fireEvent.blur(window)
     fireEvent.pointerMove(window, { pointerId: 5, clientX: 900 })
-    expect(input.onSeek).toHaveBeenCalledTimes(3)
+    expect(input.onSeek).toHaveBeenCalledTimes(1)
     fireEvent.pointerDown(slider, { pointerId: 6, pointerType: 'touch', clientX: 151 })
     view.unmount()
     fireEvent.pointerMove(window, { pointerId: 6, clientX: 900 })
-    expect(input.onSeek).toHaveBeenCalledTimes(4)
+    expect(input.onSeek).toHaveBeenCalledTimes(1)
     expect(observers[0]!.disconnect).toHaveBeenCalledTimes(1)
     expect(capture.release.mock.calls).toEqual([[4], [5], [6]])
   })
@@ -252,4 +258,38 @@ describe('VideoTimeline', () => {
     view.unmount()
     fireEvent.resize(window)
   })
+})
+
+
+it('keeps a grabbed cap in place without seeking, and ignores its release click before the next track gesture', () => {
+  const input = props({ currentTime: 4 })
+  const view = render(<VideoTimeline {...input} />)
+  const lane = geometry(view.getByRole('group'))
+  const slider = view.getByRole('slider')
+  pointerCapture(slider)
+  fireEvent.pointerDown(slider, { pointerId: 1, clientX: 196, button: 0 })
+  fireEvent.pointerUp(window, { pointerId: 1, clientX: 196 })
+  fireEvent.click(lane, { clientX: 196, detail: 1 })
+  expect(input.onSeek).not.toHaveBeenCalled()
+  fireEvent.pointerDown(lane, { pointerId: 2, clientX: 211, button: 0 })
+  fireEvent.click(lane, { clientX: 211, detail: 1 })
+  expect(input.onSeek).toHaveBeenLastCalledWith(5)
+})
+
+it('retains the grabbed offset and uses rendered media width under page scaling and scrolling', () => {
+  const input = props({ currentTime: 4 })
+  const view = render(<VideoTimeline {...input} />)
+  const scroll = view.getByRole('group')
+  const lane = geometry(scroll, 200, 622, .8)
+  const slider = view.getByRole('slider')
+  pointerCapture(slider)
+  scroll.scrollLeft = 20
+  fireEvent.pointerDown(slider, { pointerId: 1, clientX: 159.8, button: 0 })
+  expect(input.onSeek).not.toHaveBeenCalled()
+  fireEvent.pointerMove(window, { pointerId: 1, clientX: 175.8 })
+  expect(vi.mocked(input.onSeek).mock.lastCall?.[0]).toBeCloseTo(5, 10)
+  fireEvent.pointerUp(window, { pointerId: 1, clientX: 175.8 })
+  fireEvent.click(lane, { clientX: 175.8, detail: 1 })
+  expect(input.onSeek).toHaveBeenCalledTimes(2)
+  expect(vi.mocked(input.onSeek).mock.lastCall?.[0]).toBeCloseTo(5, 10)
 })

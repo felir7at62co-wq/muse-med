@@ -200,6 +200,9 @@ export function ConversationContent(props: ConversationContentProps) {
         {composerSeat}
       </div>
       <WidthControls container={body} phase={phase} />
+      {sessionId !== undefined && !hero && <div className={css.contentOverlays} data-conversation-overlay>
+        {renderSlot('conversation.content.overlayHost', {})}
+      </div>}
     </div>
   )
 }

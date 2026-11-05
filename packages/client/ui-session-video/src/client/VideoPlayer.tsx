@@ -102,7 +102,7 @@ export function VideoPlayer({ source, analysis, shots, offset, duration, pixelsP
         onError={() => { updatePlayback({ failed: true }) }} />
       {failed && <div className={css.mediaError} role="alert">{t('unavailable')} <Button size="sm" onClick={() => { setRetry(value => value + 1) }}>{t('retry')}</Button></div>}
     </div>
-    <div className={css.controls}>
+    <div className={css.controls} data-muse-video-controls>
       <Button className={css.play} aria-label={t(playing ? 'pause' : 'play')} onClick={() => {
         const video = player.current
         if (video === null) return
@@ -110,7 +110,7 @@ export function VideoPlayer({ source, analysis, shots, offset, duration, pixelsP
         if (!video.paused) video.pause()
         else void video.play().catch((_error: unknown) => { if (playAttempt.current === attempt) updatePlayback({ failed: true }) })
       }}>{playing ? <IconPauseBarsOutlineRegular /> : <IconPlayTriangleOutlineRegular />}</Button>
-      <div className={css.zoom} role="group" aria-label={t('zoomControls')}>
+      <div className={css.zoom} data-muse-video-zoom role="group" aria-label={t('zoomControls')}>
         <Tooltip label={t('zoomOut')} portal>
           <span><Button size="sm" aria-label={t('zoomOut')} disabled={zoom <= DOCUMENT_ZOOM.minimum}
             onClick={() => { onZoom(Math.max(DOCUMENT_ZOOM.minimum, zoom - DOCUMENT_ZOOM.step)) }}>

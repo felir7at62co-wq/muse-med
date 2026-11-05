@@ -65,7 +65,7 @@ let reduced = false
 let frameId = 0
 const frames = new Map<number, FrameRequestCallback>()
 const motionListeners = new Set<() => void>()
-const resizeListeners: { notify: () => void; disconnect: () => void }[] = []
+const resizeListeners: { notify: () => void; disconnect: () => void; observe: ResizeObserver['observe'] }[] = []
 const pauseVideo = vi.fn()
 const canvasContext = {
   setTransform: vi.fn(), save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(),
@@ -96,7 +96,7 @@ beforeEach(() => {
   }))
   vi.stubGlobal('ResizeObserver', class implements ResizeObserver {
     constructor(callback: ResizeObserverCallback) {
-      resizeListeners.push({ notify: () => { callback([], this) }, disconnect: this.disconnect })
+      resizeListeners.push({ notify: () => { callback([], this) }, disconnect: this.disconnect, observe: this.observe })
     }
 
     observe = vi.fn()
@@ -144,24 +144,28 @@ function Card({ original, ...input }: AbsorptionOptions & { original?: OriginalS
     aria-hidden={original?.aria}><video /><span>原卡片</span>{portal}</div>
 }
 
-function Fixture({ external = false, hasAnchor = true, delivered = false, sourceOriginal, deliveryOriginal, ...input }:
+function Fixture({ external = false, hasAnchor = true, siblingAnchor = false, delivered = false,
+  sourceOriginal, deliveryOriginal, ...input }:
 AbsorptionOptions & {
   external?: boolean
   hasAnchor?: boolean
+  siblingAnchor?: boolean
   delivered?: boolean
   sourceOriginal?: OriginalSurface
   deliveryOriginal?: OriginalSurface
 }) {
   const card = <Card {...input} original={sourceOriginal} />
+  const target = hasAnchor && <button data-muse-video-anchor type="button" aria-label="视频气泡" />
   const content = <div data-chat-frame>
-    {hasAnchor && <button data-muse-video-anchor type="button" aria-label="视频气泡" />}
+    {!siblingAnchor && target}
     <div data-chat-scroll>{delivered ? <div data-presented-file data-video="true"
       style={{ visibility: deliveryOriginal?.visibility }} aria-hidden={deliveryOriginal?.aria}
       ref={(element) => { if (element) element.inert = deliveryOriginal?.inert ?? false }}>
       <button type="button">Native file action</button>{card}
     </div> : card}</div>
   </div>
-  return external ? <div data-conversation-scroll>{content}</div> : content
+  const owner = siblingAnchor ? <div data-conversation-content>{target}{content}</div> : content
+  return external ? <div data-conversation-scroll>{owner}</div> : owner
 }
 
 function deliveredElements(container: HTMLElement) {
@@ -175,6 +179,43 @@ function deliveredElements(container: HTMLElement) {
 function inputs(): AbsorptionOptions { return { id: 'real-video', onCollect: vi.fn(), onOpen: vi.fn() } }
 
 describe('useAbsorption', () => {
+  it('collects into the conversation sibling anchor while retaining the portal in its Chat frame', () => {
+    const view = render(<Fixture {...inputs()} siblingAnchor />)
+    const card = view.container.querySelector<HTMLElement>('[data-video-source]')!
+    const scroll = view.container.querySelector<HTMLElement>('[data-chat-scroll]')!
+    const frame = view.container.querySelector<HTMLElement>('[data-chat-frame]')!
+    const target = view.getByRole('button', { name: '视频气泡' })
+    expect(frame.contains(target)).toBe(false)
+    flushFrame()
+    setProgress(0.5)
+    fireEvent.scroll(scroll)
+    flushFrame()
+    expect(card.style.visibility).toBe('hidden')
+    expect(target.style.getPropertyValue('--muse-video-fusion')).toBe('1')
+    expect(view.container.querySelector('[data-video-absorption]')?.parentElement).toBe(frame)
+    expect(resizeListeners[0]!.observe).toHaveBeenCalledWith(target)
+    setProgress(0)
+    fireEvent.scroll(scroll)
+    flushFrame()
+    expect(card.style.visibility).toBe('')
+    expect(target.style.getPropertyValue('--muse-video-fusion')).toBe('')
+  })
+
+  it('does not collect into another conversation when its own sibling anchor is absent', () => {
+    const input = inputs()
+    setProgress(0.5)
+    const view = render(<>
+      <Fixture {...input} siblingAnchor hasAnchor={false} />
+      <div data-conversation-content><button data-muse-video-anchor type="button" aria-label="Other conversation" /></div>
+    </>)
+    flushFrame()
+    const other = view.getByRole('button', { name: 'Other conversation' })
+    expect(view.container.querySelector<HTMLElement>('[data-video-source]')?.style.visibility).toBe('')
+    expect(other.style.getPropertyValue('--muse-video-fusion')).toBe('')
+    expect(input.onCollect).not.toHaveBeenCalled()
+    expect(resizeListeners[0]!.observe).not.toHaveBeenCalledWith(other)
+  })
+
   it('keeps source nodes in React layout, pauses once when hidden, and restores them on reverse scroll', () => {
     const input = inputs()
     const view = render(<Fixture {...input} />)
