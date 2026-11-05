@@ -52,6 +52,8 @@ import {
   scrubSessionSnapshot,
   sessionFixtureFiles,
   sessionFixtureName,
+  writerSnapshotName,
+  type SnapshotManifest,
   stabilizeFixtureMessageIds,
   stabilizeRefreshLog,
   writesCurrentSessionFixtures,
@@ -193,6 +195,19 @@ export function recordedSessionFixturePath(path: string, version: number): strin
   const fixture = parseSessionFixtureName(basename(path))
   if (fixture === undefined) throw new Error(`record harvest: invalid Session fixture path ${path}`)
   return join(dirname(path), sessionFixtureName(fixture.index, version))
+}
+
+/**
+ * Select the separate output oracle only for an explicitly declared writer-output owner.
+ * @param path - Canonical replay fixture path for the driven parent or child role.
+ * @param manifest - Parsed owner metadata.
+ * @returns Output comparison path without changing replay fixture selection.
+ */
+export function webSessionExpectedPath(path: string, manifest: Pick<SnapshotManifest, 'writerOutput'>): string {
+  if (manifest.writerOutput !== true) return path
+  const fixture = parseSessionFixtureName(basename(path))
+  if (fixture === undefined) throw new Error('Web writer output requires a canonical Session fixture path')
+  return join(dirname(path), writerSnapshotName(fixture.index))
 }
 
 /** The shipped composition under test: the dsh-base and dsh-web-app bundle patches over the empty profile root. */
@@ -1178,12 +1193,19 @@ async function assertReplaySession(
   webUrl: string,
   harnessHome: string,
 ): Promise<void> {
-  let expected = await readFile(fixturePath, 'utf8')
+  const replayInput = await readFile(fixturePath, 'utf8')
   const fixtureDir = dirname(fixturePath)
   const manifestPath = join(fixtureDir, 'snapshot.yml')
   const manifest = parseSnapshotManifest(await readFile(manifestPath, 'utf8'), manifestPath)
-  let expectedPath = fixturePath
-  const userPrompts = fixtureUserPrompts(expected)
+  let expectedPath = webSessionExpectedPath(fixturePath, manifest)
+  let expected = expectedPath === fixturePath || mode === 'refresh' && !existsSync(expectedPath)
+    ? replayInput : await readFile(expectedPath, 'utf8')
+  if (manifest.writerOutput === true && mode === 'replay') {
+    const entries = await readdir(fixtureDir)
+    expect(entries.filter(name => /^writer(?:\.[1-9]\d*)?\.expected\.jsonl$/u.test(name)).sort(), 'Web writer output inventory')
+      .toEqual(sessionFixtureFiles(entries).map(file => writerSnapshotName(file.index)).sort())
+  }
+  const userPrompts = fixtureUserPrompts(replayInput)
   const candidates = sessions.filter((session) => {
     if (session.header.parentSession !== undefined) return false
     const actual = session.snapshotEvents().flatMap((event) => {
@@ -1198,9 +1220,9 @@ async function assertReplaySession(
   const sessionCwd = session.header.cwd
   if (sessionCwd === undefined) throw new Error(`${fixturePath}: replayed session has no cwd`)
   const actual = rawSessionLog(session)
-  if (mode === 'refresh' && writesCurrentSessionFixtures(manifest, mode)) {
+  if (mode === 'refresh' && (manifest.writerOutput === true || writesCurrentSessionFixtures(manifest, mode))) {
     expected = stableSessionFixture(session, expected, sessionCwd, harnessHome)
-    expectedPath = recordedSessionFixturePath(fixturePath, session.header.version)
+    if (manifest.writerOutput !== true) expectedPath = recordedSessionFixturePath(fixturePath, session.header.version)
     await writeFile(expectedPath, expected)
   }
   const expectedHeader = JSON.parse(expected.split('\n').find(line => line.trim() !== '') ?? '{}') as {
@@ -1240,7 +1262,7 @@ async function assertReplaySession(
  * system-prompt text to {{system}} and header tool schemas to {{tools}},
  * tokenize the run-local cwd, redact opaque identities with typed
  * relationship-preserving tokens, and write the fixture.
- * A manifest-retained historical generation makes the write-back a no-op.
+ * A retained historical generation or separate writer-output owner makes the write-back a no-op.
  * @param scaffold - the record-mode scaffold.
  * @param sessionId - the driven session.
  * @param fixturePath - the committed session.jsonl target.
