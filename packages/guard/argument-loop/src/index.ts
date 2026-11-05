@@ -141,11 +141,10 @@ export function apply(ctx: Context, config: Config): void {
     }, { prepend: true })
     yield async () => {
       active = false
-      const waits: Promise<void>[] = []
-      for (const [signal, agent] of pending) {
+      const waits = Array.from(pending, ([signal, agent]) => {
         if (!signal.aborted) agent.cancel({ kind: 'parent' })
-        waits.push(agent.whenIdle())
-      }
+        return agent.whenIdle()
+      })
       await Promise.allSettled(waits)
       pending.clear()
     }
