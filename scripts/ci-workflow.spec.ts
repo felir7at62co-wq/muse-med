@@ -163,6 +163,27 @@ describe('CI workflow', () => {
     expect(steps.every(step => typeof step.run !== 'string' || !/\bchoco\s+install\s+ffmpeg\b/u.test(step.run))).toBe(true)
   })
 
+  it.each([
+    ['node-24-coverage', 'Prepare media test executables', 'command -v ffmpeg'],
+    ['windows-coverage', 'Export media test executables', 'Get-Command ffmpeg -CommandType Application -ErrorAction Stop'],
+  ])('enables real-media recovery tests in %s', (name, stepName, resolution) => {
+    const coverage = workflowJob(loadWorkflow('.github/workflows/ci.yml'), name)
+    if (!Array.isArray(coverage.steps)) throw new TypeError('Coverage must define steps')
+    const steps = coverage.steps.filter(isRecord)
+    const media = steps.findIndex(step => step.name === stepName)
+    const tests = steps.findIndex(step => step.run === 'pnpm run check:ci:coverage')
+    expect(media).toBeGreaterThanOrEqual(0)
+    expect(tests).toBeGreaterThan(media)
+    expect(steps[media]?.run).toContain(resolution)
+    for (const variable of ['MUSE_RECOVERY_TEST_FFMPEG', 'DSH_FFMPEG_PATH']) {
+      expect(steps[media]?.run).toContain(`${variable}=$`)
+    }
+    expect(steps[media]).not.toHaveProperty('continue-on-error')
+    if (name === 'windows-coverage') {
+      expect(media).toBeGreaterThan(steps.findIndex(step => step.name === 'Prepare media test executables'))
+    }
+  })
+
   it('isolates every pnpm action setup destination per runner', () => {
     const files = ['.github/workflows/ci.yml', '.github/workflows/ci-master.yml']
     const setups: Array<{ jobName: string; step: unknown }> = []

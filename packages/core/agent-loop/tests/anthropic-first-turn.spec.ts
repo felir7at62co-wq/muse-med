@@ -88,13 +88,7 @@ it('keeps the task with first-step context for a gateway reading the last user m
       models: [{ id: 'claude-test' }],
     } } })
     await ctx.plugin(AgentLoop, { agents: [] })
-    ctx.on('agent/pre-step', async ({ turn, step }, next) => {
-      const decision = await next()
-      if (decision.kind === 'reject' || turn !== 1 || step !== 1) return decision
-      return { ...decision, messages: [...decision.messages, createUserMessage({
-        content: [{ type: 'text', text: background }], source: { kind: 'runtime-context' },
-      })] }
-    })
+    ctx.systemPrompt.context({ name: 'fixture:workspace', order: 0, text: background })
     let executions = 0
     ctx.tools.register(defineContentToolFixture({
       name: 'lookup_code',

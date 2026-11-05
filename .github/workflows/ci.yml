@@ -196,7 +196,11 @@ jobs:
           exit "$sandbox_status"
 
       - name: Prepare media test executables
-        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+        run: |
+          sudo apt-get update && sudo apt-get install --yes ffmpeg
+          ffmpeg_path=$(command -v ffmpeg)
+          echo "MUSE_RECOVERY_TEST_FFMPEG=$ffmpeg_path" >> "$GITHUB_ENV"
+          echo "DSH_FFMPEG_PATH=$ffmpeg_path" >> "$GITHUB_ENV"
 
       - name: Run exhaustive coverage
         run: pnpm run check:ci:coverage
@@ -716,6 +720,13 @@ jobs:
       - name: Prepare media test executables
         shell: pwsh
         run: pnpm exec tsx scripts/prepare-ci-ffmpeg.ts
+
+      - name: Export media test executables
+        shell: pwsh
+        run: |
+          $ffmpegPath = (Get-Command ffmpeg -CommandType Application -ErrorAction Stop).Source
+          "MUSE_RECOVERY_TEST_FFMPEG=$ffmpegPath" >> $env:GITHUB_ENV
+          "DSH_FFMPEG_PATH=$ffmpegPath" >> $env:GITHUB_ENV
 
       - name: Run Windows coverage
         shell: pwsh

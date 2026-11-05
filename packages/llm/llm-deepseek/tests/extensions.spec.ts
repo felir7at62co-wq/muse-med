@@ -109,8 +109,10 @@ describe('Messages request extensions', () => {
     expect(sentBody(fetch)).not.toHaveProperty('dsh_messages_test')
   })
 
-  it.each(['preparation', 'acceptance'] as const)('reports a non-Error %s contributor rejection', async (phase) => {
+  it.each(['preparation', 'acceptance'] as const)('reports a non-Error %s contributor rejection and still streams', async (phase) => {
     const ctx = await boot()
+    const warnings: unknown[][] = []
+    ctx.logger.exporter({ levels: { default: LoggerLevel.WARN }, export: (message) => { if (message.type === 'warn') warnings.push(message.args) } })
     const rejectedPreparation = vi.fn<() => Promise<never>>().mockRejectedValue('inventory unavailable')
     const rejectedAcceptance = vi.fn<() => Promise<void>>().mockRejectedValue('watermark unavailable')
     ctx.deepseekLlmApiExtensions.register('dsh_messages_test', {
@@ -122,11 +124,25 @@ describe('Messages request extensions', () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(sse(textEvents)))
     vi.stubGlobal('fetch', fetch)
     const result = await assemble(ctx.llm.stream(options()))
-    expect(result.assembler.finish).toMatchObject({ kind: 'error', failure: { code: 'REQUEST_EXTENSION' } })
-    if (result.assembler.finish.kind !== 'error') throw new Error('Expected an extension failure')
-    expect(result.assembler.finish.failure.message).toContain(phase === 'preparation' ? 'inventory unavailable' : 'watermark unavailable')
-    expect(fetch).toHaveBeenCalledTimes(phase === 'preparation' ? 0 : 1)
-    expect(result.message.content).toEqual([])
+    expect(result.assembler.finish.kind).toBe('stop')
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(JSON.stringify(warnings)).toContain(phase === 'preparation' ? 'inventory unavailable' : 'watermark unavailable')
+    if (phase === 'preparation') expect(sentBody(fetch)).not.toHaveProperty('dsh_messages_test')
+    else expect(sentBody(fetch)).toHaveProperty('dsh_messages_test', { value: 'log' })
+    expect(result.message.content).not.toEqual([])
+  })
+
+  it('fails directly supplied extension preparation when it rejects a non-Error value', async () => {
+    const rejectedPreparation = vi.fn<() => Promise<never>>().mockRejectedValue('inventory unavailable')
+    const llm = adapter({ baseURL: 'https://messages.example.test' }, {
+      prepareExtensions: rejectedPreparation,
+    })
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    vi.stubGlobal('fetch', fetch)
+    const failed = assemble(llm.stream(options()))
+    await expect(failed).rejects.toMatchObject({ code: 'REQUEST_EXTENSION' })
+    await expect(failed).rejects.toThrow('inventory unavailable')
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it.each(['http', 'transport', 'stream'] as const)('records acceptance only for HTTP success despite a later %s failure', async (failure) => {
