@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { createMessage, createSystemMessage, createUserMessage, LlmAdapter, LlmError, resolveRetryPolicy, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createMessage, createSystemMessage, createUserMessage, isAgentLoopRequest, LlmAdapter, LlmError, resolveRetryPolicy, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm'
 import * as LlmRetry from '@deepseek-ai/dsh-llm-retry'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -11,6 +11,7 @@ import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
 import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import BasicCompactionEngine, { type BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
+import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import { resolveConfig } from '../src/config.ts'
 import { summarizeWithLlm } from '../src/summarizer.ts'
 
@@ -25,7 +26,11 @@ class BudgetAdapter extends LlmAdapter {
   readonly requests: GenerateOptions[] = []
   readonly summaries: GenerateOptions[] = []
   readonly summaryEntered = Promise.withResolvers<undefined>()
-  summaryMode: 'success' | 'error' | 'empty' | 'wait-for-abort' = 'success'
+  readonly heldSummaryAbort = {
+    observed: Promise.withResolvers<undefined>(),
+    release: Promise.withResolvers<undefined>(),
+  }
+  summaryMode: 'success' | 'error' | 'empty' | 'wait-for-abort' | 'wait-for-abort-held' = 'success'
   ordinaryFailure: string | undefined
   replies: ('tool' | 'text')[] = []
   onOrdinary: (() => void) | undefined
@@ -33,6 +38,7 @@ class BudgetAdapter extends LlmAdapter {
   constructor(
     private readonly contextWindow = 10_000,
     private readonly alwaysRetry = false,
+    private readonly omitOutputDefault = false,
   ) { super() }
 
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
@@ -46,7 +52,8 @@ class BudgetAdapter extends LlmAdapter {
     if (model === 'windowed-summary') return Promise.resolve({ provider, id: model, name: model,
       context: { contextWindow: 4_000 }, defaultMaxTokens: 4_096 })
     return Promise.resolve({ provider, id: model, name: model,
-      context: { contextWindow: this.contextWindow }, defaultMaxTokens: 256 })
+      context: { contextWindow: this.contextWindow },
+      ...(this.omitOutputDefault ? {} : { defaultMaxTokens: 256 }) })
   }
 
   override providerRetryPolicy(): ResolvedRetryPolicy | undefined {
@@ -63,6 +70,22 @@ class BudgetAdapter extends LlmAdapter {
       if (this.summaryMode === 'empty') {
         yield { type: 'finish', reason: { kind: 'stop' } }
         return
+      }
+      if (this.summaryMode === 'wait-for-abort-held') {
+        const signal = options.signal
+        if (signal === undefined) throw new Error('summary requires its live cancellation signal')
+        const aborted = Promise.withResolvers<undefined>()
+        const onAbort = () => { aborted.resolve(undefined) }
+        if (signal.aborted) onAbort()
+        else signal.addEventListener('abort', onAbort, { once: true })
+        try {
+          await aborted.promise
+          this.heldSummaryAbort.observed.resolve(undefined)
+          await this.heldSummaryAbort.release.promise
+          throw new Error('summary cancelled')
+        } finally {
+          signal.removeEventListener('abort', onAbort)
+        }
       }
       if (this.summaryMode === 'wait-for-abort') {
         const signal = options.signal
@@ -126,6 +149,7 @@ interface FixtureOptions {
   model?: string
   contextWindow?: number
   alwaysRetry?: boolean
+  omitOutputDefault?: boolean
   durabilityListener?: boolean
   maxTokens?: number
 }
@@ -138,7 +162,7 @@ async function harness(config: BasicCompactionConfig = {}, options: FixtureOptio
   await ctx.plugin(TokenMeter)
   // Local acknowledgements exercise ordering; this fixture does not prove disk recovery.
   if (options.durabilityListener !== false) ctx.on('session/flush', () => undefined)
-  const adapter = new BudgetAdapter(options.contextWindow, options.alwaysRetry)
+  const adapter = new BudgetAdapter(options.contextWindow, options.alwaysRetry, options.omitOutputDefault)
   ctx.llm.registerAdapter(['mock'], adapter)
   if (options.alwaysRetry) await ctx.plugin(LlmRetry)
   const compactionFiber = await ctx.plugin(BasicCompactionEngine, {
@@ -166,6 +190,273 @@ function lastReason(agent: Agent) {
 }
 
 describe('final working-context admission', () => {
+  it('cancels and drains recovery held at a successful durability checkpoint before disposal settles', async () => {
+    const { ctx, agent, adapter, compactionFiber } = await harness()
+    const flushEntered = Promise.withResolvers<undefined>()
+    const releaseFlush = Promise.withResolvers<undefined>()
+    const aborted = Promise.withResolvers<undefined>()
+    const cancel = vi.spyOn(agent, 'cancel')
+    let signal: AbortSignal | undefined
+    const onAbort = () => { aborted.resolve(undefined) }
+    ctx.on('llm/stream', (options, next) => {
+      if (isAgentLoopRequest(options) && options.sessionId === agent.session.id && signal === undefined) {
+        signal = options.signal
+        signal?.addEventListener('abort', onAbort, { once: true })
+      }
+      return next()
+    }, { prepend: true })
+    ctx.on('session/flush', async (session) => {
+      if (session !== agent.session) return
+      flushEntered.resolve(undefined)
+      await releaseFlush.promise
+    })
+    let disposal: Promise<void> | undefined
+    const run = send(agent)
+    try {
+      await Promise.race([
+        flushEntered.promise,
+        run.then(() => { throw new Error('recovery did not reach the durability checkpoint') }),
+      ])
+      expect(signal?.aborted).toBe(false)
+      let disposed = false
+      disposal = compactionFiber.dispose().then(() => { disposed = true })
+      await aborted.promise
+      expect(cancel.mock.calls).toEqual([[{ kind: 'parent' }]])
+      expect(disposed).toBe(false)
+      releaseFlush.resolve(undefined)
+      await Promise.all([run, disposal])
+      expect(agent.status).toBe('idle')
+      expect(adapter.requests).toHaveLength(0)
+      expect(adapter.summaries).toHaveLength(1)
+      expect(agent.session.snapshotEvents().filter(event => event.type === 'compaction/summary')).toHaveLength(1)
+      expect(lastReason(agent)?.kind).toBe('aborted')
+    } finally {
+      releaseFlush.resolve(undefined)
+      if (agent.status !== 'idle') agent.cancel({ kind: 'user' })
+      await Promise.allSettled([run, disposal ?? compactionFiber.dispose()])
+      signal?.removeEventListener('abort', onAbort)
+      cancel.mockRestore()
+    }
+  })
+
+  it.each([-1, 1.5])('refuses a legacy request-control output cap of %s before provider dispatch', async (maxTokens) => {
+    const { ctx, agent, adapter } = await harness({}, { seed: [] })
+    ctx.on('agent/request', async (payload, next) => {
+      const config = await next()
+      return payload.agent === agent ? { ...config, maxTokens } : config
+    })
+    await send(agent, 'short legacy-control request')
+    expect(agent.session.requestHeader()?.config.maxTokens).toBe(maxTokens)
+    expect(adapter.requests).toHaveLength(0)
+    expect(adapter.summaries).toHaveLength(0)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'CONTEXT_BUDGET_UNAVAILABLE' } })
+  })
+
+  it('rejects a metadata result when plugin disposal starts after that lookup settles', async () => {
+    const { ctx, agent, adapter, compactionFiber } = await harness({}, { seed: [] })
+    const original = ctx.llm.resolveModelInfo.bind(ctx.llm)
+    const disposeStarted = Promise.withResolvers<undefined>()
+    const cancel = vi.spyOn(agent, 'cancel')
+    let target: AbortSignal | undefined
+    let disposal: Promise<void> | undefined
+    ctx.on('llm/stream', (options, next) => {
+      if (isAgentLoopRequest(options) && options.sessionId === agent.session.id) target = options.signal
+      return next()
+    }, { prepend: true })
+    const lookup = vi.spyOn(ctx.llm, 'resolveModelInfo').mockImplementation((...args) => {
+      const result = original(...args)
+      if (target !== undefined && args[2] === target) {
+        void result.then(() => {
+          queueMicrotask(() => {
+            disposal = compactionFiber.dispose()
+            void disposal.catch(() => undefined)
+            disposeStarted.resolve(undefined)
+          })
+        }, () => undefined)
+      }
+      return result
+    })
+    const run = send(agent, 'short metadata teardown request')
+    try {
+      await Promise.race([
+        disposeStarted.promise,
+        run.then(() => { throw new Error('metadata teardown was not reached') }),
+      ])
+      await run
+      if (disposal === undefined) throw new Error('metadata observer did not start disposal')
+      await disposal
+      expect(target?.aborted).toBe(false)
+      expect(cancel).not.toHaveBeenCalled()
+      expect(adapter.requests).toHaveLength(0)
+      expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'CONTEXT_BUDGET_UNAVAILABLE' } })
+    } finally {
+      lookup.mockRestore()
+      if (agent.status !== 'idle') agent.cancel({ kind: 'user' })
+      await Promise.allSettled([run, disposal ?? compactionFiber.dispose()])
+      cancel.mockRestore()
+    }
+  })
+
+  it('refuses recovery when a competing producer leaves a new checkpoint open after summary commit', async () => {
+    const { ctx, agent, adapter } = await harness()
+    const injected = Promise.withResolvers<undefined>()
+    void injected.promise.catch(() => undefined)
+    let scheduled = false
+    ctx.on('session/event', (session, event) => {
+      if (session !== agent.session || event.type !== 'compaction/end' || scheduled) return
+      scheduled = true
+      queueMicrotask(() => {
+        try {
+          session.append('compaction/start', { compactionId: CompactionId('competing-checkpoint'), turn: event.data.turn })
+          injected.resolve(undefined)
+        } catch (error: unknown) { injected.reject(error) }
+      })
+    })
+    await send(agent)
+    await injected.promise
+    expect(adapter.summaries).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(0)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'compaction/summary')).toHaveLength(1)
+    expect(agent.session.snapshotEvents().findLast(event => event.type.startsWith('compaction/')))
+      .toMatchObject({ type: 'compaction/start', data: { compactionId: 'competing-checkpoint' } })
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'COMPACTION_PERSISTENCE_FAILED' } })
+  })
+
+  it('refuses unknown model capacity after attempting above-target recovery', async () => {
+    const { ctx, agent, adapter } = await harness({
+      workingTokenLimit: 1_000, modelPolicies: [],
+    }, { model: 'unknown-context', seed: [] })
+    const recoveryFailures: string[] = []
+    ctx.on('agent/request-error', ({ agent: requester, failure }, next) => {
+      if (requester === agent) recoveryFailures.push(failure.code)
+      return next()
+    }, { prepend: true })
+    await send(agent, `UNKNOWN_CAPACITY_INPUT; ${'N'.repeat(6_000)}`)
+    expect(ctx.tokenMeter.measureWorkingContext(agent.session).totalTokens).toBeGreaterThan(1_000)
+    expect(recoveryFailures).toEqual(['WORKING_CONTEXT_LIMIT'])
+    expect(adapter.requests).toHaveLength(0)
+    expect(adapter.summaries).toHaveLength(0)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'compaction/summary')).toHaveLength(0)
+    expect(JSON.stringify(agent.session.deriveMessages())).toContain('UNKNOWN_CAPACITY_INPUT')
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'CONTEXT_BUDGET_UNAVAILABLE' } })
+  })
+
+  it('admits a short request when neither the agent nor adapter reserves output tokens', async () => {
+    const { agent, adapter } = await harness({}, { seed: [], omitOutputDefault: true })
+    await send(agent, 'short request without an output reservation')
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.requests[0]?.maxTokens).toBeUndefined()
+    expect(adapter.summaries).toHaveLength(0)
+    expect(agent.session.requestContext()).toMatchObject({ contextWindow: 10_000, workingTokenLimit: 1_000 })
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
+  })
+
+  it('refuses a valid output reservation that consumes the entire model window', async () => {
+    const { agent, adapter } = await harness({ retainTokens: 0 }, {
+      seed: [], contextWindow: 256, maxTokens: 256,
+    })
+    await send(agent, 'short request')
+    expect(adapter.requests).toHaveLength(0)
+    expect(adapter.summaries).toHaveLength(0)
+    expect(agent.session.requestContext()?.contextWindow).toBe(256)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'CONTEXT_BUDGET_UNAVAILABLE' } })
+  })
+
+  it('refuses fixed headroom that consumes all input capacity left after output reservation', async () => {
+    const { agent, adapter } = await harness({
+      adaptiveBudget: false, headroomTokens: 512, retainTokens: 0,
+    }, { seed: [], contextWindow: 768, maxTokens: 256 })
+    await send(agent, 'short request')
+    expect(adapter.requests).toHaveLength(0)
+    expect(adapter.summaries).toHaveLength(0)
+    expect(agent.session.requestContext()?.contextWindow).toBe(768)
+    expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'CONTEXT_BUDGET_UNAVAILABLE' } })
+  })
+
+  it('keeps an identical working-context observation without appending a duplicate', async () => {
+    const { ctx, agent, adapter } = await harness({}, { seed: [] })
+    const observations: { request: GenerateOptions; workingContextTokens: number }[] = []
+    ctx.on('llm/stream', (options, next) => {
+      if (isAgentLoopRequest(options) && options.purpose === undefined && options.sessionId === agent.session.id) {
+        const previousContext = agent.session.requestContext()
+        if (previousContext === undefined) throw new Error('the loop did not publish its request context')
+        const workingContextTokens = ctx.tokenMeter.measureWorkingContext(agent.session).totalTokens
+        observations.push({ request: options, workingContextTokens })
+        agent.session.append('request/context', {
+          ...previousContext, provider: options.provider, model: options.model,
+          contextWindow: 10_000, workingTokenLimit: 1_000, workingContextTokens,
+        })
+      }
+      return next()
+    }, { prepend: true })
+    await send(agent, 'short observed request')
+    expect(observations).toHaveLength(1)
+    const observation = observations[0]
+    if (observation === undefined) throw new Error('the loop request was not observed')
+    expect(isAgentLoopRequest(observation.request)).toBe(true)
+    expect(Object.isFrozen(observation.request)).toBe(true)
+    const requestContexts = agent.session.snapshotEvents().filter(event => event.type === 'request/context')
+    expect(requestContexts).toHaveLength(2)
+    const measuredContexts = requestContexts.filter(event => event.data.workingContextTokens !== undefined)
+    expect(measuredContexts).toHaveLength(1)
+    expect(measuredContexts[0]?.data).toMatchObject({
+      provider: 'mock', model: 'limited', contextWindow: 10_000,
+      workingTokenLimit: 1_000, workingContextTokens: observation.workingContextTokens,
+    })
+    expect(adapter.requests).toHaveLength(1)
+    expect(adapter.summaries).toHaveLength(0)
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
+  })
+
+  it('drains already-cancelled recovery without issuing another cancellation during disposal', async () => {
+    const { agent, adapter, compactionFiber } = await harness()
+    adapter.summaryMode = 'wait-for-abort-held'
+    const cancel = vi.spyOn(agent, 'cancel')
+    const run = send(agent)
+    try {
+      await Promise.race([
+        adapter.summaryEntered.promise,
+        run.then(() => { throw new Error('the turn ended before summary dispatch') }),
+      ])
+      agent.cancel({ kind: 'user' })
+      await Promise.race([
+        adapter.heldSummaryAbort.observed.promise,
+        run.then(() => { throw new Error('recovery ended before held cancellation acknowledgement') }),
+      ])
+      const draining = Promise.withResolvers<undefined>()
+      const originalIdle = agent.whenIdle.bind(agent)
+      const idle = vi.spyOn(agent, 'whenIdle').mockImplementation(() => {
+        draining.resolve(undefined)
+        return originalIdle()
+      })
+      try {
+        let disposed = false
+        const disposal = compactionFiber.dispose().then(() => { disposed = true })
+        await Promise.race([
+          draining.promise,
+          disposal.then(() => { throw new Error('disposal completed before pending recovery drained') }),
+        ])
+        expect(disposed).toBe(false)
+        expect(agent.status).toBe('running')
+        expect(cancel.mock.calls).toEqual([[{ kind: 'user' }]])
+        adapter.heldSummaryAbort.release.resolve(undefined)
+        await Promise.all([run, disposal])
+        expect(agent.status).toBe('idle')
+        expect(adapter.requests).toHaveLength(0)
+        expect(adapter.summaries).toHaveLength(1)
+        expect(agent.session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
+        expect(lastReason(agent)?.kind).toBe('aborted')
+      } finally {
+        idle.mockRestore()
+      }
+    } finally {
+      adapter.heldSummaryAbort.release.resolve(undefined)
+      if (agent.status !== 'idle') agent.cancel({ kind: 'user' })
+      await Promise.allSettled([run, compactionFiber.dispose()])
+      cancel.mockRestore()
+    }
+  })
+
   it.each([
     { capacity: 'safe', contextWindow: 10_000, model: 'limited', error: undefined },
     { capacity: 'unsafe', contextWindow: 1_600, model: 'limited', error: 'WORKING_CONTEXT_LIMIT' },
@@ -644,6 +935,118 @@ describe('final working-context admission', () => {
     expect(adapter.requests).toHaveLength(1)
     expect(adapter.summaries).toHaveLength(0)
     expect(lastReason(agent)).toEqual({ kind: 'completed' })
+  })
+
+  it.each(['admission', 'recovery'] as const)('refuses captured %s while another agent drains during plugin disposal', async (stage) => {
+    const { ctx, agent, adapter, compactionFiber } = await harness()
+    const secondHandle = await ctx.agentLoop.createAgent(ctx, {
+      sessionId: SessionId(`working-budget-captured-${stage}`), seed: historySeed(),
+      agentOptions: { provider: 'mock', model: 'limited' },
+    })
+    try {
+      const second = secondHandle.agent
+      const cancelSecond = vi.spyOn(second, 'cancel')
+      try {
+        const captured = Promise.withResolvers<AbortSignal>()
+        const releaseCaptured = Promise.withResolvers<undefined>()
+        const capturedRequests: GenerateOptions[] = []
+        const capturedFailures: string[] = []
+        const stopCapture = stage === 'admission'
+          ? ctx.on('llm/stream', (options, next) => {
+            if (options.sessionId !== second.session.id || options.purpose !== undefined) return next()
+            if (!isAgentLoopRequest(options)) throw new Error('the captured request must come from the real loop')
+            const signal = options.signal
+            if (signal === undefined) throw new Error('the captured loop request requires its live signal')
+            return (async function* (): AsyncIterable<StreamChunk> {
+              capturedRequests.push(options)
+              captured.resolve(signal)
+              await releaseCaptured.promise
+              yield* next()
+            })()
+          }, { prepend: true })
+          : ctx.on('agent/request-error', async ({ agent: requester, failure, signal }, next) => {
+            if (requester !== second) return next()
+            capturedFailures.push(failure.code)
+            captured.resolve(signal)
+            await releaseCaptured.promise
+            return next()
+          }, { prepend: true })
+        try {
+          adapter.summaryMode = 'wait-for-abort-held'
+          const firstRun = send(agent, `DRAINING_AGENT_INPUT; ${'A'.repeat(2_000)}`)
+          let secondRun: Promise<void> | undefined
+          let disposal: Promise<void> | undefined
+          try {
+            await Promise.race([
+              adapter.summaryEntered.promise,
+              firstRun.then(() => { throw new Error('the first agent ended before summary dispatch') }),
+            ])
+            secondRun = send(second, `CAPTURED_AGENT_INPUT; ${'B'.repeat(2_000)}`)
+            const secondSignal = await Promise.race([
+              captured.promise,
+              secondRun.then(() => { throw new Error('the second agent ended before its waterfall was captured') }),
+            ])
+            expect(secondSignal.aborted).toBe(false)
+            expect(capturedRequests).toHaveLength(stage === 'admission' ? 1 : 0)
+            expect(capturedFailures).toEqual(stage === 'recovery' ? ['WORKING_CONTEXT_LIMIT'] : [])
+            if (stage === 'admission') {
+              const request = capturedRequests[0]
+              if (request === undefined) throw new Error('the actual loop request was not captured')
+              expect(isAgentLoopRequest(request)).toBe(true)
+              expect(Object.isFrozen(request)).toBe(true)
+              expect(request.sessionId).toBe(second.session.id)
+              expect(request.signal).toBe(secondSignal)
+            }
+            let disposed = false
+            disposal = compactionFiber.dispose().then(() => { disposed = true })
+            await Promise.race([
+              adapter.heldSummaryAbort.observed.promise,
+              firstRun.then(() => { throw new Error('the first agent ended before held cancellation acknowledgement') }),
+              disposal.then(() => { throw new Error('disposal completed before pending recovery drained') }),
+            ])
+            expect(agent.status).toBe('running')
+            expect(disposed).toBe(false)
+            expect(secondSignal.aborted).toBe(false)
+            expect(cancelSecond).not.toHaveBeenCalled()
+            releaseCaptured.resolve(undefined)
+            await Promise.race([
+              secondRun,
+              disposal.then(() => { throw new Error('disposal completed before the captured waterfall returned') }),
+            ])
+            expect(second.status).toBe('idle')
+            expect(lastReason(second)).toMatchObject({ kind: 'error', error: { code: 'CONTEXT_BUDGET_UNAVAILABLE' } })
+            expect(secondSignal.aborted).toBe(false)
+            expect(cancelSecond).not.toHaveBeenCalled()
+            expect(disposed).toBe(false)
+            for (const current of [agent, second]) {
+              expect(adapter.requests.filter(request => request.sessionId === current.session.id)).toHaveLength(0)
+              expect(adapter.summaries.filter(request => request.sessionId === current.session.id))
+                .toHaveLength(current === agent ? 1 : 0)
+              expect(current.session.snapshotEvents().some(event => event.type === 'compaction/summary')).toBe(false)
+            }
+            expect(JSON.stringify(second.session.deriveMessages())).toContain('CAPTURED_AGENT_INPUT')
+            adapter.heldSummaryAbort.release.resolve(undefined)
+            await Promise.all([firstRun, disposal])
+            expect(agent.status).toBe('idle')
+            expect(lastReason(agent)?.kind).toBe('aborted')
+            expect(secondSignal.aborted).toBe(false)
+            expect(cancelSecond).not.toHaveBeenCalled()
+          } finally {
+            releaseCaptured.resolve(undefined)
+            adapter.heldSummaryAbort.release.resolve(undefined)
+            if (agent.status !== 'idle') agent.cancel({ kind: 'user' })
+            if (second.status !== 'idle') second.cancel({ kind: 'user' })
+            await Promise.allSettled([firstRun, secondRun, disposal, compactionFiber.dispose()])
+          }
+        } finally {
+          stopCapture()
+        }
+      } finally {
+        cancelSecond.mockRestore()
+      }
+    } finally {
+      await secondHandle.dispose()
+    }
   })
 
   it('cancels and drains pending recovery before plugin disposal resolves', async () => {

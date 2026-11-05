@@ -48,7 +48,8 @@ function stopped(kind: 'capacity' | 'summary' | 'persistence' | 'unavailable'): 
 /**
  * Compact finalized requests above their working target. Retained context may
  * continue below the calibrated model budget after output and headroom are reserved.
- * Auxiliary calls delegate unchanged; disposal cancels and drains active recovery.
+ * Auxiliary calls delegate unchanged. Disposal cancels and drains pending Agents;
+ * already-captured conversation callbacks reject once this plugin is inactive.
  * @param ctx - compaction plugin context owning reversible listeners.
  * @param config - validated defaults and exact-target policies.
  * @param compact - pressure compaction operation with protected inputs and the effective admission limit.
@@ -81,7 +82,9 @@ export function registerWorkingBudget(
       return (async function* (): AsyncIterable<StreamChunk> {
         const signal = options.signal
         signal?.throwIfAborted()
-        const request = signal === undefined ? undefined : requests.get(signal)
+        const request = signal === undefined
+          ? /* v8 ignore next -- marked AgentLoop requests carry their live phase signal. */ undefined
+          : requests.get(signal)
         // Agent events are scoped; a sibling preset can share this LLM service.
         if (signal === undefined || request === undefined) {
           yield* next()
@@ -156,6 +159,7 @@ export function registerWorkingBudget(
       request.attempts++
       signal.throwIfAborted()
       const header = agent.session.requestHeader()
+      /* v8 ignore if -- pending recovery follows the Loop's committed request/header, which the Session never removes. */
       if (header === undefined) {
         request.terminal = true
         throw stopped('unavailable')
@@ -177,7 +181,7 @@ export function registerWorkingBudget(
         }
         signal.throwIfAborted()
         // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal can run while compaction is awaited.
-        if (!active) throw stopped('unavailable')
+        /* v8 ignore if -- disposal aborts this pending recovery before the immediately preceding cancellation check. */ if (!active) throw stopped('unavailable')
         try { assertNoActiveCompaction(agent.session, 'working-context recovery') }
         catch (_error: unknown) { throw stopped('persistence') }
         try {
@@ -190,7 +194,7 @@ export function registerWorkingBudget(
         }
         signal.throwIfAborted()
         // oxlint-disable-next-line typescript/no-unnecessary-condition -- disposal can run while persistence is awaited.
-        if (!active) throw stopped('unavailable')
+        /* v8 ignore if -- disposal aborts this pending recovery before the immediately preceding cancellation check. */ if (!active) throw stopped('unavailable')
         const measured = ctx.tokenMeter.measureWorkingContext(agent.session).totalTokens
         const context = agent.session.requestContext()
         if (context?.workingTokenLimit !== limit || context.workingContextTokens !== measured) {
