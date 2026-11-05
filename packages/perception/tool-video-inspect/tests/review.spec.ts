@@ -1,5 +1,5 @@
 /** Real media and actual model dispatches for complete-episode observation. */
-import { mkdtemp, realpath, rm, writeFile, appendFile, copyFile, mkdir, readdir, readFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, writeFile, appendFile, copyFile, mkdir, readdir, readFile, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -328,6 +328,7 @@ it('closes and reports a legacy review by ID without reading source, transcript 
   } })
   const before = h.review(), initialEvents = h.agent.session.snapshotEvents().filter(event => event.type === 'video/review').length
   expect(before.follow_up).toBeUndefined()
+  await rm(h.input)
   const resolvePath = h.ctx.fs.resolve.bind(h.ctx.fs), statPath = h.ctx.fs.stat.bind(h.ctx.fs)
   const resolve = vi.spyOn(h.ctx.fs, 'resolve').mockImplementation(async (...args) => {
     if (args[0] !== h.root) throw Error('No source resolution allowed')
@@ -361,16 +362,78 @@ it('closes and reports a legacy review by ID without reading source, transcript 
   expect(h.review().follow_up?.status).toBe('closed')
 })
 
-it('closes a removed source by its normalized saved path without changing evidence', async () => {
+it('closes a removed source by its provider-resolved saved path without changing evidence', async () => {
   const h = await fixture()
   await h.run(h.call('scan'), undefined)
   const before = h.review()
+  await mkdir(join(h.root, 'unused'))
   await rm(h.input)
   const stat = vi.spyOn(h.ctx.fs, 'stat')
   await h.run({ name: 'video_inspect', args: { method: 'close', file_path: 'unused/../episode-80.mp4' } }, undefined)
   expect(h.results().at(-1)?.isError).toBe(false)
   expect(h.review()).toEqual({ ...before, follow_up: { status: 'closed' } })
   expect(stat.mock.calls.every(([target]) => target.displayPath === h.root)).toBe(true)
+})
+
+it.skipIf(process.platform === 'win32')('passes symlink-parent traversal to the filesystem provider before probing the source', async () => {
+  const h = await fixture(), physical = join(h.root, 'physical', 'episode-80.mp4')
+  await mkdir(join(h.root, 'physical', 'nested'), { recursive: true })
+  await copyFile(h.input, physical)
+  await appendFile(physical, 'distinct physical video')
+  await symlink('physical/nested', join(h.root, 'link'), 'dir')
+  expect(await readFile(physical)).not.toEqual(await readFile(h.input))
+  const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
+  await h.run({ name: 'video_inspect', args: { method: 'metadata', file_path: 'link/../episode-80.mp4' } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(spawn.mock.calls.some(([spec]) => spec.argv.includes(physical))).toBe(true)
+  expect(spawn.mock.calls.some(([spec]) => spec.argv.includes(h.input))).toBe(false)
+})
+
+it.skipIf(process.platform === 'win32')('matches review IDs against provider-resolved identities and rejects a lexical sibling', async () => {
+  const h = await fixture(), physical = join(h.root, 'physical', 'episode-80.mp4')
+  await mkdir(join(h.root, 'physical', 'nested'), { recursive: true })
+  await copyFile(h.input, physical)
+  await symlink('physical/nested', join(h.root, 'link'), 'dir')
+  await h.run(h.call('scan', { file_path: physical }), undefined)
+  const before = reviewsOf(h.readReviews, h.agent.session)[physical]!
+  expect(before).toBeDefined()
+  await h.run({ name: 'video_inspect', args: { method: 'status', review_id: before.id,
+    file_path: 'link/../episode-80.mp4' } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)[physical]).toBe(before)
+  await h.run({ name: 'video_inspect', args: { method: 'timeline', review_id: before.id,
+    file_path: 'link/../episode-80.mp4' } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  await h.run({ name: 'video_inspect', args: { method: 'close', review_id: before.id,
+    file_path: h.input } }, undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SELECTOR')
+  const retained = reviewsOf(h.readReviews, h.agent.session)[physical]
+  await rm(physical)
+  const stat = vi.spyOn(h.ctx.fs, 'stat')
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: 'link/../episode-80.mp4' } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)[physical]).toEqual({ ...retained, follow_up: { status: 'closed' } })
+  expect(stat.mock.calls.every(([target]) => target.displayPath === h.root)).toBe(true)
+})
+
+it.skipIf(process.platform === 'win32')('requires a review ID when provider aliases identify multiple saved records', async () => {
+  const h = await fixture(), physical = join(h.root, 'physical', 'episode-80.mp4')
+  await mkdir(join(h.root, 'physical', 'nested'), { recursive: true })
+  await copyFile(h.input, physical)
+  await symlink('physical/nested', join(h.root, 'link'), 'dir')
+  await h.run(h.call('scan', { file_path: physical }), undefined)
+  const first = reviewsOf(h.readReviews, h.agent.session)[physical]!
+  const secondPath = `${h.root}/link/../episode-80.mp4`
+  saveReview(h.readReviews, h.agent.session, { ...first, id: VideoReviewId('second-provider-alias'), path: secondPath })
+  const alias = 'physical/nested/../episode-80.mp4'
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: alias } }, undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SELECTOR')
+  expect(reviewsOf(h.readReviews, h.agent.session)[physical]?.follow_up).toBeUndefined()
+  expect(reviewsOf(h.readReviews, h.agent.session)[secondPath]?.follow_up).toBeUndefined()
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: alias, review_id: first.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)[physical]?.follow_up?.status).toBe('closed')
+  expect(reviewsOf(h.readReviews, h.agent.session)[secondPath]?.follow_up).toBeUndefined()
 })
 
 it('reopens only the saved source revision and keeps repeated lifecycle operations idempotent', async () => {

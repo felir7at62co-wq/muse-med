@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-video-review-provider-path
+profile: headless
+composition: muse-video-review-provider-path
+recording: authored
+writerOutput: true
+header:
+  class: muse-video-review-provider-path
+  pin: true
+workspace:
+  final: true
