@@ -41,7 +41,7 @@ Muse's product release is declared in [`muse-product.json`](muse-product.json). 
 
 Dependency validation also checks npm packages named after Node built-ins, including `buffer`, and requires linked host packages to resolve to the release-owned package instance.
 
-Video previews use the authenticated `/api/video` stream. Electron forwards byte ranges and response streams without copying full videos. Unencoded GET/HEAD responses with status 200 or 206 retain a valid `Content-Length` for native media seeking; encoded responses and other routes retain the ordinary decoder header policy. Closing a preview cancels its stream without stopping Agent work.
+Video previews use the authenticated `/api/video` and `/api/session-video` streams. Electron forwards byte ranges and response streams without copying full videos. Unencoded GET/HEAD responses with status 200 or 206 retain a valid `Content-Length` for native media seeking; encoded responses and other routes retain the ordinary decoder header policy. Closing a preview cancels its stream without stopping Agent work.
 
 Desktop ships one pnpm distribution at `resources/runtime/primary-runtime/dependencies/pnpm`, without the native packages of other targets. Build-time production installation, the installed `dsh` CLI, Creator and the Web Plugin Manager execute its `bin/pnpm.mjs` with Electron Node mode; package operations do not require pnpm on PATH. The private Node launcher environment applies only to package operations. Agent workspace dependencies copy the same self-contained primary-runtime payload into the Harness home and execute pnpm with its standalone Node.
 

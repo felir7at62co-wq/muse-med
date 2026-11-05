@@ -60,7 +60,7 @@ function captureVideo(source: HTMLElement, snapshot: HTMLCanvasElement): boolean
  * The original and any enclosing delivered-file card remain in place and are hidden while a canvas copy
  * follows the nearest conversation's bubble. Only readable real video pixels enter that
  * copy; unavailable or cross-origin frames retain the receiving bubble's material.
- * @param ref - Inline card whose nearest data-chat-frame owns the receiving anchor.
+ * @param ref - Inline card whose nearest Chat frame owns the portal and enclosing conversation owns the anchor.
  * @param options - Stable video id, collection-state callback, and existing open action.
  * @returns The frame-owned animation portal, or null until that frame exists.
  */
@@ -83,6 +83,7 @@ export function useAbsorption(ref: RefObject<HTMLElement | null>, options: Absor
     if (source === null || frame === null || layer === null || canvas === null || material === null || hit === null) return
     const scroll = source.closest<HTMLElement>('[data-conversation-scroll]') ?? frame.querySelector<HTMLElement>('[data-chat-scroll]')
     if (scroll === null) return
+    const owner = frame.closest<HTMLElement>('[data-conversation-content]') ?? frame
     const delivery = source.closest<HTMLElement>('[data-presented-file][data-video="true"]')
     const surfaces = [source, ...(delivery === null ? [] : [delivery])].map(element => ({
       element, visibility: element.style.visibility, inert: element.inert, aria: element.getAttribute('aria-hidden'),
@@ -114,7 +115,7 @@ export function useAbsorption(ref: RefObject<HTMLElement | null>, options: Absor
     const paint = () => {
       pending = 0
       if (disposed) return
-      const nextAnchor = frame.querySelector<HTMLElement>('[data-muse-video-anchor]')
+      const nextAnchor = owner.querySelector<HTMLElement>('[data-muse-video-anchor]')
       if (nextAnchor !== anchor) { clearFusion(); anchor = nextAnchor; originalFusion = anchor?.style.getPropertyValue('--muse-video-fusion') ?? '' }
       if (anchor === null) {
         if (collected) { collected = false; callbacks.current.onCollect(false) }
@@ -199,7 +200,7 @@ export function useAbsorption(ref: RefObject<HTMLElement | null>, options: Absor
     observer?.observe(source)
     observer?.observe(frame)
     observer?.observe(scroll)
-    const initialAnchor = frame.querySelector<HTMLElement>('[data-muse-video-anchor]')
+    const initialAnchor = owner.querySelector<HTMLElement>('[data-muse-video-anchor]')
     if (initialAnchor !== null) observer?.observe(initialAnchor)
     scroll.addEventListener('scroll', schedule, { passive: true })
     window.addEventListener('resize', schedule)

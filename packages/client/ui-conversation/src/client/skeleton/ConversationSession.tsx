@@ -119,7 +119,7 @@ export function ConversationSessionHeader({
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), equalBreadcrumbs)
   const unpinned = useEntryPins(ids => ids)
   const hasEntryActions = useEntryActions(registered => registered)
-  const floating = presentation === 'floating'
+  const floating = presentation === 'floating' && active?.id === FIXED_VIEW_ID
   const showTabs = !hideChrome && !floating && tabs.length > 1
   const tabRow = useRef<HTMLDivElement>(null)
   const [visibleViewLimit, setVisibleViewLimit] = useState(1)
@@ -148,7 +148,7 @@ export function ConversationSessionHeader({
   const currentInMore = moreTabs.some(tab => tab.id === active?.id)
   return (
     <>
-      <div className={css.titleRow}>
+      <div className={css.titleRow} data-conversation-session-presentation={floating ? 'floating' : 'standard'}>
         {!hideChrome && (
           <>
             {floating && <div className={css.floatingTitle}>
@@ -159,7 +159,7 @@ export function ConversationSessionHeader({
               </nav>
               {tabs.length > 1 && <ViewsMoreMenu label={t('session.moreViews')} current={false} fallbackEntries
                 entries={tabs.map(tab => ({ id: tab.id, label: tab.label,
-                  pinned: !unpinned.includes(tab.id), active: tab.id === active?.id }))}
+                  pinned: !unpinned.includes(tab.id), active: tab.id === active.id }))}
                 onOpen={selectView} onPinnedChange={setPinned} renderSlot={renderSlot} />}
             </div>}
             {!floating && <div className={css.titleCluster}>

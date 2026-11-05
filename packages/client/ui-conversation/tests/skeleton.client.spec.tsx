@@ -23,6 +23,7 @@ import { SessionInputShell } from '../src/client/input/facade.ts'
 import { en, zh } from '../src/client/locales.ts'
 import { ConversationContent } from '../src/client/skeleton/ConversationContent.tsx'
 import { ConversationHeader } from '../src/client/skeleton/ConversationHeader.tsx'
+import { ConversationOverlays } from '../src/client/skeleton/ConversationOverlays.tsx'
 import { ConversationMainPanel } from '../src/client/skeleton/ConversationMainPanel.tsx'
 import { ConversationSession, ConversationSessionHeader } from '../src/client/skeleton/ConversationSession.tsx'
 import { conversationPhase } from '../src/client/contract/snapshot.ts'
@@ -216,12 +217,23 @@ function mount(
       if (!options.entryActions) return opts?.fallback ?? null
       return <button type="button" role="menuitem" onClick={actionsOwner.onDismiss}>Header view action</button>
     }
+    if (key === 'conversation.content.overlay') {
+      return <div data-testid="view-conversation.content.overlay" data-active-view={'activeView' in owner ? String(owner.activeView) : ''} />
+    }
     if (key === 'conversation.session.header.lineage') {
       lineageOwners.push(owner as ConversationHeaderLineageOwnerProps)
       return opts?.fallback ?? null
     }
     if (key === 'conversation.header') {
       return <ConversationHeader {...runtimeProps} headerPresentation={options.headerPresentation ?? 'standard'} renderSlot={renderSlot as never} />
+    }
+    if (key === 'conversation.content.overlayHost') {
+      return <ConversationOverlays {...runtimeProps} sessionId={SID} useConversationViews={useConversationViews}
+        useChat={useChat} useTrajectory={useTrajectory}
+        useSession={useSession} useConversation={useConversation} useSessionStatus={useSessionStatus}
+        useInput={useInput} inputActions={inputActions}
+        {...allowAllAccess}
+        useStore={bindSnapshotSelector(store.store)} actions={store.actions} renderSlot={renderSlot as never} />
     }
     if (key === 'conversation.session.header') {
       return (
@@ -1063,6 +1075,22 @@ describe('ConversationRoot resident composer', () => {
 })
 
 describe('Floating conversation header', () => {
+  it('hosts overlays beside the scroll body and publishes the resolved View', () => {
+    const b = mount(sessionSnapshotOf(), undefined, undefined, { headerPresentation: 'floating' })
+    const overlay = b.view.getByTestId('view-conversation.content.overlay')
+    expect(overlay.dataset.activeView).toBe('chat')
+    const host = overlay.closest('[data-conversation-overlay]')
+    expect(host?.parentElement?.hasAttribute('data-conversation-content')).toBe(true)
+    expect(host?.parentElement?.querySelector('[data-conversation-scroll]')?.contains(host)).toBe(false)
+    act(() => { b.store.actions.setView('trajectory') })
+    expect(overlay.dataset.activeView).toBe('trajectory')
+  })
+
+  it('keeps overlay seats absent from the blank Hero', () => {
+    const b = mount(sessionSnapshotOf({ blank: true }), undefined, undefined, { headerPresentation: 'floating' })
+    expect(b.view.queryByTestId('view-conversation.content.overlay')).toBeNull()
+  })
+
   it('keeps the current title on the floating row without restoring tabs or ancestry rows', () => {
     const b = mount(sessionSnapshotOf(), undefined, undefined, {
       headerPresentation: 'floating', headerOnly: true, summaryOrigin: 'subagent', nestedSubagent: true,
@@ -1107,13 +1135,19 @@ describe('Floating conversation header', () => {
     expect(screen.getByRole('menuitem', { name: 'Trajectory' })).toBeTruthy()
   })
 
-  it('switches every View through its own menu when no customization plugin is installed', () => {
+  it('restores header flow for another View and floats again when Chat is selected', () => {
     const b = mount(sessionSnapshotOf(), undefined, undefined, { headerPresentation: 'floating' })
     fireEvent.click(b.view.getByRole('button', { name: zh['session.moreViews'] }))
     fireEvent.click(screen.getByRole('menuitem', { name: 'Trajectory' }))
     expect(b.view.getByTestId('view-trajectory')).toBeTruthy()
-    expect(b.view.queryByRole('tablist')).toBeNull()
+    expect(b.view.container.querySelector('[data-conversation-session-presentation]')?.getAttribute('data-conversation-session-presentation')).toBe('standard')
+    expect(b.view.getByRole('tab', { name: 'Trajectory' }).getAttribute('aria-selected')).toBe('true')
+    expect(b.view.container.querySelector('[data-conversation-floating-title]')).toBeNull()
     expect(screen.queryByRole('menu')).toBeNull()
+    fireEvent.click(b.view.getByRole('tab', { name: 'Chat' }))
+    expect(b.view.container.querySelector('[data-conversation-session-presentation]')?.getAttribute('data-conversation-session-presentation')).toBe('floating')
+    expect(b.view.getByTestId('view-chat')).toBeTruthy()
+    expect(b.view.queryByRole('tablist')).toBeNull()
   })
 
   it('hands the complete View list to a native customization menu in floating mode', () => {

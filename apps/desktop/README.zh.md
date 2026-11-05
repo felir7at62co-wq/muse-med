@@ -41,7 +41,7 @@ Muse 产品版本由 [`muse-product.json`](muse-product.json) 声明。Electron�
 
 依赖校验也会检查与 Node 内置模块同名的 npm 包，包括 `buffer`，并要求链接的 Host 包解析到该发行版拥有的同一个包实例。
 
-视频预览使用鉴权 `/api/video` 流。Electron 转发字节范围与响应流，不复制完整视频。未经内容编码且状态为 200 或 206 的 GET/HEAD 响应保留合法的 `Content-Length`，供原生媒体跳转使用；编码响应与其他路由沿用普通解码响应头策略。关闭预览会取消其流，不停止 Agent 工作。
+视频预览使用鉴权 `/api/video` 和 `/api/session-video` 流。Electron 转发字节范围与响应流，不复制完整视频。未经内容编码且状态为 200 或 206 的 GET/HEAD 响应保留合法的 `Content-Length`，供原生媒体跳转使用；编码响应与其他路由沿用普通解码响应头策略。关闭预览会取消其流，不停止 Agent 工作。
 
 Desktop 在 `resources/runtime/primary-runtime/dependencies/pnpm` 中携带一份 pnpm 分发包，不含其他目标平台的原生包。构建时的生产依赖安装、安装版 `dsh` CLI、Creator 和 Web 插件管理器通过 Electron Node 模式执行其中的 `bin/pnpm.mjs`；包操作不要求 PATH 上存在 pnpm。私有 Node 启动器环境仅用于包操作。agent（智能体）的工作区依赖将同一份完整 primary-runtime 复制到 Harness 主目录，并使用其中的独立 Node 执行 pnpm。
 

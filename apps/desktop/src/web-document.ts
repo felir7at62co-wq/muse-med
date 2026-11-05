@@ -109,7 +109,7 @@ export async function forwardWebRequest(request: Request, host: string, cookie: 
   const response = await fetch(target, init)
   const outgoing = new Headers(response.headers)
   const length = response.headers.get('content-length')
-  const retainVideoLength = source.pathname === '/api/video' && ['GET', 'HEAD'].includes(request.method)
+  const retainVideoLength = ['/api/video', '/api/session-video'].includes(source.pathname) && ['GET', 'HEAD'].includes(request.method)
     && [200, 206].includes(response.status) && !response.headers.has('content-encoding')
     && length !== null && /^\d+$/u.test(length) && Number.isSafeInteger(Number(length))
   for (const name of WITHHELD_RESPONSE_HEADERS) {
