@@ -122,7 +122,7 @@ def draft_subtitle_visual(visual: dict, subtitle_style: dict, *, product: bool =
 
 def draft_style(timeline: dict, project: Path | None = None, *, center_y_ratio: float | None = None,
                 enforce_product: bool | None = None) -> dict:
-    """Select one UI-style section; the common centre only replaces an unspecified editor position."""
+    """Inherit an omitted watermark while retaining snapshot subtitles, explicit resets and product enforcement."""
     force = os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') == '1' if enforce_product is None else enforce_product
     project_delivery = {}
     if project is not None:
@@ -171,15 +171,17 @@ def draft_style(timeline: dict, project: Path | None = None, *, center_y_ratio: 
                                      + (' (positive)' if key == 'font_size_ui' else ''))
     selected = snapshot['draft_style'] if 'draft_style' in snapshot else project_delivery.get('draft_style', {})
     watermark = selected.get('watermark', {})
+    if 'draft_style' in snapshot and selected and 'watermark' not in selected:
+        watermark = project_delivery.get('draft_style', {}).get('watermark', {})
     subtitle = selected.get('subtitle', {})
     if force:
         visual = subtitle_visual(timeline, project)
-        return {'watermark': {'font_size_ui': watermark.get('font_size_ui', 6.0)},
+        return {'watermark': {'font_size_ui': watermark.get('font_size_ui', 7.0)},
                 'subtitle': {'font_family': None, 'font_size_ui': 11.0, 'border_width_ui': 20.0,
                              'transform_y': 1 - 2 * visual['center_y_ratio'],
                              'auto_wrapping': False, 'max_line_width': visual['max_width_ratio']}}
     default_position = -0.465625 if center_y_ratio is None else 1 - 2 * center_y_ratio
-    return {'watermark': {'font_size_ui': watermark.get('font_size_ui', 6.0)},
+    return {'watermark': {'font_size_ui': watermark.get('font_size_ui', 7.0)},
             'subtitle': {'font_family': subtitle.get('font_family', '').strip() or None,
                          'font_size_ui': subtitle.get('font_size_ui', 11.0),
                          'border_width_ui': subtitle.get('border_width_ui', 20.0),

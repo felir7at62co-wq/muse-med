@@ -14,7 +14,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[2] / 'skills/tweet-drama-draft-build/scripts'
 NO_WINDOW = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
 LEGACY_STYLE = {
-    'watermark': {'font_size_ui': 6},
+    'watermark': {'font_size_ui': 7},
     'subtitle': {'font_family': None, 'font_size_ui': 11,
                  'border_width_ui': 20, 'transform_y': -0.465625},
 }
@@ -54,16 +54,42 @@ class DraftStyleResolutionTests(unittest.TestCase):
     def test_project_supplies_style_when_timeline_has_no_style_snapshot(self):
         self.assertEqual(self.inputs.draft_style({'delivery': {}}, self.project), PROJECT_STYLE)
 
+    def test_unconfigured_watermark_defaults_to_seven(self):
+        self.assertEqual(self.inputs.draft_style({})['watermark'], {'font_size_ui': 7})
+
+    def test_subtitle_only_snapshot_inherits_project_watermark(self):
+        (self.project / 'project_config.json').write_text(json.dumps({
+            'project_bible': {'delivery': {'draft_style': {**PROJECT_STYLE,
+                'watermark': {'font_size_ui': 8}}}}}), encoding='utf-8')
+        timeline = {'delivery': {'draft_style': {'subtitle': {'font_size_ui': 13}}}}
+        resolved = self.inputs.draft_style(timeline, self.project)
+        self.assertEqual(resolved['watermark'], {'font_size_ui': 8})
+        self.assertEqual(resolved['subtitle']['font_size_ui'], 13)
+        self.assertIsNone(resolved['subtitle']['font_family'])
+
+    def test_watermark_child_reset_keeps_default_without_inheriting_project_fields(self):
+        timeline = {'delivery': {'draft_style': {'watermark': {}}}}
+        resolved = self.inputs.draft_style(timeline, self.project)
+        self.assertEqual(resolved['watermark'], {'font_size_ui': 7})
+        self.assertIsNone(resolved['subtitle']['font_family'])
+
+    def test_explicit_custom_watermark_sizes_are_retained(self):
+        for size in (6, 8):
+            with self.subTest(size=size):
+                timeline = {'delivery': {'draft_style': {'watermark': {'font_size_ui': size}}}}
+                self.assertEqual(self.inputs.draft_style(timeline, self.project)['watermark'],
+                                 {'font_size_ui': size})
+
     def test_partial_snapshot_uses_legacy_defaults_instead_of_project_fields(self):
         expected = {**LEGACY_STYLE, 'watermark': {'font_size_ui': 8}}
         timeline = {'delivery': {'draft_style': {'watermark': {'font_size_ui': 8}}}}
         self.assertEqual(self.inputs.draft_style(timeline, self.project), expected)
 
-    def test_empty_snapshot_keeps_legacy_defaults_despite_project_style(self):
+    def test_empty_snapshot_resets_defaults_despite_project_style(self):
         timeline = {'delivery': {'draft_style': {}}}
         self.assertEqual(self.inputs.draft_style(timeline, self.project), LEGACY_STYLE)
 
-    def test_missing_project_style_keeps_legacy_defaults(self):
+    def test_missing_project_style_uses_default_editor_values(self):
         (self.project / 'project_config.json').write_text('{}', encoding='utf-8')
         self.assertEqual(self.inputs.draft_style({}, self.project), LEGACY_STYLE)
 
@@ -91,6 +117,35 @@ class DraftStyleResolutionTests(unittest.TestCase):
                              {'master_gain': 0.8, 'bgm_gain': 0.35})
         self.assertEqual(timeline, original)
         self.assertEqual(self.inputs.draft_style(timeline, self.project)['subtitle']['font_size_ui'], 40)
+
+    def test_forced_subtitle_policy_retains_inherited_watermark_and_explicit_resets(self):
+        config = {'project_bible': {'delivery': {'draft_style': {
+            'watermark': {'font_size_ui': 8}, 'subtitle': {'font_size_ui': 90}}}}}
+        config_path = self.project / 'project_config.json'
+        config_path.write_text(json.dumps(config), encoding='utf-8')
+        original_config = config_path.read_bytes()
+        visual = {**VISUAL_STYLE, 'reference_width': 480, 'reference_height': 854,
+                  'font_size_px': 46, 'outline_px': 1.25, 'center_y_ratio': 0.736747073,
+                  'max_width_ratio': 0.9}
+        cases = ((None, 8), ({'subtitle': {'font_size_ui': 33}}, 8), ({}, 7),
+                 ({'watermark': {}}, 7), ({'watermark': {'font_size_ui': 6}}, 6),
+                 ({'watermark': {'font_size_ui': 8}}, 8))
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                      'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}, clear=True):
+            self.assertEqual(self.inputs.draft_style({}, enforce_product=True)['watermark'],
+                             {'font_size_ui': 7})
+            for snapshot, expected in cases:
+                timeline = {'delivery': {} if snapshot is None else {'draft_style': snapshot}}
+                before = deepcopy(timeline)
+                with self.subTest(snapshot=snapshot):
+                    selected = self.inputs.draft_style(timeline, self.project, enforce_product=True)
+                    self.assertEqual(selected['watermark'], {'font_size_ui': expected})
+                    self.assertEqual(selected['subtitle']['font_size_ui'], 11)
+                    self.assertEqual(selected['subtitle']['border_width_ui'], 20)
+                    self.assertEqual(selected['subtitle']['max_line_width'], 0.9)
+                    self.assertAlmostEqual(selected['subtitle']['transform_y'], 1 - 2 * visual['center_y_ratio'])
+                    self.assertEqual(timeline, before)
+        self.assertEqual(config_path.read_bytes(), original_config)
 
     def test_forced_policy_requires_a_valid_product_visual(self):
         with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1'}, clear=True):
@@ -544,7 +599,7 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
     def test_empty_snapshot_preserves_legacy_style_and_ignores_project_font(self):
         content, result, _review = self.make_candidate(style=PROJECT_STYLE,
                                                        snapshot={}, has_snapshot=True)
-        self.assertEqual(self.text_rows(content, watermark=True)[0][2]['styles'][0]['size'], 6)
+        self.assertEqual(self.text_rows(content, watermark=True)[0][2]['styles'][0]['size'], 7)
         self.assert_subtitle_style(content)
         self.assertFalse(any('山海经' in warning for warning in result['warnings']))
 
@@ -621,7 +676,7 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
                             for warning in choice['warnings']), choice)
 
     def test_ui7_watermark_uses_estimated_safe_layout_on_landscape_and_portrait_canvases(self):
-        for width, height in ((2560, 1440), (1440, 2560)):
+        for width, height in ((2560, 1440), (1440, 2560), (480, 854)):
             with self.subTest(width=width, height=height):
                 content, result, _review = self.make_candidate(
                     style={'watermark': {'font_size_ui': 7}},
@@ -636,8 +691,31 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
                 self.assertLessEqual(transform['x'] + estimated_width / width, 0.900001)
                 self.assertGreaterEqual(transform['x'] - estimated_width / width, -0.9)
                 self.assertEqual(transform['y'], -0.8625)
+                self.assertAlmostEqual(transform['x'], 0.90 - estimated_width / width)
                 self.assertFalse(any('估算宽度超过画布安全区域' in warning
                                      for warning in result['warnings']))
+
+    def test_saved_watermark_defaults_inheritance_resets_and_custom_sizes(self):
+        cases = (
+            (None, None, False, 7),
+            (PROJECT_STYLE, {'subtitle': {'font_size_ui': 11}}, True, 7),
+            (PROJECT_STYLE, {'watermark': {}}, True, 7),
+            (PROJECT_STYLE, {}, True, 7),
+            (PROJECT_STYLE, {'watermark': {'font_size_ui': 6}}, True, 6),
+            (PROJECT_STYLE, {'watermark': {'font_size_ui': 8}}, True, 8),
+        )
+        for project_style, snapshot, has_snapshot, expected in cases:
+            with self.subTest(snapshot=snapshot, expected=expected):
+                content, _result, review = self.make_candidate(
+                    style=project_style, snapshot=snapshot, has_snapshot=has_snapshot,
+                    geometry={'width': 480, 'height': 854})
+                segment, _material, text = self.text_rows(content, watermark=True)[0]
+                self.assertEqual(text['styles'][0]['size'], expected)
+                self.assertEqual(review['draft_style']['watermark']['font_size_ui'], expected)
+                estimated_width = len(text['text']) * 44 * 854 / 1920 * expected / 6
+                self.assertAlmostEqual(segment['clip']['transform']['x'], 0.90 - estimated_width / 480)
+                self.assertEqual(segment['clip']['transform']['y'], -0.8625)
+                self.assert_subtitle_style(content)
 
     def test_oversized_watermark_is_retained_with_a_review_warning(self):
         content, result, review = self.make_candidate(

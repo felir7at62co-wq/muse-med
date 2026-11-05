@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/muse-draft-watermark/guide.md
+/:
+  en: d530f7428cf6c43c
+  zh: 9bce8b45bf622e4e
+/editable-draft-watermark-selection:
+  en: d4f592872404e00e
+  zh: 5633397552bf5747
+/editable-draft-watermark-selection/change:
+  en: 07963a8998cdd850
+  zh: ece9bfda7375100c
+/editable-draft-watermark-selection/migration:
+  en: 0469608dfb18418c
+  zh: 37c24917ff03e5fb
