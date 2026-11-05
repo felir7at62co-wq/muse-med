@@ -82,11 +82,13 @@
     "src/host/update.js",
     "src/host/usage.js",
     "src/host/web-submissions.js",
+    "src/office/pptx.js",
     "test/client-bundle.test.js",
     "test/fixtures/learning-recovery.expected.json",
     "test/learning-recovery-client.test.js",
     "test/learning.test.js",
     "test/muse-web-submissions.test.js",
+    "test/office.test.js",
     "test/open-listed.test.js",
     "test/web-submissions-channel.test.js",
     "test/web-submissions.test.js"
@@ -126,6 +128,7 @@
     "Explicit conversation choices retain priority over startup default navigation while native Session lists are loading",
     "Learning answer recovery belongs to each client plugin instance and releases proposal content after success, stale acknowledgement or disposal",
     "Host shutdown drains admitted learning approvals and saves their results before releasing the team write lock",
-    "Declined skill proposals remain scoped to their Bot; ownerless legacy records remain saved without entering model requests"
+    "Declined skill proposals remain scoped to their Bot; ownerless legacy records remain saved without entering model requests",
+    "PowerPoint inventory and layout apply nested group coordinates from the nearest group to its ancestors without changing sibling traversal"
   ]
 }

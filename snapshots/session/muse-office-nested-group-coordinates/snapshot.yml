@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-office-nested-group-coordinates
+profile: headless
+composition: muse-office-nested-group-coordinates
+recording: authored
+writerOutput: true
+header:
+  class: muse-office-nested-group-coordinates
+  pin: true
+workspace:
+  final: true

@@ -8080,7 +8080,7 @@ function shapeBox(pkg, sp, layoutDoc, masterDoc, groupChain = []) {
     }
     if (!box) return void 0;
   }
-  for (const grp of groupChain) box = applyGroup(box, grp);
+  for (let i = groupChain.length - 1; i >= 0; i--) box = applyGroup(box, groupChain[i]);
   return box;
 }
 var phMatch = (a, b) => a && b && a.type === b.type && String(a.idx ?? "") === String(b.idx ?? "");
