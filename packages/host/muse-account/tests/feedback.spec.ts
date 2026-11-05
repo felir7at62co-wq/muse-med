@@ -8,6 +8,8 @@ import LlmRuntime from '@deepseek-ai/dsh-llm'
 import { credentialKey } from '@deepseek-ai/dsh-credentials'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { brandString } from '@deepseek-ai/dsh-brand'
+import type { MuseFeedbackId } from '../src/types.ts'
 import type { MessageId, Message } from '@deepseek-ai/dsh-llm'
 import { MuseFeedbackClient, feedbackSecrets } from '../src/feedback.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
@@ -46,6 +48,72 @@ async function fixture() {
   const options = { baseUrl, sessionFile, requestTimeoutMs: 1000, excerptChars: 200, readMessages: () => messages, secrets: async () => ['private-api-value'], fetcher }
   return { options, seen, client: new MuseFeedbackClient(options) }
 }
+
+it('uses explicit suggestion fields and accepts an acknowledged duplicate receipt after maintainer updates', async () => {
+  const { options, seen } = await fixture()
+  const client = new MuseFeedbackClient({ ...options, fetcher: async (_url, init) => {
+    seen.push(init!)
+    return Response.json({ ...JSON.parse(bodyOf(init)), id: 'a'.repeat(32), username: 'alice', revision: 3 }, { status: 201 })
+  } })
+  const input = { ...request, title: 'Please add comparison', kind: 'suggestion' as const, requestId: 'stable-proposal-1' }
+  expect(await client.submit(input)).toEqual({ id: 'a'.repeat(32), revision: 3, deduplication: 'available' })
+  expect(JSON.parse(bodyOf(seen[0]))).toMatchObject({ title: 'Please add comparison', category: 'suggestion', requestId: 'stable-proposal-1' })
+  expect(bodyOf(seen[0])).not.toContain('The cat speaks')
+})
+
+it('keeps a confirmed legacy-server receipt while reporting missing duplicate protection', async () => {
+  const { options } = await fixture()
+  const client = new MuseFeedbackClient({ ...options, fetcher: async (_url, init) => {
+    const value: unknown = JSON.parse(bodyOf(init))
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Feedback must contain an object')
+    const body: Record<string, unknown> = { ...value }
+    delete body.requestId
+    return Response.json({ ...body, id: 'a'.repeat(32), username: 'alice', revision: 1 }, { status: 201 })
+  } })
+  expect(await client.submit({ ...request, requestId: 'stable-1' })).toMatchObject({ deduplication: 'unavailable' })
+})
+
+it('reports conflicting content and refuses a mismatched submission-key echo without retrying', async () => {
+  const { options } = await fixture()
+  const conflicting = vi.fn<typeof fetch>(async () => new Response('', { status: 409 }))
+  await expect(new MuseFeedbackClient({ ...options, fetcher: conflicting }).submit({ ...request, requestId: 'stable-1' })).rejects.toMatchObject({ code: 'request-conflict' })
+  expect(conflicting).toHaveBeenCalledTimes(1)
+  const mismatched = new MuseFeedbackClient({ ...options, fetcher: async (_url, init) => Response.json({ ...JSON.parse(bodyOf(init)),
+    requestId: 'other-key', id: 'a'.repeat(32), username: 'alice', revision: 1 }, { status: 201 }) })
+  await expect(mismatched.submit({ ...request, requestId: 'stable-1' })).rejects.toMatchObject({ code: 'unconfirmed' })
+})
+
+const statusRecord = { id: 'a'.repeat(32), username: 'alice', title: 'A suggestion', category: 'suggestion', status: 'reviewing',
+  reply: 'Testing private-api-value', revision: 2, createdAt: '2026-11-05T01:00:00.000Z', updatedAt: '2026-11-05T02:00:00.000Z' }
+
+it('returns only validated owner-scoped status with secrets removed and no transcript or history', async () => {
+  const { options } = await fixture()
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json({ ...statusRecord, body: 'PRIVATE_TRANSCRIPT', history: ['PRIVATE_HISTORY'], cookie: 'private-cookie' }))
+  const result = await new MuseFeedbackClient({ ...options, fetcher }).get(brandString<MuseFeedbackId>(statusRecord.id))
+  expect(result).toMatchObject({ status: 'reviewing', reply: 'Testing [redacted]', revision: 2 })
+  expect(JSON.stringify(result)).not.toMatch(/PRIVATE_|username|cookie/u)
+  const requested = fetcher.mock.calls[0]?.[0]
+  const url = typeof requested === 'string' ? requested : requested instanceof URL ? requested.href : requested?.url
+  expect(url).toBe('https://muse.test/api/muse.feedback/' + statusRecord.id)
+  expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: 'GET', redirect: 'manual' })
+})
+
+it.each([{ ...statusRecord, username: 'other' }, { ...statusRecord, revision: 0 }, { ...statusRecord, status: 'invented' }, { ...statusRecord, id: 'b'.repeat(32) }])(
+  'does not expose another owner or malformed status (%j)', async (value) => {
+    const { options } = await fixture()
+    const client = new MuseFeedbackClient({ ...options, fetcher: async () => Response.json(value) })
+    await expect(client.get(brandString<MuseFeedbackId>(statusRecord.id))).rejects.toMatchObject({ code: value.username === 'other' ? 'not-found' : 'unavailable' })
+  },
+)
+
+it('refuses a status response when the account changes while the request is in flight', async () => {
+  const { options } = await fixture()
+  const client = new MuseFeedbackClient({ ...options, fetcher: async () => {
+    await writeMuseSession(options.sessionFile, { baseUrl: options.baseUrl, cookie: '__Host-muse=bob', username: 'bob' })
+    return Response.json(statusRecord)
+  } })
+  await expect(client.get(brandString<MuseFeedbackId>(statusRecord.id))).rejects.toMatchObject({ code: 'account-changed' })
+})
 
 it('accepts only a matching durable receipt and preserves seven-category and message identity without automatic excerpts', async () => {
   const { client, seen } = await fixture()

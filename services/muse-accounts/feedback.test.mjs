@@ -22,3 +22,24 @@ test('feedback refuses malformed bodies, forged owners, paths and non-image atta
  const saved=await store.create(alice,{...draft,ownerId:bob.id,username:bob.username,status:'resolved'});assert.equal(saved.ownerId,alice.id);assert.equal(saved.status,'new');
  await assert.rejects(store.get(admin,'../accounts.json'));await assert.rejects(store.update(admin,saved.id,{status:'bad',revision:1}));
 });
+test('feedback request IDs deduplicate concurrent retries and survive restart and status changes',async t=>{
+ const {openFeedback}=await import('./feedback.mjs');const root=await mkdtemp(join(tmpdir(),'muse-feedback-retry-'));t.after(()=>rm(root,{recursive:true,force:true}));const store=await openFeedback(root);
+ const draft={requestId:'desktop:550e8400-e29b-41d4-a716-446655440000',title:'下载失败',category:'bug',body:'保存失败',attachments:[{name:'截图.png',data:png}]};
+ const replies=await Promise.all(Array.from({length:25},()=>store.create(alice,draft)));const first=replies[0];
+ assert.equal(new Set(replies.map(item=>item.id)).size,1);assert.equal((await store.list(alice)).total,1);assert.equal(first.requestId,draft.requestId);
+ const updated=await store.update(admin,first.id,{status:'planned',reply:'等待验证',revision:1});
+ assert.deepEqual(await store.create(alice,draft),updated);
+ const reopened=await openFeedback(root);assert.deepEqual(await reopened.create(alice,draft),updated);assert.equal((await reopened.list(alice)).total,1);
+ const otherAccount=await reopened.create(bob,draft);assert.notEqual(otherAccount.id,first.id);await assert.rejects(reopened.get(bob,first.id),error=>error.status===404);
+ const changedImage=Buffer.from(png,'base64');changedImage[30]^=1;
+ for(const changes of [{body:'另一个问题'},{title:'另一个标题'},{category:'suggestion'},{attachments:[{name:'另一张截图.png',data:png}]},{attachments:[{name:'截图.png',data:changedImage.toString('base64')}]}])await assert.rejects(reopened.create(alice,{...draft,...changes}),error=>error.status===409);
+ assert.equal((await reopened.list(alice)).total,1);assert.equal((await reopened.attachment(alice,first.id,0)).name,'截图.png');
+ await Promise.all(Array.from({length:19},()=>reopened.create(alice,{title:'独立意见',category:'other',body:'另一条意见'})));
+ assert.deepEqual(await reopened.create(alice,draft),updated);await assert.rejects(reopened.create(alice,{title:'新意见',category:'other',body:'超过每日限额'}),error=>error.status===429);
+});
+test('feedback without request IDs retains independent submissions and rejects malformed IDs',async t=>{
+ const {openFeedback}=await import('./feedback.mjs');const root=await mkdtemp(join(tmpdir(),'muse-feedback-request-validation-'));t.after(()=>rm(root,{recursive:true,force:true}));const store=await openFeedback(root);const draft={title:'建议',category:'suggestion',body:'说明'};
+ const first=await store.create(alice,draft),second=await store.create(alice,draft);assert.notEqual(first.id,second.id);assert.equal(first.requestId,undefined);
+ for(const requestId of ['',null,1,'../bad','bad key','x'.repeat(129)])await assert.rejects(store.create(alice,{...draft,requestId}),error=>error.status===400);
+ const reopened=await openFeedback(root);assert.equal((await reopened.list(alice)).total,2);assert.deepEqual(await reopened.get(alice,first.id),first);
+});

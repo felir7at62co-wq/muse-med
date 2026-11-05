@@ -174,10 +174,11 @@
 
     - id: muse-account
       name: '@deepseek-ai/dsh-muse-account'
-      inject: [tools, llm, sessionProjections, agentDefaultModel, museDesktopBridge, connection, webServer]
+      inject: [tools, llm, sessions, sessionProjections, agentDefaultModel, museDesktopBridge, connection, webServer]
       config:
         baseUrl: !!js process.env.MUSE_BASE_URL || 'https://muse.aigc-pipeline.cn'
         webSearch: true
+        feedbackTools: true
         excludedModelPrefixes: []
         excludedModels:
           - { providerId: yunying, modelId: claude-opus-5-5 }
@@ -201,7 +202,7 @@
     - id: tool-discovery
       name: '@deepseek-ai/dsh-tool-discovery'
       config:
-        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect]
+        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect]
         maxResults: 8
         maxDescriptionChars: 320
         maxResultChars: 6000

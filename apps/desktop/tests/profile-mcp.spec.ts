@@ -93,8 +93,8 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-mcp-client')).toEqual([])
     expect(rows.find(row => row.id === 'webserver')).toMatchObject({ name: '@deepseek-ai/dsh-host-webserver' })
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-muse-account')).toEqual([
-      { id: 'muse-account', name: '@deepseek-ai/dsh-muse-account', inject: ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'museDesktopBridge', 'connection', 'webServer'], config: {
-        remoteAccess: true, webSearch: true, excludedModelPrefixes: [], excludedProviderIds: ['aa'], hiddenProviderIds: ['yunying'],
+      { id: 'muse-account', name: '@deepseek-ai/dsh-muse-account', inject: ['tools', 'llm', 'sessions', 'sessionProjections', 'agentDefaultModel', 'museDesktopBridge', 'connection', 'webServer'], config: {
+        remoteAccess: true, webSearch: true, feedbackTools: true, excludedModelPrefixes: [], excludedProviderIds: ['aa'], hiddenProviderIds: ['yunying'],
         visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' },
           { providerId: 'yunying', modelId: 'gpt-6.1-sol' }], requestTimeoutMs: 60000,
         excludedModels: [

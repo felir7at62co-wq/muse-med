@@ -59,6 +59,17 @@ it('does not register or expose the removed daemon memory integration', () => {
     .toThrow(expect.objectContaining({ code: 'ERR_PACKAGE_PATH_NOT_EXPORTED' }))
 })
 
+it('keeps account feedback submission and receipt queries resident in ordinary conversations', () => {
+  const account = loadOverlayPatches('desktop-feedback-composition', patchPath)
+    .flatMap(patch => patch.insert ?? []).find(entry => entry.id === 'muse-account')
+  expect(account?.config).toHaveProperty('feedbackTools', true)
+  const names = catalog.flatMap(entry => entry.schemas).map(schema => schema.name)
+  for (const name of ['muse_feedback_submit', 'muse_feedback_status']) {
+    expect(config.alwaysLoad).toContain(name)
+    expect(names).toContain(name)
+  }
+})
+
 it.each(['short-drama', 'standard', 'bot-coordinator'])('classifies every harvested nonresident tool declared by the %s composition', async (preset) => {
   const source = await readFile(new URL(`../presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8')
   const packages = new Set(packagesFromRows(yaml.load(source, { schema: entryListSchema })))

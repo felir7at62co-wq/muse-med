@@ -33,12 +33,30 @@ export interface MuseFeedbackRequest {
   readonly category?: FeedbackCategory
   readonly text?: string
   readonly includeDiagnostics: boolean
+  /** User-authored title; omission retains the existing feedback-dialog title. */
+  readonly title?: string
+  /** Explicit opinion type for model-authored feedback. */
+  readonly kind?: 'bug' | 'suggestion' | 'other'
+  /** Stable submission key, reused with identical content after an uncertain outcome. */
+  readonly requestId?: string
 }
 
 /** Confirmed durable inbox receipt without account credentials or transcript content. */
 export interface MuseFeedbackReceipt {
   readonly id: MuseFeedbackId
   readonly revision: number
+  /** Whether the gateway acknowledged the stable submission key. */
+  readonly deduplication?: 'available' | 'unavailable'
+}
+
+/** Current owner-verified inbox status without attachments, transcript, or account credentials. */
+export interface MuseFeedbackStatus extends MuseFeedbackReceipt {
+  readonly title: string
+  readonly category: 'bug' | 'suggestion' | 'other'
+  readonly status: 'new' | 'reviewing' | 'planned' | 'resolved' | 'closed'
+  readonly reply: string
+  readonly createdAt: string
+  readonly updatedAt: string
 }
 
 /** Request to read the stored account or confirm it with the MUSE gateway. */
@@ -85,6 +103,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'muse-feedback/rate-limited': {}
     'muse-feedback/unavailable': {}
     'muse-feedback/invalid-input': {}
+    'muse-feedback/request-conflict': {}
+    'muse-feedback/not-found': {}
     'muse-account/invalid-input': {}
     'muse-account/invalid-credentials': {}
     'muse-account/rate-limited': {}
