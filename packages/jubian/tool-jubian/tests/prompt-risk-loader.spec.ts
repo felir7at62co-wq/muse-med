@@ -92,12 +92,14 @@ it('keeps dirty previews actionable, reports saved prompt findings and clears th
     for (const result of results) expect(result.data.message.isError).toBeFalsy()
     const values = results.map(result => JSON.parse(result.data.message.content.filter(part => part.type === 'text').map(part => part.text).join('')) as {
       status: string
+      next?: string
       prompt_risk_review?: { total_matches: number }
       storyboard?: { model_config: { prompt: string } }
     })
     expect(values[0]).toMatchObject({ status: 'ready', prompt_risk_review: { total_matches: 3 } })
     expect(values[1]).toMatchObject({ status: 'applied', items: [{ verified_readback: true }, { verified_readback: true }] })
     expect(values[2]).toMatchObject({ status: 'prepared', prompt_risk_review: { total_matches: 2 } })
+    expect(values[2]?.next).toContain('不沿用此前制作授权进入付费提交')
     expect(values[4]).toMatchObject({ status: 'applied', items: [{ verified_readback: true }] })
     expect(values[5]).toMatchObject({ status: 'prepared', prompt_risk_review: { total_matches: 0 } })
     expect(values[6]?.storyboard?.model_config.prompt).toBe(clean)
@@ -105,7 +107,8 @@ it('keeps dirty previews actionable, reports saved prompt findings and clears th
       .toMatchSnapshot('advisory findings before and after readback')
     expect(JSON.stringify(adapter.requests[1]!.messages)).toContain('prompt_risk_review')
     expect(JSON.stringify(adapter.requests[3]!.messages)).toContain('不凭引号认定原台词')
+    expect(JSON.stringify(adapter.requests[3]!.messages)).toContain('用户最新请求若为只预览或先看，到此展示结果')
     expect(boards.get(2)?.modelConfig).toContain('国旗')
     expect(writes).toHaveLength(3)
-  } finally { transport.mockRestore(); await ctx.fiber.dispose() }
+  } finally { try { await ctx.fiber.dispose() } finally { transport.mockRestore() } }
 })

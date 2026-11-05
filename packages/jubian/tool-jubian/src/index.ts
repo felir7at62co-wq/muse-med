@@ -377,7 +377,7 @@ const STORYBOARD_OUTPUT = {
   schema: { type: 'object', additionalProperties: true, properties: {
     existing_video_sources: VIDEO_SOURCES_SCHEMA,
     original_idempotency_key: { type: 'string',
-      description: '旧分组提交已经记录时返回原 key；保留原 preview 只读对账，不能用新 key 再付费。' },
+      description: '旧提示词格式或素材顺序已有记录时返回一个已知旧 key；outcome 属于旧 key，不代表本次精确格式已生成。保留原 preview 只读对账，不能用新 key 再付费。' },
     prompt_risk_review: { type: 'object', additionalProperties: false,
       description: '写卡预览或生成准备的字面命中提示，不拦截；逐处对照剧本核实原台词，修正自行描述后保存回读并重新准备。',
       properties: {
@@ -975,6 +975,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + '返回字段：get 的已存提示词在 storyboard.model_config.prompt，分集 ID 在 storyboard.snapshot.episodeId；'
       + 'create_batch 的逐项回执在 results，data 保留供应商原值，数字 data 即新卡 ID，不要假定 data.id 存在。'
       + '写镜头脚本或视频包提示词，先按剧情、对白、表演与节奏确定内容分包，再 list/get 当前项目和分集的已有视频卡并原位填写。'
+      + '用户已给定提示词并要求原样或只替换资产占位时，仅机械替换已核实的占位，保留其余文字、格式、时态、服装和台词；按原参考图映射绑定，不追加人物或用途描述，不因正文提到姓名扩绑未出演的人。'
       + '已有卡数量不决定包数，多余空卡保留不用，不为填满空卡拆包；已有卡不足或用户明确要求新增时，才 create/create_batch。'
       + '单卡用 edit_preview，多卡用 edit_batch_preview 查看 before/after，再 edit_apply；保持分镜 ID，不因本地新建视频包、秒数或提示词变化重复建卡。'
       + STORYBOARD_WRITE_REMINDER + '单卡与批量预览均返回此提醒，由 Agent 自主检查后保存。'
@@ -985,7 +986,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + 'list 按当前 script_id 分页查询分镜 ID 与分集归属，空列表正常，不需要模型设置、本地项目文件或用户手工样本。'
       + '**submit_video 及 generate 的提交阶段会真实计费且不可撤销；erase_subtitle 按实时目录计价**。'
       + 'generate 是原生生成通道的兼容入口：新调用不带 preview_path 时按 prepare_video 免费准备，'
-      + '必须给 storyboard_id 与 project_dir；先核对返回预览，再带 preview_path、预览 idempotencyKey 原值作为 idempotency_key，以及估价提交，等同 submit_video。'
+      + '必须给 storyboard_id 与 project_dir；用户最新请求若为只预览或先看，到此展示结果，不沿用此前制作授权付费提交。'
+      + '本次请求包含已授权生成时，核对预览后再带 preview_path、预览 idempotencyKey 原值作为 idempotency_key，以及估价提交，等同 submit_video。'
       + '旧 storyboard_generate key 只读返回原账本结果，不重新准备、不重投；unknown 不代表失败，不可换 key 重试。'
       + '**主体视频的唯一正常通道是 select_assets(isGenerate=0) → prepare_video → submit_video**：'
       + '每镜用到的已有角色、场景、道具、音频，均在相应画面、动作或声音描述处内联引用 `@[素材名称](material_key)` 并明确用途；后续镜头再次提及时继续引用，不以顶部素材清单代替，不引用未用素材，不为补引用新增资产，不修改原文对白。名称/key与实际查询和绑定一致。'

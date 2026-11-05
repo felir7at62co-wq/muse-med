@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/native-video-exact-prompt/guide.md
+/:
+  en: b4f1dadc8ec90bec
+  zh: 72f83edcf8a7f20f
+/native-video-exact-prompts:
+  en: f3d423a7bd9ff93d
+  zh: 85e03b18c4d72881
+/native-video-exact-prompts/change:
+  en: 622a2634f6a05136
+  zh: e4a991ee6ff8d92c
+/native-video-exact-prompts/migration:
+  en: 45716251dc9edb61
+  zh: 86be48dfc971da0c
