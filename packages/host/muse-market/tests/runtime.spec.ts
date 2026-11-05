@@ -5,12 +5,12 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Group from '@deepseek-ai/cordis-plugin-group'
-import LlmRuntime from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import LlmRuntime, { createUserMessage } from '@deepseek-ai/dsh-llm'
+import SessionStore, { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
-import Agents from '@deepseek-ai/dsh-agent'
+import Agents, { type Agent } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import Presets from '@deepseek-ai/dsh-agent-preset-registry'
 import Skills from '@deepseek-ai/dsh-skill'
@@ -19,6 +19,7 @@ import * as BotSkills from '../src/bot-skills.ts'
 import { MuseMarketLocal } from '../src/local.ts'
 import { createMarketPackage, marketDigest, readMarketPackage } from '../src/package.ts'
 import type { MarketManifest, MarketRelease, MarketReleaseId } from '../src/types.ts'
+import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 
 const contexts: Context[] = [], roots: string[] = []
 afterEach(async () => {
@@ -35,9 +36,15 @@ async function start(root: string, allowedPlugins: string[] = []) {
   await ctx.plugin(MuseMarket, { baseUrl: 'https://market.example', root, requestTimeoutMs: 1000, ...limits, allowedPlugins })
   return ctx
 }
-async function agent(ctx: Context, id: string, preset = 'standard') {
+async function agent(ctx: Context, id: string, preset = 'standard', seed?: readonly SessionEvent[]) {
   return (await ctx.agents.create({ sessionId: SessionId(id),
+    agentOptions: { provider: 'market-fixture', model: 'scripted-offline' },
+    ...(seed === undefined ? {} : { seed }),
     setup: async (scope) => { await ctx.agentPresets.mount(scope, preset) } })).agent
+}
+async function prompt(agent: Agent, text: string): Promise<void> {
+  agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] }))
+  await agent.whenIdle()
 }
 function archive(version: string, kind: 'bot' | 'skill', botSkill = false) {
   const withSkill = kind === 'skill' || botSkill
@@ -90,6 +97,10 @@ it('restores installed historical Bot sessions while excluding them from market 
   await expect(ctx.agentPresets.resolveForCreation(preset)).rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
   const original = await agent(ctx, 'historical-session', preset)
   expect((await ctx.skills.get('review', { scope: original }))?.content).toBe('Version 1.0.0')
+  const historicalModel = new MockAdapter([textResponse('Historical reply')])
+  ctx.llm.registerAdapter(['market-fixture'], historicalModel)
+  await prompt(original, 'Continue the existing historical task')
+  expect(historicalModel.requests).toHaveLength(1)
   for (const operation of [() => ctx.museMarket.enable(release.id, true), () => ctx.museMarket.exportPackage(release.id),
     () => ctx.museMarket.publishDraft(release.id, release.publisherId, 'archived-upload')]) {
     await expect(operation()).rejects.toMatchObject({ details: { code: 'skill-only' } })
@@ -185,19 +196,63 @@ it('refuses an unknown historical archive and an unavailable current preset', as
 it('retains the original standalone Skill for live and recovered sessions when the enabled version changes', async () => {
   const root = await mkdtemp(join(tmpdir(), 'market-skills-')); roots.push(root)
   let ctx = await start(root)
+  const adapter = new MockAdapter([textResponse('First reply'), textResponse('Existing version reply')])
+  ctx.llm.registerAdapter(['market-fixture'], adapter)
   const first = await ctx.museMarket.importPackage(archive('1.0.0', 'skill'))
   await ctx.museMarket.enable(first.release.id, true)
   expect(await ctx.skills.get('review')).toBeUndefined()
   expect((await ctx.museMarket.sources()).skills.some(row => row.name === 'review')).toBe(false)
   const original = await agent(ctx, 'existing')
+  await prompt(original, 'Use the original review Skill')
+  expect(adapter.requests).toHaveLength(1)
   await ctx.museMarket.enable(first.release.id, false)
   const second = await ctx.museMarket.importPackage(archive('2.0.0', 'skill')); await ctx.museMarket.enable(second.release.id, true)
   expect((await ctx.skills.get('review', { scope: original }))?.content).toBe('Version 1.0.0')
+  await prompt(original, 'Continue the existing review')
+  expect(adapter.requests).toHaveLength(2)
+  expect((await ctx.skills.get('review', { scope: original }))?.content).toBe('Version 1.0.0')
+  const history = original.session.snapshotEvents()
   const fresh = await agent(ctx, 'fresh')
   expect((await ctx.skills.get('review', { scope: fresh }))?.content).toBe('Version 2.0.0')
   await ctx.fiber.dispose(); contexts.splice(contexts.indexOf(ctx), 1)
   ctx = await start(root)
-  const recovered = await agent(ctx, 'existing')
+  const recoveryModel = new MockAdapter([textResponse('Recovered version reply')])
+  ctx.llm.registerAdapter(['market-fixture'], recoveryModel)
+  const recovered = await agent(ctx, 'existing', 'standard', history)
+  expect((await ctx.skills.get('review', { scope: recovered }))?.content).toBe('Version 1.0.0')
+  await prompt(recovered, 'Continue after recovery')
+  expect(recoveryModel.requests).toHaveLength(1)
   expect((await ctx.skills.get('review', { scope: recovered }))?.content).toBe('Version 1.0.0')
   await expect(ctx.museMarket.remove(first.release.id)).rejects.toMatchObject({ details: { code: 'release-in-use' } })
+})
+
+it('replaces a blank session binding with the enabled Skill version before its first request and after recovery', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'market-blank-skills-')); roots.push(root)
+  let ctx = await start(root)
+  const first = await ctx.museMarket.importPackage(archive('1.0.0', 'skill'))
+  await ctx.museMarket.enable(first.release.id, true)
+  const blank = await agent(ctx, 'blank-existing')
+  expect((await ctx.skills.get('review', { scope: blank }))?.content).toBe('Version 1.0.0')
+  await ctx.museMarket.enable(first.release.id, false)
+  const second = await ctx.museMarket.importPackage(archive('2.0.0', 'skill'))
+  await ctx.museMarket.enable(second.release.id, true)
+  const adapter = new MockAdapter([textResponse('Current Skill reply')])
+  ctx.llm.registerAdapter(['market-fixture'], adapter)
+  await prompt(blank, 'Use the current review Skill')
+  expect(adapter.requests).toHaveLength(1)
+  expect((await ctx.skills.get('review', { scope: blank }))?.content).toBe('Version 2.0.0')
+  const local = new MuseMarketLocal({ root, limits, allowedPlugins: [] })
+  expect((await local.binding(blank.id))?.map(row => row.id)).toEqual([second.release.id])
+  const history = blank.session.snapshotEvents()
+  await ctx.museMarket.remove(first.release.id)
+  await ctx.fiber.dispose(); contexts.splice(contexts.indexOf(ctx), 1)
+
+  ctx = await start(root)
+  const recoveredModel = new MockAdapter([textResponse('Recovered current reply')])
+  ctx.llm.registerAdapter(['market-fixture'], recoveredModel)
+  const recovered = await agent(ctx, 'blank-existing', 'standard', history)
+  await prompt(recovered, 'Continue the current version')
+  expect(recoveredModel.requests).toHaveLength(1)
+  expect((await ctx.skills.get('review', { scope: recovered }))?.content).toBe('Version 2.0.0')
+  expect((await local.binding(recovered.id))?.map(row => row.id)).toEqual([second.release.id])
 })

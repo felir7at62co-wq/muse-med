@@ -144,7 +144,15 @@ it('composes the shipped market policy without network access or opening retired
     await ctx.loader.root.update([{ ...marketRow!, config: { ...marketRow!.config,
       baseUrl: 'http://127.0.0.1:9', root: join(root, 'market'), accountHome: join(root, 'account'),
     } }])
+    await ctx.loader.await()
     expect(ctx.museMarket).toBeDefined()
+    const adapter = new MarketFixtureAdapter([fixtureReply('local Skill answer')])
+    ctx.llm.registerAdapter(['market-fixture'], adapter)
+    const { agent } = await ctx.agents.create({ sessionId: SessionId('market-product-fixture'),
+      agentOptions: { provider: 'market-fixture', model: 'scripted-offline' },
+      setup: async (scope) => { await ctx.agentPresets.mount(scope, 'short-drama') } })
+    expect(ctx.agentPresets.composedPreset(agent.ctx)).toBe('short-drama')
+    expect(await ctx.skills.get('fixture-skill', { scope: agent })).toBeUndefined()
     const archive = createMarketPackage({ formatVersion: 1, kind: 'skill', name: 'fixture-skill',
       title: 'Fixture Skill', description: 'Offline composition fixture', version: '1.0.0', license: 'MIT',
       category: 'test', examples: [], requirements: [],
@@ -155,15 +163,17 @@ it('composes the shipped market policy without network access or opening retired
     expect((await ctx.agentPresets.remoteExportList()).presets.map(row => row.id)).toEqual(['bot-coordinator', 'short-drama'])
     await ctx.museMarket.enable(installed.release.id, true)
     await expect(ctx.agentPresets.resolveForCreation('retired')).rejects.toMatchObject({ code: 'agent-preset/not-selectable' })
-    const adapter = new MarketFixtureAdapter([fixtureReply('local Skill answer')])
-    ctx.llm.registerAdapter(['market-fixture'], adapter)
-    const { agent } = await ctx.agents.create({ sessionId: SessionId('market-product-fixture'),
-      agentOptions: { provider: 'market-fixture', model: 'scripted-offline' },
-      setup: async (scope) => { await ctx.agentPresets.mount(scope, 'short-drama') } })
-    expect(ctx.agentPresets.composedPreset(agent.ctx)).toBe('short-drama')
+    await fixtureTurn(ctx, agent, '/fixture-skill Use this Skill for this task')
     expect((await ctx.skills.get('fixture-skill', { scope: agent }))?.content).toBe('Verified fixture body')
-    await fixtureTurn(ctx, agent, 'Use fixture-skill for this task')
     expect(adapter.requests).toHaveLength(1)
+    expect(skillInvocations(agent.session.snapshotEvents())).toMatchObject([
+      { source: { kind: 'skill-invocation', name: 'fixture-skill' } },
+    ])
+    expect(JSON.stringify(adapter.requests[0]!.messages)).toContain('Verified fixture body')
+    const ledger = JSON.parse(await readFile(join(root, 'market', 'installations.json'), 'utf8')) as {
+      references: Record<string, string[]>
+    }
+    expect(ledger.references[agent.id]).toEqual([installed.release.id])
     const catalogs = skillCatalogs(agent.session.snapshotEvents())
     expect(catalogs).toHaveLength(1)
     const catalog = catalogs[0]

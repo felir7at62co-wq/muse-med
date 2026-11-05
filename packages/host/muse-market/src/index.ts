@@ -82,7 +82,23 @@ export default class MuseMarket extends TypertRemoteService {
       await this.local.reference(agent.id, [...bound.map(item => item.id), ...(release ? [release.release.id] : [])])
       const skills = bound.filter(item => item.manifest.kind === 'skill')
       await agent.ctx.plugin({ inject: ['skills'], apply: (scope) => {
-        scope.effect(() => scope.skills.registerProvider(() => createMarketSkillProvider(this.local, skills, `muse-market-${agent.id}`)))
+        scope.effect(() => scope.skills.registerProvider((control) => {
+          scope.on('agent/pre-step', async ({ turn, step, signal }, next) => {
+            // New Session may reuse a blank created before the activation changed.
+            if (!release && turn === 1 && step === 1) {
+              await this.serial(async () => {
+                const enabled = (await this.local.list()).filter(item => item.enabled && item.release.manifest.kind === 'skill')
+                  .map(item => item.release)
+                signal.throwIfAborted()
+                await this.local.reference(agent.id, enabled.map(item => item.id))
+                skills.splice(0, skills.length, ...enabled)
+                control.invalidate()
+              })
+            }
+            return next()
+          }, { prepend: true })
+          return createMarketSkillProvider(this.local, skills, `muse-market-${agent.id}`)
+        }))
       } })
     })
   }

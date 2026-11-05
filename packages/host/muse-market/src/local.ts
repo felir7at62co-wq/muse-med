@@ -186,7 +186,7 @@ export class MuseMarketLocal {
     })
   }
 
-  /** Remember exact releases a session needs so removal cannot break recovery.
+  /** Replace the complete set of releases retained for a session's recovery.
    * @param sessionId Durable session identity.
    * @param ids Releases selected by the runtime.
    * @returns Completion after the reference is durable.
@@ -194,7 +194,7 @@ export class MuseMarketLocal {
   async reference(sessionId: string, ids: readonly string[]): Promise<void> {
     await this.update((state) => {
       if (!ids.every(id => state.installations.some(item => item.release.id === id))) throw new MarketError('not-installed', 404)
-      state.references[sessionId] = [...new Set([...(state.references[sessionId] ?? []), ...ids])]
+      state.references[sessionId] = [...new Set(ids)]
     })
   }
 
