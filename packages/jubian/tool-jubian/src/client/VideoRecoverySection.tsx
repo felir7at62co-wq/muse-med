@@ -154,9 +154,8 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
     if (state === undefined) setProjectDir(value.projectDir ?? '')
   })
   const selectedEpisode = state?.episodes?.find(row => row.episode === episodeNumber) ?? state?.episodes?.[0]
-  const deliverEpisode = async () => {
-    if (selectedEpisode?.readiness !== 'ready' || !selectedEpisode.digest) return
-    const { episode, digest } = selectedEpisode
+  const selectedEpisodeDigest = selectedEpisode?.digest ?? ''
+  const deliverEpisode = async (episode: number, digest: string) => {
     setEpisodeDelivering(true)
     try {
       await run(async () => {
@@ -207,10 +206,8 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
       setActiveDelivery(undefined)
     }
   }
-  const confirm = () => {
-    if (!pending || incomplete) return
+  const confirm = (action: ReportAction, report: VideoRecoveryReview) => {
     void run(async () => {
-      const { action, report } = pending
       const target = { idempotencyKey: report.idempotencyKey, digest: report.digest }
       let result: RemoteResult<VideoRecoveryReview>
       switch (action) {
@@ -324,8 +321,8 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
               )}
               <div className={css.actions}>
                 <Button variant="primary" size="sm" disabled={busy || state.episodeRendererAvailable === false
-                  || selectedEpisode.readiness !== 'ready' || !selectedEpisode.digest}
-                onClick={() => { void deliverEpisode() }}>
+                  || selectedEpisode.readiness !== 'ready' || !selectedEpisodeDigest}
+                onClick={() => { void deliverEpisode(selectedEpisode.episode, selectedEpisodeDigest) }}>
                   {t('episodeDeliverMp4')}
                 </Button>
                 {episodeDelivering && <p className={css.label} role="status">{t('episodeDelivering')}</p>}
@@ -483,7 +480,7 @@ export function VideoRecoverySection({ t, controls }: RecoveryProps): ReactNode 
           footer={(
             <>
               <Button variant="outline" data-modal-autofocus={needsReason || needsPath ? undefined : true} disabled={busy} onClick={() => { setPending(undefined) }}>{t('recoveryCancel')}</Button>
-              <Button variant="primary" disabled={busy || incomplete} onClick={confirm}>{t(isImport ? 'recoveryImportConfirm' : isExport || pending.action === 'createDraft'
+              <Button variant="primary" disabled={busy || incomplete} onClick={() => { confirm(pending.action, pending.report) }}>{t(isImport ? 'recoveryImportConfirm' : isExport || pending.action === 'createDraft'
                 ? actionLabels[pending.action] : 'recoveryConfirm')}</Button>
             </>
           )}

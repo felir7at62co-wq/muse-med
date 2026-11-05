@@ -593,8 +593,7 @@ export class JubianVideoRecovery extends TypertRemoteService {
         const { project, source, sha256 } = clip
         const signal = this.ctx.invocation?.signal ?? new AbortController().signal
         const report = await this.saveDraft(clip, provider, signal, true)
-        const draft = report.delivery?.draft
-        if (draft === undefined) throw new Error('The approved draft was not saved')
+        const draft = report.delivery.draft
         const directory = join(project, 'exports')
         await mkdir(directory, { recursive: true })
         if (!(await lstat(directory)).isDirectory() || relative(directory, await realpath(directory)) !== '') {
@@ -636,11 +635,14 @@ export class JubianVideoRecovery extends TypertRemoteService {
   }
 
   private async saveDraft({ project, report, source, sha256 }: Awaited<ReturnType<JubianVideoRecovery['approvedClip']>>,
-    provider: ApprovedClipDraftService, signal?: AbortSignal, recheck = false): Promise<VideoRecoveryReview> {
-    if (report.delivery !== undefined && !recheck) return report
+    provider: ApprovedClipDraftService, signal?: AbortSignal, recheck = false): Promise<VideoRecoveryReview & {
+      delivery: NonNullable<VideoRecoveryReview['delivery']>
+    }> {
+    const previous = report.delivery
+    if (previous !== undefined && !recheck) return { ...report, delivery: previous }
     const { path, name } = await provider.create({ projectDir: project, path: source, sha256, taskId: report.taskId }, signal)
     signal?.throwIfAborted()
-    if (report.delivery?.draft.path === path && report.delivery.draft.name === name) return report
+    if (previous?.draft.path === path && previous.draft.name === name) return { ...report, delivery: previous }
     const delivery = { draft: { path, name } }
     await writeFileAtomic(deliveryPath(project, report), JSON.stringify(delivery) + '\n', { mode: 0o600 })
     return { ...report, delivery }
@@ -762,9 +764,10 @@ export class JubianVideoRecovery extends TypertRemoteService {
     return path !== undefined && isAbsolute(path) && await regularFile(path)
   }
 
+  /** Requires the immutable decoder path to have passed decoderAvailable(). */
   private startWorker(projectDir: string): void {
-    const ffmpegPath = this.options.ffmpegPath
-    if (this.state.closing || ffmpegPath === undefined) return
+    const ffmpegPath = this.options.ffmpegPath as string
+    if (this.state.closing) return
     const controller = new AbortController()
     const done = runVideoRecovery(this.options.clientForProject(projectDir), this.options.ledger, projectDir,
       undefined, this.options.intervalMs, controller.signal,

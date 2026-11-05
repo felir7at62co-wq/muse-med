@@ -113,8 +113,7 @@ export async function artifactHash(path: string, signal?: AbortSignal): Promise<
     await regularReport(path)
     const hash = createHash('sha256')
     let size = 0
-    for await (const bytes of createReadStream(path, { signal })) {
-      if (!Buffer.isBuffer(bytes)) throw new Error('Managed video must be read as bytes')
+    for await (const bytes of createReadStream(path, { signal }) as AsyncIterable<Buffer>) {
       size += bytes.length
       if (size > MEDIA_LIMITS.video) throw new Error('Managed video exceeds the media limit')
       hash.update(bytes)

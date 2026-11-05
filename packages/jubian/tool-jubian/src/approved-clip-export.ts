@@ -97,7 +97,7 @@ export async function verifyApprovedClipExport(projectDir: string, source: strin
   const exportPath = join(projectDir, path)
   const folder = await lstat(dirname(exportPath))
   const file = await lstat(exportPath)
-  if (!folder.isDirectory() || folder.isSymbolicLink() || !file.isFile() || file.isSymbolicLink()
+  if (!folder.isDirectory() || !file.isFile()
     || file.size > MEDIA_LIMITS.video || relative(exportPath, await realpath(exportPath)) !== '') {
     throw new Error('Select a regular export file within the project')
   }

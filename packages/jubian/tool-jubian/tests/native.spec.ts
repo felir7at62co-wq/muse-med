@@ -316,7 +316,7 @@ it('preserves numeric official identity and a string use flag while ignoring unr
   const provider: FakeProvider = { calls: [], storyboard, tasks: [], subtasks: {},
     assets: { ...ASSETS, '81285': { ...ASSETS['81285'], url: URL_LEAD } },
     subjectPage: page => ({ rows: page === 1 ? [{ id: 40 }, { id: 41, assetId: '' }, { id: 42, assetId: 999999 },
-      { ...SUBJECT_ROWS[0], hsAssetId: 11, isUsed: ' 1 ' }, SUBJECT_ROWS[1]] : [] }) }
+      { ...SUBJECT_ROWS[0], id: ' 1 ', hsAssetId: 11, isUsed: ' 1 ' }, SUBJECT_ROWS[1]] : [] }) }
   expect(await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: await project() }))
     .toMatchObject({ status: 'prepared' })
   expect(putCalls(provider)).toEqual([])
@@ -1148,7 +1148,7 @@ describe('submit_video', () => {
     expect(putCalls(provider)).toHaveLength(1)
     expect(putCalls(provider)[0]?.body?.isGenerate).toBe(1)
     expect(result).toMatchObject({ replayed: false, outcome: 'accepted', status: 'submitted', task_id: '335343' })
-    expect(await recoverVideoSubmission(clientFor(provider), reopened, directory, idempotencyKey))
+    expect(await recoverVideoSubmission(clientFor(provider), reopened, directory, idempotencyKey, new AbortController().signal))
       .toMatchObject({ replayed: true, outcome: 'accepted', status: 'submitted', task_id: '335343' })
     expect(putCalls(provider)).toHaveLength(1)
   })
@@ -2252,6 +2252,14 @@ describe('bare singleton list responses through the client', () => {
   const config = { ...MODEL_CONFIG, prompt: onePrompt, materialList: [] }
   const board = { ...STORYBOARD, modelConfig: JSON.stringify(config), storyboardMaterialList: [] }
   const selections = [{ material_key: 'lead', asset_id: 81285 }]
+
+  it('rejects malformed inventory totals before saving a selection', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
+      subjectPage: () => ({ total: 'invalid', rows: [SUBJECT_ROWS[0]] }) }
+    await expect(selectAssetsMethod(clientFor(provider), ledger, { storyboard_id: 916953, selections,
+      idempotency_key: 'invalid-inventory-total' })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(putCalls(provider)).toEqual([])
+  })
 
   it.each([{ tasks: [] }, { tasks: [{ id: 9, scriptId: 2708, storyboardId: 999999 }] },
     { tasks: [{ id: 9, scriptId: 2708, storyboardId: 999999 }, { id: 10, scriptId: 2708, storyboardId: 999999 }] }])

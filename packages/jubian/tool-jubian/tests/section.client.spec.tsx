@@ -7,9 +7,10 @@
  * package's own `en` dictionary so every assertion reads the copy a user sees,
  * and the injected face is a stub standing in for the Host.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { JubianTokenSection } from '../src/client/JubianTokenSection.tsx'
+import { VideoRecoverySection, type VideoRecoveryControls } from '../src/client/VideoRecoverySection.tsx'
 import type {
   JubianTokenOutcome,
   JubianTokenSectionProps,
@@ -17,6 +18,7 @@ import type {
 } from '../src/client/JubianTokenSection.tsx'
 import { en, type JubianLocaleKey } from '../src/client/locales.ts'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { VideoRecoveryReview, VideoRecoveryStatus } from '../src/types.ts'
 
 afterEach(cleanup)
@@ -30,6 +32,246 @@ const t = ((key: JubianLocaleKey, params?: Record<string, string | number>): str
 const CONFIGURED: JubianTokenStatus = { configured: true, source: 'file', writable: true }
 const ABSENT: JubianTokenStatus = { configured: false, writable: true }
 const READ_ONLY: JubianTokenStatus = { configured: true, source: 'env', writable: false }
+
+function recoveryFixture(overrides: Partial<VideoRecoveryStatus> = {}, reportOverrides: Partial<VideoRecoveryReview> = {}) {
+  const report: VideoRecoveryReview = { idempotencyKey: 'fixture-video', taskId: 9, status: 'awaiting_review',
+    digest: 'fixture-digest', decision: null, mediaChecks: [{ sha256: 'sha256:' + 'a'.repeat(64), video: true, audio: true }],
+    ...reportOverrides }
+  const status: VideoRecoveryStatus = { enabled: true, configurable: true, decoderAvailable: true,
+    projectDir: '/project', reports: [report], ...overrides }
+  const controls = {
+    status: vi.fn<VideoRecoveryControls['status']>(async () => ({ ok: true, value: status })),
+    configure: vi.fn<VideoRecoveryControls['configure']>(async () => ({ ok: true, value: status })),
+    review: vi.fn<VideoRecoveryControls['review']>(async () => ({ ok: true, value: report })),
+    adopt: vi.fn<VideoRecoveryControls['adopt']>(async () => ({ ok: true, value: report })),
+    createDraft: vi.fn<VideoRecoveryControls['createDraft']>(async () => ({ ok: true, value: report })),
+    verifyExport: vi.fn<VideoRecoveryControls['verifyExport']>(async () => ({ ok: true, value: report })),
+    deliverApprovedClip: vi.fn<VideoRecoveryControls['deliverApprovedClip']>(async () => ({ ok: true, value: report })),
+    deliverApprovedMp4: vi.fn<VideoRecoveryControls['deliverApprovedMp4']>(async () => ({ ok: true, value: report })),
+    deliverApprovedEpisode: vi.fn<VideoRecoveryControls['deliverApprovedEpisode']>(async () => ({ ok: true, value: {
+      episode: 1, approvedShots: 1, totalShots: 1, readiness: 'ready', missing: [],
+    } })),
+    pickDirectory: vi.fn(async (): Promise<string | null> => '/picked'),
+  }
+  return { controls, report, status }
+}
+
+describe('project recovery controls', () => {
+
+  it.each([new Error('Refresh unavailable'), 'Refresh unavailable'])('reports post-review refresh errors safely (%s)', async (failure) => {
+    const f = recoveryFixture()
+    render(<VideoRecoverySection t={t} controls={f.controls} />)
+    fireEvent.click(await screen.findByRole('button', { name: en.recoveryApprove }))
+    f.controls.status.mockRejectedValueOnce(failure)
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en.recoveryConfirm }))
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', t('failed', { reason: 'Refresh unavailable' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('keeps a busy review dialog open until the Host settles and shows thrown diagnostics', async () => {
+    const f = recoveryFixture()
+    const pending = Promise.withResolvers<RemoteResult<VideoRecoveryReview>>()
+    f.controls.review.mockReturnValueOnce(pending.promise)
+    render(<VideoRecoverySection t={t} controls={f.controls} />)
+    fireEvent.click(await screen.findByRole('button', { name: en.recoveryApprove }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en.recoveryConfirm }))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByRole('dialog')).toBeDefined()
+    pending.reject('Host disconnected')
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', t('failed', { reason: 'Host disconnected' }))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+  })
+
+  it('refreshes a missing folder without inventing a project selection', async () => {
+    const f = recoveryFixture({ projectDir: undefined, reports: [] })
+    f.controls.status.mockRejectedValueOnce('unavailable')
+    render(<VideoRecoverySection t={t} controls={f.controls} />)
+    await screen.findByRole('alert')
+    fireEvent.click(screen.getByRole('button', { name: en.recoveryRefresh }))
+    expect(await screen.findByLabelText(en.recoveryFolder)).toHaveProperty('value', '')
+  })
+
+  it('retains a newly selected project when the previous episode export resolves later', async () => {
+    const f = recoveryFixture({ reports: [], episodes: [
+      { episode: 1, approvedShots: 1, totalShots: 1, readiness: 'ready', missing: [], digest: 'old-plan' },
+    ] })
+    const pending = Promise.withResolvers<Awaited<ReturnType<VideoRecoveryControls['deliverApprovedEpisode']>>>()
+    f.controls.deliverApprovedEpisode.mockReturnValueOnce(pending.promise)
+    const view = render(<VideoRecoverySection t={t} controls={f.controls} />)
+    fireEvent.click(await screen.findByRole('button', { name: en.episodeDeliverMp4 }))
+    const next = recoveryFixture({ projectDir: '/next', reports: [], episodes: undefined })
+    view.rerender(<VideoRecoverySection t={t} controls={next.controls} />)
+    await screen.findByText('/next')
+    pending.resolve({ ok: true, value: { ...f.status.episodes![0]!, delivery: {
+      path: 'exports/stale.mp4', sha256: 'f'.repeat(64), durationSeconds: 1, checks: [],
+    } } })
+    await waitFor(() => { expect(screen.queryByText(en.episodeDelivering)).toBeNull() })
+    expect(screen.queryByText('exports/stale.mp4')).toBeNull()
+    expect(screen.getByLabelText(en.recoveryFolder)).toHaveProperty('value', '/next')
+  })
+  it.each([new Error('Unavailable'), 'plain rejection'])('recovers from an initial status failure %s by refreshing the project', async (failure) => {
+    const f = recoveryFixture({ reports: [] })
+    f.controls.status.mockRejectedValueOnce(failure)
+    render(<VideoRecoverySection t={t} controls={f.controls} />)
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', t('failed', { reason: failure instanceof Error ? failure.message : failure }))
+    fireEvent.click(screen.getByRole('button', { name: en.recoveryRefresh }))
+    expect(await screen.findByLabelText(en.recoveryFolder)).toHaveProperty('value', '/project')
+    expect(screen.getByText(en.recoveryEmpty)).toBeDefined()
+  })
+
+  it.each(['resolve', 'reject'] as const)('ignores a %s status reply after unmount', async (outcome) => {
+    const f = recoveryFixture()
+    const pending = Promise.withResolvers<RemoteResult<VideoRecoveryStatus>>()
+    f.controls.status.mockReturnValueOnce(pending.promise)
+    const view = render(<VideoRecoverySection t={t} controls={f.controls} />)
+    expect(view.container.querySelector('[aria-busy="true"]')).not.toBeNull()
+    view.unmount()
+    if (outcome === 'resolve') pending.resolve({ ok: true, value: f.status })
+    else pending.reject('late failure')
+    await pending.promise.catch(() => {})
+    await Promise.resolve()
+    expect(view.container.childElementCount).toBe(0)
+  })
+
+  it('chooses and trims a project, disables recovery, and retains edits across refresh', async () => {
+    const f = recoveryFixture({ enabled: false, projectDir: undefined, reports: [] })
+    render(<VideoRecoverySection t={t} controls={f.controls} />)
+    await screen.findByText(en.recoveryDisabled)
+    fireEvent.click(screen.getByRole('button', { name: en.recoveryChoose }))
+    await waitFor(() => { expect(screen.getByLabelText(en.recoveryFolder)).toHaveProperty('value', '/picked') })
+    f.controls.pickDirectory.mockResolvedValueOnce(null)
+    fireEvent.click(screen.getByRole('button', { name: en.recoveryChoose }))
+    await waitFor(() => { expect(f.controls.pickDirectory).toHaveBeenCalledTimes(2) })
+    fireEvent.change(screen.getByLabelText(en.recoveryFolder), { target: { value: ' /new-project ' } })
+    const enabled = { ...f.status, enabled: true, projectDir: '/new-project' }
+    f.controls.configure.mockResolvedValueOnce({ ok: true, value: enabled })
+    fireEvent.click(screen.getByRole('button', { name: en.recoveryEnable }))
+    expect(await screen.findByText(en.recoveryEnabled)).toBeDefined()
+    expect(f.controls.configure).toHaveBeenLastCalledWith({ enabled: true, projectDir: '/new-project' })
+    fireEvent.change(screen.getByLabelText(en.recoveryFolder), { target: { value: '/unsaved' } })
+    f.controls.status.mockResolvedValueOnce({ ok: true, value: enabled })
+    fireEvent.click(screen.getByRole('button', { name: en.recoveryRefresh }))
+    await waitFor(() => { expect(f.controls.status).toHaveBeenCalledTimes(2) })
+    expect(screen.getByLabelText(en.recoveryFolder)).toHaveProperty('value', '/unsaved')
+    f.controls.configure.mockResolvedValueOnce({ ok: true, value: f.status })
+    fireEvent.click(screen.getByRole('button', { name: en.recoveryDisable }))
+    await screen.findByText(en.recoveryDisabled)
+    expect(f.controls.configure).toHaveBeenLastCalledWith({ enabled: false })
+  })
+
+  it.each(['approve', 'reject', 'adopt', 'createDraft', 'verifyExport'] as const)('confirms the %s action against the displayed report digest', async (action) => {
+    const approved = action === 'createDraft' || action === 'verifyExport'
+    const delivery = { draft: { name: 'Reviewed draft', path: 'drafts/reviewed' } }
+    const f = recoveryFixture({ draftAvailable: true }, { decision: approved ? 'approve' : null,
+      ...(action === 'verifyExport' ? { delivery } : {}) })
+    const saved: VideoRecoveryReview = { ...f.report,
+      ...(action === 'approve' || action === 'reject' ? { decision: action } : {}),
+      ...(action === 'reject' ? { reason: 'Fix framing' } : {}),
+      ...(action === 'adopt' ? { derivative: { path: 'media/updated.mp4', sha256: 'a'.repeat(64) } } : {}),
+      ...(action === 'createDraft' ? { delivery } : {}),
+      ...(action === 'verifyExport' ? { delivery: { ...delivery, export: {
+        path: 'exports/approved.mp4', sha256: 'b'.repeat(64), videoSimilarity: 1, audioSimilarity: 1,
+      } } } : {}),
+    }
+    f.controls[action === 'approve' || action === 'reject' ? 'review' : action].mockResolvedValueOnce({ ok: true, value: saved })
+    render(<VideoRecoverySection t={t} controls={f.controls} />)
+    const labels = { approve: en.recoveryApprove, reject: en.recoveryReject, adopt: en.recoveryImport,
+      createDraft: en.recoveryCreateDraft, verifyExport: en.recoveryVerifyExport }
+    fireEvent.click(await screen.findByRole('button', { name: labels[action] }))
+    const dialog = screen.getByRole('dialog')
+    const confirmLabel = action === 'adopt' ? en.recoveryImportConfirm
+      : action === 'createDraft' || action === 'verifyExport' ? labels[action] : en.recoveryConfirm
+    const confirm = within(dialog).getByRole('button', { name: confirmLabel })
+    if (action === 'reject') {
+      expect(confirm.hasAttribute('disabled')).toBe(true)
+      fireEvent.change(screen.getByLabelText(en.recoveryReason), { target: { value: ' Fix framing ' } })
+    }
+    if (action === 'adopt' || action === 'verifyExport') {
+      expect(confirm.hasAttribute('disabled')).toBe(true)
+      fireEvent.change(screen.getByLabelText(action === 'adopt' ? en.recoveryLocalPath : en.recoveryExportPath),
+        { target: { value: ' media/updated.mp4 ' } })
+    }
+    f.controls.status.mockResolvedValueOnce({ ok: true, value: { ...f.status, reports: [saved] } })
+    fireEvent.click(confirm)
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    const target = { idempotencyKey: f.report.idempotencyKey, digest: f.report.digest }
+    if (action === 'approve' || action === 'reject') {
+      expect(f.controls.review).toHaveBeenCalledWith({ ...target, action, ...(action === 'reject' ? { reason: 'Fix framing' } : {}) })
+      expect(f.controls.status).toHaveBeenCalledTimes(2)
+    } else if (action === 'adopt' || action === 'verifyExport') {
+      expect(f.controls[action]).toHaveBeenCalledWith({ ...target, path: 'media/updated.mp4' })
+    } else expect(f.controls.createDraft).toHaveBeenCalledWith(target)
+  })
+
+  it('keeps a rejected review dialog open and reports failure without changing the decision', async () => {
+    const f = recoveryFixture()
+    f.controls.review.mockResolvedValueOnce({ ok: false, error: new RemoteError('gateway/internal', '', {}) })
+    render(<VideoRecoverySection t={t} controls={f.controls} />)
+    fireEvent.click(await screen.findByRole('button', { name: en.recoveryApprove }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en.recoveryConfirm }))
+    expect(await screen.findByRole('alert')).toHaveProperty('textContent', t('failed', { reason: 'gateway/internal' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByText(en.recoveryCancel))
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    expect(f.controls.status).toHaveBeenCalledOnce()
+  })
+
+  it('reports a refresh failure after saving a review and cancels a subsequent dialog with Escape', async () => {
+    const f = recoveryFixture()
+    f.controls.status.mockRejectedValueOnce(new Error('initial'))
+    f.controls.status.mockResolvedValueOnce({ ok: true, value: f.status })
+    render(<VideoRecoverySection t={t} controls={f.controls} />)
+    await screen.findByRole('alert')
+    fireEvent.click(screen.getByRole('button', { name: en.recoveryRefresh }))
+    fireEvent.click(await screen.findByRole('button', { name: en.recoveryApprove }))
+    f.controls.status.mockRejectedValueOnce('refresh failed')
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: en.recoveryConfirm }))
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+    expect(screen.getByRole('alert')).toHaveProperty('textContent', t('failed', { reason: 'refresh failed' }))
+    fireEvent.click(screen.getByRole('button', { name: en.recoveryReject }))
+    fireEvent.keyDown(document, { key: 'Escape' })
+    await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+  })
+
+  it('selects a ready episode and publishes its exact MP4 receipt while retaining other episodes', async () => {
+    const f = recoveryFixture({ reports: [], episodeRendererAvailable: true, episodes: [
+      { episode: 1, approvedShots: 0, totalShots: 1, readiness: 'incomplete', missing: ['P01'] },
+      { episode: 2, approvedShots: 0, totalShots: 1, readiness: 'invalid', missing: ['Invalid input'] },
+      { episode: 3, approvedShots: 1, totalShots: 1, readiness: 'ready', missing: [], digest: 'episode-digest' },
+    ] })
+    const pending = Promise.withResolvers<Awaited<ReturnType<VideoRecoveryControls['deliverApprovedEpisode']>>>()
+    f.controls.deliverApprovedEpisode.mockReturnValueOnce(pending.promise)
+    render(<VideoRecoverySection t={t} controls={f.controls} />)
+    const selector = await screen.findByLabelText(en.episodeDeliveryEpisode)
+    expect(screen.getByRole('button', { name: en.episodeDeliverMp4 }).hasAttribute('disabled')).toBe(true)
+    fireEvent.change(selector, { target: { value: '2' } })
+    expect(screen.getByText(t('episodeDeliveryInvalid', { shots: 'Invalid input', reason: 'Invalid input' }))).toBeDefined()
+    fireEvent.change(selector, { target: { value: '3' } })
+    fireEvent.click(screen.getByRole('button', { name: en.episodeDeliverMp4 }))
+    expect(f.controls.deliverApprovedEpisode).toHaveBeenCalledWith({ episode: 3, digest: 'episode-digest' })
+    expect(screen.getByText(en.episodeDelivering)).toBeDefined()
+    pending.resolve({ ok: true, value: { ...f.status.episodes![2]!, delivery: {
+      path: 'exports/episode.mp4', sha256: 'f'.repeat(64), durationSeconds: 5.125, checks: [],
+    } } })
+    expect(await screen.findByText('exports/episode.mp4')).toBeDefined()
+    expect(screen.queryByText(en.episodeDelivering)).toBeNull()
+    fireEvent.change(selector, { target: { value: '1' } })
+    expect(screen.getByText(t('episodeDeliveryIncomplete', { shots: 'P01', reason: 'P01' }))).toBeDefined()
+  })
+
+  it('shows unavailable rendering and failed media without offering a decision for a provider failure', async () => {
+    const f = recoveryFixture({ configurable: false, episodeRendererAvailable: false, episodes: [
+      { episode: 1, approvedShots: 1, totalShots: 1, readiness: 'ready', missing: [], digest: 'digest' },
+    ] }, { status: 'provider_failed', mediaChecks: [{ sha256: 'unknown', video: false, audio: false }] })
+    render(<VideoRecoverySection t={t} controls={f.controls} />)
+    await screen.findByText(en.recoveryReadOnly)
+    expect(screen.getByText(en.episodeRendererUnavailable)).toBeDefined()
+    expect(screen.getByText(en.recoveryProviderFailed)).toBeDefined()
+    expect(screen.getByText(en.recoveryVideoFail)).toBeDefined()
+    expect(screen.queryByRole('button', { name: en.recoveryApprove })).toBeNull()
+    expect(screen.getByRole('button', { name: en.episodeDeliverMp4 }).hasAttribute('disabled')).toBe(true)
+  })
+})
 
 /** One successful answer carrying the status the Host reported. */
 function ok(status: JubianTokenStatus): JubianTokenOutcome {

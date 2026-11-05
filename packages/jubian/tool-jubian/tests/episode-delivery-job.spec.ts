@@ -1,15 +1,19 @@
 /** Episode delivery resumes verified publication from project-local state. */
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import * as files from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { episodeDeliveryReceiptPath, readApprovedEpisodePlan, readEpisodeDelivery } from '../src/episode-delivery.ts'
-import { episodeFileExists, publishEpisodeCandidate, writeEpisodeJob } from '../src/episode-delivery-job.ts'
+import { ensureEpisodeDirectory, episodeFileExists, publishEpisodeCandidate, readEpisodeJob, removeEpisodeJobFile,
+  writeEpisodeJob } from '../src/episode-delivery-job.ts'
 import { reviewRecoveredVideo } from '../src/video-recovery.ts'
 import { JubianVideoRecovery } from '../src/video-recovery-service.ts'
+
+vi.mock('node:fs/promises', async importOriginal => ({ ...await importOriginal<typeof import('node:fs/promises')>() }))
 
 const sha256 = (bytes: string) => createHash('sha256').update(bytes).digest('hex')
 
@@ -168,4 +172,145 @@ it('keeps the receipt for an already published MP4 when configuration changes be
   expect(stale).toMatchObject({ readiness: 'invalid' })
   expect(stale).not.toHaveProperty('delivery')
   expect(f.render).not.toHaveBeenCalled()
+})
+
+it('creates missing real directories and rejects file and linked paths', async () => {
+  const f = await fixture()
+  const nested = join(f.project, 'new', 'nested')
+  await ensureEpisodeDirectory(nested)
+  expect((await files.lstat(nested)).isDirectory()).toBe(true)
+  await writeFile(f.candidate, f.media)
+  await expect(ensureEpisodeDirectory(f.candidate)).rejects.toThrow('real project directory')
+  await expect(ensureEpisodeDirectory(f.project + '/editing/..')).rejects.toThrow('real project directory')
+  const alias = join(f.project, 'directory-link')
+  await symlink(nested, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  await expect(ensureEpisodeDirectory(alias)).rejects.toThrow('real project directory')
+  await expect(episodeFileExists(nested)).rejects.toThrow('regular file')
+  const fileLink = join(f.project, 'candidate-link.mp4')
+  await symlink(f.candidate, fileLink, 'file')
+  await expect(episodeFileExists(fileLink)).rejects.toThrow('regular file')
+})
+
+it.each([
+  new Error('unclassified storage failure'),
+  Object.assign(new Error('storage denied'), { code: 'EACCES' }),
+  'storage unavailable',
+])('preserves an unexpected filesystem failure (%j)', async (failure) => {
+  const f = await fixture()
+  for (const read of [episodeFileExists, ensureEpisodeDirectory]) {
+    const inspect = vi.spyOn(files, 'lstat').mockRejectedValueOnce(failure)
+    try { await expect(read(f.candidate)).rejects.toBe(failure) }
+    finally { inspect.mockRestore() }
+  }
+})
+
+it.each([
+  new Error('mkdir failed'),
+  Object.assign(new Error('mkdir denied'), { code: 'EACCES' }),
+  'mkdir unavailable',
+])('preserves a directory-creation failure (%j)', async (failure) => {
+  const f = await fixture()
+  const create = vi.spyOn(files, 'mkdir').mockRejectedValueOnce(failure)
+  try { await expect(ensureEpisodeDirectory(join(f.project, 'new-folder'))).rejects.toBe(failure) }
+  finally { create.mockRestore() }
+})
+
+it('accepts a directory created by another writer after its missing-file observation', async () => {
+  const f = await fixture()
+  const directory = join(f.project, 'raced-folder')
+  const create = files.mkdir
+  const mkdir = vi.spyOn(files, 'mkdir').mockImplementationOnce(async () => {
+    await create(directory)
+    throw Object.assign(new Error('created concurrently'), { code: 'EEXIST' })
+  })
+  try { await ensureEpisodeDirectory(directory) }
+  finally { mkdir.mockRestore() }
+  expect((await files.lstat(directory)).isDirectory()).toBe(true)
+})
+
+it('reads a pending journal and removes only an existing owned job file', async () => {
+  const f = await fixture()
+  expect(await readEpisodeJob(f.job)).toBeUndefined()
+  const pending = { phase: 'pending', attempt: f.attempt, inputHashes: f.delivery.inputHashes } as const
+  await writeEpisodeJob(f.job, pending)
+  expect(await readEpisodeJob(f.job)).toEqual(pending)
+  await removeEpisodeJobFile(f.job)
+  await removeEpisodeJobFile(f.job)
+  expect(await episodeFileExists(f.job)).toBe(false)
+})
+
+it.each([
+  new Error('link failed'),
+  Object.assign(new Error('link denied'), { code: 'EACCES' }),
+  'link unavailable',
+])('preserves a publication link failure (%j)', async (failure) => {
+  const f = await fixture()
+  await writeFile(f.candidate, f.media)
+  const create = vi.spyOn(files, 'link').mockRejectedValueOnce(failure)
+  try {
+    await expect(publishEpisodeCandidate(f.candidate, f.output, f.delivery.sha256,
+      new AbortController().signal, async () => {})).rejects.toBe(failure)
+  } finally { create.mockRestore() }
+  expect(await episodeFileExists(f.output)).toBe(false)
+})
+
+it.each([true, false])('verifies the competing writer after a publication race, present=%s', async (present) => {
+  const f = await fixture()
+  await writeFile(f.candidate, f.media)
+  const create = vi.spyOn(files, 'link').mockImplementationOnce(async () => {
+    if (present) await writeFile(f.output, f.media)
+    throw Object.assign(new Error('other writer claimed the name'), { code: 'EEXIST' })
+  })
+  try {
+    const publication = publishEpisodeCandidate(f.candidate, f.output, f.delivery.sha256,
+      new AbortController().signal, async () => {})
+    if (present) await publication
+    else await expect(publication).rejects.toThrow('existing episode output does not match')
+  } finally { create.mockRestore() }
+})
+
+it('preserves a different file that replaces the candidate link during publication', async () => {
+  const f = await fixture()
+  await writeFile(f.candidate, f.media)
+  const link = files.link
+  const create = vi.spyOn(files, 'link').mockImplementationOnce(async (candidate, output) => {
+    await link(candidate, output)
+    await unlink(f.output)
+    await writeFile(f.output, 'replacement')
+  })
+  try {
+    await expect(publishEpisodeCandidate(f.candidate, f.output, f.delivery.sha256,
+      new AbortController().signal, async () => {})).rejects.toThrow('candidate changed during publication')
+  } finally { create.mockRestore() }
+  expect(await readFile(f.output, 'utf8')).toBe('replacement')
+})
+
+it('removes its own output link when its bytes change before final verification', async () => {
+  const f = await fixture()
+  await writeFile(f.candidate, f.media)
+  const link = files.link
+  const create = vi.spyOn(files, 'link').mockImplementationOnce(async (candidate, output) => {
+    await link(candidate, output)
+    await writeFile(f.output, 'changed')
+  })
+  try {
+    await expect(publishEpisodeCandidate(f.candidate, f.output, f.delivery.sha256,
+      new AbortController().signal, async () => {})).rejects.toThrow('existing episode output does not match')
+  } finally { create.mockRestore() }
+  expect(await episodeFileExists(f.output)).toBe(false)
+  expect(await readFile(f.candidate, 'utf8')).toBe('changed')
+})
+
+it('rejects a missing private candidate before trying publication', async () => {
+  const f = await fixture()
+  await expect(publishEpisodeCandidate(f.candidate, f.output, f.delivery.sha256,
+    new AbortController().signal, async () => {})).rejects.toThrow('candidate is missing or changed')
+})
+
+it('verifies an already published matching output without requiring a private candidate', async () => {
+  const f = await fixture()
+  await writeFile(f.output, f.media)
+  await publishEpisodeCandidate(f.candidate, f.output, f.delivery.sha256, new AbortController().signal, async () => {})
+  expect(await readFile(f.output, 'utf8')).toBe(f.media)
+  expect(await episodeFileExists(f.candidate)).toBe(false)
 })

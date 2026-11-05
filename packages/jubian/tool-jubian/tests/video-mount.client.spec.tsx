@@ -117,3 +117,22 @@ it('reuses the Session selector in Bot details and survives a missing or replace
   expect(b.remote.catalogue).toHaveBeenCalledTimes(2)
   await dispose()
 })
+
+it('keeps a replacement Session directory when the previous scope disposes later', async () => {
+  const b = await bench(async () => ({ ok: true, value: true }))
+  const dispose = await mountJubianTokenSettings(b.ctx, contribution)
+  await vi.waitFor(() => { expect(b.slots.entries('conversation.input.right')).toHaveLength(1) })
+  const inject = b.slots.entries('conversation.input.right')[0]!.inject as (id: SessionId) => VideoModelSelectInjected
+  const previous = inject(SessionId('present'))
+  const replacement = new Context()
+  onTestFinished(async () => { await replacement.fiber.dispose() })
+  b.sessionScopes.set(SessionId('present'), replacement)
+  const current = inject(SessionId('present'))
+  expect(current.hooks.videoState).not.toBe(previous.hooks.videoState)
+  await b.sessionScope.fiber.dispose()
+  expect(inject(SessionId('present')).hooks.videoState).toBe(current.hooks.videoState)
+  await current.load()
+  expect(current.hooks.videoState.getSnapshot().options).toEqual([option])
+  await dispose()
+  expect(b.unsubscribe).toHaveBeenCalledTimes(2)
+})

@@ -27,7 +27,7 @@ function missing(error: unknown): boolean {
 async function episodeFile(path: string): Promise<Stats | undefined> {
   try {
     const info = await lstat(path)
-    if (!info.isFile() || info.isSymbolicLink()) throw new Error('Episode delivery requires a regular file: ' + path)
+    if (!info.isFile()) throw new Error('Episode delivery requires a regular file: ' + path)
     return info
   } catch (error) {
     if (missing(error)) return undefined
@@ -62,7 +62,7 @@ export async function ensureEpisodeDirectory(path: string): Promise<void> {
     }
     info = await lstat(path)
   }
-  if (!info.isDirectory() || info.isSymbolicLink() || await realpath(path) !== path) {
+  if (!info.isDirectory() || await realpath(path) !== path) {
     throw new Error('Episode delivery requires a real project directory')
   }
 }

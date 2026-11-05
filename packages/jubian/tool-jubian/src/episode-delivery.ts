@@ -57,7 +57,7 @@ async function projectFile(projectDir: string, value: string): Promise<string> {
   const actual = await realpath(path)
   if (!inside(root, actual)) throw new Error('Episode delivery input escapes the selected project')
   const entry = await lstat(path)
-  if (!entry.isFile() || entry.isSymbolicLink()) throw new Error('Episode delivery input must be a regular project file')
+  if (!entry.isFile()) throw new Error('Episode delivery input must be a regular project file')
   return actual
 }
 
@@ -187,7 +187,7 @@ export async function listApprovedEpisodeNumbers(projectDir: string): Promise<nu
   }
   return entries.flatMap((entry) => {
     const match = /^(\d{2})-episode-delivery\.json$/u.exec(entry.name)
-    return entry.isFile() && !entry.isSymbolicLink() && match?.[1] ? [Number(match[1])] : []
+    return entry.isFile() && match?.[1] ? [Number(match[1])] : []
   }).sort((a, b) => a - b)
 }
 
@@ -233,7 +233,7 @@ export async function readEpisodeDelivery(
   const path = episodeDeliveryReceiptPath(projectDir, episode, digest)
   try {
     const entry = await lstat(path)
-    if (!entry.isFile() || entry.isSymbolicLink()) throw new Error('Episode delivery receipt must be a regular file')
+    if (!entry.isFile()) throw new Error('Episode delivery receipt must be a regular file')
     const receipt = parseEpisodeDelivery(JSON.parse(await readFile(path, 'utf8')))
     if (receipt.path !== `exports/Supermuse-episode-${String(episode).padStart(2, '0')}-${digest}.mp4`) {
       throw new Error('Episode delivery receipt does not match its episode plan')
