@@ -14,7 +14,7 @@ function isHoistedLocations(value: unknown): value is Record<string, string[]> {
  * Different peer resolutions and third-party packages keep their installed locations.
  * All metadata paths are checked before deletion; the caller first materializes links.
  * @param staging - Symlink-free deployed payload root.
- * @param workspace - Workspace root relative to which pnpm records hoisted locations.
+ * @param workspace - Base directory for legacy workspace-relative hoist paths.
  */
 export async function deduplicateStagedWorkspacePackages(staging: string, workspace: string): Promise<void> {
   const modules = resolve(staging, 'node_modules')
@@ -27,12 +27,16 @@ export async function deduplicateStagedWorkspacePackages(staging: string, worksp
   const duplicates: string[] = []
   for (const [identity, locations] of Object.entries(manifest.hoistedLocations)) {
     const paths = locations.map((location) => {
-      const path = resolve(workspace, location)
-      const local = relative(modules, path)
-      if (local === '' || local === '..' || local.startsWith(`..${sep}`) || isAbsolute(local)) {
-        throw new Error(`${file}: hoistedLocations path is outside deployed node_modules: ${location}`)
+      // pnpm 12 also emits node_modules paths relative to the deploy target.
+      const bases = /^node_modules[/\\]/u.test(location) ? [workspace, staging] : [workspace]
+      for (const base of bases) {
+        const path = resolve(base, location)
+        const local = relative(modules, path)
+        if (local !== '' && local !== '..' && !local.startsWith(`..${sep}`) && !isAbsolute(local)) {
+          return { path, parts: local.split(sep) }
+        }
       }
-      return { path, parts: local.split(sep) }
+      throw new Error(`${file}: hoistedLocations path is outside deployed node_modules: ${location}`)
     })
     if (!/^(?:@[^/]+\/)?[^@()]+@file:/.test(identity)) continue
     const root = paths.find(({ parts }) => parts.length === (parts[0]?.startsWith('@') === true ? 2 : 1))

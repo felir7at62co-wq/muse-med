@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { join, relative, sep } from 'node:path'
 import { createRequire } from 'node:module'
 import { afterEach, expect, it } from 'vitest'
 import { deduplicateStagedWorkspacePackages, materializeStagedLinks } from './build-exe-for-python-sdk-staging.ts'
@@ -66,7 +66,7 @@ it('copies workspace package links as files and removes command shims', async ()
   expect(await listSymlinks(staging)).toEqual([])
 })
 
-it('shares an identical workspace package while retaining different peers and third-party copies', async () => {
+it.each(['workspace', 'staging'] as const)('shares matching packages from %s-relative hoist paths', async (layout) => {
   const workspace = await fixture('dsh-python-staging-dedupe-')
   const staging = join(workspace, 'payload')
   const modules = join(staging, 'node_modules')
@@ -79,7 +79,8 @@ it('shares an identical workspace package while retaining different peers and th
     await mkdir(directory, { recursive: true })
     await writeFile(join(directory, 'index.js'), 'exports.scheduler = Symbol("scheduler")\n')
   }
-  const locations = (paths: string[]) => paths.map(path => relative(workspace, path))
+  const locations = (paths: string[]) => paths.map(path => layout === 'workspace'
+    ? relative(workspace, path) : relative(staging, path).split(sep).join('/'))
   await writeFile(join(modules, '.modules.yaml'), JSON.stringify({ hoistedLocations: {
     '@fixture/tools@file:packages/tools(peer@1)': locations([root, duplicate]),
     '@fixture/tools@file:packages/tools(peer@2)': locations([differentPeers]),
@@ -112,6 +113,7 @@ it('rejects invalid deployment metadata before removing any package', async () =
     {},
     { hoistedLocations: { invalid: [42] } },
     { hoistedLocations: { ...valid, 'other@file:packages/other': [relative(workspace, outside)] } },
+    { hoistedLocations: { ...valid, 'other@file:packages/other': ['node_modules/../../source'] } },
   ]) {
     await writeFile(join(modules, '.modules.yaml'), JSON.stringify(invalid))
     await expect(deduplicateStagedWorkspacePackages(staging, workspace)).rejects.toThrow('hoistedLocations')
