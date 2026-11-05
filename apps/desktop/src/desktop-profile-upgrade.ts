@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, fsyncSync, openSync, closeSync, readFileSync,
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { DESKTOP_FEISHU_PACKAGE, DESKTOP_CODEX_PACKAGE } from './core-package-set.ts'
-import { disableRetiredBotProfilePatch, isRetiredBotBundle } from './retired-bot-profile.ts'
+import { disableRetiredBotProfilePatch, disableRetiredSubscriptionProfilePatch, isRetiredBotBundle } from './retired-bot-profile.ts'
 
 interface DesktopProjectManifest {
   readonly name: string
@@ -27,6 +27,7 @@ export const DESKTOP_PROFILE_BUNDLES = [
 ] as const
 const BUILT_IN_BUNDLE_LIST: readonly string[] = DESKTOP_PROFILE_BUNDLES
 const RETIRED_FEISHU_PACKAGE = '@dsh-feishu/dsh-feishu'
+const RETIRED_CODEX_PACKAGE = 'dsh-codex-subscription'
 const PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'
 const PACKAGE_NAME_PATTERN = /^(?:@[a-z0-9][a-z0-9._~-]*\/[a-z0-9][a-z0-9._~-]*|[a-z0-9][a-z0-9._~-]*)$/u
 
@@ -99,11 +100,14 @@ function profilePluginNames(projectDir: string): readonly string[] {
   const retiredPonytail = manifest.dsh.profile.bundles.includes('@mengyuly/dsh-ponytail')
   const retiredFeishu = manifest.dsh.profile.bundles.includes(RETIRED_FEISHU_PACKAGE)
   const retiredBot = manifest.dsh.profile.bundles.some(isRetiredBotBundle)
+  const retiredCodex = manifest.dsh.profile.bundles.includes(RETIRED_CODEX_PACKAGE)
+    || Object.hasOwn(manifest.dependencies, RETIRED_CODEX_PACKAGE)
   if (new Set(manifest.dsh.profile.bundles).size !== manifest.dsh.profile.bundles.length) {
     throw new Error('desktop project: profile bundle list contains a duplicate package')
   }
   const normalized = manifest.dsh.profile.bundles
-    .filter(bundle => bundle !== '@mengyuly/dsh-ponytail' && bundle !== RETIRED_FEISHU_PACKAGE && !isRetiredBotBundle(bundle))
+    .filter(bundle => bundle !== '@mengyuly/dsh-ponytail' && bundle !== RETIRED_FEISHU_PACKAGE
+      && bundle !== RETIRED_CODEX_PACKAGE && !isRetiredBotBundle(bundle))
     .map(bundle => bundle === '@moyu-good/dsh-lark-bridge' ? '@wenbin_wb/dsh-bridge' : bundle)
   const pending = pendingBuiltInBundles(normalized)
   const bundles = pending === undefined ? normalized : [...DESKTOP_PROFILE_BUNDLES, ...pending]
@@ -113,7 +117,8 @@ function profilePluginNames(projectDir: string): readonly string[] {
   const plugins = bundles.slice(DESKTOP_PROFILE_BUNDLES.length)
   for (const plugin of plugins) assertPackageName(plugin)
   disableRetiredBotProfilePatch(projectDir)
-  if (pending !== undefined || retired || retiredPonytail || retiredFeishu || retiredBot) {
+  disableRetiredSubscriptionProfilePatch(projectDir)
+  if (pending !== undefined || retired || retiredPonytail || retiredFeishu || retiredBot || retiredCodex) {
     backupProfileManifest(projectDir)
     if (retired) {
       const patchPath = join(projectDir, 'cordis.patch.yml')
@@ -123,6 +128,7 @@ function profilePluginNames(projectDir: string): readonly string[] {
     }
     writeJson(join(projectDir, 'package.json'), {
       ...manifest,
+      dependencies: Object.fromEntries(Object.entries(manifest.dependencies).filter(([name]) => name !== RETIRED_CODEX_PACKAGE)),
       dsh: { ...manifest.dsh, profile: { ...manifest.dsh.profile, bundles } },
     } satisfies DesktopProjectManifest)
   }
@@ -130,7 +136,7 @@ function profilePluginNames(projectDir: string): readonly string[] {
 }
 
 /**
- * Normalize only recognized product bundle generations, retaining user plugin order and all dependency data.
+ * Normalize recognized product bundles, removing the retired subscription dependency while retaining unrelated plugins and data files.
  * @param projectDir Initialized reserved Desktop profile; caller owns shutdown and the profile lock.
  * @returns Nothing; changed manifests and Bot patches receive private exact-content backups first.
  */

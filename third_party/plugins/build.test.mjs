@@ -97,7 +97,8 @@ test('builds every desktop plugin with its declared runtime entries and notices'
     const tarballs = readdirSync(first).filter(file => file.endsWith('.tgz'))
     assert.equal(tarballs.length, selectCommunitySources(pins).length)
     assert.ok(tarballs.every(name => !name.startsWith('ds-bot-')), 'default output excludes archived Bot')
-    assert.ok(tarballs.some(file => file.startsWith('dsh-codex-subscription-')))
+    assert.ok(tarballs.some(file => file.startsWith('dsh-plugin-subscriptions-')))
+    assert.ok(tarballs.every(file => !file.startsWith('dsh-codex-subscription-')), 'default output excludes retired Codex source')
     for (const tarball of tarballs) assertSameBytes(readFileSync(join(second, tarball)), readFileSync(join(first, tarball)), `${tarball} must reproduce from clean source`)
     for (const tarball of tarballs) {
       const list = spawnSync('tar', ['-tzf', join(first, tarball)], { encoding: 'utf8' })
