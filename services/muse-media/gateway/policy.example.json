@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "authorizationMode": "company-identities",
+  "allowedCompanyIdentities": [
+    {
+      "appId": "cli_company",
+      "tenantKey": "company_tenant"
+    }
+  ],
+  "allowedAccountIds": []
+}
