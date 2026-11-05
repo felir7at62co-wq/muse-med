@@ -1,9 +1,11 @@
 /** Desktop hands off a private MP4 only after verifying the staged render. */
 import { createHash } from 'node:crypto'
-import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { execFile } from 'node:child_process'
+import { mkdir, readFile, readdir, realpath, stat, symlink, unlink, writeFile } from 'node:fs/promises'
+import { basename, dirname, join, sep } from 'node:path'
+import { promisify } from 'node:util'
 import type { runDramaRender } from '@deepseek-ai/dsh-tool-episode-render'
-import { beforeEach, expect, it, vi } from 'vitest'
+import { beforeEach, expect, it, onTestFinished, vi } from 'vitest'
 import { configurationFixture } from '../../../packages/settings/settings/tests/configuration-fixture.ts'
 import { shippedEndingAsset } from '../../../packages/drama/tool-episode-render/tests/harness.ts'
 import * as Renderer from '../src/approved-episode-render.ts'
@@ -18,6 +20,32 @@ vi.mock('@deepseek-ai/dsh-tool-episode-render', async importOriginal => ({
 beforeEach(() => { media.prepare.mockReset(); media.render.mockReset() })
 
 const fileHash = (value: string) => createHash('sha256').update(value).digest('hex')
+const runFile = promisify(execFile)
+
+/** Read an existing Windows short-name alias without changing filesystem configuration. */
+async function shortPath(path: string): Promise<string> {
+  const script = `
+Add-Type -TypeDefinition @'
+using System.Text;
+using System.Runtime.InteropServices;
+public static class RenderShortPath {
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+  public static extern uint GetShortPathName(string path, StringBuilder output, uint capacity);
+}
+'@
+$buffer = [System.Text.StringBuilder]::new(32768)
+if ([RenderShortPath]::GetShortPathName($env:DSH_RENDER_DIRECTORY, $buffer, 32768) -eq 0) {
+  throw [System.ComponentModel.Win32Exception]::new()
+}
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::Write($buffer.ToString())
+`
+  const { stdout } = await runFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-EncodedCommand',
+    Buffer.from(script, 'utf16le').toString('base64')], {
+    env: { ...process.env, DSH_RENDER_DIRECTORY: path }, timeout: 30_000, windowsHide: true,
+  })
+  return stdout.trim()
+}
 
 async function fixture(medium: 'animation_3d' | 'photorealistic' = 'animation_3d') {
   const endingDir = dirname(shippedEndingAsset('ending_audio.mp3'))
@@ -58,7 +86,7 @@ async function fixture(medium: 'animation_3d' | 'photorealistic' = 'animation_3d
     inputHashes: { projectConfig: fileHash(bytes.projectConfig), timeline: fileHash(bytes.timeline), subtitle: fileHash(bytes.subtitle),
       mixProfile: fileHash(bytes.mixProfile), bgm: fileHash(bytes.bgm) },
   }
-  return { paths, bytes, input, staging: join(project, 'video_tasks', 'episode-render-staging'),
+  return { home, paths, bytes, input, staging: join(project, 'video_tasks', 'episode-render-staging'),
     render: () => ctx.approvedEpisodeRenderer.render(input, new AbortController().signal) }
 }
 
@@ -73,6 +101,70 @@ it.each([
   expect(media.render).not.toHaveBeenCalled()
   await expect(stat(f.input.outputPath)).rejects.toMatchObject({ code: 'ENOENT' })
   expect(await readdir(f.staging)).toEqual([])
+})
+
+it.skipIf(process.platform !== 'win32')('publishes through an existing 8.3 directory alias with alternate drive casing', async (context) => {
+  const f = await fixture()
+  const parent = await realpath(dirname(f.input.outputPath))
+  const alias = await shortPath(parent)
+  if (alias.toLowerCase() === parent.toLowerCase()) {
+    context.skip('The host filesystem has no existing 8.3 alias for this temporary directory')
+    return
+  }
+  expect(await realpath(alias)).toBe(parent)
+  f.input.outputPath = join(alias, basename(f.input.outputPath)).replace(/^[A-Za-z]:/u,
+    drive => drive === drive.toUpperCase() ? drive.toLowerCase() : drive.toUpperCase())
+  media.render.mockImplementation(async (call: Parameters<typeof runDramaRender>[0]) => {
+    if (call.output === undefined) throw new Error('Missing staging output')
+    if (call.method === 'render') {
+      await mkdir(dirname(call.output))
+      await writeFile(call.output, 'verified alias MP4 bytes')
+    }
+    return { ok: true, output: call.output, checks: [], media: { duration_seconds: 1 }, failures: [] }
+  })
+  await expect(f.render()).resolves.toEqual({ durationSeconds: 1, checks: [] })
+  expect(await readFile(f.input.outputPath, 'utf8')).toBe('verified alias MP4 bytes')
+  expect(await readdir(f.staging)).toEqual([])
+})
+
+it.each([false, true])('rejects a redirected output directory or ancestor (nested=%s)', async (nested) => {
+  const f = await fixture()
+  const actual = join(f.input.projectDir, 'physical-output')
+  await mkdir(join(actual, 'nested'), { recursive: true })
+  const redirected = join(f.input.projectDir, 'redirected-output')
+  await symlink(actual, redirected, process.platform === 'win32' ? 'junction' : 'dir')
+  onTestFinished(() => unlink(redirected))
+  f.input.outputPath = join(redirected, ...(nested ? ['nested'] : []), 'candidate.mp4')
+  await expect(f.render()).rejects.toThrow('Episode output directory must be a local project directory')
+  expect(media.prepare).not.toHaveBeenCalled()
+  expect(media.render).not.toHaveBeenCalled()
+  await expect(stat(join(actual, ...(nested ? ['nested'] : []), 'candidate.mp4'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('rejects an existing physical output directory outside the project', async () => {
+  const f = await fixture()
+  const outside = join(f.home, 'outside-project')
+  await mkdir(outside)
+  f.input.outputPath = join(outside, 'candidate.mp4')
+  await expect(f.render()).rejects.toThrow('Episode output directory must be a local project directory')
+  expect(media.prepare).not.toHaveBeenCalled()
+  expect(media.render).not.toHaveBeenCalled()
+  await expect(stat(f.input.outputPath)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('rejects raw traversal through a linked ancestor before invoking media tools', async () => {
+  const f = await fixture()
+  const outside = join(f.home, 'outside-project')
+  await mkdir(join(outside, 'child'), { recursive: true })
+  await symlink(join(outside, 'child'), join(f.input.projectDir, 'outward'), process.platform === 'win32' ? 'junction' : 'dir')
+  onTestFinished(() => unlink(join(f.input.projectDir, 'outward')))
+  f.input.outputPath = `${f.input.projectDir}${sep}outward${sep}..${sep}candidate.mp4`
+  if (process.platform !== 'win32') expect(await realpath(dirname(f.input.outputPath))).toBe(outside)
+  await expect(f.render()).rejects.toThrow('Episode output directory must be a local project directory')
+  expect(media.prepare).not.toHaveBeenCalled()
+  expect(media.render).not.toHaveBeenCalled()
+  await expect(stat(join(outside, 'candidate.mp4'))).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(stat(join(f.input.projectDir, 'candidate.mp4'))).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
 it.each(['animation_3d', 'photorealistic'] as const)('verifies %s output before linking the private candidate', async (medium) => {

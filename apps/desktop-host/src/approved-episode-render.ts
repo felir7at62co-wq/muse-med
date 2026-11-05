@@ -2,7 +2,7 @@
 import { createHash } from 'node:crypto'
 import { constants, createReadStream, createWriteStream } from 'node:fs'
 import { link, lstat, mkdir, mkdtemp, open, realpath, rm } from 'node:fs/promises'
-import { basename, dirname, extname, join, relative } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import { createFileCaptureChannel, prepareStagedEpisodeAudio, runDramaRender, shotFileName,
@@ -62,11 +62,34 @@ async function stageInput(path: string, target: string, sha256: string, label: s
   if (await fileHash(target, signal) !== sha256) throw new Error(`${label} changed before rendering`)
 }
 
-/** Check the private candidate directory and refuse to replace an existing file. */
-async function assertOutput(path: string): Promise<void> {
-  const parent = dirname(path)
+/** Require a contained physical directory while accepting Windows short-name and case aliases. */
+async function assertOutputDirectory(parent: string, root: string): Promise<void> {
   const actual = await realpath(parent)
-  if (relative(parent, actual) !== '') throw new Error('Episode output directory must be a local project directory')
+  const invalid = () => new Error('Episode output directory must be a local project directory')
+  const suffix = relative(root, actual)
+  if (suffix === '..' || suffix.startsWith(`..${sep}`) || isAbsolute(suffix)) throw invalid()
+  if (process.platform !== 'win32') {
+    if (relative(parent, actual) !== '') throw invalid()
+    return
+  }
+  const expected = await lstat(parent, { bigint: true })
+  const canonical = await lstat(actual, { bigint: true })
+  if (!expected.isDirectory() || expected.isSymbolicLink() || !canonical.isDirectory()
+    || canonical.isSymbolicLink() || expected.dev !== canonical.dev || expected.ino !== canonical.ino) throw invalid()
+  // Directory identity also follows ancestor redirects, so each requested ancestor must be physical.
+  let ancestor = dirname(parent)
+  while (true) {
+    const info = await lstat(ancestor)
+    if (!info.isDirectory() || info.isSymbolicLink()) throw invalid()
+    const next = dirname(ancestor)
+    if (next === ancestor) break
+    ancestor = next
+  }
+}
+
+/** Check the private candidate directory and refuse to replace an existing file. */
+async function assertOutput(path: string, root: string): Promise<void> {
+  await assertOutputDirectory(dirname(path), root)
   try {
     const entry = await lstat(path)
     if (!entry.isFile() || entry.isSymbolicLink()) throw new Error('Episode output already exists with an invalid file type')
@@ -81,7 +104,7 @@ async function renderApprovedEpisode(input: ApprovedEpisodeRenderInput, signal: 
   config: Config): Promise<ApprovedEpisodeRenderResult> {
   signal.throwIfAborted()
   const root = await realpath(input.projectDir)
-  await assertOutput(input.outputPath)
+  await assertOutput(input.outputPath, root)
   const tasks = join(root, 'video_tasks')
   const tasksInfo = await lstat(tasks)
   if (!tasksInfo.isDirectory() || tasksInfo.isSymbolicLink() || relative(tasks, await realpath(tasks)) !== '') {
@@ -154,7 +177,7 @@ async function renderApprovedEpisode(input: ApprovedEpisodeRenderInput, signal: 
     if (!verified.ok) throw new Error(verified.failures.join('\n') || 'Episode output verification failed')
     const checks = [...rendered.checks, ...verified.checks].map(({ id, ok, detail }) => ({ id, ok, detail }))
     if (checks.some(check => !check.ok)) throw new Error('Episode render contains a failed delivery check')
-    await assertOutput(input.outputPath)
+    await assertOutput(input.outputPath, root)
     const output = await assertFile(stagingOutput)
     signal.throwIfAborted()
     await link(output, input.outputPath)
