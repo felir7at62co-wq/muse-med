@@ -35,7 +35,7 @@ The Desktop panel also lists runtime-registered MCP tools as read-only connectio
 
 `dsh-skill-mcp-panel` is pinned to upstream 2.3.5. Its Web sidebar manages Skills and MCP server configuration for the active profile. The bundled artifact omits the upstream `dsh-panel` executable and disables automatic global CLI installation: Desktop launches supported Node applications only through `dsh` profiles. Activation does not invoke npm or write into the application directory; the staging checks mount the built panel against a read-only directory and retain its Skills and MCP registrations. The panel's gateway configures MCP connections; the actual MCP client remains `@deepseek-ai/dsh-mcp-client`. Its retained model, gateway, slot, and icon checks run during the isolated build.
 
-Skills and MCP updates ship with Muse. A completed check clears the update banner when the bundled version is current; a newer upstream release still shows a notice that directs Desktop users to update Muse rather than install a global panel CLI.
+The Skill / MCP panel uses the bundled version and does not check upstream releases or display plugin update notices. Its compatibility update endpoint returns the installed version without a network request. Skill and MCP management remain available.
 
 The Muse panel and its nested skill provider exclude the shared user `~/.agents/skills` root, including overrides from `DSH_AGENTS_HOME`. Skills installed for coding assistants there do not appear in Muse's management list or nested catalog. Muse's own user skills and explicitly referenced workspace skills remain available; shared skill files are not modified. The Host filesystem provider separately limits discovery to the product's configured roots.
 

@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-export const mcpDesktopCompatibility = { builtInConnections: 1, globalCliShim: false, sharedAgentSkills: false, preserveSavedSkills: true, desktopManagedUpdates: true, clearsCurrentUpdateNotice: true }
+export const mcpDesktopCompatibility = { builtInConnections: 1, globalCliShim: false, sharedAgentSkills: false, preserveSavedSkills: true, pluginUpdateChecks: false, pluginUpdateNotices: false }
 
 /** Apply the Desktop panel overlay to an isolated build directory. */
 export function applyMcpDesktopCompatibility(directory) {
@@ -80,10 +80,33 @@ export function applyMcpDesktopCompatibility(directory) {
     '                    if (result.discovery === "ready") setTimeout(() => setAdding((prev) => (prev.status === "ok" ? { status: "idle" } : prev)), 8000);'.replaceAll('    ', '\t'))
   edit('src/client.ts', 'adding.status === "ok" ? (0, react_jsx_runtime.jsxs)("div", {', '(adding.status === "ok" || adding.status === "saved") ? (0, react_jsx_runtime.jsxs)("div", {')
   edit('src/client.ts', 'hostIcon(primitiveIcon("IconXOutlineRegular"), 14, PATHS)', 'hostIcon(primitiveIcon("IconCloseOutlineRegular"), 14, PATHS)')
-  editMany('src/client.ts', 'if (latest !== null && snapshot.updateAvailable === true) setUpdateBanner(t("checkUpdateAvailable") + latest + t("checkUpdateCurrent") + currentV + t("checkUpdateHint"));',
-    'setUpdateBanner(latest !== null && snapshot.updateAvailable === true ? t("checkUpdateAvailable") + latest + t("checkUpdateCurrent") + currentV + t("checkUpdateHint") : null);', 2)
-  editMany('src/client.ts', 'checkUpdateHint: "）。可在终端运行 dsh-panel update 更新"', 'checkUpdateHint: "）。请更新 Muse 应用以获取此插件更新。"', 2)
-  editMany('src/client.ts', 'checkUpdateHint: "). Run dsh-panel update in a terminal to install it"', 'checkUpdateHint: "). Update the Muse application to receive this plugin update."', 2)
+  const removeRange = (start, end) => {
+    const path = join(directory, 'src/client.ts')
+    const source = readFileSync(path, 'utf8')
+    if (source.split(start).length !== 2 || source.split(end).length !== 2) throw new Error('MCP Desktop update UI requires source review')
+    const from = source.indexOf(start), to = source.indexOf(end, from)
+    if (to < from) throw new Error('MCP Desktop update UI anchors are out of order')
+    writeFileSync(path, source.slice(0, from) + source.slice(to))
+  }
+  removeRange('\t\t\t// 进入页面时后台静默检查更新', '\n\t\t\t// 分组：打开编辑器')
+  removeRange('                        react.useEffect(() => {\n                                let current = true;\n                                Promise.resolve().then(() => checkUpdateRemote())', '\n                        const servers = data?.servers')
+  removeRange('\t\t\t\tupdateBanner !== null ?', '\n\t\t\t\t\t\t// 「打开目录」')
+  removeRange(' updateBanner !== null ?', ' patch?.ok === false ?')
+  editMany('src/client.ts', 'const [updateBanner, setUpdateBanner] = react.useState(null);', '', 2)
+  edit('src/client.ts', 'deleteGroupSkill, checkUpdateRemote } = props;', 'deleteGroupSkill } = props;')
+  edit('src/client.ts', 'reloadMcp, checkUpdateRemote, oauthStart', 'reloadMcp, oauthStart')
+  edit('src/client.ts', 'checkUpdateRemote: () => callRemote("checkUpdate"),', '')
+  edit('src/index.ts', 'import { compareVersions, currentVersion, fetchLatestVersion } from "./version.js";', 'import { currentVersion } from "./version.js";')
+  edit('src/index.ts', `  /** 检查插件是否有新版本（对比 GitHub Release 最新版）。 */
+  async checkUpdate() {
+    const current = currentVersion();
+    const latest = await fetchLatestVersion();
+    if (latest === undefined) return { current, latest: null, updateAvailable: false };
+    return { current, latest, updateAvailable: compareVersions(latest, current) > 0 };
+  }`, `  /** Return the bundled version without querying upstream releases. */
+  async checkUpdate() {
+    return { current: currentVersion(), latest: null, updateAvailable: false };
+  }`)
   edit('src/mcp/gateway.ts', '      return { servers, externalServers, patch };', `      const known = new Set([...servers, ...externalServers].map(row => row.serverName));
       const counts = new Map<string, number>();
       for (const tool of this.C.tools?.schemas?.() ?? []) {
