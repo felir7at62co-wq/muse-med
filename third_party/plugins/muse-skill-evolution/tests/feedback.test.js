@@ -50,6 +50,31 @@ test('legacy review actions stay compatible while feedback-only and combined out
   assert.doesNotMatch(JSON.stringify(result), /private-value/)
 })
 
+test('parsed Skill validation failures return only a safe rejection and independent feedback', () => {
+  const config = Config({}), feedback = candidate()
+  const skill = { action: 'create', name: 'muse-learned-verify-result', description: 'Verify saved output', content: 'Read saved bytes before reporting a match.', why: 'A result was checked.' }
+  for (const [invalid, code] of [[{ action: 'delete' }, 'invalid-skill-action'], [{ action: null }, 'invalid-skill-action'],
+    [{ name: 'manual-skill' }, 'invalid-skill-name'], [{ name: 'Invalid-Name' }, 'invalid-skill-name'],
+    [{ name: 'muse-learned-' + 'x'.repeat(128) }, 'invalid-skill-name'],
+    [{ description: '' }, 'invalid-skill-text'], [{ content: null }, 'invalid-skill-text'],
+    [{ content: 'x'.repeat(config.contentMaxChars + 1) }, 'invalid-skill-text'],
+    [{ why: 'password=private-proposal-value' }, 'invalid-skill-text'], [{ content: 'Invalid\0text' }, 'invalid-skill-text']]) {
+    const result = parseReview(JSON.stringify({ ...skill, ...invalid, feedback }), config, ['observed work'])
+    assert.deepEqual(result, { action: 'rejected', code, feedback })
+    assert.doesNotMatch(JSON.stringify(result), /private-proposal-value|manual-skill|Invalid-Name/)
+  }
+  assert.deepEqual(parseReview(JSON.stringify({ ...skill, name: 'manual-skill' }), config), { action: 'rejected', code: 'invalid-skill-name' })
+  assert.deepEqual(parseReview(JSON.stringify({ ...skill, name: 'manual-skill', feedback: { ...feedback, evidenceRefs: [1] } }), config, ['observed work']),
+    { action: 'rejected', code: 'invalid-skill-name', feedbackProblem: { state: 'rejected', code: 'invalid-feedback' } })
+})
+
+test('malformed JSON and non-object reviews still fail as a whole rather than recovering partial feedback', () => {
+  const feedback = candidate()
+  for (const text of ['{', JSON.stringify([{ action: 'none', feedback }]), 'null', '42', JSON.stringify(JSON.stringify({ action: 'none', feedback }))]) {
+    assert.throws(() => parseReview(text, Config({}), ['observed work']))
+  }
+})
+
 test('feedback rejects malformed evidence, transcript excerpts, private locations, sensitive text and command payloads', () => {
   for (const feedback of [null, candidate({ evidenceRefs: [2] }), candidate({ evidenceRefs: [-1] }), candidate({ evidenceRefs: [0, 0] }),
     candidate({ evidenceRefs: [] }), candidate({ acceptance: [] }), candidate({ title: 'x'.repeat(121) }), candidate({ observed: 'User: copied conversation' }),

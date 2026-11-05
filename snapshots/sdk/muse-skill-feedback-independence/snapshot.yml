@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-skill-feedback-independence
+profile: sdk
+composition: sdk-muse-skill-feedback-independence
+recording: authored
+header:
+  class: sdk-muse-skill-feedback-independence
+  pin: true
+  childSystemPrompts: [1, 2]
+workspace:
+  final: true
+writerOutput: true

@@ -36,7 +36,7 @@ export function scrubEvidence(text) {
  * @param {string} text - Completed model text.
  * @param {object} config - Validated size limits.
  * @param {string[]} work - Evidence rows in the exact model request.
- * @returns {object} A none/create/update decision with optional independently bounded feedback.
+ * @returns {object} A none/create/update decision or a coded Skill rejection, with independently bounded feedback.
  */
 export function parseReview(text, config, work = []) {
   const raw = text.trim().replace(/^```json\s*([\s\S]*?)\s*```$/u, '$1')
@@ -48,13 +48,14 @@ export function parseReview(text, config, work = []) {
     catch (error) { feedbackProblem = { state: 'rejected', code: 'invalid-feedback' } }
   }
   const extra = { ...(feedback === undefined ? {} : { feedback }), ...(feedbackProblem === undefined ? {} : { feedbackProblem }) }
+  const rejected = code => ({ action: 'rejected', code, ...extra })
   if (candidate.action === 'none') return { action: 'none', ...extra }
-  if (!['create', 'update'].includes(candidate.action)) throw new Error('Review returned an unsupported action')
+  if (!['create', 'update'].includes(candidate.action)) return rejected('invalid-skill-action')
   if (typeof candidate.name !== 'string' || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(candidate.name)
-    || candidate.name.length > 128 || (candidate.action === 'create' && !candidate.name.startsWith('muse-learned-'))) throw new Error('Review returned an invalid Skill name')
+    || candidate.name.length > 128 || (candidate.action === 'create' && !candidate.name.startsWith('muse-learned-'))) return rejected('invalid-skill-name')
   for (const [key, maximum] of [['description', config.descriptionMaxChars], ['content', config.contentMaxChars], ['why', config.descriptionMaxChars]]) {
     if (typeof candidate[key] !== 'string' || !candidate[key].trim() || candidate[key].length > maximum
-      || scrubEvidence(candidate[key]) !== candidate[key] || candidate[key].includes('\0')) throw new Error('Review returned invalid or sensitive Skill text')
+      || scrubEvidence(candidate[key]) !== candidate[key] || candidate[key].includes('\0')) return rejected('invalid-skill-text')
   }
   return { action: candidate.action, name: candidate.name, description: candidate.description.trim(), content: candidate.content.trim(), why: candidate.why.trim(), ...extra }
 }

@@ -4,7 +4,7 @@ import { Config } from '../src/config.js'
 import { EvolutionRuntime } from '../src/runtime.js'
 import { parseReview, reviewInput, REVIEW_SYSTEM, scrubEvidence } from '../src/reviewer.js'
 import { createEvolutionStore } from '../src/store.js'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -83,8 +83,8 @@ test('rejects invalid configuration and incomplete or sensitive review proposals
   assert.throws(() => Config({ maxReviewsPerDay: -1 }))
   assert.throws(() => Config({ idleMs: 0.5 }))
   assert.deepEqual(parseReview('{"action":"none"}', Config({})), { action: 'none' })
-  assert.throws(() => parseReview('{"action":"create","name":"other"}', Config({})))
-  assert.throws(() => parseReview('{"action":"create","name":"muse-learned-api","description":"api_key=12345","content":"Do work","why":"Learned"}', Config({})))
+  assert.deepEqual(parseReview('{"action":"create","name":"other"}', Config({})), { action: 'rejected', code: 'invalid-skill-name' })
+  assert.deepEqual(parseReview('{"action":"create","name":"muse-learned-api","description":"api_key=12345","content":"Do work","why":"Learned"}', Config({})), { action: 'rejected', code: 'invalid-skill-text' })
   assert.equal(scrubEvidence('Bearer abcdef password=very-secret'), 'Bearer [redacted] password=[redacted]')
 })
 
@@ -311,4 +311,142 @@ test('a valid feedback-only result survives Skill ownership rejection without ap
   await f.runtime.start(); f.completed(); await f.settle()
   const run = f.store.runs()[0]
   assert.equal(run.state, 'failed'); assert.equal(run.feedback.state, 'submitted'); assert.equal(posts, 1)
+})
+
+test('invalid Skill syntax retains an independently valid feedback intent and receipt without writing a Skill', async t => {
+  const f = await feedbackFixture(t, { answer: { name: 'manual-skill' } })
+  const requests = []
+  t.after(f.runtime.attachFeedback({ async feedback(request) {
+    requests.push(request)
+    const disk = JSON.parse(await readFile(join(f.root, 'state', 'state.json'), 'utf8'))
+    const run = Object.values(disk.runs)[0]
+    assert.equal(run.state, 'failed')
+    assert.deepEqual(run.validation, { format: 'rejected', semantic: 'not_performed', code: 'invalid-skill-name' })
+    assert.equal(run.feedback.state, 'sending')
+    return feedbackReceipt
+  } }))
+  await f.runtime.start(); f.completed(); await f.settle()
+  const run = f.store.runs()[0]
+  assert.equal(run.feedback?.state, 'submitted')
+  assert.deepEqual(run.feedback.receipt, feedbackReceipt)
+  assert.deepEqual(run.feedback.candidate, feedbackCandidate)
+  assert.equal(requests.length, 1)
+  assert.equal(f.modelCalls.length, 1)
+  assert.deepEqual(f.store.proposals(), [])
+  assert.equal(f.store.state().skills, 0)
+  assert.equal(f.store.state().versions, 0)
+  assert.deepEqual(await readdir(join(f.root, 'skills')).catch(error => { if (error.code === 'ENOENT') return []; throw error }), [])
+  assert.doesNotMatch(JSON.stringify(run), /manual-skill/)
+})
+
+test('invalid Skill actions and bounded text retain valid feedback without creating proposals or versions', async t => {
+  for (const [answer, code] of [[{ action: 'delete' }, 'invalid-skill-action'],
+    [{ content: 'Observed work. '.repeat(1000) }, 'invalid-skill-text'],
+    [{ why: 'password=private-proposal-value' }, 'invalid-skill-text']]) {
+    await t.test(code + (answer.why ? '-sensitive' : ''), async inner => {
+      const f = await feedbackFixture(inner, { answer })
+      let posts = 0
+      inner.after(f.runtime.attachFeedback({ async feedback() { posts += 1; return feedbackReceipt } }))
+      await f.runtime.start(); f.completed(); await f.settle()
+      const run = f.store.runs()[0]
+      assert.equal(run.state, 'failed')
+      assert.deepEqual(run.validation, { format: 'rejected', semantic: 'not_performed', code })
+      assert.equal(run.feedback.state, 'submitted')
+      assert.equal(posts, 1)
+      assert.equal(f.modelCalls.length, 1)
+      assert.deepEqual(f.store.proposals(), [])
+      assert.equal(f.store.state().skills, 0)
+      assert.equal(f.store.state().versions, 0)
+      assert.deepEqual(await readdir(join(f.root, 'skills')).catch(error => { if (error.code === 'ENOENT') return []; throw error }), [])
+      assert.doesNotMatch(JSON.stringify(run), /private-proposal-value/)
+    })
+  }
+})
+
+test('Skill rejection alone or with rejected feedback records safe outcomes without submitting or retrying the review', async t => {
+  for (const feedback of [undefined, { ...feedbackCandidate, observed: 'password=private-feedback-value' }]) {
+    await t.test(feedback === undefined ? 'absent-feedback' : 'both-rejected', async inner => {
+      const f = await feedbackFixture(inner, { answer: { name: 'manual-skill', feedback } })
+      let posts = 0
+      inner.after(f.runtime.attachFeedback({ async feedback() { posts += 1; return feedbackReceipt } }))
+      await f.runtime.start(); f.completed(); await f.settle()
+      const run = f.store.runs()[0]
+      assert.equal(run.state, 'failed')
+      assert.equal(run.validation.code, 'invalid-skill-name')
+      assert.equal(run.feedback, undefined)
+      assert.equal(posts, 0)
+      if (feedback !== undefined) assert.deepEqual(run.feedbackProblem, { state: 'rejected', code: 'invalid-feedback' })
+      assert.doesNotMatch(JSON.stringify(run), /manual-skill|private-feedback-value/)
+      assert.deepEqual(f.store.proposals(), [])
+      await f.runtime.start(); await f.settle()
+      assert.equal(f.modelCalls.length, 1)
+      assert.equal(posts, 0)
+    })
+  }
+})
+
+test('a rejected Skill preserves feedback opt-out, quota, account and source availability decisions', async t => {
+  for (const mode of ['disabled', 'quota', 'account', 'source']) {
+    await t.test(mode, async inner => {
+      const f = await feedbackFixture(inner, { answer: { name: 'manual-skill' },
+        ...(mode === 'disabled' ? { autoSubmitFeedback: false } : {}), ...(mode === 'quota' ? { maxFeedbackPerDay: 0 } : {}) })
+      let posts = 0
+      if (mode !== 'account') inner.after(f.runtime.attachFeedback({ async feedback() { posts += 1; return feedbackReceipt } }))
+      if (mode === 'source') f.ctx.sessions.get = () => undefined
+      await f.runtime.start(); f.completed(); await f.settle()
+      const run = f.store.runs()[0]
+      assert.equal(run.state, 'failed')
+      assert.equal(run.validation.code, 'invalid-skill-name')
+      assert.equal(run.feedback.state, mode === 'quota' ? 'limited' : 'proposed')
+      assert.equal(posts, 0)
+      assert.deepEqual(f.store.proposals(), [])
+    })
+  }
+})
+
+test('uncertain feedback after Skill rejection is retained and never automatically posted a second time', async t => {
+  const f = await feedbackFixture(t, { answer: { name: 'manual-skill' } })
+  let posts = 0
+  t.after(f.runtime.attachFeedback({ async feedback() { posts += 1; throw { code: 'muse-feedback/unconfirmed' } } }))
+  await f.runtime.start(); f.completed(); await f.settle()
+  const first = f.store.runs()[0]
+  assert.equal(first.state, 'failed')
+  assert.equal(first.feedback.state, 'unknown')
+  assert.equal(first.feedback.receipt, undefined)
+  await f.runtime.start(); await f.settle()
+  assert.equal(f.modelCalls.length, 1)
+  assert.equal(posts, 1)
+  f.completed(2); await f.settle()
+  const second = f.store.runs().find(run => run.id !== first.id)
+  assert.equal(second.state, 'failed')
+  assert.equal(second.feedback.state, 'duplicate')
+  assert.equal(second.feedback.duplicateOf, first.id)
+  assert.equal(f.modelCalls.length, 2, 'only the newly completed source turn receives a new review')
+  assert.equal(posts, 1)
+  assert.deepEqual(f.store.proposals(), [])
+})
+
+test('feedback after Skill rejection binds evidenceCount to the included model work rather than omitted source rows', async t => {
+  const f = await feedbackFixture(t, { inputMaxChars: 4000, answer: { name: 'manual-skill' } })
+  let posts = 0
+  t.after(f.runtime.attachFeedback({ async feedback() { posts += 1; return feedbackReceipt } }))
+  await f.runtime.start()
+  f.event('turn/start', { turn: 1 })
+  f.event('user/message', { source: { kind: 'user' }, content: [{ type: 'text', text: 'Verify the observed work.' }] })
+  for (let index = 0; index < 2; index += 1) {
+    f.event('tool/call', { name: 'read_file', callId: 'evidence-' + index })
+    f.event('tool/result', { message: { source: { callId: 'evidence-' + index }, isError: false } })
+  }
+  f.event('assistant/message', { message: { content: [{ type: 'text', text: 'Observed completed work. '.repeat(300) }] } })
+  f.event('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  await f.settle()
+  const input = JSON.parse(f.modelCalls[0].input.content[0].text)
+  const run = f.store.runs()[0]
+  assert.ok(input.work.length < run.lines.length, 'the fixture must actually omit source work')
+  assert.equal(run.feedback.evidenceCount, input.work.length)
+  assert.deepEqual(run.feedback.candidate.evidenceRefs, [0])
+  assert.equal(run.feedback.state, 'submitted')
+  assert.equal(posts, 1)
+  assert.equal(f.modelCalls.length, 1)
+  assert.deepEqual(f.store.proposals(), [])
 })
