@@ -130,6 +130,7 @@ const NON_SOURCE_DIRECTORIES = new Set([
 const UPSTREAM_PLUGIN_DIRECTORIES = [
   'third_party/plugins/dshmarket/',
   'third_party/plugins/dsh-codex-subscription/',
+  'third_party/plugins/dsh-plugin-subscriptions/',
   'third_party/plugins/dsh-bridge/',
   'third_party/plugins/dsh-feishu/',
   'third_party/plugins/dsh-im/',

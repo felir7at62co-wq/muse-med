@@ -84,9 +84,9 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
       'experimental-inspector', 'session-inspector', 'speech-to-text', 'ui-voice-input']) {
       expect(rows.find(row => row.id === id), id).toBeUndefined()
     }
-    expect(rows.find(row => row.id === 'codex-subscription')).toMatchObject({ name: 'dsh-codex-subscription' })
-    expect(profile.layers.map(layer => layer.packageName)).toContain('dsh-codex-subscription')
-    expect(readFileSync(join(project, 'package.json'), 'utf8')).toContain('dsh-codex-subscription')
+    expect(rows.find(row => row.id === 'llm-subscriptions')).toMatchObject({ name: 'dsh-plugin-subscriptions' })
+    expect(profile.layers.map(layer => layer.packageName)).toContain('dsh-plugin-subscriptions')
+    expect(readFileSync(join(project, 'package.json'), 'utf8')).toContain('dsh-plugin-subscriptions')
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-mcp-resources')).toEqual([
       { id: 'mcp-resources', name: '@deepseek-ai/dsh-mcp-resources' },
     ])

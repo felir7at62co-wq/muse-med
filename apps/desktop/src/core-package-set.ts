@@ -19,8 +19,8 @@ export const DESKTOP_DRAMA_SKILLS_PACKAGE = '@deepseek-ai/dsh-drama-skills'
 /** Reviewed IM Host and native client installed beside the account's independent remote bridge. */
 export const DESKTOP_FEISHU_PACKAGE = '@xmanrui/dsh-im'
 
-/** Reviewed ChatGPT subscription provider and its local account settings. */
-export const DESKTOP_CODEX_PACKAGE = 'dsh-codex-subscription'
+/** Reviewed subscription providers and their local account settings. */
+export const DESKTOP_CODEX_PACKAGE = 'dsh-plugin-subscriptions'
 
 /** Package-relative Desktop Host files required before a profile can boot. */
 export const DESKTOP_HOST_RUNTIME_FILES = [
@@ -75,9 +75,8 @@ export const DESKTOP_FEISHU_RUNTIME_FILES = [
 
 /** Subscription Host, account settings and retained notices required in every product build. */
 export const DESKTOP_CODEX_RUNTIME_FILES = [
-  'lib/index.js', 'lib/client.js', 'lib/sketch-psd-worker.js',
-  'cordis.patch.yml', 'compatibility.json', 'icon-subscription.webp',
-  'SOURCE.json', 'LICENSE', 'THIRD_PARTY_NOTICES.md', 'BUNDLED_LICENSES.md',
+  'lib/index.js', 'lib/upstream.js', 'lib/client.js', 'lib/muse-migration.mjs', 'lib/muse-recovery.mjs',
+  'cordis.patch.yml', 'SOURCE.json', 'LICENSE',
 ] as const
 
 /** Source-built community plugins and Muse tools, with no registry substitution. */

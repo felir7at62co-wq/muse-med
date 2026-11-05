@@ -18,7 +18,14 @@
           "sha256": "5fcbf3d212f798b52eb670f66dfb4c8d482beefe282554397b7ade9bb4b41035"
         }
       }
-    }
+    },
+    "desktop": false
+  },
+  "dsh-plugin-subscriptions": {
+    "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+    "version": "0.9.12",
+    "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+    "license": "MIT"
   },
   "dsh-bridge": {
     "repository": "https://github.com/wenbin-wb/dsh-bridge",

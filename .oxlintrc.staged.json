@@ -13,6 +13,7 @@
     "**/.node-next-types-*/**",
     "website/.generated/**",
     "vendor/**",
+    "third_party/plugins/dsh-plugin-subscriptions/**",
     "third_party/plugins/dsh-codex-subscription/**",
     "third_party/plugins/dsh-ffmpeg/**",
     "third_party/plugins/dsh-bridge/**",
