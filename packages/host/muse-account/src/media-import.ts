@@ -42,9 +42,11 @@ export interface MuseMediaImportOptions {
 const facts = z.object({ bytes: z.number().int().positive(), sha256: z.string().regex(/^[a-f0-9]{64}$/u),
   kind: z.enum(['video', 'image']), width: z.number().int().positive(), height: z.number().int().positive(),
   durationSeconds: z.number().positive().optional(), fullDecodeVerified: z.literal(true) })
+const fileIdentity = z.object({ dev: z.string().regex(/^\d+$/u), ino: z.string().regex(/^\d+$/u) })
+const publication = z.object({ media: fileIdentity, receipt: fileIdentity })
 const helperEvent = z.discriminatedUnion('phase', [
   facts.extend({ phase: z.literal('verified') }),
-  facts.extend({ phase: z.literal('published'), path: z.string(), receipt: z.string() }),
+  facts.extend({ phase: z.literal('published'), path: z.string(), receipt: z.string(), publication }),
   z.object({ phase: z.literal('failed'), code: z.string() }),
   z.object({ phase: z.literal('cleaned') }),
 ])
@@ -76,6 +78,7 @@ interface HelperSpec {
   maxDurationSeconds: number
   ffmpeg: string
   ffprobe: string
+  publication?: z.infer<typeof publication>
 }
 
 async function* fileChunks(body: ReadableStream<Uint8Array>): AsyncGenerator<Uint8Array> {
@@ -179,8 +182,10 @@ export class MuseMediaImporter {
     return removed
   }
 
-  private async settle(spec: HelperSpec, operation: 'cleanup' | 'finalize', policy: SandboxExecutionPolicy): Promise<void> {
-    const signal = AbortSignal.timeout(this.options.timeoutMs)
+  private async settle(spec: HelperSpec, operation: 'cleanup' | 'finalize', policy: SandboxExecutionPolicy,
+    caller?: AbortSignal): Promise<void> {
+    const timeout = AbortSignal.timeout(this.options.timeoutMs)
+    const signal = caller === undefined ? timeout : AbortSignal.any([caller, timeout])
     const child = this.subprocess.spawn({ argv: await this.argv(spec, operation, policy, signal), cwd: spec.cwd,
       signal, graceMs: this.options.graceMs, env: this.environment(),
       stdio: { stdin: 'ignore', stdout: { maxBytes: this.options.maxOutputBytes }, stderr: { maxBytes: this.options.maxOutputBytes } } })
@@ -216,7 +221,10 @@ export class MuseMediaImporter {
           text = text.slice(line + 1)
           if (event.phase === 'failed') { error = failure(event.code); ready.reject(error) }
           else if (event.phase === 'verified') ready.resolve()
-          else if (event.phase === 'published') published = { path: event.path, receipt: event.receipt, ...facts.parse(event) }
+          else if (event.phase === 'published') {
+            spec.publication = event.publication
+            published = { path: event.path, receipt: event.receipt, ...facts.parse(event) }
+          }
         }
       }
       text += decoder.decode()
@@ -265,9 +273,13 @@ export class MuseMediaImporter {
           kind: transfer.file.kind === 'video' || transfer.file.kind === 'live_video' ? 'video' : 'image',
           maxBytes: this.options.maxBytes, maxOutputBytes: this.options.maxOutputBytes, maxPixels: this.options.maxPixels,
           maxDurationSeconds: this.options.maxDurationSeconds, ffmpeg, ffprobe }
-        return await this.receive(agent, transfer, spec, location, signal)
+        const receipt = await this.receive(agent, transfer, spec, location, signal)
+        await this.settle(spec, 'finalize', location.policy, transfer.signal)
+        await transfer.assertCurrent()
+        transfer.signal.throwIfAborted()
+        return receipt
       }, signal)
-      if (spec !== undefined) await this.settle(spec, 'finalize', location.policy)
+      signal.throwIfAborted()
       return result
     } catch (error) {
       if (spec !== undefined) await this.settle(spec, 'cleanup', location.policy)

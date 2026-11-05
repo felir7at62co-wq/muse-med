@@ -120,6 +120,7 @@ export class MuseMediaClient {
   }
 
   /**
+   * Read public platform data through the current account.
    * @param action - Public read tool.
    * @param parameters - That tool's parameters.
    * @param signal - Optional caller cancellation.
@@ -132,6 +133,7 @@ export class MuseMediaClient {
   }
 
   /**
+   * Submit one cloud download with a stable account-owned key.
    * @param request - Stable submission key and media target.
    * @param signal - Optional caller cancellation.
    * @returns Cloud receipt; no automatic retry is performed.
@@ -146,6 +148,7 @@ export class MuseMediaClient {
   }
 
   /**
+   * Reconcile an owned receipt without resubmitting its download.
    * @param id - Owned company receipt ID.
    * @param signal - Optional caller cancellation.
    * @returns Reconciled cloud receipt.
@@ -155,6 +158,7 @@ export class MuseMediaClient {
   }
 
   /**
+   * List the current account's cloud receipts.
    * @param signal - Optional caller cancellation.
    * @param offset - Omitted starts the first page.
    * @returns Only the current account's receipts and continuation.
@@ -166,6 +170,7 @@ export class MuseMediaClient {
   }
 
   /**
+   * Read service readiness and the current account's limits.
    * @param signal - Optional caller cancellation.
    * @returns Readiness and current-account limits, without global identity-pool information.
    */

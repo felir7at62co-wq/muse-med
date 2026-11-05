@@ -60,7 +60,8 @@ async function fixture(options: FixtureOptions = {}) {
   const payload = options.bytes ?? video
   let requests = 0
   const client: Pick<MuseMediaClient, 'withFile'> = {
-    async withFile<Result>(_job, _name, consume: (transfer: MuseMediaTransfer) => Promise<Result>, signal?: AbortSignal): Promise<Result> {
+    async withFile<Result>(_job: MuseMediaJobId, _name: string,
+      consume: (transfer: MuseMediaTransfer) => Promise<Result>, signal?: AbortSignal): Promise<Result> {
       requests++
       return await consume({ file: { name: 'video.mp4', kind: options.kind ?? 'video', bytes: payload.length,
         sha256: options.hash ?? createHash('sha256').update(payload).digest('hex') },
@@ -177,4 +178,30 @@ it('cancels an actual running helper and waits for rollback before resolving', a
   controller.abort()
   await rejected
   expect(await readdir(join(f.cwd, 'source/media/company')).catch(() => [])).toEqual([])
+})
+
+it.each(['account-change', 'cancel'] as const)('rolls back after %s at the real finalize exit even after staging removal', async (kind) => {
+  let changed = false, finalized = false
+  const controller = new AbortController()
+  const f = await fixture({ guard: async () => { if (changed) throw new MuseMediaError('account-changed') } })
+  const original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
+    const child = original(spec)
+    if (!spec.argv.at(-1)?.includes('"operation":"finalize"')) return child
+    return { stdin: child.stdin, stdout: child.stdout, stderr: child.stderr, control: child.control,
+      collected: child.collected, terminate: () => { child.terminate() }, waitForExit: signal => child.waitForExit(signal),
+      done: child.done.then(async (outcome) => {
+        expect(outcome.exitCode).toBe(0)
+        expect((await readdir(join(f.cwd, 'source/media/company'))).some(name => name.startsWith('.import-'))).toBe(false)
+        finalized = true
+        if (kind === 'account-change') changed = true
+        else controller.abort()
+        return outcome
+      }) }
+  })
+  await expect(f.importer.import(f.agent, id, 'video.mp4', controller.signal)).rejects.toMatchObject({
+    code: kind === 'account-change' ? 'account-changed' : 'cancelled',
+  })
+  expect(finalized).toBe(true)
+  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
 })

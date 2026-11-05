@@ -15,6 +15,7 @@ const spec = JSON.parse(process.argv[1]);
 const parent = join(spec.cwd, ...spec.directory.split('/'));
 const staging = join(parent, '.import-' + spec.nonce);
 const temporary = join(staging, 'media');
+const stagedReceipt = join(staging, 'source.json');
 const final = join(parent, spec.jobId + '-' + spec.name);
 const receipt = final + '.source.json';
 let ownsFinal = false, ownsReceipt = false, controls, controlInput;
@@ -38,17 +39,13 @@ try {
   if (spec.operation === 'finalize') {
     await rm(staging, { recursive: true, force: true }); emit({ phase: 'cleaned' });
   } else if (spec.operation === 'cleanup') {
-    try {
-      const staged = await stat(temporary);
-      const published = await stat(final);
-      ownsFinal = staged.dev === published.dev && staged.ino === published.ino;
-      if (ownsFinal) {
-        try {
-          const record = JSON.parse(await (await import('node:fs/promises')).readFile(receipt, 'utf8'));
-          ownsReceipt = record.jobId === spec.jobId && record.fileName === spec.name && record.sha256 === spec.sha256;
-        } catch (error) { if (error.code !== 'ENOENT') throw error; }
-      }
-    } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const identity = async path => {
+      try { const info = await stat(path, { bigint: true }); return { dev: String(info.dev), ino: String(info.ino) }; }
+      catch (error) { if (error.code !== 'ENOENT') throw error; return null; }
+    };
+    const matches = (left, right) => left && right && left.dev === right.dev && left.ino === right.ino;
+    ownsFinal = matches(await identity(temporary) ?? spec.publication?.media, await identity(final));
+    ownsReceipt = matches(await identity(stagedReceipt) ?? spec.publication?.receipt, await identity(receipt));
     await cleanup(); emit({ phase: 'cleaned' });
   } else {
     if (process.env.DSH_SUBPROCESS_CONTROL !== 'pipe') throw Error('NOT_COMMITTED');
@@ -88,17 +85,21 @@ try {
     controls.close(); controlInput.destroy();
     if (decision !== 'commit') throw Error('NOT_COMMITTED');
     if (await realpath(parent) !== parent || await realpath(staging) !== staging) throw Error('WORKSPACE_INVALID');
-    await link(temporary, final); ownsFinal = true;
-    const handle = await open(receipt, 'wx', 0o600); ownsReceipt = true;
+    const handle = await open(stagedReceipt, 'wx', 0o600);
     try {
       await handle.writeFile(JSON.stringify({ jobId: spec.jobId, fileName: spec.name, path: final, ...facts }) + '\n');
       await handle.sync();
     } finally { await handle.close(); }
-    emit({ phase: 'published', path: final, receipt, ...facts });
+    await link(temporary, final); ownsFinal = true;
+    await link(stagedReceipt, receipt); ownsReceipt = true;
+    const mediaIdentity = await stat(final, { bigint: true }), receiptIdentity = await stat(receipt, { bigint: true });
+    emit({ phase: 'published', path: final, receipt, ...facts,
+      publication: { media: { dev: String(mediaIdentity.dev), ino: String(mediaIdentity.ino) },
+        receipt: { dev: String(receiptIdentity.dev), ino: String(receiptIdentity.ino) } } });
     // Keep the transaction link until the Host rechecks the account after publication.
   }
 } catch (error) {
-  try { await cleanup(); } catch { /* The Host repeats cleanup after the process range exits. */ }
+  try { await cleanup(); } catch (_cleanupError) { /* The Host repeats cleanup after the process range exits. */ }
   const code = error.code === 'EEXIST' ? 'LOCAL_CONFLICT' : ['FILE_TOO_LARGE', 'FILE_INCOMPLETE', 'WORKSPACE_INVALID', 'NOT_COMMITTED'].includes(error.message) ? error.message : 'INVALID_MEDIA';
   emit({ phase: 'failed', code }); process.exitCode = 1;
 } finally { controls?.close(); controlInput?.destroy(); }
