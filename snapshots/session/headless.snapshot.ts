@@ -251,6 +251,17 @@ async function fixtureSessions(scenario: HeadlessScenario, selectedFiles?: reado
   }))
 }
 
+/** Read separate writer oracles while retaining their canonical replay generations. */
+async function expectedSessionFixtures(scenario: HeadlessScenario, fixtures: readonly string[]): Promise<readonly string[]> {
+  if (scenario.manifest.sessionFormat === undefined && scenario.manifest.writerOutput !== true) return fixtures
+  const expected = await Promise.all(fixtures.map((_, index) => readFile(join(scenario.dir, writerSnapshotName(index)), 'utf8')))
+  for (const [index, content] of expected.entries()) {
+    expect(sessionHeaderVersion(content, writerSnapshotName(index))).toBeLessThanOrEqual(SESSION_FORMAT_VERSION)
+  }
+  expect(await fixtureSessions(scenario), 'canonical replay input remains unchanged').toEqual(fixtures)
+  return expected
+}
+
 async function primaryFixtureFile(dir: string): Promise<string> {
   const [primary] = sessionFixtureNames(await readdir(dir))
   if (primary === undefined) throw new Error(`${dir}: missing parent Session fixture`)
@@ -544,7 +555,45 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<P
 const WORKTREE_CHECKOUT_FILTER = "printf 'FILTERED CHECKOUT CONTENT\\n'"
 const WORKTREE_CHECKOUT_ATTRIBUTES = 'tracked.txt filter=dsh-snapshot-checkout\n'
 
-const workspaceSetups: Record<string, (cwd: string) => Promise<void>> = {
+const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Promise<PreparedWorkspace | void>> = {
+  async 'drama-subtitle-visual-review'(cwd, scenarioDir) {
+    if (scenarioDir === undefined) throw new Error('visual review requires its complete expected workspace')
+    const expectedRoot = join(cwd, '.snapshot-patches', 'expected-subtitle-visual')
+    await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+    const path = join(expectedRoot, 'editing/01-sources.json')
+    const document = JSON.parse(await readFile(path, 'utf8')) as { shots: { video: string; audio: string }[] }
+    const actualCwd = await realpath(cwd)
+    for (const shot of document.shots) {
+      shot.video = join(actualCwd, 'source.mp4')
+      shot.audio = join(actualCwd, 'source.mp4')
+    }
+    await writeFile(path, `${JSON.stringify(document, null, 2)}\n`)
+    return { expectedRoot }
+  },
+  async 'drama-subtitle-overlay'(cwd, scenarioDir) {
+    if (scenarioDir === undefined) throw new Error('subtitle-overlay expected workspace requires its owner directory')
+    const skillRoot = join(cwd, '.dsh', 'skills', 'tweet-drama-draft-build')
+    const sourceRoot = join(repoRoot, 'packages/drama/skills/skills/tweet-drama-draft-build')
+    await mkdir(skillRoot, { recursive: true })
+    await copyFile(join(sourceRoot, 'SKILL.md'), join(skillRoot, 'SKILL.md'))
+    await cp(join(sourceRoot, 'references'), join(skillRoot, 'references'), { recursive: true })
+    return { expectedRoot: await prepareSubtitleOverlayExpectedWorkspace(cwd, scenarioDir) }
+  },
+  async 'muse-video-observation'(cwd, scenarioDir) {
+    if (scenarioDir === undefined) throw new Error('video observation requires its owner directory')
+    await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
+    await writeFile(join(cwd, 'episode.md'), '# 第1集\n▲合成画面从黑色切换为白色。\n')
+    await writeFile(join(cwd, 'transcript.json'), JSON.stringify([
+      { start: 0, end: 1, text: '合成画面', speaker_id: 1 },
+      { start: 1, end: 3, text: '从黑色切换为白色。', speaker_id: 1 },
+    ]) + '\n')
+    const expectedRoot = join(cwd, '.snapshot-patches', 'expected-video-observation')
+    await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+    return { expectedRoot }
+  },
+  async 'muse-video-inspect'(cwd) {
+    await writeFile(join(cwd, 'fixture.mp4'), 'Deterministic media source for the external-process fixture.\n')
+  },
   async 'windows-acl-skill'(cwd) {
     const target = join(cwd, '.dsh', 'skills', 'diagnose-windows-sandbox-acl', 'SKILL.md')
     await mkdir(dirname(target), { recursive: true })
@@ -824,6 +873,14 @@ function pinOf(scenario: HeadlessScenario): HeadlessScenario {
   const pin = headerPins.get(`${composition}/${header.class}`)
   if (pin === undefined) throw new Error(`${scenario.name}: composition/header class has no pin`)
   return pin
+}
+
+/** Header owners retain an older tool catalog only through an explicit retired-tool recording. */
+function assertHeaderPin(pin: HeadlessScenario): void {
+  if (pin.manifest.sessionFormat === undefined) return
+  if (pin.manifest.sessionFormat.coverage.length !== 1 || pin.manifest.sessionFormat.coverage[0] !== 'retired-tools') {
+    throw new Error(`${pin.name}: header pins retain only explicit retired-tool recordings`)
+  }
 }
 
 function spillReferenceSource(events: readonly JsonObject[], label: string): JsonObject {
@@ -1242,9 +1299,9 @@ describe('headless recorded-session snapshots', () => {
     }
   })
 
-  it('writes a separate output oracle without changing the canonical replay input', async () => {
-    const owner = scenarios.find(scenario => scenario.name === 'muse-media-download-tool-catalog')
-    if (owner === undefined) throw new Error('Missing current-writer media tool fixture')
+  it('selects a separate writer output oracle without changing the canonical replay input', async () => {
+    const owner = scenarios.find(scenario => scenario.name === 'muse-tool-discovery')
+    if (owner === undefined) throw new Error('Missing current-writer discovery fixture')
     const [fixture] = await fixtureSessions(owner)
     if (fixture === undefined) throw new Error('Missing canonical replay input')
     const dir = await mkdtemp(join(tmpdir(), 'dsh-writer-output-'))
@@ -1252,14 +1309,28 @@ describe('headless recorded-session snapshots', () => {
       const canonical = join(dir, sessionFixtureName(0, sessionHeaderVersion(fixture, owner.name)))
       await writeFile(canonical, fixture)
       const header: JsonObject = JSON.parse(fixture.split('\n')[0] ?? '')
-      await writeSessionFixtures({ ...owner, dir, manifest: { ...owner.manifest, writerOutput: true } },
-        [{ content: fixture, header }], [fixture], contextOf([fixture]))
+      const current = fixture.replace('"text":"pong"', '"text":"current pong"')
+      expect(current).not.toBe(fixture)
+      const scenario = { ...owner, dir, manifest: { ...owner.manifest, writerOutput: true as const } }
+      await writeSessionFixtures(scenario, [{ content: current, header }], [fixture], contextOf([current]))
       expect(await readFile(canonical, 'utf8')).toBe(fixture)
-      expect(sessionHeaderVersion(await readFile(join(dir, writerSnapshotName(0)), 'utf8'), 'writer output'))
-        .toBe(sessionHeaderVersion(fixture, 'replay input'))
+      const [output] = await expectedSessionFixtures(scenario, [fixture])
+      if (output === undefined) throw new Error('Missing separate writer output')
+      expect(output).toContain('"text":"current pong"')
+      expect(output).not.toBe(fixture)
+      expect(sessionHeaderVersion(output, 'writer output')).toBe(sessionHeaderVersion(fixture, 'replay input'))
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
+  })
+
+  it.each(['advanced-toolchain', 'product-subagent-both'])('reads the existing writer oracles for %s', async (name) => {
+    const owner = scenarios.find(scenario => scenario.name === name)
+    if (owner === undefined) throw new Error(`Missing writer owner ${name}`)
+    const inputs = await fixtureSessions(owner)
+    const outputs = await expectedSessionFixtures(owner, inputs)
+    expect(outputs).not.toEqual(inputs)
+    expect(outputs).toEqual(await Promise.all(inputs.map((_, index) => readFile(join(owner.dir, writerSnapshotName(index)), 'utf8'))))
   })
 
   it('tokenizes a refreshed skill path after the session header retained cwd', () => {
@@ -1276,12 +1347,69 @@ describe('headless recorded-session snapshots', () => {
     expect(result.text).not.toContain(cwd)
   })
 
-  it('gives every composition and header class exactly one current-writer pin', () => {
+  it('gives every composition and header class exactly one current or retired-tool pin', () => {
     for (const scenario of scenarios) {
       expect(ownerOf(scenario), `${scenario.name}: composition owner`).toBeDefined()
-      expect(pinOf(scenario).manifest.sessionFormat, `${scenario.name}: current-writer header pin`).toBeUndefined()
+      assertHeaderPin(pinOf(scenario))
     }
   })
+
+  it('rejects migration-only recordings as header pins', () => {
+    const owner = scenarios.find(scenario => scenario.name === 'muse-tool-discovery')
+    if (owner === undefined) throw new Error('Missing discovery header pin')
+    expect(() => assertHeaderPin(owner)).not.toThrow()
+    expect(() => assertHeaderPin({ ...owner, manifest: { ...owner.manifest,
+      sessionFormat: { version: SESSION_FORMAT_VERSION, coverage: ['retired-tools'] } } })).not.toThrow()
+    expect(() => assertHeaderPin({ ...owner, manifest: { ...owner.manifest,
+      sessionFormat: { version: 3, coverage: ['adjacent-migration'] } } })).toThrow('only explicit retired-tool recordings')
+  })
+
+  it('registers every declared workspace initializer', () => {
+    for (const scenario of scenarios) {
+      const setup = scenario.manifest.workspace?.setup
+      if (setup !== undefined) expect(workspaceSetups[setup], `${scenario.name}: workspace initializer`).toBeTypeOf('function')
+    }
+  })
+
+  it.each(['drama-subtitle-overlay', 'drama-subtitle-visual-review', 'muse-video-observation', 'muse-video-inspect'])(
+    'seeds the owned media and expected workspace for %s', async (name) => {
+      const owner = scenarios.find(scenario => scenario.name === name)
+      if (owner === undefined) throw new Error(`Missing media scenario ${name}`)
+      const cwd = await mkdtemp(join(tmpdir(), 'dsh-media-seed-'))
+      try {
+        const prepared = await seedWorkspace(owner, cwd)
+        if (name.startsWith('muse-video')) {
+          expect(await readFile(join(cwd, 'fixture.mp4'), 'utf8')).toContain('Deterministic media source')
+        }
+        if (name === 'muse-video-inspect') {
+          expect(prepared).toEqual({})
+          return
+        }
+        const expectedRoot = prepared.expectedRoot
+        if (expectedRoot === undefined) throw new Error(`${name}: missing expected workspace`)
+        expect(await captureExpectedWorkspaceSnapshot(expectedRoot)).not.toHaveLength(0)
+        if (name === 'drama-subtitle-overlay') {
+          const report = JSON.parse(await readFile(join(expectedRoot, 'editing/review-overlay.srt.decision-report.json'), 'utf8')) as JsonObject
+          expect(report.plan_path).toBe(join(await realpath(cwd), 'subtitle-plan.json'))
+          expect(await readFile(join(cwd, '.dsh/skills/tweet-drama-draft-build/SKILL.md'), 'utf8')).toContain('tweet-drama-draft-build')
+        } else if (name === 'drama-subtitle-visual-review') {
+          const sources = JSON.parse(await readFile(join(expectedRoot, 'editing/01-sources.json'), 'utf8')) as { shots: { video: string; audio: string }[] }
+          expect(sources.shots.length).toBeGreaterThan(0)
+          for (const shot of sources.shots) {
+            expect(shot.video).toBe(join(await realpath(cwd), 'source.mp4'))
+            expect(shot.audio).toBe(shot.video)
+          }
+        } else {
+          expect(JSON.parse(await readFile(join(cwd, 'transcript.json'), 'utf8'))).toEqual([
+            { start: 0, end: 1, text: '合成画面', speaker_id: 1 },
+            { start: 1, end: 3, text: '从黑色切换为白色。', speaker_id: 1 },
+          ])
+        }
+      } finally {
+        await rm(cwd, { recursive: true, force: true })
+      }
+    },
+  )
 
   it('recognizes the supported OS-assigned listener forms', () => {
     expect(listenerPortViolations('accepted.mjs', [
@@ -1740,14 +1868,10 @@ describe('headless recorded-session snapshots', () => {
       if (retainedToolInput !== undefined) {
         expect(await readFile(join(scenario.dir, retainedToolInput), 'utf8'), 'retained replay input bytes').toBe(primaryFixture)
       }
-      if (scenario.manifest.sessionFormat !== undefined) {
+      if (scenario.manifest.sessionFormat !== undefined || scenario.manifest.writerOutput === true) {
         if (mode === 'refresh') await writeSessionFixtures(scenario, actualLogs, fixtures, actualContext)
-        expected = await Promise.all(fixtures.map((_, index) => readFile(join(scenario.dir, writerSnapshotName(index)), 'utf8')))
-        for (const [index, content] of expected.entries()) {
-          expect(sessionHeaderVersion(content, writerSnapshotName(index))).toBeLessThanOrEqual(SESSION_FORMAT_VERSION)
-        }
-        expect(await fixtureSessions(scenario), 'historical replay input remains unchanged').toEqual(fixtures)
       }
+      expected = [...await expectedSessionFixtures(scenario, expected)]
       const outputLog = expected[0]
       if (outputLog === undefined) throw new Error(`${scenario.name}: CLI projection has no primary session`)
       expect(result.stdout).toBe(`${finalTextFromSession(outputLog)}\n`)

@@ -1,6 +1,7 @@
 version: 1
 scenario: output-continuation
 profile: sdk
+writerOutput: true
 composition: sdk-output-continuation
 recording: authored
 header:
