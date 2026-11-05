@@ -31,7 +31,7 @@ it('uses same-origin cookies without constructing authority headers and validate
   expect(await client.actions.catalog('分镜', 'skill', true)).toEqual([release])
   const [url, options] = fetcher.mock.calls[0]!
   expect(url).toBe('/api/market/v1/catalog?q=%E5%88%86%E9%95%9C&kind=skill&mine=true')
-  expect(options).toMatchObject({ credentials: 'same-origin', mode: 'same-origin', redirect: 'manual' })
+  expect(options).toMatchObject({ credentials: 'same-origin', mode: 'same-origin', redirect: 'manual', cache: 'no-store' })
   expect(new Headers(options?.headers).has('cookie')).toBe(false)
   expect(new Headers(options?.headers).has('authorization')).toBe(false)
   fetcher.mockResolvedValueOnce(response({ items: [{ ...release, revision: 0 }] }))
@@ -53,6 +53,7 @@ it('validates team identity and sends explicit ZIP uploads with the caller-retai
   const client = createMarketBrowserClient(config, fetcher)
   expect(await client.actions.identity()).toEqual({ publishers: [{ id: release.publisherId, title: release.publisher }], admin: false })
   expect((await client.actions.uploadArchive(bytes, release.publisherId, 'request-retained-1')).status).toBe('draft')
+  expect(fetcher.mock.calls.map(([, options]) => options?.cache)).toEqual(['no-store', 'no-store'])
   const [url, options] = fetcher.mock.calls[1]!
   expect(url).toBe('/api/market/v1/uploads')
   expect(options?.method).toBe('POST')
@@ -81,13 +82,17 @@ it('binds the automatic Skill portrait in the uploaded ZIP and reads it back fro
   }
 })
 
-it('requests only Skills and excludes archived Bot releases from stale catalogue responses', async () => {
+it('requests fresh Skill catalogues and excludes archived Bot releases from stale responses', async () => {
   const skill = await fixture(), bot = await fixture('storyboard-director')
-  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(response({ items: [bot.release, skill.release] }))
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(response({ items: [bot.release, skill.release] }))
+    .mockResolvedValueOnce(response({ entries: [] }))
   const client = createMarketBrowserClient(config, fetcher)
   try {
     expect(await client.actions.catalog('', '', true)).toEqual([skill.release])
     expect(fetcher.mock.calls[0]?.[0]).toBe('/api/market/v1/catalog?q=&kind=skill&mine=true')
+    expect(await client.actions.legacyCatalog('')).toEqual([])
+    expect(fetcher.mock.calls[1]?.[0]).toBe('/market/catalog.json')
+    expect(fetcher.mock.calls.map(([, options]) => options?.cache)).toEqual(['no-store', 'no-store'])
   } finally { await client.close() }
 })
 
@@ -110,6 +115,7 @@ it('rejects a Bot release returned by an obsolete upload or review endpoint', as
   try {
     await expect(client.actions.uploadArchive(skill.bytes, skill.release.publisherId, 'stale-request-1')).rejects.toThrow('skill-only')
     await expect(client.actions.review(bot.release.id, 1, 'approve', '')).rejects.toThrow('skill-only')
+    expect(fetcher.mock.calls.map(([, options]) => options?.cache)).toEqual(['no-store', 'no-store'])
   } finally { await client.close() }
 })
 
@@ -128,6 +134,7 @@ it('downloads only bytes matching both the immutable digest and length', async (
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async () => new Response(Uint8Array.from(bytes)))
   const client = createMarketBrowserClient(config, fetcher)
   expect(await client.actions.downloadArchive(release)).toEqual({ name: 'storyboard-starter-1.0.0.zip', bytes })
+  expect(fetcher.mock.calls[0]?.[1]?.cache).toBe('no-store')
   const changed = Uint8Array.from(bytes); changed[0] = (changed[0]! + 1) % 256
   fetcher.mockResolvedValueOnce(new Response(changed))
   await expect(client.actions.downloadArchive(release)).rejects.toThrow('invalid-archive')

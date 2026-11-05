@@ -79,7 +79,7 @@ export function createMarketBrowserClient(config: MarketWebConfig, fetcher: type
   const request = async (path: string, init: RequestInit = {}, maximum = config.metadataBytes): Promise<Uint8Array> => {
     const work = (async () => {
       lifetime.signal.throwIfAborted()
-      const response = await fetcher(path, { ...init, credentials: 'same-origin', mode: 'same-origin',
+      const response = await fetcher(path, { ...init, credentials: 'same-origin', mode: 'same-origin', cache: 'no-store',
         redirect: 'manual', signal: AbortSignal.any([lifetime.signal, AbortSignal.timeout(config.requestTimeoutMs)]) })
       if (response.status === 401 || response.status === 303 || response.type === 'opaqueredirect') {
         await response.body?.cancel(); throw new MarketError('login-required', 401)
