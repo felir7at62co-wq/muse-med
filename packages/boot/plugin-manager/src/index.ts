@@ -485,7 +485,7 @@ export class PluginManager extends TypertRemoteService {
   /**
    * Install a package using the same pnpm implementation as dsh plugin. GitHub
    * repositories get a connection check bounded by githubConnectionTimeoutMs before pnpm starts;
-   * only network failures or timeouts stop installation, while pnpm owns authentication and transport fallback. A run
+   * only network failures or timeouts stop installation. pnpm uses the installer's Git configuration. A run
    * that fails, is cancelled, or adds a package without a bundle patch restores
    * `package.json` and `pnpm-lock.yaml` as they were; downloaded files can stay.
    * @param spec One package spec, including local paths relative to the invocation directory.
