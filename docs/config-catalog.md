@@ -2785,7 +2785,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-muse-account`
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel` · `sessions`
-- `source`: [`packages/host/muse-account/src/index.ts:40`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:43`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -2830,6 +2830,34 @@ export interface Config {
   readonly feedbackExcerptChars: number
   /** Register explicit feedback submission and owner-scoped status tools. */
   readonly feedbackTools: boolean
+  /** Register deferred company media tools using the current private Muse login. */
+  readonly mediaTools: boolean
+  /** Deadline for a company media metadata or receipt request. */
+  readonly mediaRequestTimeoutMs: number
+  /** Deadline for one account-owned media stream and its consumer. */
+  readonly mediaFileTimeoutMs: number
+  /** Deadline for local import, including complete media decoding. */
+  readonly mediaVerifyTimeoutMs: number
+  /** Maximum complete JSON reply accepted from the company media service. */
+  readonly mediaMaxReplyBytes: number
+  /** Maximum bytes in one imported media file. */
+  readonly mediaMaxFileBytes: number
+  /** Relative destination directory inside the initiating Session workspace. */
+  readonly mediaDirectory: string
+  /** Node executable used only for the confined private binary-file helper. */
+  readonly mediaNodePath: string
+  /** FFmpeg executable used for complete local media decoding. */
+  readonly mediaFfmpegPath: string
+  /** FFprobe executable used to verify local media dimensions and duration. */
+  readonly mediaFfprobePath: string
+  /** Grace period for termination of the import helper and its descendants. */
+  readonly mediaCommandGraceMs: number
+  /** Maximum complete helper report and child diagnostics, in bytes. */
+  readonly mediaCommandMaxOutputBytes: number
+  /** Maximum width multiplied by height accepted for imported media. */
+  readonly mediaMaxPixels: number
+  /** Maximum complete video duration accepted by the local importer. */
+  readonly mediaMaxDurationSeconds: number
   /** Minimum interval between best-effort human-task activity reports for the same login. */
   readonly activityReportIntervalMs: number
   /** Maximum lifetime of one best-effort activity request, independent of model or task work. */

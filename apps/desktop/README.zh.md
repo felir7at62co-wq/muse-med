@@ -185,7 +185,7 @@ macOS 上自定义菜单保留 Electron 的标准 Window 菜单及应用隐藏�
 
 ### 运行时与插件激活
 
-[社区源码构建器](../../third_party/plugins/README.zh.md)提供必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。FFmpeg 工具、技能/MCP 面板、`@wenbin_wb/dsh-bridge`、`@xmanrui/dsh-im` 及红果数据工具是内置 profile bundle。启动时在 profile 清单中替换旧飞书 bundle，保留其依赖记录、凭证设置、Session 日志及聊天映射；修改前备份清单，每次重写都保留独立副本，不覆盖之前的备份，并保留无关插件的顺序。Host 负责[旧配置项名称迁移](../desktop-host/README.zh.md)。插件市场不挂载。启动时先备份 profile 清单，再从内置列表移除已退役的 Ponytail bundle；个人组合条目按[升级步骤](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-ponytail-removal/guide.zh.md)处理。
+[社区源码构建器](../../third_party/plugins/README.zh.md)提供必需的本地 tarball 根包；缺少输入会停止打包准备，不回退到 registry 二进制。FFmpeg 工具、技能/MCP 面板、Deep View 和 Visualize 卡片、`@wenbin_wb/dsh-bridge`、`@xmanrui/dsh-im` 及红果数据工具是内置 profile bundle。启动时在 profile 清单中替换旧飞书 bundle，保留其依赖记录、凭证设置、Session 日志及聊天映射；修改前备份清单，每次重写都保留独立副本，不覆盖之前的备份，并保留无关插件的顺序。Host 负责[旧配置项名称迁移](../desktop-host/README.zh.md)。新建和升级的配置各装载一份卡片 bundle，用户显式禁用的设置仍然有效。插件市场不挂载。启动时先备份 profile 清单，再从内置列表移除已退役的 Ponytail bundle；个人组合条目按[升级步骤](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-ponytail-removal/guide.zh.md)处理。
 
 保留的 CI 包记录绑定同一来源树中 `muse-product.json` 的 Muse 产品版本与独立的 DSH Core 版本。发布验证这两个原始版本；缺少已验证 Core 身份的旧记录会被拒绝，须从已验证来源恢复证据或重新构建。
 

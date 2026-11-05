@@ -16,6 +16,9 @@ import { mountMuseFeedbackTools } from './feedback-tools.ts'
 import { MuseDesktopRemote } from './desktop-remote.ts'
 import { mountMuseActivity } from './activity.ts'
 import { mountMuseWebSearch } from './web-search.ts'
+import { MuseMediaClient } from './media.ts'
+import { MuseMediaImporter } from './media-import.ts'
+import { mountMuseMediaTools } from './media-tools.ts'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
@@ -78,6 +81,34 @@ export interface Config {
   readonly feedbackExcerptChars: number
   /** Register explicit feedback submission and owner-scoped status tools. */
   readonly feedbackTools: boolean
+  /** Register deferred company media tools using the current private Muse login. */
+  readonly mediaTools: boolean
+  /** Deadline for a company media metadata or receipt request. */
+  readonly mediaRequestTimeoutMs: number
+  /** Deadline for one account-owned media stream and its consumer. */
+  readonly mediaFileTimeoutMs: number
+  /** Deadline for local import, including complete media decoding. */
+  readonly mediaVerifyTimeoutMs: number
+  /** Maximum complete JSON reply accepted from the company media service. */
+  readonly mediaMaxReplyBytes: number
+  /** Maximum bytes in one imported media file. */
+  readonly mediaMaxFileBytes: number
+  /** Relative destination directory inside the initiating Session workspace. */
+  readonly mediaDirectory: string
+  /** Node executable used only for the confined private binary-file helper. */
+  readonly mediaNodePath: string
+  /** FFmpeg executable used for complete local media decoding. */
+  readonly mediaFfmpegPath: string
+  /** FFprobe executable used to verify local media dimensions and duration. */
+  readonly mediaFfprobePath: string
+  /** Grace period for termination of the import helper and its descendants. */
+  readonly mediaCommandGraceMs: number
+  /** Maximum complete helper report and child diagnostics, in bytes. */
+  readonly mediaCommandMaxOutputBytes: number
+  /** Maximum width multiplied by height accepted for imported media. */
+  readonly mediaMaxPixels: number
+  /** Maximum complete video duration accepted by the local importer. */
+  readonly mediaMaxDurationSeconds: number
   /** Minimum interval between best-effort human-task activity reports for the same login. */
   readonly activityReportIntervalMs: number
   /** Maximum lifetime of one best-effort activity request, independent of model or task work. */
@@ -115,6 +146,20 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
   asrRequestTimeoutMs: Schema.number().step(1).min(10_000).max(1_800_000).default(300_000),
   feedbackExcerptChars: Schema.number().step(1).min(100).max(1_200).default(1_000),
   feedbackTools: Schema.boolean().default(false),
+  mediaTools: Schema.boolean().default(false),
+  mediaRequestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(60_000),
+  mediaFileTimeoutMs: Schema.number().step(1).min(10_000).max(3_600_000).default(1_800_000),
+  mediaVerifyTimeoutMs: Schema.number().step(1).min(10_000).max(3_600_000).default(1_800_000),
+  mediaMaxReplyBytes: Schema.number().step(1).min(1024).max(16_777_216).default(1_048_576),
+  mediaMaxFileBytes: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(536_870_912),
+  mediaDirectory: Schema.string().pattern(/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9_-]+)*$/u).default('source/media/company'),
+  mediaNodePath: Schema.string().min(1).default('node'),
+  mediaFfmpegPath: Schema.string().min(1).default('ffmpeg'),
+  mediaFfprobePath: Schema.string().min(1).default('ffprobe'),
+  mediaCommandGraceMs: Schema.number().step(1).min(100).max(30_000).default(1_000),
+  mediaCommandMaxOutputBytes: Schema.number().step(1).min(1024).max(1_048_576).default(65_536),
+  mediaMaxPixels: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER).default(67_108_864),
+  mediaMaxDurationSeconds: Schema.number().min(1).max(86_400).default(7_200),
   activityReportIntervalMs: Schema.number().step(1).min(1_000).max(3_600_000).default(30_000),
   activityRequestTimeoutMs: Schema.number().step(1).min(100).max(30_000).default(5_000),
   remoteAccess: Schema.boolean().default(false),
@@ -142,6 +187,24 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     reportIntervalMs: config.activityReportIntervalMs, requestTimeoutMs: config.activityRequestTimeoutMs })
   if (config.webSearch) {
     mountMuseWebSearch(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.searchRequestTimeoutMs })
+  }
+  if (config.mediaTools) {
+    if (ctx.get('fs') === undefined || ctx.get('subprocess') === undefined || ctx.get('sandboxPolicy') === undefined) {
+      throw Error('muse-account: mediaTools requires fs, subprocess and sandboxPolicy providers')
+    }
+    const mediaDependencies = ['fs', 'subprocess', 'sandboxPolicy', 'tools']
+    if (ctx.get('sandbox') !== undefined) mediaDependencies.push('sandbox')
+    await ctx.inject(mediaDependencies, (scope) => {
+      const media = new MuseMediaClient({ baseUrl, sessionFile: join(accountHome, 'session.json'),
+        requestTimeoutMs: config.mediaRequestTimeoutMs, fileTimeoutMs: config.mediaFileTimeoutMs,
+        maxReplyBytes: config.mediaMaxReplyBytes, maxFileBytes: config.mediaMaxFileBytes })
+      const importer = new MuseMediaImporter(scope, media, { directory: config.mediaDirectory, nodePath: config.mediaNodePath,
+        ffmpegPath: config.mediaFfmpegPath, ffprobePath: config.mediaFfprobePath, timeoutMs: config.mediaVerifyTimeoutMs,
+        graceMs: config.mediaCommandGraceMs, maxBytes: config.mediaMaxFileBytes, maxOutputBytes: config.mediaCommandMaxOutputBytes,
+        maxPixels: config.mediaMaxPixels, maxDurationSeconds: config.mediaMaxDurationSeconds })
+      scope.effect(() => async () => { await importer.dispose(); await media.dispose() }, 'muse-account: settle company media')
+      mountMuseMediaTools(scope, media, importer)
+    }).await()
   }
   const asr = new MuseAsrClient({ baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.asrRequestTimeoutMs })
   const models = new MuseModels(ctx, { baseUrl, sessionFile: join(accountHome, 'session.json'), requestTimeoutMs: config.requestTimeoutMs,

@@ -63,6 +63,12 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 
 搜索拒绝重定向，使用独立的 `searchRequestTimeoutMs` 时限，将网关 JSON 限制为 1 MiB，只返回校验过的来源 URL、标题、摘要片段或 summary 后备文本及日期。工具的来源数量上限仍有效。请求期间退出或切换账号会拒绝该结果。错误使用固定诊断，不包含原始网关响应、凭据值或传输异常，不自动重试。插件卸载会取消并等待在途搜索结束。客户端选择该提供方前，账号网关须先部署对应接口。
 
+### 公司媒体
+
+启用 `mediaTools: true` 后，`muse_media_data`、`muse_media_download`、`muse_media_task`、`muse_media_import` 四个延迟加载工具使用当前私密 Muse 登录。桌面默认启用，员工无需填写上游 API Key。匹配的[公司媒体网关](../../../services/muse-media/gateway/README.zh.md)检查公司成员身份、任务归属与按账号限流。权限拒绝不会删除 Muse 登录。每次调用捕获当前登录修订，账号变化后拒绝交付；卸载会取消并等待网络请求和本地辅助进程结束。
+
+云端提交必须携带稳定 `requestId`；结果不确定时查询原任务，不得换编号重新提交。`cloud_saved` 仅表示云端完整保存。`partial` 只公开逐项接受的文件，导入其中一个文件后整个任务仍为部分完成。导入要求发起会话有本机工作区，拒绝只读策略和覆盖已有文件，工作区写入辅助进程通过已配置的操作系统沙箱执行。完整字节数、SHA-256、FFprobe 元数据和 FFmpeg 完整解码通过后才发布文件。`local_ready` 仅代表一个校验过的图片或视频，同时保留源任务状态和文件覆盖信息；图片不代表视频成功。使用现有 `present` 工具展示返回路径，生成文件卡并进入视频清单。私有辅助进程以内联代码打包，没有公开可执行入口，也不接收账号凭据。
+
 ### 共享声线登记
 
 `MuseAccountService.requestVoiceSlot` 仅供 Host 使用，沿当前私密 Muse 会话调用[共享登记协调器](../../../services/muse-accounts/README.zh.md#shared-voice-registration)。剧变 token 仅通过私密请求头发送，响应后核对账号修订，拒绝重定向，将严格 UTF-8 协调响应限制为 16 KiB，且不自动重试。该方法不是 Remote 接口，也不是模型可见的凭据读取器。未配置服务时拒绝新的协调登记，已有音频复用和其他制作工作仍可继续。
@@ -96,6 +102,20 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 | `searchRequestTimeoutMs` | 60,000 | 独立的账号授权搜索超时毫秒数，可设为 1,000 至 120,000。 |
 | `modelRequestImageMaxBytes` | 适配器默认值（`20 MiB`） | 每次模型请求累计 base64 图片字节上限，可设为正安全整数。挂载 `compaction-image-offload` 后记录最早图片的卸载并重试，来源附件仍可读取；不限制正文输出。 |
 | `feedbackTools` | `false` | 注册明确的用户反馈提交及本人收据查询工具；Muse 桌面启用。 |
+| `mediaTools` | `false` | 注册四个延迟加载的公司媒体工具；桌面默认启用。 |
+| `mediaRequestTimeoutMs` | 60,000 | 元数据与收据请求时限，范围 1,000–120,000 毫秒。 |
+| `mediaFileTimeoutMs` | 1,800,000 | 文件传输及消费全过程时限，范围 10,000–3,600,000 毫秒。 |
+| `mediaVerifyTimeoutMs` | 1,800,000 | 本地辅助进程与完整解码时限，范围 10,000–3,600,000 毫秒。 |
+| `mediaMaxReplyBytes` | 1,048,576 | 完整 JSON 响应字节上限，范围 1 KiB–16 MiB。 |
+| `mediaMaxFileBytes` | 536,870,912 | 单个导入文件字节上限，正安全整数。 |
+| `mediaDirectory` | `source/media/company` | 相对目标目录，路径段仅含字母、数字、下划线或连字符。 |
+| `mediaNodePath` | `node` | 私有辅助进程的 Node 可执行文件；桌面使用当前宿主可执行文件。 |
+| `mediaFfmpegPath` | `ffmpeg` | 完整解码可执行文件；桌面使用 `DSH_FFMPEG_PATH`。 |
+| `mediaFfprobePath` | `ffprobe` | 元数据检查可执行文件；桌面使用 `DSH_FFPROBE_PATH`。 |
+| `mediaCommandGraceMs` | 1,000 | 进程终止宽限，范围 100–30,000 毫秒。 |
+| `mediaCommandMaxOutputBytes` | 65,536 | 完整辅助进程报告与诊断上限，范围 1 KiB–1 MiB。 |
+| `mediaMaxPixels` | 67,108,864 | 导入媒体宽乘高上限，正安全整数。 |
+| `mediaMaxDurationSeconds` | 7,200 | 视频时长上限，范围 1–86,400 秒。 |
 | `feedbackExcerptChars` | 1,000 | 每条可选相关请求或回答摘录的可见字数，可设为 100 至 1,200。 |
 | `activityReportIntervalMs` | 30,000 | 同一登录两次使用情况上报的最短间隔，范围 1,000–3,600,000 毫秒。 |
 | `activityRequestTimeoutMs` | 5,000 | 尽力上报使用情况的请求时限，范围 100–30,000 毫秒。 |
@@ -163,7 +183,7 @@ Host 转写调用同时接受调用方取消信号与请求超时。取消会终
 
 #### Token effect
 
-启用 `feedbackTools` 时，模型请求增加两个反馈工具 schema，收据结果进入正常工具历史。关闭时，本包不增加工具 schema 或系统提示词文本。可选账号搜索沿用原有网页工具 schema，并将返回的来源追加到会话。
+启用 `feedbackTools` 时，模型请求增加两个反馈工具 schema，收据结果进入正常工具历史。反馈和媒体工具均关闭时，本包不增加工具 schema 或系统提示词文本。启用 `mediaTools` 注册四个延迟加载 schema，由发现机制控制请求准入，接受的结果进入正常工具历史。可选账号搜索沿用原有网页工具 schema，并将返回的来源追加到会话。
 
 #### KV Cache effect
 

@@ -69,6 +69,7 @@ describe('desktop development project', () => {
       dependencies: Record<string, string>
       dsh: { profile: { bundles: string[] } }
     }
+    expect(manifest.dsh.profile.bundles).toEqual(expect.arrayContaining(['deep-view', '@nagi-ovo/dsh-visualize']))
     expect(manifest.dependencies).not.toHaveProperty('ds-bot')
     expect(manifest.dsh.profile.bundles.filter(bundle => bundle === 'muse-skill-evolution')).toHaveLength(1)
     expect(existsSync(join(project, 'node_modules/ds-bot'))).toBe(false)

@@ -62,6 +62,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     // it tests a tree no Desktop launch ever mounts.
     const overlay = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
     expect(profile.skippedBundles).toEqual([])
+    expect(profile.layers.map(layer => layer.packageName)).toEqual(expect.arrayContaining(['deep-view', '@nagi-ovo/dsh-visualize']))
     const warnings: string[] = []
     const rows = composeEntries([
       ...profile.layers.map(layer => layer.patches),
@@ -69,6 +70,9 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
       loadOverlayPatches('muse-med', overlay),
     ], message => warnings.push(message))
 
+    for (const [id, name] of [['deep-view', 'deep-view'], ['dsh-visualize', '@nagi-ovo/dsh-visualize']]) {
+      expect(rows.filter(row => row.id === id)).toEqual([{ id, name }])
+    }
     for (const id of ['agent-notes', 'ui-settings-agent-notes']) {
       expect(rows.find(row => row.id === id), id).toMatchObject({ disabled: true })
     }
@@ -94,7 +98,11 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
     expect(rows.find(row => row.id === 'webserver')).toMatchObject({ name: '@deepseek-ai/dsh-host-webserver' })
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-muse-account')).toEqual([
       { id: 'muse-account', name: '@deepseek-ai/dsh-muse-account', inject: ['tools', 'llm', 'sessions', 'sessionProjections', 'agentDefaultModel', 'museDesktopBridge', 'connection', 'webServer'], config: {
-        remoteAccess: true, webSearch: true, feedbackTools: true, excludedModelPrefixes: [], excludedProviderIds: ['aa'], hiddenProviderIds: ['yunying'],
+        remoteAccess: true, webSearch: true, feedbackTools: true, mediaTools: true,
+        mediaNodePath: { __jsExpr: 'process.execPath' },
+        mediaFfmpegPath: { __jsExpr: "process.env.DSH_FFMPEG_PATH || 'ffmpeg'" },
+        mediaFfprobePath: { __jsExpr: "process.env.DSH_FFPROBE_PATH || 'ffprobe'" },
+        excludedModelPrefixes: [], excludedProviderIds: ['aa'], hiddenProviderIds: ['yunying'],
         visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' },
           { providerId: 'yunying', modelId: 'gpt-6.1-sol' }], requestTimeoutMs: 60000,
         excludedModels: [
