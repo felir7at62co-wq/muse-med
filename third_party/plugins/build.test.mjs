@@ -3,7 +3,9 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { createRequire } from 'node:module'
+import { dirname, join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import test from 'node:test'
 import { hostRuntimeCompatibility, reviewedHostPackageVersion, reviewedHostVersion } from './compatibility/host-runtime.mjs'
 import { mcpDesktopCompatibility } from './compatibility/mcp-desktop.mjs'
@@ -78,6 +80,36 @@ test('rejects an unknown source', () => {
   assert.equal(result.status, 1)
   assert.match(result.stderr, /unknown source/)
 })
+
+for (const kind of ['native', 'JavaScript']) {
+  test(`builds with the pinned community pnpm under a ${kind} root Corepack lifecycle`, async () => {
+    const require = createRequire(join(root, 'package.json'))
+    const pnpmRoot = dirname(require.resolve('pnpm/package.json'))
+    const { resolveInstalledBinary } = await import(pathToFileURL(join(pnpmRoot, 'native-binary.mjs')).href)
+    const entrypoint = kind === 'native' ? resolveInstalledBinary() : join(pnpmRoot, 'bin/pnpm.mjs')
+    assert.ok(entrypoint, 'the installed root pnpm has its native executable')
+    const output = mkdtempSync(join(tmpdir(), 'muse-corepack-community-'))
+    try {
+      const result = spawnSync(process.execPath, [join(root, 'third_party/plugins/build.mjs'), '--only', 'dsh-ffmpeg', '--out', output], {
+        cwd: root, encoding: 'utf8', timeout: 90_000,
+        env: { ...process.env, npm_execpath: entrypoint, COREPACK_ROOT: pnpmRoot },
+      })
+      assert.ifError(result.error)
+      assert.equal(result.status, 0, result.stdout + result.stderr)
+      const toolchain = JSON.parse(readFileSync(join(root, 'third_party/plugins/toolchain/package.json'), 'utf8'))
+      const version = toolchain.packageManager.slice('pnpm@'.length)
+      assert.ok((result.stdout + result.stderr).includes(`using pnpm v${version}`), 'the frozen install uses the toolchain version')
+      const archive = readdirSync(output).find(file => file.endsWith('.tgz'))
+      assert.ok(archive, 'the selected community source is packed')
+      const packed = spawnSync('tar', ['-xOzf', join(output, archive), 'package/SOURCE.json'], { encoding: 'utf8' })
+      assert.equal(packed.status, 0, packed.stderr)
+      assert.equal(JSON.parse(packed.stdout).toolchainLockSha256,
+        sha256(readFileSync(join(root, 'third_party/plugins/toolchain/pnpm-lock.yaml'))))
+    } finally {
+      rmSync(output, { recursive: true, force: true })
+    }
+  })
+}
 
 test('builds every desktop plugin with its declared runtime entries and notices', () => {
   const [first, second] = sameDepthOutputs('muse-all-plugins')
