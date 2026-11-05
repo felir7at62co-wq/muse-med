@@ -198,6 +198,9 @@
 
     - id: session-video
       name: '@deepseek-ai/dsh-session-video'
+      config:
+        ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'
+        ffprobePath: !!js process.env.DSH_FFPROBE_PATH || 'ffprobe'
 
     - id: ui-session-video
       name: '@deepseek-ai/dsh-client-ui-session-video'
