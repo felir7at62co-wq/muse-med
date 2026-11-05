@@ -11,6 +11,34 @@ import { applyEntryPatches } from '@deepseek-ai/cordis-plugin-include'
 const roots: string[] = []
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 
+it.each(['missing', 'already-installed'] as const)('activates independent Skill learning from a %s bundle while retaining an explicit opt-out', (mode) => {
+  const root = mkdtempSync(join(tmpdir(), 'muse-learning-profile-upgrade-')); roots.push(root)
+  const before = DESKTOP_PROFILE_BUNDLES.filter(bundle => bundle !== 'muse-skill-evolution')
+  const bundles = [...before, 'custom', ...(mode === 'already-installed' ? ['muse-skill-evolution'] : [])]
+  const manifest = { name: '@deepseek-ai/dsh-desktop-runtime', private: true, version: '0.0.0',
+    dependencies: { custom: 'file:../custom', 'muse-skill-evolution': '0.1.0' }, dsh: { profile: { bundles } } }
+  const original = JSON.stringify(manifest)
+  const patch = '- id: muse-skill-evolution\n  disabled: true\n  config:\n    autoSubmitFeedback: false\n'
+  writeFileSync(join(root, 'package.json'), original)
+  writeFileSync(join(root, 'cordis.patch.yml'), patch)
+  migrateDesktopProductProfile(root)
+  const parsed = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as typeof manifest
+  expect(parsed.dsh.profile.bundles).toEqual([...DESKTOP_PROFILE_BUNDLES, 'custom'])
+  expect(parsed.dsh.profile.bundles.filter(bundle => bundle === 'muse-skill-evolution')).toHaveLength(1)
+  expect(parsed.dependencies).toEqual(manifest.dependencies)
+  expect(readFileSync(join(root, 'cordis.patch.yml'), 'utf8')).toBe(patch)
+  const backups = readdirSync(root).filter(file => file.endsWith('.bak'))
+  expect(backups).toHaveLength(1)
+  expect(readFileSync(join(root, backups[0] ?? ''), 'utf8')).toBe(original)
+  const warnings: string[] = []
+  const entries = applyEntryPatches([{ id: 'muse-skill-evolution', name: 'muse-skill-evolution' }],
+    loadOptionalPatches('dsh', join(root, 'cordis.patch.yml')), message => warnings.push(message))
+  expect(warnings).toEqual([])
+  expect(entries).toMatchObject([{ id: 'muse-skill-evolution', disabled: true, config: { autoSubmitFeedback: false } }])
+  migrateDesktopProductProfile(root)
+  expect(readdirSync(root).filter(file => file.endsWith('.bak'))).toEqual(backups)
+})
+
 it.each(['ds-bot', 'muse-bot'])('retires %s while retaining full state, source package specs, unrelated plugins and exact private backups', (bot) => {
   const root = mkdtempSync(join(tmpdir(), 'muse-profile-upgrade-')); roots.push(root)
   const manifest = { name: '@deepseek-ai/dsh-desktop-runtime', private: true, version: '0.0.0', dependencies: { [bot]: '0.2.4', custom: 'file:../custom' },

@@ -46,10 +46,22 @@ interface GatewayConstructor {
 // The panel owns a separate compiler program; load its real source without adding it to the Host aggregate.
 const gatewayUrl = new URL('../../../third_party/plugins/dsh-skill-mcp-panel/src/mcp/gateway.ts', import.meta.url).href
 const oauthUrl = new URL('../../../third_party/plugins/dsh-skill-mcp-panel/src/oauth.ts', import.meta.url).href
-const { McpManagerGateway }: { McpManagerGateway: GatewayConstructor } = await import(gatewayUrl)
-const { oauthFile }: { oauthFile(home: string): string } = await import(oauthUrl)
+const { McpManagerGateway } = await import(gatewayUrl) as { McpManagerGateway: GatewayConstructor }
+const { oauthFile } = await import(oauthUrl) as { oauthFile: (home: string) => string }
 
 const originalFetch = globalThis.fetch
+
+/** Read a fetch input's URL without stringifying a Request object. */
+function fetchUrl(input: Parameters<typeof fetch>[0]): string {
+  return typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+}
+
+/** Preserve the real gateway's unload Error as the fetch rejection reason. */
+function abortError(signal: AbortSignal): Error {
+  const reason: unknown = signal.reason
+  assert.ok(reason instanceof Error, 'The OAuth gateway must cancel with its original Error')
+  return reason
+}
 const metadata = {
   authorization_endpoint: 'https://oauth-fixture.invalid/authorize',
   token_endpoint: 'https://oauth-fixture.invalid/token',
@@ -69,7 +81,7 @@ async function fixture() {
   const ctx = new Context()
   let gateway!: GatewayFixture
   const servers: Server[] = []
-  const createServer = http.createServer
+  const createServer = http.createServer.bind(http)
   vi.spyOn(http, 'createServer').mockImplementation((...args: Parameters<typeof createServer>) => {
     const server = createServer(...args)
     servers.push(server)
@@ -94,9 +106,9 @@ async function fixture() {
     return pending
   }
   let tokenCalls = 0
-  globalThis.fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-    assert.match(String(input), /^https:\/\/oauth-fixture\.invalid\//u)
-    if (!String(input).endsWith('/token')) return Response.json(metadata)
+  globalThis.fetch = vi.fn<typeof fetch>(async (input, init) => {
+    assert.match(fetchUrl(input), /^https:\/\/oauth-fixture\.invalid\//u)
+    if (!fetchUrl(input).endsWith('/token')) return Response.json(metadata)
     tokenCalls += 1
     tokenRequested.resolve(init)
     return tokenResponse.promise
@@ -119,7 +131,7 @@ async function fixture() {
       await ctx.fiber.dispose()
       for (const server of servers) if (server.listening) {
         server.closeAllConnections()
-        await new Promise<void>((resolve) => { server.close(() => resolve()) })
+        await new Promise<void>((resolve) => { server.close(() => { resolve() }) })
       }
       await rm(home, { recursive: true, force: true })
     },
@@ -130,9 +142,9 @@ describe('MCP OAuth recovery', () => {
   it('closes the listener when dynamic registration rejects', async () => {
     const f = await fixture()
     try {
-      globalThis.fetch = vi.fn(async (input) => {
-        assert.match(String(input), /^https:\/\/oauth-fixture\.invalid\//u)
-        if (String(input).endsWith('/register')) throw new Error('fixture registration rejected')
+      globalThis.fetch = vi.fn<typeof fetch>(async (input) => {
+        assert.match(fetchUrl(input), /^https:\/\/oauth-fixture\.invalid\//u)
+        if (fetchUrl(input).endsWith('/register')) throw new Error('fixture registration rejected')
         return Response.json(metadata)
       })
       await expect(f.gateway.oauthStart({ serverName: 'fixture' })).rejects.toThrow('fixture registration rejected')
@@ -144,7 +156,7 @@ describe('MCP OAuth recovery', () => {
   it('closes the listener when authorization URL construction fails', async () => {
     const f = await fixture()
     try {
-      globalThis.fetch = vi.fn(async () => Response.json({ token_endpoint: metadata.token_endpoint }))
+      globalThis.fetch = vi.fn<typeof fetch>(async () => Response.json({ token_endpoint: metadata.token_endpoint }))
       await expect(f.start()).rejects.toThrow('authorization_endpoint')
       expect(f.servers).toHaveLength(1)
       expect(f.servers[0]!.listening).toBe(false)
@@ -181,7 +193,8 @@ describe('MCP OAuth recovery', () => {
       expect(await f.gateway.oauthPoll({ flowId: start.flowId })).toEqual(result)
       expect(f.headerWrites()).toBe(1)
       expect(f.servers[0]!.listening).toBe(false)
-      expect(JSON.parse(await readFile(oauthFile(f.home), 'utf8')).servers.fixture.accessToken).toBe('fixture-access')
+      const saved: unknown = JSON.parse(await readFile(oauthFile(f.home), 'utf8'))
+      expect(saved).toMatchObject({ servers: { fixture: { accessToken: 'fixture-access' } } })
     } finally { await f.close() }
   })
 
@@ -210,13 +223,13 @@ describe('MCP OAuth recovery', () => {
     const entered = Promise.withResolvers<undefined>()
     const cancelled = Promise.withResolvers<undefined>()
     try {
-      globalThis.fetch = vi.fn(async (input, init) => {
-        if (!String(input).endsWith('/register')) return Response.json(metadata)
+      globalThis.fetch = vi.fn<typeof fetch>(async (input, init) => {
+        if (!fetchUrl(input).endsWith('/register')) return Response.json(metadata)
         const signal = init?.signal
         assert.ok(signal)
         entered.resolve(undefined)
         return new Promise<Response>((_resolve, reject) => {
-          signal.addEventListener('abort', () => { cancelled.resolve(undefined); reject(signal.reason) }, { once: true })
+          signal.addEventListener('abort', () => { cancelled.resolve(undefined); reject(abortError(signal)) }, { once: true })
         })
       })
       const started = f.gateway.oauthStart({ serverName: 'fixture' })
@@ -235,13 +248,13 @@ describe('MCP OAuth recovery', () => {
     const entered = Promise.withResolvers<undefined>()
     const cancelled = Promise.withResolvers<undefined>()
     try {
-      globalThis.fetch = vi.fn(async (input, init) => {
-        if (!String(input).endsWith('/token')) return Response.json(metadata)
+      globalThis.fetch = vi.fn<typeof fetch>(async (input, init) => {
+        if (!fetchUrl(input).endsWith('/token')) return Response.json(metadata)
         const signal = init?.signal
         assert.ok(signal)
         entered.resolve(undefined)
         return new Promise<Response>((_resolve, reject) => {
-          signal.addEventListener('abort', () => { cancelled.resolve(undefined); reject(signal.reason) }, { once: true })
+          signal.addEventListener('abort', () => { cancelled.resolve(undefined); reject(abortError(signal)) }, { once: true })
         })
       })
       const start = await f.start()
@@ -290,7 +303,7 @@ describe('MCP OAuth recovery', () => {
       const readRows = f.gateway.readRows.bind(f.gateway)
       f.gateway.readRows = async () => { reading.resolve(undefined); await finishRead.promise; return readRows() }
       f.gateway.patchPath = () => join(f.home, 'patch-must-not-be-created.yml')
-      f.gateway.writeAuthHeader = McpManagerGateway.prototype.writeAuthHeader
+      f.gateway.writeAuthHeader = McpManagerGateway.prototype.writeAuthHeader.bind(f.gateway)
       const poll = f.gateway.oauthPoll({ flowId: start.flowId })
       await f.tokenRequested.promise
       f.tokenResponse.resolve(Response.json({ access_token: 'fixture-access' }))

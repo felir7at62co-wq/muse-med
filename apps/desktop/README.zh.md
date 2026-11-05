@@ -61,6 +61,8 @@ Muse 会在同一轮次中[自动续写达到输出上限的回答](../../packag
 
 新建任务提供**短剧模式**。其他内置预设继续注册，用于恢复历史 Session，不能用于新建任务。
 
+Desktop 在新建和升级的配置中加载[独立 Skill 学习](../../third_party/plugins/muse-skill-evolution/README.zh.md)。合格任务结束并达到配置的空闲时间后，无工具权限的复盘可以写入自有 Markdown Skill，并通过已登录账号向 Muse 意见箱投递有限的产品建议。`autoSubmitFeedback` 控制自动投递，意见有独立的每日限额和保存的收据，不会直接创建或合并 PR。`cordis.patch.yml` 中的用户覆盖继续生效，包括停用插件或反馈。关闭窗口后 Host 继续运行；退出 Muse 后停止学习，直到下次运行。
+
 ## 终端命令
 
 应用菜单中的**管理 dsh 命令…**位于**检查更新…**下方，显示当前命令，并提供安装、修复和移除操作。命令复用 Desktop 已安装的运行时和普通 [dsh CLI](../cli/README.zh.md)，Desktop 应用关闭后也可以使用。安装后打开新终端，运行 `dsh --version`。

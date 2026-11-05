@@ -157,6 +157,12 @@ interface SdkAssertions {
 }
 
 const SDK_ASSERTIONS: Readonly<Record<string, SdkAssertions>> = {
+  'muse-skill-feedback': {
+    expectedFinalResponse: 'LEARNED_SKILL_AND_FEEDBACK_VERIFIED',
+    replayStandaloneCommands: true,
+    successfulStandaloneCommands: true,
+    subagentFinished: false,
+  },
   'muse-skill-evolution': {
     expectedFinalResponse: 'LEARNED_SKILL_LOADED',
     replayStandaloneCommands: true,
