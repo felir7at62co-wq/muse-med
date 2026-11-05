@@ -883,6 +883,44 @@ function sessionReferenceSpillExpected(actual: readonly JsonObject[], expectedLo
   return expected
 }
 
+// These scenarios tokenize absolute workspace paths before replay redacts them.
+const workspaceBudgetScenarios = new Set([
+  'compaction-summary-failure-recovery',
+  'muse-creation-parse-recovery',
+  'muse-creation-ptc',
+  'muse-creation-review-guidance',
+  'muse-creation-source-id-recovery',
+  'muse-creation-stage-diagnostics',
+  'muse-creation-tool-argument-recovery',
+  'muse-editing-tool-catalog',
+  'muse-resident-view',
+  'muse-script-refinement',
+  'muse-short-drama-draft-ending',
+  'muse-small-window-compaction',
+  'muse-time-context',
+  'muse-working-budget-stop',
+])
+
+function workspaceBudgetExpected(actual: readonly JsonObject[], expected: readonly JsonObject[]): readonly JsonObject[] {
+  if (actual.length !== expected.length) return expected
+  return expected.map((row, index) => {
+    if (row.type !== 'request/context') return row
+    const data = row.data as JsonObject
+    const { workingContextTokens: recorded, workingTokenLimit: limit } = data
+    if (typeof recorded !== 'number' || typeof limit !== 'number') return row
+    const actualRow = actual[index]
+    if (actualRow?.type !== row.type) return row
+    const actualData = actualRow.data as JsonObject | undefined
+    const measured = actualData?.workingContextTokens
+    if (typeof measured !== 'number' || !Number.isSafeInteger(measured) || measured < 0) {
+      throw new Error(`Session row ${index + 1} must report a non-negative integer working context estimate`)
+    }
+    expect(Math.sign(measured - limit), `Session row ${index + 1}: working context relative to budget ${limit}`)
+      .toBe(Math.sign(recorded - limit))
+    return { ...row, data: { ...data, workingContextTokens: measured } }
+  })
+}
+
 /** Require successful verification and the complete canonical event before refresh can write a fixture. */
 async function verifySessionQuerySpill(log: string, spillRoot: string, locatorRoot: string): Promise<void> {
   const events = parseSessionLog(log)
@@ -1096,6 +1134,22 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('preserves the recorded working budget decision and other context fields', () => {
+    const context = (estimate: number, limit = 100) => ({
+      type: 'request/context', data: { model: 'test-model', workingContextTokens: estimate, workingTokenLimit: limit },
+    })
+    const expected = [context(90)]
+    const belowLimit = [context(95)]
+    expect(belowLimit).toEqual(workspaceBudgetExpected(belowLimit, expected))
+    expect(expected).toEqual([context(90)])
+    expect(() => workspaceBudgetExpected([context(100)], expected)).toThrow(/relative to budget/)
+    expect(() => workspaceBudgetExpected([context(101)], expected)).toThrow(/relative to budget/)
+    expect(workspaceBudgetExpected([], expected)).toEqual(expected)
+    expect(() => workspaceBudgetExpected([{ type: 'request/context', data: {} }], expected)).toThrow(/must report/)
+    const changedLimit = [context(95, 101)]
+    expect(changedLimit).not.toEqual(workspaceBudgetExpected(changedLimit, expected))
+  })
+
   it('subtitle overlay workspace expected expands only declared path fields', async () => {
     const template = await readFile(join(snapshotsRoot, 'drama-subtitle-overlay/workspace.expected/editing/review-overlay.srt.decision-report.json'), 'utf8')
     const report = JSON.parse(template) as JsonObject
@@ -2232,7 +2286,7 @@ describe('headless recorded-session snapshots', () => {
       const expectedSnapshots = normalizeSessionSnapshots(expected, contextOf(expected), { nativeWriterOutput: true })
       for (const [index, actual] of actualSnapshots.entries()) {
         const actualRecords = records(actual)
-        let expectedRecords: object[] = scenario.name === 'session-reference-spill' && index === 0
+        let expectedRecords: readonly JsonObject[] = scenario.name === 'session-reference-spill' && index === 0
           ? sessionReferenceSpillExpected(
             actualRecords,
             expectedSnapshots[index] as string,
@@ -2242,6 +2296,9 @@ describe('headless recorded-session snapshots', () => {
         if (scenario.name === 'drama-subtitle-visual-review' && index === 0) {
           if (visualSpeechHash === undefined) throw new Error('Visual speech inputs were not checked')
           expectedRecords = visualSpeechRecords(expectedSnapshots[index] as string, visualSpeechHash, false)
+        }
+        if (index === 0 && workspaceBudgetScenarios.has(scenario.name)) {
+          expectedRecords = workspaceBudgetExpected(actualRecords, expectedRecords)
         }
         expect(actualRecords, `${scenario.name}: session ${index}`).toEqual(expectedRecords)
       }

@@ -1,5 +1,7 @@
 /** Install the shipped Bot tool definitions with an in-memory card store for Loader tests. */
-import { install } from '../../../../third_party/plugins/ds-bot/src/host/tools.js'
+import { importDsBotFixture } from './import-ds-bot-fixture.mjs'
+
+const { install } = await importDsBotFixture(() => import('../../../../third_party/plugins/ds-bot/src/host/tools.js'))
 
 export const name = 'resident-bot-questions-fixture'
 export const inject = ['tools', 'agents']

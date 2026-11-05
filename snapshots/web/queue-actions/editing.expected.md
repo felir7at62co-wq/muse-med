@@ -9,8 +9,8 @@
 - text: Reply with a one-sentence description of event sourcing, then stop. {{clock}}
 - button "Copy"
 - paragraph: partial
-- status: Deep diving
-- text: Deep diving for {{duration}} ···
+- status: Receiving response
+- text: Receiving response, {{duration}} total ···
 - button "2 queued messages" [disabled] [expanded]
 - list:
   - listitem:

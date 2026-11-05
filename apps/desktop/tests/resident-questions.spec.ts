@@ -40,12 +40,12 @@ it.each(['classic', 'bot', 'view'] as const)('presents and executes the %s quest
     expect(discovery.alwaysLoad).toContain('ask_user_question')
     expect(discovery.alwaysLoad).toContain('ask_user')
     expect(discovery.alwaysLoad).toContain('show_view')
-    for (const name of ['show_view', 'ask_user', 'request_secret', 'list_secrets', 'list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'drama_shot', 'manuscript_revision', 'video_inspect', 'drama_project',
-      'source_recover', 'muse_production', 'jubian_catalog', 'jubian_organize', 'jubian_find',
-      'drama_character_reference_project', 'drama_character_references', 'drama_character_reference_view']) {
+    for (const name of ['request_secret', 'list_secrets', 'list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'video_inspect']) {
       expect(discovery.alwaysLoad).toContain(name)
     }
-    for (const name of ['manuscript_work', 'creative_guidance', 'source_review', 'screenplay_project']) {
+    for (const name of ['drama_shot', 'manuscript_revision', 'drama_project', 'source_recover', 'muse_production',
+      'jubian_catalog', 'jubian_organize', 'jubian_find', 'drama_character_reference_project', 'drama_character_references',
+      'drama_character_reference_view', 'manuscript_work', 'creative_guidance', 'source_review', 'screenplay_project']) {
       expect(discovery.alwaysLoad).not.toContain(name)
     }
     expect(discovery.alwaysLoad).not.toContain('fixture_optional_tool')

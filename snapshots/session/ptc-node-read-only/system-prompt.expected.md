@@ -146,6 +146,8 @@ interface ToolArgsMap {
     file_path: string;
     /** 1-based first line to return. Defaults to 1. */
     offset?: number;
+    /** 1-based Unicode code point column in the first line. Use the continuation cursor for a partial line. */
+    column?: number;
     /** Maximum number of lines to return. Defaults to 2000. */
     limit?: number;
   } & Record<string, JsonValue>;
@@ -430,11 +432,18 @@ interface ToolOutputMap {
   read: {
     path: string;
     offset: number;
+    column?: number;
     lines: {
       number: number;
       text: string;
     }[];
     totalLines: number;
+    continuation?: {
+      offset: number;
+      column: number;
+    };
+    versionBefore?: string;
+    versionAfter?: string;
   };
   read_image: {
     path: string;
