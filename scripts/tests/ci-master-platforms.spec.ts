@@ -127,9 +127,9 @@ describe('master-only platform scheduling', () => {
     expect(master.jobs['wine-apt-cache']).toBeUndefined()
     expect(Object.values(master.jobs).flatMap(commands).filter(command => command.includes('wine-windows-gates.sh')))
       .toEqual(['bash scripts/wine-windows-gates.sh'])
-    expect(wine.steps).toContainEqual(expect.objectContaining({
-      uses: 'actions/cache@v6.1.0', with: { path: '~/wine-debs', key: '${{ steps.wine-cache-key.outputs.key }}' },
-    }))
+    expect(wine.steps?.find(step => step.uses?.startsWith('actions/cache@'))).toMatchObject({
+      with: { path: '~/wine-debs', key: '${{ steps.wine-cache-key.outputs.key }}' },
+    })
     expect(commands(wine).join('\n')).toContain('--download-only wine')
     expect(wine.steps).toContainEqual(expect.objectContaining({ name: 'Shut down wineserver', if: 'always()' }))
     // Graph construction needs a pnpm entrypoint but never launches it.

@@ -1406,7 +1406,7 @@ describe('TrajectoryView state', () => {
   })
 
   it('keeps resident request numbering and cumulative usage outside the layout page', async () => {
-    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(2_000)
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
       configurable: true,
       value: vi.fn(),

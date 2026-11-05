@@ -43,6 +43,7 @@ it('prepares the original mixed-audio card and rejects invalid audio before any 
       id: 11, modelId: model.modelId, platformId: model.platformId, genTypes: [{ id: 7, type: 3 }],
       videoStandards: [{ id: 91, ratio: model.ratio, resolution: model.resolution, genNum: 1 }],
     }]
+    else if (target.pathname === '/prod-api/aigc/storyboard/byStoryboard/1745324') data = []
     else throw new Error(`Unexpected audio fixture request ${target.pathname}`)
     return new Response(JSON.stringify({ code: 200, data }))
   })
@@ -69,10 +70,12 @@ it('prepares the original mixed-audio card and rejects invalid audio before any 
       signal: new AbortController().signal })
     if (prepared.isError) throw new Error(JSON.stringify(prepared.content))
     expect(prepared.value).toMatchObject({ status: 'prepared', storyboardId: 1745324,
+      existing_video_sources: { status: 'none_found', complete: true, sources: [] },
       audio_references: [{ material_key: 'zhou-voice', material_url: audio.materialUrl,
         duration_seconds: null, duration_basis: 'unavailable', duration_verified: false }] })
     expect(calls).toEqual(['GET /prod-api/aigc/storyboard/1745324', 'GET /prod-api/aigc/asset/142',
-      'GET /prod-api/aigc/material/list', 'GET /prod-api/model/charge/getSelectList'])
+      'GET /prod-api/aigc/material/list', 'GET /prod-api/model/charge/getSelectList',
+      'GET /prod-api/aigc/storyboard/1745324', 'GET /prod-api/aigc/storyboard/byStoryboard/1745324'])
   } finally {
     fetch.mockRestore()
     await ctx?.fiber.dispose()

@@ -3,7 +3,6 @@
 import { existsSync, globSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, extname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { JSDOM } from 'jsdom'
 import ts from 'typescript'
 import { applyEntryPatches, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
@@ -11,6 +10,7 @@ import { bundlePatchPaths, composeEntries, loadOverlayPatches } from '../package
 import type { DshBundleManifest } from '../packages/util/package-manifest/src/types.ts'
 import { assertNever } from '../packages/util/values/src/index.ts'
 import { isAgentPresetEntry, isCordisGroupEntry, loadCordisYaml } from './cordis-yaml.ts'
+import { readProductModuleScripts } from './product-html.ts'
 import { PRODUCT_PACKAGE_POLICY, type ProductPackagePolicy } from './product-package-policy.ts'
 import { collectRuntimeLocalSourceSpecifiers, collectRuntimeSourceSpecifiers } from './verify-client-packages.ts'
 
@@ -258,18 +258,13 @@ export function verifyProductUse(
       else scanEntries(preset, source, defaults)
     }
   }
-  const htmlPath = resolve(root, 'apps/web/index.html')
-  const dom = new JSDOM(readFileSync(htmlPath, 'utf8'))
-  try {
-    const scripts = [...dom.window.document.querySelectorAll('script[type="module"]')]
-    if (scripts.length === 0) failures.push('apps/web/index.html: missing product module entry')
-    for (const script of scripts) {
-      const path = script.getAttribute('src')
-      if (path === null || /^(?:https?:)?\/\//.test(path)) {
-        failures.push('apps/web/index.html: product module entries must name local source files')
-      } else scanSource(resolve(root, 'apps/web', path.replace(/^\//, '')), defaults)
-    }
-  } finally { dom.window.close() }
+  const scripts = readProductModuleScripts(resolve(root, 'apps/web/index.html'))
+  if (scripts.length === 0) failures.push('apps/web/index.html: missing product module entry')
+  for (const { src } of scripts) {
+    if (src === null || /^(?:https?:)?\/\//.test(src)) {
+      failures.push('apps/web/index.html: product module entries must name local source files')
+    } else scanSource(resolve(root, 'apps/web', src.replace(/^\//, '')), defaults)
+  }
   for (const [path, entry] of Object.entries(policy)) {
     const pkg = directories.get(resolve(root, path))
     if (!/^packages\/[^/]+\/[^/]+$/.test(path) || path.startsWith('packages/experimental/') || pkg === undefined) {
