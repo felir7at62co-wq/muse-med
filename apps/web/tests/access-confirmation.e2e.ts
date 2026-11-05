@@ -148,7 +148,7 @@ describe('web e2e: experimental Auto and Full access confirmation', () => {
     await expect.poll(() => access.getAttribute('aria-label'), { timeout: 10_000 })
       .toBe('访问模式，当前：自动审查')
     expect(await slashDialog.count()).toBe(0)
-    expect(await input.textContent()).toBe('')
+    await expect.poll(() => input.textContent(), { timeout: 10_000 }).toBe('')
     await captureAutoReviewState(page, 'experimental-current-session')
 
     // Leave the shared page in the baseline state for the Full-access
@@ -331,7 +331,7 @@ describe('web e2e: installed Auto permission catalog lifetime', () => {
     const access = page.locator('button[aria-label^="访问模式"]').first()
     await writeComposerDraft(page, input, '/permission auto')
     await input.press('Enter')
-    await expect.poll(() => access.getAttribute('aria-label')).toBe('访问模式，当前：Auto review EXP')
+    await expect.poll(() => access.getAttribute('aria-label')).toBe('访问模式，当前：自动审查')
     expect(await page.getByRole('dialog').count()).toBe(0)
     await writeComposerDraft(page, input, '/permission')
     await input.press('Escape')
@@ -360,7 +360,7 @@ describe('web e2e: installed Auto permission catalog lifetime', () => {
     await input.press('Enter')
     await slash.getByRole('option').first().waitFor()
     expect(await slash.getByRole('option').count()).toBe(3)
-    expect(await slash.getByText('Auto review', { exact: true }).count()).toBe(0)
+    expect(await slash.getByText('自动审查', { exact: true }).count()).toBe(0)
     await page.keyboard.press('Escape')
     const reinstalledCatalog = waitForPermissionCatalog(page, ['read-only', 'workspace-write', 'danger-full-access', 'auto'])
     const [, enabled] = await Promise.all([
@@ -370,7 +370,7 @@ describe('web e2e: installed Auto permission catalog lifetime', () => {
     await scaffold.ctx.loader.await()
     await access.click()
     await expect.poll(() => page.getByRole('menuitem').allTextContents())
-      .toEqual(['仅可查看', '工作区内修改', '完全权限', 'Auto reviewEXP'])
+      .toEqual(['仅可查看', '工作区内修改', '完全权限', '自动审查EXP'])
     expect(await access.getAttribute('aria-label')).toBe('访问模式，当前：完全权限')
     await captureAutoReviewState(page, 'reinstalled-current-session-picker')
     await page.keyboard.press('Escape')

@@ -28,7 +28,7 @@ State-sensitive cases use Workspace, admission, attachment, and model-stream bar
 
 The SVG delivery scenario includes bounded Host WebSocket observations in a connection-warning failure: Ping enqueue and write completion, Pong arrival, closure code and caller stack. Its real upgrade hook must observe the carrier, stays installed until Host cleanup finishes, and then restores its own methods and listeners. It records no frame bodies, request URLs, or unrecognized closure text; successful cases print no diagnostic output.
 
-Permission-picker assertions wait for rendered option rows before checking counts or snapshots. The install-lifetime scenario owns a separate profile and browser, installs Auto as a bundle, and persists enablement through Plugin Manager with HMR active. Catalog-response completion precedes the existing DOM checks; current permission alone does not confirm catalog completion.
+Permission-picker assertions wait for rendered option rows before checking counts or snapshots. Permission-command submission also waits for the composer draft to clear after the selected permission is published. The install-lifetime scenario owns a separate profile and browser, installs Auto as a bundle, and persists enablement through Plugin Manager with HMR active. Catalog-response completion precedes the existing DOM checks; current permission alone does not confirm catalog completion.
 
 [Idle-submission handoff](idle-submission-handoff.e2e.ts) waits up to the scaffold's 30-second turn-completion budget for Host frames and browser placement. Vitest owns scaffold teardown so a replay-consumption error does not replace the failed scenario assertion.
 
