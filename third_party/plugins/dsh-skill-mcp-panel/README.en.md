@@ -124,6 +124,8 @@ The panel works exactly like the host's built-in Plugins page: a single **Skill 
 - **Disable individual tools** — turn tools off by name; a disabled tool disappears from the model-facing tool list instead of being merely refused at call time, so the context saving is real
 - **OAuth sign-in** — one click for a remote `streamable-http` server that supports it (authorization-server discovery, dynamic client registration, authorization code + PKCE); the token is written back into that row and hot-reloaded, and it can be disconnected at any time
 
+Each sign-in belongs to its panel instance. Discovery, registration and authorization share the request deadline; the returned expiry subtracts elapsed time. Registration failure, callback failure, timeout and panel unload close the local callback listener. Unload cancels network waits and awaits admitted configuration writes without rolling back completed writes. Concurrent polls share one code redemption and terminal answer. Terminal answers remain available for at most one request-timeout window, then expire; they retain no authorization code, PKCE secret or callback listener. Reopen the panel to check connection status or sign in again.
+
 ### DSH version compatibility
 
 Only **DSH `0.2.x`** is supported (peer declaration `>=0.2.0-rc.1 <0.3.0-0`). DSH checks that declaration at install time and again at profile startup, refusing to load and printing the exact-version exemption when it does not match — no silent breakage. The upper bound is `<0.3.0-0` because the check runs with `includePrerelease`, so `<0.3.0` would let `0.3.0-rc.1` through.
