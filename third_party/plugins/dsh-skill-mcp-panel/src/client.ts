@@ -571,7 +571,10 @@ const cssGroups = ".SKV_groupItemWrap{position:relative;display:inline-flex;alig
 			toastDeleted: "已删除 {name}",
 			toastUndo: "撤销",
 			toastUndoDone: "已还原 {name}",
-			toastUndoFailed: "还原失败，请重新添加该技能。",
+			toastUndoFailed: "还原结果未确认，请检查原位置和恢复文件夹后再重试",
+			toastUndoRetry: "重试还原",
+			toastUndoKept: "已还原 {name}，部分恢复文件仍保留，请检查原位置",
+			toastDeleteFailed: "删除未确认，请刷新列表检查；已移走的原件保留在恢复文件夹中",
 		};
 
 		const en = {
@@ -688,7 +691,10 @@ const cssGroups = ".SKV_groupItemWrap{position:relative;display:inline-flex;alig
 			toastDeleted: "Deleted {name}",
 			toastUndo: "Undo",
 			toastUndoDone: "Restored {name}",
-			toastUndoFailed: "Restore failed — please add the skill again.",
+			toastUndoFailed: "Restore unconfirmed. Check the original location and recovery folder before retrying.",
+			toastUndoRetry: "Retry restore",
+			toastUndoKept: "Restored {name}; some recovery files remain. Check the original location.",
+			toastDeleteFailed: "Deletion unconfirmed. Refresh the list to check; moved originals remain in the recovery folder.",
 		};
 
 		// ── 远程贡献 ─────────────────────────────────────────────────────────
@@ -838,6 +844,30 @@ const cssGroups = ".SKV_groupItemWrap{position:relative;display:inline-flex;alig
 						{ name: "scope", wire: "scope", source: "json", acceptsUndefined: true, codec: codec("dsh-skill-mcp-panel#SkillScope") }
 					],
 					result: codec("dsh-skill-mcp-panel#DeleteSkillResult")
+				},
+				{
+					id: "dsh-skill-mcp-panel#skillsViewer/trashSkill",
+					service: "skillsViewer",
+					namespace: "skillsViewer",
+					method: "trashSkill",
+					invocation: { kind: "direct" },
+					parameters: [
+						{ name: "name", wire: "name", source: "json", codec: codec("dsh-skill-mcp-panel#SkillName") },
+						{ name: "sessionId", wire: "sessionId", source: "json", acceptsUndefined: true, codec: codec("dsh-skill-mcp-panel#sessionId") },
+						{ name: "scope", wire: "scope", source: "json", acceptsUndefined: true, codec: codec("dsh-skill-mcp-panel#SkillScope") }
+					],
+					result: codec("dsh-skill-mcp-panel#TrashSkillResult")
+				},
+				{
+					id: "dsh-skill-mcp-panel#skillsViewer/restoreSkill",
+					service: "skillsViewer",
+					namespace: "skillsViewer",
+					method: "restoreSkill",
+					invocation: { kind: "direct" },
+					parameters: [
+						{ name: "undoToken", wire: "undoToken", source: "json", codec: codec("dsh-skill-mcp-panel#UndoToken") }
+					],
+					result: codec("dsh-skill-mcp-panel#RestoreSkillResult")
 				},
 				{
 					id: "dsh-skill-mcp-panel#skillsViewer/addSkill",
@@ -1480,7 +1510,7 @@ const cssGroups = ".SKV_groupItemWrap{position:relative;display:inline-flex;alig
 		}
 
 function SkillsSection(props) {
-			const { t, currentSessionId, subscribeSession, useSessions, listSkills, loadContent, setSkillEnabled, removeSkill, addSkill, listWorkspaces, openFolder, batchMigrateSkill, listGroups, saveGroupSkill, deleteGroupSkill, checkUpdateRemote } = props;
+			const { t, currentSessionId, subscribeSession, useSessions, listSkills, loadContent, setSkillEnabled, removeSkill, restoreSkill, addSkill, listWorkspaces, openFolder, batchMigrateSkill, listGroups, saveGroupSkill, deleteGroupSkill, checkUpdateRemote } = props;
 			// 当前会话 id，仅用于会话级项目作用域与「随会话刷新列表」，
 			// 不再门控任何 UI：技能页在没有会话时同样正常显示（服务端回退全局注册表）。
 			// 宿主客户端以「主视图引用计数」定义当前会话，判据是
@@ -1694,85 +1724,54 @@ function SkillsSection(props) {
 				}, 3800);
 			};
 
-			// ── 删除：乐观删除 + Toast「撤销」，不再二次确认（v2.1.6）─────────
-			// 为什么撤销是「尽力还原」而不是「原样恢复」：
-			//   宿主只给了 deleteSkill / addSkill 两条 RPC，没有「读原始技能目录里的任意
-			//   文件」的能力——content 只回 SKILL.md 正文。所以撤销走 addSkill 把删除前
-			//   抓到的正文按原来的 rel 路径回填：单文件技能与「只有一个 SKILL.md 的技能
-			//   目录」能完整回来，带脚本/资源的技能目录只能拿回 SKILL.md。
-			//   正文也抓不到（技能在删除前的 content 调用就失败）时不做假承诺，
-			//   Toast 的撤销按钮会明确回报「还原失败，请重新添加」。
+			// Undo uses the Host's complete entity receipt, never a body-only re-import.
 			const sameKeySelected = (rows, key) => rows.filter((s) => opKeyOf(s) !== key);
-			const undoDelete = (snapshot) => {
-				if (snapshot.content === null) {
-					showToast(t("toastUndoFailed"));
-					return;
-				}
-				const files = [{ path: snapshot.rel === "" ? snapshot.name + "/SKILL.md" : snapshot.rel, base64: utf8ToBase64(snapshot.content) }];
-				Promise.resolve().then(() => addSkill({ kind: "auto", files: files, workspace: snapshot.scope === "global" ? null : snapshot.scope })).then((result) => {
-					const added = result !== null && typeof result === "object" && Array.isArray(result.added) ? result.added : [];
-					if (added.length === 0) {
-						showToast(t("toastUndoFailed"));
-						return;
-					}
-					showToast(t("toastUndoDone").replace("{name}", snapshot.name));
+			const restoringReceipts = react.useRef(new Set());
+			const undoDelete = (receipt) => {
+				if (restoringReceipts.current.has(receipt.undoToken)) return;
+				restoringReceipts.current.add(receipt.undoToken);
+				Promise.resolve().then(() => restoreSkill(receipt.undoToken)).then((result) => {
+					showToast(t(result.recoveryRetained ? "toastUndoKept" : "toastUndoDone").replace("{name}", receipt.name));
 					reloadAfterHot();
 				}, () => {
-					showToast(t("toastUndoFailed"));
-				});
+					showToast(t("toastUndoFailed"), { label: t("toastUndoRetry"), run: () => { undoDelete(receipt); } });
+				}).finally(() => { restoringReceipts.current.delete(receipt.undoToken); });
 			};
 			const applyRemove = (skill) => {
 				const key = opKeyOf(skill);
-				// 删除前把「还原所需的一切」抓在手里：名称、作用域、rel 路径，以及正文。
-				const snapshot = {
-					name: skill.name,
-					scope: scopeOf(skill),
-					rel: String(skill.rel ?? "").replaceAll("\\", "/").replace(/^\/+/, ""),
-					content: bodies[key] !== undefined && bodies[key].status === "ready" && typeof bodies[key].skill?.content === "string" ? bodies[key].skill.content : null
-				};
 				setOps((prev) => ({ ...prev, [key]: { status: "busy" } }));
-				// 乐观：行立刻淡出右移（cssRow .SKV_card[data-removing=true]）。
 				setRemoving((prev) => {
 					const next = new Set(prev);
 					next.add(key);
 					return next;
 				});
-				const contentReady = snapshot.content !== null
-					? Promise.resolve(snapshot.content)
-					: Promise.resolve().then(() => loadContent(snapshot.name, snapshot.scope)).then(
-						(body) => (body !== null && typeof body === "object" && typeof body.content === "string" ? body.content : null),
-						() => null
-					);
-				contentReady.then((content) => {
-					snapshot.content = content;
-					return Promise.resolve().then(() => removeSkill(snapshot.name, snapshot.scope)).then(() => {
-						setListState((prev) => (prev.status === "ready" ? { status: "ready", skills: sameKeySelected(prev.skills, key) } : prev));
-						setOps((prev) => ({ ...prev, [key]: { status: "ok" } }));
-						setRemoving((prev) => {
-							const next = new Set(prev);
-							next.delete(key);
-							return next;
-						});
-						setSelected((prev) => {
-							if (!prev.has(snapshot.name)) return prev;
-							const next = new Set(prev);
-							next.delete(snapshot.name);
-							return next;
-						});
-						setExpanded((current) => (current === key ? null : current));
-						showToast(t("toastDeleted").replace("{name}", snapshot.name), { label: t("toastUndo"), run: () => { undoDelete(snapshot); } });
-						reloadAfterHot();
-					}, () => {
-						setRemoving((prev) => {
-							const next = new Set(prev);
-							next.delete(key);
-							return next;
-						});
-						setOps((prev) => ({ ...prev, [key]: { status: "error" } }));
+				Promise.resolve().then(() => removeSkill(skill.name, scopeOf(skill))).then((receipt) => {
+					setListState((prev) => (prev.status === "ready" ? { status: "ready", skills: sameKeySelected(prev.skills, key) } : prev));
+					setOps((prev) => ({ ...prev, [key]: { status: "ok" } }));
+					setRemoving((prev) => {
+						const next = new Set(prev);
+						next.delete(key);
+						return next;
 					});
+					setSelected((prev) => {
+						if (!prev.has(skill.name)) return prev;
+						const next = new Set(prev);
+						next.delete(skill.name);
+						return next;
+					});
+					setExpanded((current) => (current === key ? null : current));
+					showToast(t("toastDeleted").replace("{name}", receipt.name), { label: t("toastUndo"), run: () => { undoDelete(receipt); } });
+					reloadAfterHot();
+				}, () => {
+					setRemoving((prev) => {
+						const next = new Set(prev);
+						next.delete(key);
+						return next;
+					});
+					setOps((prev) => ({ ...prev, [key]: { status: "error" } }));
+					showToast(t("toastDeleteFailed"));
 				});
 			};
-
 
 			// ── 添加技能：读取本地文件并上传（宿主负责校验与落盘）──────────────
 			const readFileAsBase64 = (file) => new Promise((resolve, reject) => {
@@ -4496,7 +4495,8 @@ function mcpWireScalar(text) {
 				saveGroupSkill: (payload) => callRemote("saveGroup", payload),
 				deleteGroupSkill: (payload) => callRemote("deleteGroup", payload),
 				checkUpdateRemote: () => callRemote("checkUpdate"),
-				removeSkill: (name, scope) => callRemote("deleteSkill", name, currentSessionId(), scope),
+				removeSkill: (name, scope) => callRemote("trashSkill", name, currentSessionId(), scope),
+				restoreSkill: (undoToken) => callRemote("restoreSkill", undoToken),
 				addSkill: (payload) => callRemote("addSkill", currentSessionId(), payload)
 			});
 			const mcpSectionFace = () => ({
