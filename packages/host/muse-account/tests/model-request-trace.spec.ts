@@ -98,6 +98,30 @@ it('preserves authoritative usage and safe response identities without retaining
   expect(JSON.stringify(records)).not.toMatch(/private-input-key|private-replay-key|private-block/u)
 })
 
+it('omits invalid diagnostic counters while preserving every source chunk', async () => {
+  const records: MuseModelRequestMetadata[] = []
+  const trace = new MuseModelRequestTrace('https://company.test', value => records.push(value))
+  const source: StreamChunk[] = [{ type: 'usage', usage: { inputTokens: Number.NaN, outputTokens: 1,
+    totalTokens: Number.POSITIVE_INFINITY, cacheReadTokens: 0, cacheWriteTokens: -1, reasoningTokens: 0.5 } }, finish]
+  const received: StreamChunk[] = []
+  for await (const chunk of trace.stream(options('invalid-counters'), async function* () { yield* source })) received.push(chunk)
+  expect(received).toHaveLength(source.length)
+  received.forEach((chunk, index) => { expect(chunk).toBe(source[index]) })
+  expect(records.at(-1)?.usage).toEqual({ outputTokens: 1, cacheReadTokens: 0 })
+})
+
+it('omits usage when every observed counter is invalid', async () => {
+  const records: MuseModelRequestMetadata[] = []
+  const trace = new MuseModelRequestTrace('https://company.test', value => records.push(value))
+  for await (const _chunk of trace.stream(options('all-invalid-counters'), async function* () {
+    yield { type: 'usage', usage: { inputTokens: Number.NaN, outputTokens: Number.POSITIVE_INFINITY,
+      totalTokens: -1, cacheReadTokens: 0.5, cacheWriteTokens: Number.MAX_SAFE_INTEGER + 1,
+      reasoningTokens: Number.NEGATIVE_INFINITY } } as const
+    yield finish
+  })) { /* Consume the original adapter stream. */ }
+  expect(records.at(-1)).not.toHaveProperty('usage')
+})
+
 it('does not expose malformed response metadata or a throwing logger and preserves source failures', async () => {
   const records: MuseModelRequestMetadata[] = [], request = options('malformed')
   const trace = new MuseModelRequestTrace('https://company.test', value => records.push(value))

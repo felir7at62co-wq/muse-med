@@ -25,10 +25,20 @@ export interface MuseModelRequestMetadata {
   response_model?: string | null
   response_stop?: string | null
   stop?: string | null
-  usage?: TokenUsage | null
+  /** Nonnegative safe integer counters only; malformed provider-derived fields are omitted. */
+  usage?: Partial<TokenUsage> | null
 }
 type RequestIdentity = Pick<MuseModelRequestMetadata, 'client_request_id' | 'session_id' | 'provider' | 'model' | 'purpose'>
 interface RequestContext { identity: RequestIdentity; credentials: Set<string> }
+
+function usageMetadata(counts: TokenUsage): Partial<TokenUsage> | undefined {
+  const safe: Partial<TokenUsage> = {}
+  for (const field of ['inputTokens', 'outputTokens', 'totalTokens', 'cacheReadTokens', 'cacheWriteTokens', 'reasoningTokens'] as const) {
+    const value = counts[field]
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) safe[field] = value
+  }
+  return Object.keys(safe).length === 0 ? undefined : safe
+}
 
 /** Own async attribution per Muse adapter; no process-global active request is retained. */
 export class MuseModelRequestTrace {
@@ -107,7 +117,7 @@ export class MuseModelRequestTrace {
       const context: RequestContext = { identity, credentials: new Set() }
       let iterator: AsyncIterator<StreamChunk> | undefined
       let finished = false
-      let usage: TokenUsage | null = null
+      let usage: Partial<TokenUsage> | null | undefined = null
       let response: z.infer<typeof responseSchema> | undefined
       let stop: string | null = null
       const run = <T>(callback: () => T): T => this.closed ? callback() : this.context.run(context, callback)
@@ -117,7 +127,7 @@ export class MuseModelRequestTrace {
         run(() => {
           this.emit({ event: 'model_client_request_metadata', phase: 'finish', ...identity, outcome,
             response_id: this.identifier(response?.responseId, 'id'), response_model: this.identifier(response?.responseModel, 'model'),
-            response_stop: response?.stopReason ?? null, stop, usage })
+            response_stop: response?.stopReason ?? null, stop, ...usage === undefined ? {} : { usage } })
         })
         context.credentials.clear()
         this.active.delete(context)
@@ -139,12 +149,7 @@ export class MuseModelRequestTrace {
           })
           if (result.done) finish(operation === 'return' ? 'consumer_closed' : 'exhausted')
           else if (result.value.type === 'usage') {
-            const counts = result.value.usage
-            usage = { inputTokens: counts.inputTokens, outputTokens: counts.outputTokens,
-              ...counts.totalTokens === undefined ? {} : { totalTokens: counts.totalTokens },
-              ...counts.cacheReadTokens === undefined ? {} : { cacheReadTokens: counts.cacheReadTokens },
-              ...counts.cacheWriteTokens === undefined ? {} : { cacheWriteTokens: counts.cacheWriteTokens },
-              ...counts.reasoningTokens === undefined ? {} : { reasoningTokens: counts.reasoningTokens } }
+            usage = usageMetadata(result.value.usage)
           } else if (result.value.type === 'finish') {
             stop = result.value.reason.kind
             const parsed = responseSchema.safeParse(result.value.replayState?.response)

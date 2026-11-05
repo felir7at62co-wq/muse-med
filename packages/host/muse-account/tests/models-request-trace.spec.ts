@@ -121,3 +121,39 @@ it.each(['relay', 'direct', 'leased'] as const)('redacts a reflected real %s req
   const ends = records.filter(record => record.startsWith('{')).map((record): unknown => JSON.parse(record))
   expect(ends.at(-1)).toMatchObject({ phase: 'finish', response_id: null, response_model: null })
 })
+
+it('excludes a credential reflected through installed SDK usage parsing without changing caller usage', async () => {
+  const canary = 'private-supplier-usage-canary'
+  const events = textEvents.map((text) => {
+    if (text === '[DONE]') return text
+    const frame = JSON.parse(text) as { usage?: object }
+    return JSON.stringify(frame.usage === undefined ? frame : { ...frame,
+      usage: { prompt_tokens: 10, completion_tokens: 1, prompt_tokens_details: { cached_tokens: canary } } })
+  })
+  const server = await mockServer([{ events }])
+  const root = await mkdtemp(join(tmpdir(), 'muse-trace-usage-reflection-'))
+  cleanup.push(() => rm(root, { recursive: true, force: true }))
+  const ctx = new Context()
+  cleanup.push(() => ctx.fiber.dispose())
+  await ctx.plugin(LlmRuntime)
+  const records: string[] = []
+  vi.spyOn(ctx.logger, 'info').mockImplementation((message) => { records.push(String(message)) })
+  const baseUrl = 'https://company.test'
+  const sessionFile = join(root, 'session.json')
+  await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=private-login-cookie' })
+  const models = new MuseModels(ctx, { baseUrl, sessionFile, requestTimeoutMs: 1000,
+    fetcher: async url => Response.json(new URL(url instanceof Request ? url.url : url).pathname.endsWith('/providers')
+      ? { ...catalog, transport: 'direct' }
+      : { transport: 'direct', providers: [{ ...catalog.providers[0], access: { baseURL: `${server.url}/v1`, apiKey: canary } }] }) })
+  cleanup.push(() => models.dispose())
+  await models.refresh()
+  const result = await assemble(ctx, { provider: 'muse-cloud-studio', model: 'writer',
+    sessionId: SessionId('usage-reflection-session'), messages: [] })
+  expect(result.finish.kind).toBe('stop')
+  expect(server.requests).toHaveLength(1)
+  expect(server.headers[0]?.authorization).toBe(`Bearer ${canary}`)
+  expect(result.usage).toEqual({ inputTokens: Number.NaN, outputTokens: 1, totalTokens: `NaN${canary}0` })
+  const ends = records.filter(record => record.startsWith('{')).map((record): unknown => JSON.parse(record))
+  expect(ends.at(-1)).toMatchObject({ phase: 'finish', usage: { outputTokens: 1 } })
+  expect(JSON.stringify(records)).not.toContain(canary)
+})
