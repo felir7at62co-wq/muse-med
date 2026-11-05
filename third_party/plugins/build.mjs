@@ -18,6 +18,7 @@ import { hostRuntimeCompatibility, qualifyCommunityManifest, reviewedHostVersion
 import { resolvePnpmEntrypoint } from '../../scripts/pnpm-entrypoint.mjs'
 import { selectCommunitySources } from './source-selection.mjs'
 import { assertCommunitySourceIntegrity } from './source-integrity.mjs'
+import { applySubscriptionsDesktopCompatibility, finishSubscriptionsDesktopCompatibility, subscriptionsDesktopCompatibility } from './compatibility/subscriptions-desktop.mjs'
 
 const sourceRoot = import.meta.dirname
 const repository = resolve(sourceRoot, '../..')
@@ -121,7 +122,26 @@ for (const name of selectedSources) {
     }
     const tsc = join(toolchain, 'node_modules/typescript/bin/tsc')
     const tsdown = join(toolchain, 'node_modules/tsdown/dist/run.mjs')
-    if (name === 'dsh-codex-subscription') {
+    if (name === 'dsh-plugin-subscriptions') {
+      applySubscriptionsDesktopCompatibility(directory)
+      manifest.peerDependencies['@deepseek-ai/dsh-credentials'] = hostVersion
+      delete manifest.types
+      for (const entry of Object.values(manifest.exports)) if (typeof entry === 'object') delete entry.types
+      writeFileSync(join(directory, '.muse-tsdown.ts'), `import configs from './tsdown.prepare.config.ts'\nexport default configs.map((config, index) => ({ ...config, ...(index === 0 ? { entry: { upstream: 'src/index.ts', 'muse-accounts': 'src/providers/accounts.ts', 'muse-image-tool': 'src/tools/image-generate.ts' } } : {}), sourcemap: false, clean: false }))\n`)
+      run([tsdown, '--config', '.muse-tsdown.ts'], directory)
+      finishSubscriptionsDesktopCompatibility(directory)
+      run(['--import', join(repository, 'node_modules/tsx/dist/esm/index.mjs'), '--test',
+        ...['subscriptions-migration', 'subscriptions-legacy-alias', 'subscriptions-recovery'].map(test => `third_party/plugins/compatibility/${test}.test.mjs`)], repository, {
+        DSH_HOME: join(staging, 'compatibility-home'), TSX_TSCONFIG_PATH: join(repository, 'tsconfig.base.json'),
+      })
+      run(['--import', join(repository, 'node_modules/tsx/dist/esm/index.mjs'), '--test', '--test-concurrency=1',
+        ...['request-body', 'sse-lifecycle', 'translate', 'store', 'accounts', 'account-replay', 'image-pool', 'tools', 'tool-registration', 'rpc', 'models', 'codex-search'].map(test => `test/${test}.spec.ts`)], directory)
+      cpSync(join(sourceRoot, 'checks/subscriptions-host-loader.mjs'), join(directory, '.muse-subscriptions-host.test.mjs'))
+      run(['--test', '.muse-subscriptions-host.test.mjs'], directory)
+      run([join(repository, 'node_modules/vitest/vitest.mjs'), 'run', 'apps/desktop/tests/subscriptions-client.client.spec.tsx'], repository, {
+        MUSE_SUBSCRIPTIONS_CLIENT_BUNDLE: join(directory, 'lib/client.js'), DSH_HOME: join(staging, 'client-test-home'),
+      })
+    } else if (name === 'dsh-codex-subscription') {
       applyCodexPiAiCompatibility(directory)
       manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
       applyCodexModelVisibility(directory)
@@ -222,7 +242,8 @@ export function codexFilesystemPath(value) {
     rmSync(join(directory, 'lib/tsconfig.tsbuildinfo'), { force: true })
     writeFileSync(join(directory, 'SOURCE.json'), `${JSON.stringify({
       upstream: pins[name], hostVersion, hostRuntimeCompatibility,
-      compatibilityOverlay: name === 'dsh-codex-subscription'
+      compatibilityOverlay: name === 'dsh-plugin-subscriptions' ? subscriptionsDesktopCompatibility
+        : name === 'dsh-codex-subscription'
         ? { subagentRuntimeVersion: hostVersion, piAiVersion: codexPiAiVersion, piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true, opaqueModelMenus: true, viewportAnchoredModelMenus: true }
         : name === 'dshmarket' ? { catalogExport: './catalog' }
           : name === 'dsh-bridge' ? bridgeDesktopCompatibility

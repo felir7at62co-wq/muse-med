@@ -306,15 +306,24 @@ export class MuseModels {
         ...(provider.access === undefined ? { headers: { origin: this.options.baseUrl } } : {}),
         ...(this.options.modelRequestImageMaxBytes === undefined ? {}
           : { maxRequestImageBytes: this.options.modelRequestImageMaxBytes }),
-        models: allowedModels.map(model => ({ ...model,
-          ...(provider.id === 'yunying' && model.id === 'gemini-3.1-pro' ? { googleThoughtSummaries: true } : {}),
-          compat: { supportsReasoningEffort: model.reasoningEfforts !== false,
-            ...(provider.id === 'yunying' && model.id === 'gpt-6.1-sol' ? { maxTokensField: 'max_completion_tokens' as const } : {}),
-            ...(/^glm-5\.3(?:-|$)/i.test(modelName(model.id)) ? {
-              thinkingFormat: provider.id === 'zhipu-official' ? 'zai' as const : 'deepseek' as const,
-              ...(provider.id === 'zhipu-official' ? { zaiToolStream: true } : {}),
-              requiresReasoningContentOnAssistantMessages: true,
-            } : {}) } })),
+        models: allowedModels.map((model) => {
+          const arkDeepSeek = provider.id === 'volcengine-ark'
+            && /^deepseek-v4(?:-1|\.1)-flash-(?:260910|261017)$/.test(modelName(model.id))
+          const bailianDeepSeek = provider.id === 'alibaba-bailian' && model.id === 'deepseek-v4.1-flash-1017'
+          return { ...model,
+            ...(provider.id === 'yunying' && model.id === 'gemini-3.1-pro' ? { googleThoughtSummaries: true } : {}),
+            compat: { supportsReasoningEffort: model.reasoningEfforts !== false,
+              ...(provider.id === 'yunying' && model.id === 'gpt-6.1-sol' ? { maxTokensField: 'max_completion_tokens' as const } : {}),
+              ...(arkDeepSeek || bailianDeepSeek ? {
+                thinkingFormat: bailianDeepSeek ? 'qwen' as const : 'deepseek' as const,
+                requiresReasoningContentOnAssistantMessages: true,
+              } : {}),
+              ...(/^glm-5\.3(?:-|$)/i.test(modelName(model.id)) ? {
+                thinkingFormat: provider.id === 'zhipu-official' ? 'zai' as const : 'deepseek' as const,
+                ...(provider.id === 'zhipu-official' ? { zaiToolStream: true } : {}),
+                requiresReasoningContentOnAssistantMessages: true,
+              } : {}) } }
+        }),
         compat: { supportsStore: false, supportsDeveloperRole: false, maxTokensField: 'max_tokens',
           ...(provider.id === 'deepseek-official' ? { thinkingFormat: 'deepseek' as const, requiresReasoningContentOnAssistantMessages: true } : {}) },
       }

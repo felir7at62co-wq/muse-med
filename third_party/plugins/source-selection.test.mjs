@@ -9,11 +9,15 @@ const owned = JSON.parse(readFileSync(new URL('./owned-downloads.json', import.m
 
 test('default builds select seven retained sources and seven owned plugins without archived Bot', () => {
   const selected = selectCommunitySources(pins)
-  assert.deepEqual(selected, ['dshmarket', 'dsh-codex-subscription', 'dsh-bridge', 'dsh-ffmpeg', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'dsh-im'])
+  assert.deepEqual(selected, ['dshmarket', 'dsh-plugin-subscriptions', 'dsh-bridge', 'dsh-ffmpeg', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'dsh-im'])
   assert.equal(Object.keys(owned).length, 7)
   assert.equal(selected.length + Object.keys(owned).length, 14)
   assert.ok(!selected.includes('ds-bot'))
   assert.ok(!selected.includes('dsh-feishu'))
+  assert.ok(!selected.includes('dsh-codex-subscription'))
+  assert.equal(pins['dsh-codex-subscription'].desktop, false)
+  assert.equal(pins['dsh-plugin-subscriptions'].version, '0.9.12')
+  assert.equal(pins['dsh-plugin-subscriptions'].license, 'MIT')
 })
 
 test('only explicit selection enables an archived Bot or retired source compatibility build', () => {

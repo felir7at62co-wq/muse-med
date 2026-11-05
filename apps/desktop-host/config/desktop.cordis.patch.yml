@@ -63,6 +63,9 @@
 - id: ui-agent-preset
   disabled: true
 
+- id: entry-customization
+  disabled: true
+
 - id: ui-permission
   disabled: false
 

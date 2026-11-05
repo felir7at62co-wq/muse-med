@@ -43,6 +43,8 @@ Model refusals and cancelled streams expose fixed diagnostics with their error c
 
 Models use each account model's declared default thinking level until the user explicitly selects another offered level. The prepared model carries that default into the logged request; models without thinking support receive no default effort. Yunying's exact `gpt-6.1-sol` model uses `max_completion_tokens` for its output limit.
 
+On the `volcengine-ark` account route, DeepSeek V4.1 Flash `260910` and `261017` IDs with either `v4-1` or `v4.1` use `thinking.type`. The `alibaba-bailian` route's exact `deepseek-v4.1-flash-1017` ID uses `enable_thinking`. Both preserve assistant `reasoning_content` through tool continuations and honor the catalog's default effort or an explicit `off` choice. The account catalog declares each model's supported efforts.
+
 Model menus expose only the effort levels advertised by the account catalog. Yunying GPT-6.1 Sol supports `low`, `medium`, `high`, `xhigh`, and `max`; Gemini 3.1 Pro supports `low`, `medium`, and `high`. The Session menu retains its personal-default save behavior without changing the server catalog defaults. Gemini keeps `include_thoughts: true` alongside the selected `reasoning_effort`. A requested level does not guarantee that the supplier returns a visible summary on every step.
 
 A model choice saved during catalog refresh takes precedence over initial account default selection. The refreshed catalog remains available; an unrelated settings write failure still rejects the refresh.
