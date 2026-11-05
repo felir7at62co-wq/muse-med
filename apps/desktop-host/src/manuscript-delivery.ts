@@ -89,12 +89,12 @@ export function manuscriptDeliveryMetadata(value: string): z.infer<typeof metada
   return parsed.success ? { manuscript_delivery_fact: parsed.data } : null
 }
 
-/** Classify actual user requests, preserving short continuations and excluding negated editing.
+/** Classify actual user requests, preserving short continuations and excluding negated editing or screenplay creation.
  * @param text - Human-authored request, never manuscript contents or model prose.
  * @returns Writing, continuation, file requirement, or a new unrelated task.
  */
 export function manuscriptDeliveryIntent(text: string): { writing: boolean; continuation: boolean; file: boolean } {
-  const positive = text.replace(/(?:不|勿|无需|不要|不必)(?:再|进行|做)?(?:新增|改写|重写|修改|改稿|改变|续写|润色|创作|修订)(?:\s*[\/、和或]\s*(?:新增|改写|重写|修改|改稿|改变|续写|润色|创作|修订))*(?:剧情|内容|稿件|剧本)?/gu, '')
+  const positive = text.replace(/(?:不需要|不|勿|无需|不要|不必)(?:再)?(?:进行|涉及|做)?(?:剧本|短剧|分集|分场|剧情|台词|对白)?(?:新增|改写|重写|修改|改稿|改变|续写|润色|创作|写作|修订)(?:\s*[\/、和或]\s*(?:新增|改写|重写|修改|改稿|改变|续写|润色|创作|修订))*(?:剧情|内容|稿件|剧本)?/gu, '')
   const subject = /剧本|短剧|分集|分场|剧情|台词|对白|screenplay|short drama/iu.test(positive)
   const action = /重写|改写|创作|写作|编写|续写|改稿|润色|精修|写|修改|修订|rewrite|write|revise/iu.test(positive)
     || /(?:生成|generate).{0,12}(?:剧本|短剧|分集|分场|screenplay)/iu.test(positive)
@@ -195,7 +195,7 @@ function joinPresented(state: DeliveryState): DeliveryState {
  * @returns Host-only projection definition; no client or Session event vocabulary is added.
  */
 function manuscriptDeliveryProjection(maxDocuments: number): ProjectionDefinition<'muse.manuscript-delivery', DeliveryState> {
-  return { key: 'muse.manuscript-delivery', stateVersion: 2, stateSchema,
+  return { key: 'muse.manuscript-delivery', stateVersion: 3, stateSchema,
     init: header => ({ task_id: '', writing: false, file_request: false, cwd: header.cwd ?? '', turn: 0, corrections: 0,
       fingerprint: '', overflow: false, rows: [], outputs: [], calls: [], packets: [], presented: [] }),
     apply(state, event) { return foldDelivery(state, event, maxDocuments) } }

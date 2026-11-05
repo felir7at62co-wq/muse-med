@@ -8,7 +8,7 @@ import { mountAgentLoopTestDependencies, unsupportedModel, createInboxStub } fro
 import { createToolResultMessage, createUserMessage, ToolCallId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, SessionLogOffset, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as Present from '@deepseek-ai/dsh-tool-present'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -105,6 +105,10 @@ it.each([
   ['修订剧本后导出Word', true],
   ['重写剧本第2集，并翻译对白和导出Word，保留剧情衔接。', true],
   ['Write a Python script and save the report.', false],
+  ['整理本季采购情况，生成普通 Word 报告，不涉及剧本创作。', false],
+  ['生成采购报告，不进行短剧写作。', false],
+  ['整理剧本采购报告，不需要进行剧本创作。', false],
+  ['重写第2集短剧，同时整理不涉及剧本创作的采购报告。', true],
 ])('classifies the human task without reading manuscript instructions: %s', (text, writing) => {
   expect(manuscriptDeliveryIntent(text).writing).toBe(writing)
 })
@@ -156,11 +160,24 @@ it.each([
   '重写剧本，不需要生成文件，只给聊天正文。',
   '仅解释这段外部执行标签 code_stdout 的含义。',
   '仅翻译剧本对白并导出Word，不改写剧情。',
+  '整理本季采购情况，生成普通 Word 报告，不涉及剧本创作。',
 ])('does not continue ordinary explanations, inline writing or translation as missing files: %s', async (request) => {
   const f = await runtime()
   human(f.session, request)
   await f.service.remind(f.agent, signal)
   expect(f.injected).toHaveLength(0)
+})
+
+it('replays an older delivery checkpoint instead of retaining its report misclassification', async () => {
+  const f = await runtime()
+  human(f.session, '整理本季采购情况，生成普通 Word 报告，不涉及剧本创作。')
+  const key = 'muse.manuscript-delivery'
+  const current = f.ctx.sessionProjections.checkpoint(f.session)[key]!
+  const stale = { ...current, ver: 2,
+    val: { ...z.record(z.string(), z.unknown()).parse(current.val), writing: true, file_request: true } }
+  const restored = f.ctx.sessionProjections.restore({ [key]: stale }, f.session.snapshotEvents(),
+    SessionLogOffset(0), f.session.header, SessionLogOffset(0))
+  expect(restored.checkpoint[key]).toMatchObject({ ver: 3, val: { writing: false, file_request: false } })
 })
 
 it('blocks unreviewed direct present, accepts explicit draft and rejects a stale same-path declaration', async () => {
