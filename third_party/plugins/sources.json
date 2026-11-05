@@ -231,6 +231,10 @@
         "tests/turn-cards.spec.tsx": {
           "upstreamSha256": "e7e359b505b17cab121843fbe9979e0a39fc9e7c12e5c013a8646eaf989f1ef0",
           "sha256": "674e074c47d7c49b324c4b3b81e9d9c281641593187f1b2e881a0d8b49bb314e"
+        },
+        "tests/tool.spec.ts": {
+          "upstreamSha256": "8947246170a19a9531096d234c83f7305a2e5a93023e2bbe75f15581b9e69514",
+          "sha256": "8de817a3e658d8ce6983516be51542310c5c372746d2f02781b4990595d681b3"
         }
       }
     }

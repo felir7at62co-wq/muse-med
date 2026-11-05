@@ -186,7 +186,7 @@ describe('visualizeTool description', () => {
   it('names an on-disk contract for agents that cannot load skills', async () => {
     const { existsSync } = await import('node:fs')
     const tool = visualizeTool({} as Context, 1000)
-    const path = /read the same contract from (\S+\.md)/.exec(tool.description)?.[1]
+    const path = /read the same contract from (.+?\.md) \(its relative paths resolve against /u.exec(tool.description)?.[1]
     expect(path).toBeDefined()
     expect(existsSync(path!)).toBe(true)
     expect(tool.description).toContain('do not search for it anywhere else')
