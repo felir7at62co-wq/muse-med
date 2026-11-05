@@ -160,6 +160,41 @@ class DeliveryEpisodeTests(unittest.TestCase):
         self.assertTrue(entry['reviewed'])
         self.assertEqual(entry['picture'], 'ok')
 
+    def test_nul_review_source_is_advisory_even_when_resolve_accepts_it(self):
+        self.rewrite_reviews({'14': self.review_entry(14, source='export/invalid\0.mp4')})
+        real_resolve = Path.resolve
+
+        def weak_resolve(path, *args, **kwargs):
+            if '\0' in str(path):
+                return path
+            return real_resolve(path, *args, **kwargs)
+
+        before = self.masters[14].read_bytes()
+        with patch.object(Path, 'resolve', weak_resolve):
+            report, text = self.assemble_notice(14)
+        self.assertFalse(report['review']['registered'])
+        self.assertIn('source 无法解析（ValueError）', text)
+        self.assertNotIn('\0', text)
+        self.assertEqual(self.masters[14].read_bytes(), before)
+        self.assertEqual(self.films()['14.mp4'], before)
+
+    def test_invalid_unicode_review_source_assembles_with_utf8_notice_and_unchanged_master(self):
+        self.rewrite_reviews({'14': self.review_entry(14, source='export/invalid\udcff.mp4')})
+        before = self.masters[14].read_bytes()
+        argv = ['assemble_delivery.py', '--project', str(self.project), '--episode', '14']
+        with io.TextIOWrapper(io.BytesIO(), encoding='utf-8', errors='strict') as output:
+            with patch.object(sys, 'argv', argv), patch.dict(os.environ, {}, clear=True), \
+                    patch.object(self.delivery, 'find_ffprobe', return_value=None), \
+                    contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(self.delivery.main(), 0)
+            output.seek(0)
+            text = output.read()
+        report = json.loads(text.split('<<<ASSEMBLY_REPORT>>>')[1].split('<<<END_ASSEMBLY_REPORT>>>')[0])
+        self.assertFalse(report['review']['registered'])
+        self.assertIn('source 无法解析（UnicodeEncodeError）', text)
+        self.assertEqual(self.masters[14].read_bytes(), before)
+        self.assertEqual(self.films()['14.mp4'], before)
+
     def test_missing_registration_assembles_with_notice(self):
         self.rewrite_reviews({k: v for k, v in self.delivery_reviews().items() if k != '14'})
         report, text = self.assemble_notice(14)

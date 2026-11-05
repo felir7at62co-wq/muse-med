@@ -64,9 +64,9 @@ export interface BgmBatchContext {
 }
 
 /**
- * Resolve the identity one segment's track has across a batch.
+ * Resolve the source path used for legacy track comparisons.
  *
- * Two episodes share a track when their sources resolve to the same file. The
+ * This path identifies sources when no stable identities can be compared. The
  * plan's own `track` label is a display name and is not compared: production
  * plans have carried two labels for one file and one label for two files.
  * @param project - Project root that relative sources resolve against.
@@ -77,16 +77,27 @@ export function trackIdentity(project: string, source: string): string {
   return isAbsolute(source) ? resolve(source) : resolve(project, source)
 }
 
-function stableTrackKey(segment: BgmBatchRow['segments'][number]): string | undefined {
-  const identity = segment.source_sha256 ?? segment.track_id
-  if (identity === undefined) return undefined
-  return /^(?:sha256:)?[a-f0-9]{64}$/iu.test(identity)
-    ? `hash:${identity.replace(/^sha256:/iu, '').toLowerCase()}` : `id:${identity}`
+function trackDigest(value: string | undefined): string | undefined {
+  if (value === undefined || !/^(?:sha256:)?[a-f0-9]{64}$/iu.test(value)) return undefined
+  return value.replace(/^sha256:/iu, '').toLowerCase()
+}
+
+function trackEvidence(segment: BgmBatchRow['segments'][number]): { digests: string[]; catalogId: string | undefined } {
+  const id = segment.track_id?.trim()
+  const idDigest = trackDigest(id)
+  return {
+    digests: [trackDigest(segment.source_sha256), idDigest].filter(digest => digest !== undefined),
+    catalogId: idDigest === undefined && id ? id : undefined,
+  }
 }
 
 function sameTrack(project: string, left: BgmBatchRow['segments'][number], right: BgmBatchRow['segments'][number]): boolean {
-  const a = stableTrackKey(left), b = stableTrackKey(right)
-  if (a !== undefined && b !== undefined && a.split(':')[0] === b.split(':')[0]) return a === b
+  const a = trackEvidence(left), b = trackEvidence(right)
+  const compareDigests = a.digests.length > 0 && b.digests.length > 0
+  const compareCatalogIds = a.catalogId !== undefined && b.catalogId !== undefined
+  if (compareDigests || compareCatalogIds) {
+    return a.digests.some(digest => b.digests.includes(digest)) || (compareCatalogIds && a.catalogId === b.catalogId)
+  }
   return trackIdentity(project, left.source) === trackIdentity(project, right.source)
 }
 
