@@ -10,6 +10,10 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { apply, Config, inject, name, resolveCall, resolveSettings, runDramaRender } from '../src/index.ts'
 import * as Audio from '../src/audio.ts'
 import * as Speech from '../src/speech-coverage.ts'
+import { episodePaths } from '../src/paths.ts'
+import { verifyPreparedSubtitleClock } from '../src/prepare.ts'
+import { writeSubtitleClock } from '../src/subtitle-clock.ts'
+import { readTimeline } from '../src/timeline.ts'
 import type { DramaRenderReport, ProcessChannel, RenderSettings } from '../src/types.ts'
 import {
   cleanup,
@@ -123,6 +127,7 @@ function callChannel(project: string): ReturnType<typeof stubChannel> {
   const handlers: StubHandler[] = [
     probeHandler({
       [join(project, 'media', 'p1-clean.mp4')]: { durationSeconds: 114.733332, video: {}, audio: {} },
+      [join(project, 'video', '02', 'shot_001.mp4')]: { durationSeconds: 114.733332, video: {}, audio: {} },
       [join(project, 'export', 'ep02.mp4')]: {
         durationSeconds: 116.733332, sizeBytes: 400_000_000, bitRateBps: 27_000_000, video: {}, audio: {},
       },
@@ -138,6 +143,35 @@ function callChannel(project: string): ReturnType<typeof stubChannel> {
   ]
   return stubChannel(handlers)
 }
+
+it('keeps strict source policies and the generated subtitle clock when product typography normalizes display text', async () => {
+  const prepared = await preparedProject(), channel = callChannel(prepared.project)
+  const source = join(prepared.project, 'media/p1-clean.mp4')
+  const original = srtDocument([{ start: '00:00:01,680', end: '00:00:03,580', text: '你好，世界！' }])
+  await writeFile(prepared.subtitle, original, 'utf8')
+  await writeFile(join(prepared.project, 'project_config.json'), JSON.stringify({ project_bible: { delivery: {
+    width: 480, height: 854, fps: 24, require_source_review: true,
+    subtitle: { font_family: 'obsolete', font_size_px: -1, require_speech_coverage: true, require_no_punctuation: true },
+    audio: { require_music_decision: true },
+  } } }), 'utf8')
+  await writeSubtitleClock(prepared.subtitle, original, '02', [{ source: { shot: 1, video: source, audio: source },
+    video: source, audio: source, durationUs: 114_733_332 }])
+  const result = await runDramaRender({ method: 'prepare', project: prepared.project, episode: 2,
+    shots: prepared.shots, subtitleSrt: prepared.subtitle }, { ...settingsWith(channel.channel), normalizeSubtitleText: true,
+    enforceSubtitleVisual: true, defaultSubtitleVisual: { schema_version: 1, reference_width: 480, reference_height: 854,
+      font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073, max_width_ratio: 0.9 } })
+  const display = result.render_preview?.subtitle.path ?? ''
+  expect(await readFile(display, 'utf8')).toContain('你好 世界')
+  expect(await readFile(prepared.subtitle, 'utf8')).toBe(original)
+  const timeline = await readTimeline(prepared.timeline, true)
+  expect(timeline.delivery).toMatchObject({ require_source_review: true,
+    subtitle: { require_speech_coverage: true, require_no_punctuation: true },
+    subtitle_visual: { font_size_px: 46 }, audio: { require_music_decision: true } })
+  expect(timeline.delivery?.subtitle).not.toHaveProperty('font_size_px')
+  await expect(verifyPreparedSubtitleClock(display, episodePaths(prepared.project, '02'), timeline)).resolves.toBeUndefined()
+  await writeFile(join(prepared.project, 'audio/02.wav'), 'wrong', 'utf8')
+  await expect(verifyPreparedSubtitleClock(display, episodePaths(prepared.project, '02'), timeline)).rejects.toThrow('整集原声')
+})
 
 describe('registration', () => {
   it('declares its identity and the registry it needs', () => {
@@ -178,12 +212,12 @@ describe('registration', () => {
       required: string[]
     }
     expect(Object.keys(parameters.properties).sort()).toEqual([
-      'alignment', 'audio', 'bgm', 'bgm_generation', 'bgm_plan', 'duration_seconds', 'ending_audio', 'ending_effect', 'episode', 'force',
-      'intended_use', 'last_shot', 'lines', 'method', 'mix_profile', 'output', 'project', 'shots',
+      'alignment', 'audio', 'bgm', 'bgm_generation', 'bgm_plan', 'draft', 'duration_seconds', 'ending_audio', 'ending_effect', 'episode', 'force',
+      'intended_use', 'last_shot', 'lines', 'method', 'mix_profile', 'output', 'project', 'resume', 'shots',
       'speech_decisions', 'speech_transcripts', 'start_seconds', 'subtitle_plan', 'subtitle_srt', 'timeline',
     ])
     expect(parameters.properties.method?.enum).toEqual(['prepare', 'render', 'verify', 'subtitles', 'audio_preview', 'subtitle_overlay',
-      'speech_coverage', 'subtitle_layout'])
+      'speech_coverage', 'subtitle_layout', 'stage_delivery'])
     expect(parameters.properties.project?.description).toContain('其余相对路径以 project 为基准')
     expect(parameters.properties.project?.description).toContain('绝对路径保持不变')
     expect(parameters.properties.bgm?.description).toContain('drama_bgm 返回的绝对 output')
@@ -316,6 +350,22 @@ describe('subtitle overlay application', () => {
     expect(resolved).not.toContain('台词')
     expect(resolved).toContain('你好 世界')
     expect(await readFile(prepared.subtitle, 'utf8')).toBe(original)
+  })
+
+  it('refuses to create an overlay report from a generated SRT with a stale clock', async () => {
+    const prepared = await preparedProject(), channel = callChannel(prepared.project)
+    const subtitlePlan = await plan(prepared.project, join(prepared.project, 'video/02/shot_001.mp4'))
+    await copyFile(prepared.shots, join(prepared.project, 'editing/02-sources.json'))
+    await writePlaceholder(prepared.subtitle + '.clock.json', JSON.stringify({
+      version: 1, srt_sha256: createHash('sha256').update(await readFile(prepared.subtitle)).digest('hex'),
+      source_clock_sha256: '0'.repeat(64),
+    }))
+    const output = join(prepared.project, 'editing/export-overlay.srt')
+    await expect(run({ method: 'subtitle_overlay', project: prepared.project, episode: 2,
+      timeline: prepared.timeline, subtitleSrt: prepared.subtitle, subtitlePlan, output },
+    settingsWith(channel.channel))).rejects.toThrow('生成字幕与当前集、分包素材或切点不一致')
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(channel.calls).toEqual([])
   })
 
   it('prepares byte-identical videos before resolving the optional plan while keeping the authored installed SRT', async () => {

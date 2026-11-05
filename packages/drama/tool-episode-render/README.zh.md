@@ -69,6 +69,7 @@ kind: "package-reference"
 | `prepare` | 成片清单与字幕 | `video/<集>/shot_00N.mp4`、`audio/<集>.wav`、`editing/<集>-timeline.json`、`editing/<集>.srt` | 构建渲染器要读的全部输入，不编码画面 |
 | `render` | 时间线、已准备的镜头、整集原声、字幕、BGM，以及该媒介所需的片尾素材 | 成片 MP4 与 `exports/.render_cache/<集>/render.log` | 出片并回报实测参数 |
 | `verify` | 成片、它的时间线与字幕 | 无 | 事后检查成片，或复查更早会话留下的成片 |
+| `stage_delivery` | 完整续跑成片、实际时间线与烧录字幕、带同集回执的草稿 | 仅含 MP4 的单集上传目录和同级回执 | 归集技术复验通过的待审候选 |
 | `audio_preview` | 项目内原声、时间线、显式混音配置及可选音乐元数据 | `audio/previews/` 下新建的对齐 WAV 试听、音乐 stem 与分析 JSON | 编码画面前比较新增配乐与保留原声 |
 | `subtitle_overlay` | 已准备的源、时间线、原 SRT 及明确的已有文字决定 | 新外加字幕 SRT 与绑定选源的决定报告 | 避免重复叠字，不改变烧录字 |
 | `subtitle_layout` | 时间线、最终 SRT 及显式共享视觉样式 | 新排版报告、自然宽度探针与交付尺寸 PNG | 测量真实 libass 排版，不改字幕 |
@@ -76,28 +77,34 @@ kind: "package-reference"
 
 | 参数 | 必填 | 含义 |
 |---|---|---|
-| `method` | 总是 | `subtitles`、`prepare`、`render`、`verify`、`audio_preview`、`subtitle_overlay`、`subtitle_layout` 或 `speech_coverage` |
+| `method` | 总是 | 上表所列方法之一 |
 | `project` | 总是 | 项目根目录（含 `video/`、`audio/`、`editing/`、`exports/`） |
 | `episode` | 总是 | 集号；所有路径都补成两位 |
 | `shots` | `subtitles`、`prepare`、`speech_coverage` | 成片清单：`{"shots":[{"shot":1,"video":"media/02/p1-clean.mp4","audio":"可选"}]}` |
 | `lines` | `subtitles` | 逐镜台词计划：`{"shots":[{"shot":1,"lines":["第一句","第二句"]}]}`；每一项就是一条字幕，已按交付长度切好 |
 | `alignment` | `subtitles` | 识别时间：`{"shots":[{"shot":1,"strategy":"asr_aligned","cues":[{"text":"识别文本","start":0.0,"end":0.8}]}]}`，镜内相对。只取时间，文本必须与剧本台词一致 |
-| `timeline` | `render`、`verify`、`audio_preview`、`subtitle_overlay`、`subtitle_layout`、`speech_coverage` | 时间线 JSON，通常是 `prepare` 写出的那个 |
-| `subtitle_srt` | `prepare`、`render`、`verify`、`subtitle_overlay`、`subtitle_layout`、`speech_coverage`（`subtitles` 可选） | 要写出、安装、烧录或检查的 SRT；覆盖检查使用完整显示 SRT，不是删减后的外加字幕；`subtitles` 省略时写 `editing/<集>.srt` |
-| `speech_transcripts` | `speech_coverage` | 项目内已有的 `{shots:[{shot,receipt}]}` 映射，引用绑定源字节的词级转写收据 |
-| `speech_decisions` | 可选，`speech_coverage` | 绑定本次完整证据哈希的项目内核听声明，不是 Host 签发的核听认证 |
+| `timeline` | `render`、`verify`、`audio_preview`、`subtitle_overlay`、`subtitle_layout`、`speech_coverage`、`stage_delivery` | 时间线 JSON，通常是 `prepare` 写出的那个 |
+| `subtitle_srt` | `prepare`、`render`、`verify`、`subtitle_overlay`、`subtitle_layout`、`speech_coverage`、`stage_delivery`（`subtitles` 可选） | 要写出、安装、烧录或检查的 SRT。覆盖检查使用完整显示 SRT，归档使用实际烧录的 SRT。`subtitles` 省略时写 `editing/<集>.srt` |
+| `draft` | `stage_delivery` | 项目内本集 `02_剪映草稿/` 的直接子目录 |
+| `speech_transcripts` | `speech_coverage`、严格 `stage_delivery` | 项目内已有的 `{shots:[{shot,receipt}]}` 映射，引用绑定源字节的词级转写收据 |
+| `speech_decisions` | 可选，`speech_coverage`、严格 `stage_delivery` | 绑定本次完整证据哈希的项目内核听声明，不是 Host 签发的核听认证 |
 | `last_shot` | `render` | 本次交付覆盖到的最后一个镜头号；时间线里 `shot <= last_shot` 的镜头数必须正好等于它 |
 | `bgm` | 启用音乐的 `render`、`audio_preview` | BGM，循环铺到正片结束；显式 `no_bgm` 配置忽略且不打开它 |
-| `bgm_plan` | 可选，`render`、`audio_preview` | 现有 `episodes[].segments[]` 计划；返回声明的曲目来源、时间、理由、音轨哈希与同序复用集号，不代表试听通过 |
+| `bgm_plan` | 严格 `render` 必填，其他 `render` 和 `audio_preview` 可选 | 现有分集计划，严格归档读取明确的配乐决定与理由。报告声明的曲目来源、时间、理由、音轨哈希与同序复用集号，试听另行验收 |
 | `mix_profile` | `audio_preview` 必填，`render` 可选 | 项目内带版本的音频配置；省略时保留旧渲染行为 |
 | `audio` | 可选，`audio_preview` | 项目内原声音频；默认 `audio/<集>.wav` |
 | `start_seconds`、`duration_seconds` | `audio_preview` | 非负正文起点与大于零、最多 60 秒且不越过正文终点的试听时长 |
-| `bgm_generation` | 可选，`audio_preview` | 项目内配乐合成收据；媒体 SHA-256 必须匹配 BGM 才返回各源曲增益 |
+| `bgm_generation` | 严格 `render` 采用配乐时必填，`audio_preview` 可选 | 项目内配乐合成收据，媒体 SHA-256 必须与实际 BGM 音轨一致 |
 | `intended_use` | 可选，`audio_preview` | `commercial`、`non_commercial` 或 `unknown`；覆盖计划中的声明用途，用于建议性许可风险提示 |
 | `ending_audio` | 带标记 `render` | 片尾音；只接受随包 `tweet-drama-background-render/assets/ending_audio.mp3`。成片只取它的前 2 秒，延迟到正片结束处 |
 | `ending_effect` | 带标记 `render` | 随包 `tweet-drama-background-render/assets/ending_effect.mp4`；默认 `source_once` 按原速播放，时间线显式 `stretch_to_window` 时把完整源特效适配 2 秒片尾 |
-| `output` | `verify`（`render`、`subtitle_overlay` 可选） | 成片或项目内全新外加字幕 SRT；显式字幕导出使用 `<output>.decision-report.json`，两文件均不覆盖 |
+| `output` | `verify`、`stage_delivery`（`render`、`subtitle_overlay` 可选） | 成片或项目内全新外加字幕 SRT；显式字幕导出使用 `<output>.decision-report.json`，两文件均不覆盖 |
 | `force` | 可选 | `render` 忽略逐镜缓存、全部重编 |
+| `resume` | 可选，完整单集 `render` | 复用与当前输入完全一致且已复核的成片，或在项目内发布新候选 |
+
+使用 `resume: true` 时，渲染会将所选视频、整集原声、时间线、原始 SRT、提供的混音与字幕计划、实际使用的音乐和片尾文件，以及生效设置绑定到请求 SHA-256。只有集数和输出路径均匹配的来源记录、且独立 `verify` 通过时，才会复用成片。已经占用但缺少匹配证据的路径会保留，另选新路径发布。重试时传入相同的请求 `output`，后续工序使用返回的 `output`。显式字幕叠加计划会重新解析，供草稿接续使用。
+
+使用工具实际返回的成片和草稿归档。上传目录仅含 `第<集>集.mp4`，回执保存在目录旁。集数、输入字节或既有归档冲突时保留已有文件。工具返回待验候选，供内容和剪映实机验收。
 
 所有项目输入与输出的相对路径都以 `project` 为基准，包括清单、字幕计划、对齐文档、字幕、BGM、片尾文件和显式输出。绝对路径保持不变。跨工具传递绝对 `project`；相对项目根目录只在入口按进程工作目录解析一次。项目外的片尾素材使用其安装位置的绝对路径。二进制与字体的部署配置保持不变。
 
@@ -111,7 +118,7 @@ kind: "package-reference"
 
 显式传入 `mix_profile`，选择项目内 JSON 文件。`schema_version` 为 `1`；`mode` 为 `legacy`、`no_bgm` 或 `ducking`；`analysis_window_ms` 为 10–1000。可选 `original_gain` 与 `music_gain` 接受 0–8，省略时记录现有部署增益。`ducking` 模式要求在同名对象中显式给出 `threshold_db`（−60–0）、`ratio`（1–20）、`attack_ms`（0.01–2000）、`release_ms`（0.01–9000）与 `knee`（1–8）。未传配置时沿用原固定增益渲染，不增加报告字段。
 
-`no_bgm` 不要求或打开 `bgm`、`bgm_plan` 或合成收据。它保留源内声音，包括已有音乐和音效，不做语音分离或移除内嵌音乐。`ducking` 用原声 RMS 能量驱动侧链，不是语义语音活动检测。Attack 与 release 平滑调整新增音乐增益，原声只进入混音一次。显式配置渲染要求项目内新输出路径；启用音乐时另发布已应用增益的纯音乐 `<output-name>.music-stem.wav`，不替换已有输出。
+`no_bgm` 不要求或打开 BGM 音轨或合成收据。严格归档仍须通过 `bgm_plan` 记录明确决定。该模式保留源内声音，包括已有音乐和音效，不做语音分离或移除内嵌音乐。`ducking` 用原声 RMS 能量驱动侧链，不是语义语音活动检测。Attack 与 release 平滑调整新增音乐增益，原声只进入混音一次。显式配置渲染要求项目内新输出路径；启用音乐时另发布已应用增益的纯音乐 `<output-name>.music-stem.wav`，不替换已有输出。
 
 `audio_preview` 必须提供配置、时间线与明确试听区间。它先用正式渲染的同一滤镜构造器从正文零点处理，再裁切输出，因此保留试听起点之前的侧链历史。裁切使用四舍五入的 48 kHz 样本边界并重建输出时间戳，避免 AAC 剪接处的重叠时间戳拉长 A/B 窗口。新试听目录包含 `selected_mix.wav`、`without_added_music.wav`、可选 `music_stem.wav` 与 `analysis.json`；多次调用使用不同目录。配置与试听路径解析链接后仍必须属于项目。音乐 stem 不混入原声。
 
@@ -151,6 +158,8 @@ kind: "package-reference"
 
 显式 `delivery.subtitle_visual` 选择完整的带版本参考画布样式：`schema_version: 1`、正数 `reference_width/reference_height/font_size_px`、非负 `outline_px`、从上往下0至1的 `center_y_ratio`，以及大于0且不超过1的 `max_width_ratio`；`font_family` 可选。未启用产品强制字幕策略时，prepare 保存整节，快照 `{}` 恢复旧样式，缺节才可继承项目。正式渲染按参考高度缩放名义排版，使用居中白字黑边并关闭自动换行；非产品调用保留原默认行为。
 
+将 `project_bible.delivery.subtitle.require_no_punctuation` 设为 `true` 后，`stage_delivery` 会检查渲染回执对应的实际烧录 SRT，遇到 Unicode 标点时停止归档。`prepare` 会保存 `subtitle` 整节。省略开关或设为 `false` 时沿用现有提示行为，已设置 `subtitle_visual` 的项目也适用。渲染和预览保留传入文字。
+
 短剧产品预设启用 `enforceSubtitleVisual` 并提供 `defaultSubtitleVisual`，即使旧项目或时间线显式保存了字幕样式或 `{}` 重置，竖版新输出仍使用该统一视觉配置；横版、方形布局维持原优先级。不改写原项目或已生成的视频。其他部署默认不开启强制，仍保留显式样式优先。字体名由产品部署独立提供，参数不证明字体实际选中或剪映与成片像素一致。
 
 打包产品的竖屏输出中，可编辑草稿使用已校准的编辑器字幕默认值，不沿用旧的 `draft_style.subtitle` 覆盖；编辑器单位独立于正式渲染映射。其他集成保留原有配置行为。公共节提供单行策略和行宽意图，不提供像素至 UI 的字号系数。请求字族不证明任一引擎实际选中的字体；关闭编辑器换行时，保存的行宽也不能防止裁切，仍需在编辑器中验收。
@@ -159,7 +168,9 @@ kind: "package-reference"
 
 ### 实际字词与最终字幕覆盖
 
-调用 `speech_coverage`，提供 `shots`、`timeline`、最终完整显示的 `subtitle_srt` 与 `speech_transcripts`，比对每个已有同源词时码，包括一两个字及剧本外额外发声。只读报告区分识别有字而字幕缺失、字幕无对应识别及时间不匹配。源字节、转写收据及原始结果必须匹配；操作不调用供应商、不按波形猜词，也不认证ASR准确度。
+调用 `speech_coverage`，提供 `shots`、`timeline`、最终完整显示的 `subtitle_srt` 与 `speech_transcripts`，比对每个已有同源词时码，包括一两个字及剧本外额外发声。只读报告区分识别有字而字幕缺失、字幕无对应识别及时间不匹配。整条字幕与完整识别词匹配时，首尾各允许一帧交付时长和 SRT 毫秒取整误差。源字节、转写收据及原始结果必须匹配。操作使用已有 ASR 证据，全程离线。
+
+同一片段里，字幕与完整同文短句部分重叠，且相邻首词或尾词落在字幕窗口外时，可用实测词的 ID 归为一条时序疑点。实际重叠匹配保持原样。词已匹配其他字幕、归属有歧义，或漏掉的词与相邻词间隔超过 300 毫秒时，仍分别报告。
 
 可选 `speech_decisions` 将调用方声明的核听决定绑定到完整证据哈希。源、转写、时间线、字幕或映射变化都会使绑定失效。先核听再补字、调整或明确保留不加字幕的决定，MP4与草稿核查复用同一份完整显示SRT。保留在原画面中的文字也属于该完整SRT，即使仅后加字幕的SRT已省略它。发现仍是建议；`listening_verified: false` 不会变成Host签发的人工验收声明。
 
@@ -182,17 +193,37 @@ kind: "package-reference"
 
 识别文字只与传入台词计划比较，不替换作者台词。缺证据、声文不符、未声明发声和阅读速度偏快均由 Muse 自主复核，只作提示，不要求审批或警告清零。
 
+对齐行提供了 `source_sha256` 时，必须匹配该镜实际选用的声音文件，包括另选的独立音源。来源不符时，本次候选不纳入该镜字幕。旧的无哈希对齐行仍可用于普通字幕构建。同源自动修复继续要求每镜都提供哈希。对齐脚本只将实测的整词边界标记为已对齐，即使一段识别里包含多句台词。
+
 有对齐或可读性发现时，工具只在有可用字幕条目时写出 `<subtitle_srt>.draft.srt`，保留已有 SRT。没有可用条目时，只写本次 `<subtitle_srt>.review.txt`，明确提示未生成候选，并保留已有候选及其检查说明。其他情况下，候选有独立检查说明；本次说明也记录中断后的待核状态。`prepare` 和 `render` 将这些说明及旧 `.blocked` 标记作为提醒返回，仍使用明确选择的可读 SRT 继续执行。完整对齐成功后写入目标 SRT 并清除其待核说明。保存、渲染成功及 `ok: true` 都不等于创作验收通过。
 
-写出的文件是纯 SRT，`prepare` 安装、`render` 烧录之前，可以手工改某一条。
+每份生成的 SRT 和候选字幕都有相邻的 `.clock.json` 记录，绑定字幕字节、集数、所选音视频字节和按顺序排列的片段时长。请一起保留两份文件。`prepare` 在替换已准备素材前检查记录，并随 SRT 一同安装。`render` 在编码或复用成片前，用准备好的画面、选定的音轨和本次时间线核对所选字幕的记录。如果所选片段或时间发生变化，请用当前清单和同源对齐记录重跑 `subtitles`。需要人工改字幕时，可以另存为手动字幕再明确选择。无记录的 SRT 仍可用，其对齐状态为未验证。
+
+同时向 `prepare` 传入 `lines` 和 `alignment`，可对字节仍匹配原回执、但来源时钟已变的生成字幕自动修复一次。每镜对齐记录的 `source_sha256` 必须匹配当前实际使用的声音文件。修复保留原文字和顺序，将原 SRT 和回执与重建候选一起保存，重新核对时钟后才安装。对齐不全、对白改动或人工修改过的 SRT 进入复核。
 
 ### prepare 写出什么
 
 `prepare` 把每个源成片复制到 `video/<集>/shot_00N.mp4`，按 ffprobe **实测**时长（而不是声明时长）铺时间线，把每镜自己的声音按各自起点拼成整集原声（不加增益、不逐镜重采样，只做一次 48kHz 无损写入），并把字幕装到 `editing/<集>.srt`。它不编码画面。结束时刻超过整集画面的 cue 会作为警告报出。
 
+`subtitles` 和 `prepare` 共用实测时钟。只有在单一视频流从零开始、实测帧数和时长与交付帧率一致、容器最多多出一帧时，才按画面的整帧时长排镜头，否则保留实测容器时长。每个切点按绝对时间取整一次，避免音频短尾或逐镜取整的误差累积，导致画面切点、整集原声和新对齐的字幕错开。草稿使用准备好的时间线。更换素材或交付帧率后，应从镜头内对齐数据重建字幕，再准备整集。外部提供的 SRT 保留原时码。
+
+如果时间线要求的帧数超过已核验的同帧率原片，`render` 会拒绝继续。重建时间线、整集原声和生成字幕后再渲染，避免旧时间线按容器时长排镜头，在剪口重复上一包末帧。
+
 `prepare` 和 `render` 返回 `render_preview`：最终交付画幅、字幕文件与字族、ASS 设计值及名义输出像素，以及明确的原声/BGM/计划路径和增益；`render` 将相同信息写入日志。其它方法返回 null，不宣称重建历史渲染输入。prepare 缺少配乐输入或未附可选计划只作提示，不新增批准要求。空 `bgm_plan` 只表示未核对声明计划，不表示没有混入配乐。SRT 保存文字和时间，不保存已认可审查片的字体样式；渲染前对照已认可版本核对预览。名义像素只是设计值按输出尺寸换算，不是实测字形或视觉验收。工具不通过听音识别纯音乐，也不验证音轨是否含声明曲目。
 
 准备成功后，`editing/<集>-sources.json` 记录 `{shots:[{shot,package?,video,audio,sha256}]}`，包含绝对源路径和准备后视频的 SHA-256。`package` 可选，必须显式指定 `episode_packages/<集>/package.json` 的 `video_tasks` 中从 1 开始的位置，绝不从 `shot` 推断。多个片段可映射到同一包。修改输入前移除旧选择记录，准备失败时不会留下声称完成的旧记录。来源选择证明复制了哪些字节，不代表内容审核通过。显式映射的行在分集包文件存在时还记录 `package_sha256`：整个文件字节的 SHA-256，覆盖其中的镜头内容。审核记录必须带有相同的实测哈希才算当前有效；分集包文件任何变化（包括格式变化）都会保守地使该集证据失效。包文件缺失时省略此字段，不阻断旧项目的准备操作。
+
+本集已有通过审核的分包时，`prepare` 在探测及写入时间线前核对当前分包版本、显式包号，以及所选视频的路径和 SHA-256。审核记录指定音源时，所选音源须匹配记录中的 `audio_path` 和 `audio_sha256`。去字幕后的视频可以保留单独审核过的原声。准备清单绑定已审核音源、审核记录、整集原声和精确切点。缺少音源审核时仍可做工作预览。
+
+`stage_delivery` 要求提供已准备的选源清单，并复核其中经审核的来源和原声切点。现有审核待定或拒绝，或另用的音源未获审核、已被禁用时，停止归档。审核通过的独立音源需要在草稿与成片中共用同一份独立原声。没有审核记录的历史项目，重新准备且只用视频自带音源后仍可归档为候选。`verify` 继续执行媒体技术检查。画面、对白和剪映播放需另做内容验收。
+
+启用 `delivery.require_source_review` 后，每个分包需要当前复核抽帧、各项内容审核和原片下载证据。正式去字幕选片还需操作记录和与净画面匹配的下载回执。两条正式路线都确认用不了时，才可复核本地处理；记录两路终态、处理区间及独立的处理前后抽帧。两种处理均保留原片下载对应的音轨。独立音轨草稿的保留素材必须位于本集目录。检查核对来源身份和已记录的审核，实际画面与声音仍需实看实听。
+
+将 `project_bible.delivery.audio.require_music_decision` 设为 `true`，重跑 `prepare` 并以 `resume=true` 完整渲染，即可在归档前强制核对配乐决定。传入本集 `bgm_plan`，记录 `music_decision` 和非空 `decision_reason`。决定为 `none` 时使用 `mix_profile` 的 `no_bgm`，并写空 `segments`。决定为 `music` 时使用合成输出的原始 WAV 作为 `bgm`，传入 `bgm_generation` 合成回执。每段配乐记录源曲 `source_sha256` 及曲库 `track_id`。复用已认可的曲目时改用 `selection_origin: "approved_reuse"`，并在该段 `reason` 写明复用原因。归档核对集号、计划、时间线、源曲顺序和区间、实际参与混音的配乐 SHA-256，以及非零实际混音增益。混音导出的独立配乐轨或转码副本与合成 WAV 字节不同时，需重新采用正确的合成结果。候选回执记录决定、理由、实际增益和输入摘要。听感和授权仍需另行验收。省略开关时沿用旧归档行为。
+
+将 `project_bible.delivery.subtitle.require_speech_coverage` 设为 `true`，重跑 `prepare` 并以 `resume=true` 渲染，即可启用严格归档。传入实际选定音频的 `speech_transcripts`，并在映射中加入 `display: {embedded: false, subtitle_sha256, video_sha256: [...]}`，声明外加 SRT 覆盖全部显示字幕，同时提供完整 SRT 和按镜号排列的全部选片 SHA-256。归档会拒绝已知叠加字幕以及缺少字幕来源回执的成片。字幕首尾可以按 SRT 的毫秒精度贴合已准备时间线中的画面切点，跨过切点则停止归档。归档读取当前同源词级证据，遇到证据不完整或未处理疑点时停止。只有绑定本次比对的 `keep` 或 `asr_error` 核听声明可处理相应声文疑点。候选回执记录本次比对的证据 SHA-256。源片内部的切镜、画面和对白质量仍需播放验收。省略开关时沿用旧归档行为。
+
+严格归档还要求实测音画流边界和新核查的独立音轨草稿。草稿回执绑定已核查的整集原声位置、静音的正文片段，以及可编辑字幕的文字和时间。
 
 逐镜编码缓存要求源字节哈希、可执行程序和完整编码参数（包括时长）一致。只有编码成功且输出非空才发布缓存身份；身份缺失或来源、设置变化时自动重编。`force` 仍可跳过复用。
 
@@ -234,6 +265,8 @@ kind: "package-reference"
 
 `render` 跑五项交付检查，`verify` 跑表中全部检查，`subtitles` 跑它自己的两项。`ok` 仅表示已执行的 failure 级检查通过。`not_checked` 明确列出未测量的 QA，包括语音对齐、来源中不需要的内嵌字幕、内容审核与 BGM 试听。清除提供方残留字幕与最终按 SRT 烧录的设计字幕是不同事项，两者都不会禁用交付字幕样式。
 
+`verify` 将来源清单与当前集号、规范化绝对输出路径和实际文件的 SHA-256 核对。清单绑定了其他集或其他路径时，即使 MP4 字节相同也判失败。缺少清单或绑定字段时，技术检查仍可通过，`output_source_record` 保留为未通过的警告。自动续跑复用成片需要 `output_source_record` 通过，并另行核对当前输入。
+
 | 代码 | 级别 | 通过条件 |
 |---|---|---|
 | `duration` | failure | 实测时长与「正片结束 + 片尾」相差不超过 0.15 秒 |
@@ -241,7 +274,8 @@ kind: "package-reference"
 | `frame_rate` | failure | 快照帧率，误差 0.01 以内 |
 | `audio_stream` | failure | 存在 AAC 48kHz 音轨 |
 | `bitrate_floor` | failure | 总码率达到 4.6 Mbps |
-| `decode_probe` | failure | 首、中、尾（距结尾 0.1 秒）三处都能解出一帧 |
+| `decode_probe` | failure | 首、中、尾（距结尾 0.1 秒）三处都能解出一帧，整段音视频流完整解码无错 |
+| `av_stream_clock` | failure | `verify` 对比实测音视频流的起点和末端。容许一个视频帧或 AAC 帧的边界舍入，以及静音片尾的音轨止于声明的正文切点。缺少流时间戳时列为未检查。 |
 | `black_frames` | failure | 没有达到 1.0 秒的黑场 |
 | `fade_to_black` | warning | 没有达到 0.3 秒的黑场 |
 | `silence` | failure | 没有达到 3.0 秒的静音 |

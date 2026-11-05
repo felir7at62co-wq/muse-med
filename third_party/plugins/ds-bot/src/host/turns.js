@@ -6,6 +6,9 @@ import { HANDOFF_ACK, MESSAGE_INLINE_MAX, REFERENCE_KIND, REPLY_KIND, SOURCE_KIN
 import { absoluteLinks } from './links.js'
 import { textOf } from './text.js'
 import { reminderText } from './schedules.js'
+import { isGenerationWatchId } from './muse-team.js'
+
+const GENERATION_WATCH_KIND = 'jubian-generation-watch'
 
 // A failed turn's `LlmFailure`, kept to what can be shown and logged. Like DSH's own
 // error row, an AUTH failure loses its message: providers may echo part of the key.
@@ -176,6 +179,22 @@ export function install(rt) {
     showCall(id, entry)
   }
 
+  // Only the Jubian tool's successful, Host-owned enrollment can defer an
+  // ordinary group answer. The assistant's wording and old watch IDs cannot.
+  const noteGroupGeneration = (id, entry, name, result) => {
+    if (name !== 'jubian_storyboard' || result?.isError === true || entry.turn === undefined
+      || entry.info?.role !== 'room' || entry.info.askedBy === undefined) return
+    const text = textOf(result?.content)
+    if (text.length === 0 || text.length > 1024 * 1024) return
+    let report
+    try { report = JSON.parse(text) } catch { return }
+    if (typeof report?.generation_watch_id !== 'string' || !/^[0-9a-f]{64}$/u.test(report.generation_watch_id)) return
+    const origin = rt.museTeam.captureGenerationWatchOrigin(id)
+    if (origin !== undefined && report.generation_watch_group_exchange_id === origin.exchangeId) {
+      entry.pendingGroupGeneration = origin.exchangeId
+    }
+  }
+
   const markExchangeTurn = (sessionId, turn) => {
     const turns = state.exchangeTurns[sessionId] ??= []
     if (!turns.includes(turn)) {
@@ -207,7 +226,7 @@ export function install(rt) {
   // turn's end, which shows the rest as the turn's reply.
   const showSteps = (id, entry, upTo) => {
     const info = entry.info
-    if (!speaksInGroup(id, info) || (info?.role === 'room' && stoppedRoomTurns.has(info.exchangeId))) return
+    if (entry.watchOpened || !speaksInGroup(id, info) || (info?.role === 'room' && stoppedRoomTurns.has(info.exchangeId))) return
     for (; entry.shown < upTo; entry.shown += 1) {
       const text = stripWrittenCalls(entry.texts[entry.shown])
       if (text !== '') void rt.roomStepText?.(id, info, text, entry.shown === 0)?.catch(error => rt.warn('ds-bot: step text from %s not posted: %s', id, error))
@@ -404,11 +423,16 @@ export function install(rt) {
         break
       }
       case 'tool/ptc-dispatch':
+        noteGroupGeneration(id, entry, event.data?.name, event.data)
         endCall(id, entry, event.data?.subCallId)
         break
-      case 'tool/result':
-        endCall(id, entry, event.data?.callId)
+      case 'tool/result': {
+        const result = event.data?.message
+        const callId = result?.toolCallId ?? event.data?.callId
+        noteGroupGeneration(id, entry, entry.calls?.get(callId)?.name, result)
+        endCall(id, entry, callId)
         break
+      }
       case 'turn/start':
         setActivity(id, 'thinking')
         entry.turn = event.data.turn
@@ -421,6 +445,10 @@ export function install(rt) {
         entry.switched = false
         entry.answers = false
         entry.opened = false
+        entry.watchOpened = false
+        entry.watchReply = false
+        entry.generationWatches = []
+        entry.pendingGroupGeneration = undefined
         entry.joined = []
         entry.later = []
         entry.steeredAt = undefined
@@ -440,9 +468,23 @@ export function install(rt) {
         // Bot relay that lands inside it may claim: the first message of a turn
         // still claims it as today, a later one only joins it.
         const opened = entry.opened === true
-        if (entry.turn !== undefined && !bare(source)
-          && (source?.kind === 'user' || source?.kind === REPLY_KIND || source?.kind === 'schedule' || source?.kind === SOURCE_KIND)) {
-          entry.opened = true
+        const opensTurn = !bare(source)
+          && (source?.kind === 'user' || source?.kind === REPLY_KIND || source?.kind === 'schedule' || source?.kind === SOURCE_KIND)
+        if (entry.turn !== undefined && source?.kind === GENERATION_WATCH_KIND && source.form === 'notice' && source.groupOrigin !== undefined) {
+          const noticeId = source.groupReceiptId === undefined ? event.data.id : source.groupReceiptId
+          if (!entry.generationWatches.some(watch => watch.noticeId === noticeId)) {
+            entry.watchOpened ||= !opened
+            entry.watchReply = !opened
+            entry.opened = true
+            entry.generationWatches.push({
+              noticeId,
+              origin: isGenerationWatchId(noticeId) ? rt.museTeam.validateGenerationWatchOrigin(id, source.groupOrigin) : undefined,
+              text: textOf(event.data.content),
+            })
+          }
+        } else if (entry.turn !== undefined) {
+          if (opensTurn) entry.opened = true
+          if (opensTurn || source?.kind === GENERATION_WATCH_KIND) entry.watchReply = false
         }
         if (entry.turn !== undefined && (source?.kind === 'user' || source?.kind === REPLY_KIND || source?.kind === SOURCE_KIND)) {
           if (bare(source)) {
@@ -475,6 +517,7 @@ export function install(rt) {
             ...(source.stopped ? { stopped: true } : {}),
             ...(source.done ? { done: true } : {}),
             ...(source.askedBy ? { askedBy: source.askedBy } : {}),
+            ...(source.generationWatch !== undefined ? { generationWatch: source.generationWatch } : {}),
             // A post written into a running round already carries its log seq, or true
             // when its event needed none; the relay must not write it again.
             ...(source.logged !== undefined ? { logged: source.logged } : {}),
@@ -560,10 +603,16 @@ export function install(rt) {
         const texts = entry.texts.slice(entry.shown)
         const shown = entry.shown > 0
         const { lastText, lastCalled } = entry
+        const { watchOpened, watchReply, generationWatches = [] } = entry
+        const generationPending = entry.pendingGroupGeneration !== undefined && entry.pendingGroupGeneration === info?.exchangeId
         // A turn stopped for a switch goes on in the next part, which answers instead.
         const switched = entry.switched === true
         entry.turn = undefined
         entry.info = undefined
+        entry.watchOpened = false
+        entry.watchReply = false
+        entry.generationWatches = []
+        entry.pendingGroupGeneration = undefined
         entry.texts = []
         entry.shown = 0
         entry.step = undefined
@@ -600,7 +649,8 @@ export function install(rt) {
         // round or sender gets the real answer; a second time, the text goes on without
         // the call.
         const wroteCall = failure === undefined && reason?.kind === 'completed' && lastCalled !== true && writesToolCall(lastText)
-        const retry = wroteCall && info?.retried !== true && !(info?.role === 'room' && stoppedRoomTurns.has(info.exchangeId))
+        const retry = !watchOpened && info?.generationWatchReceiptId === undefined && wroteCall
+          && info?.retried !== true && !(info?.role === 'room' && stoppedRoomTurns.has(info.exchangeId))
         if (retry) void retryWrittenCall(id, info).catch(error => rt.warn('ds-bot: asking %s to run its written tool call failed: %s', id, error))
         const replyText = () => {
           const reply = (wroteCall ? texts.map(stripWrittenCalls) : texts).join('\n\n').trim()
@@ -608,6 +658,19 @@ export function install(rt) {
         }
         const name = rt.botOf(rt.selfOf(id))?.name ?? 'The other Bot'
         const groupReply = () => partialTurnReply(name, rt.withRoomSteps?.(held, replyText()) ?? replyText(), reason)
+        if (reason?.kind === 'completed') {
+          for (const watch of generationWatches) {
+            if (watch.origin === undefined) continue
+            // When multiple requests share this turn, only the notice itself is
+            // safe to attribute to its original requester.
+            void rt.lateRoomReply?.(id, {
+              roomId: watch.origin.roomId,
+              askedBy: watch.origin.requesterBotId,
+              generationWatch: { origin: watch.origin, noticeId: watch.noticeId, workerSessionId: id },
+              watchText: watch.text,
+            }, watchReply ? groupReply() : '')
+          }
+        }
         // The sender receives the failure or output, including a termination
         // notice when a stopped or output-limited turn leaves completion unknown.
         const answer = (source, reply) => {
@@ -644,13 +707,13 @@ export function install(rt) {
           const stopped = stoppedRoomTurns.delete(info.exchangeId)
           if (waiter !== undefined) {
             if (failure !== undefined) waiter.fail(failure)
-            else waiter.resolve(reason?.kind === 'aborted' ? null : groupReply())
+            else waiter.resolve(reason?.kind === 'aborted' ? null : groupReply(), generationPending)
           } else if (!stopped && reason?.kind !== 'aborted') {
             // The round moved on without this member; how its turn ends still reaches the group.
             if (failure !== undefined) void rt.lateRoomFailure?.(id, info, failure)
-            else void rt.lateRoomReply?.(id, info, groupReply(), { shown })
+            else void rt.lateRoomReply?.(id, info, groupReply(), { shown, generationPending })
           }
-        } else if (!retry && speaksInGroup(id, info)) {
+        } else if (!retry && !watchOpened && speaksInGroup(id, info)) {
           // A turn that failed before it took any input (DSH can turn it down before its
           // first step) never names its call, so the call waiting on this Session fails.
           const inRound = failure !== undefined && info === undefined && rt.failRoomTurn?.(id, failure) === true

@@ -156,6 +156,7 @@ it('reads and writes mixed project-relative and absolute paths through all four 
   const stub = stubChannel([
     probeHandler({
       [video]: { durationSeconds: 5, video: {}, audio: {} },
+      [join(project, 'video', '01', 'shot_001.mp4')]: { durationSeconds: 5, video: {}, audio: {} },
       [endingEffect]: { durationSeconds: 1.02 },
       [outputPath]: { durationSeconds: 7, sizeBytes: 5_000_000, bitRateBps: 8_000_000, video: {}, audio: {} },
     }),
@@ -233,6 +234,7 @@ it('exposes the selected 480p render inputs through Loader prepare, render and t
   const bgm = join(root, 'approved-bgm.wav')
   const stub = stubChannel([
     probeHandler({ [video]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} },
+      [join(root, 'video', '23', 'shot_001.mp4')]: { durationSeconds: 5, video: { fps: 24 } },
       [output]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} } }),
     placeholderHandler(),
   ])
@@ -275,6 +277,7 @@ it('carries project subtitle and gain snapshots through Loader prepare, ASS, mux
   const output = join(root, 'exports', 'configured.mp4')
   const stub = stubChannel([
     probeHandler({ [video]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} },
+      [join(root, 'video', '23', 'shot_001.mp4')]: { durationSeconds: 5, video: { fps: 24 } },
       [output]: { durationSeconds: 5, video: { width: 480, height: 854, fps: 24 }, audio: {} } }),
     placeholderHandler(),
   ])

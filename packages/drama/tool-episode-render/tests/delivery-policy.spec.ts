@@ -21,8 +21,9 @@ const fonts = { subtitleFontFamily: 'SimHei', watermarkFontFamily: 'Microsoft Ya
 
 describe('delivery metadata', () => {
   it('round trips only explicit project subtitle and audio fields into the timeline', async () => {
-    const delivery = { ...animation, subtitle: { font_family: 'Noto Sans CJK SC', font_size_px: 30, margin_bottom_px: 18 },
-      audio: { master_gain: 1, bgm_gain: 0 } }
+    const delivery = { ...animation, subtitle: { font_family: 'Noto Sans CJK SC', font_size_px: 30, margin_bottom_px: 18,
+      require_no_punctuation: true, require_speech_coverage: true },
+      audio: { master_gain: 1, bgm_gain: 0, require_music_decision: true } }
     const selected = await readProjectDelivery(await project({ visual_medium: 'animation_3d', delivery }))
     expect(selected).toEqual(delivery)
     const text = formatTimelineDocument({ ...appendClips([1_000_000]), delivery: selected })
@@ -39,8 +40,11 @@ describe('delivery metadata', () => {
     { subtitle: { font_size_px: Infinity } }, { subtitle: { font_size_px: NaN } },
     { subtitle: { margin_bottom_px: null } }, { subtitle: { margin_bottom_px: -1 } },
     { subtitle: { margin_bottom_px: 1081 } }, { subtitle: { margin_bottom_px: Infinity } },
+    { subtitle: { require_no_punctuation: 'true' } }, { subtitle: { require_no_punctuation: null } },
+    { subtitle: { require_speech_coverage: 'true' } }, { subtitle: { require_speech_coverage: null } },
     { audio: { master_gain: null } }, { audio: { master_gain: '1' } }, { audio: { master_gain: -1 } },
     { audio: { master_gain: 8.1 } }, { audio: { bgm_gain: Infinity } }, { audio: { bgm_gain: null } },
+    { audio: { require_music_decision: 'true' } }, { audio: { require_music_decision: null } },
   ])('rejects malformed explicit style or gain values %j', (sections) => {
     expect(() => parseTimelineDelivery({ ...animation, ...sections }, 'timeline.delivery')).toThrow('timeline.delivery')
   })
@@ -145,11 +149,13 @@ describe('medium delivery resolution', () => {
   })
   it('inherits missing sections independently without merging fields into a saved section', async () => {
     const path = await project({ visual_medium: 'animation_3d', delivery: {
-      subtitle: { font_family: 'Changed font', font_size_px: 80 }, audio: { master_gain: 0, bgm_gain: 0.5 } } })
-    expect((await resolveDeliveryPolicy(path, { ...animation, subtitle: { font_size_px: 30 } })).delivery)
-      .toEqual({ ...animation, subtitle: { font_size_px: 30 }, audio: { master_gain: 0, bgm_gain: 0.5 } })
+      subtitle: { font_family: 'Changed font', font_size_px: 80, require_no_punctuation: true },
+      audio: { master_gain: 0, bgm_gain: 0.5 } } })
+    const savedSubtitle = { font_size_px: 30, require_no_punctuation: false }
+    expect((await resolveDeliveryPolicy(path, { ...animation, subtitle: savedSubtitle })).delivery)
+      .toEqual({ ...animation, subtitle: savedSubtitle, audio: { master_gain: 0, bgm_gain: 0.5 } })
     expect((await resolveDeliveryPolicy(path, { ...animation, audio: {} })).delivery)
-      .toEqual({ ...animation, audio: {}, subtitle: { font_family: 'Changed font', font_size_px: 80 } })
+      .toEqual({ ...animation, audio: {}, subtitle: { font_family: 'Changed font', font_size_px: 80, require_no_punctuation: true } })
     expect((await resolveDeliveryPolicy(path, { ...animation, subtitle: {}, audio: {} })).delivery)
       .toEqual({ ...animation, subtitle: {}, audio: {} })
   })

@@ -210,7 +210,7 @@ interface ToolArgsMap {
     bgm_plan?: string;
     /** render 可选、audio_preview 必填：项目内 schema_version=1 音频配置 JSON。mode=legacy|no_bgm|ducking，analysis_window_ms=10..1000；可选 original_gain/music_gain=0..8。ducking 必须显式给 threshold_db(-60..0)、ratio(1..20)、attack_ms(0.01..2000)、release_ms(0.01..9000)、knee(1..8)。no_bgm 不要求或读取 bgm/bgm_plan，只省略新增配乐，保留源内声音；ducking 由原声能量驱动，不是纯对白分离。未传配置保留旧默认；显式配置交付使用新路径，绝不覆盖已有成片或音乐 stem。 */
     mix_profile?: string;
-    /** audio_preview 可选：项目内 drama_bgm generation.json，SHA-256 须匹配本次BGM；展示每源曲 source_mean_db/applied_gain_db，缺收据明确标未提供。 */
+    /** audio_preview 可选，严格配乐 render 采用配乐时必填：drama_bgm 返回的 generation.json，SHA-256 须匹配本次 BGM。试听报告另外显示逐曲源响度和实际增益。 */
     bgm_generation?: string;
     /** audio_preview 可选：项目内原声音频，默认 audio/<集>.wav；可能含源内音乐或音效。 */
     audio?: string;

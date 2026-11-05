@@ -15,7 +15,9 @@ import { legacyContext, legacyConfig } from './legacy-ctx.js'
 // or steered into the next step.
 // `home`: start on the data of an earlier run, as after a restart.
 function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
-  const ctx = legacyContext()
+  const ctx = legacyContext({ services: {
+    goals: { get: () => undefined },
+  } })
   const workspaces = new Map()
   const sent = []
   const inboxes = new Map()
@@ -55,7 +57,7 @@ function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-rounds-')) } = {}) {
     },
     sessionController: {
       create: async () => ({ sessionId: `s${++sessions}` }),
-      resolveAgent: async sessionId => ({ agent: { session: { id: sessionId }, followup: message => sent.push({ sessionId, message }) } }),
+      resolveAgent: async sessionId => ({ agent: { status: 'idle', session: { id: sessionId }, followup: message => sent.push({ sessionId, message }) } }),
       selectModel: async () => {},
       prompt: async (request) => {
         const inbox = inboxOf(request.sessionId)
@@ -746,6 +748,9 @@ test('Continue runs the parked calls in a round of their own, and a free group i
   const turn = await turnFor(sent)
   assert.equal(turn.sessionId, state.sessions[writer.id], 'the parked call runs')
   await answer(turn.sessionId, turn.message.source.exchangeId, 'Back on it.', 4)
+  const resumedResult = await turnFor(sent, turn)
+  assert.match(resumedResult.message.content[0].text, /Writer finished the work you asked for/)
+  await answer(resumedResult.sessionId, resumedResult.message.source.exchangeId, '[PASS]', 5)
   await running2
   assert.deepEqual(state.paused, [])
 })
@@ -779,8 +784,11 @@ test('a user message after a pause answers the user first, then runs the parked 
   const parked = await turnFor(sent, own)
   assert.equal(parked.sessionId, state.sessions[writer.id], 'the parked call runs after the user\'s speaker')
   await answer(parked.sessionId, parked.message.source.exchangeId, 'On it.', 5)
+  const resumedResult = await turnFor(sent, own, parked)
+  assert.equal(resumedResult.sessionId, state.sessions[chief])
+  await answer(resumedResult.sessionId, resumedResult.message.source.exchangeId, '[PASS]', 6)
   await next
-  assert.equal(state.relays, 1, 'the count restarted with the user\'s message; the parked call counts into it')
+  assert.equal(state.relays, 2, 'the count restarted with the user\'s message; the parked call and its result count into it')
   assert.deepEqual(state.paused, [])
 })
 
@@ -808,9 +816,12 @@ test('a user message mid-round restarts the relay count for the calls after it',
   const fifth = await turnFor(sent, first, second, third, fourth)
   assert.ok(fifth, 'the Writer\'s call runs: the count restarted at the user\'s message')
   await answer(fifth.sessionId, fifth.message.source.exchangeId, 'All done.', 5)
+  const returned = await turnFor(sent, first, second, third, fourth, fifth)
+  assert.equal(returned.sessionId, fourth.sessionId)
+  await answer(returned.sessionId, returned.message.source.exchangeId, '[PASS]', 6)
   const result = JSON.parse(await running)
   assert.equal(result.replies.filter(reply => reply.kind === 'paused').length, 0)
-  assert.equal(state.relays, 1)
+  assert.equal(state.relays, 2)
 })
 
 // A group the user has not written in since the limit came in carries no count at
@@ -1028,6 +1039,9 @@ test('a user message that opens a round restarts the relay count, as a queued on
   const writer = await turnFor(sent, turn, again)
   assert.ok(writer, 'the call runs: the user\'s message restarted the count')
   await answer(writer.sessionId, writer.message.source.exchangeId, 'On it.', 3)
+  const result = await turnFor(sent, turn, again, writer)
+  assert.equal(result.sessionId, again.sessionId)
+  await answer(result.sessionId, result.message.source.exchangeId, '[PASS]', 4)
   await second
-  assert.equal(state.relays, 1)
+  assert.equal(state.relays, 2)
 })

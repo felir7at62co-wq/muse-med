@@ -291,6 +291,34 @@ class EpisodeScopeTests(unittest.TestCase):
         (self.root / "export/delivery-ep140.mp4").unlink()
         self.assertNotEqual(state.project_stages(dry_run=True)["export"]["projected"], "completed")
 
+    def test_scoped_renderer_outputs_are_candidates_and_obey_video_bans(self):
+        self.manifest["expected_episode_count"] = 1000
+        for ep in ("14", "140", "1000"):
+            self.add_episode(ep)
+            self.put(f"exports/{ep}.mp4", f"candidate {ep}")
+        self.put("exports/0140.mp4", "noncanonical name")
+        self.scope(["140", "1000"])
+        state = PipelineState(self.root)
+
+        def ban(ep):
+            path = self.root / f"exports/{ep}.mp4"
+            self.put_json("video-bans.json", {"version": 1, "videos": [{
+                "sha256": hashlib.sha256(path.read_bytes()).hexdigest(), "labels": ["测试禁用"],
+                "reason": "", "banned": True, "updated_at": "2026-01-01T00:00:00.000Z", "video": str(path),
+            }]})
+
+        ban("14")
+        export = state.project_stages(dry_run=True)["export"]
+        self.assertEqual(export["projected"], "review")
+        self.assertEqual(export["note"]["masters"], 2)
+        self.assertEqual(export["note"]["delivered"], 0)
+        self.assertEqual(state._facts()["episodes_rendered"], {"140", "1000"})
+
+        ban("1000")
+        blocked = state.project_stages(dry_run=True)["export"]
+        self.assertEqual(blocked["projected"], "blocked")
+        self.assertIn("1000.mp4", blocked["note"]["video_bans"])
+
     def test_physical_written_object_exception_never_hides_additional_speech(self):
         self.add_episode("140")
         self.scope(["140"])

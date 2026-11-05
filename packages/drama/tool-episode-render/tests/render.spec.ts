@@ -1,15 +1,19 @@
 /** `render`: the encode pipeline, its cache, its log, and the delivery verdict it returns. */
 
-import { copyFile, mkdir, readFile, rm } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { copyFile, mkdir, readFile, readdir, rm } from 'node:fs/promises'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDramaRender } from '../src/index.ts'
+import { readSourceRecord, sourceRecordPathFor } from '../src/source-record.ts'
+import { fileSha256 } from '../src/cache.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
-import { episodePaths } from '../src/paths.ts'
+import { episodePaths, shotFileName } from '../src/paths.ts'
 import { renderEpisode, type RenderInput } from '../src/render.ts'
+import { writeSubtitleClock } from '../src/subtitle-clock.ts'
 import type { RenderSettings } from '../src/types.ts'
 import {
   cleanup,
+  decodeHandler,
   framemd5Line,
   probeHandler,
   shippedEndingAsset,
@@ -19,6 +23,7 @@ import {
   tempProject,
   timelineJson,
   writePlaceholder,
+  type ProbeSpec,
   type StubHandler,
 } from './harness.ts'
 
@@ -107,17 +112,32 @@ function renderChannel(prepared: Prepared, options: {
   imageHashes?: readonly string[]
   videoHashes?: readonly string[]
   deliveredHasStreams?: boolean
+  resume?: boolean
+  sourceProbe?: ProbeSpec
 } = {}): ReturnType<typeof stubChannel> {
   const queued = [...(options.imageHashes ?? ['tail'])]
+  const deliveredProbe = {
+    durationSeconds: options.durationSeconds ?? 116.733332,
+    sizeBytes: 400_000_000,
+    bitRateBps: options.bitRateBps ?? 27_000_000,
+    video: options.deliveredHasStreams === false ? undefined : {},
+    audio: options.deliveredHasStreams === false ? false as const : {},
+  }
   const handlers: StubHandler[] = [
+    ...(options.resume === true ? [
+      ((call) => {
+        const path = call.args.at(-1) ?? ''
+        if (basename(path) !== 'output.mp4' && !basename(path).includes('.resume-')) return undefined
+        return probeHandler({ [path]: deliveredProbe })(call)
+      }) satisfies StubHandler,
+      (call => call.args.includes('blackdetect=d=0.1:pix_th=0.1')
+        || call.args.includes('silencedetect=noise=-50dB:d=1') ? {} : undefined) satisfies StubHandler,
+      decodeHandler(),
+    ] : []),
     probeHandler({
-      [prepared.output]: {
-        durationSeconds: options.durationSeconds ?? 116.733332,
-        sizeBytes: 400_000_000,
-        bitRateBps: options.bitRateBps ?? 27_000_000,
-        video: options.deliveredHasStreams === false ? undefined : {},
-        audio: options.deliveredHasStreams === false ? false : {},
-      },
+      [join(prepared.paths.videoDir, 'shot_001.mp4')]: options.sourceProbe ?? { video: {} },
+      [join(prepared.paths.videoDir, 'shot_002.mp4')]: { video: {} },
+      [prepared.output]: deliveredProbe,
       [prepared.endingEffect]: { durationSeconds: 1.02 },
     }),
     call => (call.args.includes('lavfi') ? { code: options.gpu === false ? 1 : 0, stderr: 'Cannot load nvcuda.dll' } : undefined),
@@ -181,6 +201,187 @@ async function render(
 }
 
 describe('renderEpisode', () => {
+  it('blocks a legacy AAC-duration cut that would duplicate a decoded source frame', async () => {
+    const prepared = await preparedProject()
+    const channel = renderChannel(prepared, { sourceProbe: {
+      durationSeconds: 5.049999, video: { fps: 60, startSeconds: 0, durationSeconds: 5.033333, frameCount: 302 },
+    } })
+    await expect(render(prepared, channel)).rejects.toThrow('镜头 1 的时间线需要 303 帧，实际画面只有 302 帧')
+    expect(channel.calls).toHaveLength(1)
+    expect(channel.calls[0]?.command).toBe('ffprobe')
+  })
+
+  it('rejects generated subtitles from another episode or cut before running any media command', async () => {
+    const prepared = await preparedProject()
+    const clips = [5_050_000, 109_683_332].map((durationUs, index) => {
+      const shot = index + 1
+      const video = join(prepared.paths.videoDir, shotFileName(shot))
+      return { source: { shot, video, audio: video }, video, audio: video, durationUs }
+    })
+    await writePlaceholder(prepared.paths.sources, JSON.stringify({ shots: clips.map(clip => clip.source) }))
+    const otherSubtitle = join(prepared.project, 'editing', '03.srt')
+    const srt = await readFile(prepared.subtitle, 'utf8')
+    await writePlaceholder(otherSubtitle, srt)
+    await writeSubtitleClock(otherSubtitle, srt, '03', clips)
+
+    const channel = renderChannel(prepared, { resume: true })
+    const args = { method: 'render' as const, project: prepared.project, episode: 2, timeline: prepared.timeline,
+      subtitleSrt: otherSubtitle, lastShot: 2, bgm: prepared.bgm, endingAudio: prepared.endingAudio,
+      endingEffect: prepared.endingEffect, output: prepared.output, resume: true }
+    const options = { ...settings, channel: channel.channel }
+    await expect(runDramaRender(args, options)).rejects.toThrow(/生成字幕与当前集/)
+    expect(channel.calls).toEqual([])
+
+    await writeSubtitleClock(otherSubtitle, srt, '02', clips)
+    const originalTimeline = await readFile(prepared.timeline, 'utf8')
+    await writePlaceholder(prepared.timeline, timelineJson([
+      { shot: 1, startUs: 0, durationUs: 4_050_000 },
+      { shot: 2, startUs: 4_050_000, durationUs: 110_683_332 },
+    ], 114.733332))
+    await expect(runDramaRender(args, options)).rejects.toThrow(/生成字幕与当前集/)
+    expect(channel.calls).toEqual([])
+
+    await writePlaceholder(prepared.timeline, originalTimeline)
+    await expect(runDramaRender(args, options)).resolves.toMatchObject({ method: 'render', ok: true })
+  })
+
+  it('independently verifies and reuses the exact single-episode candidate through the normal render method', async () => {
+    const prepared = await preparedProject()
+    const channel = renderChannel(prepared, { resume: true })
+    const args = { method: 'render' as const, project: prepared.project, episode: 2, timeline: prepared.timeline,
+      subtitleSrt: prepared.subtitle, lastShot: 2, bgm: prepared.bgm, endingAudio: prepared.endingAudio,
+      endingEffect: prepared.endingEffect, output: prepared.output, resume: true }
+    const options = { ...settings, channel: channel.channel }
+    const first = await runDramaRender(args, options)
+    expect(first.ok).toBe(true)
+    const source = await readSourceRecord(sourceRecordPathFor(first.output))
+    expect(source?.request_sha256).toMatch(/^[0-9a-f]{64}$/u)
+    expect(source?.delivery_inputs).toEqual({
+      timeline_sha256: await fileSha256(prepared.timeline),
+      subtitle_sha256: await fileSha256(prepared.subtitle),
+      master_audio_sha256: await fileSha256(prepared.paths.masterAudio),
+      videos: await Promise.all([1, 2].map(async shot => ({
+        shot, sha256: await fileSha256(join(prepared.paths.videoDir, shotFileName(shot))),
+      }))),
+    })
+    expect(source?.input_files).toContainEqual({ path: prepared.timeline, sha256: source?.delivery_inputs?.timeline_sha256 })
+    expect((await readdir(dirname(first.log_path))).sort()).toEqual(['last_video_tail_frame.png', 'render.log'])
+    const checkpoint = channel.calls.length
+    const next = await runDramaRender(args, options)
+    expect(next).toMatchObject({ method: 'render', ok: true, output: first.output, written: [] })
+    expect(next.checks.find(check => check.id === 'output_source_record')?.ok).toBe(true)
+    expect(next.checks.find(check => check.id === 'decode_probe')?.ok).toBe(true)
+    expect(channel.calls.slice(checkpoint).some(call => call.args.includes('-c:v'))).toBe(false)
+  })
+
+  it('binds strict coverage to the prepared source manifest and external SRT in the render receipt', async () => {
+    const prepared = await preparedProject()
+    const channel = renderChannel(prepared, { resume: true })
+    await writePlaceholder(join(prepared.project, 'project_config.json'),
+      JSON.stringify({ project_bible: { delivery: { subtitle: { require_speech_coverage: true } } } }))
+    await writePlaceholder(prepared.paths.sources, '{"shots":[]}')
+    const rendered = await runDramaRender({ method: 'render', project: prepared.project, episode: 2,
+      timeline: prepared.timeline, subtitleSrt: prepared.subtitle, lastShot: 2, bgm: prepared.bgm,
+      endingAudio: prepared.endingAudio, endingEffect: prepared.endingEffect, output: prepared.output, resume: true,
+    }, { ...settings, channel: channel.channel })
+    const record = await readSourceRecord(sourceRecordPathFor(rendered.output))
+    expect(record?.delivery_inputs?.subtitle_display).toBe('external')
+    expect(record?.input_files).toContainEqual({ path: prepared.paths.sources, sha256: await fileSha256(prepared.paths.sources) })
+  })
+
+  it.each(['music', 'none'] as const)('binds actual %s music mode and consumed evidence in the normal render receipt', async (mode) => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared, { resume: true })
+    const bgmPlan = join(prepared.project, 'bgm-plan.json'), bgmGeneration = join(prepared.project, 'bgm.generation.json')
+    const mixProfile = join(prepared.project, 'mix.json')
+    await Promise.all([
+      writePlaceholder(join(prepared.project, 'project_config.json'),
+        JSON.stringify({ project_bible: { delivery: { audio: { require_music_decision: true } } } })),
+      writePlaceholder(bgmPlan, JSON.stringify({ episodes: [{ episode: '02', body_duration_seconds: 114.733332,
+        music_decision: mode, decision_reason: 'scene reasons', segments: mode === 'none' ? [] : [{
+          track: 'theme', source: prepared.bgm, start_seconds: 0, end_seconds: 114.733332,
+        }] }] })),
+      writePlaceholder(mixProfile, JSON.stringify({ schema_version: 1, mode: mode === 'none' ? 'no_bgm' : 'legacy',
+        analysis_window_ms: 100, music_gain: 0.3 })),
+      ...(mode === 'none' ? [] : [writePlaceholder(bgmGeneration, '{"method":"compose"}')]),
+    ])
+    const rendered = await runDramaRender({ method: 'render', project: prepared.project, episode: 2,
+      timeline: prepared.timeline, subtitleSrt: prepared.subtitle, lastShot: 2, bgm: prepared.bgm, bgmPlan, bgmGeneration, mixProfile,
+      endingAudio: prepared.endingAudio, endingEffect: prepared.endingEffect, output: prepared.output, resume: true,
+    }, { ...settings, channel: channel.channel })
+    const record = await readSourceRecord(sourceRecordPathFor(rendered.output))
+    expect(record?.delivery_inputs?.music).toEqual({ mode, gain: mode === 'none' ? 0 : 0.3, plan_path: bgmPlan,
+      ...(mode === 'none' ? {} : { bed_path: prepared.bgm, generation_path: bgmGeneration }),
+    })
+    expect(record?.input_files).toContainEqual({ path: bgmPlan, sha256: await fileSha256(bgmPlan) })
+    expect(record?.input_files?.some(file => file.path === bgmGeneration)).toBe(mode === 'music')
+    expect(channel.calls.some(call => call.args.includes(prepared.bgm))).toBe(mode === 'music')
+  })
+
+  it('allocates a different candidate when the source subtitles change and reuses the new one on replay', async () => {
+    const prepared = await preparedProject()
+    const channel = renderChannel(prepared, { resume: true })
+    const first = await render(prepared, channel, false, undefined, { resume: true })
+    const initial = await readFile(sourceRecordPathFor(first.output), 'utf8')
+    await writePlaceholder(prepared.subtitle, srtDocument([{ start: '00:00:02,680', end: '00:00:03,580', text: '修订' }]))
+    const second = await render(prepared, channel, false, undefined, { resume: true })
+    expect(second.ok).toBe(true)
+    expect(second.output).not.toBe(first.output)
+    expect(await readFile(sourceRecordPathFor(first.output), 'utf8')).toBe(initial)
+    const next = await render(prepared, channel, false, undefined, { resume: true })
+    expect(next).toMatchObject({ ok: true, output: second.output, written: [] })
+  })
+
+  it('preserves an older resume receipt without archive evidence and returns a stageable candidate', async () => {
+    const prepared = await preparedProject()
+    const channel = renderChannel(prepared, { resume: true })
+    const first = await render(prepared, channel, false, undefined, { resume: true })
+    const oldPath = sourceRecordPathFor(first.output)
+    const record = await readSourceRecord(oldPath)
+    if (record === undefined) throw new Error('Fixture did not produce a render receipt')
+    const { delivery_inputs: _inputs, input_files: _files, ...legacy } = record
+    const unchanged = JSON.stringify(legacy)
+    await writePlaceholder(oldPath, unchanged)
+
+    const next = await render(prepared, channel, false, undefined, { resume: true })
+    expect(next.output).not.toBe(first.output)
+    expect(await readFile(oldPath, 'utf8')).toBe(unchanged)
+    expect(await readSourceRecord(sourceRecordPathFor(next.output))).toMatchObject({
+      delivery_inputs: record.delivery_inputs, input_files: record.input_files,
+    })
+    const resumed = await render(prepared, channel, false, undefined, { resume: true })
+    expect(resumed).toMatchObject({ output: next.output, written: [] })
+  })
+
+  it('preserves a torn output and a candidate whose receipt is bound to another episode', async () => {
+    const prepared = await preparedProject()
+    const channel = renderChannel(prepared, { resume: true })
+    await writePlaceholder(prepared.output, 'surviving output from a torn prior publication')
+    const first = await render(prepared, channel, false, undefined, { resume: true })
+    expect(first.output).not.toBe(prepared.output)
+    expect(await readFile(prepared.output, 'utf8')).toBe('surviving output from a torn prior publication')
+    const firstRecordPath = sourceRecordPathFor(first.output)
+    const mismatched = { ...await readSourceRecord(firstRecordPath), episode: '03' }
+    await writePlaceholder(firstRecordPath, JSON.stringify(mismatched))
+    const next = await render(prepared, channel, false, undefined, { resume: true })
+    expect(next.output).not.toBe(first.output)
+    expect(await readFile(firstRecordPath, 'utf8')).toBe(JSON.stringify(mismatched))
+    expect(await readFile(first.output, 'utf8')).toBe('media')
+  })
+
+  it('refuses an external output before media commands or writing an overlay', async () => {
+    const prepared = await preparedProject()
+    const external = await tempProject()
+    temporary.push(external)
+    const output = join(external, 'final.mp4')
+    await writePlaceholder(output, 'external media')
+    const channel = renderChannel(prepared, { resume: true })
+    await expect(render(prepared, channel, false, undefined, {
+      output, resume: true, subtitlePlan: join(prepared.project, 'missing-overlay.json'),
+    })).rejects.toThrow('输出必须位于项目目录内')
+    expect(channel.calls).toEqual([])
+    expect(await readFile(output, 'utf8')).toBe('external media')
+  })
+
   it.each([1, undefined])('renders no_bgm with profile gain %s and project fallback without opening music or replacing output', async (originalGain) => {
     const prepared = await preparedProject()
     await writePlaceholder(join(prepared.project, 'project_config.json'), JSON.stringify({
@@ -491,7 +692,9 @@ describe('renderEpisode', () => {
     await render(prepared, renderChannel(prepared))
     const broken = stubChannel([
       // The ending checks run before the encode, so the failure has to be the encode itself.
-      probeHandler({ [prepared.endingEffect]: { durationSeconds: 1.02 } }),
+      probeHandler({ [prepared.endingEffect]: { durationSeconds: 1.02 },
+        [join(prepared.paths.videoDir, 'shot_001.mp4')]: { video: {} },
+        [join(prepared.paths.videoDir, 'shot_002.mp4')]: { video: {} } }),
       call => (call.args.includes('lavfi') ? {} : undefined),
       call => (call.command === 'ffmpeg' ? { code: 1, stderr: 'encode interrupted', after: async () => {
         await writePlaceholder(call.args.at(-1) ?? '', 'partial')

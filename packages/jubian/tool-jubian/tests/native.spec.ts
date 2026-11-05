@@ -1,16 +1,16 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { storyboardEditMethod } from '../src/storyboard-edit.ts'
 import { JubianClient, JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { stableSha256, submissionSemantics } from '@deepseek-ai/dsh-jubian-api'
 import type { NativeVideoPreview } from '@deepseek-ai/dsh-jubian-api'
 import { bodyHash } from '../src/write.ts'
-import { positiveInteger, prepareVideoMethod, resolveVideoBatchOptions, selectAssetsMethod,
+import { assertNewNativeDispatchAllowed, positiveInteger, prepareVideoMethod, reconcileRecordedVideo, resolveVideoBatchOptions, selectAssetsMethod,
   submitVideoBatchMethod, submitVideoMethod, validateProjectBinding } from '../src/native.ts'
 
 const URL_LEAD = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/lead.jpg'
@@ -72,6 +72,7 @@ interface FakeProvider {
   onTaskList?: () => void | Promise<void>
   onTaskRead?: (path: string) => void | Promise<void>
   taskPage?: (page: number) => unknown
+  subtaskPage?: (taskId: string, page: number) => unknown
   subjectPage?: (page: number) => unknown
   rawSubjectPage?: (page: number) => unknown
   rawTaskPage?: (page: number) => unknown
@@ -134,7 +135,13 @@ function transportFor(provider: FakeProvider): typeof fetch {
     }
     if (path.startsWith('/admin/aigc/video/task/sub/list')) {
       await provider.onTaskRead?.(path)
-      return answer({ total: 1, rows: provider.subtasks[String(body?.aigcVideoTaskId)] ?? [] })
+      const taskId = String(body?.aigcVideoTaskId)
+      const query = new URL(`https://example.test${path}`).searchParams
+      const page = Number(query.get('pageNum') ?? 1)
+      const size = Number(query.get('pageSize') ?? 100)
+      if (provider.subtaskPage) return answer(provider.subtaskPage(taskId, page))
+      const rows = provider.subtasks[taskId] ?? []
+      return answer({ total: rows.length, rows: rows.slice((page - 1) * size, page * size) })
     }
     if (path.startsWith('/admin/aigc/video/task/') && method === 'GET') {
       await provider.onTaskRead?.(path)
@@ -985,6 +992,84 @@ describe('submit_video', () => {
       idempotencyKey: String(preview.idempotencyKey) }
   }
 
+  it.each(['single', 'batch'] as const)('honors a matching manual hold on a new %s submission', async (kind) => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 1 }, tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const args = { preview_path: file.previewPath, idempotency_key: file.idempotencyKey }
+    const setStage = (episode: string, providerEpisodeId: number = 130221) => writeFile(join(file.directory, 'pipeline_state.json'),
+      JSON.stringify({ episodes: { [episode]: { video_tasks: { status: 'blocked', status_source: 'manual',
+        metadata: { script_id: 2708, provider_episode_id: providerEpisodeId } } } } }))
+    const submit = () => kind === 'single' ? submitVideoMethod(clientFor(provider), ledger, args)
+      : submitVideoBatchMethod(clientFor(provider), ledger, { items: [args] })
+
+    await setStage('01')
+    await expect(submit()).rejects.toThrow('EPISODE_PAID_HOLD')
+    await setStage('02')
+    await expect(submit()).rejects.toThrow('EPISODE_PAID_HOLD')
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+
+    await setStage('02', 130222)
+    provider.onTaskList = () => setStage('01')
+    await expect(submit()).rejects.toThrow('EPISODE_PAID_HOLD')
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
+    delete provider.onTaskList
+
+    await setStage('02', 130222)
+    await submit()
+    expect(putCalls(provider)).toHaveLength(1)
+    await setStage('01')
+    await expect(submit()).resolves.toBeDefined()
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(await ledger.records()).toHaveLength(1)
+  })
+
+  it.each([true, false])('refuses unverifiable manual hold state before a new submission, malformed=%s', async malformed => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeCount: 1 }, tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const state = { episodes: { '01': { video_tasks: { status: 'blocked', status_source: 'manual',
+      metadata: { script_id: 2708, provider_episode_id: 130221 } } } } }
+    await writeFile(join(file.directory, 'pipeline_state.json'), malformed ? '{' : JSON.stringify(state))
+    await expect(submitVideoMethod(clientFor(provider), ledger, { preview_path: file.previewPath,
+      idempotency_key: file.idempotencyKey })).rejects.toThrow(malformed ? 'EPISODE_STATE_UNREADABLE' : 'EPISODE_PAID_HOLD')
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each(['single', 'batch'] as const)('checks the physical project hold through a linked video_tasks directory for %s', async kind => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 50 },
+      tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const hold = JSON.stringify({ episodes: {
+      '50': { video_tasks: { status: 'blocked', status_source: 'manual',
+        metadata: { script_id: 2708, provider_episode_id: 130221 } } },
+    } })
+    const state = join(file.directory, 'pipeline_state.json')
+    await writeFile(state, hold)
+    const alias = await project(2708, 'alias')
+    const linkedTasks = join(alias, 'video_tasks')
+    await symlink(join(file.directory, 'video_tasks'), linkedTasks, process.platform === 'win32' ? 'junction' : 'dir')
+    const args = { preview_path: join(linkedTasks, basename(file.previewPath)), idempotency_key: file.idempotencyKey }
+
+    const submit = () => kind === 'single' ? submitVideoMethod(clientFor(provider), ledger, args)
+      : submitVideoBatchMethod(clientFor(provider), ledger, { items: [args] })
+    const watch = () => assertNewNativeDispatchAllowed(ledger, [{ previewPath: args.preview_path, key: file.idempotencyKey }])
+    await expect(submit()).rejects.toThrow('EPISODE_PAID_HOLD')
+    await expect(watch()).rejects.toThrow('EPISODE_PAID_HOLD')
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+
+    await writeFile(state, '{}')
+    await expect(watch()).resolves.toBeUndefined()
+    await expect(submit()).resolves.toBeDefined()
+    expect(putCalls(provider)).toHaveLength(1)
+    await writeFile(state, hold)
+    await expect(submit()).resolves.toBeDefined()
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(await ledger.records()).toHaveLength(1)
+  })
+
   it.each(['single', 'batch'])('refuses a changed conversation model before a new %s reservation', async (kind) => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
     const file = await prepared(provider)
@@ -1295,6 +1380,60 @@ describe('submit_video', () => {
       idempotency_key: idempotencyKey })
     expect(putCalls(second)).toHaveLength(0)
     expect(replayed).toMatchObject({ replayed: true, status: 'submitted', task_id: '335343' })
+  })
+
+  it('recovers an original intent after restart without writing or admitting a fresh intent', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const item = { preview_path: previewPath, idempotency_key: idempotencyKey }
+    provider.calls.length = 0
+    await expect(reconcileRecordedVideo(clientFor(provider), ledger, item)).resolves.toBeUndefined()
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+
+    provider.onPut = () => { throw new Error('connection reset') }
+    await submitVideoMethod(clientFor(provider), ledger, item)
+    const reopened = new JubianLedger({ root: join(root, 'ledger') })
+    provider.calls.length = 0
+    await expect(reconcileRecordedVideo(clientFor(provider), reopened, item)).resolves.toMatchObject({
+      replayed: true, outcome: 'unknown', status: 'reconcile_required', task_id: null,
+    })
+    provider.tasks.push({ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 })
+    provider.subtasks['335343'] = [savedChild(provider)]
+    await expect(reconcileRecordedVideo(clientFor(provider), reopened, item)).resolves.toMatchObject({
+      replayed: true, outcome: 'unknown', status: 'submitted', task_id: '335343',
+    })
+    expect(putCalls(provider)).toEqual([])
+    expect(await reopened.records()).toHaveLength(1)
+  })
+
+  it('reads remaining child pages before claiming the original video task', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const item = { preview_path: previewPath, idempotency_key: idempotencyKey }
+    const { payload } = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    await ledger.begin({ idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit',
+      requestSha256: bodyHash(payload) })
+    provider.tasks.push({ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 })
+    const matching = childOf(payload)
+    const additional = childOf(payload, { id: 972950 })
+    const replay = () => submitVideoMethod(clientFor(provider), ledger, item)
+    provider.subtaskPage = (_, page) => ({ total: 2, rows: [page === 1 ? matching : additional] })
+    await expect(replay()).resolves.toMatchObject({
+      replayed: true, status: 'reconcile_conflict', task_id: null,
+    })
+    expect(provider.calls.some(call => call.path.includes('/task/sub/list?pageNum=2'))).toBe(true)
+
+    provider.subtaskPage = () => ({ total: 2, rows: [matching] })
+    await expect(replay()).rejects.toThrow('unique child IDs')
+    provider.subtaskPage = (_, page) => page === 1 ? { total: 2, rows: [matching] } : { total: 3, rows: [additional] }
+    await expect(replay()).rejects.toThrow('total changed')
+
+    provider.subtaskPage = () => [matching]
+    await expect(replay()).resolves.toMatchObject({
+      replayed: true, status: 'submitted', task_id: '335343',
+    })
+    expect(putCalls(provider)).toEqual([])
   })
 
   it('does not expose an unexpected local exception in the submission result', async () => {
@@ -1747,6 +1886,33 @@ describe('submit_video_batch', () => {
     const replay = await submitVideoBatchMethod(clientFor(provider), ledger, { items })
     expect(putCalls(provider)).toHaveLength(0)
     expect(replay.results.map(item => item.replayed)).toEqual([true, true])
+  })
+
+  it('keeps distinct storyboards with a shared parent task unresolved on submission and replay', async () => {
+    const { provider, items } = await batch(3)
+    const sharedId = 335343
+    const independentId = 335345
+    provider.onPut = (payload) => {
+      const storyboardId = Number(payload.id)
+      const taskId = storyboardId === 916955 ? independentId : sharedId
+      if (!provider.tasks.some(task => task.id === taskId)) {
+        provider.tasks.push({ id: taskId, scriptId: 2708, taskType: 1 })
+      }
+      const children = provider.subtasks[String(taskId)] ??= []
+      children.push(childOf(payload, { id: storyboardId + 200000, aigcVideoTaskId: taskId, storyboardId }))
+    }
+    const verdicts = [
+      { status: 'reconcile_required', task_id: null, ambiguous_task_id: String(sharedId), outcome: 'accepted' },
+      { status: 'reconcile_required', task_id: null, ambiguous_task_id: String(sharedId), outcome: 'accepted' },
+      { status: 'submitted', task_id: String(independentId), outcome: 'accepted' },
+    ]
+    const first = await submitVideoBatchMethod(clientFor(provider), ledger, { items })
+    expect(first).toMatchObject({ submitted: 1, reconcile_required: 2, results: verdicts })
+    expect(putCalls(provider)).toHaveLength(3)
+
+    const replay = await submitVideoBatchMethod(clientFor(provider), ledger, { items })
+    expect(replay).toMatchObject({ submitted: 1, reconcile_required: 2, results: verdicts })
+    expect(putCalls(provider)).toHaveLength(3)
   })
 
   it('keeps one unknown result on its original key and never resends the batch', async () => {

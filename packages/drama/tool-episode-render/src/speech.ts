@@ -48,6 +48,8 @@ export interface AlignedShot {
   readonly shot: number
   /** Recognized stretches, in time order. */
   readonly cues: readonly AlignedCue[]
+  /** SHA-256 of the source the alignment used, when its producer recorded it. */
+  readonly sourceSha256?: string
   /**
    * How the producing script placed this shot, when it says so.
    *
@@ -229,7 +231,7 @@ export function parseAlignment(document: unknown, path: string): AlignedShot[] {
     if (typeof entry !== 'object' || entry === null) {
       throw new Error(`${path}：第 ${String(index + 1)} 行不是对象。`)
     }
-    const row = entry as { shot?: unknown; cues?: unknown }
+    const row = entry as { shot?: unknown; cues?: unknown; source_sha256?: unknown }
     if (!Number.isInteger(row.shot) || (row.shot as number) < 1) {
       throw new Error(`${path}：第 ${String(index + 1)} 行的 shot 必须是正整数镜头号。`)
     }
@@ -253,6 +255,7 @@ export function parseAlignment(document: unknown, path: string): AlignedShot[] {
     return {
       shot: row.shot as number,
       cues,
+      ...(typeof row.source_sha256 === 'string' ? { sourceSha256: row.source_sha256 } : {}),
       ...(strategy === undefined ? {} : { strategy }),
     }
   })

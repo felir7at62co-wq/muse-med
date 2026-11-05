@@ -1,5 +1,6 @@
 // Muse owns Session history and execution; this service only records team identity.
 import { nameProblem } from '../shared/mentions.js'
+import { SOURCE_KIND } from './constants.js'
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 // External titles stay bounded in team metadata; addressable names use 40 characters.
@@ -20,6 +21,8 @@ const identity = value => {
   return value
 }
 const emptySync = () => ({ created: [], failures: [] })
+export const isGenerationWatchId = value => typeof value === 'string'
+  && /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/iu.test(value)
 const sessionName = (title, sessionId) => {
   let name = typeof title === 'string' ? title.replace(/[@`]/gu, value => value === '@' ? '＠' : '｀')
     .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, ' ').replace(/\s+/gu, ' ').trim() : ''
@@ -61,6 +64,56 @@ export class MuseTeamService {
     this.sessionBotsArchives = undefined
     this.warnedMissingList = false
     this.feishuProviders = new Set()
+  }
+
+  /**
+   * Capture the accepted group assignment for a tool in the active worker turn.
+   * @param {string} sessionId The Session that is executing the tool.
+   * @returns {object | undefined} Original room, requester and exchange identities.
+   */
+  captureGenerationWatchOrigin(sessionId) {
+    const rt = this.runtime
+    const active = rt.live?.get(sessionId)
+    const trigger = active?.info
+    if (active?.turn === undefined || trigger?.kind !== SOURCE_KIND || trigger.role !== 'room') return undefined
+    const room = rt.roomOf(trigger.roomId)
+    return this.validateGenerationWatchOrigin(sessionId, {
+      roomId: trigger.roomId,
+      workerBotId: rt.groupOwners.get(sessionId)?.botId,
+      requesterBotId: trigger.askedBy,
+      requesterSessionId: room?.sessions?.[trigger.askedBy],
+      exchangeId: trigger.exchangeId,
+    })
+  }
+
+  /** Load persisted group owners and stage the handoff before waking the worker. */
+  async prepareGenerationWatchDelivery(input) {
+    await this.runtime.load()
+    if (input !== undefined) await this.runtime.prepareGenerationWatch(input)
+  }
+
+  /**
+   * Confirm the saved origin still names the current group Sessions of both participants.
+   * @param {string} sessionId The worker Session receiving the Host notice.
+   * @param {unknown} origin Origin saved with the generation watch.
+   * @returns {object | undefined} The frozen origin when both participants still belong to the room.
+   */
+  validateGenerationWatchOrigin(sessionId, origin) {
+    if (origin === null || typeof origin !== 'object' || Array.isArray(origin)) return undefined
+    const { roomId, workerBotId, requesterBotId, requesterSessionId, exchangeId } = origin
+    if (![roomId, workerBotId, requesterBotId, requesterSessionId, exchangeId].every(id => typeof id === 'string' && id !== '')
+      || !isGenerationWatchId(exchangeId) || workerBotId === requesterBotId || sessionId === requesterSessionId) return undefined
+    const rt = this.runtime
+    const room = rt.roomOf(roomId)
+    const worker = rt.groupOwners.get(sessionId)
+    const requester = rt.groupOwners.get(requesterSessionId)
+    if (this.stopped || room === undefined || worker?.roomId !== roomId || worker.botId !== workerBotId
+      || requester?.roomId !== roomId || requester.botId !== requesterBotId
+      || !room.members.includes(workerBotId) || !room.members.includes(requesterBotId)
+      || room.sessions?.[workerBotId] !== sessionId || room.sessions?.[requesterBotId] !== requesterSessionId
+      || rt.ctx.workspaceRegistry?.archivedSessionIds?.includes(sessionId)
+      || rt.ctx.workspaceRegistry?.archivedSessionIds?.includes(requesterSessionId)) return undefined
+    return Object.freeze({ roomId, workerBotId, requesterBotId, requesterSessionId, exchangeId })
   }
 
   /** Register a Feishu binding reader for its active bridge lifetime. */

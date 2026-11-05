@@ -355,6 +355,10 @@ exports[`loads model preview/apply, renders free outcomes, and disposes registra
       "description": "erase_subtitle 必填、upscale 可选：相应任务类型实时目录的精确 modelId。已知去字幕模型包括 quzimuToB（区域性）或 ark-erase-video-subtitle-pro（自动）。去字幕省略模型会报错；转高清省略模型沿用 SeedVR2。",
       "type": "string",
     },
+    "only_if_verified_free": {
+      "description": "仅用于去字幕。为 true 时禁止估算，提交前必须核实本次实时目录精确匹配已知免费路线；无证明时不发送，即使项目仍有预算。",
+      "type": "boolean",
+    },
     "package_number": {
       "description": "erase_subtitle / upscale 可选：本集内的包号，配合 episode 生成 \`EP05-P3\` 前缀。",
       "type": "string",

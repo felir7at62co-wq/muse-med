@@ -21,7 +21,8 @@ import { randomUUID } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
+import { installGenerationWatchOutbox } from './generation-watch-outbox.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { GROUP_LINE_READ, ROOM_REPLY_TIMEOUT_MS, ROOM_STEP_GAP_MS, ROOM_WORK_GRACE_MS, SOURCE_KIND, TEAM_TOOLS, TEXT_KEPT } from './constants.js'
 import { escapeRegExp, headOf, splitRef, textOf } from './text.js'
@@ -196,11 +197,13 @@ export function install(rt) {
   // A member's group Session, created on its first turn there. A new one starts with
   // a fresh look at the log and a brief of the member's own chat; the brief is the
   // first message, so it stays fixed and the prefix stays cacheable.
-  async function groupSessionFor(room, member) {
+  async function groupSessionFor(room, member, generationWatch) {
     await rt.museTeam.syncSessionsAsBots()
     if (!rt.museTeam.isSessionBotVisible(member)) throw new Error(`${member.name}'s source conversation is archived or unavailable.`)
     room.sessions ??= {}
     const known = room.sessions[member.id]
+    if (generationWatch !== undefined
+      && (known === undefined || validGenerationWatch(room, generationWatch)?.requesterSessionId !== known)) return undefined
     if (known !== undefined) {
       await rt.ensureCapabilities(known)
       return { id: known, brief: undefined }
@@ -298,8 +301,8 @@ export function install(rt) {
   // member's Session, so a member at work is never cut off. `by` is the member that
   // called it, which answers what the turn posts after the round moved on. What the
   // member writes before its last step is posted at once and collected in `said`.
-  async function roomTurn(room, member, sessionId, { text, files }, note, signal, round, by, said = []) {
-    if (signal.aborted) return null
+  async function roomTurn(room, member, sessionId, { text, files }, note, signal, round, by, said = [], generationWatch) {
+    if (signal.aborted) return { reply: null, generationPending: false }
     const startedAt = Date.now()
     const exchangeId = randomUUID()
     const turn = { botId: member.id, sessionId, exchangeId }
@@ -313,11 +316,11 @@ export function install(rt) {
     const done = new Promise((resolve) => {
       let timer
       let grace
-      const finish = (value) => {
+      const finish = (reply, generationPending = false) => {
         clearTimeout(timer)
         clearTimeout(grace)
         rt.roomWaiters.delete(exchangeId)
-        resolve(value)
+        resolve({ reply, generationPending })
       }
       const touch = () => {
         clearTimeout(timer)
@@ -335,7 +338,8 @@ export function install(rt) {
       signal.addEventListener('abort', () => finish(null), { once: true })
     })
     try {
-      await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, files, steer: busy, ...(by ? { askedBy: by } : {}) })
+      await rt.deliver({ fromId: undefined, toId: member.id, sessionId, role: 'room', roomId: room.id, exchangeId, note, text, files, steer: busy,
+        ...(by ? { askedBy: by } : {}), ...(generationWatch === undefined ? {} : { generationWatch }) })
       // The prompt reached the member: its read position moves on.
       room.seen[member.id] = seenAt
       // Still held by an earlier request: this turn cannot start until the user answers.
@@ -353,11 +357,12 @@ export function install(rt) {
       }
       rt.roomWaiters.get(exchangeId)?.fail({ code: lost ? 'SESSION_RESET' : 'SESSION', message: String(error?.message ?? error).slice(0, 300) })
     }
-    const reply = await done
+    const result = await done
+    const { reply } = result
     // A turn that ended leaves nothing for a stop to cancel.
     if (typeof reply === 'string' || reply?.failure !== undefined) started.splice(started.indexOf(turn), 1)
-    if (reply === null || typeof reply === 'object') return reply
-    return stripOwnName(member.name, String(reply ?? '').trim())
+    if (reply === null || typeof reply === 'object') return result
+    return { ...result, reply: stripOwnName(member.name, String(reply ?? '').trim()) }
   }
 
   // A member that reaches its context limit mid-turn goes on in a fresh Session, so a
@@ -385,15 +390,19 @@ export function install(rt) {
   // already spoke; either way it goes right after slot `index`. `origin` is who the
   // call answers to: 'user' for the user's own messages, 'bot' for a member's calls.
   // `by` is the calling member, if a member called.
-  function callMembers(round, index, callees, note, by, origin) {
+  function callMembers(round, index, callees, note, by, origin, resultFor) {
     let next = index + 1
     for (const peer of callees) {
-      const waiting = round.slots.findIndex((other, at) => at > index && other.id === peer.id && other.status === 'waiting')
+      const waiting = round.slots.findIndex((other, at) => at > index && other.id === peer.id
+        && other.status === 'waiting' && other.generationWatch === undefined)
       const called = waiting === -1 ? { id: peer.id, name: peer.name, status: 'waiting' } : round.slots.splice(waiting, 1)[0]
-      called.note = note
+      const receivesResult = peer.id === resultFor
+      called.note = receivesResult ? `${rt.botOf(by)?.name ?? 'A member'} finished the work you asked for` : note
       called.origin = origin
-      if (by === undefined) delete called.by
+      if (by === undefined || receivesResult) delete called.by
       else called.by = by
+      if (origin === 'bot' && by !== undefined && !receivesResult) called.returnResult = true
+      else delete called.returnResult
       round.slots.splice(next, 0, called)
       next += 1
     }
@@ -407,15 +416,19 @@ export function install(rt) {
     const paused = room.paused ?? []
     if (paused.length === 0) return
     for (const entry of paused) {
-      if (round.slots.some(slot => slot.id === entry.id && slot.status === 'waiting')) continue
+      if (round.slots.some(slot => sameSlot(slot, entry) && slot.status === 'waiting')) continue
       round.slots.push({
         id: entry.id, name: entry.name, status: 'waiting', origin: 'bot',
         ...(entry.note !== undefined ? { note: entry.note } : {}),
         ...(entry.by !== undefined ? { by: entry.by } : {}),
+        ...(entry.returnResult === true ? { returnResult: true } : {}),
+        ...(entry.generationWatch !== undefined ? { generationWatch: entry.generationWatch } : {}),
       })
     }
     room.paused = []
   }
+
+  const sameSlot = (left, right) => left.id === right.id && left.generationWatch?.noticeId === right.generationWatch?.noticeId
 
   // The user's messages waiting in the group Session's inbox while a round runs, from
   // the composer whether it queued or steered them. Images and chat references are
@@ -468,9 +481,22 @@ export function install(rt) {
       const slot = round.slots[index]
       const member = rt.botOf(slot.id)
       // Settings may change mid-round, for example when the admin removes someone.
-      if (member === undefined || !room.members.includes(slot.id)) {
+      if (member === undefined || !room.members.includes(slot.id)
+        || (slot.generationWatch !== undefined && validGenerationWatch(room, slot.generationWatch)?.requesterBotId !== slot.id)) {
         slot.status = 'left'
         continue
+      }
+      if (slot.generationWatch !== undefined) {
+        try {
+          if (await watchOutbox.requesterTook(slot.generationWatch)) {
+            slot.status = 'posted'
+            continue
+          }
+        } catch (error) {
+          rt.warn('ds-bot: generation watch receipt for %s in %s could not be read: %s', member.name, room.name, error)
+          slot.status = 'failed'
+          continue
+        }
       }
       if (slot.origin === 'bot') {
         // The group's one guard: Bots calling each other can go on only so long
@@ -479,11 +505,13 @@ export function install(rt) {
         if ((room.relays ?? 0) >= relayLimit(room)) {
           slot.status = 'paused'
           const paused = (room.paused ??= [])
-          if (!paused.some(entry => entry.id === slot.id)) {
+          if (!paused.some(entry => sameSlot(entry, slot))) {
             paused.push({
               id: slot.id, name: slot.name,
               ...(slot.note !== undefined ? { note: slot.note } : {}),
               ...(slot.by !== undefined ? { by: slot.by } : {}),
+              ...(slot.returnResult === true ? { returnResult: true } : {}),
+              ...(slot.generationWatch !== undefined ? { generationWatch: slot.generationWatch } : {}),
             })
           }
           if (!(round.parked ??= []).includes(slot.name)) round.parked.push(slot.name)
@@ -495,7 +523,7 @@ export function install(rt) {
       round.speaking = member.id
       let session
       try {
-        session = await groupSessionFor(room, member)
+        session = await groupSessionFor(room, member, slot.generationWatch)
       } catch (error) {
         rt.warn('ds-bot: group Session for %s in %s failed: %s', member.name, room.name, error)
         round.speaking = null
@@ -510,12 +538,18 @@ export function install(rt) {
         continue
       }
       await loadGroupLines(room)
+      if (slot.generationWatch !== undefined && validGenerationWatch(room, slot.generationWatch)?.requesterSessionId !== session.id) {
+        round.speaking = null
+        slot.status = 'left'
+        continue
+      }
       const prompt = roomPrompt(room, member, round)
       round.shown?.push(member.id)
       const text = session.brief === undefined ? prompt.text : `${session.brief}\n\n${prompt.text}`
       const said = []
       const startedAt = Date.now()
-      const reply = await roomTurn(room, member, session.id, { text, files: prompt.files }, slot.note ?? 'your turn', signal, round, slot.by, said)
+      const { reply, generationPending } = await roomTurn(room, member, session.id,
+        { text, files: prompt.files }, slot.note ?? 'your turn', signal, round, slot.by, said, slot.generationWatch)
       round.speaking = null
       const final = typeof reply === 'string' && !isPass(reply) ? reply : undefined
       if (reply?.failure !== undefined) {
@@ -553,8 +587,15 @@ export function install(rt) {
       const others = everyone.filter(other => other.id !== member.id)
       const { all, found: named } = mentionsIn(spoken.join('\n\n'), everyone)
       const found = named.filter(other => other.id !== member.id)
-      const callees = leads && all ? [...found, ...others.filter(other => !found.includes(other))] : found
-      callMembers(round, index, callees, `${member.name} mentioned you`, member.id, 'bot')
+      const called = leads && all ? [...found, ...others.filter(other => !found.includes(other))] : found
+      const callees = generationPending ? called.filter(other => other.id !== slot.by) : called
+      // The waiter handled an ordinary completion inside this round, so it will
+      // not go through lateRoomReply. Return it to the asker exactly once. A
+      // result turn is a continuation, never a fresh request back to the worker.
+      const asker = slot.returnResult === true && typeof reply === 'string' && !generationPending
+        ? others.find(other => other.id === slot.by) : undefined
+      if (asker !== undefined && callees.length === 0) callees.push(asker)
+      callMembers(round, index, callees, `${member.name} mentioned you`, member.id, 'bot', asker?.id)
     }
     // The admin was alone with the user's message and passed: the round ends with
     // nothing said. The group says so once, so the user knows to call a member.
@@ -599,6 +640,8 @@ export function install(rt) {
       // the end of work whose result it already posted is an event of the round.
       const event = item => item.failed || item.resumed || item.stopped || item.done
       for (const post of posts.filter(item => !item.kickoff && !item.resume && !event(item) && item.logged === undefined)) {
+        const receiptId = post.generationWatch?.noticeId
+        if (receiptId !== undefined && watchOutbox.logged(receiptId) !== undefined) continue
         // Image readings go into the log only; `@` names are picked from what the user typed.
         // A file stays with its line and reaches each member the line is shown to.
         const readings = post.images === undefined ? [] : await rt.imagesForGroup(post.images, room.id)
@@ -608,6 +651,7 @@ export function install(rt) {
           text,
           ...(post.files === undefined ? {} : { files: post.files }),
         })
+        if (receiptId !== undefined) watchOutbox.logged(receiptId, room.seq)
       }
       // The user wrote here — or pressed Continue, which opens the same round
       // without a line of its own — so Bot relays count afresh and the calls the
@@ -621,26 +665,40 @@ export function install(rt) {
       const opener = posts.findLast(post => !event(post) && !callsNobody(post)) ?? posts.findLast(post => !event(post)) ?? posts.at(-1)
       const references = posts.flatMap(post => post.references ?? [])
       // A member a Bot's post calls by name works for that Bot.
-      const named = opener.botId === undefined ? [] : mentionsIn(opener.text ?? '', room.members.map(rt.botOf).filter(Boolean)).found
+      const named = opener.botId === undefined || opener.generationWatch !== undefined
+        ? [] : mentionsIn(opener.text ?? '', room.members.map(rt.botOf).filter(Boolean)).found
       const speakers = openingSpeakers(room, opener)
       // The admin alone with the user's message: when it passes, the round ends with
       // nothing said, and the group says so once.
       const admin = room.members.map(rt.botOf).filter(Boolean).find(bot => rt.isAdminOf(room, bot.id))
       const soleAdmin = opener.botId === undefined && !opener.kickoff && room.mode === 'admin' && admin !== undefined
         && speakers.length === 1 && speakers[0].id === admin.id
+      const slots = speakers.map(member => ({
+        id: member.id, name: member.name, status: 'waiting',
+        origin: opener.botId === undefined ? 'user' : 'bot',
+        ...(opener.kickoff ? { note: 'the group was just created' } : {}),
+        ...(named.includes(member) && !(opener.late && member.id === opener.askedBy) ? { by: opener.botId } : {}),
+        ...(opener.done || (opener.late && member.id === opener.askedBy)
+          ? { note: `${opener.name ?? 'a member'} finished the work you asked for` } : {}),
+        ...(opener.generationWatch !== undefined ? watchSlot(opener) : {}),
+      }))
+      // Several durable results can reach the group in one turn. Give each original
+      // requester a slot even if a different post picked the rest of the speakers.
+      for (const post of posts) {
+        if (post === opener || post.generationWatch === undefined) continue
+        const [member] = openingSpeakers(room, post)
+        if (member !== undefined) {
+          const slot = { id: member.id, name: member.name, status: 'waiting', origin: 'bot', ...watchSlot(post) }
+          if (!slots.some(other => sameSlot(other, slot))) slots.push(slot)
+        }
+      }
       const round = {
         roomId: room.id,
         members: room.members,
         startSeq,
         ...(opener.kickoff ? { kickoff: true } : {}),
         ...(references.length > 0 ? { references, shown: [] } : {}),
-        slots: speakers.map(member => ({
-          id: member.id, name: member.name, status: 'waiting',
-          origin: opener.botId === undefined ? 'user' : 'bot',
-          ...(opener.kickoff ? { note: 'the group was just created' } : {}),
-          ...(named.includes(member) ? { by: opener.botId } : {}),
-          ...(opener.done ? { note: `${opener.name ?? 'a member'} finished the work you asked for` } : {}),
-        })),
+        slots,
         ...(soleAdmin ? { soleAdmin: { id: admin.id, name: admin.name, color: admin.color } } : {}),
         speaking: null,
         replies: [],
@@ -775,6 +833,15 @@ export function install(rt) {
   // the admin answers alone in admin mode, or first of everyone. What a member posts
   // after its round moved on is answered by the member that asked for it; work the
   // user asked for is left for the user to read.
+  function validGenerationWatch(room, watch) {
+    const origin = rt.museTeam.validateGenerationWatchOrigin(watch?.workerSessionId, watch?.origin)
+    return origin?.roomId === room.id ? origin : undefined
+  }
+
+  function watchSlot(post) {
+    return { generationWatch: post.generationWatch, note: `${post.name ?? 'A member'} reported the video generation result for your request` }
+  }
+
   function openingSpeakers(room, opener) {
     const everyone = room.members.map(rt.botOf).filter(Boolean)
     const members = everyone.filter(bot => bot.id !== opener.botId)
@@ -783,6 +850,10 @@ export function install(rt) {
     // A Continue opens a round whose speakers are the calls the limit parked.
     if (opener.resume) return []
     if (opener.quiet) return []
+    if (opener.generationWatch !== undefined) {
+      const origin = validGenerationWatch(room, opener.generationWatch)
+      return origin !== undefined && origin.workerBotId === opener.botId ? members.filter(bot => bot.id === origin.requesterBotId) : []
+    }
     if (opener.done) return members.filter(bot => bot.id === opener.askedBy)
     const { all, found: named } = mentionsIn(opener.text, everyone, opener.references)
     const found = named.filter(bot => bot.id !== opener.botId)
@@ -801,7 +872,7 @@ export function install(rt) {
   async function postToRoom(room, sender, text, extra = {}, files = []) {
     const running = [...rt.roomProgress.values()].find(round => round.roomId === room.id)
     let logged
-    if (running !== undefined) {
+    if (running !== undefined && extra.generationWatch === undefined) {
       ensureRoomLog(room)
       if (extra.failed !== undefined) {
         // A failed model call is an event of the round only: no log line, as the relay does it.
@@ -823,13 +894,25 @@ export function install(rt) {
       await rt.save()
     }
     const agent = await rt.resolveAgent(room.id)
-    agent.followup(createUserMessage({
+    if (extra.generationWatch !== undefined && validGenerationWatch(room, extra.generationWatch) === undefined) return
+    const message = createUserMessage({
       content: [{ type: 'text', text: `[Group post from ${sender.name}]\n${text}` }, ...files.map(attachment => ({ type: 'file', attachment }))],
-      source: { kind: SOURCE_KIND, form: 'relay', role: 'post', exchangeId: randomUUID(), senderName: sender.name, senderSessionId: sender.id, roomId: room.id, ...extra, ...(logged !== undefined ? { logged } : {}) },
-    }))
-    await ctx.sessions.flush(agent.session)
+      source: { kind: SOURCE_KIND, form: 'relay', role: 'post', exchangeId: extra.generationWatch?.noticeId ?? randomUUID(), senderName: sender.name, senderSessionId: sender.id, roomId: room.id, ...extra, ...(logged !== undefined ? { logged } : {}) },
+    })
+    const noticeId = extra.generationWatch?.noticeId
+    if (noticeId === undefined) agent.followup(message)
+    else {
+      const queued = [...agent.inbox.nextStep, ...agent.inbox.nextTurn].find(pending => pending.source?.generationWatch?.noticeId === noticeId)
+      if (queued !== undefined) agent.wakePending?.(queued.id)
+      else if (extra.generationWatchReplay === true) agent.followup(message)
+      else if (!watchOutbox.claimed(agent.session, noticeId)) agent.followup(freezeMessage({ ...message, id: noticeId }))
+    }
+    const flushed = await ctx.sessions.flush(agent.session)
+    if (noticeId !== undefined && flushed === false) throw new Error('Could not persist the generation result in the group inbox')
   }
   rt.postToRoom = postToRoom
+  const watchOutbox = installGenerationWatchOutbox(rt, postToRoom)
+  rt.prepareGenerationWatch = watchOutbox.prepare
 
   // A member the round moved on from (it went on working, went quiet or waited for an
   // approval) posts what its turn ended with. The member that asked for it and anyone
@@ -837,12 +920,41 @@ export function install(rt) {
   // inside a round. Work whose result already went out as a step line (`shown`) and
   // that ends with nothing more to say still tells the member that asked for it,
   // which answers the result: where the result sits in the turn decides nothing.
-  async function lateRoomReply(sessionId, info, reply, { shown = false } = {}) {
+  const reportedGenerationWatches = new Set()
+  async function lateRoomReply(sessionId, info, reply, { shown = false, generationPending = false } = {}) {
     const owner = rt.groupOwners.get(sessionId)
     const room = rt.roomOf(owner?.roomId ?? info.roomId)
     const member = rt.botOf(owner?.botId)
     if (room === undefined || member === undefined || !room.members.includes(member.id)) return
+    const watch = info.generationWatch
+    if (watch !== undefined) {
+      const origin = validGenerationWatch(room, watch)
+      const noticeId = watch.noticeId
+      if (origin === undefined || origin.workerBotId !== member.id || watch.workerSessionId !== sessionId
+        || typeof noticeId !== 'string' || noticeId === '' || reportedGenerationWatches.has(noticeId)) return
+      const replyText = stripOwnName(member.name, reply)
+      const text = isPass(replyText) ? info.watchText ?? '' : replyText
+      if (isPass(text)) return
+      if (watchOutbox.has(noticeId)) {
+        await watchOutbox.relay(noticeId, text).catch(error => rt.warn('ds-bot: generation watch result from %s failed: %s', member.name, error))
+        return
+      }
+      reportedGenerationWatches.add(noticeId)
+      try {
+        await postToRoom(room, member, text, { late: true, askedBy: origin.requesterBotId, generationWatch: watch })
+      } catch (error) {
+        reportedGenerationWatches.delete(noticeId)
+        rt.warn('ds-bot: generation watch result from %s failed: %s', member.name, error)
+      }
+      if (reportedGenerationWatches.size > 400) reportedGenerationWatches.delete(reportedGenerationWatches.values().next().value)
+      return
+    }
     const text = stripOwnName(member.name, reply)
+    if (generationPending) {
+      if (!isPass(text)) await postToRoom(room, member, text, { late: true, quiet: true })
+        .catch(error => rt.warn('ds-bot: late group progress from %s failed: %s', member.name, error))
+      return
+    }
     const done = isPass(text) && shown && info.askedBy !== undefined
     if (isPass(text) && !done) return
     await postToRoom(room, member, done ? '' : text, { late: true, ...(done ? { done: true } : {}), ...(info.askedBy ? { askedBy: info.askedBy } : {}) })
@@ -1019,11 +1131,11 @@ export function install(rt) {
         yield* next()
         return
       }
-      // Plugins append context as user-role messages (time, attachments), so only a
-      // message from the user, a scheduled task, or a Bot's post after the last model or
-      // tool step starts a relay.
+      // User messages, scheduled tasks, Bot posts, group greetings and Continue
+      // start a relay only when they follow the last model or tool step.
       const opens = message => message.role === 'user'
-        && (message.source?.kind === 'user' || message.source?.kind === 'schedule' || (message.source?.kind === SOURCE_KIND && (message.source.role === 'post' || message.source.role === 'kickoff')))
+        && (message.source?.kind === 'user' || message.source?.kind === 'schedule'
+          || (message.source?.kind === SOURCE_KIND && ['post', 'kickoff', 'resume'].includes(message.source.role)))
       const latest = [...options.messages].reverse()
         .find(message => message.role === 'assistant' || message.role === 'tool' || opens(message))
       if (latest?.role !== 'user') {

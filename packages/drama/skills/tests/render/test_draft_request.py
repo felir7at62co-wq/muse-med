@@ -124,19 +124,43 @@ class DraftRequestCliTests(unittest.TestCase):
         self.assertEqual({path: sha256(path) for path in inputs}, before)
         return result, json.loads(result.stdout)
 
-    def assert_saved(self, shots):
+    def assert_saved(self, shots, episode_folder=None):
         request, drafts = self.request(shots)
+        project = Path(request['project'])
+        material_parent = project / 'editing/draft-materials'
+        if episode_folder is not None:
+            episode_dir = project / episode_folder
+            drafts = episode_dir / '02_剪映草稿'
+            drafts.mkdir(parents=True)
+            material_parent = episode_dir / '制作资料/剪映素材'
         outcome, result = self.invoke(request, drafts)
         self.assertEqual(outcome.returncode, 0, result)
         self.assertTrue(result['success'], result)
         self.assertEqual(result['drafts_created'], 1, result)
         self.assertFalse(result['editor_open_verified'])
         stage = Path(result['materials_dir'])
-        self.assertTrue(stage.is_relative_to(Path(request['project']) / 'editing/draft-materials'))
+        self.assertTrue(stage.is_relative_to(material_parent.resolve()), result)
         self.assertEqual((stage / '05_timeline/26.timeline.json').read_bytes(), Path(request['timeline']).read_bytes())
         selected = sorted((stage / '02_media/26').iterdir())
         self.assertEqual([path.name for path in selected], [f'shot_{shot:03d}.mp4' for shot in shots])
-        content = json.loads((Path(result['drafts'][0]['path']) / 'draft_content.json').read_text(encoding='utf-8'))
+        draft = Path(result['drafts'][0]['path'])
+        receipt_path = draft / 'muse-episode-source.json'
+        self.assertEqual(Path(result['drafts'][0]['episode_source_path']), receipt_path)
+        receipt = json.loads(receipt_path.read_text(encoding='utf-8'))
+        self.assertEqual((receipt['version'], receipt['episode'], receipt['audio_mode']), (1, '26', 'independent'))
+        self.assertEqual(receipt.get('material_scope'), None if episode_folder is None else 'episode')
+        self.assertEqual(receipt['timeline_sha256'], sha256(Path(request['timeline'])))
+        self.assertEqual(receipt['subtitle_sha256'], sha256(Path(request['subtitle_srt'])))
+        self.assertEqual(receipt['master_audio_sha256'], sha256(Path(request['audio'])))
+        self.assertEqual(receipt['videos'], [
+            {'shot': shot, 'sha256': sha256(Path(path))} for shot, path in zip(shots, request['videos'])])
+        self.assertEqual(receipt['files'], [{'path': name, 'sha256': sha256(draft / name)}
+                                          for name in ('draft_content.json', 'draft_meta_info.json')])
+        self.assertEqual({Path(row['path']) for row in receipt['materials']},
+                         {*selected, stage / '01_audio/26.wav', stage / '03_subtitle/26.srt',
+                          stage / '05_timeline/26.timeline.json'})
+        self.assertTrue(all(row['sha256'] == sha256(Path(row['path'])) for row in receipt['materials']))
+        content = json.loads((draft / 'draft_content.json').read_text(encoding='utf-8'))
         self.assertEqual(content['duration'], len(shots) * 1_000_000)
         tracks = {track.get('name'): track for track in content['tracks']}
         materials = {item['id']: item for item in content['materials']['videos']}
@@ -157,6 +181,46 @@ class DraftRequestCliTests(unittest.TestCase):
 
     def test_production_cli_keeps_existing_contiguous_shot_mapping(self):
         self.assert_saved((1, 2))
+
+    def test_production_cli_retains_delivery_draft_materials_with_the_episode(self):
+        for folder in ('', '第26集'):
+            with self.subTest(folder=folder):
+                self.assert_saved((1, 2), episode_folder=folder)
+
+    def test_production_cli_preserves_external_drafts_with_the_same_directory_name(self):
+        request, _ = self.request((1,))
+        external = tempfile.TemporaryDirectory(prefix='external-drafts-')
+        self.addCleanup(external.cleanup)
+        drafts = Path(external.name) / '02_剪映草稿'
+        drafts.mkdir()
+        outcome, result = self.invoke(request, drafts)
+        self.assertEqual(outcome.returncode, 0, result)
+        self.assertTrue(Path(result['materials_dir']).is_relative_to(Path(request['project']) / 'editing/draft-materials'))
+        receipt = Path(result['drafts'][0]['episode_source_path'])
+        self.assertNotIn('material_scope', json.loads(receipt.read_text(encoding='utf-8')))
+
+    def test_saved_draft_materials_survive_in_place_prepare_changes(self):
+        request, drafts = self.request((1, 2))
+        outcome, result = self.invoke(request, drafts)
+        self.assertEqual(outcome.returncode, 0, result)
+        self.assertTrue(result['success'], result)
+        stage = Path(result['materials_dir'])
+        originals = {
+            Path(request['audio']): stage / '01_audio/26.wav',
+            Path(request['videos'][0]): stage / '02_media/26/shot_001.mp4',
+            Path(request['subtitle_srt']): stage / '03_subtitle/26.srt',
+            Path(request['timeline']): stage / '05_timeline/26.timeline.json',
+        }
+        before = {target: sha256(target) for target in originals.values()}
+        for source, target in originals.items():
+            self.assertEqual(sha256(source), before[target])
+            with source.open('r+b') as stream:
+                stream.seek(-1, 2)
+                byte = stream.read(1)
+                stream.seek(-1, 2)
+                stream.write(bytes([byte[0] ^ 1]))
+            self.assertNotEqual(sha256(source), before[target])
+        self.assertEqual({target: sha256(target) for target in originals.values()}, before)
 
     def test_production_cli_preserves_shot_order_when_timeline_rows_are_unsorted(self):
         request, drafts = self.request((1, 2))

@@ -113,7 +113,9 @@ async function voiceFingerprint(root: string, scriptId: number, binding: AudioBi
   const config = object(value)
   if (positiveInteger(config.jubian_script_id) !== scriptId) refuse('Project voice identity belongs to another project')
   const bible = object(config.project_bible)
-  if (!Array.isArray(bible.characters)) refuse('Project voice identities are not configured')
+  if (!Array.isArray(bible.characters)) {
+    refuse('Project voice identities are not configured: adopt the approved audio asset for the character and life period in project_config.json project_bible.characters, then preview again')
+  }
   const characters = bible.characters.map(object).filter(row => row.character_id === binding.character_id)
   if (characters.length !== 1) refuse('Voice reference requires one exact stable character identity')
   const character = object(characters[0])
@@ -184,32 +186,42 @@ async function readBoard(client: JubianClient, scriptId: number, storyboardId: n
   if (positiveInteger(board.id) !== storyboardId || positiveInteger(board.scriptId) !== scriptId) refuse('Storyboard identity mismatch')
   return board
 }
-function payload(board: Row, audio: Row[], prompt: string): Row {
+function payload(board: Row, audio: Row[], bindings: AudioBinding[], prompt: string): Row {
   referenceAudioUrls(audio)
   const current = storyboardMaterials(board)
-  const oldAudioKeys = current.materials.filter(row => row.materialType === 'audio').map(row => row.materialKey)
-  const keys = audio.map(row => row.materialKey)
-  const imageKeys = current.materials.filter(row => row.materialType !== 'audio').map(row => row.materialKey)
-  if (new Set(keys).size !== keys.length || keys.some(key => imageKeys.includes(key))) invalid('Audio material keys must be unique and separate from image keys')
   const config = configOf(board)
   if (typeof config.prompt !== 'string' || !prompt.trim()) invalid('A complete audio-edit prompt is required')
-  const oldImages = markers(config.prompt).filter(marker => !oldAudioKeys.includes(marker.key))
+  const configMaterials = config.materialList === undefined ? current.materials : materials(config.materialList)
+  const saved = [...current.materials, ...configMaterials]
+  const imageKeys = new Set(saved.filter(row => row.materialType !== 'audio').map(row => row.materialKey))
+  const oldAudioKeys = new Set(saved.filter(row => row.materialType === 'audio').map(row => row.materialKey))
+  const keys = audio.map(row => row.materialKey)
+  if (new Set(keys).size !== keys.length || keys.some(key => imageKeys.has(key))) invalid('Audio material keys must be unique and separate from image keys')
   const newMarkers = markers(prompt)
+  const verifiedKeys = new Set(bindings.map(binding => binding.material_key))
+  // The provider can save a prompt before saving its voice selection. Only the
+  // same reviewed marker may be repaired this way, and saved image evidence wins.
+  const oldImages = markers(config.prompt).filter(marker => imageKeys.has(marker.key)
+    || (!oldAudioKeys.has(marker.key) && !(verifiedKeys.has(marker.key)
+      && newMarkers.some(next => next.key === marker.key && next.name === marker.name))))
   const newImages = newMarkers.filter(marker => !keys.includes(marker.key))
-  if (stableJson(oldImages) !== stableJson(newImages)) invalid('Audio edits must preserve image marker names, keys and order')
+  if (stableJson(oldImages) !== stableJson(newImages)) {
+    const mismatch = oldImages.findIndex((marker, index) => marker.key !== newImages[index]?.key || marker.name !== newImages[index]?.name)
+    const index = mismatch === -1 ? oldImages.length : mismatch
+    invalid(`Audio edits must preserve image marker names, keys and order (first mismatch: ${oldImages[index]?.key ?? 'none'} → ${newImages[index]?.key ?? 'none'}). To repair a dangling voice marker, retain its name and key and supply its verified audio_asset_id.`)
+  }
   if (stableJson(newMarkers.filter(marker => keys.includes(marker.key)).map(marker => marker.key)) !== stableJson(keys)) {
     invalid('Audio prompt markers must match the final audio keys in order')
   }
   const selected = [...current.materials.filter(row => row.materialType !== 'audio'), ...audio]
-  const modelImages = config.materialList === undefined ? current.materials.filter(row => row.materialType !== 'audio')
-    : materials(config.materialList).filter(row => row.materialType !== 'audio')
+  const modelImages = configMaterials.filter(row => row.materialType !== 'audio')
   const nextConfig = { ...config, prompt, materialList: [...modelImages, ...audio] }
   return { ...board, isGenerate: 0,
     modelConfig: typeof board.modelConfig === 'string' ? JSON.stringify(nextConfig) : nextConfig,
     storyboardMaterialList: current.serialized ? JSON.stringify(selected) : selected }
 }
 function planOf(board: Row, audio: Row[], bindings: AudioBinding[], prompt: string): AudioPlan {
-  const body = payload(board, audio, prompt)
+  const body = payload(board, audio, bindings, prompt)
   const plan = { version: 1, operation: 'storyboard_audio', script_id: positiveInteger(board.scriptId),
     storyboard_id: positiveInteger(board.id), audio_references: audio, audio_asset_bindings: bindings, prompt,
     before_snapshot: snapshot(board), after_snapshot: snapshot(body), request_hash: bodyHash(body) } as const
@@ -331,7 +343,7 @@ export async function storyboardAudioMethod(client: JubianClient, ledger: Jubian
     await verifyBindings(client, scriptId, plan.audio_asset_bindings)
     const board = await readBoard(client, scriptId, storyboardId)
     if (stableSha256(snapshot(board, plan.before_snapshot)) !== stableSha256(plan.before_snapshot)) refuse('Stale storyboard audio preview; preview again')
-    const body = payload(board, plan.audio_references, plan.prompt)
+    const body = payload(board, plan.audio_references, plan.audio_asset_bindings, plan.prompt)
     if (bodyHash(body) !== plan.request_hash) refuse('Storyboard request changed since audio preview; preview again')
     await verifyVoiceIdentities(binding.project_root, scriptId, plan.audio_asset_bindings)
     const send = { started: false }

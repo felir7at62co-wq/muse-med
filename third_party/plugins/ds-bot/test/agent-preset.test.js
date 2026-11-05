@@ -61,8 +61,8 @@ async function drain(stream) {
 
 const userText = text => ({ role: 'user', source: { kind: 'user' }, content: [{ type: 'text', text }] })
 const declared = (...names) => names.map(name => ({ name, description: '', parameters: {} }))
-const relayCall = async (relay, tools) => {
-  const chunks = await drain(relay({ provider: 'deepseek', model: 'v4', sessionId: 'room', messages: [userText('Hello team')], tools }, () => {
+const relayCall = async (relay, tools, messages = [userText('Hello team')]) => {
+  const chunks = await drain(relay({ provider: 'deepseek', model: 'v4', sessionId: 'room', messages, tools }, () => {
     throw new Error('a group round never reaches the model')
   }))
   assert.equal(chunks.at(-1).reason.kind, 'tool-calls')
@@ -94,6 +94,21 @@ test('a group round calls group_relay directly when the Session declares it', as
     const block = await relayCall(relay, tools)
     assert.deepEqual([block.name, block.arguments], ['group_relay', '{}'])
   }
+})
+
+test('Continue opens the parked group round after the previous relay result', async (t) => {
+  const { relay, stop } = start()
+  t.after(stop)
+  const tools = declared('group_relay')
+  const result = { role: 'tool', content: [{ type: 'text', text: 'The previous round parked its remaining calls.' }] }
+  const resume = { role: 'user', source: { kind: 'bot', role: 'resume', roomId: 'room' }, content: [{ type: 'text', text: '[Continue]' }] }
+  const messages = [userText('Start the group task'), result, resume]
+  const block = await relayCall(relay, tools, messages)
+  assert.deepEqual([block.name, block.arguments], ['group_relay', '{}'])
+  const after = await drain(relay({ provider: 'deepseek', model: 'v4', sessionId: 'room', messages: [...messages, result], tools }, () => {
+    throw new Error('a group round never reaches the model')
+  }))
+  assert.deepEqual(after, [{ type: 'finish', reason: { kind: 'stop' } }])
 })
 
 test('a group made under the PTC preset relays through run_code', async (t) => {

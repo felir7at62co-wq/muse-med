@@ -170,14 +170,15 @@ class UnmappedSpeechTests(unittest.TestCase):
             output = io.StringIO()
             output.reconfigure = lambda **_: None
             with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
-                    patch.object(ALIGN, 'cloud_characters',
-                                 return_value=timeline('都怪这个小伙子不让座就算了', 0.0, 0.1)), \
+                    patch.object(ALIGN, '_read_cloud_alignment',
+                                 return_value=(timeline('都怪这个小伙子不让座就算了', 0.0, 0.1), None, 'a' * 64)), \
                     patch.object(ALIGN, 'probe_seconds', return_value=5.0):
                 ALIGN.main()
             self.assertIn('提示', output.getvalue())
             result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))
             self.assertEqual(result['shots'][0]['strategy'], 'missing_script_speech')
             self.assertEqual(result['shots'][0]['missing_script_speech'][0]['text'], '还把人推出去了')
+            self.assertNotIn('source_sha256', result['shots'][0])
 
     def test_exact_line_has_no_unmapped_speech(self):
         chars = timeline('一样的嘴脸', 0.0, 0.1)
@@ -276,13 +277,14 @@ class UnmappedSpeechTests(unittest.TestCase):
             output = io.StringIO()
             output.reconfigure = lambda **_: None
             with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
-                    patch.object(ALIGN, 'cloud_characters',
-                                 return_value=timeline('你怎么能推人呢太过分了一样的嘴脸', 0.0, 0.1)), \
+                    patch.object(ALIGN, '_read_cloud_alignment',
+                                 return_value=(timeline('你怎么能推人呢太过分了一样的嘴脸', 0.0, 0.1), None, 'a' * 64)), \
                     patch.object(ALIGN, 'probe_seconds', return_value=5.0):
                 ALIGN.main()
             self.assertIn('提示', output.getvalue())
             result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))
             self.assertEqual(result['shots'][0]['strategy'], 'unmapped_speech')
+            self.assertNotIn('source_sha256', result['shots'][0])
 
 
 class PlaceTests(unittest.TestCase):
@@ -451,6 +453,7 @@ class OfflineSilentShotTests(unittest.TestCase):
     def test_offline_model_checks_a_truly_silent_shot(self):
         result = self.run_silent_shot([])
         self.assertEqual(result['shots'][0]['strategy'], 'no_lines')
+        self.assertEqual(result['shots'][0]['source_sha256'], hashlib.sha256(b'offline-test').hexdigest())
 
 
 class CloudReceiptTests(unittest.TestCase):
@@ -470,6 +473,7 @@ class CloudReceiptTests(unittest.TestCase):
             result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))
             self.assertEqual(result['shots'][0]['strategy'], 'missing_evidence')
             self.assertEqual(result['shots'][0]['cues'], [])
+            self.assertNotIn('source_sha256', result['shots'][0])
             self.assertTrue(result['shots'][0]['warnings'])
 
     def test_matches_words_to_current_source_and_rejects_replaced_video(self):
@@ -569,7 +573,9 @@ class CloudCorrectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             video, receipt, transcript, correction = self.source(root)
-            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': video.name}]}))
+            audio = root / 'replacement.wav'
+            audio.write_bytes(b'distinct audio not transcribed')
+            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': video.name, 'audio': audio.name}]}))
             (root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': ['程昭宁你回来啦']}]}))
             (root / 'receipts.json').write_text(json.dumps({'shots': [{'shot': 1, 'receipt': str(receipt)}]}))
             (root / 'corrections.json').write_text(json.dumps({'shots': [correction]}))
@@ -588,6 +594,8 @@ class CloudCorrectionTests(unittest.TestCase):
             self.assertEqual(result['strategy'], 'asr_aligned')
             self.assertEqual(result['cues'], [{'start': 0.2, 'end': 2.8, 'text': '程昭宁你回来啦'}])
             self.assertNotIn('script_text_differences', result)
+            self.assertEqual(result['source_sha256'], correction['source_sha256'])
+            self.assertNotEqual(result['source_sha256'], hashlib.sha256(audio.read_bytes()).hexdigest())
             self.assertEqual(result['correction_evidence']['transcript_sha256'], correction['transcript_sha256'])
             self.assertEqual(transcript.read_bytes(), before)
 
@@ -617,6 +625,27 @@ class CloudCorrectionTests(unittest.TestCase):
             self.assertIn('待核听', output.getvalue())
             self.assertEqual(transcript.read_bytes(), before)
 
+    def test_cli_does_not_certify_line_boundaries_inside_one_measured_word(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            video, receipt, transcript, _ = self.source(root)
+            transcript.write_text(json.dumps([{'start': 0.2, 'end': 1.2, 'text': '大爷',
+                'words': [{'start': 0.2, 'end': 1.2, 'text': '大爷'}]}]), encoding='utf-8')
+            (root / 'shots.json').write_text(json.dumps({'shots': [{'shot': 1, 'video': video.name}]}))
+            (root / 'lines.json').write_text(json.dumps({'shots': [{'shot': 1, 'lines': ['大', '爷']}]}))
+            (root / 'receipts.json').write_text(json.dumps({'shots': [{'shot': 1, 'receipt': str(receipt)}]}))
+            args = ['align_subtitles.py', '--project', str(root), '--episode', '1',
+                    '--shots', str(root / 'shots.json'), '--lines', str(root / 'lines.json'),
+                    '--cloud-transcripts', str(root / 'receipts.json'), '--out', str(root / 'aligned.json')]
+            output = io.StringIO()
+            output.reconfigure = lambda **_: None
+            with patch.object(sys, 'argv', args), patch.object(sys, 'stdout', output), \
+                    patch.object(ALIGN, 'probe_seconds', return_value=3.0):
+                ALIGN.main()
+            result = json.loads((root / 'aligned.json').read_text(encoding='utf-8'))['shots'][0]
+            self.assertNotEqual(result['strategy'], 'asr_aligned')
+            self.assertNotIn('source_sha256', result)
+
     def test_cli_stale_correction_returns_missing_evidence_without_guessing(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -640,6 +669,7 @@ class CloudCorrectionTests(unittest.TestCase):
             self.assertEqual(result['strategy'], 'missing_evidence')
             self.assertEqual(result['cues'], [])
             self.assertNotIn('correction_evidence', result)
+            self.assertNotIn('source_sha256', result)
             self.assertEqual(transcript.read_bytes(), before)
 
     def test_corrections_require_cloud_mode_before_loading_a_local_model(self):

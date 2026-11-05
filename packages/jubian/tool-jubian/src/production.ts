@@ -113,6 +113,7 @@ export interface ProductionCardInput {
   storyboard_id: number | null
   expected_snapshot_sha256: string | null
   images: { asset_id: number; material_key: string }[]
+  /** Candidates for a card with no saved audio. Replacements use the dedicated audio preview and apply. */
   voices: ProductionLibraryEntry[]
   key: string
   page_size: number
@@ -140,12 +141,19 @@ export async function productionCard(client: JubianClient, storyboardId: number)
     model: config, materials }) }
 }
 
-/** Save one production package without calling any paid generation method.
+function matchesAudioReferences(expected: Row[], materials: Row[]): boolean {
+  const actual = materials.filter(row => row.materialType === 'audio')
+  const fields = ['materialKey', 'materialUrl', 'fileName', 'materialName', 'assetId', 'materialAssetId', 'sortOrder', 'audioDuration']
+  return actual.length === expected.length && expected.every((row, index) => fields.every(field =>
+    row[field] === undefined || Object.is(actual[index]?.[field] ?? null, row[field])))
+}
+
+/** Save one production package and preserve existing audio without calling any paid generation method.
  * @param client - Authenticated transport.
  * @param ledger - Existing account-local storyboard ledger.
  * @param input - Frozen package and original expected card version.
  * @param signal - Checked before each possible remote mutation.
- * @returns Actual card identity and readback; unknown creation never retries with another key.
+ * @returns Actual card identity, readback and any unbound voice candidates. Unknown creation never retries with another key.
  */
 export async function publishProductionCard(client: JubianClient, ledger: JubianLedger, input: ProductionCardInput,
   signal: AbortSignal): Promise<Row> {
@@ -194,38 +202,45 @@ export async function publishProductionCard(client: JubianClient, ledger: Jubian
   }
   const saved = await productionCard(client, id)
   if (saved.card.script_id !== input.script_id || saved.card.snapshot.episodeId !== input.episode_id
-    || saved.card.model_config.prompt !== prompt) return { status: 'readback_mismatch', storyboard_id: id, paid_requests: 0 }
+    || saved.card.model_config.prompt !== prompt || !matchesAudioReferences(oldAudio, storyboardMaterials(saved.card.snapshot).materials)) {
+    return { status: 'readback_mismatch', storyboard_id: id, paid_requests: 0, verified_readback: saved.card }
+  }
   const selection = await run({ method: 'select_assets', storyboard_id: id, selections: input.images,
     idempotency_key: `${input.key}-images` })
   if (!['applied', 'already_applied'].includes(String(selection.status))) return { ...selection, storyboard_id: id }
   const measured = input.voices.flatMap(voice => voice.usable && voice.url && voice.duration_seconds !== undefined
     ? [{ ...voice, url: voice.url, duration_seconds: voice.duration_seconds }] : [])
-  if (measured.length || oldAudio.length) {
-    const prompt = input.prompt + (measured.length ? '\n本包声音参考：' + measured.map(voice => `@[${voice.name}](voice_${voice.asset_id})`).join('、') : '')
+  let expectedAudio = oldAudio
+  if (!oldAudio.length && measured.length) {
+    prompt += '\n本包声音参考：' + measured.map(voice => `@[${voice.name}](voice_${voice.asset_id})`).join('、')
+    expectedAudio = measured.map((voice, index) => ({ materialType: 'audio', materialKey: `voice_${voice.asset_id}`,
+      materialUrl: voice.url, fileName: voice.name, sortOrder: index + 1, audioDuration: voice.duration_seconds,
+      audio_asset_id: voice.asset_id }))
     const preview = await run({ method: 'audio_preview', script_id: input.script_id, project_dir: input.project_dir,
-      storyboard_id: id, prompt, audio_references: measured.map((voice, index) => ({ materialType: 'audio',
-        materialKey: `voice_${voice.asset_id}`, materialUrl: voice.url, fileName: voice.name,
-        sortOrder: index + 1, audioDuration: voice.duration_seconds, audio_asset_id: voice.asset_id })) })
+      storyboard_id: id, prompt, audio_references: expectedAudio })
     const applied = await run({ method: 'audio_apply', script_id: input.script_id, project_dir: input.project_dir,
       storyboard_id: id, preview_path: String(preview.preview_path), expected_fingerprint: String(preview.fingerprint),
       idempotency_key: String(preview.fingerprint) })
     if (applied.status !== 'applied' || applied.verified_readback !== true) return { ...applied, storyboard_id: id }
   }
   const after = await productionCard(client, id)
-  const expectedPrompt = input.prompt + (measured.length ? '\n本包声音参考：'
-    + measured.map(voice => `@[${voice.name}](voice_${voice.asset_id})`).join('、') : '')
   const config = after.card.model_config
   const modelFields = ['modelId', 'platformId', 'standardId', 'modelGenerationTypeId', 'videoStandardId',
     'genType', 'ratio', 'resolution', 'duration', 'genNum']
-  const images = storyboardMaterials(after.card.snapshot).materials.filter(item => item.materialType === 'image')
+  const materials = storyboardMaterials(after.card.snapshot).materials
+  const modelMaterials = storyboardMaterials({ storyboardMaterialList: config.materialList ?? [] }).materials
+  const images = materials.filter(item => item.materialType === 'image')
   const imageIdentity = images.map(item => [Number(item.materialAssetId), String(item.materialKey)])
-  if (config.prompt !== expectedPrompt || modelFields.some(field => String(config[field]) !== String(input.model[field]))
+  if (config.prompt !== prompt || modelFields.some(field => String(config[field]) !== String(input.model[field]))
+    || !matchesAudioReferences(expectedAudio, materials) || !matchesAudioReferences(expectedAudio, modelMaterials)
     || JSON.stringify(imageIdentity) !== JSON.stringify(input.images.map(item => [item.asset_id, item.material_key]))) {
     return { status: 'readback_mismatch', storyboard_id: id, paid_requests: 0, verified_readback: after.card,
-      next: '最终原卡与本次模型、提示词或选材不一致；保留原回执核对，不宣称保存通过。' }
+      next: '最终原卡与本次模型、提示词、图片或音频绑定不一致；保留原回执核对。' }
   }
+  const bound = new Set(measured.filter(voice => expectedAudio.some(row => row.materialKey === `voice_${voice.asset_id}`
+    && row.materialUrl === voice.url && Number(row.audioDuration) === voice.duration_seconds)).map(voice => voice.asset_id))
   return { status: 'saved', storyboard_id: id, verified_readback: after.card, snapshot_sha256: after.sha256,
-    paid_requests: 0, unbound_voice_ids: input.voices.filter(voice => !measured.some(item => item.asset_id === voice.asset_id))
+    paid_requests: 0, unbound_voice_ids: input.voices.filter(voice => !bound.has(voice.asset_id))
       .map(voice => voice.asset_id),
     next: '卡片已保存并真实回读；这只证明写入结果。Muse对照本镜需求和实际图片／音频复检，再按任务授权prepare_video；未生成。' }
 }

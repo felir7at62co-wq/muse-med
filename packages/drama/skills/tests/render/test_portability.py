@@ -413,6 +413,8 @@ class PortabilityTests(unittest.TestCase):
         render = (RENDER / 'SKILL.md').read_text(encoding='utf-8')
         self.assertIn('同一情绪发展可沿用一曲，确有剧情转折才合理改变音乐', render)
         self.assertIn('场景数、镜头数和分析段落数都不决定曲目数量', render)
+        self.assertIn('bgm_match.story', render)
+        self.assertIn('每段新选曲记录曲库', render)
         self.assertIn('按正文情绪分段选曲', render)
         self.assertNotIn('E:\\aa-manju', render)
 

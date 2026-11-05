@@ -20,7 +20,9 @@ source、episodes、style、asset_prompts、asset_candidates、official_assets�
 - `python -B scripts/pipeline_state.py <项目目录> sync` —— **产物投影**：按磁盘上的产物重算每个阶段（completed / review / pending），写 `status_source: "projection"`。**开工第一件事就是跑它**，把「现在在哪一阶段、哪几集走到哪」报出来再动手，不要凭记忆推进。
 - `… set --stage <阶段> --status <状态>` —— **人工批注**：写 `status_source: "manual"`，此后 `sync` 只报告不覆盖，用来表达产物看不出来的事（预算、批准、已知缺口、阻塞）。
 - 状态 = 产物投影 + 人工批注；手写自述必然腐烂，所以不要手改 JSON，也不要指望谁记得回写。
+- `drama_render` 默认输出 `exports/<集号>.mp4`。状态投影将范围内的默认输出计为待审核成片，交付完成仍需单独的交付证据。
 - 后段阶段（脚本匹配 / 生成 / 审片 / 草稿 / 成片）以**声明工作范围**为口径：范围内全部分集完成才算 completed，否则是 review。`note.completion_scope=work_scope` 只代表分工完成，不能报告整部剧完成；未声明分工的旧项目仍按整剧核对。
+- `draft` 和 `export` 的自动投影会按本集编译清单核对包号、准备后的来源、时间线和计划版本。缺包看 `missing_evidence`，沿原任务键对账后补齐。历史人工清单沿用原检查。现存 MP4 的交付仍需核对它自己的成片来源记录，剪映实机打开单独验收。
 
 多集镜头的覆盖证据是业务产物，不是第二套流程状态。先根据用户或正式分工确认 `episodes/manifest.json` 的 `work_scope.episode_ids`；`expected_episode_count` 始终表示整剧总集数，不能把 300 改成分工的 80。用户只负责 140–219 集时显式列出这 80 个原始集号，不补做 01–139 或 220–300，不从现有最小/最大集号推断授权或完整性。schema、逐行来源映射和旧记录迁移见 [Core I/O contract](references/io-contract.md#episode-work-scope-and-coverage)。
 
@@ -55,6 +57,10 @@ source、episodes、style、asset_prompts、asset_candidates、official_assets�
 关键道具在选材和写镜头时执行[道具与剧情动作适配](../tweet-drama-asset-vision-check/SKILL.md#道具与剧情动作适配)：对照原文动作实看选用母版，核对相对尺度、结构与使用方式，保留适用依据。身份正确不等于动作成立；冲突或证据不足时暂停受影响包的付费生成，继续独立工作，不靠提示词强行放大道具或改动人物表演补救。母版更换后重查首次出现、实际使用及相关包的绑定和免费预览。
 
 提交前核对完整提示词、引用顺序、真实素材ID、角色版本、包时长和当前模型能力，再使用既有授权与幂等提交；`advisory` 的 `ok=true` 不证明内容验收通过。区分可解释的风格提示、解析误报与真实漏词/错绑，不以警告数量为零作为目标。收费结果未知先沿原key对账，提供方连续故障先停该通道核对，不反复收费试生。
+
+原生提交返回 `generation_watch_id` 时，宿主已保存本次分包和原请求键，后台查询会在核对结果后唤醒本制作会话。先推进独立工作，等待期间无需另外启动同任务的 `jubian_watch`。收到结果后沿已授权的本集范围继续，用 `jubian_media download resume=true` 和本集原下载路径处理已核实的分包。缺包按原键对账，本集应有包齐全后才合成。整集工作成片用 `drama_render render resume=true`，续跑沿用原工作输出路径并读取工具实际返回的 `output`。给成片和草稿保留同一份当前时间线和实际叠加 SRT。使用项目内独立的集数目录，在其 02_剪映草稿 下保存本集草稿。用 drama_render stage_delivery 传实际成片、时间线、SRT 和工具返回的草稿路径，技术复验及来源一致才归集到该集 01_可交付视频。目录仅有本集 MP4，回执留在目录外。相同版本可续跑复用，存在不同成片或草稿时保留旧版并停在冲突。返回 candidate 时保留待验，核对实际内容与剪映打开后才确认可交付。
+
+新一轮整剧或无人值守制作，在本集首次 prepare 前核对项目已启用 `project_bible.delivery` 下的 `require_source_review`、`subtitle.require_speech_coverage` 和 `audio.require_music_decision`。分包下载齐后按后台成片技能先核实际选片，有烧录对白先复用已核验结果，再按免费火山、收费羽点、本地局部去字幕的顺序处理；正式渲染前完成曲库选曲与合成，或记录有依据的留白。转写只用最终采用的每镜原声，独立音轨时转写那条音轨。剪点、选源或整集原声变化后重建时间线和字幕，两边复用同一版本。剪映保持所选音频模式：内嵌原声模式保留正文视频原声，避免另叠相同对白；独立音轨模式使用本集独立原声音轨并静音正文视频轨。归档时传 `speech_transcripts` 和已有的 `speech_decisions`；映射的 `display` 声明须按实际看过的完整显示字幕和选片摘要填写。先复验有声缺字、挂空字幕和提前或延后，再处理本集候选。源片仍有烧录字幕时，严格归档保持待复核，先定位底片及受影响镜头。无法取得同源证据时记录集数、秒点和缺项，继续独立集数；禁止仅为补证据重提付费生成。详见[正式渲染的字幕核查](../tweet-drama-background-render/SKILL.md#共享字幕视觉配置)。
 
 生成完成先回读任务、下载和测量，再看关键动作及相邻包接缝，逐句听校对白、旁白、心声与口型。抽帧通过和音轨非空不能代替声音核验；ASR不可用时可实际听校，未听校则明确保留待验，不能标为最终通过。替换包后检查整集、字幕、剪映草稿和导出是否仍引用旧版本；禁止素材按SHA检查。交付另验字幕校时、音量、画质和实际导出规格，不把高清画布当成高清源。交付钩子（提示性）：完整成片交付前先用 video-review 技能审查该集实际母版并登记 `_probe\delivery-config\film-reviews.json`（按母版 SHA-256 绑定，画面/声音/字幕/规格四维逐项结论）；缺登记或登记过期时交付脚本会提示但不拦截。
 

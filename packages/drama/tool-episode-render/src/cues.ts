@@ -18,6 +18,7 @@
 import { mkdir, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+import { fileSha256 } from './cache.ts'
 import { parseShotManifest, readJsonDocument, resolveShots } from './prepare.ts'
 import type { ResolvedShot } from './prepare.ts'
 import { ALIGNED_STRATEGY, cueRateFindings, effectiveCharacterCount, parseAlignment, parseLinePlan,
@@ -26,6 +27,7 @@ import type { CueRateFinding, ShotPlacement } from './speech.ts'
 import { formatSrtDocument, subtitleBlockPath, subtitleTextWarnings } from './subtitles.ts'
 import { deliveryPolicyFor, readProjectDelivery } from './delivery-policy.ts'
 import { appendClips } from './timeline.ts'
+import { writeSubtitleClock } from './subtitle-clock.ts'
 import type { MediaToolkit, SubtitleCue, Timeline } from './types.ts'
 
 /** Everything one cue build needs. */
@@ -44,6 +46,8 @@ export interface CueBuildInput {
   readonly alignmentPath: string
   /** Absolute path of the SRT to write. */
   readonly subtitleSrt: string
+  /** Require the alignment to bind every selected audio file to its exact bytes. */
+  readonly requireSourceHashes?: true
 }
 
 /** One alignment observation: which check it belongs to, what is wrong, and what to do. */
@@ -92,13 +96,14 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
   const plan = parseLinePlan(await readJsonDocument(input.linesPath, '台词计划'), input.linesPath)
   const aligned = new Map(parseAlignment(await readJsonDocument(input.alignmentPath, '对齐文档'),
     input.alignmentPath).map(row => [row.shot, row]))
-  const shots = await resolveShots(input.toolkit, input.project, rows)
+  const shots = await resolveShots(input.toolkit, input.project, rows, delivery.fps)
   const timeline = { ...appendClips(shots.map(shot => shot.durationUs)), delivery }
   const planned = new Map(plan.map(row => [row.shot, row.lines]))
 
   const placements: ShotPlacement[] = []
   const failures: CueDefect[] = []
   const warnings: string[] = [...deliveryPolicyFor(delivery).warnings]
+  const alignedAudio = new Map<number, string | undefined>()
   let cursorUs = 0
   for (const shot of shots) {
     const durationSeconds = shot.durationUs / 1_000_000
@@ -107,6 +112,18 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
     const lines = planned.get(shot.source.shot) ?? []
     const recognized = aligned.get(shot.source.shot)
     const recognizedCues = recognized?.cues ?? []
+    const sourceSha256 = recognized?.sourceSha256
+    if (input.requireSourceHashes) {
+      alignedAudio.set(shot.source.shot, sourceSha256)
+    } else if (sourceSha256 !== undefined) {
+      if (sourceSha256 !== await fileSha256(shot.audio)) {
+        failures.push({ id: 'subtitle_line_coverage',
+          detail: `镜头 ${String(shot.source.shot)} 的对齐来源与当前所选声音不一致。`,
+          fix: '请对本镜实际使用的原声取得同源字词时间后再重跑，不沿用另一版的时码。' })
+        continue
+      }
+      alignedAudio.set(shot.source.shot, sourceSha256)
+    }
     if (lines.length === 0) {
       if (recognized === undefined) {
         failures.push({
@@ -228,8 +245,10 @@ export async function buildEpisodeCues(input: CueBuildInput): Promise<BuiltCues>
     observations.unshift(notice)
   } else {
     if (draft) warnings.push(`字幕存在待核项，候选已写入 ${target}，没有覆盖原字幕；由 Muse 核听并选择后续使用的版本。`)
-    await writeFileAtomic(target, formatSrtDocument(cues), { mode: 0o600, dirMode: 0o700 })
-    written.unshift(target)
+    const text = formatSrtDocument(cues)
+    const clock = await writeSubtitleClock(target, text, input.episode, shots, alignedAudio)
+    await writeFileAtomic(target, text, { mode: 0o600, dirMode: 0o700 })
+    written.unshift(target, clock)
   }
   await writeFileAtomic(review, observations.join('\n'), { mode: 0o600, dirMode: 0o700 })
   if (draft && !emptyCandidate) {

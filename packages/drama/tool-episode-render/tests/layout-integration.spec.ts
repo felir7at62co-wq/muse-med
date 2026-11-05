@@ -78,8 +78,11 @@ async function invoke(tool: ToolDefinition, args: Record<string, string | number
 
 function externalStub(output: string, layoutCode = 0) {
   return stubChannel([
-    probeHandler({ [output]: { durationSeconds: 1, sizeBytes: 1_000_000, bitRateBps: 8_000_000,
-      video: { width: 320, height: 180, fps: 12 }, audio: {} } }),
+    probeHandler({
+      [join(output, '..', '..', 'video', '01', 'shot_001.mp4')]: { durationSeconds: 1, video: { fps: 12 } },
+      [output]: { durationSeconds: 1, sizeBytes: 1_000_000, bitRateBps: 8_000_000,
+        video: { width: 320, height: 180, fps: 12 }, audio: {} },
+    }),
     call => call.args.some(argument => argument.includes('bbox=min_val=1')) ? {
       code: layoutCode, stderr: layoutCode === 0
         ? 'fontselect: (Arial, 400, 0) -> ArialMT, 0, ArialMT\n[Parsed_bbox] x1:200 x2:599 y1:50 y2:79 w:400 h:30'

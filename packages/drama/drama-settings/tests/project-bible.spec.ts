@@ -98,6 +98,38 @@ it('returns Settings defaults for an unconfigured project without creating files
   await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
+it('sets independent subtitle archive rules through the Loader and retains existing typography and omitted rules', async () => {
+  const { ctx, home } = await bench()
+  await writeFile(join(home, 'project_config.json'), JSON.stringify({ delivery: {
+    subtitle: { font_size_px: 40 }, audio: { bgm_gain: 0.24 },
+  } }))
+  const execute = async (args: object) => {
+    const result = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('subtitle-archive'),
+      arguments: { project_dir: home, ...args }, signal: new AbortController().signal })
+    expect(result.isError).toBe(false)
+    const content = result.content[0]
+    if (content?.type !== 'text') throw new Error('Expected project JSON')
+    return JSON.parse(content.text) as { expected_revision: string; preview_fingerprint: string }
+  }
+  for (const subtitle of [{ require_no_punctuation: true }, { require_speech_coverage: true }]) {
+    const changes = { delivery: { subtitle } }, reason = 'approved archive requirements'
+    const preview = await execute({ action: 'preview', changes, reason })
+    await execute({ action: 'update', changes, reason, expected_revision: preview.expected_revision,
+      preview_fingerprint: preview.preview_fingerprint })
+  }
+  const changes = { delivery: { require_source_review: true, audio: { require_music_decision: true } } }
+  const reason = 'confirmed content and music archive requirements'
+  const preview = await execute({ action: 'preview', changes, reason })
+  await execute({ action: 'update', changes, reason, expected_revision: preview.expected_revision,
+    preview_fingerprint: preview.preview_fingerprint })
+  expect((await readProjectBible(ctx.settings, home)).config).toMatchObject({ project_bible: { delivery: {
+    subtitle: { font_size_px: 40, require_no_punctuation: true, require_speech_coverage: true },
+    require_source_review: true, audio: { bgm_gain: 0.24, require_music_decision: true },
+  } } })
+  await expect(previewProjectBible(ctx.settings, home, { delivery: { subtitle: { require_speech_coverage: 'yes' } } }, 'bad rule'))
+    .rejects.toThrow('delivery.subtitle.require_speech_coverage')
+})
+
 it('replaces the entire draft-style section while unrelated updates preserve it', async () => {
   const { ctx, home } = await bench()
   const style = { watermark: { font_size_ui: 7 }, subtitle: { font_family: '山海经', font_size_ui: 11,

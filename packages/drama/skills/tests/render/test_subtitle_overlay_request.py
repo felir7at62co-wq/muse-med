@@ -1,4 +1,5 @@
 """Draft request binding for renderer-selected overlay subtitles and embedded-text disclosure."""
+from copy import deepcopy
 import hashlib
 import importlib.util
 import json
@@ -57,6 +58,37 @@ class SubtitleOverlayRequest(unittest.TestCase):
     def test_legacy_request_does_not_require_report_or_claim_editability(self):
         self.assertIsNone(MODULE.read_subtitle_overlay_report({}))
 
+    def write_clock(self, subtitle, duration):
+        source = sha(self.video)
+        clock = json.dumps(['24', [[1, duration, source, source]]], separators=(',', ':'))
+        Path(str(subtitle) + '.clock.json').write_text(json.dumps({
+            'version': 1, 'srt_sha256': sha(subtitle), 'source_clock_sha256': hashlib.sha256(clock.encode()).hexdigest(),
+        }), encoding='utf-8')
+
+    def test_generated_subtitle_refuses_changed_cut_before_creating_a_draft(self):
+        self.request.pop('subtitle_overlay_report')
+        self.write_clock(self.srt, 4_000_000)
+        clips = json.loads(self.timeline.read_text(encoding='utf-8'))['clips']
+        MODULE.verify_draft_subtitle_clock(self.request, clips, [self.video], None)
+        clips[0]['duration_us'] += 100_000
+        self.timeline.write_text(json.dumps({'clips': clips}), encoding='utf-8')
+
+        with self.assertRaisesRegex(ValueError, '生成字幕与当前集、分包或切点不一致'):
+            MODULE.generate_request(self.request, str(self.drafts))
+        self.assertFalse((self.project / 'editing' / 'draft-materials').exists())
+        self.assertEqual(list(self.drafts.iterdir()), [])
+
+    def test_partial_overlay_cannot_hide_stale_generated_original_subtitles(self):
+        original = self.project / 'original.srt'
+        original.write_bytes(self.srt.read_bytes())
+        self.write_clock(original, 3_000_000)
+        self.report.update(original_srt=str(original), original_srt_sha256=sha(original))
+        self.save_report()
+
+        with self.assertRaisesRegex(ValueError, '生成字幕与当前集、分包或切点不一致'):
+            MODULE.generate_request(self.request, str(self.drafts))
+        self.assertEqual(list(self.drafts.iterdir()), [])
+
     def test_binds_filtered_srt_and_source_without_claiming_all_text_editable(self):
         before = [sha(path) for path in (self.srt, self.video, self.timeline)]
         result = MODULE.read_subtitle_overlay_report(self.request)
@@ -66,6 +98,56 @@ class SubtitleOverlayRequest(unittest.TestCase):
         self.assertEqual(result['evidence_kind'], 'caller_declared')
         self.assertIn('不可编辑', '\n'.join(result['warnings']))
         self.assertEqual(before, [sha(path) for path in (self.srt, self.video, self.timeline)])
+
+    def test_independent_delivery_receipt_checks_saved_tracks_even_when_asset_hashes_match(self):
+        stage = self.project / 'materials'
+        stage.mkdir()
+        retained = []
+        for source in (self.srt, self.timeline, self.video, self.audio):
+            path = stage / source.name
+            path.write_bytes(source.read_bytes())
+            retained.append({'source': str(source), 'retained': str(path), 'sha256': sha(path)})
+        span = {'start': 0, 'duration': 4_000_000}
+        clean = {'materials': {
+            'audios': [{'id': 'a', 'path': str(stage / self.audio.name), 'duration': span['duration']}],
+            'videos': [{'id': 'v', 'path': str(stage / self.video.name)}],
+            'texts': [{'id': 't', 'content': json.dumps({'text': '后加字幕'})}],
+        }, 'tracks': [
+            {'name': '主音频轨道', 'type': 'audio', 'segments': [
+                {'material_id': 'a', 'speed': 1, 'source_timerange': span.copy(), 'target_timerange': span.copy()}]},
+            {'name': '视频轨道', 'type': 'video', 'segments': [
+                {'material_id': 'v', 'volume': 0, 'target_timerange': span.copy()}]},
+            {'name': '字幕轨道', 'type': 'text', 'segments': [
+                {'material_id': 't', 'target_timerange': {'start': 2_000_000, 'duration': 1_000_000}}]},
+        ]}
+        for track, change, reason in (
+                (None, None, None),
+                (0, {'target_timerange': {'start': 100_000, 'duration': span['duration']}}, '主音频必须从'),
+                (1, {'volume': 1}, '正文视频必须静音'),
+                (2, {'target_timerange': {'start': 2_020_000, 'duration': 1_000_000}}, '字幕时间')):
+            with self.subTest(track=track):
+                draft = self.drafts / str(track)
+                draft.mkdir()
+                content = deepcopy(clean)
+                if track is not None:
+                    content['tracks'][track]['segments'][0].update(change)
+                (draft / 'draft_content.json').write_text(json.dumps(content), encoding='utf-8')
+                (draft / 'draft_meta_info.json').write_text('{}', encoding='utf-8')
+                candidate = {'path': str(draft), 'success': True}
+                warning = MODULE.attach_episode_source_receipt(
+                    candidate, draft, self.drafts, stage, 24, retained, stage / self.timeline.name,
+                    stage / self.srt.name, {1: stage / self.video.name}, stage / self.audio.name)
+                self.assertTrue(candidate['success'])
+                receipt = draft / 'muse-episode-source.json'
+                if reason is None:
+                    self.assertIsNone(warning)
+                    self.assertEqual(candidate['episode_source_path'], str(receipt))
+                    self.assertEqual(json.loads(receipt.read_text(encoding='utf-8'))['track_verification'],
+                                     'independent-v1')
+                else:
+                    self.assertIn(reason, warning)
+                    self.assertNotIn('episode_source_path', candidate)
+                    self.assertFalse(receipt.exists())
 
     def test_binds_shot_order_videos_when_timeline_rows_are_unsorted(self):
         second = self.project / 'second.mp4'
@@ -175,6 +257,8 @@ class SubtitleOverlayRequest(unittest.TestCase):
         self.assertEqual(review['subtitle_overlay'], saved)
         self.assertIn('不可编辑', '\n'.join(result['warnings']))
         self.assertFalse(result['editor_open_verified'])
+        self.assertNotIn('episode_source_path', result['drafts'][0])
+        self.assertIn('无法核对本集的交付凭据', '\n'.join(result['warnings']))
 
     def test_failed_candidate_without_saved_review_keeps_its_original_error(self):
         generator = types.ModuleType('draft_generator')

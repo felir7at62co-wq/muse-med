@@ -8,6 +8,7 @@ import subprocess
 import hashlib
 import math
 import importlib.util
+from uuid import uuid4
 from fractions import Fraction
 from pathlib import Path
 
@@ -1118,6 +1119,33 @@ def _duration_us(segment: dict) -> int:
     return int((segment.get("target_timerange") or {}).get("duration", 0))
 
 
+def subtitle_readback_findings(text_segments, texts, normalized_cues, tolerance_us=50_000) -> list[str]:
+    """Compare the saved editable captions with the selected normalized cues."""
+    if normalized_cues is None:
+        return ["草稿里没有字幕轨；交付草稿必须带规范化字幕。"]
+    failures = []
+    if len(text_segments) != len(normalized_cues):
+        failures.append(f"字幕条数 {len(text_segments)} != 规范化后的字幕行数 {len(normalized_cues)}。")
+    ordered = sorted(text_segments, key=lambda segment: (segment.get("target_timerange") or {}).get("start", 0))
+    for index, (segment, cue) in enumerate(zip(ordered, normalized_cues), start=1):
+        material = texts.get(segment.get("material_id"))
+        if material is None:
+            failures.append(f"字幕片段 {segment.get('id')} 找不到对应文本素材。")
+            continue
+        actual_text = json.loads(material.get("content") or "{}").get("text", "")
+        if "text" in cue and actual_text != cue["text"]:
+            failures.append(f"第 {index} 条字幕文字与已审核 SRT 不一致。")
+        if "start_us" in cue and "end_us" in cue:
+            span = segment.get("target_timerange") or {}
+            start, duration = span.get("start"), span.get("duration")
+            if (type(start) is not int or type(duration) is not int or duration <= 0
+                    or abs(start - cue["start_us"]) > tolerance_us
+                    or abs(start + duration - cue["end_us"]) > tolerance_us):
+                failures.append(f"第 {index} 条字幕时间与已审核 SRT 不一致。" if tolerance_us == 0 else
+                                f"第 {index} 条字幕时间与已审核 SRT 相差超过 {tolerance_us / 1e6:g} 秒。")
+    return failures
+
+
 def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normalized_cues,
                           ending=None, expect_bgm=False, body_tail_holds=None, body_sources=None) -> None:
     """汇总草稿轨道待核项；生成流程将它们返回为提示并保留候选。
@@ -1333,31 +1361,11 @@ def verify_draft_delivery(content: dict, clips: dict, audio_duration_us, normali
     text_segments = [segment for track in content.get("tracks", [])
                      if track.get("type") == "text" and track.get("name") != WATERMARK_TRACK
                      for segment in track.get("segments", [])]
-    if normalized_cues is None:
-        failures.append("草稿里没有字幕轨；交付草稿必须带规范化字幕。")
-    elif len(text_segments) != len(normalized_cues):
-        failures.append(f"字幕条数 {len(text_segments)} != 规范化后的字幕行数 {len(normalized_cues)}。")
-
     texts = {material.get("id"): material for material in content.get("materials", {}).get("texts", [])}
-    ordered_subtitles = sorted(text_segments, key=lambda segment:
-                               int((segment.get("target_timerange") or {}).get("start", 0)))
-    for index, (segment, cue) in enumerate(zip(ordered_subtitles, normalized_cues or []), start=1):
-        material = texts.get(segment.get("material_id"))
-        if material is None:
-            continue
-        actual_text = json.loads(material.get("content") or "{}").get("text", "")
-        if "text" in cue and actual_text != cue["text"]:
-            failures.append(f"第 {index} 条字幕文字与已审核 SRT 不一致。")
-        if "start_us" in cue and "end_us" in cue:
-            span = segment.get("target_timerange") or {}
-            actual_start = int(span.get("start", 0))
-            actual_end = actual_start + int(span.get("duration", 0))
-            if abs(actual_start - cue["start_us"]) > 50_000 or abs(actual_end - cue["end_us"]) > 50_000:
-                failures.append(f"第 {index} 条字幕时间与已审核 SRT 相差超过 0.05 秒。")
+    failures.extend(subtitle_readback_findings(text_segments, texts, normalized_cues))
     for segment in text_segments:
         material = texts.get(segment.get("material_id"))
         if material is None:
-            failures.append(f"字幕片段 {segment.get('id')} 找不到对应文本素材。")
             continue
         style = (json.loads(material.get("content") or "{}").get("styles") or [{}])[0]
         strokes = style.get("strokes") or [{}]
@@ -1618,6 +1626,10 @@ def main_with_args(args, results=None):
             script = output_folder.create_draft(draft_name, width=canvas["width"], height=canvas["height"], fps=ending_plan["policy"]["fps"])
         except Exception as error:
             raise DraftInputError(f"创建草稿 {draft_path} 失败：{error}") from error
+        try:
+            assign_new_draft_identity(script, draft_path)
+        except DraftInputError as error:
+            refuse(str(error))
         logger.info(f"[{draft_name}] Successfully created new draft: {draft_name} "
                     f"with {canvas['width']}x{canvas['height']} at {ending_plan['policy']['fps']:g}fps")
 
@@ -2076,6 +2088,25 @@ def main_with_args(args, results=None):
     if not results:
         raise DraftInputError(f"没有匹配的音频序列，未生成草稿（seq={args.seq!r}）。")
     return results
+
+
+def assign_new_draft_identity(script, draft_path: Path) -> None:
+    """Replace the library's fixed project and timeline IDs on a newly created draft."""
+    meta_path = draft_path / 'draft_meta_info.json'
+    temporary = meta_path.with_suffix('.json.tmp')
+    try:
+        meta = json.loads(meta_path.read_text(encoding='utf-8-sig'))
+        if not isinstance(meta, dict):
+            raise ValueError('draft_meta_info.json must contain an object')
+        meta['draft_id'] = str(uuid4()).upper()
+        meta['draft_name'] = draft_path.name
+        temporary.write_text(json.dumps(meta, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        temporary.replace(meta_path)
+        if json.loads(meta_path.read_text(encoding='utf-8-sig')) != meta:
+            raise ValueError('saved draft metadata differs from its assigned identity')
+        script.content['id'] = str(uuid4()).upper()
+    except (OSError, ValueError) as error:
+        raise DraftInputError(f"无法为新草稿 {draft_path.name} 保存独立标识：{error}") from error
 
 
 def save_verified_draft(script, draft_path: Path, expected_content: dict = None) -> dict:

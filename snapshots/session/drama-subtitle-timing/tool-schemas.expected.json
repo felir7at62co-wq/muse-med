@@ -22,13 +22,13 @@
     },
     {
       "name": "drama_render",
-      "description": "处理一集短剧的字幕、渲染准备、成片与检查，方法见 method。prepare 复制每镜成片到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长写 editing/<集>-timeline.json，按镜头起点拼接 48kHz 无损原声 master 到 audio/<集>.wav（不加增益、不逐镜重采样），安装 SRT，不编码画面。它快照 project_bible 的明确 visual_medium 与 delivery 宽高/帧率、subtitle 和 audio section；render/verify 优先使用快照，缺媒介时读项目；明确媒介冲突需重跑 prepare，不从 style 或宽高比猜测。Muse 竖版产品统一使用部署字幕视觉；横版、方形和非产品部署按完整 section 依次取时间线、项目、部署默认，已快照 section 不逐字段继承后改项目。未声明媒介的旧项目提醒并保留旧样式。prepare/render 的 render_preview 给出最终规格、字幕设计字号及输出像素、BGM 路径与增益，需与已认可审查版核对；SRT 不含字体样式。prepare 可选 bgm/bgm_plan 预览，未提供只提醒。传 speech_transcripts 时仅在同源、完整匹配且不重叠的词界拆分超宽字幕；缺证据则保留原句，不猜时码，成片和草稿复用 render_preview.subtitle.path。subtitles 只用 alignment 给出的逐镜语音时间，显示文字来自 lines；建议单行、无标点、每条不超过 14 个有效字。长句要逐条取得同源字词时间；cue 时间=时间线镜头起点+镜内偏移，不均分句时长，不做识别、测能量或估算时间。缺对齐、段数或声文不符、有识别却无声明台词、时长/重叠/越界/阅读速度问题均提醒具体镜号与证据缺口。有可用条目时写独立字幕候选；无可用条目只写检查说明，不覆盖原字幕、已有候选或其说明。识别模型、语言与时间准确度由调用方负责。subtitle_layout 用实际字体、libass 与正式烧录链测白字宽高，黑描边另估，返回 PNG、字体/错误日志路径及超宽 cue；按配置选样式，不按字数猜宽或自动缩字。超宽与探针失败只提醒，不要求审批；显式启用时 render 也执行此检查。speech_coverage 只读双向比较同源词级转写与完整显示 SRT（含保留原片烧字），speech_decisions 可附本次证据绑定的逐项核听理由。包含单字、尾音与剧本外识别内容，不跨时间借词、不重复使用字符，多字词保留整词时间，不猜字级时间。其结果是 ASR 待核候选，不证明真声或听感通过；不得自动补词、猜时码或将未识别当作静音。原片烧字先用 video_ocr/video_inspect 预览并明确决定，无识别结果不等于无字幕。subtitle_overlay 按 subtitle_plan 只去除完整覆盖且同文的外加 cue，导出新 SRT 与决定报告；部分重叠或文字不符只提醒，不自动切句。prepare/render 可用同一计划，原 SRT 不改写，草稿复用 resolved_srt 与 decision_report。原片烧字不可编辑或靠外加样式统一；evidence_paths 仅是调用方声明。render 按快照编码（旧时间线默认 1440x2560@60），24M 目标/30M 上限/48M 缓冲、H.264 high@5.1、AAC 192k/48kHz、+faststart。3D 动画不加水印、片尾或读取 ending 素材，仅混整集原声与 BGM。写实与旧项目定格真实尾帧 2 秒，按 ending_effect_fit 铺片尾特效，仅混 ending_audio 前 2 秒；只接受参数指定的随包素材及 SHA-256。字幕只烧一次，标记类交付的「内容由AI生成」由 ASS 携带，不能另加 drawtext/overlay。混音为原声+BGM（到正片结束）+适用片尾音，amix 后 alimiter=0.95；显式增益不改混音算法。h264_nvenc 探测失败回退 libx264，原因写入 encoder_fallback_reason 与日志；回读实际分辨率、帧率、码率、时长、大小和编码器。verify 检查时长、音视频流、4.6 Mbps 总码率下限、首中尾真实解码、黑帧、静音和字幕越界，不能只看元数据。尾帧通过 framemd5 与顺序解码末帧核对，失败先顺序重取，仍无法证明则报错。缺参数/文件、命令失败等无法执行的问题报错；成片质量问题保留文件与实测参数，按 checks、ok=false、failures 返回中文修法。",
+      "description": "处理一集短剧的字幕、渲染准备、成片与检查，方法见 method。prepare 复制每镜成片到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长写 editing/<集>-timeline.json，按镜头起点拼接 48kHz 无损原声 master 到 audio/<集>.wav（不加增益、不逐镜重采样），安装 SRT，不编码画面。它快照 project_bible 的明确 visual_medium 与 delivery 宽高/帧率、subtitle 和 audio section；render/verify 优先使用快照，缺媒介时读项目；明确媒介冲突需重跑 prepare，不从 style 或宽高比猜测。Muse 竖版产品统一使用部署字幕视觉；横版、方形和非产品部署按完整 section 依次取时间线、项目、部署默认，已快照 section 不逐字段继承后改项目。未声明媒介的旧项目提醒并保留旧样式。prepare/render 的 render_preview 给出最终规格、字幕设计字号及输出像素、BGM 路径与增益，需与已认可审查版核对；SRT 不含字体样式。prepare 可选 bgm/bgm_plan 预览，未提供只提醒。传 speech_transcripts 时仅在同源、完整匹配且不重叠的词界拆分超宽字幕；缺证据则保留原句，不猜时码，成片和草稿复用 render_preview.subtitle.path。subtitles 只用 alignment 给出的逐镜语音时间，显示文字来自 lines；建议单行、无标点、每条不超过 14 个有效字。长句要逐条取得同源字词时间；cue 时间=时间线镜头起点+镜内偏移，不均分句时长，不做识别、测能量或估算时间。缺对齐、段数或声文不符、有识别却无声明台词、时长/重叠/越界/阅读速度问题均提醒具体镜号与证据缺口。有可用条目时写独立字幕候选；无可用条目只写检查说明，不覆盖原字幕、已有候选或其说明。识别模型、语言与时间准确度由调用方负责。subtitle_layout 用实际字体、libass 与正式烧录链测白字宽高，黑描边另估，返回 PNG、字体/错误日志路径及超宽 cue；按配置选样式，不按字数猜宽或自动缩字。超宽与探针失败只提醒，不要求审批；显式启用时 render 也执行此检查。speech_coverage 只读双向比较同源词级转写与完整显示 SRT（含保留原片烧字），speech_decisions 可附本次证据绑定的逐项核听理由。包含单字、尾音与剧本外识别内容，不跨时间借词、不重复使用字符，多字词保留整词时间，不猜字级时间。其结果是 ASR 待核候选，不证明真声或听感通过；不得自动补词、猜时码或将未识别当作静音。原片烧字先用 video_ocr/video_inspect 预览并明确决定，无识别结果不等于无字幕。subtitle_overlay 按 subtitle_plan 只去除完整覆盖且同文的外加 cue，导出新 SRT 与决定报告；部分重叠或文字不符只提醒，不自动切句。prepare/render 可用同一计划，原 SRT 不改写，草稿复用 resolved_srt 与 decision_report。原片烧字不可编辑或靠外加样式统一；evidence_paths 仅是调用方声明。render 按快照编码（旧时间线默认 1440x2560@60），24M 目标/30M 上限/48M 缓冲、H.264 high@5.1、AAC 192k/48kHz、+faststart。3D 动画不加水印、片尾或读取 ending 素材，仅混整集原声与 BGM。写实与旧项目定格真实尾帧 2 秒，按 ending_effect_fit 铺片尾特效，仅混 ending_audio 前 2 秒；只接受参数指定的随包素材及 SHA-256。字幕只烧一次，标记类交付的「内容由AI生成」由 ASS 携带，不能另加 drawtext/overlay。混音为原声+BGM（到正片结束）+适用片尾音，amix 后 alimiter=0.95；显式增益不改混音算法。h264_nvenc 探测失败回退 libx264，原因写入 encoder_fallback_reason 与日志；回读实际分辨率、帧率、码率、时长、大小和编码器。verify 检查时长、音视频流、4.6 Mbps 总码率下限、首中尾真实解码、黑帧、静音和字幕越界，不能只看元数据。尾帧通过 framemd5 与顺序解码末帧核对，失败先顺序重取，仍无法证明则报错。缺参数/文件、命令失败等无法执行的问题报错；成片质量问题保留文件与实测参数，按 checks、ok=false、failures 返回中文修法。stage_delivery 复验工作成片、当前原声、字幕和选片摘要，并将成片与同集草稿归档为待验收候选；源字幕时钟失效时可在同源台词计划与对齐证据齐全后修复一次。",
       "parameters": {
         "type": "object",
         "properties": {
           "method": {
             "type": "string",
-            "description": "prepare=准备输入；render=出片；verify=检查；subtitles=按现有对齐生成字幕；audio_preview=用最终混音滤镜制作短音频 A/B 并分析 RMS/峰值；subtitle_overlay=导出外加字幕决定；speech_coverage=只读核对发声与完整字幕；subtitle_layout=测量字形并预览PNG。",
+            "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）；audio_preview=同最终混音滤镜的短音频 A/B 与短时 RMS/峰值分析；subtitle_overlay=导出已有烧录字的外加字幕决定；speech_coverage=现有词级转写与最终完整显示 SRT 的只读双向比较（不编码、不做识别）；subtitle_layout=显式统一样式的真实字形探针与PNG，不渲染整集；stage_delivery=复验工作成片并与同集草稿归档为待验收候选。",
             "enum": [
               "prepare",
               "render",
@@ -37,7 +37,8 @@
               "audio_preview",
               "subtitle_overlay",
               "speech_coverage",
-              "subtitle_layout"
+              "subtitle_layout",
+              "stage_delivery"
             ]
           },
           "project": {
@@ -54,15 +55,15 @@
           },
           "lines": {
             "type": "string",
-            "description": "台词计划 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"lines\":[\"第一句\",\"第二句\"]}]}；subtitles 必填。每镜按原文顺序去标点并按语义分条，工具不改文字；样式和覆盖问题只提醒。"
+            "description": "台词计划 JSON 路径，形如 {\"shots\":[{\"shot\":1,\"lines\":[\"第一句\",\"第二句\"]}]}；subtitles 必填。prepare 可与 alignment 一起传入，供生成字幕的时间线失效时自动修复一次。相对路径以 project 为基准，绝对路径保持不变。每镜按原文顺序去标点并按语义切成单行显示字幕，建议每条不超过 14 个有效字；工具不改文字，样式和覆盖问题只作提示。"
           },
           "alignment": {
             "type": "string",
-            "description": "语音识别对齐文档 JSON 路径，subtitles 必填，形如 {\"shots\":[{\"shot\":1,\"cues\":[{\"text\":\"识别文本\",\"start\":0.0,\"end\":0.8}]}]}（镜内、相对该镜起点，秒）。显示文字仍来自 lines，识别文本只用于核对同一段表演。缺镜、段数或文本不符只提醒，不要求清零或审批。"
+            "description": "语音识别对齐文档 JSON 路径，subtitles 必填，形如 {\"shots\":[{\"shot\":1,\"cues\":[{\"text\":\"识别文本\",\"start\":0.0,\"end\":0.8}]}]}（镜内、相对该镜起点，秒）。文件相对路径以 project 为基准，绝对路径保持不变。只取它的时间：字幕显示文字仍来自 lines，识别文本仅用于核对是不是同一段表演。用于 prepare 自动修复时，每镜的 source_sha256 必须匹配当前选择的声音文件。缺某一镜、段数不符或文本对不上只作提示；不会要求清零或用户审批。"
           },
           "timeline": {
             "type": "string",
-            "description": "时间线 JSON 路径；render、verify、subtitle_overlay、speech_coverage、subtitle_layout 必填，可显式声明 ending_effect_fit=source_once（旧行为）或 stretch_to_window（完整特效变速铺满两秒）。跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。"
+            "description": "时间线 JSON 路径；render、verify、subtitle_overlay、speech_coverage、subtitle_layout、stage_delivery 必填，相对路径以 project 为基准；可显式声明 ending_effect_fit=source_once（旧行为）或 stretch_to_window（完整特效变速铺满两秒）。跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。"
           },
           "subtitle_srt": {
             "type": "string",
@@ -98,7 +99,7 @@
           },
           "bgm_generation": {
             "type": "string",
-            "description": "audio_preview 可选：项目内 drama_bgm generation.json，SHA-256 须匹配本次BGM；展示每源曲 source_mean_db/applied_gain_db，缺收据明确标未提供。"
+            "description": "audio_preview 可选，严格配乐 render 采用配乐时必填：drama_bgm 返回的 generation.json，SHA-256 须匹配本次 BGM。试听报告另外显示逐曲源响度和实际增益。"
           },
           "audio": {
             "type": "string",
@@ -131,11 +132,19 @@
           },
           "output": {
             "type": "string",
-            "description": "render 成片输出（省略写 exports/<集>.mp4），verify 必填；subtitle_overlay 可指定项目内全新 SRT 导出路径，配套报告为 <output>.decision-report.json，两者不覆盖已有文件；省略则独立唯一目录。相对路径以 project 为基准。"
+            "description": "render 成片输出（省略写 exports/<集>.mp4），verify 与 stage_delivery 必填；subtitle_overlay 可指定项目内全新 SRT 导出路径，配套报告为 <output>.decision-report.json，两者不覆盖已有文件；省略则独立唯一目录。相对路径以 project 为基准。"
           },
           "force": {
             "type": "boolean",
             "description": "render 是否忽略 exports/.render_cache 里的逐镜缓存并全部重编；默认 false。"
+          },
+          "resume": {
+            "type": "boolean",
+            "description": "render 可选：仅用于完整单集。独立复核并复用输入完全一致的已有候选。没有可复用收据时保留已有文件并另存候选。以返回的 output 为实际成片路径。"
+          },
+          "draft": {
+            "type": "string",
+            "description": "stage_delivery 必填。本集 02_剪映草稿 下由 jianying_draft 返回的实际草稿目录。"
           }
         },
         "required": [

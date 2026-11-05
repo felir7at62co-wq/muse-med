@@ -28,7 +28,7 @@ CORE_SCRIPTS = SCRIPT_ROOT.parents[1] / 'tweet-drama-core' / 'scripts'
 sys.path.insert(0, str(CORE_SCRIPTS))
 from video_bans import check_videos, find_project
 from draft_inputs import audio_gains, body_clock, draft_style, bgm_import, product_subtitle_cues, write_product_subtitles
-from generate_draft_request import read_subtitle_overlay_report
+from generate_draft_request import attach_episode_source_receipt, read_subtitle_overlay_report, verify_draft_subtitle_clock
 
 _policy_spec = importlib.util.spec_from_file_location(
     'aa_delivery_policy', SCRIPT_ROOT.parents[1] / 'tweet-drama-background-render/scripts/delivery_policy.py')
@@ -318,6 +318,7 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
     if clock['included']:
         raise ValueError('Embedded-audio mode requires body-only source selections; an included ending must be prepared separately')
     overlay = read_subtitle_overlay_report(request)
+    verify_draft_subtitle_clock(request, clips, sources, overlay)
     empty_overlay = overlay is not None and overlay['overlay_cue_count'] == 0
     cues = parse_subtitles(subtitle_path, allow_empty=empty_overlay)
     if overlay is not None and len(cues) != overlay['overlay_cue_count']:
@@ -717,10 +718,19 @@ def generate_request(request: dict, drafts_dir: str) -> dict:
     if 'subtitle_overlay' in plan:
         review['subtitle_overlay'] = plan['subtitle_overlay']
     review_path.write_text(json.dumps(review, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    candidate = {'episode': str(request['episode']).zfill(2), 'name': plan['name'],
+                 'path': plan['draft_path'], 'id': result['draft_id'], 'success': True, 'error': '',
+                 'quality': 'needs_review', 'warnings': warnings, 'review_path': str(review_path)}
+    native_sources = (native_source_path(row['attributes']['source']) for row in extract_nodes(result['full'])
+                      if row.get('type') in ('video', 'audio'))
+    warning = attach_episode_source_receipt(
+        candidate, Path(plan['draft_path']), Path(drafts_dir), stage, request['episode'], plan['materials'],
+        stage / 'timeline.json', stage / 'subtitles.srt', {row['shot']: Path(row['path']) for row in plan['videos']},
+        native_sources=native_sources, path_decoder=native_source_path)
+    if warning is not None:
+        warnings = candidate['warnings']
     return {'success': True, 'backend': 'aa-jianying', 'drafts_created': 1,
-            'drafts': [{'episode': str(request['episode']).zfill(2), 'name': plan['name'],
-                        'path': plan['draft_path'], 'id': result['draft_id'], 'success': True, 'error': '',
-                        'quality': 'needs_review', 'warnings': warnings, 'review_path': str(review_path)}],
+            'drafts': [candidate],
             'materials_dir': str(stage), 'quality': 'needs_review', 'warnings': warnings,
             'library': {'name': 'aa-jianying', 'version': '1'}, 'editor_open_verified': False,
             'runtime': result['runtime'], 'verification': verification,

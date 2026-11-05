@@ -213,6 +213,17 @@ class SourceLineReport(unittest.TestCase):
             with self.subTest(prefix=prefix):
                 self.assertIsNone(classify_source_lines(f'人物：沈天赐、刘福贵\n{prefix}：等等。')[1]['kind'])
 
+    def test_exact_declared_actor_silence_is_an_action_without_hiding_speech(self):
+        for text in ('▲裴砚衡依然没有说话。', '动作：裴砚衡仍然没有说话。', '画面：裴砚衡没有说话'):
+            with self.subTest(text=text):
+                row = classify_source_lines(f'人物：裴砚衡、乔麦\n{text}')[1]
+                self.assertEqual(row['kind'], 'action')
+                self.assertEqual(row['source_text'], text)
+        for text in ('▲乔麦说裴砚衡没有说话。', '▲裴砚衡并非没有说话。', '▲裴砚衡没有说话，却低语。',
+                     '▲裴砚衡没有说话：“我在听。”', '▲裴砚衡写着“没有说话”。', '▲陌生人没有说话。'):
+            with self.subTest(text=text):
+                self.assertIsNone(classify_source_lines(f'人物：裴砚衡、乔麦\n{text}')[1]['kind'])
+
     def test_dropping_a_classified_row_invalidates_existing_acceptance(self):
         entries = source_line_report(self.root, '14')['entries']
         self.mapping(entries)

@@ -162,6 +162,7 @@ export function install(rt) {
 
   const deliver = rt.deliver
   rt.deliver = async (args) => {
+    if (args.generationWatch !== undefined) return deliver(args)
     const noted = { ...args, exchangeId: args.exchangeId ?? randomUUID() }
     const sessionId = noted.sessionId ?? rt.chatOf(noted.toId)
     // Noted before it is sent: a turn may take it up before the send returns.
@@ -214,6 +215,13 @@ export function install(rt) {
         break
       }
       case 'user/message': {
+        // The native Jubian watch owns this continuation and its paid-work guards.
+        // Do not give a second generic restart prompt to the same worker turn.
+        const active = rt.live.get(id)
+        if (active?.watchOpened || active?.info?.generationWatchReceiptId !== undefined) {
+          update(id, () => undefined)
+          break
+        }
         if (event.data?.source?.kind !== SOURCE_KIND) break
         // turns.js, installed earlier, has already claimed the turn's trigger.
         const info = rt.live.get(id)?.info

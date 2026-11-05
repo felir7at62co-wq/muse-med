@@ -16,7 +16,7 @@ import type {
   RequestErrorAction,
 } from '@deepseek-ai/dsh-agent'
 import { agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
-import type { GenerateOptions, LlmCallConfig, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmCallConfig, Message, MessageId, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
 import {
   LlmError,
   createAssistantMessage,
@@ -158,6 +158,13 @@ export class ReactLoopAgent implements Agent {
     const resolvedTarget = wakingAfterAbort ? 'next-turn' : target
     this.inbox.splice(resolvedTarget, Infinity, 0, [message])
     if (wakeup) this.wakeDriver(wakingAfterAbort)
+  }
+
+  wakePending(messageId: MessageId): boolean {
+    if (!this.inbox.nextTurn.some(message => message.id === messageId)
+      && !this.inbox.nextStep.some(message => message.id === messageId)) return false
+    this.wakeDriver(this.phase.kind !== 'idle' && this.phase.abort.signal.aborted)
+    return true
   }
 
   followup(input: UserMessage): void {

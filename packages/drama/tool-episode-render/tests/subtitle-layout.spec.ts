@@ -116,6 +116,24 @@ it('warns about measured overwidth while leaving text and timestamps unchanged',
   expect(result.warnings.join('\n')).toContain('实际字体尚未确认')
 })
 
+it.each([
+  { selected: ['ZhuqueFangsong-Regular'], status: 'matched' },
+  { selected: ['ArialMT', 'MicrosoftYaHeiUI'], status: 'unverified' },
+  { selected: ['ZhuqueFangsong-Regular', 'MicrosoftYaHeiUI'], status: 'unverified' },
+] as const)('reports actual selected faces independently from a fitting line: $selected', async ({ selected, status }) => {
+  const root = await directory()
+  const font = 'Zhuque Fangsong (technical preview)'
+  const traces = selected.map(face => `fontselect: (${font}, 400, 0) -> ${face}, 0, ${face}`).join('\n')
+  const process = stub(`${traces}\n[Parsed_bbox] x1:400 x2:499 y1:100 y2:119 w:100 h:20`)
+  const result = await measureSubtitleLayout({ toolkit: process.toolkit, settings,
+    delivery: { ...delivery, subtitle_visual: { ...visual, font_family: font } },
+    cues: [cue('给你的奖励')], directory: root })
+  expect(result.report.entries[0]).toMatchObject({
+    status: 'measured', fits_available_width: true, font_status: status, selected_fonts: selected,
+  })
+  expect(result.warnings.some(warning => warning.includes('实际字体尚未确认'))).toBe(status === 'unverified')
+})
+
 it('does not claim fit when the three-times-wide probe reaches an edge', async () => {
   const root = await directory(), process = stub('[Parsed_bbox] x1:0 x2:959 y1:50 y2:79 w:960 h:30')
   const result = await measureSubtitleLayout({ toolkit: process.toolkit, settings, delivery, cues: [cue('极长句')], directory: root })

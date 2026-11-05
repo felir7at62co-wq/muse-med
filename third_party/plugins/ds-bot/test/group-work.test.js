@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { randomUUID } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -26,17 +27,18 @@ const seed = (room = {}, extraRooms = {}) => ({
   revision: 0,
 })
 
-async function start(t, room, services, extraRooms) {
+async function start(t, room, services, extraRooms, { loadTeam = true, initialState, pendingMessages = {} } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-work-'))
-  writeFileSync(join(home, 'state.json'), JSON.stringify(seed(room, extraRooms)))
+  writeFileSync(join(home, 'state.json'), JSON.stringify(initialState ?? seed(room, extraRooms)))
   const ctx = legacyContext({ services })
   const agents = new Map()
   const agentOf = (sessionId) => {
     if (!agents.has(sessionId)) {
       const calls = []
       const cancelled = []
-      const held = []
+      const held = [...(pendingMessages[sessionId] ?? [])]
       const nextStep = []
+      const wakes = []
       const inbox = {
         nextStep,
         nextTurn: held,
@@ -49,16 +51,17 @@ async function start(t, room, services, extraRooms) {
         },
       }
       const keep = list => message => { calls.push(message); list.push(message) }
-      agents.set(sessionId, { session: { id: sessionId }, calls, cancelled, inbox, followup: keep(held), steer: keep(nextStep), cancel(reason) { cancelled.push(reason) } })
+      agents.set(sessionId, { session: { id: sessionId }, calls, cancelled, inbox, followup: keep(held), steer: keep(nextStep),
+        wakePending(id) { wakes.push(id) }, wakes, cancel(reason) { cancelled.push(reason) } })
     }
     return agents.get(sessionId)
   }
   Object.assign(ctx, {
     llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
-    workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {} },
+    workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {}, archivedSessionIds: [] },
     sessionController: { create: async () => ({ sessionId: 's1' }), resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }), selectModel: async () => {} },
     sessionTitle: { rename: async () => {} },
-    sessions: { flush: async () => {} },
+    sessions: { flush: async () => true },
   })
   let route
   const register = ctx.connection.fetch.register
@@ -71,8 +74,10 @@ async function start(t, room, services, extraRooms) {
   let seq = 0
   const turns = new Map()
   const emit = (id, type, data) => {
+    const event = { type, seq: ++seq, data }
+    services?.sessionProjections?.emit?.({ id }, event)
     for (const listener of ctx.listeners.get('session/event') ?? []) {
-      if (listener.length >= 2) listener({ id }, { type, seq: ++seq, data })
+      if (listener.length >= 2) listener({ id }, event)
     }
   }
   const tool = (name, args, sessionId, exec = {}) => ctx.registeredTools.get(name).execute(args, { agent: { id: sessionId }, ...exec })
@@ -85,7 +90,7 @@ async function start(t, room, services, extraRooms) {
     const turn = (turns.get(sessionId) ?? 0) + 1
     turns.set(sessionId, turn)
     emit(sessionId, 'turn/start', { turn })
-    emit(sessionId, 'user/message', { content: message.content, source: message.source })
+    emit(sessionId, 'user/message', { id: message.id, content: message.content, source: message.source })
     return message
   }
   const finish = (sessionId, reply) => {
@@ -106,10 +111,10 @@ async function start(t, room, services, extraRooms) {
   const say = text => ({ content: [{ type: 'text', text }], source: { kind: 'user' } })
   const takePost = () => {
     const post = agentOf('r1').calls.shift()
-    return { content: post.content, source: post.source }
+    return { id: post.id, content: post.content, source: post.source }
   }
-  await tool('list_bots', {}, 'a')
-  return { home, ctx, agentOf, emit, tool, call, begin, finish, round, say, takePost }
+  if (loadTeam) await tool('list_bots', {}, 'a')
+  return { home, ctx, agentOf, emit, tool, call, begin, finish, round, say, takePost, museTeam: ctx.get('museTeam'), stop: () => ctx.dispose() }
 }
 
 const settle = async (check) => {
@@ -119,6 +124,48 @@ const settle = async (check) => {
 }
 const text = message => message.content.map(block => block.text ?? '').join('\n')
 const kinds = result => result.replies.map(reply => [reply.kind ?? 'message', reply.name])
+
+function noteGeneration(host, sessionId, exchangeId, surface = 'native') {
+  const name = 'jubian_storyboard'
+  const content = [{ type: 'text', text: JSON.stringify({ generation_watch_id: 'a'.repeat(64),
+    ...(exchangeId === undefined ? {} : { generation_watch_group_exchange_id: exchangeId }),
+    ...(surface === 'ptc' ? { results: [{ status: 'submitted' }] } : { status: 'submitted' }),
+  }) }]
+  if (surface === 'ptc') {
+    host.emit(sessionId, 'tool/ptc-dispatch-start', { name, subCallId: 'submit' })
+    host.emit(sessionId, 'tool/ptc-dispatch', { name, subCallId: 'submit', content, isError: false })
+  } else {
+    host.emit(sessionId, 'tool/call', { name, callId: 'submit', arguments: '{}' })
+    host.emit(sessionId, 'tool/result', { message: { toolCallId: 'submit', content, isError: false } })
+  }
+}
+
+for (const workerReply of ['整理好了，在 docs/ 下。', '@Chief 整理好了，在 docs/ 下。']) {
+  test(`an in-round group result wakes its original requester once: ${workerReply}`, async (t) => {
+    const host = await start(t)
+    const first = host.round('same-round-result', host.say('@Chief 安排一下文档'))
+    await settle(() => host.agentOf('ga').calls.length === 1)
+    host.begin('ga')
+    host.finish('ga', '@Writer 把文档整理好')
+    await settle(() => host.agentOf('gb').calls.length === 1)
+    const work = host.begin('gb')
+    assert.equal(work.source.askedBy, 'a')
+    // An old, unowned watch ID or a different exchange cannot mask this result.
+    noteGeneration(host, 'gb', workerReply.startsWith('@') ? randomUUID() : undefined)
+    host.finish('gb', workerReply)
+    await settle(() => host.agentOf('ga').calls.length === 2)
+    const result = host.begin('ga')
+    assert.equal(result.source.askedBy, undefined)
+    assert.match(text(result), /Writer finished the work you asked for/)
+    assert.match(text(result), /整理好了，在 docs\//)
+    host.finish('ga', '已收到文档，整理完成。')
+    await settle(() => first() !== undefined)
+    assert.deepEqual(kinds(first()), [['message', 'Chief'], ['message', 'Writer'], ['message', 'Chief']])
+    assert.equal(host.agentOf('gb').calls.length, 1)
+    assert.equal(host.agentOf('gc').calls.length, 0)
+    assert.equal(host.agentOf('r1').calls.length, 0)
+  })
+}
 
 test('work past the grace lets the round go on, and the member that asked answers the result', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
@@ -152,6 +199,212 @@ test('work past the grace lets the round go on, and the member that asked answer
   assert.deepEqual(host.agentOf('gc').calls, [])
 })
 
+const generationNotice = (groupOrigin, id = randomUUID()) => ({
+  id,
+  content: [{ type: 'text', text: '已核对 剧变视频成片在 episode/final.mp4。' }],
+  source: { kind: 'jubian-generation-watch', form: 'notice', groupOrigin },
+})
+
+for (const surface of ['native', 'ptc']) {
+test(`an idle generation watch wakes the original group requester once: ${surface}`, async (t) => {
+  const host = await start(t)
+  const first = host.round('start', host.say('@Tester 安排一下本集制作'))
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  host.begin('gc')
+  host.finish('gc', '@Writer 制作这一集。')
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  const call = host.begin('gb')
+  assert.equal(call.source.askedBy, 'c')
+  assert.equal(host.museTeam.captureGenerationWatchOrigin('gc'), undefined)
+  const origin = host.museTeam.captureGenerationWatchOrigin('gb')
+  assert.ok(Object.isFrozen(origin))
+  assert.deepEqual(origin, {
+    roomId: 'r1', workerBotId: 'b', requesterBotId: 'c', requesterSessionId: 'gc', exchangeId: call.source.exchangeId,
+  })
+  noteGeneration(host, 'gb', origin.exchangeId, surface)
+  host.finish('gb', '@Tester 任务已提交，正在等待。')
+  await settle(() => first() !== undefined)
+  assert.equal(host.agentOf('gc').calls.length, 1)
+  assert.equal(host.museTeam.captureGenerationWatchOrigin('gb'), undefined)
+
+  const notice = generationNotice(origin)
+  host.agentOf('gb').followup({ ...notice, source: { ...notice.source, groupReceiptId: notice.id } })
+  host.begin('gb')
+  host.finish('gb', '本集已经生成。@Chief')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const post = host.takePost()
+  assert.equal(post.source.exchangeId, notice.id)
+  assert.equal(post.source.askedBy, 'c')
+  const second = host.round('deliver', post)
+  await settle(() => host.agentOf('gc').calls.length === 2)
+  const resumed = host.begin('gc')
+  assert.match(text(resumed), /Writer: 本集已经生成。@Chief/)
+  assert.equal(resumed.source.askedBy, undefined)
+  host.finish('gc', '[PASS]')
+  await settle(() => second() !== undefined)
+  assert.deepEqual(host.agentOf('ga').calls, [])
+  assert.deepEqual(host.agentOf('c').calls, [])
+
+  host.agentOf('gb').followup({ ...notice, id: randomUUID(), source: { ...notice.source, groupReceiptId: notice.id } })
+  host.begin('gb')
+  host.finish('gb', '重复收到结果。')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(host.agentOf('r1').calls, [])
+})
+}
+
+test('a submitted watch is quiet when the original round already moved on', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = await start(t)
+  const first = host.round('late-watch', host.say('@Chief 安排一下本集制作'))
+  await settle(() => host.agentOf('ga').calls.length === 1)
+  host.begin('ga')
+  host.finish('ga', '@Writer 制作这一集。')
+  await settle(() => host.agentOf('gb').calls.length === 1)
+  const call = host.begin('gb')
+  noteGeneration(host, 'gb', call.source.exchangeId)
+  t.mock.timers.tick(ROOM_WORK_GRACE_MS)
+  await settle(() => first() !== undefined)
+  host.finish('gb', '@Chief 任务已提交，正在等待。')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const post = host.takePost()
+  assert.equal(post.source.quiet, true)
+  const progress = host.round('late-progress', post)
+  await settle(() => progress() !== undefined)
+  assert.equal(host.agentOf('ga').calls.length, 1)
+})
+
+test('a saved generation watch still wakes the original group requester after a cold start', async (t) => {
+  const host = await start(t, {}, undefined, {}, { loadTeam: false })
+  const origin = { roomId: 'r1', workerBotId: 'b', requesterBotId: 'c', requesterSessionId: 'gc', exchangeId: randomUUID() }
+  assert.equal(host.museTeam.validateGenerationWatchOrigin('gb', origin), undefined)
+  await host.museTeam.prepareGenerationWatchDelivery()
+  assert.deepEqual(host.museTeam.validateGenerationWatchOrigin('gb', origin), origin)
+  assert.equal(host.museTeam.captureGenerationWatchOrigin('gb'), undefined)
+  const notice = generationNotice(origin)
+  host.agentOf('gb').followup(notice)
+  host.begin('gb')
+  host.finish('gb', '[PASS]')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const second = host.round('deliver', host.takePost())
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  assert.match(text(host.begin('gc')), /Writer: 已核对 剧变视频成片在 episode\/final.mp4。/)
+  host.finish('gc', '[PASS]')
+  await settle(() => second() !== undefined)
+  assert.deepEqual(host.agentOf('ga').calls, [])
+})
+
+test('a generation watch with a replaced requester Session never falls back to another group Bot', async (t) => {
+  const host = await start(t, { sessions: { a: 'ga', b: 'gb', c: 'new-gc' } })
+  const origin = { roomId: 'r1', workerBotId: 'b', requesterBotId: 'c', requesterSessionId: 'gc', exchangeId: randomUUID() }
+  const notice = generationNotice(origin)
+  host.agentOf('gb').followup(notice)
+  host.begin('gb')
+  host.finish('gb', '本集已经生成。@Chief')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(host.agentOf('r1').calls, [])
+  assert.deepEqual(host.agentOf('ga').calls, [])
+  assert.deepEqual(host.agentOf('new-gc').calls, [])
+})
+
+const generationProjections = (workerNotices, claimed = [], requesterClaimed = []) => {
+  const projections = new Map()
+  const keys = { r1: 'dsBotGenerationGroupReceipts', gc: 'dsBotGenerationRequesterReceipts' }
+  const receipts = { r1: claimed, gc: requesterClaimed }
+  return {
+    register: projection => projections.set(projection.key, projection),
+    stateOf: ({ id }, key) => key === 'jubianGenerationNotices' && id === 'gb' ? { notices: workerNotices }
+      : keys[id] === key ? receipts[id] : undefined,
+    emit: ({ id }, event) => {
+      const projection = projections.get(keys[id])
+      if (projection !== undefined) receipts[id] = projection.apply(receipts[id], event)
+    },
+  }
+}
+
+const restartStages = [
+  { label: 'relays a settled worker receipt without rerunning it' },
+  { label: 'reaches the original requester after the group already claimed the result', groupClaimed: true },
+  { label: 'wakes the same queued requester message without adding another', groupClaimed: true, requesterQueued: true },
+  { label: 'does not repeat a durable requester claim', groupClaimed: true, requesterClaimed: true },
+  { label: 'preserves a parked relay until the user continues', groupClaimed: true, parked: true },
+]
+for (const { label, groupClaimed, requesterQueued, requesterClaimed, parked } of restartStages) {
+  test(`generation watch outbox after restart ${label}`, async (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout'] })
+    const first = await start(t)
+    const origin = { roomId: 'r1', workerBotId: 'b', requesterBotId: 'c', requesterSessionId: 'gc', exchangeId: randomUUID() }
+    const notice = generationNotice(origin)
+    const receiptId = randomUUID()
+    const request = { workerSessionId: 'gb', origin, receiptId, noticeId: notice.id, text: text(notice) }
+    await first.museTeam.prepareGenerationWatchDelivery(request)
+    await first.stop()
+
+    // Only the worker's durable completion and the team outbox survived. The
+    // first Host never saw turn/end and never enqueued a group message.
+    const stateOf = home => JSON.parse(readFileSync(join(home, 'state.json'), 'utf8'))
+    const initialState = stateOf(first.home)
+    assert.deepEqual(initialState.generationWatchOutbox[receiptId], {
+      workerSessionId: 'gb', origin, noticeId: notice.id, text: text(notice),
+    })
+    if (groupClaimed) {
+      const room = initialState.rooms.r1
+      room.seq = 1
+      room.log = [{ seq: 1, who: 'Writer', botId: 'b', text: text(notice) }]
+      initialState.generationWatchOutbox[receiptId].logged = 1
+    }
+    if (parked) {
+      const room = initialState.rooms.r1
+      room.relayLimit = 1
+      room.relays = 1
+      room.paused = [{ id: 'c', name: 'Tester', generationWatch: { origin, noticeId: receiptId, workerSessionId: 'gb' } }]
+    }
+    const sessionProjections = generationProjections({ [notice.id]: 'settled' },
+      groupClaimed ? [receiptId] : [], requesterClaimed ? [receiptId] : [])
+    const queued = {
+      id: randomUUID(), content: notice.content,
+      source: { kind: 'bot', form: 'relay', role: 'room', exchangeId: randomUUID(), generationWatchReceiptId: receiptId },
+    }
+    const pendingMessages = requesterQueued ? { gc: [queued] } : {}
+    const second = await start(t, {}, { sessionProjections }, {}, { initialState, loadTeam: false, pendingMessages })
+    t.mock.timers.tick(3000)
+    // Recovery has started. State-file replacements can now retry on the real Windows clock.
+    t.mock.timers.reset()
+    if (requesterQueued) {
+      await settle(() => second.agentOf('gc').wakes.length === 1)
+      assert.deepEqual(second.agentOf('gc').wakes, [queued.id])
+      assert.deepEqual(second.agentOf('gc').calls, [])
+      assert.deepEqual(second.agentOf('gc').inbox.nextTurn, [queued])
+      second.emit('gc', 'user/message', queued)
+    } else if (!requesterClaimed) {
+      if (parked) {
+        await second.museTeam.prepareGenerationWatchDelivery()
+        await new Promise(resolve => setImmediate(resolve))
+        assert.deepEqual(second.agentOf('gc').calls, [])
+        assert.deepEqual(second.agentOf('r1').calls, [])
+        assert.equal((await second.call('room-continue', { roomId: 'r1' })).ok, true)
+      }
+      await settle(() => second.agentOf('r1').calls.length === 1)
+      const post = second.takePost()
+      if (!parked) {
+        assert.equal(post.source.exchangeId, receiptId)
+        assert.equal(post.id === receiptId, !groupClaimed)
+      }
+      const round = second.round('outbox-recovered', post)
+      await settle(() => second.agentOf('gc').calls.length === 1)
+      const continued = second.begin('gc')
+      assert.equal(continued.source.generationWatchReceiptId, receiptId)
+      assert.match(text(continued), /Writer: 已核对 剧变视频成片/)
+      second.finish('gc', '[PASS]')
+      await settle(() => round() !== undefined)
+    }
+    await settle(() => stateOf(second.home).generationWatchOutbox[receiptId] === undefined)
+    assert.equal(stateOf(second.home).rooms.r1.log.filter(line => line.text === text(notice)).length, 1)
+    assert.deepEqual(second.agentOf('gb').calls, [])
+    assert.deepEqual(second.agentOf('r1').calls, [])
+  })
+}
+
 // 公开#165: asked in a group to hand out work, Chief sent it with message_bot. Members
 // did it in their own chats, apart from the group (Bots outside the group too), and
 // again when called in the group.
@@ -168,6 +421,9 @@ test('message_bot from a group to one of its members calls it there, as "@Name" 
   assert.equal(called.source.askedBy, 'a')
   assert.match(text(called), /Chief: @Writer 把文档整理好/)
   host.finish('gb', '整理好了。')
+  await settle(() => host.agentOf('ga').calls.length === 2)
+  assert.match(text(host.begin('ga')), /Writer finished the work you asked for/)
+  host.finish('ga', '[PASS]')
   await settle(() => first() !== undefined)
   assert.deepEqual(kinds(first()), [['message', 'Chief'], ['message', 'Chief'], ['message', 'Writer']])
   assert.deepEqual([host.agentOf('b').calls, host.agentOf('gc').calls], [[], []])
@@ -894,6 +1150,9 @@ test('what a member writes while it works shows in the round at once, and its @ 
   await settle(() => host.agentOf('gc').calls.length === 1)
   assert.match(text(host.begin('gc')), /Writer: 收到，我先看看 docs\/ 的结构。[\s\S]*Writer: 整理好了。/)
   host.finish('gc', '验过了。')
+  await settle(() => host.agentOf('gb').calls.length === 2)
+  assert.match(text(host.begin('gb')), /Tester finished the work you asked for/)
+  host.finish('gb', '[PASS]')
   await settle(() => result() !== undefined)
   assert.deepEqual(result().replies.map(reply => [reply.name, reply.text]), [['Writer', '收到，我先看看 docs/ 的结构。@Tester 你等下帮我验一下'], ['Writer', '整理好了。'], ['Tester', '验过了。']])
   const log = JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).rooms.r1.log

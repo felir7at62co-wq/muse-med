@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -1917,6 +1918,36 @@ describe('required arguments', () => {
 })
 
 describe('jubian_media', () => {
+  it('reuses a receipt after restart and preserves a same-length file that has changed', async () => {
+    const original = Buffer.from('000000106674797069736f6d00000000', 'hex')
+    const changed = Buffer.from('000000106674797069736f6d00000001', 'hex')
+    const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(original))
+    try {
+      const target = join(root, 'pack.mp4')
+      const args = { method: 'download', media_kind: 'video', resume: true,
+        media_url: 'https://jubian-aigc.tos-cn-beijing.volces.com/verified-pack.mp4?signature=fixture', output_path: target } as const
+      const first = await mediaMethod(args)
+      const sourceHash = createHash('sha256').update(args.media_url).digest('hex')
+      const receiptPath = `${target}.jubian-video-${sourceHash.slice(0, 16)}.json`
+      expect(first).toMatchObject({ path: target, reused: false, download_receipt_path: receiptPath, source_sha256: sourceHash })
+      const receipt = await readFile(receiptPath, 'utf8')
+      expect(receipt).not.toContain('signature=fixture')
+      expect(JSON.parse(receipt)).toMatchObject({ source_sha256: sourceHash, path: target, sha256: first.sha256 })
+      expect(await mediaMethod(args)).toMatchObject({ path: target, reused: true, sha256: first.sha256,
+        download_receipt_path: receiptPath, source_sha256: sourceHash })
+      expect(transport).toHaveBeenCalledTimes(1)
+
+      await writeFile(target, changed)
+      const replacement = await mediaMethod(args)
+      expect(replacement).toMatchObject({ reused: false, sha256: first.sha256, download_receipt_path: receiptPath })
+      expect(replacement.path).not.toBe(target)
+      expect(typeof replacement.path).toBe('string')
+      expect(await readFile(String(replacement.path))).toEqual(original)
+      expect(await readFile(target)).toEqual(changed)
+      expect(await mediaMethod(args)).toMatchObject({ path: replacement.path, reused: true, download_receipt_path: receiptPath })
+      expect(transport).toHaveBeenCalledTimes(2)
+    } finally { transport.mockRestore() }
+  })
   it.each([
     ['cover.jpg', 'cover.png', '89504e470d0a1a0a', 'image', 'image/png'],
     ['cover', 'cover.png', '89504e470d0a1a0a', 'image', 'image/png'],

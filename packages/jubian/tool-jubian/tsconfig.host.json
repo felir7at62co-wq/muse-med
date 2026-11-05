@@ -15,6 +15,7 @@
     "src/image.ts",
     "src/image-continuity.ts",
     "src/methods.ts",
+    "src/media-download.ts",
     "src/upscale-price.ts",
     "src/subtitle-price.ts",
     "src/model-settings.ts",
@@ -43,12 +44,18 @@
     "src/types.ts",
     "src/write.ts",
     "src/watch.ts",
+    "src/generation-watch.ts",
+    "src/generation-watch-store.ts",
+    "src/generation-watch-delivery.ts",
     "src/video-session.ts",
     "src/video-session-types.ts",
     "src/video-sources.ts",
     "src/production.ts"
   ],
   "references": [
+    {
+      "path": "../../api/session-controller/tsconfig.host.json"
+    },
     {
       "path": "../../host/muse-account/tsconfig.host.json"
     },

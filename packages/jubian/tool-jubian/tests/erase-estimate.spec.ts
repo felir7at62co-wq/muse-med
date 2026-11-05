@@ -11,6 +11,9 @@ const MODELS = ['quzimuToB', 'ark-erase-video-subtitle-pro'] as const
 // This is a caller-declared test reservation, not a conversion of a directory price.
 const ESTIMATE = { estimated_cost_cny: '1.00',
   estimate_basis: 'Offline test caller reservation from a separately supplied comparable-cost estimate; not a provider quote.' }
+const FIRE_ROW = { id: 67, modelId: MODELS[1], platformId: 'AI_MEDIA_KIT',
+  unitPrice: 0, unit: '元/条', videoStandards: [] }
+const FREE_ARGS = { ...ARGS, model_id: MODELS[1], platform_id: 'AI_MEDIA_KIT', only_if_verified_free: true }
 
 interface ProviderCall { method: string; path: string; body?: Record<string, unknown> }
 
@@ -61,6 +64,23 @@ async function fixture(options: {
 }
 
 describe('caller-declared erasure reservations', () => {
+  it('can use the normally budgeted Yudian route after the free route is unavailable', async () => {
+    const catalogue = [{ id: 26, modelId: MODELS[0], platformId: 'YU_DIAN',
+      unitPrice: 1, unit: '元/分钟', videoStandards: [] }]
+    const { client, ledger, paidCalls } = await fixture({ catalogue })
+    const freeKey = 'free-before-yudian'
+    await expect(storyboardMethod(client, ledger, { ...FREE_ARGS, idempotency_key: freeKey }))
+      .rejects.toMatchObject({ detail: expect.stringContaining('no erasure was submitted') })
+    expect(await ledger.find(freeKey)).toBeUndefined()
+    const paidArgs = { ...ARGS, model_id: MODELS[0], platform_id: 'YU_DIAN' }
+    await expect(storyboardMethod(client, ledger, paidArgs)).resolves.toMatchObject({
+      outcome: 'accepted', budget: { status: 'authorized' },
+    })
+    await expect(storyboardMethod(client, ledger, paidArgs)).resolves.toMatchObject({ replayed: true })
+    expect(paidCalls()).toHaveLength(1)
+    expect(paidCalls()[0]?.body).toMatchObject({ modelId: MODELS[0], platformId: 'YU_DIAN', standardId: 26 })
+  })
+
   it.each(MODELS)('keeps %s unpriced when catalogue access is denied and no estimate is approved', async (model_id) => {
     const { client, ledger, paidCalls } = await fixture()
     await expect(storyboardMethod(client, ledger, { ...ARGS, model_id })).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' })
@@ -183,6 +203,69 @@ describe('caller-declared erasure reservations', () => {
     const callCount = calls.length
     expect(await storyboardMethod(client, new JubianLedger({ root }), args)).toMatchObject({ replayed: true, outcome: 'unknown' })
     expect(calls).toHaveLength(callCount)
+    expect(paidCalls()).toHaveLength(1)
+  })
+})
+
+describe('verified-free-only erasure', () => {
+  it('records and submits the exact live free row without a project allowance', async () => {
+    const row = { ...FIRE_ROW }
+    const { client, ledger, root, calls, paidCalls } = await fixture({ catalogue: [row], expectedQuote: '0.00', limitCents: 0 })
+    await expect(storyboardMethod(client, ledger, FREE_ARGS)).resolves.toMatchObject({
+      replayed: false, verified_free: true, outcome: 'accepted', accepted_task_id: '429001' })
+    expect(paidCalls()[0]?.body).toMatchObject({ standardId: 67, modelId: MODELS[1], platformId: 'AI_MEDIA_KIT' })
+    expect(paidCalls()[0]?.body).not.toHaveProperty('only_if_verified_free')
+    const count = calls.length
+    row.unitPrice = 1
+    await expect(storyboardMethod(client, new JubianLedger({ root }), FREE_ARGS)).resolves.toMatchObject({
+      replayed: true, verified_free: true, outcome: 'accepted' })
+    expect(calls).toHaveLength(count)
+    expect(paidCalls()).toHaveLength(1)
+  })
+
+  it.each([
+    ['positive price', [{ ...FIRE_ROW, unitPrice: 0.01 }]],
+    ['string zero', [{ ...FIRE_ROW, unitPrice: '0' }]],
+    ['unknown standard', [{ ...FIRE_ROW, id: 68 }]],
+    ['other unit', [{ ...FIRE_ROW, unit: '元/分钟' }]],
+    ['other platform', [{ ...FIRE_ROW, platformId: 'YU_DIAN' }]],
+    ['duplicate rows', [FIRE_ROW, FIRE_ROW]],
+    ['missing row', []],
+    ['unavailable catalogue', undefined],
+  ] as const)('refuses %s even with a positive budget and trusted estimate', async (_name, catalogue) => {
+    const { client, ledger, calls, paidCalls } = await fixture({ catalogue, approvedEstimate: '1.00' })
+    await expect(storyboardMethod(client, ledger, FREE_ARGS)).rejects.toMatchObject({ detail: expect.stringContaining('only_if_verified_free') })
+    expect(calls.filter(call => call.path === '/model/charge/getSelectList?taskType=10')).toHaveLength(1)
+    expect(paidCalls()).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each([ESTIMATE, { estimated_cost_cny: '0' }, { estimate_basis: 'caller claim' }])('refuses a supplied estimate before any request: %j', async estimate => {
+    const { client, ledger, calls } = await fixture({ catalogue: [FIRE_ROW] })
+    await expect(storyboardMethod(client, ledger, { ...FREE_ARGS, ...estimate })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('does not present a previously charged key as a verified-free replay', async () => {
+    const { client, ledger, calls, paidCalls } = await fixture()
+    await storyboardMethod(client, ledger, { ...ARGS, model_id: MODELS[1], ...ESTIMATE })
+    const count = calls.length
+    await expect(storyboardMethod(client, ledger, FREE_ARGS)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED',
+      detail: expect.stringContaining('no matching verified free quote') })
+    expect(calls).toHaveLength(count)
+    expect(paidCalls()).toHaveLength(1)
+  })
+
+  it('preserves an interrupted free attempt and does not dispatch the same key again', async () => {
+    const { client, ledger, root, calls, paidCalls } = await fixture({ catalogue: [FIRE_ROW],
+      expectedQuote: '0.00', limitCents: 0, interrupted: true })
+    await expect(storyboardMethod(client, ledger, FREE_ARGS)).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+    expect(await ledger.find(ARGS.idempotency_key)).toMatchObject({ outcome: 'unknown', quoted_amount: '0.00' })
+    const count = calls.length
+    await expect(storyboardMethod(client, new JubianLedger({ root }), FREE_ARGS)).resolves.toMatchObject({
+      replayed: true, verified_free: true, outcome: 'unknown', accepted_task_id: null })
+    expect(calls).toHaveLength(count)
     expect(paidCalls()).toHaveLength(1)
   })
 })

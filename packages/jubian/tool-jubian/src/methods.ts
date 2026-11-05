@@ -14,7 +14,8 @@
  * return only the original ledger record without querying the provider.
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { dirname, extname, resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
+import { downloadedMediaPath, resumeMediaDownload } from './media-download.ts'
 import type { JubianClient, JubianLedger, JubianResponse } from '@deepseek-ai/dsh-jubian'
 import { JubianError } from '@deepseek-ai/dsh-jubian'
 import {
@@ -25,7 +26,7 @@ import {
   validateImageRequestInput, responseRecords, wireText,
   withGenerationDisabled,
 } from '@deepseek-ai/dsh-jubian-api'
-import { resolvePostProcessModel, VIDEO_UPSCALE_MODEL, SUBTITLE_ERASE_MODELS } from '@deepseek-ai/dsh-jubian-api'
+import { AUTOMATIC_ERASE_MODEL, resolvePostProcessModel, VIDEO_UPSCALE_MODEL, SUBTITLE_ERASE_MODELS } from '@deepseek-ai/dsh-jubian-api'
 import type { ImageAspectRatio, ImageModelSelection, ImageModelSelectors, ImageStyle, MediaKind,
   SubjectSelectionRequest } from '@deepseek-ai/dsh-jubian-api'
 import { positiveInteger, prepareVideoMethod, resolveGenerateMethod, selectAssetsMethod, submitVideoBatchMethod, submitVideoMethod } from './native.ts'
@@ -133,6 +134,8 @@ export interface MethodArgs {
   platform_id?: string
   resolution?: string
   erase_mode?: 'automatic' | 'region'
+  /** `erase_subtitle`: require the exact live zero-price route before submission. */
+  only_if_verified_free?: boolean
   task_name?: string
   first_result_id?: number
   parent_result_id?: number
@@ -147,6 +150,8 @@ export interface MethodArgs {
   media_url?: string
   media_kind?: MediaKind
   output_path?: string
+  /** Reuse a SHA-verified local download of the exact same URL. */
+  resume?: boolean
   /** The resolution the caller intends to deliver, e.g. `1080p`; drives the needs_upscale verdict. */
   delivery_resolution?: string
   /** `upload_reference`: the local image file to normalize and upload. */
@@ -1434,6 +1439,10 @@ function assertNewStoryboard(body: Record<string, unknown>): void {
  */
 export async function storyboardMethod(client: JubianClient, ledger: JubianLedger,
   args: MethodArgs, deps: MethodDeps = {}): Promise<Record<string, unknown>> {
+  if (args.only_if_verified_free !== undefined
+    && (args.method !== 'erase_subtitle' || typeof args.only_if_verified_free !== 'boolean')) {
+    throw new JubianError('INVALID_ARGUMENT', 'only_if_verified_free must be a boolean for erase_subtitle')
+  }
   const storyboardId = (): number => need(args.storyboard_id)
   switch (args.method) {
     case 'audio_preview': case 'audio_apply':
@@ -1593,16 +1602,22 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
         estimate_basis: args.estimate_basis }, deps.assertVideoModel)
     }
     case 'submit_video_batch':
-      return await submitVideoBatchMethod(client, ledger, { items: args.video_previews }, deps.videoBatch, deps.assertVideoModel)
+      return { ...await submitVideoBatchMethod(client, ledger, { items: args.video_previews }, deps.videoBatch, deps.assertVideoModel) }
     case 'erase_subtitle': {
-      requireKey(args.idempotency_key)
+      const key = requireKey(args.idempotency_key)
       const taskId = need(args.task_id)
+      const onlyIfVerifiedFree = args.only_if_verified_free === true
+      const hasCallerEstimate = args.estimated_cost_cny !== undefined || args.estimate_basis !== undefined
+      if (onlyIfVerifiedFree && hasCallerEstimate) {
+        throw new JubianError('INVALID_ARGUMENT', 'only_if_verified_free requires omitting estimated_cost_cny and estimate_basis')
+      }
+      const freePriceRequired = 'only_if_verified_free requires a unique live 0.00 CNY erasure quote on the verified route; no erasure was submitted'
       // Read from the task row by the body below; the quote thunk passes it to the
       // budget gate, which cannot ask for a project the caller never states.
       let projectId: number | undefined
       let estimate: ReturnType<typeof estimatedCostReservation>
       let catalogueQuote: ReturnType<typeof readSubtitleEraseQuote> | undefined
-      const result = await writeUnderLedger(ledger, args.idempotency_key, 'erase_subtitle',
+      const result = await writeUnderLedger(ledger, key, 'erase_subtitle',
         async () => {
           // Identities come from the provider, split across two reads. The
           // rectangle is derived from the source frame rather than drawn by the
@@ -1611,25 +1626,36 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
           const { task, media } = await taskMediaRequest(client, taskId, args.script_id, 'original')
           projectId = media.scriptId
           const modelId = need(args.model_id, 'model_id')
-          const hasCallerEstimate = args.estimated_cost_cny !== undefined || args.estimate_basis !== undefined
           const knownModel = SUBTITLE_ERASE_MODELS.some(id => id === modelId)
           const needsCatalogue = !knownModel || args.platform_id !== undefined || !hasCallerEstimate
-          let catalogue: unknown
-          if (needsCatalogue) {
-            try { catalogue = (await client.request({ method: 'GET',
-              path: '/model/charge/getSelectList?taskType=10' })).data }
-            catch (error) {
-              // A known route can retain its older operator-approved estimate when
-              // catalogue access is denied. Unknown routes still need live selectors.
-              if (!knownModel || args.platform_id !== undefined || !(error instanceof JubianError)
-                || (error.code !== 'PERMISSION_DENIED' && error.code !== 'AUTHENTICATION_REQUIRED')) throw error
+          let selected: ReturnType<typeof resolvePostProcessModel> | undefined
+          try {
+            let catalogue: unknown
+            if (needsCatalogue) {
+              try { catalogue = (await client.request({ method: 'GET',
+                path: '/model/charge/getSelectList?taskType=10' })).data }
+              catch (error) {
+                // A known route can retain its older operator-approved estimate when
+                // catalogue access is denied. Unknown routes still need live selectors.
+                if (onlyIfVerifiedFree || !knownModel || args.platform_id !== undefined || !(error instanceof JubianError)
+                  || (error.code !== 'PERMISSION_DENIED' && error.code !== 'AUTHENTICATION_REQUIRED')) throw error
+              }
             }
+            if (catalogue !== undefined) {
+              selected = resolvePostProcessModel(catalogue, { modelId,
+                ...(args.platform_id === undefined ? {} : { platformId: args.platform_id }),
+              })
+              if (!hasCallerEstimate && knownModel) catalogueQuote = readSubtitleEraseQuote(catalogue, selected, media.duration)
+            }
+          } catch (error) {
+            if (onlyIfVerifiedFree && error instanceof JubianError) {
+              const code = error.code === 'CONTRACT_CHANGED' ? 'BUDGET_EXCEEDED' : error.code
+              throw new JubianError(code, freePriceRequired, error.responseEvidence)
+            }
+            throw error
           }
-          const selected = catalogue === undefined ? undefined : resolvePostProcessModel(catalogue, { modelId,
-            ...(args.platform_id === undefined ? {} : { platformId: args.platform_id }),
-          })
-          if (!hasCallerEstimate && selected !== undefined && knownModel) {
-            catalogueQuote = readSubtitleEraseQuote(catalogue, selected, media.duration)
+          if (onlyIfVerifiedFree && catalogueQuote?.verifiedFreeSubtitleErase !== true) {
+            throw new JubianError('BUDGET_EXCEEDED', freePriceRequired)
           }
           return buildSubtitleEraseRequest(modelId, {
             ...media,
@@ -1647,7 +1673,18 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
             ...catalogueQuote?.verifiedFreeSubtitleErase === true
               ? { standardId: 67, observedAt: new Date().toISOString() } : {} }
         })
+      if (onlyIfVerifiedFree && result.replayed) {
+        const prior = await ledger.find(key)
+        if (prior?.quoted_amount !== '0.00' || prior.quote_unit !== 'CNY'
+          || prior.quote_standard_id !== 67 || !prior.quote_observed_at
+          || args.model_id !== AUTOMATIC_ERASE_MODEL
+          || (args.platform_id !== undefined && args.platform_id !== 'AI_MEDIA_KIT')
+          || (args.script_id !== undefined && prior.script_id !== args.script_id)) {
+          throw new JubianError('CONTRACT_CHANGED', 'The recorded erasure key has no matching verified free quote; reconcile the original attempt')
+        }
+      }
       return { ...result, accepted_task_id: readSubtitleTaskId({ code: 200, data: result.data }),
+        ...(onlyIfVerifiedFree ? { verified_free: true } : {}),
         next: '去字幕是异步任务。不要在这里等待——先做别的，之后用 subtasks 回读；只有 subtitle_erased=true 且 video_url 有值才表示当前文件已有成功的去字幕记录。'
           + (!result.replayed && estimate !== undefined
             ? ` 本次按调用方声明的估算 ${estimate.amount} CNY 预留，不是供应商报价或实际结算金额；依据为本次 estimate_basis，实际费用仍待供应商结算。` : '')
@@ -1672,17 +1709,16 @@ export async function storyboardMethod(client: JubianClient, ledger: JubianLedge
  * which exposes only `writeText` and has no binary write. Jubian's CDN needs no
  * credential, so this sends none.
  * @param args - `media_url`, `media_kind` and `output_path` are required.
- * @returns The written file's path, kind, media type, byte length and digest.
+ * @param signal - Caller cancellation for the transfer or local verification.
+ * @returns The verified local file metadata and, for resumable downloads, its receipt path.
  */
-export async function mediaMethod(args: MethodArgs): Promise<Record<string, unknown>> {
+export async function mediaMethod(args: MethodArgs, signal?: AbortSignal): Promise<Record<string, unknown>> {
   const kind = need(args.media_kind)
-  const downloaded = await downloadMedia(need(args.media_url), { kind })
+  const source = need(args.media_url)
   const requested = resolve(need(args.output_path))
-  const extension = extname(requested)
-  const decodedExtension = `.${downloaded.media_type.replace(/^[^/]+\//u, '')}`
-  const compatible = extension.toLowerCase() === decodedExtension
-    || extension.toLowerCase() === '.jpg' && decodedExtension === '.jpeg'
-  const target = compatible ? requested : requested.slice(0, requested.length - extension.length) + decodedExtension
+  if (args.resume === true) return await resumeMediaDownload(source, kind, requested, signal)
+  const downloaded = await downloadMedia(source, { kind, ...(signal ? { signal } : {}) })
+  const target = downloadedMediaPath(requested, downloaded.media_type)
   await mkdir(dirname(target), { recursive: true })
   await writeFile(target, downloaded.bytes)
   return { path: target, kind: downloaded.kind, media_type: downloaded.media_type,

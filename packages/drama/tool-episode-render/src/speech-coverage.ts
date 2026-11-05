@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { readFile, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileSha256 } from './cache.ts'
+import { DEFAULT_DELIVERY } from './delivery.ts'
 import { parseSrtDocument } from './subtitles.ts'
 import type { SubtitleCue, Timeline } from './types.ts'
 
@@ -141,7 +142,49 @@ function matchCharacters(words: readonly SpeechCoverageWord[], cues: readonly Su
   return { heard, printed, pairs: pairs.reverse() }
 }
 
-function compare(words: readonly SpeechCoverageWord[], cues: readonly SubtitleCue[]) {
+/** Diagnose an exact same-clip phrase with an overlapping anchor and a nearby missed edge word. */
+function shiftedCueCandidates(words: readonly SpeechCoverageWord[], cues: readonly SubtitleCue[],
+  heard: readonly Character[], printed: readonly Character[], pairs: readonly Pair[]) {
+  const heardByPrinted = new Map(pairs.map(pair => [pair.cue, pair.word]))
+  const printedByHeard = new Map(pairs.map(pair => [pair.word, pair.cue]))
+  const candidates: { heard: number[]; printed: number[]; finding: Omit<SpeechCoverageFinding, 'id'> }[] = []
+  let cursor = 0
+  for (const cue of cues) {
+    const length = Array.from(textKey(cue.text)).length
+    const printedIndexes = Array.from({ length }, (_, index) => cursor + index)
+    cursor += length
+    const anchors = printedIndexes.filter(index => heardByPrinted.has(index))
+    const firstAnchor = anchors[0]
+    if (firstAnchor === undefined || anchors.length < 2 || anchors.length === length) continue
+    const start = heardByPrinted.get(firstAnchor)! - (firstAnchor - printedIndexes[0]!)
+    if (start < 0 || start + length > heard.length) continue
+    const heardIndexes = printedIndexes.map((_, index) => start + index)
+    if (heardIndexes.some((heardIndex, offset) => {
+      const printedIndex = printedIndexes[offset]!
+      const knownPrinted = printedByHeard.get(heardIndex)
+      const knownHeard = heardByPrinted.get(printedIndex)
+      return heard[heardIndex]?.text !== printed[printedIndex]?.text
+        || (knownPrinted !== undefined && knownPrinted !== printedIndex)
+        || (knownHeard !== undefined && knownHeard !== heardIndex)
+    })) continue
+    const end = start + length
+    if (heard[start - 1]?.owner === heard[start]?.owner || heard[end]?.owner === heard[end - 1]?.owner) continue
+    const spans = [...new Set(heardIndexes.map(index => heard[index]!.owner))].map(owner => words[owner]!)
+    if (spans.every(word => overlaps(word, cue)) || spans.some((word, index) => {
+      const previous = spans[index - 1]
+      return word.clip_index !== spans[0]?.clip_index || (previous !== undefined
+        && (!overlaps(previous, cue) || !overlaps(word, cue)) && word.start_seconds - previous.end_seconds > 0.3)
+    })) continue
+    candidates.push({ heard: heardIndexes, printed: printedIndexes, finding: {
+      kind: 'timing_mismatch', text: cue.text, start_seconds: Math.min(cue.startSeconds, spans[0]!.start_seconds),
+      end_seconds: Math.max(cue.endSeconds, ...spans.map(word => word.end_seconds)),
+      word_ids: spans.map(word => word.id), cue_indexes: [cue.index],
+    } })
+  }
+  return candidates
+}
+
+function compare(words: readonly SpeechCoverageWord[], cues: readonly SubtitleCue[], fps: number) {
   const { heard, printed, pairs } = matchCharacters(words, cues)
   const matchedHeard = new Set(pairs.map(pair => pair.word)), matchedPrinted = new Set(pairs.map(pair => pair.cue))
   const matches = new Map<string, { word_id: string; cue_index: number; text: string; precision: 'word' }>()
@@ -157,6 +200,19 @@ function compare(words: readonly SpeechCoverageWord[], cues: readonly SubtitleCu
     const originalId = digest(JSON.stringify(finding)), occurrence = occurrences.get(originalId) ?? 0
     occurrences.set(originalId, occurrence + 1)
     findings.push({ id: occurrence === 0 ? originalId : digest(`${originalId}:${String(occurrence)}`), ...finding })
+  }
+  const shifted = shiftedCueCandidates(words, cues, heard, printed, pairs)
+  const claims = new Map<number, number>()
+  for (const candidate of shifted) {
+    for (const index of candidate.heard) claims.set(index, (claims.get(index) ?? 0) + 1)
+  }
+  for (const candidate of shifted) {
+    if (candidate.heard.some(index => claims.get(index) !== 1)) continue
+    // Keep overlap matches unchanged. Explain the otherwise unmatched text as
+    // timing evidence without pretending the displayed cue covered those words.
+    candidate.heard.forEach(index => matchedHeard.add(index))
+    candidate.printed.forEach(index => matchedPrinted.add(index))
+    add(candidate.finding)
   }
   const missing = (characters: readonly Character[], matched: ReadonlySet<number>, side: 'word' | 'cue') => {
     let index = 0
@@ -179,16 +235,21 @@ function compare(words: readonly SpeechCoverageWord[], cues: readonly SubtitleCu
     }
   }
   missing(heard, matchedHeard, 'word'); missing(printed, matchedPrinted, 'cue')
+  // SRT rounds cue edges to milliseconds; a half millisecond accounts for that rounding.
+  const frameToleranceUs = 1_000_000 / fps + 500
   for (const cue of cues) {
     const selected = [...matches.values()].filter(match => match.cue_index === cue.index)
     if (selected.map(match => match.text).join('') !== textKey(cue.text) || selected.length === 0) continue
-    const ids = new Set(selected.map(match => match.word_id))
-    const spans = words.filter(word => ids.has(word.id))
+    const selectedWords = new Map(selected.map(match => [match.word_id, match.text]))
+    const spans = words.filter(word => selectedWords.has(word.id))
     const start = Math.min(...spans.map(word => word.start_seconds)), end = Math.max(...spans.map(word => word.end_seconds))
-    if (Math.round(start * 1000) !== Math.round(cue.startSeconds * 1000)
-      || Math.round(end * 1000) !== Math.round(cue.endSeconds * 1000)) {
+    const wholeWords = spans.every(word => selectedWords.get(word.id) === textKey(word.text))
+    const edgeDiffers = (measured: number, displayed: number) => wholeWords
+      ? Math.round(Math.abs(measured - displayed) * 1_000_000) > frameToleranceUs
+      : Math.round(measured * 1000) !== Math.round(displayed * 1000)
+    if (edgeDiffers(start, cue.startSeconds) || edgeDiffers(end, cue.endSeconds)) {
       add({ kind: 'timing_mismatch', text: cue.text, start_seconds: Math.min(start, cue.startSeconds), end_seconds: Math.max(end, cue.endSeconds),
-        word_ids: [...ids], cue_indexes: [cue.index] })
+        word_ids: [...selectedWords.keys()], cue_indexes: [cue.index] })
     }
   }
   return { matches: [...matches.values()], findings }
@@ -196,6 +257,7 @@ function compare(words: readonly SpeechCoverageWord[], cues: readonly SubtitleCu
 
 /**
  * Compare every recognized character, including short and unplanned speech, with the final selected SRT.
+ * Complete cue edges matched to whole words tolerate one delivery frame plus SRT millisecond rounding.
  * @param input - Project-owned existing receipts and files; this operation never submits, writes or repairs them.
  * @returns Source-bound ASR candidates and optional caller listening statements, never an acoustic approval.
  */
@@ -270,9 +332,11 @@ export async function reviewSpeechCoverage(input: SpeechCoverageInput): Promise<
       warnings.push(`镜头 ${String(clip.shot)} 声文证据未核实：${String(error)}`)
     }
   }
-  const evidenceHash = digest(JSON.stringify({ files: [...fingerprints], clips: input.timeline.clips, sources: [...input.sources] }))
+  const fps = input.timeline.delivery?.fps ?? DEFAULT_DELIVERY.fps
+  const evidenceHash = digest(JSON.stringify({ files: [...fingerprints], clips: input.timeline.clips, sources: [...input.sources],
+    ...(fps === DEFAULT_DELIVERY.fps ? {} : { fps }) }))
   words.sort((left, right) => left.start_seconds - right.start_seconds)
-  const comparison = compare(words, cues)
+  const comparison = compare(words, cues, fps)
   if (input.decisionsPath !== undefined) {
     try {
       const plan = object(JSON.parse((await capture(input.decisionsPath)).bytes.toString('utf8')))

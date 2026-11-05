@@ -4301,7 +4301,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:82`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:85`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
@@ -4343,6 +4343,10 @@ export interface Config extends ImageRouteConfig {
   watchPollIntervalMs?: number
   /** Watch deadline in milliseconds; integer 1..86400000, default 1800000. */
   watchTimeoutMs?: number
+  /** Keep native video submissions under Host observation across session idle and Host restart. */
+  generationWatch?: boolean
+  /** Private directory holding unfinished generation watches and completion notices. */
+  generationWatchRoot?: string
   /** Pool claim watcher interval in milliseconds; integer 1000..60000, default 5000. */
   claimPollIntervalMs?: number
   /** Maximum authorized claim window in milliseconds; integer 1000..86400000, default 7200000. */

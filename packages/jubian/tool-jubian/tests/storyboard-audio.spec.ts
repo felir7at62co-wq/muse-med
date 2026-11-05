@@ -287,6 +287,30 @@ it('removes audio explicitly while retaining every original image and generation
   expect(writes()[0]?.body?.storyboardMaterialList).toEqual([image])
 })
 
+it('repairs a prompt voice marker whose saved selection is missing using its verified project asset', async () => {
+  board.modelConfig = { ...model, prompt: audioPrompt }
+  const plan = await preview([{ ...voice, audio_asset_id: 77 }])
+  expect(await apply(plan)).toMatchObject({ status: 'applied', verified_readback: true, paid_requests: 0 })
+  expect(writes()).toHaveLength(1)
+  expect(writes()[0]?.body?.storyboardMaterialList).toEqual([image, voice])
+})
+
+it('can clear a dangling voice marker when the model list still proves its audio type', async () => {
+  board.modelConfig = { ...model, prompt: audioPrompt, materialList: [image, voice] }
+  const plan = await preview([], basePrompt)
+  expect(await apply(plan)).toMatchObject({ status: 'applied', verified_readback: true })
+  expect(writes()[0]?.body?.modelConfig).toEqual(model)
+  expect(writes()[0]?.body?.storyboardMaterialList).toEqual([image])
+})
+
+it('will not treat an unverified dangling marker or a selected image as a voice', async () => {
+  board.modelConfig = { ...model, prompt: audioPrompt }
+  await expect(preview([voice])).rejects.toThrow('preserve image marker')
+  const retypedImage = { ...voice, materialKey: image.materialKey, audio_asset_id: 77 }
+  await expect(preview([retypedImage], basePrompt)).rejects.toThrow('separate from image keys')
+  expect(writes()).toEqual([])
+})
+
 it('refuses stale generation settings before any PUT', async () => {
   const plan = await preview([voice])
   board.modelConfig = JSON.stringify({ ...model, duration: 28 })
