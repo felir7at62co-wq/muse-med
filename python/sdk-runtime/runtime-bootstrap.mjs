@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { registerHooks } from 'node:module'
-import { dirname, isAbsolute, join } from 'node:path'
+import { dirname, isAbsolute, join, toNamespacedPath } from 'node:path'
 import { isSea } from 'node:sea'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -26,7 +26,7 @@ async function downloadResource(kind) {
   const destination = join(cache, kind)
   if (!existsSync(join(destination, 'complete'))) {
     await mkdir(cache, { recursive: true })
-    const staging = await mkdtemp(join(cache, `.${kind}-`))
+    const staging = await mkdtemp(toNamespacedPath(join(cache, `.${kind}-`)))
     let disposeProxy
     try {
       const { installProxyFromEnvironment } = await import('@deepseek-ai/dsh-http-proxy')
@@ -54,7 +54,7 @@ async function downloadResource(kind) {
     }
   }
   if (await readFile(join(destination, 'complete'), 'utf8') !== downloads.identity) throw new Error(`runtime cache identity mismatch: ${destination}`)
-  return kind === 'primary' ? join(destination, 'primary-runtime') : destination
+  return kind === 'primary' ? toNamespacedPath(join(destination, 'primary-runtime')) : destination
 }
 
 const office = process.env.DSH_OFFICE_SIDECAR ?? (cache !== undefined && existsSync(join(cache, 'office', 'complete')) ? join(cache, 'office') : undefined)
@@ -94,7 +94,7 @@ if (resource !== undefined) {
   await import('@deepseek-ai/dsh-ptc-runtime-node/process')
 } else if (selection === undefined) {
   if (cache !== undefined && existsSync(join(cache, 'primary', 'complete'))) {
-    process.env.DSH_BUNDLED_PRIMARY_RUNTIME = join(cache, 'primary', 'primary-runtime')
+    process.env.DSH_BUNDLED_PRIMARY_RUNTIME = toNamespacedPath(join(cache, 'primary', 'primary-runtime'))
   }
   const { runCli } = await import('@deepseek-ai/dsh/lib/bin.js')
   await runCli()

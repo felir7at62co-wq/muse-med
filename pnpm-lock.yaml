@@ -172,7 +172,7 @@ patchedDependencies:
   '@electron/osx-sign@1.3.3': 280e7b2816caf01423097d24e79107a66afeb563a348630ce9928ae8499a5861
   '@fortune-sheet/core@1.0.4': 8791a230763dbf853fd65d627c68c31de37209992851377855e16cf08ea70532
   '@fortune-sheet/react@1.0.4': 2932e52e79afcd4ced08cfa123b5eded786c85043da32f622f3e80af6fc96c37
-  '@yao-pkg/pkg@6.21.0': 399dbf4d55f7013cf9f62227a0fead7aec36462efb11984c904633c1976cbf45
+  '@yao-pkg/pkg@6.21.0': dfe78e9fe8ad2b2b7ef997520e0ee6eac61dde353385130ed291c07ded7ede57
   exceljs@4.4.0: c1bf8ac8f319dab382f08e3a669b715e691d46c703ac5a4163eb383fbedd1d48
   node-pty@1.2.0-beta.15: 9d30053266d0f39d3debe894c675867f6782da6bcadbc94a693b3cfb9eff8ed0
 
@@ -329,7 +329,7 @@ importers:
         version: 4.1.12(vitest@4.1.12)
       '@yao-pkg/pkg':
         specifier: 6.21.0
-        version: 6.21.0(patch_hash=399dbf4d55f7013cf9f62227a0fead7aec36462efb11984c904633c1976cbf45)(supports-color@9.4.0)
+        version: 6.21.0(patch_hash=dfe78e9fe8ad2b2b7ef997520e0ee6eac61dde353385130ed291c07ded7ede57)(supports-color@9.4.0)
       '@yarnpkg/cli-dist':
         specifier: 4.18.0
         version: 4.18.0
@@ -28652,7 +28652,7 @@ snapshots:
       - bare-buffer
       - react-native-b4a
 
-  '@yao-pkg/pkg@6.21.0(patch_hash=399dbf4d55f7013cf9f62227a0fead7aec36462efb11984c904633c1976cbf45)(supports-color@9.4.0)':
+  '@yao-pkg/pkg@6.21.0(patch_hash=dfe78e9fe8ad2b2b7ef997520e0ee6eac61dde353385130ed291c07ded7ede57)(supports-color@9.4.0)':
     dependencies:
       '@babel/generator': 7.29.7
       '@babel/parser': 7.29.7

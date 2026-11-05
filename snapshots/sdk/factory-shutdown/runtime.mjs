@@ -47,13 +47,17 @@ export function apply(ctx, config) {
   })())
   ctx.on('agent/pre-step', async ({ agent }, next) => {
     if (agent.id !== 'shutdown-parent') return next()
-    const run = await ctx.subagents.start('spawn', {
+    const run = await ctx.subagents.startActivation({
+      provider: 'spawn',
       label: 'shutdown-child',
-      prompt: [{ type: 'text', text: 'Reply with exactly: child answer 42.' }],
-      parent: agent,
+      request: {
+        prompt: [{ type: 'text', text: 'Reply with exactly: child answer 42.' }],
+        parent: agent,
+      },
       signal: controller.signal,
+      delivery: 'caller',
     })
-    receipt('published', { pid: process.pid, parentId: agent.id, childId: run.id })
+    receipt('published', { pid: process.pid, parentId: agent.id, childId: run.childId })
     published = true
     modelReady()
     const result = await run.result

@@ -14,7 +14,7 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 
 普通场景以没有已登记 Workspace 或 Session、但持久化标记记录默认 Workspace 已被删除的状态启动，使显式文件夹选择场景自行决定 cwd。`launchWebScaffold({ firstUse: true })` 保留初始化资格，供启动场景使用。
 
-工作区文件引用录制将已录制 Session 保留的两个技能描述写入自有临时技能目录，以提供历史技能目录，不依赖个人或内置技能根目录。其键盘操作先选中草稿，再将选区折叠到末尾，使 macOS 和 Windows 都在同一位置插入下一个引用。
+工作区文件引用录制将已录制 Session 保留的两个技能描述写入自有临时技能目录，以提供历史技能目录，不依赖个人或内置技能根目录。其键盘操作先选中草稿，再将选区折叠到末尾，使 macOS 和 Windows 都在同一位置插入下一个引用。场景的 `writerOutput: true` 元数据将规范 Session 保留为 replay 输入，并在 `writer.expected.jsonl` 中比较完整当前输出。无密钥 refresh 写入该输出比较基准。record 模式将 replay 输入和 writer 输出比较基准均视为只读。
 
 [Muse 自定义模型](muse-personal-models.e2e.ts)从测试自有的本地端点发现模型，单独保存凭据，并验证设置列表、对话选择、重启持久化与适配器请求。场景加载内置桌面设置覆盖层，不操作已安装的 Muse 应用。
 

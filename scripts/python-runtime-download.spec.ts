@@ -2,7 +2,7 @@
 import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile, copyFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, toNamespacedPath } from 'node:path'
 import { expect, it } from 'vitest'
 
 async function fixture() {
@@ -33,6 +33,7 @@ async function fixture() {
       await writeFile(join(destination, 'bin', process.platform === 'win32' ? 'node.exe' : 'node'), 'node');
     }
     export async function preparePrimaryRuntime({ output }) {
+      if (process.env.DSH_FIXTURE_PRIMARY_FAIL) throw new Error('fixture primary preparation must not run');
       if (process.env.DSH_RUNTIME_DOWNLOAD !== undefined) throw new Error("private selector leaked");
       await mkdir(join(output, 'primary-runtime'), { recursive: true });
       await writeFile(join(output, 'primary-runtime/runtime.json'), '{}');
@@ -58,6 +59,7 @@ async function fixture() {
       env: { ...process.env, DSH_RESOURCE_CACHE: cache, DSH_RUNTIME_DOWNLOAD: resource, DSH_BUNDLED_PRIMARY_RUNTIME: undefined,
         DSH_OFFICE_SIDECAR: undefined, DSH_BUNDLED_OFFICE_CLI: undefined, ...extra },
       stdio: ['pipe', 'pipe', 'pipe'],
+      timeout: 30_000,
     })
     let stdout = '', stderr = ''
     child.stdout.on('data', (data) => { stdout += String(data) })
@@ -82,13 +84,58 @@ it('starts without downloading, independently downloads either resource, and reu
     await expect(readdir(cache)).rejects.toMatchObject({ code: 'ENOENT' })
     const primary = await run('primary').done
     expect(primary.code, primary.stderr).toBe(0)
-    expect(JSON.parse(primary.stdout)).toBe(join(cache, 'a'.repeat(64), 'primary', 'primary-runtime'))
+    expect(JSON.parse(primary.stdout)).toBe(toNamespacedPath(join(cache, 'a'.repeat(64), 'primary', 'primary-runtime')))
+    const reused = await run(undefined, { DSH_FIXTURE_PRIMARY_FAIL: '1' }).done
+    expect(reused.code, reused.stderr).toBe(0)
+    expect(JSON.parse(reused.stdout)).toEqual({ primary: JSON.parse(primary.stdout) as string })
     await expect(readdir(join(cache, 'a'.repeat(64), 'office'))).rejects.toMatchObject({ code: 'ENOENT' })
     const office = await run('office').done
     expect(office.code, office.stderr).toBe(0)
     const location = JSON.parse(office.stdout) as string
+    expect(location).toBe(join(cache, 'a'.repeat(64), 'office'))
     expect(await readFile(join(location, 'node_modules/@deepseek-ai/libreoffice-kit/lib/cli.js'), 'utf8')).toBe('cli')
     expect(await run('office', { DSH_FIXTURE_FAIL: '1' }).done).toMatchObject({ code: 0, stdout: office.stdout })
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+
+it.each(['fresh', 'completed'])('exposes a namespaced primary runtime from a long %s cache without changing its identity', async (state) => {
+  const { root, run } = await fixture()
+  const cache = join(root, 'cache-'.repeat(18), 'nested-'.repeat(12))
+  const resource = join(cache, 'a'.repeat(64), 'primary')
+  const primary = join(resource, 'primary-runtime')
+  try {
+    expect(join(primary, 'dependencies', 'python', 'python.exe').length).toBeGreaterThan(260)
+    if (state === 'completed') {
+      await mkdir(primary, { recursive: true })
+      await writeFile(join(primary, 'runtime.json'), 'existing cached metadata\n')
+      await writeFile(join(resource, 'complete'), 'a'.repeat(64))
+    }
+    const downloaded = await run('primary', { DSH_RESOURCE_CACHE: cache,
+      ...state === 'completed' ? { DSH_FIXTURE_PRIMARY_FAIL: '1' } : {} }).done
+    expect(downloaded.code, downloaded.stderr).toBe(0)
+    expect(JSON.parse(downloaded.stdout)).toBe(toNamespacedPath(primary))
+    const startup = await run(undefined, { DSH_RESOURCE_CACHE: toNamespacedPath(cache), DSH_FIXTURE_PRIMARY_FAIL: '1' }).done
+    expect(startup.code, startup.stderr).toBe(0)
+    expect(JSON.parse(startup.stdout)).toEqual({ primary: toNamespacedPath(primary) })
+    expect(await readFile(join(resource, 'complete'), 'utf8')).toBe('a'.repeat(64))
+    expect(await readFile(join(primary, 'runtime.json'), 'utf8')).toBe(state === 'completed' ? 'existing cached metadata\n' : '{}')
+    expect(await readdir(join(cache, 'a'.repeat(64)))).toEqual(['primary'])
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
+it.each(['primary', 'office'])('cleans a failed long-cache %s staging directory before retrying', async (kind) => {
+  const { root, run } = await fixture()
+  const cache = join(root, 'failed-cache-'.repeat(10), 'nested-'.repeat(12))
+  try {
+    const failed = await run(kind, { DSH_RESOURCE_CACHE: cache, DSH_FIXTURE_PRIMARY_FAIL: '1', DSH_FIXTURE_FAIL: '1' }).done
+    expect(failed.code).toBe(1)
+    expect(failed.stderr).toContain(kind === 'primary' ? 'fixture primary preparation must not run' : 'fixture download failed')
+    expect(await readdir(join(cache, 'a'.repeat(64)))).toEqual([])
+    const retry = await run(kind, { DSH_RESOURCE_CACHE: cache }).done
+    expect(retry.code, retry.stderr).toBe(0)
+    const destination = join(cache, 'a'.repeat(64), kind)
+    expect(JSON.parse(retry.stdout)).toBe(kind === 'primary' ? toNamespacedPath(join(destination, 'primary-runtime')) : destination)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 

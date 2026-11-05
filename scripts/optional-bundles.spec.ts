@@ -19,7 +19,7 @@ interface Manifest {
   dsh?: { bundle?: DshBundleManifest }
 }
 
-const bundles = new Map(globSync('packages/*/*/package.json', { cwd: root }).map((path) => {
+const bundles = new Map(globSync(['packages/*/*/package.json', 'apps/*/package.json', 'third_party/plugins/*/package.json'], { cwd: root }).map((path) => {
   const manifest = JSON.parse(readFileSync(resolve(root, path), 'utf8')) as Manifest
   return [manifest.name, { dir: dirname(resolve(root, path)), manifest }]
 }))
@@ -27,6 +27,10 @@ const bundles = new Map(globSync('packages/*/*/package.json', { cwd: root }).map
 function bundle(name: string): { dir: string; patches: ReturnType<typeof loadOverlayPatches> } {
   const entry = bundles.get(name)
   if (entry?.manifest.dsh?.bundle === undefined) throw new Error(`${name} is not a workspace bundle`)
+  // Desktop packs the reviewed bridge and IM overlays while retaining their upstream sources.
+  if (name === '@wenbin_wb/dsh-bridge') return { dir: entry.dir,
+    patches: loadOverlayPatches('test', resolve(root, 'third_party/plugins/compatibility/bridge.cordis.patch.yml')) }
+  if (name === '@xmanrui/dsh-im') return { dir: entry.dir, patches: [] }
   return { dir: entry.dir, patches: bundlePatchPaths(entry.dir, entry.manifest.dsh.bundle).flatMap(path => loadOverlayPatches('test', path)) }
 }
 
