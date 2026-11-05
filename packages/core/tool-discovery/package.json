@@ -25,6 +25,7 @@
   "files": [
     "locale/*.json",
     "lib/index.js",
+    "LICENSE",
     "NOTICE",
     "LICENSE-Codex",
     "lib/types/**/*.d.ts"

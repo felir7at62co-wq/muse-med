@@ -16,6 +16,24 @@ function writeManifest(root: string, file: string, manifest: Record<string, unkn
   writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
+const OWN_LICENSE = 'MIT License\nCopyright (c) 2026 DeepSeek\n'
+const CODEX_LICENSE = 'Apache License\n                           Version 2.0, January 2004\n'
+const CODEX_NOTICE = 'The tool discovery instructions are adapted from OpenAI Codex under Apache-2.0.\n'
+  + 'The Apache-2.0 license is reproduced in LICENSE-Codex.\n'
+
+function writeText(root: string, file: string, content: string): void {
+  const path = join(root, file)
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, content)
+}
+
+function writeDiscoveryFiles(root: string, directory: string): void {
+  writeText(root, 'LICENSE', OWN_LICENSE)
+  writeText(root, `${directory}/LICENSE`, OWN_LICENSE)
+  writeText(root, `${directory}/LICENSE-Codex`, CODEX_LICENSE)
+  writeText(root, `${directory}/NOTICE`, CODEX_NOTICE)
+}
+
 function createWorkspace(): string {
   const root = mkdtempSync(join(tmpdir(), 'dsh-package-licenses-'))
   roots.push(root)
@@ -31,10 +49,10 @@ describe('DSH package license gate', () => {
   it('accepts tool-discovery combined licensing only with its published attribution files', () => {
     const root = createWorkspace()
     const directory = 'packages/core/tool-discovery'
-    const manifest = { name: '@deepseek-ai/dsh-tool-discovery', license: 'MIT AND Apache-2.0', files: ['NOTICE', 'LICENSE-Codex'] }
+    const manifest = { name: '@deepseek-ai/dsh-tool-discovery', license: 'MIT AND Apache-2.0',
+      files: ['LICENSE', 'NOTICE', 'LICENSE-Codex'] }
     writeManifest(root, `${directory}/package.json`, manifest)
-    writeFileSync(join(root, directory, 'NOTICE'), 'OpenAI Codex attribution\n')
-    writeFileSync(join(root, directory, 'LICENSE-Codex'), 'Apache License, Version 2.0\n')
+    writeDiscoveryFiles(root, directory)
     expect(inspectDshPackageLicenses(root)).toEqual({ packageCount: 2, failures: [] })
     for (const resource of manifest.files) {
       writeManifest(root, `${directory}/package.json`, { ...manifest, files: manifest.files.filter(file => file !== resource) })
@@ -47,20 +65,47 @@ describe('DSH package license gate', () => {
       mkdirSync(join(root, directory, resource))
       expect(inspectDshPackageLicenses(root).failures).toContainEqual(expect.stringContaining(`non-empty ${resource}`))
       rmSync(join(root, directory, resource), { recursive: true })
-      writeFileSync(join(root, directory, resource), 'Restored attribution resource\n')
+      writeDiscoveryFiles(root, directory)
     }
+  })
+
+  it.each([
+    ['LICENSE', 'Changed MIT license text\n'],
+    ['LICENSE-Codex', 'Unrecognized license text\n'],
+    ['NOTICE', 'The Apache-2.0 license is reproduced in LICENSE-Codex.\n'],
+    ['NOTICE', 'The tool discovery instructions are adapted from OpenAI Codex under Apache-2.0.\n'],
+  ])('rejects altered license or incomplete attribution in %s', (resource, content) => {
+    const root = createWorkspace()
+    const directory = 'packages/core/tool-discovery'
+    writeManifest(root, `${directory}/package.json`, {
+      name: '@deepseek-ai/dsh-tool-discovery', license: 'MIT AND Apache-2.0', files: ['LICENSE', 'NOTICE', 'LICENSE-Codex'],
+    })
+    writeDiscoveryFiles(root, directory)
+    writeText(root, `${directory}/${resource}`, content)
+    expect(inspectDshPackageLicenses(root).failures).toEqual([expect.stringContaining(resource)])
+  })
+
+  it('rejects plain MIT for the package that retains Codex-derived guidance', () => {
+    const root = createWorkspace()
+    const directory = 'packages/core/tool-discovery'
+    writeManifest(root, `${directory}/package.json`, {
+      name: '@deepseek-ai/dsh-tool-discovery', license: 'MIT', files: ['LICENSE', 'NOTICE', 'LICENSE-Codex'],
+    })
+    writeDiscoveryFiles(root, directory)
+    expect(inspectDshPackageLicenses(root).failures)
+      .toEqual([expect.stringContaining('must declare "license": "MIT AND Apache-2.0"')])
   })
 
   it('rejects the attribution license expression for another name, directory or expression', () => {
     const root = createWorkspace()
     const file = 'packages/core/tool-discovery/package.json'
-    for (const manifest of [
-      { name: '@deepseek-ai/dsh-tool-discovery', license: 'Apache-2.0' },
-      { name: '@deepseek-ai/dsh-tool-discovery', license: 'MIT OR Apache-2.0' },
-      { name: '@deepseek-ai/dsh-other', license: 'MIT AND Apache-2.0' },
-    ]) {
+    for (const [manifest, required] of [
+      [{ name: '@deepseek-ai/dsh-tool-discovery', license: 'Apache-2.0' }, 'MIT AND Apache-2.0'],
+      [{ name: '@deepseek-ai/dsh-tool-discovery', license: 'MIT OR Apache-2.0' }, 'MIT AND Apache-2.0'],
+      [{ name: '@deepseek-ai/dsh-other', license: 'MIT AND Apache-2.0' }, 'MIT'],
+    ] as const) {
       writeManifest(root, file, manifest)
-      expect(inspectDshPackageLicenses(root).failures).toEqual([expect.stringContaining('must declare "license": "MIT"')])
+      expect(inspectDshPackageLicenses(root).failures).toEqual([expect.stringContaining(`must declare "license": "${required}"`)])
     }
     rmSync(join(root, 'packages/core/tool-discovery'), { recursive: true })
     writeManifest(root, 'packages/core/other/package.json', { name: '@deepseek-ai/dsh-tool-discovery', license: 'MIT AND Apache-2.0' })
@@ -117,15 +162,14 @@ describe('DSH package license gate', () => {
 
 describe('Codex-derived tool discovery notices', () => {
   it.each([
-    ['packages/core/other', '@deepseek-ai/dsh-tool-discovery', 'MIT AND Apache-2.0', ['NOTICE', 'LICENSE-Codex']],
-    ['packages/core/tool-discovery', '@deepseek-ai/dsh-other', 'MIT AND Apache-2.0', ['NOTICE', 'LICENSE-Codex']],
-    ['packages/core/tool-discovery', '@deepseek-ai/dsh-tool-discovery', 'MIT OR Apache-2.0', ['NOTICE', 'LICENSE-Codex']],
-    ['packages/core/tool-discovery', '@deepseek-ai/dsh-tool-discovery', 'MIT AND Apache-2.0', ['NOTICE']],
+    ['packages/core/other', '@deepseek-ai/dsh-tool-discovery', 'MIT AND Apache-2.0', ['LICENSE', 'NOTICE', 'LICENSE-Codex']],
+    ['packages/core/tool-discovery', '@deepseek-ai/dsh-other', 'MIT AND Apache-2.0', ['LICENSE', 'NOTICE', 'LICENSE-Codex']],
+    ['packages/core/tool-discovery', '@deepseek-ai/dsh-tool-discovery', 'MIT OR Apache-2.0', ['LICENSE', 'NOTICE', 'LICENSE-Codex']],
+    ['packages/core/tool-discovery', '@deepseek-ai/dsh-tool-discovery', 'MIT AND Apache-2.0', ['LICENSE', 'NOTICE']],
   ])('rejects a changed package identity, license or omitted published notice', (directory, name, license, files) => {
     const root = createWorkspace()
     writeManifest(root, `${directory}/package.json`, { name, license, files })
-    writeFileSync(join(root, directory, 'NOTICE'), 'notice\n')
-    writeFileSync(join(root, directory, 'LICENSE-Codex'), 'license\n')
+    writeDiscoveryFiles(root, directory)
     expect(inspectDshPackageLicenses(root).failures).toHaveLength(1)
   })
 })

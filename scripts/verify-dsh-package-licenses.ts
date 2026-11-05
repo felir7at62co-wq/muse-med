@@ -14,7 +14,7 @@ const DSH_PACKAGE_NAME = /^@deepseek-ai\/dsh(?:-|$)/
 export interface DshPackageLicenseReport {
   /** Number of DSH package manifests checked. */
   packageCount: number
-  /** Repository-relative diagnostics for disallowed declarations or missing attribution. */
+  /** Repository-relative diagnostics for disallowed declarations or incomplete license resources. */
   failures: string[]
 }
 
@@ -67,13 +67,33 @@ export function inspectDshPackageLicenses(root: string): DshPackageLicenseReport
     packageCount++
     const normalizedFile = file.split(sep).join('/')
     const adaptedToolGuidance = normalizedFile === 'packages/core/tool-discovery/package.json'
-      && name === '@deepseek-ai/dsh-tool-discovery' && manifest.license === 'MIT AND Apache-2.0'
+      && name === '@deepseek-ai/dsh-tool-discovery'
     if (adaptedToolGuidance) {
-      for (const resource of ['NOTICE', 'LICENSE-Codex']) {
+      if (manifest.license !== 'MIT AND Apache-2.0') {
+        failures.push(`${normalizedFile}: ${name} must declare "license": "MIT AND Apache-2.0" for its Codex-derived guidance.`)
+        continue
+      }
+      let resourcesReady = true
+      for (const resource of ['LICENSE', 'NOTICE', 'LICENSE-Codex']) {
         const path = resolve(root, dirname(file), resource)
         if (!isStringArray(manifest.files) || !manifest.files.includes(resource)
           || !existsSync(path) || !lstatSync(path).isFile() || lstatSync(path).size === 0) {
           failures.push(`${normalizedFile}: ${name} must publish existing non-empty ${resource} for its Apache-2.0 guidance.`)
+          resourcesReady = false
+        }
+      }
+      if (resourcesReady) {
+        const directory = resolve(root, dirname(file))
+        if (readFileSync(resolve(directory, 'LICENSE'), 'utf8') !== readFileSync(resolve(root, 'LICENSE'), 'utf8')) {
+          failures.push(`${normalizedFile}: ${name} must publish LICENSE matching the repository MIT license.`)
+        }
+        if (!/Apache License\r?\n\s+Version 2\.0/u.test(readFileSync(resolve(directory, 'LICENSE-Codex'), 'utf8'))) {
+          failures.push(`${normalizedFile}: ${name} must publish the Apache-2.0 license in LICENSE-Codex.`)
+        }
+        const notice = readFileSync(resolve(directory, 'NOTICE'), 'utf8')
+        if (!notice.includes('The tool discovery instructions are adapted from OpenAI Codex under Apache-2.0.')
+          || !notice.includes('The Apache-2.0 license is reproduced in LICENSE-Codex.')) {
+          failures.push(`${normalizedFile}: ${name} must publish Codex attribution and its license reference in NOTICE.`)
         }
       }
       continue
