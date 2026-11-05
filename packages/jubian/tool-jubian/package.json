@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-tool-jubian",
-  "description": "Jubian tools for the DeepSeek Harness — catalogue, assets, storyboards, video tasks, media download — plus the Web Settings page for their admin token",
+  "description": "Jubian tools for the DeepSeek Harness \u2014 catalogue, assets, storyboards, video tasks, media download \u2014 plus the Web Settings page for their admin token",
   "version": "0.2.2-rc.1",
   "publishConfig": {
     "access": "public"
@@ -95,7 +95,10 @@
     "@deepseek-ai/dsh-session-projection": "workspace:*",
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
     "@deepseek-ai/dsh-user-questions": "workspace:*",
-    "@deepseek-ai/dsh-llm": "workspace:*"
+    "@deepseek-ai/dsh-llm": "workspace:*",
+    "@deepseek-ai/dsh-brand": "workspace:*",
+    "@deepseek-ai/dsh-subprocess": "workspace:*",
+    "@deepseek-ai/dsh-working-directory": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-muse-account": "workspace:*",
@@ -136,6 +139,11 @@
     "@deepseek-ai/dsh-api-session-controller": "workspace:*",
     "@deepseek-ai/dsh-tool-testkit": "workspace:*",
     "@deepseek-ai/dsh-tool-executor-native": "workspace:*",
-    "@deepseek-ai/dsh-tool-executor-ptc": "workspace:*"
+    "@deepseek-ai/dsh-tool-executor-ptc": "workspace:*",
+    "@deepseek-ai/dsh-brand": "workspace:*",
+    "@deepseek-ai/dsh-subprocess": "workspace:*",
+    "@deepseek-ai/dsh-working-directory": "workspace:*",
+    "@deepseek-ai/dsh-subprocess-local": "workspace:*",
+    "@deepseek-ai/dsh-fs-local": "workspace:*"
   }
 }

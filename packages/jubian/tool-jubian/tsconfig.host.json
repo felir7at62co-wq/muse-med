@@ -46,7 +46,12 @@
     "src/video-session.ts",
     "src/video-session-types.ts",
     "src/video-sources.ts",
-    "src/production.ts"
+    "src/production.ts",
+    "src/video-recovery-project.ts",
+    "src/video-recovery.ts",
+    "src/video-media-check.ts",
+    "src/video-recovery-service.ts",
+    "src/video-recovery-config.ts"
   ],
   "references": [
     {
@@ -102,6 +107,15 @@
     },
     {
       "path": "../../interaction/user-questions"
+    },
+    {
+      "path": "../../subprocess/subprocess"
+    },
+    {
+      "path": "../../session/working-directory"
+    },
+    {
+      "path": "../../util/brand"
     }
   ]
 }

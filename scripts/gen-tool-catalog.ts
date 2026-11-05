@@ -833,19 +833,40 @@ const TOOL_PACKAGES: ToolPackage[] = [
   {
     pkg: '@deepseek-ai/dsh-tool-jubian',
     dir: 'tool-jubian',
-    source: 'packages/jubian/tool-jubian/src/index.ts',
-    requires: ['ctx.tools', 'ctx.credentials', 'ctx.jobs for jubian_snatch'],
+    source: {
+      jubian_asset: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_budget: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_catalog: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_character_reference_authorize: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_claim: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_find: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_media: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_model: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_organize: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_snatch: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_storyboard: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_video: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_video_model: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_watch: 'packages/jubian/tool-jubian/src/index.ts',
+      jubian_video_review: 'packages/jubian/tool-jubian/src/video-recovery-config.ts',
+    },
+    requires: ['ctx.tools', 'ctx.credentials', 'ctx.jobs for jubian_snatch', 'ctx.subprocess and ctx.workingDirectory for fixed recovery'],
     writes: ['tool/call', 'tool/result', 'Jubian two-phase write ledger (NDJSON record pairs under its configured root)'],
     async mount(ctx) {
       // The row injects `credentials`: it resolves JUBIANAI_ADMIN_TOKEN on every
       // call, so the harvest needs a provider that satisfies the injection
       // without reading the operator's real store.
+      const home = mkdtempSync(join(tmpdir(), 'dsh-tool-catalog-jubian-'))
+      ctx.effect(() => () => { rmSync(home, { recursive: true, force: true }) })
+      writeFileSync(join(home, 'project_config.json'), '{"jubian_script_id":1}\n')
+      await ctx.plugin(LocalSubprocessRuntime)
       await ctx.plugin(LocalCredentialProvider, {
-        path: join(tmpdir(), 'dsh-tool-catalog', 'credentials.yaml'),
-        dshHome: join(tmpdir(), 'dsh-tool-catalog'),
+        path: join(home, 'credentials.yaml'),
+        dshHome: home,
         watch: false,
       })
-      await ctx.plugin(ToolJubian, { ledgerRoot: join(tmpdir(), 'dsh-tool-catalog', 'jubian-ledger'), sessionVideoSelection: true })
+      await ctx.plugin(ToolJubian, { ledgerRoot: join(home, 'ledger'), sessionVideoSelection: true,
+        videoRecovery: { projectDir: home, ffmpegPath: process.execPath, keys: ['catalog-unrecorded-video-key'] } })
     },
     note:
       'Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; '
@@ -853,6 +874,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
       + 'submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; '
       + 'erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. '
       + '`jubian_video_model` is available when sessionVideoSelection is enabled; it records a configured initial specification or explicit user video choices without changing project defaults. '
+      + '`jubian_video_review` is opt-in through fixed videoRecovery; its approve/reject calls require the exact latest user command and current project. Settings mode uses separate authenticated methods and cannot be combined with fixed mode. '
       + '`jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job.',
   },
   {

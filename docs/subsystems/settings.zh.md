@@ -86,6 +86,50 @@ The namespace reads and never writes, and it carries rows only — the token tha
 
 Source: [`packages/jubian/tool-jubian/src/image.ts`](../../packages/jubian/tool-jubian/src/image.ts)
 
+<a id="ctxjubianvideorecovery--jubianvideorecovery"></a>
+
+### `ctx.jubianVideoRecovery` — `JubianVideoRecovery`
+
+Dynamic project selection, read-only recovery and explicit human decisions.
+
+```ts cordis-catalog
+/**
+ * Read a consistent selected-project view and current artifact checks.
+ * @returns Saved selection and reports without provider URLs or credentials.
+ */
+@Remote status(): Promise<VideoRecoveryStatus>
+
+/**
+ * Persist a selected project and replace its single background worker.
+ * @param input - New switch and optional absolute project path.
+ * @returns Committed selection and reports for that project.
+ */
+@Remote configure(input: VideoRecoveryConfigurationInput): Promise<VideoRecoveryStatus>
+
+/**
+ * Read, decide or reopen the exact displayed report once.
+ * @param input - Original key, action and current digest for mutations.
+ * @returns Active report and persisted decision.
+ */
+@Remote review(input: VideoRecoveryReviewInput): Promise<VideoRecoveryReview>
+
+/**
+ * Capture and decode a project-local derivative before review.
+ * @param input - Original key, current digest and project-relative MP4 path.
+ * @returns Updated report and actual captured-file checks.
+ */
+@Remote adopt(input: VideoRecoveryAdoptionInput): Promise<VideoRecoveryReview>
+
+/**
+ * Publish exactly the approved MP4 without an editor or new generation.
+ * @param input - Original key and approved report digest.
+ * @returns Current report and verified direct-copy receipt.
+ */
+@Remote deliverApprovedMp4(input: ApprovedClipDeliveryInput): Promise<VideoRecoveryReview>
+```
+
+Source: [`packages/jubian/tool-jubian/src/video-recovery-service.ts`](../../packages/jubian/tool-jubian/src/video-recovery-service.ts)
+
 <a id="ctxjubianvideoselection--jubianvideoselection"></a>
 
 ### `ctx.jubianVideoSelection` — `JubianVideoSelection`

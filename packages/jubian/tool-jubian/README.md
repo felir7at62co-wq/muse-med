@@ -490,6 +490,18 @@ For `image_generate`, set `image_style: "anime"` for 2D/3D animation or `"live_a
 
 -----
 
+### Original-key video recovery
+
+`jubian_storyboard(method="reconcile_video", project_dir, idempotency_key)` reads only the original recorded submission. It verifies the project, frozen preview and request fingerprint, then distinguishes tasks that already existed before dispatch. Missing legacy metadata remains unknown; recovery neither invents a key nor sends a generation PUT or new reservation.
+
+Both background modes are opt-in and mutually exclusive. `videoRecoverySettings: true` exposes the authenticated `jubianVideoRecovery` methods `status`, `configure`, `review`, `adopt` and `deliverApprovedMp4`. `videoRecovery` instead fixes an absolute `projectDir`, absolute `ffmpegPath` and optional original `keys`; it requires the subprocess and working-directory services and adds `jubian_video_review`. A fixed review mutation requires the latest actual user message to contain exactly `approve <key> <digest>` or `reject <key> <digest>` in the configured effective project directory. Configuring both modes fails at load.
+
+Settings mode accepts an absolute `videoRecoveryFfmpegPath`; omission uses the Host launch decoder when available. `videoRecoveryDecodeTimeoutMs` configures an independent decode deadline; omission uses the fixed deployment's `decodeTimeoutMs` or the existing watch deadline. Supplying both timeout overrides fails. Grace and collected-output limits are configurable through `videoRecoveryDecodeGraceMs` and `videoRecoveryDecodeMaxOutputBytes`; invalid present values fail before workers start. Native decoding allows only the captured MOV/MP4 file and checks video and audio separately. A passing decode is technical evidence, not visual approval.
+
+Reports and separate decisions live under `video_tasks/review`. Human decisions bind the current report digest; a rejection can be reopened once with a reason. Adoption captures and hashes a regular project-local derivative before decoding it. Approved direct delivery copies exact bytes into `exports/Muse-approved-<task>-<digest>.mp4` and writes a separate `.direct-delivery.json` receipt. Status verifies the actual output file. Missing output can be repaired; matching existing bytes can receive a missing receipt without inode replacement or another download; differing occupied bytes are never overwritten. Local clip capture uses the video download size limit.
+
+Unload stops admission, aborts and joins admitted initialization, requests, worker reads, native processes and file operations. Completed atomic settings writes and published decisions or receipts remain committed when their response is cancelled. Atomic replacement does not promise power-loss durability. A missing saved project is reported as unavailable and can be replaced or disabled without preventing Host startup.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 

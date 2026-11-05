@@ -246,10 +246,10 @@ describe('card-bound existing source discovery', () => {
       coverage: { tasks_found: 1, tasks_checked: 1 } })
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(2048)
   })
-  it('uses the same read-only reader through the public method dispatcher', async () => {
+  it.each([true, false])('uses the same read-only reader through the public method dispatcher, configured=%s', async (configured) => {
     const { client } = fixture()
     const ledger = new JubianLedger({ root: '/unused-video-sources-fixture' })
-    expect(await videoMethod(client, ledger, { method: 'sources', ...args }, { videoSources: defaults }))
+    expect(await videoMethod(client, ledger, { method: 'sources', ...args }, configured ? { videoSources: defaults } : {}))
       .toMatchObject({ sources: { status: 'available', sources: [{ task_id: 77 }] } })
   })
 })

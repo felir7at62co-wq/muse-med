@@ -4799,11 +4799,11 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:82`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:84`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
-export interface Config extends ImageRouteConfig {
+export interface Config extends ImageRouteConfig, VideoRecoveryConfig {
   /** Rows per read-only existing-video history page; integer 1..100, default 100. */
   videoSourcePageSize?: number
   /** Maximum pages per existing-video history scan; integer 1..100, default 20. */
@@ -4926,6 +4926,31 @@ export interface ImageRouteConfig {
    * from, such as `66`. Either this or `imagePlatformId` is enough to pin one row.
    */
   imageStandardId?: number
+}
+
+/** Mutually exclusive new recovery entry points; neither is enabled by default. */
+export interface VideoRecoveryConfig {
+  /** Enable authenticated dynamic project selection and review. Incompatible with videoRecovery. */
+  videoRecoverySettings?: boolean
+  /** Fixed deployment project and optional original keys; incompatible with Settings mode. */
+  videoRecovery?: {
+    /** Absolute project directory bound to the original provider script. */
+    projectDir: string
+    /** Original keys to inspect; omission discovers all recoverable intents for the project. */
+    keys?: string[]
+    /** Absolute native FFmpeg executable. */
+    ffmpegPath: string
+    /** Fixed decoder deadline; omit when videoRecoveryDecodeTimeoutMs is provided. */
+    decodeTimeoutMs?: number
+  }
+  /** Absolute Settings decoder override; omission uses the Host launch decoder when available. */
+  videoRecoveryFfmpegPath?: string
+  /** Independent decoder deadline; omission uses fixed.decodeTimeoutMs or watchTimeoutMs. */
+  videoRecoveryDecodeTimeoutMs?: number
+  /** Decoder termination grace in milliseconds; default 1000, integer 1..86400000. */
+  videoRecoveryDecodeGraceMs?: number
+  /** Collected bytes per decoder output stream; default 65536, integer 1..1048576. */
+  videoRecoveryDecodeMaxOutputBytes?: number
 }
 
 /** Deployment-owned terms and output bounds for advisory prompt review. */

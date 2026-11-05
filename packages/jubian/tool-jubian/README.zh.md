@@ -492,6 +492,19 @@ submit -> receive the accepted task id -> do other work -> re-read subtasks
 
 -----
 
+<a id="original-key-video-recovery"></a>
+### 原 key 视频恢复
+
+`jubian_storyboard(method="reconcile_video", project_dir, idempotency_key)` 只读取原始已记录提交。它核对项目、冻结预览与请求指纹，并排除提交前已经存在的任务。旧记录缺少恢复元数据时保持未知；恢复不会发明 key、发送生成 PUT 或新增预算预留。
+
+两种后台入口默认关闭且互斥。`videoRecoverySettings: true` 提供经过认证的 `jubianVideoRecovery` 方法 `status`、`configure`、`review`、`adopt` 和 `deliverApprovedMp4`。`videoRecovery` 则固定绝对 `projectDir`、绝对 `ffmpegPath` 及可选原始 `keys`；它需要 subprocess 与 working-directory 服务，并增加 `jubian_video_review`。固定入口的复核写入要求当前有效工作目录属于配置项目，且用户最新真实消息完整等于 `approve <key> <digest>` 或 `reject <key> <digest>`。同时配置两种入口会在加载时失败。
+
+Settings 入口可用绝对路径 `videoRecoveryFfmpegPath` 覆盖解码器；省略时使用可用的 Host 启动解码器。`videoRecoveryDecodeTimeoutMs` 独立配置解码期限；省略时使用固定配置的 `decodeTimeoutMs` 或既有 watch 期限，同时指定两种期限覆盖会被拒绝。终止宽限和输出收集上限分别由 `videoRecoveryDecodeGraceMs` 与 `videoRecoveryDecodeMaxOutputBytes` 配置；无效已提供值在工作者启动前拒绝。原生解码只允许捕获的 MOV/MP4 文件，分别检查画面与音轨。解码通过是技术证据，不代表画面审核通过。
+
+报告与独立决定保存在 `video_tasks/review`。人工决定绑定当前报告 digest；退回后可带理由重新开启一次。导入衍生视频时先捕获项目内普通文件并计算摘要，再执行解码。直接交付把已批准的精确字节复制到 `exports/Muse-approved-<task>-<digest>.mp4`，另存 `.direct-delivery.json` 回执。状态会核验实际输出文件。输出丢失可以修复；已有同字节输出可补回执，保留 inode 且不再次下载；已有不同字节永不覆盖。本地片段捕获使用视频下载大小上限。
+
+卸载先停止接收新操作，再取消并等待已接收的初始化、请求、工作者读取、原生进程和文件操作。已经原子写完的设置、已发布的决定或回执不会因响应取消而回滚。原子替换不承诺断电持久性。保存的项目丢失时报告不可用，仍可更换或关闭，不阻断 Host 启动。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 

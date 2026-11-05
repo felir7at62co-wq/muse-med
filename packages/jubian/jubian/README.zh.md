@@ -143,6 +143,8 @@ if (!begun.replayed) {
 
 -----
 
+原生视频意图可保存可选的 `before_task_ids` 与绝对 `video_preview_path` 恢复元数据。读取时拒绝无效的已提供字段，不会把它们静默当作旧记录缺失。没有这些字段的旧意图仍可读取；调用方不得补造恢复证据，也不得根据缺失授权另一笔付费请求。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 

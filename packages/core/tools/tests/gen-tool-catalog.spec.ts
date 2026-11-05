@@ -35,9 +35,9 @@ describe('gen-tool-catalog collectToolCatalog', () => {
       'interrupt_agent', 'interrupt_agent', 'job_kill', 'job_list', 'job_output',
       'jubian_asset', 'jubian_budget', 'jubian_catalog', 'jubian_character_reference_authorize', 'jubian_claim',
       'jubian_find', 'jubian_media', 'jubian_model', 'jubian_organize', 'jubian_snatch',
-      'jubian_storyboard', 'jubian_video', 'jubian_video_model', 'jubian_watch', 'list_agents',
+      'jubian_storyboard', 'jubian_video', 'jubian_video_model', 'jubian_video_review', 'jubian_watch', 'list_agents',
       'list_agents', 'list_mcp_resource_templates', 'list_mcp_resources', 'list_subagent_models', 'load_workspace_dependencies',
-      'lsp', 'muse_production', 'plugin_manager', 'plugin_market', 'present',
+      'lsp', 'muse_feedback_status', 'muse_feedback_submit', 'muse_production', 'plugin_manager', 'plugin_market', 'present',
       'propose_action', 'pwsh', 'pwsh', 'ralph', 'read',
       'read_image', 'read_mcp_resource', 'run_code', 'schedule_create', 'schedule_edit',
       'schedule_list', 'schedule_view', 'screenplay_project', 'send_message', 'send_message',
@@ -61,6 +61,11 @@ describe('gen-tool-catalog collectToolCatalog', () => {
     const parameters = directory?.schemas[0]?.parameters
     expect(parameters).toHaveProperty('properties.cd.type', 'string')
     expect(parameters?.required ?? []).not.toContain('cd')
+    const jubian = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-jubian')
+    expect(jubian?.sources.jubian_video_review).toBe('packages/jubian/tool-jubian/src/video-recovery-config.ts')
+    expect(jubian?.schemas.find(schema => schema.name === 'jubian_video_review')?.parameters).toMatchObject({
+      properties: { action: { enum: ['read', 'approve', 'reject'] } }, required: ['action', 'idempotency_key'],
+    })
   })
 
   it('resolves a runtime-spread enum to its literal members (the payoff over AST)', async () => {

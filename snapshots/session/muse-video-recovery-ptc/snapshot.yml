@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-video-recovery-ptc
+profile: headless
+composition: muse-video-recovery-ptc
+recording: authored
+platform: posix
+header:
+  class: muse-video-recovery-ptc
+  pin: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-recovery-fixture

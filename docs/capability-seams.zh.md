@@ -23,6 +23,7 @@ flowchart LR
   pkg_api_remotes["api-remotes"]
   pkg_client_ui_agent_notes["client-ui-agent-notes"]
   svc_jubianVideoSelection["ctx.jubianVideoSelection<br/>Conversation video generation settings"]
+  svc_jubianVideoRecovery["ctx.jubianVideoRecovery<br/>Original-key video recovery and review"]
   svc_jubianImage["ctx.jubianImage<br/>Jubian account image routes"]
   pkg_drama_settings["drama-settings"]
   svc_jubianToken["ctx.jubianToken<br/>Jubian credential settings"]
@@ -500,6 +501,7 @@ flowchart LR
   pkg_tool_discovery --> svc_toolDiscovery
   pkg_tool_jubian --> svc_jubianImage
   pkg_tool_jubian --> svc_jubianToken
+  pkg_tool_jubian --> svc_jubianVideoRecovery
   pkg_tool_jubian --> svc_jubianVideoSelection
   pkg_tool_subagent --> svc_subagentModelSelection
   pkg_tools --> svc_tools
@@ -578,6 +580,7 @@ flowchart LR
   svc_jobs --> pkg_tool_terminal
   svc_jubianImage --> pkg_drama_settings
   svc_jubianToken --> pkg_tool_jubian
+  svc_jubianVideoRecovery --> pkg_tool_jubian
   svc_jubianVideoSelection --> pkg_tool_jubian
   svc_llm --> pkg_agent_loop
   svc_llm --> pkg_compaction_basic
@@ -706,6 +709,7 @@ flowchart LR
 | `ctx.characterReferenceAuthority` | `service` | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | 为托管参考图使用重新读取当前项目、登记角色和 Catalog 图片摘要；不授予图片使用权。 |
 | `ctx.agentNotes` | `core` | [`api-agent-notes`](../packages/api/agent-notes) | - | [`api-remotes`](../packages/api/remotes), `client-ui-agent-notes` | - | 在配置根目录内列出和编辑已有笔记，使用文件系统版本检查；浏览器通过 Typert Remote 接收笔记内容。 |
 | `ctx.jubianVideoSelection` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | 记录用户选择的视频规格，追加上下文，并按会话选择校验新的生成提交。 |
+| `ctx.jubianVideoRecovery` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | 通过提供方只读查询核对原始视频提交，检查捕获媒体，并交付明确批准的 MP4 原字节，不会发起新的生成。 |
 | `ctx.jubianImage` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`drama-settings`](../packages/drama/drama-settings) | - | 读取账号可访问的图像生成路由，不暴露凭据，也不提交付费任务。 |
 | `ctx.jubianToken` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | 通过已有凭据提供方描述、存储和清除凭据；浏览器仅接收状态，不接收保存的 token。 |
 | `ctx.museAccount` | `service` | [`muse-account`](../packages/host/muse-account) | - | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe), [`tool-jubian`](../packages/jubian/tool-jubian), `ui-muse-account` | - | Muse Account 同时拥有服务定义与 Host 实现；工具通过该服务使用已认证的转写与共享声线登记，账号界面使用公开 Remote 方法。声线槽传输仅供 Host 使用。 |

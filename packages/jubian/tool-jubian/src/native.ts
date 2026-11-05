@@ -19,7 +19,8 @@
  * detection: a partial list would make "no task appeared" an unsafe conclusion,
  * and that conclusion is what authorizes a paid PUT.
  */
-import { readFile, readdir } from 'node:fs/promises'
+import { recordedVideoPreview, recoveryProject } from './video-recovery-project.ts'
+import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
 import { promptRiskReview } from './prompt-risk.ts'
 import type { PromptRiskReviewOptions } from './prompt-risk.ts'
 import { readVideoSources, resolveVideoSourceOptions } from './video-sources.ts'
@@ -175,14 +176,15 @@ function checkedInventoryPage(response: JubianResponse, knownTotal: number | nul
  * @param scriptId - Project id.
  * @returns Every task record the provider lists, in provider order.
  */
-async function listAllVideoTasks(client: JubianClient, scriptId: number): Promise<Record<string, unknown>[]> {
+async function listAllVideoTasks(client: JubianClient, scriptId: number, signal?: AbortSignal): Promise<Record<string, unknown>[]> {
   const collected: Record<string, unknown>[] = []
   const stable = new Set<string>()
   let knownTotal: number | null = null
   for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum += 1) {
+    signal?.throwIfAborted()
     const response = await client.request({ method: 'GET',
       path: `/admin/aigc/video/task/list?scriptId=${scriptId}&pageNum=${pageNum}&pageSize=${TASK_PAGE_SIZE}`
-        + '&orderByColumn=createTime&orderBy=desc' })
+        + '&orderByColumn=createTime&orderBy=desc', ...(signal === undefined ? {} : { signal }) })
     const { page, knownTotal: pageTotal } = checkedInventoryPage(response, knownTotal)
     knownTotal = pageTotal
     for (const record of page.rows) {
@@ -199,10 +201,10 @@ async function listAllVideoTasks(client: JubianClient, scriptId: number): Promis
 }
 
 /** Read every child result of one task, in provider order. */
-async function listSubtasks(client: JubianClient, taskId: string): Promise<Record<string, unknown>[]> {
+async function listSubtasks(client: JubianClient, taskId: string, signal?: AbortSignal): Promise<Record<string, unknown>[]> {
   const response = await client.request({ method: 'POST',
     path: '/admin/aigc/video/task/sub/list?pageNum=1&pageSize=100&orderByColumn=createTime&orderBy=desc',
-    body: { aigcVideoTaskId: taskId } })
+    body: { aigcVideoTaskId: taskId }, ...(signal === undefined ? {} : { signal }) })
   return responseRecords(response.data)
 }
 
@@ -234,8 +236,8 @@ async function listAllSubjectMaterials(client: JubianClient, scriptId: number): 
 }
 
 /** Read one task's detail, refusing an unreadable body. */
-async function taskDetail(client: JubianClient, taskId: string): Promise<Record<string, unknown>> {
-  const response = await client.request({ method: 'GET', path: `/admin/aigc/video/task/${taskId}` })
+async function taskDetail(client: JubianClient, taskId: string, signal?: AbortSignal): Promise<Record<string, unknown>> {
+  const response = await client.request({ method: 'GET', path: `/admin/aigc/video/task/${taskId}`, ...(signal === undefined ? {} : { signal }) })
   return object(response.data)
 }
 
@@ -416,10 +418,11 @@ function statesStoryboard(record: Record<string, unknown>, storyboardId: number)
  * @param scriptId - Project id.
  * @param storyboardId - Storyboard id.
  * @param episode - Frozen episode ID and number; only explicit differences exclude tasks before the cap.
+ * @param signal - Optional cancellation of reconciliation reads.
  * @returns One hydrated entry per provably related task, each with its storyboard-matching children.
  */
 async function hydrateRelated(client: JubianClient, records: Record<string, unknown>[],
-  scriptId: number, storyboardId: number, episode: NativeEpisodeScope): Promise<HydratedTask[]> {
+  scriptId: number, storyboardId: number, episode: NativeEpisodeScope, signal?: AbortSignal): Promise<HydratedTask[]> {
   const related = records.filter((record) => {
     if (!isRelatedTaskCandidate(record, scriptId, storyboardId)) return false
     return matchesNativeEpisode(record, episode)
@@ -429,8 +432,9 @@ async function hydrateRelated(client: JubianClient, records: Record<string, unkn
   const hydrated: HydratedTask[] = []
   for (const record of related) {
     const taskId = taskIdOf(record) as string
-    const task = await taskDetail(client, taskId)
-    const children = childrenOf(await listSubtasks(client, taskId), storyboardId)
+    signal?.throwIfAborted()
+    const task = await taskDetail(client, taskId, signal)
+    const children = childrenOf(await listSubtasks(client, taskId, signal), storyboardId)
     if (children.length === 0 && !statesStoryboard(record, storyboardId)
       && !statesStoryboard(task, storyboardId)) continue
     hydrated.push({ taskId, task, children })
@@ -516,12 +520,12 @@ function projectRootOfPreview(previewPath: string): string {
 /** Detect explicit spoken lines without treating scene fields or negative instructions as speech. */
 function hasPromptSpeech(prompt: string): boolean {
   const names = new Set<string>()
-  for (const match of prompt.matchAll(/@\[([^\]]+)\]\([^)]*\)/gu)) if (match[1] !== undefined) names.add(match[1].trim())
+  for (const match of prompt.matchAll(/@\[([^\]]+)\]\([^)]*\)/gu)) names.add((match[1] as string).trim())
   for (const match of prompt.matchAll(/^[ \t]*说话人\s*[：:]\s*([^\n\r；;]+)/gmu)) {
-    if (match[1] !== undefined) names.add(match[1].trim())
+    names.add((match[1] as string).trim())
   }
   for (const match of prompt.matchAll(/^[ \t]*(?:人物|角色|角色名|出镜人物)\s*[：:]\s*([^\n\r]+)/gmu)) {
-    for (const raw of (match[1] ?? '').split(/[、，,；;\/|]/u)) {
+    for (const raw of (match[1] as string).split(/[、，,；;\/|]/u)) {
       const entry = raw.trim()
       if (/^(?:不要|不得|禁止|避免|排除|不出现)/u.test(entry)
         || /[（(][^）)]*(?:不要|不得|禁止|避免|排除|不出现|不说话|不发声|无台词|没有台词)[^）)]*[）)]/u.test(entry)) continue
@@ -779,6 +783,8 @@ Promise<{ key: string; outcome: string } | null> {
  * @param ledger - Write ledger used to reserve the charge and prevent a repeated PUT.
  * @param args - Preview locator, optional project/storyboard identity, and matching idempotency key.
  * @param assertModel - Optional synchronous conversation choice check before reserving a new paid request.
+ * @param reconcileOnly - When true, a missing intent refuses before any live rebuild or paid request.
+ * @param signal - Optional cancellation of read-only reconciliation.
  * @returns Submission or reconciliation evidence, including unresolved outcomes without automatic resubmission.
  */
 export async function submitVideoMethod(client: JubianClient, ledger: JubianLedger, args: CostEstimate & {
@@ -786,9 +792,11 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
   project_dir?: string | undefined
   storyboard_id?: number | undefined
   idempotency_key?: string | undefined
-}, assertModel?: (model: Record<string, unknown>) => void): Promise<Record<string, unknown>> {
+}, assertModel?: (model: Record<string, unknown>) => void,
+reconcileOnly = false, signal?: AbortSignal): Promise<Record<string, unknown>> {
   const key = need(args.idempotency_key)
   if (!key.trim()) throw new JubianError('CONTRACT_CHANGED')
+  signal?.throwIfAborted()
   const previewPath = await resolvePreviewPath(args)
   let parsed: unknown
   try {
@@ -807,9 +815,12 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
       || recorded.request_sha256 !== bodyHash(preview.payload)) {
       throw new JubianError('CONTRACT_CHANGED', 'Recorded key belongs to a different video submission')
     }
-    const records = await listAllVideoTasks(client, preview.scriptId)
-    const hydrated = await hydrateRelated(client, records, preview.scriptId, preview.storyboardId, nativeEpisodeScope(preview.payload))
-    const claim = classifyExistingNativeMatches(hydrated, expectationOf(preview, []))
+    const records = await listAllVideoTasks(client, preview.scriptId, signal)
+    const hydrated = await hydrateRelated(client, records, preview.scriptId, preview.storyboardId,
+      nativeEpisodeScope(preview.payload), signal)
+    const claim = recorded.before_task_ids === undefined
+      ? classifyExistingNativeMatches(hydrated, expectationOf(preview, []))
+      : classifyNewNativeCandidates(hydrated, expectationOf(preview, recorded.before_task_ids))
     return { replayed: true, outcome: recorded.outcome ?? 'unknown', response_sha256: recorded.response_sha256,
       preview_path: previewPath, idempotency_key: key, ...claimReport(claim),
       next: `同一个 idempotency_key 已有一条记录（outcome=${recorded.outcome ?? 'unknown'}），`
@@ -817,13 +828,17 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
         + 'reconcile_required 表示暂时看不到新任务，继续用同一个 key 对账即可。' }
   }
 
+  if (reconcileOnly) throw new JubianError('CONTRACT_CHANGED', 'No recorded video submission for this key')
+  const previewEntry = await lstat(previewPath)
+  if (!previewEntry.isFile() || previewEntry.isSymbolicLink()) throw new JubianError('CONTRACT_CHANGED')
+  const canonicalPreview = await realpath(previewPath)
   const live = await livePreview(client, preview.storyboardId, preview.createdAt)
   await assertSelectionReady(ledger, live.scriptId, live.storyboardId, object(JSON.parse(String(live.payload.modelConfig))).prompt)
   if (live.idempotencyKey !== preview.idempotencyKey) throw new JubianError('CONTRACT_CHANGED')
 
-  const preflightRecords = await listAllVideoTasks(client, preview.scriptId)
+  const preflightRecords = await listAllVideoTasks(client, preview.scriptId, signal)
   const preflight = await hydrateRelated(client, preflightRecords, preview.scriptId,
-    preview.storyboardId, nativeEpisodeScope(preview.payload))
+    preview.storyboardId, nativeEpisodeScope(preview.payload), signal)
   const expectation = expectationOf(preview, [])
   const existing = classifyExistingNativeMatches(preflight, expectation)
   if (existing.status === 'reconcile_conflict') {
@@ -849,7 +864,7 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
         + '保留原 preview，并用 original_idempotency_key 只读对账；旧文件缺失或远端任务暂未出现不允许换新 key 再付费。' }
   }
 
-  const beforeRecords = await listAllVideoTasks(client, preview.scriptId)
+  const beforeRecords = await listAllVideoTasks(client, preview.scriptId, signal)
   const firstIds = preflightRecords.map(taskIdOf).filter((value): value is string => value !== null).sort()
   const secondIds = beforeRecords.map(taskIdOf).filter((value): value is string => value !== null).sort()
   if (beforeRecords.length !== preflightRecords.length || stableJson(firstIds) !== stableJson(secondIds)) {
@@ -885,7 +900,7 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
           envelope_layout: 'unparsed', data: null }
       }
       try {
-        const afterRecords = await listAllVideoTasks(client, preview.scriptId)
+        const afterRecords = await listAllVideoTasks(client, preview.scriptId, signal)
         // The tasks that appeared across the PUT, whether or not any of them could be
         // claimed. An accepted PUT that claims nothing still created a task and may
         // already have billed it, so these ids are the caller's only handle on it.
@@ -895,13 +910,14 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
           .filter((value): value is string => value !== null)
           .filter(id => !beforeAllTaskIds.has(id))
         const hydrated = await hydrateRelated(client, afterRecords, preview.scriptId,
-          preview.storyboardId, nativeEpisodeScope(preview.payload))
+          preview.storyboardId, nativeEpisodeScope(preview.payload), signal)
         state.claim = classifyNewNativeCandidates(hydrated, expectationOf(preview, beforeTaskIds))
       } catch {
         state.reconciliationFailed = true
       }
       return response
     }, () => estimatedCostReservation(args), { scriptId: preview.scriptId,
+      videoRecovery: { beforeTaskIds, videoPreviewPath: canonicalPreview },
       ...(assertModel ? { beforeReserve: () => { assertModel(object(JSON.parse(String(preview.payload.modelConfig)))) } } : {}) })
   const putSent = state.sent || result.replayed
   const putOutcome = result.outcome
@@ -932,6 +948,26 @@ export async function submitVideoMethod(client: JubianClient, ledger: JubianLedg
         : report.next }
 }
 
+/**
+ * Reconcile only the original recorded intent using project-owned frozen evidence.
+ * @param client - Authenticated read-only provider transport.
+ * @param ledger - Original paid-intent ledger.
+ * @param projectDir - Authorized project directory.
+ * @param key - Original submission key; never generated by recovery.
+ * @param signal - Read cancellation; omitted for a caller without a lifetime.
+ * @returns Original-key evidence, or undefined when metadata cannot establish ownership.
+ */
+export async function recoverVideoSubmission(client: JubianClient, ledger: JubianLedger,
+  projectDir: string, key: string, signal?: AbortSignal): Promise<Record<string, unknown> | undefined> {
+  signal?.throwIfAborted()
+  const record = await ledger.find(requireKey(key))
+  if (record === undefined) return undefined
+  const project = await recoveryProject(resolve(projectDir), signal)
+  const preview = await recordedVideoPreview(record, project, signal)
+  if (preview === undefined) return undefined
+  return submitVideoMethod(client, ledger, { preview_path: preview, idempotency_key: key }, undefined, true, signal)
+}
+
 /** One independently keyed preview within an approved video batch. */
 export interface VideoBatchItem extends CostEstimate { preview_path: string; idempotency_key: string }
 
@@ -958,9 +994,15 @@ interface FrozenBatchItem extends VideoBatchItem { preview: NativeVideoPreview; 
 
 async function batchPreview(item: VideoBatchItem): Promise<FrozenBatchItem> {
   const key = requireKey(item.idempotency_key)
-  const previewPath = resolve(item.preview_path)
+  const source = resolve(item.preview_path)
+  let previewPath: string
   let parsed: unknown
-  try { parsed = JSON.parse(await readFile(previewPath, 'utf8')) }
+  try {
+    const entry = await lstat(source)
+    if (!entry.isFile() || entry.isSymbolicLink()) throw new JubianError('CONTRACT_CHANGED')
+    previewPath = await realpath(source)
+    parsed = JSON.parse(await readFile(previewPath, 'utf8'))
+  }
   catch (error) { throw new JubianError('CONTRACT_CHANGED', `Unreadable video preview: ${(error as Error).name}`) }
   const preview = validateNativeVideoPreview(parsed)
   await validateProjectBinding(projectRootOfPreview(previewPath), preview.scriptId)
@@ -1063,7 +1105,7 @@ Promise<{ total: number; submitted: number; reconcile_required: number; results:
       throw new JubianError('CONTRACT_CHANGED', 'A partially recorded batch needs read-only per-key reconciliation')
     }
     const results = await Promise.all(items.map(item => limitedRead(async () => {
-      const result = await submitVideoMethod(client, ledger, item)
+      const result = await submitVideoMethod(client, ledger, item, undefined, true)
       return result.status === 'submitted' ? result : { ...result, status: 'reconcile_required',
         next: '批量提交已有原 key 记录，但当前回读不能完整确认归属；只读核对，不要重发 PUT。' }
     })))
@@ -1121,7 +1163,8 @@ Promise<{ total: number; submitted: number; reconcile_required: number; results:
       const budget = budgets[index] as { amount: string; unit: string }
       return { idempotencyKey: item.idempotency_key,
         method: 'storyboard_native_submit' as const, scriptId: item.preview.scriptId,
-        requestSha256: bodyHash(item.preview.payload), quotedAmount: budget.amount, quoteUnit: budget.unit }
+        requestSha256: bodyHash(item.preview.payload), beforeTaskIds: item.beforeTaskIds,
+        videoPreviewPath: item.preview_path, quotedAmount: budget.amount, quoteUnit: budget.unit }
     })
   })
   let nextIndex = 0

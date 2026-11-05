@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 
 import { JubianClient, JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from '../src/methods.ts'
 import type { MethodArgs, MethodDeps } from '../src/methods.ts'
+import * as Native from '../src/native.ts'
 import { bodyHash, requireArguments } from '../src/write.ts'
 import { buildImageRequest } from '@deepseek-ai/dsh-jubian-api'
 
@@ -2151,4 +2152,73 @@ it.each([
   await expect(storyboardMethod(client, ledger, { method: 'create',
     body: { scriptId: 2708, ...overrides }, idempotency_key: 'malformed-refs' })).rejects.toThrow()
   expect(calls).toEqual([])
+})
+
+
+it('dispatches original-key recovery with its signal and retains unknown when ownership is absent', async () => {
+  const { client, calls } = stubClient(() => { throw new Error('No provider request is allowed') })
+  const signal = new AbortController().signal
+  const args = { method: 'reconcile_video', project_dir: root, idempotency_key: 'original-key' }
+  const reconcile = vi.spyOn(Native, 'recoverVideoSubmission')
+    .mockResolvedValueOnce({ status: 'submitted', task_id: '42', replayed: true })
+    .mockResolvedValueOnce(undefined)
+  try {
+    expect(await storyboardMethod(client, ledger, args, { signal }))
+      .toEqual({ status: 'submitted', task_id: '42', replayed: true })
+    expect(await storyboardMethod(client, ledger, args, { signal }))
+      .toEqual({ status: 'reconcile_required', task_id: null })
+    expect(reconcile).toHaveBeenNthCalledWith(1, client, ledger, root, 'original-key', signal)
+    expect(reconcile).toHaveBeenNthCalledWith(2, client, ledger, root, 'original-key', signal)
+    expect(calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  } finally { reconcile.mockRestore() }
+})
+
+it('passes foreground cancellation into task-list reads without creating an intent', async () => {
+  const { client, calls } = stubClient(() => ({ total: 0, rows: [] }))
+  const request = vi.spyOn(client, 'request')
+  const signal = new AbortController().signal
+  try {
+    expect(await videoMethod(client, ledger, { method: 'tasks', script_id: 2708 }, { signal }))
+      .toMatchObject({ tasks: { total: 0, rows: [], complete: true } })
+    expect(request).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ method: 'GET', signal }))
+    expect(calls).toHaveLength(1)
+    expect(calls[0]?.path).toContain('/admin/aigc/video/task/list?scriptId=2708')
+    expect(await ledger.records()).toEqual([])
+  } finally { request.mockRestore() }
+})
+
+it.each([null, 'not-a-page', 7, true])('refuses a primitive material inventory: %j', async (data) => {
+  const { client, calls } = stubClient(() => data)
+  await expect(assetMethod(client, ledger, { method: 'materials', script_id: 2708 }))
+    .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+  expect(calls).toHaveLength(1)
+  expect(calls[0]?.method).toBe('GET')
+  expect(await ledger.records()).toEqual([])
+})
+
+it('reports the failed unselected image among older selected rows when the parent has no status', async () => {
+  const { client, calls } = stubClient((request) => {
+    if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+    if (request.method === 'POST') return 83749
+    if (request.path.includes('getGeneratedImageByAssetId')) return [
+      { assetId: 83749, id: 900, assetUrl: 'https://media.example/stale-candidate.png',
+        hsAssetStatus: 'Active', isUsed: 0, taskId: 545217, resultStatus: 'failed',
+        resultMsg: '图片编辑请求失败' },
+      { assetId: 83749, id: 899, assetUrl: 'https://media.example/old-selected.png',
+        hsAssetStatus: 'Active', isUsed: 1, taskId: 545216, resultStatus: 'succeeded' },
+    ]
+    return { id: 83749, hsAssetStatus: null }
+  })
+  const sleep = vi.fn(async (_ms: number) => undefined)
+  const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+    asset_name: 'staging', asset_type: 2, prompt: 'p', idempotency_key: 'failed-unselected-candidate' },
+  { image: { ...imageDeps().image, sleep } })
+  expect(result).toMatchObject({ outcome: 'accepted', asset_status: 'failed',
+    observed_asset_status: 'failed', material_id: null, image_url: null, waited_ms: 0 })
+  expect(JSON.stringify(result)).toContain('545217')
+  expect(sleep).not.toHaveBeenCalled()
+  expect(calls.filter(call => call.method === 'POST')).toHaveLength(1)
+  expect(calls.some(call => call.method === 'PUT')).toBe(false)
+  expect(await ledger.records()).toHaveLength(1)
 })

@@ -1,0 +1,15 @@
+{
+  "originalIntentCount": 1,
+  "newIntents": 0,
+  "generationPuts": 0,
+  "nativeResult": "submitted",
+  "providerReadsOnly": true,
+  "decodedTracks": [
+    "video",
+    "audio"
+  ],
+  "sameFileBytes": true,
+  "offlineReplay": true,
+  "receiptRepaired": true,
+  "existingInodePreserved": true
+}

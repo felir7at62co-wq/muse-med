@@ -76,7 +76,14 @@ function currentOutput(row: VideoSubtask, raw: Record<string, unknown>, stage: W
   })
 }
 
-async function observe(client: JubianClient, args: WatchArgs, signal: AbortSignal): Promise<JobOutcome | undefined> {
+/**
+ * Read one existing task and its complete child pages without submitting another operation.
+ * @param client - Credential-aware provider read transport.
+ * @param args - Existing operation identity and expected processing stage.
+ * @param signal - Cancellation forwarded to every provider read.
+ * @returns Verified completion, terminal failure, or undefined while results remain incomplete or unverified.
+ */
+export async function observe(client: JubianClient, args: WatchArgs, signal: AbortSignal): Promise<JobOutcome | undefined> {
   const response = await client.request({ method: 'GET', path: `/admin/aigc/video/task/${args.task_id}`, signal })
   const task = readTaskPage(response.data)
   if (task.task_id !== args.task_id || task.task_type === null || VIDEO_TASK_TYPES[task.task_type] !== args.stage) return

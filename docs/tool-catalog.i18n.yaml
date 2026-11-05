@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: 5e3e9bc537db809b
-  zh: 42162520561059e0
+  en: c85524ae1ff60580
+  zh: 9e0c4876e3fde0ca
 /tool-schema-catalog/deepseek-ai-dsh-muse-account:
   en: 08c09d3279885ad6
   zh: 08c09d3279885ad6
@@ -431,8 +431,11 @@
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-video-model:
   en: b697278a40736e8b
   zh: b697278a40736e8b
+/tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-video-review:
+  en: c1c04136951b5f93
+  zh: c1c04136951b5f93
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-watch:
-  en: e19795e3533a2ecd
+  en: 33cbf764c5891ccd
   zh: e19795e3533a2ecd
 /tool-schema-catalog/deepseek-ai-dsh-drama-settings:
   en: fc842c4d7c20694d

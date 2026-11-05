@@ -1,0 +1,10 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write snapshots/session/muse-video-recovery-ptc/README.md
+/:
+  en: 0be837ba1db97066
+  zh: 500ef9c2b1c406ac
+/original-key-video-recovery-through-ptc:
+  en: d70f944d3c26b468
+  zh: 8669e99f58895925

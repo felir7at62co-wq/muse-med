@@ -143,6 +143,8 @@ if (!begun.replayed) {
 
 -----
 
+Native video intents may retain optional `before_task_ids` and absolute `video_preview_path` recovery metadata. Readers reject malformed present fields instead of silently treating them as legacy absence. Older intents remain readable without either field; callers must not invent missing recovery evidence or authorize another paid request from its absence.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 

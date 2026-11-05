@@ -70,6 +70,8 @@ import type {
 } from './character-reference-qa-bridge.ts'
 import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
 import { resolveVideoSourceOptions } from './video-sources.ts'
+import { mountVideoRecovery, resolveVideoRecovery, type VideoRecoveryConfig } from './video-recovery-config.ts'
+export { JubianVideoRecovery } from './video-recovery-service.ts'
 
 export { JubianToken } from './token.ts'
 export { JubianImageRoutes, pinnedImageSelection } from './image.ts'
@@ -79,7 +81,7 @@ export const name = 'tool-jubian'
 export const inject = ['tools', 'credentials']
 
 /** Where the tool row keeps its ledger and which origin it calls. */
-export interface Config extends ImageRouteConfig {
+export interface Config extends ImageRouteConfig, VideoRecoveryConfig {
   /** Rows per read-only existing-video history page; integer 1..100, default 100. */
   videoSourcePageSize?: number
   /** Maximum pages per existing-video history scan; integer 1..100, default 20. */
@@ -555,6 +557,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     throw new Error('imageAllowedStandardIds must contain distinct positive catalogue row IDs')
   }
   const watchConfig = resolveWatchConfig(config)
+  const recovery = resolveVideoRecovery(config, watchConfig.watchTimeoutMs, process.env.DSH_FFMPEG_PATH)
   const claimConfig: ClaimWatchConfig = resolveClaimWatchConfig(config)
   const imageBatch = resolveImageBatchOptions(config)
   const imageReferenceScan = resolveImageReferenceScanOptions(config)
@@ -658,6 +661,10 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   })))
   const storedCredential = async () => (await ctx.credentials.resolve(credentialRef(JUBIAN_TOKEN_REF)))?.value ?? ''
   const client = configuredJubianClient(storedCredential, config, process.cwd())
+  await mountVideoRecovery(ctx, recovery, { ledger,
+    settingsPath: join(home, 'jubian', 'video-recovery.json'),
+    clientForProject: directory => configuredJubianClient(storedCredential, config, directory),
+    intervalMs: watchConfig.watchPollIntervalMs })
   const voiceCoordinator = museVoiceCoordinator(ctx, async () => {
     const stored = await storedCredential()
     return stored.trim() || config.workspaceSecrets === false ? stored : await workspacePipelineToken(process.cwd())
@@ -1015,12 +1022,13 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     parameters: {
       method: { type: 'string', required: true,
         enum: ['list', 'get', 'create', 'create_batch', 'save', 'edit_preview', 'edit_batch_preview', 'edit_apply', 'generate', 'select_assets', 'prepare_video', 'submit_video',
-          'submit_video_batch', 'erase_subtitle', 'delete_preview', 'delete_apply', 'audio_preview', 'audio_apply'],
+          'submit_video_batch', 'reconcile_video', 'erase_subtitle', 'delete_preview', 'delete_apply', 'audio_preview', 'audio_apply'],
         description: 'list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；'
           + 'save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=兼容入口，无预览仅准备、有预览按原 key 提交（计费）；'
           + 'select_assets=写入选定资产（免费，强制 isGenerate=0）；'
           + 'prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；'
           + 'submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；'
+          + 'reconcile_video=按project_dir和原idempotency_key只读恢复已有意图，缺证据保持unknown，绝不新建key或重发生成PUT；'
           + 'delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；'
           + 'erase_subtitle=去字幕（按实时目录计价、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。' },
       storyboard_id: ARGS.storyboard_id, content_duration_ms: ARGS.content_duration_ms,

@@ -418,7 +418,7 @@ describe('tool-jubian registration', () => {
     // three methods and their arguments must be visible in the schema.
     expect((storyboard.properties as Record<string, { enum?: string[] }>).method!.enum)
       .toEqual(['list', 'get', 'create', 'create_batch', 'save', 'edit_preview', 'edit_batch_preview', 'edit_apply',
-        'generate', 'select_assets', 'prepare_video', 'submit_video', 'submit_video_batch', 'erase_subtitle',
+        'generate', 'select_assets', 'prepare_video', 'submit_video', 'submit_video_batch', 'reconcile_video', 'erase_subtitle',
         'delete_preview', 'delete_apply', 'audio_preview', 'audio_apply'])
     expect((storyboard.properties as Record<string, Record<string, unknown>>).selections!).toMatchObject(
       { type: 'array',

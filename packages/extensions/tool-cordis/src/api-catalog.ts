@@ -2047,6 +2047,43 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'jubianVideoRecovery',
+    summary: 'Dynamic project selection, read-only recovery and explicit human decisions.',
+    description: 'Dynamic project selection, read-only recovery and explicit human decisions.',
+    methods: [
+      {
+        signature: '@Remote status(): Promise<VideoRecoveryStatus>',
+        description: 'Read a consistent selected-project view and current artifact checks.',
+        parameters: [],
+        returns: 'Saved selection and reports without provider URLs or credentials.',
+      },
+      {
+        signature: '@Remote configure(input: VideoRecoveryConfigurationInput): Promise<VideoRecoveryStatus>',
+        description: 'Persist a selected project and replace its single background worker.',
+        parameters: [{ name: 'input', description: 'New switch and optional absolute project path.' }],
+        returns: 'Committed selection and reports for that project.',
+      },
+      {
+        signature: '@Remote review(input: VideoRecoveryReviewInput): Promise<VideoRecoveryReview>',
+        description: 'Read, decide or reopen the exact displayed report once.',
+        parameters: [{ name: 'input', description: 'Original key, action and current digest for mutations.' }],
+        returns: 'Active report and persisted decision.',
+      },
+      {
+        signature: '@Remote adopt(input: VideoRecoveryAdoptionInput): Promise<VideoRecoveryReview>',
+        description: 'Capture and decode a project-local derivative before review.',
+        parameters: [{ name: 'input', description: 'Original key, current digest and project-relative MP4 path.' }],
+        returns: 'Updated report and actual captured-file checks.',
+      },
+      {
+        signature: '@Remote deliverApprovedMp4(input: ApprovedClipDeliveryInput): Promise<VideoRecoveryReview>',
+        description: 'Publish exactly the approved MP4 without an editor or new generation.',
+        parameters: [{ name: 'input', description: 'Original key and approved report digest.' }],
+        returns: 'Current report and verified direct-copy receipt.',
+      },
+    ],
+  },
+  {
     key: 'jubianVideoSelection',
     summary: 'Host owner shared by the composer, model-facing ask tool and paid executors.',
     description: 'Host owner shared by the composer, model-facing ask tool and paid executors.',
@@ -6038,6 +6075,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ApprovalRequestEvent',
     declaration: 'export interface ApprovalRequestEvent {\n    readonly agent: Agent;\n    readonly toolName: string;\n    readonly callId?: ToolCallId;\n    readonly reason?: string;\n    readonly displayReason?: {\n        readonly en: string;\n        readonly [locale: string]: string;\n    };\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'ApprovedClipDeliveryInput',
+    declaration: 'export interface ApprovedClipDeliveryInput {\n    readonly idempotencyKey: string;\n    readonly digest: VideoRecoveryDigest;\n}',
+  },
+  {
+    name: 'ApprovedClipDirectDelivery',
+    declaration: 'export interface ApprovedClipDirectDelivery {\n    readonly path: string;\n    readonly sha256: VideoArtifactSha256;\n}',
   },
   {
     name: 'ArchiveSessionOptions',
@@ -10564,12 +10609,40 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface VerifiedWebhookDelivery<K extends string = string> {\n    readonly kind: K;\n    readonly source: WebhookSourceId;\n    readonly deliveryId: WebhookDeliveryId;\n    readonly event: WebhookEventOf<K>;\n    readonly receivedAt: number;\n}',
   },
   {
+    name: 'VideoArtifactSha256',
+    declaration: 'export type VideoArtifactSha256 = Branded<\'VideoArtifactSha256\'>;',
+  },
+  {
     name: 'VideoModelDefault',
     declaration: 'export type VideoModelDefault = Pick<VideoModelOption, \'modelId\' | \'platformId\' | \'resolution\'>;',
   },
   {
     name: 'VideoModelOption',
     declaration: 'export type VideoModelOption = {\n    key: string;\n    modelId: string;\n    modelName: string;\n    platformId: string;\n    standardId: number;\n    resolution: string;\n    genTypes: number[];\n    ratios: string[];\n    maxDurationSeconds: number | null;\n};',
+  },
+  {
+    name: 'VideoRecoveryAdoptionInput',
+    declaration: 'export interface VideoRecoveryAdoptionInput {\n    readonly idempotencyKey: string;\n    readonly digest: VideoRecoveryDigest;\n    readonly path: string;\n}',
+  },
+  {
+    name: 'VideoRecoveryConfigurationInput',
+    declaration: 'export interface VideoRecoveryConfigurationInput {\n    readonly enabled: boolean;\n    readonly projectDir?: string;\n}',
+  },
+  {
+    name: 'VideoRecoveryDigest',
+    declaration: 'export type VideoRecoveryDigest = Branded<\'VideoRecoveryDigest\'>;',
+  },
+  {
+    name: 'VideoRecoveryReview',
+    declaration: 'export interface VideoRecoveryReview {\n    readonly idempotencyKey: string;\n    readonly taskId: number;\n    readonly status: \'awaiting_review\' | \'provider_failed\';\n    readonly digest: VideoRecoveryDigest;\n    readonly mediaChecks: readonly {\n        readonly sha256: string;\n        readonly video: boolean;\n        readonly audio: boolean;\n    }[];\n    readonly derivative?: {\n        readonly path: string;\n        readonly sha256: VideoArtifactSha256;\n    };\n    readonly directDelivery?: ApprovedClipDirectDelivery;\n    readonly directDeliveryProblem?: \'missing\' | \'changed\' | \'unreadable\';\n    readonly decision: \'approve\' | \'reject\' | null;\n    readonly reason?: string;\n    readonly reopenedFrom?: {\n        readonly digest: VideoRecoveryDigest;\n        readonly rejectionReason: string | null;\n        readonly reason: string;\n    };\n}',
+  },
+  {
+    name: 'VideoRecoveryReviewInput',
+    declaration: 'export interface VideoRecoveryReviewInput {\n    readonly action: \'read\' | \'approve\' | \'reject\' | \'reopen\';\n    readonly idempotencyKey: string;\n    readonly digest?: VideoRecoveryDigest;\n    readonly reason?: string;\n}',
+  },
+  {
+    name: 'VideoRecoveryStatus',
+    declaration: 'export interface VideoRecoveryStatus {\n    readonly enabled: boolean;\n    readonly projectDir: string | null;\n    readonly configurable: boolean;\n    readonly decoderAvailable: boolean;\n    readonly projectProblem?: \'unavailable\';\n    readonly reports: readonly VideoRecoveryReview[];\n}',
   },
   {
     name: 'WebBootBatch',

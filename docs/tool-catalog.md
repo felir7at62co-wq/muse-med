@@ -55,7 +55,7 @@ This table connects model-visible tool names to the plugin package and service s
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`, `ctx.workflowEngine`, `ctx.systemPrompt`, `a calling Agent (exec.agent parents the script children)` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-workspace-dependencies` | `load_workspace_dependencies` | `ctx.tools` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`, `web_search` | `ctx.tools`, `ctx.web`, `ctx.systemPrompt` | `tool/call`, `tool/result` | - | web_search and web_fetch keep provider selection behind ctx.web so model-visible schemas stay stable across backend swaps. |
-| `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`, `jubian_budget`, `jubian_catalog`, `jubian_character_reference_authorize`, `jubian_claim`, `jubian_find`, `jubian_media`, `jubian_model`, `jubian_organize`, `jubian_snatch`, `jubian_storyboard`, `jubian_video`, `jubian_video_model`, `jubian_watch` | `ctx.tools`, `ctx.credentials`, `ctx.jobs for jubian_snatch` | `tool/call`, `tool/result`, `Jubian two-phase write ledger (NDJSON record pairs under its configured root)` | - | Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_video_model` is available when sessionVideoSelection is enabled; it records a configured initial specification or explicit user video choices without changing project defaults. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job. |
+| `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`, `jubian_budget`, `jubian_catalog`, `jubian_character_reference_authorize`, `jubian_claim`, `jubian_find`, `jubian_media`, `jubian_model`, `jubian_organize`, `jubian_snatch`, `jubian_storyboard`, `jubian_video`, `jubian_video_model`, `jubian_video_review`, `jubian_watch` | `ctx.tools`, `ctx.credentials`, `ctx.jobs for jubian_snatch`, `ctx.subprocess and ctx.workingDirectory for fixed recovery` | `tool/call`, `tool/result`, `Jubian two-phase write ledger (NDJSON record pairs under its configured root)` | - | Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_video_model` is available when sessionVideoSelection is enabled; it records a configured initial specification or explicit user video choices without changing project defaults. `jubian_video_review` is opt-in through fixed videoRecovery; its approve/reject calls require the exact latest user command and current project. Settings mode uses separate authenticated methods and cannot be combined with fixed mode. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job. |
 | `@deepseek-ai/dsh-drama-settings` | `drama_draft_dir`, `drama_project` | `ctx.tools`, `ctx.settings`, `an existing absolute project directory` | `tool/call`, `tool/result`, `project_config.json and project-bible.md`, `the Jianying draft-root Settings value` | - | drama_project keeps authoritative JSON, guarded revisions, package identities and completed-task history. Generation dimensions and delivery dimensions are separate; the initial budget is a Settings snapshot, while paid requests enforce current Settings and the account ledger authorization. drama_draft_dir reads or validates and saves the configured Jianying draft root. |
 | `@deepseek-ai/dsh-tool-shot-script` | `drama_shot`, `muse_production` | `ctx.tools`, `a source script; asset manifest for preview/compile; project and episode for compile`, `session video selection and projections when sessionVideoSelection is enabled` | `tool/call`, `tool/result`, `on compile: strict writes canonical episode outputs; advisory writes only shot_reviews/<episode>/shot_script.txt and review.json`, `muse_production: local plans/receipts; apply performs free native card writes and readback, never paid generation` | - | The three methods share one schema and report `review_mode`. `validate` and `preview` only read. Strict is the package default: content failures prevent canonical compilation. Muse uses advisory: content issues remain warnings, authored prompts and durations are preserved, and `compile` saves only separate review drafts. With sessionVideoSelection, `duration_budget` identifies the actual conversation model and ceiling; stale max_submit_seconds arguments are ignored. Unknown ceilings produce warnings without guessed packages. Model changes append a bounded advisory recheck of the last logged package durations to ordinary context; they do not rewrite scripts, cards, or the system prompt. `ok` in advisory means the check completed, not that the episode passed creative or paid-generation review. Input and filesystem errors still fail. Muse enables muse_production for local episode packaging, per-shot asset candidates, incremental choices and free batch card publication; content warnings remain advisory, while source/card changes preserve user edits and require refreshing the plan. Voice gaps return the existing shared-sample workflow. |
 | `@deepseek-ai/dsh-perception-bgm` | `bgm_match` | `ctx.tools`, `a local track index or configured public catalogue; Python and model resources only for index/inspect` | `tool/call`, `tool/result`, `on index: the local emotion index; on download: verified audio in the configured cache` | - | `match` ranks candidates without choosing a track; public mode returns IDs and URLs without downloading. `download` accepts a selected catalogue track ID and returns a verified local file. The default is local-index mode; public matching requires deployment configuration. `index` and `inspect` start Python only when executed, never during schema collection. The MERT analysis backbone is non-commercial (CC-BY-NC-4.0); audio rights remain separate. |
@@ -4877,7 +4877,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
   "properties": {
     "method": {
       "type": "string",
-      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=兼容入口，无预览仅准备、有预览按原 key 提交（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（按实时目录计价、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
+      "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=兼容入口，无预览仅准备、有预览按原 key 提交（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；reconcile_video=按project_dir和原idempotency_key只读恢复已有意图，缺证据保持unknown，绝不新建key或重发生成PUT；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（按实时目录计价、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
       "enum": [
         "list",
         "get",
@@ -4892,6 +4892,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
         "prepare_video",
         "submit_video",
         "submit_video_batch",
+        "reconcile_video",
         "erase_subtitle",
         "delete_preview",
         "delete_apply",
@@ -5535,6 +5536,38 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 
 Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
+### `jubian_video_review`
+
+读取本项目原 key 的视频质检报告。approve/reject 仅接受用户当前消息完整命令：动作、原 key、digest，以空格分隔。不会重新生成或付费。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "read",
+        "approve",
+        "reject"
+      ]
+    },
+    "idempotency_key": {
+      "type": "string"
+    },
+    "digest": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "action",
+    "idempotency_key"
+  ]
+}
+```
+
+Source: [`packages/jubian/tool-jubian/src/video-recovery-config.ts`](../packages/jubian/tool-jubian/src/video-recovery-config.ts)
+
 ### `jubian_watch`
 
 只读后台观察已受理的剧变操作，立即返回 job_id；task_id 必须是本次生成/转高清/去字幕操作的任务 ID，不是源视频任务 ID。只读同一任务及其完整子结果，严格核对身份、阶段和成功状态；旧 URL 或 hdCount 不代表本次完成。完成后由 jobs 通知，用 job_output 取结果；job_kill 只停观察，不取消提供方操作。进程重启不恢复，超时失败不重投收费请求。提供方完成不等于视觉审核通过：结果仍需抽帧、音频和交付分辨率检查。
@@ -5566,7 +5599,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 
 Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
-Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_video_model` is available when sessionVideoSelection is enabled; it records a configured initial specification or explicit user video choices without changing project defaults. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job.
+Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_video_model` is available when sessionVideoSelection is enabled; it records a configured initial specification or explicit user video choices without changing project defaults. `jubian_video_review` is opt-in through fixed videoRecovery; its approve/reject calls require the exact latest user command and current project. Settings mode uses separate authenticated methods and cannot be combined with fixed mode. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job.
 
 <a id="deepseek-aidsh-drama-settings"></a>
 

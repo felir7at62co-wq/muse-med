@@ -9,7 +9,7 @@
  * never sends a second request.
  */
 import { appendFile, mkdir, readdir, readFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { isAbsolute, join, resolve } from 'node:path'
 import { withLedgerQueue } from './claim-queue.ts'
 /** Per-process suffix for record identities created in the same millisecond. */
 let recordCounter = 0
@@ -51,6 +51,10 @@ export interface JubianLedgerRecord {
   at: string
   /** Canonical hash of the request body. */
   request_sha256: string
+  /** Related native video task IDs observed before dispatch; absent on older intents. */
+  before_task_ids?: string[]
+  /** Absolute frozen preview retained for original-key recovery; absent on older intents. */
+  video_preview_path?: string
   /** Accepted quote or operator estimate reserved before the request. */
   quoted_amount: string | null
   /** Currency unit of the accepted reservation, when one was available. */
@@ -74,6 +78,10 @@ export interface JubianLedgerBegin {
   idempotencyKey: string
   method: JubianLedgerMethod
   requestSha256: string
+  /** Related native video task IDs observed before dispatch. */
+  beforeTaskIds?: string[]
+  /** Absolute frozen preview retained for original-key recovery. */
+  videoPreviewPath?: string
   scriptId?: number
   quotedAmount?: string
   quoteUnit?: string
@@ -171,11 +179,22 @@ function foldState(lines: Record<string, unknown>[]): FoldedLedgerRecord {
   let resumed = false
   for (const line of lines) {
     if (line.phase === 'begin') {
+      const beforeTaskIds = line.before_task_ids
+      const previewPath = line.video_preview_path
+      if (beforeTaskIds !== undefined && (!Array.isArray(beforeTaskIds)
+        || !beforeTaskIds.every((id: unknown): id is string => typeof id === 'string' && id.trim().length > 0))) {
+        throw new Error('Jubian ledger: invalid pre-dispatch task IDs')
+      }
+      if (previewPath !== undefined && (typeof previewPath !== 'string' || !isAbsolute(previewPath))) {
+        throw new Error('Jubian ledger: invalid video preview path')
+      }
       record = {
         record_id: String(line.record_id), idempotency_key: String(line.idempotency_key),
         method: line.method as JubianLedgerMethod,
         script_id: typeof line.script_id === 'number' ? line.script_id : null,
         at: String(line.at), request_sha256: String(line.request_sha256),
+        ...(beforeTaskIds === undefined ? {} : { before_task_ids: beforeTaskIds }),
+        ...(previewPath === undefined ? {} : { video_preview_path: previewPath }),
         quoted_amount: (line.quoted_amount as string | null) ?? null,
         quote_unit: (line.quote_unit as string | null) ?? null,
         quote_standard_id: (line.quote_standard_id as number | null) ?? null,
@@ -340,6 +359,8 @@ export class JubianLedger {
     const record_id = `jub_${now.getTime().toString(36)}_${recordCounter.toString(36)}`
     return { record_id, idempotency_key: input.idempotencyKey, method: input.method,
       script_id: input.scriptId ?? null, at: now.toISOString(), request_sha256: input.requestSha256,
+      ...(input.beforeTaskIds === undefined ? {} : { before_task_ids: input.beforeTaskIds }),
+      ...(input.videoPreviewPath === undefined ? {} : { video_preview_path: input.videoPreviewPath }),
       quoted_amount: input.quotedAmount ?? null, quote_unit: input.quoteUnit ?? null,
       quote_standard_id: input.quoteStandardId ?? null, quote_observed_at: input.quoteObservedAt ?? null,
       http_status: null, application_code: null, response_sha256: null, outcome: null }

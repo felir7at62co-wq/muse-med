@@ -158,6 +158,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Records user-selected video specifications, appends context and checks new submissions against the conversation choice.',
   },
   {
+    key: 'jubianVideoRecovery',
+    pkg: 'tool-jubian',
+    title: 'Original-key video recovery and review',
+    mode: 'core',
+    consumers: ['tool-jubian'],
+    note: 'Reconciles recorded video submissions with provider reads, checks captured media and publishes explicitly approved MP4 bytes without a new generation.',
+  },
+  {
     key: 'jubianImage',
     pkg: 'tool-jubian',
     title: 'Jubian account image routes',

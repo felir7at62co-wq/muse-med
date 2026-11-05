@@ -1,16 +1,16 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { storyboardEditMethod } from '../src/storyboard-edit.ts'
 import { JubianClient, JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { stableSha256, submissionSemantics } from '@deepseek-ai/dsh-jubian-api'
 import type { NativeVideoPreview } from '@deepseek-ai/dsh-jubian-api'
 import { bodyHash } from '../src/write.ts'
-import { positiveInteger, prepareVideoMethod, resolveVideoBatchOptions, selectAssetsMethod,
+import { positiveInteger, prepareVideoMethod, recoverVideoSubmission, resolveVideoBatchOptions, selectAssetsMethod,
   submitVideoBatchMethod, submitVideoMethod, validateProjectBinding } from '../src/native.ts'
 
 const URL_LEAD = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/lead.jpg'
@@ -827,6 +827,102 @@ describe('prepare_video', () => {
 })
 
 describe('submit_video', () => {
+  it('forwards the recovery lifetime through every original-key provider read', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD,
+      tasks: [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1, taskStatus: 'submit' }],
+      subtasks: { '335343': [savedChild({ storyboard: STORYBOARD })] } }
+    const file = await prepared(provider)
+    const preview = JSON.parse(await readFile(file.previewPath, 'utf8')) as NativeVideoPreview
+    await ledger.begin({ idempotencyKey: file.idempotencyKey, method: 'storyboard_native_submit',
+      requestSha256: bodyHash(preview.payload), scriptId: 2708,
+      beforeTaskIds: [], videoPreviewPath: await realpath(file.previewPath) })
+    const original = await ledger.records()
+    const client = clientFor(provider), request = vi.spyOn(client, 'request')
+    const signal = new AbortController().signal
+    try {
+      expect(await recoverVideoSubmission(client, ledger, file.directory, file.idempotencyKey, signal))
+        .toMatchObject({ replayed: true, outcome: 'unknown', status: 'submitted', task_id: '335343' })
+      const requests = request.mock.calls.map(([value]) => value)
+      expect(requests).toHaveLength(3)
+      expect(requests.every(value => value.signal === signal)).toBe(true)
+      expect(requests[0]?.method).toBe('GET')
+      expect(requests[0]?.path).toContain('/admin/aigc/video/task/list?')
+      expect(requests[1]).toMatchObject({ method: 'GET', path: '/admin/aigc/video/task/335343' })
+      expect(requests[2]).toMatchObject({ method: 'POST', body: { aigcVideoTaskId: '335343' } })
+      expect(putCalls(provider)).toEqual([])
+      expect(await ledger.records()).toEqual(original)
+    } finally { request.mockRestore() }
+  })
+
+  it('refuses a linked single preview before creating an intent or sending a PUT', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const link = join(dirname(previewPath), 'linked.storyboard-native.prepared.json')
+    await symlink(previewPath, link, 'file')
+    await expect(submitVideoMethod(clientFor(provider), ledger, { preview_path: link, idempotency_key: idempotencyKey }))
+      .rejects.toThrow()
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('does not invent a recovery key or query a provider for an unrecorded submission', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    expect(await recoverVideoSubmission(clientFor(provider), ledger, root, 'unrecorded')).toBeUndefined()
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('excludes an exact historical task present before the original dispatch', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey, directory } = await prepared(provider)
+    const preview = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    provider.tasks.push({ id: 335343, scriptId: 2708, taskType: 1 })
+    provider.subtasks['335343'] = [childOf(preview.payload)]
+    await ledger.begin({ idempotencyKey, method: 'storyboard_native_submit', scriptId: 2708,
+      requestSha256: bodyHash(preview.payload), beforeTaskIds: ['335343'], videoPreviewPath: previewPath })
+    const original = await ledger.records()
+    expect(await recoverVideoSubmission(clientFor(provider), ledger, directory, idempotencyKey))
+      .toMatchObject({ status: 'reconcile_required', task_id: null, replayed: true })
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual(original)
+  })
+
+  it.each(['single', 'batch'] as const)('persists complete recovery metadata before the %s provider PUT', async (mode) => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const preview = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    const observed: unknown[] = []
+    provider.onPut = async (payload) => {
+      const record = await new JubianLedger({ root: join(root, 'ledger') }).find(idempotencyKey)
+      observed.push(record)
+      expect(record).toMatchObject({ before_task_ids: [], video_preview_path: await realpath(previewPath),
+        script_id: 2708, request_sha256: bodyHash(preview.payload), outcome: null })
+      provider.tasks.push({ id: 335343, scriptId: 2708, taskType: 1 })
+      provider.subtasks['335343'] = [childOf(payload)]
+    }
+    const args = { preview_path: previewPath, idempotency_key: idempotencyKey }
+    if (mode === 'single') await submitVideoMethod(clientFor(provider), ledger, args)
+    else await submitVideoBatchMethod(clientFor(provider), ledger, { items: [args] })
+    expect(observed).toHaveLength(1)
+    expect(putCalls(provider)).toHaveLength(1)
+  })
+
+  it('does not rebuild or charge when an original recovery intent disappears between ledger reads', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const preview = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    const { record } = await ledger.begin({ idempotencyKey, method: 'storyboard_native_submit', scriptId: 2708,
+      requestSha256: bodyHash(preview.payload), beforeTaskIds: [], videoPreviewPath: previewPath })
+    provider.calls.length = 0
+    const find = vi.spyOn(ledger, 'find').mockResolvedValueOnce(record).mockResolvedValueOnce(undefined)
+    try {
+      await expect(recoverVideoSubmission(clientFor(provider), ledger, dirname(dirname(previewPath)), idempotencyKey))
+        .rejects.toThrow('No recorded video submission')
+    } finally { find.mockRestore() }
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toHaveLength(1)
+  })
+
   it.each([false, true])('preserves payload formatting and reconciles one synthetic submission, multiline=%s', async (multiline) => {
     const prompt = multiline ? `  ${PROMPT}\r\n\r\n【镜头1】\r\n先放下水桶，再说话。  ` : PROMPT
     const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD,
@@ -1537,6 +1633,36 @@ describe('submit_video_batch', () => {
     return { provider, items: previews.map(preview => ({ preview_path: String(preview.preview_path),
       idempotency_key: String(preview.idempotencyKey) })) }
   }
+
+  it('never treats an initially recorded batch key as a fresh paid request after it disappears', async () => {
+    const { provider, items } = await batch()
+    for (const item of items) {
+      const preview = JSON.parse(await readFile(item.preview_path, 'utf8')) as NativeVideoPreview
+      await ledger.begin({ idempotencyKey: item.idempotency_key, method: 'storyboard_native_submit', scriptId: 2708,
+        requestSha256: bodyHash(preview.payload), beforeTaskIds: [], videoPreviewPath: item.preview_path })
+    }
+    const originalFind = ledger.find.bind(ledger)
+    let reads = 0
+    const find = vi.spyOn(ledger, 'find').mockImplementation(async (key) => {
+      reads++
+      return reads <= items.length ? originalFind(key) : undefined
+    })
+    try {
+      await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items })).rejects.toThrow('No recorded video submission')
+    } finally { find.mockRestore() }
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toHaveLength(items.length)
+  })
+
+  it('refuses a linked batch preview before creating a reservation', async () => {
+    const { provider, items } = await batch(1)
+    const link = join(root, 'linked-preview.json')
+    await symlink(items[0]!.preview_path, link, 'file')
+    await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items: [{ ...items[0]!, preview_path: link }] }))
+      .rejects.toThrow('Unreadable video preview')
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
 
   it.each([{ videoBatchConcurrency: 0 }, { videoBatchConcurrency: 9 }, { videoBatchConcurrency: 1.5 },
     { videoBatchMaxItems: 0 }, { videoBatchMaxItems: 101 }, { videoBatchMaxItems: 1.5 }])
