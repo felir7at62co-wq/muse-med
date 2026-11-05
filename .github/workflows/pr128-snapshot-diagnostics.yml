@@ -1,4 +1,4 @@
-name: PR 128 keyless shutdown diagnostics
+name: PR 128 keyless Python shutdown diagnostics
 
 on:
   push:
@@ -12,16 +12,17 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SOURCE_COMMIT: c5d81d55e70116775a4b633c1183d4c650ad72f3
+  SOURCE_COMMIT: 441fb395d657df90b00f238ee2d9ef450d5fe069
   DSH_TELEMETRY_DISABLED: '1'
   DEEPSEEK_API_KEY: ''
+  PYTHONPATH: python/sdk/src
   DSH_EXAMPLE_MODE: lib
   DSH_BUILD_CLIENT_PROFILE: official
   DSH_SNAPSHOT_MAX_WORKERS: '1'
   DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
 
 jobs:
-  factory-shutdown:
+  python-sdk-shutdown:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -35,11 +36,11 @@ jobs:
           set -euo pipefail
           git merge-base --is-ancestor "$SOURCE_COMMIT" HEAD
           test "$(git diff --name-only "$SOURCE_COMMIT" HEAD)" = '.github/workflows/pr128-snapshot-diagnostics.yml'
-          mkdir -p .local/pr128/factory-diagnostics
+          mkdir -p .local/pr128/python-shutdown-diagnostics
           echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
           echo "NODE_COMPILE_CACHE=$RUNNER_TEMP/node-compile-cache" >> "$GITHUB_ENV"
-          git rev-parse HEAD > .local/pr128/factory-diagnostics/workflow-commit.txt
-          git rev-parse "$SOURCE_COMMIT" > .local/pr128/factory-diagnostics/source-commit.txt
+          git rev-parse HEAD > .local/pr128/python-shutdown-diagnostics/workflow-commit.txt
+          git rev-parse "$SOURCE_COMMIT" > .local/pr128/python-shutdown-diagnostics/source-commit.txt
 
       - uses: pnpm/action-setup@v6
         with:
@@ -48,6 +49,13 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
+
+      - uses: actions/setup-python@v6.3.0
+        with:
+          python-version: '3.10'
+
+      - name: Install the local SDK and its local runtime dependency
+        run: python -m pip install --editable ./python/sdk-runtime --editable ./python/sdk
 
       - name: Install frozen dependencies and prepare the existing sandbox
         run: |
@@ -66,33 +74,31 @@ jobs:
       - name: Build the exact source checkpoint
         run: pnpm run build
 
-      - name: Freeze canonical Session inputs and the exact test selection
+      - name: Freeze canonical Session inputs and prepare the existing Python helper
         run: |
-          cat > .local/pr128/factory-diagnostic.mjs <<'NODE'
+          cat > .local/pr128/python-shutdown-diagnostic.mjs <<'NODE'
           import { createHash } from 'node:crypto'
           import { execFileSync } from 'node:child_process'
           import { mkdir, readFile, writeFile } from 'node:fs/promises'
           import { join } from 'node:path'
 
-          const output = '.local/pr128/factory-diagnostics'
-          const owner = 'snapshots/sdk/factory-shutdown'
-          const title = 'SDK factory shutdown (POSIX SIGTERM) joins the active child before releasing inbox projections and closes both durable turns'
-          const allowed = [
-            `${owner}/writer.expected.jsonl`,
-            `${owner}/writer.1.expected.jsonl`,
-            `${owner}/result.expected.json`,
-            `${owner}/system-prompt.1.expected.md`,
-            `${owner}/tool-schemas.1.expected.json`,
-          ]
+          const output = '.local/pr128/python-shutdown-diagnostics'
+          const owner = 'scripts/snapshots/python-sdk-single-exe/factory-shutdown'
+          const scopes = ['snapshots', 'scripts/snapshots']
+          const allowed = [`${owner}/result.json`, `${owner}/writer.expected.jsonl`, `${owner}/writer.1.expected.jsonl`]
           const canonicalName = /^session(?:\.[1-9]\d*)?(?:\.v[1-9]\d*)?\.jsonl$/u
           const git = args => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
           const json = async name => JSON.parse(await readFile(join(output, name), 'utf8'))
           const save = (name, value) => writeFile(join(output, name), JSON.stringify(value, null, 2) + '\n')
 
           async function inventory() {
-            const paths = git(['ls-files', '-z', '--', 'snapshots']).split('\0')
+            const paths = git(['ls-files', '-z', '--', 'snapshots', owner]).split('\0')
               .filter(path => canonicalName.test(path.split('/').at(-1))).sort()
-            if (paths.length !== 718) throw new Error(`Expected 718 canonical Session files, found ${paths.length}`)
+            const rootCount = paths.filter(path => path.startsWith('snapshots/')).length
+            const ownedCount = paths.filter(path => path.startsWith(owner + '/')).length
+            if (rootCount !== 718 || ownedCount !== 2 || paths.length !== 720) {
+              throw new Error(`Expected 718 root and 2 owned canonical Sessions, found ${rootCount}/${ownedCount}`)
+            }
             return Object.fromEntries(await Promise.all(paths.map(async path =>
               [path, createHash('sha256').update(await readFile(path)).digest('hex')])))
           }
@@ -106,104 +112,134 @@ jobs:
             if (rejected.length > 0) throw new Error(`Unapproved changed paths: ${rejected.join(', ')}`)
           }
 
-          function assertExecuted(report) {
-            const cases = report.testResults.flatMap(file => file.assertionResults)
-            if (cases.length !== 1 || cases[0].fullName !== title || cases[0].status !== 'passed') {
-              throw new Error('The selected POSIX shutdown case must execute exactly once and pass')
-            }
-            return cases.map(test => ({ title: test.fullName, status: test.status }))
+          function assertExecution(phase, execution, log) {
+            const sentinel = `PYTHON_SHUTDOWN_PASSED_${phase}`
+            if (execution.phase !== phase || execution.platform !== 'linux' || execution.osName !== 'posix'
+              || execution.helperIsWindows !== false || execution.result !== null || execution.passed !== true
+              || execution.sentinel !== sentinel) throw new Error(`${phase} did not execute the real POSIX helper`)
+            const lines = log.split(/\r?\n/u)
+            if (lines.filter(line => line === sentinel).length !== 1
+              || lines.filter(line => line === `PYTHON_SHUTDOWN_START_${phase}`).length !== 1
+              || log.includes('sdk-shutdown skipped')) throw new Error(`${phase} execution sentinels are missing or duplicated`)
           }
 
-          function selftest() {
-            const assertion = { fullName: title, status: 'passed' }
-            assertExecuted({ testResults: [{ assertionResults: [assertion] }] })
-            assertInventory({ 'session.v4.jsonl': 'a' }, { 'session.v4.jsonl': 'a' })
+          async function selftest() {
+            const phase = 'refresh'
+            const execution = { phase, platform: 'linux', osName: 'posix', helperIsWindows: false, result: null,
+              passed: true, sentinel: 'PYTHON_SHUTDOWN_PASSED_refresh' }
+            const log = 'PYTHON_SHUTDOWN_START_refresh\nPYTHON_SHUTDOWN_PASSED_refresh\n'
+            assertExecution(phase, execution, log)
             assertChangedPaths(allowed)
             const rejects = [
-              () => assertInventory({ 'session.v4.jsonl': 'a' }, { 'session.v4.jsonl': 'b' }),
+              () => assertExecution(phase, { ...execution, platform: 'win32' }, log),
+              () => assertExecution(phase, { ...execution, helperIsWindows: true }, log),
+              () => assertExecution(phase, { ...execution, phase: 'post-replay' }, log),
+              () => assertExecution(phase, execution, log + 'sdk-shutdown skipped'),
+              () => assertExecution(phase, execution, log + log),
+              () => assertExecution(phase, execution, ''),
+              () => assertInventory({ input: 'a' }, { input: 'b' }),
               () => assertChangedPaths([`${owner}/session.v4.jsonl`]),
-              () => assertChangedPaths([`${owner}/runtime.mjs`]),
-              () => assertExecuted({ testResults: [{ assertionResults: [{ ...assertion, status: 'skipped' }] }] }),
-              () => assertExecuted({ testResults: [{ assertionResults: [{ ...assertion, fullName: 'other' }] }] }),
-              () => assertExecuted({ testResults: [{ assertionResults: [assertion, assertion] }] }),
-              () => assertExecuted({ testResults: [] }),
+              () => assertChangedPaths(['snapshots/sdk/factory-shutdown/writer.expected.jsonl']),
+              () => assertChangedPaths(['scripts/smoke-python-runtime.py']),
             ]
             for (const reject of rejects) {
               let rejected = false
               try { reject() } catch { rejected = true }
               if (!rejected) throw new Error('Guard negative control was accepted')
             }
+            const before = await inventory()
+            assertInventory(before, await inventory())
+            console.log(`Guard selftests passed with ${Object.keys(before).length} real canonical inputs`)
           }
 
           if (process.argv[2] === 'freeze') {
-            selftest()
+            await selftest()
             await mkdir(output, { recursive: true })
-            if (git(['status', '--porcelain=v1', '--', 'snapshots']) !== '') {
-              throw new Error('Diagnostic source corpus must be clean before execution')
-            }
+            if (git(['status', '--porcelain=v1', '--', ...scopes]) !== '') throw new Error('Diagnostic source oracles must be clean')
             const before = await inventory()
             await save('canonical-before.json', before)
-            await save('selection.json', { file: 'snapshots/sdk/factory-shutdown.snapshot.ts', title, allowed })
-            console.log(`Frozen ${Object.keys(before).length} canonical inputs; selected one exact POSIX case`)
+            await save('selection.json', { helper: 'smoke_sdk_shutdown_snapshot', calls: [[null, true], [null, false]], allowed })
           } else if (process.argv[2] === 'guard') {
             const before = await json('canonical-before.json')
             const after = await inventory()
             await save('canonical-after.json', after)
             assertInventory(before, after)
-            const paths = git(['ls-files', '--modified', '--others', '--exclude-standard', '-z', '--', 'snapshots'])
+            const paths = git(['ls-files', '--modified', '--others', '--exclude-standard', '-z', '--', ...scopes])
               .split('\0').filter(Boolean)
             assertChangedPaths(paths)
-            const phases = await json('phase-exits.json')
+            const exits = await json('phase-exits.json')
             const errors = []
             const executed = {}
             for (const phase of ['refresh', 'post-replay']) {
               try {
-                if (phases[phase] !== 0) throw new Error(`${phase} exited ${phases[phase]}`)
-                executed[phase] = assertExecuted(await json(`${phase}.json`))
+                if (exits[phase] !== 0) throw new Error(`${phase} exited ${exits[phase]}`)
+                const execution = await json(`${phase}-execution.json`)
+                assertExecution(phase, execution, await readFile(join(output, `${phase}.log`), 'utf8'))
+                executed[phase] = execution
               } catch (error) { errors.push(`${phase}: ${error.message}`) }
             }
             const summary = { canonicalFiles: Object.keys(before).length, canonicalUnchanged: true, paths, executed, errors }
             await save('summary.json', summary)
-            if (errors.length > 0) throw new Error('No accepted patch: refresh and post-replay must both pass')
+            if (errors.length > 0) throw new Error('No accepted patch: both real POSIX phases must pass')
             const patch = git(['diff', '--binary', '--', ...allowed])
             await writeFile(join(output, 'review.patch'), patch)
             console.log(JSON.stringify({ ...summary, patchBytes: Buffer.byteLength(patch) }))
           } else if (process.argv[2] === 'selftest') {
-            selftest()
-            const report = JSON.parse(await readFile(process.argv[3], 'utf8'))
-            try {
-              assertExecuted(report)
-              throw new Error('Windows skip was accepted')
-            } catch (error) {
-              if (error.message === 'Windows skip was accepted') throw error
-              const cases = report.testResults.flatMap(file => file.assertionResults)
-              if (cases.length !== 1 || cases[0].fullName !== title || cases[0].status !== 'skipped') throw error
-            }
-            const before = await inventory()
-            assertInventory(before, await inventory())
-            console.log(`Guard selftests passed with ${Object.keys(before).length} real canonical inputs and actual skipped POSIX title`)
+            await selftest()
           } else {
             throw new Error('Expected freeze, guard, or selftest')
           }
           NODE
-          node .local/pr128/factory-diagnostic.mjs freeze
+          cat > .local/pr128/python-shutdown-phase.py <<'PYTHON'
+          """Run one existing POSIX shutdown smoke and publish evidence after its assertions pass."""
+          from __future__ import annotations
+
+          import json
+          import os
+          from pathlib import Path
+          import runpy
+          import sys
+
+          phase = sys.argv[1]
+          if phase not in {"refresh", "post-replay"}:
+              raise AssertionError("Expected refresh or post-replay")
+          if sys.platform != "linux" or os.name != "posix":
+              raise AssertionError("The diagnostic requires real Linux POSIX signal delivery")
+          smoke = runpy.run_path("scripts/smoke-python-runtime.py")
+          helper = smoke["smoke_sdk_shutdown_snapshot"]
+          if smoke["IS_WINDOWS"] is not False or helper.__globals__["IS_WINDOWS"] is not False:
+              raise AssertionError("The existing shutdown helper must execute its POSIX path")
+          print(f"PYTHON_SHUTDOWN_START_{phase}", flush=True)
+          result = helper(None, phase == "refresh")
+          if result is not None:
+              raise AssertionError("Unexpected shutdown helper return value")
+          sentinel = f"PYTHON_SHUTDOWN_PASSED_{phase}"
+          output = Path(".local/pr128/python-shutdown-diagnostics")
+          output.mkdir(parents=True, exist_ok=True)
+          (output / f"{phase}-execution.json").write_text(json.dumps({
+              "phase": phase, "platform": sys.platform, "osName": os.name,
+              "helperIsWindows": False, "result": None, "passed": True, "sentinel": sentinel,
+          }) + "\n", encoding="utf-8")
+          print(sentinel, flush=True)
+          PYTHON
+          node .local/pr128/python-shutdown-diagnostic.mjs freeze
 
       - name: Run the real POSIX refresh and independent read-only replay
         run: |
           set +e
-          DSH_SNAPSHOT=refresh pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/sdk/factory-shutdown.snapshot.ts --reporter=json --outputFile=.local/pr128/factory-diagnostics/refresh.json 2>&1 | tee .local/pr128/factory-diagnostics/refresh.log
+          python .local/pr128/python-shutdown-phase.py refresh 2>&1 | tee .local/pr128/python-shutdown-diagnostics/refresh.log
           refresh_status=${PIPESTATUS[0]}
-          DSH_SNAPSHOT=replay pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/sdk/factory-shutdown.snapshot.ts --reporter=json --outputFile=.local/pr128/factory-diagnostics/post-replay.json 2>&1 | tee .local/pr128/factory-diagnostics/post-replay.log
+          python .local/pr128/python-shutdown-phase.py post-replay 2>&1 | tee .local/pr128/python-shutdown-diagnostics/post-replay.log
           post_status=${PIPESTATUS[0]}
-          printf '{"refresh":%s,"post-replay":%s}\n' "$refresh_status" "$post_status" > .local/pr128/factory-diagnostics/phase-exits.json
-          node .local/pr128/factory-diagnostic.mjs guard
+          printf '{"refresh":%s,"post-replay":%s}\n' "$refresh_status" "$post_status" > .local/pr128/python-shutdown-diagnostics/phase-exits.json
+          node .local/pr128/python-shutdown-diagnostic.mjs guard
 
       - name: Upload text-only review evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: pr128-factory-shutdown-${{ github.sha }}
-          path: .local/pr128/factory-diagnostics/
+          name: pr128-python-shutdown-${{ github.sha }}
+          path: .local/pr128/python-shutdown-diagnostics/
           include-hidden-files: true
           if-no-files-found: error
           retention-days: 7
