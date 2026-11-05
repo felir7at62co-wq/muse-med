@@ -1059,7 +1059,7 @@ export function apply(ctx: Context, config: Config = {}): void {
         description: '本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），'
           + 'prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。'
           + 'speech_coverage 必填最终完整显示的字幕（含保留原片烧字），不能拿删减 overlay 当完整对白；'
-          + 'subtitle_layout 必填待预览SRT，不更改其文本和时间。' },
+          + 'subtitle_layout 必填待预览SRT，不更改其文本和时间。相对路径以 project 为基准。' },
       speech_transcripts: { type: 'string', description: 'speech_coverage 必填、prepare 可选：项目内现有映射 {shots:[{shot,receipt}]}，'
         + 'receipt 相对映射文件，指向 audio_transcribe 原 transcript/jobs/<stem>-vN.json；读取同源 SHA 与 raw 实际 word 时间，不提交转写。' },
       speech_decisions: { type: 'string', description: 'speech_coverage 可选：项目内核听声明 JSON，'

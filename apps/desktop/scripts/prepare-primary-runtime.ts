@@ -45,6 +45,37 @@ export async function prepareMacFonts(output: string, cache: string, lock: Media
   } finally { await rm(stage, { recursive: true, force: true }) }
 }
 
+/** Install the shared, hash-locked CJK fonts and their notices in a Mac media payload.
+ * @param output - Desktop runtime media directory.
+ * @param cache - Download cache for the locked public resources.
+ * @param lock - Validated media resource identities.
+ */
+export async function prepareMacFonts(output: string, cache: string, lock: MediaLock): Promise<void> {
+  const notices = ['LICENSE-NotoSansCJK.txt', 'LICENSE-ZhuqueFangsong.txt'].map((name) => {
+    const notice = lock.notices.find(item => item.filename === name)
+    if (notice === undefined) throw new Error(`Mac media: missing font license ${name}`)
+    return notice
+  })
+  await mkdir(cache, { recursive: true })
+  const [font, archive, ...licenses] = await Promise.all([lock.font, lock.subtitleFontArchive, ...notices]
+    .map(resource => obtain(resource, cache)))
+  const stage = await mkdtemp(join(tmpdir(), 'muse-mac-fonts-'))
+  try {
+    await mkdir(join(stage, 'fonts'))
+    await cp(font!, join(stage, 'fonts', lock.font.filename))
+    await extractSubtitleFont(archive!, stage, lock.subtitleFont)
+    await verifyMediaResource(join(stage, 'fonts', lock.font.filename), lock.font)
+    await mkdir(join(output, 'fonts'), { recursive: true })
+    await mkdir(join(output, 'notices'), { recursive: true })
+    await cp(join(stage, 'fonts'), join(output, 'fonts'), { recursive: true })
+    for (const [index, notice] of notices.entries()) {
+      await cp(licenses[index]!, join(output, 'notices', notice.filename))
+      await verifyMediaResource(join(output, 'notices', notice.filename), notice)
+    }
+    await verifyMediaResource(join(output, 'fonts', lock.subtitleFont.filename), lock.subtitleFont)
+  } finally { await rm(stage, { recursive: true, force: true }) }
+}
+
 /**
  * Prepare Desktop resources for its selected packaging target.
  * @param options - Signed Windows packaging defers execution until its supervised signing stage.

@@ -6499,7 +6499,7 @@ Source: [`packages/drama/tool-bgm-compose/src/index.ts`](../packages/drama/tool-
     },
     "ending_effect": {
       "type": "string",
-      "description": "片尾特效视频路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：timeline 的 ending_effect_fit 优先，缺省使用部署配置；stretch_to_window 时以 speed=0.51 铺满两秒，source_once 按原速播放一次。换成别的文件会报错；source_once 拒绝长于两秒的素材，不做截断。"
+      "description": "片尾特效视频路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：timeline 的 ending_effect_fit 优先，缺省使用部署配置；stretch_to_window 时以 speed=0.51 铺满两秒，source_once 按原速播放一次。换成别的文件会报错；source_once 拒绝长于两秒的素材，不做截断。"
     },
     "output": {
       "type": "string",
