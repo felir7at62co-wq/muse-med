@@ -38,6 +38,7 @@
       "@deepseek-ai/dsh-desktop-host/creation-policy": ["./apps/desktop-host/src/creation-policy.ts"],
       "@deepseek-ai/dsh-desktop-host/creation-skills": ["./apps/desktop-host/src/creation-skills.ts"],
       "@deepseek-ai/dsh-desktop-host/editing-policy": ["./apps/desktop-host/src/editing-policy.ts"],
+      "@deepseek-ai/dsh-desktop-host/manuscript-continuity-preset": ["./apps/desktop-host/src/manuscript-continuity-preset.ts"],
       "@deepseek-ai/dsh-client-ui-file-actions": ["./packages/client/ui-file-actions/src/index.ts"],
       "@deepseek-ai/dsh-client-ui-file-actions/client": ["./packages/client/ui-file-actions/src/client/index.ts"],
       "@deepseek-ai/dsh-client-ui-file-actions/types": ["./packages/client/ui-file-actions/src/types.ts"],

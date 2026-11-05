@@ -50,6 +50,8 @@ Office 组合全局注册 `manuscript_revision`，对照实际上一稿与返回
 
 只读 `materials` 动作要求显式传入 `documents`：恰好一份当前采用稿 `current`、最多一份修订候选 `candidate`，以及可选参考原作 `reference`。文件与提取正文哈希标识各版本，参考稿不替代采用稿。读取返回完整所选集及相邻内容、明确的提取正文行范围或全文，并列明已读与未读范围。Word 行号指提取正文行，段内换行也计行。`maxMaterialChars` 限制本次返回的正文总量；超限时要求缩小范围，不把预览冒充完整读取。读取不修改文件，不代表已作语义审校，也不建立持久采用稿选择。
 
+`continuity` 动作接收相同的显式稿件和 `task`，使用父会话当前选择的模型启动独立只读审校。审校接收完整所选材料，不继承写作者的聊天历史，只能提交 `structured_output`。问题通过提取正文行的准确引文定位因果缺口、事件顺序、人物或道具状态及重复事件。Host 核验每条引文和文件版本；证据无效、文件变化、没有结果或预算耗尽时返回未核实，不判为通过。结果列明审校子会话和核对范围；范围内一致不代表未读集数或创作品质通过。审校不修改文件。正常停止但未提交结构化结果时，最多记录并补发 `continuityMaxCorrections` 次提交提醒，仍计入同一请求总预算；推理文本不充当审校结果。卸载所属插件时先停止入场并等待活动审校结束，再移除其限制和预设。`continuityMaxRequests`、`continuityMaxOutputTokens`、`continuityTimeoutMs` 与 `continuityMaxFindings` 限制单次审校；取消会停止子会话并等待清理。
+
 只读 `measure` 动作通过显式 `source_paths` 与 `candidate_paths` 比较同一故事范围，不建立返稿基线。结果包含文件哈希、各文件与合计计数、差额及增幅。计数含标题和人物名，分别统计文字数字数与非空白字符数，两者均不估算 Word 字数或净正文。`max_growth_percent` 传入用户的增幅上限；纯 ASR 对白不能充当含画面动作剧本的等量来源。
 
 本地记录保留在工作区的 `.muse/manuscript-revisions/` 下。Office 的 `manuscriptRevisions` 设置控制资源限额，对照不静默截断。差异作为已记录的上下文进入模型。参见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-manuscript-protection/guide.zh.md)。

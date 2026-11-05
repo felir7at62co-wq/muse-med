@@ -1291,17 +1291,29 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 
   const childPrompts = new Map<number, string>()
   const childSchemas = new Map<number, unknown[][]>()
+  const childHeaders = new Map<number, unknown[]>()
   for (const index of scenario.manifest.header.childSystemPrompts ?? []) {
     childPrompts.set(index, await readFile(join(scenario.dir, `system-prompt.${index}.expected.md`), 'utf8'))
   }
   for (const index of scenario.manifest.header.childToolSchemas ?? []) {
     const child = parseToolSchemasSnapshot(await readFile(join(scenario.dir, `tool-schemas.${index}.expected.json`), 'utf8'))
-    childSchemas.set(index, [child.initial, ...child.changes])
+    const schemas = [child.initial, ...child.changes]
+    childSchemas.set(index, schemas)
+    const role = scenario.manifest.sessionFormat !== undefined || scenario.manifest.writerOutput === true
+      ? writerSnapshotName(index) : sessionFixtureNames(await readdir(scenario.dir))[index]
+    if (role === undefined) throw Error(`${scenario.name}: missing recorded child role ${index}`)
+    const fixture = await readFile(join(scenario.dir, role), 'utf8')
+    const headers = normalizedHeaders(fixture, fixtureContext(fixture))
+    expect(schemas, `${scenario.name}: child ${index} pin tool-schema count`).toHaveLength(headers.length)
+    childHeaders.set(index, headers)
   }
 
   for (const [logIndex, log] of actualLogs.entries()) {
     const headers = normalizedHeaders(log.content, ctx)
     const prompts = normalizedSystemPrompts(log.content, ctx)
+    const recordedChild = childHeaders.get(logIndex)
+    if (recordedChild !== undefined) expect(headers, `${scenario.name}: child ${logIndex} pin header count`)
+      .toHaveLength(recordedChild.length)
     if (scenario.name === 'muse-editing-tool-catalog') {
       expect(prompts.join('\n'), 'editing prompt excludes the retired persona').not.toContain('PONYTAIL MODE')
       expect(log.content, 'editing skill catalog excludes retired Ponytail skills')
@@ -1314,7 +1326,7 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
     }
     for (const [index, header] of headers.entries()) {
       const selectedSchemas = childSchemas.get(logIndex)?.[index]
-      const base = reconstructed[index] ?? reconstructed[0]
+      const base = recordedChild?.[index] ?? reconstructed[index] ?? reconstructed[0]
       const expected = selectedSchemas === undefined ? base : { ...base as JsonObject, tools: selectedSchemas }
       expect(header, `${scenario.name}: request header ${index + 1}`).toEqual(expected)
     }
@@ -1325,6 +1337,26 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
       ).toBe(childPrompts.get(logIndex) ?? prompt)
     }
   }
+}
+
+/** Reject a changed child output budget against that role's independently recorded Session. */
+async function verifyChildOutputLimitRejection(scenario: HeadlessScenario, actualLogs: readonly SessionLog[],
+  ctx: NormalizeContext): Promise<void> {
+  const child = actualLogs[1]
+  if (child === undefined) throw Error(`${scenario.name}: missing child output-limit control`)
+  let changed = false
+  const content = records(child.content).map(record => {
+    if (record.type !== 'request/header') return record
+    const data = record.data as JsonObject
+    const header = data.header as JsonObject
+    const config = header.config as JsonObject
+    if (typeof config.maxTokens !== 'number') throw Error(`${scenario.name}: child has no explicit output limit`)
+    changed = true
+    return { ...record, data: { ...data, header: { ...header, config: { ...config, maxTokens: config.maxTokens + 1 } } } }
+  }).map(record => JSON.stringify(record)).join('\n') + '\n'
+  expect(changed).toBe(true)
+  await expect(verifyHeaders(scenario, actualLogs.map((log, index) => index === 1 ? { ...log, content } : log), ctx))
+    .rejects.toThrow(`${scenario.name}: request header 1`)
 }
 
 describe('headless recorded-session snapshots', () => {
@@ -2584,6 +2616,9 @@ describe('headless recorded-session snapshots', () => {
         expect(actualRecords, `${scenario.name}: session ${index}`).toEqual(expectedRecords)
       }
       await verifyHeaders(scenario, actualLogs, actualContext)
+      if (mode === 'replay' && scenario.name === 'muse-manuscript-continuity') {
+        await verifyChildOutputLimitRejection(scenario, actualLogs, actualContext)
+      }
 
       if (initialWorkspace === undefined || finalWorkspace === undefined) {
         throw new Error(`${scenario.name}: workspace was not captured around the profile run`)

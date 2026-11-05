@@ -29,6 +29,9 @@ const roots: string[] = [], contexts: Context[] = []
 const signal = new AbortController().signal
 const baseline = '第1集\n甲：我不相信你。\n乙：我们回家。\n▲她转身。'
 const returned = '第1集\n甲：证据就在这里，别再骗我。\n▲她转身。\n乙：等我说完。'
+it('rejects a review deadline that would overflow the Node timer into an immediate timeout', () => {
+  expect(() => Config({ continuityTimeoutMs: 2 ** 31 })).toThrow()
+})
 afterEach(async () => {
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
