@@ -682,6 +682,7 @@ it.each(['provider', 'reasoning'] as const)('retains a newer explicit %s selecti
   await models.refresh()
   const wanted = change === 'provider' ? { provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' }
     : { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'off' }
+  if (change === 'reasoning') await fixture.setDirectCredential(true)
   const userChange = fixture.controller.selectModel({ sessionId: fixture.agent.id, ...wanted })
   const repair = fixture.controller.selectModelIfCurrent({ sessionId: fixture.agent.id,
     provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }, fixture.initialSelection)
@@ -705,7 +706,9 @@ it.each(['provider', 'reasoning'] as const)('does not replace a newer %s choice 
   const config = await agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request', {
     turn: 1, step: 1, signal: new AbortController().signal,
   }, async () => {
-    await fixture.controller.selectModel({ sessionId: fixture.agent.id, ...wanted })
+    if (change === 'reasoning') await fixture.setDirectCredential(true)
+    try { await fixture.controller.selectModel({ sessionId: fixture.agent.id, ...wanted }) }
+    finally { if (change === 'reasoning') await fixture.setDirectCredential(false) }
     return assembled
   })
   expect(config).toEqual(assembled)

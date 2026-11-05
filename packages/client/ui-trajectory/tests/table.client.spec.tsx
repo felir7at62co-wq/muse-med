@@ -631,7 +631,7 @@ describe('TrajectoryTable', () => {
   })
 
   it('keeps an idle older-history control as the first row until paging completes', async () => {
-    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600)
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
       configurable: true,
       value: vi.fn(),
@@ -709,7 +709,7 @@ describe('TrajectoryTable', () => {
   })
 
   it('keeps a paged tail virtualized before its loaded window crosses the row threshold', async () => {
-    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600)
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
       configurable: true,
       value: vi.fn(),
@@ -724,7 +724,7 @@ describe('TrajectoryTable', () => {
   })
 
   it('mounts only the visible window for a long ledger', async () => {
-    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600)
     const scrollTo = vi.fn()
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
       configurable: true,
@@ -769,7 +769,7 @@ describe('TrajectoryTable', () => {
   })
 
   it('does not re-scroll a virtual ledger when streaming only changes row content', async () => {
-    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600)
     const scrollTo = vi.fn()
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
       configurable: true,
@@ -810,7 +810,7 @@ describe('TrajectoryTable', () => {
   })
 
   it('keeps the virtual tail reachable with collapsed-summary row heights', async () => {
-    vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(600)
     Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
       configurable: true,
       value: vi.fn(),

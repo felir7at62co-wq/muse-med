@@ -437,7 +437,7 @@ describe('run record', () => {
 
 /**
  * Run one pnpm command in a profile-shaped directory, terminating and awaiting it with the test.
- * @param options - consumer directory, environment, the store and cache directories an installing
+ * @param options - consumer directory, environment, the store and state directories an installing
  *   command shares, and the arguments to append.
  * @returns The settled child result.
  */
@@ -445,13 +445,13 @@ async function pnpmIn(options: {
   readonly consumer: string
   readonly environment: NodeJS.ProcessEnv
   readonly store?: string
-  readonly cache?: string
+  readonly state?: string
   readonly args: readonly string[]
 }): Promise<{ exitCode?: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   const invocation = pnpmInvocationFor([
     ...options.args,
     ...options.store === undefined ? [] : ['--store-dir', options.store],
-    ...options.cache === undefined ? [] : ['--cache-dir', options.cache],
+    ...options.state === undefined ? [] : ['--state-dir', options.state],
     '--config.fetch-retries=0',
   ])
   const child = execa(invocation.command, invocation.args, {
@@ -483,7 +483,7 @@ describe('package cache freshness', () => {
   it('installs a rebuilt archive at the same version through a retained pnpm store', { timeout: 300_000 }, async () => {
     const temporary = temporaryDirectory('dsh-local-registry-cache-')
     const store = join(temporary, 'store')
-    const cache = join(temporary, 'cache')
+    const state = join(temporary, 'state')
     const userConfig = join(temporary, 'empty.npmrc')
     writeFileSync(userConfig, '')
     // A retained store, metadata cache, and npm configuration, so the second installation cannot pass by starting empty.
@@ -499,7 +499,7 @@ describe('package cache freshness', () => {
       onTestFinished(() => registry.close())
       const consumer = consumerDirectory(temporary, `consumer-${run}`)
       const result = await pnpmIn({
-        consumer, environment, store, cache,
+        consumer, environment, store, state,
         args: ['add', '@dsh-local/fixture@1.0.0', `--registry=${registry.url}`],
       })
       expect(result.timedOut, `${result.stdout}\n${result.stderr}`).toBe(false)
@@ -510,8 +510,7 @@ describe('package cache freshness', () => {
 
     const first = await install('first', 'export default "first build"\n')
     expect(first.payload).toContain('first build')
-    // pnpm 11's default minimumReleaseAge is 24 hours, and its non-strict mode records the exemption it granted
-    // instead of faking an older publication time for a locally packed artifact.
+    // Non-strict minimumReleaseAge records the local archive's exemption at its actual publication time.
     expect(first.settings).toContain('minimumReleaseAgeExclude')
     expect(first.settings).toContain('@dsh-local/fixture@1.0.0')
 
@@ -546,7 +545,9 @@ describe('same-version iteration', () => {
     onTestFinished(() => second.close())
     const refused = await add(second.url)
     expect(refused.exitCode).not.toBe(0)
-    expect(`${refused.stdout}${refused.stderr}`).toContain('ERR_PNPM_TARBALL_URL_MISMATCH')
+    const diagnostics = `${refused.stdout}${refused.stderr}`
+    expect(diagnostics).toContain('ERR_PNPM_LOCKFILE_RESOLUTION_VERIFICATION')
+    expect(diagnostics.replace(/\s+/gu, ' ')).toContain("does not match the registry's published metadata")
     expect(installedPayload(consumer)).toContain('"A"')
 
     // pnpm's own remedy for that error: drop the stale resolution, then resolve again from the new run.
