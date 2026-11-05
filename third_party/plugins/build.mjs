@@ -171,6 +171,20 @@ export function codexFilesystemPath(value) {
       run([join(repository, 'node_modules/vitest/vitest.mjs'), 'run', 'apps/desktop/tests/codex-subscription-client.client.spec.tsx'], repository, {
         MUSE_CODEX_CLIENT_BUNDLE: join(directory, 'lib/client.js'), DSH_HOME: join(staging, 'client-test-home'),
       })
+    } else if (name === 'dsh-visualize') {
+      for (const index of [0, 1]) {
+        writeFileSync(join(directory, '.muse-tsdown.ts'), `import configs from './tsdown.config.ts'\nexport default { ...configs[${index}], clean: ${index === 0} }\n`)
+        run([tsdown, '--config-loader', 'native', '--config', '.muse-tsdown.ts'], directory)
+      }
+      for (const [path, record] of Object.entries(pins[name].localModifications?.files ?? {})) {
+        if (!path.startsWith('lib/')) continue
+        const hash = createHash('sha256').update(readFileSync(join(directory, path))).digest('hex')
+        if (hash !== record.sha256) throw new Error(`community plugins: rebuilt retained artifact mismatch: ${path}`)
+      }
+      run([join(toolchain, 'node_modules/vitest/vitest.mjs'), 'run', '--config', 'vitest.config.ts'], directory)
+      run([join(repository, 'node_modules/vitest/vitest.mjs'), 'run', 'apps/desktop/tests/visualize-client.client.spec.tsx'], repository, {
+        MUSE_VISUALIZE_CLIENT_BUNDLE: join(directory, 'lib/client.js'), DSH_HOME: join(staging, 'client-test-home'),
+      })
     } else if (name === 'ds-bot' || name === 'deep-view') {
       run(['scripts/build-client.mjs'], directory)
       if (name === 'deep-view') {

@@ -9,7 +9,7 @@ const owned = JSON.parse(readFileSync(new URL('./owned-downloads.json', import.m
 
 test('default builds select resident cards and owned learning without archived Bot', () => {
   const selected = selectCommunitySources(pins)
-  assert.deepEqual(selected, ['dshmarket', 'dsh-plugin-subscriptions', 'dsh-bridge', 'dsh-ffmpeg', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'dsh-im', 'deep-view'])
+  assert.deepEqual(selected, ['dshmarket', 'dsh-plugin-subscriptions', 'dsh-bridge', 'dsh-ffmpeg', 'dsh-skill-mcp-panel', 'muse-hongguo-search', 'dsh-im', 'deep-view', 'dsh-visualize'])
   assert.equal(owned['muse-skill-evolution'].version, '0.1.0')
   assert.ok(!selected.includes('ds-bot'))
   assert.ok(!selected.includes('dsh-feishu'))

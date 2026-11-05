@@ -79,6 +79,8 @@ The retained [Deep View](deep-view/README.md) plugin provides `show_view` in ord
 
 The independent [Skill evolution plugin](muse-skill-evolution/README.md) reviews newly completed tool-assisted work, creates owned Skills and retains proposals and rollback versions. Native persisted review Sessions use the task's selected model route. Its README owns review limits, normal model usage and file permissions.
 
+The retained [Visualize](dsh-visualize/README.md) plugin renders interactive HTML cards and standalone pages. Desktop expands page views in the conversation because its shell rejects Blob popups; Web can open a separate tab. `visualize`, `show_view` and native `ask_user_question` remain resident and are omitted from Tool Search. The bundled authoring Skill is available in Muse's creative catalogs. Card buttons may fill the owning conversation's composer; the user sends the draft. Existing drafts and attachments are retained. Card updates stay within the owning Session. If saving stops after a file commit, the error receipt distinguishes the fragment and image manifest; inspect the reported path before another correction rather than repeating an old replacement blindly.
+
 ### Archived Muse Bot
 
 [DS Bot source](ds-bot/README.md), its pinned license and the compatibility overlay remain available for archive restoration. Default builds skip it even though its upstream pin is retained; only explicit `--only ds-bot` selection enters its legacy build path. Use a separate output directory for recovery artifacts. Default builds do not delete older archives already present in an output directory.

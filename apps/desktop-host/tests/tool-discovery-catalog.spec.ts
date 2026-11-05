@@ -165,7 +165,7 @@ it('recalls the registered Lvpaopao background controls without contacting the n
 })
 
 it('removes Bot-only tools from product discovery while retaining native questions and task controls', () => {
-  expect(config.excludeFromSearch).toEqual(expect.arrayContaining(['ask_user_question', 'show_view']))
+  expect(config.excludeFromSearch).toEqual(expect.arrayContaining(['ask_user_question', 'show_view', 'visualize']))
   for (const name of ['list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
     'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret',
     'list_secrets', 'group_relay', 'read_own_chat', 'read_group_chat', 'remember', 'forget', 'recall', 'read_browser',
@@ -174,7 +174,7 @@ it('removes Bot-only tools from product discovery while retaining native questio
     expect(config.keywords?.[name], name).toBeUndefined()
     expect(capabilityMemberships(name, config.capabilities ?? []), name).toEqual([])
   }
-  for (const name of ['ask_user_question', 'show_view', 'present', 'job_output', 'job_list', 'job_kill', 'subagent',
+  for (const name of ['ask_user_question', 'show_view', 'visualize', 'present', 'job_output', 'job_list', 'job_kill', 'subagent',
     'subagent_fork', 'send_message', 'interrupt_agent', 'list_agents', 'web_search', 'web_fetch']) {
     expect(config.alwaysLoad, name).toContain(name)
     expect(capabilityMemberships(name, config.capabilities ?? []), name).not.toEqual([])
