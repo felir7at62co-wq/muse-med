@@ -128,38 +128,24 @@ function pageOf(response: JubianResponse): { rows: Record<string, unknown>[]; to
   return { rows: rows.map(object), total, hasMore }
 }
 
-/**
- * Read every video task of one project as one complete snapshot.
- *
- * Page totals are cross-checked and duplicate stable ids are refused, because
- * the before/after id sets are the only boundary that can claim a task: an
- * incomplete list would turn "this task is new" into a guess.
- * @param client - Jubian transport.
- * @param scriptId - Project id.
- * @param signal - Optional cancellation for read-only reconciliation.
- * @returns Every task record the provider lists, in provider order.
- */
-async function listAllVideoTasks(client: JubianClient, scriptId: number, signal?: AbortSignal): Promise<Record<string, unknown>[]> {
+/** Read a consistent snapshot with the endpoint's row and unfinished-page requirements. */
+async function readPagedSnapshot(
+  readPage: (pageNumber: number) => Promise<JubianResponse>,
+  checkRow: (row: Record<string, unknown>) => void,
+  minimumPartialPageSize: number,
+): Promise<Record<string, unknown>[]> {
   const collected: Record<string, unknown>[] = []
-  const stable = new Set<string>()
   let knownTotal: number | null = null
-  for (let pageNum = 1; pageNum <= MAX_PAGES; pageNum += 1) {
-    signal?.throwIfAborted()
-    const response = await client.request({ method: 'GET',
-      path: `/admin/aigc/video/task/list?scriptId=${scriptId}&pageNum=${pageNum}&pageSize=${TASK_PAGE_SIZE}`
-        + '&orderByColumn=createTime&orderBy=desc', ...(signal === undefined ? {} : { signal }) })
-    const page = pageOf(response)
+  for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber += 1) {
+    const page = pageOf(await readPage(pageNumber))
     if (page.total !== null) {
       if (page.total < 0 || (knownTotal !== null && page.total !== knownTotal)) throw new JubianError('CONTRACT_CHANGED')
       knownTotal = page.total
     }
     if (page.hasMore === true && page.rows.length === 0) throw new JubianError('CONTRACT_CHANGED')
-    for (const record of page.rows) {
-      const taskId = taskIdOf(record)
-      if (taskId === null) throw new JubianError('CONTRACT_CHANGED', 'Video task list contains a row without a stable ID')
-      if (stable.has(taskId)) throw new JubianError('CONTRACT_CHANGED')
-      stable.add(taskId)
-      collected.push(record)
+    for (const row of page.rows) {
+      checkRow(row)
+      collected.push(row)
     }
     if (knownTotal !== null) {
       if (collected.length > knownTotal) throw new JubianError('CONTRACT_CHANGED')
@@ -167,13 +153,28 @@ async function listAllVideoTasks(client: JubianClient, scriptId: number, signal?
         if (page.hasMore === true) throw new JubianError('CONTRACT_CHANGED')
         return collected
       }
-      if (page.hasMore === false) throw new JubianError('CONTRACT_CHANGED')
-      if (page.rows.length < TASK_PAGE_SIZE) throw new JubianError('CONTRACT_CHANGED')
+      if (page.hasMore === false || page.rows.length < minimumPartialPageSize) throw new JubianError('CONTRACT_CHANGED')
     } else if (page.rows.length === 0) {
       return collected
     }
   }
   throw new JubianError('CONTRACT_CHANGED')
+}
+
+/** Read the complete task ID snapshot required to claim a newly created task. */
+async function listAllVideoTasks(client: JubianClient, scriptId: number, signal?: AbortSignal): Promise<Record<string, unknown>[]> {
+  const seenIds = new Set<string>()
+  return await readPagedSnapshot(async (pageNum) => {
+    signal?.throwIfAborted()
+    return await client.request({ method: 'GET',
+      path: `/admin/aigc/video/task/list?scriptId=${scriptId}&pageNum=${pageNum}&pageSize=${TASK_PAGE_SIZE}`
+        + '&orderByColumn=createTime&orderBy=desc', ...(signal === undefined ? {} : { signal }) })
+  }, (row) => {
+    const taskId = taskIdOf(row)
+    if (taskId === null) throw new JubianError('CONTRACT_CHANGED', 'Video task list contains a row without a stable ID')
+    if (seenIds.has(taskId)) throw new JubianError('CONTRACT_CHANGED')
+    seenIds.add(taskId)
+  }, TASK_PAGE_SIZE)
 }
 
 /** Read every child result of one task, in provider order. */
@@ -187,42 +188,18 @@ async function listSubtasks(client: JubianClient, taskId: string, signal?: Abort
 
 /** Read every active subject-setting row of one project as one complete snapshot. */
 async function listAllSubjectMaterials(client: JubianClient, scriptId: number): Promise<Record<string, unknown>[]> {
-  const collected: Record<string, unknown>[] = []
   const seenIds = new Set<string>()
-  let knownTotal: number | null = null
-  for (let pageNumber = 1; pageNumber <= MAX_PAGES; pageNumber += 1) {
-    const response = await client.request({ method: 'GET',
-      path: `/aigc/material/list?scriptId=${scriptId}&isUsed=1&pageNum=${pageNumber}`
-        + `&pageNumber=${pageNumber}&pageSize=${SUBJECT_PAGE_SIZE}` })
-    const page = pageOf(response)
-    if (page.total !== null) {
-      if (page.total < 0 || (knownTotal !== null && page.total !== knownTotal)) throw new JubianError('CONTRACT_CHANGED')
-      knownTotal = page.total
+  return await readPagedSnapshot(pageNumber => client.request({ method: 'GET',
+    path: `/aigc/material/list?scriptId=${scriptId}&isUsed=1&pageNum=${pageNumber}`
+      + `&pageNumber=${pageNumber}&pageSize=${SUBJECT_PAGE_SIZE}` }), (row) => {
+    const rawId = row.id ?? row.materialId
+    const id = typeof rawId === 'string' ? rawId.trim()
+      : typeof rawId === 'number' && Number.isSafeInteger(rawId) && rawId > 0 ? String(rawId) : ''
+    if (!id || seenIds.has(id)) {
+      throw new JubianError('CONTRACT_CHANGED', 'Subject inventory lacks unique material identity')
     }
-    if (page.hasMore === true && page.rows.length === 0) throw new JubianError('CONTRACT_CHANGED')
-    for (const row of page.rows) {
-      const rawId = row.id ?? row.materialId
-      const id = typeof rawId === 'string' ? rawId.trim()
-        : typeof rawId === 'number' && Number.isSafeInteger(rawId) && rawId > 0 ? String(rawId) : ''
-      if (!id || seenIds.has(id)) {
-        throw new JubianError('CONTRACT_CHANGED', 'Subject inventory lacks unique material identity')
-      }
-      seenIds.add(id)
-    }
-    collected.push(...page.rows)
-    if (knownTotal !== null) {
-      if (collected.length > knownTotal) throw new JubianError('CONTRACT_CHANGED')
-      if (collected.length === knownTotal) {
-        if (page.hasMore === true) throw new JubianError('CONTRACT_CHANGED')
-        return collected
-      }
-      if (page.hasMore === false) throw new JubianError('CONTRACT_CHANGED')
-      if (page.rows.length === 0) throw new JubianError('CONTRACT_CHANGED')
-    } else if (page.rows.length === 0) {
-      return collected
-    }
-  }
-  throw new JubianError('CONTRACT_CHANGED')
+    seenIds.add(id)
+  }, 1)
 }
 
 /** Read one task's detail, refusing an unreadable body. */
