@@ -18,6 +18,9 @@ const contribution: TypertRemoteContribution = { package: '@deepseek-ai/dsh-tool
 const option = { key: '1:480p', standardId: 1, modelId: 'fixture-model', modelName: 'Fixture',
   platformId: 'FIXTURE', resolution: '480p', ratios: ['16:9'], genTypes: [3], maxDurationSeconds: 30 }
 
+/** Recover the composer callback from the registry's erased Record return. */
+type VideoSelectorInject = (id: SessionId) => VideoModelSelectInjected & Record<string, unknown>
+
 async function bench(available: () => Promise<RemoteResult<boolean>>) {
   const ctx = new Context(), sessionScope = new Context()
   onTestFinished(async () => { await sessionScope.fiber.dispose(); await ctx.fiber.dispose() })
@@ -57,7 +60,7 @@ it('shares a directory for a session binding and releases its projection before 
   const dispose = await mountJubianTokenSettings(b.ctx, contribution)
   await vi.waitFor(() => { expect(b.slots.entries('conversation.input.right')).toHaveLength(1) })
   const entry = b.slots.entries('conversation.input.right')[0]!
-  const inject = entry.inject as (id: SessionId) => VideoModelSelectInjected & Record<string, unknown>
+  const inject = entry.inject as VideoSelectorInject
   const first = inject(SessionId('present'))
   const second = inject(SessionId('present'))
   expect(first.hooks.videoState).toBe(second.hooks.videoState)
@@ -122,7 +125,7 @@ it('keeps a replacement Session directory when the previous scope disposes later
   const b = await bench(async () => ({ ok: true, value: true }))
   const dispose = await mountJubianTokenSettings(b.ctx, contribution)
   await vi.waitFor(() => { expect(b.slots.entries('conversation.input.right')).toHaveLength(1) })
-  const inject = b.slots.entries('conversation.input.right')[0]!.inject as (id: SessionId) => VideoModelSelectInjected
+  const inject = b.slots.entries('conversation.input.right')[0]!.inject as VideoSelectorInject
   const previous = inject(SessionId('present'))
   const replacement = new Context()
   onTestFinished(async () => { await replacement.fiber.dispose() })

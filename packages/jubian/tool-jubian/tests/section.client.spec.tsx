@@ -84,7 +84,7 @@ describe('project recovery controls', () => {
   })
 
   it('refreshes a missing folder without inventing a project selection', async () => {
-    const f = recoveryFixture({ projectDir: undefined, reports: [] })
+    const f = recoveryFixture({ projectDir: null, reports: [] })
     f.controls.status.mockRejectedValueOnce('unavailable')
     render(<VideoRecoverySection t={t} controls={f.controls} />)
     await screen.findByRole('alert')
@@ -100,7 +100,7 @@ describe('project recovery controls', () => {
     f.controls.deliverApprovedEpisode.mockReturnValueOnce(pending.promise)
     const view = render(<VideoRecoverySection t={t} controls={f.controls} />)
     fireEvent.click(await screen.findByRole('button', { name: en.episodeDeliverMp4 }))
-    const next = recoveryFixture({ projectDir: '/next', reports: [], episodes: undefined })
+    const next = recoveryFixture({ projectDir: '/next', reports: [] })
     view.rerender(<VideoRecoverySection t={t} controls={next.controls} />)
     await screen.findByText('/next')
     pending.resolve({ ok: true, value: { ...f.status.episodes![0]!, delivery: {
@@ -135,7 +135,7 @@ describe('project recovery controls', () => {
   })
 
   it('chooses and trims a project, disables recovery, and retains edits across refresh', async () => {
-    const f = recoveryFixture({ enabled: false, projectDir: undefined, reports: [] })
+    const f = recoveryFixture({ enabled: false, projectDir: null, reports: [] })
     render(<VideoRecoverySection t={t} controls={f.controls} />)
     await screen.findByText(en.recoveryDisabled)
     fireEvent.click(screen.getByRole('button', { name: en.recoveryChoose }))
