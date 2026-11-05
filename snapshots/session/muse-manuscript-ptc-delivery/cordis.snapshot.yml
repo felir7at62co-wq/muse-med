@@ -1,0 +1,33 @@
+- id: llm-deepseek
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: skill
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+- id: tool-web
+  disabled: true
+- insert:
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        providers:
+          - id: manuscript-ptc-delivery-fixture
+            name: Manuscript continuity fixture
+            models:
+              - id: selected-creative-model
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: delivery-creation-ptc
+    - id: manuscript-ptc-delivery-fixture
+      name: '../../../apps/desktop-host/tests/fixtures/manuscript-final-delivery/ptc.mjs'

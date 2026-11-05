@@ -541,6 +541,30 @@ async function prepareSubtitleOverlayExpectedWorkspace(cwd: string, scenarioDir:
   return expectedRoot
 }
 
+function expandManuscriptDeliveryLedger(text: string, cwd: string, parentSession: string, owner: 'native' | 'ptc' | 'no-receipt' = 'native'): string {
+  const ledger = JSON.parse(text) as JsonObject
+  if (!Array.isArray(ledger.baselines)) throw new Error('manuscript delivery oracle requires baselines')
+  const files = new Set(owner === 'ptc' ? ['ptc-final.md'] : owner === 'no-receipt' ? ['final.md'] : ['final.md', 'partial.md', 'final.docx', 'unpresented.md'])
+  ledger.baselines = ledger.baselines.map((baseline: JsonObject) => {
+    if (typeof baseline.path !== 'string' || !baseline.path.startsWith('{{cwd}}/')) {
+      throw new Error('manuscript delivery expected path must start with {{cwd}}/')
+    }
+    const filename = baseline.path.slice('{{cwd}}/'.length)
+    if (!files.has(filename)) throw new Error('manuscript delivery expected filename is not owned')
+    if (baseline.session !== '{{session:1}}') throw new Error('manuscript delivery expected owner must be {{session:1}}')
+    return { ...baseline, path: join(cwd, filename), session: parentSession }
+  })
+  return `${JSON.stringify(ledger)}\n`
+}
+
+async function prepareManuscriptDeliveryExpectedWorkspace(cwd: string, scenarioDir: string, parentSession: string, owner: 'native' | 'ptc' | 'no-receipt'): Promise<string> {
+  const expectedRoot = join(cwd, '.snapshot-patches', 'expected-manuscript-delivery')
+  await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true, verbatimSymlinks: true })
+  const file = join(expectedRoot, '.muse', 'manuscript-revisions', 'ledger.json')
+  await writeFile(file, expandManuscriptDeliveryLedger(await readFile(file, 'utf8'), await realpath(cwd), parentSession, owner))
+  return expectedRoot
+}
+
 function expandDouyinExpectedReceipt(text: string, cwd: string): string {
   const receipt = JSON.parse(text) as JsonObject
   for (const field of ['path', 'receipt']) {
@@ -1311,17 +1335,29 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 
   const childPrompts = new Map<number, string>()
   const childSchemas = new Map<number, unknown[][]>()
+  const childHeaders = new Map<number, unknown[]>()
   for (const index of scenario.manifest.header.childSystemPrompts ?? []) {
     childPrompts.set(index, await readFile(join(scenario.dir, `system-prompt.${index}.expected.md`), 'utf8'))
   }
   for (const index of scenario.manifest.header.childToolSchemas ?? []) {
     const child = parseToolSchemasSnapshot(await readFile(join(scenario.dir, `tool-schemas.${index}.expected.json`), 'utf8'))
-    childSchemas.set(index, [child.initial, ...child.changes])
+    const schemas = [child.initial, ...child.changes]
+    childSchemas.set(index, schemas)
+    const role = scenario.manifest.sessionFormat !== undefined || scenario.manifest.writerOutput === true
+      ? writerSnapshotName(index) : sessionFixtureNames(await readdir(scenario.dir))[index]
+    if (role === undefined) throw Error(`${scenario.name}: missing recorded child role ${index}`)
+    const fixture = await readFile(join(scenario.dir, role), 'utf8')
+    const headers = normalizedHeaders(fixture, fixtureContext(fixture))
+    expect(schemas, `${scenario.name}: child ${index} pin tool-schema count`).toHaveLength(headers.length)
+    childHeaders.set(index, headers)
   }
 
   for (const [logIndex, log] of actualLogs.entries()) {
     const headers = normalizedHeaders(log.content, ctx)
     const prompts = normalizedSystemPrompts(log.content, ctx)
+    const recordedChild = childHeaders.get(logIndex)
+    if (recordedChild !== undefined) expect(headers, `${scenario.name}: child ${logIndex} pin header count`)
+      .toHaveLength(recordedChild.length)
     if (scenario.name === 'muse-editing-tool-catalog') {
       expect(prompts.join('\n'), 'editing prompt excludes the retired persona').not.toContain('PONYTAIL MODE')
       expect(log.content, 'editing skill catalog excludes retired Ponytail skills')
@@ -1334,7 +1370,7 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
     }
     for (const [index, header] of headers.entries()) {
       const selectedSchemas = childSchemas.get(logIndex)?.[index]
-      const base = reconstructed[index] ?? reconstructed[0]
+      const base = recordedChild?.[index] ?? reconstructed[index] ?? reconstructed[0]
       const expected = selectedSchemas === undefined ? base : { ...base as JsonObject, tools: selectedSchemas }
       expect(header, `${scenario.name}: request header ${index + 1}`).toEqual(expected)
     }
@@ -1345,6 +1381,26 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
       ).toBe(childPrompts.get(logIndex) ?? prompt)
     }
   }
+}
+
+/** Reject a changed child output budget against that role's independently recorded Session. */
+async function verifyChildOutputLimitRejection(scenario: HeadlessScenario, actualLogs: readonly SessionLog[],
+  ctx: NormalizeContext): Promise<void> {
+  const child = actualLogs[1]
+  if (child === undefined) throw Error(`${scenario.name}: missing child output-limit control`)
+  let changed = false
+  const content = records(child.content).map(record => {
+    if (record.type !== 'request/header') return record
+    const data = record.data as JsonObject
+    const header = data.header as JsonObject
+    const config = header.config as JsonObject
+    if (typeof config.maxTokens !== 'number') throw Error(`${scenario.name}: child has no explicit output limit`)
+    changed = true
+    return { ...record, data: { ...data, header: { ...header, config: { ...config, maxTokens: config.maxTokens + 1 } } } }
+  }).map(record => JSON.stringify(record)).join('\n') + '\n'
+  expect(changed).toBe(true)
+  await expect(verifyHeaders(scenario, actualLogs.map((log, index) => index === 1 ? { ...log, content } : log), ctx))
+    .rejects.toThrow(`${scenario.name}: request header 1`)
 }
 
 describe('headless recorded-session snapshots', () => {
@@ -1411,6 +1467,25 @@ describe('headless recorded-session snapshots', () => {
     expect(expanded.text).toBe(report.text)
     expect(() => expandSubtitleOverlayExpectedReport(JSON.stringify({ ...report, plan_path: '/unowned/path' }), cwd))
       .toThrow('expected paths must start with {{cwd}}/')
+  })
+
+  it('manuscript delivery oracle expands only owned paths and the independently recorded parent identity', () => {
+    const cwd = join(tmpdir(), 'declared-manuscript-fixture-root')
+    const baseline = { path: '{{cwd}}/final.md', sha256: 'a'.repeat(64), text: 'Keep literal {{cwd}} and {{session:1}} in manuscript text.', session: '{{session:1}}' }
+    const ledger = { version: 1, baselines: [baseline], reviews: {} }
+    expect(JSON.parse(expandManuscriptDeliveryLedger(JSON.stringify(ledger), cwd, 'actual-parent'))).toEqual({
+      ...ledger, baselines: [{ ...baseline, path: join(cwd, 'final.md'), session: 'actual-parent' }],
+    })
+    expect(() => expandManuscriptDeliveryLedger(JSON.stringify({ ...ledger, baselines: [{ ...baseline, path: '{{cwd}}/other.md' }] }), cwd, 'actual-parent'))
+      .toThrow('filename is not owned')
+    expect(() => expandManuscriptDeliveryLedger(JSON.stringify({ ...ledger, baselines: [{ ...baseline, session: '{{session:2}}' }] }), cwd, 'actual-parent'))
+      .toThrow('owner must be {{session:1}}')
+    expect(() => expandManuscriptDeliveryLedger(JSON.stringify(ledger), cwd, 'actual-parent', 'ptc'))
+      .toThrow('filename is not owned')
+    const changedHash = { ...ledger, baselines: [{ ...baseline, sha256: 'b'.repeat(64) }] }
+    const actual = JSON.parse(expandManuscriptDeliveryLedger(JSON.stringify(ledger), cwd, 'actual-parent'))
+    const changedExpected = JSON.parse(expandManuscriptDeliveryLedger(JSON.stringify(changedHash), cwd, 'actual-parent'))
+    expect(() => expect(actual).toEqual(changedExpected)).toThrow()
   })
 
   it('subtitle overlay workspace expected preserves the source oracle and detects changed business fields and extra files', async () => {
@@ -2546,6 +2621,13 @@ describe('headless recorded-session snapshots', () => {
             if (scenario.name === 'worktree') {
               await verifyWorktree(actualLogs[0]!.content, await realpath(cwd))
             }
+            if (['muse-manuscript-final-delivery', 'muse-manuscript-ptc-delivery', 'muse-manuscript-no-receipt', 'muse-manuscript-revision-basis'].includes(scenario.name)) {
+              const parentId = actualLogs[0]?.header.id
+              if (typeof parentId !== 'string') throw new Error('manuscript delivery requires the independent actual parent identity')
+              expectedWorkspaceRoot = await prepareManuscriptDeliveryExpectedWorkspace(cwd, scenario.dir, parentId,
+                scenario.name === 'muse-manuscript-ptc-delivery' ? 'ptc'
+                  : ['muse-manuscript-no-receipt', 'muse-manuscript-revision-basis'].includes(scenario.name) ? 'no-receipt' : 'native')
+            }
             finalWorkspace = await captureWorkspaceSnapshot(cwd, {
               ignoredRootEntries: ignoredWorkspaceEntries,
             })
@@ -2619,6 +2701,9 @@ describe('headless recorded-session snapshots', () => {
         expect(actualRecords, `${scenario.name}: session ${index}`).toEqual(expectedRecords)
       }
       await verifyHeaders(scenario, actualLogs, actualContext)
+      if (mode === 'replay' && scenario.name === 'muse-manuscript-continuity') {
+        await verifyChildOutputLimitRejection(scenario, actualLogs, actualContext)
+      }
 
       if (initialWorkspace === undefined || finalWorkspace === undefined) {
         throw new Error(`${scenario.name}: workspace was not captured around the profile run`)

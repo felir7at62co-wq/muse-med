@@ -1,0 +1,28 @@
+- id: agent-default-model
+  config:
+    provider: manuscript-delivery-controls-fixture
+    model: selected-creative-model
+- id: llm-deepseek
+  disabled: true
+- id: session-persistence-jsonl
+  config:
+    root: './.sessions'
+    compression: none
+- id: tool-result-pruner
+  disabled: true
+- id: tool-web
+  disabled: true
+- insert:
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: delivery-test-parent
+    - id: delivery-test-parent
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: delivery-test-parent
+        name: Delivery test parent
+        description: Parent inherits the shipped headless tools.
+        plugins: []
+    - id: manuscript-delivery-controls-fixture
+      name: './controls.mjs'

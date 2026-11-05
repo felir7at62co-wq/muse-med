@@ -21,6 +21,7 @@
     "src/model-access.ts",
     "src/model-direct.ts",
     "src/model-errors.ts",
+    "src/model-request-trace.ts",
     "src/feedback.ts",
     "src/feedback-tools.ts",
     "src/desktop-bridge.ts",

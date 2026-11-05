@@ -1,0 +1,16 @@
+{
+  "parentRequests": 2,
+  "reviewerSessions": 1,
+  "reviewerRequests": 2,
+  "reviewerTotalRequestCap": 2,
+  "actualInvalidSubmissionRejected": true,
+  "actualDenialReceivedByReviewer": true,
+  "extraMissingOutputCorrections": 0,
+  "parentReceivedStatus": "unknown",
+  "parentReceivedReason": "reviewed",
+  "originalUnknownsPreserved": [
+    "离线管道样例：片段未说明谁打开三号木箱，无法确认钥匙交接与披风取用过程。"
+  ],
+  "currentFileSha256": "6b3e5dbdbea626ff40a796103325c9df539293d5579c72f32927fa3d6f88a586",
+  "inputFileUnchanged": true
+}

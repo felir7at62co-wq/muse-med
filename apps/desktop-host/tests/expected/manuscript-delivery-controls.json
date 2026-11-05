@@ -1,0 +1,255 @@
+{
+  "report": {
+    "mode": "report",
+    "noLeakedReminder": true,
+    "rootResults": [
+      {
+        "kind": "parent",
+        "results": [
+          {
+            "id": "ordinary-present",
+            "name": "present",
+            "error": null
+          }
+        ],
+        "presented": 1
+      }
+    ],
+    "reviewerRequests": [],
+    "cancelledThenFollowedUp": false,
+    "newHumanInput": false
+  },
+  "translation": {
+    "mode": "translation",
+    "noLeakedReminder": true,
+    "rootResults": [
+      {
+        "kind": "parent",
+        "results": [
+          {
+            "id": "ordinary-present",
+            "name": "present",
+            "error": null
+          }
+        ],
+        "presented": 1
+      }
+    ],
+    "reviewerRequests": [],
+    "cancelledThenFollowedUp": false,
+    "newHumanInput": false
+  },
+  "format": {
+    "mode": "format",
+    "noLeakedReminder": true,
+    "rootResults": [
+      {
+        "kind": "parent",
+        "results": [
+          {
+            "id": "ordinary-present",
+            "name": "present",
+            "error": null
+          }
+        ],
+        "presented": 1
+      }
+    ],
+    "reviewerRequests": [],
+    "cancelledThenFollowedUp": false,
+    "newHumanInput": false
+  },
+  "mixed": {
+    "mode": "mixed",
+    "noLeakedReminder": true,
+    "rootResults": [
+      {
+        "kind": "parent",
+        "results": [
+          {
+            "id": "mixed-without-declaration",
+            "name": "present",
+            "error": "MANUSCRIPT_DELIVERY_REQUIRED"
+          },
+          {
+            "id": "mixed-declare",
+            "name": "manuscript_revision",
+            "error": null
+          },
+          {
+            "id": "mixed-present",
+            "name": "present",
+            "error": null
+          }
+        ],
+        "presented": 1
+      }
+    ],
+    "reviewerRequests": [],
+    "cancelledThenFollowedUp": false,
+    "newHumanInput": false
+  },
+  "shell": {
+    "mode": "shell",
+    "noLeakedReminder": true,
+    "rootResults": [
+      {
+        "kind": "parent",
+        "results": [
+          {
+            "id": "python-word",
+            "name": "bash",
+            "error": null
+          },
+          {
+            "id": "python-without-history",
+            "name": "present",
+            "error": "MANUSCRIPT_DELIVERY_REQUIRED"
+          },
+          {
+            "id": "python-review",
+            "name": "manuscript_revision",
+            "error": null
+          },
+          {
+            "id": "python-reviewed",
+            "name": "manuscript_revision",
+            "error": null
+          },
+          {
+            "id": "python-present",
+            "name": "present",
+            "error": null
+          },
+          {
+            "id": "python-rewrite",
+            "name": "bash",
+            "error": null
+          },
+          {
+            "id": "python-stale",
+            "name": "present",
+            "error": "MANUSCRIPT_DELIVERY_STALE"
+          },
+          {
+            "id": "python-draft",
+            "name": "manuscript_revision",
+            "error": null
+          },
+          {
+            "id": "python-draft-present",
+            "name": "present",
+            "error": null
+          }
+        ],
+        "presented": 2
+      }
+    ],
+    "reviewerRequests": [
+      1
+    ],
+    "cancelledThenFollowedUp": false,
+    "newHumanInput": false
+  },
+  "session-isolation": {
+    "mode": "session-isolation",
+    "noLeakedReminder": true,
+    "rootResults": [
+      {
+        "kind": "parent",
+        "results": [
+          {
+            "id": "parent-declare",
+            "name": "manuscript_revision",
+            "error": null
+          },
+          {
+            "id": "parent-present",
+            "name": "present",
+            "error": null
+          }
+        ],
+        "presented": 1
+      },
+      {
+        "kind": "isolated",
+        "results": [
+          {
+            "id": "isolated-without-declaration",
+            "name": "present",
+            "error": "MANUSCRIPT_DELIVERY_REQUIRED"
+          },
+          {
+            "id": "isolated-declare",
+            "name": "manuscript_revision",
+            "error": null
+          },
+          {
+            "id": "isolated-present",
+            "name": "present",
+            "error": null
+          }
+        ],
+        "presented": 1
+      }
+    ],
+    "reviewerRequests": [],
+    "cancelledThenFollowedUp": false,
+    "newHumanInput": false
+  },
+  "cancel-followup": {
+    "mode": "cancel-followup",
+    "noLeakedReminder": true,
+    "rootResults": [
+      {
+        "kind": "parent",
+        "results": [
+          {
+            "id": "before-cancel-write",
+            "name": "write",
+            "error": null
+          },
+          {
+            "id": "before-cancel-declare",
+            "name": "manuscript_revision",
+            "error": null
+          },
+          {
+            "id": "after-cancel-present",
+            "name": "present",
+            "error": null
+          }
+        ],
+        "presented": 1
+      }
+    ],
+    "reviewerRequests": [],
+    "cancelledThenFollowedUp": true,
+    "newHumanInput": false
+  },
+  "new-input": {
+    "mode": "new-input",
+    "noLeakedReminder": true,
+    "rootResults": [
+      {
+        "kind": "parent",
+        "results": [
+          {
+            "id": "before-new-input-write",
+            "name": "write",
+            "error": null
+          },
+          {
+            "id": "after-new-input-present",
+            "name": "present",
+            "error": null
+          }
+        ],
+        "presented": 1
+      }
+    ],
+    "reviewerRequests": [],
+    "cancelledThenFollowedUp": false,
+    "newHumanInput": true
+  }
+}

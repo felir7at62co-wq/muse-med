@@ -1,0 +1,93 @@
+{
+  "revision": {
+    "mode": "revision",
+    "pipelineOnly": true,
+    "originalRequestRestored": true,
+    "originalSha256": "7525314ed91a63126c98201b98eec01d940efe5f0c0804a8898ce2a77b01f172",
+    "finalSha256": "eabc7d83bde939ae6d8ecead0b08b56daeba6cc2ea3229c13452b819c8571d6d",
+    "finalLabel": "已复核本文件全部提取正文（仅当前版本）",
+    "presented": 1,
+    "originalAndFinalUnchanged": true,
+    "parentRequests": 7,
+    "continuations": [
+      "继续"
+    ],
+    "results": [
+      {
+        "id": "self-only-review",
+        "name": "manuscript_revision",
+        "error": null
+      },
+      {
+        "id": "self-only-reviewed-denied",
+        "name": "manuscript_revision",
+        "error": "MANUSCRIPT_DELIVERY_BASELINE_REQUIRED"
+      },
+      {
+        "id": "explicit-baseline-review",
+        "name": "manuscript_revision",
+        "error": null
+      },
+      {
+        "id": "baseline-reviewed",
+        "name": "manuscript_revision",
+        "error": null
+      },
+      {
+        "id": "baseline-present",
+        "name": "present",
+        "error": null
+      }
+    ],
+    "reviewerRequests": [
+      1,
+      1
+    ],
+    "reviewerRoles": [
+      [
+        "current"
+      ],
+      [
+        "current",
+        "candidate"
+      ]
+    ]
+  },
+  "creation": {
+    "mode": "creation",
+    "pipelineOnly": true,
+    "originalRequestRestored": true,
+    "originalSha256": "7525314ed91a63126c98201b98eec01d940efe5f0c0804a8898ce2a77b01f172",
+    "finalSha256": "eabc7d83bde939ae6d8ecead0b08b56daeba6cc2ea3229c13452b819c8571d6d",
+    "finalLabel": "已复核本文件全部提取正文（仅当前版本）",
+    "presented": 1,
+    "originalAndFinalUnchanged": true,
+    "parentRequests": 4,
+    "continuations": [],
+    "results": [
+      {
+        "id": "creation-self-review",
+        "name": "manuscript_revision",
+        "error": null
+      },
+      {
+        "id": "creation-reviewed",
+        "name": "manuscript_revision",
+        "error": null
+      },
+      {
+        "id": "creation-present",
+        "name": "present",
+        "error": null
+      }
+    ],
+    "reviewerRequests": [
+      1
+    ],
+    "reviewerRoles": [
+      [
+        "current"
+      ]
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "task": "通读当前稿四集，核对事件先后、人物和物件状态、人物知情范围以及集间衔接。请区分当前叙事、明确闪回、不同物件以及人物有意说谎；仅依据实际正文，返回结论、问题与精确原句依据，不修改文件。",
+  "cases": [
+    { "id": "case-a", "documents": [{ "role": "current", "path": "case-a.md" }] },
+    { "id": "case-b", "documents": [{ "role": "current", "path": "case-b.md" }] },
+    { "id": "case-c", "documents": [{ "role": "current", "path": "case-c.md" }] },
+    { "id": "case-d", "documents": [{ "role": "current", "path": "case-d.md" }] },
+    { "id": "case-e", "documents": [{ "role": "current", "path": "case-e.md" }] }
+  ]
+}

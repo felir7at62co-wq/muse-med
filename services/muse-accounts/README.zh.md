@@ -150,6 +150,12 @@ HTTP 拒绝保留 `error` 并增加 `error_code`：`queue_full`、`upload_busy`�
 部署前必须将当前源文件与收据的 `sourceSha256` 比对，保留私密备份，再原子替换服务器 `.native` 文件并重启网关。报告可用前，应核查登录后的目录并实测工具连续调用。回滚时还原精确私密备份并重启网关。此次替换会撤回其他全部共享模型；已有会话若选中了撤回模型，必须重新选择可用模型。选定容量和输出预算见[模型预算表](#selected-model-budgets)，上游限制仍然有效。准备的目录不添加并发上限。
 
 <a id="model-key-pools"></a>
+### 模型请求诊断
+
+两个模型中转入口将 `x-muse-client-request-id` 严格校验为 UUID，并为每次 HTTP 请求生成独立的 `server_request_id`，通过 `x-muse-server-request-id` 返回。诊断把这些标识关联到收到与转发的请求字节数、请求与实际模型 ID、HTTP 状态、长度受限的响应标识、提供方原始结束原因及可用的数值用量。客户端标识重复可能表示 SDK 重试，不代表同一次 HTTP 尝试。
+
+有界响应观察器保持转发字节不变，记录是否看到了 `[DONE]`、普通 EOF、取消或传输错误。元数据过大或格式无效时保持不可用，不作为语义核对成功。诊断不包含请求和响应正文、凭据、Cookie、完整标头或异常原文，不保存原始请求或 SSE 正文，不证明稿件质量，也不改变准入、重试与计费。网关改动的部署与桌面构建分别进行。
+
 ### 模型 Key 资源池
 
 智谱数组凭据让桌面和云端工作间请求共用一个网关并发池。桌面客户端协商 `X-Muse-Provider-Routing: mixed-v1`；额外发送 `X-Muse-Zhipu-Direct: leased-v1` 且网关已开启直连时，智谱返回 `transport: leased`。这类客户端每次调用前只向 `/api/desktop-models/zhipu-official/leases` POST `{model}`，随后使用短期 JWT 直接向返回的供应商地址发送会话并接收流。GET `/leases/<id>` 核验同一个登录，DELETE 报告供应商流已清理。旧客户端仍收到 `transport: relay`，不领取资源池 Key。两种传输共用 `MUSE_ZHIPU_KEY_CONCURRENCY`（默认 20）、`MUSE_ZHIPU_QUEUE_LIMIT`（1000）和 `MUSE_ZHIPU_QUEUE_TIMEOUT_MS`（120000）。队列满或等待超时会在调用供应商前失败；领取结果不明时不会自动重试。

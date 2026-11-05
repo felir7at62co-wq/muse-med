@@ -1,0 +1,241 @@
+{
+  "modelRequests": 7,
+  "results": [
+    {
+      "case": "full",
+      "isError": false,
+      "documents": [
+        {
+          "role": "reference",
+          "file": "reference.md",
+          "file_sha256": "807c84a46a9748c072d27dd5d15c90d5605d303b40d5a9570d82a14e252ad0ee",
+          "text_sha256": "807c84a46a9748c072d27dd5d15c90d5605d303b40d5a9570d82a14e252ad0ee",
+          "line_count": 29,
+          "selection": {
+            "kind": "full"
+          },
+          "coverage": {
+            "basis": "returned_text_lines",
+            "read_ranges": [
+              {
+                "start": 1,
+                "end": 29
+              }
+            ],
+            "unread_ranges": [],
+            "full_document": true
+          }
+        },
+        {
+          "role": "current",
+          "file": "current.md",
+          "file_sha256": "e4d0681614fbd5e4b8f054d8fb086c694a08063169f55fce973ceda3f2e3a93e",
+          "text_sha256": "e4d0681614fbd5e4b8f054d8fb086c694a08063169f55fce973ceda3f2e3a93e",
+          "line_count": 29,
+          "selection": {
+            "kind": "full"
+          },
+          "coverage": {
+            "basis": "returned_text_lines",
+            "read_ranges": [
+              {
+                "start": 1,
+                "end": 29
+              }
+            ],
+            "unread_ranges": [],
+            "full_document": true
+          }
+        },
+        {
+          "role": "candidate",
+          "file": "candidate.md",
+          "file_sha256": "de1d14928d54b567149b22f561c3c2a0a84442eab353784d4ab259ea3ffdd9f8",
+          "text_sha256": "de1d14928d54b567149b22f561c3c2a0a84442eab353784d4ab259ea3ffdd9f8",
+          "line_count": 29,
+          "selection": {
+            "kind": "full"
+          },
+          "coverage": {
+            "basis": "returned_text_lines",
+            "read_ranges": [
+              {
+                "start": 1,
+                "end": 29
+              }
+            ],
+            "unread_ranges": [],
+            "full_document": true
+          }
+        }
+      ]
+    },
+    {
+      "case": "episodes",
+      "isError": false,
+      "documents": [
+        {
+          "role": "current",
+          "file": "current.md",
+          "file_sha256": "e4d0681614fbd5e4b8f054d8fb086c694a08063169f55fce973ceda3f2e3a93e",
+          "text_sha256": "e4d0681614fbd5e4b8f054d8fb086c694a08063169f55fce973ceda3f2e3a93e",
+          "line_count": 29,
+          "selection": {
+            "kind": "episodes",
+            "requested": [
+              2
+            ],
+            "included": [
+              1,
+              2,
+              3
+            ],
+            "adjacent": [
+              1,
+              3
+            ]
+          },
+          "coverage": {
+            "basis": "returned_text_lines",
+            "read_ranges": [
+              {
+                "start": 1,
+                "end": 21
+              }
+            ],
+            "unread_ranges": [
+              {
+                "start": 22,
+                "end": 29
+              }
+            ],
+            "full_document": false
+          }
+        },
+        {
+          "role": "reference",
+          "file": "reference.md",
+          "file_sha256": "807c84a46a9748c072d27dd5d15c90d5605d303b40d5a9570d82a14e252ad0ee",
+          "text_sha256": "807c84a46a9748c072d27dd5d15c90d5605d303b40d5a9570d82a14e252ad0ee",
+          "line_count": 29,
+          "selection": {
+            "kind": "episodes",
+            "requested": [
+              2
+            ],
+            "included": [
+              2
+            ],
+            "adjacent": []
+          },
+          "coverage": {
+            "basis": "returned_text_lines",
+            "read_ranges": [
+              {
+                "start": 8,
+                "end": 14
+              }
+            ],
+            "unread_ranges": [
+              {
+                "start": 1,
+                "end": 7
+              },
+              {
+                "start": 15,
+                "end": 29
+              }
+            ],
+            "full_document": false
+          }
+        },
+        {
+          "role": "candidate",
+          "file": "candidate.md",
+          "file_sha256": "de1d14928d54b567149b22f561c3c2a0a84442eab353784d4ab259ea3ffdd9f8",
+          "text_sha256": "de1d14928d54b567149b22f561c3c2a0a84442eab353784d4ab259ea3ffdd9f8",
+          "line_count": 29,
+          "selection": {
+            "kind": "episodes",
+            "requested": [
+              4
+            ],
+            "included": [
+              3,
+              4
+            ],
+            "adjacent": [
+              3
+            ]
+          },
+          "coverage": {
+            "basis": "returned_text_lines",
+            "read_ranges": [
+              {
+                "start": 15,
+                "end": 29
+              }
+            ],
+            "unread_ranges": [
+              {
+                "start": 1,
+                "end": 14
+              }
+            ],
+            "full_document": false
+          }
+        }
+      ]
+    },
+    {
+      "case": "lines",
+      "isError": false,
+      "documents": [
+        {
+          "role": "current",
+          "file": "current.md",
+          "file_sha256": "e4d0681614fbd5e4b8f054d8fb086c694a08063169f55fce973ceda3f2e3a93e",
+          "text_sha256": "e4d0681614fbd5e4b8f054d8fb086c694a08063169f55fce973ceda3f2e3a93e",
+          "line_count": 29,
+          "selection": {
+            "kind": "lines",
+            "start": 9,
+            "end": 11
+          },
+          "coverage": {
+            "basis": "returned_text_lines",
+            "read_ranges": [
+              {
+                "start": 9,
+                "end": 11
+              }
+            ],
+            "unread_ranges": [
+              {
+                "start": 1,
+                "end": 8
+              },
+              {
+                "start": 12,
+                "end": 29
+              }
+            ],
+            "full_document": false
+          }
+        }
+      ]
+    },
+    {
+      "case": "conflicting-selectors",
+      "isError": true
+    },
+    {
+      "case": "missing-current",
+      "isError": true
+    },
+    {
+      "case": "oversized",
+      "isError": true
+    }
+  ]
+}
