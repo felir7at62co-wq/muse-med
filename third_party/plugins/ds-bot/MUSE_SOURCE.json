@@ -83,8 +83,11 @@
     "src/host/usage.js",
     "src/host/web-submissions.js",
     "src/office/pptx.js",
+    "test/browser-handoff.test.js",
+    "test/browser-plugin-output.test.js",
     "test/client-bundle.test.js",
     "test/fixtures/learning-recovery.expected.json",
+    "test/i18n.test.js",
     "test/learning-recovery-client.test.js",
     "test/learning.test.js",
     "test/muse-web-submissions.test.js",
@@ -129,6 +132,7 @@
     "Learning answer recovery belongs to each client plugin instance and releases proposal content after success, stale acknowledgement or disposal",
     "Host shutdown drains admitted learning approvals and saves their results before releasing the team write lock",
     "Declined skill proposals remain scoped to their Bot; ownerless legacy records remain saved without entering model requests",
-    "PowerPoint inventory and layout apply nested group coordinates from the nearest group to its ancestors without changing sibling traversal"
+    "PowerPoint inventory and layout apply nested group coordinates from the nearest group to its ancestors without changing sibling traversal",
+    "Browser handoff replies claim control only after owner-checked preparation and never restore a consumed hold after uncertain dispatch or persistence failure; recovery guidance follows the interface language and browser output fixtures use the native raw-batch execution path"
   ]
 }
