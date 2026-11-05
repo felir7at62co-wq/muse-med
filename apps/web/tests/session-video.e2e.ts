@@ -95,7 +95,9 @@ describe('web e2e: recorded conversation video inspection', () => {
     const header = page.locator('[data-conversation-header-presentation="floating"]')
     expect(await header.evaluate(element => getComputedStyle(element).position)).toBe('absolute')
     expect(await header.evaluate(element => getComputedStyle(element).borderBottomWidth)).toBe('0px')
-    expect(await header.getByRole('navigation', { name: 'Session hierarchy' }).count()).toBe(0)
+    const hierarchy = header.getByRole('navigation', { name: 'Session hierarchy' })
+    expect(await hierarchy.count()).toBe(1)
+    expect(await hierarchy.textContent()).toContain(TITLE)
     expect(await header.getByRole('tab').count()).toBe(0)
     const anchor = page.locator('[data-muse-video-anchor]')
     const geometry = await anchor.evaluate((element) => {
@@ -107,6 +109,11 @@ describe('web e2e: recorded conversation video inspection', () => {
     expect(geometry.offset).toBeGreaterThanOrEqual(6)
     expect(geometry.offset).toBeLessThanOrEqual(12)
     expect(geometry.background).toBe('rgb(27, 27, 28)')
+    const sourcePill = page.locator('[data-muse-video-source-pill]')
+    await sourcePill.waitFor({ state: 'attached' })
+    expect(await sourcePill.evaluate(element => ({ opacity: getComputedStyle(element).opacity, inert: (element as HTMLElement).inert })))
+      .toEqual({ opacity: '0', inert: true })
+    expect(await page.locator('[data-muse-video-shelf]').getByRole('combobox', { name: 'Conversation videos' }).count()).toBe(0)
     const fade = page.locator('[class*="headerFade"]')
     expect(await fade.evaluate(element => getComputedStyle(element).backgroundImage)).toContain('linear-gradient')
     expect(await fade.evaluate(element => getComputedStyle(element).pointerEvents)).toBe('none')
@@ -123,6 +130,80 @@ describe('web e2e: recorded conversation video inspection', () => {
     await moreViews.click()
     await page.getByRole('menuitem', { name: 'Chat', exact: true }).click()
     await page.locator('[data-muse-video-anchor]').waitFor()
+    expect(consoleWatch.pageErrors).toEqual([])
+  })
+
+  it('opens and closes the curtain over a stable transcript throughout normal and reduced motion', async () => {
+    onTestFailed(() => saveFailureShot(page, 'session-video-curtain-flow'))
+    const paragraph = page.getByText(/^Review note 18: /u)
+    const anchor = page.locator('[data-muse-video-anchor]')
+    for (const reducedMotion of ['no-preference', 'reduce'] as const) {
+      await page.emulateMedia({ reducedMotion })
+      if (await anchor.getAttribute('aria-expanded') === 'true') await anchor.click()
+      await paragraph.evaluate(async (element) => {
+        await document.fonts.ready
+        element.scrollIntoView({ block: 'start', behavior: 'instant' })
+        const scroll = element.closest('[data-conversation-scroll]')
+          ?? element.closest('[data-chat-frame]')?.querySelector('[data-chat-scroll]')
+        if (!(scroll instanceof HTMLElement)) throw new Error('Transcript has no scrollport')
+        scroll.scrollTop = Math.max(0, scroll.scrollTop - 100)
+      })
+      for (const expanded of [true, false]) {
+        const observation = await paragraph.evaluate(async (element, expand) => {
+          const scroll = element.closest('[data-conversation-scroll]')
+            ?? element.closest('[data-chat-frame]')?.querySelector('[data-chat-scroll]')
+          const frame = element.closest('[data-chat-frame]')
+          const shelf = frame?.querySelector('[data-muse-video-shelf]')
+          const toggle = shelf?.querySelector('[data-muse-video-anchor]')
+          const bubble = toggle?.closest('section')
+          if (!(scroll instanceof HTMLElement) || !(toggle instanceof HTMLButtonElement) || !(bubble instanceof HTMLElement)) {
+            throw new Error('Video curtain has no owning transcript')
+          }
+          const snapshot = () => {
+            const rect = element.getBoundingClientRect()
+            return { scrollTop: scroll.scrollTop, scrollHeight: scroll.scrollHeight, top: rect.top, left: rect.left,
+              width: rect.width, height: rect.height, connected: element.isConnected }
+          }
+          const before = snapshot()
+          const frames: ReturnType<typeof snapshot>[] = []
+          const visuals = new Set<string>()
+          let running = false
+          toggle.click()
+          const started = performance.now()
+          while (performance.now() - started < 1200) {
+            await new Promise<void>((resolve) => { requestAnimationFrame(() => { resolve() }) })
+            frames.push(snapshot())
+            const curtain = bubble.querySelector<HTMLElement>('[class*="curtain"]')
+            const nodes = [bubble, curtain, curtain?.firstElementChild].filter((node): node is HTMLElement => node instanceof HTMLElement)
+            running ||= nodes.some(node => node.getAnimations().some(animation => animation.playState === 'running'))
+            visuals.add(JSON.stringify(nodes.map((node) => {
+              const style = getComputedStyle(node)
+              return [style.opacity, style.transform, style.clipPath, node.getBoundingClientRect().height]
+            })))
+          }
+          const picture = bubble.querySelector('[data-muse-shelf-video]')?.getBoundingClientRect()
+          const probe = picture !== undefined
+            ? { x: picture.left + picture.width / 2, y: picture.top + picture.height / 2 }
+            : { x: before.left + before.width / 2, y: before.top + before.height / 2 }
+          const hit = document.elementFromPoint(probe.x, probe.y)
+          return { before, frames, running, visualStates: visuals.size,
+            expanded: toggle.getAttribute('aria-expanded') === 'true',
+            hitShelf: hit?.closest('[data-muse-video-shelf]') !== null && hit !== null,
+            expectedExpanded: expand }
+        }, expanded)
+        expect(observation.expanded).toBe(observation.expectedExpanded)
+        for (const frame of observation.frames) {
+          expect(frame.connected).toBe(true)
+          expect(frame.scrollTop).toBeCloseTo(observation.before.scrollTop, 2)
+          expect(frame.scrollHeight).toBe(observation.before.scrollHeight)
+          for (const key of ['top', 'left', 'width', 'height'] as const) expect(frame[key]).toBeCloseTo(observation.before[key], 2)
+        }
+        expect(observation.hitShelf).toBe(expanded)
+        expect(observation.running).toBe(reducedMotion === 'no-preference')
+        if (reducedMotion === 'no-preference') expect(observation.visualStates).toBeGreaterThan(1)
+      }
+    }
+    await page.emulateMedia({ reducedMotion: 'no-preference' })
     expect(consoleWatch.pageErrors).toEqual([])
   })
 
@@ -146,14 +227,27 @@ describe('web e2e: recorded conversation video inspection', () => {
       .every(animation => animation.playState === 'finished' || animation.playState === 'idle'))).toBe(true)
     await expect.poll(() => shelf.getByRole('group', { name: 'Video shots' }).evaluate((element) => {
       const bounds = element.getBoundingClientRect()
-      const seat = element.closest('[data-muse-video-shelf]')?.getBoundingClientRect()
-      return seat !== undefined && bounds.height >= 78 && bounds.bottom <= seat.bottom && bounds.bottom < innerHeight
+      const panel = element.closest('section')?.getBoundingClientRect()
+      return panel !== undefined && bounds.height >= 78 && bounds.bottom <= panel.bottom && bounds.bottom < innerHeight
         && [...element.querySelectorAll('button')].every((button) => {
           const box = button.getBoundingClientRect()
           return button.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2))
         })
     })).toBe(true)
     expect(await page.locator('[data-muse-shelf-video]').count()).toBe(1)
+    const sourcePill = shelf.locator('[data-muse-video-source-pill]')
+    const pillGeometry = await sourcePill.evaluate((element) => {
+      const anchor = element.parentElement?.querySelector('[data-muse-video-anchor]')
+      if (anchor === null || anchor === undefined) throw new Error('Source pill has no Muse anchor')
+      const pill = element.getBoundingClientRect(), muse = anchor.getBoundingClientRect()
+      return { centerDelta: Math.abs(pill.top + pill.height / 2 - muse.top - muse.height / 2),
+        beforeMuse: pill.right < muse.left, radius: getComputedStyle(element).borderRadius, inert: (element as HTMLElement).inert }
+    })
+    expect(pillGeometry.centerDelta).toBeLessThanOrEqual(1)
+    expect(pillGeometry.beforeMuse).toBe(true)
+    expect(pillGeometry.radius).toBe('999px')
+    expect(pillGeometry.inert).toBe(false)
+    expect(await sourcePill.getByRole('combobox', { name: 'Conversation videos' }).isEnabled()).toBe(true)
     await shots.nth(1).focus()
     await page.keyboard.press('Enter')
     const video = shelf.locator('video[data-muse-shelf-video]')
@@ -176,7 +270,10 @@ describe('web e2e: recorded conversation video inspection', () => {
     await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(1)
     await compareOrRefreshGolden(EXPECTED, await captureStableAria(page, '[data-muse-video-shelf]', scaffold.workspaceCwd), MODE)
     await anchor.click()
-    expect(await page.locator('[data-muse-shelf-video]').count()).toBe(0)
+    await expect.poll(() => page.locator('[data-muse-shelf-video]').count()).toBe(0)
+    expect(await sourcePill.evaluate(element => ({ opacity: getComputedStyle(element).opacity, inert: (element as HTMLElement).inert })))
+      .toEqual({ opacity: '0', inert: true })
+    expect(await shelf.getByRole('combobox', { name: 'Conversation videos' }).count()).toBe(0)
     await anchor.click()
     expect(await page.locator('[data-muse-shelf-video]').count()).toBe(1)
     await expect.poll(() => shelf.evaluate(element => element.getAnimations({ subtree: true })
@@ -220,18 +317,39 @@ describe('web e2e: recorded conversation video inspection', () => {
     if (await anchor.getAttribute('aria-expanded') === 'true') await anchor.click()
     const card = page.locator('[data-muse-inline-video]')
     const layer = page.locator('[data-video-absorption]')
+    const wrapper = page.locator('[data-presented-file][data-video]').filter({ has: card })
     const handle = await card.elementHandle()
-    if (handle === null) throw new Error('Inline video has no stable card')
+    const wrapperHandle = await wrapper.elementHandle()
+    if (handle === null || wrapperHandle === null) throw new Error('Inline video has no stable native delivery')
     for (const reducedMotion of ['no-preference', 'reduce'] as const) {
       await page.emulateMedia({ reducedMotion })
       await card.evaluate((element) => { element.scrollIntoView({ block: 'center', behavior: 'instant' }) })
       await expect.poll(() => layer.getAttribute('data-phase')).toBe('idle')
+      const preview = wrapper.getByRole('button', { name: /Preview .*three-shots\.mp4.*sidebar/u })
+      expect(await preview.isVisible()).toBe(true)
+      expect(await preview.isEnabled()).toBe(true)
+      expect(await wrapper.evaluate(element => (element as HTMLElement).inert)).toBe(false)
       const before = await card.evaluate((element) => {
         const scroll = element.closest('[data-conversation-scroll]')
           ?? element.closest('[data-chat-frame]')?.querySelector('[data-chat-scroll]')
         if (scroll === undefined || scroll === null) throw new Error('Inline card has no conversation scroll')
         return { height: element.getBoundingClientRect().height, scrollHeight: scroll.scrollHeight }
       })
+      if (reducedMotion === 'no-preference') {
+        await card.evaluate((element) => {
+          const scroll = element.closest('[data-conversation-scroll]')
+            ?? element.closest('[data-chat-frame]')?.querySelector('[data-chat-scroll]')
+          if (!(scroll instanceof HTMLElement)) throw new Error('Inline card lost its scrollport')
+          const cardRect = element.getBoundingClientRect(), viewport = scroll.getBoundingClientRect()
+          const target = viewport.top + 44 - (cardRect.height * .9 + 44) * .35
+          scroll.scrollTop += cardRect.top - target
+        })
+        await expect.poll(() => layer.getAttribute('data-phase')).toBe('moving')
+        expect(await wrapper.evaluate(element => ({
+          visibility: getComputedStyle(element).visibility, inert: (element as HTMLElement).inert,
+        })))
+          .toEqual({ visibility: 'hidden', inert: true })
+      }
       const box = await card.boundingBox()
       if (box === null) throw new Error('Inline card is outside the viewport')
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
@@ -243,16 +361,27 @@ describe('web e2e: recorded conversation video inspection', () => {
           ?? element.closest('[data-chat-frame]')?.querySelector('[data-chat-scroll]')
         if (scroll === undefined || scroll === null) throw new Error('Inline card lost its conversation scroll')
         return { height: element.getBoundingClientRect().height, scrollHeight: scroll.scrollHeight,
-          visibility: getComputedStyle(element).visibility, inert: (element as HTMLElement).inert }
+          visibility: getComputedStyle(element).visibility, inert: element.closest('[inert]') !== null }
       })
       expect(after.height).toBe(before.height)
       expect(after.scrollHeight).toBe(before.scrollHeight)
       expect(after.visibility).toBe('hidden')
       expect(after.inert).toBe(true)
+      expect(await wrapperHandle.evaluate(element => element.isConnected)).toBe(true)
+      expect(await wrapper.evaluate(element => ({
+        visibility: getComputedStyle(element).visibility, inert: (element as HTMLElement).inert,
+      })))
+        .toEqual({ visibility: 'hidden', inert: true })
       await card.evaluate((element) => { element.scrollIntoView({ block: 'center', behavior: 'instant' }) })
       await expect.poll(() => layer.getAttribute('data-phase')).toBe('idle')
       expect(await handle.evaluate(element => element.isConnected)).toBe(true)
       expect(await card.evaluate(element => getComputedStyle(element).visibility)).toBe('visible')
+      expect(await wrapperHandle.evaluate(element => element.isConnected)).toBe(true)
+      expect(await wrapper.evaluate(element => ({
+        visibility: getComputedStyle(element).visibility, inert: (element as HTMLElement).inert,
+      })))
+        .toEqual({ visibility: 'visible', inert: false })
+      expect(await preview.isEnabled()).toBe(true)
     }
     await page.emulateMedia({ reducedMotion: 'no-preference' })
     expect(consoleWatch.pageErrors).toEqual([])
@@ -313,4 +442,107 @@ describe('web e2e: recorded conversation video inspection', () => {
     expect(recorded.events.filter(event => event.type === 'request/header')).toHaveLength(0)
     expect(consoleWatch.pageErrors).toEqual([])
   })
+
+  it('drags the real playhead continuously within a file and across source boundaries', async () => {
+    onTestFailed(() => saveFailureShot(page, 'session-video-pointer-drag'))
+    const shelf = page.locator('[data-muse-video-shelf]')
+    const anchor = page.locator('[data-muse-video-anchor]')
+    if (await anchor.getAttribute('aria-expanded') !== 'true') await anchor.click()
+    const shots = shelf.getByRole('button', { name: /^Shot \d+ ·/u })
+    await expect.poll(() => shots.count(), { timeout: 30000 }).toBe(6)
+    await expect.poll(() => shelf.evaluate(element => element.getAnimations({ subtree: true })
+      .every(animation => animation.playState === 'finished' || animation.playState === 'idle'))).toBe(true)
+    const slider = shelf.getByRole('slider', { name: 'Playback position', exact: true })
+    for (const target of [1.5, 4.5]) {
+      await slider.focus(); await page.keyboard.press('Home')
+      await expect.poll(() => slider.getAttribute('aria-valuenow')).toBe('0')
+      await expect.poll(() => shelf.locator('[data-muse-shelf-video]').evaluate(element => (element as HTMLVideoElement).readyState))
+        .toBeGreaterThanOrEqual(1)
+      const cap = await slider.locator('span').first().boundingBox()
+      if (cap === null) throw new Error('Playhead cap is outside the viewport')
+      const pixelsPerSecond = await shots.nth(1).evaluate(element => Number.parseFloat(element.style.getPropertyValue('--video-shot-left')))
+      const original = await slider.elementHandle()
+      await page.mouse.move(cap.x + cap.width / 2, cap.y + cap.height / 2)
+      await page.mouse.down()
+      try {
+        await page.mouse.move(cap.x + cap.width / 2 + target * pixelsPerSecond, cap.y + cap.height / 2, { steps: 24 })
+        const connected = await original?.evaluate(element => element.isConnected)
+        await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow')),
+          { message: `drag to ${target}s while held; original slider connected=${String(connected)}` }).toBeCloseTo(target, 1)
+        await expect.poll(() => shelf.locator('[data-muse-shelf-video]').evaluate(element => (element as HTMLVideoElement).currentTime))
+          .toBeCloseTo(target < 3 ? target : target - 3, 1)
+      } finally { await page.mouse.up() }
+    }
+    expect(consoleWatch.pageErrors).toEqual([])
+  })
+
+
+  it('zooms the ruler and filmstrip with real controls while preserving paused time and the draft', async () => {
+    onTestFailed(() => saveFailureShot(page, 'session-video-timeline-zoom'))
+    const shelf = page.locator('[data-muse-video-shelf]')
+    const zoom = shelf.getByRole('group', { name: 'Timeline zoom', exact: true })
+    const range = zoom.getByRole('slider', { name: 'Timeline zoom', exact: true })
+    const play = shelf.getByRole('button', { name: 'Play', exact: true })
+    const zoomBounds = await zoom.boundingBox(), playBounds = await play.boundingBox()
+    if (zoomBounds === null || playBounds === null) throw new Error('Timeline controls are outside the viewport')
+    expect(zoomBounds.x).toBeGreaterThan(playBounds.x + playBounds.width)
+    const editor = page.locator('[data-composer-input][contenteditable="true"]').last()
+    const draft = await editor.innerText()
+    const beforeEvents = await scaffold.ctx.sessionQuery.readSession(SessionId(SESSION))
+    const beforeUsers = beforeEvents.events.filter(event => event.type === 'user/message').length
+    const video = shelf.locator('[data-muse-shelf-video]')
+    expect(await video.evaluate(element => (element as HTMLVideoElement).paused)).toBe(true)
+    const time = await video.evaluate(element => (element as HTMLVideoElement).currentTime)
+    const playhead = shelf.getByRole('slider', { name: 'Playback position', exact: true })
+    const position = await playhead.getAttribute('aria-valuenow')
+    const scale = Number(await range.inputValue())
+    const shots = shelf.getByRole('button', { name: /^Shot \d+ ·/u })
+    const lastShot = shots.last()
+    const measure = async () => ({
+      width: await lastShot.evaluate(element => element.getBoundingClientRect().width),
+      end: await shelf.locator('[data-end="true"]').evaluate(element => Number.parseFloat((element as HTMLElement).style
+        .getPropertyValue('--video-tick-left'))),
+    })
+    const base = await measure()
+    await range.focus(); await page.keyboard.press('Home')
+    const rangeBounds = await range.boundingBox()
+    if (rangeBounds === null) throw new Error('Zoom range is outside the viewport')
+    await page.mouse.move(rangeBounds.x + 4, rangeBounds.y + rangeBounds.height / 2)
+    await page.mouse.down()
+    try {
+      await page.mouse.move(rangeBounds.x + rangeBounds.width * .6, rangeBounds.y + rangeBounds.height / 2, { steps: 12 })
+      await expect.poll(async () => Number(await range.inputValue())).toBeGreaterThan(.25)
+    } finally { await page.mouse.up() }
+    const mouseScale = Number(await range.inputValue())
+    expect(mouseScale).toBeLessThan(4)
+    await expect.poll(() => range.getAttribute('aria-valuetext')).toBe(`Timeline zoom ${Math.round(mouseScale * 100)}%`)
+    const mouseGeometry = await measure()
+    expect(mouseGeometry.width).toBeCloseTo(base.width * mouseScale / scale, 1)
+    expect(mouseGeometry.end).toBeCloseTo(base.end * mouseScale / scale, 1)
+    expect(await video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(time, 3)
+    expect(await playhead.getAttribute('aria-valuenow')).toBe(position)
+    for (const key of ['End', 'Home']) {
+      await range.focus(); await page.keyboard.press(key)
+      const nextScale = Number(await range.inputValue())
+      expect(nextScale).toBe(key === 'End' ? 4 : .25)
+      const next = await measure()
+      expect(next.width).toBeCloseTo(base.width * nextScale / scale, 1)
+      expect(next.end).toBeCloseTo(base.end * nextScale / scale, 1)
+      expect(await video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(time, 3)
+      expect(await playhead.getAttribute('aria-valuenow')).toBe(position)
+    }
+    expect(await zoom.getByRole('button', { name: 'Zoom out timeline', exact: true }).isDisabled()).toBe(true)
+    await zoom.getByRole('button', { name: 'Zoom in timeline', exact: true }).click()
+    expect(Number(await range.inputValue())).toBe(.5)
+    await zoom.getByRole('button', { name: 'Zoom out timeline', exact: true }).click()
+    expect(Number(await range.inputValue())).toBe(.25)
+    await range.focus(); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight'); await page.keyboard.press('ArrowRight')
+    expect(Number(await range.inputValue())).toBe(1)
+    expect(await editor.innerText()).toBe(draft)
+    const afterEvents = await scaffold.ctx.sessionQuery.readSession(SessionId(SESSION))
+    expect(afterEvents.events.filter(event => event.type === 'user/message')).toHaveLength(beforeUsers)
+    expect(afterEvents.events.filter(event => event.type === 'request/header')).toHaveLength(0)
+    expect(consoleWatch.pageErrors).toEqual([])
+  })
+
 })

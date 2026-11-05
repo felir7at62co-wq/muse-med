@@ -70,7 +70,7 @@ The existing semantic `DraftSnapshot` retains quote text and clipboard-coordinat
 <a id="shell-and-standard-props"></a>
 ## Shell and standard props
 
-The Host configuration `headerPresentation` defaults to `standard`. Muse Desktop selects `floating`: native controls stay at the top right, all Views remain available from the More views menu, and a pointer-transparent backdrop fades transcript content at the top. The title and tab rows reserve no vertical space in this mode.
+The Host configuration `headerPresentation` defaults to `standard`. Muse Desktop selects `floating`: the current Session title stays on one truncated line at the top left, native controls stay at the top right, and all Views remain available from the More views menu. The title and controls float above a pointer-transparent fading backdrop without reserving vertical space; the tab row is hidden.
 
 Muse Desktop’s blank-session greeting types each verse at 105 ms per character, holds it for 3.2 seconds, erases at 45 ms per character, and pauses 550 ms before the next verse. Reduced motion displays a complete static verse; unmounting releases the timer and preference listener.
 

@@ -151,6 +151,13 @@ export function ConversationSessionHeader({
       <div className={css.titleRow}>
         {!hideChrome && (
           <>
+            {floating && <div className={clsx(css.titleCluster, css.floatingTitle)}>
+              <nav className={css.crumbs} aria-label={t('session.hierarchy')}>
+                <span className={clsx(css.crumb, css.crumbCurrent)} data-conversation-floating-title>
+                  {ancestry.at(-1)?.displayTitle ?? sessionId}
+                </span>
+              </nav>
+            </div>}
             {!floating && <div className={css.titleCluster}>
               <nav className={css.crumbs} aria-label={t('session.hierarchy')}>
                 {ancestry.map((summary, index) => {

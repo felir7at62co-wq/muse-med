@@ -58,6 +58,19 @@
   pointer-events: none;
 }
 
+/* Keep a single-line title inside the band before the centered 132px control.
+   Leading clearance already consumes that band on macOS with a hidden sidebar. */
+.headerFloating .floatingTitle {
+  flex: 0 1 auto;
+  max-width: min(320px, max(24px, calc(50% - 100px - var(--dsh-frame-leading-clearance, 0px) / 2)));
+  margin-inline-end: 0;
+}
+
+.headerFloating .floatingTitle .crumb {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .headerFloating .headerUtilities {
   margin-inline-start: auto;
 }

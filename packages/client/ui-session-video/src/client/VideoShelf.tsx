@@ -4,6 +4,7 @@ import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { Button, IconChevronDownOutlineRegular, IconChevronUpOutlineRegular, IconRefreshOutlineRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { VideoShared } from './face.ts'
 import { VideoPlayer } from './VideoPlayer.tsx'
+import { useCurtainPresence } from './useCurtainPresence.ts'
 import { assembleTimeline } from './timeline.ts'
 import css from './VideoShelf.module.css'
 
@@ -15,6 +16,8 @@ export function VideoShelf(props: PropsRuntime<'conversation.chat.pinned'> & Vid
   const { useStore, actions, sessionId, useSession, useChat, listVideos, detectShots, pixelsPerSecond, inputActions, useInput, t } = props
   const sources = useStore(state => state.sources)
   const open = useStore(state => state.open)
+  const curtain = useRef<HTMLDivElement | null>(null)
+  const present = useCurtainPresence(open, curtain)
   const selected = useStore(state => state.selected)
   const analyses = useStore(state => state.analyses)
   const inventoryIssue = useStore(state => state.issue)
@@ -27,6 +30,7 @@ export function VideoShelf(props: PropsRuntime<'conversation.chat.pinned'> & Vid
   const [detecting, setDetecting] = useState(false)
   const [detectError, setDetectError] = useState(false)
   const [selection, setSelection] = useState<string | null>(null)
+  const [zoom, setZoom] = useState(1)
   const [seek, setSeek] = useState<{ time: number; revision: number } | null>(null)
   const revision = useRef(0)
   useEffect(() => {
@@ -74,25 +78,31 @@ export function VideoShelf(props: PropsRuntime<'conversation.chat.pinned'> & Vid
     actions.select(target.source.id); setSelection(target.id)
     setSeek({ time: target.localStart + Math.min(time, target.endSeconds) - target.startSeconds, revision: ++revision.current })
   }
-  return <div className={css.seat} data-muse-video-shelf data-open={open || undefined}>
+  return <div className={css.seat} data-muse-video-shelf data-open={open || undefined} data-present={present || undefined}>
     <section className={css.bubble} aria-label={t('library')}>
       <div className={css.heading}>
+        {source !== undefined && <div className={css.sourcePill} data-muse-video-source-pill
+          data-open={open || undefined} aria-hidden={!open} ref={(element) => { if (element) element.inert = !open }}>
+          <select aria-label={t('library')} value={source.id} onChange={(event) => {
+            actions.select(event.currentTarget.value); setSelection(null); setSeek(null)
+          }}>
+            {sources.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
+        </div>}
         <button type="button" className={css.anchor} data-muse-video-anchor aria-expanded={open}
           aria-label={t('library')} onClick={() => { actions.toggle() }}>
           <span className={css.spider} aria-hidden="true" /><span>{t('brand')}</span>
           {open ? <IconChevronUpOutlineRegular /> : <IconChevronDownOutlineRegular />}
         </button>
       </div>
-      <div className={css.curtain} aria-hidden={!open} ref={(element) => { if (element) element.inert = !open }}>
+      <div className={css.curtain} aria-hidden={!open} ref={(element) => {
+        curtain.current = element
+        if (element) element.inert = !open
+      }}>
         <div className={css.curtainInner}>
-          {open && <div className={css.contents}>
+          {present && <div className={css.contents}>
             {source === undefined ? <p className={css.status} role="status">{t(loadError ? 'unavailable' : 'empty')}</p> : <>
               <div className={css.sourceControls}>
-                <select aria-label={t('library')} value={source.id} onChange={(event) => {
-                  actions.select(event.currentTarget.value); setSelection(null); setSeek(null)
-                }}>
-                  {sources.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
                 {shot && <Button size="sm" onClick={() => {
                   const prompt = t('redoPrompt', { name: shot.source.label, source: shot.source.path ?? shot.source.id, id: shot.id,
                     start: shot.localStart.toFixed(3), end: shot.localEnd.toFixed(3) })
@@ -100,9 +110,9 @@ export function VideoShelf(props: PropsRuntime<'conversation.chat.pinned'> & Vid
                   if (inputActions.insertText(`\n\n${prompt}`, span)) inputActions.persistDraft()
                 }}><IconRefreshOutlineRegular />{t('redo')}</Button>}
               </div>
-              {source.playbackUrl !== null ? <VideoPlayer key={source.id} source={source} analysis={analyses[source.id]} t={t}
+              {source.playbackUrl !== null ? <VideoPlayer active={open} source={source} analysis={analyses[source.id]} t={t}
                 shots={timeline.shots} offset={timeline.offsets[source.id] ?? 0}
-                duration={timeline.duration} pixelsPerSecond={pixelsPerSecond}
+                duration={timeline.duration} pixelsPerSecond={pixelsPerSecond} zoom={zoom} onZoom={setZoom}
                 selectedShot={selection} seekRequest={seek} onSeek={seekTo} onSelectShot={selectShot} />
                 : <p className={css.status} role="alert">{t('unavailable')}</p>}
               {(detecting || detectError || analyses[source.id]?.state === 'failed') && <div className={css.status} role="status">

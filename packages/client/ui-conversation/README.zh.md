@@ -107,7 +107,7 @@ root 作用域的 `conversation.session.header.views.actions` list 有注册项�
 
 工作区选择使用 `uiWorkspace.openWorkspace` 准备目标并提交导航。草稿内容（包括结构化引用）和附件仅在该请求仍为当前请求、且没有在途提交时，通过它的同步准备回调搬移；后续导航、所有者释放或在途提交都会把原草稿留在它的 Session 中。
 
-Host 配置 `headerPresentation` 默认为 `standard`。Muse Desktop 使用 `floating`：原生操作保留在右上方，所有 View 均可从更多视图菜单切换，顶部使用不拦截指针的渐隐遮罩。在此模式下，标题与标签行不占据垂直空间。
+Host 配置 `headerPresentation` 默认为 `standard`。Muse Desktop 使用 `floating`：当前 Session 标题在左上角单行显示并在过长时省略，原生操作保留在右上方，所有 View 均可从更多视图菜单切换。标题与操作悬浮在不拦截指针的顶部渐隐遮罩上方，不占据垂直流空间；标签栏保持隐藏。
 
 本包占据 root 作用域 `main` 中的 `conversation` key。其 `main.conversation` 外壳将常驻的 `conversation.header` 放在可选 Session 的 `conversation.content` Component Factory 外。未选中 Session 时，头部仍承载根作用域导航；标题、操作和 View 标签保留在严格 Session 子组件中。Factory 拥有共享正文与 Composer，通过其标准 Hook 读取当前 Session，并公开 strict-Session `views` 与 root-scoped `widthControls` 两个局部位置。默认 adapter 渲染现有 `conversation.session` entry，主 occurrence 选择宽度拖拽条；嵌入式 occurrence 可以替换 `views`、省略拖拽条，且不渲染主 Header。共享正文与 Composer 注册 queue dock 和 Todo dock。Todo dock 在 composer 上方使用共享面板 elevation；其中的行分别以共享 idle、ongoing 与 done 标记表示待处理、进行中与已完成。`ctx.uiSession.provide()` 从同一个 Session binding 物化 Conversation 与 input source，并将 `inputActions` 作为稳定标准 prop 提供。
 

@@ -1062,14 +1062,29 @@ describe('ConversationRoot resident composer', () => {
 })
 
 describe('Floating conversation header', () => {
-  it('removes title and tab rows while retaining native utility contribution seats', () => {
-    const b = mount(sessionSnapshotOf(), undefined, undefined, { headerPresentation: 'floating', headerOnly: true })
+  it('keeps the current title on the floating row without restoring tabs or ancestry rows', () => {
+    const b = mount(sessionSnapshotOf(), undefined, undefined, {
+      headerPresentation: 'floating', headerOnly: true, summaryOrigin: 'subagent', nestedSubagent: true,
+    })
     expect(b.view.container.querySelector('header')?.dataset.conversationHeaderPresentation).toBe('floating')
     expect(b.view.queryByRole('tablist')).toBeNull()
-    expect(b.view.queryByRole('navigation', { name: zh['session.hierarchy'] })).toBeNull()
+    const title = b.view.getByRole('navigation', { name: zh['session.hierarchy'] })
+    expect(title.textContent).toBe('Child')
+    expect(title.querySelector('[data-conversation-floating-title]')).not.toBeNull()
     expect(b.slotCalls).toContain('conversation.session.header.utilities')
     expect(b.slotCalls).toContain('conversation.session.header.corner')
     expect(b.slotCalls).toContain('conversation.session.header.actions')
+  })
+
+  it('keeps the standard header title, ancestry and tabs available', () => {
+    const b = mount(sessionSnapshotOf(), undefined, undefined, {
+      headerPresentation: 'standard', headerOnly: true, summaryOrigin: 'subagent',
+    })
+    const ancestry = b.view.getByRole('navigation', { name: zh['session.hierarchy'] })
+    expect(ancestry.textContent).toContain('Root')
+    expect(ancestry.textContent).toContain('Child')
+    expect(b.view.getByRole('tablist')).toBeTruthy()
+    expect(b.view.container.querySelector('[data-conversation-floating-title]')).toBeNull()
   })
 
   it('switches every View through its own menu when no customization plugin is installed', () => {

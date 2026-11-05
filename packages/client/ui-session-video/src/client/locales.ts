@@ -5,6 +5,7 @@ export const NS = 'sessionVideo'
 export const zh = {
   brand: 'Muse', library: '会话视频', empty: '这个会话还没有视频', loading: '正在读取视频…',
   unavailable: '视频暂时无法播放', retry: '重试', play: '播放', pause: '暂停',
+  zoomControls: '视频轨道缩放', zoomIn: '放大视频轨道', zoomOut: '缩小视频轨道', zoomValue: '轨道缩放 {percent}%',
   timeline: '视频镜头轨道', playhead: '播放位置', detecting: '正在识别镜头…',
   detectionFailed: '无法识别镜头，可重试', redo: '重做这个镜头',
   shot: '镜头 {index} · {start}–{end}', source: '切换视频：{name}',
@@ -17,6 +18,7 @@ export type VideoKey = keyof typeof zh
 export const en: Record<VideoKey, string> = {
   brand: 'Muse', library: 'Conversation videos', empty: 'No videos in this conversation yet', loading: 'Loading video…',
   unavailable: 'Video is unavailable', retry: 'Retry', play: 'Play', pause: 'Pause',
+  zoomControls: 'Timeline zoom', zoomIn: 'Zoom in timeline', zoomOut: 'Zoom out timeline', zoomValue: 'Timeline zoom {percent}%',
   timeline: 'Video shots', playhead: 'Playback position', detecting: 'Detecting shots…',
   detectionFailed: 'Shot detection failed. You can retry.', redo: 'Regenerate this shot',
   shot: 'Shot {index} · {start}–{end}', source: 'Switch video: {name}',

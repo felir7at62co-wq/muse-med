@@ -27,8 +27,8 @@ function artwork(glyph: IconGlyph, weight: IconWeight): Document {
 }
 
 describe('product icon set', () => {
-  it('exports regular and medium variants for all 99 public glyphs', () => {
-    expect(iconNames.length).toBe(198)
+  it('exports regular and medium variants for all 101 public glyphs', () => {
+    expect(iconNames.length).toBe(202)
     expect(iconNames.some(name => /\d+$/.test(name))).toBe(false)
     const regular = iconNames.filter(name => name.endsWith('Regular')).map(name => name.slice(0, -'Regular'.length))
     const medium = iconNames.filter(name => name.endsWith('Medium')).map(name => name.slice(0, -'Medium'.length))
@@ -36,8 +36,26 @@ describe('product icon set', () => {
     expect(iconNames).toEqual(expect.arrayContaining([
       'IconMicrophoneOutlineRegular',
       'IconPlanOutlineRegular', 'IconCompactOutlineRegular', 'IconShieldOutlineRegular', 'IconDeliverDocRegular',
+      'IconZoomOutOutlineRegular', 'IconZoomInOutlineRegular',
       'IconWarningTriangleOutlineRegular', 'IconCompareSplitOutlineRegular', 'IconCloseCircleFillRegular',
     ]))
+  })
+
+  it('keeps paired zoom magnifiers identical except for the plus sign and supports compact sizing', () => {
+    for (const weight of ['regular', 'medium'] as const) {
+      const out = artwork('zoom-out-outline', weight), inside = artwork('zoom-in-outline', weight)
+      expect(out.querySelector('circle')?.outerHTML).toBe(inside.querySelector('circle')?.outerHTML)
+      expect(out.querySelector('path')?.getAttribute('d')).toBe(inside.querySelector('path')?.getAttribute('d'))
+      expect(out.querySelectorAll('path')).toHaveLength(1)
+      expect(inside.querySelectorAll('path')).toHaveLength(2)
+      expect(inside.querySelectorAll('path')[1]?.getAttribute('d')).toBe('M6.5 4.25V8.75')
+    }
+    const view = render(<primitives.IconZoomOutOutlineRegular size={14} />)
+    expect(view.container.querySelector('svg')?.getAttribute('width')).toBe('14')
+    expect(view.container.querySelector('svg')?.getAttribute('height')).toBe('14')
+    view.rerender(<primitives.IconZoomInOutlineRegular size={16} />)
+    expect(view.container.querySelector('svg')?.getAttribute('width')).toBe('16')
+    expect(view.container.querySelector('svg')?.getAttribute('height')).toBe('16')
   })
 
   it('draws the circled close as one currentColor knockout path in both weights', () => {
