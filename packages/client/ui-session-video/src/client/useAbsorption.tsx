@@ -57,7 +57,7 @@ function captureVideo(source: HTMLElement, snapshot: HTMLCanvasElement): boolean
 
 /**
  * Collect an inline video without moving its React DOM or changing its layout height.
- * The original remains in place and is visually hidden while an independent canvas copy
+ * The original and any enclosing delivered-file card remain in place and are hidden while a canvas copy
  * follows the nearest conversation's bubble. Only readable real video pixels enter that
  * copy; unavailable or cross-origin frames retain the receiving bubble's material.
  * @param ref - Inline card whose nearest data-chat-frame owns the receiving anchor.
@@ -83,9 +83,10 @@ export function useAbsorption(ref: RefObject<HTMLElement | null>, options: Absor
     if (source === null || frame === null || layer === null || canvas === null || material === null || hit === null) return
     const scroll = source.closest<HTMLElement>('[data-conversation-scroll]') ?? frame.querySelector<HTMLElement>('[data-chat-scroll]')
     if (scroll === null) return
-    const originalVisibility = source.style.visibility
-    const originalInert = source.inert
-    const originalAria = source.getAttribute('aria-hidden')
+    const delivery = source.closest<HTMLElement>('[data-presented-file][data-video="true"]')
+    const surfaces = [source, ...(delivery === null ? [] : [delivery])].map(element => ({
+      element, visibility: element.style.visibility, inert: element.inert, aria: element.getAttribute('aria-hidden'),
+    }))
     const initialOnCollect = callbacks.current.onCollect
     const snapshot = document.createElement('canvas')
     const motion = typeof window.matchMedia === 'function' ? window.matchMedia('(prefers-reduced-motion: reduce)') : undefined
@@ -97,10 +98,12 @@ export function useAbsorption(ref: RefObject<HTMLElement | null>, options: Absor
     let concealed = false
 
     const restoreSource = () => {
-      source.style.visibility = originalVisibility
-      source.inert = originalInert
-      if (originalAria === null) source.removeAttribute('aria-hidden')
-      else source.setAttribute('aria-hidden', originalAria)
+      for (const { element, visibility, inert, aria } of surfaces) {
+        element.style.visibility = visibility
+        element.inert = inert
+        if (aria === null) element.removeAttribute('aria-hidden')
+        else element.setAttribute('aria-hidden', aria)
+      }
     }
     const clearFusion = () => {
       if (anchor?.getAttribute('data-muse-video-fusion-owner') !== options.id) return
@@ -130,9 +133,11 @@ export function useAbsorption(ref: RefObject<HTMLElement | null>, options: Absor
       layer.hidden = !moving
       if (moving || result.collected) {
         if (!concealed) source.querySelector('video')?.pause()
-        source.style.visibility = 'hidden'
-        source.inert = true
-        source.setAttribute('aria-hidden', 'true')
+        for (const { element } of surfaces) {
+          element.style.visibility = 'hidden'
+          element.inert = true
+          element.setAttribute('aria-hidden', 'true')
+        }
       } else restoreSource()
       concealed = moving || result.collected
       if (result.fusion > 0) {

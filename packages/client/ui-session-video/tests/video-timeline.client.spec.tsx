@@ -56,6 +56,18 @@ function geometry(scroll: HTMLElement, width = 200, total = 622) {
   return lane
 }
 
+function pointerCapture(target: HTMLElement) {
+  const pointers = new Set<number>()
+  const set = vi.fn((id: number) => { pointers.add(id) })
+  const release = vi.fn((id: number) => { pointers.delete(id) })
+  Object.defineProperties(target, {
+    setPointerCapture: { configurable: true, value: set },
+    hasPointerCapture: { configurable: true, value: (id: number) => pointers.has(id) },
+    releasePointerCapture: { configurable: true, value: release },
+  })
+  return { set, release, pointers }
+}
+
 describe('VideoTimeline', () => {
   it('names real shots and renders separate proportional filmstrips without inventing missing thumbnails', () => {
     const view = render(<VideoTimeline {...props()} />)
@@ -136,11 +148,13 @@ describe('VideoTimeline', () => {
     const view = render(<VideoTimeline {...input} />)
     geometry(view.getByRole('group'))
     const slider = view.getByRole('slider')
+    const capture = pointerCapture(slider)
     fireEvent.pointerDown(slider, { pointerId: 1, button: 2, clientX: 111 })
     expect(input.onSeek).not.toHaveBeenCalled()
     fireEvent.pointerDown(slider, { pointerId: 1, button: 0, clientX: 111 })
     expect(document.activeElement).toBe(slider)
     expect(input.onSeek).toHaveBeenLastCalledWith(0)
+    expect(capture.set).toHaveBeenCalledWith(1)
     fireEvent.pointerDown(slider, { pointerId: 2, button: 0, clientX: 300 })
     fireEvent.pointerMove(window, { pointerId: 2, clientX: 260 })
     fireEvent.pointerUp(window, { pointerId: 2, clientX: 260 })
@@ -151,6 +165,7 @@ describe('VideoTimeline', () => {
     expect(input.onSeek).toHaveBeenLastCalledWith(10)
     fireEvent.pointerMove(window, { pointerId: 1, clientX: 111 })
     expect(input.onSeek).toHaveBeenCalledTimes(3)
+    expect(capture.release).toHaveBeenCalledWith(1)
   })
 
   it('scrubs by touch and cancels on pointercancel, window blur, and unmount', () => {
@@ -158,6 +173,7 @@ describe('VideoTimeline', () => {
     const view = render(<VideoTimeline {...input} />)
     geometry(view.getByRole('group'))
     const slider = view.getByRole('slider')
+    const capture = pointerCapture(slider)
     fireEvent.pointerDown(slider, { pointerId: 4, pointerType: 'touch', clientX: 151 })
     fireEvent.pointerMove(window, { pointerId: 4, pointerType: 'touch', clientX: 191 })
     expect(input.onSeek).toHaveBeenLastCalledWith(4)
@@ -173,6 +189,29 @@ describe('VideoTimeline', () => {
     fireEvent.pointerMove(window, { pointerId: 6, clientX: 900 })
     expect(input.onSeek).toHaveBeenCalledTimes(4)
     expect(observers[0]!.disconnect).toHaveBeenCalledTimes(1)
+    expect(capture.release.mock.calls).toEqual([[4], [5], [6]])
+  })
+
+  it('retains capture through controlled callback changes and stops after losing it', () => {
+    const input = props()
+    const view = render(<VideoTimeline {...input} />)
+    geometry(view.getByRole('group'))
+    const slider = view.getByRole('slider')
+    const capture = pointerCapture(slider)
+    fireEvent.pointerDown(slider, { pointerId: 8, button: 0, clientX: 111 })
+    const nextSeek = vi.fn()
+    view.rerender(<VideoTimeline {...input} currentTime={2} onSeek={nextSeek} />)
+    expect(capture.release).not.toHaveBeenCalled()
+    expect(capture.pointers.has(8)).toBe(true)
+    fireEvent.pointerMove(window, { pointerId: 8, clientX: 211 })
+    expect(nextSeek).toHaveBeenLastCalledWith(5)
+    fireEvent.lostPointerCapture(slider, { pointerId: 9 })
+    fireEvent.pointerMove(window, { pointerId: 8, clientX: 231 })
+    expect(nextSeek).toHaveBeenLastCalledWith(6)
+    fireEvent.lostPointerCapture(slider, { pointerId: 8 })
+    fireEvent.pointerMove(window, { pointerId: 8, clientX: 251 })
+    expect(nextSeek).toHaveBeenCalledTimes(2)
+    expect(capture.release).toHaveBeenCalledWith(8)
   })
 
   it('fades only edges with real remaining scroll travel, including fractional positions and resize', () => {

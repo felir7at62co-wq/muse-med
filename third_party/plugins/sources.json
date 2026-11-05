@@ -50,7 +50,28 @@
     "repository": "https://github.com/Fishquito7/dsh-skill-mcp-panel",
     "version": "2.3.5",
     "commit": "ae3fb4a4b6d723c5e1ec0a3c933f80d19f686dc1",
-    "license": "MIT"
+    "license": "MIT",
+    "localModifications": {
+      "description": "Own each OAuth flow and callback listener in the panel lifecycle, cancel and drain admitted work, and redeem authorization codes once across concurrent polls.",
+      "files": {
+        "src/mcp/gateway.ts": {
+          "upstreamSha256": "eb173c15272b291120fb172235a93aa78c4aa481273eca2968a8f77b245203fe",
+          "sha256": "9e87727fb389ad5b61ae8d3d1b69f3df2d97563a64d3d0223e276f3d0c47a2a4"
+        },
+        "src/oauth.ts": {
+          "upstreamSha256": "bc8295eefb0ad555d650571fe32e5721e4b719060b901fe72a78c9b5fc6e95fb",
+          "sha256": "4d4158f19443442766df9417df30afe5ae56d74dc4d0ea8e299e6f3803c8faef"
+        },
+        "README.md": {
+          "upstreamSha256": "7b8271254dfd1f0ac99653b5853816bd3f644580c42bfba20d1ee1aef25f6592",
+          "sha256": "c8c677c6a83f35384d7bc0818a8cc893009fe0e729a28346e56d68c4aeac17bd"
+        },
+        "README.en.md": {
+          "upstreamSha256": "b9d48f3bd71d8de20053140d1a2aad3972248a728c4c6a2338a1b8a91031a9fd",
+          "sha256": "006b13d4ad507c82469f429bd62a74c6832307d9791bf0ba778ab88285e31afd"
+        }
+      }
+    }
   },
   "muse-hongguo-search": {
     "repository": "https://github.com/felir7at62co-wq/muse-hongguo-serch",

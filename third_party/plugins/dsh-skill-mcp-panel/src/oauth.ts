@@ -83,16 +83,18 @@ export function normalizeServerUrl(url: string): string {
   return value.replace(/\/+$/, "");
 }
 
-/** 依次尝试两个标准发现路径；都失败返回 undefined。 */
-export async function discoverMetadata(serverUrl: string, fetchImpl: any = fetch): Promise<any | undefined> {
+/** 依次尝试两个标准发现路径；都失败返回 undefined，调用方取消则拒绝。 */
+export async function discoverMetadata(serverUrl: string, fetchImpl: any = fetch, signal?: AbortSignal): Promise<any | undefined> {
   const base = normalizeServerUrl(serverUrl);
   for (const suffix of ["/.well-known/oauth-authorization-server", "/.well-known/openid-configuration"]) {
     try {
-      const response = await fetchImpl(base + suffix, { headers: { accept: "application/json" } });
+      signal?.throwIfAborted();
+      const response = await fetchImpl(base + suffix, { headers: { accept: "application/json" }, signal });
       if (response === null || typeof response !== "object" || response.ok !== true) continue;
       const body = await response.json();
       if (body !== null && typeof body === "object" && typeof body.token_endpoint === "string") return body;
     } catch {
+      signal?.throwIfAborted();
       // 试下一个路径
     }
   }
@@ -107,10 +109,11 @@ export function createPkce(): { verifier: string; challenge: string } {
 }
 
 /** 动态客户端注册（RFC 7591）；服务器没提供端点时返回 undefined。 */
-export async function registerClient(metadata: any, redirectUri: string, fetchImpl: any = fetch): Promise<any | undefined> {
+export async function registerClient(metadata: any, redirectUri: string, fetchImpl: any = fetch, signal?: AbortSignal): Promise<any | undefined> {
   const endpoint = metadata?.registration_endpoint;
   if (typeof endpoint !== "string" || endpoint === "") return undefined;
   const response = await fetchImpl(endpoint, {
+    signal,
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({
@@ -148,12 +151,20 @@ export function buildAuthorizationUrl(metadata: any, clientId: string, redirectU
 /**
  * 起一个只监听 127.0.0.1 的一次性回调服务器。
  * 授权成功后回调带 `?code=&state=`，校验 state 后把 code 交给调用方。
+ * 关闭或取消会拒绝尚未完成的回调；close 幂等并等待监听器及连接关闭。
  */
-export async function startLoopbackServer(expectedState: string, timeoutMs = 300000): Promise<any> {
+export async function startLoopbackServer(expectedState: string, timeoutMs = 300000, signal?: AbortSignal): Promise<any> {
+  signal?.throwIfAborted();
   return new Promise((resolveOuter, rejectOuter) => {
     let settle: (value: any) => void;
+    let settled = false;
     const outcome = new Promise((resolve, reject) => {
-      settle = (value: any) => (value instanceof Error ? reject(value) : resolve(value));
+      settle = (value: any) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        value instanceof Error ? reject(value) : resolve(value);
+      };
     });
     // 回调可能**早于**调用方来取结果（比如用户手快、或 state 不匹配当场失败）：
     // 先挂一个空的 catch，避免「先失败、后取用」被判成未处理的拒绝而炸掉宿主进程。
@@ -169,35 +180,52 @@ export async function startLoopbackServer(expectedState: string, timeoutMs = 300
       const state = requestUrl.searchParams.get("state") ?? "";
       const error = requestUrl.searchParams.get("error");
       response.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      // Finish the callback response before its consumer can close the connection.
+      const complete = (value: any) => { response.once("finish", () => settle(value)); };
       if (error !== null) {
+        complete(new Error("授权被拒绝：" + error));
         response.end("<meta charset=utf-8><p>授权被拒绝：" + error + "。可以关闭这个页面，回到 DSH 面板。</p>");
-        settle(new Error("授权被拒绝：" + error));
         return;
       }
       if (state !== expectedState) {
+        complete(new Error("回调 state 不匹配"));
         response.end("<meta charset=utf-8><p>state 不匹配，已忽略这次回调。</p>");
-        settle(new Error("回调 state 不匹配"));
         return;
       }
+      complete({ code });
       response.end("<meta charset=utf-8><p>授权成功，可以关闭这个页面，回到 DSH 面板。</p>");
-      settle({ code });
     });
     const timer = setTimeout(() => settle(new Error("等待授权回调超时（" + Math.round(timeoutMs / 1000) + " 秒）")), timeoutMs);
+    let closing: Promise<void> | undefined;
+    const close = () => {
+      if (closing !== undefined) return closing;
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", abort);
+      settle(new Error("OAuth 登录已取消，请重新登录"));
+      closing = new Promise<void>((done) => {
+        server.close(() => done());
+        server.closeAllConnections();
+      });
+      return closing;
+    };
+    const abort = () => {
+      rejectOuter(signal?.reason);
+      void close();
+    };
+    signal?.addEventListener("abort", abort, { once: true });
     server
-      .listen(0, "127.0.0.1", () => {
+      .listen({ port: 0, host: "127.0.0.1", ...(signal === undefined ? {} : { signal }) }, () => {
+        if (signal?.aborted) { abort(); return; }
         const address: any = server.address();
         const port = typeof address?.port === "number" ? address.port : 0;
         resolveOuter({
           port,
           redirectUri: "http://127.0.0.1:" + port + "/callback",
           waitForCode: () => outcome,
-          close: () => {
-            clearTimeout(timer);
-            return new Promise<void>((done) => server.close(() => done()));
-          }
+          close
         });
       })
-      .on("error", (error: any) => rejectOuter(error));
+      .on("error", (error: any) => { rejectOuter(error); settle(error); void close(); });
   });
 }
 
@@ -217,7 +245,7 @@ export function normalizeTokenResponse(body: any, previous?: any): any {
 }
 
 /** 授权码换令牌。 */
-export async function exchangeCode(metadata: any, clientId: string, code: string, verifier: string, redirectUri: string, fetchImpl: any = fetch): Promise<any> {
+export async function exchangeCode(metadata: any, clientId: string, code: string, verifier: string, redirectUri: string, fetchImpl: any = fetch, signal?: AbortSignal): Promise<any> {
   const body = new URLSearchParams({
     grant_type: "authorization_code",
     code,
@@ -226,6 +254,7 @@ export async function exchangeCode(metadata: any, clientId: string, code: string
     code_verifier: verifier
   });
   const response = await fetchImpl(metadata.token_endpoint, {
+    signal,
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
     body: body.toString()

@@ -21,12 +21,13 @@ const props = {
   t: makeTranslate(zh, commonZh),
 }
 
-describe('assistant reply bubbles', () => {
+describe('open assistant replies', () => {
   it('keeps the same prose and code nodes as a streaming reply settles', () => {
     const view = render(<AssistantMarkdown {...props} streaming blocks={[{ kind: 'text', text: 'First paragraph.' }]} />)
-    const bubble = view.container.querySelector('[data-message-bubble="assistant"]')
+    const body = view.container.querySelector('[data-assistant-body]')
     const paragraph = view.getByText('First paragraph.')
-    expect(bubble).not.toBeNull()
+    expect(body).not.toBeNull()
+    expect(view.container.querySelector('[data-message-bubble]')).toBeNull()
     view.rerender(<AssistantMarkdown {...props} streaming blocks={[
       { kind: 'text', text: 'First paragraph.\n\n```ts\nconst frame = 1\n```' },
     ]} />)
@@ -36,7 +37,8 @@ describe('assistant reply bubbles', () => {
     view.rerender(<AssistantMarkdown {...props} streaming={false} blocks={[
       { kind: 'text', text: 'First paragraph.\n\n```ts\nconst frame = 1\n```' },
     ]} />)
-    expect(view.container.querySelector('[data-message-bubble="assistant"]')).toBe(bubble)
+    expect(view.container.querySelector('[data-assistant-body]')).toBe(body)
+    expect(view.container.querySelector('[data-message-bubble]')).toBeNull()
     expect(view.container.querySelector('pre')).toBe(code)
   })
 
@@ -48,13 +50,14 @@ describe('assistant reply bubbles', () => {
     expect(view.getByRole('button')).toBeTruthy()
   })
 
-  it('keeps a split reasoning member outside the reply bubble', () => {
+  it('renders split reasoning and response content without reply bubble chrome', () => {
     const blocks = [{ kind: 'reasoning' as const, text: 'Inspect the workspace.' }, { kind: 'text' as const, text: 'Reply content.' }]
     const view = render(<AssistantMarkdown {...props} streaming={false} blocks={blocks} groupPart="reasoning" />)
     expect(view.container.querySelector('[data-message-bubble]')).toBeNull()
     expect(view.queryByText('Reply content.')).toBeNull()
     view.rerender(<AssistantMarkdown {...props} streaming={false} blocks={blocks} groupPart="response" />)
-    expect(view.getByText('Reply content.').closest('[data-message-bubble="assistant"]')).not.toBeNull()
+    expect(view.getByText('Reply content.').closest('[data-assistant-body]')).not.toBeNull()
+    expect(view.container.querySelector('[data-message-bubble]')).toBeNull()
     expect(view.queryByRole('button', { name: '思考' })).toBeNull()
   })
 

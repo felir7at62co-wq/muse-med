@@ -27,7 +27,7 @@ kind: "package-reference"
 
 用户从设置（「通用」分区）的各行中切换配色方案、字号与字体；在每个已认证浏览器中，这些选择都会跨重启持久化。功能插件通过 `ctx.theme` 消费当前快照，并在 CSS 中读取 `--dsw-*` token；它们不自行管理主题状态。
 
-Chat 角色底色使用 `--dsw-alias-chat-user-bg` 与 `--dsw-alias-chat-assistant-bg`。每种配色方案都保持用户内容比 Assistant 内容更浅，同时两者沿用主文字颜色。
+用户聊天底色使用 `--dsw-alias-chat-user-bg`。Muse 视频控件使用独立的 `--dsw-alias-video-shelf-*` 材质：两种配色方案均采用深底与清晰的亮色文字，展开播放器、行内视频卡片和收纳预览共用这一材质。
 
 ### 外观与字号
 

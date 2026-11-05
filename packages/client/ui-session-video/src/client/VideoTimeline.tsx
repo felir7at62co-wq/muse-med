@@ -58,7 +58,8 @@ function tickInterval(pixelsPerSecond: number): number {
 
 /**
  * Render real shot filmstrips, a ruler, and a 22px draggable playhead.
- * Pointer dragging ends on release, cancellation, window blur, or unmount. Arrow keys
+ * Pointer capture persists across controlled seeks; dragging ends on release, cancellation,
+ * lost capture, window blur, or unmount. Arrow keys
  * move by one second; Home and End seek the media endpoints. Endpoint gutters retain
  * the complete handle, and edge fades reflect actual remaining horizontal travel.
  * @param props - Ordered shots, controlled media state, scale, actions, and localized names.
@@ -70,6 +71,13 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
   const laneRef = useRef<HTMLDivElement>(null)
   const [edges, setEdges] = useState({ before: false, after: false })
   const [dragPointer, setDragPointer] = useState<number | null>(null)
+  const capture = useRef<{ target: HTMLDivElement; pointerId: number } | null>(null)
+  const releaseCapture = useCallback(() => {
+    const current = capture.current
+    capture.current = null
+    if (current?.target.hasPointerCapture(current.pointerId)) current.target.releasePointerCapture(current.pointerId)
+  }, [])
+  useLayoutEffect(() => releaseCapture, [releaseCapture])
   const position = Math.max(0, Math.min(duration, currentTime))
   const width = duration * pixelsPerSecond
   const interval = tickInterval(pixelsPerSecond)
@@ -115,33 +123,47 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
     return () => { observer?.disconnect(); window.removeEventListener('resize', updateEdges) }
   }, [updateEdges])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (dragPointer === null) return
-    const move = (event: globalThis.PointerEvent) => { if (event.pointerId === dragPointer) seekAt(event.clientX) }
+    const owner = capture.current?.target
+    if (owner === undefined) return
+    const move = (event: globalThis.PointerEvent) => {
+      if (event.pointerId === dragPointer && capture.current?.pointerId === dragPointer) seekAt(event.clientX)
+    }
     const finish = (event: globalThis.PointerEvent) => {
-      if (event.pointerId !== dragPointer) return
+      if (event.pointerId !== dragPointer || capture.current?.pointerId !== dragPointer) return
       if (event.type === 'pointerup') seekAt(event.clientX)
+      releaseCapture()
       setDragPointer(null)
     }
-    const cancel = () => { setDragPointer(null) }
+    const cancel = () => { releaseCapture(); setDragPointer(null) }
+    const lost = (event: globalThis.PointerEvent) => {
+      if (event.pointerId === dragPointer && capture.current?.pointerId === dragPointer) cancel()
+    }
+    owner.addEventListener('lostpointercapture', lost)
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', finish)
     window.addEventListener('pointercancel', finish)
     window.addEventListener('blur', cancel)
     return () => {
+      owner.removeEventListener('lostpointercapture', lost)
+      // Seek callbacks change during controlled playback; their refresh keeps the native capture.
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', finish)
       window.removeEventListener('pointercancel', finish)
       window.removeEventListener('blur', cancel)
     }
-  }, [dragPointer, seekAt])
+  }, [dragPointer, seekAt, releaseCapture])
 
   function startDrag(event: PointerEvent<HTMLDivElement>): void {
-    if (event.button !== 0 || dragPointer !== null) return
+    if (event.button !== 0 || capture.current !== null) return
     event.preventDefault()
-    event.currentTarget.focus()
-    seekAt(event.clientX)
+    const target = event.currentTarget
+    target.focus({ preventScroll: true })
+    capture.current = { target, pointerId: event.pointerId }
+    target.setPointerCapture(event.pointerId)
     setDragPointer(event.pointerId)
+    seekAt(event.clientX)
   }
 
   function moveWithKeyboard(event: KeyboardEvent<HTMLDivElement>): void {

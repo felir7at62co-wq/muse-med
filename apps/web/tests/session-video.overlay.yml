@@ -10,3 +10,7 @@
       name: '@deepseek-ai/dsh-client-ui-session-video'
       config:
         pixelsPerSecond: 80
+
+- id: ui-conversation
+  config:
+    headerPresentation: floating

@@ -173,8 +173,6 @@ interface TableReading {
   wideHook: boolean
   /** Resolved lead padding (the breakout's alignment compensation). */
   paddingLeft: number
-  /** Assistant bubble's content inset, retained inside the full-width table wrapper. */
-  bubbleInset: number
   /** The table's own left x, for the content-alignment relation. */
   tableLeft: number
 }
@@ -195,7 +193,6 @@ function readTables(page: Page): Promise<TableReading[]> {
         height: wrapper.getBoundingClientRect().height,
         wideHook: wrapper.classList.contains('md-table-wide'),
         paddingLeft: Number.parseFloat(getComputedStyle(wrapper).paddingLeft),
-        bubbleInset: Number.parseFloat(getComputedStyle(wrapper.closest('[data-message-bubble="assistant"]') ?? wrapper).paddingRight),
         tableLeft: table.getBoundingClientRect().left,
       }
     })
@@ -348,12 +345,10 @@ describe('web e2e: markdown tables fill the column, wide ones break out and scro
         expect(wide!.paddingLeft, `lead at ${String(stop.width)}`).toBeGreaterThan(0)
         expect(Math.abs(wide!.tableLeft - fill!.tableLeft), `alignment at ${String(stop.width)}`).toBeLessThan(1.5)
       } else {
-        // Narrow transcripts have no outer spare width; the wrapper still
-        // reaches across both bubble insets while its content stays aligned.
-        expect(Math.abs(wide!.clientWidth - columnWidth - 2 * wide!.bubbleInset), `bubble width at ${String(stop.width)}`)
-          .toBeLessThan(1.5)
-        expect(Math.abs(wide!.paddingLeft - wide!.bubbleInset), `bubble lead at ${String(stop.width)}`).toBeLessThan(1.5)
-        expect(Math.abs(wide!.tableLeft - fill!.tableLeft), `bubble alignment at ${String(stop.width)}`).toBeLessThan(1.5)
+        // Narrow transcripts have no outer spare width or response inset.
+        expect(Math.abs(wide!.clientWidth - columnWidth), `column width at ${String(stop.width)}`).toBeLessThan(1.5)
+        expect(wide!.paddingLeft, `column lead at ${String(stop.width)}`).toBeLessThan(1.5)
+        expect(Math.abs(wide!.tableLeft - fill!.tableLeft), `column alignment at ${String(stop.width)}`).toBeLessThan(1.5)
       }
     }
     // Wrap-first engaged for real: the filling tables grow taller as the
@@ -576,7 +571,7 @@ describe('web e2e: markdown tables fill the column, wide ones break out and scro
     expect(tripwire.pageErrors).toEqual([])
   }, 120_000)
 
-  it('keeps left and right reply bubbles readable in both palettes', async () => {
+  it('keeps the user bubble and open assistant narration readable in both palettes', async () => {
     const rows: string[] = []
     const original = scaffold.ctx.settings.describe().find(section => section.ns === 'ui-theme')?.value
     if (original === null || typeof original !== 'object' || !('preference' in original)) throw new Error('Missing theme preference')
@@ -598,29 +593,42 @@ describe('web e2e: markdown tables fill the column, wide ones break out and scro
       await expect.poll(() => page.locator('body').getAttribute('data-ds-dark-theme')).toBe(preference === 'dark' ? '' : null)
       await settleAt(1100)
       const roles = await page.evaluate(() => {
+        const transparent = (color: string) => color === 'rgba(0, 0, 0, 0)' || color === 'transparent'
+        const backdrop = (element: HTMLElement): string => {
+          for (let current: HTMLElement | null = element; current !== null; current = current.parentElement) {
+            const color = getComputedStyle(current).backgroundColor
+            if (!transparent(color)) return color
+          }
+          throw new Error('Missing painted conversation background')
+        }
+        if (document.querySelector('[data-message-bubble="assistant"]') !== null) throw new Error('Unexpected assistant bubble')
         return ['', 'assistant'].map((role) => {
-          const bubble = document.querySelector<HTMLElement>(`[data-message-bubble="${role}"]`)
-          const column = bubble?.closest('[class*="column"]')
-          if (bubble === null || column == null) throw new Error(`Missing ${role || 'user'} bubble`)
-          const style = getComputedStyle(bubble), bounds = bubble.getBoundingClientRect(), parent = column.getBoundingClientRect()
-          return { fill: style.backgroundColor, ink: style.color, aligned: role === ''
-            ? Math.abs(bounds.right - parent.right) < 1.5 : Math.abs(bounds.left - parent.left) < 1.5,
-          fits: bounds.width <= parent.width + 1.5 }
+          const content = document.querySelector<HTMLElement>(role === '' ? '[data-message-bubble=""]' : '[data-assistant-body]')
+          const column = content?.closest('[class*="column"]')
+          if (content === null || column == null) throw new Error(`Missing ${role || 'user'} content`)
+          const style = getComputedStyle(content), bounds = content.getBoundingClientRect(), parent = column.getBoundingClientRect()
+          const open = transparent(style.backgroundColor) && Number.parseFloat(style.paddingLeft) === 0
+            && Number.parseFloat(style.paddingRight) === 0 && Number.parseFloat(style.borderTopLeftRadius) === 0
+          return { fill: transparent(style.backgroundColor) ? 'none' : style.backgroundColor, backdrop: backdrop(content),
+            ink: style.color, presentation: open ? 'open' : 'bubble', aligned: role === ''
+              ? Math.abs(bounds.right - parent.right) < 1.5 : Math.abs(bounds.left - parent.left) < 1.5,
+            fits: bounds.width <= parent.width + 1.5 }
         })
       })
-      expect(luminance(roles[0]!.fill)).toBeGreaterThan(luminance(roles[1]!.fill))
+      expect(roles[0]!.presentation).toBe('bubble')
+      expect(roles[1]!.presentation).toBe('open')
       for (const [index, role] of roles.entries()) {
-        const ink = luminance(role.ink), fill = luminance(role.fill)
+        const ink = luminance(role.ink), fill = luminance(role.backdrop)
         const readable = (Math.max(ink, fill) + .05) / (Math.min(ink, fill) + .05) >= 4.5
         expect(readable).toBe(true)
         expect(role.aligned).toBe(true)
         expect(role.fits).toBe(true)
-        rows.push(`| ${preference} | ${index === 0 ? 'user' : 'assistant'} | ${role.fill} | ${readable} | ${role.aligned} | ${role.fits} |`)
+        rows.push(`| ${preference} | ${index === 0 ? 'user' : 'assistant'} | ${role.presentation} | ${role.fill} | ${readable} | ${role.aligned} | ${role.fits} |`)
       }
     }
     await compareOrRefreshGolden(join(SNAPSHOT_DIR, 'bubbles.expected.md'), [
-      '# Chat bubble roles', '', '| palette | role | fill | text contrast at least 4.5 | aligned | fits |',
-      '| --- | --- | --- | --- | --- | --- |', ...rows,
+      '# Chat message layout', '', '| palette | role | presentation | fill | text contrast at least 4.5 | aligned | fits |',
+      '| --- | --- | --- | --- | --- | --- | --- |', ...rows,
     ].join('\n'), MODE)
     expect(tripwire.pageErrors).toEqual([])
   })

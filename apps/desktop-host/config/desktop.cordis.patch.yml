@@ -1,3 +1,7 @@
+- id: ui-conversation
+  config:
+    headerPresentation: floating
+
 # Electron reuses the authenticated Web composition on an OS-assigned loopback port.
 
 # The product speaks for itself: the harness identity line would tell every agent it

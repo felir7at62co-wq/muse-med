@@ -81,15 +81,53 @@ function parseWirePayload(schema: { safeParse: (value: unknown) => any }, raw: u
   throw new Error(label + "：" + describeSchemaError(result.error));
 }
 
-/** 进行中的 OAuth 登录流程（flowId → 流程状态）。一次登录一条，完成或失败即清理。 */
-const OAUTH_FLOWS = new Map<string, any>();
-
 export class McpManagerGateway extends TypertRemoteService {
   toolFilter: any;
+  private readonly oauthFlows = new Map<string, any>();
+  private readonly oauthTasks = new Set<Promise<unknown>>();
+  private readonly oauthLifetime = new AbortController();
 
   constructor(ctx: any, toolFilter?: any) {
     super(ctx, "mcpManager");
     this.toolFilter = toolFilter;
+    ctx.effect(() => async () => {
+      this.oauthLifetime.abort(new Error("OAuth 登录已取消：面板已卸载，请重新打开面板后登录"));
+      for (const flow of this.oauthFlows.values()) {
+        clearTimeout(flow.expiry);
+        flow.controller?.abort(this.oauthLifetime.signal.reason);
+      }
+      await Promise.allSettled([...this.oauthTasks]);
+      await Promise.allSettled([...this.oauthFlows.values()].map(flow => {
+        clearTimeout(flow.expiry);
+        return flow.loopback?.close();
+      }));
+      this.oauthFlows.clear();
+    }, "dsh-skill-mcp-panel: OAuth flows");
+  }
+
+  private trackOAuth<T>(operation: () => Promise<T>): Promise<T> {
+    this.oauthLifetime.signal.throwIfAborted();
+    const task = operation();
+    this.oauthTasks.add(task);
+    void task.finally(() => this.oauthTasks.delete(task)).catch(() => {});
+    return task;
+  }
+
+  private finishOAuth(flow: any, result: any) {
+    if (flow.result !== undefined) return flow.result;
+    flow.result = result;
+    clearTimeout(flow.expiry);
+    // Keep only a bounded wire receipt; the loopback outcome also retains its resolved code.
+    if (!this.oauthLifetime.signal.aborted) {
+      const flowId = flow.flowId;
+      const receipt: any = { flowId, serverName: flow.serverName, result };
+      receipt.expiry = setTimeout(() => {
+        if (this.oauthFlows.get(flowId) === receipt) this.oauthFlows.delete(flowId);
+      }, flow.timeoutMs);
+      receipt.expiry.unref?.();
+      this.oauthFlows.set(flow.flowId, receipt);
+    }
+    return result;
   }
 
   get C(): any {
@@ -325,9 +363,10 @@ export class McpManagerGateway extends TypertRemoteService {
     return rows.find((row) => serverNameFromRowId(row.id) === serverName || row.config?.serverName === serverName);
   }
 
-  /** 把 Authorization 头写进那一行（其它 header 原样保留）。 */
-  async writeAuthHeader(serverName: string, value: string | undefined) {
+  /** 把 Authorization 头写进那一行；取消检查先于 patch 写入准入，已准入的写入由卸载等待完成。 */
+  async writeAuthHeader(serverName: string, value: string | undefined, signal?: AbortSignal) {
     const { managed } = await this.readRows();
+    signal?.throwIfAborted();
     const row = this.managedRow(managed, serverName);
     if (row === undefined) throw new Error('MCP 行 "' + serverName + '" 不存在或不是面板受管行');
     const config: any = row.config ?? {};
@@ -343,6 +382,10 @@ export class McpManagerGateway extends TypertRemoteService {
    * 返回授权地址：前端交给浏览器打开，然后轮询 `oauthPoll`。
    */
   async oauthStart(rawPayload: unknown) {
+    return this.trackOAuth(() => this.startOAuth(rawPayload));
+  }
+
+  private async startOAuth(rawPayload: unknown) {
     const payload = parseWirePayload(mcpOAuthStartPayloadSchema, rawPayload, "OAuth 参数无效");
     const { managed, external } = await this.readRows();
     const row = this.managedRow([...managed, ...external], payload.serverName);
@@ -351,86 +394,114 @@ export class McpManagerGateway extends TypertRemoteService {
     if (config.transport !== "streamable-http" || typeof config.url !== "string" || config.url === "") {
       throw new Error("只有 streamable-http 的服务器能用 OAuth 登录（stdio 由本地进程自己管凭据）");
     }
-    const metadata = await discoverMetadata(config.url);
+    const timeoutMs = Math.max(30, Math.min(900, Number(payload.timeoutSeconds ?? 300))) * 1000;
+    const deadline = Date.now() + timeoutMs;
+    const signal = AbortSignal.any([this.oauthLifetime.signal, AbortSignal.timeout(timeoutMs)]);
+    const metadata = await discoverMetadata(config.url, undefined, signal);
     if (metadata === undefined) throw new Error("这个地址没有暴露 OAuth 发现文档（/.well-known/oauth-authorization-server），无法自动登录");
     const state = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
     const { verifier, challenge } = createPkce();
-    const timeoutMs = Math.max(30, Math.min(900, Number(payload.timeoutSeconds ?? 300))) * 1000;
-    const loopback = await startLoopbackServer(state, timeoutMs);
-    const previous = (await loadOAuthStore(this.dshHomeOf()))[payload.serverName];
-    const clientId = payload.clientId ?? previous?.clientId ?? (await registerClient(metadata, loopback.redirectUri))?.client_id;
-    if (typeof clientId !== "string" || clientId === "") {
-      await loopback.close();
-      throw new Error("拿不到 client_id：服务器既不支持动态注册，也没有指定 clientId");
-    }
-    const authUrl = buildAuthorizationUrl(metadata, clientId, loopback.redirectUri, challenge, state, payload.scope);
-    const flowId = Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const flow: any = {
-      flowId,
-      serverName: payload.serverName,
-      state,
-      clientId,
-      metadata,
-      redirectUri: loopback.redirectUri,
-      verifier,
-      url: normalizeServerUrl(config.url),
-      status: "pending",
-      error: undefined,
-      startedAt: Date.now(),
-      loopback
-    };
-    OAUTH_FLOWS.set(flowId, flow);
-    // 后台等回调：失败也记在 flow 上、交给轮询回报，不在这里抛。
-    loopback.waitForCode().then(
-      (result: any) => {
-        flow.code = result.code;
-      },
-      (error: any) => {
-        flow.status = "failed";
-        flow.error = error instanceof Error ? error.message : String(error);
+    const controller = new AbortController();
+    const flowSignal = AbortSignal.any([signal, controller.signal]);
+    const loopback = await startLoopbackServer(state, Math.max(1, deadline - Date.now()), flowSignal);
+    try {
+      const previous = (await loadOAuthStore(this.dshHomeOf()))[payload.serverName];
+      flowSignal.throwIfAborted();
+      const clientId = payload.clientId ?? previous?.clientId ?? (await registerClient(metadata, loopback.redirectUri, undefined, flowSignal))?.client_id;
+      if (typeof clientId !== "string" || clientId === "") {
+        await loopback.close();
+        throw new Error("拿不到 client_id：服务器既不支持动态注册，也没有指定 clientId");
       }
-    );
-    return { flowId, authUrl, redirectUri: loopback.redirectUri, expiresInSeconds: Math.round(timeoutMs / 1000) };
+      const authUrl = buildAuthorizationUrl(metadata, clientId, loopback.redirectUri, challenge, state, payload.scope);
+      flowSignal.throwIfAborted();
+      const flowId = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const flow: any = {
+        flowId,
+        serverName: payload.serverName,
+        state,
+        clientId,
+        metadata,
+        redirectUri: loopback.redirectUri,
+        verifier,
+        url: normalizeServerUrl(config.url),
+        status: "pending",
+        error: undefined,
+        startedAt: Date.now(),
+        loopback,
+        controller,
+        signal: flowSignal,
+        timeoutMs
+      };
+      this.oauthFlows.set(flowId, flow);
+      // 后台等回调：失败也记在 flow 上、交给轮询回报，不在这里抛。
+      const waiting = loopback.waitForCode().then(
+        async (result: any) => {
+          if (flow.result !== undefined) return;
+          flow.code = result.code;
+          await loopback.close();
+        },
+        async (error: any) => {
+          await loopback.close();
+          this.finishOAuth(flow, { status: "failed", error: error instanceof Error ? error.message : String(error), serverName: flow.serverName });
+        }
+      );
+      flow.waiting = waiting;
+      this.oauthTasks.add(waiting);
+      void waiting.finally(() => this.oauthTasks.delete(waiting)).catch(() => {});
+      // Callback expiry also bounds an authorized flow whose client stops polling before redemption.
+      flow.expiry = setTimeout(() => {
+        controller.abort(new Error("OAuth 登录已过期，请重新登录"));
+        void loopback.close();
+        if (flow.exchange === undefined) this.finishOAuth(flow, { status: "failed", error: "OAuth 登录已过期，请重新登录", serverName: flow.serverName });
+      }, Math.max(1, deadline - Date.now()));
+      flow.expiry.unref?.();
+      return { flowId, authUrl, redirectUri: loopback.redirectUri, expiresInSeconds: Math.ceil(Math.max(0, deadline - Date.now()) / 1000) };
+    } catch (error) {
+      controller.abort(error);
+      await loopback.close();
+      throw error;
+    }
   }
 
   /** 轮询一次 OAuth 流程：pending / done / failed。拿到 code 就换令牌并落盘。 */
   async oauthPoll(rawPayload: unknown) {
+    return this.trackOAuth(() => this.pollOAuth(rawPayload));
+  }
+
+  private async pollOAuth(rawPayload: unknown) {
     const payload = parseWirePayload(mcpOAuthPollPayloadSchema, rawPayload, "OAuth 轮询参数无效");
-    const flow = OAUTH_FLOWS.get(payload.flowId);
+    const flow = this.oauthFlows.get(payload.flowId);
     if (flow === undefined) throw new Error("这次登录流程不存在或已经结束，请重新点一次登录");
-    if (flow.status === "failed") {
-      OAUTH_FLOWS.delete(payload.flowId);
-      await flow.loopback.close();
-      return { status: "failed", error: flow.error ?? "授权失败", serverName: flow.serverName };
-    }
+    if (flow.result !== undefined) return flow.result;
+    if (flow.exchange !== undefined) return flow.exchange;
     if (flow.code === undefined) return { status: "pending", serverName: flow.serverName };
-    if (flow.status === "done") {
-      return { status: "done", serverName: flow.serverName, expiresAt: flow.expiresAt ?? null, header: flow.header ?? "" };
-    }
-    flow.status = "exchanging";
+    const exchange = this.exchangeOAuth(flow);
+    flow.exchange = exchange;
+    return exchange;
+  }
+
+  private async exchangeOAuth(flow: any) {
     try {
-      const tokens = await exchangeCode(flow.metadata, flow.clientId, flow.code, flow.verifier, flow.redirectUri);
+      flow.signal.throwIfAborted();
+      const tokens = await exchangeCode(flow.metadata, flow.clientId, flow.code, flow.verifier, flow.redirectUri, undefined, flow.signal);
+      flow.signal.throwIfAborted();
       await saveOAuthRecord(this.dshHomeOf(), flow.serverName, {
         ...tokens,
         clientId: flow.clientId,
         serverUrl: flow.url,
         tokenEndpoint: flow.metadata.token_endpoint
       });
+      flow.signal.throwIfAborted();
       const header = authorizationHeader(tokens);
-      await this.writeAuthHeader(flow.serverName, header);
-      flow.status = "done";
-      flow.expiresAt = tokens.expiresAt;
-      flow.header = header;
+      await this.writeAuthHeader(flow.serverName, header, flow.signal);
+      flow.signal.throwIfAborted();
       await flow.loopback.close();
       const row = this.managedRow((await this.readRows()).managed, flow.serverName);
       if (row !== undefined && typeof row.id === "string") await waitForLoaderState(this.C, row.id, (entry: any) => entry !== undefined);
-      return { status: "done", serverName: flow.serverName, expiresAt: flow.expiresAt ?? null, header };
+      return this.finishOAuth(flow, { status: "done", serverName: flow.serverName, expiresAt: tokens.expiresAt ?? null, header });
     } catch (error) {
-      flow.status = "failed";
-      flow.error = error instanceof Error ? error.message : String(error);
       await flow.loopback.close();
-      OAUTH_FLOWS.delete(payload.flowId);
-      return { status: "failed", error: flow.error, serverName: flow.serverName };
+      return this.finishOAuth(flow, { status: "failed", error: error instanceof Error ? error.message : String(error), serverName: flow.serverName });
     }
   }
 

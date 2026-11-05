@@ -34,7 +34,7 @@ File-mention providers receive the viewed Session ID with the closing-turn owner
 <a id="message-bubbles"></a>
 ## Message bubbles
 
-User content keeps its right-aligned lighter bubble and a compact lower-right corner; visible Assistant replies use left-aligned darker bubbles with a compact lower-left corner. Both use theme-owned role colors. Reasoning-only and Tool process rows retain their own presentation. Bubble insets preserve native images, actions, streaming node identity, code scrolling and wide-table breakout.
+User content keeps its right-aligned lighter bubble and a compact lower-right corner. Assistant replies use open, full-width narration without bubble fill or insets. Reasoning and Tool process rows retain their own presentation. Native images, actions, streaming node identity, code scrolling and wide-table breakout remain available.
 
 The session-scoped `conversation.chat.pinned` list renders above the clipped transcript, inside the Chat frame. Contributions receive the native Session, Chat and input seats. The shared list and `data-chat-frame` / `data-chat-scroll` DOM anchors carry no feature-specific behavior.
 

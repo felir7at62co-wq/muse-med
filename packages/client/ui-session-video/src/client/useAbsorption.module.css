@@ -1,6 +1,6 @@
 .layer {
   position: absolute;
-  z-index: 5;
+  z-index: 19;
   left: var(--video-absorption-left);
   top: var(--video-absorption-top);
   width: var(--video-absorption-width);
@@ -14,7 +14,7 @@
   width: 0;
   height: 0;
   visibility: hidden;
-  background: var(--dsw-alias-bg-base);
+  background: var(--dsw-alias-video-shelf-bg);
 }
 
 .canvas {

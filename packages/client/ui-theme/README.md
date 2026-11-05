@@ -27,7 +27,7 @@ English | [中文](README.zh.md)
 
 Users switch the color scheme, font sizes, and fonts from rows in Settings (General section); the choices persist across restarts in every authenticated browser. Feature plugins consume the current snapshot through `ctx.theme` and read the `--dsw-*` tokens in CSS; they do not manage theme state themselves.
 
-Chat role fills use `--dsw-alias-chat-user-bg` and `--dsw-alias-chat-assistant-bg`. Each palette keeps user content lighter than Assistant content while both retain the primary text color.
+User chat fills use `--dsw-alias-chat-user-bg`. Muse video controls use the independent `--dsw-alias-video-shelf-*` material: a dark fill and readable light labels in both palettes, shared by the expanded player, inline video card and absorption preview.
 
 ### Appearance and font size
 

@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { Button, IconEllipsisOutlineRegular, Menu, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Button, IconEllipsisOutlineRegular, Menu, MenuItemButton, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
@@ -22,10 +22,10 @@ export type ConversationSessionHeaderProps = ConversationSessionHeaderSlotProps
 type ViewsMoreMenuProps =
   Omit<ConversationViewActionsOwnerProps, 'onDismiss'>
   & Pick<ConversationSessionHeaderSlotProps, 'renderSlot'>
-  & { readonly label: string; readonly current: boolean }
+  & { readonly label: string; readonly current: boolean; readonly fallbackEntries?: boolean }
 
-/** The View tab row's More launcher; its menu rows come from `conversation.session.header.views.actions`. */
-function ViewsMoreMenu({ label, current, entries, onOpen, onPinnedChange, renderSlot }: ViewsMoreMenuProps) {
+/** View navigation launcher; its menu rows come from `conversation.session.header.views.actions`. */
+function ViewsMoreMenu({ label, current, entries, onOpen, onPinnedChange, renderSlot, fallbackEntries = false }: ViewsMoreMenuProps) {
   const [open, setOpen] = useState(false)
   const onDismiss = (): void => { setOpen(false) }
   return (
@@ -38,7 +38,10 @@ function ViewsMoreMenu({ label, current, entries, onOpen, onPinnedChange, render
           </Button>
         </Tooltip>
       )}>
-      {renderSlot('conversation.session.header.views.actions', { entries, onOpen, onPinnedChange, onDismiss })}
+      {renderSlot('conversation.session.header.views.actions', { entries, onOpen, onPinnedChange, onDismiss }, {
+        fallback: fallbackEntries ? entries.map(entry => <MenuItemButton key={entry.id} current={entry.active === true}
+          onSelect={() => { onOpen(entry.id); onDismiss() }}>{entry.label}</MenuItemButton>) : null,
+      })}
     </Menu>
   )
 }
@@ -106,7 +109,7 @@ function equalBreadcrumbs(left: readonly Breadcrumb[], right: readonly Breadcrum
  * @returns Session navigation controls, with title and tabs after conversation starts.
  */
 export function ConversationSessionHeader({
-  sessionId, hideChrome, useSessions, useConversationViews, useStore,
+  sessionId, hideChrome, presentation = 'standard', useSessions, useConversationViews, useStore,
   renderSlot, open, useContextMenu, selectView, setPinned, t, useEntryPins, useEntryActions,
 }: ConversationSessionHeaderProps) {
   const { getTriggerProps } = useContextMenu()
@@ -116,7 +119,8 @@ export function ConversationSessionHeader({
   const ancestry = useSessions(s => deriveAncestry(s, sessionId), equalBreadcrumbs)
   const unpinned = useEntryPins(ids => ids)
   const hasEntryActions = useEntryActions(registered => registered)
-  const showTabs = !hideChrome && tabs.length > 1
+  const floating = presentation === 'floating'
+  const showTabs = !hideChrome && !floating && tabs.length > 1
   const tabRow = useRef<HTMLDivElement>(null)
   const [visibleViewLimit, setVisibleViewLimit] = useState(1)
   // Observe only the available row width; individual tabs are not measured.
@@ -147,7 +151,18 @@ export function ConversationSessionHeader({
       <div className={css.titleRow}>
         {!hideChrome && (
           <>
-            <div className={css.titleCluster}>
+            {floating && <div className={css.floatingTitle}>
+              <nav className={css.crumbs} aria-label={t('session.hierarchy')}>
+                <span className={clsx(css.crumb, css.crumbCurrent)} data-conversation-floating-title>
+                  {ancestry.at(-1)?.displayTitle ?? sessionId}
+                </span>
+              </nav>
+              {tabs.length > 1 && <ViewsMoreMenu label={t('session.moreViews')} current={false} fallbackEntries
+                entries={tabs.map(tab => ({ id: tab.id, label: tab.label,
+                  pinned: !unpinned.includes(tab.id), active: tab.id === active?.id }))}
+                onOpen={selectView} onPinnedChange={setPinned} renderSlot={renderSlot} />}
+            </div>}
+            {!floating && <div className={css.titleCluster}>
               <nav className={css.crumbs} aria-label={t('session.hierarchy')}>
                 {ancestry.map((summary, index) => {
                   const last = index === ancestry.length - 1
@@ -205,8 +220,9 @@ export function ConversationSessionHeader({
               <div className={css.headerActions}>
                 {renderSlot('conversation.session.header.actions', {})}
               </div>
-            </div>
+            </div>}
             <div className={css.headerUtilities}>
+              {floating && renderSlot('conversation.session.header.actions', {})}
               {renderSlot('conversation.session.header.utilities', {})}
             </div>
           </>

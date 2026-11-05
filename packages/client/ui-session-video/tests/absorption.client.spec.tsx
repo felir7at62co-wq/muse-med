@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { useRef } from 'react'
+import { useCallback, useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { absorptionGeometry } from '../src/client/absorption.ts'
 import type { AbsorptionOptions } from '../src/client/useAbsorption.tsx'
@@ -127,18 +127,49 @@ function setProgress(progress: number) {
   sourceTop = viewport.top + 44 - progress * (source.height * 0.9 + 44)
 }
 
-function Card(input: AbsorptionOptions) {
-  const ref = useRef<HTMLDivElement>(null)
-  const portal = useAbsorption(ref, input)
-  return <div ref={ref} data-video-source aria-label="打开真实视频"><video /><span>原卡片</span>{portal}</div>
+interface OriginalSurface {
+  readonly visibility?: 'visible' | 'collapse'
+  readonly inert?: boolean
+  readonly aria?: 'true' | 'false'
 }
 
-function Fixture({ external = false, hasAnchor = true, ...input }: AbsorptionOptions & { external?: boolean; hasAnchor?: boolean }) {
+function Card({ original, ...input }: AbsorptionOptions & { original?: OriginalSurface | undefined }) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const attach = useCallback((element: HTMLDivElement | null) => {
+    ref.current = element
+    if (element) element.inert = original?.inert ?? false
+  }, [original])
+  const portal = useAbsorption(ref, input)
+  return <div ref={attach} data-video-source aria-label="打开真实视频" style={{ visibility: original?.visibility }}
+    aria-hidden={original?.aria}><video /><span>原卡片</span>{portal}</div>
+}
+
+function Fixture({ external = false, hasAnchor = true, delivered = false, sourceOriginal, deliveryOriginal, ...input }:
+AbsorptionOptions & {
+  external?: boolean
+  hasAnchor?: boolean
+  delivered?: boolean
+  sourceOriginal?: OriginalSurface
+  deliveryOriginal?: OriginalSurface
+}) {
+  const card = <Card {...input} original={sourceOriginal} />
   const content = <div data-chat-frame>
     {hasAnchor && <button data-muse-video-anchor type="button" aria-label="视频气泡" />}
-    <div data-chat-scroll><Card {...input} /></div>
+    <div data-chat-scroll>{delivered ? <div data-presented-file data-video="true"
+      style={{ visibility: deliveryOriginal?.visibility }} aria-hidden={deliveryOriginal?.aria}
+      ref={(element) => { if (element) element.inert = deliveryOriginal?.inert ?? false }}>
+      <button type="button">Native file action</button>{card}
+    </div> : card}</div>
   </div>
   return external ? <div data-conversation-scroll>{content}</div> : content
+}
+
+function deliveredElements(container: HTMLElement) {
+  const delivery = container.querySelector<HTMLElement>('[data-presented-file][data-video="true"]')
+  const card = container.querySelector<HTMLElement>('[data-video-source]')
+  const scroll = container.querySelector<HTMLElement>('[data-chat-scroll]')
+  if (delivery === null || card === null || scroll === null) throw new Error('Delivered video fixture is missing')
+  return { delivery, card, scroll }
 }
 
 function inputs(): AbsorptionOptions { return { id: 'real-video', onCollect: vi.fn(), onOpen: vi.fn() } }
@@ -277,4 +308,81 @@ describe('useAbsorption', () => {
     expect(view.container.querySelector<HTMLElement>('[data-video-source]')?.style.visibility).toBe('')
     expect(view.container.querySelector<HTMLElement>('[data-video-absorption]')?.hidden).toBe(true)
   })
+
+  it('conceals the entire delivered card and native action while retaining its original inline geometry', () => {
+    const view = render(<Fixture {...inputs()} delivered />)
+    const { delivery, card, scroll } = deliveredElements(view.container)
+    const action = view.getByRole('button', { name: 'Native file action' })
+    const originalParent = delivery.parentElement
+    const originalVideo = card.querySelector('video')
+    flushFrame()
+    setProgress(0.5)
+    fireEvent.scroll(scroll)
+    flushFrame()
+    for (const surface of [delivery, card]) {
+      expect(surface.style.visibility).toBe('hidden')
+      expect(surface.inert).toBe(true)
+      expect(surface.getAttribute('aria-hidden')).toBe('true')
+    }
+    expect(view.queryByRole('button', { name: 'Native file action' })).toBeNull()
+    expect(view.container.querySelector('[data-video-absorption]')?.getAttribute('data-phase')).toBe('merging')
+    expect(delivery.parentElement).toBe(originalParent)
+    expect(delivery.contains(card)).toBe(true)
+    expect(card.querySelector('video')).toBe(originalVideo)
+    expect(card.getBoundingClientRect().height).toBe(source.height)
+    setProgress(0)
+    fireEvent.scroll(scroll)
+    flushFrame()
+    for (const surface of [delivery, card]) {
+      expect(surface.style.visibility).toBe('')
+      expect(surface.inert).toBe(false)
+      expect(surface.hasAttribute('aria-hidden')).toBe(false)
+    }
+    expect(view.getByRole('button', { name: 'Native file action' })).toBe(action)
+    expect(card.querySelector('video')).toBe(originalVideo)
+  })
+
+  it('restores original visibility, inertness and ARIA on both delivered surfaces after unmount', () => {
+    const view = render(<Fixture {...inputs()} delivered
+      sourceOriginal={{ visibility: 'visible', inert: true, aria: 'false' }}
+      deliveryOriginal={{ visibility: 'collapse', inert: false, aria: 'true' }} />)
+    const { delivery, card, scroll } = deliveredElements(view.container)
+    flushFrame()
+    setProgress(0.5)
+    fireEvent.scroll(scroll)
+    flushFrame()
+    expect(delivery.style.visibility).toBe('hidden')
+    expect(card.style.visibility).toBe('hidden')
+    view.unmount()
+    expect(card.style.visibility).toBe('visible')
+    expect(card.inert).toBe(true)
+    expect(card.getAttribute('aria-hidden')).toBe('false')
+    expect(delivery.style.visibility).toBe('collapse')
+    expect(delivery.inert).toBe(false)
+    expect(delivery.getAttribute('aria-hidden')).toBe('true')
+  })
+
+  it('restores the complete delivered card to its prior state when canvas creation fails mid-flight', () => {
+    const view = render(<Fixture {...inputs()} delivered
+      sourceOriginal={{ visibility: 'visible', inert: false, aria: 'false' }}
+      deliveryOriginal={{ visibility: 'visible', inert: true, aria: 'false' }} />)
+    const { delivery, card, scroll } = deliveredElements(view.container)
+    flushFrame()
+    setProgress(0.5)
+    fireEvent.scroll(scroll)
+    flushFrame()
+    expect(delivery.style.visibility).toBe('hidden')
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    fireEvent.resize(window)
+    flushFrame()
+    expect(card.style.visibility).toBe('visible')
+    expect(card.inert).toBe(false)
+    expect(card.getAttribute('aria-hidden')).toBe('false')
+    expect(delivery.style.visibility).toBe('visible')
+    expect(delivery.inert).toBe(true)
+    expect(delivery.getAttribute('aria-hidden')).toBe('false')
+    expect(view.container.querySelector<HTMLElement>('[data-video-absorption]')?.hidden).toBe(true)
+    expect(view.getByRole('button', { name: '视频气泡' }).style.getPropertyValue('--muse-video-fusion')).toBe('')
+  })
+
 })

@@ -28,6 +28,70 @@
   padding-bottom: 10px;
 }
 
+/* Floating controls leave the transcript at the top while the backdrop fades
+   it beneath the pointer-transparent drag band. Windows already clears its caption. */
+.headerFloating {
+  position: absolute;
+  z-index: 21;
+  inset: 0 0 auto;
+  min-height: 0;
+  padding: 10px 16px 0 20px;
+  border: 0;
+  pointer-events: none;
+  background: transparent;
+}
+
+.headerFade {
+  position: absolute;
+  z-index: 18;
+  inset: 0 0 auto;
+  height: 72px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, var(--dsw-alias-bg-base), transparent);
+}
+
+.headerFloating:where(:not(:has(.tabs))) {
+  padding-bottom: 22px;
+}
+
+.headerFloating .titleRow {
+  pointer-events: none;
+}
+
+/* Keep a single-line title inside the band before the centered 132px control.
+   Leading clearance already consumes that band on macOS with a hidden sidebar. */
+.headerFloating .floatingTitle {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: min(320px, max(32px, calc(50% - 100px - var(--dsh-frame-leading-clearance, 0px) / 2)));
+}
+
+.headerFloating .floatingTitle .crumb {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.headerFloating .floatingTitle .viewsMoreAnchor {
+  pointer-events: auto;
+}
+
+.headerFloating .floatingTitle .viewsMore {
+  margin-top: 0;
+}
+
+.headerFloating .headerUtilities {
+  margin-inline-start: auto;
+}
+
+.headerFloating .headerLeading,
+.headerFloating .headerUtilities,
+.headerFloating .headerCorner {
+  pointer-events: auto;
+}
+
 /* Blank Sessions retain navigation controls without conversation title or tabs.
    The same 40px row (10px inset + 30px title row) applies before a Session
    exists, so the Hero centers below one header height in both states. */
@@ -421,9 +485,8 @@
   --dsh-composer-text-max-height: 336px;
 }
 
-/* Active phase: header is ordinary column chrome above the scrollport (not
-   sticky). The scroll body holds the transcript and the sticky composer seat
-   so wheel over the footer moves the flow. */
+/* Active phase clips the shell while the scroll body holds the transcript
+   and sticky composer seat. Header presentation owns flow or floating placement. */
 .root[data-phase='active'] {
   overflow: hidden;
 }
