@@ -151,8 +151,14 @@ export function codexFilesystemPath(value) {
       run([join(repository, 'node_modules/vitest/vitest.mjs'), 'run', 'apps/desktop/tests/codex-subscription-client.client.spec.tsx'], repository, {
         MUSE_CODEX_CLIENT_BUNDLE: join(directory, 'lib/client.js'), DSH_HOME: join(staging, 'client-test-home'),
       })
-    } else if (name === 'ds-bot') {
+    } else if (name === 'ds-bot' || name === 'deep-view') {
       run(['scripts/build-client.mjs'], directory)
+      if (name === 'deep-view') {
+        run(['--import', './test/harness-resolve.mjs', '--test', '--test-concurrency=1', 'test/*.test.js'], directory, { DSH_HARNESS: repository })
+        run([join(repository, 'node_modules/vitest/vitest.mjs'), 'run', 'apps/desktop/tests/deep-view-client.client.spec.tsx'], repository, {
+          MUSE_DEEP_VIEW_CLIENT_BUNDLE: join(directory, 'client.js'), DSH_HOME: join(staging, 'client-test-home'),
+        })
+      }
     } else if (name === 'dsh-im') {
       run(['plugin-src/client/build.mjs'], directory, { NODE_ENV: 'production' })
       run(['plugin-src/host/build.mjs'], directory)

@@ -6,7 +6,7 @@ These retained source snapshots record Muse community-plugin dependencies. [sour
 
 [owned-downloads.json](owned-downloads.json) separately pins the Muse Hongguo and Douyin download bundles. The inventory also includes the local [reverse tools](muse-reverse-tools/README.md) and independent [Fanqie downloader](muse-fanqie-download/README.md) and [Lvpaopao downloads](muse-lvpaopao/README.md). Their READMEs own configuration and verification limits; they do not change the retained upstream inventory.
 
-Entries with `desktop: false` in the source inventory and archived `ds-bot` source are omitted from default builds. The default delivery contains seven retained-source plugins and seven Muse-owned plugins; the Bot pin and source remain intact for explicit recovery work. Desktop packaging independently selects its package closure and does not copy every available tarball. Codex subscription is included in the product build; the optional Codex CLI peer is not selected solely by the subscription plugin. `--only dsh-codex-subscription` builds its reviewed artifact separately.
+Entries with `desktop: false` in the source inventory and archived `ds-bot` source are omitted from default builds. The default delivery contains eight retained-source plugins and seven Muse-owned plugins; the Bot pin and source remain intact for explicit recovery work. Desktop packaging independently selects its package closure and does not copy every available tarball. Codex subscription is included in the product build; the optional Codex CLI peer is not selected solely by the subscription plugin. `--only dsh-codex-subscription` builds its reviewed artifact separately.
 
 ## Build
 
@@ -64,6 +64,10 @@ Allowed members may answer questions from tasks they initiated, including custom
 Each Feishu bot uses the workspace selected in its IM settings for both direct and group chats. Chats share files and materials in that directory while keeping separate Session histories. Startup removes per-chat workspace overrides and detaches bindings whose Session working directory differs from the bot workspace; matching bindings retain their Session IDs. Later conversation commands cannot restore a private directory override or bind another chat's current Session. Selecting a different bot workspace changes subsequent work for all its chats. Old Session logs and files stay in their original locations; the adapter does not move them.
 
 The Muse wrapper and native Feishu plugin explicitly declare `sessions` and `sessionPersistence` dependencies so workspace validation can read live or persisted Session headers. The isolated IM checks exercise migration, real Loader and Agent APIs, group mentions, control ownership and restored Session history with an offline platform transport. A Cordis plugin with restricted service access creates new direct and group Sessions through the real Host gateway, with the same selected workspace and separate histories; a missing-dependency check rejects undeclared Session access before a model prompt. The build check compares two complete tarballs, verifies their native client and license, and checks that retained upstream files remain unchanged. These checks do not authenticate a live bot or establish tenant permissions.
+
+### Ordinary-session cards
+
+The retained [Deep View](deep-view/README.md) plugin provides `show_view` in ordinary Muse conversations. Its structured views include tables, charts, choices and forms. Interactive answers return through the owning Session; native `ask_user_question` remains available for simple questions. The source pin records the public fork and upstream revision, and the builder qualifies its Host and browser entry against the current runtime. Bot teams remain archived.
 
 ### Archived Muse Bot
 

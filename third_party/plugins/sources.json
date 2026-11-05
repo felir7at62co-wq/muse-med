@@ -67,5 +67,69 @@
     "version": "0.2.4",
     "commit": "f823773b07ec6ca29d60b31c31af30218a68000d",
     "license": "Apache-2.0"
+  },
+  "deep-view": {
+    "repository": "https://github.com/felir7at62co-wq/deep-view",
+    "upstreamRepository": "https://github.com/Fei2411/deep-view",
+    "version": "0.1.2",
+    "commit": "4c8bc4afae5296547ee4f243b82fa2e9258443d1",
+    "license": "Apache-2.0",
+    "localModifications": {
+      "description": "Use native root-session ownership, atomic pending records and stable answer delivery; retain input and show recoverable client failures.",
+      "files": {
+        "client.js": {
+          "upstreamSha256": "2e81d2d8e678dd969164fb347daff6cc60a0c3936d02e1d37a4a997aa12d1fce",
+          "sha256": "d5047ceb236d617d13de2bc0695fe5926832e37a7194bbd5553774fbbe498957"
+        },
+        "index.js": {
+          "upstreamSha256": "d21ad135fa09f1815bce82aab3743de9031fd69c04a83f58643c0a847badedab",
+          "sha256": "c352761523cac29c71353c77184e98abfa7465ac9bc154ed23b71d7a1a5c4dba"
+        },
+        "package.json": {
+          "upstreamSha256": "b92009cd707600704570389005c9a528d0bf227410b96764a8fd9276008c9215",
+          "sha256": "5946ec40c81d14e3ec27842280b390f1c778d509b927c542c90d4075568b6be0"
+        },
+        "src/client/index.js": {
+          "upstreamSha256": "a47ee2f7efbe731d5b7b47704e893ac47fea5b97bec95eda0c63061005f0a90a",
+          "sha256": "20ae4627022d488164f13ddb56dbab8b170dd0e8b19a8e9d6712240f98a33e2c"
+        },
+        "src/client/tail.js": {
+          "upstreamSha256": "e2ba722a02050bb3f6ef1f13c771757a5a1ecc23e75c5a969dd8f64e62e582b3",
+          "sha256": "d25222fcbc2e98d6fada2683813df56ab329241318dcdb7ea4e9e46b773cae12"
+        },
+        "src/host/install.js": {
+          "upstreamSha256": "f93932cf8a8ff5108c2dc2c8df1f85417cd68bec5b6919747fad1670b3ff19fa",
+          "sha256": "501dc0206b9fddd98b6c69f4a43ad9557ef823b0b5671ffe3f40e5fc8c7244a0"
+        },
+        "src/host/pending.js": {
+          "upstreamSha256": "cb3fbf96070970e9f6c33e846a51ee710cf001420334b98ef6d6438187c25a4e",
+          "sha256": "28cc1b021177711cacd124332449131037c36c4bb794be43ff65341272690aa1"
+        },
+        "src/react/styles.js": {
+          "upstreamSha256": "312c3c294ed74af30e2783e355aba228efd6b3fb3a6665e03c00f223c8274118",
+          "sha256": "03bc86a593c94a21b690ec0279768beff48054580e74a53bccfe5d57b3a6f814"
+        },
+        "test/fake-ctx.js": {
+          "upstreamSha256": "ae595158ff0fee27eec9fe03e2d2c2bfb1c3de65b26c8bbaf302e981d408c867",
+          "sha256": "776deb6c5c16e3553c2c5e612cce47aa71e7e4365e58f642a348e90a63615fb5"
+        },
+        "test/harness-resolve.mjs": {
+          "upstreamSha256": "b4a472d330c560dae74197251adfa6092a27a26189a8a457f3d6a8df1b73d3c7",
+          "sha256": "13650c3244da832c1b0c8750064584d20c6070e3b5aec53770e947cc20b146c9"
+        },
+        "test/host.test.js": {
+          "upstreamSha256": "7ea106cb891ef448bc147fa0db2ea417d4ecc8797b5aefa2b189e5d4353b61ad",
+          "sha256": "98b86b92328698bcccd47b7cb4b796764aada3f9134e2960f0332ebd218678a1"
+        },
+        "test/pending.test.js": {
+          "upstreamSha256": null,
+          "sha256": "0df1f7fb3566d526fa63f24ef283ccc6ca2a0b16e98cc1ce2fa2a6eb80673edd"
+        },
+        "test/render.test.js": {
+          "upstreamSha256": "0eedc0168749a6da5e016674c8c2d53bb07233ede04d76d73c675cc67dc342e9",
+          "sha256": "899ff46d9fb72f80a0180542e01ddda34ab3aaf310182610b4d08622ecdf237f"
+        }
+      }
+    }
   }
 }

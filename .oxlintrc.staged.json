@@ -14,6 +14,7 @@
     "website/.generated/**",
     "vendor/**",
     "third_party/plugins/dsh-codex-subscription/**",
+    "third_party/plugins/deep-view/**",
     "third_party/plugins/dsh-ffmpeg/**",
     "third_party/plugins/dsh-bridge/**",
     "third_party/plugins/dsh-feishu/**",

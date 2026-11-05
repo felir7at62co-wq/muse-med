@@ -202,7 +202,8 @@
     - id: tool-discovery
       name: '@deepseek-ai/dsh-tool-discovery'
       config:
-        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect]
+        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, show_view, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect]
+        excludeFromSearch: [ask_user_question, show_view]
         maxResults: 8
         maxDescriptionChars: 320
         maxResultChars: 6000
@@ -250,6 +251,10 @@
           load_workspace_dependencies: [Word, docx, Office, 文档处理, 工作间依赖]
 
         capabilities:
+          - id: interaction
+            title: 对话交互与反馈
+            description: 展示交互卡片、收集选择与表单，提交和查询本人的产品反馈。
+            tools: [ask_user_question, show_view, muse_feedback_submit, muse_feedback_status]
           - id: workspace
             title: 文件与工作间
             description: 查找、读取、编辑项目文件并交付文档。

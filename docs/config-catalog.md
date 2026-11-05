@@ -4510,6 +4510,8 @@ export interface Config {
 export interface Config {
   /** Names whose definitions are available before a search; providers may register later. */
   alwaysLoad: string[]
+  /** Exact alwaysLoad names omitted from search results, indexes and capability directories. */
+  excludeFromSearch?: string[]
   /** Maximum definitions loaded by one search. */
   maxResults?: number
   /** Maximum Unicode characters of each result description. */
