@@ -717,6 +717,22 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-plugin-manager -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-session-video -->
+<a id="deepseek-aidsh-client-ui-session-video"></a>
+
+## `@deepseek-ai/dsh-client-ui-session-video`
+
+- `source`: [`packages/client/ui-session-video/src/config.ts:5`](../packages/client/ui-session-video/src/config.ts)
+
+```ts config-catalog
+/** Validated presentation settings shared by Host and Client. */
+export interface Config {
+  /** Horizontal pixels occupied by one second in the shot timeline. */
+  readonly pixelsPerSecond: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-client-ui-session-video -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-client-ui-settings-account -->
 <a id="deepseek-aidsh-client-ui-settings-account"></a>
 
@@ -3709,6 +3725,59 @@ export interface Config extends SessionTitleLlmConfig {
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-title-first-prompt-llm -->
+
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-session-video -->
+<a id="deepseek-aidsh-session-video"></a>
+
+## `@deepseek-ai/dsh-session-video`
+
+- `inject`: `sessions` · `sessionQuery` · `sessionProjections` · `fs` · `attachments` · `subprocess` · `sandboxPolicy` · `connection`
+- `source`: [`packages/drama/session-video/src/index.ts:26`](../packages/drama/session-video/src/index.ts)
+
+```ts config-catalog
+/** Deployment-controlled subprocess, source, cache and playback limits. */
+export interface Config {
+  /** FFmpeg executable name or path in the configured execution world. */
+  readonly ffmpegPath: string
+  /** FFprobe executable name or path in the configured execution world. */
+  readonly ffprobePath: string
+  /** Maximum retained sources and unsettled supported calls per Session. */
+  readonly maxSources: number
+  /** Maximum UTF-8 bytes parsed from one structured tool-result text block. */
+  readonly maxResultBytes: number
+  /** Maximum local input or downloaded media bytes accepted for processing. */
+  readonly maxSourceBytes: number
+  /** Maximum probed container duration accepted for detection, in seconds. */
+  readonly maxDurationSeconds: number
+  /** Maximum video-track width multiplied by height accepted for detection. */
+  readonly maxSourcePixels: number
+  /** FFmpeg scene-change score above which a frame becomes a cut candidate. */
+  readonly sceneThreshold: number
+  /** Scaled video width used for scene-change analysis, in pixels. */
+  readonly analysisWidth: number
+  /** Minimum separation between retained interior cuts and endpoints, in seconds. */
+  readonly minShotSeconds: number
+  /** Maximum complete shot count; larger results fail instead of truncating. */
+  readonly maxShots: number
+  /** Deadline for each probe or detection subprocess, in milliseconds. */
+  readonly commandTimeoutMs: number
+  /** Deadline for a verified provider media download, in milliseconds. */
+  readonly downloadTimeoutMs: number
+  /** Grace period before forced subprocess termination, in milliseconds. */
+  readonly graceMs: number
+  /** Maximum complete stdout bytes and retained stderr bytes per subprocess. */
+  readonly maxOutputBytes: number
+  /** Maximum simultaneous detection operations owned by this plugin. */
+  readonly maxConcurrent: number
+  /** Maximum process-local successful analyses and downloaded-source lookup entries. */
+  readonly maxCachedAnalyses: number
+  /** Maximum bytes read for one playback stream chunk. */
+  readonly playbackChunkBytes: number
+  /** Maximum simultaneously active local playback streams. */
+  readonly maxPlaybackStreams: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-video -->
 
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-shell-env -->
 <a id="deepseek-aidsh-shell-env"></a>

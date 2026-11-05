@@ -99,6 +99,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-schedule` | no | Host task management page and Session reminder catalog |
 | `@deepseek-ai/dsh-client-ui-secret-mask` | no | Web display masking for recognized credentials in sent user text |
 | `@deepseek-ai/dsh-client-ui-session` | no | Session Controller adapter for React and session-scoped slots |
+| `@deepseek-ai/dsh-client-ui-session-video` | yes | Muse conversation video curtain, shot timeline and inline video collection |
 | `@deepseek-ai/dsh-client-ui-settings` | no | Settings domain base plugin: shared configuration forms and the canonical settings slot-type contract |
 | `@deepseek-ai/dsh-client-ui-settings-account` | yes | Manage DeepSeek login and open Platform billing pages |
 | `@deepseek-ai/dsh-client-ui-settings-agent-loop` | no | Settings page of the agent loop on the dsh web client's Plugins page: the parallel tool-call cap of the agent-loop namespace |
@@ -198,6 +199,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-character-library-tos` | yes | Volcengine TOS read-only provider for the Muse character library object store |
 | `@deepseek-ai/dsh-drama-settings` | no | Short-drama settings and Web UI for delivery, media and the automatic per-drama paid-call budget |
 | `@deepseek-ai/dsh-screenplay-project` | yes | Source-backed screenplay projects with independent episode review and resumable character knowledge |
+| `@deepseek-ai/dsh-session-video` | yes | Session-bound video inventory, playback and visual cut detection |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | yes | Muse account cloud speech transcription with versioned local project output |
 | `@deepseek-ai/dsh-tool-bgm-compose` | yes | Short-drama BGM composer: preview, deterministic source assembly, and fixed-format WAV verification |
 | `@deepseek-ai/dsh-tool-character-reference` | no | Read-only Agent lookup over the Host-owned public character reference library |

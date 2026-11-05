@@ -6,6 +6,8 @@ Query vocabulary over the live-preferred logical session corpus. The [Service De
 
 Source: [`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
 
+The [Session video service](../../packages/drama/session-video/README.md) inspects videos recorded in one authorized Session. Its inventory retains recorded coordinates and coverage diagnostics; visual detection returns source-version-bound intervals in the original video. It does not interpret story scenes or generate replacement media.
+
 ## Logical records
 
 `SessionRecord` is returned by the cross-corpus list. It exposes source availability independently from the cloned live-preferred header. `SessionEventRecord` is a lightweight raw-log projection; classification uses the same `foldSurface()` transitions as model-history derivation.
@@ -508,4 +510,34 @@ async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise
 Types: [SessionId](core.md) · [SessionTitleSnapshot](session-title.md)
 
 Source: [`packages/session-query/session-query/src/index.ts`](../../packages/session-query/session-query/src/index.ts)
+
+<a id="ctxsessionvideo--sessionvideo"></a>
+
+### `ctx.sessionVideo` — `SessionVideo`
+
+Native Host plugin; Remote methods take only Session-bound source identities.
+
+```ts cordis-catalog
+/**
+ * List only video sources explicitly recorded by this conversation.
+ * @param sessionId - Authorized Session identity.
+ * @param signal - Caller cancellation.
+ * @returns Versioned local or provider sources and explicit coverage diagnostics.
+ */
+@Remote({ resources: { session: sessionId => sessionId } }) async list(sessionId: SessionId, signal: AbortSignal): Promise<SessionVideoInventory>
+
+/**
+ * Detect visual cuts in one exact source version without generating or replacing media.
+ * @param sessionId - Authorized Session identity.
+ * @param sourceId - Identity returned by this Session's inventory.
+ * @param sourceVersion - Inventory version the user selected.
+ * @param signal - Cancels download, probe and cut detection.
+ * @returns Complete original-video intervals, or a failed result with no invented shots.
+ */
+@Remote({ resources: { session: sessionId => sessionId } }) async detect(sessionId: SessionId, sourceId: SessionVideoSourceId, sourceVersion: string, signal: AbortSignal): Promise<SessionVideoAnalysis>
+```
+
+Types: [SessionId](core.md)
+
+Source: [`packages/drama/session-video/src/index.ts`](../../packages/drama/session-video/src/index.ts)
 <!-- END GENERATED cordis-surface -->

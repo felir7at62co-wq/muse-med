@@ -6,6 +6,8 @@
 
 源码：[`packages/session-query/session-query/src/types.ts`](../../packages/session-query/session-query/src/types.ts)
 
+[Session 视频服务](../../packages/drama/session-video/README.zh.md)检查一个已授权 Session 中记录的视频。清单保留记录坐标与覆盖诊断；画面检测返回绑定来源版本的原视频区间。该服务不解释剧情场景，也不生成替换媒体。
+
 ## 逻辑记录
 
 `SessionRecord` 由全语料库列表返回。它除了克隆的、优先取自 live 源的 header 外，还单独公开各源的可用性。`SessionEventRecord` 是轻量的原始日志投影；分类使用与模型历史推导相同的 `foldSurface()` 状态转换。
@@ -508,4 +510,34 @@ async readEvent(request: SessionEventReadRequest, signal?: AbortSignal): Promise
 Types: [SessionId](core.zh.md) · [SessionTitleSnapshot](session-title.zh.md)
 
 Source: [`packages/session-query/session-query/src/index.ts`](../../packages/session-query/session-query/src/index.ts)
+
+<a id="ctxsessionvideo--sessionvideo"></a>
+
+### `ctx.sessionVideo` — `SessionVideo`
+
+Native Host plugin; Remote methods take only Session-bound source identities.
+
+```ts cordis-catalog
+/**
+ * List only video sources explicitly recorded by this conversation.
+ * @param sessionId - Authorized Session identity.
+ * @param signal - Caller cancellation.
+ * @returns Versioned local or provider sources and explicit coverage diagnostics.
+ */
+@Remote({ resources: { session: sessionId => sessionId } }) async list(sessionId: SessionId, signal: AbortSignal): Promise<SessionVideoInventory>
+
+/**
+ * Detect visual cuts in one exact source version without generating or replacing media.
+ * @param sessionId - Authorized Session identity.
+ * @param sourceId - Identity returned by this Session's inventory.
+ * @param sourceVersion - Inventory version the user selected.
+ * @param signal - Cancels download, probe and cut detection.
+ * @returns Complete original-video intervals, or a failed result with no invented shots.
+ */
+@Remote({ resources: { session: sessionId => sessionId } }) async detect(sessionId: SessionId, sourceId: SessionVideoSourceId, sourceVersion: string, signal: AbortSignal): Promise<SessionVideoAnalysis>
+```
+
+Types: [SessionId](core.zh.md)
+
+Source: [`packages/drama/session-video/src/index.ts`](../../packages/drama/session-video/src/index.ts)
 <!-- END GENERATED cordis-surface -->

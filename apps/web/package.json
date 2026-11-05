@@ -73,7 +73,9 @@
     "@deepseek-ai/dsh-experimental-cot-translation-bundle": "workspace:*",
     "@deepseek-ai/dsh-experimental-worktree": "workspace:*",
     "@deepseek-ai/dsh-experimental-plugin-market-bundle": "workspace:*",
-    "@deepseek-ai/dsh-experimental-forge-bundle": "workspace:*"
+    "@deepseek-ai/dsh-experimental-forge-bundle": "workspace:*",
+    "@deepseek-ai/dsh-session-video": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-session-video": "workspace:*"
   },
   "dependencies": {
     "@deepseek-ai/dsh-message-quotes": "workspace:*"
