@@ -33,9 +33,24 @@ function patchHash(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex')
 }
 
+interface RuntimeLockfile {
+  patchedDependencies?: Record<string, string>
+  packages?: Record<string, { version?: string }>
+}
+
+function readRuntimeLockfile(root: string): RuntimeLockfile {
+  const path = join(root, 'pnpm-lock.yaml')
+  // pnpm 12 writes config dependencies before the project resolution.
+  const resolution = yaml.loadAll(readFileSync(path, 'utf8')).at(-1)
+  if (resolution === null || typeof resolution !== 'object' || Array.isArray(resolution)) {
+    throw new Error(`desktop patches: missing project resolution in ${path}`)
+  }
+  return resolution as RuntimeLockfile
+}
+
 /**
  * Stage selected patches and explicit overrides before Desktop resolves its temporary lockfile.
- * Every root patch must be classified; shared bytes must match the root lockfile's pnpm 11 hash.
+ * Every root patch must be classified. Shared bytes must match the root project's lockfile hash.
  * @param projectRoot Disposable project containing pnpm-workspace.yaml, outside the repository root itself.
  * @param repositoryRoot Source repository; its files remain read-only.
  * @param policy Desktop patch decisions, including optional runtime-only files relative to the repository.
@@ -51,9 +66,7 @@ export function prepareRuntimePatches(
   const source = yaml.load(readFileSync(join(repositoryRoot, 'pnpm-workspace.yaml'), 'utf8')) as {
     patchedDependencies: Record<string, string>
   }
-  const sourceLock = yaml.load(readFileSync(join(repositoryRoot, 'pnpm-lock.yaml'), 'utf8')) as {
-    patchedDependencies: Record<string, string>
-  }
+  const sourceLock = readRuntimeLockfile(repositoryRoot)
   for (const spec of Object.keys(source.patchedDependencies)) {
     if (!Object.hasOwn(policy, spec)) throw new Error(`desktop patches: classify the workspace patch ${spec}`)
   }
@@ -71,7 +84,7 @@ export function prepareRuntimePatches(
     }
     const bytes = readFileSync(join(repositoryRoot, sourcePath))
     const hash = patchHash(bytes)
-    if (rule.scope === 'shared' && sourceLock.patchedDependencies[spec] !== hash) {
+    if (rule.scope === 'shared' && sourceLock.patchedDependencies?.[spec] !== hash) {
       throw new Error(`desktop patches: shared patch hash differs from the root lockfile: ${spec}`)
     }
     selected.push({ spec, ...identity, path: `patches/desktop-${selected.length}.patch`, hash, bytes })
@@ -97,10 +110,7 @@ export function prepareRuntimePatches(
  * @param plan Expected identities and exclusions returned by patch preparation.
  */
 export function verifyRuntimePatches(projectRoot: string, plan: PreparedRuntimePatches): void {
-  const lock = yaml.load(readFileSync(join(projectRoot, 'pnpm-lock.yaml'), 'utf8')) as {
-    patchedDependencies?: Record<string, string>
-    packages?: Record<string, { version?: string }>
-  }
+  const lock = readRuntimeLockfile(projectRoot)
   for (const patch of plan.patches) {
     if (!Object.keys(lock.packages ?? {}).some(spec => spec.startsWith(`${patch.name}@`))) {
       throw new Error(`desktop patches: selected patch has no runtime dependency: ${patch.spec}`)

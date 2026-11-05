@@ -1,5 +1,5 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
-import { join, dirname, relative, isAbsolute } from 'node:path'
+import { cpSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { join, dirname, relative, isAbsolute, basename } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runInNewContext } from 'node:vm'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -14,14 +14,32 @@ const editingModelInput = JSON.parse(readFileSync(new URL('./expected/editing-mo
 
 vi.mock('../src/profile-packages.ts', () => ({ recordDesktopRuntimeProfile: vi.fn(), validateDesktopPluginGraph: vi.fn() }))
 
-// External interpreter calls are isolated; the Office fixture writes the three
-// documents consumed by the Host checks, while downloader help needs no files.
-const { payload } = vi.hoisted(() => ({ payload: vi.fn(async (_file: string, args: string[]) => {
-  if (args.at(-1) === '--help') return { stdout: 'usage: download.py' }
-  const home = args[args.length - 1]!
-  for (const extension of ['docx', 'xlsx', 'pptx']) writeFileSync(join(home, `input.${extension}`), Buffer.from('fixture'))
-  return { stdout: '' }
-}) }))
+// The CLI fixture materializes and removes the package the smoke inspects on disk.
+const { payload, downloadHelp } = vi.hoisted(() => {
+  const downloadHelp = vi.fn(async () => ({ stdout: 'usage: download.py' }))
+  const payload = vi.fn(async (_file: string, args: string[], options: { cwd?: string }) => {
+    if (args[2] === 'plugin') {
+      const source = args[6]
+      if (options.cwd === undefined || source === undefined) throw new Error('Missing CLI fixture path')
+      const modules = join(options.cwd, 'profiles', 'desktop', 'node_modules')
+      if (args[5] === 'add' && source.startsWith('file:')) {
+        const path = source.slice('file:'.length)
+        mkdirSync(modules, { recursive: true })
+        cpSync(path, join(modules, basename(path)), { recursive: true })
+      } else if (args[5] === 'remove') {
+        rmSync(join(modules, source), { recursive: true })
+      } else {
+        throw new Error('Unexpected CLI fixture command')
+      }
+      return { stdout: '' }
+    }
+    if (args.at(-1) === '--help') return downloadHelp()
+    const home = args[args.length - 1]!
+    for (const extension of ['docx', 'xlsx', 'pptx']) writeFileSync(join(home, `input.${extension}`), Buffer.from('fixture'))
+    return { stdout: '' }
+  })
+  return { payload, downloadHelp }
+})
 vi.mock('node:child_process', async (importOriginal) => {
   const { promisify } = await import('node:util')
   return { ...await importOriginal<typeof import('node:child_process')>(),
@@ -406,6 +424,13 @@ it('rejects Host readiness when the private preset smoke never completes', async
   let packageManager: unknown
   const start = vi.spyOn(DesktopHostProcess.prototype, 'start').mockImplementation(async function (this: DesktopHostProcess) {
     packageManager = Reflect.get(this, 'packageManager')
+    const projectDir: unknown = Reflect.get(this, 'projectDir')
+    if (typeof projectDir !== 'string') throw new Error('Missing smoke profile')
+    const name = 'desktop-runtime-product-smoke-plugin'
+    const source = join(dirname(dirname(projectDir)), name)
+    const manifest = JSON.parse(readFileSync(join(projectDir, 'package.json'), 'utf8')) as { dependencies: Record<string, string> }
+    expect(manifest.dependencies[name]).toBe(`file:${source}`)
+    expect(readFileSync(join(projectDir, 'node_modules', name, 'index.js'))).toEqual(readFileSync(join(source, 'index.js')))
     return { pid: 2468, url: 'http://127.0.0.1:1/' }
   })
   const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('<html></html>'))
@@ -416,7 +441,7 @@ it('rejects Host readiness when the private preset smoke never completes', async
     const resources = primaryRuntimeFixture(root)
     await expect(smokeDesktopRuntime(root, process.execPath, runtime, {}, resources))
       .rejects.toThrow('product preset smoke did not complete')
-    expect(packageManager).toEqual({ pnpm: join(resources, 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resources, 'bin') })
+    expect(packageManager).toEqual({ pnpm: join(resources, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resources, 'bin') })
     expect(stop).toHaveBeenCalledOnce()
   } finally {
     start.mockRestore()
@@ -432,7 +457,7 @@ it.each([false, true])('runs downloader help from the native filesystem before H
     const f = fixture(archived)
     const root = f.root
     const runtime = runtimeFixture(root)
-    payload.mockRejectedValueOnce(new Error('Python cannot read download script'))
+    downloadHelp.mockRejectedValueOnce(new Error('Python cannot read download script'))
     await expect(smokeDesktopRuntime(root, process.execPath, runtime, {}, primaryRuntimeFixture(f.home)))
       .rejects.toThrow('Python cannot read download script')
     const invocation = payload.mock.calls.at(-1)

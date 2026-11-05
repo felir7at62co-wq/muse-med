@@ -94,6 +94,23 @@ it('refuses to write to the workspace or replace an unrelated existing override'
   expect(() => { prepareRuntimePatches(project, source, { 'fixture@1.0.0': shared }, { internal: '2.0.0' }) }).toThrow('conflicting')
 })
 
+it('verifies the project resolution after the pnpm package manager document', () => {
+  const { source, project } = fixture()
+  const plan = prepareRuntimePatches(project, source, { 'fixture@1.0.0': shared }, {})
+  const config = yaml.dump({
+    lockfileVersion: '9.0',
+    importers: { '.': { packageManagerDependencies: { pnpm: { specifier: '12.5.1', version: '12.5.1' } } } },
+    packages: { 'pnpm@12.5.1': {} },
+  })
+  const resolution = yaml.dump({
+    lockfileVersion: '9.0',
+    patchedDependencies: { 'fixture@1.0.0': plan.patches[0]!.hash },
+    packages: { 'fixture@1.0.0': {} },
+  })
+  writeFileSync(join(project, 'pnpm-lock.yaml'), `---\n${config}---\n${resolution}`)
+  expect(() => { verifyRuntimePatches(project, plan) }).not.toThrow()
+})
+
 it.each(['version', 'lock hash', 'file bytes', 'workspace-only', 'unused'] as const)('rejects invalid resolved installation: %s', (failure) => {
   const { source, project } = fixture()
   const plan = prepareRuntimePatches(project, source, { 'fixture@1.0.0': failure === 'workspace-only' ? excluded : shared }, {})
@@ -128,9 +145,11 @@ it.each([false, true])('pnpm applies runtime-only bytes and rejects an inapplica
     '--config.manage-package-manager-versions=false'], { cwd: project, env: { ...env, CI: 'true' }, timeout: 30_000, windowsHide: true })
   if (invalid) {
     const failure: unknown = await install.catch((error: unknown) => error)
-    if (!(failure instanceof Error) || !('stdout' in failure)) throw new Error('Expected a captured pnpm failure')
+    if (!(failure instanceof Error) || !('stdout' in failure) || !('stderr' in failure)) {
+      throw new Error('Expected a captured pnpm failure')
+    }
     expect(failure).toHaveProperty('code', 1)
-    expect(failure.stdout).toMatch(/PATCH_FAILED/u)
+    expect([failure.stdout, failure.stderr].join('\n')).toMatch(/PATCH_FAILED/u)
   } else {
     await install
     verifyRuntimePatches(project, plan)

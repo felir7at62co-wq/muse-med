@@ -374,7 +374,7 @@ export function apply(ctx) {
 `)
     writeFileSync(join(plugin, 'bundle.yml'), '- insert:\n    - id: desktop-runtime-smoke-plugin\n      name: desktop-runtime-smoke-plugin\n      inject: [webServer, officeToPdf, skills, pluginManager]\n')
     const productPluginName = 'desktop-runtime-product-smoke-plugin'
-    const productPlugin = join(profile, 'node_modules', productPluginName)
+    const productPlugin = join(home, productPluginName)
     mkdirSync(productPlugin, { recursive: true })
     writeFileSync(join(productPlugin, 'package.json'), JSON.stringify({
       name: productPluginName, version: '1.0.0', type: 'module', exports: './index.js',
@@ -383,11 +383,12 @@ export function apply(ctx) {
     writeFileSync(join(productPlugin, 'index.js'), desktopSmokePluginSource(root, home))
     writeFileSync(join(productPlugin, 'bundle.yml'), '- insert:\n    - id: desktop-runtime-product-smoke-plugin\n      name: desktop-runtime-product-smoke-plugin\n')
     cpSync(plugin, join(profile, 'node_modules', pluginName), { recursive: true })
+    cpSync(productPlugin, join(profile, 'node_modules', productPluginName), { recursive: true })
     const manifest = JSON.parse(readFileSync(join(profile, 'package.json'), 'utf8')) as {
       dependencies?: Record<string, string>
       dsh: { profile: { bundles: string[] } }
     }
-    manifest.dependencies = { ...manifest.dependencies, [pluginName]: `file:${plugin}`, [productPluginName]: '1.0.0' }
+    manifest.dependencies = { ...manifest.dependencies, [pluginName]: `file:${plugin}`, [productPluginName]: `file:${productPlugin}` }
     manifest.dsh.profile.bundles.push(pluginName, productPluginName)
     writeFileSync(join(profile, 'package.json'), JSON.stringify(manifest))
     writeFileSync(join(profile, 'cordis.patch.yml'), '- id: webserver\n  config:\n    host: 127.0.0.1\n    port: 0\n')
