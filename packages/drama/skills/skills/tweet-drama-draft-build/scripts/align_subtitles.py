@@ -237,8 +237,8 @@ def unmapped_speech(lines: list, anchors: list, chars: list) -> list:
     return found
 
 
-def missing_script_speech(lines: list, anchors: list, chars: list) -> list:
-    """Report any script text omitted by ASR inside an accepted anchor.
+def missing_script_speech(lines: list, anchors: list, chars: list, *, substitutions: list | None = None) -> list:
+    """Report omissions and optionally collect equal-length replacements within an anchor.
 
     A partial match can clear the deliberately tolerant anchor threshold while
     the end of a spoken line is absent. Such a span is useful for review, but it
@@ -257,6 +257,13 @@ def missing_script_speech(lines: list, anchors: list, chars: list) -> list:
             omitted = end - begin - (heard_end - heard_begin)
             if (tag == "delete" or tag == "replace") and omitted > 0:
                 found.append({"line": index, "text": expected[begin:end]})
+            if substitutions is not None and tag == "replace" and omitted == 0:
+                first, last = within[heard_begin], within[heard_end - 1]
+                substitutions.append({
+                    "line": index, "script": expected[begin:end], "recognized": recognized[heard_begin:heard_end],
+                    "start": round(first[3] if len(first) > 4 else first[1], 3),
+                    "end": round(last[4] if len(last) > 4 else last[2], 3),
+                })
     return found
 
 
@@ -463,6 +470,63 @@ def load_document(path: Path, key: str) -> list:
     return rows
 
 
+def review_subtitle_text(plan_path: Path, srt_path: Path) -> dict:
+    """Compare final display text with ordered, source-checked dialogue without retiming cues."""
+    punctuation = str.maketrans("", "", PUNCT)
+
+    def text_key(text):
+        return "".join(text.translate(punctuation).split())
+
+    def time_parts(stamp):
+        return tuple(map(int, re.split(r"[:,.]", stamp)))
+
+    script, shots, seen = [], [], set()
+    for row in load_document(plan_path, "shots"):
+        shot = row.get("shot") if isinstance(row, dict) else None
+        lines = row.get("lines") if isinstance(row, dict) else None
+        if type(shot) is not int or shot < 1 or shot in seen or not isinstance(lines, list) or any(
+                not isinstance(line, str) for line in lines):
+            raise SystemExit(f"台词计划含无效或重复镜头，或不是文字数组：{plan_path}")
+        seen.add(shot)
+        text = "".join(text_key(line) for line in lines)
+        script.append(text)
+        shots.extend([shot] * len(text))
+    if not seen:
+        raise SystemExit(f"台词计划须包含镜头；无发声镜头请明确给空台词数组：{plan_path}")
+
+    stamp = r"\d{2,}:[0-5]\d:[0-5]\d[,.]\d{3}"
+    timing = re.compile(rf"({stamp})\s*-->\s*({stamp})")
+    raw = srt_path.read_text(encoding="utf-8-sig").strip()
+    subtitles, owners, cues = [], [], []
+    for index, block in enumerate(re.split(r"\n[^\S\n]*\n", raw) if raw else [], 1):
+        lines = block.splitlines()
+        if lines[0].strip().isdigit():
+            lines = lines[1:]
+        span = timing.fullmatch(lines[0].strip()) if len(lines) > 1 else None
+        text = text_key("\n".join(lines[1:]))
+        if not span or not text or time_parts(span[1]) >= time_parts(span[2]):
+            raise SystemExit(f"字幕第 {index} 条没有有效的时码和文字：{srt_path}")
+        cues.append({"cue": index, "start": span[1], "end": span[2]})
+        subtitles.append(text)
+        owners.extend([index - 1] * len(text))
+
+    expected, actual = "".join(script), "".join(subtitles)
+    findings = []
+    if expected != actual:
+        for tag, a, b, c, d in difflib.SequenceMatcher(None, expected, actual, autojunk=False).get_opcodes():
+            if tag == "equal":
+                continue
+            indexes = owners[c:d]
+            if not indexes:
+                indexes = owners[max(c - 1, 0):c + 1]
+            findings.append({"kind": tag, "script": expected[a:b], "subtitle": actual[c:d],
+                             "shots": list(dict.fromkeys(shots[a:b])),
+                             "cues": [cues[i] for i in dict.fromkeys(indexes)],
+                             "cue_scope": "changed" if c < d else "adjacent"})
+    return {"status": "needs_review" if findings else "text_matches", "listening_verified": False,
+            "srt": str(srt_path), "lines": str(plan_path), "findings": findings}
+
+
 def corrected_cloud_words(segments: list, correction: dict, source_sha256: str,
                           transcript_sha256: str) -> tuple:
     """Apply explicitly supplied spelling substitutions without changing raw words or timing.
@@ -576,6 +640,7 @@ def main() -> None:
     parser.add_argument("--episode", type=int, required=True, help="集号")
     parser.add_argument("--shots", help="逐镜成片清单，默认 <项目>/_probe/epNN-render-shots.json")
     parser.add_argument("--lines", help="逐镜台词计划，默认 <项目>/_probe/epNN-lines.json")
+    parser.add_argument("--review-srt", help="只读比较完整显示 SRT 与原剧本核对过的台词计划，输出 JSON，不重新识别")
     parser.add_argument("--out", help="输出的对齐文档，默认 <项目>/_probe/epNN-aligned.json")
     parser.add_argument("--cloud-transcripts", help="逐镜 Muse 收据映射 JSON：shots 数组含 shot 与 receipt")
     parser.add_argument("--corrections", help="可选逐镜核实错字映射；绑定源视频与原始转写摘要，不修改原收据或时间")
@@ -586,10 +651,17 @@ def main() -> None:
     parser.add_argument("--strict", action="store_true", help="兼容旧参数；对齐质量问题仍只报告，不阻断制作")
     args = parser.parse_args()
     sys.stdout.reconfigure(encoding="utf-8")
+    project = Path(args.project).resolve()
+    if args.review_srt:
+        if not args.lines or any((args.shots, args.out, args.cloud_transcripts, args.corrections,
+                                 args.model_dir, args.model_url, args.model_sha256, args.cache_dir, args.strict)):
+            parser.error("--review-srt 必须显式传入 --lines，不接受识别或对齐参数。")
+        report = review_subtitle_text(project / args.lines, project / args.review_srt)
+        print(json.dumps({"episode": args.episode, **report}, ensure_ascii=False))
+        return
     if args.corrections and not args.cloud_transcripts:
         raise SystemExit("--corrections 仅可配合 --cloud-transcripts 复用原始云时间轴。")
 
-    project = Path(args.project).resolve()
     probe = project / "_probe"
     stem = f"ep{args.episode}"
     shots_path = Path(args.shots) if args.shots else probe / f"{stem}-render-shots.json"
@@ -636,6 +708,7 @@ def main() -> None:
             corrections[shot] = row
 
     placed, strategies = [], []
+    text_review = []
     for entry in manifest:
         shot = int(entry["shot"])
         video = (project / entry["video"]).resolve()
@@ -671,7 +744,8 @@ def main() -> None:
         anchors = anchor(lines, chars)
         cues, strategy = place(lines, anchors, duration)
         extras = unmapped_speech(lines, anchors, chars)
-        missing_script = missing_script_speech(lines, anchors, chars)
+        substitutions = []
+        missing_script = missing_script_speech(lines, anchors, chars, substitutions=substitutions)
         if extras:
             strategy = "unmapped_speech"
         elif missing_script:
@@ -691,6 +765,12 @@ def main() -> None:
                   "missing_script_speech": missing_script,
                   "cues": [{"start": start, "end": end, "text": line}
                            for (start, end), line in zip(cues, lines)]}
+        if substitutions:
+            text_review.append(shot)
+            result["script_text_differences"] = substitutions
+            for item in substitutions:
+                print(f"    镜头 {shot} 第 {item['line']} 条 {item['start']:.3f}–{item['end']:.3f}s："
+                      f"剧本「{item['script']}」，转写「{item['recognized']}」，保留台词与原时间，待核听。")
         if correction_evidence is not None:
             result["correction_evidence"] = correction_evidence
         placed.append(result)
@@ -701,6 +781,8 @@ def main() -> None:
     counts = dict(Counter(strategies))
     print(f"EP{args.episode:02d} 策略统计: {counts} -> {out_path}")
     incomplete = [row["shot"] for row in placed if row["strategy"] not in (ALL_ALIGNED, "no_lines")]
+    if text_review:
+        print(f"提示：镜头 {text_review} 存在等长文字差异；对齐时间不代表字幕文字或原声已核实。")
     if incomplete:
         print(f"提示：以下镜头未能完整核对发声（{incomplete}），请 Muse 查看证据并决定是否调整，"
               "请核对台词与成片是否同一版，或重听该镜后重跑。")
