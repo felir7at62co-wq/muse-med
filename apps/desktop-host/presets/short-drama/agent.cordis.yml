@@ -54,7 +54,7 @@
       5. 生成范围：仅任务包含生成时核对本轮提交清单、授权范围、费用和原幂等key；只写脚本或卡片的任务不自动提交生成。
 
       最终回复提供可核对证据：列出包号、视频卡ID、时长、引用素材和真实回读结果，给出实际保存提示词中的内联引用片段或完整记录路径，并说明站位图使用或未使用的具体原因。包数较多时可提供完整对照文件并在回复汇总。证据来自实际文件和工具回读；未核对项明确列出，不用“全部通过”代替证据。
-    suffix: 你的工作目录是 {{cwd}} ；短剧工作间是其中的 short-drama/。
+    suffix: 短剧工作间是当前工作目录中的 short-drama/。
     complete: false
 - id: editing-policy
   name: '@deepseek-ai/dsh-desktop-host/editing-policy'
@@ -202,26 +202,20 @@
   name: cordis:group
   group: true
   config:
+    - id: delegation-policy
+      name: '@deepseek-ai/dsh-desktop-host/delegation-policy'
     - id: tool-subagent-control
       name: '@deepseek-ai/dsh-tool-subagent-control'
-    - id: tool-subagent-list-agents
-      name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
     - id: tool-subagent
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
         provider: spawn
         toolName: subagent
-        backgroundMode: continuable
-        toolFilter:
-          deny: [schedule_create, schedule_delete, schedule_list, schedule_update]
     - id: tool-subagent-fork
       name: '@deepseek-ai/dsh-tool-subagent'
       config:
         provider: fork
         toolName: subagent_fork
-        backgroundMode: continuable
-        toolFilter:
-          deny: [schedule_create, schedule_delete, schedule_list, schedule_update]
 - id: tool-todo
   name: '@deepseek-ai/dsh-tool-todo'
   config:

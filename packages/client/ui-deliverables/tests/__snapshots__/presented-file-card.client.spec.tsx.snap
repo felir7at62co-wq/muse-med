@@ -13,6 +13,7 @@ exports[`plays a delivered video inline with independent native controls and fil
       <button
         aria-label="Preview out/episode.mp4 in sidebar"
         class="_cardPreview_2cf90d"
+        tabindex="0"
         title="out/episode.mp4"
         type="button"
       />

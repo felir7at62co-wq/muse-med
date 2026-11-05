@@ -1,3 +1,5 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeTool } from './.muse-tool-call.mjs'
 /** Exercise recovered metadata tools through the current Host registry without network access. */
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
@@ -36,6 +38,7 @@ test('current Host validates four canonical results and removes registrations on
   try {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
+  await ctx.plugin(NativeToolExecutor)
     const handle = await ctx.plugin(Hongguo, { requestIntervalMs: 0 })
     assert.equal(ctx.tools.schemas().length, 4)
     const prompt = await ctx.systemPrompt.assemble()
@@ -45,16 +48,16 @@ test('current Host validates four canonical results and removes registrations on
       ['hongguo_search', { query: '剧' }], ['hongguo_detail', { seriesId: id }],
       ['hongguo_rankings', {}], ['hongguo_collections', {}],
     ]) {
-      const result = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId(name), name, arguments: args })
+      const result = await executeTool(ctx, { signal: new AbortController().signal, callId: ToolCallId(name), name, arguments: args })
       assert.equal(result.isError, false, JSON.stringify(result))
       assert.deepEqual(JSON.parse(result.content[0].text), result.value)
     }
-    const bad = await ctx.tools.execute({ signal: new AbortController().signal, callId: ToolCallId('invalid'), name: 'hongguo_detail', arguments: { seriesId: 123 } })
+    const bad = await executeTool(ctx, { signal: new AbortController().signal, callId: ToolCallId('invalid'), name: 'hongguo_detail', arguments: { seriesId: 123 } })
     assert.equal(bad.isError, true)
     const beforeAbort = requests
     const controller = new AbortController()
     controller.abort()
-    const aborted = await ctx.tools.execute({ signal: controller.signal, callId: ToolCallId('cancelled'), name: 'hongguo_search', arguments: { query: '剧' } })
+    const aborted = await executeTool(ctx, { signal: controller.signal, callId: ToolCallId('cancelled'), name: 'hongguo_search', arguments: { query: '剧' } })
     assert.equal(aborted.isError, true)
     assert.equal(requests, beforeAbort)
     await handle.dispose()

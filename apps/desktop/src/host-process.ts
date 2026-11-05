@@ -2,12 +2,14 @@
 
 import { spawn, type ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
+import { z } from 'zod'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import type { ComputerUseState } from './computer-use-overlay.ts'
 import { desktopNodeEnvironment } from './node-environment.ts'
 import { parseDouyinRequest, parseDouyinDataRequest } from './douyin-policy.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION, DESKTOP_HOST_SHUTDOWN_GRACE_MS } from './host-protocol.ts'
 import type { DouyinDesktopRequest, DouyinDesktopResult, DouyinDesktopDataRequest, DouyinDesktopDataResult } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
+import { parsePluginOperationRecord, type PluginOperationRecord, type PluginOperationRunId } from '@deepseek-ai/dsh-plugin-manager/diagnostic'
 
 interface ReadyEvent {
   readonly type: 'ready'
@@ -38,6 +40,8 @@ type DesktopHostEvent =
   | FatalEvent
   | PlatformSessionEvent
   | AttentionSoundEvent
+  | { readonly type: 'starting'; readonly runId: PluginOperationRunId }
+  | { readonly type: 'file-drag-resource'; readonly requestId: number; readonly resource: { readonly path: string; readonly sha256: string; readonly size: number } | null; readonly error?: string }
   | { readonly type: 'shutdown-complete' }
   | {
     readonly type: 'update-tasks'
@@ -66,6 +70,7 @@ export interface DesktopQuitInspection {
 export const QUIT_INSPECTION_DEADLINE_MS = 2_000
 
 const MAX_HOST_DIAGNOSTIC_CHARS = 64 * 1024
+const runIdSchema = z.uuid()
 
 /** Leave time for the Host to acknowledge a completed disposal before escalating. */
 export const DESKTOP_HOST_SHUTDOWN_DEADLINE_MS = DESKTOP_HOST_SHUTDOWN_GRACE_MS + 5_000
@@ -74,6 +79,8 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
   if (typeof message !== 'object' || message === null || !('type' in message)) return false
   const candidate = message as Record<string, unknown>
   switch (candidate.type) {
+    case 'starting':
+      return runIdSchema.safeParse(candidate.runId).success
     case 'shutdown-complete':
       return true
     case 'ready':
@@ -139,11 +146,15 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
         (candidate.diagnostic === undefined || typeof candidate.diagnostic === 'string')
       )
     case 'update-tasks':
-      return (
-        Number.isSafeInteger(candidate.requestId) &&
-        typeof candidate.active === 'boolean' &&
-        (candidate.error === undefined || typeof candidate.error === 'string')
-      )
+      return Number.isSafeInteger(candidate.requestId) && typeof candidate.active === 'boolean'
+        && (candidate.error === undefined || typeof candidate.error === 'string')
+    case 'file-drag-resource': {
+      const resource = candidate.resource
+      return Number.isSafeInteger(candidate.requestId) && (candidate.error === undefined || typeof candidate.error === 'string')
+        && (resource === null || (typeof resource === 'object' && 'path' in resource && typeof resource.path === 'string'
+          && 'sha256' in resource && typeof resource.sha256 === 'string' && /^[a-f0-9]{64}$/u.test(resource.sha256)
+          && 'size' in resource && typeof resource.size === 'number' && Number.isSafeInteger(resource.size) && resource.size >= 0))
+    }
     case 'quit-inspection':
       return (
         Number.isSafeInteger(candidate.requestId) &&
@@ -211,6 +222,7 @@ export class DesktopHostProcess {
   notifyDouyinRevoked(taskId: string, code: string): void {
     if (this.child?.connected) this.child.send({ type: 'douyin-browser-revoked', taskId, code })
   }
+  private runId: PluginOperationRunId | undefined
   private child: ChildProcess | undefined
   private readyResolve!: (ready: DesktopHostReady) => void
   private readyReject!: (error: Error) => void
@@ -245,6 +257,7 @@ export class DesktopHostProcess {
    * @param packageManager - Bundled pnpm entry and Node launcher directory, scoped to package operations.
    * @param onPlatformSession - Private credential updates for embedded Platform views.
    * @param onAttentionSound - A live user-owned turn or question needs an audible cue.
+   * @param onPluginOperation - Optional diagnostic sink; malformed records are ignored without failing the Host.
    */
   constructor(
     private readonly node: string,
@@ -262,6 +275,7 @@ export class DesktopHostProcess {
     private readonly onDouyinDisconnect?: () => void | Promise<void>,
     private readonly onDouyinDataRequest?: (request: DouyinDesktopDataRequest) => Promise<DouyinDesktopDataResult>,
     private readonly onComputerUseState?: (state: ComputerUseState) => Promise<void>,
+    private readonly onPluginOperation?: (record: PluginOperationRecord) => void,
   ) {}
 
   /**
@@ -346,12 +360,24 @@ export class DesktopHostProcess {
         })
         return
       }
+      if (typeof message === 'object' && message !== null && 'type' in message && message.type === 'plugin-operation') {
+        const record = 'record' in message ? parsePluginOperationRecord(message.record) : undefined
+        if (record !== undefined && record.runId === this.runId) {
+          try { this.onPluginOperation?.(record) }
+          catch (_error) {
+            // Diagnostic persistence cannot invalidate the Host's business IPC channel.
+            console.error('desktop plugin operation diagnostic sink failed')
+          }
+        }
+        return
+      }
       if (!isDesktopHostEvent(message)) {
         this.fail(new Error('muse-med host sent an invalid IPC event'))
         child.kill('SIGTERM')
         return
       }
-      if (message.type === 'ready') {
+      if (message.type === 'starting') this.runId = message.runId
+      else if (message.type === 'ready') {
         if (child.pid === undefined) {
           this.fail(new Error('muse-med host reached ready without a process id'))
           return
@@ -397,13 +423,8 @@ export class DesktopHostProcess {
    * an unanswered drain fails at the control-request deadline without authorizing installation.
    */
   async updateTasks(action: 'inspect' | 'lock' | 'unlock'): Promise<boolean> {
-    const response = await this.control(
-      { type: 'update-tasks', action },
-      10_000,
-      `desktop update: task ${action} timed out`,
-    )
-    if (response.type !== 'update-tasks')
-      throw new Error('desktop update: Host answered with a different control response')
+    const response = await this.control({ type: 'update-tasks', action }, 10_000, `desktop update: task ${action} timed out`, 'desktop update')
+    if (response.type !== 'update-tasks') throw new Error('desktop update: Host answered with a different control response')
     return response.active
   }
 
@@ -413,41 +434,53 @@ export class DesktopHostProcess {
    * {@link QUIT_INSPECTION_DEADLINE_MS}, and the shell then asks before quitting.
    */
   async inspectQuit(): Promise<DesktopQuitInspection> {
-    const response = await this.control(
-      { type: 'quit-inspection' },
-      QUIT_INSPECTION_DEADLINE_MS,
-      'desktop quit: inspection timed out',
-    )
-    if (response.type !== 'quit-inspection')
-      throw new Error('desktop quit: Host answered with a different control response')
+    const response = await this.control({ type: 'quit-inspection' }, QUIT_INSPECTION_DEADLINE_MS, 'desktop quit: inspection timed out', 'desktop quit')
+    if (response.type !== 'quit-inspection') throw new Error('desktop quit: Host answered with a different control response')
     return { activeTasks: response.activeTasks, scheduledTasks: response.scheduledTasks }
   }
 
+  /**
+   * @param address - Session-scoped file reference.
+   * @param signal - preparation cancellation.
+   * @returns privately authorized local resource, or null when nonlocal.
+   */
+  async resolveDragResource(address: string, signal?: AbortSignal): Promise<
+    { readonly path: string; readonly sha256: string; readonly size: number } | null
+  > {
+    const response = await this.control({ type: 'file-drag-resource', address }, 12_000, 'File drag authorization timed out', 'file drag', signal)
+    if (response.type !== 'file-drag-resource') throw new Error('Host returned a different control response')
+    return response.resource
+  }
+
   private async control(
-    request:
-      | { readonly type: 'update-tasks'; readonly action: 'inspect' | 'lock' | 'unlock' }
-      | { readonly type: 'quit-inspection' },
-    deadlineMs: number,
-    deadlineMessage: string,
+    request: { readonly type: 'update-tasks'; readonly action: 'inspect' | 'lock' | 'unlock' } | { readonly type: 'quit-inspection' }
+      | { readonly type: 'file-drag-resource'; readonly address: string },
+    deadlineMs: number, deadlineMessage: string, operation: string, signal?: AbortSignal,
   ): Promise<DesktopHostControlResponse> {
     const child = this.child
     if (child === undefined || !child.connected || this.failureReported || this.stopping) {
-      throw new Error(`${request.type === 'update-tasks' ? 'desktop update' : 'desktop quit'}: Host is unavailable`)
+      throw new Error(`${operation}: Host is unavailable`)
     }
+    signal?.throwIfAborted()
     const requestId = this.nextControlId++
     let timer: ReturnType<typeof setTimeout> | undefined
+    const abort = (): void => {
+      if (request.type === 'file-drag-resource' && child.connected) child.send({ type: 'file-drag-cancel', requestId }, (_error) => {
+        // The request still rejects locally if the Host has disconnected.
+      })
+      const reason: unknown = signal?.reason
+      this.controlRequests.get(requestId)?.reject(reason instanceof Error ? reason : new Error(deadlineMessage))
+    }
     try {
       return await new Promise<DesktopHostControlResponse>((resolve, reject) => {
         this.controlRequests.set(requestId, { resolve, reject })
-        timer = setTimeout(() => {
-          reject(new Error(deadlineMessage))
-        }, deadlineMs)
-        child.send({ ...request, requestId }, (error) => {
-          if (error !== null) reject(error)
-        })
+        timer = setTimeout(abort, deadlineMs)
+        signal?.addEventListener('abort', abort, { once: true })
+        child.send({ ...request, requestId }, (error) => { if (error !== null) reject(error) })
       })
     } finally {
       clearTimeout(timer)
+      signal?.removeEventListener('abort', abort)
       this.controlRequests.delete(requestId)
     }
   }
@@ -500,6 +533,7 @@ export class DesktopHostProcess {
   }
 
   private fail(error: Error): void {
+    if (this.runId !== undefined) Object.assign(error, { hostRunId: this.runId })
     this.onPlatformSession?.(null)
     this.readyReject(error)
     for (const request of this.controlRequests.values()) request.reject(error)

@@ -1,17 +1,17 @@
 /** Exact Host releases qualified by the private community-plugin build. */
-export const reviewedHostVersion = '0.2.1-alpha.1'
+export const reviewedHostVersion = '0.2.2-rc.1'
 
 /** Vendor peers must admit the reviewed prereleases explicitly. */
 export const reviewedVendorVersions = Object.freeze({
-  '@deepseek-ai/cordis': '4.0.5-alpha.1',
-  '@deepseek-ai/cosmokit': '1.8.6-alpha.1',
-  '@deepseek-ai/cordis-plugin-group': '1.0.5-alpha.1',
-  '@deepseek-ai/cordis-plugin-hmr': '1.0.20-alpha.1',
-  '@deepseek-ai/cordis-plugin-include': '1.0.10-alpha.1',
-  '@deepseek-ai/cordis-plugin-loader': '1.0.6-alpha.1',
-  '@deepseek-ai/cordis-plugin-logger-console': '1.0.5-alpha.1',
-  '@deepseek-ai/schemastery': '3.18.5-alpha.1',
-  '@deepseek-ai/cordis-plugin-timer': '1.1.7-alpha.1',
+  '@deepseek-ai/cordis': '4.1.0',
+  '@deepseek-ai/cosmokit': '1.9.0',
+  '@deepseek-ai/cordis-plugin-group': '1.1.0',
+  '@deepseek-ai/cordis-plugin-hmr': '1.1.0',
+  '@deepseek-ai/cordis-plugin-include': '1.1.0',
+  '@deepseek-ai/cordis-plugin-loader': '1.1.0',
+  '@deepseek-ai/cordis-plugin-logger-console': '1.1.0',
+  '@deepseek-ai/schemastery': '3.19.0',
+  '@deepseek-ai/cordis-plugin-timer': '1.2.0',
 })
 
 /** Artifact metadata for the Host qualification and retired dependencies. */

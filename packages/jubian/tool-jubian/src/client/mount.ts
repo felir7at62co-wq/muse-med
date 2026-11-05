@@ -23,7 +23,7 @@ import type {} from '@deepseek-ai/dsh-tool-jubian/remote'
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import { JubianTokenSection } from './JubianTokenSection.tsx'
 import type { JubianTokenInjected, JubianTokenOutcome, JubianTokenStatus } from './JubianTokenSection.tsx'
-import { en, zh, type JubianLocaleKey } from './locales.ts'
+import { en, zh, ja, es, fr, de, ru, pt, type JubianLocaleKey } from './locales.ts'
 
 export type {
   JubianTokenInjected,
@@ -79,7 +79,7 @@ function outcomeOf(result: RemoteResult<JubianTokenStatus>): JubianTokenOutcome 
 
 /** Contribute the Jubian token page to Settings. */
 function registerSection(ctx: ClientContext): void {
-  ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'tool-jubian: token dictionaries')
+  ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'tool-jubian: token dictionaries')
 
   const t = ctx.locale.bind(NS)
   const injected = (): JubianTokenInjected => ({

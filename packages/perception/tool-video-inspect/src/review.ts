@@ -110,14 +110,14 @@ function content(serialized: string): ContentBlock[] {
  * @param run - Existing lifecycle owner that bounds media work and waits for shutdown.
  * @param imageRoute - Requires the current Session's image-capable route.
  */
-export function applyCompleteReview(ctx: Context, config: Config,
+export async function applyCompleteReview(ctx: Context, config: Config,
   run: <T>(exec: ToolExecution, operation: (signal: AbortSignal) => Promise<T>) => Promise<T>,
-  imageRoute: (ctx: Context, exec: ToolExecution) => Promise<void>): void {
+  imageRoute: (ctx: Context, exec: ToolExecution) => Promise<void>): Promise<void> {
   const llm = ctx.get('llm')
   if (ctx.get('sessionProjections') === undefined || llm === undefined) {
     throw Error('Complete video observation requires sessionProjections and llm')
   }
-  installReviewState(ctx)
+  const readReviews = await installReviewState(ctx)
   const sessions = new Map<SessionId, Session>()
   const batchLimits = new Map<SessionId, number>()
   let active = true
@@ -145,7 +145,7 @@ export function applyCompleteReview(ctx: Context, config: Config,
       }
     }
     const admitted = session === undefined || !model?.inputModalities?.includes('image') ? []
-      : Object.values(reviewsOf(ctx, session)).flatMap(review => review.frames
+      : Object.values(reviewsOf(readReviews, session)).flatMap(review => review.frames
         .filter(frame => !frame.exposed && frame.image !== undefined
           && delivered.get(`${review.id}/${frame.id}`) === frame.image.attachmentId)
         .map(frame => ({ path: review.path, review: review.id, frame: frame.id, image: frame.image?.attachmentId })))
@@ -167,8 +167,8 @@ export function applyCompleteReview(ctx: Context, config: Config,
     if (!active || !successful || options.signal?.aborted || session === undefined) return
     for (const path of new Set(admitted.map(frame => frame.path))) {
       // Review projections retain source keys until their owning plugin is disposed.
-      const current = reviewsOf(ctx, session)[path] as VideoReview
-      saveReview(ctx, session, { ...current, frames: current.frames.map(frame => admitted.some(row => row.review === current.id
+      const current = reviewsOf(readReviews, session)[path] as VideoReview
+      saveReview(readReviews, session, { ...current, frames: current.frames.map(frame => admitted.some(row => row.review === current.id
         && row.frame === frame.id && row.image === frame.image?.attachmentId) ? { ...frame, exposed: true } : frame) })
     }
   })
@@ -222,7 +222,7 @@ export function applyCompleteReview(ctx: Context, config: Config,
       sessions.set(session.id, session)
       const result = await run(exec, async (signal): Promise<ReviewResult> => {
         const policy = ctx.sandboxPolicy.resolve({ session })
-        const saved = reviewsOf(ctx, session)
+        const saved = reviewsOf(readReviews, session)
         const byId = args.review_id === undefined ? undefined : Object.values(saved).filter(review => review.id === args.review_id)
         if (byId !== undefined && byId.length !== 1) throw Error('VIDEO_REVIEW_ID: review_id须唯一对应本会话已保存的视频记录。')
         const selected = byId?.[0]
@@ -242,7 +242,7 @@ export function applyCompleteReview(ctx: Context, config: Config,
               ...args.reason === undefined ? snapshot.follow_up?.reason === undefined ? {} : { reason: snapshot.follow_up.reason }
                 : { reason: args.reason } }
             const closed = { ...snapshot, follow_up: followUp }
-            saveReview(ctx, session, closed)
+            saveReview(readReviews, session, closed)
             return savedDescription(closed)
           }
           return savedDescription(snapshot)
@@ -350,7 +350,9 @@ export function applyCompleteReview(ctx: Context, config: Config,
           return { review: linked, result: indexed(result, linked, sourceLink), report }
         }
         const publishDescription = async (prepared: Awaited<ReturnType<typeof prepareDescription>>): Promise<ReviewResult> => {
-          if (reviewsOf(ctx, session)[prepared.review.path]?.id === prepared.review.id) saveReview(ctx, session, prepared.review)
+          if (reviewsOf(readReviews, session)[prepared.review.path]?.id === prepared.review.id) {
+            saveReview(readReviews, session, prepared.review)
+          }
           if (prepared.report === undefined) return prepared.result
           const { contents, report } = prepared.report
           if (await ctx.fs.stat(report, signal) === undefined) {
@@ -366,20 +368,20 @@ export function applyCompleteReview(ctx: Context, config: Config,
         const info = await ctx.fs.stat(target, signal)
         if (!info || info.type !== 'file' || info.size === undefined || info.size > config.maxSourceBytes) throw Error('Video input must be a bounded regular file')
         if (args.method === 'reopen') {
-          const review = reviewsOf(ctx, session)[target.displayPath]
+          const review = reviewsOf(readReviews, session)[target.displayPath]
           if (review === undefined) throw Error('VIDEO_REVIEW_REQUIRED: 未找到对应来源的已保存记录。')
           if (review.source_version !== info.version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: 视频版本已变，请重新scan；后续跟进状态未改变。')
           if (review.follow_up?.status === 'closed' || args.reason !== undefined) {
             const reopened = { ...review, follow_up: { status: 'active' as const,
               ...args.reason === undefined ? {} : { reason: args.reason } } }
-            saveReview(ctx, session, reopened)
+            saveReview(readReviews, session, reopened)
             return savedDescription(reopened)
           }
           return savedDescription(review)
         }
         await ctx.fs.readByteRange(target, { offset: 0, length: 1 }, signal)
         const path = target.displayPath, source = ctx.fs.processPath(target)
-        let review = reviewsOf(ctx, session)[path]
+        let review = reviewsOf(readReviews, session)[path]
         if (args.method === 'metadata' || args.method === 'scan' && (review === undefined || review.source_version !== info.version || !review.scan_complete)) {
           const metadata = await probeVideo(ctx, config.ffprobePath, source, policy, signal,
             { timeoutMs: config.commandTimeoutMs, graceMs: config.graceMs }, 'video')
@@ -389,14 +391,14 @@ export function applyCompleteReview(ctx: Context, config: Config,
           await imageRoute(ctx, { ...exec, signal })
           review = { id: VideoReviewId(randomUUID()), path, episode: args.episode ?? path, source_version: info.version,
             duration: metadata.duration_seconds, scanned_until: 0, scan_complete: false, frames: [] }
-          saveReview(ctx, session, review)
+          saveReview(readReviews, session, review)
           const base = review
           const ffmpeg = await ctx.subprocess.resolveExecutable(config.ffmpegPath, undefined, signal)
           const frames = await scanReviewFrames(ctx, source, metadata.duration_seconds, ffmpeg, config, policy, signal,
-            (end, frames) => { saveReview(ctx, session, { ...base, scanned_until: end, frames }) })
+            (end, frames) => { saveReview(readReviews, session, { ...base, scanned_until: end, frames }) })
           if ((await ctx.fs.stat(target, signal))?.version !== info.version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: source changed while scanning')
           review = { ...base, scan_complete: true, scanned_until: metadata.duration_seconds, frames }
-          saveReview(ctx, session, review)
+          saveReview(readReviews, session, review)
         }
         if (review === undefined) throw Error('VIDEO_REVIEW_REQUIRED: 先使用scan扫描当前完整视频。')
         if (review.source_version !== info.version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: 视频版本已变，请重新scan。')
@@ -409,7 +411,7 @@ export function applyCompleteReview(ctx: Context, config: Config,
           const result = boundedSpeech(link => ({ ...taskResult(linked, batchFrames),
             source_timeline: buildVideoSourceTimeline(linked, selection, link.speech, link.speech_unavailable) }), link)
           if ((await ctx.fs.stat(target, signal))?.version !== review.source_version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: 视频在读取时间线期间变化，请回读。')
-          saveReview(ctx, session, linked)
+          saveReview(readReviews, session, linked)
           return result
         }
         if (args.method === 'compare') {
@@ -429,7 +431,7 @@ export function applyCompleteReview(ctx: Context, config: Config,
           if ((await ctx.fs.stat(draft, signal))?.version !== before.version
             || (await ctx.fs.stat(target, signal))?.version !== info.version) throw Error('VIDEO_COMPARE_CHANGED: 视频或剧本读取期间变化，请回读当前版本。')
           ctx.emit('fs/observed', draft, { kind: 'present', version: before.version }, exec)
-          saveReview(ctx, session, linked)
+          saveReview(readReviews, session, linked)
           return result
         }
         if (args.method === 'revisit') {
@@ -465,7 +467,7 @@ export function applyCompleteReview(ctx: Context, config: Config,
           const updated = { ...review, event_groups: bindReviewEvents(args.event_groups, review.frames) }
           const prepared = await prepareDescription(updated)
           if ((await ctx.fs.stat(target, signal))?.version !== info.version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: 视频在记录事件期间变化，请重新scan。')
-          saveReview(ctx, session, prepared.review)
+          saveReview(readReviews, session, prepared.review)
           return publishDescription(prepared)
         }
         if (args.method === 'observe') {
@@ -496,7 +498,7 @@ export function applyCompleteReview(ctx: Context, config: Config,
               reasons: ['uncertainty_context', `context_for:${frame.id}`], exposed: false })
           }
           review = { ...review, frames }
-          saveReview(ctx, session, review)
+          saveReview(readReviews, session, review)
           return describe(review)
         }
         if (args.method === 'status') return describe(review)
@@ -522,11 +524,11 @@ export function applyCompleteReview(ctx: Context, config: Config,
           const extracted = { ...frame, image, decoded_time: time }
           updated.set(frame.id, extracted)
           review = { ...review, frames: review.frames.map(existing => existing.id === frame.id ? extracted : existing) }
-          saveReview(ctx, session, review)
+          saveReview(readReviews, session, review)
         }
         if ((await ctx.fs.stat(target, signal))?.version !== review.source_version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: source changed during extraction')
         review = { ...review, frames: review.frames.map(frame => updated.get(frame.id) ?? frame) }
-        saveReview(ctx, session, review)
+        saveReview(readReviews, session, review)
         const result = await describe(review, true)
         return { ...result, frames: result.frames.filter(frame => updated.has(frame.id)) }
       })

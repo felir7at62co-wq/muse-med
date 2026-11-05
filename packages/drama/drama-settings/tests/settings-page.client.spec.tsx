@@ -56,7 +56,6 @@ function snapshot(overrides: Partial<ConfigFormSnapshot<DramaSettings>> = {}): C
     user: undefined,
     revision: 1,
     writable: true,
-    mode: 'host',
     ...overrides,
   }
 }

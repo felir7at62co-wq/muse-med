@@ -54,7 +54,7 @@ export async function apply(ctx) {
     assert.ok(system.includes('人物面部同样不写“脸红”“面部发红”'), 'facial colour wording')
     assert.ok(system.includes('Use the read tool'), 'filesystem guidance')
     assert.ok(system.includes('Track every background job id'), 'background-job guidance')
-    assert.ok(system.includes('；短剧工作间是其中的 short-drama/。'), 'dynamic workspace suffix')
+    assert.ok(system.includes('短剧工作间是当前工作目录中的 short-drama/。'), 'dynamic workspace suffix')
     assert.ok(!system.includes('面部留白为纯白色'), 'no removed asset-board rules')
     assert.ok(options.tools.some(tool => tool.name === 'drama_render'), 'render tool retained')
     const shotReview = options.tools.find(tool => tool.name === 'drama_shot')

@@ -58,6 +58,8 @@ kind: "package-reference"
 <a id="session-video-settings"></a>
 ### 会话视频设置
 
+通过代码组合时，调用工具前须等待 `apply(ctx, config)` 完成。会话视频复核在插件启动期间保留私有投影句柄，后续模型变更依据已记录的分包结果进行复核。
+
 `sessionVideoSelection: true` 时，当前会话选择的模型及已核实的时长上限决定分包建议，项目默认值不会覆盖它们。传入的 `max_submit_seconds` 会被忽略；与会话上限冲突时返回警告。结果的 `duration_budget` 标明 `source`（`session` 或 `argument`）、实际采用的 `max_submit_seconds` 或 `null`，以及 `selection` 或 `null`。选择包含 `model_id`、`model_name`、`platform_id`、`standard_id`、`resolution`、`max_duration_seconds` 和 `revision`。选择不可用或时长未知时返回警告，不给分包建议，保留原脚本；工具不会借用其他模型的 15 秒或 30 秒上限。
 
 切换选择时，同步检查器把最近一次实际 advisory `preview` 或 `compile` 分包的 `submit_seconds` 与新上限比较，在既有已记录的选择上下文消息中点名超限包与镜头，不修改系统提示词，也不另发模型请求。仅 Host 使用的 `dramaShotReview` 投影从已记录工具结果恢复最近检查，在重载和上下文压缩后仍可使用。工具结果完成时若模型 revision 已过期，也会追加警告上下文。此比较不会重读修改后的源稿、检查图片、重新分包、写文件或改卡；需要针对新选择重算方案时应重新调用 `preview`。没有发现超限不代表创作质量验收通过。

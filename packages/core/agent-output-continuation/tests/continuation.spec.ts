@@ -7,9 +7,15 @@ import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-test
 import { createUserMessage, LlmAdapter, LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import type { Config } from '../src/index.ts'
 import * as continuation from '../src/index.ts'
+
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'continuation-fixture': { kind: 'continuation-fixture' }
+  }
+}
 
 type Script = StreamChunk[] | ((request: GenerateOptions) => AsyncIterable<StreamChunk>)
 class ScriptedAdapter extends LlmAdapter {
@@ -233,7 +239,7 @@ it('preserves unrelated injected context in the continuation request', async () 
   const { ctx, agent, adapter } = await harness([reply('partial', 'max-tokens'), reply('Done')])
   ctx.on('agent/inbox/inserted', ({ message }) => {
     if (message.source.kind === 'output-continuation') agent.inject(createUserMessage({
-      source: { kind: 'runtime-context' }, content: [{ type: 'text', text: 'Context from another producer' }],
+      source: { kind: 'continuation-fixture' }, content: [{ type: 'text', text: 'Context from another producer' }],
     }))
   })
   await run(agent); expect(adapter.requests).toHaveLength(2)

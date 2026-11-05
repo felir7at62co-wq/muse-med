@@ -94,6 +94,13 @@ Host owner shared by the composer, model-facing ask tool and paid executors.
 
 ```ts cordis-catalog
 /**
+ * Read a prepared conversation's explicit choice without loading history.
+ * @param session - Conversation prepared by the Session store.
+ * @returns Latest recorded choice, or null before a selection.
+ */
+selectionFor(session: Session): SessionVideoSelection | null
+
+/**
  * Initialize the configured default from the live catalogue once, preserving any human choice made during the read.
  * @param agent - Owning conversation.
  * @returns Existing or newly committed setting, or null when no default is configured.
@@ -175,7 +182,7 @@ assertCurrent(agent: Agent, saved: Record<string, unknown>): void
 async reconcile(agent: Agent, args: Record<string, unknown>): Promise<void>
 ```
 
-Types: [Agent](core.md)
+Types: [Agent](core.md) · [Session](session.md)
 
 Source: [`packages/jubian/tool-jubian/src/video-session.ts`](../../packages/jubian/tool-jubian/src/video-session.ts)
 

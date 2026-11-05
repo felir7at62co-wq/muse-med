@@ -31,26 +31,24 @@ it.each([
   expect(rowConfig(reopened.ctx, 'feishu-channel')).toMatchObject({ enabled: !options.enabled })
 })
 
-it('delegates unrelated and child configurations, and preserves non-object configuration inputs', async () => {
+it('delegates unrelated and child configurations, and lets the bridge schema reject invalid credentials', async () => {
   const composition = await feishuProfile()
   const owner = composition.ctx.plugin(Feishu, { enabled: true })
   await owner.await()
   const ctx = composition.ctx
   const bridge = [...ctx.loader.entries()].find(entry => entry.options.id === 'feishu-channel')!.fiber!
   const unrelated = { enabled: true, marker: 'untouched' }
-  expect(ctx.waterfall(ctx.fiber, 'internal/config', unrelated, () => unrelated)).toBe(unrelated)
+  expect(ctx.waterfall('internal/config', ctx.fiber, () => unrelated)).toBe(unrelated)
   const child = bridge.ctx.plugin({ apply: (_ctx: Context, _config: typeof unrelated) => {} }, unrelated)
   await child.await()
   expect(child.config).toBe(unrelated)
   for (const input of [null, ['not-a-config'], 12]) {
-    expect(ctx.waterfall(bridge, 'internal/config', input, () => input)).toEqual(input)
+    expect(ctx.waterfall('internal/config', ctx.fiber, () => input)).toEqual(input)
   }
-  for (const input of [
-    {}, { appId: 12 }, { appId: '' }, { appId: 'cli_x' }, { appId: 'cli_x', appSecret: 12 },
-  ]) {
-    const current = ctx.plugin(Feishu, { enabled: true })
-    await current.await()
-    expect(ctx.waterfall(bridge, 'internal/config', input, () => input)).toMatchObject({ enabled: false })
-    await current.dispose()
+  for (const input of [{}, { appId: '' }, { appId: 'cli_x' }]) {
+    expect(bridge.resolveConfig({ ordinary: 'bridge', ...input })).toMatchObject({ enabled: false })
+  }
+  for (const input of [{ appId: 12 }, { appId: 'cli_x', appSecret: 12 }]) {
+    expect(() => bridge.resolveConfig({ ordinary: 'bridge', ...input })).toThrow('invalid config')
   }
 })

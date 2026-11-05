@@ -1,11 +1,14 @@
 /** Desktop model defaults keep the native provider available for explicit user configuration. */
 import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import type { Context } from '@deepseek-ai/cordis'
 import { loadOverlayPatches, composeEntries } from '@deepseek-ai/dsh-app-boot'
+import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
+import LocalCredentials from '@deepseek-ai/dsh-credentials-local'
 import { expect, it } from 'vitest'
 import LlmRuntime from '../../../packages/llm/llm/src/index.ts'
 import * as DeepSeekApiKey from '../../../packages/llm/llm-deepseek-api-key/src/index.ts'
 import { credentialRef } from '../../../packages/credentials/credentials/src/index.ts'
-import { MemoryCredentials } from '../../../packages/credentials/credentials/tests/memory.ts'
 import { configurationFixture } from '../../../packages/settings/settings/tests/configuration-fixture.ts'
 
 async function fixture() {
@@ -20,7 +23,12 @@ async function fixture() {
     { id: 'llm-deepseek', name: 'cordis:deepseek' },
   ] }], defaults])
   return await configurationFixture({ hmr: false, rows,
-    builtins: { llm: LlmRuntime, credentials: MemoryCredentials, deepseek: DeepSeekApiKey } })
+    builtins: { llm: LlmRuntime, deepseek: DeepSeekApiKey, credentials: {
+      apply: async (ctx: Context) => {
+        ctx.provide('launchEnvironment', createLaunchEnvironmentSnapshot([]))
+        await ctx.plugin(LocalCredentials, { path: join(ctx.profileContext.home, 'model-test.credentials.yaml'), watch: false }).await()
+      },
+    } } })
 }
 
 it('offers no unconfigured native DeepSeek model in a fresh Muse profile', async () => {

@@ -10,7 +10,7 @@ import { inspectSubagentRuntime, loadSubagentRuntime, SUBAGENT_RUNTIME_VERSION }
 import { authenticatedSubagentChild } from './src/subagent-auth.js'
 import { createRuntimeManagement } from './src/runtime-management.js'
 
-const approvedVersion = '0.2.1-alpha.1'
+const approvedVersion = '0.2.2-rc.1'
 
 test('runs the real current provider and authenticated transport against a local protocol peer', async () => {
   const official = await import('@deepseek-ai/dsh-subagent-codex')
@@ -63,7 +63,7 @@ test('runs the real current provider and authenticated transport against a local
       } },
       logger: { warn(message) { assert.fail(message) } },
     }, { model: 'test-model', env: {}, permissionMode: 'never', disposeGraceMs: 1000 })
-    run = await provider.start({ parent: { session: { header: { cwd: process.cwd() } } }, prompt: [{ type: 'text', text: 'fixture task' }], signal })
+    run = await provider.start({ parent: { session: { header: { cwd: process.cwd() } } }, cwd: process.cwd(), prompt: [{ type: 'text', text: 'fixture task' }], signal })
     assert.deepEqual(await run.result, { output: [{ type: 'text', text: 'fixture result' }], stopReason: 'completed' })
     assert.deepEqual(observed, ['initialize', 'account/login/start', 'thread/start', 'turn/start'])
     await run.dispose()

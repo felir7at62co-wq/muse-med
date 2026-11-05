@@ -1,3 +1,5 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeTool } from '../../checks/tool-call.mjs'
 /** Real Sessions, initiating-Agent attribution and sandbox policy; only Windows IO is mocked. */
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -65,7 +67,7 @@ async function fixture(t, options = {}) {
   await ctx.plugin(Bridge); await ctx.plugin(Subprocess)
   async function mount() {
     const scope = ctx.isolate('tools').isolate('systemPrompt')
-    await scope.plugin(SystemPrompt); await scope.plugin(Tools)
+    await scope.plugin(SystemPrompt); await scope.plugin(Tools); await scope.plugin(NativeToolExecutor)
     const fiber = scope.plugin(consumer, consumer.Config({})); await fiber.await()
     return { scope, fiber }
   }
@@ -77,7 +79,7 @@ async function fixture(t, options = {}) {
   let sequence = 0
   async function invoke(session, args = {}, target = mounted, signal = new AbortController().signal) {
     return await ctx.agents.withInitiator({ session, ctx: target.scope }, async () => {
-      const result = await target.scope.tools.execute({ callId: `lvpaopao-${++sequence}`, name: 'lvpaopao',
+      const result = await executeTool(target.scope, { callId: `lvpaopao-${++sequence}`, name: 'lvpaopao',
         arguments: Object.fromEntries(Object.entries({ action: 'download_first_episode', ...params, ...args }).filter(([, value]) => value !== undefined)), signal })
       assert.equal(result.isError, false)
       return JSON.parse(result.content[0].text)

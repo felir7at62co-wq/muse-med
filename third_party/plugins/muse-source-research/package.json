@@ -6,27 +6,47 @@
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
   "exports": {
-    ".": { "types": "./src/index.d.ts", "default": "./src/index.js" },
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
-  "files": ["src/", "cordis.patch.yml", "SOURCE.json", "README.md", "README.zh.md", "README.i18n.yaml", "LICENSE"],
+  "files": [
+    "src/",
+    "cordis.patch.yml",
+    "SOURCE.json",
+    "README.md",
+    "README.zh.md",
+    "README.i18n.yaml",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "vitest run --config vitest.config.mjs",
     "check": "node --check src/index.js && node --check src/service.js && node --check src/canonical.js && node --check src/store.js && node --check src/mappings.js",
     "package": "node scripts/pack.mjs"
   },
-  "engines": { "node": "^22.19.0 || >=24.0.0" },
-  "dependencies": { "muse-hongguo-search": "0.1.0", "muse-qimao-data": "0.1.0" },
-  "peerDependencies": {
-    "@deepseek-ai/cordis": "4.0.4",
-    "@deepseek-ai/dsh-agent": "0.2.1-alpha.1",
-    "@deepseek-ai/dsh-brand": "0.2.1-alpha.1",
-    "@deepseek-ai/dsh-fs": "0.2.1-alpha.1",
-    "@deepseek-ai/dsh-sandbox-policy": "0.2.1-alpha.1",
-    "@deepseek-ai/dsh-tools": "0.2.1-alpha.1",
-    "@deepseek-ai/dsh-user-questions": "0.2.1-alpha.1"
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
   },
-  "dsh": { "bundle": { "patch": "./cordis.patch.yml" } },
+  "dependencies": {
+    "muse-hongguo-search": "0.1.0",
+    "muse-qimao-data": "0.1.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "4.1.0",
+    "@deepseek-ai/dsh-agent": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-brand": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-fs": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-sandbox-policy": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-user-questions": "0.2.2-rc.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "license": "MIT"
 }

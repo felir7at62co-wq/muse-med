@@ -28,6 +28,7 @@ const snapshotAdapters = [
   'apps/web/tests/message-feedback-protocol.snapshot.ts',
   'apps/web/tests/minimal-preset.snapshot.ts',
   'apps/web/tests/preset-migration.snapshot.ts',
+  'apps/web/tests/subagent-fork-schedule.snapshot.ts',
   'apps/web/tests/workspace-file-drop.snapshot.ts',
   'snapshots/acp/acp.snapshot.ts',
   'snapshots/sdk/factory-shutdown.snapshot.ts',
@@ -58,7 +59,11 @@ async function scenarios(): Promise<Scenario[]> {
       expect(existsSync(path), `${profile}/${entry.name}/snapshot.yml`).toBe(true)
       const manifest = parseSnapshotManifest(await readFile(path, 'utf8'), path)
       expect(manifest.scenario, `${profile}/${entry.name}: scenario`).toBe(entry.name)
-      expect(manifest.profile, `${profile}/${entry.name}: profile`).toBe(profile === 'session' ? 'headless' : profile)
+      if (profile === 'sdk') {
+        expect(['sdk', 'sdk-minimal'], `${profile}/${entry.name}: profile`).toContain(manifest.profile)
+      } else {
+        expect(manifest.profile, `${profile}/${entry.name}: profile`).toBe(profile === 'session' ? 'headless' : profile)
+      }
       expect(manifest.composition, `${profile}/${entry.name}: composition`).toBeTypeOf('string')
       expect(manifest.recording, `${profile}/${entry.name}: recording`).toMatch(/^(live|authored)$/)
       expect(manifest.header, `${profile}/${entry.name}: header`).toBeDefined()
@@ -244,6 +249,8 @@ it('keeps V3 replay input plus bounded declared historical migration coverage', 
       { key: 'session/muse-manuscript-user-revisions-pwsh', selectedVersions: [4], retained: { version: 4, coverage: ['retired-tools'] } },
       { key: 'session/muse-resident-question', selectedVersions: [4], retained: { version: 4, coverage: ['retired-tools'] } },
       { key: 'session/muse-resident-view', selectedVersions: [4], retained: { version: 4, coverage: ['retired-tools'] } },
+      { key: 'session/office-render-tools', selectedVersions: [4], retained: { version: 4, coverage: ['retired-tools'] } },
+      { key: 'session/office-render-tools-ptc', selectedVersions: [4], retained: { version: 4, coverage: ['retired-tools'] } },
       { key: 'session/packed-chunks', selectedVersions: [0], retained: { version: 0, coverage: ['packed-row'] } },
       { key: 'session/subagent-multi', selectedVersions: [0, 0, 0], retained: { version: 0, coverage: ['multi-hop', 'shipped-profile'] } },
       { key: 'session/text-turn', selectedVersions: [1], retained: { version: 1, coverage: ['adjacent-migration'] } },
@@ -252,7 +259,7 @@ it('keeps V3 replay input plus bounded declared historical migration coverage', 
     ])
   expect(summary.baselineRoles).toBeGreaterThan(0)
   expect(summary).toMatchObject({
-    retainedRoles: 15,
-    retainedScenarios: 12,
+    retainedRoles: 17,
+    retainedScenarios: 14,
   })
 })

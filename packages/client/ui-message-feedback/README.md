@@ -33,6 +33,8 @@ On Muse Desktop, Submit sends the draft, category, and task or message identifie
 
 A rating or list-load failure shows inline in the row; a submission failure shows a warning toast and keeps the draft. Muse requires its delivery provider and current account; it does not acknowledge a local record as inbox delivery. An uncertain send or account change directs the user to inspect the original account's inbox before deciding to retry. A confirmed cloud receipt stays successful if saving the local marker fails. Only finalized messages reach the message entry; an interrupted partial has no `messageId` or feedback controls.
 
+Access: the rating buttons render only while the current Peer may call `messageFeedback/put` on the Session; the `/feedback` decoration has no Client check, and the Host refuses a submission without access.
+
 -----
 
 <a id="understand-the-implementation"></a>

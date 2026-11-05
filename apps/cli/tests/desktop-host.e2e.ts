@@ -39,6 +39,7 @@ it.each([false, true])('settles startup after parent IPC disconnect (boot failur
   writeFileSync(join(root, 'package.json'), '{"type":"module"}')
   writeFileSync(join(modules, 'dsh-app-boot', 'package.json'), '{"type":"module","exports":"./index.js"}')
   writeFileSync(join(modules, 'dsh-app-boot', 'index.js'), `
+    export class StartupError extends Error {}
     export const loadProfileDirectory = () => ({ layers: [], patches: [], skippedBundles: [] });
     export const reportSkippedBundles = () => {};
     export const loadLayeredEnv = () => ({});
@@ -90,7 +91,31 @@ it.each([false, true])('settles startup after parent IPC disconnect (boot failur
       packageManager: { command: string; args: string[]; env: Record<string, string> }
       shutdownTimeoutMs: number
     }>((resolve, reject) => {
-      child.once('message', resolve)
+      child.on('message', (message) => {
+        if (typeof message !== 'object' || message === null || !('type' in message) || message.type !== 'booting') return
+        if (!('shutdownTimeoutMs' in message) || typeof message.shutdownTimeoutMs !== 'number'
+          || !('packageManager' in message) || typeof message.packageManager !== 'object' || message.packageManager === null) {
+          reject(new Error('Invalid Host boot metadata'))
+          return
+        }
+        const manager = message.packageManager
+        if (!('command' in manager) || typeof manager.command !== 'string' || !('args' in manager)
+          || !Array.isArray(manager.args) || !manager.args.every((value: unknown): value is string => typeof value === 'string')
+          || !('env' in manager) || typeof manager.env !== 'object' || manager.env === null || Array.isArray(manager.env)) {
+          reject(new Error('Invalid Host package-manager metadata'))
+          return
+        }
+        const environment: Record<string, string> = {}
+        for (const [key, value] of Object.entries(manager.env)) {
+          if (typeof value !== 'string') {
+            reject(new Error('Invalid Host package-manager environment'))
+            return
+          }
+          environment[key] = value
+        }
+        resolve({ packageManager: { command: manager.command, args: manager.args, env: environment },
+          shutdownTimeoutMs: message.shutdownTimeoutMs })
+      })
       child.once('error', reject)
       child.once('exit', (code) => { reject(new Error(`Host exited before booting: ${String(code)} ${stderr}`)) })
     })

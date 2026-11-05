@@ -55,6 +55,9 @@
     },
     {
       "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../../core/tool-executor-ptc"
     }
   ]
 }

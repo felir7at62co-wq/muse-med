@@ -14,7 +14,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Session } from '@deepseek-ai/dsh-session'
 import type { SessionId, UserMessage } from '@deepseek-ai/dsh-session'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 
 /** The tools a fabricated preset contributes, in the lexical order the guard records them. */
@@ -41,6 +41,7 @@ export function stubAgent(id: SessionId, agentCtx: Context, injected: UserMessag
   return {
     id,
     options: {},
+    model: { current: () => undefined, select: () => {} },
     session: Session.create(id),
     inbox: { nextTurn: [], nextStep: [] } as never,
     status: 'idle',

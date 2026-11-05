@@ -10,6 +10,8 @@ import { collectToolCatalog, type ToolCatalog } from '../../../scripts/gen-tool-
 import { Config } from '@deepseek-ai/dsh-tool-discovery'
 import { Context } from '@deepseek-ai/cordis'
 import Agents from '@deepseek-ai/dsh-agent'
+import Sessions from '@deepseek-ai/dsh-session'
+import Projections from '@deepseek-ai/dsh-session-projection'
 import Tools from '@deepseek-ai/dsh-tools'
 import Prompt from '@deepseek-ai/dsh-system-prompt'
 import { capabilityMemberships } from '../../../packages/core/tool-discovery/src/capabilities.ts'
@@ -200,10 +202,12 @@ it('discovers source snapshot, report and work relation tools by Chinese request
   try {
     await ctx.plugin(Prompt)
     await ctx.plugin(Tools)
-    await ctx.plugin(Agents)
+    await ctx.plugin(Sessions)
+    await ctx.plugin(Projections).await()
+    await ctx.plugin(Agents).await()
     await ctx.plugin(LocalFileSystem)
     await ctx.plugin(UserQuestionService)
-    await ctx.plugin(await loadSourceResearchPlugin(ctx))
+    await ctx.plugin(await loadSourceResearchPlugin(ctx)).await()
     const researchSchemas = ctx.tools.schemas()
     expect(researchSchemas.map(schema => schema.name).sort()).toEqual(['source_report', 'source_snapshot', 'work_mapping'])
     const schemas = new Map([...catalog.flatMap(entry => entry.schemas), ...researchSchemas].map(schema => [schema.name, schema]))

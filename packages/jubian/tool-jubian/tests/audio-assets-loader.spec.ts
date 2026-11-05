@@ -1,4 +1,6 @@
 /** Registered tools preserve the original card through audio registration, binding and removal. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -45,17 +47,18 @@ it('registers, binds, detaches and deletes audio through the original card and i
   try {
     await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
     const configured = await configurationFixture({ hmr: false, rows: [
+      { id: 'tool-executor-native', name: 'cordis:native-executor' },
       { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
       { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mocked-token' } },
       { id: 'jubian', name: 'cordis:jubian', config: { ledgerRoot: join(root, 'ledger'), workspaceSecrets: false } },
-    ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+    ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
     ctx = configured.ctx
     const boundContext = ctx
     const invoke = async (name: string, args: Record<string, unknown>) => {
       const tool = boundContext.tools.get(name)
       if (!tool) throw new Error(`Missing ${name}`)
       expect(validateJsonSchemaValue(tool.parameters, args, '')).toEqual([])
-      const result = await boundContext.tools.execute({ callId: ToolCallId(`audio-chain-${calls.length}`), name,
+      const result = await executeModelToolFixture(boundContext, { callId: ToolCallId(`audio-chain-${calls.length}`), name,
         arguments: args, signal: new AbortController().signal })
       return result
     }

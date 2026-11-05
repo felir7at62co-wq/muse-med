@@ -14,9 +14,11 @@ import Subagents from '@deepseek-ai/dsh-subagent'
 import * as Spawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { mountWorkingDirectoryFixture } from '../../../subagent/subagent/tests/working-directory-fixture.ts'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import * as ModelSettings from '../src/model-settings.ts'
-import { JubianVideoSelection, selectedVideo, videoOptions, videoSelectionContext } from '../src/video-session.ts'
+import { JubianVideoSelection, videoOptions, videoSelectionContext } from '../src/video-session.ts'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionVideoSelection } from '../src/video-session-types.ts'
 
@@ -31,6 +33,8 @@ async function fixture(defaultModel?: { modelId: string; platformId: string; res
   cleanup.push(() => ctx.fiber.dispose())
   await ctx.plugin(Sessions)
   await ctx.plugin(SystemPrompt); await ctx.plugin(Tools)
+  await ctx.plugin(NativeToolExecutor)
+  await mountWorkingDirectoryFixture(ctx)
   await ctx.plugin(Llm); await ctx.plugin(SessionProjections); await ctx.plugin(Agents); await ctx.plugin(AgentLoop, { agents: [] })
   const script: ConstructorParameters<typeof MockAdapter>[0] = []
   const adapter = new MockAdapter(script)
@@ -47,7 +51,8 @@ async function fixture(defaultModel?: { modelId: string; platformId: string; res
     return new Response(JSON.stringify({ code: 200, data: path.includes('getSelectList') ? catalogue['1'] : path.includes('/list') ? { rows: [board], total: 1 } : board }), { status: 200 })
   } })
   const ledger = new JubianLedger({ root })
-  const service = new JubianVideoSelection(ctx, { client, ledger, enabled, ...(defaultModel ? { defaultModel } : {}) })
+  await ctx.plugin(JubianVideoSelection, { client, ledger, enabled, ...(defaultModel ? { defaultModel } : {}) })
+  const service = ctx.jubianVideoSelection
   return { ctx, agent, adapter, script, inject, service, requests, root, ledger, client,
     setBoard(value: Record<string, unknown>) { board = value } }
 }
@@ -60,12 +65,13 @@ it('records the parent video choice before a fresh spawned child requests its mo
   const choice = options.find(option => option.maxDurationSeconds === 15)!
   await f.service.select(f.agent, choice.key, 0)
   f.script.push(textResponse('已按继承的视频模型核对本集。'))
-  const run = await f.ctx.subagents.start('spawn', { parent: f.agent,
-    prompt: [{ type: 'text', text: '核对本集所选视频模型与时长。' }], signal: new AbortController().signal })
+  const run = await f.ctx.subagents.startActivation({ provider: 'spawn', label: 'video model inheritance', delivery: 'caller',
+    request: { parent: f.agent, prompt: [{ type: 'text', text: '核对本集所选视频模型与时长。' }] }, signal: new AbortController().signal })
+  const child = f.ctx.agents.get(run.childId)
+  if (child === undefined) throw new Error('Fresh video-choice child was not published')
   try {
     await run.result
-    const child = f.ctx.agents.get(run.id)!
-    const inherited = selectedVideo(child.session)
+    const inherited = f.service.selectionFor(child.session)
     expect(inherited).toEqual({ ...choice, revision: 1 })
     expect(child.session.snapshotEvents().filter(event => event.type === 'jubian/video-selection')).toHaveLength(1)
     const requestText = f.adapter.requests[0]!.messages.flatMap(message => message.content)
@@ -89,11 +95,11 @@ it('samples each new child from the latest parent choice without changing existi
   const older = await create('video-child-before-switch')
   await f.service.select(f.agent, second.key, 1)
   const newer = await create('video-child-after-switch')
-  expect(selectedVideo(older.session)).toEqual({ ...first, revision: 1 })
-  expect(selectedVideo(newer.session)).toEqual({ ...second, revision: 1 })
+  expect(f.service.selectionFor(older.session)).toEqual({ ...first, revision: 1 })
+  expect(f.service.selectionFor(newer.session)).toEqual({ ...second, revision: 1 })
   await f.service.select(newer, third.key, 1)
-  expect(selectedVideo(f.agent.session)).toEqual({ ...second, revision: 2 })
-  expect(selectedVideo(newer.session)).toEqual({ ...third, revision: 2 })
+  expect(f.service.selectionFor(f.agent.session)).toEqual({ ...second, revision: 2 })
+  expect(f.service.selectionFor(newer.session)).toEqual({ ...third, revision: 2 })
   expect(await f.service.initialize(older)).toEqual({ ...first, revision: 1 })
   expect(f.requests.every(request => request.method === 'GET')).toBe(true)
 })
@@ -105,21 +111,21 @@ it('keeps forked and child-owned choices and uses the configured default when th
   const emptyChild = (await f.ctx.agents.create({ sessionId: SessionId('video-child-default'), parentAgent: f.agent,
     agentOptions: { provider: 'mock', model: 'mock' },
     meta: { cwd: f.root, origin: 'subagent', parentSession: f.agent.id } })).agent
-  expect(selectedVideo(emptyChild.session)).toBeNull()
+  expect(f.service.selectionFor(emptyChild.session)).toBeNull()
   expect(await f.service.initialize(emptyChild)).toMatchObject({ ...defaults, revision: 1 })
   const parentChoice = await f.service.select(f.agent, own.key, 0)
   const seed = f.agent.session.snapshotEvents()
   const forked = (await f.ctx.agents.create({ sessionId: SessionId('video-child-fork'), parentAgent: f.agent,
     agentOptions: { provider: 'mock', model: 'mock' }, seed, inheritedEventCount: SessionLogOffset(seed.length),
     meta: { cwd: f.root, origin: 'subagent', parentSession: f.agent.id, isSeeded: true } })).agent
-  expect(selectedVideo(forked.session)).toEqual(parentChoice)
+  expect(f.service.selectionFor(forked.session)).toEqual(parentChoice)
   expect(forked.session.snapshotEvents().filter(event => event.type === 'jubian/video-selection')).toHaveLength(1)
   const childChoice = options.find(option => option.key !== own.key)!
   const owned = (await f.ctx.agents.create({ sessionId: SessionId('video-child-own'), parentAgent: f.agent,
     agentOptions: { provider: 'mock', model: 'mock' },
     meta: { cwd: f.root, origin: 'subagent', parentSession: f.agent.id },
     setup: async (_ctx, child) => { await f.service.select(child, childChoice.key, 0) } })).agent
-  expect(selectedVideo(owned.session)?.key).toBe(childChoice.key)
+  expect(f.service.selectionFor(owned.session)?.key).toBe(childChoice.key)
   expect(owned.session.snapshotEvents().filter(event => event.type === 'jubian/video-selection')).toHaveLength(1)
   expect(f.requests.every(request => request.method === 'GET')).toBe(true)
 })
@@ -135,18 +141,18 @@ it('offers every video catalogue model with exact resolution, channel and known 
 
 it('persists only explicit choices, suppresses repeats and refuses concurrent stale selections', async () => {
   const f = await fixture()
-  expect(selectedVideo(f.agent.session)).toBeNull()
+  expect(f.service.selectionFor(f.agent.session)).toBeNull()
   const options = await f.service.catalogue()
   const option = options.find(option => option.modelId === 'doubao-seedance-2-5-260628')!
   const selected = await f.service.select(f.agent, option.key, 0)
-  expect(selectedVideo(f.agent.session)).toEqual(selected)
+  expect(f.service.selectionFor(f.agent.session)).toEqual(selected)
   expect(f.inject).toHaveBeenCalledOnce()
   expect(await f.service.select(f.agent, option.key, 1)).toEqual(selected)
   expect(f.agent.session.snapshotEvents().filter(event => event.type === 'jubian/video-selection')).toHaveLength(1)
   await expect(f.service.select(f.agent, options[0]!.key, 0)).rejects.toThrow('已改变')
   await expect(f.service.select(f.agent, 'missing-model', 1)).rejects.toThrow('不可用')
   const reopened = f.ctx.sessions.create(SessionId('reopened'), { seed: f.agent.session.snapshotEvents() })
-  expect(selectedVideo(reopened)).toEqual(selected)
+  expect(f.service.selectionFor(reopened)).toEqual(selected)
   const context = videoSelectionContext(selected)
   expect(context).toContain('30 秒')
   expect(context).toContain('读取剧变项目不改变')
@@ -200,7 +206,7 @@ it('asks once about a duration decrease and keeps the selected model when the us
   expect(await f.service.ask(f.agent, { method: 'duration_conflict', reason: '本批三张卡超过15秒', duration_seconds: 25 }, new AbortController().signal))
     .toMatchObject({ action: 'replan_packages', selection: chosen, paid_requests: 0 })
   expect(ask).toHaveBeenCalledOnce()
-  expect(selectedVideo(f.agent.session)).toEqual(chosen)
+  expect(f.service.selectionFor(f.agent.session)).toEqual(chosen)
 })
 
 it.each(['prepare_video', 'generate'])('%s synchronizes an existing card without generating, preserving dialogue, assets, ratio and duration', async (method) => {
@@ -233,7 +239,7 @@ it('can select a longer model after one batch conflict question and records the 
   const result = await f.service.ask(f.agent, { method: 'duration_conflict', reason: '三张卡为25秒', duration_seconds: 25 }, new AbortController().signal)
   expect(result).toMatchObject({ action: 'selected', selection: { maxDurationSeconds: 30, revision: 2 }, paid_requests: 0 })
   expect(ask).toHaveBeenCalledTimes(2)
-  expect(selectedVideo(f.agent.session)?.maxDurationSeconds).toBe(30)
+  expect(f.service.selectionFor(f.agent.session)?.maxDurationSeconds).toBe(30)
   expect(f.requests.every(request => request.method === 'GET')).toBe(true)
 })
 
@@ -255,7 +261,7 @@ it.each(['storyboard_generate', 'storyboard_native_submit'] as const)(
       .resolves.toBeUndefined()
     expect(f.requests).toHaveLength(0)
     expect(f.agent.session.seq).toBe(before)
-    expect(selectedVideo(f.agent.session)).toBeNull()
+    expect(f.service.selectionFor(f.agent.session)).toBeNull()
   },
 )
 
@@ -269,7 +275,7 @@ it('rejects missing generate preparation arguments and foreign keys before initi
   await expect(f.service.reconcile(f.agent, { method: 'generate', storyboard_id: 12,
     project_dir: f.root, idempotency_key: 'foreign-generate' })).rejects.toThrow()
   expect(f.requests).toHaveLength(0)
-  expect(selectedVideo(f.agent.session)).toBeNull()
+  expect(f.service.selectionFor(f.agent.session)).toBeNull()
 })
 
 it('checks every batch preview and permits original batch keys after a conversation switch', async () => {
@@ -317,7 +323,7 @@ it('keeps a human choice made while the default catalogue is being read', async 
 it('reports an unavailable default while allowing an explicit supported replacement', async () => {
   const f = await fixture({ ...defaults, resolution: 'missing-resolution' })
   await expect(f.service.initialize(f.agent)).rejects.toThrow('默认视频模型暂不可用')
-  expect(selectedVideo(f.agent.session)).toBeNull()
+  expect(f.service.selectionFor(f.agent.session)).toBeNull()
   const choice = (await f.service.catalogue())[0]!
   await f.service.select(f.agent, choice.key, 0)
   expect(await f.service.initialize(f.agent)).toMatchObject({ key: choice.key })

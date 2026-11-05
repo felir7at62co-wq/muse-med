@@ -30,13 +30,13 @@
     },
     {
       "name": "tool_context",
-      "description": "Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.",
+      "description": "Manage tool definitions for your current session. status lists loaded and pinned tools. load exposes exact tools for this session. pin also marks them as preferred; a configured preference provider can retain them for future sessions. release removes session loading and the preference; unpin removes only the preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other agents.",
       "parameters": {
         "type": "object",
         "properties": {
           "operation": {
             "type": "string",
-            "description": "Read status, load for this session, pin for future sessions, release, or cancel a pin.",
+            "description": "Read status, load for this session, pin preferred tools, release, or cancel a preference.",
             "enum": [
               "status",
               "load",
@@ -124,13 +124,13 @@
       },
       {
         "name": "tool_context",
-        "description": "Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.",
+        "description": "Manage tool definitions for your current session. status lists loaded and pinned tools. load exposes exact tools for this session. pin also marks them as preferred; a configured preference provider can retain them for future sessions. release removes session loading and the preference; unpin removes only the preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other agents.",
         "parameters": {
           "type": "object",
           "properties": {
             "operation": {
               "type": "string",
-              "description": "Read status, load for this session, pin for future sessions, release, or cancel a pin.",
+              "description": "Read status, load for this session, pin preferred tools, release, or cancel a preference.",
               "enum": [
                 "status",
                 "load",
@@ -209,13 +209,13 @@
       },
       {
         "name": "tool_context",
-        "description": "Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.",
+        "description": "Manage tool definitions for your current session. status lists loaded and pinned tools. load exposes exact tools for this session. pin also marks them as preferred; a configured preference provider can retain them for future sessions. release removes session loading and the preference; unpin removes only the preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other agents.",
         "parameters": {
           "type": "object",
           "properties": {
             "operation": {
               "type": "string",
-              "description": "Read status, load for this session, pin for future sessions, release, or cancel a pin.",
+              "description": "Read status, load for this session, pin preferred tools, release, or cancel a preference.",
               "enum": [
                 "status",
                 "load",

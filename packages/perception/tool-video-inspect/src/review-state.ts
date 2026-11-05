@@ -37,6 +37,9 @@ export type VideoReview = z.infer<typeof reviewSchema>
 /** Latest review for each source path in this Session. */
 export type VideoReviews = Record<string, VideoReview>
 
+/** Synchronous read of prepared observation progress for one owning Session. */
+export type VideoReviewReader = (session: Session) => VideoReviews
+
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /** Start a source revision or incrementally commit scan, image and observation progress. */
@@ -57,18 +60,16 @@ declare module '@deepseek-ai/dsh-session/types' {
     }
   }
 }
-declare module '@deepseek-ai/dsh-session-projection/types' {
-  interface SessionProjectionStateMap { videoReviews: VideoReviews }
-}
 
 /**
  * Register resume-safe, Host-only observation progress.
- * @param ctx - Session projection registry.
+ * @param ctx - Session projection registration owner.
+ * @returns ready observation reader retained by the calling owner.
  */
-export function installReviewState(ctx: Context): void {
+export async function installReviewState(ctx: Context): Promise<VideoReviewReader> {
   const projections = ctx.get('sessionProjections')
   if (projections === undefined) throw Error('Video observation requires sessionProjections')
-  projections.register<'videoReviews', VideoReviews>({ key: 'videoReviews',
+  const projection = await projections.register<'videoReviews', VideoReviews>({ key: 'videoReviews',
     stateSchema: z.record(z.string(), reviewSchema), init: () => ({}), stateVersion: 1,
     apply: (state, event) => {
       if (event.type !== 'video/review') return state
@@ -88,28 +89,27 @@ export function installReviewState(ctx: Context): void {
         ...update.transcript_reference === undefined ? {} : { transcript_reference: update.transcript_reference } } }
     },
   })
+  return session => projection.stateOf(session)
 }
 
 /**
  * Read the current projected observation tasks without historical log reads.
- * @param ctx - Projection registry.
+ * @param readReviews - Ready observation reader owned by the plugin.
  * @param session - Initiating Session.
  * @returns Latest review by canonical source path.
  */
-export function reviewsOf(ctx: Context, session: Session): VideoReviews {
-  const projections = ctx.get('sessionProjections')
-  if (projections === undefined) throw Error('Video observation requires sessionProjections')
-  return projections.stateOf(session, 'videoReviews') ?? {}
+export function reviewsOf(readReviews: VideoReviewReader, session: Session): VideoReviews {
+  return readReviews(session)
 }
 
 /**
  * Commit changed evidence and explicit follow-up intent; omitted intent retains the saved value.
- * @param ctx - Projection registry supplying the previous state.
+ * @param readReviews - Ready observation reader supplying the previous state.
  * @param session - Owning Session.
  * @param review - New per-video state.
  */
-export function saveReview(ctx: Context, session: Session, review: VideoReview): void {
-  const old = reviewsOf(ctx, session)[review.path]
+export function saveReview(readReviews: VideoReviewReader, session: Session, review: VideoReview): void {
+  const old = readReviews(session)[review.path]
   if (old === undefined || old.id !== review.id) { session.append('video/review', { kind: 'start', review }); return }
   const followUp = review.follow_up ?? old.follow_up
   const frames = review.frames.filter((frame, index) => JSON.stringify(old.frames[index]) !== JSON.stringify(frame))

@@ -1,5 +1,5 @@
 /** Session video selection, human choices and generation consistency. */
-import type { Context } from '@deepseek-ai/cordis'
+import { Service, type Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
@@ -8,7 +8,7 @@ import { resolveVideoModel, stableJson } from '@deepseek-ai/dsh-jubian-api'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-user-questions'
-import type {} from '@deepseek-ai/dsh-session-projection'
+import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { readFile } from 'node:fs/promises'
 import { modelMethod } from './model-settings.ts'
 import { resolveGenerateMethod } from './native.ts'
@@ -55,20 +55,6 @@ export function videoOptions(data: unknown): VideoModelOption[] {
   return options
 }
 /**
- * Fold the latest explicit selection, including fork-inherited or compacted log events.
- * @param session - Owning conversation.
- * @returns Last user selection, or null before a selection.
- */
-export function selectedVideo(session: Session): SessionVideoSelection | null {
-  // oxlint-disable-next-line typescript/no-deprecated -- Retain the existing durable-selection fold.
-  const events = session.snapshotEvents()
-  for (let index = events.length - 1; index >= 0; index--) {
-    const event = events[index]
-    if (event?.type === 'jubian/video-selection') return event.data.selection
-  }
-  return null
-}
-/**
  * Render the changing runtime-context suffix, leaving the system prompt untouched.
  * @param selection - Latest explicit session choice.
  * @returns Short model-readable operational state.
@@ -83,6 +69,7 @@ export function videoSelectionContext(selection: SessionVideoSelection | null): 
 /** Host owner shared by the composer, model-facing ask tool and paid executors. */
 export class JubianVideoSelection extends TypertRemoteService {
   static inject = ['agents', 'sessions', 'systemPrompt', 'sessionProjections']
+  private selection!: ProjectionHandle<SessionVideoSelection | null>
   private readonly initializing = new WeakMap<Agent, Promise<SessionVideoSelection | null>>()
   private readonly contextReviewers = new Set<{ reviewer: (agent: Agent, selection: SessionVideoSelection) => string }>()
   constructor(ctx: Context, private readonly options: {
@@ -92,7 +79,11 @@ export class JubianVideoSelection extends TypertRemoteService {
     defaultModel?: Pick<VideoModelOption, 'modelId' | 'platformId' | 'resolution'>
   }) {
     super(ctx, 'jubianVideoSelection')
-    ctx.sessionProjections.register<'jubianVideoSelection', SessionVideoSelection | null>({
+  }
+  protected async [Service.init](): Promise<void> {
+    const ctx = this.ctx
+    const options = this.options
+    this.selection = await ctx.sessionProjections.register<'jubianVideoSelection', SessionVideoSelection | null>({
       key: 'jubianVideoSelection', stateSchema: videoSelectionSchema, init: () => null,
       apply: (state, event) => event.type === 'jubian/video-selection' ? event.data.selection : state,
       wire: { viewSchema: videoSelectionSchema, view: state => state }, stateVersion: 1,
@@ -100,7 +91,7 @@ export class JubianVideoSelection extends TypertRemoteService {
     ctx.effect(() => ctx.systemPrompt.context({ name: 'jubian:video-selection', order: 55,
       text: ({ agent }) => {
         if (agent === undefined || !options.enabled) return ''
-        const current = selectedVideo(agent.session)
+        const current = this.selectionFor(agent.session)
         if (current === null && options.defaultModel) return `本会话默认视频模型为 ${options.defaultModel.modelId}，分辨率 ${options.defaultModel.resolution}。`
           + '尚未初始化时用 jubian_video_model read 核实并保存默认选择，无需重复询问；已有选择优先，读取项目不改变此选择。'
         return videoSelectionContext(current)
@@ -108,19 +99,25 @@ export class JubianVideoSelection extends TypertRemoteService {
     ctx.on('agent/created', ({ agent, source }) => {
       const header = agent.session.header
       if (!options.enabled || source !== 'startup' || header.origin !== 'subagent' || header.isSeeded
-        || selectedVideo(agent.session) !== null || header.parentSession === undefined) return
+        || this.selectionFor(agent.session) !== null || header.parentSession === undefined) return
       const parent = ctx.sessions.get(header.parentSession)
-      const inherited = parent === undefined ? null : selectedVideo(parent)
+      const inherited = parent === undefined ? null : this.selectionFor(parent)
       if (inherited !== null) this.commit(agent, inherited, 0)
     })
   }
+  /**
+   * Read a prepared conversation's explicit choice without loading history.
+   * @param session - Conversation prepared by the Session store.
+   * @returns Latest recorded choice, or null before a selection.
+   */
+  selectionFor(session: Session): SessionVideoSelection | null { return this.selection.stateOf(session) }
   /**
    * Initialize the configured default from the live catalogue once, preserving any human choice made during the read.
    * @param agent - Owning conversation.
    * @returns Existing or newly committed setting, or null when no default is configured.
    */
   async initialize(agent: Agent): Promise<SessionVideoSelection | null> {
-    const current = selectedVideo(agent.session)
+    const current = this.selectionFor(agent.session)
     if (current || !this.options.enabled || !this.options.defaultModel) return current
     const pending = this.initializing.get(agent)
     if (pending) return pending
@@ -128,7 +125,7 @@ export class JubianVideoSelection extends TypertRemoteService {
     const work = (async () => {
       const matches = (await this.catalogue()).filter(option => option.modelId === defaults.modelId
         && option.platformId === defaults.platformId && option.resolution === defaults.resolution)
-      const latest = selectedVideo(agent.session)
+      const latest = this.selectionFor(agent.session)
       if (latest) return latest
       const option = matches[0]
       if (matches.length !== 1 || option === undefined) {
@@ -165,7 +162,7 @@ export class JubianVideoSelection extends TypertRemoteService {
    * @returns Explicit choice or null.
    */
   @Remote
-  current(agent: Agent): SessionVideoSelection | null { return selectedVideo(agent.session) }
+  current(agent: Agent): SessionVideoSelection | null { return this.selectionFor(agent.session) }
   /**
    * Add synchronous advice to the same logged context as each committed selection.
    * Reviewer errors produce a retry warning and never reject the selected model.
@@ -195,7 +192,7 @@ export class JubianVideoSelection extends TypertRemoteService {
     return this.commit(agent, option, expectedRevision)
   }
   private commit(agent: Agent, option: VideoModelOption, expectedRevision: number): SessionVideoSelection {
-    const previous = selectedVideo(agent.session)
+    const previous = this.selectionFor(agent.session)
     if ((previous?.revision ?? 0) !== expectedRevision) throw new RemoteError('jubian-video/rejected', '会话的视频模型已改变，请核对当前选择后重试', {})
     if (previous?.key === option.key && stableJson({ ...previous, revision: 0 }) === stableJson({ ...option, revision: 0 })) return previous
     const selection = { ...option, revision: expectedRevision + 1 }
@@ -235,7 +232,7 @@ export class JubianVideoSelection extends TypertRemoteService {
     signal.addEventListener('abort', notify)
     try {
       while (!signal.aborted) {
-        if (dirty) { dirty = false; yield selectedVideo(agent.session) }
+        if (dirty) { dirty = false; yield this.selectionFor(agent.session) }
         else await new Promise<void>((resolve) => { wake = resolve })
       }
     } finally { dispose(); signal.removeEventListener('abort', notify) }
@@ -250,7 +247,7 @@ export class JubianVideoSelection extends TypertRemoteService {
   async ask(agent: Agent, args: { reason: string; method: string; duration_seconds?: number }, signal: AbortSignal): Promise<{ action: 'replan_packages' | 'unchanged' | 'selected'; selection: SessionVideoSelection | null; paid_requests: 0 }> {
     const questions = this.ctx.get('userQuestions')
     if (!questions) throw new Error('User question service unavailable')
-    const current = args.method === 'duration_conflict' ? await this.initialize(agent) : selectedVideo(agent.session)
+    const current = args.method === 'duration_conflict' ? await this.initialize(agent) : this.selectionFor(agent.session)
     if (args.duration_seconds !== undefined && (!Number.isFinite(args.duration_seconds) || args.duration_seconds <= 0)) throw new Error('duration_seconds must be positive')
     if (args.method === 'duration_conflict' && (!current || args.duration_seconds === undefined)) throw new Error('Duration conflict requires a current model and longest affected package duration')
     if (args.method === 'duration_conflict') {
@@ -267,7 +264,7 @@ export class JubianVideoSelection extends TypertRemoteService {
     const answer = await questions.ask({ agent, signal, questions: [{ id: 'video-model', question: args.reason,
       options: labels.map(label => ({ label })) }] })
     const index = labels.indexOf(answer.answers[0]?.selected[0] ?? '')
-    if (index < 0) return { action: 'unchanged', selection: selectedVideo(agent.session), paid_requests: 0 }
+    if (index < 0) return { action: 'unchanged', selection: this.selectionFor(agent.session), paid_requests: 0 }
     const chosen = options[index]
     if (!chosen) throw new Error('Selected model unavailable')
     const selection = await this.select(agent, chosen.key, current?.revision ?? 0)
@@ -279,7 +276,7 @@ export class JubianVideoSelection extends TypertRemoteService {
    * @param saved - Frozen provider model configuration.
    */
   assertCurrent(agent: Agent, saved: Record<string, unknown>): void {
-    const selection = selectedVideo(agent.session)
+    const selection = this.selectionFor(agent.session)
     if (!selection || saved.modelId !== selection.modelId || saved.platformId !== selection.platformId
       || saved.resolution !== selection.resolution || Number(saved.standardId) !== selection.standardId) {
       throw new Error('SESSION_VIDEO_SELECTION_CHANGED: 会话模型已变化，请重新 prepare_video 核对配置和费用；旧预览未提交')
@@ -322,11 +319,11 @@ export class JubianVideoSelection extends TypertRemoteService {
         { ...before, ...changes })
       const preview = await modelMethod(this.options.client, this.options.ledger, { method: 'preview', project_dir: args.project_dir,
         script_id: Number(board.scriptId), scope: 'storyboards', storyboard_ids: [Number(board.id)], changes })
-      if (selectedVideo(agent.session)?.revision !== selection.revision) throw new Error('会话模型已变化，请重新准备视频卡')
+      if (this.selectionFor(agent.session)?.revision !== selection.revision) throw new Error('会话模型已变化，请重新准备视频卡')
       const applied = await modelMethod(this.options.client, this.options.ledger, { method: 'apply', project_dir: args.project_dir, script_id: Number(board.scriptId), preview_path: String(preview.preview_path),
         idempotency_key: String(preview.fingerprint) })
       if (!Array.isArray(applied.items) || applied.items.some(item => row(item).status !== 'applied')) throw new Error('视频卡模型同步未确认，请回读核对；不提交生成')
-      if (selectedVideo(agent.session)?.revision !== selection.revision) throw new Error('会话模型已变化，请重新准备视频卡')
+      if (this.selectionFor(agent.session)?.revision !== selection.revision) throw new Error('会话模型已变化，请重新准备视频卡')
       return
     }
     const paths = method === 'submit_video_batch' && Array.isArray(args.video_previews)

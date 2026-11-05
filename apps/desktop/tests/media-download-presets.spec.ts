@@ -1,6 +1,9 @@
 /** Download tools belong to each creative preset and disappear with its scope. */
 import { readFileSync } from 'node:fs'
 import { Context } from '@deepseek-ai/cordis'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
+import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
+import JobsLocal from '@deepseek-ai/dsh-jobs-local'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
@@ -39,7 +42,10 @@ it('registers local analysis and download tools in creative scopes and leaves mi
   try {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
+    await ctx.plugin(SessionProjections)
     await ctx.plugin(AgentRegistry)
+    await ctx.plugin(SandboxPolicy)
+    await ctx.plugin(JobsLocal)
     await ctx.plugin(SubprocessLocal)
     for (const preset of ['standard', 'ptc', 'cordis', 'short-drama', 'creation', 'minimal']) {
       const rows = yaml.load(readFileSync(new URL(`../../desktop-host/presets/${preset}/agent.cordis.yml`, import.meta.url), 'utf8'), { schema }) as PresetRow[]
@@ -75,7 +81,7 @@ it('registers local analysis and download tools in creative scopes and leaves mi
           await scope.ctx.plugin(Fanqie)
         }
         expect(ctx.tools.schemas(key).map(tool => tool.name), preset).toEqual(preset === 'minimal' ? [] : [
-          'hongguo_download_info', 'hongguo_download', 'douyin_download', 'douyin_data',
+          'hongguo_download_info', 'hongguo_download', 'douyin_download', 'douyin_download_task', 'douyin_data',
           'reverse_skill', 'reverse_analyze', 'fanqie_search', 'fanqie_download_info', 'fanqie_download',
         ])
         expect(ctx.tools.schemas()).toEqual([])

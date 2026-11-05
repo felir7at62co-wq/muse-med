@@ -8,11 +8,13 @@ import { once } from 'node:events'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installDesktopUpdateTaskControl } from '../../desktop-host/src/update-tasks.ts'
+import { Peer } from '../../../packages/client/connection/src/peer.ts'
 import { bridge } from '../../../packages/client/connection/src/http-bridge.ts'
 
 type AgentState = { id: SessionId; status: 'idle' | 'running'; inbox: { nextTurn: object[]; nextStep: object[] } }
 
 let ctx: Context
+let peer: Peer
 let inspect: ReturnType<typeof installDesktopUpdateTaskControl>
 const agents: AgentState[] = []
 const jobs = new Map<SessionId | undefined, JobStatus[]>()
@@ -45,6 +47,7 @@ beforeEach(() => {
   agents.length = 0
   jobs.clear()
   ctx = new Context()
+  peer = new Peer(ctx, { principal: { kind: 'owner' } })
   // Narrow service doubles exercise the inspector against a real Cordis event lifecycle.
   ctx.provide('agents', { list: () => agents } as unknown as Context['agents'])
   new RosterOnlyJobRegistry(ctx)
@@ -70,7 +73,7 @@ describe('Desktop Host update task protection', () => {
           controller.enqueue(new TextEncoder().encode('frame'))
           request.signal.addEventListener('abort', () => { controller.close(); aborted.resolve(undefined) }, { once: true })
         } })),
-      }))
+      }, peer))
     })
     server.listen(0, '127.0.0.1')
     await once(server, 'listening')

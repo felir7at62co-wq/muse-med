@@ -175,8 +175,8 @@ describe.skipIf(MODE === 'record')('Muse mobile native Session round trip', () =
     scaffold.ctx.effect(() => scaffold!.ctx.llm.registerAdapter([PROVIDER], adapter), 'mobile native Session fixture')
     await scaffold.ctx.agentDefaultModel.saveSelection({ provider: PROVIDER, model: MODEL })
     const fixtureUrl = new URL('../../../services/muse-accounts/desktop-test-fixture.mjs', import.meta.url)
-    const { fixture } = await import(fixtureUrl.href) as FixtureModule
-    account = await fixture({ after: close => cleanup.push(close) }, {}, true)
+    const fixtureModule = await import(fixtureUrl.href) as FixtureModule
+    account = await fixtureModule.fixture({ after: close => cleanup.push(close) }, {}, true)
     const exchange = await fetch(scaffold.authenticatedUrl, { redirect: 'manual' })
     const cookie = exchange.headers.get('set-cookie')?.split(';')[0]
     if (cookie === undefined) throw new Error('Mobile fixture Host cookie exchange failed')

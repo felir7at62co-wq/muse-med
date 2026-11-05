@@ -6,7 +6,9 @@ import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 
@@ -80,6 +82,7 @@ it('keeps the task with first-step context for a gateway reading the last user m
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(LlmPiAi, { providers: { 'claude-gateway-test': {
       apiKeyEnv: 'PI_CLAUDE_LOOP_TEST_KEY',
@@ -88,13 +91,7 @@ it('keeps the task with first-step context for a gateway reading the last user m
       models: [{ id: 'claude-test' }],
     } } })
     await ctx.plugin(AgentLoop, { agents: [] })
-    ctx.on('agent/pre-step', async ({ turn, step }, next) => {
-      const decision = await next()
-      if (decision.kind === 'reject' || turn !== 1 || step !== 1) return decision
-      return { ...decision, messages: [...decision.messages, createUserMessage({
-        content: [{ type: 'text', text: background }], source: { kind: 'runtime-context' },
-      })] }
-    })
+    ctx.effect(() => ctx.systemPrompt.context({ name: 'fixture-background', order: 1, text: background }))
     let executions = 0
     ctx.tools.register(defineContentToolFixture({
       name: 'lookup_code',

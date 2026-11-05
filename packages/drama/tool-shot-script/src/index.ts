@@ -497,7 +497,7 @@ const ADVISORY_DESCRIPTION = '镜头脚本检查与分包建议；创作、格�
  * @param ctx - Host context carrying the tool registry.
  * @param config - Review policy and the silent-shot duration estimate.
  */
-export function apply(ctx: Context, config: Config = {}): void {
+export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const resolved: ResolvedConfig = {
     actionShotSeconds: config.actionShotSeconds ?? DEFAULT_ACTION_SHOT_SECONDS,
     speechCharsPerSecond: config.speechCharsPerSecond ?? DEFAULT_SPEECH_CHARS_PER_SECOND,
@@ -505,7 +505,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     sessionVideoSelection: config.sessionVideoSelection ?? false,
     selectionReviewMaxChars: config.selectionReviewMaxChars ?? 2000,
   }
-  const register = (owner: Context): void => {
+  const register = async (owner: Context): Promise<void> => {
     const definition = defineTool({
       name: 'drama_shot',
       description: resolved.reviewMode === 'advisory' ? ADVISORY_DESCRIPTION : STRICT_DESCRIPTION,
@@ -553,10 +553,10 @@ export function apply(ctx: Context, config: Config = {}): void {
     })
     owner.tools.register(definition)
     installPreparedQualityReview(owner, definition, resolved.actionShotSeconds, resolved.speechCharsPerSecond)
-    if (resolved.sessionVideoSelection) installSessionReview(owner, definition, resolved.selectionReviewMaxChars)
+    if (resolved.sessionVideoSelection) await installSessionReview(owner, definition, resolved.selectionReviewMaxChars)
   }
-  if (resolved.sessionVideoSelection) ctx.inject(['jubianVideoSelection', 'sessionProjections'], register)
-  else register(ctx)
+  if (resolved.sessionVideoSelection) await ctx.inject(['jubianVideoSelection', 'sessionProjections'], register)
+  else await register(ctx)
   if (config.productionPackaging) ctx.inject(['credentials', 'jubianVideoSelection'],
     owner => registerProductionTool(owner, config.production ?? {}, resolved.actionShotSeconds, resolved.speechCharsPerSecond))
 }

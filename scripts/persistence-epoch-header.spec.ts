@@ -1,11 +1,11 @@
 /** The generated request-header schema retains the native reader's retired-field refusal. */
-import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { expect, it } from 'vitest'
 import { assertV4RowAdmission } from '@deepseek-ai/dsh-session-format-v3-to-v4'
+import { extractPersistenceSchema } from './persistence-schema.ts'
 import { classifyPersistenceChange } from './persistence-changes.ts'
 import { canonicalizeSchema, schemaDigest } from './persistence-schema-model.ts'
-import type { PersistenceSchemaSnapshot, SchemaNode } from './persistence-schema-model.ts'
+import type { SchemaNode } from './persistence-schema-model.ts'
 
 function property(nodes: readonly SchemaNode[], index: number, name: string): number {
   const node = nodes[index]
@@ -15,8 +15,8 @@ function property(nodes: readonly SchemaNode[], index: number, name: string): nu
   return field.type
 }
 
-it('requires a version bump before request headers can carry retired system text', { timeout: 60_000 }, () => {
-  const inventory = JSON.parse(readFileSync(resolve(import.meta.dirname, '../docs/persistence-schema.json'), 'utf8')) as PersistenceSchemaSnapshot
+it('requires compatibility review before request headers can carry retired system text', { timeout: 60_000 }, () => {
+  const inventory = extractPersistenceSchema(resolve(import.meta.dirname, '..'))
   const before = inventory.roots.find(root => root.key === 'event:request/header')
   if (before === undefined) throw new Error('generated schema omits request/header')
   const nodes = [...before.schema.nodes]
@@ -41,7 +41,7 @@ it('requires a version bump before request headers can carry retired system text
     path: 'event:request/header.data.header.system',
     kind: 'type-changed',
     description: 'type changed',
-    requiresVersionBump: true,
+    requiresCompatibilityReview: true,
   }])
   expect(() => { assertV4RowAdmission({ type: 'request/header', data: { header: { system: 'retired text' } } }) })
     .toThrow('format v4 request/header rejects retired header.system')

@@ -1,3 +1,5 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
@@ -11,12 +13,13 @@ import { readProjectBible, previewProjectBible, updateProjectBible } from '../sr
 
 async function bench() {
   return configurationFixture({ rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'config-editor', name: 'cordis:editor' },
     { id: 'settings', name: 'cordis:settings' },
     { id: 'prompt', name: 'cordis:prompt' },
     { id: 'tools', name: 'cordis:tools' },
     { id: 'drama-settings', name: 'cordis:drama' },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, drama: { Config: DramaSettingsSchema, apply } } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, drama: { Config: DramaSettingsSchema, apply } } })
 }
 
 it('persists a complete reference visual intent through the Loader and replaces it with an explicit reset', async () => {
@@ -24,7 +27,7 @@ it('persists a complete reference visual intent through the Loader and replaces 
   const subtitle_visual = { schema_version: 1, reference_width: 480, reference_height: 854, font_size_px: 42,
     outline_px: 2, center_y_ratio: 0.635, max_width_ratio: 0.9 }
   const execute = async (args: object) => {
-    const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('visual'),
+    const outcome = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('visual'),
       arguments: { project_dir: home, ...args }, signal: new AbortController().signal })
     expect(outcome.isError).toBe(false)
     const block = outcome.content[0]
@@ -67,7 +70,7 @@ it('exposes project bible reads, previews and guarded updates through the real L
   const tool = ctx.tools.get('drama_project')
   expect(tool).toBeDefined()
   const execute = async (args: object) => {
-    const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('bible'),
+    const outcome = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('bible'),
       arguments: { project_dir: home, ...args }, signal: new AbortController().signal })
     expect(outcome.isError).toBe(false)
     const rendered = outcome.content[0]
@@ -524,7 +527,7 @@ it('refuses to reuse old measurements when a bound voice URL changes', async () 
 it('accepts a remote voice binding and explicit reference removal through the loaded project tool', async () => {
   const { ctx, home } = await bench()
   const execute = async (args: object) => {
-    const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('voice-bible'),
+    const outcome = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('voice-bible'),
       arguments: { project_dir: home, ...args }, signal: new AbortController().signal })
     expect(outcome.isError).toBe(false)
     const rendered = outcome.content[0]
@@ -651,7 +654,7 @@ it('rejects incomplete loaded project-tool mutations before writing', async () =
     { action: 'preview', project_dir: home },
     { action: 'update', project_dir: home, changes: { title: 'Project' }, reason: 'create' },
   ]) {
-    const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('incomplete-bible'),
+    const outcome = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('incomplete-bible'),
       arguments: arguments_, signal: new AbortController().signal })
     expect(outcome.isError).toBe(true)
   }
@@ -682,7 +685,7 @@ it('saves explicit BGM feedback through the loaded tool and rereads only the own
     characters: [{ character_id: 'lead-1', name: '苏晚', voice_profile: { description: '已认可声线' } }] }
   const preview = await previewProjectBible(ctx.settings, project, changes, '记录用户配乐反馈')
   expect(preview.affected_stages).toEqual(['draft', 'export', 'asset_prompts', 'shots_and_matches', 'video_tasks'])
-  const outcome = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('bgm-feedback'),
+  const outcome = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('bgm-feedback'),
     arguments: { action: 'update', project_dir: project, changes, reason: '记录用户配乐反馈',
       expected_revision: preview.expected_revision, preview_fingerprint: preview.preview_fingerprint },
     signal: new AbortController().signal })

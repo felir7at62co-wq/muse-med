@@ -21,7 +21,9 @@ import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
 import { RunningStatus } from '../src/client/chat/RunningStatus.tsx'
 import { runningPhase } from '../src/client/chat/running-phase.ts'
 import { useDisclosure } from '../src/client/chat/use-disclosure.ts'
+import { useSearchableHidden } from '../src/client/chat/searchable-hidden.ts'
 import { useDetailedPresentation } from './presentation-fixture.client.ts'
+import { renderReasoningSlot, unusedImageLoader } from './reasoning-component-fixture.tsx'
 import { zh } from '../src/client/locale.ts'
 
 const t = makeTranslate(zh, commonZh)
@@ -54,17 +56,19 @@ function scene() {
 function Stage({ snapshot }: { snapshot: ChatSnapshot }) {
   const open = snapshot.timeline.turns.get(1)?.status === 'open'
   return <>
-    {open && <RunningStatus startTime={undefined} phase={runningPhase(snapshot.timeline)} t={t} />}
+    {open && <RunningStatus startTime={undefined} paused={false} phase={runningPhase(snapshot.timeline)} t={t} />}
     {[...snapshot.nodes.values()].map((value) => {
       const node = value as ChatNode
       if (node.kind === 'assistant-step') return <AssistantMarkdown key={node.key}
         blocks={node.data.blocks} streaming={node.data.status === 'running'} useDisclosure={useDisclosure}
-        usePresentation={useDetailedPresentation} renderMessageImages={() => null} t={t} />
+        usePresentation={useDetailedPresentation} renderSlot={renderReasoningSlot} useGroupAction={useSearchableHidden}
+        loadImage={unusedImageLoader} t={t} />
       if (node.kind !== 'tool-call') return null
       const block = node.data.root
       const common = {
         callId: block.callId, toolName: block.name, useDisclosure, t: toolT,
         openFile: () => undefined,
+        getFileTriggerProps: () => ({}),
         loadImage: async () => { throw new Error('No images in this fixture') },
       }
       if ('kind' in block) return <GenericToolCard key={node.key} {...common} phase="result" block={block} />

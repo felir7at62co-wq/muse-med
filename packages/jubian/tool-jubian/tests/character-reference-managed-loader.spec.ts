@@ -1,4 +1,5 @@
 /** Real Loader composition for the isolated managed character-reference route. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -100,6 +101,7 @@ it('resolves the preset-scoped authority for the current Agent through the real 
   const { ctx } = await configurationFixture({
     hmr: false,
     rows: [
+      { id: 'tool-executor-native', name: 'cordis:native-executor' },
       { id: 'prompt', name: 'cordis:prompt' },
       { id: 'tools', name: 'cordis:tools' },
       { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'fixture-token' } },
@@ -112,7 +114,7 @@ it('resolves the preset-scoped authority for the current Agent through the real 
         characterReferenceQaAuthorizationDatabasePath: databasePath,
       } },
     ],
-    builtins: {
+    builtins: { 'native-executor': NativeToolExecutor,
       prompt: SystemPrompt,
       tools: Tools,
       credentials: MemoryCredentials,

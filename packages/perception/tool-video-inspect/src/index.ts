@@ -21,7 +21,8 @@ export { resolveTrustedVideoEvidence, TRUSTED_VIDEO_INSPECTION_RECEIPT, type Tru
 export { videoReviewSummaries, readVideoSourceTimeline, type VideoReviewSummary,
   type VideoSourceTimelineReadOptions, type VideoSourceTimelineContent } from './review-source.ts'
 export { buildVideoSourceTimeline, type VideoSourceTimeline, type VideoTimelineSelection } from './review-timeline.ts'
-export { VideoReviewId, hasReviewUncertainty } from './review-state.ts'
+export { VideoReviewId, hasReviewUncertainty, installReviewState as createVideoReviewReader } from './review-state.ts'
+export type { VideoReviewReader } from './review-state.ts'
 export type { VideoTranscriptReadReceipt, VideoTranscriptCandidates, VideoTranscriptCandidateDiagnostic,
   VideoTranscriptResolution } from './review-transcript.ts'
 
@@ -303,7 +304,7 @@ async function imageRoute(ctx: Context, exec: ToolExecution): Promise<void> {
  * @param ctx - Media, filesystem, attachment and tool services in one execution world.
  * @param config - Validated media binaries and limits.
  */
-export function apply(ctx: Context, config: Config): void {
+export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.defaultFrames > config.maxFrames) throw new Error('defaultFrames must not exceed maxFrames')
   if (config.ocrMinFrameIntervalSeconds > config.ocrFrameIntervalSeconds
     || config.ocrFrameIntervalSeconds > config.ocrMaxFrameIntervalSeconds) {
@@ -328,7 +329,7 @@ export function apply(ctx: Context, config: Config): void {
     finally { active.delete(owner); completion.resolve() }
   }
   if (config.requireCompleteReview) {
-    applyCompleteReview(ctx, config, run, imageRoute)
+    await applyCompleteReview(ctx, config, run, imageRoute)
     applyVideoOcr(ctx, config, { run })
     return
   }

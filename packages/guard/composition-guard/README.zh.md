@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## Use this package
 
-在 Host 平面挂载一次即可，没有需要学习的东西：它只是看着，直到一次组合变更把工具从一个正在运行的会话里撤走才会开口。
+本包作为可选诊断插件维护，供显式启用 profile 重载监测的部署使用；随附 profile 默认不加载它。在 Host 平面挂载一次，即可报告已有 Agent 作用域中被撤回的工具。它不会恢复工具或扩大权限。
 
 ### When to choose it
 
@@ -33,7 +33,7 @@ kind: "package-reference"
 
 ### Setting it up
 
-把它挂到 Host 组装里，和已经在那里随附的守卫放在一起：
+在 Host 组装中显式添加以下配置行：
 
 ```yaml
 - name: '@deepseek-ai/dsh-composition-guard'
@@ -45,7 +45,7 @@ kind: "package-reference"
 | Field | Default | Meaning |
 |---|---|---|
 | `announceInSession` | `true` | 受影响会话是否同时在自己的对话里收到通知；日志行始终会写 |
-| `maxAgentsPerUpdate` | `64` | 一次 loader 更新检查多少个存活 agent；超出上限的 agent 由下一次更新检查 |
+| `maxAgentsPerUpdate` | `64` | 每次 loader 更新按注册表顺序检查前 N 个存活 agent；后续更新不会轮转检查超出上限的 agent |
 
 非法的 `maxAgentsPerUpdate` 会在加载时以明确报错失败，而不会回落到默认值。两个字段都带 JSDoc（见 {@link Config}），生成配置目录读的就是它。
 
@@ -77,7 +77,7 @@ kind: "package-reference"
 
 ### How a scope's visible tools are read
 
-一个 agent 的可见工具名来自 `ctx.tools.schemas(scope)`——注册表对某个作用域可见工具的文档化枚举，每个可见名一个 schema，且已计入 restriction、作用域遮蔽与 PTC 传输层，正是模型将会被提供的那些。它的参数是 `ScopeKey` 而不是 Agent：守卫传入 `scopeOf(agent.ctx)`，即该 agent 自己的键，因此读到的是该 agent 看到的视图，而不是进程全局视图。没有作用域的 agent 没有可比的 agent 视图，因此被跳过，而不是拿去和全局层比较。
+每个 Agent 的基线来自 `ctx.tools.schemas(scope)`，即应用限制与作用域遮蔽后的已授权工具注册。展示筛选或步骤激活可能使其中一些注册不进入准备好的模型请求；这份枚举并非模型的已解析工具集，也不是执行器的传输工具目录。守卫传入 `scopeOf(agent.ctx)`，读取该 Agent 的授权作用域；没有作用域的 Agent 会被跳过。
 
 ### When the comparison runs
 

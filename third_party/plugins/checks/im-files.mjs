@@ -1,3 +1,5 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeTool } from './.muse-tool-call.mjs'
 /** Exercise IM-only file schemas and the real Tools pipeline against the upstream artifact registry. */
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
@@ -23,6 +25,7 @@ async function fixture(t, { maxFileBytes = 1024 } = {}) {
   await ctx.plugin(Sessions)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(Tools)
+  await ctx.plugin(NativeToolExecutor)
   const registry = new OutboundArtifactRegistry()
   let agentScope
   let guiScope
@@ -58,7 +61,7 @@ async function fixture(t, { maxFileBytes = 1024 } = {}) {
   release = registry.openConsumer(agent.session.id, 'rpc-files')
   agent.session.append('turn/start', { turn: 1 })
   await ctx.serial('agent/inbox/claimed', { agent, turn: 1, message: { source: { rpcId: 'rpc-files' } } })
-  const execute = (path, signal = new AbortController().signal) => ctx.tools.execute({ agent, name: TOOL,
+  const execute = (path, signal = new AbortController().signal) => executeTool(ctx, { agent, name: TOOL,
     arguments: { path }, callId: `call-${path}`, signal })
   return { ctx, root, workspace, outside, agent, gui, registry, plugin, execute, release, stageCalls: () => stageCalls }
 }
@@ -123,7 +126,7 @@ test('cancellation during delivery validation does not stage bytes or modify oth
   f.agent.ctx.tools.register(defineTool({ name: 'ffmpeg_probe', description: 'Synthetic unrelated media tool', parameters: {},
     output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
     execute: async () => { probes++; return 'probe' } }))
-  const result = await f.ctx.tools.execute({ agent: f.agent, name: 'ffmpeg_probe', arguments: {}, callId: 'probe', signal: new AbortController().signal })
+  const result = await executeTool(f.ctx, { agent: f.agent, name: 'ffmpeg_probe', arguments: {}, callId: 'probe', signal: new AbortController().signal })
   assert.notEqual(result.isError, true)
   assert.equal(probes, 1)
 })

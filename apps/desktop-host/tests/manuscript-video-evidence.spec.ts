@@ -11,7 +11,9 @@ import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import Tools, { defineTool } from '@deepseek-ai/dsh-tools'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -27,7 +29,7 @@ import { installReviewState, VideoReviewId, reviewsOf, saveReview } from '../../
 import { bindReviewEvents } from '../../../packages/perception/tool-video-inspect/src/review-events.ts'
 import { ManuscriptVideoEvidence, manuscriptDeclaredOutputs, manuscriptEpisodeNumber, manuscriptEvidenceFrames,
   manuscriptSourceWindows } from '../src/manuscript-video-evidence.ts'
-import { manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCandidates } from '../src/manuscript-video-reads.ts'
+import { manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCandidates, manuscriptVideoReviewReader } from '../src/manuscript-video-reads.ts'
 import { manuscriptScenes } from '../src/manuscript-scenes.ts'
 import { readVideoSourceTimeline, type VideoSourceTimeline } from '@deepseek-ai/dsh-tool-video-inspect'
 import * as ImageOffload from '@deepseek-ai/dsh-compaction-image-offload'
@@ -106,14 +108,16 @@ async function fixture(script = [textResponse('已完成。')], config: Partial<
   const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-local-evidence-'))), ctx = new Context()
   fixtures.push({ ctx, root })
   await ctx.plugin(Llm); await ctx.plugin(Sessions); await ctx.plugin(SessionProjections)
-  await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); await ctx.plugin(AgentRegistry)
+  await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); await ctx.plugin(NativeExecutor); await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   await ctx.plugin(LocalFileSystem, { cwd: root, ...filesystem })
+  await ctx.plugin(WorkingDirectory, { defaultDirectory: root })
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
   ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'danger-full-access', workspaceRoot: root }) } as never)
   await ctx.plugin(ToolFs)
   await ctx.plugin(RevisionPlugin, config)
-  installReviewState(ctx)
+  await installReviewState(ctx)
+  await ctx.fiber.await()
   class MaterialAdapter extends MockAdapter {
     override async resolveModel(provider: string, model: string) {
       return { ...await super.resolveModel(provider, model), inputModalities: imageCapable
@@ -184,9 +188,9 @@ async function replaceTranscript(f: Awaited<ReturnType<typeof fixture>>, source:
   const text = JSON.stringify(segments)
   await writeFile(source.transcript, text)
   const signal = new AbortController().signal, target = await f.ctx.fs.resolve(source.transcript, { signal })
-  const info = await f.ctx.fs.stat(target, signal), review = reviewsOf(f.ctx, f.agent.session)[source.path]
+  const info = await f.ctx.fs.stat(target, signal), review = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
   assert.ok(info && review, 'The replacement fixture must retain its actual file revision and source review')
-  saveReview(f.ctx, f.agent.session, { ...review, transcript_reference: { path: source.transcript,
+  saveReview(manuscriptVideoReviewReader(f.ctx), f.agent.session, { ...review, transcript_reference: { path: source.transcript,
     version: info.version, sha256: createHash('sha256').update(text).digest('hex') } })
 }
 
@@ -198,7 +202,7 @@ async function addChangedVisualSource(f: Awaited<ReturnType<typeof fixture>>) {
   await replaceTranscript(f, source, [{ start: 0.5, end: 1.5, text: '你好。' }, { start: 40, end: 41, text: '等一下。' },
     { start: 50, end: 51, text: '这一大段没有改过的台词仍然按原稿写在这里。' },
     { start: 53, end: 54, text: '我在这里。' }, { start: 55, end: 55.5, text: '未入正文的片尾原声。' }])
-  const review = reviewsOf(f.ctx, f.agent.session)[source.path]
+  const review = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
   assert.ok(review, 'Changed-line sampling must retain a real current source review')
   f.agent.session.append('video/review', { kind: 'start', review: { ...review, duration: 56, scanned_until: 56,
     frames: [{ id: 'E1', time: 0.8 }, { id: 'E2', time: 1 }, { id: 'E3', time: 1.2 },
@@ -242,9 +246,9 @@ it('returns event-referenced cached images with current lines and complete-read 
   const f = await fixture([toolCallResponse('read-original', 'read', { file_path: 'source.md' }),
     toolCallResponse('edit-current', 'edit', { file_path: 'draft.md', old_string: intermediate, new_string: visualAfter }),
     textResponse('首次自主交付。')], { videoEvidenceMaxFrames: 6 })
-  const source = await addChangedVisualSource(f), review = reviewsOf(f.ctx, f.agent.session)[source.path]
+  const source = await addChangedVisualSource(f), review = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
   assert.ok(review)
-  saveReview(f.ctx, f.agent.session, { ...review, event_groups: bindReviewEvents([{ event_id: 'bowl-movement',
+  saveReview(manuscriptVideoReviewReader(f.ctx), f.agent.session, { ...review, event_groups: bindReviewEvents([{ event_id: 'bowl-movement',
     frame_ids: ['F00004', 'F00006'], actor: '乙', action: '移动碗', object: '碗', before: '碗在桌中央。',
     after: '碗在桌边。', uncertainty: '仅为测试模型原有记录，未认证动作事实。' }], review.frames) })
   await writeFile(join(f.root, 'source.md'), visualBefore); await writeFile(join(f.root, 'draft.md'), intermediate)
@@ -384,7 +388,7 @@ it('keeps the last recorded ASR separate when a partial episode has no cached im
     content: '第8集\n8-1 家 日 内\n甲：最后一句已转出的原声。' }), textResponse('交付已有材料。')])
   const source = await f.addReview('第8集', 'partial-eight.mp4')
   await replaceTranscript(f, source, [{ start: 40, end: 41, text: '最后一句已转出的原声。' }])
-  const review = reviewsOf(f.ctx, f.agent.session)[source.path]
+  const review = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
   assert.ok(review, 'Partial episode fixture must retain its current source revision')
   f.agent.session.append('video/review', { kind: 'start', review: { ...review, duration: 60, scanned_until: 48, scan_complete: false } })
   await f.run()
@@ -553,13 +557,13 @@ it('automatically admits real cached images and exact source rows after a normal
   expect(JSON.stringify(request)).toContain('unverified_prior_model_observations')
   const imageBlocks = request?.messages.flatMap(message => message.content.filter(block => block.type === 'image'))
   expect(imageBlocks?.length).toBeGreaterThan(0)
-  const before = JSON.stringify(reviewsOf(f.ctx, f.agent.session))
+  const before = JSON.stringify(reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session))
   await f.run('继续。')
   expect(f.evidence()).toHaveLength(1)
   expect(f.evidence()[0]?.remaining_image_scenes).toBeGreaterThan(0)
   await f.run('继续。')
   expect(f.evidence()).toHaveLength(1)
-  expect(JSON.stringify(reviewsOf(f.ctx, f.agent.session))).toBe(before)
+  expect(JSON.stringify(reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session))).toBe(before)
   await writeFile(join(f.root, 'draft.md'), manuscript.replace('她走向门口', '她停在门边'))
   await f.run('继续。')
   expect(f.evidence()).toHaveLength(2)
@@ -598,16 +602,16 @@ it('reports ambiguous sources without choosing the latest review or blocking the
 it('omits a closed EP47 from new draft candidates without reading its source and restores it after reopening', async () => {
   const f = await fixture([toolCallResponse('write-draft', 'write', { file_path: 'draft.md',
     content: '第47集\n47-1 家 日 内\n甲：你好。' }), textResponse('照常交付。')])
-  const source = await f.addReview('第47集'), original = reviewsOf(f.ctx, f.agent.session)[source.path]
+  const source = await f.addReview('第47集'), original = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
   assert.ok(original, 'The fixture needs its saved source revision')
   const observed = original.frames[0]?.observation
   assert.ok(observed, 'The fixture needs actual saved observations')
-  saveReview(f.ctx, f.agent.session, { ...original, duration: 125, scanned_until: 125,
+  saveReview(manuscriptVideoReviewReader(f.ctx), f.agent.session, { ...original, duration: 125, scanned_until: 125,
     follow_up: { status: 'closed', reason: '旧任务停止跟进。' },
     frames: Array.from({ length: 125 }, (_, index) => ({ id: `F${String(index + 1).padStart(5, '0')}`,
       time: index, reasons: ['appearance_change'], image: f.image, exposed: index < 12,
       ...index < 12 ? { observation: observed } : {} })) })
-  const saved = JSON.stringify(reviewsOf(f.ctx, f.agent.session)), stat = f.ctx.fs.stat.bind(f.ctx.fs)
+  const saved = JSON.stringify(reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)), stat = f.ctx.fs.stat.bind(f.ctx.fs)
   const sourceReads = vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
     if (args[0].displayPath === source.path) throw Error('Closed source must not be read for another task')
     return stat(...args)
@@ -616,14 +620,15 @@ it('omits a closed EP47 from new draft candidates without reading its source and
   expect(f.evidence()).toEqual([])
   expect(f.evidenceContent()).toEqual([])
   expect(sourceReads.mock.calls.some(([target]) => target.displayPath === source.path)).toBe(false)
-  expect(JSON.stringify(reviewsOf(f.ctx, f.agent.session))).toBe(saved)
+  expect(JSON.stringify(reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session))).toBe(saved)
   sourceReads.mockRestore()
-  const closed = reviewsOf(f.ctx, f.agent.session)[source.path]
+  const closed = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
   assert.ok(closed, 'Closing must preserve the source and observations')
-  saveReview(f.ctx, f.agent.session, { ...closed, follow_up: { status: 'active' } })
+  saveReview(manuscriptVideoReviewReader(f.ctx), f.agent.session, { ...closed, follow_up: { status: 'active' } })
   await f.run('继续核对当前稿。')
   expect(f.evidence().at(-1)?.scenes[0]?.source).toMatchObject({ episode: '第47集', follow_up: { status: 'active' } })
-  expect(reviewsOf(f.ctx, f.agent.session)[source.path]?.frames.filter(frame => frame.observation === undefined)).toHaveLength(113)
+  const current = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
+  expect(current?.frames.filter(frame => frame.observation === undefined)).toHaveLength(113)
 })
 
 it('honors explicit current-task reads of a closed review by identity without reopening it', async () => {
@@ -635,13 +640,13 @@ it('honors explicit current-task reads of a closed review by identity without re
   f.ctx.tools.register(defineTool({ name: 'video_inspect', description: 'Fixture source access', parameters: {
     review_id: { type: 'string', required: true }, method: { type: 'string', required: true },
   }, output: { schema: { type: 'boolean' }, render: () => [{ type: 'text', text: 'Source read.' }] }, execute: async () => true }))
-  const source = await f.addReview('第47集', 'source.mp4'), review = reviewsOf(f.ctx, f.agent.session)[source.path]
+  const source = await f.addReview('第47集', 'source.mp4'), review = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
   assert.ok(review, 'The fixture needs its source revision')
-  saveReview(f.ctx, f.agent.session, { ...review, follow_up: { status: 'closed', reason: '停止自动跟进。' } })
+  saveReview(manuscriptVideoReviewReader(f.ctx), f.agent.session, { ...review, follow_up: { status: 'closed', reason: '停止自动跟进。' } })
   await f.run('按本次读取的来源核对第47集，保存为draft.md。')
   expect(f.evidence()[0]?.scenes[0]?.source).toMatchObject({ episode: '第47集', follow_up: { status: 'closed' } })
   expect(f.evidence()[0]?.scenes[0]?.images.returned).toBeGreaterThan(0)
-  expect(reviewsOf(f.ctx, f.agent.session)[source.path]?.follow_up?.status).toBe('closed')
+  expect(reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]?.follow_up?.status).toBe('closed')
 })
 
 it.each(['close', 'reopen', 'status', 'list'])('does not treat %s bookkeeping as current-task source use', async (method) => {
@@ -654,9 +659,9 @@ it.each(['close', 'reopen', 'status', 'list'])('does not treat %s bookkeeping as
   f.ctx.tools.register(defineTool({ name: 'video_inspect', description: 'Fixture bookkeeping receipt', parameters: {
     file_path: { type: 'string', required: true }, method: { type: 'string', required: true },
   }, output: { schema: { type: 'boolean' }, render: () => [{ type: 'text', text: 'Bookkeeping read.' }] }, execute: async () => true }))
-  const source = await f.addReview('第47集', 'source.mp4'), review = reviewsOf(f.ctx, f.agent.session)[source.path]
+  const source = await f.addReview('第47集', 'source.mp4'), review = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
   assert.ok(review, 'The fixture needs its source revision')
-  saveReview(f.ctx, f.agent.session, { ...review, follow_up: { status: 'closed' } })
+  saveReview(manuscriptVideoReviewReader(f.ctx), f.agent.session, { ...review, follow_up: { status: 'closed' } })
   await f.run('记录状态后处理另一部剧第47集，保存为draft.md。')
   expect(f.evidence()).toEqual([])
   expect(f.evidenceContent()).toEqual([])
@@ -709,9 +714,9 @@ it('ignores a legacy future path until a normal write registers the draft', asyn
 it('selects the independent source ending despite an uncertain old caption without replaying the entire cache', async () => {
   const f = await fixture([toolCallResponse('write-draft', 'write', { file_path: 'draft.md',
     content: '第4集\n4-1 家 日 内\n甲：你好。\n▲她走向门口。\n甲：回来。' }), textResponse('已完成。')], { videoEvidenceMaxFrames: 1 })
-  const source = await f.addReview('第4集'), old = reviewsOf(f.ctx, f.agent.session)[source.path]
+  const source = await f.addReview('第4集'), old = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
   assert.ok(old, 'The fixture must publish its source review before modifying the observation')
-  saveReview(f.ctx, f.agent.session, { ...old, frames: old.frames.map(frame => frame.id === 'F00005'
+  saveReview(manuscriptVideoReviewReader(f.ctx), f.agent.session, { ...old, frames: old.frames.map(frame => frame.id === 'F00005'
     ? { ...frame, observation: { visible: '合成测试画面中的物体仍然可见。', change: '物体离开原位置。', uncertainty: '物体是否已离开画面不清楚。' } }
     : frame) })
   await f.run()
@@ -785,7 +790,7 @@ it('retains silent source windows between dialogue anchors instead of filtering 
   const f = await fixture(), source = await f.addReview('第4集')
   const material = await readVideoSourceTimeline(f.ctx, f.agent.session, source.id, {
     windowSeconds: 4, maxBytes: 100_000, maxFrames: 4, maxTranscriptBytes: 4096,
-  }, new AbortController().signal)
+  }, new AbortController().signal, manuscriptVideoReviewReader(f.ctx))
   const scene = manuscriptScenes('第4集\n4-1 家 日 内\n甲：你好。\n▲她走向门口。\n甲：回来。')[0]
   assert.ok(scene, 'The fixture manuscript must contain a complete scene')
   const location = manuscriptSourceWindows(scene, material.timeline)
@@ -842,7 +847,7 @@ it('keeps evidence identities stable across workspace relocation while distingui
   const first = await fixture([toolCallResponse('write-draft', 'write', draft), textResponse('完成。')])
   const second = await fixture([toolCallResponse('write-draft', 'write', draft), textResponse('完成。')])
   for (const f of [first, second]) {
-    const source = await f.addReview('第4集'), review = reviewsOf(f.ctx, f.agent.session)[source.path]
+    const source = await f.addReview('第4集'), review = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
     assert.ok(review?.transcript_reference, 'Relocation fixture requires an actual associated source and ASR')
     const stat = f.ctx.fs.stat.bind(f.ctx.fs)
     vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (target, signal) => {
@@ -860,9 +865,9 @@ it('keeps evidence identities stable across workspace relocation while distingui
   expect(original.path).not.toBe(relocated.path)
   expect(original.source_material_sha256).toBe(relocated.source_material_sha256)
   expect(original.evidence_key).toBe(relocated.evidence_key)
-  const review = Object.values(reviewsOf(second.ctx, second.agent.session))[0]
+  const review = Object.values(reviewsOf(manuscriptVideoReviewReader(second.ctx), second.agent.session))[0]
   assert.ok(review, 'The relocated source review must still be recorded')
-  saveReview(second.ctx, second.agent.session, { ...review, id: VideoReviewId('different-source-review') })
+  saveReview(manuscriptVideoReviewReader(second.ctx), second.agent.session, { ...review, id: VideoReviewId('different-source-review') })
   await second.run('继续。')
   const changed = second.evidence()[1]?.receipt
   assert.ok(changed, 'A different actual review must return its own identity even when the draft bytes are unchanged')
@@ -938,27 +943,27 @@ it.each(['原视频', '第5集'])('keeps explicit episode conflicts while allowi
 it('does not repeat unchanged drafts for intermediate observation batches but returns completion and a real new source revision', async () => {
   const f = await fixture([toolCallResponse('write-draft', 'write', { file_path: 'draft.md',
     content: '第4集\n4-1 家 日 内\n甲：你好。\n甲：回来。' }), textResponse('完成。')])
-  const source = await f.addReview('第4集'), original = reviewsOf(f.ctx, f.agent.session)[source.path]
+  const source = await f.addReview('第4集'), original = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
   assert.ok(original, 'The fixture needs a recorded source revision')
-  saveReview(f.ctx, f.agent.session, { ...original, frames: original.frames.map((frame) => {
+  saveReview(manuscriptVideoReviewReader(f.ctx), f.agent.session, { ...original, frames: original.frames.map((frame) => {
     if (!['F00004', 'F00005'].includes(frame.id)) return frame
     const { observation: _observation, ...unobserved } = frame
     return unobserved
   }) })
   await f.run()
   expect(f.evidence()).toHaveLength(1)
-  const pending = reviewsOf(f.ctx, f.agent.session)[source.path]
+  const pending = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
   assert.ok(pending, 'Partial observation must still be a valid source review')
-  saveReview(f.ctx, f.agent.session, { ...pending, frames: pending.frames.map(frame =>
+  saveReview(manuscriptVideoReviewReader(f.ctx), f.agent.session, { ...pending, frames: pending.frames.map(frame =>
     frame.id === 'F00004' ? original.frames.find(old => old.id === frame.id) ?? frame : frame) })
   await f.run('继续。')
   expect(f.evidence()).toHaveLength(1)
-  const completing = reviewsOf(f.ctx, f.agent.session)[source.path]
+  const completing = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
   assert.ok(completing, 'The remaining pending observation must remain available')
-  saveReview(f.ctx, f.agent.session, { ...completing, frames: original.frames })
+  saveReview(manuscriptVideoReviewReader(f.ctx), f.agent.session, { ...completing, frames: original.frames })
   await f.run('继续。')
   expect(f.evidence()).toHaveLength(2)
-  saveReview(f.ctx, f.agent.session, { ...original, frames: original.frames.map(frame => frame.id === 'F00001'
+  saveReview(manuscriptVideoReviewReader(f.ctx), f.agent.session, { ...original, frames: original.frames.map(frame => frame.id === 'F00001'
     ? { ...frame, observation: { visible: '同一画面的新笔记，原视频版本没有变化。', change: '未新增事件。', uncertainty: '无新增疑点' } } : frame) })
   await f.run('继续。')
   expect(f.evidence()).toHaveLength(2)
@@ -974,9 +979,9 @@ it('does not repeat unchanged drafts for intermediate observation batches but re
   await writeFile(source.transcript, asr)
   const transcriptTarget = await f.ctx.fs.resolve(source.transcript, { signal: new AbortController().signal })
   const transcriptInfo = await f.ctx.fs.stat(transcriptTarget, new AbortController().signal)
-  const latest = reviewsOf(f.ctx, f.agent.session)[source.path]
+  const latest = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
   assert.ok(transcriptInfo && latest, 'The changed transcript must retain actual source and filesystem revisions')
-  saveReview(f.ctx, f.agent.session, { ...latest, transcript_reference: { path: source.transcript,
+  saveReview(manuscriptVideoReviewReader(f.ctx), f.agent.session, { ...latest, transcript_reference: { path: source.transcript,
     version: transcriptInfo.version, sha256: createHash('sha256').update(asr).digest('hex') } })
   await f.run('继续。')
   expect(f.evidence()).toHaveLength(4)
@@ -986,7 +991,7 @@ it('keeps actual line locations and marks split manuscript lines inside one ASR 
   const f = await fixture(), source = await f.addReview('第4集')
   const material = await readVideoSourceTimeline(f.ctx, f.agent.session, source.id, {
     windowSeconds: 4, maxBytes: 100_000, maxFrames: 4, maxTranscriptBytes: 4096,
-  }, new AbortController().signal)
+  }, new AbortController().signal, manuscriptVideoReviewReader(f.ctx))
   const speech = material.timeline.speech
   assert.ok(speech?.segments[0], 'The fixture must retain a complete saved ASR row')
   const timeline = { ...material.timeline, speech: { ...speech, segments: [{ ...speech.segments[0],
@@ -1009,7 +1014,7 @@ it('keeps before and after cache frames beside one temporal anchor instead of fi
   const f = await fixture(), source = await f.addReview('第4集')
   const material = await readVideoSourceTimeline(f.ctx, f.agent.session, source.id, {
     windowSeconds: 4, maxBytes: 100_000, maxFrames: 4, maxTranscriptBytes: 4096,
-  }, new AbortController().signal)
+  }, new AbortController().signal, manuscriptVideoReviewReader(f.ctx))
   const template = material.timeline.windows[0]?.frames[0]
   assert.ok(template, 'The source cache must supply frame metadata')
   const windows = [0, 4, 8, 12].map((start, index) => ({ window_id: `W${index}`, start_seconds: start,
@@ -1028,7 +1033,7 @@ it('retains every short or repeated source match without presenting a unique sce
   const f = await fixture(), source = await f.addReview('第4集')
   const material = await readVideoSourceTimeline(f.ctx, f.agent.session, source.id, {
     windowSeconds: 4, maxBytes: 100_000, maxFrames: 4, maxTranscriptBytes: 4096,
-  }, new AbortController().signal)
+  }, new AbortController().signal, manuscriptVideoReviewReader(f.ctx))
   const speech = material.timeline.speech, row = speech?.segments[0]
   assert.ok(speech && row, 'Repeated speech candidates need a real raw ASR row')
   const scene = manuscriptScenes('第4集\n4-1 家 日 内\n甲：妈。\n甲：回来。')[0]
@@ -1065,7 +1070,7 @@ it('returns the current dialogue-time frame even when an earlier frame contains 
   const f = await fixture(), source = await f.addReview('第4集')
   const material = await readVideoSourceTimeline(f.ctx, f.agent.session, source.id, {
     windowSeconds: 8, maxBytes: 100_000, maxFrames: 4, maxTranscriptBytes: 4096,
-  }, new AbortController().signal)
+  }, new AbortController().signal, manuscriptVideoReviewReader(f.ctx))
   const speech = material.timeline.speech, row = speech?.segments[0], frame = material.timeline.windows[0]?.frames[0]
   assert.ok(speech && row && frame, 'The selector fixture needs original speech and cached frame metadata')
   const makeFrame = (id: string, time: number, visible: string) => ({ ...frame, frame_id: id, time,
@@ -1125,8 +1130,9 @@ it('puts the actual line and ASR beside qualified before-anchor-after images wit
   const f = await fixture(), source = await f.addReview('第4集')
   const material = await readVideoSourceTimeline(f.ctx, f.agent.session, source.id, {
     windowSeconds: 4, maxBytes: 100_000, maxFrames: 4, maxTranscriptBytes: 4096,
-  }, new AbortController().signal)
-  const template = material.timeline.windows[0]?.frames[0], review = reviewsOf(f.ctx, f.agent.session)[source.path]
+  }, new AbortController().signal, manuscriptVideoReviewReader(f.ctx))
+  const template = material.timeline.windows[0]?.frames[0]
+  const review = reviewsOf(manuscriptVideoReviewReader(f.ctx), f.agent.session)[source.path]
   assert.ok(template && review?.frames[0]?.image, 'Actual cached attachment references are required')
   const make = (id: string, time: number, reasons: string[]) => ({ ...template, frame_id: id, time, reasons })
   const frames = [make('F00071', 1.5, ['cut']), make('F00110', 1.75, ['context_for:F00071']),
@@ -1170,7 +1176,7 @@ it('ranks original change anchors inside a real candidate interval ahead of a sh
   const f = await fixture(), source = await f.addReview('第4集')
   const material = await readVideoSourceTimeline(f.ctx, f.agent.session, source.id, {
     windowSeconds: 8, maxBytes: 100_000, maxFrames: 4, maxTranscriptBytes: 4096,
-  }, new AbortController().signal)
+  }, new AbortController().signal, manuscriptVideoReviewReader(f.ctx))
   const template = material.timeline.windows[0]?.frames[0], speech = material.timeline.speech, row = speech?.segments[0]
   assert.ok(template && speech && row, 'The ranking fixture needs real metadata and a saved ASR row')
   const frames = [{ ...template, frame_id: 'static', time: 1.05, reasons: ['uncertainty_context'] },

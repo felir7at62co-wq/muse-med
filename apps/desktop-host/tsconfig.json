@@ -9,55 +9,10 @@
   ],
   "references": [
     {
-      "path": "../../packages/fs/fs"
-    },
-    {
       "path": "../../vendor/cordis"
     },
     {
-      "path": "../../vendor/include"
-    },
-    {
-      "path": "../../packages/api/gateway/tsconfig.host.json"
-    },
-    {
-      "path": "../../packages/boot/app-boot"
-    },
-    {
-      "path": "../../packages/util/atomic-write"
-    },
-    {
-      "path": "../../packages/boot/cmdline"
-    },
-    {
-      "path": "../../packages/client/connection/tsconfig.host.json"
-    },
-    {
-      "path": "../../packages/client/modules"
-    },
-    {
-      "path": "../../packages/host/feishu-settings/tsconfig.host.json"
-    },
-    {
-      "path": "../../packages/host/webserver"
-    },
-    {
-      "path": "../../packages/core/tools"
-    },
-    {
-      "path": "../../packages/preset/agent-preset-registry"
-    },
-    {
       "path": "../../packages/core/agent"
-    },
-    {
-      "path": "../../packages/llm/llm"
-    },
-    {
-      "path": "../../packages/core/session"
-    },
-    {
-      "path": "../../packages/credentials/deepseek-account"
     },
     {
       "path": "../../packages/jobs/jobs"
@@ -72,16 +27,76 @@
       "path": "../../packages/skill/skill-office"
     },
     {
-      "path": "../../packages/skill/tool-workspace-dependencies"
-    },
-    {
       "path": "../../packages/util/home-paths"
     },
     {
-      "path": "../../packages/util/launch-environment"
+      "path": "../../packages/skill/tool-workspace-dependencies"
     },
     {
       "path": "../cli"
+    },
+    {
+      "path": "../../packages/boot/app-boot"
+    },
+    {
+      "path": "../../packages/client/connection/tsconfig.host.json"
+    },
+    {
+      "path": "../../packages/host/webserver"
+    },
+    {
+      "path": "../../packages/credentials/deepseek-account"
+    },
+    {
+      "path": "../../packages/boot/plugin-manager"
+    },
+    {
+      "path": "../../packages/fs/fs"
+    },
+    {
+      "path": "../../packages/core/session"
+    },
+    {
+      "path": "../../packages/session/session-persistence"
+    },
+    {
+      "path": "../../packages/sandbox/sandbox-policy"
+    },
+    {
+      "path": "../../packages/util/workspace-path"
+    },
+    {
+      "path": "../../packages/util/brand"
+    },
+    {
+      "path": "../../vendor/include"
+    },
+    {
+      "path": "../../packages/api/gateway/tsconfig.host.json"
+    },
+    {
+      "path": "../../packages/util/atomic-write"
+    },
+    {
+      "path": "../../packages/boot/cmdline"
+    },
+    {
+      "path": "../../packages/client/modules"
+    },
+    {
+      "path": "../../packages/host/feishu-settings/tsconfig.host.json"
+    },
+    {
+      "path": "../../packages/core/tools"
+    },
+    {
+      "path": "../../packages/preset/agent-preset-registry"
+    },
+    {
+      "path": "../../packages/llm/llm"
+    },
+    {
+      "path": "../../packages/util/launch-environment"
     },
     {
       "path": "../../packages/interaction/user-approval"

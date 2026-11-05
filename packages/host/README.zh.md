@@ -9,7 +9,7 @@ kind: "package-group"
 
 ## 概述
 
-`host/` 组提供 Web GUI 的 HTTP 与 SPA 服务器、工作区目录选择实现、应用启动路由、插件清单和显式产品事件上报，也提供桌面版飞书设置与 MUSE 账号访问。这些包都是产品包；浏览器传输位于 [`client/`](../client/README.zh.md)，组合后的 Web 应用由 [`apps/cli`](../../apps/cli/README.zh.md) 启动 [`dsh-base` 组合包](../bundle/base/cordis.patch.yml)，在 `apps/web/` 下提供服务。选择器后端可在共享 seam 后互相替换。
+`host/` 组提供 Web GUI 的 HTTP(S) 服务器、服务已构建 Web 壳的 SPA dist 服务器、带原生／浏览／自适应组合包的工作区目录选择 seam、open-in-app 的应用探测与启动路由，只读的插件清单投影以及显式产品事件上报。这些包都是产品包；浏览器传输位于 [`client/`](../client/README.zh.md)，组合应用是 [`apps/cli`](../../apps/cli/README.zh.md)，它启动 [`dsh-base` 组合包](../bundle/base/cordis.patch.yml) 来提供 `apps/web/` 下的 Web 应用。选择器后端可在共享 seam 后互相替换。 同时提供 Muse 账号访问和桌面飞书设置。
 
 ## 目录
 

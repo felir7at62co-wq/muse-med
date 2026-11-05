@@ -1,4 +1,6 @@
 /** Exercise the registered tools in an isolated Host with only in-memory provider responses. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
@@ -13,9 +15,10 @@ import * as Jubian from '../src/index.ts'
 
 it('keeps an accepted image pending and resolves only verified numeric video parents through the Host', async () => {
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-token' } },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
   const ledgerRoot = join(home, 'ledger')
   await mkdir(ledgerRoot)
   await writeFile(join(ledgerRoot, 'authorization.json'), JSON.stringify({ version: 1, projects: {
@@ -60,7 +63,7 @@ it('keeps an accepted image pending and resolves only verified numeric video par
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
     await ctx.credentials.set(credentialRef('JUBIANAI_ADMIN_TOKEN'), 'mock-token')
     const signal = new AbortController().signal
-    const image = await ctx.tools.execute({ callId: ToolCallId('repair-image'), name: 'jubian_video',
+    const image = await executeModelToolFixture(ctx, { callId: ToolCallId('repair-image'), name: 'jubian_video',
       arguments: { method: 'image_generate', script_id: 2708, asset_name: 'Lead', asset_type: 1,
         prompt: 'A portrait', idempotency_key: 'host-image-original' }, signal })
     expect(image.isError, JSON.stringify(image.content)).toBe(false)
@@ -70,7 +73,7 @@ it('keeps an accepted image pending and resolves only verified numeric video par
       generation_status: 'submitted_pending', idempotency_key: 'host-image-original', parent_asset_id: 83749 })
     expect(calls.filter(call => call.method === 'POST' && call.path.endsWith('/aigc/asset'))).toHaveLength(1)
     expect((await new JubianLedger({ root: ledgerRoot }).find('host-image-original'))?.outcome).toBe('accepted')
-    const prepared = await ctx.tools.execute({ callId: ToolCallId('repair-video-ready'), name: 'jubian_storyboard',
+    const prepared = await executeModelToolFixture(ctx, { callId: ToolCallId('repair-video-ready'), name: 'jubian_storyboard',
       arguments: { method: 'prepare_video', storyboard_id: 1, project_dir: home }, signal })
     expect(prepared.isError, JSON.stringify(prepared.content)).toBe(false)
     const previewText = prepared.content.find(block => block.type === 'text')
@@ -79,7 +82,7 @@ it('keeps an accepted image pending and resolves only verified numeric video par
       orderedAssets: [{ assetId: 'asset-lead', materialAssetId: 81285 }],
     } })
     subjectRows = []
-    const blocked = await ctx.tools.execute({ callId: ToolCallId('repair-video-blocked'), name: 'jubian_storyboard',
+    const blocked = await executeModelToolFixture(ctx, { callId: ToolCallId('repair-video-blocked'), name: 'jubian_storyboard',
       arguments: { method: 'prepare_video', storyboard_id: 1, project_dir: home }, signal })
     expect(blocked.isError).toBe(true)
     expect(JSON.stringify(blocked.content)).toContain('stage=subject_identity')

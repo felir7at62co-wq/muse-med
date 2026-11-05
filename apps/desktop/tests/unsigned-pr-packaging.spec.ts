@@ -48,7 +48,7 @@ it('allows ad-hoc resource sealing for unsigned PR packages without publisher si
   expect(result).toBe(String(process.platform === 'darwin'))
   const config = createElectronBuilderConfig({ DSH_DESKTOP_APP_ID: 'cn.muse.med',
     DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: 'false', DSH_DESKTOP_UNSIGNED: '1' }, 'darwin', 'arm64')
-  expect(config.mac).toMatchObject({ identity: '-', forceCodeSigning: false, hardenedRuntime: false, notarize: false })
+  expect(config.mac).toMatchObject({ identity: '-', forceCodeSigning: false, hardenedRuntime: true, notarize: false })
 })
 
 it('prewarms private Windows FFmpeg in the cache read by media packaging', () => {

@@ -7,6 +7,7 @@ import { Context, FiberState } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import Agents from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import Llm, { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -56,12 +57,12 @@ it.each(['classic', 'bot', 'view'] as const)('presents and executes the %s quest
     await ctx.plugin(Loader)
     Object.assign(ctx.loader.builtins, { include: Include, llm: Llm, sessions: Sessions, projections: Projections,
       prompt: SystemPrompt, tools: Tools, agents: Agents, loop: AgentLoop,
-      discovery: Discovery, questions: UserQuestions, ask: AskUser, botQuestions: BotQuestions })
+      executor: NativeExecutor, discovery: Discovery, questions: UserQuestions, ask: AskUser, botQuestions: BotQuestions })
     const composition = join(root, 'cordis.yml')
     await writeFile(composition, JSON.stringify([
       { id: 'llm', name: 'cordis:llm' }, { id: 'sessions', name: 'cordis:sessions' },
       { id: 'projections', name: 'cordis:projections' }, { id: 'prompt', name: 'cordis:prompt' },
-      { id: 'tools', name: 'cordis:tools' }, { id: 'agents', name: 'cordis:agents' },
+      { id: 'tools', name: 'cordis:tools' }, { id: 'executor', name: 'cordis:executor' }, { id: 'agents', name: 'cordis:agents' },
       { id: 'loop', name: 'cordis:loop', config: { agents: [] } },
       { id: 'questions', name: 'cordis:questions' }, { id: 'ask', name: 'cordis:ask' },
       ...mode !== 'classic' ? [{ id: 'bot-tools', name: 'cordis:botQuestions' }] : [],

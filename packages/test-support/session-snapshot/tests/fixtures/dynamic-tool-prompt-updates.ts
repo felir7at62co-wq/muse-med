@@ -1,8 +1,8 @@
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import assert from 'node:assert/strict'
 import type { Context } from '@deepseek-ai/cordis'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-system-prompt'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 
 export const name = 'snapshot-dynamic-tool-prompt-updates'
 export const inject = ['tools', 'systemPrompt']

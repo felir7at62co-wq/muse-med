@@ -1,4 +1,5 @@
 /** Live upscale prices reach the default budget through the real Loader and recorded tool pipeline. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { access } from 'node:fs/promises'
 import { join } from 'node:path'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
@@ -22,11 +23,12 @@ it.each([
   { scenario: 'a missing live price', priced: false },
 ])('records upscale results with $scenario under the default budget and no manual estimates', async ({ priced }) => {
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'config-editor', name: 'cordis:editor' }, { id: 'settings', name: 'cordis:settings' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'offline-upscale-token' } },
     { id: 'drama-settings', name: 'cordis:drama' },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials,
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials,
     drama: DramaSettings, jubian: Jubian } })
   const ledgerRoot = join(home, 'ledger'), ledger = new JubianLedger({ root: ledgerRoot })
   const calls: { method: string; path: string }[] = []

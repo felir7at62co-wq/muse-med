@@ -9,9 +9,8 @@ import { HarnessClient, TransportClosedError, type HarnessNotification } from '@
 import {
   assertSessionFixtureVersion, formatSystemPromptSnapshot, latestPersistedSessionPaths,
   normalizeSessionSnapshot, normalizedSystemPrompts, normalizedToolSchemas, redactSessionSnapshotIds,
-  sessionFixtureName, sessionFixtureNames,
+  sessionFixtureNames,
 } from '@deepseek-ai/dsh-session-snapshot'
-import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 
 const owner = fileURLToPath(new URL('./factory-shutdown/', import.meta.url))
 const bootstrap = fileURLToPath(new URL('./subagent-spawn-in-process/session.1.v3.jsonl', import.meta.url))
@@ -19,7 +18,7 @@ const bootstrap = fileURLToPath(new URL('./subagent-spawn-in-process/session.1.v
 /** Wait on the fixture's durable readiness marker; observation never releases the child's abort barrier. */
 function readiness(root: string, receiptFile: string): { ready: Promise<Record<string, unknown>>; close(): void } {
   const ready = Promise.withResolvers<Record<string, unknown>>()
-  const deadline = setTimeout(() => { ready.reject(new Error('child readiness deadline elapsed')) }, 30_000)
+  const deadline = setTimeout(() => { ready.reject(new Error('child readiness deadline elapsed: ' + (existsSync(receiptFile) ? readFileSync(receiptFile, 'utf8') : 'no receipt'))) }, 30_000)
   const observe = (): void => {
     if (!existsSync(receiptFile)) return
     const content = readFileSync(receiptFile, 'utf8')
@@ -62,6 +61,7 @@ describe.skipIf(process.platform === 'win32')('SDK factory shutdown (POSIX SIGTE
     await writeFile(overrideFile, JSON.stringify(script.map(entry => ({ ...entry, readyFile }))) + '\n')
     await writeFile(patch, JSON.stringify([
       { id: 'session-persistence-jsonl', config: { root: sessionRoot, compression: 'none' } },
+      { id: 'time-context', disabled: true },
       { id: 'skill-filesystem', config: { includeDefaultRoots: false, customSkillDirs: [], watch: false } },
       { insert: [{ id: 'factory-shutdown-fixture', name: join(owner, 'runtime.mjs'), config: {
         replayFile, overrideFile, receiptFile, readyFile,
@@ -131,8 +131,8 @@ describe.skipIf(process.platform === 'win32')('SDK factory shutdown (POSIX SIGTE
       const projection = JSON.stringify({ exitCode: 0, lateAbortDelivered: true, closedTurns: ends, eventsBeforeClose: stableEvents }, null, 2) + '\n'
       if (process.env.DSH_SNAPSHOT === 'refresh') {
         await mkdir(owner, { recursive: true })
-        await writeFile(join(owner, sessionFixtureName(0, SESSION_FORMAT_VERSION)), snapshots[0] ?? '')
-        await writeFile(join(owner, sessionFixtureName(1, SESSION_FORMAT_VERSION)), snapshots[1] ?? '')
+        await writeFile(join(owner, 'writer.expected.jsonl'), snapshots[0] ?? '')
+        await writeFile(join(owner, 'writer.1.expected.jsonl'), snapshots[1] ?? '')
         await writeFile(join(owner, 'result.expected.json'), projection)
         const child = persisted[1]
         if (child === undefined) throw new Error('child log was not persisted')
@@ -143,7 +143,7 @@ describe.skipIf(process.platform === 'win32')('SDK factory shutdown (POSIX SIGTE
         await writeFile(join(owner, 'tool-schemas.1.expected.json'), JSON.stringify({ initial: schemas[0] ?? [], changes: schemas.slice(1) }, null, 2) + '\n')
       }
       expect(projection).toBe(await readFile(join(owner, 'result.expected.json'), 'utf8'))
-      expect(snapshots).toEqual(await Promise.all(sessionFixtureNames(await readdir(owner)).map(file => readFile(join(owner, file), 'utf8'))))
+      expect(snapshots).toEqual(await Promise.all(['writer.expected.jsonl', 'writer.1.expected.jsonl'].map(file => readFile(join(owner, file), 'utf8'))))
     } finally {
       barrier.close()
       subscription.close()

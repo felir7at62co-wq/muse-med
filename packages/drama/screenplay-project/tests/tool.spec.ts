@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import sharp from 'sharp'
@@ -18,6 +19,7 @@ import * as StoryFixture from './fixtures/story-faithful-model.ts'
 import { prepareStoryFixture, STORY_FIXTURE_REQUEST } from './fixtures/story-faithful-fixture.ts'
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
 import * as Video from '@deepseek-ai/dsh-tool-video-inspect'
+import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, expect, it, vi } from 'vitest'
 import { apply, Config, inject, name } from '../src/index.ts'
@@ -37,15 +39,16 @@ async function fixture(config: Partial<Config> = {}) {
   fixtures.push({ ctx, root })
   await mountAgentLoopTestDependencies(ctx, { tools: { mode: 'native' } })
   await ctx.plugin(LocalFileSystem, { cwd: root })
+  await ctx.plugin(WorkingDirectory)
   await ctx.plugin(LocalAttachmentStore, { dshHome: root })
   const driver = await mountAgentLoopTestHarness(ctx)
   const agent = await driver.create(SessionId('screenplay-writer'), {}, { cwd: root })
   const register = vi.spyOn(ctx.tools, 'register')
   const projections = vi.spyOn(ctx.sessionProjections, 'register')
-  apply(ctx, Config(config))
+  await apply(ctx, Config(config))
   const tool = register.mock.calls[0]![0]
   let ordinal = 0
-  const call = (request: Record<string, unknown>, initiated = true) => ctx.tools.execute({
+  const call = (request: Record<string, unknown>, initiated = true) => executeToolFixture(ctx, {
     name: 'screenplay_project', callId: ToolCallId(`screenplay-${++ordinal}`), arguments: { request },
     signal: new AbortController().signal, ...(initiated ? { agent } : {}),
   })
@@ -71,10 +74,11 @@ it('rejects dependent creation settings before mounting without their projection
   const root = await mkdtemp(join(tmpdir(), 'screenplay-composition-')), ctx = new Context()
   fixtures.push({ ctx, root })
   await ctx.plugin(LocalFileSystem, { cwd: root })
-  expect(() => { apply(ctx, Config({ storyFaithfulMode: 'story-faithful-v2' })) }).toThrow('requires self-check or advisory')
+  await ctx.plugin(WorkingDirectory)
+  await expect(apply(ctx, Config({ storyFaithfulMode: 'story-faithful-v2' }))).rejects.toThrow('requires self-check or advisory')
   for (const config of [{ reviewMode: 'self-check' }, { refinementMode: 'source-preserving-v1' },
     { reviewMode: 'self-check', storyFaithfulMode: 'story-faithful-v2' }] satisfies Partial<Config>[]) {
-    expect(() => { apply(ctx, Config(config)) }).toThrow('requires live sessionProjections')
+    await expect(apply(ctx, Config(config))).rejects.toThrow('requires live sessionProjections')
   }
 })
 
@@ -89,14 +93,14 @@ it('rejects empty, unprojected, and superseded genuine story grants before writi
   expect(JSON.stringify((await call(oldGrant)).content)).toContain('新作品必须引用最新真实用户请求')
   const registration = projections.mock.results[0]
   if (registration?.type !== 'return') throw Error('Refinement projection registration is missing')
-  registration.value()
-  expect(JSON.stringify((await call(oldGrant)).content)).toContain('真实用户消息投影尚未就绪')
+  await (await registration.value).dispose()
+  expect(JSON.stringify((await call(oldGrant)).content)).toContain('新作品必须引用最新真实用户请求')
   await expect(readFile(join(root, 'story.json'))).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
 it('validates configurable allocation budgets and rejects nonpositive or fractional values', () => {
   expect(name).toBe('screenplay-project')
-  expect(inject).toEqual(['fs', 'tools', 'attachments', 'llm'])
+  expect(inject).toEqual(['fs', 'tools', 'attachments', 'llm', 'agents'])
   expect(Config({})).toEqual({
     reviewMode: 'independent', refinementMode: 'disabled', storyFaithfulMode: 'disabled',
     maxSourceBytes: 16 * 1024 * 1024, maxProjectBytes: 32 * 1024 * 1024, maxReadUnits: 100, maxReadBytes: 64 * 1024, maxFactBatch: 20,
@@ -183,11 +187,11 @@ it('fails malformed model JSON and agentless calls before creating project files
 it('resolves standing policy for a session without cwd and rejects a confining provider missing its policy owner', async () => {
   const { ctx, driver, root } = await fixture()
   Object.defineProperty(ctx.fs, 'sandboxMode', { value: 'workspace-write' })
-  expect(() =>{  apply(ctx, Config({})) }).toThrow('requires sandboxPolicy')
+  await expect(apply(ctx, Config({}))).rejects.toThrow('requires sandboxPolicy')
   await ctx.plugin(SandboxPolicy, { mode: 'workspace-write', workspaceRoot: root })
   const agent = await driver.create(SessionId('screenplay-without-cwd'))
   const write = vi.spyOn(ctx.fs, 'writeText')
-  const result = await ctx.tools.execute({ name: 'screenplay_project', callId: ToolCallId('policy-call'),
+  const result = await executeToolFixture(ctx, { name: 'screenplay_project', callId: ToolCallId('policy-call'),
     arguments: { request: { method: 'init', project: join(root, 'standing.json'), mode: 'faithful', instructions: '保留原文。' } },
     signal: new AbortController().signal, agent })
   expect(result.isError).toBe(false)
@@ -209,7 +213,7 @@ it('returns verified frame images only to an explicitly resolved image-capable r
   const request = { method: 'read_source', project: 'project.json', source_id: source.id, start: 1, count: 1 }
   expect(JSON.stringify((await call(request)).content)).toContain('image_route')
   const providerOnly = await driver.create(SessionId('provider-only'), { provider: 'fixture' }, { cwd: root })
-  const invoke = (actor: typeof agent, id: string) => ctx.tools.execute({ name: 'screenplay_project', callId: ToolCallId(id), arguments: { request }, signal, agent: actor })
+  const invoke = (actor: typeof agent, id: string) => executeToolFixture(ctx, { name: 'screenplay_project', callId: ToolCallId(id), arguments: { request }, signal, agent: actor })
   expect((await invoke(providerOnly, 'missing-model')).isError).toBe(true)
   agent.session.append('request/header', { reason: 'initial', header: { config: { provider: 'fixture', model: 'image' } } })
   const resolve = vi.spyOn(ctx.llm, 'resolveModelInfo').mockResolvedValue({ provider: 'fixture', id: 'image', name: 'Fixture' })
@@ -328,13 +332,14 @@ it.each([false, true])('observes actual rereads before self approval in PTC, wit
   ctx.on('agent/error', ({ error }) => { errors.push(String(error)) })
   await mountAgentLoopTestDependencies(ctx, { tools: { mode: 'ptc' } })
   await ctx.plugin(LocalFileSystem, { cwd: root })
+  await ctx.plugin(WorkingDirectory)
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root })
   await ctx.plugin(LocalSandbox)
   await ctx.plugin(NodeRuntime).await()
   await writeFile(join(root, 'source.txt'), '甲想：钥匙在我手里。\n甲推门。\n')
-  apply(ctx, Config({ reviewMode: 'self-check' }))
+  await apply(ctx, Config({ reviewMode: 'self-check' }))
   await ctx.plugin(SelfCheckFixture, { cwd: root }).await()
   let completedPrograms = 0, replaced = false
   ctx.on('tools/result', (exec) => { if (exec.name === 'run_code') completedPrograms++ })
@@ -373,6 +378,7 @@ it('binds a real user refinement grant and delivers separately through the PTC l
   ctx.on('agent/error', ({ error }) => { errors.push(String(error)) })
   await mountAgentLoopTestDependencies(ctx, { tools: { mode: 'ptc' } })
   await ctx.plugin(LocalFileSystem, { cwd: root })
+  await ctx.plugin(WorkingDirectory)
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root })
@@ -380,7 +386,7 @@ it('binds a real user refinement grant and delivers separately through the PTC l
   await ctx.plugin(NodeRuntime).await()
   const original = '甲想：钥匙在我手里。'
   await writeFile(join(root, 'source.txt'), original)
-  apply(ctx, Config({ reviewMode: 'self-check', refinementMode: 'source-preserving-v1' }))
+  await apply(ctx, Config({ reviewMode: 'self-check', refinementMode: 'source-preserving-v1' }))
   await ctx.plugin(RefinementFixture).await()
   const driver = await mountAgentLoopTestHarness(ctx)
   const agent = await driver.create(SessionId('screenplay-refinement-loop'), {
@@ -411,6 +417,7 @@ it('creates a story from decoded original frames and verifies final C approval i
   ctx.on('agent/error', ({ error }) => { errors.push(String(error)) })
   await mountAgentLoopTestDependencies(ctx, { tools: { mode: 'ptc' } })
   await ctx.plugin(LocalFileSystem, { cwd: root })
+  await ctx.plugin(WorkingDirectory)
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access', workspaceRoot: root })
@@ -419,7 +426,7 @@ it('creates a story from decoded original frames and verifies final C approval i
   await ctx.plugin(CurrentLogQuery)
   await ctx.plugin(Video, Video.Config({ trustedEvidence: true })).await()
   await prepareStoryFixture(root)
-  apply(ctx, Config({ reviewMode: 'self-check', storyFaithfulMode: 'story-faithful-v2' }))
+  await apply(ctx, Config({ reviewMode: 'self-check', storyFaithfulMode: 'story-faithful-v2' }))
   await ctx.plugin(StoryFixture, { cwd: root }).await()
   const driver = await mountAgentLoopTestHarness(ctx)
   const agent = await driver.create(SessionId('screenplay-story-loop'), {

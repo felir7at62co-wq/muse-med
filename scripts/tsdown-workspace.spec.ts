@@ -1,49 +1,76 @@
-/**
- * Root tsdown workspace membership: the root config's wildcard patterns are the
- * build's inbox, and each directory they enumerate inherits the root `entry`
- * glob, which then resolves inside that directory.
- *
- * tsdown enumerates directories, not manifests. A package directory left behind
- * without its own `package.json` therefore still becomes a target, finds no
- * entry, and fails as `[@deepseek-ai/dsh-root]` — the nearest manifest above it,
- * naming a package this build never touched. Keeping the enumeration
- * manifest-backed keeps that failure naming the directory at fault.
- */
-
-import { existsSync, globSync, readFileSync } from 'node:fs'
+/** Manifest-backed workspace selection and the Desktop bundle's artifact prerequisites. */
+import { execFileSync } from 'node:child_process'
+import { globSync } from 'node:fs'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { describe, expect, it } from 'vitest'
-
-/** Wildcard members of the root `workspace` list (`tsdown.config.ts`); the literal members are fixed application directories. */
-const WORKSPACE_WILDCARDS = ['vendor/*', 'packages/*/*'] as const
-
-/** The root config's ignore list, written without extglob because `node:fs` globs do not support it. */
-const WORKSPACE_IGNORE = ['**/node_modules/**', '**/dist/**', '**/test/**', '**/tests/**', '**/temp/**', '**/tmp/**']
+import { pathToFileURL } from 'node:url'
+import { build } from 'tsdown'
+import { describe, expect, it, onTestFinished } from 'vitest'
+import { buildGates } from './build.ts'
+import { workspacePackageGlobs } from './workspace-package-globs.ts'
 
 const repositoryRoot = resolve(import.meta.dirname, '..')
+const manifestPatterns = ['vendor/*/package.json', 'packages/*/*/package.json']
 
 describe('root tsdown workspace', () => {
-  it('bundles Desktop only after its workspace dependencies', () => {
-    const config = readFileSync(join(repositoryRoot, 'tsdown.config.ts'), 'utf8')
-    const workspace = config.match(/workspace: client\s*\?\s*\[([^\]]*)\]\s*:\s*\[([^\]]*)\]/u)
-    expect(workspace).not.toBeNull()
-    for (const face of workspace!.slice(1)) expect(face).not.toMatch(/['"]apps\/desktop['"]/u)
-    const manifest = JSON.parse(readFileSync(join(repositoryRoot, 'package.json'), 'utf8')) as { scripts: Record<string, string> }
-    expect(manifest.scripts['build:lib:host']).toContain('tsdown --config-loader native --env.DSH_BUILD_FACE host && pnpm --filter @deepseek-ai/dsh-desktop run bundle')
+  it('keeps Desktop outside concurrent workspace bundles and waits for the Host artifact graph', async () => {
+    const packages = workspacePackageGlobs(globSync(manifestPatterns, { cwd: repositoryRoot }))
+    // Keep the compiler config outside the aggregate program and use the generator's source face in this child.
+    const inspect = `
+      import { registerHooks } from 'node:module'
+      const configUrl = ${JSON.stringify(pathToFileURL(join(repositoryRoot, 'tsdown.config.ts')).href)}
+      const pluginUrl = ${JSON.stringify(pathToFileURL(join(repositoryRoot, 'packages/typert/generator/src/tsdown-plugin.ts')).href)}
+      registerHooks({ resolve(specifier, context, nextResolve) {
+        if (context.parentURL === configUrl && specifier === './packages/typert/generator/lib/types/tsdown-plugin.js') {
+          return { url: pluginUrl, shortCircuit: true }
+        }
+        return nextResolve(specifier, context)
+      } })
+      const { default: config } = await import(configUrl)
+      const host = await config({ env: { DSH_BUILD_FACE: 'host' } }, { ci: false })
+      const client = await config({ env: { DSH_BUILD_FACE: 'client' } }, { ci: false })
+      let invalidFace = null
+      try { await config({ env: { DSH_BUILD_FACE: 'unsupported' } }, { ci: false }) }
+      catch (error) { invalidFace = error instanceof Error ? error.message : String(error) }
+      process.stdout.write(JSON.stringify({ host: host.workspace, client: client.workspace, invalidFace }))
+    `
+    const actual: unknown = JSON.parse(execFileSync(process.execPath,
+      ['--import', 'tsx/esm', '--input-type=module', '-e', inspect],
+      { cwd: repositoryRoot, encoding: 'utf8', timeout: 30_000 }))
+    expect(actual).toEqual({
+      host: [...packages, '!packages/drama/skills', 'apps/cli', 'apps/desktop-host'],
+      client: [...packages, '!packages/drama/skills', 'apps/cli'],
+      invalidFace: 'tsdown: --env.DSH_BUILD_FACE must be host or client, received unsupported',
+    })
+    for (const scope of ['complete', 'artifacts'] as const) {
+      const gates = new Map(buildGates(repositoryRoot, scope).map(gate => [gate.id, gate]))
+      expect(gates.get('host-src')?.needs).toEqual(['native', 'host-typert'])
+      expect(gates.get('host-bundle')?.needs).toEqual(['host-src'])
+      expect(gates.get('host-bundle')?.args.slice(-6)).toEqual(['exec', 'tsdown', '--config-loader', 'native',
+        '--env.DSH_BUILD_FACE', 'host'])
+      expect(gates.get('desktop-bundle')?.needs).toEqual(['host-bundle'])
+      expect(gates.get('desktop-bundle')?.args.slice(-4)).toEqual(['--filter', '@deepseek-ai/dsh-desktop', 'run', 'bundle'])
+      expect(gates.get('client-src')?.needs).toEqual(['desktop-bundle'])
+    }
   })
 
-  it('enumerates only directories that own a manifest', () => {
-    const orphans = WORKSPACE_WILDCARDS.flatMap(pattern => globSync(pattern, {
-      cwd: repositoryRoot,
-      withFileTypes: true,
-      exclude: WORKSPACE_IGNORE,
-    }))
-      // `packages/*/*` also matches files sitting directly in a group directory.
-      .filter(entry => entry.isDirectory())
-      .map(entry => join(entry.parentPath, entry.name))
-      .filter(directory => !existsSync(join(directory, 'package.json')))
-      .map(directory => directory.slice(repositoryRoot.length + 1).split('\\').join('/'))
-
-    expect(orphans).toEqual([])
+  it('builds manifest owners while excluding a retained directory without a manifest', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-tsdown-manifests-'))
+    onTestFinished(() => rm(cwd, { recursive: true, force: true }))
+    await writeFile(join(cwd, 'package.json'), JSON.stringify({ name: 'fixture-root', type: 'module' }))
+    for (const [directory, name] of [['packages/util/owned', 'fixture-owned'], ['vendor/owned', 'fixture-vendor']] as const) {
+      const path = join(cwd, directory)
+      await mkdir(join(path, 'src'), { recursive: true })
+      await writeFile(join(path, 'package.json'), JSON.stringify({ name, type: 'module' }))
+      await writeFile(join(path, 'src/index.ts'), 'export const retained = true\n')
+    }
+    await mkdir(join(cwd, 'packages/util/retired'), { recursive: true })
+    const workspace = workspacePackageGlobs(globSync(manifestPatterns, { cwd }))
+    expect(workspace.sort()).toEqual(['packages/util/owned', 'vendor/owned'])
+    const options = { cwd, config: false as const, entry: ['src/index.ts'], write: false, dts: false, logLevel: 'silent' as const }
+    const selected = await build({ ...options, workspace })
+    expect(selected.map(bundle => bundle.config.name).sort()).toEqual(['fixture-owned', 'fixture-vendor'])
+    await expect(build({ ...options, workspace: ['packages/*/*', 'vendor/*'] })).rejects.toThrow(/entry|input/iu)
   })
 })

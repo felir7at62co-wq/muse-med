@@ -1,4 +1,6 @@
 /** Admitted local operations retain teardown ownership across filesystem and worker waits. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -63,13 +65,14 @@ async function fixture() {
   const music = join(root, 'music'), indexPath = join(root, 'index.json')
   await mkdir(music); await writeFile(join(music, 'a.mp3'), 'first audio'); await writeFile(join(music, 'b.mp3'), 'second audio')
   const ctx = new Context(); contexts.push(ctx)
-  await ctx.plugin(SystemPrompt).await(); await ctx.plugin(ToolRuntime, { mode: 'native' }).await()
+  await ctx.plugin(SystemPrompt).await(); await ctx.plugin(ToolRuntime, {}).await()
+  await ctx.plugin(NativeToolExecutor)
   const plugin = ctx.plugin({ name: 'perception-bgm', apply, inject }, { pythonExecutable: process.execPath, indexPath })
   await plugin.await()
   const removed = barrier().entered
   ctx.on('tools/change', () => { if (ctx.tools.get('bgm_match') === undefined) removed.resolve(undefined) })
   return { music, indexPath, plugin, removed,
-    run: (signal = new AbortController().signal) => ctx.tools.execute({ callId: ToolCallId('bgm-lifecycle'),
+    run: (signal = new AbortController().signal) => executeModelToolFixture(ctx, { callId: ToolCallId('bgm-lifecycle'),
       name: 'bgm_match', arguments: { method: 'index', directory: music }, signal }) }
 }
 

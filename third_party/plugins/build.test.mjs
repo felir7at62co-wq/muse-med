@@ -130,7 +130,7 @@ test('builds every desktop plugin with its declared runtime entries and notices'
           continue
         }
         const version = reviewedHostPackageVersion(dependency)
-        const expected = dependency === '@earendil-works/pi-ai' ? '0.87.1'
+        const expected = dependency === '@earendil-works/pi-ai' ? '1.3.0'
           : version && !range.split(' || ').includes(version) ? `${range} || ${version}` : range
         assert.equal(manifest.peerDependencies[dependency], expected)
       }
@@ -164,7 +164,7 @@ test('builds every desktop plugin with its declared runtime entries and notices'
         const metadata = spawnSync('tar', ['-xOzf', join(first, tarball), 'package/SOURCE.json'], { encoding: 'utf8' })
         assert.equal(metadata.status, 0)
         assert.deepEqual(JSON.parse(metadata.stdout).compatibilityOverlay, {
-          subagentRuntimeVersion: reviewedHostVersion, piAiVersion: '0.87.1', piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true, opaqueModelMenus: true, viewportAnchoredModelMenus: true,
+          subagentRuntimeVersion: reviewedHostVersion, piAiVersion: '1.3.0', piAiCatalogFixtures: true, codexCliVersion: '0.153.4', codexAsarUnpack: true, authenticatedModelList: true, opaqueModelMenus: true, viewportAnchoredModelMenus: true,
         })
       }
     }

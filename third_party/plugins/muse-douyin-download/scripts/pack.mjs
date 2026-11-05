@@ -25,7 +25,7 @@ try {
   const runtime = JSON.parse(readFileSync(join(skill, 'runtime/SOURCE.json'), 'utf8'));
   const hostVersion = JSON.parse(readFileSync(join(repository, 'apps/desktop-host/package.json'), 'utf8')).version;
   const hostProtocolVersion = Number(/DESKTOP_HOST_PROTOCOL_VERSION = (\d+)/.exec(readFileSync(join(repository, 'apps/desktop-host/src/host-protocol.ts'), 'utf8'))?.[1]);
-  if (hostProtocolVersion !== 8) throw new Error('Douyin background acquisition requires matching Desktop Host protocol 8');
+  if (hostProtocolVersion !== 9) throw new Error('Douyin background acquisition requires matching Desktop Host protocol 9');
   const sourceFiles = {};
   for (const file of readdirSync(join(root, 'src')).sort()) sourceFiles[`src/${file}`] = createHash('sha256').update(readFileSync(join(root, 'src', file))).digest('hex');
   writeFileSync(join(staging, 'SOURCE.json'), JSON.stringify({ name: 'muse-douyin-download', hostVersion,

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, stat, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { afterEach, beforeEach, expect, it, vi, type MockInstance } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { createToolResultMessage, createUserMessage, LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -17,6 +17,7 @@ import { assemble } from '../../../llm/llm-pi-ai/tests/assemble.ts'
 import { writeMuseSession, readMuseSession, clearMuseSessionIfUnchanged } from '../src/session.ts'
 import { buildModelCatalog, modelAvailable } from '../../../api/session-controller/src/catalog.ts'
 import { agentEvents } from '@deepseek-ai/dsh-agent'
+import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { directProviderFixture, oldSessionFixture as routingFixture, waitForIdle } from './model-routing-fixture.ts'
 
 const suppliedCatalog = { providers: [
@@ -651,22 +652,16 @@ it('preserves an existing direct session with its own configured key', async () 
   expect(fixture.agent.session.snapshotEvents()).toHaveLength(count)
 })
 
-it('does not replace an existing session with a different supplied model', async () => {
+it('leaves an existing direct selection unchanged when Muse supplies a different model', async () => {
   const fixture = await oldSessionFixture(false)
   await login()
   models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
     fetcher: async () => Response.json({ providers: [{ ...suppliedCatalog.providers[1],
       models: [{ ...suppliedCatalog.providers[1]!.models[0], id: 'other-model' }] }] }) })
+  const events = fixture.agent.session.snapshotEvents().length
   await models.refresh()
-  const count = fixture.agent.session.snapshotEvents().length
-  await expect(agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request', {
-    turn: 1, step: 1, signal: new AbortController().signal,
-  }, () => Promise.resolve({ provider: 'deepseek-official', model: 'deepseek-flash',
-    ...(fixture.initialSelection.reasoningEffort === undefined ? {}
-      : { reasoningEffort: ReasoningEffortId(fixture.initialSelection.reasoningEffort) }) }))).rejects.toMatchObject({
-    code: 'UNKNOWN_MODEL', message: 'The saved direct model is not in the Muse catalog. Select an available Muse model in the conversation model picker.',
-  })
-  expect(fixture.agent.session.snapshotEvents()).toHaveLength(count)
+  expect(fixture.agent.model.current()).toMatchObject({ provider: 'deepseek-official', model: 'deepseek-flash' })
+  expect(fixture.agent.session.snapshotEvents()).toHaveLength(events)
 })
 
 it.each(['provider', 'reasoning'] as const)('retains a newer explicit %s selection when an account-route repair reaches the Session queue', async (change) => {
@@ -676,7 +671,7 @@ it.each(['provider', 'reasoning'] as const)('retains a newer explicit %s selecti
     fetcher: async () => Response.json(suppliedCatalog) })
   await models.refresh()
   const wanted = change === 'provider' ? { provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' }
-    : { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'off' }
+    : { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash', reasoningEffort: 'off' }
   const userChange = fixture.controller.selectModel({ sessionId: fixture.agent.id, ...wanted })
   const repair = fixture.controller.selectModelIfCurrent({ sessionId: fixture.agent.id,
     provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }, fixture.initialSelection)
@@ -686,14 +681,14 @@ it.each(['provider', 'reasoning'] as const)('retains a newer explicit %s selecti
     .toMatchObject(wanted)
 })
 
-it.each(['provider', 'reasoning'] as const)('does not replace a newer %s choice when the Muse request router resumes an older request', async (change) => {
+it.each(['provider', 'reasoning'] as const)('keeps an assembled request unchanged when a newer %s selection is recorded', async (change) => {
   const fixture = await oldSessionFixture(false)
   await login()
   models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
     fetcher: async () => Response.json(suppliedCatalog) })
   await models.refresh()
   const wanted = change === 'provider' ? { provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' }
-    : { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: 'off' }
+    : { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash', reasoningEffort: 'off' }
   const assembled = { provider: fixture.initialSelection.provider, model: fixture.initialSelection.model,
     ...(fixture.initialSelection.reasoningEffort === undefined ? {}
       : { reasoningEffort: ReasoningEffortId(fixture.initialSelection.reasoningEffort) }) }
@@ -778,7 +773,7 @@ it('loads Muse GLM models through Loader and retains reasoning on a tool continu
   await writeMuseSession(sessionFile(), { baseUrl: server.url, username: 'alice', cookie: '__Host-muse=alice-session' })
   fixture.ctx.loader.builtins['glm-models'] = {
     inject: accountInject,
-    apply: async (scope: Context) => {
+    apply: (scope: Context) => {
       const owned = new MuseModels(scope, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
         fetcher: async () => Response.json({ providers: [{ id: 'yunying', name: 'Yunying', models: [{
           id: 'glm-5.3-flash', name: 'GLM-5.3 Flash', contextWindow: 200000, maxTokens: 32768,
@@ -786,12 +781,12 @@ it('loads Muse GLM models through Loader and retains reasoning on a tool continu
         }] }] }) })
       models = owned
       scope.effect(() => () => owned.dispose())
-      await owned.refresh()
     },
   }
   const id = await fixture.ctx.loader.create({ name: 'cordis:glm-models' })
   await fixture.ctx.loader.await()
   await fixture.ctx.loader.resolve(id).fiber?.await()
+  await models.refresh()
   const request = { provider: 'muse-cloud-yunying', model: 'glm-5.3-flash' }
   const first = await assemble(fixture.ctx, { ...request, messages: [] })
   expect(first.finish).toEqual({ kind: 'tool-calls' })
@@ -1050,48 +1045,42 @@ it('retains an assembled direct request whose own credential is configured', asy
   }, async () => config)).toEqual(config)
 })
 
-it.each(['credential', 'catalog', 'session'] as const)('retains an assembled route when %s changes during repair', async (boundary) => {
+it.each(['credential', 'login', 'dispose'] as const)('retains a direct selection when %s changes while catalog repair is pending', async (boundary) => {
   const fixture = await oldSessionFixture(false)
   await login()
   models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
     fetcher: async () => Response.json(suppliedCatalog) })
-  await models.refresh()
-  let entered!: () => void, release!: () => void
-  const started = new Promise<void>((resolve) => { entered = resolve })
-  const gate = new Promise<void>((resolve) => { release = resolve })
-  let credentialReads: MockInstance<typeof fixture.ctx.credentials.describe> | undefined
-  if (boundary === 'credential') {
-    await fixture.ctx.settings.replace('agent-default-model', { provider: 'deepseek-official', model: 'deepseek-flash' })
-    const original = fixture.ctx.credentials.describe.bind(fixture.ctx.credentials)
-    // Refresh also reads the default route's credential; pause only the assembled request.
-    credentialReads = vi.spyOn(fixture.ctx.credentials, 'describe').mockImplementationOnce(async (ref) => { entered(); await gate; return await original(ref) })
-  } else {
-    const original = fixture.ctx.llm.listModels.bind(fixture.ctx.llm)
-    vi.spyOn(fixture.ctx.llm, 'listModels').mockImplementationOnce(async (provider) => { entered(); await gate; return await original(provider) })
-  }
-  const config = { provider: fixture.initialSelection.provider, model: fixture.initialSelection.model,
-    ...(fixture.initialSelection.reasoningEffort === undefined ? {}
-      : { reasoningEffort: ReasoningEffortId(fixture.initialSelection.reasoningEffort) }) }
-  const routed = agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request', {
-    turn: 1, step: 1, signal: new AbortController().signal,
-  }, async () => config)
+  const entered = Promise.withResolvers<undefined>()
+  const gate = Promise.withResolvers<undefined>()
+  const original = fixture.ctx.llm.listModels.bind(fixture.ctx.llm)
+  vi.spyOn(fixture.ctx.llm, 'listModels').mockImplementationOnce(async (provider) => {
+    entered.resolve(undefined)
+    await gate.promise
+    return original(provider)
+  })
+  const refreshed = models.refresh()
+  await entered.promise
+  let disposed: Promise<void> | undefined
   try {
-    await started
-    await login('bob')
-    if (boundary !== 'session') await models.refresh()
-    if (credentialReads) expect(credentialReads).toHaveBeenCalledTimes(2)
-  } finally {
-    release()
-    await routed
-  }
-  expect(await routed).toEqual(config)
+    if (boundary === 'credential') await fixture.ctx.credentials.set(credentialRef('OWN_DEEPSEEK_KEY'), 'new-personal-key')
+    else if (boundary === 'login') await login('bob')
+    else disposed = models.dispose()
+  } finally { gate.resolve(undefined) }
+  await refreshed
+  await disposed
+  expect(fixture.agent.model.current()).toEqual(fixture.initialSelection)
 })
 
-it.each(['default', 'header', 'adapter-default', 'header-effort'] as const)('repairs a session without a pending model selection from its %s', async (baseline) => {
+it.each(['default', 'header', 'adapter-default', 'header-effort'] as const)('repairs a future selection from its %s before request assembly', async (baseline) => {
   const fixture = await oldSessionFixture(false)
   const agent = await fixture.driver.create(SessionId(`unselected-${baseline}`), {
     provider: 'deepseek-official', model: 'deepseek-flash',
   }, { cwd: root })
+  if (baseline !== 'default') agent.session.append('request/header', { reason: 'initial', header: {
+    config: { provider: 'deepseek-official', model: 'deepseek-flash',
+      ...(['adapter-default', 'header-effort'].includes(baseline) ? { reasoningEffort: ReasoningEffortId('low') } : {}) },
+    ...(baseline === 'adapter-default' ? { adapterDefaults: { reasoningEffort: true } } : {}),
+  } })
   await login()
   const noReasoning = { providers: [{ ...suppliedCatalog.providers[1], models: [{
     ...suppliedCatalog.providers[1]!.models[0], reasoningEfforts: false,
@@ -1099,49 +1088,64 @@ it.each(['default', 'header', 'adapter-default', 'header-effort'] as const)('rep
   models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
     fetcher: async () => Response.json(baseline === 'header-effort' ? suppliedCatalog : noReasoning) })
   await models.refresh()
-  await fixture.ctx.settings.replace('agent-default-model', { provider: 'deepseek-official', model: 'deepseek-flash' })
-  if (baseline !== 'default') agent.session.append('request/header', { reason: 'initial', header: {
-    config: { provider: 'deepseek-official', model: 'deepseek-flash',
-      ...(['adapter-default', 'header-effort'].includes(baseline) ? { reasoningEffort: ReasoningEffortId('low') } : {}) },
-    ...(baseline === 'adapter-default' ? { adapterDefaults: { reasoningEffort: true } } : {}),
-  } })
-  const routed = await agentEvents(fixture.ctx, agent).waterfall('agent/request', {
-    turn: 1, step: 1, signal: new AbortController().signal,
-  }, async () => ({ provider: 'deepseek-official', model: 'deepseek-flash',
-    ...(baseline === 'header-effort' ? { reasoningEffort: ReasoningEffortId('low') } : {}) }))
-  expect(routed).toEqual({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash',
-    ...(baseline === 'header-effort' ? { reasoningEffort: ReasoningEffortId('low') } : {}) })
-  expect(agent.session.snapshotEvents().filter(event => event.type === 'model/selection').at(-1)?.data)
-    .toEqual({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash',
-      ...(baseline === 'header-effort' ? { reasoningEffort: 'low' } : {}) })
+  const expected = { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash',
+    ...(baseline === 'header-effort' ? { reasoningEffort: ReasoningEffortId('low') } : {}) }
+  expect(agent.model.current()).toEqual(expected)
+  expect(agent.session.snapshotEvents().filter(event => event.type === 'model/selection').at(-1)?.data).toEqual(expected)
+  if (baseline !== 'header-effort') expect(fixture.agent.model.current()).toEqual(fixture.initialSelection)
 })
 
-it('resolves the older request without replacing a newer choice committed before its queued route repair', async () => {
+it.each(['provider', 'reasoning'] as const)('retains a newer explicit %s selection across pending catalog repair', async (change) => {
+  const fixture = await oldSessionFixture(false)
+  await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  const entered = Promise.withResolvers<undefined>()
+  const gate = Promise.withResolvers<undefined>()
+  const original = fixture.ctx.llm.listModels.bind(fixture.ctx.llm)
+  vi.spyOn(fixture.ctx.llm, 'listModels').mockImplementationOnce(async (provider) => {
+    entered.resolve(undefined)
+    await gate.promise
+    return original(provider)
+  })
+  const refreshed = models.refresh()
+  await entered.promise
+  const wanted = change === 'provider' ? { provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' }
+    : { provider: 'deepseek-official', model: 'deepseek-flash', reasoningEffort: ReasoningEffortId('off') }
+  try { fixture.agent.model.select(wanted) }
+  finally { gate.resolve(undefined) }
+  await refreshed
+  expect(fixture.agent.model.current()).toEqual(wanted)
+  expect(fixture.agent.session.snapshotEvents().filter(event => event.type === 'model/selection').at(-1)?.data).toEqual(wanted)
+})
+
+it('repairs a newly created Agent before its first request and keeps omitted effort as an adapter default', async () => {
   const fixture = await oldSessionFixture(false)
   await login()
   models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
     fetcher: async () => Response.json(suppliedCatalog) })
   await models.refresh()
-  let entered!: () => void, release!: () => void
-  const started = new Promise<void>((resolve) => { entered = resolve })
-  const gate = new Promise<void>((resolve) => { release = resolve })
-  const select = fixture.controller.selectModelIfCurrent.bind(fixture.controller)
-  vi.spyOn(fixture.controller, 'selectModelIfCurrent').mockImplementation(async (wanted, expected) => {
-    entered(); await gate; return await select(wanted, expected)
-  })
-  const routed = agentEvents(fixture.ctx, fixture.agent).waterfall('agent/request', {
-    turn: 1, step: 1, signal: new AbortController().signal,
-  }, async () => ({ provider: fixture.initialSelection.provider, model: fixture.initialSelection.model,
-    ...(fixture.initialSelection.reasoningEffort === undefined ? {}
-      : { reasoningEffort: ReasoningEffortId(fixture.initialSelection.reasoningEffort) }) }))
-  await started
-  await fixture.controller.selectModel({ sessionId: fixture.agent.id, provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' })
-  release()
-  expect(await routed).toMatchObject({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
-  expect(fixture.ctx.sessionProjections.snapshot(fixture.agent.session).values.modelSelection?.next)
-    .toEqual({ provider: 'muse-cloud-aa', model: 'gemini-3.8-flash' })
+  const fresh = await fixture.driver.create(SessionId('new-direct-after-login'), {
+    provider: 'deepseek-official', model: 'deepseek-flash',
+  }, { cwd: root })
+  expect(fresh.model.current()).toEqual({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
+  expect(fresh.session.requestHeader()).toBeUndefined()
+  expect(fresh.session.snapshotEvents().filter(event => event.type === 'model/selection').map(event => event.data))
+    .toEqual([{ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }])
 })
 
+it('repairs only Agents covered by the account plugin scope', async () => {
+  const fixture = await oldSessionFixture(false)
+  const other = await fixture.driver.create(SessionId('outside-account-scope'), {
+    provider: 'deepseek-official', model: 'deepseek-flash',
+  }, { cwd: root })
+  await login()
+  models = new MuseModels(fixture.agent.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  await models.refresh()
+  expect(fixture.agent.model.current()).toMatchObject({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
+  expect(other.model.current()).toEqual({ provider: 'deepseek-official', model: 'deepseek-flash' })
+})
 
 it('routes a pooled provider through Muse while another provider streams directly', async () => {
   const server = await mockServer([{ events: textEvents }, { events: textEvents }])

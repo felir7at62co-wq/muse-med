@@ -5,6 +5,10 @@
  * provider and skill loader. The object and attachment stores are in-memory
  * fakes that record operations; no TOS, provider, or paid path participates.
  */
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import LocalFs from '@deepseek-ai/dsh-fs-local'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -281,6 +285,11 @@ async function loadFixture() {
   contexts.push(context)
   context.baseUrl = pathToFileURL(root).href + '/'
   await context.plugin(Loader)
+  await context.plugin(LlmRuntime)
+  await context.plugin(SessionStore)
+  await context.plugin(SessionProjectionRegistry)
+  await context.plugin(LocalFs, { cwd: root })
+  await context.plugin(WorkingDirectory, { defaultDirectory: root })
   context.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
     ['fixture:character-library-store', LoaderFixtureStore],
@@ -320,10 +329,8 @@ async function loadFixture() {
   const store = context.get('characterLibraryObjectStore')
   expect(store).toBeInstanceOf(LoaderFixtureStore)
   if (!(store instanceof LoaderFixtureStore)) throw new Error('Loader fixture store did not mount')
-  await context.plugin(LlmRuntime)
-  await context.plugin(SessionStore)
-  await context.plugin(SessionProjectionRegistry)
-  await context.plugin(AgentLoop, { agents: [] })
+  await context.plugin(NativeToolExecutor)
+  await context.plugin(AgentLoop, { agents: [] }).await()
   const agent = await context.agentLoop.create(SessionId('character-reference-direct'), {}, { cwd: root })
   return { context, store, agent, root }
 }
@@ -369,6 +376,7 @@ describe('character library real Loader composition', () => {
     await context.plugin(LoaderFixtureSettings)
     await context.plugin(CharacterLibrary)
     await context.plugin(Tools)
+    await context.plugin(NativeToolExecutor)
     await context.plugin(LlmRuntime)
     await context.plugin(SessionStore)
     await context.plugin(SessionProjectionRegistry)
@@ -391,7 +399,7 @@ describe('character library real Loader composition', () => {
     await mkdir(nested, { recursive: true })
     await rename(join(root, 'project_config.json'), join(nested, 'project_config.json'))
     const agent = await context.agentLoop.create(SessionId('character-reference-nested-loader'), {}, { cwd: root })
-    const execute = async (name: string, args: object, callId: string) => await context.tools.execute({
+    const execute = async (name: string, args: object, callId: string) => await executeModelToolFixture(context, {
       callId: ToolCallId(callId), name, arguments: args, agent, signal: new AbortController().signal,
     })
     const search = {
@@ -430,7 +438,7 @@ describe('character library real Loader composition', () => {
     expect(context.tools.get('drama_character_references')).toBeDefined()
     expect(context.tools.get('drama_character_reference_view')).toBeDefined()
 
-    const skill = await context.tools.execute({
+    const skill = await executeModelToolFixture(context, {
       callId: ToolCallId('load-character-reference-library-skill'),
       name: 'skill',
       arguments: { name: 'character-reference-library' },
@@ -445,7 +453,7 @@ describe('character library real Loader composition', () => {
     expect(JSON.stringify(skill.value)).toContain('drama_character_reference_project')
     expect(JSON.stringify(skill.value)).not.toContain('drama_character_library_ingest_current_file')
 
-    const recommendation = await context.tools.execute({
+    const recommendation = await executeModelToolFixture(context, {
       callId: ToolCallId('recommend-character-reference'),
       name: 'drama_character_references',
       arguments: {
@@ -598,7 +606,7 @@ describe('character library real Loader composition', () => {
 
   it('searches a non-lead without a reason and disposes every registry contribution', async () => {
     const { context, store, agent } = await loadFixture()
-    const searched = await context.tools.execute({
+    const searched = await executeModelToolFixture(context, {
       callId: ToolCallId('search-supporting-reference'),
       name: 'drama_character_references',
       arguments: {

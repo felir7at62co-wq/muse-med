@@ -9,7 +9,10 @@ import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import AgentPresetRegistry from '@deepseek-ai/dsh-agent-preset-registry'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import Tools, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import Agents from '@deepseek-ai/dsh-agent'
+import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import Tools from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture, executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as DramaGate from '@deepseek-ai/dsh-guard-drama'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import * as yaml from 'js-yaml'
@@ -39,6 +42,8 @@ it('offers only short-drama while retaining historical coordinator and editing c
     await writeFile(config, yaml.dump([
       { id: 'system-prompt', name: 'test:prompt' },
       { id: 'tools', name: 'test:tools' },
+      { id: 'native-executor', name: 'test:native-executor' },
+      { id: 'agents', name: 'test:agents' },
       guard,
       { id: 'session-projections', name: 'test:projections' },
       { id: 'agent-preset-registry', name: 'test:registry', config: presetConfig },
@@ -49,7 +54,7 @@ it('offers only short-drama while retaining historical coordinator and editing c
     ctx.loader.builtins.include = Include
     const modules = new Map<string, unknown>([
       ['test:projections', SessionProjections], ['test:registry', AgentPresetRegistry], ['test:native', NativePreset],
-      ['test:prompt', SystemPrompt], ['test:tools', Tools], ['@deepseek-ai/dsh-guard-drama', DramaGate],
+      ['test:prompt', SystemPrompt], ['test:tools', Tools], ['test:agents', Agents], ['test:native-executor', NativeExecutor], ['@deepseek-ai/dsh-guard-drama', DramaGate],
     ])
     ctx.loader.internal = { version: 'v2', loadCache: new Map(),
       register() { throw new Error('Unexpected loader hooks') },
@@ -161,17 +166,17 @@ it('offers only short-drama while retaining historical coordinator and editing c
       parameters: { method: { type: 'string' }, preview_path: { type: 'string' } },
       async execute() { calls++; return [{ type: 'text', text: 'provider reached' }] },
     }))
-    const denied = await ctx.tools.execute({ name: 'jubian_storyboard', arguments: { method: 'generate', preview_path: 'prepared.json' },
+    const denied = await executeModelToolFixture(ctx, { name: 'jubian_storyboard', arguments: { method: 'generate', preview_path: 'prepared.json' },
       callId: ToolCallId('product-guard-denied'), signal: new AbortController().signal })
     expect(denied.isError).toBe(true)
     expect(JSON.stringify(denied.content)).toContain('idempotency_key')
     expect(calls).toBe(0)
-    const allowed = await ctx.tools.execute({ name: 'jubian_storyboard', arguments: { method: 'get' },
+    const allowed = await executeModelToolFixture(ctx, { name: 'jubian_storyboard', arguments: { method: 'get' },
       callId: ToolCallId('product-read-allowed'), signal: new AbortController().signal })
     expect(allowed.isError).toBe(false)
     expect(calls).toBe(1)
     await [...ctx.loader.entries()].find(row => row.options.id === 'drama-gate')?.fiber?.dispose()
-    await ctx.tools.execute({ name: 'jubian_storyboard', arguments: { method: 'generate', preview_path: 'prepared.json' },
+    await executeModelToolFixture(ctx, { name: 'jubian_storyboard', arguments: { method: 'generate', preview_path: 'prepared.json' },
       callId: ToolCallId('product-guard-disposed'), signal: new AbortController().signal })
     expect(calls).toBe(2)
   } finally {

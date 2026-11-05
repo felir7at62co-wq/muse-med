@@ -1,10 +1,11 @@
 /** Current-task successful text-read receipts, reconstructed by the Session projection registry. */
-import type { Context } from '@deepseek-ai/cordis'
+import { Service, type Context } from '@deepseek-ai/cordis'
 import { createHash } from 'node:crypto'
 import { ToolCallId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionSeq, type Session } from '@deepseek-ai/dsh-session'
-import type {} from '@deepseek-ai/dsh-session-projection'
-import type { VideoTranscriptCandidates } from '@deepseek-ai/dsh-tool-video-inspect'
+import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
+import { createVideoReviewReader } from '@deepseek-ai/dsh-tool-video-inspect'
+import type { VideoReviewReader, VideoTranscriptCandidates } from '@deepseek-ai/dsh-tool-video-inspect'
 import { z } from 'zod'
 
 const textReadSchema = z.object({ path: z.string(), readCallId: z.string().transform(ToolCallId),
@@ -23,8 +24,34 @@ const readStateSchema = z.object({ cwd: z.string(), taskStartSeq: z.number().int
   textReads: z.array(textReadSchema), omittedTextReads: z.number().int().nonnegative() })
 type ReadState = z.infer<typeof readStateSchema>
 
-declare module '@deepseek-ai/dsh-session-projection/types' {
-  interface SessionProjectionStateMap { manuscriptVideoReads: ReadState }
+declare module '@deepseek-ai/cordis' {
+  interface Context { manuscriptVideoReads: ManuscriptVideoReads }
+}
+
+/** Host-private reader; raw receipt state is absent from client projection snapshots. */
+class ManuscriptVideoReads extends Service {
+  static inject = ['sessionProjections']
+  private projection!: ProjectionHandle<ReadState>
+  private videoReviews!: VideoReviewReader
+
+  constructor(ctx: Context, private readonly config: { declaresOutput: (message: UserMessage, cwd: string) => boolean
+    limits: { maxTextChars: number; maxDocuments: number; maxLedgerBytes: number } }) {
+    super(ctx, 'manuscriptVideoReads')
+  }
+
+  protected async [Service.init](): Promise<void> {
+    this.projection = await registerReads(this.ctx, this.config.declaresOutput, this.config.limits)
+    this.videoReviews = await createVideoReviewReader(this.ctx)
+  }
+
+  get reviews(): VideoReviewReader { return this.videoReviews }
+  stateOf(session: Session): ReadState { return this.projection.stateOf(session) }
+}
+
+function privateReader(ctx: Context): ManuscriptVideoReads {
+  const reader = ctx.get('manuscriptVideoReads')
+  if (reader === undefined) throw new Error('Manuscript read receipts are unavailable')
+  return reader
 }
 
 /**
@@ -32,10 +59,16 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
  * @param ctx - Registry scope owning registration and teardown.
  * @param declaresOutput - Recognizes a real user's explicit output task; generic continuation preserves its receipts.
  * @param limits - Existing manuscript budgets bound retained text snapshots and their count.
+ * @returns Completion after the private reader is available.
  */
-export function installManuscriptVideoReads(ctx: Context, declaresOutput: (message: UserMessage, cwd: string) => boolean,
-  limits: { maxTextChars: number; maxDocuments: number; maxLedgerBytes: number }): void {
-  ctx.sessionProjections.register({ key: 'manuscriptVideoReads', stateSchema: readStateSchema, stateVersion: 3,
+export async function installManuscriptVideoReads(ctx: Context, declaresOutput: (message: UserMessage, cwd: string) => boolean,
+  limits: { maxTextChars: number; maxDocuments: number; maxLedgerBytes: number }): Promise<void> {
+  await ctx.plugin(ManuscriptVideoReads, { declaresOutput, limits })
+}
+
+async function registerReads(ctx: Context, declaresOutput: (message: UserMessage, cwd: string) => boolean,
+  limits: { maxTextChars: number; maxDocuments: number; maxLedgerBytes: number }): Promise<ProjectionHandle<ReadState>> {
+  return ctx.sessionProjections.register({ key: 'manuscriptVideoReads', stateSchema: readStateSchema, stateVersion: 3,
     init: header => ({ cwd: header.cwd ?? '', pending: [], reads: [], textReads: [], omittedTextReads: 0 }),
     apply: (state, event) => {
       if (event.type === 'user/message' && event.data.source.kind === 'user'
@@ -97,8 +130,8 @@ export function installManuscriptVideoReads(ctx: Context, declaresOutput: (messa
  * @returns Current-task successful JSON reads, or undefined before any real user task.
  */
 export function manuscriptVideoReadCandidates(ctx: Context, session: Session): VideoTranscriptCandidates | undefined {
-  const state = ctx.sessionProjections.stateOf(session, 'manuscriptVideoReads')
-  return state?.taskStartSeq === undefined ? undefined : { taskStartSeq: state.taskStartSeq, reads: state.reads }
+  const state = privateReader(ctx).stateOf(session)
+  return state.taskStartSeq === undefined ? undefined : { taskStartSeq: state.taskStartSeq, reads: state.reads }
 }
 
 /**
@@ -108,8 +141,8 @@ export function manuscriptVideoReadCandidates(ctx: Context, session: Session): V
  * @returns Actual complete snapshots and partial-read diagnostics for this task, or undefined before its first user input.
  */
 export function manuscriptTextReadSnapshots(ctx: Context, session: Session) {
-  const state = ctx.sessionProjections.stateOf(session, 'manuscriptVideoReads')
-  return state?.taskStartSeq === undefined ? undefined : { taskStartSeq: state.taskStartSeq,
+  const state = privateReader(ctx).stateOf(session)
+  return state.taskStartSeq === undefined ? undefined : { taskStartSeq: state.taskStartSeq,
     reads: state.textReads, omitted: state.omittedTextReads }
 }
 
@@ -123,3 +156,10 @@ export function manuscriptReadText(text: string): string {
   if (text.endsWith('\n') || text === '') lines.pop()
   return lines.map(line => line.endsWith('\r') ? line.slice(0, -1) : line).join('\n')
 }
+
+/**
+ * Read video observations through the Host owner's independently retained projection reader.
+ * @param ctx - Host context whose manuscript readers finished initialization.
+ * @returns Synchronous reader for committed video observation progress.
+ */
+export function manuscriptVideoReviewReader(ctx: Context): VideoReviewReader { return privateReader(ctx).reviews }

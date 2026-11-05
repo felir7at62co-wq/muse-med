@@ -15,6 +15,7 @@
 
 import type { Context, Fiber, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { isVolatile } from '@deepseek-ai/cosmokit'
 import { FeishuSetupService } from './service.ts'
 import { FEISHU_CHANNEL_ROW_ID } from './settings.ts'
 
@@ -66,14 +67,16 @@ export const Config = z.object({
 export function apply(ctx: Context, config: Config): void {
   const enabledAtStartup = config.enabled.get()
   let bridgeEnabledAtStartup: boolean | undefined
-  ctx.on('internal/config', function (this: Fiber, _raw, next) {
+  ctx.on('internal/config', function (fiber: Fiber, next) {
     const raw: unknown = next()
-    if (this.entry?.options.id !== FEISHU_CHANNEL_ROW_ID || this.parent.fiber.entry === this.entry) return raw
+    if (fiber.entry?.options.id !== FEISHU_CHANNEL_ROW_ID || fiber.parent.fiber.entry === fiber.entry) return raw
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return raw
     // The mounted bridge remains writable without credentials; filling them requires another backend start.
+    const appId = 'appId' in raw ? (isVolatile(raw.appId) ? raw.appId.get() : raw.appId) : undefined
+    const appSecret = 'appSecret' in raw ? (isVolatile(raw.appSecret) ? raw.appSecret.get() : raw.appSecret) : undefined
     bridgeEnabledAtStartup ??= enabledAtStartup
-      && 'appId' in raw && typeof raw.appId === 'string' && raw.appId.length > 0
-      && 'appSecret' in raw && typeof raw.appSecret === 'string' && raw.appSecret.length > 0
+      && typeof appId === 'string' && appId.length > 0
+      && typeof appSecret === 'string' && appSecret.length > 0
     return { ...raw, enabled: bridgeEnabledAtStartup }
   }, { global: true, prepend: true })
   ctx.inject(['settings', 'loader'], (settingsCtx) => {

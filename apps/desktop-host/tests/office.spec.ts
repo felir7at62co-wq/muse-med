@@ -1,6 +1,7 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
@@ -40,7 +41,7 @@ it.each([[undefined, true], ['advisory', true], [undefined, false]] as const)(
       expect(ctx.loader.unwrapExports(desktopOffice)).toBe(desktopOffice)
       const modules = new Map<string, unknown>([
         ['agents', AgentRegistry], ['systemPrompt', SystemPrompt], ['tools', ToolRuntime],
-        ['skills', SkillRegistry], ['subprocess', LocalSubprocessRuntime], ['office', desktopOffice],
+        ['skills', SkillRegistry], ['subprocess', LocalSubprocessRuntime], ['office', desktopOffice], ['nativeToolExecutor', NativeToolExecutor],
         ['sessions', Sessions], ['sessionQuery', OfficeQueries],
       ])
       ctx.loader.internal = {
@@ -53,7 +54,7 @@ it.each([[undefined, true], ['advisory', true], [undefined, false]] as const)(
       const config = join(root, 'cordis.yml')
       await writeFile(config, [
         '- name: sessions', '- name: sessionQuery', '- name: agents', '- name: systemPrompt', '- name: tools',
-        '- name: skills', '- name: subprocess', '- name: office',
+        '- name: skills', '- name: subprocess', '- name: nativeToolExecutor', '- name: office',
         '  config:', `    source: ${JSON.stringify(join(root, 'runtime', 'primary-runtime'))}`,
         `    root: ${JSON.stringify(join(root, 'installed'))}`,
         `    runtimeDir: ${JSON.stringify(join(root, 'dsh'))}`, '',
@@ -63,10 +64,10 @@ it.each([[undefined, true], ['advisory', true], [undefined, false]] as const)(
       await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
       await ctx.loader.await()
       for (const entry of ctx.loader.entries()) await entry.fiber?.await()
-      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['office-docx', 'office-pptx', 'office-xlsx'])
-      expect((await ctx.skills.get('office-pptx'))?.resourceBase).toEqual({ kind: 'directory', path: join(assets, 'office-pptx') })
-      expect((await ctx.skills.get('office-pptx'))?.content).toContain('libreofficeKit')
-      expect((await ctx.skills.get('office-pptx'))?.content).toContain(JSON.stringify(nodeDirectory).slice(1, -1))
+      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['office', 'office-docx', 'office-export-pdf', 'office-pptx', 'office-recalculate', 'office-render', 'office-xlsx'])
+      expect((await ctx.skills.get('office-pptx'))?.resourceBase).toEqual({ kind: 'directory', path: join(assets, 'office-pptx').split(sep).join('/') })
+      expect((await ctx.skills.get('office-pptx'))?.content).toContain('office-render')
+      expect((await ctx.skills.get('office-pptx'))?.content).not.toContain(nodeDirectory)
       expect(ctx.tools.schemas().map(tool => tool.name)).toEqual([
         'load_workspace_dependencies', 'manuscript_revision', ...(recoveryEnabled ? ['source_recover'] : []),
         'jianying_draft', 'screenplay_export_docx',

@@ -6,6 +6,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { ToolSchema } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-tool-executor-ptc'
 import { ToolSearchIndex } from './search.ts'
 import { capabilityMemberships, capabilitySummaries, discoverableCapabilities, UNCATEGORIZED_CAPABILITY } from './capabilities.ts'
 import type { CapabilitySummary } from './capabilities.ts'
@@ -176,7 +177,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     }
   }
   const core = new Set([...settings.alwaysLoad, 'tool_search', 'tool_context'])
-  ctx.sessionProjections.register({
+  const projection = await ctx.sessionProjections.register({
     key: 'toolDiscovery', stateSchema, stateVersion: 2,
     init: () => ({ loaded: [], pinned: [], pending: [], pendingContext: [] }),
     apply: (state, event) => {
@@ -200,8 +201,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     },
   })
   const runtime = new ToolDiscoveryRuntime(ctx, (agent) => {
-    const state = ctx.sessionProjections.stateOf(agent.session, 'toolDiscovery')
-    return { loaded: state?.loaded ?? [], pinned: state?.pinned ?? [] }
+    const state = projection.stateOf(agent.session)
+    return { loaded: state.loaded, pinned: state.pinned }
   }, core)
   let cached: { fingerprint: string; index: ToolSearchIndex } | undefined
   const indexFor = (tools: ToolSchema[]): ToolSearchIndex => {
@@ -248,7 +249,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       const capability = args.capability?.trim()
       const limit = args.limit ?? maxResults
       if (limit < 1 || limit > maxResults) throw new Error(`limit must be between 1 and ${maxResults}`)
-      const tools = ctx.tools.schemas(exec.agent).filter(tool => tool.name !== 'tool_search' && tool.name !== 'tool_context' && tool.name !== 'run_code')
+      const tools = ctx.tools.schemas(exec.agent, exec.toolSet).filter(tool => ctx.tools.executable(tool.name, exec.agent, exec.toolSet) !== undefined).filter(tool => tool.name !== 'tool_search' && tool.name !== 'tool_context' && tool.name !== 'run_code')
       const offset = args.offset ?? 0
       if (!Number.isSafeInteger(offset) || offset < 0) throw new Error('offset must be a nonnegative safe integer')
       const groups = discoverableCapabilities(capabilities, tools.map(tool => tool.name), core)
@@ -277,8 +278,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.tools.register(definition)
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
     const assembly = await next()
-    if (ctx.tools.get('tool_search', context.scope) !== definition) return assembly
-    const authorized = ctx.tools.schemas(context.scope).map(tool => tool.name)
+    if (ctx.tools.get('tool_search', context.scope, context.toolSet) !== definition) return assembly
+    const authorized = ctx.tools.schemas(context.scope, context.toolSet)
+      .filter(tool => ctx.tools.executable(tool.name, context.scope, context.toolSet) !== undefined)
+      .map(tool => tool.name)
     const summaries = capabilitySummaries(discoverableCapabilities(capabilities,
       authorized.filter(tool => tool !== 'run_code'), core), authorized)
     return { ...assembly, sections: [...assembly.sections, { name: 'tools:discovery',
@@ -286,10 +289,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   ctx.tools.register(defineTool({
     name: 'tool_context',
-    description: 'Manage your own tool definitions. status lists loaded and pinned tools. load exposes exact tools for this session. pin also saves them for future sessions of your Bot when supported. release removes session loading and the pin; unpin removes only the future-session preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other Bots.',
+    description: 'Manage tool definitions for your current session. status lists loaded and pinned tools. load exposes exact tools for this session. pin also marks them as preferred; a configured preference provider can retain them for future sessions. release removes session loading and the preference; unpin removes only the preference and keeps currently loaded tools. Constant base tools, tool_search and tool_context cannot be released. Changes apply to your next model request; historical definitions and results remain in conversation history. Search can load a released tool again. This does not grant permissions or change other agents.',
     parameters: {
       operation: { type: 'string', required: true, enum: ['status', 'load', 'pin', 'release', 'unpin'],
-        description: 'Read status, load for this session, pin for future sessions, release, or cancel a pin.' },
+        description: 'Read status, load for this session, pin preferred tools, release, or cancel a preference.' },
       tools: { type: 'array', items: { type: 'string' }, description: 'Exact tool names; required for changes. Use tool_search to find names.' },
     },
     output: {
@@ -314,8 +317,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       if (args.operation !== 'status' && names.some(name => core.has(name) || name === 'run_code')) {
         throw new Error('Constant tools already remain available and cannot be changed')
       }
-      const current = runtime.state(agent)
-      const authorized = new Set(ctx.tools.schemas(agent).map(tool => tool.name))
+      const current = runtime.state(agent, exec.toolSet)
+      const authorized = new Set(ctx.tools.schemas(agent, exec.toolSet)
+        .filter(tool => ctx.tools.executable(tool.name, agent, exec.toolSet) !== undefined).map(tool => tool.name))
       if ((args.operation === 'load' || args.operation === 'pin') && names.some(name => !authorized.has(name))) {
         throw new Error('A named tool is unavailable to this agent; search the current capability catalog')
       }
@@ -343,6 +347,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const attach = async (agent: Agent) => {
     if (attached.has(agent) || ctx.tools.get('tool_search', agent) !== definition) return
     await runtime.refresh(agent)
+    ctx.fiber.assertActive()
+    agent.ctx.fiber.assertActive()
     attached.set(agent, agent.ctx.tools.presentOnly((tool, viewer) => viewer !== agent || core.has(tool)
       || runtime.selected(agent, tool)))
   }

@@ -1,3 +1,5 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeTool } from '../../checks/tool-call.mjs'
 /** Execute the owned ranking expression and public tool without a live WeChat account. */
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -55,13 +57,13 @@ test('ranking errors remain explicit and invalid pagination never invokes native
 test('real tool defaults to reputation board and refuses mismatched pages without retrying', async () => {
   const ctx = new Context(), calls = []
   try {
-    await ctx.plugin(SystemPrompt); await ctx.plugin(Tools)
+    await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); await ctx.plugin(NativeToolExecutor)
     registerLvpaopao(ctx, { async request(action, input) {
       calls.push({ action, input })
       return { operation: 'rankings', status: 'rankings-returned', identityMatched: true, boards: [], entries: [],
         boardType: input.boardType, pageIndex: input.pageIndex === 0 ? 0 : 7, pageSize: input.count, coldStartTime: input.coldStartTime, total: 0, hasMore: false }
     }, async dispose() {} }, limits)
-    const run = async args => JSON.parse((await ctx.tools.execute({ callId: 'rank-test', name: 'lvpaopao', arguments: { action: 'rankings', ...args }, signal: new AbortController().signal })).content[0].text)
+    const run = async args => JSON.parse((await executeTool(ctx, { callId: 'rank-test', name: 'lvpaopao', arguments: { action: 'rankings', ...args }, signal: new AbortController().signal })).content[0].text)
     assert.equal((await run({})).ok, true)
     assert.equal(calls[0].input.boardType, 6)
     assert.equal(calls[0].input.count, 20)

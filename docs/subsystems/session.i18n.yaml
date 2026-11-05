@@ -12,8 +12,8 @@
   en: 6eb931fcb2f4ab8d
   zh: d822a83384cc1fee
 /sessions/sessioneventmap-the-event-vocabulary/the-route-capacity-event-request-context:
-  en: f3447f84bad2ee55
-  zh: fe6a74690d40b611
+  en: 7e21ea8bcdb16b7a
+  zh: a377774d3596dbeb
 /sessions/sessionevent-t-one-log-entry:
   en: 622d333d9d903795
   zh: fdc9ee663330f01e
@@ -45,11 +45,11 @@
   en: 45d1a9ee6d610ac5
   zh: 79c061252fde4ceb
 /sessions/live-session-fork-api:
-  en: c72c73ce4b4c697c
-  zh: 8a34785a92df0ad5
+  en: 06189884c62a80a1
+  zh: 30121aed7a011c72
 /sessions/why-a-turn-ended-turnendreasonmap:
-  en: e707aae0b65fc133
-  zh: fc0edac4b4a4a08d
+  en: 966cc60273fb3911
+  zh: de5123ea9dbb0df2
 /sessions/execution-enclosure-and-standalone-events:
   en: 9091c5446e8cb9a2
   zh: 04c8c4fd5d0eaefc
@@ -59,9 +59,15 @@
 /sessions/plugin-contributed-log-only-events:
   en: 0a014a755b75449f
   zh: 9d59d74490a1bcb2
+/sessions/plugin-contributed-log-only-events/plugin-records:
+  en: 15102fd0b937fbf3
+  zh: 37ebf1d715db097c
 /sessions/durability-contract:
   en: 62e3e4fbcba292a3
   zh: cb6dcaf531621e85
 /sessions/remote-catalog-and-workspace-opening:
   en: dd27307e0d7c893c
   zh: b77d2a749b7b641c
+/sessions/session-log-upload-exclusions:
+  en: cfe3323aade972be
+  zh: 8423b490c47c5013

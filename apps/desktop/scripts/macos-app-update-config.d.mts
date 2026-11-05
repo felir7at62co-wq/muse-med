@@ -1,11 +1,12 @@
 /** Resolved fields required to embed a macOS updater feed. */
 export type MacOSAppUpdateFeed = {
   readonly publicUrl: string
+  readonly channel?: 'nightly' | 'latest'
 } | { readonly provider: 'github'; readonly owner: string; readonly repo: string; readonly channel: string }
 
 /** Packaged electron-updater configuration for macOS. */
 export type MacOSAppUpdateConfig = ({
-  readonly provider: 'generic'; readonly url: string; readonly channel: 'nightly'
+  readonly provider: 'generic'; readonly url: string; readonly channel: 'nightly' | 'latest'
 } | { readonly provider: 'github'; readonly owner: string; readonly repo: string; readonly channel: string }) & {
   readonly updaterCacheDirName: string
 }

@@ -16,7 +16,8 @@ const account = await importSnapshotModule(new URL('../../../packages/host/muse-
 const compaction = await importSnapshotModule(new URL('../../../packages/compaction/compaction-basic/src/index.ts', import.meta.url),
   new URL('../../../packages/compaction/compaction-basic/lib/index.js', import.meta.url))
 const [{ defineContentToolFixture }, { parse }] = await Promise.all([
-  importSnapshotPackage('@deepseek-ai/dsh-tools', owner), import(pathToFileURL(createRequire(owner).resolve('yaml')).href),
+  importSnapshotModule(new URL('../../../packages/test-support/tool-testkit/src/index.ts', import.meta.url),
+    new URL('../../../packages/test-support/tool-testkit/lib/index.js', import.meta.url)), import(pathToFileURL(createRequire(owner).resolve('yaml')).href),
 ])
 
 /** Loader name for the small-window model recording. */

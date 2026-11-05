@@ -1,3 +1,5 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeTool } from '../../checks/tool-call.mjs'
 /** Deterministic mock stdio verifies the owned SSH protocol; no ssh executable is run. */
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -166,7 +168,7 @@ test('real ToolRuntime preserves only registered safe download errors across per
   const ctx = new Context()
   try {
     await ctx.plugin(SystemPrompt)
-    await ctx.plugin(Tools)
+    await ctx.plugin(Tools); await ctx.plugin(NativeToolExecutor)
     const adapter = ctx.plugin({ name: 'lvpaopao-safe-download-error-test', inject: ['tools'], apply(child) {
       registerLvpaopao(child, f.port, { ...config, maxQueryChars: 80, maxEpisodeCount: 20, maxResultItems: 50, maxSeriesEpisodes: 400 })
     } })
@@ -175,7 +177,7 @@ test('real ToolRuntime preserves only registered safe download errors across per
     for (const [index, code] of [...codes, 'unregistered-error', privateText].entries()) {
       nextCode = code
       const before = f.sent.filter(frame => frame.method === 'download_first_episode').length
-      const executed = await ctx.tools.execute({ callId: `download-error-${index}`, name: 'lvpaopao',
+      const executed = await executeTool(ctx, { callId: `download-error-${index}`, name: 'lvpaopao',
         arguments: { action: 'download_first_episode', srcAppId: 'wx6522458df7ed3af2', dramaId: '121225' }, signal: new AbortController().signal })
       const value = JSON.parse(executed.content[0].text)
       const expected = codes.includes(code) ? code : 'remote-error'

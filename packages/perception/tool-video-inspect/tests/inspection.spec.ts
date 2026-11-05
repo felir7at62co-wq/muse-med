@@ -1,12 +1,14 @@
 /** Video inspection uses the real filesystem, attachment store and managed FFmpeg subprocesses. */
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdtemp, rm, readFile, appendFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import * as Os from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { TOOL_RUNTIME_SCHEDULER } from '@deepseek-ai/dsh-tools'
+import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { ToolExecutionPipeline } from '@deepseek-ai/dsh-tools/pipeline'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -97,10 +99,10 @@ it.each([
   [{ ocrMinFrameIntervalSeconds: 2, ocrFrameIntervalSeconds: 1 }, 'OCR frame interval bounds'],
   [{ ocrFrameIntervalSeconds: 2, ocrMaxFrameIntervalSeconds: 1 }, 'OCR frame interval bounds'],
   [{ ocrBatchFrames: 4, ocrMaxFrames: 2 }, 'ocrBatchFrames'],
-] as const)('rejects contradictory OCR deployment limits before registering tools: %j', (options, message) => {
+] as const)('rejects contradictory OCR deployment limits before registering tools: %j', async (options, message) => {
   const ctx = new Context()
   contexts.push(ctx)
-  expect(() => { VideoInspect.apply(ctx, VideoInspect.Config(options)) }).toThrow(message)
+  await expect(VideoInspect.apply(ctx, VideoInspect.Config(options))).rejects.toThrow(message)
 })
 
 it('plans OCR to the real video EOF without changing container metadata or contact-sheet bounds', async () => {
@@ -307,13 +309,15 @@ async function setup(options: Partial<VideoInspect.Config> = {}) {
   roots.push(root)
   const ctx = new Context()
   contexts.push(ctx)
-  await ctx.plugin(SystemPrompt).await()
-  await ctx.plugin(ToolRuntime, { mode: 'native' }).await()
+  await mountAgentLoopTestDependencies(ctx)
   await ctx.plugin(LocalFileSystem, { cwd: root }).await()
   await ctx.plugin(LocalSubprocessRuntime).await()
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') }).await()
   ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'danger-full-access', workspaceRoot: root }) } as never)
-  ctx.provide('llm', { resolveModelInfo: async (_provider: string, model: string) => ({ inputModalities: model === 'vision' ? ['text', 'image'] : ['text'] }) } as never)
+  vi.spyOn(ctx.llm, 'resolveModelInfo').mockImplementation(async (provider: string, model: string) => ({
+    provider, id: model, name: model, inputModalities: model === 'vision' ? ['text', 'image'] : ['text'],
+  }))
+  const driver = await mountAgentLoopTestHarness(ctx)
   const config = VideoInspect.Config({ powershellPath: process.execPath, ...options })
   const video = ctx.plugin(VideoInspect, config)
   await video.await()
@@ -324,16 +328,20 @@ async function setup(options: Partial<VideoInspect.Config> = {}) {
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', input],
   { mode: 'danger-full-access', workspaceRoot: root }, undefined, { timeoutMs: 20_000, maxBytes: 1024, graceMs: 1000 })
   let count = 0
-  const agent = (model: string, options: boolean) => ({ options: options ? { provider: 'test', model } : {}, session: { header: { cwd: root },
-    requestHeader: () => options ? undefined : ({ config: { provider: 'test', model } }), deriveMessages: () => [], append: () => undefined } })
+  let owners = 0
+  const agent = async (model: string, options: boolean) => {
+    const owner = await driver.create(SessionId(`inspection-${++owners}`), options ? { provider: 'test', model } : {}, { cwd: root })
+    if (!options) owner.session.append('request/header', { reason: 'initial', header: { config: { provider: 'test', model } } })
+    return owner
+  }
   return { ctx, root, input, config, video,
-    sheet: (args: Record<string, unknown>, model = 'vision', withAgent = true) => ctx.tools.execute({ callId: ToolCallId(`sheet-${++count}`), name: 'video_contact_sheet',
+    sheet: async (args: Record<string, unknown>, model = 'vision', withAgent = true) => executeModelToolFixture(ctx, { callId: ToolCallId(`sheet-${++count}`), name: 'video_contact_sheet',
       arguments: { file_path: input, ...args }, signal: new AbortController().signal,
-      ...withAgent ? { agent: agent(model, false) as never } : {} }),
-    call: (args: Record<string, unknown>, model = 'vision', route: 'header' | 'options' | 'none' = 'header') => ctx.tools.execute({ callId: ToolCallId(`video-${++count}`), name: 'video_inspect',
-      arguments: { file_path: input, ...args }, signal: new AbortController().signal, ...route === 'none' ? {} : { agent: agent(model, route === 'options') as never } }),
-    ocr: (args: Record<string, unknown>, signal = new AbortController().signal, withAgent = true) => ctx.tools.execute({ callId: ToolCallId(`ocr-${++count}`), name: 'video_ocr',
-      arguments: { file_path: input, ...args }, signal, ...withAgent ? { agent: agent('vision', false) as never } : {} }),
+      ...withAgent ? { agent: await agent(model, false) } : {} }),
+    call: async (args: Record<string, unknown>, model = 'vision', route: 'header' | 'options' | 'none' = 'header') => executeModelToolFixture(ctx, { callId: ToolCallId(`video-${++count}`), name: 'video_inspect',
+      arguments: { file_path: input, ...args }, signal: new AbortController().signal, ...route === 'none' ? {} : { agent: await agent(model, route === 'options') } }),
+    ocr: async (args: Record<string, unknown>, signal = new AbortController().signal, withAgent = true) => executeModelToolFixture(ctx, { callId: ToolCallId(`ocr-${++count}`), name: 'video_ocr',
+      arguments: { file_path: input, ...args }, signal, ...withAgent ? { agent: await agent('vision', false) } : {} }),
   }
 }
 
@@ -876,7 +884,7 @@ it('refuses a prepared inspection after its plugin has been unloaded', async () 
   const tool = h.ctx.tools.get('video_inspect')
   if (!tool) throw new Error('video tool unavailable')
   const args = { method: 'metadata', file_path: h.input }
-  const prepared = await h.ctx.tools[TOOL_RUNTIME_SCHEDULER].prepare({ callId: ToolCallId('prepared-video'),
+  const prepared = await new ToolExecutionPipeline(h.ctx).prepare({ callId: ToolCallId('prepared-video'),
     name: 'video_inspect', arguments: args, signal: new AbortController().signal })
   if (prepared.kind !== 'dispatch') throw new Error('video call was not prepared')
   await h.video.dispose()

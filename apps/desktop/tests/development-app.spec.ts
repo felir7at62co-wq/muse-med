@@ -16,14 +16,14 @@ it.skipIf(process.platform === 'win32')('passes literal workspace paths and cold
   const launcher = join(root, 'launcher')
   const home = join(root, "home ' $(false)")
   writeFileSync(launcher, developmentLauncher({ electron: binary, appRoot: root, directory: root,
-    home, userData: join(root, 'browser data'), primaryRuntime: join(root, 'primary runtime'),
+    home, museHome: home, productVersion: '1.2.8', userData: join(root, 'browser data'), primaryRuntime: join(root, 'primary runtime'),
     mainPort: 9229, rendererPort: 9222, hostPort: 9230, openDevtools: '0', museBaseUrl: 'http://127.0.0.1:29388' }, bundle))
   const result = execFileSync('/bin/sh', [launcher, '--test-launch-argument'], { encoding: 'utf8' })
   expect(result.trimEnd().split('\n')).toEqual([home, '1', '0', join(root, 'primary runtime'), 'http://127.0.0.1:29388', '--inspect=127.0.0.1:9229',
     '--remote-debugging-port=9222', `--user-data-dir=${join(root, 'browser data')}`, root, '--test-launch-argument'])
 })
 
-const options = { electron: '/electron', appRoot: '/app', directory: '/development', home: '/home', userData: '/browser',
+const options = { electron: '/electron', appRoot: '/app', directory: '/development', home: '/home', museHome: '/muse-home', productVersion: '1.2.8', userData: '/browser',
   primaryRuntime: '/runtime', mainPort: 9229, rendererPort: 9222, hostPort: 9230, openDevtools: '0' }
 
 it('keeps an unspecified Muse origin out of the persisted launcher', () => {

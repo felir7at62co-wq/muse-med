@@ -2,9 +2,10 @@
   config:
     provider: screenplay-story-faithful-fixture
     model: screenplay-story-faithful-fixture
-- id: tools
-  config:
-    mode: ptc
+- id: tool-executor-native
+  disabled: true
+- id: tool-executor-ptc
+  disabled: false
 - id: session-persistence-jsonl
   config:
     root: './.sessions'

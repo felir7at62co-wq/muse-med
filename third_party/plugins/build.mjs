@@ -17,6 +17,7 @@ import { applyHongguoHostCompatibility, hongguoHostCompatibility } from './compa
 import { hostRuntimeCompatibility, qualifyCommunityManifest, reviewedHostVersion, reviewedVendorVersions } from './compatibility/host-runtime.mjs'
 import { resolvePnpmEntrypoint } from '../../scripts/pnpm-entrypoint.mjs'
 import { selectCommunitySources } from './source-selection.mjs'
+import { assertCommunitySourceIntegrity } from './source-integrity.mjs'
 
 const sourceRoot = import.meta.dirname
 const repository = resolve(sourceRoot, '../..')
@@ -84,6 +85,7 @@ if (hostPiAiVersion !== codexPiAiVersion) throw new Error(`community plugins: pi
 run([pnpm, 'install', '--frozen-lockfile', '--ignore-scripts'], toolchain)
 
 for (const name of selectedSources) {
+  assertCommunitySourceIntegrity(join(sourceRoot, name), pins[name])
   const staging = mkdtempSync(join(output, '.source-build-'))
   const links = []
   try {
@@ -95,6 +97,7 @@ for (const name of selectedSources) {
     if (!readFileSync(join(directory, 'LICENSE'), 'utf8').trim()) throw new Error(`community plugins: ${name} has no license`)
     const modules = join(directory, 'node_modules')
     linkDependencies(modules, links)
+    cpSync(join(sourceRoot, 'checks/tool-call.mjs'), join(directory, '.muse-tool-call.mjs'))
     if (name === 'dsh-bridge') {
       applyBridgeDesktopCompatibility(directory)
       manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))

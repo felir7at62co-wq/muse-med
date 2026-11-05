@@ -45,6 +45,7 @@ packages/**/__pycache__/
 apps/web/dist/
 .artifacts/
 .dsh-build/
+.dsh-report/
 .playwright-mcp/
 .orig
 .worktrees/
@@ -68,3 +69,5 @@ cov-all.txt
 /-
 # VitePress writes a timestamped copy of the site config while building.
 *.timestamp-*.mjs
+# Generated company-signed CUA release record.
+/packages/experimental/cua-macos/cua-helper.json

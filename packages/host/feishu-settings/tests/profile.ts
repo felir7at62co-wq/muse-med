@@ -140,7 +140,7 @@ async function bootFeishuProfile(profile: ProfileContext): Promise<FeishuComposi
  */
 export function rowConfig(ctx: Context, id: string): Record<string, unknown> | undefined {
   const entry = [...ctx.loader.entries()].find(candidate => candidate.options.id === id)
-  const config: unknown = entry?.fiber?.config
+  const config: unknown = entry?.fiber?.effectiveConfig
   if (typeof config !== 'object' || config === null) return undefined
   return Object.fromEntries(Object.entries(config).map(([key, value]) => {
     const reference = value as { get?: () => unknown }

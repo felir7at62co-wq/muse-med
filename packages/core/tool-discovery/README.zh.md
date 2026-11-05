@@ -82,7 +82,7 @@ kind: "package-reference"
 
 只有成功结果中 `loaded` 数组里的名称才会被选中。下一次组装展示这些工具当前的完整定义，包括参数 schema。加载状态在该会话中保留，不会在每次调用后失效。发现本身不执行工具、不改变既有审批，也不阻止已经获准的工具在发现前执行。
 
-### 管理会话加载与 Bot 常驻偏好
+### 管理会话加载与持久偏好
 
 `tool_context` 接受 `operation` 及可选的精确名称数组 `tools`。基础工具不能修改。`load` 与 `pin` 要求工具当前获准使用；收起也能删除已存储但暂不可用的名称。修改在下一次请求生效，不执行工具，也不删除模型历史中先前的定义和结果。
 
@@ -90,15 +90,15 @@ kind: "package-reference"
 |---|---|
 | `status` | 查看所选和常驻名称；省略 `tools` |
 | `load` | 为当前会话加载名称 |
-| `pin` | 加载名称并保存未来会话的常驻偏好 |
+| `pin` | 加载名称并标记常驻偏好 |
 | `release` | 删除当前加载及常驻偏好；之后仍可搜索加载 |
-| `unpin` | 取消未来会话的常驻偏好，保留当前加载 |
+| `unpin` | 取消常驻偏好，保留当前加载 |
 
 成功回执记录已应用操作及完整的受影响名称。有长度限制的 `loaded`、`pinned` 预览通过 `omitted_loaded`、`omitted_pinned` 统计省略项。如果受影响名称回执本身超过 `maxResultChars`，操作在保存前失败；应减少单次修改的名称。无效或不可用的新增名称及基础工具修改均不会部分应用。
 
-没有外部所有者时，常驻状态由会话记录派生，可随恢复或含历史的分叉保留。要让 Bot 的新会话继承常驻偏好，注册 `ctx.toolDiscovery.registerResidency({ matches, read, write })`。提供方负责验证已存名称及持久化写入。`read(agent)` 返回完整常驻名称；`write(agent, names)` 保存其替换集合。不可用的已存名称保持休眠，不因其他修改而丢失。多个所有者同时匹配会明确失败。注册可撤销；晚注册或外部修改后需调用 `await ctx.toolDiscovery.refresh(agent)`。agent 创建会等待初始读取，在首次组装前生效。所有者写入失败时，工具返回失败结果，当前选择保持不变。
+没有外部所有者时，常驻状态由会话记录派生，可随恢复或含历史的分叉保留。要让新会话继承常驻偏好，注册 `ctx.toolDiscovery.registerResidency({ matches, read, write })`。提供方负责验证已存名称及持久化写入。`read(agent)` 返回完整常驻名称；`write(agent, names)` 保存其替换集合。不可用的已存名称保持休眠，不因其他修改而丢失。多个所有者同时匹配会明确失败。注册可撤销；晚注册或外部修改后需调用 `await ctx.toolDiscovery.refresh(agent)`。agent 创建会等待初始读取，在首次组装前生效。所有者写入失败时，工具返回失败结果，当前选择保持不变。
 
-`ctx.toolDiscovery.state(agent)` 返回独立且按当前授权过滤的 `loaded`、`pinned` 数组。服务与目录共享，选择按 agent 隔离，提供方决定各 agent 属于哪个 Bot。角色提示词不会授予工具权限。
+`ctx.toolDiscovery.state(agent)` 返回独立且按当前授权过滤的 `loaded`、`pinned` 数组。服务与目录共享，选择按 agent 隔离，提供方决定哪些 agent 共享已存偏好。角色提示词不会授予工具权限。
 
 ### 恢复加载状态并保持隔离
 
@@ -120,7 +120,7 @@ kind: "package-reference"
 | [`src/search.ts`](src/search.ts) | 中英文分词、元数据索引与 BM25 排名 |
 | [`src/capabilities.ts`](src/capabilities.ts) | 能力组多重归属与获准目录摘要 |
 | [`src/guidance.ts`](src/guidance.ts) | 稳定发现指引与有预算限制的初始目录 |
-| [`src/residency.ts`](src/residency.ts) | 按 agent 隔离的常驻服务及可选的 Bot 持久化所有者 |
+| [`src/residency.ts`](src/residency.ts) | 按 agent 隔离的常驻服务及可选的提供方持久化所有者 |
 
 </details>
 
@@ -162,7 +162,7 @@ kind: "package-reference"
 
 - **仅筛选注册表投影：** 独立贡献的系统提示词段与工具 schema 提供方不会被过滤，因此单靠工具发现无法移除全部无关说明。
 - **字面检索：** 中文分词、名称、能力组元数据与关键词有助于匹配，但不能证明语义相关或任务完成；agent 可能需要换词搜索。
-- **agent 自主选择：** 发现指引不强制搜索、不阻止 shell 使用，也不证明任务准确。加载状态持续到 agent 主动收起；插件不自动分类工作阶段。Bot 跨会话常驻偏好需要注册持久化所有者。
+- **agent 自主选择：** 发现指引不强制搜索、不阻止 shell 使用，也不证明任务准确。加载状态持续到 agent 主动收起；插件不自动分类工作阶段。跨会话常驻偏好需要注册持久化所有者。
 - **缓存取决于提供方：** 初始定义减少不能证明所有模型路由的总费用、耗时或缓存复用都会改善。
 - **元数据生命周期：** 恢复的名称使用当前定义；投影不会冻结旧 schema，也不会恢复已移除的工具。
 

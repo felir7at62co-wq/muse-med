@@ -1,3 +1,5 @@
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { Context } from '@deepseek-ai/cordis'
 import Tools from '@deepseek-ai/dsh-tools'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -72,7 +74,7 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
       await f.ctx.plugin(Draft, { source: f.root, pythonPath: mediaPython, timeoutMs: 60000,
         ffmpegPath: mediaFfmpeg, ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
         graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536 })
-      const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+      const response = await executeModelToolFixture(f.ctx, { name: 'jianying_draft', arguments: f.input,
         callId: ToolCallId('native-draft-runtime'), signal: f.signal })
       expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
       expect(response.value).toMatchObject({ success: true, drafts_created: 1, editor_open_verified: false,
@@ -104,7 +106,7 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
         expect(JSON.stringify(response.value)).toContain('回退剪映系统默认字体')
       }
       const saved = await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')
-      const repeated = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+      const repeated = await executeModelToolFixture(f.ctx, { name: 'jianying_draft', arguments: f.input,
         callId: ToolCallId('native-draft-no-overwrite'), signal: f.signal })
       expect(repeated.isError).toBe(true)
       expect(await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')).toBe(saved)
@@ -112,7 +114,7 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
       expect(await readFile(f.input.request_file)).toEqual(requestBytes)
       await writeFile(f.input.request_file, `${prefix}${JSON.stringify({ ...request, name_prefix: 'native-mix-', bgm_role: 'dialogue_music_mix' })}`)
       const mixedRequestBytes = await readFile(f.input.request_file)
-      const mixed = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+      const mixed = await executeModelToolFixture(f.ctx, { name: 'jianying_draft', arguments: f.input,
         callId: ToolCallId('native-draft-review-mix'), signal: f.signal })
       expect(mixed.isError, JSON.stringify(mixed.content)).not.toBe(true)
       expect(mixed.value).toMatchObject({ success: true })
@@ -161,7 +163,7 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg))('native-ep10-aac keeps five source
       ffmpegPath: mediaFfmpeg, ffprobePath: process.env.DSH_FFPROBE_PATH ?? 'ffprobe',
       graceMs: 100, maxInputBytes: 65536, maxOutputBytes: 65536 })
     expect(f.ctx.tools.get('jianying_draft')).toBeDefined()
-    const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+    const response = await executeModelToolFixture(f.ctx, { name: 'jianying_draft', arguments: f.input,
       callId: ToolCallId('native-five-source-draft'), signal: f.signal })
     expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
     expect(response.value).toMatchObject({ success: true, drafts_created: 1, editor_open_verified: false,
@@ -178,7 +180,7 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg))('native-ep10-aac keeps five source
     expect(audioTracks).toHaveLength(1)
     expect(audioTracks[0]).toMatchObject({ name: '主音频轨道', segments: [{ volume: 1 }] })
     expect(await Promise.all(inputs.map(file => readFile(file)))).toEqual(sourceBytes)
-    const repeated = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+    const repeated = await executeModelToolFixture(f.ctx, { name: 'jianying_draft', arguments: f.input,
       callId: ToolCallId('native-five-source-no-overwrite'), signal: f.signal })
     expect(repeated.isError).toBe(true)
     expect(await readFile(savedPath)).toEqual(saved)
@@ -216,6 +218,7 @@ async function fixture(maxInputBytes = 65536, maxBgmGain = 8) {
   try {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(LocalSubprocessRuntime)
     const input = { request_file: join(root, 'request.json'), drafts_dir: join(root, 'drafts') }
     await mkdir(input.drafts_dir)
@@ -414,7 +417,7 @@ it.runIf(process.platform === 'win32')('runs embedded source audio through the s
     await writeFile(f.input.request_file, '\ufeff' + JSON.stringify({ episode: 95, name_prefix: 'candidate-', audio_mode: 'embedded' }))
     await f.ctx.plugin(Draft, { ...f.config, ffmpegPath: 'C:\\media\\ffmpeg.exe', ffprobePath: 'C:\\media\\ffprobe.exe',
       windowsPowerShellPath: 'C:\\Windows\\powershell.exe' })
-    const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
+    const response = await executeModelToolFixture(f.ctx, { name: 'jianying_draft', arguments: f.input,
       callId: ToolCallId('aa-source-audio'), signal: f.signal })
     expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
     expect(response.value).toMatchObject({ backend: 'aa-jianying', library: { name: 'aa-jianying' }, editor_open_verified: false })

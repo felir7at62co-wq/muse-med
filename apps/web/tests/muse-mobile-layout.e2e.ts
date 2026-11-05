@@ -54,7 +54,7 @@ document.getElementById('open-chat')?.addEventListener('click', () => closePhone
       expect(await page.locator('#frame').getAttribute('data-toggles')).toBe('1')
 
       await page.setViewportSize({ width: 1280, height: 850 })
-      await page.locator('#frame').evaluate(node => node.removeAttribute('data-sidebar-collapsed'))
+      await page.locator('#frame').evaluate((node) =>{  node.removeAttribute('data-sidebar-collapsed') })
       await page.getByRole('button', { name: 'Open conversation' }).click()
       expect(await page.locator('#frame').getAttribute('data-sidebar-collapsed')).toBeNull()
       expect(await page.locator('#frame').getAttribute('data-toggles')).toBe('1')
@@ -66,7 +66,7 @@ document.getElementById('open-chat')?.addEventListener('click', () => closePhone
       await page.setContent(`<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;background:var(--bt-main);color:var(--bt-ink);font-family:system-ui}#conversation{width:calc(100vw - 56px);margin-left:56px;padding:16px;box-sizing:border-box}.bt-q{box-sizing:border-box}</style>
 <main id="conversation"><div class="bt-q-dock"><form class="bt-q bt-q-raised"><div class="bt-q-head"><div class="bt-q-text"><p class="bt-q-title">Confirm the selected candidates</p></div><button type="button" class="bt-q-x" aria-label="Dismiss">×</button></div><div class="bt-q-list">${options}</div><textarea class="bt-q-input" aria-label="Your answer"></textarea><div class="bt-q-foot"><button class="bt-q-submit" type="button">Confirm</button></div></form></div></main>`)
       await page.addScriptTag({ content: script })
-      await page.getByRole('button', { name: 'Confirm', exact: true }).evaluate(button => button.addEventListener('click', () => button.setAttribute('data-confirmed', 'true')))
+      await page.getByRole('button', { name: 'Confirm', exact: true }).evaluate((button) =>{  button.addEventListener('click', () =>{  button.setAttribute('data-confirmed', 'true') }) })
       for (const dark of [false, true]) {
         await page.locator('body').evaluate((body, on) => body.toggleAttribute('data-ds-dark-theme', on), dark)
         const geometry = await page.locator('.bt-q-dock').evaluate(node => ({
@@ -86,7 +86,7 @@ document.getElementById('open-chat')?.addEventListener('click', () => closePhone
         expect(bounds!.width).toBeGreaterThanOrEqual(44)
         await submit.tap()
         await expect.poll(() => submit.getAttribute('data-confirmed')).toBe('true')
-        await submit.evaluate(button => button.removeAttribute('data-confirmed'))
+        await submit.evaluate((button) =>{  button.removeAttribute('data-confirmed') })
       }
       const output = join(root, '.playwright-mcp/mobile-layout')
       await mkdir(output, { recursive: true })

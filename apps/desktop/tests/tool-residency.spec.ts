@@ -10,7 +10,8 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import Llm, { createUserMessage } from '@deepseek-ai/dsh-llm'
 import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
 import Projections from '@deepseek-ai/dsh-session-projection'
-import Persistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as Persistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { defineTool } from '@deepseek-ai/dsh-tools'
 import { expect, it } from 'vitest'
@@ -21,7 +22,7 @@ const patches = loadOverlayPatches('muse-med', fileURLToPath(new URL('../../desk
 const row = patches.flatMap(patch => patch.insert ?? []).find(entry => entry.id === 'tool-discovery')
 if (row?.config === undefined) throw new Error('Desktop discovery configuration is missing')
 const config = row.config as Discovery.Config
-const core = ['read', 'write', 'bash', 'read_image', 'video_inspect', 'ask_user', 'show_view', 'request_secret']
+const core = ['read', 'write', 'bash', 'read_image', 'video_inspect', 'ask_user_question', 'present', 'todo_write', 'todo_update']
 const professional = ['drama_shot', 'manuscript_revision', 'drama_project', 'source_recover', 'muse_production',
   'jubian_catalog', 'jubian_organize', 'jubian_find', 'drama_character_reference_project',
   'drama_character_references', 'drama_character_reference_view', 'drama_render']
@@ -36,6 +37,7 @@ async function fixture() {
     await ctx.plugin(Projections)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
+    await ctx.plugin(NativeExecutor)
     await ctx.plugin(Agents)
     await ctx.plugin(Persistence, { root: join(root, 'sessions'), compression: 'none' })
     await ctx.plugin(AgentLoop, { agents: [] })
@@ -64,7 +66,7 @@ async function send(agent: Agent) {
   await agent.whenIdle()
 }
 
-it('keeps daily and Bot card tools in the first model request without loading professional or MCP tools', async () => {
+it('keeps daily conversation tools in the first model request without loading professional or MCP tools', async () => {
   const f = await fixture()
   try {
     const agent = await f.create('desktop-core-tools')
@@ -74,7 +76,7 @@ it('keeps daily and Bot card tools in the first model request without loading pr
     expect(names).toEqual(expect.arrayContaining([...core, 'tool_search', 'tool_context']))
     for (const name of [...professional, 'mcp__example__read']) expect(names).not.toContain(name)
     expect(f.ctx.tools.get('mcp__example__read', agent)).toBeDefined()
-    expect(config.alwaysLoad).toHaveLength(60)
+    for (const name of ['show_view', 'ask_user', 'request_secret', 'start_task']) expect(config.alwaysLoad).not.toContain(name)
   } finally { await f.dispose() }
 })
 
@@ -102,15 +104,15 @@ it.each([
   } finally { await f.dispose() }
 })
 
-it('executes a Bot card as the first tool and retains explicit professional residency', async () => {
+it('executes presentation as the first tool and retains explicit professional residency', async () => {
   const f = await fixture()
   try {
     f.ctx.toolDiscovery.registerResidency({ matches: () => true, read: async () => ['drama_render'], write: async () => {} })
     const agent = await f.create('desktop-persisted-pins')
-    f.responses.push(toolCallResponse('card', 'show_view', { value: 'card' }), textResponse('Shown.'))
+    f.responses.push(toolCallResponse('presentation', 'present', { value: 'card' }), textResponse('Shown.'))
     await send(agent)
-    expect(f.calls).toEqual(['show_view'])
-    expect(f.adapter.requests[0]?.tools?.map(tool => tool.name)).toEqual(expect.arrayContaining(['show_view', 'drama_render']))
+    expect(f.calls).toEqual(['present'])
+    expect(f.adapter.requests[0]?.tools?.map(tool => tool.name)).toEqual(expect.arrayContaining(['present', 'drama_render']))
     expect(f.ctx.toolDiscovery.state(agent).pinned).toEqual(['drama_render'])
     expect(agent.session.snapshotEvents().some(event => event.type === 'tool/call' && event.data.name === 'tool_search')).toBe(false)
   } finally { await f.dispose() }

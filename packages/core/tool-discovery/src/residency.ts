@@ -1,6 +1,7 @@
 /** Per-agent tool selection with optional Bot-owned persistent preferences. */
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { ResolvedToolSet } from '@deepseek-ai/dsh-tools'
 
 /** Current session selections, filtered against the agent's current authorization. */
 export interface ToolContextState {
@@ -72,11 +73,14 @@ export class ToolDiscoveryRuntime extends Service {
 
   /** Read detached current session selections without exposing unavailable tool names.
    * @param agent - Agent whose current selection is requested.
+   * @param toolSet - current step admission; omission excludes conditional registrations.
    * @returns authorized loaded and preferred names, excluding constant tools.
    */
-  state(agent: Agent): ToolContextState {
+  state(agent: Agent, toolSet?: ResolvedToolSet): ToolContextState {
     const state = this.snapshot(agent)
-    const authorized = new Set(this.ctx.tools.schemas(agent).map(tool => tool.name).filter(name => !this.constantTools.has(name)))
+    const authorized = new Set(this.ctx.tools.schemas(agent, toolSet)
+      .filter(tool => this.ctx.tools.executable(tool.name, agent, toolSet) !== undefined)
+      .map(tool => tool.name).filter(name => !this.constantTools.has(name)))
     const pinned = this.preferred(agent, state.pinned)
     return { loaded: [...new Set([...state.loaded, ...pinned])].filter(name => authorized.has(name)).sort(),
       pinned: [...pinned].filter(name => authorized.has(name)).sort() }

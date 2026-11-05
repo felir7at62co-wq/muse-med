@@ -77,9 +77,8 @@ export interface Config {
    *
    * One live frame is a full scope-layer traversal per agent, and a patch reload
    * can update many rows at once, so the ceiling bounds a guard's cost in a
-   * deployment with very many concurrent sessions. Agents beyond the cap are
-   * inspected by the next update; the cap has no effect on ordinary deployments,
-   * which run far fewer agents at once.
+   * deployment with very many concurrent sessions. Each update inspects the
+   * first entries in registry order; later updates do not rotate past the cap.
    */
   maxAgentsPerUpdate?: number
 }
@@ -159,11 +158,10 @@ export function apply(ctx: Context, config: Config): void {
    * The tool names one agent's scope resolves right now, in lexical order, or
    * `undefined` when the agent carries no scope to read.
    *
-   * `schemas()` is the registry's documented enumeration of a scope's visible
-   * tools (one schema per visible name, after restrictions, scoped shadowing,
-   * and the PTC transport), so it is what the model would be offered. Its
-   * argument is a `ScopeKey`, not an Agent: `scopeOf(agent.ctx)` supplies the
-   * agent's own key, which is the scope whose view the agent sees.
+   * `schemas()` enumerates authorized registrations after restrictions and
+   * scoped shadowing. Presentation filters, step activation and executor
+   * transports determine the model's separate resolved tool set. The key
+   * from `scopeOf(agent.ctx)` selects this Agent's authorization scope.
    */
   function visibleToolNames(agent: Agent): string[] | undefined {
     const scope = scopeOf(agent.ctx)
@@ -297,10 +295,8 @@ export function apply(ctx: Context, config: Config): void {
   //
   // Both outcomes sweep. A reload that FAILED also leaves rows withdrawn, and
   // the recovery a reader needs is the same one.
-  ctx.on('internal/update', (_config: unknown, _noSave: boolean, next: () => unknown): unknown => {
-    const settled = next()
-    void Promise.resolve(settled).then(() => { sweep() }, () => { sweep() })
-    return settled
+  ctx.on('internal/update', async (_config, next) => {
+    try { await next() } finally { sweep() }
   }, { global: true })
 
   // Adoption runs at activation, not only on later creation: this guard is

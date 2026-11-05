@@ -12,7 +12,7 @@ import type { Config } from './manuscript-revisions.ts'
 import { isManuscript, readManuscript } from './manuscript-document.ts'
 import { manuscriptScenes, manuscriptTextHash, type ManuscriptScene } from './manuscript-scenes.ts'
 import { manuscriptEndingCue, manuscriptPresentationEvidence } from './manuscript-presentation.ts'
-import { manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCandidates } from './manuscript-video-reads.ts'
+import { manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCandidates, manuscriptVideoReviewReader } from './manuscript-video-reads.ts'
 import { MANUSCRIPT_VIDEO_PRESENTATION, manuscriptPacketEventIds, manuscriptVideoPacketContent,
   planManuscriptSourceTail, planManuscriptVideoPackets, type ManuscriptPacketPlan, type PacketContext } from './manuscript-video-packets.ts'
 
@@ -523,7 +523,7 @@ export class ManuscriptVideoEvidence {
   async refresh(ctx: Context, agent: Agent, signal: AbortSignal, pendingMessages: readonly Message[] = []): Promise<ContentBlock[]> {
     const cwd = agent.session.header.cwd
     if (!cwd || ctx.get('sessionProjections') === undefined) return []
-    const sources = videoReviewSummaries(ctx, agent.session)
+    const sources = videoReviewSummaries(manuscriptVideoReviewReader(ctx), agent.session)
     const llm = ctx.get('llm'), provider = agent.options.provider, model = agent.options.model
     const modelInfo = llm === undefined || provider === undefined || model === undefined ? undefined
       : await llm.resolveModelInfo(provider, model, signal)
@@ -628,7 +628,7 @@ export class ManuscriptVideoEvidence {
           windowSeconds: this.config.videoEvidenceWindowSeconds, maxFrames: this.config.videoEvidenceMaxFrames,
           maxBytes: this.config.videoEvidenceMaxBytes, maxTranscriptBytes: this.config.videoEvidenceMaxTranscriptBytes,
           ...transcriptCandidates === undefined ? {} : { transcriptCandidates },
-        }, signal)
+        }, signal, manuscriptVideoReviewReader(ctx))
         return [id, material.timeline] as const
       }))
       const timelines = new Map(materials)
@@ -738,7 +738,7 @@ export class ManuscriptVideoEvidence {
           maxBytes: this.config.videoEvidenceMaxBytes, maxTranscriptBytes: this.config.videoEvidenceMaxTranscriptBytes,
           ...transcriptCandidates === undefined ? {} : { transcriptCandidates },
           frameIds,
-        }, signal) : undefined
+        }, signal, manuscriptVideoReviewReader(ctx)) : undefined
         if (selectedMaterial && selectedMaterial.timeline.material_sha256 !== timeline.material_sha256) {
           throw Error('MANUSCRIPT_VIDEO_SOURCE_CHANGED: 来源在局部证据读取期间变化，未将材料标记为已核对。')
         }

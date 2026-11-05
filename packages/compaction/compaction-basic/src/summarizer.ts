@@ -131,16 +131,11 @@ export async function summarizeWithLlm(
   const configured = config.summarizationProvider.length === 0
     ? undefined
     : { provider: config.summarizationProvider, model: config.summarizationModel }
-  const agentTarget = agent.options.provider !== undefined
-    && agent.options.provider.length > 0
-    && agent.options.model !== undefined
-    && agent.options.model.length > 0
-    ? { provider: agent.options.provider, model: agent.options.model }
-    : undefined
+  const agentTarget = agent.model.current()
   const target = configured ?? latest ?? agentTarget
   if (target === undefined) {
     throw new Error(
-      'no provider/model available for summarization: set both BasicCompactionConfig summarization fields, route one request, or set both AgentOptions fields',
+      'no provider/model available for summarization: set both BasicCompactionConfig summarization fields, route one request, or select an Agent model',
     )
   }
 

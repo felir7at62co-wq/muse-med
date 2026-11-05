@@ -56,7 +56,9 @@ const mirrorInfo = { version: '1.1.0-rc.2', files: [{ url: 'payload.zip', sha512
 const coordinators: InstanceType<typeof DesktopUpdateCoordinator>[] = []
 afterEach(() => { for (const item of coordinators.splice(0)) item.dispose() })
 
-function fixture(channel?: string, sources: readonly DesktopUpdateSource[] = [], manual = false, platform: NodeJS.Platform = 'darwin') {
+function fixture(channel: 'nightly' | 'latest' = 'nightly', sourcesOrVersion: readonly DesktopUpdateSource[] | string = [], manual = false, platform: NodeJS.Platform = 'darwin') {
+  const sources = typeof sourcesOrVersion === 'string' ? [] : sourcesOrVersion
+  const version = typeof sourcesOrVersion === 'string' ? sourcesOrVersion : '1.1.0-alpha.1'
   const events = new EventEmitter()
   const checkForUpdates = vi.fn(async (): Promise<CheckResult | null> => ({
     isUpdateAvailable: true,
@@ -80,7 +82,7 @@ function fixture(channel?: string, sources: readonly DesktopUpdateSource[] = [],
     autoDownload: true, autoInstallOnAppQuit: true, allowPrerelease: false, allowDowngrade: false })
   const coordinator = new DesktopUpdateCoordinator(
     (state) => { states.push(state); return state },
-    beforeRestart, updater, () => true, () => '1.1.0-alpha.1', downloadResult, sources, platform,
+    beforeRestart, updater, () => true, () => version, downloadResult, sources, platform, channel,
   )
   coordinators.push(coordinator)
   return { coordinator, updater, events, states, checkForUpdates, downloadUpdate, quitAndInstall,
@@ -272,13 +274,13 @@ describe('desktop update mirrors', () => {
 })
 
 describe('desktop update coordinator', () => {
-  it('keeps safe preparation diagnostics separate and clears them on an explicit retry', async () => {
+  it.each(['stop-failed', 'fullscreen-timeout'] as const)('keeps safe %s diagnostics separate and clears them on an explicit retry', async (kind) => {
     const f = fixture()
     await f.coordinator.check()
     await f.coordinator.download('1.1.0-rc.2')
-    f.beforeRestart.mockRejectedValueOnce(new DesktopUpdatePreparationError('stop-failed', zh.updateStopFailed, 'exit 0; shutdown acknowledged false'))
+    f.beforeRestart.mockRejectedValueOnce(new DesktopUpdatePreparationError(kind, zh.updateStopFailed, 'exit 0; shutdown acknowledged false'))
     expect(await f.coordinator.install('1.1.0-rc.2')).toEqual({ phase: 'error', version: '1.1.0-rc.2',
-      failedOperation: 'install', preparationFailure: 'stop-failed', message: zh.updateStopFailed,
+      failedOperation: 'install', preparationFailure: kind, message: zh.updateStopFailed,
       technicalDetails: 'exit 0; shutdown acknowledged false' })
     expect(f.quitAndInstall).not.toHaveBeenCalled()
     f.beforeRestart.mockResolvedValueOnce(false)
@@ -350,8 +352,8 @@ describe('desktop update coordinator', () => {
   })
 
   it('leaves the packaged update channel untouched', () => {
-    const f = fixture('rc')
-    expect(f.updater.channel).toBe('rc')
+    const f = fixture('nightly', mirrorSources)
+    expect(f.updater.channel).toBe('nightly')
   })
 
   it('joins checks and downloads without retargeting a prepared release', async () => {
@@ -445,4 +447,19 @@ it.each([new DesktopUpdatePreparationError('stop-failed', 'private diagnostic'),
   await f.coordinator.download('1.1.0-rc.2')
   expect(f.downloadResult).toHaveBeenCalledExactlyOnceWith(false, error instanceof DesktopUpdatePreparationError ? 'stop-failed' : 'download_failed')
   expect(JSON.stringify(f.downloadResult.mock.calls)).not.toContain('private')
+})
+
+
+it('keeps a stable-version nightly installation on nightly and rejects prereleases on latest', async () => {
+  const nightly = fixture('nightly', '1.0.0')
+  expect(nightly.updater.channel).toBe('nightly')
+  expect(nightly.updater.allowPrerelease).toBe(true)
+  expect((await nightly.coordinator.check()).phase).toBe('available')
+  expect(nightly.updater.channel).toBe('nightly')
+  const latest = fixture('latest', '1.0.0')
+  expect(latest.updater.channel).toBe('latest')
+  expect(latest.updater.allowPrerelease).toBe(false)
+  expect(latest.updater.allowDowngrade).toBe(false)
+  expect((await latest.coordinator.check()).phase).toBe('error')
+  expect(latest.downloadUpdate).not.toHaveBeenCalled()
 })

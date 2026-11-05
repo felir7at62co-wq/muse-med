@@ -2,9 +2,10 @@
   config:
     provider: screenplay-refinement-fixture
     model: screenplay-refinement-fixture
-- id: tools
-  config:
-    mode: ptc
+- id: tool-executor-native
+  disabled: true
+- id: tool-executor-ptc
+  disabled: false
 - id: session-persistence-jsonl
   config:
     root: './.sessions'

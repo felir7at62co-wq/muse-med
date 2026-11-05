@@ -1,4 +1,6 @@
 /** Registered transcription calls keep account operations private and route receipt-bound requests. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { Context, symbols } from '@deepseek-ai/cordis'
 import { MuseAccountService, type MuseAccountStatus } from '@deepseek-ai/dsh-muse-account'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -33,7 +35,8 @@ async function fixture() {
     status, logout: status, login: async () => { throw new Error('login is not part of a model tool call') },
   } })
   await ctx.plugin(SystemPrompt).await()
-  await ctx.plugin(ToolRuntime, { mode: 'native' }).await()
+  await ctx.plugin(ToolRuntime, {}).await()
+  await ctx.plugin(NativeToolExecutor)
   const register = vi.spyOn(ctx.tools, 'register')
   const config = Config({ ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', commandTimeoutMs: 600_000,
     maxDurationSeconds: 18_000, chunkSeconds: 600, pollIntervalMs: 2000, maxAudioBytes: 100_000_000 })
@@ -43,7 +46,7 @@ async function fixture() {
   const account: unknown = ctx.get('museAccount')
   if (!(account instanceof MuseAccountService)) throw new Error('Muse account service was not mounted')
   let count = 0
-  return { tool, config, account, call: (args: Record<string, unknown>) => ctx.tools.execute({
+  return { tool, config, account, call: (args: Record<string, unknown>) => executeModelToolFixture(ctx, {
     callId: ToolCallId(`audio-${++count}`), name: 'audio_transcribe', arguments: args, signal: new AbortController().signal,
   }) }
 }

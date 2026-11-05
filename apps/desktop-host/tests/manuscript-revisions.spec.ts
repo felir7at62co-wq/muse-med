@@ -1,4 +1,7 @@
 /** Real returned files and tool dispatch protect user revisions across a resumed refinement. */
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import { afterEach, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
@@ -35,8 +38,12 @@ async function fixture(script = [textResponse('收到。')]) {
   const root = await mkdtemp(join(tmpdir(), 'muse-manuscript-')); roots.push(root)
   const ctx = new Context(); contexts.push(ctx)
   await ctx.plugin(Llm); await ctx.plugin(Sessions); await ctx.plugin(SessionProjections)
-  await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentLoop, { agents: [] })
+  await ctx.plugin(SystemPrompt); await ctx.plugin(Tools)
+  await ctx.plugin(NativeToolExecutor)
+  await ctx.plugin(LocalFileSystem, { cwd: root })
+  await ctx.plugin(WorkingDirectory, { defaultDirectory: root }).await()
+  await ctx.plugin(AgentRegistry)
+  await ctx.plugin(AgentLoop, { agents: [] }).await()
   const adapter = new MockAdapter(script); ctx.llm.registerAdapter(['mock'], adapter)
   const agent = await ctx.agentLoop.create(SessionId('manuscript-test'), { provider: 'mock', model: 'mock' }, { cwd: root })
   await writeFile(join(root, 'baseline.md'), baseline); await writeFile(join(root, 'returned.md'), returned)
@@ -96,8 +103,10 @@ it('restores actual external changes as logged context on an ordinary user messa
   await f.revisions.delivered(f.root, f.agent.id, ['baseline.md'], signal)
   await writeFile(join(f.root, 'baseline.md'), returned)
   const message = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '继续吧。' }] })
+  const modelSelection = f.agent.model.current()
+  if (modelSelection === undefined) throw new Error('Manuscript fixture did not configure its model selection')
   const result = await agentEvents(f.ctx, f.agent).waterfall('agent/pre-step', {
-    messages: [message], turn: 1, step: 1, signal,
+    messages: [message], turn: 1, step: 1, signal, modelSelection,
   }, async () => ({ kind: 'enter' as const, messages: [message] }))
   expect(result.kind).toBe('enter')
   if (result.kind !== 'enter') throw Error('Expected admitted step')
@@ -122,8 +131,10 @@ it('keeps the user turn running when an optional returned file is no longer avai
   await f.ctx.plugin(RevisionPlugin, f.config)
   await rm(join(f.root, 'returned.md'))
   const message = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '继续。' }] })
+  const modelSelection = f.agent.model.current()
+  if (modelSelection === undefined) throw new Error('Manuscript fixture did not configure its model selection')
   const result = await agentEvents(f.ctx, f.agent).waterfall('agent/pre-step', {
-    messages: [message], turn: 1, step: 1, signal,
+    messages: [message], turn: 1, step: 1, signal, modelSelection,
   }, async () => ({ kind: 'enter' as const, messages: [message] }))
   expect(result.kind).toBe('enter')
   if (result.kind === 'enter') expect(JSON.stringify(result.messages)).toContain('返稿差异未能读取')
@@ -209,12 +220,11 @@ it('bounds the number of requested files and validates an explicitly supplied to
 
 it('uses ordinary read and guarded edit without the removed manuscript work tool', async () => {
   const f = await fixture()
-  await f.ctx.plugin(LocalFileSystem, { cwd: f.root })
   await f.ctx.plugin(FsPolicy)
   await f.ctx.plugin(ToolFs)
   await f.ctx.plugin(RevisionPlugin, f.config)
   let serial = 0
-  const call = (name: string, args: object) => f.ctx.tools.execute({ signal,
+  const call = (name: string, args: object) => executeModelToolFixture(f.ctx, { signal,
     callId: ToolCallId(`scene-observation-${++serial}`), name, arguments: args, agent: f.agent })
   expect((await call('edit', { file_path: 'returned.md', old_string: '乙：等我说完。', new_string: '乙：先听我说。' })).isError).toBe(true)
   expect(f.ctx.tools.schemas(f.agent).map(tool => tool.name)).not.toContain('manuscript_work')
@@ -249,7 +259,6 @@ it.each([
     toolCallResponse('guide-read', 'read', { file_path: '写作规范.md' }),
     textResponse('继续处理正文。'),
   ])
-  await f.ctx.plugin(LocalFileSystem, { cwd: f.root })
   await f.ctx.plugin(ToolFs)
   await f.ctx.plugin(RevisionPlugin, f.config)
   f.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: request }] }))
@@ -268,13 +277,12 @@ it.each([
 
 it('does not repeat an unchanged guidance read advisory or inspect arbitrary manuscript prose as project rules', async () => {
   const f = await fixture()
-  await f.ctx.plugin(LocalFileSystem, { cwd: f.root })
   await f.ctx.plugin(ToolFs)
   await f.ctx.plugin(RevisionPlugin, f.config)
   await writeFile(join(f.root, '写作规范.md'), '不合并台词。')
   await writeFile(join(f.root, '正文.md'), '甲：不合并台词。')
   let serial = 0
-  const read = (path: string) => f.ctx.tools.execute({ signal, callId: ToolCallId(`guidance-read-${++serial}`),
+  const read = (path: string) => executeModelToolFixture(f.ctx, { signal, callId: ToolCallId(`guidance-read-${++serial}`),
     name: 'read', arguments: { file_path: path }, agent: f.agent })
   expect(JSON.stringify((await read('写作规范.md')).content)).toContain('manuscript_guidance')
   expect(JSON.stringify((await read('写作规范.md')).content)).not.toContain('manuscript_guidance')

@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
+import { readDesktopProductVersion, resolveDesktopBuildVersion } from './desktop-build-version.mjs'
 import { pnpmInvocation } from '../../../scripts/pnpm-invocation.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import type { DesktopRelease } from '../src/release.ts'
@@ -67,10 +68,13 @@ async function launchElectron(): Promise<void> {
   const rendererPort = debugPort('DSH_DESKTOP_RENDERER_DEBUG_PORT', 9222)
   const hostPort = debugPort('DSH_DESKTOP_HOST_INSPECT_PORT', 9230)
   const home = resolve(process.env.DSH_HOME ?? join(DEVELOPMENT_ROOT, 'home'))
+  const museHome = resolve(process.env.MUSE_HOME ?? home)
+  const productVersion = resolveDesktopBuildVersion(process.env, readDesktopProductVersion(APP_ROOT))
   const userData = resolve(process.env.DSH_DESKTOP_USER_DATA_DIR ?? join(DEVELOPMENT_ROOT, 'electron-user-data'))
   const environment: NodeJS.ProcessEnv = {
     ...process.env,
     DSH_HOME: home,
+    MUSE_HOME: museHome,
     DSH_DESKTOP_PRIMARY_RUNTIME_DIR: process.env.DSH_DESKTOP_PRIMARY_RUNTIME_DIR ?? developmentRuntimeDirectory(),
     DSH_DESKTOP_HOST_INSPECT_PORT: String(hostPort),
     DSH_DESKTOP_OPEN_DEVTOOLS: process.env.DSH_DESKTOP_OPEN_DEVTOOLS ?? '1',
@@ -80,7 +84,8 @@ async function launchElectron(): Promise<void> {
   console.log(`desktop development: userData=${userData}`)
   console.log(`desktop development: inspectors main=${String(mainPort)}, renderer=${String(rendererPort)}, host=${String(hostPort)}`)
   if (process.platform === 'darwin') {
-    const executable = prepareDevelopmentApp({ electron, appRoot: APP_ROOT, directory: DEVELOPMENT_ROOT, home, userData,
+    const executable = prepareDevelopmentApp({ electron, appRoot: APP_ROOT, directory: DEVELOPMENT_ROOT,
+      home, museHome, userData, productVersion,
       primaryRuntime: environment.DSH_DESKTOP_PRIMARY_RUNTIME_DIR!,
       mainPort, rendererPort, hostPort, openDevtools: environment.DSH_DESKTOP_OPEN_DEVTOOLS!,
       ...(environment.MUSE_BASE_URL === undefined ? {} : { museBaseUrl: environment.MUSE_BASE_URL }) })
@@ -98,7 +103,7 @@ async function launchElectron(): Promise<void> {
 async function main(): Promise<void> {
   const { values } = parseArgs({ options: { 'skip-build': { type: 'boolean', default: false } } })
   if (!values['skip-build']) {
-    await runPackageScript('build', REPOSITORY_ROOT)
+    await runPackageScript('build:artifacts', REPOSITORY_ROOT)
     await runPackageScript('build', APP_ROOT)
     await run(process.execPath, [join(REPOSITORY_ROOT, 'third_party', 'plugins', 'build.mjs'), '--out', join(DEVELOPMENT_ROOT, 'community-plugins')], REPOSITORY_ROOT)
     await run(process.execPath, [join(REPOSITORY_ROOT, 'third_party', 'plugins', 'build-downloads.mjs'), '--out', join(DEVELOPMENT_ROOT, 'community-plugins')], REPOSITORY_ROOT)

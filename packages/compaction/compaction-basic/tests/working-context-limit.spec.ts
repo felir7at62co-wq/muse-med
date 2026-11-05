@@ -9,7 +9,7 @@ import * as LlmRetry from '@deepseek-ai/dsh-llm-retry'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import BasicCompactionEngine, { type BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
 import { resolveConfig } from '../src/config.ts'
 import { summarizeWithLlm } from '../src/summarizer.ts'
@@ -314,17 +314,14 @@ describe('final working-context admission', () => {
   })
 
   it('reevaluates the model window after a session switches models', async () => {
-    const { agent, adapter, ctx } = await harness({
+    const { agent, adapter } = await harness({
       adaptiveBudget: true, workingTokenLimit: 475_000, thresholdRatio: 0.45,
       headroomTokens: 16_384, retainTokens: 65_536, maxTokens: 16_384,
       modelPolicies: [],
     }, { contextWindow: 100_000, seed: [] })
-    ctx.on('agent/request', async ({ turn }, next) => {
-      const config = await next()
-      return turn === 2 ? { ...config, model: 'tiny-route' } : config
-    })
     await send(agent, 'first request')
     expect(adapter.requests).toHaveLength(1)
+    agent.model.select({ provider: 'mock', model: 'tiny-route' })
     await send(agent, `SECOND_LARGE_INPUT; ${'Z'.repeat(50_000)}`)
     expect(adapter.requests).toHaveLength(1)
     expect(lastReason(agent)).toMatchObject({ kind: 'error', error: { code: 'WORKING_CONTEXT_LIMIT' } })
@@ -584,6 +581,7 @@ describe('final working-context admission', () => {
       const config: BasicCompactionConfig = mode === 'auto-disabled' ? { auto: false }
         : mode === 'limit-absent' ? { modelPolicies: [] } : {}
       const { agent, adapter } = await harness(config, { model: mode === 'other-route' ? 'other' : 'limited' })
+      if (mode === 'other-route') agent.model.select({ provider: 'mock', model: 'other' })
       await send(agent)
       expect(adapter.requests).toHaveLength(1)
       expect(adapter.summaries).toHaveLength(0)

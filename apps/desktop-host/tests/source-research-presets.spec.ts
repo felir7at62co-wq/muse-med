@@ -4,6 +4,8 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
 import Agents from '@deepseek-ai/dsh-agent'
+import Sessions from '@deepseek-ai/dsh-session'
+import Projections from '@deepseek-ai/dsh-session-projection'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { createScope } from '@deepseek-ai/dsh-scope'
@@ -22,7 +24,9 @@ it('registers source snapshot, report and work relation tools in every nonminima
   try {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
-    await ctx.plugin(Agents)
+    await ctx.plugin(Sessions)
+    await ctx.plugin(Projections).await()
+    await ctx.plugin(Agents).await()
     await ctx.plugin(UserQuestionService)
     await ctx.plugin(LocalFileSystem)
     const SourceResearch = await loadSourceResearchPlugin(ctx)
@@ -38,7 +42,7 @@ it('registers source snapshot, report and work relation tools in every nonminima
       const scope = createScope(ctx, key)
       try {
         if (preset === 'creation') await scope.ctx.plugin(CreationPolicy)
-        if (row !== undefined) await scope.ctx.plugin(SourceResearch)
+        if (row !== undefined) await scope.ctx.plugin(SourceResearch).await()
         expect(ctx.tools.schemas(key).map(tool => tool.name).sort(), preset).toEqual(preset === 'minimal' ? [] : [
           'source_report', 'source_snapshot', 'work_mapping',
         ])

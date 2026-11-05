@@ -121,7 +121,7 @@ export function mount(config: Config = {}): RegisteredShot[] {
       },
     },
   })
-  apply(ctx, config)
+  void apply(ctx, config)
   return registered
 }
 

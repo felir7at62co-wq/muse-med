@@ -1,3 +1,5 @@
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeTool } from '../../checks/tool-call.mjs'
 /** Offline real-Cordis integration with synthetic native receipts and actual local copies; no video service or decode runs. */
 import assert from 'node:assert/strict'
 import test from 'node:test'
@@ -99,7 +101,7 @@ async function fixture(t, options = {}) {
   await ctx.plugin(Bridge); await ctx.plugin(Subprocess)
   async function mount() {
     const scope = ctx.isolate('tools').isolate('systemPrompt')
-    await scope.plugin(SystemPrompt); await scope.plugin(Tools)
+    await scope.plugin(SystemPrompt); await scope.plugin(Tools); await scope.plugin(NativeToolExecutor)
     const fiber = scope.plugin(consumer, consumer.Config({ maxEpisodeCount: 2, maxSeriesEpisodes: 20,
       maxAttempts: 2, retryDelayMs: 0, seriesLockWaitMs: 100, copyChunkBytes: 11 }))
     await fiber.await()
@@ -113,7 +115,7 @@ async function fixture(t, options = {}) {
   }
   async function invoke(session, args = { action: 'download_series', query: TITLE }, signal = new AbortController().signal) {
     return ctx.agents.withInitiator(ctx.agents.get(session.id), async () => {
-      const result = await mounted.scope.tools.execute({ callId: `synthetic-series-${++sequence}`, name: 'lvpaopao', arguments: args, signal })
+      const result = await executeTool(mounted.scope, { callId: `synthetic-series-${++sequence}`, name: 'lvpaopao', arguments: args, signal })
       if (signal.aborted) {
         assert.equal(result.isError, true)
         assert.equal(result.error.info.code, TOOL_ABORTED)

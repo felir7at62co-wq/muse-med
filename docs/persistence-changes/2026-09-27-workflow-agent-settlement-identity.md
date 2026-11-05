@@ -44,7 +44,7 @@ The three `tool-workflow/agent-end` members are optional additions to an existin
 <a id="verification"></a>
 ## Verification
 
-`packages/workflow/tool-workflow/tests/tool-workflow.spec.ts` checks the recorded member payload, and `packages/workflow/workflow-ptc/tests/integration.spec.ts` checks failure identity and cause through the real in-process stack. `packages/session/session-format-v0-to-v1/tests/` checks the released payload reader, including a settlement that omits the repeated identity. Running these with `packages/workflow/workflow-ptc/tests/guest.spec.ts` and `packages/subagent/subagent-in-process-driver/tests/structured.spec.ts` passes 217 tests across nine files.
+`packages/workflow/tool-workflow/tests/tool-workflow.spec.ts` checks the recorded member payload, and `packages/workflow/workflow-ptc/tests/integration.spec.ts` checks failure identity and cause through the real in-process stack. `packages/session/session-format-v0-to-v1/tests/` checks the released payload reader, including a settlement that omits the repeated identity. Running these with `packages/workflow/workflow-ptc/tests/guest.spec.ts` and `packages/subagent/subagent/tests/structured.spec.ts` passes 217 tests across nine files.
 
 <a id="dev-note"></a>
 ## Dev Note

@@ -1,4 +1,5 @@
 /** Advisory findings travel through the loaded tools, durable log and next model request. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { expect, it, vi } from 'vitest'
@@ -26,9 +27,10 @@ function lastResult(options: GenerateOptions): { fingerprint: string; preview_pa
 
 it('keeps dirty previews actionable, reports saved prompt findings and clears them after a verified free edit', async () => {
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mock-token' } },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
   const config = { modelId: 'doubao-seedance-2-0-260128', platformId: 'YU_DIAN', standardId: 11,
     genType: 3, modelGenerationTypeId: 7, videoStandardId: 91, duration: 8, genNum: 1,
     ratio: '9:16', resolution: '720p', prompt: '@[主角](lead)', materialList: [] }

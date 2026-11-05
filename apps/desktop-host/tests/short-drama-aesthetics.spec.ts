@@ -15,6 +15,9 @@ import * as SkillFilesystem from '@deepseek-ai/dsh-skill-filesystem'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
 import Tools from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import LocalFs from '@deepseek-ai/dsh-fs-local'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
 import { configurationFixture } from '../../../packages/settings/settings/tests/configuration-fixture.ts'
 
@@ -42,7 +45,10 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     persona: Persona, 'skill-tool': ToolSkill } })
   try {
     await ctx.plugin(Llm); await ctx.plugin(Sessions); await ctx.plugin(SessionProjections)
-    await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(NativeToolExecutor)
+    await ctx.plugin(LocalFs, { cwd: home })
+    await ctx.plugin(WorkingDirectory, { defaultDirectory: home }).await()
+    await ctx.plugin(AgentRegistry); await ctx.plugin(AgentLoop, { agents: [] }).await()
     await ctx.plugin(AgentPresets, { default: 'short-drama-aesthetics' })
     const remove = await ctx.agentPresets.register({ id: 'short-drama-aesthetics', plugins: [{ name: 'cordis:persona', config: persona }] })
     ctx.effect(() => remove)

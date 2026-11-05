@@ -10,7 +10,7 @@ import { createUserMessage, LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { oldSessionFixture, waitForIdle } from './model-routing-fixture.ts'
 
 interface CatalogModel {

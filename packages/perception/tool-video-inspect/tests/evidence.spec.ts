@@ -1,9 +1,11 @@
 /** Original synthetic FFmpeg media, real PTC dispatches, and keyless model-input evidence. */
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdtemp, rm, writeFile, readFile, appendFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
@@ -59,6 +61,7 @@ async function fixture(options: { duration?: number; range?: number; ptc?: boole
   fixtures.push({ ctx, root })
   await mountAgentLoopTestDependencies(ctx, { tools: { mode: options.ptc ? 'ptc' : 'native' } })
   await ctx.plugin(LocalFileSystem, { cwd: root })
+  await ctx.plugin(WorkingDirectory)
   await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
   ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'danger-full-access', workspaceRoot: root }) } as never)
@@ -253,9 +256,8 @@ it('requires actual metadata before trusted sampling and refuses manifest mutati
 
 it('does not treat images projected away on the following text-only route as visual observation', async () => {
   const h = await fixture()
-  h.ctx.on('agent/request', async (_payload, next) => {
-    const config = await next()
-    return h.adapter.requests.length >= 2 ? { ...config, model: 'text' } : config
+  h.ctx.on('tools/result', () => {
+    if (h.adapter.requests.length === 2) h.agent.model.select({ provider: 'synthetic', model: 'text' })
   })
   await h.run([h.method('metadata'), h.method('sample'), undefined])
   expect(h.adapter.requests[2]?.messages.every(message => message.content.every(block => block.type !== 'image'))).toBe(true)
@@ -454,7 +456,7 @@ it('rejects unowned and outside-step inspection executions, and discards dispose
     output: { schema: { type: 'json' }, render: () => [] }, async execute(_args, exec) {
       ledger.metadata(exec, sample.path, sample.source_version, sample.duration_seconds); return {}
     } }))
-  const call = (name: string, withAgent: boolean) => h.ctx.tools.execute({ callId: ToolCallId(`fixture-${name}-${withAgent}`),
+  const call = (name: string, withAgent: boolean) => executeModelToolFixture(h.ctx, { callId: ToolCallId(`fixture-${name}-${withAgent}`),
     name, arguments: {}, signal: new AbortController().signal, ...withAgent ? { agent: h.agent } : {} })
   expect((await call('fixture_issue', false)).content.filter(block => block.type === 'text').map(block => block.text).join('\n')).toContain('initiating Session')
   expect((await call('fixture_metadata', false)).isError).toBe(true)
@@ -485,9 +487,8 @@ it('does not issue image observation from an auxiliary model call or foreign rep
       ? { ...chunk, replayState: { response: { fixture: 'original-provider-state' } } } : chunk
   })
   h.ctx.llm.registerAdapter(['other'], h.adapter)
-  h.ctx.on('agent/request', async (_payload, next) => {
-    const config = await next()
-    return h.adapter.requests.length >= 2 ? { ...config, provider: 'other' } : config
+  h.ctx.on('tools/result', () => {
+    if (h.adapter.requests.length === 2) h.agent.model.select({ provider: 'other', model: 'vision' })
   })
   await h.run([h.method('metadata'), h.method('sample'), undefined])
   await expect(h.resolve(await h.manifest())).rejects.toThrow('video_evidence_pending')

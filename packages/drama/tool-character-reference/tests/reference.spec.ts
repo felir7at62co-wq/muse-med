@@ -1,3 +1,4 @@
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -376,7 +377,7 @@ it('registers bounded search and image view in a Cordis composition', async () =
       id: string,
       argumentsValue: CharacterReferenceRequest,
       agent?: typeof projectAgent,
-    ) => await ctx.tools.execute({
+    ) => await executeModelToolFixture(ctx, {
       callId: ToolCallId(id), name: 'drama_character_references', arguments: argumentsValue,
       ...(agent === undefined ? {} : { agent }), signal: new AbortController().signal,
     })
@@ -455,12 +456,12 @@ it('registers bounded search and image view in a Cordis composition', async () =
     const workspaceAgent = await harness.create(SessionId('character-reference-nested-workspace'), {}, { cwd: root })
     await expectRejectedBeforeLibrary('nested-unbound', request, workspaceAgent)
     const projectCommand = async (id: string, action: 'list' | 'select', scriptId?: number) =>
-      await ctx.tools.execute({
+      await executeModelToolFixture(ctx, {
         callId: ToolCallId(id), name: 'drama_character_reference_project',
         arguments: { action, ...(scriptId === undefined ? {} : { script_id: scriptId }) },
         agent: workspaceAgent, signal: new AbortController().signal,
       })
-    expect((await ctx.tools.execute({
+    expect((await executeModelToolFixture(ctx, {
       callId: ToolCallId('nested-project-without-session'), name: 'drama_character_reference_project',
       arguments: { action: 'list' }, signal: new AbortController().signal,
     })).isError).toBe(true)
@@ -558,7 +559,7 @@ it('registers bounded search and image view in a Cordis composition', async () =
       id: string,
       sha256 = IMAGE_SHA,
       agent: typeof visualAgent | null = visualAgent,
-    ) => await ctx.tools.execute({
+    ) => await executeModelToolFixture(ctx, {
       callId: ToolCallId(id),
       name: 'drama_character_reference_view',
       arguments: { catalog_asset_id: entry().catalogAssetId, expected_sha256: sha256 },

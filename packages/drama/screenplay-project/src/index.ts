@@ -10,6 +10,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import { createUserMessage, isAgentLoopRequest, type ContentBlock, type UserMessage, type MessageId, type Message } from '@deepseek-ai/dsh-llm'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-agent'
+import type {} from '@deepseek-ai/dsh-tool-executor-ptc'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type { ProjectReadReceipt } from './review.ts'
 import { sha256 } from './episode.ts'
@@ -41,7 +42,7 @@ function matchesReadContext(message: Message, hash: string, observed: boolean): 
 /** Loader diagnostics name. */
 export const name = 'screenplay-project'
 /** Filesystem and logged tool registry required by this plugin. */
-export const inject = ['fs', 'tools', 'attachments', 'llm']
+export const inject = ['fs', 'tools', 'attachments', 'llm', 'agents']
 
 /** Source allocation, durable project size, and bounded source-read budgets. */
 export interface Config extends ProjectLimits {
@@ -79,7 +80,7 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
  * @param ctx - Host tool registry and filesystem provider.
  * @param config - Resolved allocation and read budgets.
  */
-export function apply(ctx: Context, config: Config): void {
+export async function apply(ctx: Context, config: Config): Promise<void> {
   if (config.storyFaithfulMode !== 'disabled' && config.reviewMode === 'independent') throw Error('screenplay-project: story-faithful-v2 requires self-check or advisory reviewMode')
   if (ctx.fs.sandboxMode !== undefined && ctx.get('sandboxPolicy') === undefined) {
     throw Error('screenplay-project: sandboxed filesystem requires sandboxPolicy')
@@ -88,9 +89,8 @@ export function apply(ctx: Context, config: Config): void {
   if ((config.reviewMode === 'self-check' || (config.refinementMode !== 'disabled' || config.storyFaithfulMode !== 'disabled')) && projections === undefined) {
     throw Error('screenplay-project: self-check requires live sessionProjections')
   }
-  if ((config.refinementMode !== 'disabled' || config.storyFaithfulMode !== 'disabled')) {
-    ctx.inject(['sessionProjections'], (scope) => { scope.sessionProjections.register(refinementUserProjection) })
-  }
+  const refinementUsers = config.refinementMode !== 'disabled' || config.storyFaithfulMode !== 'disabled'
+    ? await projections?.register(refinementUserProjection) : undefined
   const commands = new ProjectCommands(ctx.fs, config, ctx.attachments, config.reviewMode, config.refinementMode, config.storyFaithfulMode)
   const pending = new WeakMap<ToolExecution, { context: UserMessage; receipt: ProjectReadReceipt; valueHash: string; contentHash: string; root: ToolExecution['rootCallId'] }>()
   const delivered = new Map<MessageId, { contextHash: string; receipt: ProjectReadReceipt; root: ToolExecution['rootCallId']; observed: boolean }>()
@@ -177,8 +177,8 @@ export function apply(ctx: Context, config: Config): void {
       if (exec.agent === undefined) throw Error('screenplay_project requires an initiating agent session')
       const session = exec.agent.session
       const actor = brandString<ActorId>(session.id)
-      const boundary = ctx.get('sessionProjections')?.stateOf(session, 'turnBoundary')
-      const step = boundary?.openTurnStartSeq !== null && boundary?.lastStepBoundary?.kind === 'start'
+      const boundary = ctx.agents.turnBoundaryOf(session)
+      const step = boundary.openTurnStartSeq !== null && boundary.lastStepBoundary?.kind === 'start'
         && boundary.lastStepBoundary.seq === boundary.lastStepStartSeq ? boundary.lastStepStartSeq : undefined
       const messages = config.reviewMode === 'self-check' || (config.refinementMode !== 'disabled' || config.storyFaithfulMode !== 'disabled') ? session.deriveMessages() : []
       const visible = new Map(messages.map(message => [message.id, message]))
@@ -209,7 +209,7 @@ export function apply(ctx: Context, config: Config): void {
       if (args.request.method === 'fork_refinement' || (args.request.method === 'init_story_faithful' || args.request.method === 'fork_story_faithful')) {
         const request = args.request
         if (!args.request.authorization_quote.trim()) throw Error('refinement_human_authorization: 请引用真实用户的明确授权。')
-        const users = projections?.stateOf(session, 'screenplayRefinementUsers')
+        const users = refinementUsers?.stateOf(session)
         if (users === undefined) throw Error('refinement_human_authorization: 真实用户消息投影尚未就绪。')
         authorization = captureRefinementAuthorization(users, messages, actor, request.authorization_quote, request.consent_assessment)
         latestUserSeq = users.users.at(-1)?.seq

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
-import { AgentRegistry } from '@deepseek-ai/dsh-agent'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import LvpaopaoBridge from '../src/bridge.ts'
 import { ACTIONS } from '../src/port.ts'
 
@@ -31,7 +31,7 @@ async function fixture(t, options = {}) {
       await rm(root, { recursive: true, force: true })
     }
   })
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx)
   ctx.provide('subprocess', { spawn(spec) {
     assert.equal(ctx.agents.currentInitiator(), undefined)
     spawns.push(spec)

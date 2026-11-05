@@ -1,15 +1,15 @@
 /** Boot the materialized target runtime without access to a user's Harness profile. */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { readPrimaryRuntime, workspaceDependencyPaths } from '../../../packages/skill/tool-workspace-dependencies/src/index.ts'
 import { DesktopHostProcess } from '../src/host-process.ts'
 import { createPluginProfile } from '../src/project-manager.ts'
-import { recordDesktopRuntimeProfile, validateDesktopPluginGraph } from '../src/profile-packages.ts'
 import { readDesktopRuntime, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 import { isEntry } from '../../../scripts/release/process.ts'
 import { CREATION_SKILL_NAMES } from '../../desktop-host/src/creation-skills.ts'
@@ -74,7 +74,7 @@ export function prepareDesktopSmokeSkills(home: string): DesktopSmokeSkillLayout
 export function desktopSmokePluginSource(root: string, home: string): string {
   return `
 import { Context } from '@deepseek-ai/cordis'
-import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
+import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { existsSync, realpathSync, writeFileSync } from 'node:fs'
 import { join, relative, isAbsolute } from 'node:path'
 export const inject = ['agentPresets', 'agents', 'agentLoop', 'systemPrompt', 'tools', 'skills', 'credentials', 'webServer', 'museAccount', 'toolDiscovery']
@@ -119,23 +119,32 @@ export function apply(ctx) {
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
     const retiredTools = ['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user']
     for (const name of retiredTools) if (names.has(name)) throw new Error('desktop runtime: archived Bot tool remains active: ' + name + ' in ' + id)
+    for (const name of names) if (name.startsWith('mcp__muse-account__')) {
+      throw new Error('desktop runtime: retired built-in account MCP remains active: ' + name + ' in ' + id)
+    }
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'ask_user_question', 'todo_write', 'todo_update',
       'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', 'manuscript_revision', 'source_recover', 'screenplay_export_docx', 'read', 'present', 'video_inspect', 'video_ocr',
       process.platform === 'win32' ? 'pwsh' : 'bash']
       : id === 'minimal' ? [shell]
-        : id === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'video_contact_sheet', 'video_ocr',
+        : id === 'creation' ? ['read', 'skill', shell, 'present', 'video_contact_sheet', 'video_ocr',
           'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft',
-          'jubian_find', 'jubian_claim', 'jubian_snatch',
-          'mcp__muse-account__muse_account_status', 'mcp__muse-account__muse_kb_search',
-          'mcp__muse-account__muse_kb_read', 'mcp__muse-account__muse_kb_read_opening',
-          'mcp__muse-account__muse_kb_ingest_script']
+          'jubian_find', 'jubian_claim', 'jubian_snatch', 'source_snapshot', 'source_report', 'work_mapping']
         : id === 'bot-coordinator' ? ['read', 'write', 'edit', 'glob', 'grep', 'skill', shell, 'present',
           'web_search', 'web_fetch', 'ask_user_question', 'todo_write', 'todo_update', 'subagent',
           'tool_search', 'tool_context']
           : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
+    const modelInput = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+    const modelNames = modelInput.tools.map(tool => tool.name)
+    if (['ptc', 'creation', 'cordis'].includes(id)) {
+      if (modelNames.length !== 1 || modelNames[0] !== 'run_code') {
+        throw new Error('desktop runtime: PTC preset must expose only run_code: ' + id)
+      }
+    } else if (modelNames.includes('run_code')) {
+      throw new Error('desktop runtime: native preset executor differs: ' + id)
+    }
     if (names.has('audio_transcribe') !== (id !== 'minimal')) throw new Error('desktop runtime: transcription availability differs in ' + id)
     if (id === 'minimal') {
       const inherited = new Set(ctx.tools.schemas().map(tool => tool.name))
@@ -143,7 +152,7 @@ export function apply(ctx) {
       if (local.length !== 1 || local[0] !== shell) throw new Error('desktop runtime: minimal must add only its persistent shell; found ' + local.join(', '))
     }
     if (id === 'short-drama') {
-      const assembly = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+      const assembly = modelInput
       const persona = assembly.sections.find(section => section.name === 'deployment:persona-prefix')?.text
       if (!persona?.startsWith(editingModelInput.personaPrefix)) {
         throw new Error('desktop runtime: unified creative persona changed')
@@ -152,7 +161,7 @@ export function apply(ctx) {
       if (!delivery?.includes('默认使用 Word（.docx）') || !delivery.includes('screenplay_export_docx')) {
         throw new Error('desktop runtime: editing Word delivery guidance is missing')
       }
-      const accountTools = Object.keys(editingModelInput.tools)
+      const deferredTools = Object.keys(editingModelInput.tools)
       const authorized = ctx.tools.schemas(handle.agent)
       for (const [name, description] of Object.entries(editingModelInput.tools)) {
         const tool = authorized.find(tool => tool.name === name)
@@ -167,20 +176,21 @@ export function apply(ctx) {
         }
       }
       const initialNames = assembly.tools.map(tool => tool.name).sort()
-      if (accountTools.some(name => initialNames.includes(name))) {
-        throw new Error('desktop runtime: account tools must remain deferred before discovery')
+      if (deferredTools.some(name => initialNames.includes(name))) {
+        throw new Error('desktop runtime: source tools must remain deferred before discovery')
       }
       const manage = async operation => {
         const callId = ToolCallId(handle.agent.id + ':desktop-smoke-' + operation)
-        const args = { operation, tools: accountTools }
-        const call = handle.agent.session.append('tool/call', {
-          turn: 1, step: 1, callId, name: 'tool_context', arguments: JSON.stringify(args),
+        const args = { operation, tools: deferredTools }
+        const batch = await ctx.tools.execute({
+          calls: [{ type: 'tool-call', id: callId, name: 'tool_context', arguments: JSON.stringify(args) }],
+          agent: handle.agent, signal: AbortSignal.timeout(30_000), log: { turn: 1, step: 1 },
         })
-        const result = await ctx.tools.execute({ name: 'tool_context', arguments: args,
-          agent: handle.agent, callId, signal: AbortSignal.timeout(30_000) })
-        handle.agent.session.append('tool/result', {
-          turn: 1, step: 1, message: createToolResultMessage({ callId, content: result.content, isError: result.isError }),
-        }, { surfaceOp: 'append', sourceEventSeqs: [call.seq] })
+        const outcome = batch.results[0]
+        if (batch.results.length !== 1 || outcome?.callId !== callId) {
+          throw new Error('desktop runtime: invalid tool_context batch result')
+        }
+        const result = outcome.result
         if (result.isError) throw new Error('desktop runtime: tool_context ' + operation + ' failed')
       }
       await manage('load')
@@ -193,11 +203,11 @@ export function apply(ctx) {
       await manage('release')
       const released = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
       if (JSON.stringify(released.tools.map(tool => tool.name).sort()) !== JSON.stringify(initialNames)
-        || accountTools.some(name => ctx.toolDiscovery.state(handle.agent).loaded.includes(name))) {
-        throw new Error('desktop runtime: releasing account tools did not restore initial model tools')
+        || deferredTools.some(name => ctx.toolDiscovery.state(handle.agent).loaded.includes(name))) {
+        throw new Error('desktop runtime: releasing source tools did not restore initial model tools')
       }
     }
-    if ((id === 'ptc' || id === 'creation') && (!names.has('run_code') || names.has('workflow'))) {
+    if ((id === 'ptc' || id === 'creation') && names.has('workflow')) {
       throw new Error('desktop runtime: PTC tool presentation is incomplete in ' + id)
     }
     if (id === 'creation' && ['subagent', 'subagent_fork', 'subagent_codex', 'subagent_claude_code'].some(name => names.has(name))) {
@@ -333,42 +343,84 @@ export function apply(ctx) {
 `
 }
 
+/** Select immutable package qualification or the linked project used by the local Dev application. */
+export type DesktopSmokeMode = 'strict' | 'development'
+
 /**
- * Check Host startup, its matching frontend, external plugins and real Office-to-PDF conversion.
+ * Check CLI package operations, Host startup, its frontend, external plugins and real Office-to-PDF conversion.
  * @param root - Materialized dsh resources.
  * @param node - Prepared target Electron executable.
  * @param runtime - Verified resource descriptor.
  * @param environment - Credential-scrubbed build environment and private native cache.
  * @param resourcesRuntime - Bundled interpreters outside the application archive.
+ * @param mode - Strict by default; development permits workspace links through the existing local inspector launch.
  * @returns Resolves after checks and teardown; rejects on a check or teardown failure.
  */
 export async function smokeDesktopRuntime(
   root: string, node: string, runtime: DesktopRuntimeDescriptor, environment: NodeJS.ProcessEnv, resourcesRuntime: string,
+  mode: DesktopSmokeMode = 'strict',
 ): Promise<void> {
   const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-smoke-'))
   const profile = join(home, 'profiles', 'desktop')
-  const host = new DesktopHostProcess(node, root, profile, undefined, {
-    ...environment, MUSE_HOME: home, DSH_HOME: home, DSH_AGENTS_HOME: join(home, '.agents'),
-    HOME: home, USERPROFILE: home,
-    APPDATA: join(home, 'AppData', 'Roaming'), LOCALAPPDATA: join(home, 'AppData', 'Local'),
-  }, undefined, join(resourcesRuntime, 'primary-runtime'),
-  { pnpm: join(resourcesRuntime, 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resourcesRuntime, 'bin') })
+  const hostEnvironment = {
+    ...Object.fromEntries(Object.entries(environment).filter(([name]) => !/^(?:npm|pnpm|corepack)_/iu.test(name))),
+    DSH_HOME: home, MUSE_HOME: home, HOME: home, USERPROFILE: home,
+    XDG_CONFIG_HOME: home, XDG_CACHE_HOME: home, XDG_STATE_HOME: home,
+    APPDATA: home, LOCALAPPDATA: home,
+    npm_config_userconfig: join(home, 'npmrc'), npm_config_globalconfig: join(home, 'npmrc'),
+    npm_config_store_dir: join(home, 'store'), npm_config_enable_global_virtual_store: 'false',
+  }
+  const host = new DesktopHostProcess(node, root, profile, mode === 'development' ? 0 : undefined, hostEnvironment,
+    undefined, join(resourcesRuntime, 'primary-runtime'),
+    { pnpm: join(resourcesRuntime, 'primary-runtime', 'dependencies', 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resourcesRuntime, 'bin') })
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
+    writeFileSync(join(home, 'npmrc'), '')
     createPluginProfile(profile)
     prepareDesktopSmokeSkills(home)
     const pluginName = 'desktop-runtime-smoke-plugin'
-    const plugin = join(profile, 'node_modules', pluginName)
+    const plugin = join(home, pluginName)
     mkdirSync(plugin, { recursive: true })
+    const installedName = 'desktop-installed-smoke-plugin'
+    const installedPlugin = join(home, installedName)
+    mkdirSync(installedPlugin)
+    writeFileSync(join(installedPlugin, 'package.json'), JSON.stringify({
+      name: installedName, version: '1.0.0', type: 'module', exports: './index.js', dsh: { bundle: { patch: './bundle.yml' } },
+    }))
+    writeFileSync(join(installedPlugin, 'index.js'), `
+export function apply(ctx) {
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-smoke-installed',
+    handler(_request, response) { response.end('installed plugin ready') } }))
+}
+`)
+    writeFileSync(join(installedPlugin, 'bundle.yml'), `- insert:\n    - id: ${installedName}\n      name: ${installedName}\n      inject: [webServer]\n`)
+    appendFileSync(join(profile, 'pnpm-workspace.yaml'), 'offline: true\nupdateNotifier: false\n')
+    const installedCli = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'cli.js')
+    const cli = mode === 'development' ? join(home, 'desktop-cli.mjs') : installedCli
+    if (mode === 'development') {
+      writeFileSync(cli, `import { runDesktopCli } from ${JSON.stringify(pathToFileURL(installedCli).href)}\n`
+        + `await runDesktopCli(${JSON.stringify(root)}, ${JSON.stringify(resourcesRuntime)})\n`, { flag: 'wx' })
+    }
+    const runCli = (args: string[]) => promisify(execFile)(node,
+      ['--expose-internals', cli, 'plugin', '--profile', 'desktop', ...args],
+      { cwd: home, env: { ...hostEnvironment, ELECTRON_RUN_AS_NODE: '1' }, timeout: 120_000, windowsHide: true })
+    await runCli(['add', `file:${installedPlugin}`, '--offline', '--ignore-scripts'])
+    const installedEntry = join(profile, 'node_modules', installedName, 'index.js')
+    if (readFileSync(installedEntry, 'utf8') !== readFileSync(join(installedPlugin, 'index.js'), 'utf8')) {
+      throw new Error('desktop runtime: CLI did not install the local plugin')
+    }
+    await runCli(['remove', installedName])
+    if (existsSync(installedEntry)) throw new Error('desktop runtime: CLI did not remove the local plugin')
+    console.log('desktop runtime: CLI offline plugin installation and removal passed')
     const primary = join(resourcesRuntime, 'primary-runtime')
     const dependencies = workspaceDependencyPaths(primary, await readPrimaryRuntime(primary))
     const downloadScript = join(root, 'node_modules', 'muse-douyin-download', 'python', 'scripts', 'download.py')
       .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
     await promisify(execFile)(dependencies.python, ['-I', '-B', downloadScript, '--help'],
-      { env: environment, timeout: 30_000, windowsHide: true })
+      { env: hostEnvironment, timeout: 30_000, windowsHide: true })
     await promisify(execFile)(dependencies.python, ['-I', '-B',
       fileURLToPath(new URL('../tests/fixtures/office-conversion-inputs.py', import.meta.url)), home],
-    { env: environment, timeout: 120_000, windowsHide: true })
+    { env: hostEnvironment, timeout: 120_000, windowsHide: true })
     const inputs = ['docx', 'xlsx', 'pptx'].map(extension => ({ extension,
       bytes: readFileSync(join(home, `input.${extension}`)).toString('base64') }))
     const cordis = runtime.sharedPackages.find(entry => entry.name === '@deepseek-ai/cordis')
@@ -386,10 +438,19 @@ export function apply(ctx) {
   if (!(ctx instanceof Context)) throw new Error('desktop runtime: external plugin loaded another Cordis instance')
   ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-smoke',
     handler(_request, response) { response.end('plugin route ready') } }))
+  ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-smoke-install',
+    async handler(_request, response) {
+      try {
+        response.end(JSON.stringify(await ctx.pluginManager.installBundle(${JSON.stringify(installedPlugin)})))
+      } catch (error) {
+        response.statusCode = 500
+        response.end(inspect(error, { depth: 5 }))
+      }
+    } }))
   ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-smoke-office-cli',
     async handler(_request, response) {
       try {
-        const skill = await ctx.skills.get('office-docx')
+        const skill = await ctx.skills.get('office-export-pdf')
         const json = skill?.content.match(/\\n(\\{\\n[\\s\\S]+)$/u)?.[1]
         if (json === undefined) throw new Error('Office skill did not supply CLI paths')
         const { libreofficeKit: { node, cli } } = JSON.parse(json)
@@ -420,7 +481,7 @@ export function apply(ctx) {
   }
 }
 `)
-    writeFileSync(join(plugin, 'bundle.yml'), '- insert:\n    - id: desktop-runtime-smoke-plugin\n      name: desktop-runtime-smoke-plugin\n      inject: [webServer, officeToPdf, skills]\n')
+    writeFileSync(join(plugin, 'bundle.yml'), '- insert:\n    - id: desktop-runtime-smoke-plugin\n      name: desktop-runtime-smoke-plugin\n      inject: [webServer, officeToPdf, skills, pluginManager]\n')
     const productPluginName = 'desktop-runtime-product-smoke-plugin'
     const productPlugin = join(profile, 'node_modules', productPluginName)
     mkdirSync(productPlugin, { recursive: true })
@@ -431,17 +492,15 @@ export function apply(ctx) {
     }))
     writeFileSync(join(productPlugin, 'index.js'), desktopSmokePluginSource(root, home))
     writeFileSync(join(productPlugin, 'bundle.yml'), '- insert:\n    - id: desktop-runtime-product-smoke-plugin\n      name: desktop-runtime-product-smoke-plugin\n')
+    cpSync(plugin, join(profile, 'node_modules', pluginName), { recursive: true })
     const manifest = JSON.parse(readFileSync(join(profile, 'package.json'), 'utf8')) as {
-      dependencies: Record<string, string>
+      dependencies?: Record<string, string>
       dsh: { profile: { bundles: string[] } }
     }
-    manifest.dependencies[pluginName] = '1.0.0'
-    manifest.dependencies[productPluginName] = '1.0.0'
+    manifest.dependencies = { ...manifest.dependencies, [pluginName]: `file:${plugin}`, [productPluginName]: `file:${productPlugin}` }
     manifest.dsh.profile.bundles.push(pluginName, productPluginName)
     writeFileSync(join(profile, 'package.json'), JSON.stringify(manifest))
     writeFileSync(join(profile, 'cordis.patch.yml'), '- id: webserver\n  config:\n    host: 127.0.0.1\n    port: 0\n')
-    recordDesktopRuntimeProfile(profile, runtime)
-    validateDesktopPluginGraph(profile, root, runtime, [pluginName, productPluginName], 'runtime')
     const ready = await Promise.race([host.start(), new Promise<never>((_, reject) => {
       timer = setTimeout(() => { reject(new Error('desktop runtime: Host readiness exceeded 120 seconds')) }, 120_000)
     })])
@@ -470,6 +529,14 @@ export function apply(ctx) {
     }
     const pluginResponse = await fetch(new URL('/desktop-smoke', ready.url), { headers: { cookie } })
     if (await pluginResponse.text() !== 'plugin route ready') throw new Error('desktop runtime: plugin HTTP route failed')
+    const installation = await fetch(new URL('/desktop-smoke-install', ready.url), {
+      headers: { cookie }, signal: AbortSignal.timeout(120_000),
+    })
+    const installationResult = await installation.text()
+    const installed = await fetch(new URL('/desktop-smoke-installed', ready.url), { headers: { cookie } })
+    if (!installation.ok || !installed.ok || await installed.text() !== 'installed plugin ready') {
+      throw new Error(`desktop runtime: bundled pnpm plugin installation failed: ${installationResult}`)
+    }
     for (const { extension } of inputs) {
       const converted = await fetch(new URL(`/desktop-smoke-office/${extension}`, ready.url), {
         headers: { cookie }, signal: AbortSignal.timeout(120_000),
@@ -492,16 +559,19 @@ export function apply(ctx) {
     console.log('desktop runtime: DOCX, XLSX, PPTX to PDF and skill CLI discovery passed')
   } finally {
     clearTimeout(timer)
-    await host.stop()
-    rmSync(home, { recursive: true, force: true })
+    try { await host.stop() } finally {
+      await rm(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 })
+    }
   }
 }
 
 if (isEntry(import.meta.url)) {
   const args = process.argv.slice(2)
+  const mode = args.at(-1) === '--development' ? 'development' : 'strict'
+  if (mode === 'development') args.pop()
   const [root, node, resourcesRuntime] = args
   if (args.length !== 3 || root === undefined || node === undefined || resourcesRuntime === undefined) {
-    throw new Error('desktop smoke: expected runtime root, Electron executable and external runtime directory')
+    throw new Error('desktop smoke: expected runtime root, Electron executable and external runtime directory, optionally --development')
   }
-  await smokeDesktopRuntime(root, node, readDesktopRuntime(root), process.env, resourcesRuntime)
+  await smokeDesktopRuntime(root, node, readDesktopRuntime(root), process.env, resourcesRuntime, mode)
 }

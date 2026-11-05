@@ -2,7 +2,8 @@
  * Guarantee tests for the tool-schema catalog generator (`scripts/gen-tool-catalog.ts`).
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import ScheduleService from '@deepseek-ai/dsh-schedule'
 import {
   assertManifestComplete,
   assertToolsHarvested,
@@ -26,26 +27,28 @@ describe('gen-tool-catalog collectToolCatalog', () => {
     const catalog = await collectToolCatalog()
     const names = catalog.flatMap(entry => entry.schemas.map(s => s.name)).sort()
     expect(names).toEqual([
-      'ask_user_question', 'audio_transcribe', 'bash', 'bash', 'bgm_match',
-      'cordis_inspect_list', 'cordis_inspect_query', 'create_goal', 'drama_assets', 'drama_bgm',
-      'drama_character_reference_project', 'drama_character_reference_view', 'drama_character_references',
+      'apply_patch', 'ask_user_question', 'audio_transcribe', 'bash', 'bash',
+      'bgm_match', 'cordis_inspect_list', 'cordis_inspect_query', 'create_goal', 'create_worktree',
+      'drama_assets', 'drama_bgm', 'drama_character_reference_project', 'drama_character_reference_view', 'drama_character_references',
       'drama_draft_dir', 'drama_project', 'drama_render', 'drama_shot', 'drama_video',
       'edit', 'exit_plan_mode', 'get_goal', 'glob', 'grep',
       'interrupt_agent', 'interrupt_agent', 'job_kill', 'job_list', 'job_output',
-      'jubian_asset', 'jubian_budget', 'jubian_catalog', 'jubian_character_reference_authorize',
-      'jubian_claim', 'jubian_find', 'jubian_media',
-      'jubian_model', 'jubian_organize', 'jubian_snatch', 'jubian_storyboard', 'jubian_video', 'jubian_video_model',
-      'jubian_watch', 'list_agents', 'list_agents', 'list_mcp_resource_templates', 'list_mcp_resources',
-      'list_subagent_models', 'load_workspace_dependencies', 'lsp', 'muse_production', 'plugin_manager', 'present',
-      'pwsh', 'pwsh', 'ralph', 'read', 'read_image',
-      'read_mcp_resource', 'run_code', 'schedule_create', 'schedule_delete', 'schedule_list',
-      'schedule_update', 'screenplay_project', 'send_message', 'send_message', 'session_event_read', 'session_event_search',
-      'session_event_trace', 'session_search', 'session_trace', 'skill', 'spawn_teammate',
-      'stagehand_act', 'stagehand_extract', 'stagehand_navigate', 'stagehand_observe', 'stagehand_screenshot',
-      'stagehand_tabs', 'str_replace_editor', 'subagent', 'team_task_create', 'team_task_get',
-      'team_task_list', 'team_task_update', 'terminal_close', 'terminal_list', 'terminal_open',
-      'terminal_read', 'terminal_send', 'terminal_signal', 'todo_update', 'todo_write', 'update_goal', 'video_contact_sheet', 'video_inspect', 'video_ocr',
-      'wait_agent', 'web_fetch', 'web_search', 'workflow', 'write',
+      'jubian_asset', 'jubian_budget', 'jubian_catalog', 'jubian_character_reference_authorize', 'jubian_claim',
+      'jubian_find', 'jubian_media', 'jubian_model', 'jubian_organize', 'jubian_snatch',
+      'jubian_storyboard', 'jubian_video', 'jubian_video_model', 'jubian_watch', 'list_agents',
+      'list_agents', 'list_mcp_resource_templates', 'list_mcp_resources', 'list_subagent_models', 'load_workspace_dependencies',
+      'lsp', 'muse_production', 'plugin_manager', 'plugin_market', 'present',
+      'propose_action', 'pwsh', 'pwsh', 'ralph', 'read',
+      'read_image', 'read_mcp_resource', 'run_code', 'schedule_create', 'schedule_edit',
+      'schedule_list', 'schedule_view', 'screenplay_project', 'send_message', 'send_message',
+      'session_event_read', 'session_event_search', 'session_event_trace', 'session_search', 'session_trace',
+      'skill', 'spawn_teammate', 'stagehand_act', 'stagehand_extract', 'stagehand_navigate',
+      'stagehand_observe', 'stagehand_screenshot', 'stagehand_tabs', 'str_replace_editor', 'subagent',
+      'subagent_oar', 'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update',
+      'terminal_close', 'terminal_list', 'terminal_open', 'terminal_read', 'terminal_send',
+      'terminal_signal', 'todo_update', 'todo_write', 'tool_context', 'tool_search', 'update_goal', 'video_contact_sheet',
+      'video_inspect', 'video_ocr', 'wait_agent', 'web_fetch', 'web_search',
+      'workflow', 'working_directory', 'write',
     ])
     // Every tool carries a JSON-Schema `parameters` object (what the model sees).
     for (const entry of catalog) {
@@ -53,6 +56,11 @@ describe('gen-tool-catalog collectToolCatalog', () => {
         expect((schema.parameters as unknown as JsonSchema).type).toBe('object')
       }
     }
+    const directory = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-working-directory')
+    expect(directory?.sources.working_directory).toBe('packages/session/tool-working-directory/src/index.ts')
+    const parameters = directory?.schemas[0]?.parameters
+    expect(parameters).toHaveProperty('properties.cd.type', 'string')
+    expect(parameters?.required ?? []).not.toContain('cd')
   })
 
   it('resolves a runtime-spread enum to its literal members (the payoff over AST)', async () => {
@@ -68,6 +76,8 @@ describe('gen-tool-catalog collectToolCatalog', () => {
 
   it('attributes each harvested tool with its registering plugin source', async () => {
     const catalog = await collectToolCatalog()
+    const ptc = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-executor-ptc')
+    expect(ptc?.sources.run_code).toBe('packages/core/tool-executor-ptc/src/ptc.ts')
     const bash = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-bash')
     expect(bash?.sources.bash).toBe('packages/shell/tool-bash/src/index.ts')
     const control = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-subagent-control')
@@ -78,6 +88,21 @@ describe('gen-tool-catalog collectToolCatalog', () => {
     })
     const compiler = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-shot-script')
     expect(compiler?.sources.muse_production).toBe('packages/drama/tool-shot-script/src/production.ts')
+  })
+
+  it('lists Schedule prompt dependencies and reads delivery limits from Schedule Config', async () => {
+    const config = vi.spyOn(ScheduleService, 'Config').mockReturnValue({ newSessionIntervalSeconds: 900 })
+    try {
+      const catalog = await collectToolCatalog()
+      const schedule = catalog.find(entry => entry.pkg === '@deepseek-ai/dsh-tool-schedule')
+      expect(schedule?.requires).toEqual(['ctx.tools', 'ctx.schedule', 'ctx.systemPrompt'])
+      expect(config).toHaveBeenCalledWith({})
+      expect(schedule?.schemas.find(schema => schema.name === 'schedule_create')?.parameters).toMatchObject({
+        properties: { target: { description: expect.stringContaining('at most once every 15 minutes') as string } },
+      })
+    } finally {
+      config.mockRestore()
+    }
   })
 
   it('harvests search tools without depending on the generator process PATH', async () => {

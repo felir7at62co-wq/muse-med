@@ -5,8 +5,13 @@ import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { DESKTOP_SOURCE_PLUGINS } from './core-package-set.ts'
-import { packageNameFromSpec } from './project-manager.ts'
 import type { DesktopBundledPlugin, DesktopCatalogPlugin, DesktopPluginCatalog } from './ipc-types.ts'
+
+function packageNameFromSpec(spec: string): string {
+  const match = /^(?<name>(?:@[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*)(?:@(?<version>[a-zA-Z0-9][a-zA-Z0-9._+~-]*))?$/u.exec(spec)
+  if (match?.groups?.name === undefined) throw new Error(`desktop catalog: unsupported registry package spec ${JSON.stringify(spec)}`)
+  return match.groups.name
+}
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

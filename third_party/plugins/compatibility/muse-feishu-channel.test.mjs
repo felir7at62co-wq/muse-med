@@ -12,7 +12,7 @@ const checkout = resolve(import.meta.dirname, '../../..')
 const sdkDirectory = resolve(import.meta.dirname, '../toolchain/node_modules/@larksuiteoapi/node-sdk')
 const sdkManifest = JSON.parse(readFileSync(join(sdkDirectory, 'package.json'), 'utf8'))
 const sdkUrl = pathToFileURL(join(sdkDirectory, sdkManifest.main)).href
-const { default: Lark } = await import(sdkUrl)
+const Lark = await import(sdkUrl)
 const validBot = { code: 0, bot: { open_id: 'ou_muse_bot', app_name: 'Muse', avatar_url: 'synthetic-avatar' } }
 const silentLogger = { trace() {}, debug() {}, info() {}, warn() {}, error() {} }
 

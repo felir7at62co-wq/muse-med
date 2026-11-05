@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The `host/` group provides the web GUI's HTTP and SPA servers, workspace-directory picking implementations, application launch routes, plugin inventory, and explicit product event reporting. It also provides desktop Feishu setup and MUSE account access. These packages are product packages; the browser transport lives in [`client/`](../client/README.md), and the composed Web application is [`apps/cli`](../../apps/cli/README.md) booting the [`dsh-base` bundle](../bundle/base/cordis.patch.yml) under `apps/web/`. The picker backends replace one another behind the shared seam.
+The `host/` group provides the web GUI's HTTP(S) server, the SPA dist server that serves the built Web shell, the workspace-directory picking seam with its native, browse, and adaptive composition packages, the open-in-app application probe and launch routes, the read-only plugin inventory projection, and explicit product event reporting. These packages are product packages; the browser transport lives in [`client/`](../client/README.md), and the composed application is [`apps/cli`](../../apps/cli/README.md) booting the [`dsh-base` bundle](../bundle/base/cordis.patch.yml) that serves the web app under `apps/web/`. The picker backends replace one another behind the shared seam. It also supplies Muse account access and desktop Feishu setup.
 
 ## Table of Contents
 

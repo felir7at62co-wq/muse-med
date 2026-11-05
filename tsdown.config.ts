@@ -1,6 +1,8 @@
+import { globSync } from 'node:fs'
 import { defineConfig } from 'tsdown'
 import { clientBuildConcurrency } from './scripts/client-build-concurrency.ts'
-import { typertPlugin } from './packages/typert/generator/lib/types/tsdown-plugin.js'
+import { decoratorPlugin } from './packages/typert/generator/lib/types/tsdown-plugin.js'
+import { workspacePackageGlobs } from './scripts/workspace-package-globs.ts'
 
 function isBuildFaceClient(value: unknown): boolean {
   if (value === undefined || value === 'host') return false
@@ -10,32 +12,19 @@ function isBuildFaceClient(value: unknown): boolean {
 
 /**
  * The ordinary workspace build consumes JavaScript emitted by the Host
- * TypeScript project and runs Typert. The Client pass selects packages that
+ * TypeScript project after source-only Typert generation. The Client pass selects packages that
  * declare a browser bundle and lets their package-local configs emit both
  * their Node loader entry and browser artifact. `apps/desktop` bundles after
  * this pass (root package.json `build:lib:host`): its main bundle inlines
  * workspace devDependencies from their lib/ output, and tsdown builds
  * workspace members concurrently without ordering them.
- *
- * `packages/drama/skills` is a workspace package that ships static skill
- * resources and has no JavaScript entry at all, so the workspace-wide entry
- * glob cannot resolve it; exclude it rather than give it an empty build.
- *
- * The workspace list is enumerated by directory, not by manifest, and each
- * enumerated directory inherits the root `entry` below. A package directory
- * without its own `package.json` therefore resolves that entry inside itself,
- * finds nothing, and fails as `[@deepseek-ai/dsh-root]` — the nearest manifest
- * above it rather than the directory at fault.
- * `scripts/tsdown-workspace.spec.ts` keeps the enumeration manifest-backed.
  */
 export default defineConfig(({ env }) => {
   const client = isBuildFaceClient(env?.DSH_BUILD_FACE)
-  const resourceOnly = '!packages/drama/skills'
   const hooks = client ? clientBuildConcurrency(process.env.DSH_BUILD_CLIENT_CONCURRENCY) : undefined
+  const packages = workspacePackageGlobs(globSync(['vendor/*/package.json', 'packages/*/*/package.json'], { cwd: import.meta.dirname }))
   return {
-    workspace: client
-      ? ['vendor/*', 'packages/*/*', resourceOnly, 'apps/cli']
-      : ['vendor/*', 'packages/*/*', resourceOnly, 'apps/cli', 'apps/desktop-host'],
+    workspace: [...packages, '!packages/drama/skills', 'apps/cli', ...client ? [] : ['apps/desktop-host']],
     entry: client ? '' : ['lib/types/{index,startup}.js'],
     outDir: 'lib',
     format: ['esm'],
@@ -44,7 +33,7 @@ export default defineConfig(({ env }) => {
     fixedExtension: false,
     dts: false,
     clean: false,
-    plugins: client ? [] : [typertPlugin({ mode: 'workspace', faces: ['host'] })],
+    plugins: client ? [] : [decoratorPlugin()],
     ...(hooks === undefined ? {} : { hooks }),
   }
 })

@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { expect, it, onTestFinished } from 'vitest'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as source from '../src/index.ts'
 import { oldSessionFixture } from './model-routing-fixture.ts'
 
@@ -35,7 +36,7 @@ it.each(['source', 'package'] as const)('activates the %s account through Loader
     expect(await account.status({ verify: false })).toEqual({ state: 'signed-out' })
     expect(tools.schemas().filter(tool => tool.name.startsWith('mcp__muse-account__'))).toEqual([])
     expect(fixture.ctx.llm.listProviders().some(provider => provider.id === 'deepseek-official')).toBe(true)
-    const result = await tools.execute({ signal: new AbortController().signal,
+    const result = await executeModelToolFixture(fixture.ctx, { signal: new AbortController().signal,
       callId: ToolCallId('user-reference-after-account-startup'), name: userTool, arguments: {} })
     expect(result.isError).toBe(false)
     expect(result.content).toEqual([{ type: 'text', text: 'user reference retained' }])

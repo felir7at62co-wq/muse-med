@@ -1,4 +1,4 @@
-"""Observe an active child during SIGTERM through the source dsh SDK profile."""
+"""Observe an active child during SIGTERM through the built dsh SDK profile."""
 from __future__ import annotations
 
 import os
@@ -9,14 +9,15 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
+CLI = ROOT / "apps/cli/lib/bin.js"
 
 
 @unittest.skipIf(os.name == "nt", "requires POSIX SIGTERM delivery to the owned runtime")
-@unittest.skipUnless((ROOT / "node_modules/tsx/dist/esm/index.mjs").is_file(), "requires pnpm install")
+@unittest.skipUnless(CLI.is_file(), "requires the built dsh profile runtime")
 class FactoryShutdownSnapshotTests(unittest.TestCase):
     def test_active_child_settles_before_projection_teardown(self) -> None:
         smoke = runpy.run_path(str(ROOT / "scripts/smoke-python-runtime.py"))
-        smoke["smoke_sdk_shutdown_snapshot"](None, False)
+        smoke["smoke_sdk_shutdown_snapshot"](CLI, False)
 
     def test_host_skills_and_packaged_office_do_not_change_shutdown_oracles(self) -> None:
         smoke = runpy.run_path(str(ROOT / "scripts/smoke-python-runtime.py"))
@@ -36,7 +37,7 @@ class FactoryShutdownSnapshotTests(unittest.TestCase):
                 skill = skill_root / name / "SKILL.md"
                 skill.parent.mkdir(parents=True)
                 skill.write_text(f"---\nname: {name}\ndescription: Ambient shutdown fixture skill\n---\nFixture body.\n")
-            smoke["smoke_sdk_shutdown_snapshot"](None, False, {
+            smoke["smoke_sdk_shutdown_snapshot"](CLI, False, {
                 "DSH_PRIMARY_RUNTIME": str(primary_runtime),
                 "DSH_BUNDLED_PRIMARY_RUNTIME": str(primary_runtime),
                 "DSH_BUNDLED_SKILL_DIR": str(bundled_skills),

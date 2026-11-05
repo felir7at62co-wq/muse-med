@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/muse-video-review-readers/guide.md
+/:
+  en: c5ca2454d5d607e7
+  zh: 85be9ad1d7486fb7
+/retain-video-review-readers-during-plugin-startup:
+  en: 425a9a291dca1849
+  zh: d6a2d704142f5973
+/retain-video-review-readers-during-plugin-startup/change:
+  en: 8685fd46027e851d
+  zh: b2adc36cee0ec662
+/retain-video-review-readers-during-plugin-startup/migration:
+  en: 2018760376da6359
+  zh: 9ce06311770ba187

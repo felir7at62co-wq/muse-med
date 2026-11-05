@@ -33,6 +33,8 @@ kind: "package-reference"
 
 评分或列表加载失败在行内展示；提交失败显示警告 toast 并保留草稿。Muse 需要投递提供方及当前账号，不会把本地记录当作入箱成功。发送结果不明或账号切换时，会提示用户先检查原账号意见箱，再决定是否重试。云端回执已确认后，本地标记保存失败不改变提交成功。只有已定稿的消息进入消息条目；被中断的部分输出没有 `messageId` 或反馈控件。
 
+访问控制：评分按钮只在当前 Peer 可以在该会话上调用 `messageFeedback/put` 时渲染；`/feedback` 装饰不做前端判断，没有权限时提交由 Host 拒绝。
+
 -----
 
 <a id="understand-the-implementation"></a>

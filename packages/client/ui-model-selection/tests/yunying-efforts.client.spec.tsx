@@ -4,8 +4,10 @@ import { Context } from '@deepseek-ai/cordis'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, onTestFinished } from 'vitest'
 import type { ComponentProps } from 'react'
-import type { ModelCatalog, ModelSelection, ModelSelectionProjection } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ModelCatalog, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ModelSelectionProjection } from '@deepseek-ai/dsh-agent/types'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
+import { ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { TestRemote } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -15,6 +17,8 @@ import { ModelCatalogDirectory } from '../src/client/catalog.ts'
 import { zh } from '../src/client/locales.ts'
 
 const provider = 'muse-cloud-yunying'
+const resolveText: ComponentProps<typeof ModelSelect>['resolveText'] = text => typeof text === 'string' ? text : text.zh ?? text.en
+const renderLabel: ComponentProps<typeof ModelSelect>['renderSlot'] = (_name, _owner, options) => options?.fallback ?? null
 const definitions = [
   { id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol', levels: ['low', 'medium', 'high', 'xhigh', 'max'] },
   { id: 'gemini-3.1-pro', name: 'Gemini 3.1 Pro', levels: ['low', 'medium', 'high'] },
@@ -35,11 +39,16 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
+function projectedSelection(selection: ModelSelection): ModelSelectionProjection['next'] {
+  return { provider: selection.provider, model: selection.model,
+    ...selection.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(selection.reasoningEffort) } }
+}
+
 async function fixture(model: string, reasoningEffort?: string) {
   const ctx = new Context()
   onTestFinished(() => ctx.fiber.dispose())
   const selected: ModelSelection = { provider, model, ...reasoningEffort === undefined ? {} : { reasoningEffort } }
-  const projected = createSnapshotStore<ModelSelectionProjection>({ lastUsed: null, next: selected })
+  const projected = createSnapshotStore<ModelSelectionProjection>({ lastUsed: null, next: projectedSelection(selected) })
   const catalog: ModelCatalog = {
     default: { provider: 'unchanged', model: 'company-default' },
     routableProviders: [provider], failures: [],
@@ -56,7 +65,7 @@ async function fixture(model: string, reasoningEffort?: string) {
       calls.push(payload)
       const next: ModelSelection = { provider: payload.provider, model: payload.model,
         ...payload.reasoningEffort === undefined ? {} : { reasoningEffort: payload.reasoningEffort } }
-      projected.set({ lastUsed: null, next })
+      projected.set({ lastUsed: null, next: projectedSelection(next) })
       if (payload.saveDefault !== false) personalDefault = next
       return { ok: true as const, value: { selected: next } }
     },
@@ -66,8 +75,8 @@ async function fixture(model: string, reasoningEffort?: string) {
     new ModelCatalogDirectory(ctx), projected, () => false)
   onTestFinished(() => { directory.dispose() })
   await directory.load()
-  render(<ModelSelect locked={false} available directory={directory.store}
-    load={() => { void directory.load() }} select={selection => directory.select(selection)} t={t} />)
+  render(<ModelSelect renderSlot={renderLabel} locked={false} available directory={directory.store}
+    load={() => { void directory.load() }} resolveText={resolveText} select={selection => directory.select(selection)} t={t} />)
   return { calls, catalog, originalCatalog, directory, personalDefault: () => personalDefault }
 }
 

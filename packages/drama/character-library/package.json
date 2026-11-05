@@ -1,8 +1,10 @@
 {
   "name": "@deepseek-ai/dsh-character-library",
   "description": "Host-owned read-only character reference browsing, preview and recommendation service",
-  "version": "0.2.1-alpha.1",
-  "publishConfig": { "access": "public" },
+  "version": "0.2.2-rc.1",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
@@ -13,11 +15,17 @@
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
-    ".": { "types": "./lib/types/index.d.ts", "default": "./lib/index.js" },
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json"
   },
-  "files": ["lib/index.js", "lib/types/**/*.d.ts"],
+  "files": [
+    "lib/index.js",
+    "lib/types/**/*.d.ts"
+  ],
   "dependencies": {
     "@deepseek-ai/dsh-character-asset-catalog": "workspace:*",
     "sharp": "^0.35.3"

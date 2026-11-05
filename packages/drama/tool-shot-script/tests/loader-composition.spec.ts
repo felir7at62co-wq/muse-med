@@ -8,6 +8,8 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import Tools from '@deepseek-ai/dsh-tools'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import * as ShotCompiler from '../src/index.ts'
@@ -46,11 +48,12 @@ it('loads a warning-producing compiler with explicit board budgets and disposes 
       } }
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
+    await ctx.plugin(NativeToolExecutor)
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
     const tools = ctx.tools
     const outcomes = []
     for (const budget of [30, 15]) {
-      const result = await tools.execute({ signal: new AbortController().signal,
+      const result = await executeModelToolFixture(ctx, { signal: new AbortController().signal,
         callId: ToolCallId(`budget-${budget}`), name: 'drama_shot',
         arguments: { method: 'preview', script, assets, max_submit_seconds: budget } })
       expect(result.isError).toBe(false)
@@ -113,7 +116,7 @@ it('loads a warning-producing compiler with explicit board budgets and disposes 
     ]))
     for (const undersized of [false, true]) {
       if (undersized) await writeFile(script, (await readFile(script, 'utf8')) + '\n时长：4秒\n')
-      const result = await tools.execute({ signal: new AbortController().signal,
+      const result = await executeModelToolFixture(ctx, { signal: new AbortController().signal,
         callId: ToolCallId(`performance-${String(undersized)}`), name: 'drama_shot',
         arguments: { method: 'preview', script, assets, max_submit_seconds: 15 } })
       const content = result.content[0]
@@ -135,7 +138,7 @@ it('loads a warning-producing compiler with explicit board budgets and disposes 
         ...(ambiguous ? [assetRow('陆沉舟（家常装B）', '角色', { aliases: ['阿舟'] })] : []),
         assetRow('苏晚', '角色'), assetRow('后厨', '场景'),
       )))
-      const result = await tools.execute({ signal: new AbortController().signal,
+      const result = await executeModelToolFixture(ctx, { signal: new AbortController().signal,
         callId: ToolCallId(`assets-${String(ambiguous)}`), name: 'drama_shot',
         arguments: { method: 'validate', script, assets, episode: 1 } })
       expect(result.isError).toBe(false)
@@ -185,7 +188,7 @@ it('loads a warning-producing compiler with explicit board budgets and disposes 
         ...(scenario.ambiguous === 'scene' ? [assetRow('后厨', '场景', { jubian_asset_id: '72003', jubian_material_id: '82003' })]
           : scenario.ambiguous === 'prop' ? [assetRow('奶瓶', '道具', { jubian_asset_id: '73003', jubian_material_id: '83003' })] : []),
       )))
-      const result = await tools.execute({ signal: new AbortController().signal,
+      const result = await executeModelToolFixture(ctx, { signal: new AbortController().signal,
         callId: ToolCallId(`versions-${scenario.episode}-${scenario.ambiguous}`), name: 'drama_shot',
         arguments: { method: 'validate', script, assets, episode: scenario.episode } })
       expect(result.isError).toBe(false)
@@ -306,7 +309,7 @@ it('loads a warning-producing compiler with explicit board budgets and disposes 
         subject_kind: 'animal', aliases: ['小鸡'], state_or_costume: '黄色绒毛' }),
       assetRow('后厨', '场景', { jubian_asset_id: '71003', episodes: [2] }),
     )))
-    const animalResult = await tools.execute({ signal: new AbortController().signal,
+    const animalResult = await executeModelToolFixture(ctx, { signal: new AbortController().signal,
       callId: ToolCallId('visible-animal'), name: 'drama_shot',
       arguments: { method: 'compile', script, assets, project: root, episode: 2, max_submit_seconds: 15 } })
     expect(animalResult.isError).toBe(false)

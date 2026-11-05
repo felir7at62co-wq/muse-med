@@ -1,4 +1,5 @@
 /** Real Loader, discovery, Agent, and stdio composition without desktop interaction. */
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -12,6 +13,7 @@ import ComputerUse from '@deepseek-ai/dsh-computer-use'
 import { ComputerUseProviderName } from '@deepseek-ai/dsh-computer-use/brand'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import Llm, { LlmAdapter, ToolCallId, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
@@ -122,6 +124,7 @@ async function load(options: LoadOptions = {}) {
     ['@deepseek-ai/dsh-computer-use', ComputerUse],
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', Tools],
+    ['@deepseek-ai/dsh-tool-executor-native', NativeToolExecutor],
     ['@deepseek-ai/dsh-llm', Llm],
     ['@deepseek-ai/dsh-session', Sessions],
     ['@deepseek-ai/dsh-agent', Agents],
@@ -349,7 +352,7 @@ describe('Muse bundled computer tools', () => {
   it('retains desktop ownership after a disconnect without reconnecting or replaying input', async () => {
     const { ctx, root } = await load()
     const agent = await createAgent(ctx, 'disconnect-test')
-    const result = await ctx.tools.execute({ name: 'mcp__muse-computer__disconnect', arguments: {}, agent,
+    const result = await executeModelToolFixture(ctx, { name: 'mcp__muse-computer__disconnect', arguments: {}, agent,
       callId: ToolCallId('disconnect'), signal: new AbortController().signal })
     expect(result.isError).not.toBe(true)
     await vi.waitFor(async () => {
@@ -357,7 +360,7 @@ describe('Muse bundled computer tools', () => {
     })
     expect(ctx.computerUse.providerName).toBe('muse-computer')
     expect(() => ctx.computerUse.register(ComputerUseProviderName('replacement'))).toThrow('already registered')
-    const retry = await ctx.tools.execute({ name: TOOL, arguments: { display: 0 },
+    const retry = await executeModelToolFixture(ctx, { name: TOOL, arguments: { display: 0 },
       callId: ToolCallId('disconnected-screenshot'), agent, signal: new AbortController().signal })
     expect(retry.isError).toBe(true)
     const diagnostic = retry.content[0]
@@ -371,7 +374,7 @@ describe('Muse bundled computer tools', () => {
   it('keeps driver error content as a failed tool result', async () => {
     const { ctx } = await load()
     const agent = await createAgent(ctx, 'error-test')
-    const result = await ctx.tools.execute({ name: TOOL, arguments: { display: 99 },
+    const result = await executeModelToolFixture(ctx, { name: TOOL, arguments: { display: 99 },
       callId: ToolCallId('unavailable-window'), agent, signal: new AbortController().signal })
     expect(result.isError).toBe(true)
     const diagnostic = result.content[0]
@@ -457,10 +460,10 @@ it('cancels pending input and rejects another Agent without replaying the action
       return {}
     },
   }))
-  const run = ctx.tools.execute({ name: computerTool('pending_input'), arguments: {}, agent,
+  const run = executeModelToolFixture(ctx, { name: computerTool('pending_input'), arguments: {}, agent,
     callId: ToolCallId('pending'), signal: new AbortController().signal })
   await started.promise
-  const busy = await ctx.tools.execute({ name: computerTool('list_windows'), arguments: {}, agent: other,
+  const busy = await executeModelToolFixture(ctx, { name: computerTool('list_windows'), arguments: {}, agent: other,
     callId: ToolCallId('competing'), signal: new AbortController().signal })
   expect(JSON.stringify(busy)).toContain('COMPUTER_USE_BUSY')
   input.state = { available: true, epoch: 1, escapeEpoch: 0, idleMs: 0 }
@@ -470,7 +473,7 @@ it('cancels pending input and rejects another Agent without replaying the action
   expect(result.isError).toBe(true)
   expect(JSON.stringify(result)).toContain('COMPUTER_USE_PAUSED_USER_INPUT')
   input.state.idleMs = 10_000
-  const retry = await ctx.tools.execute({ name: computerTool('pending_input'), arguments: {}, agent,
+  const retry = await executeModelToolFixture(ctx, { name: computerTool('pending_input'), arguments: {}, agent,
     callId: ToolCallId('no-replay'), signal: new AbortController().signal })
   expect(JSON.stringify(retry)).toContain('COMPUTER_USE_PAUSED_USER_INPUT')
   expect(calls).toBe(1)
@@ -493,7 +496,7 @@ it('holds concurrent tools until the shared blue indicator has been acknowledged
   const agent = await createAgent(ctx, 'indicator-owner')
   const visible: PromiseWithResolvers<void> = Promise.withResolvers()
   input.activeReady = visible.promise
-  const call = (id: string) => ctx.tools.execute({ name: computerTool('list_windows'), arguments: {}, agent,
+  const call = (id: string) => executeModelToolFixture(ctx, { name: computerTool('list_windows'), arguments: {}, agent,
     callId: ToolCallId(id), signal: new AbortController().signal })
   const runs = [call('indicator-first')]
   try {
@@ -523,7 +526,7 @@ it('refuses an admitted action when its control owner unloads before indicator a
     output: { schema: { type: 'object' }, render: () => [{ type: 'text', text: 'done' }] },
     async execute() { calls++; return {} },
   }))
-  const run = ctx.tools.execute({ name: computerTool('surviving_input'), arguments: {}, agent,
+  const run = executeModelToolFixture(ctx, { name: computerTool('surviving_input'), arguments: {}, agent,
     callId: ToolCallId('unloaded-indicator'), signal: new AbortController().signal })
   try {
     await vi.waitFor(() => { expect(input.states).toContain('active') })
@@ -552,7 +555,7 @@ it('refuses dispatch after the owning Agent releases the desktop during admissio
     if (exec.name === name) agentEvents(ctx, agent).emit('agent/status', { status: 'idle' })
     return next()
   })
-  const result = await ctx.tools.execute({ name, arguments: {}, agent,
+  const result = await executeModelToolFixture(ctx, { name, arguments: {}, agent,
     callId: ToolCallId('released-owner'), signal: new AbortController().signal })
   expect(calls).toBe(0)
   expect(result.isError).toBe(true)
@@ -575,7 +578,7 @@ it('physical Escape cancels an in-flight action, hides the frame and refuses aut
       return {}
     },
   }))
-  const run = ctx.tools.execute({ name: computerTool('escape_pending'), arguments: {}, agent,
+  const run = executeModelToolFixture(ctx, { name: computerTool('escape_pending'), arguments: {}, agent,
     callId: ToolCallId('escape-pending'), signal: new AbortController().signal })
   await started.promise
   input.state = { available: true, epoch: 1, escapeEpoch: 1, idleMs: 0 }
@@ -584,7 +587,7 @@ it('physical Escape cancels an in-flight action, hides the frame and refuses aut
   expect(canceled).toBe(true)
   expect(input.states.at(-1)).toBe('idle')
   input.state.idleMs = 10_000
-  const retry = await ctx.tools.execute({ name: computerTool('list_windows'), arguments: {}, agent,
+  const retry = await executeModelToolFixture(ctx, { name: computerTool('list_windows'), arguments: {}, agent,
     callId: ToolCallId('escape-retry'), signal: new AbortController().signal })
   expect(JSON.stringify(retry)).toContain('COMPUTER_USE_ENDED')
   expect(input.states.at(-1)).toBe('idle')
@@ -609,7 +612,7 @@ it.each(['escape', 'end_session', 'human-message'] as const)('dismisses a paused
     input.state.escapeEpoch = 1
     for (const listener of input.listeners) listener()
   } else if (exit === 'end_session') {
-    await ctx.tools.execute({ name: computerTool('end_session'), arguments: { session: 'paused' }, agent,
+    await executeModelToolFixture(ctx, { name: computerTool('end_session'), arguments: { session: 'paused' }, agent,
       callId: ToolCallId('paused-end'), signal: new AbortController().signal })
   } else {
     // A normal human follow-up with no computer action must not leave the old frame visible.

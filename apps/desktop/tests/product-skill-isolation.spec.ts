@@ -14,6 +14,9 @@ import Llm from '@deepseek-ai/dsh-llm'
 import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import LocalFs from '@deepseek-ai/dsh-fs-local'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
+import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import Tools from '@deepseek-ai/dsh-tools'
 import Skills from '@deepseek-ai/dsh-skill'
 import * as SkillFilesystem from '@deepseek-ai/dsh-skill-filesystem'
@@ -93,8 +96,8 @@ it.each(['literal', 'item-expression', 'array-expression', 'config-expression', 
       join(root, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
     const config = join(root, 'cordis.yml')
     await writeFile(config, yaml.dump([
-      ...['llm', 'sessions', 'projections', 'prompt', 'tools', 'agents', 'loop', 'skills'].map(id => ({
-        id, name: `test:${id}`, ...(id === 'loop' ? { config: { agents: [] } } : {}),
+      ...['llm', 'sessions', 'projections', 'prompt', 'tools', 'executor', 'fs', 'working-directory', 'agents', 'loop', 'skills'].map(id => ({
+        id, name: `test:${id}`, ...(id === 'loop' ? { config: { agents: [] } } : id === 'working-directory' ? { config: { defaultDirectory: workspace } } : {}),
       })),
       { ...hostProvider, name: '@deepseek-ai/dsh-skill-filesystem', config: { ...hostConfig, bundledSkillDir: bundled, watch: false,
         customSkillDirs: desktopSkillDirectories(product, user, configuredSkillProvider?.config) } },
@@ -110,7 +113,7 @@ it.each(['literal', 'item-expression', 'array-expression', 'config-expression', 
       ['test:llm', Llm], ['test:sessions', Sessions], ['test:projections', SessionProjections],
       ['test:prompt', SystemPrompt], ['test:tools', Tools], ['test:agents', AgentRegistry],
       ['test:loop', AgentLoop], ['test:skills', Skills], ['test:presets', AgentPresets],
-      ['test:native', NativePreset],
+      ['test:native', NativePreset], ['test:executor', NativeExecutor], ['test:fs', LocalFs], ['test:working-directory', WorkingDirectory],
       ['@deepseek-ai/dsh-skill', Skills],
       ['@deepseek-ai/dsh-desktop-host/creation-skills', CreationSkills],
       ['@deepseek-ai/dsh-skill-filesystem', SkillFilesystem], ['@deepseek-ai/dsh-tool-skill', ToolSkill],

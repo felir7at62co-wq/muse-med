@@ -44,9 +44,12 @@ async function fixture(options: {
           firstResultId: 123, parentResultId: 456,
           resultList: [{ taskType: 1, tosVideoUrl: 'https://media.example.test/source.mp4' }] }] }
       } else if (call.method === 'POST' && call.path === '/aigc/storyboard/subtitleEraser') {
-        expect(await ledger.find(ARGS.idempotency_key)).toMatchObject({ outcome: null,
-          quoted_amount: options.expectedQuote ?? '1.00',
-          quote_unit: 'CNY', method: 'erase_subtitle', script_id: 2708 })
+        const admission = await ledger.find(ARGS.idempotency_key)
+        onTestFinished(() => {
+          expect(admission).toMatchObject({ outcome: null,
+            quoted_amount: options.expectedQuote ?? '1.00',
+            quote_unit: 'CNY', method: 'erase_subtitle', script_id: 2708 })
+        })
         if (options.interrupted) throw new Error('Offline submission interrupted')
         data = { taskId: 429001 }
       } else if (call.method === 'GET' && call.path === '/model/charge/getSelectList?taskType=10') {
@@ -70,7 +73,7 @@ describe('caller-declared erasure reservations', () => {
 
   it.each([
     { model_id: MODELS[0], cataloguePrice: 0.505, unit: '元/分钟', expectedQuote: '0.51' },
-    { model_id: MODELS[1], cataloguePrice: 0, unit: '元/条', expectedQuote: '0.01' },
+    { model_id: MODELS[1], cataloguePrice: 0, unit: '元/条', expectedQuote: '0.00' },
   ])('uses the live catalogue for $model_id without a caller estimate', async ({ model_id,
     cataloguePrice, unit, expectedQuote }) => {
     const catalogue = [{ id: model_id === MODELS[0] ? 26 : 67,
@@ -81,7 +84,7 @@ describe('caller-declared erasure reservations', () => {
     const result = await storyboardMethod(client, ledger, args)
     expect(result).toMatchObject({ outcome: 'accepted', accepted_task_id: '429001',
       budget: { status: 'authorized' } })
-    expect(result.next).toContain('实际结算')
+    expect(result.next).toContain(model_id === MODELS[0] ? '实际结算以账单为准' : '最终结算以供应商账单为准')
     expect(paidCalls()).toHaveLength(1)
     expect(await ledger.find(ARGS.idempotency_key)).toMatchObject({ quoted_amount: expectedQuote,
       quote_unit: 'CNY', outcome: 'accepted' })

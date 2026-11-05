@@ -1,3 +1,4 @@
+import { executeTool } from '../../checks/tool-call.mjs'
 /** Artifact-plane harness: build workspace peers before running these Node tests. */
 import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -58,7 +59,7 @@ export async function taskHarness(t, options = {}) {
   const tasks = await makeTasks();
   const download = (args, { callId = 'task-call-' + ++callOrdinal, agent = owner.agent, signal = new AbortController().signal } = {}) => tasks.download(args, agent, { callId, signal });
   const control = (args, agent = owner.agent, signal = new AbortController().signal) => tasks.control(args, agent, signal);
-  const jobTool = (name, args, agent = owner.agent) => ctx.tools.execute({ name, arguments: args, callId: 'job-tool-' + ++callOrdinal, signal: new AbortController().signal, agent });
+  const jobTool = (name, args, agent = owner.agent) => executeTool(ctx, { name, arguments: args, callId: 'job-tool-' + ++callOrdinal, signal: new AbortController().signal, agent });
   const settle = async accepted => ctx.jobs.wait(accepted.downloadTask.jobId, 30000, owner.agent.id);
   const status = accepted => control({ action: 'status', taskId: accepted.downloadTask.id });
   return { directory, workspace, settingsHome, settings, ctx, controller, owner, calls, releases, tasks, makeTasks, makeAgent, download, control, jobTool, settle, status, close };

@@ -1,4 +1,7 @@
 /** Creation's actual Loader-owned policy, persona and isolated skill contribution. */
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import * as PtcToolExecutor from '@deepseek-ai/dsh-tool-executor-ptc'
 import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -15,6 +18,8 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import Llm, { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
+import LocalFs from '@deepseek-ai/dsh-fs-local'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import * as SkillFilesystem from '@deepseek-ai/dsh-skill-filesystem'
 import * as ToolSkill from '@deepseek-ai/dsh-tool-skill'
@@ -62,9 +67,12 @@ async function fixture() {
     await ctx.plugin(SessionProjections)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(Tools)
+    await ctx.plugin(NativeToolExecutor)
+    await ctx.plugin(LocalFs, { cwd: root })
+    await ctx.plugin(WorkingDirectory, { defaultDirectory: root }).await()
     await ctx.plugin(RuntimeProbe)
     await ctx.plugin(AgentRegistry)
-    await ctx.plugin(AgentLoop, { agents: [] })
+    await ctx.plugin(AgentLoop, { agents: [] }).await()
     await ctx.plugin(SkillRegistry)
     await mkdir(join(root, '.git'))
     for (const [directory, name] of [[join(root, 'user-skills'), 'user-creative'], [join(root, '.dsh/skills'), 'project-creative']] as const) {
@@ -79,7 +87,7 @@ async function fixture() {
     await ctx.plugin(AgentPresets, { default: 'creation' })
     const raw = await readFile(new URL('../presets/creation/agent.cordis.yml', import.meta.url), 'utf8')
     const rows = yaml.load(raw, { schema: entryListSchema }) as Array<{ id: string; name: string }>
-    const chosen = rows.filter(row => ['persona', 'creation-policy', 'tool-presentation', 'creation-skills'].includes(row.id))
+    const chosen = rows.filter(row => ['persona', 'creation-policy', 'tool-executor-ptc', 'tool-presentation', 'creation-skills'].includes(row.id))
     const directory = join(root, 'creation')
     await mkdir(directory)
     await writeFile(join(directory, 'agent.cordis.yml'), yaml.dump(chosen))
@@ -87,6 +95,7 @@ async function fixture() {
     const modules = new Map<string, unknown>([
       ['@deepseek-ai/dsh-desktop-host/creation-policy', CreationPolicy],
       ['@deepseek-ai/dsh-desktop-host/creation-skills', CreationSkills],
+      ['@deepseek-ai/dsh-tool-executor-ptc', PtcToolExecutor],
       ['@deepseek-ai/dsh-skill', SkillRegistry], ['@deepseek-ai/dsh-tool-skill', ToolSkill],
       ['@deepseek-ai/dsh-persona', Persona], ['@deepseek-ai/dsh-agent-tool-presentation', ToolPresentation],
     ])
@@ -99,7 +108,8 @@ async function fixture() {
         return modules.get(specifier)
       } }
     await ctx.plugin(NativePreset, { id: 'creation', directory })
-    const handle = await ctx.agents.create({ sessionId: SessionId('creation-fixture'), meta: { cwd: root, agentPreset: 'creation' },
+    const handle = await ctx.agents.create({ sessionId: SessionId('creation-fixture'), agentOptions: { provider: 'fixture', model: 'fixture' },
+      meta: { cwd: root, agentPreset: 'creation' },
       setup: async (agentCtx) => { await ctx.agentPresets.mount(agentCtx, 'creation') } })
     return { root, ctx, agent: handle.agent, raw, rows, runtime: ctx.ptcRuntime as RuntimeProbe }
   } catch (error) {
@@ -131,8 +141,10 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     f.agent.ctx.systemPrompt.section({ name: 'team:policy', order: 2, text: 'Hidden team policy' })
     const assembly = await f.ctx.systemPrompt.assemble({ agent: f.agent, scope: f.agent })
     expect(f.agent.session.deriveMessages()).toEqual([])
+    const modelSelection = f.agent.model.current()
+    if (modelSelection === undefined) throw new Error('Creation fixture did not configure its model selection')
     const initial = await agentEvents(f.ctx, f.agent).waterfall('agent/pre-step', {
-      messages: [], turn: 1, step: 1, signal: new AbortController().signal,
+      messages: [], turn: 1, step: 1, signal: new AbortController().signal, modelSelection,
     }, () => Promise.resolve({ kind: 'enter' as const, messages: [] }))
     expect(initial.kind).toBe('enter')
     if (initial.kind === 'reject') throw new Error('The initial creation model step was rejected')
@@ -227,9 +239,9 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(text).not.toContain('Hidden team policy')
     expect(text).not.toContain('spawn_teammate')
     expect(text).not.toContain('late-agent-alias')
-    expect(f.ctx.tools.schemas(f.agent).map(entry => entry.name).sort()).toEqual(['read', 'run_code', 'skill'])
+    expect(f.ctx.tools.schemas(f.agent).map(entry => entry.name).sort()).toEqual(['read', 'skill'])
     for (const name of ['spawn_teammate', 'late-agent-alias']) {
-      const result = await f.ctx.tools.execute({ agent: f.agent, name, arguments: {},
+      const result = await executeModelToolFixture(f.ctx, { agent: f.agent, name, arguments: {},
         callId: ToolCallId(name), signal: new AbortController().signal })
       expect(result.isError).toBe(true)
     }
@@ -299,7 +311,7 @@ it('serves approved resources and user skills from an isolated Host-forwarded re
       value = resultValue
       return { logs: [], value: resultValue }
     }
-    const result = await f.ctx.tools.execute({ agent: f.agent, name: 'run_code', arguments: {
+    const result = await executeModelToolFixture(f.ctx, { agent: f.agent, name: 'run_code', arguments: {
       description: 'Read the screenplay revision guide', code: 'return await tools.skill({name:"audio-transcribe"})',
     }, callId: ToolCallId('creation-skill'), signal: new AbortController().signal })
     expect(result.isError).toBe(false)
@@ -315,7 +327,7 @@ it('serves approved resources and user skills from an isolated Host-forwarded re
       value = resultValue
       return { logs: [], value: resultValue }
     }
-    const cgResult = await f.ctx.tools.execute({ agent: f.agent, name: 'run_code', arguments: {
+    const cgResult = await executeModelToolFixture(f.ctx, { agent: f.agent, name: 'run_code', arguments: {
       description: 'Read the bundled 3D asset guide', code: 'return await tools.skill({name:"anime-3d-assets"})',
     }, callId: ToolCallId('creation-cg-skill'), signal: new AbortController().signal })
     expect(cgResult.isError).toBe(false)
@@ -334,7 +346,7 @@ it('permits manuscript revision comparison through the real creation PTC policy'
       if (!binding) throw Error('Missing manuscript revision SDK binding')
       return { logs: [], value: await binding({ action: 'status' }) }
     }
-    const result = await f.ctx.tools.execute({ agent: f.agent, name: 'run_code', arguments: {
+    const result = await executeModelToolFixture(f.ctx, { agent: f.agent, name: 'run_code', arguments: {
       description: 'Read manuscript protection', code: 'return await tools.manuscript_revision({action:"status"})',
     }, callId: ToolCallId('creation-manuscript'), signal: new AbortController().signal })
     expect(result.isError).toBe(false)
@@ -359,7 +371,7 @@ it('permits the scoped IM file binding through the real creation PTC policy', as
       if (bindings?.dsh_im_return_file === undefined) throw new Error('Missing approved IM file SDK binding')
       return { logs: [], value: await bindings.dsh_im_return_file({}) }
     }
-    const result = await f.ctx.tools.execute({ agent: f.agent, name: 'run_code', arguments: {
+    const result = await executeModelToolFixture(f.ctx, { agent: f.agent, name: 'run_code', arguments: {
       description: 'Return an approved IM file', code: 'return await tools.dsh_im_return_file({})',
     }, callId: ToolCallId('creation-im-file'), signal: new AbortController().signal })
     expect(result.isError).toBe(false)

@@ -18,13 +18,15 @@ const [{ Service }, { PERSONA_SUFFIX_SECTION }, { default: NativePreset }, Chara
 ])
 
 export const name = 'snapshot-editing-preset'
-export const inject = ['agentPresets', 'tools', 'systemPrompt']
+export const inject = ['agentPresets', 'tools', 'systemPrompt', 'workingDirectory']
 
 /**
  * @param {import('@deepseek-ai/cordis').Context} ctx - Snapshot composition.
  * @param config - Product preset id, shell visibility, clock recording and optional historical source diagnostics.
  */
 export async function apply(ctx, config) {
+  const workingDirectory = ctx.get('workingDirectory')
+  if (workingDirectory === undefined) throw new Error('Product snapshot requires workingDirectory')
   const requestedPreset = config.presetId ?? 'editing'
   const presetId = requestedPreset === 'editing' ? 'short-drama' : requestedPreset
   let productBaseUrl
@@ -55,6 +57,8 @@ export async function apply(ctx, config) {
       await mkdir(productPresetDirectory)
       const sourceDirectory = new URL(`../../../apps/desktop-host/presets/${presetId}/`, import.meta.url)
       let source = (await readFile(new URL('agent.cordis.yml', sourceDirectory), 'utf8')).replaceAll('\r\n', '\n')
+      source = source.replace("'@deepseek-ai/dsh-desktop-host/delegation-policy'",
+        JSON.stringify(new URL('./delegation-policy.mjs', import.meta.url).href))
       if (presetId === 'short-drama') {
         source = source.replace("'@deepseek-ai/dsh-desktop-host/editing-policy'",
           JSON.stringify(new URL('./editing-policy.mjs', import.meta.url).href))
@@ -114,7 +118,8 @@ export async function apply(ctx, config) {
       agent.ctx.effect(() => agent.ctx.systemPrompt.section({
         name: PERSONA_SUFFIX_SECTION,
         order: agent.ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_SUFFIX'),
-        text: '当前工作目录是 {{cwd}} 。',
+        text: () => `当前工作目录是 ${workingDirectory.get(agent.session)} 。`,
+        interpolate: false,
       }))
     }
     if (config.hidePlatformShellTools === true) {

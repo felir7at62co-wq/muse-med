@@ -59,6 +59,7 @@ async function fixture(
   target: DesktopPackageTargetName,
   version = '1.2.3',
   environment: 'test' | 'production' = 'test',
+  channel: 'nightly' | 'latest' = version.includes('-') ? 'nightly' : 'latest',
 ): Promise<Fixture> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-desktop-upload-'))
   temporaryDirectories.push(root)
@@ -77,6 +78,7 @@ async function fixture(
     : 'https://download.deepseek.com'
   await writeFile(join(artifactsRoot, `${target}-release.json`), `${JSON.stringify({
     schemaVersion: 1,
+    channel,
     target,
     version,
     dshVersion: '0.1.7-rc.8',
@@ -89,7 +91,7 @@ async function fixture(
     await writeFile(join(artifactsRoot, `${base}.zip`), zip)
     await writeFile(join(artifactsRoot, `${base}.zip.blockmap`), 'blockmap')
     await writeFile(join(artifactsRoot, `${base}.dmg`), 'notarized DMG fixture')
-    await writeFile(join(artifactsRoot, desktopUpdateMetadataFilename(version, 'darwin')), `${JSON.stringify({
+    await writeFile(join(artifactsRoot, desktopUpdateMetadataFilename(version, 'darwin', channel)), `${JSON.stringify({
       version,
       path: `${base}.zip`,
       files: [{ url: `${base}.zip`, size: Buffer.byteLength(zip), sha512: digest(zip) }],
@@ -101,7 +103,7 @@ async function fixture(
     const info = await createBlockmap(join(artifactsRoot, `${base}.exe`), {},
       { info: { emitArtifactBuildCompleted: async () => {} } }, `${base}.exe`)
     expect(Object.hasOwn(info, 'blockMapSize')).toBe(false)
-    await writeFile(join(artifactsRoot, desktopUpdateMetadataFilename(version, 'win32')), `${JSON.stringify({
+    await writeFile(join(artifactsRoot, desktopUpdateMetadataFilename(version, 'win32', channel)), `${JSON.stringify({
       version,
       path: `${base}.exe`,
       files: [{
@@ -116,12 +118,14 @@ async function fixture(
     artifactsRoot,
     environment: environment === 'test'
       ? {
+        DSH_DESKTOP_UPDATE_CHANNEL: channel,
         DSH_DESKTOP_AUTO_UPDATE_ENV: 'test',
         DOWNLOAD_TEST_ORIGIN: TEST_ORIGIN,
         DOWNLOAD_TEST_RELEASE_ID: RELEASE_ID,
         DOWNLOAD_TEST_COS_BUCKET: TEST_BUCKET,
       }
       : {
+        DSH_DESKTOP_UPDATE_CHANNEL: channel,
         DSH_DESKTOP_AUTO_UPDATE_ENV: 'production',
         DOWNLOAD_PROD_COS_BUCKET: PRODUCTION_BUCKET,
       },
@@ -231,7 +235,7 @@ describe('desktop upload plan', () => {
     const plan = await createDesktopUploadPlan(target, paths)
     const suffix = target === 'win-x64' ? '' : '-mac'
     const metadata = plan.artifacts.filter(artifact => artifact.channelMetadata)
-    expect(metadata.map(artifact => artifact.filename)).toEqual([`beta${suffix}.yml`, `rc${suffix}.yml`, `latest${suffix}.yml`])
+    expect(metadata.map(artifact => artifact.filename)).toEqual([`nightly${suffix}.yml`, `beta${suffix}.yml`, `rc${suffix}.yml`, `latest${suffix}.yml`])
     expect(new Set(metadata.map(artifact => artifact.contents)).size).toBe(1)
     expect(load(metadata[0]!.contents!)).toMatchObject({ version: '1.0.0-beta.1' })
     expect(plan.githubReleases?.map(release => ({ tag: release.tag, version: release.version }))).toEqual([
@@ -299,18 +303,28 @@ describe('desktop upload plan', () => {
       .rejects.toThrow(failure === 'checksum' ? /SHA-512/u : /completion record/u)
   })
 
-  it('publishes the version-derived channel feed referencing versioned binaries without overriding CDN cache policy', async () => {
+  it.each(['test', 'production'] as const)('isolates stable latest packages from nightly in %s', async (environment) => {
+    const nightly = await createDesktopUploadPlan('win-x64', await fixture('win-x64', '1.2.3', environment, 'nightly'))
+    const latest = await createDesktopUploadPlan('win-x64', await fixture('win-x64', '1.2.3', environment, 'latest'))
+    expect(latest.artifacts.filter(file => file.channelMetadata).map(file => file.filename)).toEqual(['latest.yml'])
+    expect(nightly.artifacts.filter(file => file.channelMetadata).map(file => file.filename)).toEqual(['nightly.yml'])
+    expect(latest.artifacts.every(file => !nightly.artifacts.some(other => other.key === file.key))).toBe(true)
+    const prerelease = await fixture('win-x64', '1.2.3-alpha.1', environment, 'latest')
+    await expect(createDesktopUploadPlan('win-x64', prerelease)).rejects.toThrow(/latest requires a stable version/u)
+  })
+
+  it('publishes fixed feeds referencing versioned binaries without overriding CDN cache policy', async () => {
     const paths = await fixture('win-x64', '1.2.3', 'production')
     const plan = await createDesktopUploadPlan('win-x64', paths)
     expect(plan.artifacts.map(artifact => artifact.key)).toEqual([
-      'dsh-desk/bin/win-x64/muse-med-1.2.3-win-x64.exe',
-      'dsh-desk/bin/win-x64/muse-med-1.2.3-win-x64.exe.blockmap',
+      'dsh-desk/bin/win-x64/latest/muse-med-1.2.3-win-x64.exe',
+      'dsh-desk/bin/win-x64/latest/muse-med-1.2.3-win-x64.exe.blockmap',
       'dsh-desk/feeds/win-x64/latest.yml',
     ])
     expect(load(plan.artifacts[2]!.contents!)).toMatchObject({
       version: '1.2.3',
       files: [{
-        url: 'https://download.deepseek.com/dsh-desk/bin/win-x64/muse-med-1.2.3-win-x64.exe',
+        url: 'https://download.deepseek.com/dsh-desk/bin/win-x64/latest/muse-med-1.2.3-win-x64.exe',
         sha512: digest('signed NSIS executable fixture'),
       }],
     })
@@ -343,7 +357,7 @@ describe('desktop upload plan', () => {
     const prefix = `dsh-desk/${RELEASE_ID}`
     const payload = plan.artifacts.find(artifact => artifact.filename.endsWith(target === 'win-x64' ? '.exe' : '.zip'))!
     for (const artifact of plan.artifacts) {
-      expect(artifact.key).toBe(`${prefix}/${artifact.channelMetadata ? 'feeds' : 'bin'}/${target}/${artifact.filename}`)
+      expect(artifact.key).toBe(`${prefix}/${artifact.channelMetadata ? `feeds/${target}` : `bin/${target}/latest`}/${artifact.filename}`)
       if (artifact.channelMetadata) {
         expect(load(artifact.contents!)).toMatchObject({
           path: `${TEST_ORIGIN}/${payload.key}`,
@@ -372,7 +386,7 @@ describe('desktop upload plan', () => {
       'muse-med-1.2.3-alpha.4-mac-arm64.dmg',
       'muse-med-1.2.3-alpha.4-mac-arm64.zip',
       'muse-med-1.2.3-alpha.4-mac-arm64.zip.blockmap',
-      'alpha-mac.yml',
+      'nightly-mac.yml',
     ])
   })
 
@@ -420,6 +434,20 @@ describe('desktop upload plan', () => {
     const paths = await fixture('mac-arm64', '1.0.0-beta.1')
     await writeFile(join(paths.appRoot, 'muse-product.json'), '{"version":"1.0.0-beta.2"}\n')
     await expect(createDesktopUploadPlan('mac-arm64', paths)).rejects.toThrow(/not a build of Muse 1\.0\.0-beta\.2/u)
+  })
+
+  it('validates retained builds against their original product version after the checkout advances', async () => {
+    const paths = await fixture('mac-arm64', '1.2.3')
+    await writeFile(join(paths.repositoryRoot, 'package.json'), '{"version":"2.0.0"}\n')
+    await writeFile(join(paths.appRoot, 'package.json'), '{"version":"2.0.0"}\n')
+    await expect(createDesktopUploadPlan('mac-arm64', paths)).rejects.toThrow(/completion record/u)
+    const plan = await createDesktopUploadPlan('mac-arm64', { ...paths, packagedProductVersion: '1.2.3', packagedDshVersion: '0.1.7-rc.8' })
+    expect(plan.version).toBe('1.2.3')
+    await expect(createDesktopUploadPlan('mac-arm64', { ...paths, packagedProductVersion: '1.2.4', packagedDshVersion: '0.1.7-rc.8' }))
+      .rejects.toThrow(/completion record/u)
+    await writeFile(join(paths.artifactsRoot, 'muse-med-1.2.3-mac-arm64.zip'), 'tampered')
+    await expect(createDesktopUploadPlan('mac-arm64', { ...paths, packagedProductVersion: '1.2.3', packagedDshVersion: '0.1.7-rc.8' }))
+      .rejects.toThrow(/size.*metadata/u)
   })
 
   it('rejects stale architecture metadata and modified updater bytes', async () => {

@@ -4,15 +4,18 @@ import Skills from '@deepseek-ai/dsh-skill'
 import * as Files from '@deepseek-ai/dsh-skill-filesystem'
 import { expect, it } from 'vitest'
 
-it('keeps technical media skills discoverable after retiring manuscript guidance', async () => {
+it('keeps supported creative and media skills discoverable without retired workflow skills', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(Skills)
     await ctx.plugin(Files, { includeDefaultRoots: false, bundledSkillDir: fileURLToPath(new URL('../skills/', import.meta.url)), watch: false })
     const names = (await ctx.skills.list()).map(skill => skill.name)
-    expect(names).toContain('audio-transcribe')
-    for (const name of ['screenplay-format', 'muse-script-editing', 'muse-creation', 'novel-to-script',
-      'transcript-to-script', 'trope-adaptation', 'muse-dialogue-polish', 'muse-script-doctor', 'muse-episode-design', 'reviewing-micro-drama-scripts']) {
+    for (const name of ['audio-transcribe', 'screenplay-format', 'novel-to-script', 'muse-dialogue-polish',
+      'muse-script-doctor', 'muse-episode-design', 'video-review']) {
+      expect(names).toContain(name)
+      expect(await ctx.skills.get(name)).toBeDefined()
+    }
+    for (const name of ['muse-script-editing', 'muse-creation', 'transcript-to-script', 'trope-adaptation', 'reviewing-micro-drama-scripts']) {
       expect(names).not.toContain(name)
       expect(await ctx.skills.get(name)).toBeUndefined()
     }

@@ -50,6 +50,6 @@ Status: implemented
 
 ## 测试
 
-`packages/workflow/workflow-ptc/tests/integration.spec.ts` 驱动真实进程内栈：一个用散文作答的 schema 子 agent 让脚本的 `agent()` 解析为 `null`，并恰好发出一个 `workflow/agent-end`，其 `childId` 等于 `workflow/agent-start` 记录的那个，其 `label` 非空，其原因为 `missing-structured-output`。`packages/workflow/workflow-ptc/tests/guest.spec.ts` 固定了失败子 agent、结构化值缺失、以及被产物检查拒绝并带详情文本的捕获值这三种原因。`packages/workflow/tool-workflow/tests/tool-workflow.spec.ts` 固定已完成后成员的记录载荷。`packages/subagent/subagent-in-process-driver/tests/structured.spec.ts` 固定新的结束原因及其诊断。这些测试与 `packages/session/session-format-v0-to-v1/tests/` 一起通过了九个文件中的 217 项测试。
+`packages/workflow/workflow-ptc/tests/integration.spec.ts` 驱动真实进程内栈：一个用散文作答的 schema 子 agent 让脚本的 `agent()` 解析为 `null`，并恰好发出一个 `workflow/agent-end`，其 `childId` 等于 `workflow/agent-start` 记录的那个，其 `label` 非空，其原因为 `missing-structured-output`。`packages/workflow/workflow-ptc/tests/guest.spec.ts` 固定了失败子 agent、结构化值缺失、以及被产物检查拒绝并带详情文本的捕获值这三种原因。`packages/workflow/tool-workflow/tests/tool-workflow.spec.ts` 固定已完成后成员的记录载荷。`packages/subagent/subagent/tests/structured.spec.ts` 固定新的结束原因及其诊断。这些测试与 `packages/session/session-format-v0-to-v1/tests/` 一起通过了九个文件中的 217 项测试。
 
 [会话日志版本机制决定](../architecture/2026-08-10-session-log-version-mechanism.zh.md) 说明了为什么三个可选载荷成员不需要版本提升；[其持久化记录](../../../../docs/persistence-changes/2026-09-27-workflow-agent-settlement-identity.zh.md) 是这次确认。两者均未被取代。

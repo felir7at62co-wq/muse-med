@@ -1,3 +1,4 @@
+import { executeTool } from '../../checks/tool-call.mjs'
 /** Source-plane fixture: real Agents, Jobs and local native-file copies; no WeChat or network. */
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
@@ -174,7 +175,7 @@ export async function taskFixture(t, options = {}) {
   const resume = (accepted, agent = owner.agent, signal = new AbortController().signal) => tasks.resume(typeof accepted === 'string' ? accepted : accepted.data.seriesTask.id, agent, signal)
   const cancel = (accepted, agent = owner.agent) => tasks.cancel(typeof accepted === 'string' ? accepted : accepted.data.seriesTask.id, agent, new AbortController().signal)
   const settle = accepted => ctx.jobs.wait(accepted.data.seriesTask.jobId, 30000, owner.agent.id)
-  const jobTool = (name, args, agent = owner.agent) => ctx.tools.execute({ name, arguments: args, callId: 'series-job-tool-' + ++sequence, signal: new AbortController().signal, agent })
+  const jobTool = (name, args, agent = owner.agent) => executeTool(ctx, { name, arguments: args, callId: 'series-job-tool-' + ++sequence, signal: new AbortController().signal, agent })
   let mounted
   const mountTool = async () => {
     const previousHome = process.env.MUSE_HOME
@@ -194,7 +195,7 @@ export async function taskFixture(t, options = {}) {
     return mounted
   }
   const invoke = (args, { agent = owner.agent, signal = new AbortController().signal } = {}) => ctx.agents.withInitiator(agent, async () => {
-    const result = await ctx.tools.execute({ name: 'lvpaopao', arguments: args, callId: 'series-tool-' + ++sequence, agent, signal })
+    const result = await executeTool(ctx, { name: 'lvpaopao', arguments: args, callId: 'series-tool-' + ++sequence, agent, signal })
     if (result.isError) return { toolError: result }
     return JSON.parse(result.content[0].text)
   })

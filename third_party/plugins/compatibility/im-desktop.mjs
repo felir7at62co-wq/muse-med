@@ -153,7 +153,7 @@ export function applyImDesktopCompatibility(directory) {
   delete manifest.bin
   delete manifest.optionalDependencies
   manifest.dependencies['@deepseek-ai/schemastery'] = '3.18.5-alpha.1'
-  manifest.dependencies['@deepseek-ai/dsh-home-paths'] = '0.2.1-alpha.1'
+  manifest.dependencies['@deepseek-ai/dsh-home-paths'] = '0.2.2-rc.1'
   manifest.dependencies['@larksuiteoapi/node-sdk'] = '1.73.0'
   manifest.dependencies.semver = '7.8.5'
   // These dynamic imports remain external in the retained Host builder.

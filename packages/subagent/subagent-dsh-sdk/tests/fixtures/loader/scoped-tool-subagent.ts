@@ -13,24 +13,19 @@ export const inject = ['agents', 'subagentModelSelection']
  * @param ctx - fixture Host context carrying Agent lifecycle events.
  * @param config - delegation-tool configuration forwarded into each Agent scope.
  */
-export function apply(ctx: Context, config: Config): void {
-  const install = (agent: Agent): ReturnType<Context['inject']> => {
-    return agent.ctx.inject(ToolSubagent.inject, (runtimeCtx) => {
-      ToolSubagent.apply(runtimeCtx, {
+export async function apply(ctx: Context, config: Config): Promise<void> {
+  const install = async (agent: Agent): Promise<void> => {
+    await agent.ctx.inject(ToolSubagent.inject, (runtimeCtx) => {
+      return ToolSubagent.apply(runtimeCtx, {
         provider: config.provider,
-        modelSelectionSettings: true,
+        modelSelection: true,
+        modelDiscovery: true,
         ...(config.toolName === undefined ? {} : { toolName: config.toolName }),
-        ...(config.enableRunInBackground === undefined
-          ? {}
-          : { enableRunInBackground: config.enableRunInBackground }),
-        ...(config.backgroundMode === undefined ? {} : { backgroundMode: config.backgroundMode }),
         ...(config.agentOptions === undefined ? {} : { agentOptions: config.agentOptions }),
-        ...(config.persona === undefined ? {} : { persona: config.persona }),
-        ...(config.toolFilter === undefined ? {} : { toolFilter: config.toolFilter }),
         ...(config.maxDepth === undefined ? {} : { maxDepth: config.maxDepth }),
-      }, agent.session)
+      })
     })
   }
   ctx.on('agent/created', async ({ agent }) => { await install(agent) })
-  for (const agent of ctx.agents.list()) install(agent)
+  for (const agent of ctx.agents.list()) await install(agent)
 }

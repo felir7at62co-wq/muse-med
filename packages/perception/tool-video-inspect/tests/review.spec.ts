@@ -3,6 +3,7 @@ import { mkdtemp, realpath, rm, writeFile, appendFile, copyFile, mkdir, readdir,
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
@@ -11,6 +12,7 @@ import LocalSandbox from '@deepseek-ai/dsh-sandbox-local'
 import { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import { LlmAdapter, ToolCallId, createAssistantMessage, createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as Video from '../src/index.ts'
@@ -53,7 +55,8 @@ async function fixture(options: { ptc?: boolean; offload?: boolean; cutSeconds?:
   const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-complete-video-'))), ctx = new Context()
   fixtures.push({ ctx, root })
   await mountAgentLoopTestDependencies(ctx, { tools: { mode: options.ptc ? 'ptc' : 'native' } })
-  await ctx.plugin(LocalFileSystem, { cwd: root }); await ctx.plugin(LocalSubprocessRuntime)
+  await ctx.plugin(LocalFileSystem, { cwd: root })
+  await ctx.plugin(WorkingDirectory); await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
   ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'danger-full-access', workspaceRoot: root }) } as never)
   if (options.ptc) { await ctx.plugin(LocalSandbox); await ctx.plugin(NodeRuntime).await() }
@@ -76,18 +79,19 @@ async function fixture(options: { ptc?: boolean; offload?: boolean; cutSeconds?:
   const handle = await ctx.agents.create({ sessionId: SessionId(`episode-${fixtures.length}`),
     agentOptions: { provider: 'synthetic', model: 'vision' }, meta: { cwd: root } })
   const agent = handle.agent
+  const readReviews = await installReviewState(ctx)
   const call = (method: string, extra = {}) => ({ name: 'video_inspect', args: { file_path: input, method, episode: '第80集', ...extra } })
   const run = async (...plans: Plan[]) => {
     adapter.plans = plans
     agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Observe this complete original episode.' }] }))
     await agent.whenIdle()
   }
-  const review = () => reviewsOf(ctx, agent.session)[input]!
+  const review = () => reviewsOf(readReviews, agent.session)[input]!
   const record = () => call('observe', { observations: review().frames.filter(frame => frame.image !== undefined && frame.observation === undefined)
     .map(frame => ({ frame_id: frame.id, visible: `画面为完整的${frame.time < cutSeconds ? '红色' : '蓝色'}背景，没有可见人物和道具。`,
       change: '根据实际合成画面对照颜色变化。', uncertainty: '' })) })
   const results = () => agent.session.snapshotEvents().flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-  return { ctx, root, config, manuscript, handle, input, plugin, agent, adapter, run, call, review, record, results }
+  return { ctx, readReviews, root, config, manuscript, handle, input, plugin, agent, adapter, run, call, review, record, results }
 }
 
 function reportPath(h: Awaited<ReturnType<typeof fixture>>): string {
@@ -101,12 +105,13 @@ it('rejects unknown review identities and observed frames whose original cache r
   await h.run(h.call('scan'), h.record, undefined)
   const options = { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1 }
   await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, VideoReviewId('missing'), options,
-    new AbortController().signal)).rejects.toThrow('VIDEO_TIMELINE_REVIEW')
+    new AbortController().signal, h.readReviews)).rejects.toThrow('VIDEO_TIMELINE_REVIEW')
   const review = h.review(), frame = review.frames.find(value => value.observation !== undefined)!
   const { image: _image, ...withoutCache } = frame
-  saveReview(h.ctx, h.agent.session, { ...review, frames: review.frames.map(value => value.id === frame.id ? withoutCache : value) })
+  saveReview(h.readReviews, h.agent.session, { ...review,
+    frames: review.frames.map(value => value.id === frame.id ? withoutCache : value) })
   await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, review.id, { ...options, frameIds: [frame.id] },
-    new AbortController().signal)).rejects.toThrow('VIDEO_REVISIT_IMAGE_MISSING')
+    new AbortController().signal, h.readReviews)).rejects.toThrow('VIDEO_REVISIT_IMAGE_MISSING')
 })
 
 it.each([Error('ASR stat unavailable'), 'ASR stat unavailable'])(
@@ -122,7 +127,8 @@ it.each([Error('ASR stat unavailable'), 'ASR stat unavailable'])(
       return image
     })
     const result = await Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id,
-      { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id] }, new AbortController().signal)
+      { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id] },
+      new AbortController().signal, h.readReviews)
     expect(result.timeline.speech).toBeUndefined()
     expect(result.timeline.speech_unavailable?.reason).toBe('ASR stat unavailable')
     expect(result.content.filter(block => block.type === 'image')).toHaveLength(1)
@@ -137,13 +143,13 @@ it.each(['video', 'observations'] as const)('refuses source material replaced du
   vi.spyOn(h.ctx.attachments, 'readImage').mockImplementation(async (...args) => {
     const image = await readImage(...args)
     if (change === 'video') await appendFile(h.input, 'changed source')
-    else saveReview(h.ctx, h.agent.session, { ...h.review(), frames: h.review().frames.map(value => value.id === frame.id
+    else saveReview(h.readReviews, h.agent.session, { ...h.review(), frames: h.review().frames.map(value => value.id === frame.id
       ? { ...value, observation: { visible: '这是更新后的画面观察记录。', change: '记录已经更新。', uncertainty: '' } } : value) })
     return image
   })
   await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id,
     { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id] },
-    new AbortController().signal)).rejects.toThrow('VIDEO_REVIEW_SOURCE_CHANGED')
+    new AbortController().signal, h.readReviews)).rejects.toThrow('VIDEO_REVIEW_SOURCE_CHANGED')
 })
 
 it('reports a non-Error cache failure without extracting replacement frames', async () => {
@@ -154,7 +160,7 @@ it('reports a non-Error cache failure without extracting replacement frames', as
   vi.spyOn(h.ctx.attachments, 'readImage').mockRejectedValueOnce('cache unavailable')
   await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id,
     { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id] },
-    new AbortController().signal)).rejects.toThrow('cache unavailable')
+    new AbortController().signal, h.readReviews)).rejects.toThrow('cache unavailable')
   expect(spawn).not.toHaveBeenCalled()
 })
 
@@ -174,7 +180,7 @@ it('rejects a directory as explicit ASR and retains an implicit ASR provider fai
 it('returns the default whole-video timeline without requiring a transcript or explicit range', async () => {
   const h = await fixture()
   await h.run(h.call('scan'), h.record, undefined)
-  expect(Video.videoReviewSummaries(h.ctx, h.agent.session)[0]).not.toHaveProperty('transcript_reference')
+  expect(Video.videoReviewSummaries(h.readReviews, h.agent.session)[0]).not.toHaveProperty('transcript_reference')
   await h.run(h.call('timeline'), undefined)
   const block = h.results().at(-1)?.content.find(value => value.type === 'text')
   if (block?.type !== 'text') throw Error('Missing source timeline')
@@ -202,7 +208,8 @@ it.each(['reference', 'bytes'])('reports missing revisit cache without rescannin
   const review = h.review(), frame = review.frames.find(value => value.observation !== undefined)!
   if (kind === 'reference') {
     const { image: _image, ...withoutCache } = frame
-    saveReview(h.ctx, h.agent.session, { ...review, frames: review.frames.map(value => value.id === frame.id ? withoutCache : value) })
+    saveReview(h.readReviews, h.agent.session, { ...review,
+      frames: review.frames.map(value => value.id === frame.id ? withoutCache : value) })
   } else vi.spyOn(h.ctx.attachments, 'readImage').mockRejectedValueOnce('cache missing')
   const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
   await h.run(h.call('revisit', { frame_ids: [frame.id] }), undefined)
@@ -295,8 +302,8 @@ it.each([12, 125])('delivers unrelated parent-Session files without reading or c
       id: `F${String(index + 1).padStart(5, '0')}`, time: index, reasons: ['continuity'], exposed: index < recorded,
       ...index < recorded ? { observation: { visible: '旧项目保存的具体画面观察。', change: '沿用旧项目观察记录。', uncertainty: '' } } : {},
     })) }
-  saveReview(h.ctx, h.agent.session, review)
-  const before = JSON.stringify(reviewsOf(h.ctx, h.agent.session)), stat = h.ctx.fs.stat.bind(h.ctx.fs)
+  saveReview(h.readReviews, h.agent.session, review)
+  const before = JSON.stringify(reviewsOf(h.readReviews, h.agent.session)), stat = h.ctx.fs.stat.bind(h.ctx.fs)
   const reads: string[] = []
   vi.spyOn(h.ctx.fs, 'stat').mockImplementation(async (...args) => {
     reads.push(args[0].displayPath)
@@ -309,20 +316,27 @@ it.each([12, 125])('delivers unrelated parent-Session files without reading or c
   expect(h.results().slice(-2).map(result => result.isError)).toEqual([false, false])
   expect(h.agent.session.id).toBe(session)
   expect(reads).not.toContain(path)
-  expect(JSON.stringify(reviewsOf(h.ctx, h.agent.session))).toBe(before)
-  expect(pendingReview(reviewsOf(h.ctx, h.agent.session)[path]!)).toBe(125 - recorded)
+  expect(JSON.stringify(reviewsOf(h.readReviews, h.agent.session))).toBe(before)
+  expect(pendingReview(reviewsOf(h.readReviews, h.agent.session)[path]!)).toBe(125 - recorded)
 })
 
 it('closes and reports a legacy review by ID without reading source, transcript or cached images', async () => {
   const h = await fixture()
   await h.run(h.call('scan'), h.record, undefined)
-  saveReview(h.ctx, h.agent.session, { ...h.review(), transcript_reference: {
+  saveReview(h.readReviews, h.agent.session, { ...h.review(), transcript_reference: {
     path: join(h.root, 'removed-asr.json'), version: 'saved-version', sha256: 'saved-sha',
   } })
   const before = h.review(), initialEvents = h.agent.session.snapshotEvents().filter(event => event.type === 'video/review').length
   expect(before.follow_up).toBeUndefined()
-  const resolve = vi.spyOn(h.ctx.fs, 'resolve').mockRejectedValue(Error('No file resolution allowed'))
-  const stat = vi.spyOn(h.ctx.fs, 'stat').mockRejectedValue(Error('No source stat allowed'))
+  const resolvePath = h.ctx.fs.resolve.bind(h.ctx.fs), statPath = h.ctx.fs.stat.bind(h.ctx.fs)
+  const resolve = vi.spyOn(h.ctx.fs, 'resolve').mockImplementation(async (...args) => {
+    if (args[0] !== h.root) throw Error('No source resolution allowed')
+    return resolvePath(...args)
+  })
+  const stat = vi.spyOn(h.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    if (args[0].displayPath !== h.root) throw Error('No source stat allowed')
+    return statPath(...args)
+  })
   const readBytes = vi.spyOn(h.ctx.fs, 'readBytes').mockRejectedValue(Error('No ASR read allowed'))
   const images = vi.spyOn(h.ctx.attachments, 'readImage').mockRejectedValue(Error('No cached image read allowed'))
   const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
@@ -337,8 +351,8 @@ it('closes and reports a legacy review by ID without reading source, transcript 
   expect(h.results().slice(-3).every(result => result.content.every(block => block.type === 'text'))).toBe(true)
   expect(h.review()).toEqual({ ...before, follow_up: { status: 'closed', reason: '当前用途已完成，保留画面缺口。' } })
   expect(h.agent.session.snapshotEvents().filter(event => event.type === 'video/review')).toHaveLength(initialEvents + 1)
-  expect(resolve).not.toHaveBeenCalled()
-  expect(stat).not.toHaveBeenCalled()
+  expect(resolve.mock.calls.every(([path]) => path === h.root)).toBe(true)
+  expect(stat.mock.calls.every(([target]) => target.displayPath === h.root)).toBe(true)
   expect(readBytes).not.toHaveBeenCalled()
   expect(images).not.toHaveBeenCalled()
   expect(spawn).not.toHaveBeenCalled()
@@ -356,7 +370,7 @@ it('closes a removed source by its normalized saved path without changing eviden
   await h.run({ name: 'video_inspect', args: { method: 'close', file_path: 'unused/../episode-80.mp4' } }, undefined)
   expect(h.results().at(-1)?.isError).toBe(false)
   expect(h.review()).toEqual({ ...before, follow_up: { status: 'closed' } })
-  expect(stat).not.toHaveBeenCalled()
+  expect(stat.mock.calls.every(([target]) => target.displayPath === h.root)).toBe(true)
 })
 
 it('reopens only the saved source revision and keeps repeated lifecycle operations idempotent', async () => {
@@ -394,7 +408,7 @@ it('does not guess another review when selectors are missing, unknown, ambiguous
   await h.run(...calls.map(args => ({ name: 'video_inspect', args })), undefined)
   expect(h.results().slice(-3).map(result => result.isError)).toEqual([true, true, true])
   expect(h.review()).toBe(before)
-  saveReview(h.ctx, h.agent.session, { ...before, path: join(h.root, 'duplicate.mp4') })
+  saveReview(h.readReviews, h.agent.session, { ...before, path: join(h.root, 'duplicate.mp4') })
   await h.run({ name: 'video_inspect', args: { method: 'close', review_id: before.id } }, undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_ID')
   expect(h.review()).toBe(before)
@@ -411,7 +425,7 @@ it('keeps a closed review closed during explicit observation, image admission an
   expect(h.review().frames.filter(frame => frame.observation !== undefined)).toHaveLength(4)
   expect(h.review().follow_up).toEqual(note)
   const { follow_up: _followUp, ...legacy } = h.review()
-  saveReview(h.ctx, h.agent.session, { ...legacy, scanned_until: legacy.scanned_until + 1 })
+  saveReview(h.readReviews, h.agent.session, { ...legacy, scanned_until: legacy.scanned_until + 1 })
   expect(h.review().follow_up).toEqual(note)
   const output = z.object({}).loose().parse(JSON.parse(h.results().at(-1)!.content.filter(block => block.type === 'text')[0]!.text))
   expect(output).toMatchObject({ follow_up: { status: 'closed' }, next: 'closed' })
@@ -423,7 +437,7 @@ it('retains an explicit close committed while the image request is finishing', a
   const before = h.review(), stream = h.adapter.stream.bind(h.adapter)
   vi.spyOn(h.adapter, 'stream').mockImplementation(async function* (options) {
     for await (const chunk of stream(options)) {
-      if (chunk.type === 'finish') saveReview(h.ctx, h.agent.session,
+      if (chunk.type === 'finish') saveReview(h.readReviews, h.agent.session,
         { ...h.review(), follow_up: { status: 'closed', reason: '当前用途已完成。' } })
       yield chunk
     }
@@ -522,12 +536,13 @@ it('returns source time windows and cached original image blocks without extract
   } })
   const before = JSON.stringify(h.review()), options = { windowSeconds: 1, maxTranscriptBytes: 4096,
     maxBytes: 100_000, maxFrames: 2 }
-  const summary = Video.videoReviewSummaries(h.ctx, h.agent.session)[0]!
+  const summary = Video.videoReviewSummaries(h.readReviews, h.agent.session)[0]!
   expect(summary).toMatchObject({ path: h.input, transcript_reference: { path: transcript } })
   const frame = h.review().frames.find(value => value.observation !== undefined)!
   const extraction = vi.spyOn(h.ctx.subprocess, 'spawn')
   const result = await Video.readVideoSourceTimeline(h.ctx, h.agent.session, summary.review_id,
-    { ...options, frameIds: [frame.id] }, new AbortController().signal)
+    { ...options, frameIds: [frame.id] },
+    new AbortController().signal, h.readReviews)
   expect(result.timeline.speech?.segments[0]?.text).toBe('先别走。')
   expect(result.timeline.windows).toHaveLength(3)
   expect(result.content.filter(block => block.type === 'image')).toHaveLength(1)
@@ -574,7 +589,7 @@ it('keeps source timeline failures advisory and refuses stale sources, missing c
   const id = h.review().id, frame = h.review().frames.find(value => value.observation !== undefined)!
   const options = { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1 }
   const read = (extra = {}) => Video.readVideoSourceTimeline(h.ctx, h.agent.session, id,
-    { ...options, ...extra }, new AbortController().signal)
+    { ...options, ...extra }, new AbortController().signal, h.readReviews)
   await expect(read({ frameIds: [frame.id], startSeconds: 2, endSeconds: 3 })).rejects.toThrow('VIDEO_TIMELINE_FRAME')
   await expect(read({ frameIds: [frame.id, frame.id] })).rejects.toThrow('VIDEO_TIMELINE_IMAGES')
   await expect(read({ maxBytes: 1 })).rejects.toThrow('VIDEO_TIMELINE_SIZE')
@@ -600,7 +615,7 @@ it('returns same-directory successful-read ASR candidates and cached images when
     { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id],
       transcriptCandidates: { taskStartSeq: SessionSeq(0), reads: [{ path: transcript,
         readCallId: ToolCallId('successful-read'), readResultSeq: SessionSeq(1) },
-      { path: join(h.root, 'missing.json'), readCallId: ToolCallId('missing-read'), readResultSeq: SessionSeq(2) }] } }, new AbortController().signal)
+      { path: join(h.root, 'missing.json'), readCallId: ToolCallId('missing-read'), readResultSeq: SessionSeq(2) }] } }, new AbortController().signal, h.readReviews)
   expect(result.timeline.transcript_resolution).toMatchObject({ kind: 'successful_read_candidate', same_source_verified: false,
     reference: { path: transcript }, read_receipts: [{ readCallId: 'successful-read' }] })
   expect(result.timeline.speech?.segments[0]?.text).toBe('先放下茶杯。')
@@ -624,7 +639,7 @@ it.each(['explicit', 'candidate'])('drops %s ASR that changes while cached frame
     { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id],
       transcriptCandidates: { taskStartSeq: SessionSeq(0), reads: [{ path: transcript,
         readCallId: ToolCallId('successful-read'), readResultSeq: SessionSeq(1) },
-      { path: join(h.root, 'missing.json'), readCallId: ToolCallId('missing-read'), readResultSeq: SessionSeq(2) }] } }, new AbortController().signal)
+      { path: join(h.root, 'missing.json'), readCallId: ToolCallId('missing-read'), readResultSeq: SessionSeq(2) }] } }, new AbortController().signal, h.readReviews)
   expect(result.timeline.speech).toBeUndefined()
   expect(result.timeline.speech_unavailable?.reason).toContain('VIDEO_TRANSCRIPT_CHANGED')
   expect(result.timeline.transcript_resolution?.kind).toBe(association === 'explicit' ? 'explicit_reference' : 'unavailable')
@@ -637,20 +652,20 @@ it.each(['explicit', 'candidate'])('drops %s ASR that changes while cached frame
 it('rejects an unknown or cancelled source timeline and an uncached selected frame', async () => {
   const h = await fixture()
   await h.run(h.call('scan'), h.record, undefined)
-  expect(Video.videoReviewSummaries(h.ctx, h.agent.session)[0]).not.toHaveProperty('transcript_reference')
+  expect(Video.videoReviewSummaries(h.readReviews, h.agent.session)[0]).not.toHaveProperty('transcript_reference')
   const frame = h.review().frames.find(value => value.observation !== undefined)!
   const options = { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id] }
   const signal = new AbortController().signal
-  await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, VideoReviewId('missing'), options, signal))
+  await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, VideoReviewId('missing'), options, signal, h.readReviews))
     .rejects.toThrow('VIDEO_TIMELINE_REVIEW')
   const cancelled = new AbortController()
   cancelled.abort()
-  await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id, options, cancelled.signal))
+  await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id, options, cancelled.signal, h.readReviews))
     .rejects.toMatchObject({ name: 'AbortError' })
   const review = h.review(), { image: _image, ...uncached } = frame
   h.agent.session.append('video/review', { kind: 'update', path: h.input, id: review.id, frames: [uncached],
     frame_count: review.frames.length, scanned_until: review.scanned_until, scan_complete: review.scan_complete })
-  await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id, options, signal))
+  await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id, options, signal, h.readReviews))
     .rejects.toThrow('VIDEO_REVISIT_IMAGE_MISSING')
 }, 30_000)
 
@@ -661,7 +676,7 @@ it('reports non-Error cache and transcript freshness failures without substituti
   const frame = h.review().frames.find(value => value.observation !== undefined)!
   const options = { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id] }
   const read = () => Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id, options,
-    new AbortController().signal)
+    new AbortController().signal, h.readReviews)
   const originalImage = h.ctx.attachments.readImage.bind(h.ctx.attachments)
   const cacheSpy = vi.spyOn(h.ctx.attachments, 'readImage').mockRejectedValueOnce('cache offline')
   await expect(read()).rejects.toThrow('cache offline')
@@ -704,7 +719,7 @@ it('retains unavailable candidate diagnostics when a valid ASR changes during im
       transcriptCandidates: { taskStartSeq: SessionSeq(0), reads: [
         { path: transcript, readCallId: ToolCallId('valid-read'), readResultSeq: SessionSeq(1) },
         { path: join(h.root, 'invalid-asr.json'), readCallId: ToolCallId('invalid-read'), readResultSeq: SessionSeq(2) },
-      ] } }, new AbortController().signal)
+      ] } }, new AbortController().signal, h.readReviews)
   expect(result.timeline.speech).toBeUndefined()
   expect(result.timeline.transcript_resolution?.kind).toBe('unavailable')
   expect(result.timeline.transcript_resolution?.diagnostics).toMatchObject([
@@ -724,7 +739,7 @@ it('keeps completed ASR reports distinct and reports a stale saved digest or non
   await h.run(h.call('status', { transcript_path: h.root }), undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_TRANSCRIPT_SIZE')
   const reference = h.review().transcript_reference!
-  saveReview(h.ctx, h.agent.session, { ...h.review(), transcript_reference: { ...reference, sha256: 'wrong-digest' } })
+  saveReview(h.readReviews, h.agent.session, { ...h.review(), transcript_reference: { ...reference, sha256: 'wrong-digest' } })
   await h.run(h.call('status'), undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_TRANSCRIPT_CHANGED')
   const originalResolve = h.ctx.fs.resolve.bind(h.ctx.fs)
@@ -796,7 +811,7 @@ it('accepts optional timeline bounds and refuses a missing or unreadable revisit
   await h.run(h.call('revisit', { frame_ids: [frame.id] }), undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('image cache offline')
   const review = h.review(), { image: _image, ...uncached } = frame
-  saveReview(h.ctx, h.agent.session, { ...review, frames: review.frames.map(value => value.id === frame.id ? uncached : value) })
+  saveReview(h.readReviews, h.agent.session, { ...review, frames: review.frames.map(value => value.id === frame.id ? uncached : value) })
   await h.run(h.call('revisit', { frame_ids: [frame.id] }), undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVISIT_IMAGE_MISSING')
 }, 30_000)
@@ -820,7 +835,7 @@ it('refuses a source revision that changes while a cached frame is read', async 
   })
   await expect(Video.readVideoSourceTimeline(h.ctx, h.agent.session, h.review().id,
     { windowSeconds: 1, maxTranscriptBytes: 4096, maxBytes: 100_000, maxFrames: 1, frameIds: [frame.id] },
-    new AbortController().signal)).rejects.toThrow('VIDEO_REVIEW_SOURCE_CHANGED')
+    new AbortController().signal, h.readReviews)).rejects.toThrow('VIDEO_REVIEW_SOURCE_CHANGED')
 }, 30_000)
 
 it('bounds the entire UTF-8 comparison and leaves delivery and observations unchanged after comparison failure', async () => {
@@ -1275,14 +1290,14 @@ it('rejects missing cached images and preserves the underlying non-Error cache f
   await h.run(h.call('scan'), h.record, undefined)
   const frame = h.review().frames.find(value => value.observation !== undefined)!
   const original = h.review(), before = JSON.stringify(original)
-  saveReview(h.ctx, h.agent.session, { ...h.review(), frames: h.review().frames.map((value) => {
+  saveReview(h.readReviews, h.agent.session, { ...h.review(), frames: h.review().frames.map((value) => {
     if (value.id !== frame.id) return value
     const { image: _image, ...withoutImage } = value
     return withoutImage
   }) })
   await h.run(h.call('revisit', { frame_ids: [frame.id] }), undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVISIT_IMAGE_MISSING')
-  saveReview(h.ctx, h.agent.session, original)
+  saveReview(h.readReviews, h.agent.session, original)
   vi.spyOn(h.ctx.attachments, 'readImage').mockRejectedValueOnce('cache unavailable')
   await h.run(h.call('revisit', { frame_ids: [frame.id] }), undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('cache unavailable')
@@ -1530,7 +1545,7 @@ it('uses path labels when no episode name is supplied and denies execution witho
   await h.run({ name: 'video_inspect', args: { file_path: h.input, method: 'metadata' } },
     { name: 'video_inspect', args: { file_path: h.input } }, undefined)
   expect(h.review().episode).toBe(h.input)
-  const result = await h.ctx.tools.execute({ name: 'video_inspect', arguments: { file_path: h.input, method: 'status' },
+  const result = await executeToolFixture(h.ctx, { name: 'video_inspect', arguments: { file_path: h.input, method: 'status' },
     callId: ToolCallId('no-session-review'), signal: new AbortController().signal })
   expect(JSON.stringify(result)).toContain('initiating Session')
   await h.handle.dispose()
@@ -1547,15 +1562,14 @@ it('blocks a separately registered overview tool from bypassing the fixed scan p
 it('requires observation services and handles a nameless image reference without inventing a name', async () => {
   const h = await fixture(), empty = new Context()
   try {
-    expect(() =>{  installReviewState(empty) }).toThrow('sessionProjections')
-    expect(() => reviewsOf(empty, h.agent.session)).toThrow('sessionProjections')
-    expect(() =>{  applyCompleteReview(empty, h.config, async (exec, operation) => operation(exec.signal), async () => {}) })
-      .toThrow('sessionProjections and llm')
+    await expect(installReviewState(empty)).rejects.toThrow('sessionProjections')
+    await expect(applyCompleteReview(empty, h.config, async (exec, operation) => operation(exec.signal), async () => {}))
+      .rejects.toThrow('sessionProjections and llm')
     expect(reviewImage({ id: 'F00001', time: 0, reasons: [], exposed: false,
       image: { attachmentId: 'sha256:' + '0'.repeat(64), mediaType: 'image/png', bytes: 1, width: 1, height: 1 } })).not.toHaveProperty('name')
   } finally { await empty.fiber.dispose() }
   await h.plugin.dispose()
-  expect(reviewsOf(h.ctx, h.agent.session)).toEqual({})
+  expect(reviewsOf(h.readReviews, h.agent.session)).toEqual({})
 })
 
 it('rejects malformed durable review updates during projection recovery', async () => {
@@ -1563,7 +1577,7 @@ it('rejects malformed durable review updates during projection recovery', async 
   expect(() => {
     h.agent.session.append('video/review', { kind: 'update', path: h.input, id: VideoReviewId('missing'), frames: [],
       frame_count: 1, scanned_until: 1, scan_complete: false })
-    reviewsOf(h.ctx, h.agent.session)
+    reviewsOf(h.readReviews, h.agent.session)
   }).toThrow('matching source revision')
 })
 
@@ -1573,7 +1587,7 @@ it('rejects a durable update that omits a newly introduced frame', async () => {
   expect(() => {
     h.agent.session.append('video/review', { kind: 'update', path: h.input, id: h.review().id, frames: [],
       frame_count: h.review().frames.length + 1, scanned_until: 3, scan_complete: true })
-    reviewsOf(h.ctx, h.agent.session)
+    reviewsOf(h.readReviews, h.agent.session)
   }).toThrow('missing a frame')
 })
 

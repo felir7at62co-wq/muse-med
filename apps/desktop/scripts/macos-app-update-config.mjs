@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { dump, load } from 'js-yaml'
 
 const CONFIG_FILENAME = 'app-update.yml'
-const CHANNEL = 'nightly'
+import { resolveDesktopUpdateChannel } from './desktop-auto-update-environment.mjs'
 
 function object(value, label) {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
@@ -37,10 +37,10 @@ export function resolveMacOSAppUpdateFeed(publish) {
     repo: nonEmptyString(provider.repo, 'GitHub repository'),
     channel: nonEmptyString(provider.channel, 'GitHub channel'),
   }
-  if (provider.provider !== 'generic' || provider.channel !== CHANNEL) {
-    throw new Error('desktop macOS update config: publish provider must be generic Nightly')
+  if (provider.provider !== 'generic' || !['nightly', 'latest'].includes(provider.channel)) {
+    throw new Error('desktop macOS update config: publish provider must be generic with nightly or latest channel')
   }
-  return { publicUrl: nonEmptyString(provider.url, 'publish provider URL') }
+  return { publicUrl: nonEmptyString(provider.url, 'publish provider URL'), channel: resolveDesktopUpdateChannel({ DSH_DESKTOP_UPDATE_CHANNEL: provider.channel }) }
 }
 
 /**
@@ -58,7 +58,7 @@ export function createMacOSAppUpdateConfig(update, updaterCacheDirName) {
   } : {
     provider: 'generic',
     url: nonEmptyString(update.publicUrl, 'public URL'),
-    channel: CHANNEL,
+    channel: resolveDesktopUpdateChannel({ DSH_DESKTOP_UPDATE_CHANNEL: update.channel }),
   }
   return { ...feed, updaterCacheDirName: nonEmptyString(updaterCacheDirName, 'updater cache directory') }
 }

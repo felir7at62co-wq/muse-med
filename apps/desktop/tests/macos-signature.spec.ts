@@ -1,5 +1,7 @@
+import { SHIPPED_LOCALE_IDS } from '../../../scripts/shipped-locales.ts'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import type { NotarizeOptions } from '@electron/notarize'
 import {
   resolveDesktopAppId,
@@ -7,6 +9,7 @@ import {
   resolveMacOSSigningEnvironment,
 } from '../scripts/desktop-release-environment.mjs'
 import { desktopUpdateChannel } from '../scripts/desktop-auto-update-environment.mjs'
+import { readInstallerLocales } from '../scripts/installer-locales.mjs'
 import { readDesktopProductVersion } from '../scripts/desktop-build-version.mjs'
 import { notarizeMacOSDiskImageArtifact } from '../scripts/notarize-macos-disk-images.mjs'
 import {
@@ -14,6 +17,11 @@ import {
   assertMacOSSignatureDetails,
   assertMacOSAdHocSignatureDetails,
 } from '../scripts/verify-macos-signature.mjs'
+
+const require = createRequire(import.meta.url)
+const { validateConfiguration } = require('app-builder-lib/out/util/config/config.js') as {
+  validateConfiguration: (config: object, logger: { isEnabled: false }) => Promise<void>
+}
 
 const RELEASE_ENVIRONMENT = {
   DSH_DESKTOP_APP_ID: 'com.example.desktop',
@@ -48,6 +56,7 @@ describe('desktop macOS release signature', () => {
     expect(config.protocols).toEqual([{ name: 'muse-med', schemes: ['dsh'] }])
     expect(portablePath(config.directories.output)).toContain('/.desktop-build/targets/mac-arm64/artifacts')
     expect(config.mac.extendInfo.NSMicrophoneUsageDescription).toContain('microphone')
+    expect(config.mac.extendInfo.CFBundleLocalizations).toEqual(SHIPPED_LOCALE_IDS.map(id => id === 'zh' ? 'zh_CN' : id))
     expect(config.mac.entitlementsInherit).toBe(config.mac.entitlements)
     const entitlements = readFileSync(config.mac.entitlements, 'utf8')
     for (const key of ['com.apple.security.cs.allow-jit', 'com.apple.security.cs.allow-unsigned-executable-memory',
@@ -109,15 +118,32 @@ describe('desktop macOS release signature', () => {
     expect(typeof config.artifactBuildCompleted).toBe('function')
   })
 
+  it('accepts the builder default DMG format while rejecting unknown formats', async () => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    for (const arch of ['arm64', 'x64']) {
+      for (const unsigned of ['0', '1']) {
+        const config = createElectronBuilderConfig({
+          ...RELEASE_ENVIRONMENT,
+          DSH_DESKTOP_TARGET_ARCH: arch,
+          DSH_DESKTOP_UNSIGNED: unsigned,
+        }, 'darwin', arch)
+        expect(config.dmg.format).toBeUndefined()
+        await expect(validateConfiguration(config, { isEnabled: false })).resolves.toBeUndefined()
+      }
+    }
+    await expect(validateConfiguration({ dmg: { format: 'invalid' } }, { isEnabled: false }))
+      .rejects.toThrow('configuration.dmg.format')
+  })
+
   it('seals PAK resources with their enclosing bundle while signing executable code', async () => {
     const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
     const config = createElectronBuilderConfig(RELEASE_ENVIRONMENT, 'darwin', 'arm64')
     const ignored = (path: string): boolean => config.mac.signIgnore.some(pattern => new RegExp(pattern).test(path))
     expect(ignored('/App.app/Contents/Frameworks/Electron.framework/Versions/A/Resources/en.lproj/locale.pak')).toBe(true)
     expect(ignored('/App.app/Contents/Frameworks/Electron.framework/Versions/A/Resources/resources.pak')).toBe(true)
+    expect(ignored('/App.app/Contents/Resources/runtime/primary-runtime/dependencies/pnpm/addon.node')).toBe(true)
     for (const path of [
       '/App.app/Contents/Resources/runtime/node/node',
-      '/App.app/Contents/Resources/runtime/pnpm/addon.node',
       '/App.app/Contents/Frameworks/Electron.framework/Versions/A/library.dylib',
       '/App.app/Contents/Frameworks/Electron.framework',
       '/App.app',
@@ -160,7 +186,7 @@ describe('desktop macOS release signature', () => {
     }, 'win32', 'x64')
     expect(portablePath(config.directories.output)).toContain('/targets/win-x64/unsigned-artifacts')
     expect(portablePath(config.nsis.include)).toMatch(/\/scripts\/installer\.nsh$/u)
-    expect(config.nsis.installerLanguages).toEqual(['en_US', 'zh_CN'])
+    expect(config.nsis.installerLanguages).toEqual(readInstallerLocales().map(locale => locale.id))
     expect(config).toMatchObject({
       win: { forceCodeSigning: false, signtoolOptions: { sign: undefined } },
       publish: [{ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med' }],
@@ -176,7 +202,7 @@ describe('desktop macOS release signature', () => {
       DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN: RELEASE_ENVIRONMENT.DSH_DESKTOP_MANDATORY_UPDATE_TEST_ORIGIN,
       DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: RELEASE_ENVIRONMENT.DSH_DESKTOP_MANDATORY_UPDATE_CONFIG,
     }, 'darwin', 'arm64')
-    expect(config.mac).toMatchObject({ identity: '-', forceCodeSigning: false, hardenedRuntime: false, notarize: false })
+    expect(config.mac).toMatchObject({ identity: '-', forceCodeSigning: false, hardenedRuntime: true, notarize: false })
     expect(config.dmg.sign).toBe(false)
     expect(portablePath(config.directories.output)).toContain('/targets/mac-arm64/unsigned-artifacts')
     expect(config.publish).toMatchObject([{ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med' }])
@@ -193,6 +219,29 @@ describe('desktop macOS release signature', () => {
     expect(() => {
       assertMacOSAdHocSignatureDetails(complete.replace('Signature=adhoc', 'Authority=Unrelated'), 'com.example.desktop')
     }).toThrow()
+  })
+
+  it.each(['arm64', 'x64'])('builds local macOS %s DMG and ZIP artifacts without release credentials', async (arch) => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const config = createElectronBuilderConfig({
+      DSH_DESKTOP_APP_ID: RELEASE_ENVIRONMENT.DSH_DESKTOP_APP_ID,
+      DSH_DESKTOP_UNSIGNED: '1',
+    }, 'darwin', arch)
+    expect(portablePath(config.directories.output)).toContain(`/targets/mac-${arch}/unsigned-artifacts`)
+    expect(config.artifactName).toBe('muse-med-${version}-${os}-${arch}-unsigned.${ext}')
+    expect(config.mac).toMatchObject({ identity: '-', forceCodeSigning: false, notarize: false, target: ['dmg', 'zip'] })
+    expect(config.dmg).toMatchObject({ sign: false, writeUpdateInfo: false })
+    expect(config.publish).toEqual([{ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel: 'latest' }])
+    expect(config.extraMetadata).not.toHaveProperty('dshMandatoryUpdatePolicy')
+    await expect(config.afterSign({ electronPlatformName: 'darwin' } as Parameters<typeof config.afterSign>[0])).resolves.toBeUndefined()
+    expect(config.artifactBuildCompleted({ file: '/tmp/local-unsigned.dmg' })).toBeUndefined()
+  })
+
+  it('omits mandatory-update policy from local macOS builds even when release settings are supplied', async () => {
+    const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+    const config = createElectronBuilderConfig({ ...RELEASE_ENVIRONMENT, DSH_DESKTOP_UNSIGNED: '1' }, 'darwin', 'arm64')
+    expect(config.extraMetadata).not.toHaveProperty('dshMandatoryUpdatePolicy')
+    expect(config.publish).toEqual([{ provider: 'github', owner: 'felir7at62co-wq', repo: 'muse-med', channel: 'latest' }])
   })
 
   it('rejects malformed signing modes', async () => {
@@ -297,4 +346,20 @@ describe('desktop macOS release signature', () => {
     expect(submitted).toEqual(['/tmp/release.dmg'])
     expect(verified).toEqual(['/tmp/release.dmg'])
   })
+})
+
+it('signs debugging artifacts without Apple credentials and isolates them from releases', async () => {
+  const { createElectronBuilderConfig } = await import('../scripts/electron-builder-config.mjs')
+  const config = createElectronBuilderConfig({ ...RELEASE_ENVIRONMENT,
+    APPLE_API_KEY: undefined, APPLE_API_KEY_ID: undefined, APPLE_API_ISSUER: undefined,
+    DSH_DESKTOP_MACOS_SKIP_NOTARIZATION: '1',
+  }, 'darwin', 'arm64')
+  expect(config.mac.forceCodeSigning).toBe(true)
+  expect(config.mac.notarize).toBe(false)
+  expect(config.dmg.sign).toBe(true)
+  expect(config.mac).toMatchObject({ target: ['dmg', 'zip'] })
+  expect(config.artifactName).toContain('-unnotarized.')
+  expect(portablePath(config.directories.output)).toContain('/unnotarized-artifacts')
+  expect(() => createElectronBuilderConfig({ ...RELEASE_ENVIRONMENT, DSH_DESKTOP_MACOS_SKIP_NOTARIZATION: 'yes' }, 'darwin', 'arm64')).toThrow(/must be 0 or 1/u)
+  expect(() => createElectronBuilderConfig({ ...RELEASE_ENVIRONMENT, DSH_DESKTOP_MACOS_SKIP_NOTARIZATION: '1', DSH_DESKTOP_UNSIGNED: '1' }, 'darwin', 'arm64')).toThrow(/requires a signed macOS build/u)
 })

@@ -13,12 +13,6 @@ const userIdentity = z.strictObject({
 const stateSchema = z.strictObject({ users: z.array(userIdentity) })
 type UserIdentityState = z.infer<typeof stateSchema>
 
-declare module '@deepseek-ai/dsh-session-projection/types' {
-  interface SessionProjectionStateMap {
-    /** Original committed real-human message identities, omitted from client snapshots. */
-    screenplayRefinementUsers: UserIdentityState
-  }
-}
 
 /** Real committed source:user identities; content remains solely in the original Session. */
 export const refinementUserProjection = {

@@ -6,6 +6,7 @@ export interface DesktopElectronBuilderConfig {
   readonly productName: string
   readonly extraMetadata: { readonly name: string }
   readonly icon: string
+  readonly copyright: string
   readonly artifactName: string
   readonly protocols: readonly [{ readonly name: 'muse-med'; readonly schemes: readonly ['dsh'] }]
   readonly directories: {
@@ -36,6 +37,7 @@ export interface DesktopElectronBuilderConfig {
     readonly target: readonly ['dmg', 'zip']
   }
   readonly dmg: {
+    readonly format: 'ULMO'
     readonly sign: boolean
     readonly writeUpdateInfo: boolean
   }
@@ -50,12 +52,13 @@ export interface DesktopElectronBuilderConfig {
   }
   readonly nsis: {
     readonly preCompressedFileExtensions: readonly string[]
+    readonly uninstallDisplayName: '${productName}'
     readonly include: string
     readonly oneClick: false
     readonly perMachine: false
     readonly allowElevation: false
     readonly allowToChangeInstallationDirectory: false
-    readonly installerLanguages: readonly ['en_US', 'zh_CN']
+    readonly installerLanguages: readonly string[]
   }
   readonly beforeBuild: () => Promise<boolean>
   readonly beforePack: (context: BeforePackContext) => Promise<void>

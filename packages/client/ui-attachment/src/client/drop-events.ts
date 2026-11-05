@@ -1,4 +1,5 @@
 /** Document drag-and-drop listeners owned by one mounted attachment view. */
+import { FILE_DRAG_TOKEN_TYPE } from '@deepseek-ai/dsh-util-file-drag'
 import type { ComposerAttachmentsProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 /**
@@ -25,6 +26,7 @@ function droppedDirectories(dataTransfer: DataTransfer, files: readonly File[]):
  * @param onAddFiles - attachment intake callback.
  * @param dragDepth - the view's retained nested-drag counter.
  * @param setDragActive - publish whether a file drag is active.
+ * @param readFileDrag - resolve an original image retained by this application during a browser drag.
  * @param workspaceDrop - optional same-connection workspace drag intake.
  * @returns cleanup for exactly these listeners.
  */
@@ -33,12 +35,16 @@ export function installDocumentDropEvents(
   onAddFiles: ComposerAttachmentsProps['onAddFiles'],
   dragDepth: { current: number },
   setDragActive: (active: boolean, workspace?: boolean) => void,
+  readFileDrag: (transfer: DataTransfer) => File | undefined,
   workspaceDrop?: ComposerAttachmentsProps['workspaceDrop'],
 ): () => void {
   const fileTransfer = (event: globalThis.DragEvent): DataTransfer | null => {
     const dataTransfer = event.dataTransfer
     if (dataTransfer === null || !(dataTransfer.types.includes('Files')
+      || dataTransfer.types.includes(FILE_DRAG_TOKEN_TYPE)
       || (workspaceDrop !== undefined && dataTransfer.types.includes(workspaceDrop.type)))) return null
+    if (dataTransfer.types.includes(FILE_DRAG_TOKEN_TYPE)
+      && (!(event.target instanceof Element) || event.target.closest('[data-composer-card]') === null)) return null
     return dataTransfer
   }
   const isWorkspace = (transfer: DataTransfer): boolean => workspaceDrop !== undefined && transfer.types.includes(workspaceDrop.type)
@@ -52,7 +58,7 @@ export function installDocumentDropEvents(
     if (transfer === null) return
     event.preventDefault()
     dragDepth.current += 1
-    setDragActive(true, isWorkspace(transfer))
+    if (!transfer.types.includes(FILE_DRAG_TOKEN_TYPE)) setDragActive(true, isWorkspace(transfer))
   }
   const onDragOver = (event: globalThis.DragEvent): void => {
     const dataTransfer = fileTransfer(event)
@@ -76,8 +82,9 @@ export function installDocumentDropEvents(
     if (isWorkspace(dataTransfer)) {
       if (workspaceDrop?.canAccept === true) workspaceDrop.onDrop(dataTransfer.getData(workspaceDrop.type))
     } else if (canAcceptDrop) {
-      const files = [...dataTransfer.files]
-      onAddFiles(files, droppedDirectories(dataTransfer, files))
+      const image = dataTransfer.types.includes(FILE_DRAG_TOKEN_TYPE) ? readFileDrag(dataTransfer) : undefined
+      const files = image === undefined ? [...dataTransfer.files] : [image]
+      if (files.length > 0) onAddFiles(files, droppedDirectories(dataTransfer, files))
     }
   }
   const onWorkspaceDrop = (event: globalThis.DragEvent): void => {

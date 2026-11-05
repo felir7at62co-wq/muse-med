@@ -1,4 +1,6 @@
 /** Uploaded audio preparation and validation through the registered Loader tools. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -50,21 +52,22 @@ it('prepares the original mixed-audio card and rejects invalid audio before any 
     await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
     await writeFile(join(root, 'invalid.wav'), 'not audio')
     const configured = await configurationFixture({ hmr: false, rows: [
+      { id: 'tool-executor-native', name: 'cordis:native-executor' },
       { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
       { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mocked-token' } },
       { id: 'jubian', name: 'cordis:jubian', config: { ledgerRoot: join(root, 'ledger'), workspaceSecrets: false } },
-    ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
+    ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, jubian: Jubian } })
     ctx = configured.ctx
     const asset = ctx.tools.get('jubian_asset')
     if (!asset) throw new Error('Missing jubian_asset')
     const uploadArgs = { method: 'upload_audio', audio_path: join(root, 'invalid.wav') }
     expect(validateJsonSchemaValue(asset.parameters, uploadArgs, '')).toEqual([])
-    const invalid = await ctx.tools.execute({ callId: ToolCallId('invalid-audio'), name: 'jubian_asset',
+    const invalid = await executeModelToolFixture(ctx, { callId: ToolCallId('invalid-audio'), name: 'jubian_asset',
       arguments: uploadArgs, signal: new AbortController().signal })
     expect(invalid.isError).toBe(true)
     expect(invalid.content).toMatchSnapshot('invalid PCM audio diagnostic')
     expect(calls).toEqual([])
-    const prepared = await ctx.tools.execute({ callId: ToolCallId('mixed-audio'), name: 'jubian_storyboard',
+    const prepared = await executeModelToolFixture(ctx, { callId: ToolCallId('mixed-audio'), name: 'jubian_storyboard',
       arguments: { method: 'prepare_video', storyboard_id: 1745324, project_dir: root },
       signal: new AbortController().signal })
     if (prepared.isError) throw new Error(JSON.stringify(prepared.content))
@@ -72,7 +75,9 @@ it('prepares the original mixed-audio card and rejects invalid audio before any 
       audio_references: [{ material_key: 'zhou-voice', material_url: audio.materialUrl,
         duration_seconds: null, duration_basis: 'unavailable', duration_verified: false }] })
     expect(calls).toEqual(['GET /prod-api/aigc/storyboard/1745324', 'GET /prod-api/aigc/asset/142',
-      'GET /prod-api/aigc/material/list', 'GET /prod-api/model/charge/getSelectList'])
+      'GET /prod-api/aigc/material/list', 'GET /prod-api/model/charge/getSelectList',
+      'GET /prod-api/aigc/storyboard/1745324', 'GET /prod-api/aigc/storyboard/byStoryboard/1745324',
+      'GET /prod-api/admin/aigc/video/task/list'])
   } finally {
     fetch.mockRestore()
     await ctx?.fiber.dispose()

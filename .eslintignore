@@ -1,0 +1,2 @@
+# Preserve the root lint exclusion when the pinned snapshot supplies a nested config.
+third_party/plugins/ds-bot/**

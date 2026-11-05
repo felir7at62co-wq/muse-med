@@ -44,7 +44,7 @@ changes:
 <a id="verification"></a>
 ## 验证
 
-`packages/workflow/tool-workflow/tests/tool-workflow.spec.ts` 检查成员记录载荷，`packages/workflow/workflow-ptc/tests/integration.spec.ts` 通过真实进程内栈检查失败成员身份与原因。`packages/session/session-format-v0-to-v1/tests/` 检查已发布载荷读取器，包括省略重复身份的结算。将这些测试与 `packages/workflow/workflow-ptc/tests/guest.spec.ts` 和 `packages/subagent/subagent-in-process-driver/tests/structured.spec.ts` 一起运行，通过了九个文件中的 217 项测试。
+`packages/workflow/tool-workflow/tests/tool-workflow.spec.ts` 检查成员记录载荷，`packages/workflow/workflow-ptc/tests/integration.spec.ts` 通过真实进程内栈检查失败成员身份与原因。`packages/session/session-format-v0-to-v1/tests/` 检查已发布载荷读取器，包括省略重复身份的结算。将这些测试与 `packages/workflow/workflow-ptc/tests/guest.spec.ts` 和 `packages/subagent/subagent/tests/structured.spec.ts` 一起运行，通过了九个文件中的 217 项测试。
 
 <a id="dev-note"></a>
 ## 开发备注

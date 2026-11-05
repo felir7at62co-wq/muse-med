@@ -1,4 +1,6 @@
 /** The Loader-mounted tool cancels its real account transport before reporting an aborted call. */
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { randomUUID } from 'node:crypto'
 import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -69,9 +71,10 @@ it('awaits an aborted status transport without recovering later parts and dispos
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
+    await ctx.plugin(NativeToolExecutor)
     const tools = ctx.tools, controller = new AbortController()
     let settled = false
-    const call = tools.execute({ name: 'audio_transcribe', callId: ToolCallId('cancelled-status'), signal: controller.signal,
+    const call = executeModelToolFixture(ctx, { name: 'audio_transcribe', callId: ToolCallId('cancelled-status'), signal: controller.signal,
       arguments: { method: 'status', project: root, receipt: receiptFile } })
     observed = call.then(() => { settled = true }, () => { settled = true })
     const transportSignal = await Promise.race([entered.promise, call.then((result) => {

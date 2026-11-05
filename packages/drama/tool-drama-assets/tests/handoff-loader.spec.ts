@@ -1,4 +1,6 @@
 /** Scripted model handoff through real Loader tools; not a live-model authorization test. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -25,11 +27,12 @@ it.each(['authorized', 'not-authorized', 'needs_review', 'missing', 'blocked'] a
     const mock = handoffProvider(scenario === 'blocked' ? { page: () => { throw new Error('Read failed') } } : {})
     const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(mock.fetch)
     const loaded = await configurationFixture({ hmr: false, rows: [
+      { id: 'tool-executor-native', name: 'cordis:native-executor' },
       { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
       { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'offline-test-token' } },
       { id: 'assets', name: 'cordis:assets', config: { workspaceSecrets: false, matchPageSize: 1 } },
       { id: 'jubian', name: 'cordis:jubian', config: { workspaceSecrets: false, ledgerRoot: ledger } },
-    ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, assets: Assets, jubian: Jubian } })
+    ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, assets: Assets, jubian: Jubian } })
     try {
       const tools = loaded.ctx.tools
       expect(tools.get('drama_assets_confirmation')).toBeUndefined()
@@ -37,7 +40,7 @@ it.each(['authorized', 'not-authorized', 'needs_review', 'missing', 'blocked'] a
       const binding = tools.get('jubian_storyboard')
       if (!definition || !binding) throw new Error('Missing existing tools')
       expect(definition.description).toContain('用户授权后')
-      const result = await tools.execute({ callId: ToolCallId('preview-' + scenario), name: 'drama_assets',
+      const result = await executeModelToolFixture(loaded.ctx, { callId: ToolCallId('preview-' + scenario), name: 'drama_assets',
         arguments: { method: 'reuse_preview', project_dir: root, requirements_path: 'requirements.json',
           ...(hasPlan ? { plan_path: 'reuse.json' } : {}) }, signal: new AbortController().signal })
       expect(result.isError, JSON.stringify(result.content)).not.toBe(true)
@@ -63,7 +66,7 @@ it.each(['authorized', 'not-authorized', 'needs_review', 'missing', 'blocked'] a
             selections: shot.selections, idempotency_key: 'approved-selection-' + String(shot.storyboard_id) }
           expect(validateJsonSchemaValue(binding.parameters, args, '')).toEqual([])
           expect(args.selections).toEqual([{ material_key: 'lead', asset_id: 11 }, { material_key: 'bg', asset_id: 12 }])
-          const applied = await tools.execute({ callId: ToolCallId('select-' + String(shot.storyboard_id)), name: 'jubian_storyboard',
+          const applied = await executeModelToolFixture(loaded.ctx, { callId: ToolCallId('select-' + String(shot.storyboard_id)), name: 'jubian_storyboard',
             arguments: args, signal: new AbortController().signal })
           expect(applied.isError, JSON.stringify(applied.content)).not.toBe(true)
           const board = mock.boards.get(shot.storyboard_id)
@@ -78,7 +81,7 @@ it.each(['authorized', 'not-authorized', 'needs_review', 'missing', 'blocked'] a
           })
           expect(board?.privateProviderField).toEqual({ retained: true })
           expect(board?.storyboardMaterialList).toEqual(expectedMaterials)
-          const repeated = await tools.execute({ callId: ToolCallId('repeat-' + String(shot.storyboard_id)), name: 'jubian_storyboard',
+          const repeated = await executeModelToolFixture(loaded.ctx, { callId: ToolCallId('repeat-' + String(shot.storyboard_id)), name: 'jubian_storyboard',
             arguments: args, signal: new AbortController().signal })
           expect(repeated.isError).not.toBe(true)
         }

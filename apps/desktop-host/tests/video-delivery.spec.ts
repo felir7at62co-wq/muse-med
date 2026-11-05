@@ -1,5 +1,5 @@
 /** Managed delivery gates run in the shipped Headless composition without a model API. */
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
@@ -76,7 +76,7 @@ it('blocks generic Word, Markdown and Office bypasses at the actual present exec
       const delivered = events.filter(value => value.type === 'deliverables/presented')
         .map(value => z.object({ data: z.object({ files: z.array(z.object({ path: z.string() })) }) }).parse(value))
       expect(delivered, logs.join('\n').split('\n').filter(line => /tools\/result|tool\/result|tool\/call/.test(line)).join('\n')).toHaveLength(1)
-      expect(delivered[0]?.data.files).toEqual([{ path: 'ordinary.docx' }])
+      expect(delivered[0]?.data.files).toEqual([{ path: await realpath(join(cwd, 'ordinary.docx')) }])
       const results = events.filter(value => value.type === 'tool/result')
         .map(value => z.object({ data: z.object({
           message: z.object({ content: z.array(z.object({ text: z.string() })) }) }) }).parse(value))

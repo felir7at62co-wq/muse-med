@@ -106,7 +106,7 @@ export function ContextMeter({ useProjection, t }: ContextMeterProps) {
 
   return (
     <span ref={rootRef} className={css.root}>
-      <Tooltip label={t(ariaKey, { percent: reading })} side="top" delayMs={200} disabled={open}>
+      <Tooltip label={t(ariaKey, { percent: reading })} side="top" delayMs={200} disabled={open} portal>
         <button
           type="button"
           className={css.trigger}

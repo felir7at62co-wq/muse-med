@@ -8,20 +8,26 @@ const DIST_ROOT = fileURLToPath(new URL('../dist', import.meta.url))
 
 it('ships muse-med install metadata with the built web application', async () => {
   const index = await readFile(join(DIST_ROOT, 'index.html'), 'utf8')
+  expect(index).toContain('<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />')
   expect(index).toContain('<link rel="manifest" href="./manifest.webmanifest" />')
-  expect(index).toContain('<title>Muse</title>')
+  expect(index).toContain('<title>muse-med</title>')
   expect(index).toContain('<link rel="icon" type="image/webp" href="./muse-med-logo-black.webp" />')
+  expect(index).toContain('<link rel="apple-touch-icon" href="./muse-med-logo.png" />')
+  expect(index).toContain('<meta name="mobile-web-app-capable" content="yes" />')
+  expect(index).toContain('<meta name="apple-mobile-web-app-title" content="Muse" />')
 
   const manifest: unknown = JSON.parse(await readFile(join(DIST_ROOT, 'manifest.webmanifest'), 'utf8'))
   // No `id`: a browser resolves an explicit `id` against the start URL's origin,
   // so only an absent `id`, which defaults to the resolved `start_url`, gives
   // each mount its own identity. `public-mount.e2e.ts` reads the resolved form.
   expect(manifest).toEqual({
-    name: 'muse-med',
-    short_name: 'muse-med',
+    name: 'Muse',
+    short_name: 'Muse',
     start_url: './',
     scope: './',
-    display: 'fullscreen',
+    display: 'standalone',
+    background_color: '#fcfcfc',
+    theme_color: '#fcfcfc',
     icons: [{
       src: 'muse-med-logo.png',
       sizes: '512x512',
@@ -29,18 +35,6 @@ it('ships muse-med install metadata with the built web application', async () =>
       purpose: 'any',
     }],
   })
-})
-
-it('ships fixed-color favicons selected by document media queries', async () => {
-  const index = await readFile(join(DIST_ROOT, 'index.html'), 'utf8')
-  expect(index).toContain('<link rel="icon" type="image/svg+xml" href="./favicon-dark.svg" media="(prefers-color-scheme: dark)" />')
-  expect(index).toContain('<link rel="icon" type="image/svg+xml" href="./favicon.svg" media="(prefers-color-scheme: light)" />')
-  const light = await readFile(join(DIST_ROOT, 'favicon.svg'), 'utf8')
-  const dark = await readFile(join(DIST_ROOT, 'favicon-dark.svg'), 'utf8')
-  expect(light).not.toContain('<style>')
-  expect(light).toContain('fill="#000"')
-  expect(dark).toContain('fill="#fff"')
-  expect(dark.replace('fill="#fff"', 'fill="#000"')).toBe(light)
 })
 
 it.each([

@@ -1,4 +1,5 @@
 /** Real Loader, session model and native free-write paths with an offline Jubian server. */
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { copyFile, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -85,7 +86,7 @@ async function fixture(options: ProductionConfig = {}, useDefault = true, regist
   const agent = await f.create('session-production')
   let count = 0
   const call = async (args: Record<string, unknown>, agentless = false, currentAgent = agent) => {
-    const result = await f.ctx.tools.execute({ ...(agentless ? {} : { agent: currentAgent }), name: 'muse_production', arguments: args,
+    const result = await executeModelToolFixture(f.ctx, { ...(agentless ? {} : { agent: currentAgent }), name: 'muse_production', arguments: args,
       callId: ToolCallId(`production-${++count}`), signal: new AbortController().signal })
     if (result.isError) throw new Error(JSON.stringify(result.content))
     const block = result.content[0]
@@ -133,7 +134,7 @@ it('reviews the actual native prepared prompt when cards are authored without co
     + '\n动作预算：30秒\n发声预算：3秒\n反应预算：1秒\n表演顺序：先动作后台词' })
   await f.ctx.plugin(Publication, { baseUrl: 'https://production.invalid', workspaceSecrets: false,
     ledgerRoot: join(f.root, 'ledger') })
-  const result = await f.ctx.tools.execute({ name: 'jubian_storyboard', agent: f.agent,
+  const result = await executeModelToolFixture(f.ctx, { name: 'jubian_storyboard', agent: f.agent,
     arguments: { method: 'prepare_video', storyboard_id: 10000, project_dir: f.root },
     callId: ToolCallId('native-first-pass-review'), signal: new AbortController().signal })
   expect(result.isError, JSON.stringify(result.content)).toBe(false)
@@ -164,7 +165,7 @@ it('reports estimated performance overruns and speech errors before the first pa
       + '\n台词：另一个发声行。' })
   await f.ctx.plugin(Publication, { baseUrl: 'https://production.invalid', workspaceSecrets: false,
     ledgerRoot: join(f.root, 'ledger') })
-  const result = await f.ctx.tools.execute({ name: 'jubian_storyboard', agent: f.agent,
+  const result = await executeModelToolFixture(f.ctx, { name: 'jubian_storyboard', agent: f.agent,
     arguments: { method: 'prepare_video', storyboard_id: 10000, project_dir: f.root },
     callId: ToolCallId('native-first-pass-estimates'), signal: new AbortController().signal })
   expect(result.isError, JSON.stringify(result.content)).toBe(false)
@@ -185,7 +186,7 @@ it('returns a bounded text-check result without claiming media approval when pre
     prompt: String(config.prompt).replace('【镜头1】', '【镜头1】\n场景时段：清晨') })
   await f.ctx.plugin(Publication, { baseUrl: 'https://production.invalid', workspaceSecrets: false,
     ledgerRoot: join(f.root, 'ledger') })
-  const result = await f.ctx.tools.execute({ name: 'jubian_storyboard', agent: f.agent,
+  const result = await executeModelToolFixture(f.ctx, { name: 'jubian_storyboard', agent: f.agent,
     arguments: { method: 'prepare_video', storyboard_id: 10000, project_dir: f.root },
     callId: ToolCallId('native-first-pass-text-only'), signal: new AbortController().signal })
   expect(result.isError, JSON.stringify(result.content)).toBe(false)
@@ -203,7 +204,7 @@ it('flags missing scene time in a later native package without renumbering its o
     .replace(/【镜头(\d+)】/gu, (_whole, number: string) => `【镜头${Number(number) + 14}】`) })
   await f.ctx.plugin(Publication, { baseUrl: 'https://production.invalid', workspaceSecrets: false,
     ledgerRoot: join(f.root, 'ledger') })
-  const result = await f.ctx.tools.execute({ name: 'jubian_storyboard', agent: f.agent,
+  const result = await executeModelToolFixture(f.ctx, { name: 'jubian_storyboard', agent: f.agent,
     arguments: { method: 'prepare_video', storyboard_id: 10000, project_dir: f.root },
     callId: ToolCallId('native-first-pass-scene-time'), signal: new AbortController().signal })
   expect(result.isError, JSON.stringify(result.content)).toBe(false)
@@ -224,7 +225,7 @@ it('reviews ordered physical steps in actual native preparation even without a c
     '【镜头1】\n场景时段：夜\n动作状态：【先比水位，再从下方灶膛抽柴，最后放到一边】；\n手部状态：【右手指锅、左手比水位】，【无】；') })
   await f.ctx.plugin(Publication, { baseUrl: 'https://production.invalid', workspaceSecrets: false,
     ledgerRoot: join(f.root, 'ledger') })
-  const result = await f.ctx.tools.execute({ name: 'jubian_storyboard', agent: f.agent,
+  const result = await executeModelToolFixture(f.ctx, { name: 'jubian_storyboard', agent: f.agent,
     arguments: { method: 'prepare_video', storyboard_id: 10000, project_dir: f.root },
     callId: ToolCallId('native-first-pass-ordered-action'), signal: new AbortController().signal })
   expect(result.isError, JSON.stringify(result.content)).toBe(false)
@@ -251,7 +252,7 @@ it.each([
     output: { schema: { type: 'json' }, render: (_args, result) => [{ type: 'text', text: JSON.stringify(result) }] },
     async execute() { return value },
   })))
-  const result = await f.ctx.tools.execute({ name: 'jubian_storyboard', agent: f.agent,
+  const result = await executeModelToolFixture(f.ctx, { name: 'jubian_storyboard', agent: f.agent,
     arguments: { method: 'prepare_video' }, callId: ToolCallId('native-unreviewable-result'),
     signal: new AbortController().signal })
   expect(result.isError).toBe(false)
@@ -274,7 +275,7 @@ it('reports a declared overrun while preserving extra contexts supplied after pr
     await next()
     return { kind: 'accept', value, additionalContexts: [context] }
   })
-  const result = await f.ctx.tools.execute({ name: 'jubian_storyboard', agent: f.agent,
+  const result = await executeModelToolFixture(f.ctx, { name: 'jubian_storyboard', agent: f.agent,
     arguments: { method: 'prepare_video' }, callId: ToolCallId('native-declared-overrun'),
     signal: new AbortController().signal })
   expect(result.isError).toBe(false)
@@ -363,7 +364,7 @@ it('restores a production review from a metadata-free PTC result and logs refres
   f.agent.session.append('tool/ptc-dispatch', { rootCallId, parentCallId: rootCallId,
     subCallId: ToolCallId('production-review-child'), name: 'muse_production', arguments: { method: 'preview' },
     isError: false, content: [{ type: 'text', text: JSON.stringify(report) }] })
-  expect(f.ctx.sessionProjections.stateOf(f.agent.session, 'dramaShotReview')?.latest).toEqual(report.production_review)
+  expect(f.ctx.sessionProjections.checkpoint(f.agent.session)['dramaShotReview']?.val).toMatchObject({ latest: report.production_review })
   const short = (await f.service.catalogue()).find(option => option.maxDurationSeconds === 15)!
   await f.service.select(f.agent, short.key, f.service.current(f.agent)!.revision)
   const event = f.agent.session.snapshotEvents().findLast(event => event.type === 'agent/inbox/spliced'

@@ -8,6 +8,8 @@
  * the cap away without an error anywhere, and the paid call below is what shows
  * whether the composition still carries it.
  */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
@@ -47,6 +49,7 @@ it('mounts the drama default and enforces its current limit in the real tool com
   try {
     const { ctx } = await configurationFixture({
       rows: [
+        { id: 'tool-executor-native', name: 'cordis:native-executor' },
         { id: 'config-editor', name: 'cordis:editor' },
         { id: 'settings', name: 'cordis:settings' },
         { id: 'system-prompt', name: 'cordis:prompt' },
@@ -55,7 +58,7 @@ it('mounts the drama default and enforces its current limit in the real tool com
         { id: 'drama-settings', name: 'cordis:drama' },
         { id: 'tool-jubian', name: 'cordis:jubian', config: { ledgerRoot, workspaceSecrets: false } },
       ],
-      builtins: {
+      builtins: { 'native-executor': NativeToolExecutor,
         prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials,
         drama: DramaSettings, jubian: Jubian,
       },
@@ -72,7 +75,7 @@ it('mounts the drama default and enforces its current limit in the real tool com
     if (!tool) throw new Error('Missing Jubian video tool')
     const args = { method: 'image_generate', script_id: 2708, asset_name: 'x', asset_type: 1,
       prompt: 'p', idempotency_key: 'new-paid-image' }
-    const result = await ctx.tools.execute({
+    const result = await executeModelToolFixture(ctx, {
       callId: ToolCallId('budget-loader'), name: 'jubian_video', arguments: args,
       signal: new AbortController().signal,
     })
@@ -102,11 +105,12 @@ it.each(['current', 'windows', 'posix'])('logs the approved project budget updat
   if (platform === 'posix') Object.defineProperty(process, 'platform', { ...descriptor, value: 'linux' })
   onTestFinished(() => { Object.defineProperty(process, 'platform', descriptor) })
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'config-editor', name: 'cordis:editor' }, { id: 'settings', name: 'cordis:settings' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'test-token' } },
     { id: 'drama-settings', name: 'cordis:drama' },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, drama: DramaSettings } })
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials, drama: DramaSettings } })
   const ledgerRoot = join(home, 'ledger')
   await writeFile(join(home, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
   const fiber = ctx.plugin(Jubian, { ledgerRoot, workspaceSecrets: false })
@@ -171,12 +175,13 @@ it.each(['mixed-currency', 'missing-currency'])
   })
   onTestFinished(() => { fetch.mockRestore() })
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
+    { id: 'tool-executor-native', name: 'cordis:native-executor' },
     { id: 'config-editor', name: 'cordis:editor' }, { id: 'settings', name: 'cordis:settings' },
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'mocked-token' } },
     { id: 'drama-settings', name: 'cordis:drama' },
     { id: 'jubian', name: 'cordis:jubian', config: { ledgerRoot, workspaceSecrets: false } },
-  ], builtins: { prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials,
+  ], builtins: { 'native-executor': NativeToolExecutor, prompt: SystemPrompt, tools: Tools, credentials: MemoryCredentials,
     drama: DramaSettings, jubian: Jubian } })
   const ledger = new JubianLedger({ root: ledgerRoot })
   if (scenario === 'mixed-currency') {

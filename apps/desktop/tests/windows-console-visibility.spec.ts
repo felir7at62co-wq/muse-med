@@ -8,14 +8,12 @@
 
 import { DESKTOP_HOST_PROTOCOL_VERSION } from '../src/host-protocol.ts'
 import { EventEmitter } from 'node:events'
-import { closeSync, mkdirSync, mkdtempSync, openSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DesktopHostProcess } from '../src/host-process.ts'
-import { resolveDesktopPaths } from '../src/paths.ts'
-import { DesktopProjectManager } from '../src/project-manager.ts'
 
 interface SpawnCall {
   readonly command: string
@@ -76,28 +74,4 @@ describe('owned desktop child processes', () => {
     await expect(started).resolves.toMatchObject({ url: 'http://127.0.0.1:3131/?token=fixture' })
   })
 
-  it('runs the package manager with a hidden console', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'dsh-desktop-console-'))
-    roots.push(root)
-    const paths = resolveDesktopPaths(join(root, '.dsh'))
-    mkdirSync(paths.profile, { recursive: true })
-    const lock = openSync(paths.lock, 'w')
-    const manager = new DesktopProjectManager(paths, {
-      node: 'C:/desktop/muse-med.exe', pnpm: 'C:/runtime/pnpm/bin/pnpm.mjs', dsh: join(root, 'resources', 'dsh'),
-    })
-    Reflect.set(manager, 'lockDescriptor', lock)
-    const runPnpm: unknown = Reflect.get(manager, 'runPnpm')
-    if (typeof runPnpm !== 'function') throw new Error('Missing owned package manager operation')
-    try {
-      const project = join(root, 'project')
-      mkdirSync(project, { recursive: true })
-      const running: unknown = Reflect.apply(runPnpm, manager, [project, ['install']])
-      expect(spawnCalls).toHaveLength(1)
-      expect(spawnCalls[0]).toMatchObject({ command: 'C:/desktop/muse-med.exe', windowsHide: true })
-      child?.emit('close', 0, null)
-      await running
-    } finally {
-      closeSync(lock)
-    }
-  })
 })

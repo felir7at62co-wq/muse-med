@@ -82,7 +82,7 @@ Results contain `loaded` entries with names, bounded description previews, and a
 
 Only names present in a successful result's `loaded` array become selected. The next assembly exposes those tools' current full definitions, including argument schemas. Loading persists for that session instead of expiring after each call. Discovery itself does not execute tools, change existing approvals, or prevent an already-authorized tool from executing before discovery.
 
-### Manage session loading and Bot preferences
+### Manage session loading and persistent preferences
 
 `tool_context` accepts `operation` and optional exact-name `tools`. Constant tools cannot be edited. `load` and `pin` require currently authorized tools; releases can also remove dormant stored names. Changes select definitions for the next request; they do not execute tools or erase earlier definitions and results from model history.
 
@@ -90,15 +90,15 @@ Only names present in a successful result's `loaded` array become selected. The 
 |---|---|
 | `status` | Read selected and preferred names; omit `tools` |
 | `load` | Select names for this session |
-| `pin` | Select names and save the future-session preference |
+| `pin` | Select names and mark them as preferred |
 | `release` | Remove current loading and the preference; search can reload them |
-| `unpin` | Remove the future-session preference and retain current loading |
+| `unpin` | Remove the preference and retain current loading |
 
 Successful receipts identify the applied operation and complete affected names. Bounded `loaded` and `pinned` previews include `omitted_loaded` and `omitted_pinned` counts. When the affected-name receipt itself exceeds `maxResultChars`, the operation fails before saving; submit fewer names. Invalid or unavailable additions and constant-tool edits fail without partial changes.
 
-Without an external owner, pins are session-derived and survive resume or history-seeded forks. To carry them into a Bot's fresh sessions, register `ctx.toolDiscovery.registerResidency({ matches, read, write })`. The provider owns stored-name parsing and durable writes. `read(agent)` returns complete preferred names; `write(agent, names)` saves their replacement. Unavailable stored names remain dormant and survive unrelated edits. Multiple matching owners fail explicitly. Registration is reversible; late registration or external edits require `await ctx.toolDiscovery.refresh(agent)`. Agent creation awaits the initial read before its first assembly. A failed owner write returns a failed tool result and leaves current selection unchanged.
+Without an external owner, pins are session-derived and survive resume or history-seeded forks. To carry them into fresh sessions, register `ctx.toolDiscovery.registerResidency({ matches, read, write })`. The provider owns stored-name parsing and durable writes. `read(agent)` returns complete preferred names; `write(agent, names)` saves their replacement. Unavailable stored names remain dormant and survive unrelated edits. Multiple matching owners fail explicitly. Registration is reversible; late registration or external edits require `await ctx.toolDiscovery.refresh(agent)`. Agent creation awaits the initial read before its first assembly. A failed owner write returns a failed tool result and leaves current selection unchanged.
 
-`ctx.toolDiscovery.state(agent)` reads detached, authorized `loaded` and `pinned` arrays. The service and catalog are shared; selections are per agent, and a provider decides which Bot owns each agent. A role prompt does not grant tools.
+`ctx.toolDiscovery.state(agent)` reads detached, authorized `loaded` and `pinned` arrays. The service and catalog are shared; selections are per agent, and a provider determines which agents share stored preferences. A role prompt does not grant tools.
 
 ### Restore and isolate loading
 
@@ -120,7 +120,7 @@ The MIT-licensed index independently implements standard BM25 in TypeScript. The
 | [`src/search.ts`](src/search.ts) | Chinese and English tokenization, metadata indexing, and BM25 ranking |
 | [`src/capabilities.ts`](src/capabilities.ts) | Overlapping group membership and authorized directory summaries |
 | [`src/guidance.ts`](src/guidance.ts) | Stable discovery guidance and the bounded initial directory |
-| [`src/residency.ts`](src/residency.ts) | Per-agent preference service and optional Bot-owned persistence |
+| [`src/residency.ts`](src/residency.ts) | Per-agent preference service and optional provider-owned persistence |
 
 </details>
 
@@ -162,7 +162,7 @@ These limits distinguish discovery from access control and semantic task routing
 
 - **Registry projection only:** independently contributed system-prompt sections and tool-schema providers are not filtered, so tool discovery alone does not remove all unrelated guidance.
 - **Lexical retrieval:** Chinese segmentation, names, group metadata, and keywords improve matching but do not establish semantic relevance or task completion; an agent may need another query.
-- **Agent-driven selection:** guidance does not force search, block shell use, or establish task accuracy. Loading persists until the agent releases it; no automatic task-stage classifier chooses tools. Cross-session Bot preferences require a registered persistence owner.
+- **Agent-driven selection:** guidance does not force search, block shell use, or establish task accuracy. Loading persists until the agent releases it; no automatic task-stage classifier chooses tools. Cross-session preferences require a registered persistence owner.
 - **Provider-dependent caching:** smaller initial definitions do not establish lower total cost, latency, or better cache reuse for every model route.
 - **Metadata lifecycle:** restored names use current definitions; the projection does not freeze an older schema or revive removed tools.
 

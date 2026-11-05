@@ -1,5 +1,9 @@
-# A 9,210-token model minus 1,000 output and 1,800 headroom tokens gives a
-# 6,410-token trigger, between the initial request and its marker result.
+# With 1,800 tokens of headroom, a 1,000-token output reservation lowers the
+# trigger from 6,822 to 5,822, between the history and its condensed replacement.
+
+
+- id: agent-instructions
+  disabled: true
 
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek-api-key'
@@ -28,9 +32,12 @@
             name: DeepSeek
             models:
               - id: deepseek-v4-flash
-                contextWindow: 9210
+                contextWindow: 8622
                 defaultMaxTokens: 1000
+    - id: compaction-working-directory
+      name: '../../../packages/test-support/session-snapshot/tests/fixtures/compaction-working-directory.ts'
 
-- insert:
-    - id: pressure-compaction-fixture
-      name: ./pressure-fixture.mjs
+# Fixed-budget compaction scenario: keep the recorded tool set, whose token counts the thresholds were tuned to.
+- id: tool-fs
+  config:
+    applyPatch: false

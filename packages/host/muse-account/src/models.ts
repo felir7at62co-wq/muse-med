@@ -4,7 +4,6 @@ import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { LlmError, ReasoningEffortId, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm'
 import type {
   AdapterRegistrationHandle,
-  LlmCallConfig,
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
@@ -12,7 +11,8 @@ import type {
   GenerateOptions,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
+import { scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { PiAiAdapter, resolveProfiles } from '@deepseek-ai/dsh-llm-pi-ai'
@@ -137,7 +137,8 @@ export class MuseModels {
   private queue = Promise.resolve()
   private readonly stop = new AbortController()
   private readonly adapter: PiAiAdapter
-  private readonly disposeRequestRoute: () => void
+  private readonly selectionRepairs = new Set<Promise<void>>()
+  private readonly disposeAgentCreated: () => void
 
   constructor(private readonly ctx: Context, private readonly options: MuseModelsOptions) {
     const adapterOptions: PiAiAdapterOptions = {
@@ -175,10 +176,10 @@ export class MuseModels {
       () => this.authorization.signal, provider => this.providerSelectable(provider),
       (provider, model) => this.modelSelectable(provider, model),
       (provider, model) => this.directStream(adapterOptions, provider, model))
-    this.disposeRequestRoute = ctx.on('agent/request', async ({ agent, signal }, next) => {
-      const config = await next()
-      return await this.repairRequestRoute(agent, config, signal)
-    }, { prepend: true })
+    this.disposeAgentCreated = ctx.on('agent/created', async ({ agent, signal }) => {
+      await this.repairSelection(agent, signal ?? this.stop.signal)
+      return undefined
+    })
   }
 
   private directStream(adapterOptions: PiAiAdapterOptions, provider: string, model: string): DirectStream | undefined {
@@ -196,18 +197,18 @@ export class MuseModels {
   }
 
   /**
-   * Withdraw models immediately and await pending catalog and private-file work.
+   * Withdraw models immediately and await pending catalog, selection, and private-file work.
    * @returns Completion after every previously queued refresh has settled.
    */
-  dispose(): Promise<void> {
+  async dispose(): Promise<void> {
     this.stop.abort()
     this.authorization.abort()
-    this.disposeRequestRoute()
+    this.disposeAgentCreated()
     this.registration?.()
     this.registration = undefined
     this.profiles = new Map()
     this.defaultEfforts = new Map()
-    return this.queue
+    await Promise.allSettled([this.queue, ...this.selectionRepairs])
   }
 
   /**
@@ -282,7 +283,10 @@ export class MuseModels {
     this.stop.signal.throwIfAborted()
     if (current?.revision !== session.revision) { await this.clear(); return }
     const signature = JSON.stringify(data)
-    if (signature === this.signature && session.revision === this.revision) return
+    if (signature === this.signature && session.revision === this.revision) {
+      await this.repairLiveSelections()
+      return
+    }
     const providers: Record<string, PiAiProviderProfile> = {}
     const defaults = new Map<string, ReasoningEffortId>()
     for (const provider of data.providers) {
@@ -345,6 +349,7 @@ export class MuseModels {
     this.revision = session.revision
     await this.selectInitialDefault(providers, session.revision)
     this.signature = signature
+    await this.repairLiveSelections()
   }
 
   private async directRouteMissingCredential(provider: string): Promise<boolean> {
@@ -361,38 +366,60 @@ export class MuseModels {
     return typeof ref === 'string' && ref.length > 0 && !(await credentials.describe(credentialRef(ref))).configured
   }
 
-  /** Repair a missing-key request only while its assembled route and effort remain the current user choice. */
-  private async repairRequestRoute(agent: Agent, config: LlmCallConfig, signal: AbortSignal): Promise<LlmCallConfig> {
-    const controller = this.ctx.get('sessionController')
-    const provider = `muse-cloud-${config.provider}`
+  private async repairLiveSelections(): Promise<void> {
+    await Promise.all((this.ctx.get('agents')?.list() ?? []).map(agent => this.repairSelection(agent, this.stop.signal)))
+  }
+
+  private repairSelection(agent: Agent, signal: AbortSignal): Promise<void> {
+    if (this.isStopped()) return Promise.resolve()
+    const owner = scopeOf(this.ctx)
+    if (owner !== undefined && !scopeChainOf(agent).includes(owner)) return Promise.resolve()
+    const expected = agent.model.current()
+    if (expected === undefined) return Promise.resolve()
+    const operation = this.repairSelectedRoute(agent, expected, signal)
+    this.selectionRepairs.add(operation)
+    void operation.finally(() => { this.selectionRepairs.delete(operation) }).catch(() => {
+      // The catalog refresh or serial Agent creation receives the original failure.
+    })
+    return operation
+  }
+
+  /** Commit a future-step route only while the complete observed choice and account generation remain current. */
+  private async repairSelectedRoute(agent: Agent, expected: Readonly<ModelSelection>, signal: AbortSignal): Promise<void> {
+    const provider = `muse-cloud-${expected.provider}`
     const profile = this.profiles.get(provider)
     const revision = this.revision
-    if (!controller || !profile || !this.catalogCurrent(provider, profile) || signal.aborted) return config
-    const state = this.ctx.sessionProjections.stateOf(agent.session, 'modelSelection')
-    const header = agent.session.requestHeader()
-    const expected = state?.pending ?? (header ? {
-      provider: header.config.provider, model: header.config.model,
-      ...(header.config.reasoningEffort === undefined || header.adapterDefaults?.reasoningEffort === true
-        ? {} : { reasoningEffort: header.config.reasoningEffort }),
-    } : this.ctx.agentDefaultModel.currentSelection())
-    if (expected.provider !== config.provider || expected.model !== config.model
-      || expected.reasoningEffort !== config.reasoningEffort) return config
-    if (!await this.directRouteMissingCredential(config.provider)) return config
-    if (!this.catalogCurrent(provider, profile)) return config
-    const advertised = (await this.ctx.llm.listModels(provider)).some(model => model.id === config.model)
+    if (!profile || !this.catalogCurrent(provider, profile) || signal.aborted) return
+    if (!await this.directRouteMissingCredential(expected.provider)) return
+    if (!this.catalogCurrent(provider, profile)) return
+    let advertised: boolean
+    try {
+      advertised = (await this.ctx.llm.listModels(provider)).some(model => model.id === expected.model)
+    } catch (error) {
+      if (!this.catalogCurrent(provider, profile)) return
+      signal.throwIfAborted()
+      throw error
+    }
+    if (!advertised || !this.catalogCurrent(provider, profile)) return
+    signal.throwIfAborted()
+    const resolved = await this.ctx.llm.resolveCallConfig({ ...expected, provider }).catch((error: unknown) => {
+      if (error instanceof LlmError && error.code === 'UNSUPPORTED_REASONING_EFFORT') return undefined
+      if (!this.catalogCurrent(provider, profile) || signal.aborted) return undefined
+      throw error
+    })
+    if (resolved === undefined) return
+    if (!await this.directRouteMissingCredential(expected.provider)) return
     const current = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
+    if (this.isStopped()) return
     signal.throwIfAborted()
-    if (!this.catalogCurrent(provider, profile) || current?.revision !== revision) return config
-    if (!advertised) throw new LlmError('The saved direct model is not in the Muse catalog. Select an available Muse model in the conversation model picker.', 'UNKNOWN_MODEL')
-    const result = await controller.selectModelIfCurrent({
-      sessionId: agent.id, provider, model: config.model,
-      ...(config.reasoningEffort === undefined ? {} : { reasoningEffort: config.reasoningEffort }),
-    }, expected)
-    const resolved = result?.selected ?? await this.ctx.llm.resolveCallConfig({ ...config, provider })
-    signal.throwIfAborted()
-    const { reasoningEffort: _directEffort, ...withoutDirectEffort } = config
-    return { ...withoutDirectEffort, provider: resolved.provider, model: resolved.model,
-      ...(resolved.reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(resolved.reasoningEffort) }) }
+    if (!this.catalogCurrent(provider, profile) || current?.revision !== revision
+      || this.ctx.get('agents')?.get(agent.id) !== agent) return
+    const selected = agent.model.current()
+    if (selected?.provider !== expected.provider || selected.model !== expected.model
+      || selected.reasoningEffort !== expected.reasoningEffort) return
+    agent.model.select({ provider: resolved.provider, model: resolved.model,
+      ...(expected.reasoningEffort === undefined || resolved.reasoningEffort === undefined
+        ? {} : { reasoningEffort: ReasoningEffortId(resolved.reasoningEffort) }) })
   }
 
   private catalogCurrent(provider: string, profile: ResolvedPiAiProviderProfile): boolean {

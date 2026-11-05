@@ -135,9 +135,6 @@ describe.skipIf(!existsSync(builtHost) || !existsSync(communityArtifacts))('buil
       }))
       const paths = resolveDesktopPaths(home)
       const manager = new DesktopProjectManager(paths, {
-        node: join(nodeBin, process.platform === 'win32' ? 'node.exe' : 'node'),
-        // This flow installs no plugin, so the package manager never runs.
-        pnpm: join(root, 'runtime/primary-runtime/dependencies/pnpm/bin/pnpm.mjs'),
         dsh: project,
       })
       await manager.applyRelease()
@@ -205,6 +202,11 @@ describe.skipIf(!existsSync(builtHost) || !existsSync(communityArtifacts))('buil
       await backend!.account.cancel(waiting.attempt!.id)
       expect((await fetch(late, { redirect: 'manual' })).status).not.toBe(302)
       expect(await status()).toMatchObject({ loggedIn: false })
+      // A handle left open after acknowledged teardown must not fail the update handoff.
+      vi.stubEnv('NODE_OPTIONS', `--import=data:text/javascript,${encodeURIComponent(
+        "process.on('message', message => { if (message?.type === 'shutdown') setInterval(() => {}, 1000) })")}`)
+      await restart()
+      await host!.stop(true)
     } finally {
       await host?.stop()
       await platform.close()

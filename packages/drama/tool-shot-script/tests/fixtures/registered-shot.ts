@@ -7,6 +7,8 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import Tools, { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import * as ShotCompiler from '../../src/index.ts'
 import type { DramaShotReport } from '../../src/types.ts'
@@ -29,11 +31,12 @@ export async function registeredShot(root: string, config: ShotCompiler.Config) 
     ]))
     await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(path).href } })
     await ctx.loader.await()
+    await ctx.plugin(NativeToolExecutor)
     const registry = ctx.get('tools')
     const definition = registry?.get('drama_shot')
     if (registry === undefined || definition === undefined) throw new Error('The Loader did not register drama_shot')
     let calls = 0
-    const execute = (args: Record<string, unknown>) => registry.execute({ name: 'drama_shot', arguments: args,
+    const execute = (args: Record<string, unknown>) => executeModelToolFixture(ctx, { name: 'drama_shot', arguments: args,
       signal: new AbortController().signal, callId: ToolCallId(`shot-review-${++calls}`) })
     const report = async (args: Record<string, unknown>): Promise<DramaShotReport> => {
       const result = await execute(args)

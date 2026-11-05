@@ -11,9 +11,13 @@ import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import Llm, { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import Sessions, { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import Projections from '@deepseek-ai/dsh-session-projection'
-import Persistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as Persistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { defineTool } from '@deepseek-ai/dsh-tools'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import * as PtcToolExecutor from '@deepseek-ai/dsh-tool-executor-ptc'
+import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
 import { describe, expect, it, vi } from 'vitest'
 import LocalSpill from '@deepseek-ai/dsh-spill-local'
@@ -52,16 +56,17 @@ class AssemblyRuntime extends PtcRuntime {
 /** Load the real discovery plugin from a Cordis composition and retain durable sessions. */
 async function fixture(root: string, config: Partial<Discovery.Config> = {}) {
   const ctx = new Context()
+  provideWorkingDirectoryFixture(ctx)
   try {
     await ctx.plugin(Loader)
     Object.assign(ctx.loader.builtins, { include: Include, llm: Llm, sessions: Sessions, projections: Projections,
-      prompt: SystemPrompt, tools: Tools, agents: Agents, persistence: Persistence, loop: AgentLoop,
+      prompt: SystemPrompt, tools: Tools, native: NativeToolExecutor, agents: Agents, persistence: Persistence, loop: AgentLoop,
       capabilities, discovery: Discovery })
     const path = join(root, 'cordis.yml')
     await writeFile(path, JSON.stringify([
       { id: 'llm', name: 'cordis:llm' }, { id: 'sessions', name: 'cordis:sessions' },
       { id: 'projections', name: 'cordis:projections' }, { id: 'prompt', name: 'cordis:prompt' },
-      { id: 'tools', name: 'cordis:tools' }, { id: 'agents', name: 'cordis:agents' },
+      { id: 'tools', name: 'cordis:tools' }, { id: 'native', name: 'cordis:native' }, { id: 'agents', name: 'cordis:agents' },
       { id: 'persistence', name: 'cordis:persistence', config: { root: join(root, 'sessions'), compression: 'none' } },
       { id: 'loop', name: 'cordis:loop', config: { agents: [] } },
       { id: 'capabilities', name: 'cordis:capabilities' },
@@ -104,7 +109,18 @@ let searchOrdinal = 0
 
 /** Search through the normal model/tool loop, creating authoritative call and result records. */
 async function search(f: Awaited<ReturnType<typeof fixture>>, agent: Agent, query: string) {
-  f.responses.push(toolCallResponse(`search-${agent.id}-${++searchOrdinal}`, 'tool_search', { query, limit: 1 }), textResponse('Loaded.'))
+  const ptc = (await f.ctx.systemPrompt.assemble({ agent, scope: agent })).tools.some(tool => tool.name === 'run_code')
+  if (ptc) {
+    const runtime = f.ctx.ptcRuntime
+    if (!(runtime instanceof AssemblyRuntime)) throw new Error('Missing fixture PTC runtime')
+    runtime.behavior = async (request) => {
+      const find = request.bindings[0]?.functions.tool_search
+      if (!find) throw new Error('Missing search binding')
+      return { logs: [], value: await find({ query, limit: 1 }) }
+    }
+  }
+  f.responses.push(toolCallResponse(`search-${agent.id}-${++searchOrdinal}`, ptc ? 'run_code' : 'tool_search',
+    ptc ? { description: 'Discover the requested tool.', code: 'fixture' } : { query, limit: 1 }), textResponse('Loaded.'))
   await send(agent)
 }
 
@@ -248,7 +264,7 @@ describe('Loader-composed tool discovery', () => {
         }
       }
       const agent = await f.create(`discovery-spill-${mode}`, {
-        setup: (scope) => { if (mode === 'ptc') scope.tools.presentAs('both') },
+        setup: async (scope) => { if (mode === 'ptc') await scope.plugin(PtcToolExecutor, {}) },
       })
       f.responses.push(mode === 'ptc'
         ? toolCallResponse('spill-search-ptc', 'run_code', { description: 'Find video tools.',
@@ -267,8 +283,8 @@ describe('Loader-composed tool discovery', () => {
       expect(result.loaded.length).toBeGreaterThan(0)
       expect(result.omitted).toBeGreaterThan(0)
       expect(save).not.toHaveBeenCalled()
-      expect(await shown(f.ctx, agent)).toEqual(['base_read', 'tool_context', 'tool_search', ...mode === 'ptc' ? ['run_code'] : [],
-        ...result.loaded.map(tool => tool.name)].sort())
+      expect(await shown(f.ctx, agent)).toEqual(mode === 'ptc' ? ['run_code']
+        : ['base_read', 'tool_context', 'tool_search', ...result.loaded.map(tool => tool.name)].sort())
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
   })
 
@@ -438,7 +454,7 @@ describe('Loader-composed tool discovery', () => {
     try {
       const agent = await f.create('discovery-invalid-offset')
       for (const offset of [-1, 0.5, Number.MAX_SAFE_INTEGER + 1]) {
-        const result = await f.ctx.tools.execute({ name: 'tool_search', arguments: { query: 'video_inspect', offset },
+        const result = await executeToolFixture(f.ctx, { name: 'tool_search', arguments: { query: 'video_inspect', offset },
           agent, callId: ToolCallId(`invalid-offset-${offset}`), signal: new AbortController().signal })
         expect(result.isError).toBe(true)
       }
@@ -473,7 +489,7 @@ describe('Loader-composed tool discovery', () => {
         const value = await find({ query: 'video_inspect', limit: 1 })
         return { logs: [], value }
       }
-      const agent = await f.create('discovery-nested', { setup: (scope) => { scope.tools.presentAs('both') } })
+      const agent = await f.create('discovery-nested', { setup: async (scope) => { await scope.plugin(PtcToolExecutor, {}) } })
       f.responses.push(toolCallResponse('discover-nested', 'run_code', {
         description: 'Find the video inspection capability.',
         code: "return await tools.tool_search({query:'video_inspect',limit:1})",
@@ -482,8 +498,10 @@ describe('Loader-composed tool discovery', () => {
       const dispatch = agent.session.snapshotEvents().find(event => event.type === 'tool/ptc-dispatch')
       expect(dispatch?.data.name).toBe('tool_search')
       expect(dispatch?.data.isError).toBe(false)
-      expect(await shown(f.ctx, agent)).toEqual(['base_read', 'run_code', 'tool_context', 'tool_search', 'video_inspect'])
-      expect(f.adapter.requests[1]?.tools?.some(tool => tool.name === 'video_inspect')).toBe(true)
+      expect(await shown(f.ctx, agent)).toEqual(['run_code'])
+      expect((await f.ctx.systemPrompt.assemble({ agent, scope: agent })).sections
+        .find(section => section.name === 'tools:sdk')?.text).toContain('video_inspect')
+      expect(f.adapter.requests[1]?.tools?.map(tool => tool.name)).toEqual(['run_code'])
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
   })
 
@@ -492,7 +510,7 @@ describe('Loader-composed tool discovery', () => {
     const f = await fixture(root)
     try {
       const agent = await f.create('discovery-commit')
-      const uncommitted = await f.ctx.tools.execute({ name: 'tool_search', arguments: { query: 'video_inspect', limit: 1 },
+      const uncommitted = await executeToolFixture(f.ctx, { name: 'tool_search', arguments: { query: 'video_inspect', limit: 1 },
         agent, callId: ToolCallId('uncommitted-search'), signal: new AbortController().signal })
       expect(uncommitted.isError).not.toBe(true)
       expect(await shown(f.ctx, agent)).toEqual(['base_read', 'tool_context', 'tool_search'])
@@ -542,7 +560,7 @@ describe('Loader-composed tool discovery', () => {
     const f = await fixture(root)
     try {
       await f.ctx.plugin(AssemblyRuntime)
-      const agent = await f.create('discovery-sdk', { setup: (scope) => { scope.tools.presentAs('both') } })
+      const agent = await f.create('discovery-sdk', { setup: async (scope) => { await scope.plugin(PtcToolExecutor, {}) } })
       const first = await f.ctx.systemPrompt.assemble({ agent, scope: agent })
       const guidance = first.sections.find(section => section.name === 'tools:discovery')
       expect(guidance?.text).toContain('"id":"video"')
@@ -601,13 +619,13 @@ describe('Loader-composed tool discovery', () => {
     try {
       const agent = await f.create('discovery-policy', { setup: (scope) => { scope.tools.restrict({ deny: ['secret_delete'] }) } })
       expect(await shown(f.ctx, agent)).not.toContain('video_inspect')
-      const direct = await f.ctx.tools.execute({ name: 'video_inspect', arguments: {}, agent,
+      const direct = await executeToolFixture(f.ctx, { name: 'video_inspect', arguments: {}, agent,
         callId: ToolCallId('allowed-hidden'), signal: new AbortController().signal })
       expect(direct.isError).not.toBe(true)
       expect(JSON.stringify(direct.content)).toContain('video_inspect:done')
       await search(f, agent, 'secret_delete')
       expect(await shown(f.ctx, agent)).not.toContain('secret_delete')
-      const denied = await f.ctx.tools.execute({ name: 'secret_delete', arguments: {}, agent,
+      const denied = await executeToolFixture(f.ctx, { name: 'secret_delete', arguments: {}, agent,
         callId: ToolCallId('restricted-hidden'), signal: new AbortController().signal })
       expect(denied.isError).toBe(true)
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
@@ -801,7 +819,7 @@ describe('Loader-composed tool discovery', () => {
         if (!edit) throw new Error('Missing context binding')
         return { logs: [], value: await edit({ operation, tools: ['video_inspect'] }) }
       }
-      const agent = await f.create('context-ptc', { setup: (scope) => { scope.tools.presentAs('both') } })
+      const agent = await f.create('context-ptc', { setup: async (scope) => { await scope.plugin(PtcToolExecutor, {}) } })
       f.responses.push(toolCallResponse('context-pin-ptc', 'run_code', { description: 'Pin video tool.', code: 'fixture' }), textResponse('Pinned.'))
       await send(agent)
       expect(f.ctx.toolDiscovery.state(agent).pinned).toEqual(['video_inspect'])
@@ -873,4 +891,39 @@ describe('Loader-composed tool discovery', () => {
     } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
   })
 
+})
+
+
+describe('conditional registration with discovery', () => {
+  it('discovers and loads only step-admitted tools and removes a later inactive definition', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-discovery-admission-'))
+    const f = await fixture(root)
+    let enabled = false
+    const body = vi.fn(async () => 'conditional:done')
+    try {
+      f.ctx.tools.register(defineTool({
+        name: 'conditional_video', description: 'Conditional video analysis.', parameters: {},
+        output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+        execute: body,
+      }), { when: ({ modelSelection }) => enabled && modelSelection.provider === 'mock' })
+      const agent = await f.create('discovery-admission')
+      expect((await discover(f, agent, { query: 'conditional_video' })).value.loaded.map(tool => tool.name))
+        .not.toContain('conditional_video')
+      f.responses.push(toolCallResponse('inactive-body', 'conditional_video', {}), textResponse('Unavailable.'))
+      await send(agent)
+      expect(body).not.toHaveBeenCalled()
+      enabled = true
+      expect((await discover(f, agent, { query: 'conditional_video' })).value.loaded.map(tool => tool.name))
+        .toContain('conditional_video')
+      expect(f.adapter.requests.at(-1)?.tools?.map(tool => tool.name)).toContain('conditional_video')
+      enabled = false
+      const status = await manage(f, agent, 'status')
+      expect(status?.isError).not.toBe(true)
+      expect(f.ctx.toolDiscovery.state(agent).loaded).not.toContain('conditional_video')
+      expect(f.adapter.requests.at(-1)?.tools?.map(tool => tool.name)).not.toContain('conditional_video')
+      f.responses.push(toolCallResponse('inactive-load', 'tool_context', { operation: 'load', tools: ['conditional_video'] }), textResponse('Unavailable.'))
+      await send(agent)
+      expect(agent.session.snapshotEvents().findLast(event => event.type === 'tool/result')?.data.message.isError).toBe(true)
+    } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+  })
 })

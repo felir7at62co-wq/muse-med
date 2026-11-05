@@ -26,6 +26,8 @@ export const DESKTOP_CODEX_PACKAGE = 'dsh-codex-subscription'
 export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
   'lib/cli.js',
+  'lib/retired-bot.js',
+  'lib/delegation-policy.js',
   'config/desktop.cordis.patch.yml',
   'config/defaults.cordis.patch.yml',
   'presets/short-drama/agent.cordis.yml',

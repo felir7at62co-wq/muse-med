@@ -21,6 +21,7 @@ import { satisfies } from 'semver'
 import { createDevelopmentProjectMetadata } from '../src/project-manager.ts'
 import type { DesktopRelease } from '../src/release.ts'
 import { DESKTOP_RUNTIME_FILE, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
+import { isRetiredBotBundle } from '../src/retired-bot-profile.ts'
 import type { DesktopAutoUpdateTarget } from './desktop-auto-update-environment.mjs'
 import { desktopTargetPlatform } from './desktop-build-paths.mjs'
 
@@ -205,7 +206,7 @@ export function prepareDevelopmentProject(options: DevelopmentProjectOptions): s
   }> = []
   try {
     for (const [source, pin] of Object.entries(pins)) {
-      if (pin.desktop === false) continue
+      if (pin.desktop === false || isRetiredBotBundle(source)) continue
       if (!/^[a-z0-9-]+$/u.test(source)) throw new Error('desktop development: invalid community source name')
       const expected = readManifest(join(sourceRoot, source, 'package.json'))
       const name = expected.name

@@ -23,15 +23,15 @@
 /deepseek-ai-dsh-tool-discovery/use-this-package/browse-capabilities-or-search-tools:
   en: 4aeb90d0af023ca0
   zh: 81894d8385311b04
-/deepseek-ai-dsh-tool-discovery/use-this-package/manage-session-loading-and-bot-preferences:
-  en: f52fd8b26edf13f4
-  zh: ece1ae4c220412f2
+/deepseek-ai-dsh-tool-discovery/use-this-package/manage-session-loading-and-persistent-preferences:
+  en: 6b5a7b5de551a17d
+  zh: 0d589b2117702fe8
 /deepseek-ai-dsh-tool-discovery/use-this-package/restore-and-isolate-loading:
   en: 3e9ccf3ecdc799a2
   zh: f8e4f14d8ccc3b19
 /deepseek-ai-dsh-tool-discovery/understand-the-implementation:
-  en: af9185edf2f63267
-  zh: 566e394c849de483
+  en: ec1d34bf7a154b57
+  zh: 1a0e182a15293f55
 /deepseek-ai-dsh-tool-discovery/further-exploration:
   en: 10980c4170743746
   zh: d15e0439eadda745
@@ -51,8 +51,8 @@
   en: 491e116b46648d65
   zh: a7ecc3e66943cff9
 /deepseek-ai-dsh-tool-discovery/known-limitations-and-deferred-work:
-  en: c8c29211264fde8b
-  zh: 27ae1e8dc2f77ab8
+  en: c2b03dd5fdc51088
+  zh: b21cbe48143c4c8f
 /deepseek-ai-dsh-tool-discovery/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 3bb0c20c93f16f98

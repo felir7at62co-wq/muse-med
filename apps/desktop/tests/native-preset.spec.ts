@@ -15,10 +15,13 @@ import * as yaml from 'js-yaml'
 import { Context } from '@deepseek-ai/cordis'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import Loader, { EntryTree, Group } from '@deepseek-ai/cordis-plugin-loader'
+import Agents from '@deepseek-ai/dsh-agent'
+import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import AgentPresetRegistry from '@deepseek-ai/dsh-agent-preset-registry'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import Tools, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import Tools from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { expect, it, vi } from 'vitest'
 import NativePreset from '../../desktop-host/src/native-preset.ts'
 
@@ -92,9 +95,8 @@ it.each(['short-drama', 'standard'])('includes the product composition %s withou
   try {
     await ctx.plugin(Loader)
     ctx.loader.builtins.group = Group
-    // The registry records projections it never reads here; the preset tree under
-    // test does not depend on them.
-    ctx.provide('sessionProjections', { register: () => () => {} })
+    await ctx.plugin(SessionProjections)
+    await ctx.plugin(Agents)
     await ctx.plugin(AgentPresetRegistry, { default: preset })
     await ctx.plugin(SystemPrompt, {})
     await ctx.plugin(Tools)

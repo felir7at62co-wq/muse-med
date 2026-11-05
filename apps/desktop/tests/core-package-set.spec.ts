@@ -60,16 +60,19 @@ afterEach(() => {
 })
 
 describe('desktop core package set', () => {
-  it('keeps production dependency builds strict while skipping only the reviewed Baileys engine check', () => {
+  it('grants build permission only to the reviewed native dependencies', () => {
     const { root } = packageSetProject()
     createRuntimeProjectMetadata(root, { schemaVersion: 1, version: '1.2.3', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
       nodeVersion: '24.17.0', pnpmVersion: '11.7.0' })
     const workspace: unknown = load(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8'))
-    expect(workspace).toHaveProperty('strictDepBuilds', true)
-    expect(workspace).toHaveProperty(['allowBuilds', '@whiskeysockets/baileys@7.0.0-rc14'], false)
-    expect(workspace).not.toHaveProperty(['allowBuilds', '@whiskeysockets/baileys'])
-    expect(workspace).not.toHaveProperty(['allowBuilds', '@whiskeysockets/baileys@7.0.0-rc15'])
-    expect(workspace).not.toHaveProperty(['allowBuilds', '*'])
+    // pnpm 11 rejects unapproved builds by default; this file never disables that policy.
+    expect(workspace).not.toHaveProperty('strictDepBuilds')
+    expect(workspace).not.toHaveProperty('dangerouslyAllowAllBuilds')
+    expect(workspace).toHaveProperty('allowBuilds', {
+      'node-pty': true, koffi: true, 'fs-ext': true,
+      '@deepseek-ai/dsh-subprocess-local': true,
+      '@google/genai': false, protobufjs: false, 'node-addon-require-builtin': false,
+    })
   })
 
   it('pins the direct dsh dependency and every internal package to local tarballs', () => {

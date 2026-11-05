@@ -2,7 +2,7 @@
   "name": "muse-med-community-plugin-build",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.7.0",
+  "packageManager": "pnpm@11.28.5",
   "scripts": {
     "build": "node ../build.mjs",
     "test:build": "node --test ../source-selection.test.mjs ../compatibility/host-runtime.test.mjs ../build.test.mjs ../hongguo-build.test.mjs",
@@ -13,7 +13,7 @@
     "test:bot": "node --test ../compatibility/muse-bot-desktop.test.mjs ../muse-bot-build.test.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-ai": "1.3.0",
     "@heroicons/react": "2.2.0",
     "@larksuite/channel": "0.4.1",
     "@larksuiteoapi/node-sdk": "1.73.0",

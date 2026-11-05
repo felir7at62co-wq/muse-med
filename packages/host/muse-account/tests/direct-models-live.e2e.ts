@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { oldSessionFixture, waitForIdle } from './model-routing-fixture.ts'
 
 const liveConfig = process.env.MUSE_DIRECT_E2E_CONFIG_PATH

@@ -10,3 +10,6 @@
 - name: '@deepseek-ai/dsh-agent-loop'
   config:
     agents: []
+- name: '@deepseek-ai/dsh-tool-executor-native'
+- name: '@deepseek-ai/dsh-fs-local'
+- name: '@deepseek-ai/dsh-working-directory'

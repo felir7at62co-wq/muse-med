@@ -5,7 +5,9 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import * as Persona from '@deepseek-ai/dsh-persona'
-import Tools, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
+import Tools from '@deepseek-ai/dsh-tools'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import WebServer from '@deepseek-ai/dsh-host-webserver'
 import * as EditingPolicy from '../src/editing-policy.ts'
 
@@ -38,6 +40,7 @@ it('keeps general guidance and runtime facts without restricting inherited or la
   try {
     await ctx.plugin(SystemPrompt, { personaPrefix: 'Global instructions.' })
     await ctx.plugin(Tools)
+    await ctx.plugin(NativeToolExecutor)
     await ctx.plugin(WebServer, { host: '127.0.0.1', port: 0 })
     let model = 'deepseek-flash'
     ctx.systemPrompt.variable('model', () => model)
@@ -95,7 +98,7 @@ it('keeps general guidance and runtime facts without restricting inherited or la
     expect(prompt).toContain(`http://127.0.0.1:${ctx.webServer.port}`)
     expect(prompt).toContain('你没有隐式读取到 DOM、路由或截图')
     expect(prompt).toContain('不启动替代服务器')
-    expect(prompt).toContain('你的工作目录是 /editing-workspace ；短剧工作间是其中的 short-drama/。')
+    expect(prompt).toContain('短剧工作间是当前工作目录中的 short-drama/。')
     expect(prompt).toContain('Inherited screenplay_project')
     expect(prompt).toContain('Team rules.')
     expect(first.contexts.map(context => context.text)).toEqual(['Runtime instructions.', 'Subagent rules.'])

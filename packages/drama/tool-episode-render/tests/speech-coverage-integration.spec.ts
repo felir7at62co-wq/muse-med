@@ -1,4 +1,6 @@
 /** Loader-mounted, keyless speech review uses real local files and the tool's closed output validation. */
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -70,9 +72,10 @@ async function fixture(independentAudio = false) {
   await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(config).href } })
   await ctx.loader.await()
   for (const entry of ctx.loader.entries()) await entry.fiber?.await()
+  await ctx.plugin(NativeToolExecutor)
   const args = { method: 'speech_coverage' as const, project, episode: 26, shots: 'shots.json', timeline: 'timeline.json',
     subtitle_srt: 'final.srt', speech_transcripts: 'receipts.json' }
-  const invoke = (extra: Record<string, string> = {}) => ctx.tools.execute({ name: 'drama_render', arguments: { ...args, ...extra },
+  const invoke = (extra: Record<string, string> = {}) => executeModelToolFixture(ctx, { name: 'drama_render', arguments: { ...args, ...extra },
     callId: ToolCallId('local-speech-coverage'), signal: new AbortController().signal })
   return { project, ctx, args, invoke, subtitle, receipt, audio, video,
     files: [video, ...independentAudio ? [audio] : [], receipt, raw, subtitle, shots, timeline, mapping, config] }
@@ -194,7 +197,10 @@ it('requires the explicit local comparison inputs and rejects unrelated overlay 
     expect(() => Renderer.resolveCall(args)).toThrow(`需要 ${label}`)
   }
   expect(() => Renderer.resolveCall({ ...base, subtitlePlan: 'overlay.json' })).toThrow('最终完整显示')
-  expect(Renderer.resolveCall({ method: 'prepare', project: '.', episode: 1, shots: 'shots.json',
-    subtitleSrt: 'final.srt', speechTranscripts: 'map.json' })).toMatchObject({ method: 'prepare', transcriptsPath: expect.stringMatching(/map\.json$/u) })
+  const prepared = Renderer.resolveCall({ method: 'prepare', project: '.', episode: 1, shots: 'shots.json',
+    subtitleSrt: 'final.srt', speechTranscripts: 'map.json' })
+  expect(prepared.method).toBe('prepare')
+  if (prepared.method !== 'prepare') throw new Error('Expected prepared render inputs')
+  expect(prepared.transcriptsPath).toMatch(/map\.json$/u)
   expect(() => Renderer.resolveCall({ method: 'prepare', project: '.', episode: 1, speechDecisions: 'decisions.json' })).toThrow('仅用于 speech_coverage')
 })

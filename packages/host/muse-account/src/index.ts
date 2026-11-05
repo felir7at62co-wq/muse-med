@@ -158,6 +158,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       reconnectMaxIntervalMs: config.remoteReconnectMaxIntervalMs,
       localAuthorization: async () => {
         const port = webServer.port
+        if (port === undefined) throw Error('muse-account: local Host is not listening')
         const bootstrap = connection.authenticatedUrl(`http://127.0.0.1:${port}`)
         const response = await fetch(bootstrap, { redirect: 'manual', signal: AbortSignal.timeout(config.requestTimeoutMs) })
         const cookie = response.headers.getSetCookie().map(header => header.split(';', 1)[0]).join('; ')

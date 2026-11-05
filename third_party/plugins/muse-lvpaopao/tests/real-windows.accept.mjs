@@ -1,3 +1,4 @@
+import { executeTool } from '../../checks/tool-call.mjs'
 /** Explicit test-only acceptance fixture. Nothing connects without --execute. */
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, writeFile, lstat, chmod, rm } from 'node:fs/promises'
@@ -129,7 +130,7 @@ async function run(args) {
     // This test driver supplies a real Session to the public initiator scope; it makes no model request.
     const agent = { session, ctx }
     async function call(action, params = {}) {
-      const result = await ctx.agents.withInitiator(agent, () => ctx.tools.execute({
+      const result = await ctx.agents.withInitiator(agent, () => executeTool(ctx, {
         callId: `real-lvpaopao-${receipt.calls.length + receipt.statusCalls + 1}`,
         name: 'lvpaopao', arguments: { action, ...params }, signal: controller.signal }))
       if (result.isError || result.content.length !== 1 || result.content[0].type !== 'text') throw Error('tool-result-invalid')

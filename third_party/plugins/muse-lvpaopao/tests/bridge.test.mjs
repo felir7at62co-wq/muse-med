@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { Context } from '@deepseek-ai/cordis'
-import { AgentRegistry } from '@deepseek-ai/dsh-agent'
+import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import LvpaopaoBridge from '../src/bridge.ts'
 import { ACTIONS } from '../src/port.ts'
 
@@ -83,7 +83,7 @@ async function fixture(t, subprocess, { config = rawConfig, maxQueuedRequests = 
   if (config !== undefined && config !== null) await writeFile(connectionFile, JSON.stringify(config), { mode: 0o600 })
   const ctx = new Context()
   t.after(async () => { try { await ctx.fiber.dispose() } finally { await rm(directory, { recursive: true, force: true }) } })
-  await ctx.plugin(AgentRegistry)
+  await mountAgentLoopTestDependencies(ctx)
   ctx.provide('subprocess', subprocess)
   const fiber = ctx.plugin(LvpaopaoBridge, { connectionFile, maxQueuedRequests, autoSetup })
   await fiber.await()

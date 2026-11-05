@@ -1,3 +1,4 @@
+import { executeTool } from './.muse-tool-call.mjs'
 /** Native surface activation with production AgentLoop/presets/persistence and an inert Feishu wire. */
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
@@ -13,7 +14,7 @@ import { boot } from '@deepseek-ai/dsh-app-boot'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import AgentPresets from '@deepseek-ai/dsh-agent-preset-registry'
-import Persistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import * as Persistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import { WSClient } from '@larksuiteoapi/node-sdk'
 
@@ -177,12 +178,12 @@ ctx.effect(()=>ctx.tools.register({name:'web_search',description:'fixture',param
   assert.equal(new TextDecoder().decode(sent.find(item => item.kind === 'file').bytes), 'real delivery')
   const sentCount = sent.length
   const rejectDelivery = agent.ctx.on('deliverables/validate', () => { throw new Error('managed screenplay validation rejected') })
-  const blocked = await ctx.tools.execute({ callId: 'managed-blocked', name: 'send_file', arguments: { path: 'delivery.txt' }, agent, signal: new AbortController().signal })
+  const blocked = await executeTool(ctx, { callId: 'managed-blocked', name: 'send_file', arguments: { path: 'delivery.txt' }, agent, signal: new AbortController().signal })
   rejectDelivery()
   assert.equal(blocked.isError, true)
   assert.match(blocked.error.message, /managed screenplay validation/u)
   assert.equal(sent.length, sentCount)
-  const success = await ctx.tools.execute({ callId: 'native-file', name: 'send_file', arguments: { path: 'delivery.txt' }, agent, signal: new AbortController().signal })
+  const success = await executeTool(ctx, { callId: 'native-file', name: 'send_file', arguments: { path: 'delivery.txt' }, agent, signal: new AbortController().signal })
   assert.equal(success.isError, false)
   const outside = join(root, 'outside')
   mkdirSync(outside)
@@ -190,7 +191,7 @@ ctx.effect(()=>ctx.tools.register({name:'web_search',description:'fixture',param
   const escape = join(workspace, 'escape')
   symlinkSync(outside, escape, process.platform === 'win32' ? 'junction' : 'dir')
   const beforeFiles = sent.filter(item => item.kind === 'file').length
-  const rejected = await ctx.tools.execute({ callId: 'outside-file', name: 'send_file', arguments: { path: 'escape/private.txt' }, agent, signal: new AbortController().signal })
+  const rejected = await executeTool(ctx, { callId: 'outside-file', name: 'send_file', arguments: { path: 'escape/private.txt' }, agent, signal: new AbortController().signal })
   assert.equal(rejected.isError, true)
   assert.match(rejected.error.message, /physical Session workspace/u)
   first.action({ chatId: 'oc_private', messageId: questionCard.messageId, operatorOpenId: 'ou_owner', value: { kind: 'send-produced', path: 'escape/private.txt' } })
