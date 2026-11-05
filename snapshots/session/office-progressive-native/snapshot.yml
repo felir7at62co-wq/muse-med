@@ -3,6 +3,7 @@ scenario: office-progressive-native
 profile: headless
 composition: office-render-tools
 recording: authored
+writerOutput: true
 header:
   class: office-render-tools
   pin: true
