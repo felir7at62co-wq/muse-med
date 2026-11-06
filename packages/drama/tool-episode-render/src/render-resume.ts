@@ -122,8 +122,9 @@ export async function findRenderResumeCandidate(input: VerifyInput & { requireSu
       const record = await readSourceRecord(receipt)
       if (record?.request_sha256 !== request.sha256 || record.episode !== input.episode) continue
       if (record.delivery_inputs == null || !Array.isArray(record.input_files)) continue
+      const visual: unknown = record.delivery_inputs.subtitle_visual_verification?.visual
       if (input.requireSubtitleVisualVerification && (record.delivery_inputs.subtitle_visual_verification?.delivery === undefined
-        || record.delivery_inputs.subtitle_visual_verification.visual === undefined)) continue
+        || visual === undefined)) continue
       if (emitsStem) {
         await requireProjectAudioFile(input.project, stem)
         if (await fileSha256(stem) !== record.music_stem_sha256) continue

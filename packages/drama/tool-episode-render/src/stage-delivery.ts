@@ -80,7 +80,8 @@ async function readBoundText(path: string, expected: string): Promise<string> {
 /** Use the renderer's exact consumed inputs when checking the episode's music decision. */
 async function checkBoundMusicDecision(input: VerifyInput, music: DeliveryRenderInputs['music'], bodyEnd: number,
   checked: ReadonlyMap<string, string | null>) {
-  if (!object(music) || (music.mode !== 'music' && music.mode !== 'none') || typeof music.gain !== 'number') {
+  const mode: unknown = music?.mode
+  if (!object(music) || (mode !== 'music' && mode !== 'none') || typeof music.gain !== 'number') {
     throw new Error('工作成片缺少严格配乐来源，请以当前配乐决定重新执行 resume=true 渲染。')
   }
   const bound = (path: string | undefined, label: string) => {

@@ -206,7 +206,7 @@ function payload(board: Row, audio: Row[], bindings: AudioBinding[], prompt: str
       && newMarkers.some(next => next.key === marker.key && next.name === marker.name))))
   const newImages = newMarkers.filter(marker => !keys.includes(marker.key))
   if (stableJson(oldImages) !== stableJson(newImages)) {
-    const mismatch = oldImages.findIndex((marker, index) => marker.key !== newImages[index]?.key || marker.name !== newImages[index]?.name)
+    const mismatch = oldImages.findIndex((marker, index) => marker.key !== newImages[index]?.key || marker.name !== newImages[index].name)
     const index = mismatch === -1 ? oldImages.length : mismatch
     invalid(`Audio edits must preserve image marker names, keys and order (first mismatch: ${oldImages[index]?.key ?? 'none'} → ${newImages[index]?.key ?? 'none'}). To repair a dangling voice marker, retain its name and key and supply its verified audio_asset_id.`)
   }

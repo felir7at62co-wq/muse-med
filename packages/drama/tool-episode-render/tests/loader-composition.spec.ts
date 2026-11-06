@@ -93,7 +93,7 @@ it('prepares strict source-review projects through the Loader without leaking po
     const report = await invoke(tool, { method: 'prepare', project: root, episode: 1,
       shots: 'shots.json', subtitle_srt: 'source.srt', bgm: 'approved-bgm.wav' }) as DramaRenderReport
     expect(report.render_preview?.delivery).toEqual({ visual_medium: 'animation_3d', width: 480, height: 854, fps: 24 })
-    const timeline = JSON.parse(await readFile(join(root, 'editing', '01-timeline.json'), 'utf8'))
+    const timeline = JSON.parse(await readFile(join(root, 'editing', '01-timeline.json'), 'utf8')) as { delivery: unknown }
     expect(timeline.delivery).toMatchObject({ require_source_review: true,
       subtitle: { require_no_punctuation: true, require_speech_coverage: true }, audio: { require_music_decision: true } })
     const leaked = { ...report, render_preview: { ...report.render_preview,

@@ -219,8 +219,10 @@ it('records a failed continuation for review without scheduling another turn', a
     await store.create({ id, sessionId, createdAt: 0, deadlineAt: 1,
       packs: [{ key: 'f'.repeat(64), previewPath: join(root, 'preview.json'),
         outcome: { status: 'unverified', detail: 'No provider requests are necessary.' } }], notice })
-    await vi.waitFor(async () => expect(await store.load(id)).toMatchObject({ reviewRequired: true,
-      notice: { id: notice.id, deliveredAt: expect.any(Number) } }), { timeout: 3000 })
+    await vi.waitFor(async () => {
+      expect(await store.load(id)).toMatchObject({ reviewRequired: true,
+        notice: { id: notice.id, deliveredAt: expect.any(Number) as number } })
+    }, { timeout: 3000 })
     expect((await store.load(id))?.recoveryNotice).toBeUndefined()
     expect(await store.listActive()).toEqual([])
     expect(adapter.requests).toHaveLength(1)
@@ -245,7 +247,8 @@ it('wakes recovery after a persisted download when the continuation turn was int
   const bytes = Buffer.from('000000106674797069736f6d00000000', 'hex')
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     requests += 1
-    if (String(input) !== url || init?.method !== 'GET') throw new Error('Unexpected request while recovering a verified download')
+    const requestedUrl = input instanceof Request ? input.url : input.toString()
+    if (requestedUrl !== url || init?.method !== 'GET') throw new Error('Unexpected request while recovering a verified download')
     return new Response(Uint8Array.from(bytes))
   })
   try {
@@ -256,7 +259,7 @@ it('wakes recovery after a persisted download when the continuation turn was int
     const agent = await first.agentLoop.create(sessionId, selection, { cwd: root })
     agent.followup(freezeMessage<UserMessage>({ id: MessageId(notice.id), role: 'user',
       content: [{ type: 'text', text: notice.text }], source: { kind: 'jubian-generation-watch', form: 'notice', summary: 'Verified' } }))
-    await vi.waitFor(() => expect(before.requests).toHaveLength(2))
+    await vi.waitFor(() => { expect(before.requests).toHaveLength(2) })
     expect((await readFile(output)).equals(bytes)).toBe(true)
     expect(requests).toBe(1)
     expect(await first.sessions.flush(agent.session)).toBe(true)
@@ -303,7 +306,7 @@ it('wakes recovery after a persisted download when the continuation turn was int
       const results = replayed.filter(event => event.type === 'tool/result')
       expect(results).toHaveLength(2)
       const reused = results[1]?.data.message.content.find(block => block.type === 'text')
-      expect(reused?.type === 'text' && JSON.parse(reused.text).reused).toBe(true)
+      expect(reused?.type === 'text' && (JSON.parse(reused.text) as { reused?: unknown }).reused).toBe(true)
       expect(replayed.filter(event => event.type === 'turn/end' && event.data.reason.kind === 'interrupted')).toHaveLength(1)
       expect(replayed.filter(event => event.type === 'turn/end' && event.data.reason.kind === 'completed')).toHaveLength(1)
     } finally { await handle.close() }

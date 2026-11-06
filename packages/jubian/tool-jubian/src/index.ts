@@ -686,7 +686,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         deliver: (sessionId, notice, signal, groupOrigin, groupReceiptId) =>
           deliverGenerationWatchNotice(scope, sessionId, notice, signal, groupOrigin, groupReceiptId),
         withoutInitiator: operation => scope.agents.withoutInitiator(operation),
-        warn: (message, error) => scope.logger.warn(message, error),
+        warn: (message, error) => { scope.logger.warn(message, error) },
       })
       generationWatch = watch
       watch.start()
@@ -1140,13 +1140,13 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         if (!watch || !sessionController) throw new Error('Generation watch requires the Host Session controller and persistence')
         const owner = await sessionController.resolveAgent(agent.session.id)
         if ('error' in owner) throw new Error('Submit paid video from the ordinary owning Muse session so it can resume after restart.')
-        exec.signal?.throwIfAborted()
+        exec.signal.throwIfAborted()
         const packs = method === 'submit_video_batch'
           ? (input.video_previews ?? []).map(item => ({ previewPath: resolve(item.preview_path), key: requireKey(item.idempotency_key) }))
           : [{ previewPath: await resolvePreviewPath(input), key: requireKey(input.idempotency_key) }]
         if (packs.length === 0 || packs.length > videoBatch.maxItems) return await dispatch()
         await assertNewNativeDispatchAllowed(ledger, packs)
-        const team: { captureGenerationWatchOrigin?: (sessionId: string) => unknown } | undefined = ctx.get('museTeam')
+        const team = ctx.get('museTeam') as { captureGenerationWatchOrigin?: (sessionId: string) => unknown } | undefined
         const groupOrigin = team?.captureGenerationWatchOrigin?.(agent.session.id)
         const enrollment = await watch.enroll(agent.session.id, packs,
           groupOrigin === undefined ? undefined : generationWatchGroupOrigin.parse(groupOrigin))

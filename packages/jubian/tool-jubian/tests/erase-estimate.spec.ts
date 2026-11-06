@@ -70,7 +70,7 @@ describe('caller-declared erasure reservations', () => {
     const { client, ledger, paidCalls } = await fixture({ catalogue })
     const freeKey = 'free-before-yudian'
     await expect(storyboardMethod(client, ledger, { ...FREE_ARGS, idempotency_key: freeKey }))
-      .rejects.toMatchObject({ detail: expect.stringContaining('no erasure was submitted') })
+      .rejects.toMatchObject({ detail: expect.stringContaining('no erasure was submitted') as string })
     expect(await ledger.find(freeKey)).toBeUndefined()
     const paidArgs = { ...ARGS, model_id: MODELS[0], platform_id: 'YU_DIAN' }
     await expect(storyboardMethod(client, ledger, paidArgs)).resolves.toMatchObject({
@@ -234,13 +234,15 @@ describe('verified-free-only erasure', () => {
     ['unavailable catalogue', undefined],
   ] as const)('refuses %s even with a positive budget and trusted estimate', async (_name, catalogue) => {
     const { client, ledger, calls, paidCalls } = await fixture({ catalogue, approvedEstimate: '1.00' })
-    await expect(storyboardMethod(client, ledger, FREE_ARGS)).rejects.toMatchObject({ detail: expect.stringContaining('only_if_verified_free') })
+    await expect(storyboardMethod(client, ledger, FREE_ARGS)).rejects.toMatchObject({
+      detail: expect.stringContaining('only_if_verified_free') as string,
+    })
     expect(calls.filter(call => call.path === '/model/charge/getSelectList?taskType=10')).toHaveLength(1)
     expect(paidCalls()).toEqual([])
     expect(await ledger.records()).toEqual([])
   })
 
-  it.each([ESTIMATE, { estimated_cost_cny: '0' }, { estimate_basis: 'caller claim' }])('refuses a supplied estimate before any request: %j', async estimate => {
+  it.each([ESTIMATE, { estimated_cost_cny: '0' }, { estimate_basis: 'caller claim' }])('refuses a supplied estimate before any request: %j', async (estimate) => {
     const { client, ledger, calls } = await fixture({ catalogue: [FIRE_ROW] })
     await expect(storyboardMethod(client, ledger, { ...FREE_ARGS, ...estimate })).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
     expect(calls).toEqual([])
@@ -252,7 +254,7 @@ describe('verified-free-only erasure', () => {
     await storyboardMethod(client, ledger, { ...ARGS, model_id: MODELS[1], ...ESTIMATE })
     const count = calls.length
     await expect(storyboardMethod(client, ledger, FREE_ARGS)).rejects.toMatchObject({ code: 'CONTRACT_CHANGED',
-      detail: expect.stringContaining('no matching verified free quote') })
+      detail: expect.stringContaining('no matching verified free quote') as string })
     expect(calls).toHaveLength(count)
     expect(paidCalls()).toHaveLength(1)
   })

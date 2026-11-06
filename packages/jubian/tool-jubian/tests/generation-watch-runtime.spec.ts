@@ -37,7 +37,7 @@ it.each([
     await store.create({ id, sessionId: SessionId('failed-read-owner'), createdAt: 0, deadlineAt: 0,
       packs: [{ key: 'b'.repeat(64), previewPath: join(root, 'preview.json') }] })
     const first = start()
-    await vi.waitFor(async () => expect((await store.load(id))?.notice?.deliveredAt).toBeDefined())
+    await vi.waitFor(async () => { expect((await store.load(id))?.notice?.deliveredAt).toBeDefined() })
     await first.close()
     expect((await store.load(id))?.packs[0]?.outcome?.status).toBe('unverified')
     expect(deliver).toHaveBeenCalledOnce()
@@ -45,7 +45,7 @@ it.each([
     if (warns) expect(warn).toHaveBeenCalledWith(`Generation watch ${id} could not verify a provider read`, error)
     const scans = vi.spyOn(store, 'listActive')
     const second = start()
-    await vi.waitFor(() => expect(scans).toHaveBeenCalled())
+    await vi.waitFor(() => { expect(scans).toHaveBeenCalled() })
     await second.close()
     expect(reconcile).toHaveBeenCalledOnce()
     expect(deliver).toHaveBeenCalledOnce()
@@ -148,7 +148,7 @@ it.each([false, true])('restores a partially verified batch without another PUT 
     expect(initial).toBe(true)
     await first.finishDispatch(id, { results: [{ idempotency_key: keys[0], status: 'submitted', task_id: '42' },
       { idempotency_key: keys[1], status: 'reconcile_required', early_task_id: '999' }] })
-    await vi.waitFor(async () => expect((await store.load(id))?.nextPollAt).toBeDefined(), { timeout: 2000, interval: 10 })
+    await vi.waitFor(async () => { expect((await store.load(id))?.nextPollAt).toBeDefined() }, { timeout: 2000, interval: 10 })
     await first.close()
     const before = await store.load(id)
     expect(before?.packs.map(pack => pack.taskId)).toEqual([42, undefined])
@@ -161,7 +161,9 @@ it.each([false, true])('restores a partially verified batch without another PUT 
     const restoredStore = new GenerationWatchStore(join(root, 'watches'))
     restored = createRuntime(restoredStore)
     restored.start()
-    await vi.waitFor(async () => expect((await restoredStore.load(id))?.notice?.deliveredAt).toBeDefined(), { timeout: 2000, interval: 10 })
+    await vi.waitFor(async () => {
+      expect((await restoredStore.load(id))?.notice?.deliveredAt).toBeDefined()
+    }, { timeout: 2000, interval: 10 })
     const after = await restoredStore.load(id)
     expect(after?.deadlineAt).toBe(before?.deadlineAt)
     expect(after?.packs.map(pack => [pack.taskId, pack.outcome?.status, pack.outcome?.outputs?.[0]?.subtask_id])).toEqual(duplicate

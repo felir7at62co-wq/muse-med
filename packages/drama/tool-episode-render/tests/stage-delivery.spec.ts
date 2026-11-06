@@ -222,11 +222,12 @@ describe('stageEpisodeDelivery', () => {
       expect(await fileSha256(f.input.output)).toBe(f.sha256)
     } else {
       expect((await attempt).delivery_package?.status).toBe('candidate')
-      const receipt = JSON.parse(await readFile(f.receipt, 'utf8'))
+      const receipt = JSON.parse(await readFile(f.receipt, 'utf8')) as { music_decision?: unknown }
       if (decision === undefined) expect(receipt).not.toHaveProperty('music_decision')
-      else expect(receipt.music_decision).toMatchObject({ decision, plan_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) })
+      else expect(receipt.music_decision).toMatchObject({ decision, plan_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) as string })
       if (decision === 'music') expect(receipt.music_decision).toMatchObject({ mix_gain: 0.2,
-        bed_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u), generation_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        bed_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) as string,
+        generation_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) as string,
       })
     }
   })

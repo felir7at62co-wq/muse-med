@@ -97,13 +97,13 @@ export async function deliverGenerationWatchNotice(ctx: Context, sessionId: Sess
   if (controller === undefined) throw new Error('Generation watch delivery requires the Host session controller')
   const receiptId = groupReceiptId ?? notice.id
   if (groupOrigin !== undefined) {
-    const team: { prepareGenerationWatchDelivery?: (handoff: {
+    const team = ctx.get('museTeam') as { prepareGenerationWatchDelivery?: (handoff: {
       workerSessionId: string
       origin: GenerationWatchGroupOrigin
       receiptId: string
       noticeId: string
       text: string
-    }) => Promise<void> } | undefined = ctx.get('museTeam')
+    }) => Promise<void> } | undefined
     if (team?.prepareGenerationWatchDelivery === undefined) {
       throw new Error('Generation watch is waiting for the original Muse Bot group service')
     }
