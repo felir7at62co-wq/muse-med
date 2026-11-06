@@ -1042,7 +1042,7 @@ describe('jubian_video', () => {
     const { client, calls } = stubClient(request => request.path.includes('/list') ? { rows: [] } : { id: 42 })
     await videoMethod(client, ledger, { method: 'task', task_id: 42 })
     await videoMethod(client, ledger, { method: 'tasks', script_id: 2708, page_num: 2 })
-    expect(calls[1]?.path).toContain('taskType=1&pageNum=2')
+    expect(calls[1]?.path).toBe('https://web.jubianai.net/prod-api/admin/aigc/video/task/list?scriptId=2708&pageNum=2&pageSize=20')
     expect(await videoMethod(client, ledger, { method: 'unresolved', script_id: 2708 }))
       .toMatchObject({ unresolved: [] })
     await ledger.begin({ idempotencyKey: 'pending-native', method: 'storyboard_native_submit',

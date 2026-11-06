@@ -41,7 +41,7 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 
 提取声线或复用成片前，用 `jubian_video sources` 提供精确 `script_id` 与原 `storyboard_id` 查询已有媒体。它只读核对卡片、任务及子结果身份，在配置范围内翻页读取历史，返回成功视频 URL 和原任务／结果 ID，不要求与当前模型或分辨率一致。原卡已关联的任务即使未出现在完整项目列表中，也会继续核对；两份历史不一致时，查询覆盖标记为不完整。 同一任务的卡片归属冲突时也标记覆盖不完整，来源卡片只能由独立任务详情及子结果证据确认。`available` 表示存在已核实媒体，`pending` 表示原任务或子任务仍在运行，`none_found` 表示完整查询后未找到成功媒体，`unknown` 保留查询不完整或无法读取的状态。这些结论不授权生成，也不证明实际说话人或视频内容合格。
 
-`tasks` 与 `subtasks` 实际传递 `page_num`、`page_size`，并返回查询时间、返回数量、`complete`、`has_more` 与 `next_page`。`complete` 只描述本次响应；读到末页不代表前页已查。部分查询未返回某条记录，不证明该卡从未生成。`prepare_video` 同时返回提示性 `existing_video_sources`，这些观测不写进冻结预览，也不改变生成指纹。历史查询失败时，准备仍可完成，来源覆盖标记为未知。
+`tasks` 与 `subtasks` 实际传递 `page_num`、`page_size`，并返回查询时间、返回数量、`complete`、`has_more` 与 `next_page`。`tasks` 默认查询全部任务类型；显式正整数 `task_type` 才筛选提供方列表。`scope` 记录项目和筛选条件，`total_verified` / `complete` 仅适用于该范围。按类型筛选时 `project_complete` 恒为 false，空筛选结果不代表项目为空。`complete` 只描述本次响应；读到末页不代表前页已查，即使提供方列表完整也不证明提供方保留了全部历史。部分查询未返回某条记录，不证明该卡从未生成。来源查询的项目回退同样先读取全部任务类型，再核对卡片归属。`prepare_video` 返回提示性 `existing_video_sources`，这些观测不写进冻结预览，也不改变生成指纹。历史查询失败时，准备仍可完成，来源覆盖标记为未知。
 
 来源查询使用 `videoSourcePageSize`（100）、`videoSourcePageLimit`（20）、`videoSourceTaskLimit`（50）、`videoSourceResultLimit`（20），四项范围均为 1–100；`videoSourceMaxResultChars` 默认将完整结果限制为 12000 个 JSON 字符，范围 2048–1000000。达到限制时保留能容纳的已核实记录，删除整行而不截断 URL，并明确覆盖不完整。来源查询或缺少声线样本不会发起付费请求。新用户消息不再自动追加提取或复用提示；历史提示仍作为已保存的普通上下文保留。
 
@@ -259,6 +259,8 @@ inherited process environment (read-only, highest)
 `jubian_snatch` 在明确的 UTC 开止窗口中启动当前进程内的作业。`scope=ids` 要求已授权的 ID 列表；`scope=new_claimable` 启动时先取得完整池子基线，只考虑后来新出现且 `canClaim=1` 的行。每本的 key 由调用方给出的 `idempotency_prefix` 与 ID 构成；作业到窗口或数量上限即停止，逐本结果由 `job_output` 返回。工具不会把列表结果当成授权。随包的 [jubian-snatch skill](../../../packages/drama/skills/skills/jubian-snatch/SKILL.md) 要求 agent 在认领前核对用户原话；工具调用里的授权摘要可供审计，但不是独立的同意证明。Host 重启会结束作业，不会自动恢复。
 
 ### 后台观察操作
+
+未加载生产者时，生成通知仍是普通用户上下文：读取方保留来源元数据、正文及消息身份。生产者用该身份防止重复投递。可选的群聊元数据不授权接收者。团队核对执行者已持久化的群聊分工后，另行建立回传记录；通知投递以回执、通知及执行者 Session ID 查找该记录，并重新核对当前成员。证据缺失时要求复核，不依据通知中的元数据路由。
 
 启用 `generationWatch` 后，`submit_video`、`submit_video_batch` 和 `generate` 的原生提交阶段会在发出请求前用原 preview key 保存检查点。工具结果包含 `generation_watch_id`。Host 自动观察这些任务，重启后使用同一观察目录和账本恢复未完检查点。回执缺失时按原 key 只读对账。
 

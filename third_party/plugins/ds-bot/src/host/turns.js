@@ -470,17 +470,21 @@ export function install(rt) {
         const opened = entry.opened === true
         const opensTurn = !bare(source)
           && (source?.kind === 'user' || source?.kind === REPLY_KIND || source?.kind === 'schedule' || source?.kind === SOURCE_KIND)
-        if (entry.turn !== undefined && source?.kind === GENERATION_WATCH_KIND && source.form === 'notice' && source.groupOrigin !== undefined) {
+        if (entry.turn !== undefined && source?.kind === GENERATION_WATCH_KIND && source.form === 'notice') {
           const noticeId = source.groupReceiptId === undefined ? event.data.id : source.groupReceiptId
-          if (!entry.generationWatches.some(watch => watch.noticeId === noticeId)) {
-            entry.watchOpened ||= !opened
+          const origin = isGenerationWatchId(noticeId) ? rt.generationWatchOrigin?.(id, noticeId, event.data.id) : undefined
+          entry.watchOpened ||= !opened
+          entry.opened = true
+          if (origin !== undefined && !entry.generationWatches.some(watch => watch.noticeId === noticeId)) {
             entry.watchReply = !opened
-            entry.opened = true
             entry.generationWatches.push({
               noticeId,
-              origin: isGenerationWatchId(noticeId) ? rt.museTeam.validateGenerationWatchOrigin(id, source.groupOrigin) : undefined,
+              origin,
               text: textOf(event.data.content),
             })
+          } else if (origin === undefined) {
+            entry.watchReply = false
+            if (source.groupOrigin !== undefined) rt.warn('ds-bot: generation result %s needs review: no matching saved group handoff; the notice remains in Session %s', noticeId, id)
           }
         } else if (entry.turn !== undefined) {
           if (opensTurn) entry.opened = true

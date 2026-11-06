@@ -120,6 +120,13 @@ interface Agent {
   send(message: UserMessage, target: InboxTarget, wakeup: boolean): void
 
   /**
+   * Wake the driver for an identified message already in the durable inbox.
+   * @param messageId - the pending message to resume.
+   * @returns whether the message was still pending when checked.
+   */
+  wakePending?(messageId: MessageId): boolean
+
+  /**
    * Queue an ordinary follow-up turn and wake the driver. The item becomes the
    * sole ordinary message of its own turn.
    * @param message - identified prompt content and the source that supplied it.
