@@ -51,6 +51,8 @@ Office 组合全局注册 `manuscript_revision`，对照实际上一稿与返回
 
 `manuscript_work` 在会话独立的 `.muse/manuscript-work/` 记录中关联明确任务、来源文件和本轮采用稿路径，保留不可覆盖的文字快照，不按修改时间猜采用稿。初稿尚未创建时也可用 `read_source` 读取已绑定的来源，并沿用其精确位置和 `source_sha256` 续读。阅读覆盖按该来源版本报告已返回字符与缺读范围，标记为 `coverage_basis: returned_source_text`、`semantic_assessment: not_performed`。完成仅表示文字已返回，不代表理解或语义审校通过。
 
+模型可见的 `manuscript_work` 结果中，已声明的 `path`、`source_path`、`file_path` 字段及 `paths`、`source_paths`、`candidate_paths`、`missing_files` 数组元素，位于 Session 规范工作目录内时以 `./relative` 和 `/` 分隔符返回，调用方须相对此 Session cwd 解析。外部绝对路径、引文、笔记及其他业务正文保持不变。持久任务记录保留原生绝对路径，已有绝对路径输入仍可使用。
+
 Host 专用的会话投影按真实用户消息和成功的任务绑定，还原真人最初要求文本及后续补充。上下文压缩和恢复时引用当前绑定任务的要求，保留问题编号与输出格式；分叉继承的前缀不作新请求。已有日志可重建旧会话的要求，缺少真实请求时明确报告不可用。遵循后续真人修正，不从摘要另造一组问题。
 
 完整内部要求通知的 `manuscriptTaskRequestChars` 默认为 16000 个 UTF-16 单元，最小为 1024。更长要求保留原文，通过 `task_request` 分页回读。续读携带返回的 `request_sha256`、`offset` 和 Unicode 码点 `column`；真人修改或重新绑定后旧版本失效。要求分页共用 `sourceReadMaxResultCharacters`。回读已保存要求不会重新绑定任务或清空来源阅读进度。

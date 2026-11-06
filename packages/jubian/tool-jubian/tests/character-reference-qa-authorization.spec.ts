@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -763,6 +763,25 @@ describe('character-reference isolated QA authorization store', () => {
     await writeFile(fileRoot, 'blocked')
     await expect(openCharacterReferenceQaAuthorizationStore({ dataRoot: fileRoot, databasePath: join(fileRoot, 'db.sqlite') }))
       .rejects.toMatchObject({ code: 'invalid-config', cause: { code: 'EEXIST' } })
+  })
+
+  it.each(['-journal', '-shm', '-wal'])('refuses a SQLite %s sidecar directory before opening the ledger', async (suffix) => {
+    const root = await mkdtemp(join(tmpdir(), 'reference-db-sidecar-directory-'))
+    dirs.push(root)
+    const path = join(root, 'authorization.sqlite')
+    const sidecar = path + suffix
+    await mkdir(sidecar, { mode: 0o700 })
+    const opening = openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })
+    await expect(opening).rejects.toMatchObject({ code: 'invalid-config' })
+    await expect(opening).rejects.toThrow('sidecar must be a real file')
+    expect(await readFile(path)).toHaveLength(0)
+
+    await rm(sidecar, { recursive: true })
+    const store = await openCharacterReferenceQaAuthorizationStore({ dataRoot: root, databasePath: path })
+    if (store === undefined) throw new Error('test path unexpectedly disabled the QA authorization store')
+    stores.push(store)
+    store.appendGrant(grant())
+    expect(store.inspect(binding()).grant).toEqual(grant())
   })
 
   it('refuses malformed durable rows and inconsistent managed-reference evidence', async () => {

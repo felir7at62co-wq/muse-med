@@ -28,7 +28,7 @@ const auditSchema = z.object({ semantic_assessment: z.literal('not_performed'),
     returned_characters: z.number(), total_characters: z.number() })) })
 
 async function fixture(source: string) {
-  const cwd = await mkdtemp(join(tmpdir(), 'manuscript-source-cues-integration-')); roots.push(cwd)
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'manuscript-source-cues-integration-'))); roots.push(cwd)
   const path = join(cwd, 'source.txt'), session = SessionId('source-cues-integration')
   await writeFile(path, source, { flag: 'wx' })
   const work = new ManuscriptWork(Config({ sourceReadMaxLines: 1 }))
@@ -49,19 +49,19 @@ it('audits literal full cue lines with source hash and actual scopes without sav
   const f = await fixture(source), stateBefore = await readFile(f.statePath, 'utf8')
   const write = vi.spyOn(Atomic, 'writeFileAtomic')
   const audit = await f.audit()
-  expect(audit.sources).toEqual([{ path: f.sourcePath, sha256: f.sourceSha }])
+  expect(audit.sources).toEqual([{ path: './source.txt', sha256: f.sourceSha }])
   expect(audit.source_cues).toEqual([
-    { source_path: f.sourcePath, source_sha256: f.sourceSha, line: 1, text: '△未分集导航😀。', citation_labels: [
+    { source_path: './source.txt', source_sha256: f.sourceSha, line: 1, text: '△未分集导航😀。', citation_labels: [
       { start_line: 1, end_line: 1, episode: 'unassigned', scene_id: null, source_scene_id: null },
     ] },
-    { source_path: f.sourcePath, source_sha256: f.sourceSha, line: 4, text: ' \t△原稿提示：门开；仅作导航。  ', citation_labels: [
+    { source_path: './source.txt', source_sha256: f.sourceSha, line: 4, text: ' \t△原稿提示：门开；仅作导航。  ', citation_labels: [
       { start_line: 4, end_line: 4, episode: '第六集', scene_id: '6-1', source_scene_id: 'source-scene-1' },
     ] },
-    { source_path: f.sourcePath, source_sha256: f.sourceSha, line: 9, text: '△跨集提示原句完整保留。', citation_labels: [
+    { source_path: './source.txt', source_sha256: f.sourceSha, line: 9, text: '△跨集提示原句完整保留。', citation_labels: [
       { start_line: 9, end_line: 9, episode: '第七集', scene_id: '7-1', source_scene_id: 'source-scene-2' },
     ] },
   ])
-  expect(audit.reading_coverage[0]).toMatchObject({ path: f.sourcePath, sha256: f.sourceSha,
+  expect(audit.reading_coverage[0]).toMatchObject({ path: './source.txt', sha256: f.sourceSha,
     complete: false, returned_characters: 0 })
   expect(write).not.toHaveBeenCalled()
   expect(await readFile(f.statePath, 'utf8')).toBe(stateBefore)
@@ -93,7 +93,7 @@ it('follows the real source_cues audit collection pages without turning index re
   expect(directory.report_sections).toContainEqual(expect.objectContaining({ section: 'source_cues', total_items: 48 }))
   const audit = await f.audit()
   expect(audit.source_cues.map(cue => cue.text)).toEqual(cues)
-  expect(audit.source_cues.every(cue => cue.source_path === f.sourcePath && cue.source_sha256 === f.sourceSha)).toBe(true)
+  expect(audit.source_cues.every(cue => cue.source_path === './source.txt' && cue.source_sha256 === f.sourceSha)).toBe(true)
   expect(audit.source_cues[0]).toMatchObject({ line: 3,
     citation_labels: [{ start_line: 3, end_line: 3, episode: '第六集', scene_id: '6-1', source_scene_id: 'source-scene-1' }] })
   expect(audit.source_cues.at(-1)).toMatchObject({ line: 52,

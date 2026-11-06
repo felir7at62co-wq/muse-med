@@ -1,5 +1,6 @@
 /** Current manuscript evidence survives bounded checkpoint recovery without stale facts. */
 import { expect, it } from 'vitest'
+import { join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import TokenMeter from '@deepseek-ai/dsh-token-meter'
@@ -35,6 +36,27 @@ function input(): ManuscriptCheckpointInput {
     known_read_sources: 1,
   }
 }
+
+it('selects the same complete facts under a tight budget in short and long workspaces', () => {
+  const render = (cwd: string) => {
+    const base = input(), source = join(cwd, 'source.txt')
+    const evidence = (values: (typeof base.characters)[number]['evidence']) => values.map(anchor => ({ ...anchor, source_path: source }))
+    return formatManuscriptCheckpoint({ ...base,
+      sources: [{ ...base.sources[0]!, path: source }],
+      files: [{ ...base.files[0]!, path: join(cwd, 'current.md') }],
+      coverage: base.coverage.map(row => ({ ...row, path: source })),
+      characters: base.characters.map(row => ({ ...row, evidence: evidence(row.evidence) })),
+      relationships: base.relationships.map(row => ({ ...row, evidence: evidence(row.evidence) })),
+      event_notes: base.event_notes.map(row => ({ ...row, source_path: source })),
+    }, { maxCharacters: 2000, cwd })
+  }
+  const short = render(resolve('short')), long = render(resolve('long-workspace-'.repeat(8)))
+  expect(short).toEqual(long)
+  expect(short.truncated).toBe(true)
+  expect(short.characters).toBeLessThanOrEqual(2000)
+  expect(short.text).toContain('./source.txt')
+  expect(Object.values(short.omitted).some(count => count > 0)).toBe(true)
+})
 
 function comparison() {
   const path = '/project/source.txt'

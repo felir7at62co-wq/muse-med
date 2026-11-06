@@ -9,7 +9,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import z from '@deepseek-ai/schemastery'
-import { mkdtemp, mkdir, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as ReadSnapshotVersion from './fixtures/read-snapshot-version.mjs'
@@ -19,7 +19,7 @@ let ctx: Context
 let fibers: Awaited<ReturnType<Context['plugin']>>[]
 
 beforeEach(async () => {
-  cwd = await mkdtemp(join(tmpdir(), 'dsh-read-snapshot-version-'))
+  cwd = await realpath(await mkdtemp(join(tmpdir(), 'dsh-read-snapshot-version-')))
   ctx = new Context()
   fibers = [await ctx.plugin(LocalFileSystem, { cwd })]
   await writeFile(join(cwd, 'greeting.txt'), 'hello\n')

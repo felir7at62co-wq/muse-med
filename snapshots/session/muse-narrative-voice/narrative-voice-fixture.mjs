@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
+import { bindNarrativeVoiceToolPaths } from './replay-paths.mjs'
 
 const [Yaml, Persona, Policy, Guidance, ShotScript] = await Promise.all([
   import(pathToFileURL(createRequire(new URL('../../../apps/desktop-host/package.json', import.meta.url)).resolve('yaml')).href),
@@ -34,6 +35,13 @@ export function apply(ctx) {
     await agent.ctx.plugin(Policy).await()
     await agent.ctx.plugin(Guidance).await()
     await agent.ctx.plugin(ShotScript, { reviewMode: 'advisory', sessionVideoSelection: false, productionPackaging: false }).await()
+    if (process.env.DSH_SNAPSHOT !== 'record') {
+      for (const name of ['read', 'write', 'drama_shot']) {
+        const tool = agent.ctx.tools.get(name, agent)
+        assert.ok(tool, `The real ${name} tool is available`)
+        agent.ctx.effect(() => bindNarrativeVoiceToolPaths(tool, agent.session.header.cwd))
+      }
+    }
     agent.ctx.effect(() => agent.ctx.tools.restrict({ futureAllow: ['read', 'write', 'drama_shot'], includeOwn: true }))
   })
   ctx.on('llm/stream', async function* (options, next) {

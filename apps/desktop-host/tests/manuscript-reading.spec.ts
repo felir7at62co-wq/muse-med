@@ -56,7 +56,7 @@ it('returns the relationship after a long line and covers the exact source befor
   expect(coverage).toMatchObject({ complete: true, returned_characters: Array.from(text.replace(/\r\n/g, '\n')).length,
     missing: [], coverage_basis: 'returned_source_text', semantic_assessment: 'not_performed' })
   expect(await readFile(join(f.cwd, 'source.txt'), 'utf8')).toBe(text)
-  expect((await f.audit()).missing_files).toEqual([join(f.cwd, 'future.md')])
+  expect((await f.audit()).missing_files).toEqual(['./future.md'])
 })
 
 it('reports holes for out-of-order pages and merges overlap without double counting', async () => {

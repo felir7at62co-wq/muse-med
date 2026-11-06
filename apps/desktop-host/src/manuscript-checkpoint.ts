@@ -1,6 +1,7 @@
 /** Bounded, current-version manuscript facts restored after conversation compaction. */
 import type { ManuscriptCharacter, ManuscriptRelationship, ManuscriptRelationshipSourceContext } from './manuscript-relationships.ts'
 import { comparisonEvidence, type annotateComparison } from './manuscript-comparison.ts'
+import { serializeManuscriptData } from './manuscript-report.ts'
 import { manuscriptSourceCitationLabels, type ManuscriptSourceRangeContext,
   type ManuscriptSourceCitationContext } from './manuscript-source-context.ts'
 
@@ -109,13 +110,13 @@ function checkpointComparison(row: ReturnType<typeof annotateComparison>) {
  * Relationship direction, uncertainty, scope and quotations remain verbatim. The
  * owner validates quotations against source bytes before supplying these rows.
  * @param input - Reconciled current files, source coverage and model-authored notes.
- * @param options - Deployment-owned ceiling in UTF-16 code units, at least 1024.
+ * @param options - Deployment-owned UTF-16 ceiling of at least 1024 and optional canonical workspace for local paths.
  * @returns Deterministic context text with explicit omitted and outdated counts.
  * @throws RangeError when the ceiling cannot retain mandatory version and recovery information.
  */
 export function formatManuscriptCheckpoint(
   input: ManuscriptCheckpointInput,
-  options: { maxCharacters: number },
+  options: { maxCharacters: number; cwd?: string },
 ): ManuscriptCheckpoint {
   if (!Number.isSafeInteger(options.maxCharacters) || options.maxCharacters < 1024) {
     throw new RangeError('MANUSCRIPT_CHECKPOINT_LIMIT: maxCharacters must be an integer of at least 1024.')
@@ -162,13 +163,13 @@ export function formatManuscriptCheckpoint(
     comparisons: comparisons.length, eventNotes: eventNotes.length }
   const entries: CheckpointEntry[] = []
   let taskKeyOmitted = false
-  const render = () => INTRODUCTION + JSON.stringify({ version: input.version, mode: input.mode,
+  const render = () => INTRODUCTION + serializeManuscriptData({ version: input.version, mode: input.mode,
     ...(taskKeyOmitted ? { task_key_omitted: true } : { task_key: input.task_key }),
     source_reading: { sources: input.sources.length, known_read_sources: input.known_read_sources,
       unrecorded_sources: input.sources.filter(source => !coverageByPath.has(source.path)).length,
       missing_intervals: missing.length },
     excluded_stale: stale, invalidated_event_notes: input.invalidated_event_notes ?? 0, omitted, entries,
-  }) + RECOVERY
+  }, options.cwd) + RECOVERY
   if (render().length > options.maxCharacters) taskKeyOmitted = true
   if (render().length > options.maxCharacters) {
     throw new RangeError('MANUSCRIPT_CHECKPOINT_LIMIT: current version and recovery information exceed maxCharacters.')

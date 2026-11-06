@@ -65,7 +65,7 @@ it('keeps the ACP aliases pointed at shared headers without borrowing the shell 
   for (const filename of ['system-prompt.expected.md', 'tool-schemas.expected.json']) {
     const file = new URL(`acp/escalation-approved/${filename}`, root)
     const target = (await lstat(file)).isSymbolicLink() ? await readlink(file) : await readFile(file, 'utf8')
-    expect(target).toBe(`../../session/tool-call-turn/${filename}`)
+    expect(target.replaceAll('\\', '/')).toBe(`../../session/tool-call-turn/${filename}`)
   }
   expect(acp.session).toBeUndefined()
 })

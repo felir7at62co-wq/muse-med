@@ -15,6 +15,29 @@ export interface ManuscriptReportCursor {
 }
 
 /**
+ * Encode declared manuscript paths relative to their owning workspace before applying text budgets.
+ * External paths and manuscript prose remain exact; stored filesystem identities are not changed.
+ * @param input - Complete review, source page, checkpoint, or scene response.
+ * @param cwd - Canonical workspace; absent for a formatter without a workspace.
+ * @returns JSON with workspace-local path fields using portable relative spellings.
+ */
+export function serializeManuscriptData(input: object, cwd?: string): string {
+  if (cwd === undefined) return JSON.stringify(input)
+  const localPath = (value: string): string => {
+    if (!isAbsolute(value)) return value
+    const path = relative(cwd, value)
+    return isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`) ? value : `./${path.split(sep).join('/')}`
+  }
+  return JSON.stringify(input, (key: string, value: unknown): unknown => {
+    if ((key === 'path' || key === 'source_path' || key === 'file_path') && typeof value === 'string') return localPath(value)
+    if ((key === 'paths' || key === 'source_paths' || key === 'candidate_paths' || key === 'missing_files') && Array.isArray(value)) {
+      return value.map((entry: unknown) => typeof entry === 'string' ? localPath(entry) : entry)
+    }
+    return value
+  })
+}
+
+/**
  * Identify current review inputs without making their workspace location part of the version.
  * Only declared file-path properties are made workspace-relative; manuscript and note text remain exact.
  * @param input - Complete durable task data, current file identities and relevant configuration.
@@ -22,16 +45,7 @@ export interface ManuscriptReportCursor {
  * @returns A digest that changes when review data or its configuration changes.
  */
 export function manuscriptReportVersion(input: object, cwd: string): ManuscriptReportVersion {
-  const localPath = (value: string): string => {
-    if (!isAbsolute(value)) return value
-    const path = relative(cwd, value)
-    return isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`) ? value : `./${path.split(sep).join('/')}`
-  }
-  const encoded = JSON.stringify(input, (key: string, value: unknown): unknown => {
-    if ((key === 'path' || key === 'source_path') && typeof value === 'string') return localPath(value)
-    if (key === 'paths' && Array.isArray(value)) return value.map((entry: unknown) => typeof entry === 'string' ? localPath(entry) : entry)
-    return value
-  })
+  const encoded = serializeManuscriptData(input, cwd)
   return brandString<ManuscriptReportVersion>(createHash('sha256').update(encoded).digest('hex'))
 }
 
@@ -40,12 +54,13 @@ export function manuscriptReportVersion(input: object, cwd: string): ManuscriptR
  * A page never claims earlier pages were read. Large rows expose nested collection requests rather than losing text.
  * @param report - Complete JSON-compatible review data with a task key.
  * @param version - Digest of current review inputs, including saved notes.
- * @param options - Complete-result character ceiling and optional collection cursor.
+ * @param options - Complete-result character ceiling, optional collection cursor, and canonical workspace for local paths.
  * @returns JSON within the ceiling; continuations select item offsets, not platform-dependent text columns.
  * @throws When the cursor is stale, a collection or offset is absent, or a minimum result cannot fit.
  */
 export function formatManuscriptReport(report: { task_key: string } & Record<string, unknown>, version: ManuscriptReportVersion,
-  options: { maxCharacters: number; cursor?: ManuscriptReportCursor }): string {
+  options: { maxCharacters: number; cursor?: ManuscriptReportCursor; cwd?: string }): string {
+  const encode = (value: object) => serializeManuscriptData(value, options.cwd)
   if (!Number.isSafeInteger(options.maxCharacters) || options.maxCharacters < 1024) {
     throw new RangeError('MANUSCRIPT_REPORT_LIMIT: 完整审查结果预算至少为1024个UTF-16单元。')
   }
@@ -59,7 +74,7 @@ export function formatManuscriptReport(report: { task_key: string } & Record<str
   if (cursor.report_section === undefined && (cursor.report_offset !== undefined || cursor.report_limit !== undefined)) {
     throw Error('MANUSCRIPT_REPORT_SECTION: report_offset和report_limit须同时指定report_section。')
   }
-  const complete = JSON.stringify(report)
+  const complete = encode(report)
   if (cursor.report_section === undefined && complete.length <= options.maxCharacters) return complete
   const collections = new Map<string, readonly unknown[]>()
   const outline = (value: unknown, path: string, groups: Map<string, readonly unknown[]>): unknown => {
@@ -79,7 +94,7 @@ export function formatManuscriptReport(report: { task_key: string } & Record<str
     section, total_items: items.length,
     request: { action: 'audit', report_sha256: version, report_section: section, report_offset: 1 } }))
   if (cursor.report_section === undefined) {
-    const result = JSON.stringify({ task_key: report.task_key, report_sha256: version, report_paged: true,
+    const result = encode({ task_key: report.task_key, report_sha256: version, report_paged: true,
       summary, report_sections: requests(collections),
       advisory: true, semantic_assessment: 'not_performed',
       notice: '这是当前完整审查的分组目录，不是全部正文。按report_sections中的request读取各组，连续跟随continuation到null；不能把目录或最后一页当作已读全，也不能用覆盖率证明理解。' })
@@ -103,7 +118,7 @@ export function formatManuscriptReport(report: { task_key: string } & Record<str
   let count = Math.min(items.length - offset + 1, cursor.report_limit ?? items.length)
   for (;;) {
     const end = offset - 1 + count
-    const page = (rows: readonly unknown[]) => JSON.stringify({ task_key: report.task_key,
+    const page = (rows: readonly unknown[]) => encode({ task_key: report.task_key,
       report_sha256: version, report_section: cursor.report_section,
       report_offset: offset, items: rows, total_items: items.length,
       is_last_page: end === items.length,

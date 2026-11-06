@@ -107,7 +107,7 @@ it('paginates Unicode and CRLF through registered JSON dispatch before a candida
   expect(seen.join('')).toBe(original.replaceAll('\r\n', ''))
   expect(finalCoverage).toMatchObject({ complete: true, returned_characters: Array.from(original.replaceAll('\r\n', '\n')).length,
     missing: [] })
-  expect((await f.audit()).missing_files).toEqual([join(f.root, 'future.md')])
+  expect((await f.audit()).missing_files).toEqual(['./future.md'])
   expect(await readFile(join(f.root, 'source.txt'), 'utf8')).toBe(original)
 })
 

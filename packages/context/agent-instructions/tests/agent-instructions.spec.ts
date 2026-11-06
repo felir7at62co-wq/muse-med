@@ -4048,19 +4048,23 @@ describe('dynamic nested workspace context injection', () => {
       const ctx = new Context()
       await mountFileToolsAndAgentInstructions(ctx, { dshHome: home, maxBytes: 65536 })
       const agent = await stubAgent(root)
-      ctx.on('tools/post-execute', async () => ({
-        kind: 'accept' as const,
-        value: {
-          path: 'pkg/deep/file.txt',
-          offset: 1,
-          lines: [{ number: 1, text: 'downstream replacement' }],
-          totalLines: 1,
-        },
-        additionalContexts: [createUserMessage({
-          content: [{ type: 'text' as const, text: 'downstream context' }],
-          source: { kind: 'downstream' as const },
-        })],
-      }))
+      let originalReadValue: Record<string, unknown> | undefined
+      ctx.on('tools/post-execute', async (_exec, result, next) => {
+        const downstream = await next()
+        if (downstream.kind === 'block') return downstream
+        if (result.isError || typeof result.value !== 'object' || result.value === null || Array.isArray(result.value)) {
+          throw new Error('expected a validated canonical read object')
+        }
+        originalReadValue = result.value
+        return {
+          kind: 'accept' as const,
+          value: { ...result.value, lines: [{ number: 1, text: 'downstream replacement' }] },
+          additionalContexts: [...downstream.additionalContexts ?? [], createUserMessage({
+            content: [{ type: 'text' as const, text: 'downstream context' }],
+            source: { kind: 'downstream' as const },
+          })],
+        }
+      })
 
       const result = await ctx.tools.execute({
         signal: testToolSignal,
@@ -4072,11 +4076,17 @@ describe('dynamic nested workspace context injection', () => {
 
       expect(result.isError).toBe(false)
       if (result.isError) throw new Error('expected read replacement success')
-      expect(result.value).toEqual({
-        path: 'pkg/deep/file.txt',
+      expect(originalReadValue).toMatchObject({
         offset: 1,
-        lines: [{ number: 1, text: 'downstream replacement' }],
+        column: 1,
+        lines: [{ number: 1, text: 'hello' }],
         totalLines: 1,
+      })
+      expect(typeof originalReadValue?.version).toBe('string')
+      expect(originalReadValue?.version).not.toBe('')
+      expect(result.value).toEqual({
+        ...originalReadValue,
+        lines: [{ number: 1, text: 'downstream replacement' }],
       })
       expect(blocksText(result.content)).toContain('downstream replacement')
       expect(result.additionalContexts).toHaveLength(1)

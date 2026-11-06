@@ -1,9 +1,21 @@
 /** Verify pressure compaction occurs between the marker result and final answer. */
 import assert from 'node:assert/strict'
+import { existsSync } from 'node:fs'
+import { delimiter, dirname } from 'node:path'
 export const name = 'snapshot-pressure-compaction'
 export const inject = ['agents', 'llm', 'tokenMeter']
 /** Assert the measured request crosses the configured threshold only after the marker. */
 export function apply(ctx) {
+  if (process.platform === 'win32') ctx.effect(() => {
+    const bash = 'C:/Program Files/Git/bin/bash.exe'
+    assert.ok(existsSync(bash), 'Windows pressure replay requires the installed Git Bash executable')
+    const previous = process.env.PATH
+    process.env.PATH = [dirname(bash), previous].filter(Boolean).join(delimiter)
+    return () => {
+      if (previous === undefined) delete process.env.PATH
+      else process.env.PATH = previous
+    }
+  })
   let agent
   const requests = []
   ctx.on('agent/created', event => { agent = event.agent })
@@ -12,7 +24,7 @@ export function apply(ctx) {
     const summary = last?.content.some(block => block.type === 'text'
       && block.text.includes('You are now acting as a compaction engine')) === true
     const tokens = ctx.tokenMeter.measure(agent.session).totalTokens
-    assert.ok(summary ? tokens >= 6370 : tokens < 6370, `Pressure request ${requests.length}: ${tokens}`)
+    assert.ok(summary ? tokens >= 6450 : tokens < 6450, `Pressure request ${requests.length}: ${tokens}`)
     requests.push({ summary, tokens })
     yield* next()
   })
