@@ -3,6 +3,8 @@
 Offline checks; all synthetic files stay in a temporary directory.
 """
 import importlib.util
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -193,6 +195,72 @@ class DraftSubtitleContractTests(unittest.TestCase):
 
 class BothConsumersTests(unittest.TestCase):
     """The two subtitle styles are separate contracts; neither may borrow the other."""
+
+    def test_product_ass_breaks_match_in_editable_draft_and_burned_display(self):
+        draft = load('draft_ass_break_test', DRAFT / 'scripts/jianying_draft.py')
+        render = load('render_ass_break_test', RENDER / 'scripts/render_episode.py')
+        source = ('1\n00:00:00,123 --> 00:00:00,789\n'
+                  + r'价格99.9%\N“好，好！”\n好'
+                  + '\n再好\n')
+        with tempfile.TemporaryDirectory() as directory:
+            srt, ass, output = (Path(directory) / name for name in ('in.srt', 'out.ass', 'out.srt'))
+            srt.write_text(source, encoding='utf-8')
+            with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                          'MUSE_NORMALIZE_SUBTITLE_TEXT': '1'}):
+                cues = draft.normalize_srt(srt, output)
+                render.write_ass(srt, ass, add_watermark=False)
+            expected = '价格99.9% 好 好 好 再好'
+            self.assertEqual(cues, [{'start_us': 123_000, 'end_us': 789_000, 'text': expected}])
+            self.assertEqual(srt.read_text(encoding='utf-8'), source)
+            self.assertEqual(draft.parse_srt_cues(output), cues)
+            display = ass.read_text(encoding='utf-8-sig')
+            self.assertIn(expected, display)
+            self.assertNotIn(r'\N', display)
+            self.assertNotIn(r'\n', display)
+
+    def test_product_cues_remove_only_display_punctuation_and_preserve_source_and_clocks(self):
+        draft = load('draft_punctuation_test', DRAFT / 'scripts/jianying_draft.py')
+        render = load('render_punctuation_test', RENDER / 'scripts/render_episode.py')
+        source = ('1\n00:00:00,100 --> 00:00:00,400\n？！\n\n'
+                  '2\n00:00:00,500 --> 00:00:01,000\n[他说] “don\'t” 99.99% 1,234 12:30 2026/10/30 A-B！\n')
+        with tempfile.TemporaryDirectory() as directory:
+            srt, ass, output = (Path(directory) / name for name in ('in.srt', 'out.ass', 'out.srt'))
+            srt.write_text(source, encoding='utf-8')
+            notes = []
+            stderr = io.StringIO()
+            with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                          'MUSE_NORMALIZE_SUBTITLE_TEXT': '1'}), contextlib.redirect_stderr(stderr):
+                cues = draft.normalize_srt(srt, output, on_warning=notes.append)
+                render.write_ass(srt, ass, add_watermark=False)
+            expected = "他说 don't 99.99% 1,234 12:30 2026/10/30 A-B"
+            self.assertEqual(cues, [{'start_us': 500_000, 'end_us': 1_000_000, 'text': expected}])
+            self.assertEqual(srt.read_text(encoding='utf-8'), source)
+            self.assertEqual(len(notes), 1)
+            self.assertIn('100000–400000', notes[0])
+            self.assertIn('核听', notes[0])
+            self.assertIn('00:00:00.100–00:00:00.400', stderr.getvalue())
+            text = ass.read_text(encoding='utf-8-sig')
+            self.assertEqual(len([line for line in text.splitlines() if line.startswith('Dialogue:')]), 1)
+            self.assertIn(expected, text)
+            self.assertIn(expected, output.read_text(encoding='utf-8'))
+
+    def test_all_product_cues_removed_is_reported_not_invented(self):
+        draft = load('draft_empty_punctuation_test', DRAFT / 'scripts/jianying_draft.py')
+        render = load('render_empty_punctuation_test', RENDER / 'scripts/render_episode.py')
+        with tempfile.TemporaryDirectory() as directory:
+            srt, ass, output = (Path(directory) / name for name in ('in.srt', 'out.ass', 'out.srt'))
+            source = '1\n00:00:00,100 --> 00:00:00,400\n？！\n'
+            srt.write_text(source, encoding='utf-8')
+            notes = []
+            with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                          'MUSE_NORMALIZE_SUBTITLE_TEXT': '1'}):
+                cues = draft.normalize_srt(srt, output, on_warning=notes.append)
+                render.write_ass(srt, ass, add_watermark=False)
+            self.assertEqual(cues, [])
+            self.assertEqual(output.read_text(encoding='utf-8'), '')
+            self.assertNotIn('Dialogue:', ass.read_text(encoding='utf-8-sig'))
+            self.assertEqual(srt.read_text(encoding='utf-8'), source)
+            self.assertIn('核听', notes[0])
 
     def test_draft_and_burn_styles_share_no_value(self):
         draft = load('draft_cross_test', DRAFT / 'scripts/jianying_draft.py')

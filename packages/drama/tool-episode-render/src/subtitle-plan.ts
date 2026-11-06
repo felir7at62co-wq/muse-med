@@ -4,7 +4,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
 import { createHash } from 'node:crypto'
 import { fileSha256 } from './cache.ts'
 import { episodePaths, shotFileName } from './paths.ts'
-import { formatSrtDocument, parseSrtDocument } from './subtitles.ts'
+import { formatSrtDocument, normalizeSubtitleDisplay, parseSrtDocument, subtitleDisplayWarnings } from './subtitles.ts'
 import type { EmbeddedSubtitleDecision, SubtitleCue, SubtitleOverlayReport, Timeline } from './types.ts'
 
 function object(value: unknown, label: string): Record<string, unknown> {
@@ -79,6 +79,7 @@ export async function resolveSubtitleOverlay(input: {
   readonly subtitleSrt: string
   readonly planPath: string
   readonly outputSrt?: string
+  readonly normalizeDisplay?: boolean
 }): Promise<{ cues: SubtitleCue[]; report: SubtitleOverlayReport; written: string[]; warnings: string[] }> {
   const original = await readFile(input.subtitleSrt)
   const planBytes = await readFile(input.planPath)
@@ -122,7 +123,9 @@ export async function resolveSubtitleOverlay(input: {
     findings.push({ ...decision, global_start_seconds: start / 1_000_000, global_end_seconds: end / 1_000_000,
       retained_cue_indexes: matched, review_cue_indexes: uncertain })
   }
-  const overlay = cues.filter(cue => !retained.has(cue.index)).map((cue, index) => ({ ...cue, index: index + 1 }))
+  const selected = cues.filter(cue => !retained.has(cue.index)).map((cue, index) => ({ ...cue, index: index + 1 }))
+  if (input.normalizeDisplay) warnings.push(...subtitleDisplayWarnings(selected))
+  const overlay = input.normalizeDisplay ? normalizeSubtitleDisplay(selected) : selected
   if (retained.size) warnings.push('保留的原片字幕已烧录在画面中，不可作为字幕编辑，也无法用外加字幕样式统一其字号和位置；原始 SRT 保留作对白参考。')
   warnings.push('字幕决定与 evidence_paths 由调用方声明，不是 Host 签发的 OCR 或人工验收凭据；抽帧漏检、噪声及内容准确度仍需预览。')
   let resolvedSrt: string, decisionReport: string

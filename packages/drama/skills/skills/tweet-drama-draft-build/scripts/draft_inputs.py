@@ -1,14 +1,60 @@
 """Resolve editable-draft clocks and declared audio roles without inspecting speech."""
 
 import json
+import importlib.util
 import math
 from fractions import Fraction
 import os
 from pathlib import Path
 
+_text_spec = importlib.util.spec_from_file_location(
+    'draft_subtitle_display', Path(__file__).resolve().parents[2] / 'tweet-drama-core/scripts/subtitle_display.py')
+_text_policy = importlib.util.module_from_spec(_text_spec)
+_text_spec.loader.exec_module(_text_policy)
 
-def subtitle_visual(timeline: dict, project: Path | None = None) -> dict | None:
+
+def product_subtitle_text(text: str) -> str:
+    """Use the renderer's punctuation policy only in the product delivery mode."""
+    if os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') == '1':
+        return _text_policy.normalize_subtitle_display(text)
+    return text
+
+
+def product_subtitle_cues(cues: list[dict], source: str) -> tuple[list[dict], list[str]]:
+    """Prepare a derived list and disclose empty results without changing the source."""
+    prepared, warnings = [], []
+    for cue in cues:
+        text = product_subtitle_text(cue['text'])
+        if not text.strip() and os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') == '1':
+            warnings.append(f"字幕 {source} {cue['start_us']}–{cue['end_us']} 微秒仅含标点或空白，"
+                            "未加入草稿；请核听该时段是否有需要补充的发声。原字幕文件未修改。")
+            continue
+        prepared.append({**cue, 'text': text})
+    return prepared, warnings
+
+
+def write_product_subtitles(path: Path, cues: list[dict]) -> None:
+    """Write a candidate SRT without changing cue times or the original source."""
+    def stamp(us: int) -> str:
+        seconds, micros = divmod(us, 1_000_000)
+        minutes, seconds = divmod(seconds, 60)
+        hours, minutes = divmod(minutes, 60)
+        return f'{hours:02d}:{minutes:02d}:{seconds:02d},{micros // 1000:03d}'
+    blocks = [f"{index}\n{stamp(cue['start_us'])} --> {stamp(cue['end_us'])}\n{cue['text']}"
+              for index, cue in enumerate(cues, start=1)]
+    path.write_text('\n\n'.join(blocks) + ('\n' if blocks else ''), encoding='utf-8')
+
+
+def subtitle_visual(timeline: dict, project: Path | None = None, *, _ignore_force: bool = False) -> dict | None:
     """Select a complete reference-canvas subtitle section; an empty snapshot disables it."""
+    if not _ignore_force and os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') == '1':
+        raw = os.environ.get('MUSE_DEFAULT_SUBTITLE_VISUAL')
+        if not raw:
+            raise ValueError('The product subtitle visual configuration is missing')
+        visual = subtitle_visual({'delivery': {'subtitle_visual': json.loads(raw)}}, _ignore_force=True)
+        if visual is None:
+            raise ValueError('The product subtitle visual configuration must be complete')
+        return visual
     project_delivery = {}
     if project is not None:
         path = Path(project) / 'project_config.json'
@@ -58,15 +104,15 @@ def subtitle_visual(timeline: dict, project: Path | None = None) -> dict | None:
     return {**selected, **({'font_family': selected['font_family'].strip()} if 'font_family' in selected else {})}
 
 
-def draft_subtitle_visual(visual: dict, subtitle_style: dict) -> dict:
+def draft_subtitle_visual(visual: dict, subtitle_style: dict, *, product: bool = False) -> dict:
     """Keep resolved editor typography and position; reference pixels do not calibrate editor UI units."""
     return {
         'subtitle': {**subtitle_style,
                      'transform_y': subtitle_style.get('transform_y', 1 - 2 * visual['center_y_ratio']),
                      'auto_wrapping': False, 'max_line_width': visual['max_width_ratio']},
         'adapter': {'name': 'jianying-editor-style', 'status': 'needs_preview', 'gui_verified': False,
-                    'typography_source': 'delivery.draft_style.subtitle',
-                    'unconfigured_editor_fields_use': 'legacy_defaults',
+                    'typography_source': 'product_editor_defaults' if product else 'delivery.draft_style.subtitle',
+                    'unconfigured_editor_fields_use': 'product_editor_defaults' if product else 'legacy_defaults',
                     'nominal_reference_font_size_px': visual['font_size_px'],
                     'nominal_reference_outline_px': visual['outline_px'],
                     'reference_font_family': visual.get('font_family'),
@@ -74,8 +120,10 @@ def draft_subtitle_visual(visual: dict, subtitle_style: dict) -> dict:
     }
 
 
-def draft_style(timeline: dict, project: Path | None = None, *, center_y_ratio: float | None = None) -> dict:
+def draft_style(timeline: dict, project: Path | None = None, *, center_y_ratio: float | None = None,
+                enforce_product: bool | None = None) -> dict:
     """Select one UI-style section; the common centre only replaces an unspecified editor position."""
+    force = os.environ.get('MUSE_FORCE_SUBTITLE_VISUAL') == '1' if enforce_product is None else enforce_product
     project_delivery = {}
     if project is not None:
         path = Path(project) / 'project_config.json'
@@ -94,6 +142,8 @@ def draft_style(timeline: dict, project: Path | None = None, *, center_y_ratio: 
         if not isinstance(section, dict):
             raise ValueError(f'{label}.draft_style must be an object')
         for kind in ('watermark', 'subtitle'):
+            if kind == 'subtitle' and force:
+                continue
             if kind not in section:
                 continue
             row = section[kind]
@@ -122,6 +172,12 @@ def draft_style(timeline: dict, project: Path | None = None, *, center_y_ratio: 
     selected = snapshot['draft_style'] if 'draft_style' in snapshot else project_delivery.get('draft_style', {})
     watermark = selected.get('watermark', {})
     subtitle = selected.get('subtitle', {})
+    if force:
+        visual = subtitle_visual(timeline, project)
+        return {'watermark': {'font_size_ui': watermark.get('font_size_ui', 6.0)},
+                'subtitle': {'font_family': None, 'font_size_ui': 11.0, 'border_width_ui': 20.0,
+                             'transform_y': 1 - 2 * visual['center_y_ratio'],
+                             'auto_wrapping': False, 'max_line_width': visual['max_width_ratio']}}
     default_position = -0.465625 if center_y_ratio is None else 1 - 2 * center_y_ratio
     return {'watermark': {'font_size_ui': watermark.get('font_size_ui', 6.0)},
             'subtitle': {'font_family': subtitle.get('font_family', '').strip() or None,

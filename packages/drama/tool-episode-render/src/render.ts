@@ -47,15 +47,15 @@ import {
 import { mediaFactsOf, probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { buildRenderPreview, renderPreviewWarnings } from './preview.ts'
-import { buildReport, NO_TAIL_FRAME, type ReportInput } from './report.ts'
-import { subtitleReviewWarnings, subtitleTextWarnings, readSubtitleCues, buildAssDocument } from './subtitles.ts'
+import { buildReport, NO_MEDIA, NO_TAIL_FRAME, type ReportInput } from './report.ts'
+import { subtitleReviewWarnings, subtitleTextWarnings, readSubtitleCues, buildAssDocument, formatSrtDocument, normalizeSubtitleDisplay, subtitleDisplayWarnings } from './subtitles.ts'
 import { bodyEndSecondsOf, readTimeline, selectBodyClips } from './timeline.ts'
 import type { DramaRenderReport, MediaFacts, MediaToolkit, RenderCheck, RenderSettings } from './types.ts'
 import { deliveryChecks } from './verify.ts'
 import { assertVideoHashesAllowed, assertVideosAllowed } from './video.ts'
 import { resolveSubtitleOverlay } from './subtitle-plan.ts'
 import type { EndingEffectTiming } from './types.ts'
-import { measureSubtitleLayout } from './subtitle-layout.ts'
+import { measureSubtitleLayout, subtitleVisualChecks } from './subtitle-layout.ts'
 
 /** Microseconds in one second. */
 const MICROSECONDS_PER_SECOND = 1_000_000
@@ -141,8 +141,11 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const { toolkit, settings } = input
   const paths = episodePaths(input.project, input.episode)
   const subtitleWarnings = await subtitleReviewWarnings(input.subtitleSrt)
-  const timeline = await readTimeline(input.timelinePath)
-  const policy = await resolveDeliveryPolicy(input.project, timeline.delivery)
+  const timeline = await readTimeline(input.timelinePath, settings.enforceSubtitleVisual)
+  const endingEffectFit = timeline.endingEffectFit ?? settings.defaultEndingEffectFit
+  const policy = await resolveDeliveryPolicy(
+    input.project, timeline.delivery, settings.defaultSubtitleVisual, settings.enforceSubtitleVisual,
+  )
   const effectiveSettings = deliveryRenderSettings(settings, policy.delivery)
   assertBodyOnlyAnimation(timeline, policy)
   const endingAssets = policy.endingSeconds === 0 ? undefined : requiredEndingPaths(input)
@@ -155,6 +158,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const overlay = input.subtitlePlan === undefined ? undefined : await resolveSubtitleOverlay({
     project: input.project, episode: input.episode, timeline: { ...timeline, clips, bodyEndSeconds },
     subtitleSrt: input.subtitleSrt, planPath: input.subtitlePlan,
+    ...(settings.normalizeSubtitleText ? { normalizeDisplay: true } : {}),
   })
 
   const profile = input.mixProfile === undefined ? undefined
@@ -182,18 +186,52 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
 
   const bgmPlan = await readBgmPlan(bgm === undefined ? undefined : input.bgmPlan,
     input.episode, bodyEndSeconds, bgm ?? '', input.project)
+  const originalCues = overlay?.cues ?? await readSubtitleCues(input.subtitleSrt)
+  if (settings.normalizeSubtitleText && overlay === undefined) subtitleWarnings.push(...subtitleDisplayWarnings(originalCues))
+  const cues = settings.normalizeSubtitleText ? normalizeSubtitleDisplay(originalCues) : originalCues
+  let displaySubtitle = overlay?.report.resolved_srt ?? input.subtitleSrt
+  const displayWritten: string[] = []
+  if (settings.normalizeSubtitleText && overlay === undefined) {
+    await mkdir(paths.cacheDir, { recursive: true })
+    const directory = await mkdtemp(resolve(paths.cacheDir, 'subtitle-display-'))
+    displaySubtitle = resolve(directory, `${input.episode}.srt`)
+    await writeFile(displaySubtitle, formatSrtDocument(cues), 'utf8')
+    displayWritten.push(displaySubtitle)
+  }
   const preview = buildRenderPreview({ settings: effectiveSettings, delivery: profile === undefined ? policy.delivery
     : { ...policy.delivery, audio: { master_gain: profile.original_gain, bgm_gain: profile.music_gain } },
-  subtitle: overlay?.report.resolved_srt ?? input.subtitleSrt, master: paths.masterAudio, ...(bgm === undefined ? {} : { bgm }),
+  subtitle: displaySubtitle, master: paths.masterAudio, ...(bgm === undefined ? {} : { bgm }),
   ...(bgm === undefined || input.bgmPlan === undefined ? {} : { bgmPlan: input.bgmPlan }) })
   const previewWarnings = renderPreviewWarnings(preview, profile?.mode !== 'no_bgm')
-  // Every input is judged before the first media command runs, so a substituted
+  subtitleWarnings.push(...(overlay?.warnings ?? []), ...subtitleTextWarnings(cues))
+  const layout = policy.delivery.subtitle_visual?.schema_version === 1
+    ? await measureSubtitleLayout({ toolkit, settings: effectiveSettings, delivery: policy.delivery, cues, directory: paths.cacheDir })
+    : undefined
+  const layoutChecks = layout === undefined ? [] : subtitleVisualChecks(layout.report)
+  if (layout !== undefined) subtitleWarnings.push(...layout.warnings)
+  const layoutLog = layout === undefined ? []
+    : [`subtitle_layout=${layout.report.report_path ?? '(not saved)'} status=${layout.report.status}`, ...layoutChecks.map(logCheck)]
+  if (layoutChecks.some(check => !check.ok)) {
+    await mkdir(dirname(paths.renderLog), { recursive: true })
+    await writeFile(paths.renderLog, `${layoutLog.join('\n')}\n`, 'utf8')
+    return buildReport({ method: 'render', project: input.project, episode: input.episode,
+      timeline: { clips, bodyEndSeconds, delivery: policy.delivery },
+      sources: new Map(clips.map(clip => [clip.shot, resolve(paths.videoDir, shotFileName(clip.shot))])),
+      expectedDurationSeconds, renderPreview: preview, bgmPlan,
+      ...(overlay === undefined ? {} : { subtitleOverlay: overlay.report }),
+      ...(layout === undefined ? {} : { subtitleLayout: layout.report }),
+      written: [...displayWritten, ...overlay?.written ?? [], ...layout?.written ?? [], paths.renderLog],
+      output: '', encoder: '', gpuRequested: settings.preferNvenc, gpuUsed: false, encoderFallbackReason: '',
+      encodedShots: [], reusedShots: [], tailFrame: NO_TAIL_FRAME, media: NO_MEDIA, checks: layoutChecks,
+      warnings: [...subtitleWarnings, ...policy.warnings, ...previewWarnings], logPath: paths.renderLog })
+  }
+  // Ending inputs are judged before body encoding, so a substituted
   // ending asset or an over-long effect costs nothing but the message.
   let endingTiming: EndingEffectTiming | undefined
   if (endingAssets !== undefined) {
     await requireShippedEndingAsset(endingAssets.audio, ENDING_AUDIO_ASSET)
     await requireShippedEndingAsset(endingAssets.effect, ENDING_EFFECT_ASSET)
-    endingTiming = await requireEndingEffectFits(toolkit, endingAssets.effect, timeline.endingEffectFit)
+    endingTiming = await requireEndingEffectFits(toolkit, endingAssets.effect, endingEffectFit)
   }
   const choice = await chooseEncoder(toolkit, settings.preferNvenc, policy.delivery.fps)
   const gpuUsed = choice.encoder !== 'libx264'
@@ -205,7 +243,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     `project=${input.project}`,
     `bgm_plan=${JSON.stringify(bgmPlan)}`,
     `render_preview=${JSON.stringify(preview)}`,
-    ...(timeline.endingEffectFit === undefined ? [] : [`ending_effect=${JSON.stringify(endingTiming)}`]),
+    ...(endingEffectFit === undefined ? [] : [`ending_effect=${JSON.stringify(endingTiming)}`]),
     ...(overlay === undefined ? [] : [`subtitle_overlay=${JSON.stringify(overlay.report)}`]),
     `delivery=${JSON.stringify(policy.delivery)} add_watermark=${String(policy.addWatermark)}`,
     ...policy.warnings.map(warning => `warning=${warning}`),
@@ -215,6 +253,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     `body_end_seconds=${bodyEndSeconds.toFixed(6)} ending_seconds=${policy.endingSeconds.toFixed(3)} `
       + `expected_duration_seconds=${expectedDurationSeconds.toFixed(6)}`,
     `target_bitrate=${TARGET_BITRATE} max_bitrate=${MAX_BITRATE} min_bitrate_bps=${String(MIN_BITRATE_BPS)}`,
+    ...layoutLog,
   ]
 
   const scaleFilter = deliveryScaleFilter('yuv420p', policy.delivery)
@@ -275,15 +314,6 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const base = resolve(paths.cacheDir, 'base.mp4')
   await runFfmpeg(toolkit, ['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', concatFile, '-c', 'copy', base])
 
-  const cues = overlay?.cues ?? await readSubtitleCues(input.subtitleSrt)
-  subtitleWarnings.push(...(overlay?.warnings ?? []), ...subtitleTextWarnings(cues))
-  const layout = policy.delivery.subtitle_visual?.schema_version === 1
-    ? await measureSubtitleLayout({ toolkit, settings: effectiveSettings, delivery: policy.delivery, cues, directory: paths.cacheDir })
-    : undefined
-  if (layout !== undefined) {
-    subtitleWarnings.push(...layout.warnings)
-    log.push(`subtitle_layout=${layout.report.report_path ?? '(not saved)'} status=${layout.report.status}`)
-  }
   const ass = resolve(paths.cacheDir, 'display.ass')
   await writeFile(ass, `\ufeff${buildAssDocument(cues, settings, policy)}`, 'utf8')
   const subtitled = resolve(paths.cacheDir, 'subtitled.mp4')
@@ -344,7 +374,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
 
   await writeFile(paths.renderLog, `${log.join('\n')}\n`, 'utf8')
   const media = await measure(toolkit, input.output)
-  const checks = deliveryChecks(media, expectedDurationSeconds, policy.delivery)
+  const checks = [...layoutChecks, ...deliveryChecks(media, expectedDurationSeconds, policy.delivery)]
   log.push(`output=${input.output} size_bytes=${String(media.sizeBytes)} `
     + `bitrate_bps=${String(media.bitrateBps)} duration_seconds=${media.durationSeconds.toFixed(6)}`)
   log.push(...checks.map(logCheck))
@@ -375,14 +405,14 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     renderPreview: preview,
     ...(layout === undefined ? {} : { subtitleLayout: layout.report }),
     ...(overlay === undefined ? {} : { subtitleOverlay: overlay.report }),
-    ...(timeline.endingEffectFit === undefined || endingTiming === undefined ? {} : { endingEffect: endingTiming }),
+    ...(endingEffectFit === undefined || endingTiming === undefined ? {} : { endingEffect: endingTiming }),
     project: input.project,
     episode: input.episode,
     timeline: { clips, bodyEndSeconds, delivery: policy.delivery },
     sources,
     expectedDurationSeconds,
     written: [input.output, ...(musicStem ? [musicStem] : []), sourceRecordPath, paths.renderLog,
-      ...overlay?.written ?? [], ...layout?.written ?? []],
+      ...overlay?.written ?? [], ...layout?.written ?? [], ...displayWritten],
     ...(profile === undefined ? {} : { audioMix: audioMixReport(profile, paths.masterAudio, bgm ?? '', musicStem) }),
     output: input.output,
     encoder: choice.encoder,

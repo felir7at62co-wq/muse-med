@@ -15,7 +15,7 @@ import * as Draft from '../src/jianying-draft.ts'
 const fakePython = `
 const fs = require('node:fs'), path = require('node:path');
 const [request, root, failure] = process.argv.slice(1);
-const input = JSON.parse(fs.readFileSync(request, 'utf8'));
+const input = JSON.parse(fs.readFileSync(request, 'utf8').replace(/^\\uFEFF/u, ''));
 if (failure) { console.log(JSON.stringify({ success:false,drafts_created:0,drafts:[],error:'save rejected' })); process.exit(0); }
 const target = path.join(root, input.name_prefix + String(input.episode).padStart(2, '0'));
 fs.mkdirSync(target); fs.writeFileSync(path.join(target,'draft_content.json'),JSON.stringify({})+String.fromCharCode(10));
@@ -290,6 +290,29 @@ it('runs the draft bridge directly with managed argv and removes its tool on dis
     expect(request.argv).not.toContain('pwsh')
     await fiber.dispose()
     expect(f.ctx.tools.get('jianying_draft')).toBeUndefined()
+  } finally {
+    spy.mockRestore()
+    await f.dispose()
+  }
+})
+
+it('forwards forced product visual to the managed editor backend without altering the request', async () => {
+  const f = await fixture()
+  const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  const spy = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation(spec => spawn({ ...spec,
+    argv: [process.execPath, '-e', fakePython, f.input.request_file, f.input.drafts_dir] }))
+  const visual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
+    font_size_px: 48, outline_px: 2, center_y_ratio: 0.736747073, max_width_ratio: 0.9,
+    font_family: 'Zhuque Fangsong (technical preview)' }
+  try {
+    const before = await readFile(f.input.request_file, 'utf8')
+    await Draft.generateJianyingDraft(f.ctx.subprocess, f.input,
+      { ...f.config, enforceSubtitleVisual: true, defaultSubtitleVisual: visual })
+    expect(spy.mock.calls[0]![0].env).toMatchObject({ MUSE_FORCE_SUBTITLE_VISUAL: '1',
+      MUSE_DEFAULT_SUBTITLE_VISUAL: JSON.stringify(visual) })
+    expect(await readFile(f.input.request_file, 'utf8')).toBe(before)
+    await expect(Draft.generateJianyingDraft(f.ctx.subprocess, f.input,
+      { ...f.config, enforceSubtitleVisual: true })).rejects.toThrow('requires the product visual')
   } finally {
     spy.mockRestore()
     await f.dispose()

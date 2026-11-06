@@ -22,13 +22,19 @@ import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { subtitleReviewWarnings, subtitleTextWarnings, readSubtitleCues } from './subtitles.ts'
 import { deliveryPolicyFor, readProjectDelivery } from './delivery-policy.ts'
 import { appendClips, formatTimelineDocument } from './timeline.ts'
-import type { MediaToolkit, ShotSource, SubtitleCue, Timeline, TimelineClip } from './types.ts'
+import type { DeliverySubtitleVisual, EndingEffectFit, MediaToolkit, ShotSource, SubtitleCue, Timeline, TimelineClip } from './types.ts'
 
 /** Microseconds in one second. */
 const MICROSECONDS_PER_SECOND = 1_000_000
 
 /** Everything one `prepare` call needs. */
 export interface PrepareInput {
+  /** Deployment fallback saved with the new timeline when present. */
+  readonly defaultEndingEffectFit?: EndingEffectFit
+  /** Deployment fallback captured only when the project has no explicit subtitle style. */
+  readonly defaultSubtitleVisual?: DeliverySubtitleVisual
+  /** Enforce the deployment subtitle target regardless of saved project overrides. */
+  readonly enforceSubtitleVisual?: boolean
   /** The binaries and channel to use, or a stub in tests. */
   readonly toolkit: MediaToolkit
   /** Absolute project root. */
@@ -241,7 +247,21 @@ async function buildMaster(
 export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpisode> {
   const paths = episodePaths(input.project, input.episode)
   const subtitleWarnings = await subtitleReviewWarnings(input.subtitleSrt)
-  const delivery = await readProjectDelivery(input.project)
+  const delivery = await readProjectDelivery(input.project, input.defaultSubtitleVisual, input.enforceSubtitleVisual)
+  let priorFit: EndingEffectFit | undefined
+  if (input.defaultEndingEffectFit !== undefined) {
+    try {
+      const previous: unknown = JSON.parse((await readFile(paths.timeline, 'utf8')).replace(/^\ufeff/u, ''))
+      if (previous !== null && typeof previous === 'object' && 'ending_effect_fit' in previous) {
+        const value = previous.ending_effect_fit
+        if (value === 'source_once' || value === 'stretch_to_window') priorFit = value
+        else subtitleWarnings.push('旧时间线的片尾适配值无效；新候选使用部署默认值，请检查旧时间线。')
+      }
+    } catch (error) {
+      if (error instanceof SyntaxError) subtitleWarnings.push('旧时间线无法解析；新候选使用部署默认片尾适配，请检查旧时间线。')
+      else if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error
+    }
+  }
   const rows = parseShotManifest(
     await readJsonDocument(input.shotsPath, '成片清单'),
     input.shotsPath,
@@ -250,7 +270,9 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
     resolveAgainst(input.project, row.video), resolveAgainst(input.project, row.audio),
   ]))
   const shots = await resolveShots(input.toolkit, input.project, rows)
-  const timeline = { ...appendClips(shots.map(shot => shot.durationUs)), delivery }
+  const endingEffectFit = priorFit ?? input.defaultEndingEffectFit
+  const timeline = { ...appendClips(shots.map(shot => shot.durationUs)), delivery,
+    ...(endingEffectFit === undefined ? {} : { endingEffectFit }) }
   const packagePath = resolve(input.project, 'episode_packages', input.episode, 'package.json')
   const packageHash = rows.some(row => row.package !== undefined) && await pathExists(packagePath)
     ? await fileSha256(packagePath) : undefined

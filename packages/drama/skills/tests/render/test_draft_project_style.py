@@ -67,6 +67,52 @@ class DraftStyleResolutionTests(unittest.TestCase):
         (self.project / 'project_config.json').write_text('{}', encoding='utf-8')
         self.assertEqual(self.inputs.draft_style({}, self.project), LEGACY_STYLE)
 
+    def test_product_policy_replaces_old_subtitle_style_but_preserves_watermark_and_audio(self):
+        visual = {**VISUAL_STYLE, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9,
+                  'font_family': 'Zhuque Fangsong (technical preview)'}
+        timeline = {'delivery': {'draft_style': {
+            'watermark': {'font_size_ui': 8},
+            'subtitle': {'font_family': 'old-font', 'font_size_ui': 40,
+                         'border_width_ui': 1, 'transform_y': 0}},
+            'subtitle_visual': {}, 'audio': {'master_gain': 0.8, 'bgm_gain': 0.35}}}
+        original = deepcopy(timeline)
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                      'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}):
+            self.assertEqual(self.inputs.subtitle_visual(timeline, self.project), visual)
+            style = self.inputs.draft_style(timeline, self.project)
+            self.assertEqual(style['watermark'], {'font_size_ui': 8})
+            self.assertEqual(style['subtitle']['font_family'], None)
+            self.assertEqual(style['subtitle']['font_size_ui'], 11)
+            self.assertEqual(style['subtitle']['border_width_ui'], 20)
+            self.assertAlmostEqual(style['subtitle']['transform_y'], 1 - 2 * visual['center_y_ratio'])
+            self.assertFalse(style['subtitle']['auto_wrapping'])
+            self.assertEqual(style['subtitle']['max_line_width'], 0.9)
+            self.assertEqual(self.inputs.audio_gains(timeline, self.project),
+                             {'master_gain': 0.8, 'bgm_gain': 0.35})
+        self.assertEqual(timeline, original)
+        self.assertEqual(self.inputs.draft_style(timeline, self.project)['subtitle']['font_size_ui'], 40)
+
+    def test_forced_policy_requires_a_valid_product_visual(self):
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1'}, clear=True):
+            with self.assertRaisesRegex(ValueError, 'missing'):
+                self.inputs.draft_style({}, self.project)
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                      'MUSE_DEFAULT_SUBTITLE_VISUAL': '{}'}, clear=True):
+            with self.assertRaisesRegex(ValueError, 'complete'):
+                self.inputs.draft_style({}, self.project)
+
+    def test_forced_policy_ignores_invalid_old_subtitle_but_validates_watermark(self):
+        old = {'delivery': {'draft_style': {'subtitle': {'font_size_ui': -1},
+                                            'watermark': {'font_size_ui': 7}},
+                            'subtitle_visual': {'schema_version': 999}}}
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                      'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(VISUAL_STYLE)}):
+            style = self.inputs.draft_style(old, self.project)
+            self.assertEqual(style['subtitle']['font_size_ui'], 11)
+            self.assertEqual(style['watermark']['font_size_ui'], 7)
+            old['delivery']['draft_style']['watermark']['font_size_ui'] = -1
+            with self.assertRaisesRegex(ValueError, 'font_size_ui'):
+                self.inputs.draft_style(old, self.project)
     def test_common_center_only_replaces_the_default_editor_position(self):
         self.assertEqual(self.inputs.draft_style({}, self.project, center_y_ratio=0.75), PROJECT_STYLE)
         for snapshot in ({}, {'subtitle': {'font_size_ui': 13.2}},
@@ -344,6 +390,34 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
         for warnings in (result['warnings'], review['warnings']):
             self.assertTrue(any('山海经' in warning and '回退剪映系统默认字体' in warning
                                  for warning in warnings), warnings)
+
+    def test_product_forced_style_is_saved_as_editable_text_despite_old_snapshot(self):
+        visual = {**VISUAL_STYLE, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
+        old = {'watermark': {'font_size_ui': 7}, 'subtitle': {
+            'font_family': 'legacy', 'font_size_ui': 31, 'border_width_ui': 2, 'transform_y': 0.2}}
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                      'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}):
+            content, _result, review = self.make_candidate(style=PROJECT_STYLE, snapshot=old,
+                                                           has_snapshot=True, visual=VISUAL_STYLE,
+                                                           snapshot_visual={}, has_visual_snapshot=True,
+                                                           geometry={'width': 1440, 'height': 2560})
+        self.assertEqual(self.text_rows(content, watermark=True)[0][2]['styles'][0]['size'], 7)
+        self.assert_subtitle_style(content, transform_y=1 - 2 * visual['center_y_ratio'])
+        self.assertEqual(review['subtitle_font']['status'], 'default')
+        self.assertEqual(review['subtitle_visual_adapter']['typography_source'], 'product_editor_defaults')
+        for _segment, material, _text in self.text_rows(content):
+            self.assertEqual(material['type'], 'text')
+            self.assertEqual(material['line_max_width'], 0.9)
+
+    def test_product_forcing_keeps_legacy_landscape_style(self):
+        visual = {**VISUAL_STYLE, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
+        old = {'watermark': {'font_size_ui': 7}, 'subtitle': {
+            'font_size_ui': 13, 'border_width_ui': 25, 'transform_y': 0.2}}
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                      'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}):
+            content, _result, review = self.make_candidate(snapshot=old, has_snapshot=True)
+        self.assert_subtitle_style(content, size=13, transform_y=0.2, stroke_width=0.05)
+        self.assertEqual(review['draft_style']['watermark']['font_size_ui'], 7)
 
     def test_visual_adapter_serializes_a_fixed_size_single_line_without_editor_auto_wrapping(self):
         inputs = load_module('serialized_subtitle_visual_inputs', 'draft_inputs.py')

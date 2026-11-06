@@ -222,11 +222,20 @@ async function main(): Promise<void> {
   })
   control.updateTasks = installDesktopUpdateTaskControl(ctx)
   control.quitInspection = installDesktopQuitInspection(ctx)
+  const forceDraftSubtitleVisual = process.env.MUSE_FORCE_SUBTITLE_VISUAL === '1'
+  const productSubtitleVisual = process.env.MUSE_DEFAULT_SUBTITLE_VISUAL
+  if (forceDraftSubtitleVisual && productSubtitleVisual === undefined) {
+    throw new Error('Forced product subtitle visual is missing from the Desktop environment')
+  }
   await ctx.plugin(desktopOffice, {
     runtimeDir,
     source: primarySource,
     root: join(resolveDshHome(), 'dsh-runtimes', 'dsh-primary-runtime'),
     docxReviewMode: 'advisory',
+    ...(forceDraftSubtitleVisual && productSubtitleVisual !== undefined ? { jianyingDraft: {
+      enforceSubtitleVisual: true,
+      defaultSubtitleVisual: JSON.parse(productSubtitleVisual) as NonNullable<NonNullable<desktopOffice.Config['jianyingDraft']>['defaultSubtitleVisual']>,
+    } } : {}),
   })
   installPlatformSessionPublisher(ctx, (session) => {
     if (process.connected) process.send?.({ type: 'platform-session', session })

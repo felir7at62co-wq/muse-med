@@ -4104,7 +4104,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-episode-render`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-episode-render/src/index.ts:79`](../packages/drama/tool-episode-render/src/index.ts)
+- `source`: [`packages/drama/tool-episode-render/src/index.ts:81`](../packages/drama/tool-episode-render/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -4115,6 +4115,14 @@ export interface Config {
  * ending and watermark treatment are selected by the explicit visual medium.
  */
 export interface Config {
+  /** Optional deployment fallback for timelines without an ending-effect fit. */
+  defaultEndingEffectFit?: EndingEffectFit
+  /** Optional deployment fallback for projects without an explicit subtitle style. */
+  defaultSubtitleVisual?: DeliverySubtitleVisual | undefined
+  /** Enforce the product subtitle target for old projects and timelines. */
+  enforceSubtitleVisual?: boolean
+  /** Normalize dialogue display punctuation and line breaks during rendering. */
+  normalizeSubtitleText?: boolean
   /** ffmpeg executable; defaults to `ffmpeg` from `PATH`. */
   ffmpegPath?: string
   /** ffprobe executable; defaults to `ffprobe` from `PATH`. */
@@ -4133,6 +4141,29 @@ export interface Config {
   subtitleFontFamily?: string
   /** ASS watermark font family; nonblank, no commas or line breaks; defaults to Microsoft YaHei. */
   watermarkFontFamily?: string
+}
+
+/** How the effect source occupies the existing ending window. */
+export type EndingEffectFit = 'source_once' | 'stretch_to_window'
+
+/** One project-owned visual intent, in a reference raster, independently adapted to each renderer. */
+export interface DeliverySubtitleVisual {
+  /** Adapter contract version; an explicit empty section disables this optional mode. */
+  readonly schema_version: 1
+  /** Reference raster width, used to explain the approved preview geometry. */
+  readonly reference_width: number
+  /** Reference height used to scale nominal typography to the actual output. */
+  readonly reference_height: number
+  /** Nominal font size in reference pixels, not the measured glyph height. */
+  readonly font_size_px: number
+  /** Black outline thickness in reference pixels. */
+  readonly outline_px: number
+  /** Text-box centre relative to picture height, measured from the top. */
+  readonly center_y_ratio: number
+  /** Available single-line width as a fraction of the actual picture width. */
+  readonly max_width_ratio: number
+  /** Optional requested family; does not install a font or prove the editor uses it. */
+  readonly font_family?: string
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-episode-render -->
