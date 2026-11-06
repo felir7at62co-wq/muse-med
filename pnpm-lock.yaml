@@ -234,6 +234,9 @@ importers:
       '@deepseek-ai/dsh-mcp-client':
         specifier: workspace:*
         version: link:packages/mcp/mcp-client
+      '@deepseek-ai/dsh-perception-bgm':
+        specifier: workspace:*
+        version: link:packages/perception/perception-bgm
       '@deepseek-ai/dsh-pwsh-local':
         specifier: workspace:*
         version: link:packages/shell/pwsh-local
