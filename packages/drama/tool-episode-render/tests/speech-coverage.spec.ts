@@ -13,6 +13,38 @@ const hash = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).
 const cue = (text: string, startSeconds: number, endSeconds: number, index = 1): SubtitleCue =>
   ({ index, text, startSeconds, endSeconds })
 
+it.each(['丙甲乙', '甲乙丙'])('keeps absent phrase edges unresolved instead of extending beyond recognized characters: %s', async (text) => {
+  const f = await fixture([{ text: '甲', start: 0, end: 0.1 }, { text: '乙', start: 0.1, end: 0.2 }])
+  await f.setCues([cue(text, 33.184, 33.384)])
+  const report = await reviewSpeechCoverage(f.input)
+  expect(report.evidence_complete).toBe(true)
+  expect(report.findings.map(item => [item.kind, item.text])).toEqual([['subtitle_without_recognition', '丙']])
+  expect(report.matches.map(item => item.text).join('')).toBe('甲乙')
+})
+
+it.each([
+  { words: [{ text: '甲乙', start: 0, end: 0.2 }, { text: '丙丁', start: 0.2, end: 0.4 }], text: '乙丙丁', start: 33.384, end: 33.584 },
+  { words: [{ text: '甲乙', start: 0, end: 0.2 }, { text: '丙丁', start: 0.2, end: 0.4 }], text: '甲乙丙', start: 33.184, end: 33.384 },
+])('does not infer a shifted phrase by cutting an ASR token at its edge: $text', async ({ words, text, start, end }) => {
+  const f = await fixture(words)
+  await f.setCues([cue(text, start, end)])
+  const report = await reviewSpeechCoverage(f.input)
+  expect(report.evidence_complete).toBe(true)
+  expect(report.findings.some(item => item.kind === 'recognized_without_subtitle')).toBe(true)
+  expect(report.findings.some(item => item.kind === 'subtitle_without_recognition')).toBe(true)
+  expect(report.findings.some(item => item.kind === 'timing_mismatch')).toBe(false)
+})
+
+it('does not assign one missed spoken word to two nearby shifted subtitle phrases', async () => {
+  const f = await fixture(Array.from('甲乙丙丁戊', (text, index) => ({ text, start: index / 10, end: (index + 1) / 10 })))
+  await f.setCues([cue('甲乙丙', 33.184, 33.384), cue('丙丁戊', 33.484, 33.684, 2)])
+  const report = await reviewSpeechCoverage(f.input)
+  expect(report.evidence_complete).toBe(true)
+  expect(report.findings.filter(item => item.kind === 'recognized_without_subtitle').map(item => item.text)).toEqual(['丙'])
+  expect(report.findings.filter(item => item.kind === 'subtitle_without_recognition').map(item => item.text)).toEqual(['丙', '丙'])
+  expect(report.findings.some(item => item.kind === 'timing_mismatch')).toBe(false)
+})
+
 async function fixture(words: Word[] = [{ text: '做', start: 6.670, end: 6.910 }, { text: '饭', start: 6.910, end: 7.150 }]) {
   const project = await mkdtemp(join(tmpdir(), 'muse-speech-coverage-'))
   onTestFinished(() => rm(project, { recursive: true, force: true }))

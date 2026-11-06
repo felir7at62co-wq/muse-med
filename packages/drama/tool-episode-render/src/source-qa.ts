@@ -176,6 +176,7 @@ async function evidence(project: string, value: unknown, expectedMedia: string, 
   const media = await projectFile(project, value.media_path)
   if (fileKey(media) !== fileKey(await projectFile(project, expectedMedia))) fail('复验没有绑定本次实际源片。')
   if (await fileSha256(media) !== expectedSha256) fail('复验源片已变化。')
+  if (!object(value.inspection)) fail('审看身份缺失。')
   const [ocr, inspection] = await Promise.all([artifact(project, value.ocr, 'OCR'), artifact(project, value.inspection, '审看报告')])
   for (const record of [ocr.value, inspection.value]) {
     const recordedMedia = text(record.path, '工具记录中的源片路径')
@@ -183,7 +184,6 @@ async function evidence(project: string, value: unknown, expectedMedia: string, 
   }
   const duration = inspectOcr(ocr.value)
   inspectReport(inspection.value, ocr.value, duration)
-  if (!object(value.inspection)) fail('审看身份缺失。')
   const binding: SourceQaEvidenceBinding = { mediaPath: media, mediaSha256: expectedSha256,
     ocrPath: ocr.path, ocrSha256: ocr.sha256, inspectionPath: inspection.path, inspectionSha256: inspection.sha256,
     sessionId: text(value.inspection.session_id, '审看会话'), reviewId: text(value.inspection.review_id, '审看ID') }
@@ -248,9 +248,12 @@ export async function verifySourceQa(input: {
 export function summarizeSourceQa(
   reviews: readonly { shot: number; reviewSha256: string; sourceQa?: SourceQaVerification }[],
 ): SourceQaVerification {
-  if (!reviews.length || reviews.some(review => review.sourceQa === undefined)) fail('本集缺少完整源片复验。')
-  const ordered = [...reviews].sort((left, right) => left.shot - right.shot)
+  if (!reviews.length) fail('本集缺少完整源片复验。')
+  const ordered = reviews.map((review) => {
+    if (review.sourceQa === undefined) fail('本集缺少完整源片复验。')
+    return { ...review, sourceQa: review.sourceQa }
+  }).sort((left, right) => left.shot - right.shot)
   return { sha256: hash(JSON.stringify(ordered.map(review => ({ shot: review.shot,
-    review_sha256: review.reviewSha256, source_qa_sha256: review.sourceQa?.sha256 })))),
-  files: [...new Map(ordered.flatMap(review => review.sourceQa?.files ?? []).map(file => [file.path, file])).values()] }
+    review_sha256: review.reviewSha256, source_qa_sha256: review.sourceQa.sha256 })))),
+  files: [...new Map(ordered.flatMap(review => review.sourceQa.files).map(file => [file.path, file])).values()] }
 }

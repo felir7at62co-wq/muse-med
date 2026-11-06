@@ -1099,7 +1099,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   ctx.inject(['tools', 'fs', 'sandboxPolicy', 'sessionProjections'], (scope) => {
     sourceQaContext = scope
     scope.effect(() => () => {
-      if (sourceQaContext === scope) sourceQaContext = undefined
+      sourceQaContext = undefined
     })
   })
   registerDramaVideo(ctx)

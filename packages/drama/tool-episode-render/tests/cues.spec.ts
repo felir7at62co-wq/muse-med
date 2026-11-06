@@ -398,6 +398,16 @@ describe('drama_render subtitles', () => {
       { shot: 1, strategy: 'no_lines', cues: [], source_sha256: hashes[0] },
       ...ALIGNMENT.shots.map((row, i) => ({ ...row, shot: row.shot + 1, source_sha256: hashes[i + 1] })),
     ] }))
+    const currentAlignment = await readFile(aligned, 'utf8')
+    await writeFile(aligned, JSON.stringify({ shots: [
+      { shot: 1, strategy: 'no_lines', cues: [], source_sha256: hashes[0] },
+      ...ALIGNMENT.shots.map((row, i) => ({ ...row, shot: row.shot + 1, source_sha256: hashes[i + 1],
+        cues: row.cues.map(cue => ({ ...cue, text: '无法对应当前台词' })) })),
+    ] }))
+    await expect(repair()).rejects.toThrow('字幕自动修复未通过对齐复验')
+    expect(await readFile(preparedSubtitle, 'utf8')).toBe(originalSrt)
+    expect(await readFile(join(project, 'editing', '02-timeline.json'), 'utf8')).toBe(previousCut)
+    await writeFile(aligned, currentAlignment)
     const editedSrt = join(project, 'manually-edited.srt')
     await writeFile(editedSrt, originalSrt.replace('第三句', '人工改字'))
     await writeFile(editedSrt + '.clock.json', originalClock)
