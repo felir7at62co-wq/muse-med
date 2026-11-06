@@ -556,6 +556,13 @@
               "type": "string"
             }
           },
+          "timestamps_seconds": {
+            "type": "array",
+            "description": "scan可选的补看来源秒数，最多256项且0≤t<真实视频时长；合入常规扫描，保留同版本已有帧ID，新帧仍须next实际看图并observe，不能凭时间补记完成。",
+            "items": {
+              "type": "number"
+            }
+          },
           "draft_path": {
             "type": "string",
             "description": "compare使用的本集已保存UTF-8剧本路径；返回完整正文与时间顺序观察记录，不写稿、不自动审核。Word请使用其对应文本源稿。"

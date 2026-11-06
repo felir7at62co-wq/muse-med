@@ -179,7 +179,7 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // Owned Worker bundles import this public bootstrap before their business entry.
   '@deepseek-ai/dsh-app-boot': ['lib/worker/profile-resolution-bootstrap.js'],
   // Codex-derived discovery surfaces publish their license notices beside the entry.
-  '@deepseek-ai/dsh-tool-discovery': ['NOTICE', 'LICENSE-Codex'],
+  '@deepseek-ai/dsh-tool-discovery': ['LICENSE', 'NOTICE', 'LICENSE-Codex'],
   // Statically linked client libraries keep their stylesheets next to the emitted
   // JavaScript, which imports them by relative path: the compile shell runs
   // them through its own CSS pipeline, so the sheets are published artifacts.

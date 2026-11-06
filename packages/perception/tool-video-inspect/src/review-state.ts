@@ -102,6 +102,15 @@ export function reviewsOf(ctx: Context, session: Session): VideoReviews {
   return projections.stateOf(session, 'videoReviews') ?? {}
 }
 
+/** Serialize the complete observation artifact without mutable follow-up intent.
+ * @param review - Current Host-owned source revision and observation state.
+ * @returns Exact UTF-8 JSON text used by the saved observation report.
+ */
+export function reviewEvidenceJson(review: VideoReview): string {
+  const { follow_up: _followUp, ...evidence } = review
+  return JSON.stringify(evidence, null, 2) + '\n'
+}
+
 /**
  * Commit changed evidence and explicit follow-up intent; omitted intent retains the saved value.
  * @param ctx - Projection registry supplying the previous state.

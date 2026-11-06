@@ -9,7 +9,7 @@ import { isAgentLoopRequest, IMAGE_OFFLOAD_REQUIRED_CODE } from '@deepseek-ai/ds
 import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
 import { probeVideo, runMedia } from './media.ts'
 import { scanReviewFrames } from './review-scan.ts'
-import { installReviewState, reviewsOf, saveReview, reviewImage, pendingReview, hasReviewUncertainty,
+import { installReviewState, reviewsOf, saveReview, reviewImage, pendingReview, hasReviewUncertainty, reviewEvidenceJson,
   reviewFrameSchema, VideoReviewId, type VideoReview } from './review-state.ts'
 import type { Config } from './index.ts'
 import { compareReviewDraft } from './review-compare.ts'
@@ -17,6 +17,7 @@ import { bindReviewEvents, reviewEventCurrent, reviewEventEvidence, reviewEventN
 import { reviewSpeech, type ReviewSpeech, type ReviewSpeechLink, type ReviewSpeechUnavailable } from './review-speech.ts'
 import { reviewBatchAfterOffload } from './review-batch.ts'
 import { buildVideoSourceTimeline, type VideoSourceTimeline } from './review-timeline.ts'
+import { installSourceQaState } from './source-qa-state.ts'
 
 const parameters = z.object({ method: z.enum(['scan', 'next', 'revisit', 'observe', 'events', 'status', 'metadata', 'timeline', 'compare', 'close', 'reopen']).default('scan'),
   file_path: z.string().min(1).optional(), review_id: z.string().min(1).optional(),
@@ -25,6 +26,7 @@ const parameters = z.object({ method: z.enum(['scan', 'next', 'revisit', 'observ
   event_groups: z.array(reviewEventNoteSchema).optional(),
   timeline_start_seconds: z.number().nonnegative().optional(), timeline_end_seconds: z.number().positive().optional(),
   frame_ids: z.array(z.string().min(1)).optional(),
+  timestamps_seconds: z.array(z.number().nonnegative()).min(1).max(256).optional(),
   observations: z.array(z.object({ frame_id: z.string(), visible: z.string().trim().min(8).max(2000),
     change: z.string().trim().min(2).max(1000), uncertainty: z.string().trim().max(1000).default('') })).optional() })
 
@@ -57,6 +59,8 @@ function taskResult(review: VideoReview, limit: number, batch = false) {
 }
 type ReviewResult = ReturnType<typeof taskResult> & {
   observation_report?: string
+  observation_report_sha256?: string
+  observation_session_id?: string
   comparison?: ReturnType<typeof compareReviewDraft>
   source_timeline?: VideoSourceTimeline
   source_timeline_index?: {
@@ -109,15 +113,18 @@ function content(serialized: string): ContentBlock[] {
  * @param config - Validated product settings; model arguments cannot reduce coverage.
  * @param run - Existing lifecycle owner that bounds media work and waits for shutdown.
  * @param imageRoute - Requires the current Session's image-capable route.
+ * @param toolName - Complete-review registration name; a companion preserves legacy sampling and its guards.
  */
 export function applyCompleteReview(ctx: Context, config: Config,
   run: <T>(exec: ToolExecution, operation: (signal: AbortSignal) => Promise<T>) => Promise<T>,
-  imageRoute: (ctx: Context, exec: ToolExecution) => Promise<void>): void {
+  imageRoute: (ctx: Context, exec: ToolExecution) => Promise<void>,
+  toolName: 'video_inspect' | 'video_source_review' = 'video_inspect'): void {
   const llm = ctx.get('llm')
   if (ctx.get('sessionProjections') === undefined || llm === undefined) {
     throw Error('Complete video observation requires sessionProjections and llm')
   }
   installReviewState(ctx)
+  installSourceQaState(ctx)
   const sessions = new Map<SessionId, Session>()
   const batchLimits = new Map<SessionId, number>()
   let active = true
@@ -173,10 +180,10 @@ export function applyCompleteReview(ctx: Context, config: Config,
     }
   })
 
-  ctx.tools.guard(exec => exec.name === 'video_contact_sheet'
+  if (toolName === 'video_inspect') ctx.tools.guard(exec => exec.name === 'video_contact_sheet'
     ? 'VIDEO_REVIEW_REQUIRED: 本任务请使用 video_inspect；工具自动扫描整集，不能用概览取样替代逐图查看。' : undefined)
 
-  ctx.tools.register(defineTool({ name: 'video_inspect',
+  ctx.tools.register(defineTool({ name: toolName,
     description: '查看视频并完成逐集画面观察。scan自动扫描整集的切镜和镜头内显著画面变化，不能选择帧数或跳过区间；默认scan。'
       + 'next逐批返回全部关键帧的真实图片；observe按frame_id逐张记录具体画面、变化和疑点。status读取全部进度与记录。'
       + '完成当前用途后可自主close结束后续跟进，不改真实完成度；reopen校验原视频版本后恢复跟进。review_id可选择已保存记录，status和close无需读取原视频。'
@@ -192,6 +199,7 @@ export function applyCompleteReview(ctx: Context, config: Config,
       timeline_start_seconds: { type: 'number', description: 'timeline可选的来源开始秒数；仅选择核对材料，不改变全片扫描和观察进度。' },
       timeline_end_seconds: { type: 'number', description: 'timeline可选的来源结束秒数；局部材料不代表整集已核对。省略则到本集结尾。' },
       frame_ids: { type: 'array', items: { type: 'string' }, description: 'revisit需要重看的已记录frame_id，数量不超过当前批上限；返回缓存原图及原观察，不重新抽帧、不重置记录。' },
+      timestamps_seconds: { type: 'array', items: { type: 'number' }, description: 'scan可选的补看来源秒数，最多256项且0≤t<真实视频时长；合入常规扫描，保留同版本已有帧ID，新帧仍须next实际看图并observe，不能凭时间补记完成。' },
       draft_path: { type: 'string', description: 'compare使用的本集已保存UTF-8剧本路径；返回完整正文与时间顺序观察记录，不写稿、不自动审核。Word请使用其对应文本源稿。' },
       transcript_path: { type: 'string', description: '可选本集audio_transcribe已保存JSON路径；返回原段、时间、声学编号和相邻同号连续发言候选，不改原话、不推定角色姓名。close、reopen及仅凭review_id的status不读取ASR。' },
       event_groups: { type: 'array', description: 'events使用；替换当前完整事件表，空数组清空。连续多帧可支持一个动作；只引用已记录frame_id，保留不确定性，不按帧数凑事件。',
@@ -210,12 +218,18 @@ export function applyCompleteReview(ctx: Context, config: Config,
       presentationMeta: (_args, serialized) => {
         const value = resultSchema.parse(JSON.parse(serialized))
         return { episode: value.episode, total: value.total, recorded: value.recorded, pending: value.pending,
+          ...(typeof value.path !== 'string' || typeof value.source_version !== 'string' || typeof value.observation_report !== 'string'
+            ? {} : { videoReviewEvidence: { reviewId: value.review_id, path: value.path,
+              sourceVersion: value.source_version, observationReport: value.observation_report,
+              ...(typeof value.observation_report_sha256 !== 'string' || typeof value.observation_session_id !== 'string' ? {}
+                : { sha256: value.observation_report_sha256, sessionId: value.observation_session_id }) } }),
           complete: value.complete, follow_up: { status: value.follow_up.status,
             ...value.follow_up.reason === undefined ? {} : { reason: value.follow_up.reason } } }
       } },
     isConcurrencySafe: () => false,
     async execute(raw, exec): Promise<string> {
       const args = parameters.strict().parse(raw)
+      if (args.timestamps_seconds !== undefined && args.method !== 'scan') throw Error('VIDEO_REVIEW_TIMESTAMPS: 补看时间仅用于scan。')
       if (exec.agent === undefined) throw Error('Video observation requires an initiating Session')
       const session = exec.agent.session
       const batchFrames = batchLimits.get(session.id) ?? config.reviewBatchFrames
@@ -316,8 +330,7 @@ export function applyCompleteReview(ctx: Context, config: Config,
           return Buffer.byteLength(JSON.stringify(reduced)) <= config.reviewCompareMaxBytes ? reduced : result
         }
         const reportFor = async (review: VideoReview) => {
-          const { follow_up: _followUp, ...evidence } = review
-          const contents = JSON.stringify(evidence, null, 2) + '\n'
+          const contents = reviewEvidenceJson(review)
           const notes = review.frames.map(({ id, observation }) => ({ id, observation }))
           const digest = createHash('sha256').update(JSON.stringify(review.event_groups === undefined && review.transcript_reference === undefined ? notes
             : { frames: notes, ...review.event_groups === undefined ? {} : { event_groups: review.event_groups },
@@ -343,7 +356,8 @@ export function applyCompleteReview(ctx: Context, config: Config,
             },
             ...link.speech === undefined ? {} : { speech: link.speech },
             ...link.speech_unavailable === undefined ? {} : { speech_unavailable: link.speech_unavailable },
-            ...report === undefined ? {} : { observation_report: report.report.displayPath } })
+            ...report === undefined ? {} : { observation_report: report.report.displayPath,
+              observation_report_sha256: createHash('sha256').update(report.contents).digest('hex'), observation_session_id: session.id } })
           const result = link.speech !== undefined || link.speech_unavailable !== undefined || linked.event_groups !== undefined
             || linked.transcript_reference !== undefined ? boundedSpeech(materialize, link) : materialize(link)
           const sourceLink = result.speech_unavailable === undefined ? link : { speech_unavailable: result.speech_unavailable }
@@ -355,7 +369,8 @@ export function applyCompleteReview(ctx: Context, config: Config,
           const { contents, report } = prepared.report
           if (await ctx.fs.stat(report, signal) === undefined) {
             await ctx.fs.writeText(report, contents, { kind: 'createIfAbsent' }, signal, policy)
-          } else if (await ctx.fs.readText(report, signal) !== contents) {
+          }
+          if (await ctx.fs.readText(report, signal) !== contents) {
             throw Error('VIDEO_OBSERVATION_REPORT_CHANGED: observation report bytes changed; retain the Session record')
           }
           return prepared.result
@@ -384,6 +399,7 @@ export function applyCompleteReview(ctx: Context, config: Config,
           const metadata = await probeVideo(ctx, config.ffprobePath, source, policy, signal,
             { timeoutMs: config.commandTimeoutMs, graceMs: config.graceMs }, 'video')
           if (metadata.duration_seconds > config.maxDurationSeconds || metadata.width * metadata.height > config.maxSourcePixels) throw Error('Video exceeds deployment duration or pixel limits')
+          if (args.timestamps_seconds?.some(time => time >= metadata.duration_seconds)) throw Error('VIDEO_REVIEW_TIMESTAMPS: 补看时间必须小于真实视频时长。')
           if (args.method === 'metadata') return describe({ id: VideoReviewId(''), path, episode: args.episode ?? path, source_version: info.version,
             duration: metadata.duration_seconds, scanned_until: 0, scan_complete: false, frames: [] })
           await imageRoute(ctx, { ...exec, signal })
@@ -400,6 +416,19 @@ export function applyCompleteReview(ctx: Context, config: Config,
         }
         if (review === undefined) throw Error('VIDEO_REVIEW_REQUIRED: 先使用scan扫描当前完整视频。')
         if (review.source_version !== info.version) throw Error('VIDEO_REVIEW_SOURCE_CHANGED: 视频版本已变，请重新scan。')
+        if (args.timestamps_seconds !== undefined) {
+          const current = review
+          const requested = [...new Set(args.timestamps_seconds)].sort((left, right) => left - right)
+          if (requested.some(time => time >= current.duration)) throw Error('VIDEO_REVIEW_TIMESTAMPS: 补看时间必须小于真实视频时长。')
+          const additions = requested.filter(time => !current.frames.some(frame =>
+            Math.abs(frame.time - time) <= 0.000001 || frame.decoded_time !== undefined && Math.abs(frame.decoded_time - time) <= 0.000001))
+          if (review.frames.length + additions.length > config.reviewMaxFrames) throw Error('VIDEO_SCAN_LIMIT: 补看帧超过部署上限，未截断。')
+          const count = review.frames.length
+          review = { ...review, frames: [...review.frames, ...additions.map((time, index) => ({
+            id: `F${String(count + index + 1).padStart(5, '0')}`, time, reasons: ['requested_time'], exposed: false,
+          }))] }
+          saveReview(ctx, session, review)
+        }
         if (args.method === 'timeline') {
           const link = await speechFor(review)
           const linked = link.transcript_reference === undefined ? review : { ...review, transcript_reference: link.transcript_reference }

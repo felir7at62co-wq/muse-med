@@ -5,12 +5,15 @@ import { fileSha256 } from '../src/cache.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { resolveCall, resolveSettings } from '../src/index.ts'
 import { episodePaths } from '../src/paths.ts'
-import { buildSourceRecord, sourceRecordPathFor, writeSourceRecord, type DeliveryRenderInputs } from '../src/source-record.ts'
+import { buildSourceRecord, readSourceRecord, sourceRecordPathFor, writeSourceRecord, type DeliveryRenderInputs } from '../src/source-record.ts'
+import { verifySelectedSourceReviews } from '../src/approved-sources.ts'
+import { summarizeSourceQa } from '../src/source-qa.ts'
 import { reviewSpeechCoverage } from '../src/speech-coverage.ts'
 import { stageEpisodeDelivery } from '../src/stage-delivery.ts'
 import { readTimeline } from '../src/timeline.ts'
 import { runDramaVideo } from '../src/video.ts'
 import { cleanup, decodeHandler, probeHandler, srtDocument, stubChannel, tempProject, timelineJson, writePlaceholder } from './harness.ts'
+import { sourceQaFixture, verifiedSourceQaFixture } from './source-qa-fixture.ts'
 
 const temporary: string[] = []
 
@@ -165,6 +168,7 @@ describe('stageEpisodeDelivery', () => {
     const frame = join(f.project, 'review.png')
     const download = join(f.project, 'download.json')
     const sha = f.source.videos[0]!.sha256
+    const qa = await sourceQaFixture(f.project, f.shot)
     await Promise.all([
       writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({
         project_bible: { delivery: { require_source_review: true } },
@@ -177,6 +181,7 @@ describe('stageEpisodeDelivery', () => {
     await writePlaceholder(reviewPath, JSON.stringify({ episode: '26', package: 1, status: 'approved',
       subtitle_cleanup: 'not_required', video_path: f.shot, video_sha256: sha,
       package_sha256: await fileSha256(packagePath), original_download_receipt_path: download, review_frames: [frame],
+      source_qa: { version: 1, selected: qa.declaration },
       content_review: { identity: 'pass', wardrobe: 'pass', scene: 'pass', prop: 'pass', action_and_dialogue: 'pass',
         visible_artifacts: 'pass', continuity: 'pass', voice_and_speaker: 'pass', av_sync: 'pass',
         sensitive_content: 'pass', embedded_subtitles: 'absent' },
@@ -184,9 +189,17 @@ describe('stageEpisodeDelivery', () => {
     await writePlaceholder(f.paths.sources, JSON.stringify({ shots: [{ shot: 1, package: 1, video: f.shot, audio: f.shot,
       sha256: sha, audio_sha256: sha, review_sha256: await fileSha256(reviewPath) }],
     master_audio_sha256: f.source.master_audio_sha256, timeline_clips: [{ shot: 1, start_us: 0, duration_us: 5_000_000 }] }))
-    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/保留同集素材/u)
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/真实OCR执行/u)
+    const verifiedQa = summarizeSourceQa(await verifySelectedSourceReviews(f.paths,
+      [{ shot: 1, package: 1, video: f.shot, audio: f.shot }], true, true, verifiedSourceQaFixture))
+    const recordPath = sourceRecordPathFor(f.paths.output)
+    const record = (await readSourceRecord(recordPath))!
+    await writeSourceRecord(recordPath, { ...record, delivery_inputs: { ...record.delivery_inputs!, source_qa_sha256: verifiedQa.sha256 },
+      input_files: [...record.input_files!, ...verifiedQa.files] })
+    const input = { ...f.input, sourceQaVerifier: verifiedSourceQaFixture }
+    await expect(stageEpisodeDelivery(input, f.draft)).rejects.toThrow(/保留同集素材/u)
     await writePlaceholder(f.draftSourcePath, JSON.stringify({ ...f.source, material_scope: 'episode' }))
-    expect((await stageEpisodeDelivery(f.input, f.draft)).delivery_package?.status).toBe('candidate')
+    expect((await stageEpisodeDelivery(input, f.draft)).delivery_package?.status).toBe('candidate')
   })
 
   it.each([

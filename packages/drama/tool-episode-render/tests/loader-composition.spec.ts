@@ -9,6 +9,7 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { DramaRenderReport } from '../src/types.ts'
 import * as Render from '../src/index.ts'
 import * as Media from '../src/ffmpeg.ts'
 import { cleanup, decodeHandler, framemd5Line, placeholderHandler, probeHandler, runContext,
@@ -66,6 +67,44 @@ async function writePreviewInputs(root: string): Promise<void> {
   await writePlaceholder(join(root, 'shots.json'), JSON.stringify({ shots: [{ shot: 1, video: 'source.mp4' }] }))
   await writePlaceholder(join(root, 'source.srt'), '1\n00:00:01,000 --> 00:00:02,000\n原文\n')
 }
+
+it('prepares strict source-review projects through the Loader without leaking policy flags into public preview geometry', async () => {
+  const root = await tempProject()
+  const ctx = new Context()
+  const channel = stubChannel([
+    probeHandler({ [join(root, 'source.mp4')]: { durationSeconds: 3, video: {}, audio: {} } }),
+    placeholderHandler(),
+  ])
+  const mediaFactory = vi.spyOn(Media, 'createMediaToolkit').mockReturnValue(
+    Media.createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }),
+  )
+  try {
+    await writePreviewInputs(root)
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ project_bible: {
+      visual_medium: 'animation_3d', delivery: { width: 480, height: 854, fps: 24,
+        min_bitrate_mbps: 8, max_effective_chars_per_shot: 80, require_source_review: true,
+        subtitle: { require_no_punctuation: true, require_speech_coverage: true },
+        audio: { require_music_decision: true },
+      },
+    } }))
+    await loadRenderer(ctx, root)
+    const tool = ctx.tools.get('drama_render')
+    if (tool === undefined) throw new Error('missing Loader renderer')
+    const report = await invoke(tool, { method: 'prepare', project: root, episode: 1,
+      shots: 'shots.json', subtitle_srt: 'source.srt', bgm: 'approved-bgm.wav' }) as DramaRenderReport
+    expect(report.render_preview?.delivery).toEqual({ visual_medium: 'animation_3d', width: 480, height: 854, fps: 24 })
+    const timeline = JSON.parse(await readFile(join(root, 'editing', '01-timeline.json'), 'utf8'))
+    expect(timeline.delivery).toMatchObject({ require_source_review: true,
+      subtitle: { require_no_punctuation: true, require_speech_coverage: true }, audio: { require_music_decision: true } })
+    const leaked = { ...report, render_preview: { ...report.render_preview,
+      delivery: { ...report.render_preview?.delivery, require_source_review: true } } }
+    expect(validateJsonSchemaValue(tool.output.schema, leaked, '').length).toBeGreaterThan(0)
+  } finally {
+    mediaFactory.mockRestore()
+    await ctx.fiber.dispose()
+    await cleanup(root)
+  }
+})
 
 it('loads the renderer, accepts public arguments, and removes its tool on disposal', async () => {
   const root = await tempProject()

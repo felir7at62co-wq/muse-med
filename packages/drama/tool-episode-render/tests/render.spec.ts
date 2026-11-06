@@ -4,7 +4,7 @@ import { copyFile, mkdir, readFile, readdir, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDramaRender } from '../src/index.ts'
-import { readSourceRecord, sourceRecordPathFor } from '../src/source-record.ts'
+import { readSourceRecord, sourceRecordPathFor, writeSourceRecord } from '../src/source-record.ts'
 import { fileSha256 } from '../src/cache.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { episodePaths, shotFileName } from '../src/paths.ts'
@@ -114,6 +114,7 @@ function renderChannel(prepared: Prepared, options: {
   deliveredHasStreams?: boolean
   resume?: boolean
   sourceProbe?: ProbeSpec
+  layout?: boolean
 } = {}): ReturnType<typeof stubChannel> {
   const queued = [...(options.imageHashes ?? ['tail'])]
   const deliveredProbe = {
@@ -124,6 +125,10 @@ function renderChannel(prepared: Prepared, options: {
     audio: options.deliveredHasStreams === false ? false as const : {},
   }
   const handlers: StubHandler[] = [
+    ...(options.layout === true ? [(call => call.args.some(argument => argument.includes('bbox=min_val=1')) ? {
+      stderr: 'fontselect: (SimHei, 400, 0) -> SimHei, 0, SimHei\n[Parsed_bbox] x1:1000 x2:1199 y1:1200 y2:1239 w:200 h:40',
+      after: async () => { for (const path of call.args.filter(argument => argument.endsWith('.png'))) await writePlaceholder(path, 'glyph probe image') },
+    } : undefined) satisfies StubHandler] : []),
     ...(options.resume === true ? [
       ((call) => {
         const path = call.args.at(-1) ?? ''
@@ -201,6 +206,42 @@ async function render(
 }
 
 describe('renderEpisode', () => {
+  it('records measured product subtitle checks and preserves a prior candidate missing that proof', async () => {
+    const p = await preparedProject()
+    const timeline = JSON.parse(await readFile(p.timeline, 'utf8'))
+    timeline.delivery = { width: 1440, height: 2560, fps: 60 }
+    timeline.delivery.subtitle_visual = { schema_version: 1, reference_width: 1080, reference_height: 1920,
+      font_size_px: 40, outline_px: 2, center_y_ratio: 0.75, max_width_ratio: 0.9, font_family: 'SimHei' }
+    await writePlaceholder(p.timeline, JSON.stringify(timeline))
+    const channel = renderChannel(p, { resume: true, layout: true })
+    const first = await render(p, channel, false, undefined, { resume: true })
+    const path = sourceRecordPathFor(first.output)
+    const record = (await readSourceRecord(path))!
+    const verification = record.delivery_inputs!.subtitle_visual_verification!
+    expect(verification).toMatchObject({ version: 1, subtitle_sha256: record.delivery_inputs!.subtitle_sha256,
+      requested_font: 'SimHei', delivery: { width: 1440, height: 2560, fps: 60 }, visual: timeline.delivery.subtitle_visual, checks: [
+        { id: 'subtitle_display_text', ok: true }, { id: 'subtitle_display_width', ok: true }, { id: 'subtitle_display_font', ok: true },
+      ] })
+    expect(record.input_files).toContainEqual({ path: verification.report_path, sha256: await fileSha256(verification.report_path) })
+    const { subtitle_visual_verification: _verification, ...legacy } = record.delivery_inputs!
+    await writeSourceRecord(path, { ...record, delivery_inputs: legacy })
+    const next = await render(p, channel, false, undefined, { resume: true })
+    expect(next.output).not.toBe(first.output)
+    expect((await readSourceRecord(path))?.delivery_inputs?.subtitle_visual_verification).toBeUndefined()
+  })
+  it('requires current source QA before media processing on a strict formal render', async () => {
+    const p = await preparedProject()
+    await writePlaceholder(join(p.project, 'project_config.json'), JSON.stringify({
+      project_bible: { visual_medium: 'photorealistic', delivery: { require_source_review: true } },
+    }))
+    await writePlaceholder(p.paths.sources, JSON.stringify({ shots: [
+      { shot: 1, package: 1, video: join(p.paths.videoDir, 'shot_001.mp4') },
+      { shot: 2, package: 2, video: join(p.paths.videoDir, 'shot_002.mp4') },
+    ] }))
+    const channel = stubChannel([])
+    await expect(render(p, channel)).rejects.toThrow(/缺少本集选源审核/u)
+    expect(channel.calls).toHaveLength(0)
+  })
   it('blocks a legacy AAC-duration cut that would duplicate a decoded source frame', async () => {
     const prepared = await preparedProject()
     const channel = renderChannel(prepared, { sourceProbe: {

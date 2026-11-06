@@ -2,6 +2,7 @@
 
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
+import { assertVideoObservationReportArtifacts, normalizeVideoObservationReportHashes } from '../../packages/perception/tool-video-inspect/tests/snapshot-reports.ts'
 import { cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -268,7 +269,8 @@ async function writeSessionFixtures(
       : log.content, ctx.cwd)
     return scrubSessionSnapshot(prepareSessionSnapshotFixtureForComparison(stable))
   })
-  const output = redactSessionSnapshotIds(stabilizeFixtureMessageIds(fresh, prior))
+  const redacted = redactSessionSnapshotIds(stabilizeFixtureMessageIds(fresh, prior))
+  const output = videoObservationOwners.has(scenario.name) ? normalizeVideoObservationReportHashes(redacted) : redacted
   await Promise.all(output.map((content, index) => writeFile(join(scenario.dir, names[index] as string), content)))
   return output
 }
@@ -887,6 +889,8 @@ function sessionReferenceSpillExpected(actual: readonly JsonObject[], expectedLo
   expectedReference.capturedFormatVersion = SESSION_FORMAT_VERSION
   return expected
 }
+
+const videoObservationOwners = new Set(['muse-video-observation', 'muse-video-review-lifecycle'])
 
 // These fixtures measure text containing host-specific workspace paths before path redaction.
 const workspaceSensitiveBudgetScenarios = new Set([
@@ -1661,6 +1665,7 @@ describe('headless recorded-session snapshots', () => {
           },
           inspect: async (cwd) => {
             actualLogs = await persistedSessions(cwd)
+            if (videoObservationOwners.has(scenario.name)) await assertVideoObservationReportArtifacts(actualLogs.map(log => log.content))
             if (scenario.name === 'drama-subtitle-visual-review') {
               const expectedHash = await expectedVisualSpeechHash(cwd, scenario.dir)
               visualSpeechHash = expectedHash
@@ -2287,8 +2292,9 @@ describe('headless recorded-session snapshots', () => {
       if (outputLog === undefined) throw new Error(`${scenario.name}: CLI projection has no primary session`)
       expect(result.stdout).toBe(`${finalTextFromSession(outputLog)}\n`)
       expect(result.stderr).toBe(stderrFromSession(outputLog))
-      const actualSnapshots = normalizeSessionSnapshots(actualLogs.map(log => log.content), actualContext, { nativeWriterOutput: true })
-      const expectedSnapshots = normalizeSessionSnapshots(expected, contextOf(expected), { nativeWriterOutput: true })
+      const normalizeOutput = (logs: string[]) => videoObservationOwners.has(scenario.name) ? normalizeVideoObservationReportHashes(logs) : logs
+      const actualSnapshots = normalizeOutput(normalizeSessionSnapshots(actualLogs.map(log => log.content), actualContext, { nativeWriterOutput: true }))
+      const expectedSnapshots = normalizeOutput(normalizeSessionSnapshots(expected, contextOf(expected), { nativeWriterOutput: true }))
       for (const [index, actual] of actualSnapshots.entries()) {
         const actualRecords = records(actual)
         let expectedRecords: object[] = scenario.name === 'session-reference-spill' && index === 0

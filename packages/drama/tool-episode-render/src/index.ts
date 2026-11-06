@@ -23,6 +23,7 @@ import { AUDIO_MIX_RESULT_SCHEMA, previewAudio } from './audio.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { verifyVideoSourceQaEvidence } from '@deepseek-ai/dsh-tool-video-inspect'
 import z from '@deepseek-ai/schemastery'
 import { FONT_FAMILY_PATTERN, deliveryRenderSettings } from './delivery.ts'
 import { deliveryPolicyFor, resolveDeliveryPolicy } from './delivery-policy.ts'
@@ -35,7 +36,7 @@ import { episodeNumberOf, episodePaths } from './paths.ts'
 import { parseShotManifest, prepareEpisode, readJsonDocument, verifyPreparedSubtitleClock } from './prepare.ts'
 import { buildRenderPreview, renderPreviewWarnings } from './preview.ts'
 import { buildReport, NO_MEDIA, NO_TAIL_FRAME, type ReportInput } from './report.ts'
-import { renderEpisode } from './render.ts'
+import { renderEpisode, type RenderInput } from './render.ts'
 import type { BgmPlanReport, DeliverySubtitleVisual, DramaRenderMethod, DramaRenderReport, EndingEffectFit, MediaToolkit, RenderCheck, RenderSettings } from './types.ts'
 import { verifyEpisode } from './verify.ts'
 import { stageEpisodeDelivery } from './stage-delivery.ts'
@@ -47,6 +48,7 @@ import { measureSubtitleLayout } from './subtitle-layout.ts'
 import { fitSubtitleCues } from './subtitle-fit.ts'
 import { formatSrtDocument, normalizeSubtitleDisplay, readSubtitleCues, subtitleDisplayWarnings } from './subtitles.ts'
 import { StaleSubtitleClockError, subtitleClockPath, writeDerivedSubtitleClock } from './subtitle-clock.ts'
+import type { SourceQaVerifier } from './source-qa.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-episode-render'
@@ -165,7 +167,7 @@ interface DramaRenderArguments {
   bgm?: string
   /** Optional episode/segments music plan to report, not a listening verdict. */
   bgmPlan?: string
-  /** Composer receipt for audition evidence or strict render provenance. */
+  /** Composer receipt for audition evidence or strict render issuance. */
   bgmGeneration?: string
   /** Explicit project-owned audio profile. */
   mixProfile?: string
@@ -234,35 +236,9 @@ interface SubtitlesCall extends CallBase {
 }
 
 /** A resolved `render` call: every input the delivery is built from. */
-interface RenderCall extends CallBase {
+interface RenderCall extends CallBase, Omit<RenderInput, 'toolkit' | 'settings' | 'project' | 'episode' | 'sourceQaVerifier'> {
   /** The operation to run. */
   readonly method: 'render'
-  /** Absolute path of the timeline to render. */
-  readonly timelinePath: string
-  /** Absolute path of the subtitle to burn. */
-  readonly subtitleSrt: string
-  /** Optional absolute authored subtitle-overlay plan. */
-  readonly subtitlePlan?: string
-  /** The last body shot this render delivers. */
-  readonly lastShot: number
-  /** Absolute path of the BGM bed. */
-  readonly bgm?: string
-  /** Optional absolute path of the declared BGM plan. */
-  readonly bgmPlan?: string
-  /** Optional absolute path of the BGM composer receipt. */
-  readonly bgmGeneration?: string
-  /** Explicit project-owned audio profile. */
-  readonly mixProfile?: string
-  /** Absolute path of the ending sound. */
-  readonly endingAudio?: string
-  /** Absolute path of the ending effect video. */
-  readonly endingEffect?: string
-  /** Absolute path of the file to write. */
-  readonly output: string
-  /** Whether the per-shot cache is ignored. */
-  readonly force: boolean
-  /** Whether to reuse a verified matching candidate without overwriting files. */
-  readonly resume?: boolean
 }
 
 /** A resolved `verify` call: the delivered file and the two inputs it claims to follow. */
@@ -505,8 +481,8 @@ export function resolveCall(args: DramaRenderArguments): ResolvedCall {
   return method === 'stage_delivery'
     ? { ...verification, method, draft: resolve(project, required(args.draft, method, 'draft',
       '本集 02_剪映草稿 下生成的草稿目录。')),
-      ...(args.speechTranscripts === undefined ? {} : { transcriptsPath: resolve(project, args.speechTranscripts) }),
-      ...(args.speechDecisions === undefined ? {} : { decisionsPath: resolve(project, args.speechDecisions) }) }
+    ...(args.speechTranscripts === undefined ? {} : { transcriptsPath: resolve(project, args.speechTranscripts) }),
+    ...(args.speechDecisions === undefined ? {} : { decisionsPath: resolve(project, args.speechDecisions) }) }
     : { ...verification, method }
 }
 
@@ -684,12 +660,14 @@ async function prepareWithSubtitleRepair(call: PrepareCall, toolkit: MediaToolki
  * Run one `drama_render` call.
  * @param args - The dispatched arguments.
  * @param settings - The resolved binaries, gains, and encoder preference.
+ * @param sourceQaVerifier - Optional Host-only current-Session issuance check for strict source adoption.
  * @returns The canonical result; `ok` is false when a delivery check failed.
  * @throws {Error} When an argument is missing, an input is unusable, or a media command fails.
  */
 export async function runDramaRender(
   args: DramaRenderArguments,
   settings: RenderSettings,
+  sourceQaVerifier?: SourceQaVerifier,
 ): Promise<DramaRenderReport> {
   const call = resolveCall(args)
   const toolkit = createMediaToolkit({ ffmpeg: settings.ffmpeg, ffprobe: settings.ffprobe, channel: settings.channel })
@@ -781,6 +759,7 @@ export async function runDramaRender(
       output: call.output,
       force: call.force,
       ...(call.resume === true ? { resume: true } : {}),
+      ...(sourceQaVerifier === undefined ? {} : { sourceQaVerifier }),
     })
   }
   if (call.method === 'subtitle_overlay') {
@@ -809,6 +788,7 @@ export async function runDramaRender(
   }
   return call.method === 'stage_delivery'
     ? await stageEpisodeDelivery({ ...verification,
+      ...(sourceQaVerifier === undefined ? {} : { sourceQaVerifier }),
       ...(call.transcriptsPath === undefined ? {} : { transcriptsPath: call.transcriptsPath }),
       ...(call.decisionsPath === undefined ? {} : { decisionsPath: call.decisionsPath }),
     }, call.draft)
@@ -1115,6 +1095,13 @@ function toolSpeechCoverage(report: SpeechCoverageReport) {
  */
 export function apply(ctx: Context, config: Config = {}): void {
   const settings = resolveSettings(config)
+  let sourceQaContext: Context | undefined
+  ctx.inject(['tools', 'fs', 'sandboxPolicy', 'sessionProjections'], (scope) => {
+    sourceQaContext = scope
+    scope.effect(() => () => {
+      if (sourceQaContext === scope) sourceQaContext = undefined
+    })
+  })
   registerDramaVideo(ctx)
   ctx.tools.register(defineTool({
     name: 'drama_render',
@@ -1207,7 +1194,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     },
     execute: async ({ subtitle_srt, subtitle_plan, last_shot, ending_audio, ending_effect, bgm_plan,
       mix_profile, start_seconds, duration_seconds, intended_use, bgm_generation,
-      speech_transcripts, speech_decisions, ...args }) => {
+      speech_transcripts, speech_decisions, ...args }, exec) => {
+      const session = exec.agent?.session
       const { speech_coverage: coverage, ...report } = await runDramaRender({
         ...args,
         ...(subtitle_srt === undefined ? {} : { subtitleSrt: subtitle_srt }),
@@ -1223,7 +1211,11 @@ export function apply(ctx: Context, config: Config = {}): void {
         ...(last_shot === undefined ? {} : { lastShot: last_shot }),
         ...(ending_audio === undefined ? {} : { endingAudio: ending_audio }),
         ...(ending_effect === undefined ? {} : { endingEffect: ending_effect }),
-      }, settings)
+      }, settings, (binding) => {
+        const scope = sourceQaContext
+        if (scope === undefined) throw Error('SOURCE_QA_HOST_UNAVAILABLE: 当前会话缺少源片复验服务，请恢复文件、沙箱策略和会话审看服务后重试。')
+        return verifyVideoSourceQaEvidence(scope, session, binding, exec.signal)
+      })
       return coverage === undefined ? report : { ...report, speech_coverage: toolSpeechCoverage(coverage) }
     },
   }))

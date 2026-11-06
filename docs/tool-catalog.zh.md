@@ -25,7 +25,7 @@
 | `@deepseek-ai/dsh-tool-ask-user` | `ask_user_question` | `ctx.tools`、`ctx.userQuestions` | `tool/call`、`tool/result after an answer or timeout`、`late user/message` | - | ask_user_question 默认保持原有阻塞行为；设置 `mode: timed` 后才启用前台超时与 pending 结果，同时问题仍可回答；timed 模式内 `timeout: -1` 让本次调用无限期阻塞。 |
 | `@deepseek-ai/dsh-screenplay-project` | `screenplay_project` | `ctx.fs`, `ctx.tools`, `ctx.attachments`, `ctx.llm`, `ctx.sandboxPolicy（文件系统约束开启时）` | `tool/call`, `tool/result`, `guarded project artifact`, `accepted screenplay and source map` | - | 来源片段编号、修订号、候选摘要、时间和正文引用行号由宿主生成。事实与逐集候选须经另一会话审校后验收。 |
 | `@deepseek-ai/dsh-tool-audio-transcribe` | `audio_transcribe` | `ctx.tools`、`ctx.museAccount`、PATH 中的 FFmpeg 与 FFprobe | `tool/call`、`tool/result`，`transcript/jobs` 中的任务收据，`transcript/raw` 中的 TXT 与 JSON | - | start 使用已登录的 Muse 账号上传压缩音轨并提交云转写；status 根据收据查询同一任务，完成后保存带时间戳的结果。需要可读取的本地音视频与服务端转写配置。 |
-| `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | - | Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription. |
+| `@deepseek-ai/dsh-tool-video-inspect` | `video_contact_sheet`, `video_inspect`, `video_ocr` | `ctx.tools`, `ctx.fs`, `ctx.subprocess`, `ctx.attachments`, `ctx.sandboxPolicy`, `FFmpeg and FFprobe` | `tool/call`, `tool/result with timestamped image attachments`, `optional project-relative JSON manifest` | `video_source_review` | 默认 video_inspect 保留 metadata 与 sample 操作。创作模式启用 sourceReviewCompanion，另提供具备完整 scan／next／observe 操作的 video_source_review，不替换旧采样或可信收据。视频观察仅覆盖报告中的采样帧与时段；带时间的发声另用 audio_transcribe，采样不会提交收费转写。 |
 | `@deepseek-ai/dsh-tools` | `run_code` | `ctx.tools`、`ctx.ptcRuntime (execution time)`、`ctx.systemPrompt` | `tool/call`、`one tool/ptc-dispatch-start + tool/ptc-dispatch pair per bridged sub-call`、`tool/result` | - | 在 `mode: ptc`／`mode: both` 下，它由工具注册表所有，作为可过滤能力层之外的保留传输机制（参见 PTC mode Agent Note）。在 `ptc` 下，它是注册表对协议格式（wire format）的唯一贡献；其他可见能力在使用已加载运行时语言生成的 SDK 章节中声明。程序通过 binding 调用这些能力，调用按照原生并发约定调度：启动顺序和策略遵循提交顺序，并发安全的函数体最多重叠执行 `maxParallelSubCalls` 个。调用会重新进入完整且受守卫保护的工具流水线，并将每个嵌套执行关联到此外层结果。 |
 | `@deepseek-ai/dsh-plan-mode` | `exit_plan_mode` | `ctx.tools`、`ctx.systemPrompt`、`ctx.userQuestions (execution time, opportunistic)` | `tool/call`、`plan/mode inactive on an approved review`、`tool/result` | - | 规划未激活时，exit_plan_mode 仍保留在面向模型的 schema 中，这样状态转换不会在规划策略变更之外额外造成工具目录变动。其执行路径会拒绝规划模式之外的调用；在规划模式下，它通过用户交互 seam 提交计划（批准／根据反馈继续规划），批准后会在步骤边界记录规划模式已停用。 |
 | `@deepseek-ai/dsh-tool-bash` | `bash` | `ctx.tools`、`ctx.shell`、`ctx.systemPrompt`、`ctx.shellEnv`、`ctx.jobs for run_in_background and the job-backed foreground path` | `tool/call`、`tool/result` | - | bash 工具是 bash 执行器 seam 面向模型的消费方。组合中有 job 注册表时，每次调用一启动就注册到通用 `ctx.jobs` 运行时，并通过 `job_*` 工具（来自 `@deepseek-ai/dsh-tool-jobs`）收集／停止；没有注册表或 `enableRunInBackground: false` 时，工具注册不带 `run_in_background` 参数的纯前台 schema。 |
@@ -1749,7 +1749,7 @@ Recognize visible text from bounded, timestamped samples of a local video with t
 
 来源： [`packages/perception/tool-video-inspect/src/index.ts`](../packages/perception/tool-video-inspect/src/index.ts)
 
-Video observations cover only the reported sampled frames and time ranges. Use audio_transcribe separately for timed speech; sampling never submits a paid transcription.
+默认 video_inspect 保留 metadata 与 sample 操作。创作模式启用 sourceReviewCompanion，另提供具备完整 scan／next／observe 操作的 video_source_review，不替换旧采样或可信收据。视频观察仅覆盖报告中的采样帧与时段；带时间的发声另用 audio_transcribe，采样不会提交收费转写。
 
 <a id="deepseek-aidsh-tools"></a>
 
@@ -6434,7 +6434,7 @@ Source: [`packages/drama/tool-bgm-compose/src/index.ts`](../packages/drama/tool-
 
 ### `drama_render`
 
-处理一集短剧的字幕、渲染准备、成片与检查，方法见 method。prepare 复制每镜成片到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长写 editing/<集>-timeline.json，按镜头起点拼接 48kHz 无损原声 master 到 audio/<集>.wav（不加增益、不逐镜重采样），安装 SRT，不编码画面。它快照 project_bible 的明确 visual_medium 与 delivery 宽高/帧率、subtitle 和 audio section；render/verify 优先使用快照，缺媒介时读项目；明确媒介冲突需重跑 prepare，不从 style 或宽高比猜测。Muse 竖版产品统一使用部署字幕视觉；横版、方形和非产品部署按完整 section 依次取时间线、项目、部署默认，已快照 section 不逐字段继承后改项目。未声明媒介的旧项目提醒并保留旧样式。prepare/render 的 render_preview 给出最终规格、字幕设计字号及输出像素、BGM 路径与增益，需与已认可审查版核对；SRT 不含字体样式。prepare 可选 bgm/bgm_plan 预览，未提供只提醒。传 speech_transcripts 时仅在同源、完整匹配且不重叠的词界拆分超宽字幕；缺证据则保留原句，不猜时码，成片和草稿复用 render_preview.subtitle.path。subtitles 只用 alignment 给出的逐镜语音时间，显示文字来自 lines；建议单行、无标点、每条不超过 14 个有效字。长句要逐条取得同源字词时间；cue 时间=时间线镜头起点+镜内偏移，不均分句时长，不做识别、测能量或估算时间。缺对齐、段数或声文不符、有识别却无声明台词、时长/重叠/越界/阅读速度问题均提醒具体镜号与证据缺口。有可用条目时写独立字幕候选；无可用条目只写检查说明，不覆盖原字幕、已有候选或其说明。识别模型、语言与时间准确度由调用方负责。subtitle_layout 用实际字体、libass 与正式烧录链测白字宽高，黑描边另估，返回 PNG、字体/错误日志路径及超宽 cue；按配置选样式，不按字数猜宽或自动缩字。超宽与探针失败只提醒，不要求审批；显式启用时 render 也执行此检查。speech_coverage 只读双向比较同源词级转写与完整显示 SRT（含保留原片烧字），speech_decisions 可附本次证据绑定的逐项核听理由。包含单字、尾音与剧本外识别内容，不跨时间借词、不重复使用字符，多字词保留整词时间，不猜字级时间。其结果是 ASR 待核候选，不证明真声或听感通过；不得自动补词、猜时码或将未识别当作静音。原片烧字先用 video_ocr/video_inspect 预览并明确决定，无识别结果不等于无字幕。subtitle_overlay 按 subtitle_plan 只去除完整覆盖且同文的外加 cue，导出新 SRT 与决定报告；部分重叠或文字不符只提醒，不自动切句。prepare/render 可用同一计划，原 SRT 不改写，草稿复用 resolved_srt 与 decision_report。原片烧字不可编辑或靠外加样式统一；evidence_paths 仅是调用方声明。render 按快照编码（旧时间线默认 1440x2560@60），24M 目标/30M 上限/48M 缓冲、H.264 high@5.1、AAC 192k/48kHz、+faststart。3D 动画不加水印、片尾或读取 ending 素材，仅混整集原声与 BGM。写实与旧项目定格真实尾帧 2 秒，按 ending_effect_fit 铺片尾特效，仅混 ending_audio 前 2 秒；只接受参数指定的随包素材及 SHA-256。字幕只烧一次，标记类交付的「内容由AI生成」由 ASS 携带，不能另加 drawtext/overlay。混音为原声+BGM（到正片结束）+适用片尾音，amix 后 alimiter=0.95；显式增益不改混音算法。h264_nvenc 探测失败回退 libx264，原因写入 encoder_fallback_reason 与日志；回读实际分辨率、帧率、码率、时长、大小和编码器。verify 检查时长、音视频流、4.6 Mbps 总码率下限、首中尾真实解码、黑帧、静音和字幕越界，不能只看元数据。尾帧通过 framemd5 与顺序解码末帧核对，失败先顺序重取，仍无法证明则报错。缺参数/文件、命令失败等无法执行的问题报错；成片质量问题保留文件与实测参数，按 checks、ok=false、failures 返回中文修法。stage_delivery 复验工作成片、当前原声、字幕和选片摘要，并将成片与同集草稿归档为待验收候选；源字幕时钟失效时可在同源台词计划与对齐证据齐全后修复一次。
+处理一集短剧的字幕、渲染准备、成片与检查，方法见 method。prepare 复制每镜成片到 video/<集>/shot_00N.mp4，按 ffprobe 实测时长写 editing/<集>-timeline.json，按镜头起点拼接 48kHz 无损原声 master 到 audio/<集>.wav（不加增益、不逐镜重采样），安装 SRT，不编码画面。它快照 project_bible 的明确 visual_medium 与 delivery 宽高/帧率、subtitle 和 audio section；render/verify 优先使用快照，缺媒介时读项目；明确媒介冲突需重跑 prepare，不从 style 或宽高比猜测。Muse 竖版产品统一使用部署字幕视觉；横版、方形和非产品部署按完整 section 依次取时间线、项目、部署默认，统一视觉仍保留 require_speech_coverage、require_no_punctuation、require_source_review 和 require_music_decision 的验收要求。已快照 section 不逐字段继承后改项目。未声明媒介的旧项目提醒并保留旧样式。prepare/render 的 render_preview 给出最终规格、字幕设计字号及输出像素、BGM 路径与增益，需与已认可审查版核对；SRT 不含字体样式。prepare 可选 bgm/bgm_plan 预览，未提供只提醒。传 speech_transcripts 时仅在同源、完整匹配且不重叠的词界拆分超宽字幕；缺证据则保留原句，不猜时码，成片和草稿复用 render_preview.subtitle.path。subtitles 只用 alignment 给出的逐镜语音时间，显示文字来自 lines；建议单行、无标点、每条不超过 14 个有效字。长句要逐条取得同源字词时间；cue 时间=时间线镜头起点+镜内偏移，不均分句时长，不做识别、测能量或估算时间。缺对齐、段数或声文不符、有识别却无声明台词、时长/重叠/越界/阅读速度问题均提醒具体镜号与证据缺口。有可用条目时写独立字幕候选；无可用条目只写检查说明，不覆盖原字幕、已有候选或其说明。识别模型、语言与时间准确度由调用方负责。subtitle_layout 用实际字体、libass 与正式烧录链测白字宽高，黑描边另估，返回 PNG、字体/错误日志路径及超宽 cue；按配置选样式，不按字数猜宽或自动缩字。超宽与探针失败只提醒，不要求审批；显式启用时 render 也执行此检查。speech_coverage 只读双向比较同源词级转写与完整显示 SRT（含保留原片烧字），speech_decisions 可附本次证据绑定的逐项核听理由。包含单字、尾音与剧本外识别内容，不跨时间借词、不重复使用字符，多字词保留整词时间，不猜字级时间。其结果是 ASR 待核候选，不证明真声或听感通过；不得自动补词、猜时码或将未识别当作静音。原片烧字先用 video_ocr/video_inspect 预览并明确决定，无识别结果不等于无字幕。subtitle_overlay 按 subtitle_plan 只去除完整覆盖且同文的外加 cue，导出新 SRT 与决定报告；部分重叠或文字不符只提醒，不自动切句。prepare/render 可用同一计划，原 SRT 不改写，草稿复用 resolved_srt 与 decision_report。原片烧字不可编辑或靠外加样式统一；evidence_paths 仅是调用方声明。render 按快照编码（旧时间线默认 1440x2560@60），24M 目标/30M 上限/48M 缓冲、H.264 high@5.1、AAC 192k/48kHz、+faststart。3D 动画不加水印、片尾或读取 ending 素材，仅混整集原声与 BGM。写实与旧项目定格真实尾帧 2 秒，按 ending_effect_fit 铺片尾特效，仅混 ending_audio 前 2 秒；只接受参数指定的随包素材及 SHA-256。字幕只烧一次，标记类交付的「内容由AI生成」由 ASS 携带，不能另加 drawtext/overlay。混音为原声+BGM（到正片结束）+适用片尾音，amix 后 alimiter=0.95；显式增益不改混音算法。h264_nvenc 探测失败回退 libx264，原因写入 encoder_fallback_reason 与日志；回读实际分辨率、帧率、码率、时长、大小和编码器。verify 检查时长、音视频流、4.6 Mbps 总码率下限、首中尾真实解码、黑帧、静音和字幕越界，不能只看元数据。整段音视频严格解码；av_stream_clock 对比流起止边界，保留一帧容差和核实的无声片尾。stage_delivery 复验实际烧录 SRT、原声、选片、混音及同集草稿版本，归档唯一 MP4 与同集草稿；启用严格声文检查时须提供本集词级转写、完整显示声明及未决问题的核听决定，保留未通过的工作件供局部修复。尾帧通过 framemd5 与顺序解码末帧核对，失败先顺序重取，仍无法证明则报错。缺参数/文件、命令失败等无法执行的问题报错；成片质量问题保留文件与实测参数，按 checks、ok=false、failures 返回中文修法。
 
 ```json
 {
@@ -6442,7 +6442,7 @@ Source: [`packages/drama/tool-bgm-compose/src/index.ts`](../packages/drama/tool-
   "properties": {
     "method": {
       "type": "string",
-      "description": "prepare=构建渲染输入（不编码）；render=出片并回读实测参数；verify=渲染后检查；subtitles=按语音识别对齐文档给台词定时并写出 SRT（不编码、不做识别）；audio_preview=同最终混音滤镜的短音频 A/B 与短时 RMS/峰值分析；subtitle_overlay=导出已有烧录字的外加字幕决定；speech_coverage=现有词级转写与最终完整显示 SRT 的只读双向比较（不编码、不做识别）；subtitle_layout=显式统一样式的真实字形探针与PNG，不渲染整集；stage_delivery=复验工作成片并与同集草稿归档为待验收候选。",
+      "description": "prepare=准备输入；render=出片；verify=检查；subtitles=按现有对齐生成字幕；audio_preview=用最终混音滤镜制作短音频 A/B 并分析 RMS/峰值；subtitle_overlay=导出外加字幕决定；speech_coverage=只读核对发声与完整字幕；subtitle_layout=测量字形并预览PNG；stage_delivery=复验工作成片及同集草稿并归档待验收候选。",
       "enum": [
         "prepare",
         "render",
@@ -6481,11 +6481,11 @@ Source: [`packages/drama/tool-bgm-compose/src/index.ts`](../packages/drama/tool-
     },
     "subtitle_srt": {
       "type": "string",
-      "description": "本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。speech_coverage 必填最终完整显示的字幕（含保留原片烧字），不能拿删减 overlay 当完整对白；subtitle_layout 必填待预览SRT，不更改其文本和时间。"
+      "description": "本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。speech_coverage 必填最终完整显示的字幕（含保留原片烧字），不能拿删减 overlay 当完整对白；subtitle_layout 必填待预览SRT，不更改其文本和时间。相对路径以 project 为基准。"
     },
     "speech_transcripts": {
       "type": "string",
-      "description": "speech_coverage 及启用严格声文检查的 stage_delivery 必填：项目内映射 {shots:[{shot,receipt}]}，receipt 相对映射文件，指向 audio_transcribe 原 transcript/jobs/<stem>-vN.json；读取同源 SHA 与 raw 实际 word 时间，不提交转写。严格归档另需 display:{embedded:false,subtitle_sha256,video_sha256:[按镜号排列的当前选片摘要]}，声明 SRT 覆盖完整显示且选片无原片烧字。"
+      "description": "prepare 可选、speech_coverage 及启用严格声文检查的 stage_delivery 必填：项目内映射 {shots:[{shot,receipt}]}，receipt 相对映射文件，指向 audio_transcribe 原 transcript/jobs/<stem>-vN.json；读取同源 SHA 与 raw 实际 word 时间，不提交转写。严格归档另需 display:{embedded:false,subtitle_sha256,video_sha256:[按镜号排列的当前选片摘要]}，声明 SRT 覆盖完整显示且选片无原片烧字。"
     },
     "speech_decisions": {
       "type": "string",
@@ -6542,7 +6542,7 @@ Source: [`packages/drama/tool-bgm-compose/src/index.ts`](../packages/drama/tool-
     },
     "ending_effect": {
       "type": "string",
-      "description": "片尾特效视频路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。相对路径以 project 为基准，绝对路径保持不变。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：timeline 的 ending_effect_fit 优先，缺省使用部署配置；stretch_to_window 时以 speed=0.51 铺满两秒，source_once 按原速播放一次。换成别的文件会报错；source_once 拒绝长于两秒的素材，不做截断。"
+      "description": "片尾特效视频路径；写实或旧版 render 必填，animation_3d 不读取且无需提供。只能用随包素材 tweet-drama-background-render/assets/ending_effect.mp4（SHA-256 49308bce84b964c5ec6768655e84920731dcaabe14509a0d84b4c92aea590010，实测 1.020 秒）：timeline 的 ending_effect_fit 优先，缺省使用部署配置；stretch_to_window 时以 speed=0.51 铺满两秒，source_once 按原速播放一次。换成别的文件会报错；source_once 拒绝长于两秒的素材，不做截断。"
     },
     "output": {
       "type": "string",
