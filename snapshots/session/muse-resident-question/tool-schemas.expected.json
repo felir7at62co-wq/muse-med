@@ -72,7 +72,7 @@
     },
     {
       "name": "create_bot",
-      "description": "Main Bot only. Create a new Bot on the user's team. It appears in the sidebar and greets the user.",
+      "description": "Main Bot only. Create a persistent Bot for a new ongoing specialist role. Check list_bots and reuse a suitable Bot first; use subagent tools for short, bounded tasks. Creation starts a greeting, not the assigned work. Send the actual task once afterward with message_bot to establish its reply back to you.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -90,7 +90,7 @@
           },
           "brief": {
             "type": "string",
-            "description": "Why the user wants it, passed to the new Bot as its first context"
+            "description": "Background explaining why the user wants this ongoing role. This is not a task assignment; send the self-contained task afterward with message_bot to receive its result."
           },
           "preset": {
             "type": "string",

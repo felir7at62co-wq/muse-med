@@ -84,7 +84,7 @@ export interface DeliveryAudio {
   readonly master_gain?: number
   /** Pure music bed gain, from 0 through 8. */
   readonly bgm_gain?: number
-  /** Require a current justified music decision and exact render provenance before staging. */
+  /** Require a current justified music decision and matching rendered music inputs before staging. */
   readonly require_music_decision?: boolean
 }
 

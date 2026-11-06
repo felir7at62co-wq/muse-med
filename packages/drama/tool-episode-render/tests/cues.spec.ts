@@ -262,7 +262,7 @@ describe('drama_render subtitles', () => {
     const reviewed = await build()
     expect(reviewed.written).not.toContain(subtitle)
     expect(reviewed.checks).toContainEqual(expect.objectContaining({
-      id: 'subtitle_line_coverage', detail: expect.stringContaining('对齐来源与当前所选声音不一致'),
+      id: 'subtitle_line_coverage', detail: expect.stringContaining('对齐来源与当前所选声音不一致') as string,
     }))
     expect(await readFile(subtitle, 'utf8')).toBe('保留旧字幕')
     const draft = await readFile(`${subtitle}.draft.srt`, 'utf8')

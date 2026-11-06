@@ -23,7 +23,7 @@ describe('delivery metadata', () => {
   it('round trips only explicit project subtitle and audio fields into the timeline', async () => {
     const delivery = { ...animation, subtitle: { font_family: 'Noto Sans CJK SC', font_size_px: 30, margin_bottom_px: 18,
       require_no_punctuation: true, require_speech_coverage: true },
-      audio: { master_gain: 1, bgm_gain: 0, require_music_decision: true } }
+    audio: { master_gain: 1, bgm_gain: 0, require_music_decision: true } }
     const selected = await readProjectDelivery(await project({ visual_medium: 'animation_3d', delivery }))
     expect(selected).toEqual(delivery)
     const text = formatTimelineDocument({ ...appendClips([1_000_000]), delivery: selected })

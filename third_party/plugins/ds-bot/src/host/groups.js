@@ -913,6 +913,7 @@ export function install(rt) {
   rt.postToRoom = postToRoom
   const watchOutbox = installGenerationWatchOutbox(rt, postToRoom)
   rt.prepareGenerationWatch = watchOutbox.prepare
+  rt.generationWatchOrigin = watchOutbox.originForNotice
 
   // A member the round moved on from (it went on working, went quiet or waited for an
   // approval) posts what its turn ended with. The member that asked for it and anyone
@@ -920,7 +921,6 @@ export function install(rt) {
   // inside a round. Work whose result already went out as a step line (`shown`) and
   // that ends with nothing more to say still tells the member that asked for it,
   // which answers the result: where the result sits in the turn decides nothing.
-  const reportedGenerationWatches = new Set()
   async function lateRoomReply(sessionId, info, reply, { shown = false, generationPending = false } = {}) {
     const owner = rt.groupOwners.get(sessionId)
     const room = rt.roomOf(owner?.roomId ?? info.roomId)
@@ -931,22 +931,13 @@ export function install(rt) {
       const origin = validGenerationWatch(room, watch)
       const noticeId = watch.noticeId
       if (origin === undefined || origin.workerBotId !== member.id || watch.workerSessionId !== sessionId
-        || typeof noticeId !== 'string' || noticeId === '' || reportedGenerationWatches.has(noticeId)) return
+        || typeof noticeId !== 'string' || noticeId === '') return
       const replyText = stripOwnName(member.name, reply)
       const text = isPass(replyText) ? info.watchText ?? '' : replyText
       if (isPass(text)) return
       if (watchOutbox.has(noticeId)) {
         await watchOutbox.relay(noticeId, text).catch(error => rt.warn('ds-bot: generation watch result from %s failed: %s', member.name, error))
-        return
       }
-      reportedGenerationWatches.add(noticeId)
-      try {
-        await postToRoom(room, member, text, { late: true, askedBy: origin.requesterBotId, generationWatch: watch })
-      } catch (error) {
-        reportedGenerationWatches.delete(noticeId)
-        rt.warn('ds-bot: generation watch result from %s failed: %s', member.name, error)
-      }
-      if (reportedGenerationWatches.size > 400) reportedGenerationWatches.delete(reportedGenerationWatches.values().next().value)
       return
     }
     const text = stripOwnName(member.name, reply)

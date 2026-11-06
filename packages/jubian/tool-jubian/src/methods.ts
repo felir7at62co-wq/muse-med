@@ -89,6 +89,7 @@ export interface MethodArgs {
   episode_ids?: number[]
   changes?: Record<string, unknown>
   idempotency_key?: string
+  /** Required catalogue category for models; optional positive task-type filter for tasks. */
   task_type?: number
   standard_id?: number
   script_id?: number
@@ -973,7 +974,7 @@ export async function assetMethod(client: JubianClient, ledger: JubianLedger,
   }
 }
 
-/** Explicit coverage for one page; an inferred total cannot establish the absence of other tasks. */
+/** Coverage for the requested page and filters; an inferred total cannot establish absence. */
 function videoPageEvidence(data: unknown, total: number, returned: number, num: number, size: number) {
   const reported = data !== null && typeof data === 'object' && !Array.isArray(data) && 'total' in data
     && typeof data.total === 'number' && Number.isSafeInteger(data.total) && data.total >= 0
@@ -1032,12 +1033,21 @@ export async function videoMethod(client: JubianClient, ledger: JubianLedger,
     case 'tasks': {
       const scriptId = need(args.script_id)
       const { num, size } = pageSelection(args)
+      const taskType = args.task_type
+      if (taskType !== undefined && (!Number.isSafeInteger(taskType) || taskType < 1)) {
+        throw new JubianError('INVALID_ARGUMENT', 'task_type must be a positive integer when filtering tasks')
+      }
       const result = await client.request({
-        method: 'GET', path: `/admin/aigc/video/task/list?scriptId=${scriptId}&taskType=1&pageNum=${num}&pageSize=${size}`,
+        method: 'GET', path: `/admin/aigc/video/task/list?scriptId=${scriptId}`
+          + (taskType === undefined ? '' : `&taskType=${taskType}`) + `&pageNum=${num}&pageSize=${size}`,
         ...(deps.signal === undefined ? {} : { signal: deps.signal }) })
       const tasks = readTaskList(result.data)
-      return { tasks: { ...tasks, ...videoPageEvidence(result.data, tasks.total, tasks.rows.length, num, size) },
-        guidance: 'tasks.rows 仅是本页；未读完所有页前，不能把未找到某集或某卡当作从未生成。'
+      const evidence = videoPageEvidence(result.data, tasks.total, tasks.rows.length, num, size)
+      const scope = { script_id: scriptId, task_type: taskType ?? null }
+      return { tasks: { ...tasks, ...evidence, scope, project_complete: taskType === undefined && evidence.complete },
+        guidance: 'tasks.rows 仅是本页；scope.task_type=null 表示没有按任务类型筛选。'
+          + 'total_verified 和 complete 仅说明 scope 范围内的提供方列表；按类型筛选时 project_complete 恒为 false，'
+          + '该类型为空不能说明项目没有任务。未读完所有页前，不能把未找到某集或某卡当作从未生成。'
           + '提取现有视频请用 sources(script_id,storyboard_id) 查询原卡来源；已有任务继续按原 task_id 回读。' }
     }
     case 'subtasks': {

@@ -85,7 +85,7 @@ async function fixture(clips = [{ shot: 1, startUs: 0, durationUs: 5_000_000 }],
     const plan = join(project, 'bgm-plan.json'), bed = join(project, 'bgm.wav'), generation = join(project, 'bgm.generation.json')
     const none = ['justified no_bgm', 'missing plan', 'blank reason', 'mode conflicts'].includes(musicKind)
     const sourceSha = '1'.repeat(64)
-    const identity = musicKind === 'missing track provenance' ? {} : musicKind === 'catalog music'
+    const identity = musicKind === 'missing track identity' ? {} : musicKind === 'catalog music'
       ? { source_sha256: sourceSha, track_id: `sha256:${sourceSha}` } : musicKind === 'nonmatching catalog id'
         ? { source_sha256: sourceSha, track_id: `sha256:${'2'.repeat(64)}` }
         : { source_sha256: sourceSha, selection_origin: 'approved_reuse', reason: '沿用已认可的本剧主题曲' }
@@ -209,7 +209,7 @@ describe('stageEpisodeDelivery', () => {
     { kind: 'mode conflicts', error: /混音模式不符/u }, { kind: 'missing generation', error: /bgm_generation/u },
     { kind: 'different bed', error: /实际采用的 BGM 字节/u }, { kind: 'muted music', error: /非零实际混音增益/u },
     { kind: 'different source cut', error: /选用区间/u },
-    { kind: 'missing track provenance', error: /每段配乐须有曲库 track_id/u },
+    { kind: 'missing track identity', error: /每段配乐须有曲库 track_id/u },
     { kind: 'nonmatching catalog id', error: /每段配乐须有曲库 track_id/u },
   ])('enforces the rendered music decision when opted in: $kind', async ({ kind, error, decision }) => {
     const f = await fixture(undefined, undefined, kind)
@@ -222,11 +222,12 @@ describe('stageEpisodeDelivery', () => {
       expect(await fileSha256(f.input.output)).toBe(f.sha256)
     } else {
       expect((await attempt).delivery_package?.status).toBe('candidate')
-      const receipt = JSON.parse(await readFile(f.receipt, 'utf8'))
+      const receipt = JSON.parse(await readFile(f.receipt, 'utf8')) as { music_decision?: unknown }
       if (decision === undefined) expect(receipt).not.toHaveProperty('music_decision')
-      else expect(receipt.music_decision).toMatchObject({ decision, plan_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) })
+      else expect(receipt.music_decision).toMatchObject({ decision, plan_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) as string })
       if (decision === 'music') expect(receipt.music_decision).toMatchObject({ mix_gain: 0.2,
-        bed_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u), generation_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        bed_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) as string,
+        generation_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) as string,
       })
     }
   })
@@ -383,13 +384,13 @@ describe('stageEpisodeDelivery', () => {
     { kind: 'missing display declaration', error: /完整显示字幕声明/u },
     { kind: 'missing word evidence', error: /完整词级证据/u },
     { kind: 'wrong selected audio evidence', error: /完整词级证据/u },
-    { kind: 'renderer overlay', error: /保留原片字幕/u }, { kind: 'legacy unknown provenance', error: /未记录字幕来源/u },
+    { kind: 'renderer overlay', error: /保留原片字幕/u }, { kind: 'legacy unknown subtitle source', error: /未记录字幕来源/u },
     { kind: 'changed source manifest', error: /已变化/u },
     { kind: 'old draft without track verification', error: /独立原声与字幕轨道核查/u },
     { kind: 'missing stream clock', error: /实测起止时间/u },
   ])('enforces fresh word coverage before staging: $kind', async ({ kind, error }) => {
     const f = await fixture(undefined, { explicitVisual: false, text: '现在做饭', requireSpeechCoverage: true,
-      display: kind === 'renderer overlay' ? 'overlay' : kind === 'legacy unknown provenance' ? 'unknown' : 'external',
+      display: kind === 'renderer overlay' ? 'overlay' : kind === 'legacy unknown subtitle source' ? 'unknown' : 'external',
       missingStreamClock: kind === 'missing stream clock',
     })
     const transcriptsPath = join(f.project, 'coverage.json')

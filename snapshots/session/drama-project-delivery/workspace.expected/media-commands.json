@@ -31,6 +31,18 @@
     ]
   },
   {
+    "command": "project-delivery-fixture-ffprobe",
+    "args": [
+      "-v",
+      "error",
+      "-show_streams",
+      "-show_format",
+      "-of",
+      "json",
+      "{{cwd}}/video/01/shot_001.mp4"
+    ]
+  },
+  {
     "command": "project-delivery-fixture-ffmpeg",
     "args": [
       "-y",

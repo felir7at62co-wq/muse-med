@@ -61,7 +61,7 @@ async function validSavedMedia(receipt: DownloadReceipt, signal?: AbortSignal): 
     const info = await lstat(receipt.path)
     if (!info.isFile() || info.size !== receipt.bytes) return false
     const digest = createHash('sha256')
-    for await (const chunk of createReadStream(receipt.path, signal ? { signal } : undefined)) digest.update(chunk)
+    for await (const chunk of createReadStream(receipt.path, signal ? { signal } : undefined)) digest.update(chunk as Buffer)
     return `sha256:${digest.digest('hex')}` === receipt.sha256
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false

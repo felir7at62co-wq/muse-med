@@ -2,6 +2,7 @@
 
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
+import { capabilityOcrRecords, expectedCapabilityOcrHash } from './muse-video-novel-ocr-capability/evidence.ts'
 import { assertVideoObservationReportArtifacts, normalizeVideoObservationReportHashes } from '../../packages/perception/tool-video-inspect/tests/snapshot-reports.ts'
 import { cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -270,7 +271,10 @@ async function writeSessionFixtures(
     return scrubSessionSnapshot(prepareSessionSnapshotFixtureForComparison(stable))
   })
   const redacted = redactSessionSnapshotIds(stabilizeFixtureMessageIds(fresh, prior))
-  const output = videoObservationOwners.has(scenario.name) ? normalizeVideoObservationReportHashes(redacted) : redacted
+  const output = videoObservationOwners.has(scenario.name) ? normalizeVideoObservationReportHashes(redacted)
+    : scenario.name === 'muse-video-novel-ocr-capability'
+      ? redacted.map(log => capabilityOcrRecords(log, '0'.repeat(64), false).map(row => JSON.stringify(row)).join('\n') + '\n')
+      : redacted
   await Promise.all(output.map((content, index) => writeFile(join(scenario.dir, names[index] as string), content)))
   return output
 }
@@ -910,6 +914,15 @@ const workspaceSensitiveBudgetScenarios = new Set([
   'muse-working-budget-stop',
 ])
 
+function verifyResidentUiReplay(events: ReturnType<typeof parseSessionLog>, tool: 'ask_user' | 'show_view'): void {
+  const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data.name] : [])
+  expect(calls, 'resident UI replay tool calls remain intact').toEqual([tool])
+  const hostOnlyCatalog = events.some(event => event.type === 'user/message'
+    && event.data.source.kind === 'skill-catalog'
+    && event.data.source.entries.some(entry => entry.name === 'diagnose-windows-sandbox-acl'))
+  expect(hostOnlyCatalog, 'resident UI replay keeps a platform-neutral skill catalog').toBe(false)
+}
+
 function workspaceBudgetExpected(actual: readonly JsonObject[], expected: JsonObject[]): JsonObject[] {
   if (actual.length !== expected.length) return expected
   return expected.map((row, index) => {
@@ -1143,6 +1156,33 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 }
 
 describe('headless recorded-session snapshots', () => {
+  it.each([
+    ['muse-resident-question', 'ask_user'],
+    ['muse-resident-view', 'show_view'],
+  ] as const)('%s rejects dropped tool calls and an unexpected host-only catalog', async (owner, tool) => {
+    const log = await readFile(join(snapshotsRoot, owner, 'writer.expected.jsonl'), 'utf8')
+    const events = parseSessionLog(log)
+    expect(() => verifyResidentUiReplay(events, tool)).not.toThrow()
+    const droppedCall = events.filter(event => event.type !== 'tool/call')
+    expect(() => verifyResidentUiReplay(droppedCall, tool)).toThrow('tool calls remain intact')
+    const changedCall = log.replaceAll(`"name":"${tool}"`, '"name":"bash"')
+    expect(() => verifyResidentUiReplay(parseSessionLog(changedCall), tool)).toThrow('tool calls remain intact')
+    const unexpectedCatalog = {
+      type: 'user/message',
+      surfaceOp: 'append',
+      data: {
+        content: [{ type: 'text', text: 'Unexpected host-only skill' }],
+        role: 'user',
+        id: 'unexpected-catalog',
+        source: { kind: 'skill-catalog', form: 'catalog', entries: [
+          { name: 'diagnose-windows-sandbox-acl', description: 'Unexpected host-only skill' },
+        ] },
+      },
+    }
+    expect(() => verifyResidentUiReplay(parseSessionLog(log + JSON.stringify(unexpectedCatalog) + '\n'), tool))
+      .toThrow('platform-neutral skill catalog')
+  })
+
   it('preserves the recorded working budget decision and other context fields', () => {
     const context = (estimate: number) => ({
       type: 'request/context', data: { model: 'test-model', workingContextTokens: estimate, workingTokenLimit: 100 },
@@ -1599,6 +1639,7 @@ describe('headless recorded-session snapshots', () => {
       let expectedWorkspaceRoot: string | undefined
       let preparedExpectedWorkspace: WorkspaceSnapshotEntry[] | undefined
       let visualSpeechHash: string | undefined
+      let capabilityOcrHash: string | undefined
       const spillRoot = await mkdtemp(join(tmpdir(), 'acp-snap-spill-'))
       const locatorRoot = snapshotSpillRoot(join(scenario.dir, fixtureFiles[0] as string))
       const mcpDemo = scenario.name === 'plugin-manager-mcp' ? await startHttpMcpFixture() : undefined
@@ -1666,6 +1707,15 @@ describe('headless recorded-session snapshots', () => {
           inspect: async (cwd) => {
             actualLogs = await persistedSessions(cwd)
             if (videoObservationOwners.has(scenario.name)) await assertVideoObservationReportArtifacts(actualLogs.map(log => log.content))
+            if (scenario.name === 'muse-video-novel-ocr-capability') {
+              const expectedHash = await expectedCapabilityOcrHash(cwd)
+              capabilityOcrHash = expectedHash
+              capabilityOcrRecords(actualLogs[0]!.content, expectedHash, true)
+              const tampered = capabilityOcrRecords(actualLogs[0]!.content, '0'.repeat(64), false)
+                .map(row => JSON.stringify(row)).join('\n')
+              expect(() => capabilityOcrRecords(tampered, expectedHash, true))
+                .toThrow('OCR digest differs from independently constructed report bytes')
+            }
             if (scenario.name === 'drama-subtitle-visual-review') {
               const expectedHash = await expectedVisualSpeechHash(cwd, scenario.dir)
               visualSpeechHash = expectedHash
@@ -1686,6 +1736,9 @@ describe('headless recorded-session snapshots', () => {
               const saved = await readFile(join(cwd, '.dsh/profiles/headless/cordis.patch.yml'), 'utf8')
               expect(saved).toContain('id: demo')
               expect(saved).toContain('disabled: false')
+            }
+            if (scenario.name === 'muse-resident-question' || scenario.name === 'muse-resident-view') {
+              verifyResidentUiReplay(parseSessionLog(actualLogs[0]!.content), scenario.name === 'muse-resident-question' ? 'ask_user' : 'show_view')
             }
             if (scenario.name === 'muse-resident-question') {
               const events = parseSessionLog(actualLogs[0]!.content)
@@ -2129,7 +2182,7 @@ describe('headless recorded-session snapshots', () => {
                 timeline: 'editing/24-timeline.json', plan: 'episodes/segments/24.json' })
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
               expect(results.map(message => message.toolCallId)).toEqual(calls.map(call => call.callId))
-              expect(results.every(message => message.isError === false)).toBe(true)
+              expect(results.every(message => message.isError === false), JSON.stringify(results.filter(message => message.isError))).toBe(true)
               const bibleBlock = results[0]?.content.find(block => block.type === 'text')
               const renderBlock = results[1]?.content.find(block => block.type === 'text')
               if (bibleBlock?.type !== 'text' || renderBlock?.type !== 'text') throw new Error('Missing real project/render Skill content')
@@ -2307,6 +2360,10 @@ describe('headless recorded-session snapshots', () => {
         if (scenario.name === 'drama-subtitle-visual-review' && index === 0) {
           if (visualSpeechHash === undefined) throw new Error('Visual speech inputs were not checked')
           expectedRecords = visualSpeechRecords(expectedSnapshots[index] as string, visualSpeechHash, false)
+        }
+        if (scenario.name === 'muse-video-novel-ocr-capability' && index === 0) {
+          if (capabilityOcrHash === undefined) throw new Error('OCR capability report bytes were not checked')
+          expectedRecords = capabilityOcrRecords(expectedSnapshots[index] as string, capabilityOcrHash, false)
         }
         if (index === 0 && workspaceSensitiveBudgetScenarios.has(scenario.name)) {
           expectedRecords = workspaceBudgetExpected(actualRecords, expectedRecords as JsonObject[])

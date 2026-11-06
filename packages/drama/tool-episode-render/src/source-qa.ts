@@ -231,7 +231,7 @@ export async function verifySourceQa(input: {
       for (const source of [original, selected]) {
         if (!rows(source.inspection.frames, '审看帧').some(frame => (frame.decoded_time as number) >= (interval.start_seconds as number)
           && (frame.decoded_time as number) < (interval.end_seconds as number))) {
-          const midpoint = ((interval.start_seconds as number) + (interval.end_seconds as number)) / 2
+          const midpoint = (interval.start_seconds + interval.end_seconds) / 2
           fail(`实际处理时段缺少清理前后的已观察画面，须补充审看。优先用video_source_review，或已启用完整模式的video_inspect，对对应源片运行scan并传timestamps_seconds:[${midpoint}]，然后next查看真实图片、observe记录观察，取得新报告后重验。`)
         }
       }

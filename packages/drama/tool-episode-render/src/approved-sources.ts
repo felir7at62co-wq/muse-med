@@ -174,7 +174,7 @@ export async function verifySelectedSourceReviews(paths: EpisodePaths, rows: rea
     const plan = document(bytes, file)
     const tasks = plan.video_tasks
     if (plan.episode !== paths.episode || !Array.isArray(tasks) || tasks.length === 0
-      || tasks.some(task => !Array.isArray(task?.shots) || task.shots.length === 0
+      || tasks.some((task: unknown) => !record(task) || !Array.isArray(task.shots) || task.shots.length === 0
         || task.shots.some((shot: unknown) => typeof shot !== 'number' || !Number.isSafeInteger(shot) || shot < 1))) {
       throw new Error(`EP${paths.episode} 编译分包清单的集号或包内容无效。`)
     }

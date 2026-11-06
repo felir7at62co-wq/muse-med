@@ -10,7 +10,8 @@ import { JubianClient, JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian
 import { stableSha256, submissionSemantics } from '@deepseek-ai/dsh-jubian-api'
 import type { NativeVideoPreview } from '@deepseek-ai/dsh-jubian-api'
 import { bodyHash } from '../src/write.ts'
-import { assertNewNativeDispatchAllowed, positiveInteger, prepareVideoMethod, reconcileRecordedVideo, resolveVideoBatchOptions, selectAssetsMethod,
+import { assertNewNativeDispatchAllowed, positiveInteger, prepareVideoMethod, reconcileRecordedVideo, resolveVideoBatchOptions,
+  selectAssetsMethod,
   submitVideoBatchMethod, submitVideoMethod, validateProjectBinding } from '../src/native.ts'
 
 const URL_LEAD = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/lead.jpg'
@@ -1025,7 +1026,7 @@ describe('submit_video', () => {
     expect(await ledger.records()).toHaveLength(1)
   })
 
-  it.each([true, false])('refuses unverifiable manual hold state before a new submission, malformed=%s', async malformed => {
+  it.each([true, false])('refuses unverifiable manual hold state before a new submission, malformed=%s', async (malformed) => {
     const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeCount: 1 }, tasks: [], subtasks: {} }
     const file = await prepared(provider)
     const state = { episodes: { '01': { video_tasks: { status: 'blocked', status_source: 'manual',
@@ -1037,7 +1038,7 @@ describe('submit_video', () => {
     expect(await ledger.records()).toEqual([])
   })
 
-  it.each(['single', 'batch'] as const)('checks the physical project hold through a linked video_tasks directory for %s', async kind => {
+  it.each(['single', 'batch'] as const)('checks the physical project hold through a linked video_tasks directory for %s', async (kind) => {
     const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 50 },
       tasks: [], subtasks: {} }
     const file = await prepared(provider)

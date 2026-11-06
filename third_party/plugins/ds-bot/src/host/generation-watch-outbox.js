@@ -1,6 +1,6 @@
 // Bridge a settled watch through the group to the original requester's inbox.
 // Recovery reads receipts and never reruns the worker.
-import { SOURCE_KIND } from './constants.js'
+import { HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
 import { isGenerationWatchId } from './muse-team.js'
 
 const GROUP_RECEIPTS = 'dsBotGenerationGroupReceipts'
@@ -60,6 +60,29 @@ export function installGenerationWatchOutbox(rt, post) {
 
   const claimed = (session, receiptId) => projection()?.stateOf(session, GROUP_RECEIPTS)?.includes(receiptId) === true
   const requesterClaimed = (session, receiptId) => projection()?.stateOf(session, REQUESTER_RECEIPTS)?.includes(receiptId) === true
+  const sameOrigin = (left, right) => ['roomId', 'workerBotId', 'requesterBotId', 'requesterSessionId', 'exchangeId']
+    .every(key => left?.[key] === right?.[key])
+
+  // The notice identifies a saved handoff; its source fields never create one.
+  const originForNotice = (workerSessionId, receiptId, noticeId) => {
+    const record = outbox()[receiptId]
+    if (record === undefined || record.workerSessionId !== workerSessionId || record.noticeId !== noticeId) return undefined
+    return rt.museTeam.validateGenerationWatchOrigin(workerSessionId, record.origin)
+  }
+
+  async function verifyAssignment(workerSessionId, origin) {
+    const controller = ctx.sessionController
+    if (typeof controller?.inspect !== 'function') throw new Error('Generation result needs the original persisted group assignment; Session inspection is unavailable')
+    const worker = await rt.resolveAgent(workerSessionId)
+    if (await ctx.sessions.flush(worker.session) !== true) throw new Error('Could not persist the original generation assignment')
+    const saved = await controller.inspect(workerSessionId, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+    const assigned = saved?.events?.some(event => {
+      const source = event.type === 'user/message' ? event.data?.source : undefined
+      return source?.kind === SOURCE_KIND && source.role === 'room' && source.roomId === origin.roomId
+        && source.exchangeId === origin.exchangeId && source.askedBy === origin.requesterBotId
+    })
+    if (!assigned) throw new Error('Generation result needs review: the original persisted group assignment was not found')
+  }
 
   async function requesterTook(watch) {
     const { origin, noticeId } = watch
@@ -112,8 +135,18 @@ export function installGenerationWatchOutbox(rt, post) {
   const prepare = async ({ workerSessionId, origin, receiptId, noticeId, text }) => {
     const validated = rt.museTeam.validateGenerationWatchOrigin(workerSessionId, origin)
     if (validated === undefined || !isGenerationWatchId(receiptId) || !isGenerationWatchId(noticeId)
-      || typeof text !== 'string' || text.trim() === '') return
-    const before = outbox()[receiptId]
+      || typeof text !== 'string' || text.trim() === '') throw new Error('Generation result needs review: the original group participants are unavailable')
+    let before = outbox()[receiptId]
+    if (before !== undefined && (before.workerSessionId !== workerSessionId || !sameOrigin(before.origin, validated))) {
+      throw new Error('Generation result needs review: a saved handoff cannot change its original group assignment')
+    }
+    if (before === undefined) {
+      await verifyAssignment(workerSessionId, validated)
+      before = outbox()[receiptId]
+      if (before !== undefined && (before.workerSessionId !== workerSessionId || !sameOrigin(before.origin, validated))) {
+        throw new Error('Generation result needs review: a saved handoff cannot change its original group assignment')
+      }
+    }
     if (before?.noticeId === noticeId) return
     const record = { ...before, workerSessionId, origin: validated, noticeId, text: before?.text ?? text }
     outbox()[receiptId] = record
@@ -152,5 +185,5 @@ export function installGenerationWatchOutbox(rt, post) {
     return record?.logged
   }
 
-  return { prepare, relay, claimed, requesterTook, logged, has: id => outbox()[id] !== undefined }
+  return { prepare, relay, claimed, requesterTook, logged, originForNotice, has: id => outbox()[id] !== undefined }
 }

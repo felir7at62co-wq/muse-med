@@ -208,7 +208,12 @@ async function render(
 describe('renderEpisode', () => {
   it('records measured product subtitle checks and preserves a prior candidate missing that proof', async () => {
     const p = await preparedProject()
-    const timeline = JSON.parse(await readFile(p.timeline, 'utf8'))
+    const timeline = JSON.parse(await readFile(p.timeline, 'utf8')) as { delivery: {
+      width: number
+      height: number
+      fps: number
+      subtitle_visual?: unknown
+    } }
     timeline.delivery = { width: 1440, height: 2560, fps: 60 }
     timeline.delivery.subtitle_visual = { schema_version: 1, reference_width: 1080, reference_height: 1920,
       font_size_px: 40, outline_px: 2, center_y_ratio: 0.75, max_width_ratio: 0.9, font_family: 'SimHei' }
