@@ -1913,6 +1913,21 @@ describe('headless recorded-session snapshots', () => {
                 failures: [{ code: 'material_reference_mismatch', shot: 1 }] })
               expect(refused.failures[0].message).toContain('@[温雪](asset_71001)')
             }
+            if (scenario.name === 'muse-audio-binding-readback') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+              expect(calls.map(call => call.name)).toEqual(Array(4).fill('jubian_storyboard'))
+              expect(calls.map(call => JSON.parse(call.arguments).method)).toEqual([
+                'audio_preview', 'audio_preview', 'audio_apply', 'audio_apply',
+              ])
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results.map(result => result.isError)).toEqual([true, false, false, false])
+              const text = results[3]?.content.find(block => block.type === 'text')
+              if (text?.type !== 'text') throw new Error('Missing persisted audio reconciliation result')
+              expect(JSON.parse(text.text)).toMatchObject({ status: 'readback_mismatch', replayed: true,
+                verified_readback: false, mismatched_fields: ['storyboardMaterialList'], paid_requests: 0 })
+              expect(await readFile(join(cwd, 'audio-binding-proof.json'), 'utf8')).toContain('"freeProviderPuts": 1')
+            }
             if (scenario.name === 'muse-audio-asset-usage') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_usage_preview')

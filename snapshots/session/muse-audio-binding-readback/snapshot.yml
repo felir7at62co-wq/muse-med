@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-audio-binding-readback
+profile: headless
+composition: muse-audio-binding-readback
+recording: authored
+header:
+  class: muse-audio-binding-readback
+  pin: true
+writerOutput: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-audio-binding-fixture

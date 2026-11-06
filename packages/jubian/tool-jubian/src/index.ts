@@ -1042,7 +1042,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           + 'prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；'
           + 'submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；'
           + 'delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；'
-          + 'erase_subtitle=去字幕（按实时目录计价、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。' },
+          + 'erase_subtitle=去字幕（按实时目录计价、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）；'
+          + '只有 status=applied 且 verified_readback=true 才可报告音频绑定完成，accepted 不代表完成。' },
       storyboard_id: ARGS.storyboard_id, content_duration_ms: ARGS.content_duration_ms,
       page_num: ARGS.page_num, page_size: ARGS.page_size,
       task_id: ARGS.task_id, script_id: ARGS.script_id,
@@ -1059,12 +1060,13 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       body: ARGS.body, body_path: ARGS.body_path,
       idempotency_key: { ...ARGS.idempotency_key,
         description: `generate 不带预览时可省略；提交须原样使用预览返回的 idempotencyKey（指纹），旧操作对账使用原 key。${WRITE_NOTE}` },
-      prompt: { type: 'string', description: 'audio_preview 必填：完整新提示词，原图片素材标记及其顺序必须保留，声音标记与 audio_references 一一对应。' },
-      audio_references: { type: 'array', description: 'audio_preview 必填：最终完整、有序的音频引用列表；[] 明确移除全部声音引用，保留原图片。', items: {
+      prompt: { type: 'string', description: 'audio_preview 必填：完整新提示词，保留原图片素材标记及其顺序；音频标签不能为空，同一 key 的重复标签须一致，首次出现顺序与 audio_references 一致。' },
+      audio_references: { type: 'array', description: 'audio_preview 必填：最终完整、有序的音频引用列表；每项须有非空 fileName 或 materialName；[] 明确移除全部声音引用，保留原图片。', items: {
         type: 'object', additionalProperties: false, properties: {
           materialType: { type: 'string', enum: ['audio'], required: true },
           materialKey: { type: 'string', required: true }, materialUrl: { type: 'string', required: true },
-          fileName: { type: 'string' }, materialName: { type: 'string' },
+          fileName: { type: 'string', description: '音频保存与回读使用的名称；缺失或空白时从非空 materialName 补齐。' },
+          materialName: { type: 'string', description: '可选显示名；保留在模型配置中，音频关系表使用 fileName。' },
           sortOrder: { type: 'integer', required: true, description: '从 1 开始的音频组内连续顺序。' },
           audioDuration: { type: 'number', description: '实测秒数，大于0且不超过15；未知时省略，不按文件名猜测。' },
           audio_asset_id: { type: 'integer', description: '已登记的真实音频资产 ID；工具复验同项目、类别4与URL，字段不伪造图片父资产 ID。' },
@@ -1090,7 +1092,11 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       delete_reason: { type: 'string', description: 'delete_preview 必填：具体删除原因，如这些 ID 是已被正式包替代的测试卡。' },
       authorization_basis: { type: 'string', description: 'delete_preview 必填：用户对本次精确范围的删除授权；不明确时 ask_user。' },
       include_generated_media: { type: 'boolean', description: 'delete_preview 可选，默认 false；只有用户明确授权删除关联生成媒体时为 true，运行中的任务仍不能删除。' },
-      selections: ARGS.selections, project_dir: ARGS.project_dir, preview_path: ARGS.preview_path,
+      selections: ARGS.selections,
+      project_dir: { ...ARGS.project_dir,
+        description: 'audio_preview / audio_apply 必填；prepare_video / generate 准备阶段必填、submit_video 可选：项目目录须含 project_config.json，且 jubian_script_id 必须等于实时 scriptId。' },
+      preview_path: { ...ARGS.preview_path,
+        description: 'audio_apply 必填：audio_preview 返回的 preview_path；submit_video / generate 提交阶段使用 prepare_video 返回的路径。原样传入，不猜测或手写文件名；新 generate 不带此项时仅准备预览。' },
       video_previews: ARGS.video_previews,
       ...VIDEO_ESTIMATE_ARGS,
     },

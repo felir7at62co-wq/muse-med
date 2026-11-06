@@ -150,6 +150,9 @@ async function audioReferences(client: JubianClient, root: string, scriptId: num
   const bindings: AudioBinding[] = []
   const audio = input.map((row) => {
     const { audio_asset_id: assetId, character_id: characterId, voice_period_id: periodId, ...material } = row
+    material.fileName = typeof material.fileName === 'string' && material.fileName.trim() ? material.fileName
+      : typeof material.materialName === 'string' && material.materialName.trim() ? material.materialName
+        : invalid('New audio references require a nonempty fileName or materialName')
     if (characterId !== undefined || periodId !== undefined) {
       identityText(characterId, 'character_id')
       if (assetId === undefined) invalid('Character voice references require audio_asset_id')
@@ -186,6 +189,11 @@ async function readBoard(client: JubianClient, scriptId: number, storyboardId: n
 }
 function payload(board: Row, audio: Row[], prompt: string): Row {
   referenceAudioUrls(audio)
+  for (const row of audio) {
+    if (typeof row.fileName !== 'string' || !row.fileName.trim()) {
+      invalid('Audio preview needs a nonempty persisted fileName; preview again')
+    }
+  }
   const current = storyboardMaterials(board)
   const oldAudioKeys = current.materials.filter(row => row.materialType === 'audio').map(row => row.materialKey)
   const keys = audio.map(row => row.materialKey)
@@ -193,6 +201,14 @@ function payload(board: Row, audio: Row[], prompt: string): Row {
   if (new Set(keys).size !== keys.length || keys.some(key => imageKeys.includes(key))) invalid('Audio material keys must be unique and separate from image keys')
   const config = configOf(board)
   if (typeof config.prompt !== 'string' || !prompt.trim()) invalid('A complete audio-edit prompt is required')
+  const audioLabels = new Map<string, string>()
+  for (const match of normalizedPrompt(prompt).matchAll(/@\[([^\]]*)\]\(([^()\s]+)\)/g)) {
+    const name = String(match[1]), key = String(match[2])
+    if (!name.trim() || (keys.includes(key) && audioLabels.has(key) && audioLabels.get(key) !== name)) {
+      invalid('Audio prompt labels must be nonempty and consistent for each audio key')
+    }
+    if (keys.includes(key)) audioLabels.set(key, name)
+  }
   const oldImages = markers(config.prompt).filter(marker => !oldAudioKeys.includes(marker.key))
   const newMarkers = markers(prompt)
   const newImages = newMarkers.filter(marker => !keys.includes(marker.key))
@@ -200,7 +216,11 @@ function payload(board: Row, audio: Row[], prompt: string): Row {
   if (stableJson(newMarkers.filter(marker => keys.includes(marker.key)).map(marker => marker.key)) !== stableJson(keys)) {
     invalid('Audio prompt markers must match the final audio keys in order')
   }
-  const selected = [...current.materials.filter(row => row.materialType !== 'audio'), ...audio]
+  const selected = [...current.materials.filter(row => row.materialType !== 'audio'), ...audio.map((material) => {
+    const row = { ...material }
+    delete row.materialName
+    return row
+  })]
   const modelImages = config.materialList === undefined ? current.materials.filter(row => row.materialType !== 'audio')
     : materials(config.materialList).filter(row => row.materialType !== 'audio')
   const nextConfig = { ...config, prompt, materialList: [...modelImages, ...audio] }
@@ -255,12 +275,18 @@ function parsePlan(value: unknown): AudioPlan {
 async function readback(client: JubianClient, plan: AudioPlan, replayed: boolean, outcome: string): Promise<Row> {
   try {
     const live = await readBoard(client, plan.script_id, plan.storyboard_id)
-    const verified = stableSha256(snapshot(live, plan.after_snapshot)) === stableSha256(plan.after_snapshot)
+    const saved = snapshot(live, plan.after_snapshot)
+    const mismatched = Object.keys(plan.after_snapshot)
+      .filter(field => stableJson(saved[field]) !== stableJson(plan.after_snapshot[field]))
+    const verified = mismatched.length === 0
     return { status: verified ? 'applied' : 'readback_mismatch', replayed, outcome,
-      storyboard_id: plan.storyboard_id, verified_readback: verified, paid_requests: 0 }
+      storyboard_id: plan.storyboard_id, verified_readback: verified, mismatched_fields: mismatched, paid_requests: 0,
+      next: verified ? 'Saved audio references are verified; generated character voices still require listening review.'
+        : 'Audio binding is not verified. Read the mismatched fields on the current card and reconcile with the original preview and key. Do not claim completion or resend with a new key.' }
   } catch (error) {
     return { status: 'unknown', replayed, outcome, storyboard_id: plan.storyboard_id,
-      verified_readback: false, paid_requests: 0, error: error instanceof JubianError ? error.code : 'READBACK_FAILED' }
+      verified_readback: false, paid_requests: 0, error: error instanceof JubianError ? error.code : 'READBACK_FAILED',
+      next: 'Audio binding is not verified. Reconcile with the original preview and key; do not claim completion or resend with a new key.' }
   }
 }
 

@@ -1,0 +1,151 @@
+{
+  "version": 1,
+  "operation": "storyboard_audio",
+  "script_id": 2708,
+  "storyboard_id": 916953,
+  "audio_references": [
+    {
+      "materialType": "audio",
+      "materialKey": "audio-31",
+      "materialUrl": "https://media.example/qin.wav",
+      "materialName": "秦铭",
+      "sortOrder": 1,
+      "audioDuration": 2,
+      "fileName": "秦铭"
+    },
+    {
+      "materialType": "audio",
+      "materialKey": "audio-32",
+      "materialUrl": "https://media.example/su.wav",
+      "materialName": "苏浩",
+      "sortOrder": 2,
+      "audioDuration": 2,
+      "fileName": "苏浩"
+    }
+  ],
+  "audio_asset_bindings": [
+    {
+      "asset_id": 31,
+      "material_key": "audio-31",
+      "url": "https://media.example/qin.wav"
+    },
+    {
+      "asset_id": 32,
+      "material_key": "audio-32",
+      "url": "https://media.example/su.wav"
+    }
+  ],
+  "prompt": "@[秦铭形象](lead)与苏浩交谈。秦铭声音参照@[秦铭](audio-31)，苏浩声音参照@[苏浩](audio-32)。",
+  "before_snapshot": {
+    "id": 916953,
+    "scriptId": 2708,
+    "episodeId": 9,
+    "episodeCount": 157,
+    "storyboardName": "EP157-P6",
+    "sortOrder": 6,
+    "modelConfig": {
+      "modelId": "doubao-seedance-2-5-260628",
+      "platformId": "FANG_ZHOU",
+      "duration": 20,
+      "ratio": "9:16",
+      "resolution": "480p",
+      "prompt": "@[秦铭形象](lead)与苏浩交谈。",
+      "materialList": [
+        {
+          "assetId": "lead-identity",
+          "materialAssetId": 11,
+          "materialType": "image",
+          "materialUrl": "https://media.example/lead.png",
+          "fileName": "秦铭形象",
+          "materialKey": "lead",
+          "sortOrder": 1
+        }
+      ]
+    },
+    "storyboardMaterialList": [
+      {
+        "assetId": "lead-identity",
+        "materialAssetId": 11,
+        "materialType": "image",
+        "materialUrl": "https://media.example/lead.png",
+        "fileName": "秦铭形象",
+        "materialKey": "lead",
+        "sortOrder": 1
+      }
+    ]
+  },
+  "after_snapshot": {
+    "id": 916953,
+    "scriptId": 2708,
+    "episodeId": 9,
+    "episodeCount": 157,
+    "storyboardName": "EP157-P6",
+    "sortOrder": 6,
+    "modelConfig": {
+      "modelId": "doubao-seedance-2-5-260628",
+      "platformId": "FANG_ZHOU",
+      "duration": 20,
+      "ratio": "9:16",
+      "resolution": "480p",
+      "prompt": "@[秦铭形象](lead)与苏浩交谈。秦铭声音参照@[秦铭](audio-31)，苏浩声音参照@[苏浩](audio-32)。",
+      "materialList": [
+        {
+          "assetId": "lead-identity",
+          "materialAssetId": 11,
+          "materialType": "image",
+          "materialUrl": "https://media.example/lead.png",
+          "fileName": "秦铭形象",
+          "materialKey": "lead",
+          "sortOrder": 1
+        },
+        {
+          "materialType": "audio",
+          "materialUrl": "https://media.example/qin.wav",
+          "fileName": "秦铭",
+          "materialName": "秦铭",
+          "materialKey": "audio-31",
+          "sortOrder": 1,
+          "audioDuration": 2
+        },
+        {
+          "materialType": "audio",
+          "materialUrl": "https://media.example/su.wav",
+          "fileName": "苏浩",
+          "materialName": "苏浩",
+          "materialKey": "audio-32",
+          "sortOrder": 2,
+          "audioDuration": 2
+        }
+      ]
+    },
+    "storyboardMaterialList": [
+      {
+        "assetId": "lead-identity",
+        "materialAssetId": 11,
+        "materialType": "image",
+        "materialUrl": "https://media.example/lead.png",
+        "fileName": "秦铭形象",
+        "materialKey": "lead",
+        "sortOrder": 1
+      },
+      {
+        "materialType": "audio",
+        "materialUrl": "https://media.example/qin.wav",
+        "fileName": "秦铭",
+        "materialKey": "audio-31",
+        "sortOrder": 1,
+        "audioDuration": 2
+      },
+      {
+        "materialType": "audio",
+        "materialUrl": "https://media.example/su.wav",
+        "fileName": "苏浩",
+        "materialKey": "audio-32",
+        "sortOrder": 2,
+        "audioDuration": 2
+      }
+    ]
+  },
+  "request_hash": "sha256:9615f8c9bc41cbb84c1860a72c67f4f4fa930fa56004c980847f8c4ae3e6c206",
+  "fingerprint": "63b40b0676620673f6368333aa731874e652a75c1dee619da5c56e6ec89b1c69"
+}
