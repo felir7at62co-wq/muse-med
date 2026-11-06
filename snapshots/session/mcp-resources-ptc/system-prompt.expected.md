@@ -9,7 +9,7 @@ Verify your work by running the code or tests. Keep answers brief and factual.
 
 Check the [exit code: N] marker on every bash result; investigate failures before moving on.
 
-Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files.
+Use the read tool — not shell commands like cat — to inspect text files. Continue with the returned offset, column and expected_version until no continuation remains; columns count Unicode code points, not grapheme clusters.
 
 Read an existing file before overwriting it with write (the default fs-observation-policy requires it) and prefer edit for targeted changes.
 
@@ -168,8 +168,12 @@ interface ToolArgsMap {
     file_path: string;
     /** 1-based first line to return. Defaults to 1. */
     offset?: number;
+    /** 1-based Unicode code-point column on the first line. Defaults to 1; use the returned continuation without skipping a partial line. */
+    column?: number;
     /** Maximum number of lines to return. Defaults to 2000. */
     limit?: number;
+    /** Provider version from the preceding read; a changed file requires restarting the read. */
+    expected_version?: string;
   } & Record<string, JsonValue>;
   /** Read a PNG/JPEG/WebP/GIF file and return the image itself. Large images are downscaled automatically; do not install image libraries or create thumbnails to inspect an image. */
   read_image: {
@@ -457,11 +461,17 @@ interface ToolOutputMap {
   read: {
     path: string;
     offset: number;
+    column: number;
+    version: string;
     lines: {
       number: number;
       text: string;
     }[];
     totalLines: number;
+    continuation?: {
+      offset: number;
+      column: number;
+    };
   };
   read_image: {
     path: string;
