@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const sourceFilesSha256 = '66c8fb18a32c8ad05896fd37e50f3f1519486094004b56c8182a7b9f915e3cb9'
+const sourceFilesSha256 = 'f9909a21eba0832e28b3c9450b6f3c1f22a46572de40f23bdcce19971b4dcff1'
 const sourceBytes = readFileSync(new URL('./hongguo-source-files.json', import.meta.url))
 if (createHash('sha256').update(sourceBytes).digest('hex') !== sourceFilesSha256) throw new Error('community plugins: Hongguo source inventory requires review')
 const sourceFiles = JSON.parse(sourceBytes.toString('utf8'))
@@ -14,7 +14,8 @@ export const hongguoHostCompatibility = {
   activation: 'scoped creative presets; disabled global entry',
   tools: ['hongguo_search', 'hongguo_detail', 'hongguo_rankings', 'hongguo_collections'],
   credentialsRequired: false,
-  localChanges: ['retain ranking cards with unknown metrics', 'preserve multi-metric observations and field coverage'],
+  localChanges: ['retain ranking cards with unknown metrics', 'preserve multi-metric observations and field coverage',
+    'preserve unsupported rendered metric text without numeric substring extraction'],
 }
 
 /**

@@ -201,13 +201,14 @@ function parseRenderedRanking(html, { board, page, sourceUrl, fetchedAt }) {
     const rank = Number(rankMatch[1]);
     const engagement = [...body.matchAll(/<ul\b([^>]*)>([\s\S]*?)<\/ul>/gi)].find(x => attr(x[1], 'aria-label') === '作品互动数据');
     const plain = visibleText(engagement?.[2] ?? '');
-    const metric = label => plain.match(new RegExp(`[\\d.,，]+(?:万|亿)?\\+?\\s*${label}`))?.[0] ?? null;
+    const fields = [...(engagement?.[2] ?? '').matchAll(/<li\b[^>]*>([\s\S]*?)<\/li>/gi)].map(row => visibleText(row[1]));
+    const metric = label => fields.find(value => value.includes(label)) ?? null;
     const description = body.match(/<p\b[^>]*class="[^"]*pc-description-[^"]*"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '';
     const categories = body.match(/<p\b[^>]*class="[^"]*pc-categories-[^"]*"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '';
     const tags = [...categories.matchAll(/<span\b[^>]*>([\s\S]*?)<\/span>/gi)].map(x => visibleText(x[1]));
     const imageTag = body.match(/<img\b[^>]*>/)?.[0] ?? '';
     const metrics = rankingMetrics(parseCount(metric('收藏')), parseCount(metric('点赞'), '点赞'),
-      parseCount(visibleText(body.match(/<p\b[^>]*class="[^"]*pc-metrics-[^"]*"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '').match(/[\d.,，]+(?:万|亿)?\+?\s*热度/)?.[0] ?? null, '热度'));
+      parseCount(visibleText(body.match(/<p\b[^>]*class="[^"]*pc-metrics-[^"]*"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '') || null, '热度'));
     const base = baseItem({ seriesId, title: visibleText(heading[2]), cover: attr(imageTag, 'src'), description: visibleText(description), tags });
     base.watchPageUrl = sourceWatchLink(body, seriesId);
     items.push({ ...base, collection: metrics.collection, likes: metrics.likes, heat: metrics.heat,

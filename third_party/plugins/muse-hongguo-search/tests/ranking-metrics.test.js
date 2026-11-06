@@ -68,6 +68,70 @@ test('embedded observations distinguish missing and unsupported metrics from zer
   assert.equal(item.observation.likes.raw, '暂无点赞');
 });
 
+for (const [field, label] of [['collection', '收藏'], ['likes', '点赞'], ['heat', '热度']]) {
+  for (const raw of [`-12${label}`, `1e3${label}`, `约12${label}`, `暂无${label}`, `12+${label}`, `12${label}以上`]) {
+    test(`rendered ${field} preserves unsupported whole source ${raw}`, () => {
+      const values = { collection: '120万收藏', likes: '10万点赞', heat: '200万热度', [field]: raw };
+      const [item] = parseRanking(rendered({
+        engagement: `<ul aria-label="作品互动数据"><li>${values.collection}</li><li>${values.likes}</li></ul>`,
+        heat: values.heat,
+      }), options).items;
+      assert.deepEqual(item[field], { raw, value: null, approximate: false, precisionStep: null });
+      assert.deepEqual(item.observation.missingMetrics, [{ field, reason: 'unparseable' }]);
+      assert.deepEqual(item.observation[field], item[field]);
+    });
+  }
+}
+
+test('rendered fields retain zero and unit counts across nested visible markup', () => {
+  const [item] = parseRanking(rendered({ engagement: '<ul aria-label="作品互动数据">'
+    + '<li><span>&#48;</span><span>收藏</span></li><li><strong>1.2万</strong><span>点赞</span></li>'
+    + '<li>评分4.8</li></ul>', heat: '<span>2亿</span><span>热度</span>' }), options).items;
+  assert.deepEqual(item.collection, { raw: '0 收藏', value: 0, approximate: false, precisionStep: 1 });
+  assert.deepEqual(item.likes, { raw: '1.2万点赞', value: 12000, approximate: true, precisionStep: 1000 });
+  assert.deepEqual(item.heat, { raw: '2亿 热度', value: 200000000, approximate: true, precisionStep: 100000000 });
+  assert.equal(item.scoreText, '评分4.8');
+  assert.deepEqual(item.observation.missingMetrics, []);
+});
+
+test('rendered inline markup cannot hide an unsupported numeric prefix', () => {
+  const [item] = parseRanking(rendered({ engagement: '<ul aria-label="作品互动数据">'
+    + '<li><span>-</span><strong>12</strong><span>收藏</span></li><li><span>0</span>点赞</li></ul>',
+    heat: '<span>约</span><strong>200万</strong>热度' }), options).items;
+  assert.deepEqual(item.collection, { raw: '- 12收藏', value: null, approximate: false, precisionStep: null });
+  assert.deepEqual(item.heat, { raw: '约 200万热度', value: null, approximate: false, precisionStep: null });
+  assert.equal(item.likes.value, 0);
+  assert.deepEqual(item.observation.missingMetrics, [{ field: 'collection', reason: 'unparseable' }, { field: 'heat', reason: 'unparseable' }]);
+});
+
+test('actual rankings and registered output keep unsupported rendered fields unknown', async t => {
+  const body = rendered({ engagement: '<ul aria-label="作品互动数据"><li>-12收藏</li><li>1e3点赞</li></ul>',
+    heat: '约200万热度' });
+  const client = new HongguoClient({ requestIntervalMs: 0 }, { fetch: async () => new Response(body, { headers: { 'content-type': 'text/html' } }) });
+  t.after(() => client.dispose());
+  const result = await client.rankings({ boards: ['hot-comic-drama'] });
+  assert.equal(result.items.length, 1);
+  assert.deepEqual(result.coverage.metrics, { scope: 'fetched_ranking_observations', observations: 1, complete: false,
+    fields: { collection: { known: 0, missing: 1, complete: false }, likes: { known: 0, missing: 1, complete: false }, heat: { known: 0, missing: 1, complete: false } } });
+  assert.equal(thresholdStatus(result.items[0], 1), 'unknown');
+  const filtered = await client.collections({ boards: ['hot-comic-drama'], minCollections: 1 });
+  assert.equal(filtered.totalMatched, 0);
+  assert.equal(filtered.totalUncertain, 1);
+  assert.deepEqual(filtered.items, []);
+
+  const definitions = [], cleanups = [];
+  t.mock.method(globalThis, 'fetch', async () => new Response(body, { headers: { 'content-type': 'text/html' } }));
+  t.after(() => { for (const cleanup of cleanups) cleanup(); });
+  apply({ tools: { register: definition => { definitions.push(definition); return () => {}; } }, effect: factory => { cleanups.push(factory()); } }, { requestIntervalMs: 0 });
+  const ranking = definitions.find(definition => definition.name === 'hongguo_rankings');
+  const output = await ranking.execute({ boards: ['hot-comic-drama'] }, { signal: new AbortController().signal });
+  const value = JSON.parse(ranking.output.render({}, output)[0].text);
+  for (const [field, raw] of [['collection', '-12收藏'], ['likes', '1e3点赞'], ['heat', '约200万热度']]) {
+    assert.deepEqual(value.items[0][field], { raw, value: null, approximate: false, precisionStep: null });
+  }
+  assert.equal(value.coverage.metrics.complete, false);
+});
+
 test('dedup preserves all metric observations and fills earlier unknown display values', () => {
   const missing = parseRanking(embedded({ collection: null, likes: null, heat: null }), options).items;
   const full = parseRanking(embedded(), options).items;

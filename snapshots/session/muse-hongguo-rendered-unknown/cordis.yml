@@ -1,0 +1,9 @@
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: hongguo-rendered-unknown-fixture
+      name: ./ranking-fixture.mjs
