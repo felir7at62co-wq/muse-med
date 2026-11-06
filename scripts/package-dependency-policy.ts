@@ -65,7 +65,7 @@ const SAFE_HOST_DEPENDENCY_EXPORTS = {
 
 /** Runtime exports that require every consumer to resolve the provider's shared peer instance. */
 const PEER_REQUIRED_HOST_EXPORTS = {
-  '@deepseek-ai/dsh-atomic-write': ['writeFileAtomic'],
+  '@deepseek-ai/dsh-atomic-write': ['withFileLock', 'writeFileAtomic'],
   '@deepseek-ai/dsh-client-connection': ['OperatorPeer'],
   '@deepseek-ai/dsh-credentials': ['credentialRef'],
   '@deepseek-ai/dsh-jubian': [
@@ -74,7 +74,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'describePayload', 'readProjectBudget', 'updateProjectBudget',
   ],
   '@deepseek-ai/dsh-jubian-api': [
-    'FAILED_STATUSES', 'MODEL_TASK_TYPES', 'SUCCESS_STATUSES', 'VIDEO_TASK_TYPES',
+    'AUTOMATIC_ERASE_MODEL', 'FAILED_STATUSES', 'MODEL_TASK_TYPES', 'SUCCESS_STATUSES', 'VIDEO_TASK_TYPES',
     'alignedReferenceSize', 'assertImageReferenceConsistency', 'buildImageRequest', 'buildNativeVideoPreview', 'buildReferenceObjectKey',
     'buildSubjectSelection', 'buildSubtitleEraseRequest', 'buildVideoUpscaleRequest', 'childrenOf',
     'classifyExistingNativeMatches', 'classifyNewNativeCandidates', 'downloadMedia', 'encodeVoiceSlot', 'extractAppScriptUrl',
@@ -90,9 +90,9 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'verifySubjectSelection', 'wireText', 'withGenerationDisabled',
     'VIDEO_UPSCALE_MODEL', 'SUBTITLE_ERASE_MODELS',
   ],
-  '@deepseek-ai/dsh-llm': ['createUserMessage'],
+  '@deepseek-ai/dsh-llm': ['MessageId', 'createUserMessage', 'freezeMessage'],
   '@deepseek-ai/dsh-scope': ['carrierKeyOf', 'createScope', 'scopeOf', 'scopeTarget'],
-  '@deepseek-ai/dsh-session': ['SESSION_FORMAT_VERSION'],
+  '@deepseek-ai/dsh-session': ['SESSION_FORMAT_VERSION', 'SessionId'],
   '@deepseek-ai/dsh-session-persistence': ['SessionPersistenceNotFoundError'],
   '@deepseek-ai/dsh-tools': ['defineTool'],
 } as const satisfies HostDependencyExports

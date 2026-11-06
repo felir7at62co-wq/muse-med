@@ -36,7 +36,7 @@ import { episodeNumberOf, episodePaths } from './paths.ts'
 import { parseShotManifest, prepareEpisode, readJsonDocument, verifyPreparedSubtitleClock } from './prepare.ts'
 import { buildRenderPreview, renderPreviewWarnings } from './preview.ts'
 import { buildReport, NO_MEDIA, NO_TAIL_FRAME, type ReportInput } from './report.ts'
-import { renderEpisode } from './render.ts'
+import { renderEpisode, type RenderInput } from './render.ts'
 import type { BgmPlanReport, DeliverySubtitleVisual, DramaRenderMethod, DramaRenderReport, EndingEffectFit, MediaToolkit, RenderCheck, RenderSettings } from './types.ts'
 import { verifyEpisode } from './verify.ts'
 import { stageEpisodeDelivery } from './stage-delivery.ts'
@@ -236,35 +236,9 @@ interface SubtitlesCall extends CallBase {
 }
 
 /** A resolved `render` call: every input the delivery is built from. */
-interface RenderCall extends CallBase {
+interface RenderCall extends CallBase, Omit<RenderInput, 'toolkit' | 'settings' | 'project' | 'episode' | 'sourceQaVerifier'> {
   /** The operation to run. */
   readonly method: 'render'
-  /** Absolute path of the timeline to render. */
-  readonly timelinePath: string
-  /** Absolute path of the subtitle to burn. */
-  readonly subtitleSrt: string
-  /** Optional absolute authored subtitle-overlay plan. */
-  readonly subtitlePlan?: string
-  /** The last body shot this render delivers. */
-  readonly lastShot: number
-  /** Absolute path of the BGM bed. */
-  readonly bgm?: string
-  /** Optional absolute path of the declared BGM plan. */
-  readonly bgmPlan?: string
-  /** Optional absolute path of the BGM composer receipt. */
-  readonly bgmGeneration?: string
-  /** Explicit project-owned audio profile. */
-  readonly mixProfile?: string
-  /** Absolute path of the ending sound. */
-  readonly endingAudio?: string
-  /** Absolute path of the ending effect video. */
-  readonly endingEffect?: string
-  /** Absolute path of the file to write. */
-  readonly output: string
-  /** Whether the per-shot cache is ignored. */
-  readonly force: boolean
-  /** Whether to reuse a verified matching candidate without overwriting files. */
-  readonly resume?: boolean
 }
 
 /** A resolved `verify` call: the delivered file and the two inputs it claims to follow. */

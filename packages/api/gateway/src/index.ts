@@ -422,7 +422,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
     return this.holdLocalStream(() => this.openStream(request, new AbortController()))
   }
 
-  private async holdLocalStream(open: () => Promise<AsyncGenerator>): Promise<AsyncIterable<unknown>> {
+  private async holdLocalStream(open: () => Promise<AsyncIterable<unknown>>): Promise<AsyncIterable<unknown>> {
     if (this.updatePaused) throw new Error('desktop update: Remote stream admission is paused')
     const token = Symbol('in-process Remote stream')
     this.localUpdateStreams.add(token)
@@ -449,8 +449,12 @@ export class TypertGatewayService extends Service implements TypertGateway {
       const wrapped: AsyncIterableIterator<unknown> = {
         [Symbol.asyncIterator]: () => wrapped,
         next: () => run(() => iterator.next()),
-        return: () => run(() => iterator.return(undefined)),
-        throw: (error?: unknown) => run(() => iterator.throw(error)),
+        return: () => run(async () => iterator.return ? iterator.return() : { done: true, value: undefined }),
+        throw: (error?: unknown) => run(async () => {
+          if (iterator.throw) return iterator.throw(error)
+          await iterator.return?.()
+          throw error
+        }),
       }
       return wrapped
     } catch (error) {
