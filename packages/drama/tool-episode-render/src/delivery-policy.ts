@@ -54,8 +54,9 @@ function bounded(value: unknown, path: string, minimum: number, maximum: number,
   return value
 }
 
-/** Parse only explicitly selected subtitle fields, preserving an explicit empty section. */
-function subtitle(value: unknown, path: string, height: number, ignoreStyle = false): DeliverySubtitle {
+/** Preserve explicit empty overrides, except obsolete style-only sections under product enforcement. */
+function subtitle(value: unknown, path: string, height: number, ignoreStyle = false): DeliverySubtitle | undefined {
+  if (ignoreStyle && (typeof value !== 'object' || value === null || Array.isArray(value))) return undefined
   const row = object(value, path)
   if (!ignoreStyle && Object.hasOwn(row, 'font_family') && (typeof row.font_family !== 'string' || !FONT_FAMILY_PATTERN.test(row.font_family))) {
     throw new Error(`${path}.font_family 必须是非空 ASS 字体名，不能包含逗号或换行；字体须已安装或在 fontsDir 中提供。`)
@@ -66,7 +67,7 @@ function subtitle(value: unknown, path: string, height: number, ignoreStyle = fa
   if (Object.hasOwn(row, 'require_speech_coverage') && typeof row.require_speech_coverage !== 'boolean') {
     throw new Error(`${path}.require_speech_coverage 必须是布尔值。`)
   }
-  return {
+  const selected: DeliverySubtitle = {
     ...(!ignoreStyle && Object.hasOwn(row, 'font_family') ? { font_family: row.font_family as string } : {}),
     ...(!ignoreStyle && Object.hasOwn(row, 'font_size_px')
       ? { font_size_px: bounded(row.font_size_px, `${path}.font_size_px`, 0, Number.MAX_SAFE_INTEGER, true) } : {}),
@@ -75,6 +76,7 @@ function subtitle(value: unknown, path: string, height: number, ignoreStyle = fa
     ...(typeof row.require_no_punctuation === 'boolean' ? { require_no_punctuation: row.require_no_punctuation } : {}),
     ...(typeof row.require_speech_coverage === 'boolean' ? { require_speech_coverage: row.require_speech_coverage } : {}),
   }
+  return ignoreStyle && Object.keys(selected).length === 0 ? undefined : selected
 }
 
 /** Parse explicit linear gains without treating zero as an omitted value. */
@@ -153,11 +155,13 @@ export function parseTimelineDelivery(
   if (Object.hasOwn(row, 'require_source_review') && typeof row.require_source_review !== 'boolean') {
     throw new Error(`${path}.require_source_review 必须是布尔值。`)
   }
+  const selectedSubtitle = Object.hasOwn(row, 'subtitle')
+    ? subtitle(row.subtitle, `${path}.subtitle`, height, ignoreSubtitleStyles) : undefined
   const delivery: TimelineDelivery = {
     ...(Object.hasOwn(row, 'visual_medium') ? { visual_medium: medium(row.visual_medium, `${path}.visual_medium`) } : {}),
     width, height, fps,
     ...(typeof row.require_source_review === 'boolean' ? { require_source_review: row.require_source_review } : {}),
-    ...(Object.hasOwn(row, 'subtitle') ? { subtitle: subtitle(row.subtitle, `${path}.subtitle`, height, ignoreSubtitleStyles) } : {}),
+    ...(selectedSubtitle === undefined ? {} : { subtitle: selectedSubtitle }),
     ...(!ignoreSubtitleStyles && Object.hasOwn(row, 'subtitle_visual')
       ? { subtitle_visual: parseSubtitleVisual(row.subtitle_visual, `${path}.subtitle_visual`) } : {}),
     ...(Object.hasOwn(row, 'audio') ? { audio: audio(row.audio, `${path}.audio`) } : {}),
@@ -280,8 +284,10 @@ export async function resolveDeliveryPolicy(
     && fallback !== undefined ? { ...selected, subtitle_visual: fallback } : selected
   if (enforced && defaultVisual !== undefined) {
     const { subtitle: _oldSubtitle, subtitle_visual: _oldVisual, ...rest } = selected
+    const selectedSubtitle = _oldSubtitle === undefined ? undefined
+      : subtitle(_oldSubtitle, 'delivery.subtitle', selected.height, true)
     delivery = { ...rest, subtitle_visual: defaultVisual,
-      ...(_oldSubtitle === undefined ? {} : { subtitle: subtitle(_oldSubtitle, 'delivery.subtitle', selected.height, true) }) }
+      ...(selectedSubtitle === undefined ? {} : { subtitle: selectedSubtitle }) }
   }
   // A legacy timeline may retain different geometry from the current project.
   // Validate the inherited margin against the frame that will actually be rendered.

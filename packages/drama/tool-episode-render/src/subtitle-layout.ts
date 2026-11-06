@@ -1,10 +1,10 @@
-/** Advisory glyph measurements through the delivery's real libass burn chain. */
+/** Glyph measurements through the real burn chain and active-visual delivery checks. */
 import { createHash } from 'node:crypto'
 import { access, mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { subtitleBurnFilter, subtitleRenderStyle } from './delivery.ts'
-import { buildAssDocument } from './subtitles.ts'
-import type { MediaToolkit, RenderSettings, SubtitleCue, TimelineDelivery } from './types.ts'
+import { buildAssDocument, normalizeSubtitleDisplay } from './subtitles.ts'
+import type { MediaToolkit, RenderCheck, RenderSettings, SubtitleCue, TimelineDelivery } from './types.ts'
 
 /** White glyph pixels measured after supersampling and a luminance threshold of 32. */
 export interface SubtitleInkBounds {
@@ -38,7 +38,7 @@ export interface SubtitleLayoutEntry {
   readonly width_with_outline_estimate_px: number | null
   /** Project maximum width in the actual delivery picture, not the wider probe. */
   readonly available_width_px: number
-  /** Unknown when clipped or unmeasured; never a rendering prerequisite. */
+  /** Unknown when clipped or unmeasured; active visual delivery requires true. */
   readonly fits_available_width: boolean | null
   /** Exact libass fontselect messages; names are not inferred from requested fonts. */
   readonly fontselect_trace: readonly string[]
@@ -61,7 +61,7 @@ export interface SubtitleLayoutEntry {
   readonly warnings: readonly string[]
 }
 
-/** Saved visual evidence is advisory and does not attest editor or human acceptance. */
+/** Saved measurements support delivery checks without attesting editor or human acceptance. */
 export interface SubtitleLayoutReport {
   /** Report format version. */
   readonly schema_version: 1
@@ -79,11 +79,11 @@ export interface SubtitleLayoutReport {
   readonly report_path: string | null
 }
 
-/** Operation result; technical measurement failure remains an explicit warning. */
+/** Measurement result; render and verify apply delivery checks to active visuals. */
 export interface SubtitleLayoutResult {
   /** Measured facts, never a quality approval. */
   readonly report: SubtitleLayoutReport
-  /** Suggestions and technical failures; they do not block production. */
+  /** Probe observations; standalone diagnosis does not decide delivery acceptance. */
   readonly warnings: readonly string[]
   /** Files actually saved, excluding promised images that a failed process never wrote. */
   readonly written: readonly string[]
@@ -112,6 +112,36 @@ function selectedFaceMatches(family: string, face: string): boolean {
     || (wanted === 'arial' && actual === 'arialmt'))
 }
 
+/** Judge measured display text for rendering or verifying an active visual profile.
+ * @param report - Evidence from the exact final display cues and delivery font.
+ * @returns Failure-severity checks; unknown width or selected font remains pending repair.
+ */
+export function subtitleVisualChecks(report: SubtitleLayoutReport): RenderCheck[] {
+  const indexes = (entries: readonly SubtitleLayoutEntry[]): string => entries.flatMap(entry => entry.cues.map(cue => cue.index)).join('、')
+  const noncanonical = report.entries.filter(entry => /[\r\n]|\\[nN]/u.test(entry.text)
+    || normalizeSubtitleDisplay([{ index: 1, startSeconds: 0, endSeconds: 1, text: entry.text }])[0]?.text
+      !== entry.text.replace(/\s+/gu, ' ').trim())
+  const unfit = report.entries.filter(entry => entry.status !== 'measured' || entry.fits_available_width !== true)
+  const fontUnverified = report.entries.filter(entry => entry.fontselect_trace.length === 0 || entry.fontselect_trace.some((line) => {
+    const face = /\s->\s.+,\s*\d+,\s*([^,]+)$/u.exec(line)?.[1]?.trim()
+    return face === undefined || !selectedFaceMatches(report.requested_font, face)
+  }))
+  const measured = report.status === 'measured'
+  return [
+    { id: 'subtitle_display_text', severity: 'failure', ok: noncanonical.length === 0,
+      detail: noncanonical.length ? `第 ${indexes(noncanonical)} 条显示字幕含有强制换行或普通标点。` : '显示字幕为单行且无普通标点。',
+      fix: noncanonical.length ? '规范化显示字幕并重新核对，保留原 SRT 与时码；数字小数点等有意义分隔符不删除。' : '' },
+    { id: 'subtitle_display_width', severity: 'failure', ok: measured && unfit.length === 0,
+      detail: measured && unfit.length === 0 ? '全部显示字幕实测处于可用宽度内。'
+        : `字幕宽度待修或待复核：${indexes(unfit) || '测量未完成'}；证据 ${report.report_path ?? '未保存'}。`,
+      fix: measured && unfit.length === 0 ? '' : '取得实际字形测量；超宽句仅按完整匹配的同源字词时间拆分后重试。缺真词证据时保留原文字和时码待复核，不缩字号、不换字体、不猜时间。' },
+    { id: 'subtitle_display_font', severity: 'failure', ok: measured && fontUnverified.length === 0,
+      detail: measured && fontUnverified.length === 0 ? `实际字族与请求 ${report.requested_font} 相符。`
+        : `实际字族尚未确认与 ${report.requested_font} 相符：${indexes(fontUnverified) || '测量未完成'}。`,
+      fix: measured && fontUnverified.length === 0 ? '' : '检查随包字体与 libass 字族选择日志后重试，保持配置的交付字族（Muse 直出为朱雀仿宋），不以系统替代字体交付。' },
+  ]
+}
+
 /** Save a caller-owned evidence file without replacing a prior run. */
 async function save(path: string, content: string, written: string[]): Promise<void> {
   await writeFile(path, content, { flag: 'wx' })
@@ -126,7 +156,7 @@ async function save(path: string, content: string, written: string[]): Promise<v
  * @param input.delivery - Validated project delivery snapshot; omitted subtitle_visual is a no-op.
  * @param input.cues - Exact authored subtitle rows; no splitting, retiming or replacement occurs.
  * @param input.directory - Parent of the unique evidence directory allocated by this operation.
- * @returns Advisory report, complete output logs and actual written paths; failures are warnings.
+ * @returns Measurements, complete logs and actual written paths; delivery callers judge failed measurements.
  */
 export async function measureSubtitleLayout(input: {
   readonly toolkit: MediaToolkit
@@ -225,7 +255,7 @@ export async function measureSubtitleLayout(input: {
     await save(reportPath, `${JSON.stringify(report, null, 2)}\n`, written)
     return { report, warnings, written }
   } catch (error) {
-    warnings.push(`字幕字形测量未完成：${error instanceof Error ? error.message : String(error)}；保留已写证据，不阻断制作。`)
+    warnings.push(`字幕字形测量未完成：${error instanceof Error ? error.message : String(error)}；保留已写证据，启用字幕视觉配置的交付仍需通过显示检查。`)
     return { report: { ...base, status: 'not_measured', entries, report_path: null }, warnings, written }
   }
 }

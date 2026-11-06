@@ -4,11 +4,12 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, it, onTestFinished, vi } from 'vitest'
-import { measureSubtitleLayout } from '../src/subtitle-layout.ts'
+import { measureSubtitleLayout, subtitleVisualChecks } from '../src/subtitle-layout.ts'
 import { fitSubtitleCues } from '../src/subtitle-fit.ts'
 import type { SpeechCoverageReport, SpeechCoverageWord } from '../src/speech-coverage.ts'
 import type { MediaToolkit, RenderSettings, SubtitleCue, TimelineDelivery } from '../src/types.ts'
 import { createMediaRunner } from './audio-ffmpeg-harness.ts'
+import { ep26Cue, ep26Evidence } from './subtitle-fit-ep26-fixture.ts'
 
 const fsFaults = vi.hoisted(() => ({ access: null as Error | null, mkdir: null as string | null }))
 async function rejectNonError(reason: string): Promise<never> {
@@ -227,7 +228,7 @@ it('keeps measurement directory failures advisory', async () => {
   await writeFile(blocked, 'not a directory')
   const result = await measureSubtitleLayout({ toolkit: process.toolkit, settings, delivery, cues: [cue('字幕')], directory: blocked })
   expect(result.report.status).toBe('not_measured')
-  expect(result.warnings.join('\n')).toContain('不阻断制作')
+  expect(result.warnings.join('\n')).toContain('仍需通过显示检查')
   expect(process.run).not.toHaveBeenCalled()
 })
 
@@ -266,6 +267,8 @@ it.skipIf(!ffmpeg || !ffprobe || !hasZhuque)('measures bundled Zhuque text again
   expect(result.report.entries[0]?.fontselect_trace.join('\n')).toContain('ZhuqueFangsong-Regular')
   expect(result.report.entries[0]?.fits_available_width).toBe(true)
   expect(result.report.entries[1]?.fits_available_width).toBe(false)
+  expect(subtitleVisualChecks(result.report).find(check => check.id === 'subtitle_display_font')?.ok).toBe(true)
+  expect(subtitleVisualChecks(result.report).find(check => check.id === 'subtitle_display_width')?.ok).toBe(false)
   expect(result.warnings.join('\n')).toContain('实际字词时间')
 }, 60_000)
 
@@ -294,6 +297,30 @@ it.skipIf(!ffmpeg || !ffprobe || !hasZhuque)('splits an overwide line using real
   expect(result.cues.map(item => [item.text, item.startSeconds, item.endSeconds])).toEqual([
     ['可我现在每天按时起', 64.528, 65.848], ['每天都干活', 65.848, 66.488],
   ])
+}, 60_000)
+
+it.skipIf(!ffmpeg || !ffprobe || !hasZhuque)('fits archived EP26 word times after SRT quantization with real Zhuque measurements', async () => {
+  const family = 'Zhuque Fangsong (technical preview)'
+  const input = { ...await nativeInput(family), delivery: { width: 480, height: 854, fps: 60,
+    subtitle_visual: { ...visual, reference_width: 480, reference_height: 854, font_size_px: 46, outline_px: 1.25,
+      center_y_ratio: 0.736747073, max_width_ratio: 0.9, font_family: family } } }
+  const measured = new Map<string, boolean | null>()
+  const result = await fitSubtitleCues([ep26Cue], ep26Evidence(), async (text) => {
+    const report = await measureSubtitleLayout({ ...input, cues: [cue(text)] })
+    expect(report.report.entries[0]?.fontselect_trace.join('\n')).toContain('ZhuqueFangsong-Regular')
+    const fits = report.report.entries[0]?.fits_available_width ?? null
+    measured.set(text, fits)
+    return fits
+  })
+  expect(measured.get(ep26Cue.text)).toBe(false)
+  expect(result.warnings).toEqual([])
+  expect(result.cues.length).toBeGreaterThan(1)
+  expect(result.cues.map(item => item.text).join('')).toBe(ep26Cue.text)
+  expect(result.cues[0]?.startSeconds).toBe(ep26Cue.startSeconds)
+  expect(result.cues.at(-1)?.endSeconds).toBe(ep26Cue.endSeconds)
+  for (const part of result.cues) expect(measured.get(part.text)).toBe(true)
+  const actualStarts = new Set(ep26Evidence().words.map(word => word.start_seconds))
+  for (const part of result.cues.slice(1)) expect(actualStarts.has(part.startSeconds)).toBe(true)
 }, 60_000)
 
 it.skipIf(!ffmpeg || !ffprobe)('measures actual WWWW and iiii differently and flags a real overwide line', async () => {

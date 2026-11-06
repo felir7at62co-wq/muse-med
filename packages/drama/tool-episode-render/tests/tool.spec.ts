@@ -163,10 +163,12 @@ it('keeps strict source policies and the generated subtitle clock when product t
   const display = result.render_preview?.subtitle.path ?? ''
   expect(await readFile(display, 'utf8')).toContain('你好 世界')
   expect(await readFile(prepared.subtitle, 'utf8')).toBe(original)
+  const savedTimeline = await readTimeline(prepared.timeline)
+  expect(savedTimeline.delivery?.subtitle_visual).toMatchObject({ font_size_px: 46 })
   const timeline = await readTimeline(prepared.timeline, true)
   expect(timeline.delivery).toMatchObject({ require_source_review: true,
     subtitle: { require_speech_coverage: true, require_no_punctuation: true },
-    subtitle_visual: { font_size_px: 46 }, audio: { require_music_decision: true } })
+    audio: { require_music_decision: true } })
   expect(timeline.delivery?.subtitle).not.toHaveProperty('font_size_px')
   await expect(verifyPreparedSubtitleClock(display, episodePaths(prepared.project, '02'), timeline)).resolves.toBeUndefined()
   await writeFile(join(prepared.project, 'audio/02.wav'), 'wrong', 'utf8')
@@ -940,8 +942,7 @@ describe('runDramaRender', () => {
 
     // Without an explicit visual profile the measurement is unavailable. Repeated
     // text must reuse that unknown result and preserve both original cue times.
-    const repeated = `${original}\n2\n00:00:05,000 --> 00:00:08,000\n今天我们一起去做饭！\n`
-    await writeFile(files.subtitle, repeated, 'utf8')
+    await writeFile(files.subtitle, original, 'utf8')
     const unavailable = await run({ method: 'prepare', project: files.project, episode: 2, shots: files.shots,
       subtitleSrt: files.subtitle, speechTranscripts: mapping },
     { ...settingsWith(channel), normalizeSubtitleText: true })

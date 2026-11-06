@@ -85,6 +85,12 @@ describe('parseSrtDocument', () => {
 })
 
 describe('normalizeSubtitleDisplay', () => {
+  it('merges literal ASS row breaks without leaving control letters in the display', () => {
+    const original = [cue(1, 1.125, 2.875, String.raw`你好，\N世界！\n再见`)]
+    expect(normalizeSubtitleDisplay(original)).toEqual([cue(1, 1.125, 2.875, '你好 世界 再见')])
+    expect(original[0]?.text).toBe(String.raw`你好，\N世界！\n再见`)
+  })
+
   it('removes dialogue punctuation and row breaks without mutating words, cue intervals or source', () => {
     const original = [cue(1, 39.854, 40.334, '做饭，\n好！'), cue(2, 41, 42, '亲权概率99.99%')]
     expect(normalizeSubtitleDisplay(original)).toEqual([cue(1, 39.854, 40.334, '做饭 好'), cue(2, 41, 42, '亲权概率99.99%')])

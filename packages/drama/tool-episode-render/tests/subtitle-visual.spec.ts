@@ -210,6 +210,10 @@ describe('explicit shared subtitle visual intent', () => {
       { draft_style: { watermark: { font_size_ui: -1 } } }]) {
       expect(() => parseTimelineDocument({ ...document, delivery: { ...document.delivery, ...invalid } }, 'old-timeline', true)).toThrow()
     }
+    for (const field of ['require_speech_coverage', 'require_no_punctuation']) {
+      expect(() => parseTimelineDocument({ ...document,
+        delivery: { ...document.delivery, subtitle: { [field]: 'true' } } }, 'old-timeline', true)).toThrow(field)
+    }
   })
 
   it.each([{ width: 1920, height: 1080, fps: 30 }, { width: 1080, height: 1080, fps: 30 }])(

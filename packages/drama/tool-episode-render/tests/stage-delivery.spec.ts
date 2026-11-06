@@ -19,9 +19,13 @@ afterEach(async () => {
 })
 
 async function fixture(clips = [{ shot: 1, startUs: 0, durationUs: 5_000_000 }],
-  subtitle: { explicitVisual: boolean; text: string; requireNoPunctuation?: boolean;
-    requireSpeechCoverage?: boolean; display?: 'external' | 'overlay' | 'unknown'; missingStreamClock?: boolean
-    cues?: Parameters<typeof srtDocument>[0];
+  subtitle: { explicitVisual: boolean
+    text: string
+    requireNoPunctuation?: boolean
+    requireSpeechCoverage?: boolean
+    display?: 'external' | 'overlay' | 'unknown'
+    missingStreamClock?: boolean
+    cues?: Parameters<typeof srtDocument>[0]
   } = { explicitVisual: false, text: '台词' }, musicKind?: string) {
   const project = await realpath(await tempProject())
   temporary.push(project)
@@ -45,7 +49,8 @@ async function fixture(clips = [{ shot: 1, startUs: 0, durationUs: 5_000_000 }],
   }
   await Promise.all([
     writePlaceholder(paths.output, 'verified render bytes'),
-    writePlaceholder(paths.timeline, musicKind !== undefined || subtitle.explicitVisual || subtitle.requireNoPunctuation !== undefined || subtitle.requireSpeechCoverage !== undefined
+    writePlaceholder(paths.timeline, musicKind !== undefined || subtitle.explicitVisual
+      || subtitle.requireNoPunctuation !== undefined || subtitle.requireSpeechCoverage !== undefined
       ? JSON.stringify({ ...JSON.parse(timeline), delivery }) : timeline),
     writePlaceholder(paths.subtitle, srtDocument(subtitle.cues ?? [{ start: '00:00:01,000', end: '00:00:02,000', text: subtitle.text }])),
     writePlaceholder(paths.masterAudio, 'verified master bytes'),
@@ -127,7 +132,14 @@ async function fixture(clips = [{ shot: 1, startUs: 0, durationUs: 5_000_000 }],
       video: subtitle.requireSpeechCoverage && !subtitle.missingStreamClock ? { startSeconds: 0, durationSeconds: 7 } : {},
       audio: subtitle.requireSpeechCoverage && !subtitle.missingStreamClock ? { startSeconds: 0, durationSeconds: 7 } : {},
     } }),
-      decodeHandler(), () => ({})]).channel,
+    call => call.args.some(argument => argument.includes('bbox=min_val=1')) ? {
+      stderr: 'fontselect: (SimHei, 400, 0) -> SimHei, 0, SimHei\n'
+          + '[Parsed_bbox] x1:1200 x2:1299 y1:1800 y2:1839 w:100 h:40',
+      after: async () => {
+        for (const path of call.args.filter(argument => argument.endsWith('.png'))) await writePlaceholder(path, 'measured glyph image')
+      },
+    } : undefined,
+    decodeHandler(), () => ({})]).channel,
   })
   const input = {
     toolkit, settings: resolveSettings({}), project, episode,
@@ -303,35 +315,51 @@ describe('stageEpisodeDelivery', () => {
   ])('enforces the explicit single-line layout for the bound burned SRT: $explicitVisual / $blocked',
     async ({ explicitVisual, text, blocked }) => {
       const f = await fixture(undefined, { explicitVisual, text })
+      const authored = await readFile(f.paths.subtitle)
       if (blocked) {
-        await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/第 1 条.*换行/u)
+        const report = await stageEpisodeDelivery(f.input, f.draft)
+        expect(report.ok).toBe(false)
+        expect(report).not.toHaveProperty('delivery_package')
+        expect(report.checks.find(check => check.id === 'subtitle_display_text')).toMatchObject({ ok: false, severity: 'failure' })
         const entries = await readdir(f.project)
         expect(entries).not.toContain('01_可交付视频')
         expect(entries).not.toContain('成片与草稿回执.json')
+        expect(await fileSha256(f.input.output)).toBe(f.sha256)
       } else {
         expect((await stageEpisodeDelivery(f.input, f.draft)).delivery_package?.status).toBe('candidate')
       }
+      expect(await readFile(f.paths.subtitle)).toEqual(authored)
     })
 
   it.each([
     { explicitVisual: false, requireNoPunctuation: true, text: '还想吹空调，', blocked: true },
     { explicitVisual: false, requireNoPunctuation: true, text: '快吃吧!', blocked: true },
     { explicitVisual: false, requireNoPunctuation: true, text: '快吃吧', blocked: false },
-    { explicitVisual: true, requireNoPunctuation: false, text: '快吃吧！', blocked: false },
-    { explicitVisual: true, requireNoPunctuation: undefined, text: '快吃吧！', blocked: false },
-  ])('checks the bound burned SRT punctuation only when opted in: $text / $requireNoPunctuation',
+    { explicitVisual: true, requireNoPunctuation: false, text: '快吃吧！', blocked: true },
+    { explicitVisual: true, requireNoPunctuation: undefined, text: '快吃吧！', blocked: true },
+    { explicitVisual: true, requireNoPunctuation: false, text: '概率99.9%', blocked: false },
+    { explicitVisual: false, requireNoPunctuation: false, text: '快吃吧！', blocked: false },
+  ])('checks ordinary punctuation for active visuals and the legacy opt-in: $text / $requireNoPunctuation',
     async ({ explicitVisual, requireNoPunctuation, text, blocked }) => {
       const f = await fixture(undefined, { explicitVisual, text,
         ...(requireNoPunctuation === undefined ? {} : { requireNoPunctuation }),
       })
+      const authored = await readFile(f.paths.subtitle)
       if (blocked) {
-        await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/第 1 条.*标点/u)
+        if (explicitVisual) {
+          const report = await stageEpisodeDelivery(f.input, f.draft)
+          expect(report.ok).toBe(false)
+          expect(report).not.toHaveProperty('delivery_package')
+          expect(report.checks.find(check => check.id === 'subtitle_display_text')).toMatchObject({ ok: false, severity: 'failure' })
+        } else await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/第 1 条.*标点/u)
         const entries = await readdir(f.project)
         expect(entries).not.toContain('01_可交付视频')
         expect(entries).not.toContain('成片与草稿回执.json')
+        expect(await fileSha256(f.input.output)).toBe(f.sha256)
       } else {
         expect((await stageEpisodeDelivery(f.input, f.draft)).delivery_package?.status).toBe('candidate')
       }
+      expect(await readFile(f.paths.subtitle)).toEqual(authored)
     })
 
   it.each([

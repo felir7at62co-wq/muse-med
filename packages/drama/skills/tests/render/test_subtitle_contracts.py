@@ -196,6 +196,28 @@ class DraftSubtitleContractTests(unittest.TestCase):
 class BothConsumersTests(unittest.TestCase):
     """The two subtitle styles are separate contracts; neither may borrow the other."""
 
+    def test_product_ass_breaks_match_in_editable_draft_and_burned_display(self):
+        draft = load('draft_ass_break_test', DRAFT / 'scripts/jianying_draft.py')
+        render = load('render_ass_break_test', RENDER / 'scripts/render_episode.py')
+        source = ('1\n00:00:00,123 --> 00:00:00,789\n'
+                  + r'价格99.9%\N“好，好！”\n好'
+                  + '\n再好\n')
+        with tempfile.TemporaryDirectory() as directory:
+            srt, ass, output = (Path(directory) / name for name in ('in.srt', 'out.ass', 'out.srt'))
+            srt.write_text(source, encoding='utf-8')
+            with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                          'MUSE_NORMALIZE_SUBTITLE_TEXT': '1'}):
+                cues = draft.normalize_srt(srt, output)
+                render.write_ass(srt, ass, add_watermark=False)
+            expected = '价格99.9% 好 好 好 再好'
+            self.assertEqual(cues, [{'start_us': 123_000, 'end_us': 789_000, 'text': expected}])
+            self.assertEqual(srt.read_text(encoding='utf-8'), source)
+            self.assertEqual(draft.parse_srt_cues(output), cues)
+            display = ass.read_text(encoding='utf-8-sig')
+            self.assertIn(expected, display)
+            self.assertNotIn(r'\N', display)
+            self.assertNotIn(r'\n', display)
+
     def test_product_cues_remove_only_display_punctuation_and_preserve_source_and_clocks(self):
         draft = load('draft_punctuation_test', DRAFT / 'scripts/jianying_draft.py')
         render = load('render_punctuation_test', RENDER / 'scripts/render_episode.py')
