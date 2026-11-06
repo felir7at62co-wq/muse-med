@@ -47,3 +47,9 @@
             models:
               - id: deepseek-v4-flash
               - id: deepseek-v4-pro
+
+# This fixture has no tool calls; omit both platform shell schemas.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true

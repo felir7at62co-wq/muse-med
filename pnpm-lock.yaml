@@ -795,6 +795,9 @@ importers:
       '@deepseek-ai/dsh-bgm-license-info':
         specifier: workspace:*
         version: link:../../packages/drama/bgm-license-info
+      '@deepseek-ai/dsh-brand':
+        specifier: workspace:*
+        version: link:../../packages/util/brand
       '@deepseek-ai/dsh-client-connection':
         specifier: workspace:*
         version: link:../../packages/client/connection
@@ -810,6 +813,9 @@ importers:
       '@deepseek-ai/dsh-cmdline':
         specifier: workspace:*
         version: link:../../packages/boot/cmdline
+      '@deepseek-ai/dsh-compaction':
+        specifier: workspace:*
+        version: link:../../packages/compaction/compaction
       '@deepseek-ai/dsh-deepseek-account':
         specifier: workspace:*
         version: link:../../packages/credentials/deepseek-account
@@ -861,6 +867,9 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: workspace:*
         version: link:../../packages/core/session
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:*
+        version: link:../../packages/session/session-projection
       '@deepseek-ai/dsh-skill':
         specifier: workspace:*
         version: link:../../packages/skill/skill
@@ -888,6 +897,9 @@ importers:
       '@deepseek-ai/dsh-tool-episode-render':
         specifier: workspace:*
         version: link:../../packages/drama/tool-episode-render
+      '@deepseek-ai/dsh-tool-fs':
+        specifier: workspace:*
+        version: link:../../packages/fs/tool-fs
       '@deepseek-ai/dsh-tool-jubian':
         specifier: workspace:*
         version: link:../../packages/jubian/tool-jubian

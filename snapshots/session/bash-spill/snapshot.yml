@@ -5,3 +5,8 @@ composition: fs
 recording: authored
 header:
   class: fs
+  pin: true
+  systemPromptSource: tool-call-turn
+  toolSchemasSource: tool-call-turn
+# The committed recording dispatches Bash.
+platform: posix

@@ -2,6 +2,7 @@
 
 import { isAbsolute } from 'node:path'
 import * as yaml from 'js-yaml'
+import { LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
 
 /** Public `dsh` profile used to control a recorded-session scenario. */
 export type SnapshotProfile = 'headless' | 'sdk' | 'acp' | 'web'
@@ -104,6 +105,8 @@ export interface SnapshotManifest {
   composition?: string
   /** Whether the session is live-recordable or deliberately authored. */
   recording?: SnapshotRecording
+  /** Headless live-recording subprocess deadline in milliseconds; replay and refresh keep their default deadline. */
+  recordingProcessTimeoutMs?: number
   /** Request-header class and sidecar ownership. */
   header?: SnapshotHeaderManifest
   /** Exceptional replay metadata absent for ordinary successful recordings. */
@@ -217,6 +220,7 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
       'profile',
       'composition',
       'recording',
+      'recordingProcessTimeoutMs',
       'header',
       'replay',
       'platform',
@@ -243,6 +247,20 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
         throw new Error('manifest.recording must be live or authored')
       }
       recording = root.recording as SnapshotRecording
+    }
+
+    let recordingProcessTimeoutMs: number | undefined
+    if (root.recordingProcessTimeoutMs !== undefined) {
+      if (root.profile !== 'headless' || recording !== 'live') {
+        throw new Error('manifest.recordingProcessTimeoutMs requires profile headless and recording live')
+      }
+      // The test deadline also reserves its ordinary setup and teardown budget within Node's timer range.
+      const maximum = 2_147_483_647 - LOADER_SMOKE_TEST_TIMEOUT_MS
+      if (typeof root.recordingProcessTimeoutMs !== 'number' || !Number.isSafeInteger(root.recordingProcessTimeoutMs)
+        || root.recordingProcessTimeoutMs < 1 || root.recordingProcessTimeoutMs > maximum) {
+        throw new Error(`manifest.recordingProcessTimeoutMs must be an integer from 1 to ${maximum} milliseconds`)
+      }
+      recordingProcessTimeoutMs = root.recordingProcessTimeoutMs
     }
 
     let header: SnapshotHeaderManifest | undefined
@@ -426,6 +444,7 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
       profile: root.profile as SnapshotProfile,
       ...(composition === undefined ? {} : { composition }),
       ...(recording === undefined ? {} : { recording }),
+      ...(recordingProcessTimeoutMs === undefined ? {} : { recordingProcessTimeoutMs }),
       ...(header === undefined ? {} : { header }),
       ...(replay === undefined ? {} : { replay }),
       ...(platform === undefined ? {} : { platform }),

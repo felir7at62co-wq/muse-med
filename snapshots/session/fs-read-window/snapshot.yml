@@ -1,7 +1,8 @@
 version: 1
 scenario: fs-read-window
 profile: headless
-composition: default
+composition: fs-read-version
 recording: live
+writerOutput: true
 header:
   class: default

@@ -15,6 +15,27 @@ export interface ManuscriptScene {
   sha256: string
 }
 
+/** One explicit episode or numbered scene heading, excluding dialogue and source mentions. */
+export type ManuscriptHeading =
+  | { kind: 'episode'; episode: string; label: string; heading: string }
+  | { kind: 'scene'; episode: string; scene: string; label: string; heading: string; setting: string }
+
+/**
+ * Recognize the screenplay heading syntax shared by scene editing and source evidence.
+ * @param raw - One full source line; Markdown heading markers may precede a title.
+ * @returns The authored title fields, or null when the line does not start with a supported title.
+ */
+export function parseManuscriptHeading(raw: string): ManuscriptHeading | null {
+  const heading = raw.replace(/^\s*#{1,6}\s*/u, '').trim()
+  const episode = /^第\s*([\d一二三四五六七八九十百零〇]+)\s*集(?:\s|$|[：:])/u.exec(heading)
+  if (episode?.[1]) return { kind: 'episode', episode: episode[1],
+    label: heading.slice(0, heading.indexOf('集') + 1), heading }
+  const scene = /^(\d+)\s*[-—－]\s*(\d+)(?:\s|[.、])/u.exec(heading)
+  if (scene?.[1] && scene[2]) return { kind: 'scene', episode: scene[1], scene: scene[2],
+    label: `${scene[1]}-${scene[2]}`, heading, setting: heading.slice(scene[0].length).trim() }
+  return null
+}
+
 /** @param text - Exact UTF-8 reading text. @returns Stable text digest, independent of file metadata. */
 export function manuscriptTextHash(text: string): string {
   return createHash('sha256').update(text).digest('hex')
@@ -33,25 +54,22 @@ export function manuscriptScenes(text: string): ManuscriptScene[] {
     if (content.trim()) scenes.push({ id: `${sceneEpisode}:${sceneNumber}`, episode: sceneEpisode, heading,
       startLine: start + 1, endLine: end, prefix, text: content, sha256: manuscriptTextHash(content) })
   }
-  for (let i = 0; i < lines.length; i++) {
-    const line = (lines[i] ?? '').replace(/^\s*#{1,6}\s*/u, '').trim()
-    const ep = /^第\s*([\d一二三四五六七八九十百零〇]+)\s*集(?:\s|$|[：:])/u.exec(line)
-    const scene = /^(\d+)\s*[-—－]\s*(\d+)(?:\s|[.、])/u.exec(line)
-    if (!ep && !scene) continue
+  for (const [i, raw] of lines.entries()) {
+    const title = parseManuscriptHeading(raw)
+    if (!title) continue
     if (i > start && lines.slice(start, i).some(value => value.trim() && !/^\s*(?:#{1,6}\s*)?第\s*[\d一二三四五六七八九十百零〇]+\s*集/u.test(value))) {
       append(i)
       start = i
       prefix = ''
     }
-    if (scene && i > start) {
+    if (title.kind === 'scene' && i > start) {
       prefix = lines.slice(start, i).join('\n') + '\n'
       start = i
     }
-    if (ep?.[1]) episode = ep[1]
-    else if (scene?.[1]) episode = scene[1]
+    episode = title.episode
     sceneEpisode = episode
-    sceneNumber = scene?.[2] ?? 'body'
-    heading = line
+    sceneNumber = title.kind === 'scene' ? title.scene : 'body'
+    heading = title.heading
   }
   append(lines.length)
   const counts = new Map<string, number>()
@@ -126,12 +144,10 @@ export function manuscriptStructure(documents: readonly { path: string; text: st
   const episodes = new Map<string, Location[]>(), scenes = new Map<string, Location[]>()
   for (const document of documents) {
     for (const [index, raw] of document.text.split('\n').entries()) {
-      const line = raw.replace(/^\s*#{1,6}\s*/u, '').trim()
-      const episode = /^第\s*([\d一二三四五六七八九十百零〇]+)\s*集(?:\s|$|[：:])/u.exec(line)
-      const scene = /^(\d+)\s*[-—－]\s*(\d+)(?:\s|[.、])/u.exec(line)
-      const key = episode?.[1] ?? (scene ? `${scene[1]}-${scene[2]}` : undefined)
-      if (!key) continue
-      const map = episode ? episodes : scenes
+      const title = parseManuscriptHeading(raw)
+      if (!title) continue
+      const key = title.kind === 'episode' ? title.episode : title.label
+      const map = title.kind === 'episode' ? episodes : scenes
       map.set(key, [...map.get(key) ?? [], { path: document.path, line: index + 1, quote: raw }])
     }
   }

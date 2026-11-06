@@ -1,0 +1,12 @@
+version: 1
+scenario: text-turn-current
+profile: headless
+composition: text-turn
+# Authored from the real current writer; this fixture makes no model API call.
+recording: authored
+writerOutput: true
+header:
+  class: text-turn
+  pin: true
+  systemPromptSource: text-turn
+  toolSchemasSource: text-turn

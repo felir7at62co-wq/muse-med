@@ -4,7 +4,7 @@
   config:
     models:
       - id: deepseek-v4-flash
-        contextWindow: 9170
+        contextWindow: 9250
         maxTokens: 1000
 
 - id: compaction-basic
@@ -16,3 +16,31 @@
 - insert:
     - id: pressure-compaction-fixture
       name: ../compaction-output-reserve/pressure-fixture.mjs
+
+# Pressure depends on the dialogue, not the temporary working-directory length.
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+  config:
+    personaPrefix: |
+      You are a coding assistant powered by the {{model}} model. Your bash tool runs under a file sandbox — a `[sandbox: file access denied …]` result is policy, not a command bug.
+
+      Verify your work by running the code or tests. Keep answers brief and factual.
+
+- id: bash-sandbox
+  disabled: false
+- id: tool-bash
+  disabled: false
+- id: pwsh-sandbox
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+  config:
+    runnerCommand:
+      - bash
+      - -c
+      - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+      - passthrough-runner
+    runnerFailureSignatures:
+      - 'passthrough-runner: profile rejected'

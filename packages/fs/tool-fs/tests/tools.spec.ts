@@ -235,6 +235,8 @@ describe('read tool', () => {
     expect(result.value).toEqual({
       path: '/abs/a.txt',
       offset: 1,
+      column: 1,
+      version: 'v1',
       lines: [{ number: 1, text: 'hello' }, { number: 2, text: 'world' }],
       totalLines: 2,
     })
@@ -253,7 +255,7 @@ describe('read tool', () => {
     fs.files.set('key:empty.txt', '')
     const result = await call(ctx, 'read', { file_path: 'empty.txt' })
     if (result.isError) throw new Error('expected empty read success')
-    expect(result.value).toEqual({ path: '/abs/empty.txt', offset: 1, lines: [], totalLines: 0 })
+    expect(result.value).toEqual({ path: '/abs/empty.txt', offset: 1, column: 1, version: 'v1', lines: [], totalLines: 0 })
     expect(text(result)).toContain('(End of file - total 0 lines)')
   })
 
@@ -262,6 +264,42 @@ describe('read tool', () => {
     const result = await call(ctx, 'read', { file_path: 'a.txt', offset: 0 })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('offset must be a positive integer')
+  })
+
+  it('rejects invalid Unicode columns and an empty expected version before reading', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.txt', 'original')
+    const read = vi.spyOn(fs, 'readText')
+    for (const column of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      const result = await call(ctx, 'read', { file_path: 'a.txt', column })
+      expect(result.isError).toBe(true)
+      expect(text(result)).toContain('column must be a positive integer')
+    }
+    expect((await call(ctx, 'read', { file_path: 'a.txt', expected_version: '' })).isError).toBe(true)
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it('refuses a continuation from an older file version before returning bytes', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.txt', 'original')
+    const read = vi.spyOn(fs, 'readText')
+    const result = await call(ctx, 'read', { file_path: 'a.txt', column: 2, expected_version: 'old-version' })
+    expect(result.isError).toBe(true)
+    expect(result).toMatchObject({ error: { info: { code: 'FS_STALE_VERSION' } } })
+    expect(read).not.toHaveBeenCalled()
+  })
+
+  it.each(['changed', 'missing', 'directory'])('does not observe a file that is %s after its read', async (change) => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:a.txt', 'original')
+    const observed = vi.fn()
+    ctx.on('fs/observed', observed)
+    vi.spyOn(fs, 'stat').mockResolvedValueOnce({ version: FsVersion('v1'), type: 'file', size: 8 })
+      .mockResolvedValueOnce(change === 'missing' ? undefined
+        : { version: FsVersion(change === 'changed' ? 'v2' : 'v1'), type: change === 'directory' ? 'directory' : 'file' })
+    const result = await call(ctx, 'read', { file_path: 'a.txt' })
+    expect(result).toMatchObject({ isError: true, error: { info: { code: 'FS_STALE_VERSION' } } })
+    expect(observed).not.toHaveBeenCalled()
   })
 
   it('rejects a fractional offset and a zero/negative limit', async () => {
@@ -353,7 +391,8 @@ describe('read tool', () => {
     fs.files.set('key:big.txt', Array.from({ length: 2000 }, () => 'y'.repeat(100)).join('\n'))
     const result = await call(ctx, 'read', { file_path: 'big.txt' })
     expect(result.isError).toBe(false)
-    expect(text(result)).toContain('Output capped.')
+    expect(text(result)).toContain('Partial line')
+    expect(text(result)).toContain('expected_version="v1"')
   })
 
   it('attaches the structured window as presentation meta, and presentResult narrows it into a read card', async () => {
@@ -389,19 +428,45 @@ describe('read tool', () => {
     if (result.isError) throw new Error('expected read success')
     expect(result.meta).toEqual({ path: '/abs/notes', offset: 1, lines: [{ number: 1, text: 'plain' }], totalLines: 1 })
   })
+
+  it('keeps native provider versions out of display metadata while retaining typed read versions', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:notes', 'plain')
+    const version = vi.spyOn(fs, 'stat').mockResolvedValue({ version: FsVersion('inode-one'), type: 'file', size: 5 })
+    const first = await call(ctx, 'read', { file_path: 'notes' })
+    version.mockResolvedValue({ version: FsVersion('inode-two'), type: 'file', size: 5 })
+    const second = await call(ctx, 'read', { file_path: 'notes' })
+    expect(first.value).toMatchObject({ column: 1, version: 'inode-one' })
+    expect(second.value).toMatchObject({ column: 1, version: 'inode-two' })
+    expect(first.meta).toEqual(second.meta)
+    expect(first.meta).not.toHaveProperty('version')
+  })
+
+  it('persists partial-line positions without persisting the native provider version', async () => {
+    const { ctx, fs } = await setup()
+    fs.files.set('key:notes', '甲'.repeat(1999) + '😀乙丙')
+    const first = await call(ctx, 'read', { file_path: 'notes' })
+    expect(first.meta).toMatchObject({ continuation: { offset: 1, column: 2001 } })
+    expect(first.meta).not.toHaveProperty('version')
+    expect(text(first)).toContain('expected_version="v1"')
+    const second = await call(ctx, 'read', { file_path: 'notes', offset: 1, column: 2001, expected_version: 'v1' })
+    expect(second.meta).toMatchObject({ column: 2001, lines: [{ number: 1, text: '乙丙' }] })
+    expect(second.meta).not.toHaveProperty('version')
+    expect(second.meta).not.toHaveProperty('continuation')
+  })
 })
 
 describe('formatReadOutput footer variants', () => {
   const base: FileReadOutcome = { offset: 1, lines: [{ number: 1, text: 'x' }], totalLines: 1 }
 
   it('reports a byte-capped read', () => {
-    const out = formatReadOutput('/f', { ...base, totalLines: 99, truncatedByBytes: true })
-    expect(out).toContain('(Output capped. Showing lines 1-1. Use offset=2 to continue.)')
+    const out = formatReadOutput('/f', { ...base, totalLines: 99, continuation: { offset: 1, column: 2 }, version: 'v1' })
+    expect(out).toContain('(Partial line 1. Use offset=1, column=2, expected_version="v1" to continue.)')
   })
 
   it('reports a more-remaining page', () => {
-    const out = formatReadOutput('/f', { ...base, totalLines: 99 })
-    expect(out).toContain('(Showing lines 1-1 of 99. Use offset=2 to continue.)')
+    const out = formatReadOutput('/f', { ...base, totalLines: 99, continuation: { offset: 2, column: 1 } })
+    expect(out).toContain('(Showing lines 1-1 of 99. Use offset=2, column=1 to continue.)')
   })
 
   it('reports end-of-file', () => {
@@ -728,7 +793,7 @@ describe('read caps are plugin config', () => {
     const { ctx, fs } = await setupWith({ readLimit: 2 })
     fs.files.set('key:a.txt', 'one\ntwo\nthree\nfour')
     const result = await call(ctx, 'read', { file_path: 'a.txt' })
-    expect(text(result)).toContain('(Showing lines 1-2 of 4. Use offset=3 to continue.)')
+    expect(text(result)).toContain('(Showing lines 1-2 of 4. Use offset=3, column=1, expected_version="v1" to continue.)')
     const overCap = await call(ctx, 'read', { file_path: 'a.txt', limit: 3 })
     expect(overCap.isError).toBe(true)
     expect(text(overCap)).toContain('less than or equal to 2')
@@ -736,11 +801,12 @@ describe('read caps are plugin config', () => {
     expect(JSON.stringify(readSchema)).toContain('Defaults to 2.')
   })
 
-  it('a configured readMaxLineLength truncates lines at the configured length', async () => {
+  it('a configured readMaxLineLength returns an exact continuation at the configured length', async () => {
     const { ctx, fs } = await setupWith({ readMaxLineLength: 4 })
     fs.files.set('key:a.txt', 'abcdefgh')
     const result = await call(ctx, 'read', { file_path: 'a.txt' })
-    expect(text(result)).toContain('1: abcd... (line truncated to 4 chars)')
+    expect(text(result)).toContain('1: abcd\n')
+    expect(text(result)).toContain('offset=1, column=5')
   })
 
   it('a configured readMaxBytes caps the window at the configured bytes', async () => {
@@ -750,7 +816,7 @@ describe('read caps are plugin config', () => {
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected read success')
     expect(result.value).toMatchObject({ totalLines: 3 })
-    expect(text(result)).toContain('Output capped.')
+    expect(text(result)).toContain('offset=3, column=1, expected_version="v1"')
     expect(text(result)).not.toContain('cccc')
   })
 
@@ -1020,7 +1086,7 @@ async function guidanceScope(ctx: Context) {
 }
 
 const originalGuidance = {
-  read: 'Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files.',
+  read: 'Use the read tool — not shell commands like cat — to inspect text files. Continue with the returned offset, column and expected_version until no continuation remains; columns count Unicode code points, not grapheme clusters.',
   write: 'Read an existing file before overwriting it with write (the default fs-observation-policy requires it) and prefer edit for targeted changes.',
   edit: 'Read a file before editing it (the default fs-observation-policy requires it), unless you just created or edited it in this session.',
 }

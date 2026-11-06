@@ -1,6 +1,18 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+
 # PTC mode agent-instructions snapshot recording overlay. The default filesystem
 # tools trigger nested instruction discovery after a read.
+- id: tool-skill
+  disabled: true
+
 - insert:
+    - id: read-snapshot-version
+      name: '../../../packages/fs/tool-fs/tests/fixtures/read-snapshot-version.mjs'
+      config:
+        files: [nested/task.txt]
     - id: literal-sdk
       name: '../../../packages/core/tools/tests/fixtures/literal-sdk.ts'
 

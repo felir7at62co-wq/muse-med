@@ -9,6 +9,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { expect, it } from 'vitest'
 import * as desktopOffice from '../src/office.ts'
@@ -29,7 +30,8 @@ it.each([undefined, 'advisory'] as const)('loads Desktop Office paths with revie
     expect(ctx.loader.unwrapExports(desktopOffice)).toBe(desktopOffice)
     const modules = new Map<string, unknown>([
       ['agents', AgentRegistry], ['systemPrompt', SystemPrompt], ['tools', ToolRuntime],
-      ['skills', SkillRegistry], ['subprocess', LocalSubprocessRuntime], ['office', desktopOffice],
+      ['skills', SkillRegistry], ['subprocess', LocalSubprocessRuntime],
+      ['sessionProjections', SessionProjectionRegistry], ['office', desktopOffice],
     ])
     ctx.loader.internal = {
       version: 'v2',
@@ -40,7 +42,8 @@ it.each([undefined, 'advisory'] as const)('loads Desktop Office paths with revie
     } as unknown as NonNullable<typeof ctx.loader.internal>
     const config = join(root, 'cordis.yml')
     await writeFile(config, [
-      '- name: agents', '- name: systemPrompt', '- name: tools', '- name: skills', '- name: subprocess', '- name: office',
+      '- name: agents', '- name: systemPrompt', '- name: tools', '- name: skills', '- name: subprocess',
+      '- name: sessionProjections', '- name: office',
       '  config:', `    source: ${JSON.stringify(join(root, 'runtime', 'primary-runtime'))}`,
       `    root: ${JSON.stringify(join(root, 'installed'))}`,
       `    runtimeDir: ${JSON.stringify(join(root, 'dsh'))}`, '',

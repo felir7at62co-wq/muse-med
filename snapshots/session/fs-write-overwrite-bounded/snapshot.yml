@@ -3,10 +3,9 @@ scenario: fs-write-overwrite-bounded
 profile: headless
 composition: fs-diff-bound
 recording: live
+writerOutput: true
 header:
   class: fs-diff-bound
   pin: true
-  systemPromptSource: text-turn
-  toolSchemasSource: text-turn
 workspace:
   final: true

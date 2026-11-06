@@ -9,7 +9,7 @@ Verify your work by running the code or tests. Keep answers brief and factual.
 
 Check the [exit code: N] marker on every bash result; investigate failures before moving on.
 
-Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files.
+Use the read tool — not shell commands like cat — to inspect text files. Continue with the returned offset, column and expected_version until no continuation remains; columns count Unicode code points, not grapheme clusters.
 
 Read an existing file before overwriting it with write (the default fs-observation-policy requires it) and prefer edit for targeted changes.
 
@@ -302,19 +302,30 @@ class ReadArgs(TypedDict):
     file_path: str
     # 1-based first line to return. Defaults to 1.
     offset: NotRequired[float]
+    # 1-based Unicode code-point column on the first line. Defaults to 1; use the returned continuation without skipping a partial line.
+    column: NotRequired[float]
     # Maximum number of lines to return. Defaults to 2000.
     limit: NotRequired[float]
+    # Provider version from the preceding read; a changed file requires restarting the read.
+    expected_version: NotRequired[str]
     # Additional keys beyond those declared are allowed.
 
 class ReadOutputLines(TypedDict):
     number: int
     text: str
 
+class ReadOutputContinuation(TypedDict):
+    offset: int
+    column: int
+
 class ReadOutput(TypedDict):
     path: str
     offset: int
+    column: int
+    version: str
     lines: list[ReadOutputLines]
     totalLines: int
+    continuation: NotRequired[ReadOutputContinuation]
 
 class ReadImageArgs(TypedDict):
     # Path to the image file, resolved by the filesystem backend.

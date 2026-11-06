@@ -43,12 +43,14 @@ kind: "package-reference"
 
 | 工具 | 参数 | 行为 |
 |---|---|---|
-| `read` | `file_path`、`offset?`、`limit?` | 带行号的 UTF-8 内容与分页 footer；`offset` 从 1 开始，`limit` 默认为配置的 `readLimit`，上限也为该值 |
+| `read` | `file_path`、`offset?`、`column?`、`limit?`、`expected_version?` | 带行号的 UTF-8 片段；行号和 Unicode 码点列号从 1 开始，`limit` 的默认值和上限均为 `readLimit` |
 | `read_image` | `file_path` | 读取并持久保存 PNG/JPEG/WebP/GIF 源图；无扩展名路径（包括规范化附件对象路径）按文件签名识别格式；规范化可在下一次模型请求前缩小图片，因此模型无需先创建缩略图 |
 | `write` | `file_path`、`content` | 创建或完整替换文件；有策略插件时，覆盖要求先在未变版本上执行 `read`，创建不需要 |
 | `edit` | `file_path`、`old_string`、`new_string`、`replace_all?` | 字面量替换，除非 `replace_all` 为 true 否则要求唯一匹配；有策略插件时，要求先执行 `read` 且文件未变 |
 
 字段名使用 snake_case，与 Claude Code 和现有 harness 工具 schema 一致。`write` 和 `edit` 的路径描述要求模型先输出 `file_path`，再输出内容或替换字符串；这用于引导流式展示，不强制 JSON 成员顺序。成功返回紧凑信封——读取窗口、图像引用或 `Created file`/`Updated file` 确认——`write`/`edit` 还会派生可回放的 diff 卡片元数据供 UI 展示。
+
+读取结果包含提供方 `version`，以及指向下一个未读字符的可选 `continuation: {offset, column}`。沿用该位置和 `expected_version` 继续读取，直到没有 continuation。列号按 Unicode 码点计数，不按 UTF-16 单元或字素簇计数；不会拆开 emoji。读取前或读取期间版本变化时返回 `FS_STALE_VERSION`，不记录已观察状态。公开的 `buildWindow` 辅助函数及 `ReadWindow`/`WindowResult` 类型为其他来源读取器提供同样的有界分页。
 
 ### 配置
 
@@ -57,8 +59,8 @@ kind: "package-reference"
 | 键 | 默认值 | 含义 |
 |---|---|---|
 | `readLimit` | `2000` | 一次 `read` 调用返回的默认和最大行数 |
-| `readMaxLineLength` | `2000` | 每行截断前保留的字符数 |
-| `readMaxBytes` | `51200` | 一次 `read` 调用所选行的字节上限；溢出时以「已达上限」footer 结束窗口 |
+| `readMaxLineLength` | `2000` | 每个行片段最多保留的 Unicode 码点数 |
+| `readMaxBytes` | `51200` | 所选片段及分隔换行的 UTF-8 字节上限；剩余内容通过 continuation 续读 |
 | `readStreamMinSize` | `10485760` | 大于等于该大小或大小未知的文件采用流式读取，而不是整体加载到内存 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-fs)是每个受支持字段及其 JSDoc 的穷尽式真源。
@@ -85,14 +87,14 @@ kind: "package-reference"
 
 ### 设计理念
 
-工具就是执行器；策略是事件门禁。工具不注入策略服务，也不检查任何缓存——每次变更都通过 `ctx.waterfall` 向单一意图槽位请求防护，每个操作只在成功后发出 `fs/observed`。读取恰好执行一次提供方 `stat`（类型与大小路由加观察到的版本）；变更一次也不执行，因为防护来自意图槽位，提供方在锁内重新检查。
+工具执行操作；策略是事件门禁。每次变更通过 `ctx.waterfall` 向意图槽位请求防护；成功操作发出 `fs/observed`。文本读取在扫描前后对比提供方版本。变更工具不执行 stat，因为提供方会在锁内重新检查防护。
 
 ### 源码地图
 
 | 文件 | 职责 |
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`Config`、工具组合、`read_image` 附件门禁 |
-| [`src/read.ts`](src/read.ts) | `read` 执行器：一次 stat、流式决策、窗口构建、观察 |
+| [`src/read.ts`](src/read.ts) | `read` 执行器：版本检查、流式读取、有界窗口与观察 |
 | [`src/read-image.ts`](src/read-image.ts) | `read_image` 执行器：路由与媒体类型门禁、有界字节、附件保存 |
 | [`src/write.ts`](src/write.ts) | `write` 执行器：意图 waterfall、原子写入、观察 |
 | [`src/edit.ts`](src/edit.ts) | `edit` 执行器：意图 waterfall、字面量编辑、观察 |
@@ -102,7 +104,7 @@ kind: "package-reference"
 
 ### 各工具流程
 
-四个工具共享同一种流程形态：用调用会话的 cwd 解析路径、运行适用的门禁、恰好执行一次提供方操作，并且只在成功后发出 `fs/observed`。`read` 与 `read_image` 为类型与大小路由付出一次 `stat`；`write` 与 `edit` 不执行 stat，因为防护来自意图槽位，提供方失败以类型化 `FsError` 结果呈现。各工具执行器位于 `src/read.ts`、`src/read-image.ts`、`src/write.ts` 与 `src/edit.ts`。
+所有工具用调用会话的 cwd 解析路径，且只在成功后发出观察事件。文本读取检查两次文件版本；图片读取执行一次 stat 决定路由。write 和 edit 的防护来自意图槽位。提供方失败以类型化 `FsError` 结果呈现。
 
 ### 观察与并发
 
@@ -138,7 +140,7 @@ kind: "package-reference"
 ##### Read 指导
 
 ```markdown
-Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files.
+Use the read tool — not shell commands like cat — to inspect text files. Continue with the returned offset, column and expected_version until no continuation remains; columns count Unicode code points, not grapheme clusters.
 ```
 
 ##### Write 指导
@@ -179,7 +181,7 @@ Read a file before editing it (the default fs-observation-policy requires it), u
 
 #### 模型看到的内容
 
-成功读取结果精确为 `<path><displayPath></path>`、换行、`<type>file</type>`、换行、`<content>`、形如 `<lineNumber>: <text>` 的编号行、一个空行、一条 footer 和 `</content>`。footer 精确为 `(Output capped. Showing lines <start>-<end>. Use offset=<next> to continue.)`、`(Showing lines <start>-<end> of <total>. Use offset=<next> to continue.)` 或 `(End of file - total <total> lines)`。长行结尾精确为 `... (line truncated to <max> chars)`。读取缺失目标仍返回 `FS_NOT_FOUND`，但会为调用会话记录确认缺失；外部删除的文件被重新读取后，重试的 `write` 可以通过提供方的不替换防护安全地重新创建该文件。
+成功读取使用 `<path>`、`<type>file</type>` 和 `<content>` 信封，内容为带行号的原样片段。footer 说明当前行仅部分返回或已返回的行范围，并提供精确的 `offset`、`column` 和 `expected_version` 用于续读。只有确已读至文件结尾时才报告 `(End of file - total <total> lines)`。字节预算连一个 Unicode 码点都无法容纳时返回 `FS_TOO_LARGE`，不返回无法前进的游标。读取缺失目标返回 `FS_NOT_FOUND` 并记录缺失，之后带防护的写入可重新创建文件。
 
 #### Token 影响
 

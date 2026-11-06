@@ -271,9 +271,17 @@
             "type": "number",
             "description": "1-based first line to return. Defaults to 1."
           },
+          "column": {
+            "type": "number",
+            "description": "1-based Unicode code-point column on the first line. Defaults to 1; use the returned continuation without skipping a partial line."
+          },
           "limit": {
             "type": "number",
             "description": "Maximum number of lines to return. Defaults to 2000."
+          },
+          "expected_version": {
+            "type": "string",
+            "description": "Provider version from the preceding read; a changed file requires restarting the read."
           }
         },
         "required": [
@@ -315,22 +323,6 @@
         "required": [
           "agent_id",
           "message"
-        ]
-      }
-    },
-    {
-      "name": "skill",
-      "description": "Load the full instructions for a skill. Call it before acting on a task that names or clearly matches a skill in the session skill catalog.",
-      "parameters": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "The exact skill name from the available skills list."
-          }
-        },
-        "required": [
-          "name"
         ]
       }
     },

@@ -1,0 +1,12 @@
+{
+  "realHeadlessTools": true,
+  "defaultBudget": 8000,
+  "everyDeclaredCollectionRead": true,
+  "nestedRelationshipEvidenceRead": true,
+  "staleAfterSavedNoteRejected": true,
+  "completePagesModelVisible": true,
+  "auditReadOnly": true,
+  "manuscriptBytesUnchanged": true,
+  "networkAccessAllowed": false,
+  "semanticUnderstandingAssessed": false
+}

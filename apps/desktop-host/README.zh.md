@@ -34,6 +34,7 @@ Desktop 默认组合包在用户配置补丁之前注册[短剧设置](../../pac
 桌面账号组合将网关与知识库请求的 `requestTimeoutMs` 设置为 60,000 毫秒，包含项目参与组合扫描。个人覆盖文件可修改这一经过验证的账号配置；底层插件默认值仍为 15,000 毫秒。超时仍报告服务不可用，不能据此判断远程写入是否完成。
 
 <a id="compaction-defaults"></a>
+
 短剧交付按项目明确类型和已准备画布执行；选择方式与旧项目行为见[项目圣经](../../packages/drama/drama-settings/README.zh.md)。
 
 Muse 内置 Codex 订阅插件，并在设置中提供 ChatGPT 登录入口。独立订阅登录使用官方 Codex OAuth 提供方；Muse 账号登录不授予此权限。凭据保留在本地 Host 凭据服务中，浏览器账号响应不包含令牌。仅在连接账号时列出订阅模型。升级会恢复内置组合包，不替换已保存的订阅设置或凭据。此订阅接入不包含或启用可选 Codex CLI 子代理提供方。产品覆盖继续停用 Agent 笔记设置页及其 Host API；工程笔记文件与 Muse 知识库功能仍可使用。
@@ -48,7 +49,45 @@ Office 组合全局注册 `manuscript_revision`，对照实际上一稿与返回
 
 本地记录保留在工作区的 `.muse/manuscript-revisions/` 下。Office 的 `manuscriptRevisions` 设置控制资源限额，对照不静默截断。差异作为已记录的上下文进入模型。参见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-manuscript-protection/guide.zh.md)。
 
-`manuscript_work` 在会话独立的 `.muse/manuscript-work/` 记录中关联明确任务、来源文件和本轮采用稿路径，保留不可覆盖的文字快照，不按文件修改时间猜采用稿。完整场景读取包含前后场；存在文件系统服务时，核对文件摘要并为普通受版本保护的编辑记录观察版本。场景修改建议返回真实 before/after 和普通 `edit` 参数，不自动写稿。后续步骤回读已登记文件，包括 shell 写入的文件，每个实际内容版本只记录一次提示，只返回修改片段而非两份全文；新真人轮次恢复简短的采用稿版本信息，不重复未变化的检查。不扫描或采用其他文件。
+`manuscript_work` 在会话独立的 `.muse/manuscript-work/` 记录中关联明确任务、来源文件和本轮采用稿路径，保留不可覆盖的文字快照，不按修改时间猜采用稿。初稿尚未创建时也可用 `read_source` 读取已绑定的来源，并沿用其精确位置和 `source_sha256` 续读。阅读覆盖按该来源版本报告已返回字符与缺读范围，标记为 `coverage_basis: returned_source_text`、`semantic_assessment: not_performed`。完成仅表示文字已返回，不代表理解或语义审校通过。
+
+模型可见的 `manuscript_work` 结果中，已声明的 `path`、`source_path`、`file_path` 字段及 `paths`、`source_paths`、`candidate_paths`、`missing_files` 数组元素，位于 Session 规范工作目录内时以 `./relative` 和 `/` 分隔符返回，调用方须相对此 Session cwd 解析。诊断中的来源位置沿用相同的相对路径写法。外部绝对路径、引文、笔记及其他业务正文保持不变。持久任务记录保留原生绝对路径，已有绝对路径输入仍可使用。
+
+Host 专用的会话投影按真实用户消息和成功的任务绑定，还原真人最初要求文本及后续补充。上下文压缩和恢复时引用当前绑定任务的要求，保留问题编号与输出格式；分叉继承的前缀不作新请求。已有日志可重建旧会话的要求，缺少真实请求时明确报告不可用。遵循后续真人修正，不从摘要另造一组问题。
+
+完整内部要求通知的 `manuscriptTaskRequestChars` 默认为 16000 个 UTF-16 单元，最小为 1024。更长要求保留原文，通过 `task_request` 分页回读。续读携带返回的 `request_sha256`、`offset` 和 Unicode 码点 `column`；真人修改或重新绑定后旧版本失效。要求分页共用 `sourceReadMaxResultCharacters`。回读已保存要求不会重新绑定任务或清空来源阅读进度。
+
+来源页和关系引文附带 `source_contexts`，按实际集场标题派生出处、标题行号和 `heading_setting`。对白提及别处不改变该场景设置；场内移动仍须核对动作原文。没有标题时保留未知，重复编号保留独立出现位置。这些位置标识引文出处，不证明关系何时有效，也不证明所述事件已经发生。
+
+`read_source.lines[]` 每行增加 `source_refs`，使用 `["第1集/1-1"]` 这类紧凑标签；集标题行只带集标签。来源路径和哈希留在页级字段。引用原句使用 `lines[].text`，不把标签并入原文引文。阅读页保留选中段的元数据，`previous_section` 和 `next_section` 仅提供 `section_index`、`source_scene_id`、`episode`、`scene_id`、`heading`、`start_line`、`end_line` 供导航。
+
+每行的 `source_line` 将原始完整行标为 `heading`、`action`、`dialogue` 或 `other`。可识别的对白前缀再提供 `speaker_label`、原写法 `voice_marker` 与 `speaker_annotation`，以及正文起始的从 1 计数的 Unicode 码点列 `speech_column`；不可用字段省略。即使 `text` 是续读片段，元数据仍依据完整来源行。关系和数值对照的引文返回带行号和可空字段的 `line_labels`；检查点保留行类别、发话人和声音标记。标签保留 OS/VO 及括注等原文写法，不判定可闻性、剧情真假或相对称谓所指。不可识别的前缀保留未指派，不作猜测。
+
+`audit` 和检查点中的关系来源语境，以及数值对照的引用语境，保留选中段标题、出处和行范围，不带 `previous_section` 或 `next_section`。其中 `citation_labels` 标识选中行范围：`start_line`、`end_line`、`episode`、`scene_id`、`source_scene_id`，集号优先使用原始标签。数值对照的顶层 `citation_labels` 按 `before`、`after`、`explanation` 分组，每项再带 `source_path` 和 `source_sha256`。邻段正文通过阅读页回读。这些是重新计算的输出字段，来源正文、覆盖计数与文稿持久状态结构保持不变。
+
+`audit.source_cues` 索引阅读文本中行首可带空白的 `△` 完整提示行。每项保留 `line`、完整 `text`、真实 `citation_labels`、`source_path` 和 `source_sha256`，集合沿用其他分组的报告分页。提示行也可能与时间无关，它只用于来源导航，不是已核实事件或时间事实；得出结论前仍须回读整场并关联事件。索引不增加 `read_source` 覆盖，不证明理解，也不改变保存状态。
+
+输出最终文字前，逐条按引文真实 `source_contexts` 和同场原文核对具体集号、时点，以明确动作或指代确认动作主体，并省去无依据旁支细节；摘要与旧答案不能代替这些核对。
+
+工具描述和检查通知要求区分计划、尝试、完成与后果，保留相邻事件和相对时间之间的明确连接。当前地点、计划目的地、声源和对白提及地点分别记录。条件奖励和相容算式不证明任务完成或到账，被阻止的危险不写成已发生事件。原文明示生效的任命或薪资标准本身就是变化，实际领取是另一指标，不能因未写工资条或到账而把标准列为未确认。称谓所指和人物表不证明谁是受话人或听见了话语。最终关系摘要沿用原称谓，不自创更宽泛的亲属总称。这些要求指导语义核对，不认证核对结果。
+
+`characters` 记录稳定角色 ID、名字及有来源依据的别名；`relationship` 记录有方向的关系、剧情语境，以及 `asserted`、`uncertain` 或 `contradicted` 状态。证据须匹配当前来源的精确哈希、完整原句行及位置。“爸爸”等相对称谓保留说话人与所指人物，不变成全局别名。按相对称谓或上下文推定的所属指向仍是推断，不能标成原文明示。填写的集号与场号须符合每条引用的真实归属；跨场证据可省略共同出处。故事时间须有逐字原句或标题依据，并在 `time_basis` 返回；具体编号集、场和钟点使用结构化 scope 字段。已存但无依据的范围进入 `relationships_needing_recheck`。这些属于模型解释，引文匹配不证明解释真实。
+
+可选的 `contextual_name.term` 须出现在所引发话行正文中，不能仅在标签、括注、动作或档案里出现。其 `speaker_id` 须按完整发话标签与已登记姓名或明确别名唯一匹配，拒绝子串匹配及推定身份；多行引用逐行核对。标签歧义或多人使用该称谓时须收窄证据。具名 OS/VO 行仍可使用，不因此认定其实际出声。无法确定字面发话人时省略 `contextual_name`，保留普通关系及不确定性；发话人匹配不证明称谓所指。无据旧发话人绑定保留在 `relationships_needing_recheck`，不作为当前资料恢复。
+
+`comparison` 针对已登记人物的某项指标，记录前后原文字面值、来源引文及模型识别的单位、条件和时点。每端的时间标签须有该端逐字引文或标题依据，并在 `time_basis` 返回。新 `explained_change` 输入必须附解释引文并设置 `explanation_kind: explicit_change`；类别缺少或不符时拒绝。`general_rule` 或 `suggested` 解释使用 `possible_change`，不证明某次奖励已经发生。`potential_conflict` 缺少单位、条件或时点时按 `unresolved` 报告。
+
+数值对照工具返回字面差异，不证明标签、比较或矛盾判断正确。`bridge_ranges` 每项仅含 `source_path`、`source_sha256`、`start_line`、`end_line`，沿该范围回读调薪、调任、奖励或累积过程；不展开中间的 `source_contexts`，也不表示这些文字已读。不同集数本身既不证明矛盾，也不排除矛盾。已存但无依据的时点，以及缺少 `explicit_change` 的旧 `explained_change` 笔记进入 `comparisons_needing_recheck`，不作为当前资料恢复。历史注释可将其有效解释显示为 `possible_change`，这不使原来的强断言重新生效。
+
+完整场景读取包含相邻场景，并可为受版本保护的编辑记录已核对的文件版本。修改建议返回真实 before/after 和普通 `edit` 参数，不写稿。登记文件发生变化后会重新对账，包括 shell 写入的正文；每个内容版本只报告一次修改片段，不扫描或采用其他文件。上下文压缩和会话恢复时，返回有界的当前来源与采用稿版本、缺读范围、人物关系、数值对照和事件检查点；过期证据被排除，省略条目报告数量，完整索引可用 `audit` 回读。
+
+`audit` 返回完整小报告，或以 `report_paged: true` 返回 `summary` 和 `report_sections` 目录。沿每组的 `request`，携带 `report_sha256`、原样 `report_section` 和从 1 计数的条目 `report_offset` 读取；可选 `report_limit` 限制条目数。每组均须沿 `continuation` 读到 `null`。`is_last_page` 仅表示该组到尾，目录或末页都不证明此前已读。来源、采用稿、已存笔记、阅读进度或配置变化后旧游标失效。较大的保存响应返回 `saved: true`、`report_pending: true` 和 `next_request`，不返回完整报告。`manuscriptReportMaxResultCharacters` 默认为 8000 个 UTF-16 单元，最小 1024，包含所有结果元数据。
+
+完整报告超出该预算时，关系或数值对照的保存回执优先带上完整的本次 `record_review`（含引文）及 `record_review_notice` 复核提示。合并结果仍放不下时，返回 `record_review_omitted: true`，由 `audit` 提供完整记录，不截断正文。单条回显不是完整审查或语义批准；修正已存笔记须用同一 ID 实际重新保存，不能只修改最终答复。小报告返回和持久状态结构保持不变。
+
+超大记录会返回带 `report_item_paged: true`、该条 `report_offset`、`summary` 和嵌套 `report_sections` 的条目。递归读取这些请求，将每个摘要引用替换为完整集合，还原原始记录。嵌套分组名可能包含从 0 计数的记录位置，例如 `comparisons.0.record.before.evidence`；须复制返回的请求，不自行拼路径。父组读完不证明子组已读。引文和标量字段始终不截断；目录超限，或某条记录的标量字段与子目录仍无法容纳时明确失败。
+
+Office `manuscriptRevisions` 默认值为 `sourceReadMaxLines: 100`、`sourceReadMaxLineCharacters: 2000` 个 Unicode 码点、`sourceReadMaxBytes: 12000` UTF-8 正文字节、完整来源页结果的 `sourceReadMaxResultCharacters: 8000` 个 UTF-16 单元，以及 `manuscriptCheckpointChars: 6000` 个 UTF-16 单元。`sourceReadMaxResultCharacters` 至少为 1024，包含元数据；页结果超限时减少行数或 Unicode 片段长度，保留无损续读位置。连最小来源页及其语境也无法容纳时，请求失败且不计阅读覆盖。已有版本 1 任务记录缺少 readings、characters、relationships 或 comparisons 时按空列表读取，旧记录不表示已完成阅读。
 
 检查返回实际集号与场次标题数量、重复编号的位置、各集文字量，以及场内、正文与钩子、全剧跨集的字面重复候选，包含非相邻集。按集号汇总篇幅不会掩盖重复标题。`repeatMinCharacters` 和 `maxRepeatFindings` 配置文字候选筛选与输出上限，超出数量如实报告。可选事件笔记需要实际来源和场景引文，来源或场景变化后失效；它们属于模型注记，工具核对引文，不证明语义或原创性。合理回顾与闪回不自动删除。工具不批准文稿、不把换梗要求套给忠实转写、不加载技能，也不拦截写作、导出或交付。来源文件保持不变，缺失或不可读取的版本明确提示失败。
 
@@ -96,8 +135,6 @@ Muse 忙碌时，Enter 和发送按钮默认插话，Cmd/Ctrl+Enter 将消息排
 
 文字稿件默认交付 Word（.docx），用户指定其他格式时按其要求。Agent 保留 Markdown 源稿，加载 office-docx，优先用 screenplay_export_docx 转换分场剧本并交付检查后的 Word，不重复转写或重写正文。视频制作要求仅用于视频工作；普通稿件自主核对来源，只有任务采用受管项目时才执行对应验收。
 
-内置的[微短剧剧本审核技能](skills/reviewing-micro-drama-scripts/SKILL.md)用于用户要求的剧本内容安全审核及相关创作咨询。技能按需加载，随包包含用户提供的[平台创作规范参考](skills/reviewing-micro-drama-scripts/references/platform-guidelines.md)。该本地参考不能证明平台当前的官方规则或审核结论。添加技能不改变系统人设，也不增加工具层审批要求。
-
 ## 创作模式
 
 `creation` 预设将编辑与短剧的原生工具合并到 PTC `run_code`，由一个模型执行，不提供委派、工作流模型或团队工具。现有预设与 `short-drama` 默认值保持可用。此模式使用隔离的创作与 Office 已审核技能目录，不发现目录名单外的技能名，包括插件编写技能名。名单内技能的项目或全局同名覆盖仍沿 Host 注册表的通常优先级；名称目录不认证指令正文来源。后续工具注册仍受已审核白名单约束，包括 Agent 自身作用域的贡献。
@@ -107,6 +144,8 @@ Muse 忙碌时，Enter 和发送按钮默认插话，Cmd/Ctrl+Enter 将消息排
 默认写作入口不挂载受管剧本项目流程。已有项目记录保留在磁盘上，显式采用项目部署时仍可读取。
 
 分场格式包含集号、场次、人物、动作、对白、OS/VO 和闪回标记，用户指定格式优先。Word 转换使用 `office-docx` 与 `screenplay_export_docx` 处理已保存正文。
+
+`short-drama` 与 `creation` 都接收共用的 `editing:narrative-voice` 段。心理自指，包括没有可闻依据的“对自己说”，按 OS 理解，不补出倒影、另一个自己或姿态。OS 中假设、担忧、计划或回忆的人物与动作不成为当前场景；明确可见的想象或闪回保留其叙述层级。明确出声自语、听者反应、传声对白及有来源依据的对镜场面保留原意。发声位置、接收路径与回应路径分别依原文核对，经设备接收不证明回复路径，也不授权新增收发动作。OS、记忆音与当前画外对白在镜头正文及提交提示词中写一行 `发声说明：…`，注明说话人、可闻性及原文明示的位置或传声方式；未交代的内容保持未交代。内心配音不要求画面人物对口型，来源文字保持不变。
 
 创作预设通过共用的 `muse:short-drama-production` 系统段执行短剧制作要求：每镜1–4秒、每秒8个有效字、无声反应镜更快。仅场景固定、在场人物固定、人物位置保持不变的视频包可用站位图；剧本或视频提示涉及走动、靠近、后退、换位等任何人物位置移动，或有人物进出场景、换场时，整包不用站位图。摄影机移动、切镜或因取景画外不算人物走位，也不为配图强行拆包。使用时一包一张实际看过的完整全景，展示全部在场角色、每人唯一实体、空间关系与固定环境锚点；阵容、布局和环境相同且各包均适用时才可复用。生图明确沿用项目已确认风格和既有资产，包括脸型比例、材质、服装与场景渲染，3D不能变真人摄影，真人也不能强改3D。绑定视频前必须实际看图确认画风，文字或style字段不能替代；不符时按既有付费规则修复或重生成并复审。站位图约束身份和空间；站立、蹲下、坐下、姿势、情绪与动作由每镜脚本和视频提示决定，不能照搬静态姿势或让人物提前起身，姿势或表情变化无需重做站位图。每镜出镜名单优先于全包参考图。拍摄时间只进入本地预算元数据和生成参数；提交的视频提示词不含控制分镜时长的要求，原台词中的时间信息保持不变。
 

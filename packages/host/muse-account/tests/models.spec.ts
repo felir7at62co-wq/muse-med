@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, it, vi, type MockInstance } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import LlmRuntime, { createToolResultMessage, createUserMessage, LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -695,6 +696,9 @@ it.each(['same-model', 'changed-model', 'changed-provider', 'missing-replay'] as
 
 it('loads Muse GLM models through Loader and retains reasoning on a tool continuation', async () => {
   const fixture = await oldSessionFixture(false)
+  await fixture.ctx.settings.replace('agent-default-model', { provider: 'muse-cloud-yunying', model: 'glm-5.3-flash' })
+  const profileBefore = await readFile(fixture.profile.patchPath, 'utf8')
+  const replace = vi.spyOn(fixture.ctx.settings, 'replace')
   const events = [
     JSON.stringify({ choices: [{ index: 0, delta: { reasoning_content: 'saved GLM reasoning' }, finish_reason: null }] }),
     JSON.stringify({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'glm-call', type: 'function',
@@ -713,7 +717,11 @@ it('loads Muse GLM models through Loader and retains reasoning on a tool continu
         }] }] }) })
       models = owned
       scope.effect(() => () => owned.dispose())
-      await owned.refresh()
+      // An already-selected adapter must mount while profile writes belong to another operation.
+      await withFileLock(join(fixture.profile.dir, 'package.json'), async () => {
+        expect(await readFile(join(fixture.profile.dir, 'package.json.lock'), 'utf8')).toBe(`${process.pid}\n`)
+        await owned.refresh()
+      })
     },
   }
   const id = await fixture.ctx.loader.create({ name: 'cordis:glm-models' })
@@ -739,6 +747,9 @@ it('loads Muse GLM models through Loader and retains reasoning on a tool continu
   expect(wire[2]?.reasoning_effort).toBe('low')
   await fixture.ctx.loader.resolve(id).fiber?.dispose()
   expect(fixture.ctx.llm.listProviders().some(provider => provider.id === request.provider)).toBe(false)
+  expect(replace).not.toHaveBeenCalled()
+  expect(await readFile(fixture.profile.patchPath, 'utf8')).toBe(profileBefore)
+  await expect(readFile(join(fixture.profile.dir, 'package.json.lock'))).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
 it.each([

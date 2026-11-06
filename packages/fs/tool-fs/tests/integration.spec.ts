@@ -131,12 +131,44 @@ describe('default deployment (with dsh-fs-observation-policy)', () => {
       expect(result.error).toMatchObject({ info: { code: 'FS_NOT_TEXT' } })
     })
 
+    it('recovers long-line text and refuses a changed-file continuation', async () => {
+      const original = '甲'.repeat(1999) + '😀乙其实是甲的父亲。' + '后'.repeat(600)
+      await writeFile(join(dir, 'novel.txt'), original, 'utf8')
+      const first = await call('read', { file_path: 'novel.txt' })
+      if (first.isError) throw Error(text(first))
+      expect(first.value).toMatchObject({ offset: 1, column: 1, continuation: { offset: 1, column: 2001 } })
+      const firstWindow = first.value as { version: string; continuation: { offset: number; column: number }; lines: { text: string }[] }
+      const second = await call('read', { file_path: 'novel.txt', ...firstWindow.continuation, expected_version: firstWindow.version })
+      if (second.isError) throw Error(text(second))
+      const lastWindow = second.value as { lines: { text: string }[]; continuation?: object }
+      expect(firstWindow.lines.map(line => line.text).join('') + lastWindow.lines.map(line => line.text).join('')).toBe(original)
+      expect(lastWindow.continuation).toBeUndefined()
+      await writeFile(join(dir, 'novel.txt'), 'new source', 'utf8')
+      expect(await call('read', { file_path: 'novel.txt', ...firstWindow.continuation, expected_version: firstWindow.version }))
+        .toMatchObject({ isError: true, error: { info: { code: 'FS_STALE_VERSION' } } })
+    })
+
+    it('releases read registrations on reload and applies the replacement fragment cap', async () => {
+      await writeFile(join(dir, 'novel.txt'), '甲😀乙丙', 'utf8')
+      await fiber.dispose()
+      expect(ctx.tools.get('read')).toBeUndefined()
+      fiber = await ctx.plugin(ToolFs, { readMaxLineLength: 2 })
+      expect(ctx.tools.schemas().filter(schema => schema.name === 'read')).toHaveLength(1)
+      expect(await call('read', { file_path: 'novel.txt' }))
+        .toMatchObject({ isError: false, value: { lines: [{ number: 1, text: '甲😀' }], continuation: { offset: 1, column: 3 } } })
+      await fiber.dispose()
+      fiber = await ctx.plugin(ToolFs, { readMaxLineLength: 3 })
+      expect(ctx.tools.schemas().filter(schema => schema.name === 'read')).toHaveLength(1)
+      expect(await call('read', { file_path: 'novel.txt' }))
+        .toMatchObject({ isError: false, value: { lines: [{ number: 1, text: '甲😀乙' }], continuation: { offset: 1, column: 4 } } })
+    })
+
     it('paginates a multi-line file with offset/limit', async () => {
       await writeFile(join(dir, 'a.txt'), 'one\ntwo\nthree\nfour')
       const result = await call('read', { file_path: 'a.txt', offset: 2, limit: 2 })
       expect(text(result)).toContain('2: two')
       expect(text(result)).toContain('3: three')
-      expect(text(result)).toContain('(Showing lines 2-3 of 4. Use offset=4 to continue.)')
+      expect(text(result)).toContain('(Showing lines 2-3 of 4. Use offset=4, column=1, expected_version=')
     })
   })
 
@@ -269,13 +301,13 @@ describe('default deployment (with dsh-fs-observation-policy)', () => {
   })
 
   describe('stat budget', () => {
-    it('read stats once; write and edit never stat in the tool (the gate stats zero too)', async () => {
+    it('read verifies its version twice; write and edit never stat in the tool', async () => {
       await writeFile(join(dir, 'a.txt'), 'hello world')
       const statSpy = vi.spyOn(ctx.fs, 'stat')
 
-      // read: exactly one stat (type + size routing + observed version).
+      // The read checks its routing version again before recording the observation.
       await call('read', { file_path: 'a.txt' })
-      expect(statSpy).toHaveBeenCalledTimes(1)
+      expect(statSpy).toHaveBeenCalledTimes(2)
 
       // edit (guarded, after the read): the gate supplies vObserved; the tool
       // does not stat to manufacture a basis. CAS happens in editText's lock.

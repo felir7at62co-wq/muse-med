@@ -1,10 +1,9 @@
 version: 1
 scenario: parallel-tool-calls
 profile: headless
-composition: fs
+composition: parallel-tool-calls
 recording: authored
+writerOutput: true
 header:
-  class: fs
+  class: parallel-tool-calls
   pin: true
-  systemPromptSource: text-turn
-  toolSchemasSource: text-turn

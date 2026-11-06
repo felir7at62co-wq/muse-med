@@ -1,9 +1,11 @@
 version: 1
 scenario: fs-edit
 profile: headless
-composition: default
+composition: portable-fs
 recording: live
+writerOutput: true
 header:
-  class: default
+  class: portable-fs
+  pin: true
 workspace:
   final: true

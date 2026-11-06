@@ -88,6 +88,7 @@ export type IssueCode =
   | 'unknown_action_complexity'
   | 'action_complexity_on_speaking_shot'
   | 'characters_placeholder'
+  | 'offscreen_character_listed'
   | 'asset_type_unusable'
   | 'asset_binding_ambiguous'
   | 'material_reference_mismatch'

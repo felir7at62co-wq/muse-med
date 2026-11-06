@@ -1,254 +1,254 @@
-/** Exact source materials and revision hints stay in the calling author session. */
-import { afterEach, expect, it, vi } from 'vitest'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+/** Source headings and change explanations remain versioned across reading, persistence and recovery. */
+import { afterEach, expect, it } from 'vitest'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { Context } from '@deepseek-ai/cordis'
-import Llm, { createUserMessage, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
-import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
-import SessionProjections from '@deepseek-ai/dsh-session-projection'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
-import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import Tools, { defineTool } from '@deepseek-ai/dsh-tools'
-import LocalFs from '@deepseek-ai/dsh-fs-local'
-import { FsVersion } from '@deepseek-ai/dsh-fs'
-import { MockAdapter, textResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
-import * as Review from '../src/manuscript-source-review.ts'
+import { join } from 'node:path'
+import { z } from 'zod'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { Config } from '../src/manuscript-revisions.ts'
+import { ManuscriptWork } from '../src/manuscript-work.ts'
+import { manuscriptTextHash } from '../src/manuscript-scenes.ts'
+import { readAuditCollections } from './manuscript-test-schemas.ts'
 
-const roots: string[] = [], contexts: Context[] = []
-const signal = new AbortController().signal
-const source = '母亲把借书证交给姐姐。\n我把杯子放在窗台。\n她或许知道这件事。'
-const draft = '▲姐姐把借书证攥在手里。\n▲妹妹从母亲手里接过借书证。\n旁白：她知道这件事。'
-afterEach(async () => {
-  await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
-  await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+const roots: string[] = [], signal = new AbortController().signal
+afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
+const coverage = z.object({ complete: z.boolean(), returned_characters: z.number() })
+const pageSchema = z.object({
+  source_sha256: z.string(), lines: z.array(z.object({ number: z.number(), text: z.string(), source_refs: z.array(z.string()) })),
+  continuation: z.object({ offset: z.number(), column: z.number() }).nullable(), reading_coverage: coverage,
+  source_contexts: z.object({
+    sections: z.array(z.object({
+      episode: z.string(), scene_id: z.string().nullable(), heading: z.string().nullable(),
+      heading_setting: z.string().nullable(), start_line: z.number(), end_line: z.number(),
+    })),
+  }).nullable(),
 })
-async function fixture(options: Partial<Review.Config> = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'muse-current-source-')); roots.push(root)
-  const ctx = new Context(); contexts.push(ctx)
-  await ctx.plugin(Llm); await ctx.plugin(Sessions); await ctx.plugin(SessionProjections)
-  await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); await ctx.plugin(AgentRegistry)
-  await ctx.plugin(AgentLoop, { agents: [] }); await ctx.plugin(LocalFs, { cwd: root })
-  const adapter = new MockAdapter([textResponse('收到。'), textResponse('继续。')], { efforts: [{ id: ReasoningEffortId('high'), name: 'High' }] })
-  ctx.llm.registerAdapter(['mock'], adapter)
-  const agent = await ctx.agentLoop.create(SessionId('source-material-author'), {
-    provider: 'mock', model: 'mock', reasoningEffort: ReasoningEffortId('high'), maxTokens: 12345,
-  }, { cwd: root })
-  await writeFile(join(root, 'source.txt'), source); await writeFile(join(root, 'draft.md'), draft)
-  const config = Review.Config(options); const reviewFiber = await ctx.plugin(Review, config)
-  const input = { source_paths: ['source.txt'], draft_paths: ['draft.md'], instructions: '保留原故事，修正交接。' }
-  return { ctx, root, agent, adapter, config, input, reviewFiber,
-    compare: () => Review.compareManuscriptSources(ctx, config, agent, input, signal) }
+const reviewSchema = z.object({
+  record: z.object({ comparison_id: z.string(), explanation_evidence: z.array(z.object({ quote: z.string() })) }),
+  effective_interpretation: z.string(), contradiction_proven: z.literal(false), missing_basis: z.array(z.string()),
+})
+const auditSchema = z.object({ reading_coverage: z.array(coverage),
+  relationships: z.array(z.object({ relationship_id: z.string() })),
+  relationships_needing_recheck: z.array(z.object({ relationship_id: z.string(), scope_issues: z.array(z.object({ code: z.string() })) })),
+  comparisons: z.array(reviewSchema), comparisons_needing_recheck: z.array(z.object({
+    comparison_id: z.string(), recheck_reasons: z.array(z.string()),
+  })) })
+
+async function fixture(text: string, limits: Partial<Config> = {}) {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-source-review-'))); roots.push(root)
+  await writeFile(join(root, 'source.txt'), text)
+  const config = Config(limits), work = new ManuscriptWork(config), session = SessionId('source-context-review')
+  const raw = (args: object) => work.request(args, root, session, signal)
+  const request = async (args: object): Promise<unknown> => JSON.parse(await raw(args))
+  await request({ action: 'bind', task_key: '来源语境', mode: 'edit', source_paths: ['source.txt'], candidate_paths: ['future.md'] })
+  const firstRaw = await raw({ action: 'read_source', source_path: 'source.txt' })
+  const first = pageSchema.parse(JSON.parse(firstRaw))
+  const evidence = (line: number) => ({ source_path: 'source.txt', source_sha256: first.source_sha256,
+    start_line: line, end_line: line, quote: text.split('\n')[line - 1] ?? '' })
+  return { root, config, work, session, first, firstRaw, evidence, raw, request,
+    statePath: join(root, '.muse', 'manuscript-work', manuscriptTextHash(session), 'state.json'),
+    audit: async () => auditSchema.parse(await readAuditCollections(request)) }
 }
 
-it('returns complete source/current text and actual passages without model calls, writes or approval', async () => {
-  const f = await fixture(); const value = await f.compare()
-  expect(Review.inject).toEqual(['tools', 'fs'])
-  expect(value).toMatchObject({ advisory: true, semantic_review: 'not_performed_by_tool', scope: 'current_passages' })
-  expect(value.sources[0]?.numbered_text).toBe('1: 母亲把借书证交给姐姐。\n2: 我把杯子放在窗台。\n3: 她或许知道这件事。')
-  expect(value.changes[0]?.after).toBe(draft)
-  expect(value).not.toHaveProperty('approval'); expect(value).not.toHaveProperty('child_session')
-  expect(f.adapter.requests).toHaveLength(0)
-  expect(await readFile(join(f.root, 'source.txt'), 'utf8')).toBe(source)
-  expect(await readFile(join(f.root, 'draft.md'), 'utf8')).toBe(draft)
+const story = '第1集\n1-1 三楼备勤间 日 内\n甲：我叫甲，月薪两千。\n甲：你把一楼大厅打扫完了吗？\n乙：我叫乙。'
+  + '\n第2集\n2-1 总裁办公室 次日 内\n乙：甲调到新岗位，底薪翻三倍。\n甲：现在月薪六千。'
+
+async function roster(f: Awaited<ReturnType<typeof fixture>>) {
+  await f.request({ action: 'characters', characters: [
+    { character_id: 'a', name: '甲', evidence: [f.evidence(3)] },
+    { character_id: 'b', name: '乙', evidence: [f.evidence(5)] },
+  ] })
+}
+
+it('returns the real current heading when a dialogue asks about another floor', async () => {
+  const f = await fixture(story), original = await readFile(join(f.root, 'source.txt'))
+  const page = pageSchema.parse(await f.request({ action: 'read_source', source_path: 'source.txt',
+    source_sha256: f.first.source_sha256, offset: 4, limit: 1 }))
+  expect(page.lines).toEqual([{ number: 4, text: '甲：你把一楼大厅打扫完了吗？', source_refs: ['第1集/1-1'] }])
+  expect(page.source_contexts?.sections).toMatchObject([{ episode: '1', scene_id: '1-1',
+    heading_setting: '三楼备勤间 日 内', start_line: 2, end_line: 5 }])
+  expect(await readFile(join(f.root, 'source.txt'))).toEqual(original)
 })
-it('extracts verbatim source ranges and flags invalid ranges without inventing quotations', async () => {
-  const f = await fixture(); const value = await Review.compareManuscriptSources(f.ctx, f.config, f.agent, { ...f.input,
-    source_ranges: [{ document: 'S1', start_line: 1, end_line: 2 }, { document: 'X1', start_line: 1, end_line: 1 },
-      { document: 'S1', start_line: 0, end_line: 1 }, { document: 'S1', start_line: 2, end_line: 1 },
-      { document: 'S1', start_line: 1, end_line: 99 }] }, signal)
-  expect(value.source_excerpts[0]).toMatchObject({ literal_match: true, quote: source.split('\n').slice(0, 2).join('\n') })
-  expect(value.source_excerpts.slice(1).every(range => !range.literal_match && !('quote' in range))).toBe(true)
+
+it('labels every returned line with its own episode across a boundary instead of the adjacent title', async () => {
+  const f = await fixture(story)
+  const page = pageSchema.parse(await f.request({ action: 'read_source', source_path: 'source.txt',
+    source_sha256: f.first.source_sha256, offset: 5, limit: 4 }))
+  expect(page.lines).toMatchObject([
+    { number: 5, source_refs: ['第1集/1-1'] },
+    { number: 6, source_refs: ['第2集'] },
+    { number: 7, source_refs: ['第2集/2-1'] },
+    { number: 8, source_refs: ['第2集/2-1'] },
+  ])
+  const result: unknown = JSON.parse(await f.raw({ action: 'read_source', source_path: 'source.txt',
+    source_sha256: f.first.source_sha256, offset: 5, limit: 1 }))
+  const context = z.object({ source_contexts: z.object({ sections: z.array(z.object({
+    next_section: z.object({ episode: z.string(), start_line: z.number() }),
+  })) }) }).parse(result)
+  expect(context.source_contexts.sections[0]?.next_section).toMatchObject({ episode: '2', start_line: 6 })
+  expect(page.lines[0]?.source_refs).toEqual(['第1集/1-1'])
 })
-it('provides the full initial draft even with an identical explicitly supplied baseline', async () => {
-  const f = await fixture(); await writeFile(join(f.root, 'before.md'), draft)
-  const value = await Review.compareManuscriptSources(f.ctx, f.config, f.agent, { ...f.input, previous_draft_paths: ['before.md'] }, signal)
-  expect(value.scope).toBe('current_passages'); expect(value.changes).toHaveLength(1)
-  expect(value.revisions_since_requested_baseline).toEqual([])
+
+it('rejects an incorrect relationship episode and invented temporal basis before persistence', async () => {
+  const f = await fixture(story); await roster(f)
+  const relationship = { relationship_id: 'r', subject_id: 'b', object_id: 'a', relation: '上级', status: 'uncertain',
+    scope: { episode: '1', context: '乙安排甲的新岗位。' }, evidence: [f.evidence(8)] }
+  await expect(f.request({ action: 'relationship', relationship })).rejects.toThrow('MANUSCRIPT_RELATION_SCOPE')
+  await expect(f.request({ action: 'relationship', relationship: { ...relationship,
+    scope: { episode: '2', story_time: '任务结束之后', context: '乙安排甲的新岗位。' } } })).rejects.toThrow('story_time')
+  await f.request({ action: 'relationship', relationship: { ...relationship,
+    scope: { episode: '2', scene_id: '2-1', story_time: '次日', context: '乙安排甲的新岗位。' } } })
+  expect((await f.audit()).relationships).toHaveLength(1)
 })
-it('reuses actual last-supplied draft versions without claiming they were reviewed', async () => {
-  const f = await fixture(); await f.compare()
-  await writeFile(join(f.root, 'draft.md'), draft.replace('她知道', '她或许知道'))
-  const value = await f.compare()
-  expect(value.scope).toBe('changed_passages')
-  expect(value.changes).toMatchObject([{ line: 3, before: '旁白：她知道这件事。', after: '旁白：她或许知道这件事。' }])
-  const same = await f.compare(); expect(same.changes).toEqual([])
-  expect(same.semantic_review).toBe('not_performed_by_tool')
-  expect(same.sources).toHaveLength(1); expect(same.drafts).toHaveLength(1)
+
+it('quarantines a legacy wrong episode instead of restoring it as current knowledge', async () => {
+  const f = await fixture(story); await roster(f)
+  await f.request({ action: 'relationship', relationship: { relationship_id: 'r', subject_id: 'b', object_id: 'a',
+    relation: '上级', status: 'uncertain', scope: { context: '乙安排甲的新岗位。' }, evidence: [f.evidence(8)] } })
+  const state: unknown = JSON.parse(await readFile(f.statePath, 'utf8'))
+  const parsed = z.looseObject({ relationships: z.array(z.looseObject({
+    scope: z.object({ context: z.string() }),
+  })) }).parse(state)
+  const old = parsed.relationships[0]
+  if (!old) throw Error('Expected persisted relationship')
+  old.scope = { ...old.scope, ...{ episode: '99' } }
+  await writeFile(f.statePath, JSON.stringify(parsed) + '\n')
+  const audit = await f.audit()
+  expect(audit.relationships).toEqual([])
+  expect(audit.relationships_needing_recheck).toMatchObject([{ relationship_id: 'r', scope_issues: [{ code: 'mismatch' }] }])
+  expect(await f.work.checkpoint(f.root, f.session, signal)).not.toContain('"episode":"99"')
 })
-it('resets incremental materials when source text or selected draft paths change', async () => {
-  const f = await fixture(); await f.compare(); await writeFile(join(f.root, 'source.txt'), source + '\n新原句')
-  expect((await f.compare()).scope).toBe('current_passages')
-  await writeFile(join(f.root, 'other.md'), draft)
-  expect((await Review.compareManuscriptSources(f.ctx, f.config, f.agent, { ...f.input, draft_paths: ['other.md'] }, signal)).scope).toBe('current_passages')
+
+it('persists change explanations and restores them independently of a new manager instance', async () => {
+  const f = await fixture(story); await roster(f)
+  const comparison = { comparison_id: 'salary', subject_id: 'a', quantity: '月薪',
+    before: { value_text: '两千', unit: '每月', condition: '旧岗位', story_time: '日', evidence: [f.evidence(3)] },
+    after: { value_text: '六千', unit: '每月', condition: '新岗位', story_time: '次日', evidence: [f.evidence(9)] },
+    explanation_evidence: [f.evidence(8)], explanation_kind: 'explicit_change',
+    interpretation: 'explained_change', rationale: '原文明示岗位与底薪变化。' }
+  await f.request({ action: 'comparison', comparison })
+  expect((await f.audit()).comparisons).toMatchObject([{ effective_interpretation: 'explained_change', contradiction_proven: false }])
+  const restarted = new ManuscriptWork(f.config)
+  const checkpoint = await restarted.checkpoint(f.root, f.session, signal)
+  expect(checkpoint).toContain('"kind":"comparisons"')
+  expect(checkpoint).toContain('底薪翻三倍')
+  expect(checkpoint).toContain('"episode":"2"')
+  expect(checkpoint).toContain('"contradiction_proven":false')
+  await writeFile(join(f.root, 'source.txt'), story + '\n乙：后来又调任。')
+  const changed = await f.audit()
+  expect(changed.comparisons).toEqual([])
+  expect(changed.comparisons_needing_recheck).toMatchObject([{ comparison_id: 'salary' }])
+  expect(await restarted.checkpoint(f.root, f.session, signal)).not.toContain('底薪翻三倍')
 })
-it('resets the supplied-version record for a new actual user request without adding model work', async () => {
-  const f = await fixture(); await f.compare()
-  f.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '再核对人称。' }] }))
-  await f.agent.whenIdle(); const count = f.adapter.requests.length
-  expect((await f.compare()).scope).toBe('current_passages'); expect(f.adapter.requests).toHaveLength(count)
+
+it('does not turn an unexplained number difference into a proven contradiction', async () => {
+  const f = await fixture(story); await roster(f)
+  await f.request({ action: 'comparison', comparison: { comparison_id: 'incomplete', subject_id: 'a', quantity: '月薪',
+    before: { value_text: '两千', evidence: [f.evidence(3)] }, after: { value_text: '六千', evidence: [f.evidence(9)] },
+    interpretation: 'potential_conflict', rationale: '还没核对口径和中间过程。' } })
+  expect((await f.audit()).comparisons).toMatchObject([{ effective_interpretation: 'unresolved', contradiction_proven: false,
+    missing_basis: ['before.unit', 'before.condition', 'before.story_time', 'after.unit', 'after.condition', 'after.story_time'] }])
+  await expect(f.request({ action: 'comparison', comparison: { comparison_id: 'bad', subject_id: 'a', quantity: '月薪',
+    before: { value_text: '两千', evidence: [f.evidence(3)] }, after: { value_text: '六千', evidence: [f.evidence(9)] },
+    interpretation: 'explained_change', rationale: '没有解释引文。' } })).rejects.toThrow('MANUSCRIPT_COMPARISON_EXPLANATION')
 })
-it('keeps author concerns and supplied baseline differences separate from source text', async () => {
-  const f = await fixture(); await writeFile(join(f.root, 'before.md'), '改前'); await writeFile(join(f.root, 'notes.md'), '作者自述不是来源')
-  const value = await Review.compareManuscriptSources(f.ctx, f.config, f.agent, { ...f.input,
-    draft_paths: ['draft.md', 'notes.md'], previous_draft_paths: ['before.md', 'notes.md'] }, signal)
-  expect(value.drafts.map(document => document.id)).toEqual(['D1', 'D2'])
-  expect(value.author_notes).toBe(f.input.instructions)
-  expect(value.revisions_since_requested_baseline[0]).toMatchObject({ before: '改前', after: draft })
-  expect(value.revisions_since_requested_baseline[0]).not.toHaveProperty('id')
-})
-it('bounds paragraph indices while preserving CRLF text and complete draft context', async () => {
-  const f = await fixture({ maxPassageLines: 2 }); await writeFile(join(f.root, 'draft.md'), '一\r\n二\r\n三\r\n\r\n四')
-  const value = await f.compare()
-  expect(value.changes.map(change => [change.line, change.after])).toEqual([[1, '一\r\n二\r'], [3, '三'], [5, '四']])
-  expect(value.drafts[0]?.numbered_text).toContain('5: 四')
-})
-it('reports deletion-only revisions and empty manuscripts as factual material', async () => {
-  const f = await fixture(); await f.compare(); await writeFile(join(f.root, 'draft.md'), '')
-  const value = await f.compare(); expect(value.changes[0]).toMatchObject({ before: draft, after: '' })
-  expect((await f.compare()).changes).toEqual([])
-})
-it('preserves whitespace text without inventing passages or author notes', async () => {
-  const f = await fixture(); await writeFile(join(f.root, 'draft.md'), '   \n\n\t')
-  const value = await Review.compareManuscriptSources(f.ctx, f.config, f.agent,
-    { source_paths: ['source.txt'], draft_paths: ['draft.md'] }, signal)
-  expect(value.changes).toEqual([]); expect(value.author_notes).toBe('')
-  expect(value.drafts[0]?.numbered_text).toBe('1:    \n2: \n3: \t')
-})
-it('does not cache materials as current if a file changes during the read', async () => {
-  const f = await fixture(); const original = f.ctx.fs.readText.bind(f.ctx.fs); let reads = 0
-  vi.spyOn(f.ctx.fs, 'readText').mockImplementation(async (...args) => {
-    const text = await original(...args); if (++reads === 2) await writeFile(join(f.root, 'draft.md'), '最新稿'); return text
-  })
-  expect((await f.compare()).inputs.find(document => document.kind === 'draft')?.unchanged_since_read).toBe(false)
-  expect((await f.compare()).scope).toBe('current_passages')
-})
-it.each(['missing.txt', '.'])('reports unreadable input %s without affecting manuscript writes', async (path) => {
-  const f = await fixture(); await expect(Review.compareManuscriptSources(f.ctx, f.config, f.agent, { ...f.input, source_paths: [path] }, signal)).rejects.toThrow('MANUSCRIPT_REVIEW_FILE')
-})
-it('checks known file bytes and actual read bytes before returning materials', async () => {
-  const f = await fixture(); const config = Review.Config({ maxFileBytes: 10 })
-  await expect(Review.compareManuscriptSources(f.ctx, config, f.agent, f.input, signal)).rejects.toThrow('MANUSCRIPT_REVIEW_FILE')
-  vi.spyOn(f.ctx.fs, 'stat').mockResolvedValue({ type: 'file', version: FsVersion('grown'), size: 0 })
-  await expect(Review.compareManuscriptSources(f.ctx, config, f.agent, f.input, signal)).rejects.toThrow('file grew')
-})
-it('requires a known regular file size', async () => {
-  const f = await fixture(); vi.spyOn(f.ctx.fs, 'stat').mockResolvedValue({ type: 'file', version: FsVersion('unknown') })
-  await expect(f.compare()).rejects.toThrow('MANUSCRIPT_REVIEW_FILE')
-})
-it('returns an explicit size error instead of silently truncating full documents or serialized materials', async () => {
-  const f = await fixture()
-  for (const maxInputChars of [10, 1000]) await expect(Review.compareManuscriptSources(f.ctx, Review.Config({ maxInputChars }), f.agent, f.input, signal)).rejects.toThrow('MANUSCRIPT_REVIEW_SIZE')
-  expect((await f.compare()).scope).toBe('current_passages')
-})
-it('requires matching baseline counts and an explicit author workspace', async () => {
-  const f = await fixture()
-  await expect(Review.compareManuscriptSources(f.ctx, f.config, f.agent, { ...f.input, previous_draft_paths: [] }, signal)).rejects.toThrow('must correspond')
-  const agent = await f.ctx.agentLoop.create(SessionId('no-workspace'), { provider: 'mock', model: 'mock' })
-  await expect(Review.compareManuscriptSources(f.ctx, f.config, agent, f.input, signal)).rejects.toThrow('MANUSCRIPT_REVIEW_CWD')
-})
-it('rejects empty selections and agentless calls without changing the tool registry', async () => {
-  const f = await fixture()
-  for (const input of [{ source_paths: [], draft_paths: ['draft.md'] }, { source_paths: ['source.txt'], draft_paths: [] }]) {
-    const value = await f.ctx.tools.execute({ name: 'manuscript_source_review', arguments: input, callId: ToolCallId('empty'), agent: f.agent, signal }); expect(value.isError).toBe(true)
+
+it('fits complete page JSON including contexts and resumes the exact remaining Unicode text', async () => {
+  const text = '甲'.repeat(5000) + '😀结尾', f = await fixture(text,
+    { sourceReadMaxBytes: 24000, sourceReadMaxLineCharacters: 12000, sourceReadMaxResultCharacters: 5000 })
+  const fragments = f.first.lines.map(line => line.text)
+  expect(f.firstRaw.length).toBeLessThanOrEqual(5000)
+  let cursor = f.first.continuation
+  for (let count = 0; cursor && count < 32; count++) {
+    const raw = await f.raw({ action: 'read_source', source_path: 'source.txt', source_sha256: f.first.source_sha256, ...cursor })
+    expect(raw.length).toBeLessThanOrEqual(5000)
+    const page = pageSchema.parse(JSON.parse(raw)); fragments.push(...page.lines.map(line => line.text)); cursor = page.continuation
   }
-  const value = await f.ctx.tools.execute({ name: 'manuscript_source_review', arguments: f.input, callId: ToolCallId('agentless'), signal })
-  expect(value.isError).toBe(true); expect(f.ctx.tools.get('manuscript_source_review')).toBeDefined()
-})
-it('logs serializable read-only materials through the ordinary calling tool', async () => {
-  const f = await fixture(); const value = await f.ctx.tools.execute({ name: 'manuscript_source_review', arguments: f.input, callId: ToolCallId('materials'), agent: f.agent, signal })
-  expect(value.isError).toBe(false); expect(JSON.stringify(value.content)).toContain('not_performed_by_tool')
-  expect(f.ctx.tools.get('manuscript_source_review')?.presentCall?.(f.input)).toMatchObject({ title: 'Source comparison', kind: 'read' })
-  expect(f.adapter.requests).toHaveLength(0)
-})
-it('cancels material reads and unregisters the tool when its owner unloads', async () => {
-  const f = await fixture(); const controller = new AbortController(); controller.abort('cancel')
-  await expect(Review.compareManuscriptSources(f.ctx, f.config, f.agent, f.input, controller.signal)).rejects.toBeDefined()
-  await f.reviewFiber.dispose()
-  expect(f.ctx.tools.get('manuscript_source_review')).toBeUndefined()
+  expect(cursor).toBeNull()
+  expect(fragments.join('')).toBe(text)
+  expect((await f.audit()).reading_coverage).toMatchObject([{ complete: true }])
 })
 
-it('adds one factual source-comparison hint after saved text changes without running a review or blocking writes', async () => {
-  const f = await fixture()
-  f.ctx.tools.register(defineTool({ name: 'edit', description: 'Save test revision.', parameters: {},
-    output: { schema: { type: 'object', properties: {}, additionalProperties: true }, render: () => [{ type: 'text', text: 'saved' }] },
-    execute: async () => ({ path: 'episodes.md', before: '改前', after: '改后' }),
-  }))
-  const run = () => f.ctx.tools.execute({ name: 'edit', arguments: {}, callId: ToolCallId('edit-test'), agent: f.agent, signal })
-  const first = await run(), second = await run()
-  expect(first.isError).toBe(false)
-  expect(first.content).toHaveLength(2)
-  expect(JSON.stringify(first.content)).toContain('source_comparison_tool_for_saved_version')
-  expect(second.content).toHaveLength(1)
-  expect(f.adapter.requests).toHaveLength(0)
+it('moves a removed subject comparison to recheck in the same roster replacement response', async () => {
+  const f = await fixture(story); await roster(f)
+  await f.request({ action: 'comparison', comparison: { comparison_id: 'salary', subject_id: 'a', quantity: '月薪',
+    before: { value_text: '两千', evidence: [f.evidence(3)] }, after: { value_text: '六千', evidence: [f.evidence(9)] },
+    interpretation: 'unresolved', rationale: '尚需核对变化。' } })
+  const replaced = auditSchema.parse(await f.request({ action: 'characters', characters: [
+    { character_id: 'b', name: '乙', evidence: [f.evidence(5)] },
+  ] }))
+  expect(replaced.comparisons).toEqual([])
+  expect(replaced.comparisons_needing_recheck).toMatchObject([{ comparison_id: 'salary' }])
+  expect(await f.work.checkpoint(f.root, f.session, signal)).not.toContain('"comparison_id":"salary"')
 })
 
-function registerEdit(ctx: Context, value: Record<string, string | null>) {
-  ctx.tools.register(defineTool({ name: 'edit', description: 'Save a fixture edit.', parameters: {},
-    output: { schema: { type: 'object', properties: {}, additionalProperties: true },
-      render: () => [{ type: 'text', text: 'saved' }] }, execute: async () => value,
-  }))
-}
-
-it.each([
-  { path: 'code.ts', before: '一', after: '二' },
-  { path: 'episodes.md', before: '相同', after: '相同' },
-  { message: 'different output' },
-])('leaves unrelated or unchanged mutation outcomes intact: %j', async (value) => {
-  const f = await fixture(); registerEdit(f.ctx, value)
-  const result = await f.ctx.tools.execute({ name: 'edit', arguments: {}, callId: ToolCallId('unrelated'), agent: f.agent, signal })
-  expect(result.content).toHaveLength(1)
+it('accepts the exact full-result budget without truncating JSON or source text', async () => {
+  const f = await fixture('甲'.repeat(100))
+  const exact = f.firstRaw.length
+  const work = new ManuscriptWork(Config({ sourceReadMaxResultCharacters: exact }))
+  const result = await work.request({ action: 'read_source', source_path: 'source.txt' }, f.root, f.session, signal)
+  expect(result.length).toBe(exact)
+  expect(pageSchema.parse(JSON.parse(result)).lines).toEqual(f.first.lines)
 })
 
-it('can disable saved-revision hints without removing the optional review tool', async () => {
-  const f = await fixture({ revisionHints: false })
-  registerEdit(f.ctx, { path: 'episodes.md', before: null, after: '创建' })
-  const result = await f.ctx.tools.execute({ name: 'edit', arguments: {}, callId: ToolCallId('disabled-hints'), agent: f.agent, signal })
-  expect(result.content).toHaveLength(1)
-  expect(f.ctx.tools.get('manuscript_source_review')).toBeDefined()
+it('fails an oversized minimum context without publishing a false reading receipt', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-context-budget-'))); roots.push(root)
+  await writeFile(join(root, 'source.txt'), '第1集\n1-1 ' + '长标题'.repeat(1000) + '\n甲：你好。')
+  const work = new ManuscriptWork(Config({ sourceReadMaxResultCharacters: 1024 })), session = SessionId('budget')
+  await work.request({ action: 'bind', task_key: '预算', mode: 'edit', source_paths: ['source.txt'], candidate_paths: ['future.md'] },
+    root, session, signal)
+  await expect(work.request({ action: 'read_source', source_path: 'source.txt' }, root, session, signal))
+    .rejects.toThrow('MANUSCRIPT_READ_RESULT')
+  const result: unknown = JSON.parse(await work.request({ action: 'audit' }, root, session, signal))
+  expect(auditSchema.parse(result).reading_coverage).toMatchObject([{ complete: false, returned_characters: 0 }])
 })
 
-it('renews a single revision hint on a new user request and preserves downstream policy content', async () => {
-  const f = await fixture()
-  registerEdit(f.ctx, { path: 'episodes.md', before: null, after: '创建' })
-  f.ctx.on('tools/post-execute', async (_exec, _result, next) => {
-    const decision = await next()
-    return decision.kind === 'accept' ? { kind: 'accept', content: [{ type: 'text', text: 'downstream-content' }] } : decision
-  })
-  const run = () => f.ctx.tools.execute({ name: 'edit', arguments: {}, callId: ToolCallId('new-turn-hint'), agent: f.agent, signal })
-  expect((await run()).content).toHaveLength(2)
-  f.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '继续修改。' }] }))
-  await f.agent.whenIdle()
-  const result = await run()
-  expect(result.content[0]).toEqual({ type: 'text', text: 'downstream-content' })
-  expect(result.content).toHaveLength(2)
+it('quarantines an old comparison whose story-time label has no literal source basis', async () => {
+  const f = await fixture(story); await roster(f)
+  await f.request({ action: 'comparison', comparison: { comparison_id: 'old-time', subject_id: 'a', quantity: '月薪',
+    before: { value_text: '两千', story_time: '日', evidence: [f.evidence(3)] },
+    after: { value_text: '六千', story_time: '次日', evidence: [f.evidence(9)] },
+    interpretation: 'unresolved', rationale: '需要核对中间过程。' } })
+  const state: unknown = JSON.parse(await readFile(f.statePath, 'utf8'))
+  const parsed = z.looseObject({ comparisons: z.array(z.looseObject({
+    before: z.looseObject({ story_time: z.string().optional() }),
+  })) }).parse(state)
+  const row = parsed.comparisons[0]
+  if (!row) throw Error('Expected a persisted comparison')
+  row.before.story_time = '从未明示的清晨'
+  await writeFile(f.statePath, JSON.stringify(parsed) + '\n')
+  const audit = await f.audit()
+  expect(audit.comparisons).toEqual([])
+  expect(audit.comparisons_needing_recheck).toMatchObject([{ comparison_id: 'old-time' }])
+  expect(await f.work.checkpoint(f.root, f.session, signal)).not.toContain('从未明示的清晨')
 })
 
-it('does not replace failed saves, agentless outcomes or downstream value replacements with a hint', async () => {
-  const f = await fixture()
-  registerEdit(f.ctx, { path: 'episodes.md', before: null, after: '创建' })
-  const agentless = await f.ctx.tools.execute({ name: 'edit', arguments: {}, callId: ToolCallId('agentless-save'), signal })
-  expect(agentless.content).toHaveLength(1)
-  f.ctx.on('tools/post-execute', async (_exec, _result, next) => {
-    await next()
-    return { kind: 'accept', value: { path: 'different.md', before: '', after: 'policy replacement' } }
-  })
-  const replaced = await f.ctx.tools.execute({ name: 'edit', arguments: {}, callId: ToolCallId('replaced'), agent: f.agent, signal })
-  expect(JSON.stringify(replaced.content)).not.toContain('manuscript_revision')
-  const failed = await f.ctx.tools.execute({ name: 'absent-tool', arguments: {}, callId: ToolCallId('failed-save'), agent: f.agent, signal })
-  expect(failed.isError).toBe(true)
-})
-
-it('preserves sibling policy contexts when adding a revision status', async () => {
-  const f = await fixture()
-  registerEdit(f.ctx, { path: 'episodes.md', before: null, after: '创建' })
-  const context = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'POLICY_CONTEXT' }] })
-  f.ctx.on('tools/post-execute', async (_exec, _result, next) => {
-    await next()
-    return { kind: 'accept', additionalContexts: [context] }
-  })
-  const result = await f.ctx.tools.execute({ name: 'edit', arguments: {}, callId: ToolCallId('policy-context'), agent: f.agent, signal })
-  expect(result.additionalContexts).toEqual([context])
-  expect(result.content).toHaveLength(2)
+it.each([undefined, 'general_rule'] as const)('keeps an old strong explanation with kind %s out of active recovery until corrected', async (kind) => {
+  const f = await fixture(story); await roster(f)
+  const comparison = { comparison_id: 'legacy-explanation', subject_id: 'a', quantity: '月薪',
+    before: { value_text: '两千', evidence: [f.evidence(3)] },
+    after: { value_text: '六千', evidence: [f.evidence(9)] },
+    explanation_evidence: [f.evidence(8)], explanation_kind: 'explicit_change',
+    interpretation: 'explained_change', rationale: '原文中的岗位及薪资对照。' }
+  await f.request({ action: 'comparison', comparison })
+  const state: unknown = JSON.parse(await readFile(f.statePath, 'utf8'))
+  const parsed = z.looseObject({ comparisons: z.array(z.looseObject({
+    explanation_kind: z.enum(['explicit_change', 'general_rule', 'suggested']).optional(),
+  })) }).parse(state)
+  const row = parsed.comparisons[0]
+  if (!row) throw Error('Expected a persisted comparison')
+  row.explanation_kind = kind
+  await writeFile(f.statePath, JSON.stringify(parsed) + '\n')
+  const restarted = new ManuscriptWork(f.config)
+  const audit = auditSchema.parse(JSON.parse(await restarted.request({ action: 'audit' }, f.root, f.session, signal)))
+  expect(audit.comparisons).toEqual([])
+  expect(audit.comparisons_needing_recheck).toMatchObject([{ comparison_id: 'legacy-explanation' }])
+  expect(audit.comparisons_needing_recheck[0]?.recheck_reasons.join('\n')).toContain('explanation_kind')
+  expect(await restarted.checkpoint(f.root, f.session, signal)).not.toContain('legacy-explanation')
+  await f.request({ action: 'comparison', comparison: { ...comparison,
+    explanation_kind: 'general_rule', interpretation: 'possible_change' } })
+  const corrected = await f.audit()
+  expect(corrected.comparisons_needing_recheck).toEqual([])
+  expect(corrected.comparisons).toMatchObject([{ effective_interpretation: 'possible_change' }])
+  expect(await restarted.checkpoint(f.root, f.session, signal)).toContain('legacy-explanation')
 })

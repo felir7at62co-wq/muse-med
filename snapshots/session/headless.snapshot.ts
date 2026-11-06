@@ -1,7 +1,7 @@
 /** Recorded-session replay through the shipped headless `dsh` profile. */
 
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
-import { cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
+import { cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, unlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
@@ -24,6 +24,7 @@ import {
   latestPersistedSessionPaths,
   materializeProfilePatch,
   normalizeSessionSnapshots,
+  hydrateSessionFixtureCwd,
   normalizedHeaders,
   normalizedSystemPrompts,
   normalizedToolSchemas,
@@ -94,11 +95,21 @@ function snapshotMode(value: string | undefined): SnapshotMode {
   }
 }
 
+function recordingProcessTimeout(manifest: SnapshotManifest, executionMode: SnapshotMode): { processTimeoutMs?: number } {
+  return executionMode === 'record' && manifest.recordingProcessTimeoutMs !== undefined
+    ? { processTimeoutMs: manifest.recordingProcessTimeoutMs } : {}
+}
+
 const mode = snapshotMode(process.env.DSH_SNAPSHOT)
 const RUNTIME_WORKSPACE_ENTRIES = ['.agents', '.dsh', '.snapshot-patches'] as const
 
 interface JsonObject {
   [key: string]: unknown
+}
+
+/** Narrow parsed tool-result arrays before checking preview bindings. */
+function jsonObjects(value: unknown): value is JsonObject[] {
+  return Array.isArray(value) && value.every((entry: unknown) => entry !== null && typeof entry === 'object' && !Array.isArray(entry))
 }
 
 interface HeadlessScenario {
@@ -475,6 +486,11 @@ function stderrFromSession(log: string): string {
   return `${output}dsh: ${error.code}: ${error.message}\n`
 }
 
+function verifyRawCliProjection(log: string, result: { stdout: string; stderr: string }): void {
+  expect(result.stdout).toBe(`${finalTextFromSession(log)}\n`)
+  expect(result.stderr).toBe(stderrFromSession(log))
+}
+
 function modelFromSession(log: string): { provider: string; model: string } {
   for (const record of records(log)) {
     if (record.type !== 'request/header') continue
@@ -516,6 +532,43 @@ async function prepareSubtitleOverlayExpectedWorkspace(cwd: string, scenarioDir:
   return expectedRoot
 }
 
+function expandNarrativeVoiceExpectedReview(text: string, cwd: string): string {
+  const report = JSON.parse(text) as JsonObject
+  const expand = (value: unknown): string => {
+    if (typeof value !== 'string' || !value.startsWith('{{cwd}}/')) {
+      throw new Error('narrative-voice expected paths must start with {{cwd}}/')
+    }
+    const segments = value.slice('{{cwd}}/'.length).split('/')
+    if (value.includes('\\') || value.includes('\0') || segments.some(segment =>
+      segment === '' || segment === '.' || segment === '..' || /^[a-z]:/i.test(segment))) {
+      throw new Error('narrative-voice expected paths must stay within {{cwd}}/ using relative POSIX file paths')
+    }
+    return join(cwd, ...segments)
+  }
+  report.script = expand(report.script)
+  report.assets_manifest = expand(report.assets_manifest)
+  if (!Array.isArray(report.written)) throw new Error('narrative-voice expected written must be an array')
+  report.written = report.written.map(expand)
+  return `${JSON.stringify(report, null, 2)}\n`
+}
+
+async function prepareNarrativeVoiceExpectedWorkspace(cwd: string, scenarioDir: string): Promise<string> {
+  const expectedRoot = join(cwd, '.snapshot-patches', 'expected-narrative-voice-workspace')
+  await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true, verbatimSymlinks: true })
+  const report = join(expectedRoot, 'shot_reviews', '01', 'review.json')
+  await writeFile(report, expandNarrativeVoiceExpectedReview(await readFile(report, 'utf8'), await realpath(cwd)))
+  return expectedRoot
+}
+
+async function prepareNarrativeVoiceReplay(cwd: string, scenarioDir: string): Promise<string> {
+  const directory = join(cwd, '.snapshot-patches', 'narrative-voice-replay')
+  const name = await primaryFixtureFile(scenarioDir)
+  const destination = join(directory, name)
+  await mkdir(directory, { recursive: true })
+  await writeFile(destination, hydrateSessionFixtureCwd(await readFile(join(scenarioDir, name), 'utf8'), cwd))
+  return destination
+}
+
 async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<PreparedWorkspace> {
   const source = join(scenario.dir, 'workspace')
   if (existsSync(source)) {
@@ -531,6 +584,11 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<P
 }
 
 const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Promise<PreparedWorkspace | void>> = {
+  async 'muse-narrative-voice'(cwd, scenarioDir) {
+    if (scenarioDir === undefined) throw new Error('narrative-voice expected workspace requires its owner directory')
+    if (mode !== 'record') await prepareNarrativeVoiceReplay(cwd, scenarioDir)
+    return { expectedRoot: await prepareNarrativeVoiceExpectedWorkspace(cwd, scenarioDir) }
+  },
   async 'drama-subtitle-overlay'(cwd, scenarioDir) {
     if (scenarioDir === undefined) throw new Error('subtitle-overlay expected workspace requires its owner directory')
     const skillRoot = join(cwd, '.dsh', 'skills', 'tweet-drama-draft-build')
@@ -1046,6 +1104,117 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('hydrates only a temporary narrative voice replay copy and preserves its canonical input and business text', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-narrative-replay-copy-'))
+    const owner = join(root, 'owner'), cwd = join(root, 'workspace')
+    try {
+      await mkdir(owner)
+      await mkdir(cwd)
+      const original = [
+        { type: 'session', version: 4, cwd: '{{cwd}}', id: 'fixture', createdAt: 0 },
+        { type: 'assistant/message', data: { message: { content: [{ type: 'tool-call', name: 'write',
+          arguments: JSON.stringify({ file_path: '{{cwd}}/director.txt', content: '温雨OS：今天不能出错。' }) }] } } },
+      ].map(row => JSON.stringify(row)).join('\n') + '\n'
+      const source = join(owner, 'session.v4.jsonl')
+      await writeFile(source, original)
+      const destination = await prepareNarrativeVoiceReplay(cwd, owner)
+      expect(destination).toBe(join(cwd, '.snapshot-patches', 'narrative-voice-replay', 'session.v4.jsonl'))
+      const rows = records(await readFile(destination, 'utf8'))
+      expect(rows[0]?.cwd).toBe(cwd)
+      const data = rows[1]?.data as { message: { content: { arguments: string }[] } }
+      const argumentsJson = data.message.content[0]?.arguments
+      if (argumentsJson === undefined) throw new Error('Hydrated fixture has no tool arguments')
+      const hydrated = JSON.parse(argumentsJson) as JsonObject
+      expect(hydrated).toEqual({ file_path: `${cwd}/director.txt`, content: '温雨OS：今天不能出错。' })
+      expect({ ...hydrated, content: '温雨当场喊出改写台词。' }).not.toEqual(hydrated)
+      expect(await readFile(source, 'utf8')).toBe(original)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('compares CLI output with its raw persisted session and rejects changed stdout or stderr', () => {
+    const path = join(tmpdir(), 'dsh-cli-projection', 'director.txt')
+    const log = (file: string) => [
+      { type: 'turn/start', data: { turn: 1 } },
+      { type: 'assistant/message', data: {
+        message: { role: 'assistant', content: [{ type: 'text', text: `已保存 ${file}` }] },
+        stream: [{ type: 'reasoning-chunks', texts: [`已读取 ${file}`] }],
+      } },
+      { type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+    ].map(row => JSON.stringify(row)).join('\n') + '\n'
+    const result = { stdout: `已保存 ${path}\n`, stderr: `dsh: reasoning:\n已读取 ${path}\n` }
+    expect(() => verifyRawCliProjection(log(path), result)).not.toThrow()
+    expect(() => verifyRawCliProjection(log('{{cwd}}/director.txt'), result)).toThrow()
+    expect(() => verifyRawCliProjection(log(path), { ...result, stdout: `已删除 ${path}\n` })).toThrow()
+    expect(() => verifyRawCliProjection(log(path), { ...result, stderr: '' })).toThrow()
+  })
+
+  it('forwards an explicit live recording deadline only to record subprocesses', () => {
+    const manifest = parseSnapshotManifest('version: 1\nprofile: headless\nrecording: live\nrecordingProcessTimeoutMs: 180000\n')
+    expect(recordingProcessTimeout(manifest, 'record')).toEqual({ processTimeoutMs: 180_000 })
+    expect(recordingProcessTimeout(manifest, 'replay')).toEqual({})
+    expect(recordingProcessTimeout(manifest, 'refresh')).toEqual({})
+    expect(recordingProcessTimeout(parseSnapshotManifest('version: 1\nprofile: headless\nrecording: live\n'), 'record')).toEqual({})
+  })
+
+  it('narrative voice workspace expected expands only script, assets_manifest and written paths', () => {
+    const report = { script: '{{cwd}}/director.txt', assets_manifest: '{{cwd}}/assets_manifest.json',
+      written: ['{{cwd}}/shot_reviews/01/shot_script.txt', '{{cwd}}/shot_reviews/01/review.json'],
+      reason: '{{cwd}}/this-is-business-text', shots: [{ dialogue: '保留原样 {{cwd}}/ 和完整业务内容。' }], advisory: true }
+    const cwd = join(tmpdir(), 'declared-narrative-fixture-root')
+    const expanded = JSON.parse(expandNarrativeVoiceExpectedReview(JSON.stringify(report), cwd)) as JsonObject
+    expect(expanded.script).toBe(join(cwd, 'director.txt'))
+    expect(expanded.assets_manifest).toBe(join(cwd, 'assets_manifest.json'))
+    expect(expanded.written).toEqual([join(cwd, 'shot_reviews', '01', 'shot_script.txt'), join(cwd, 'shot_reviews', '01', 'review.json')])
+    expect(expanded.reason).toBe(report.reason)
+    expect(expanded.shots).toEqual(report.shots)
+    expect(expanded.advisory).toBe(true)
+    for (const path of ['/unowned/path', '{{cwd}}', '{{cwd}}/../escape', '{{cwd}}/nested/../../escape',
+      '{{cwd}}/C:/escape', '{{cwd}}/nested\\escape', '{{cwd}}/', '{{cwd}}//empty']) {
+      expect(() => expandNarrativeVoiceExpectedReview(JSON.stringify({ ...report, script: path }), cwd)).toThrow('narrative-voice expected paths')
+    }
+    expect(() => expandNarrativeVoiceExpectedReview(JSON.stringify({ ...report, assets_manifest: '/unowned/path' }), cwd))
+      .toThrow('narrative-voice expected paths')
+    expect(() => expandNarrativeVoiceExpectedReview(JSON.stringify({ ...report, written: ['/unowned/path'] }), cwd))
+      .toThrow('narrative-voice expected paths')
+    expect(() => expandNarrativeVoiceExpectedReview(JSON.stringify({ ...report, written: 'not-an-array' }), cwd))
+      .toThrow('narrative-voice expected written must be an array')
+  })
+
+  it('narrative voice workspace expected preserves its source oracle and detects changed business fields and extra files', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsh-narrative-oracle-'))
+    const ownerDir = join(directory, 'owner'), cwd = join(directory, 'workspace'), alias = join(directory, 'alias')
+    const reportPath = join('shot_reviews', '01', 'review.json')
+    try {
+      await mkdir(join(ownerDir, 'workspace.expected', 'shot_reviews', '01'), { recursive: true })
+      await mkdir(cwd)
+      await symlink(cwd, alias, process.platform === 'win32' ? 'junction' : 'dir')
+      await writeFile(join(ownerDir, 'workspace.expected', reportPath), JSON.stringify({
+        script: '{{cwd}}/director.txt', assets_manifest: '{{cwd}}/assets_manifest.json',
+        written: ['{{cwd}}/shot_reviews/01/review.json'], decisions: [{ reason: 'Keep {{cwd}}/business text unchanged.' }],
+      }, null, 2) + '\n')
+      const original = await captureExpectedWorkspaceSnapshot(join(ownerDir, 'workspace.expected'))
+      const expectedRoot = await prepareNarrativeVoiceExpectedWorkspace(alias, ownerDir)
+      const report = JSON.parse(await readFile(join(expectedRoot, reportPath), 'utf8')) as JsonObject
+      expect(report.script).toBe(join(await realpath(cwd), 'director.txt'))
+      expect(report.decisions).toEqual([{ reason: 'Keep {{cwd}}/business text unchanged.' }])
+      const expected = await captureExpectedWorkspaceSnapshot(expectedRoot), actualRoot = join(directory, 'actual')
+      await cp(expectedRoot, actualRoot, { recursive: true, verbatimSymlinks: true })
+      expect(await captureExpectedWorkspaceSnapshot(actualRoot)).toEqual(expected)
+      await writeFile(join(actualRoot, 'unexpected.txt'), 'An extra final artifact must fail comparison.\n')
+      expect(await captureExpectedWorkspaceSnapshot(actualRoot)).not.toEqual(expected)
+      await rm(join(actualRoot, 'unexpected.txt'))
+      await writeFile(join(actualRoot, reportPath), JSON.stringify({ ...report, decisions: [{ reason: 'Changed business evidence.' }] }, null, 2) + '\n')
+      expect(await captureExpectedWorkspaceSnapshot(actualRoot)).not.toEqual(expected)
+      expect(await captureExpectedWorkspaceSnapshot(join(ownerDir, 'workspace.expected'))).toEqual(original)
+    } finally {
+      // Windows removes the owned junction itself before recursively removing its real fixture directory.
+      try { await unlink(alias) }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+      await rm(directory, { recursive: true, force: true, maxRetries: 5 })
+    }
+  })
   it('subtitle overlay workspace expected expands only declared path fields', async () => {
     const template = await readFile(join(snapshotsRoot, 'drama-subtitle-overlay/workspace.expected/editing/review-overlay.srt.decision-report.json'), 'utf8')
     const report = JSON.parse(template) as JsonObject
@@ -1429,6 +1598,11 @@ describe('headless recorded-session snapshots', () => {
       ? [{ scenario, retainedToolInput: 'session.v3.jsonl' }] : [],
   ])
   for (const { scenario, retainedToolInput } of runs) {
+    const recordingTimeout = recordingProcessTimeout(scenario.manifest, mode)
+    const testTimeoutMs = Math.max(
+      scenario.name === 'provider-cwd' ? 3 * LOADER_SMOKE_TEST_TIMEOUT_MS : LOADER_SMOKE_TEST_TIMEOUT_MS,
+      (recordingTimeout.processTimeoutMs ?? 0) + LOADER_SMOKE_TEST_TIMEOUT_MS,
+    )
     const skipped = scenario.manifest.platform === 'posix' && process.platform === 'win32'
       || scenario.manifest.platform === 'pwsh' && !hasPwsh
       || mode === 'record' && scenario.manifest.recording === 'authored'
@@ -1477,6 +1651,7 @@ describe('headless recorded-session snapshots', () => {
       let result: Awaited<ReturnType<typeof runLoaderSmoke>>
       try {
         result = await runLoaderSmoke({
+          ...recordingTimeout,
           label: `${scenario.name} headless snapshot`,
           tempDirPrefix: 'dsh-log-snap-',
           ...(scenario.manifest.workspace?.parent === 'outside-temp' ? { tempDirParent: outsideTempWorkspaceParent() } : {}),
@@ -1689,8 +1864,9 @@ describe('headless recorded-session snapshots', () => {
               expect(preview.shots[2].scene).toBe('办公室窗下外墙')
               expect(preview.packages[3].prompt).not.toContain('场次1-3')
               expect(preview.packages[4].prompt).toContain('场次1-3：门口 次日清晨 外；')
-              expect(preview.packages.every((pack: JsonObject) => !pack.prompt.includes('场次对照') && !pack.prompt.includes('原文出场人物') && !pack.prompt.includes('时长：'))).toBe(true)
-              expect(preview.shots.every((shot: JsonObject) => !shot.bindings.some((asset: JsonObject) => asset.name === '陆沉'))).toBe(true)
+              expect(preview.packages.every((pack: JsonObject) => typeof pack.prompt === 'string'
+                && !pack.prompt.includes('场次对照') && !pack.prompt.includes('原文出场人物') && !pack.prompt.includes('时长：'))).toBe(true)
+              expect(preview.shots.every((shot: JsonObject) => jsonObjects(shot.bindings) && !shot.bindings.some(asset => asset.name === '陆沉'))).toBe(true)
               const refusedInference = JSON.parse(metadataOnly.text)
               expect(refusedInference).toMatchObject({ ok: true, failures: [], written: [], shots: [{ bindings: [] }] })
               expect(refusedInference.warnings).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'no_scene_bound' })]))
@@ -1709,8 +1885,10 @@ describe('headless recorded-session snapshots', () => {
               const preview = JSON.parse(positive.text)
               expect(preview).toMatchObject({ method: 'preview', ok: true, failures: [], written: [] })
               expect(preview.shots.map((shot: JsonObject) => shot.text)).toEqual(['', '慢一点。', '别让孩子摔倒。', ''])
-              expect(preview.shots.map((shot: JsonObject) => shot.bindings.filter((asset: JsonObject) => asset.type === '角色')
-                .map((asset: JsonObject) => asset.asset_id))).toEqual([[], ['72001', '72002'], ['72001'], ['72003']])
+              expect(preview.shots.map((shot: JsonObject) => {
+                if (!jsonObjects(shot.bindings)) throw new Error('Expected derived visual binding objects')
+                return shot.bindings.filter(asset => asset.type === '角色').map(asset => asset.asset_id)
+              })).toEqual([[], ['72001', '72002'], ['72001'], ['72003']])
               expect(preview.shots[2]).toMatchObject({ speaker: '谭伯', voice_type: 'vo', offscreen: true })
               expect(preview.packages).toHaveLength(1)
               const pack = preview.packages[0]
@@ -2019,10 +2197,9 @@ describe('headless recorded-session snapshots', () => {
         }
         expect(await fixtureSessions(scenario), 'historical replay input remains unchanged').toEqual(fixtures)
       }
-      const outputLog = expected[0]
+      const outputLog = actualLogs[0]?.content
       if (outputLog === undefined) throw new Error(`${scenario.name}: CLI projection has no primary session`)
-      expect(result.stdout).toBe(`${finalTextFromSession(outputLog)}\n`)
-      expect(result.stderr).toBe(stderrFromSession(outputLog))
+      verifyRawCliProjection(outputLog, result)
       const actualSnapshots = normalizeSessionSnapshots(actualLogs.map(log => log.content), actualContext, { nativeWriterOutput: true })
       const expectedSnapshots = normalizeSessionSnapshots(expected, contextOf(expected), { nativeWriterOutput: true })
       for (const [index, actual] of actualSnapshots.entries()) {
@@ -2048,6 +2225,6 @@ describe('headless recorded-session snapshots', () => {
       } else {
         expect(finalWorkspace, `${scenario.name}: a changed workspace requires workspace.final`).toEqual(initialWorkspace)
       }
-    }, scenario.name === 'provider-cwd' ? 3 * LOADER_SMOKE_TEST_TIMEOUT_MS : LOADER_SMOKE_TEST_TIMEOUT_MS)
+    }, testTimeoutMs)
   }
 })

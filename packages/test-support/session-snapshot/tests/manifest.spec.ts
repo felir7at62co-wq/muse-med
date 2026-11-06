@@ -2,6 +2,24 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { parseSnapshotManifest, writesCurrentSessionFixtures } from '../src/manifest.ts'
 
 describe('snapshot manifest', () => {
+  it.each([1, 180_000, 2_147_438_647])('parses a headless live recording subprocess deadline of %i milliseconds', (milliseconds) => {
+    const manifest = parseSnapshotManifest(`version: 1\nprofile: headless\nrecording: live\nrecordingProcessTimeoutMs: ${milliseconds}\n`)
+    expectTypeOf(manifest.recordingProcessTimeoutMs).toEqualTypeOf<number | undefined>()
+    expect(manifest.recordingProcessTimeoutMs).toBe(milliseconds)
+  })
+
+  it.each(['profile: sdk\nrecording: live', 'profile: acp\nrecording: live', 'profile: web\nrecording: live',
+    'profile: headless\nrecording: authored', 'profile: headless'])('rejects a recording deadline outside headless live recording: %s', (fields) => {
+    expect(() => parseSnapshotManifest(`version: 1\n${fields}\nrecordingProcessTimeoutMs: 180000\n`))
+      .toThrow('manifest.recordingProcessTimeoutMs requires profile headless and recording live')
+  })
+
+  it.each(['0', '-1', '1.5', '2147438648', '9007199254740992', '.inf', '.nan', '"180000"', 'null', 'true'])
+  ('rejects an invalid recording deadline: %s', (milliseconds) => {
+    expect(() => parseSnapshotManifest(`version: 1\nprofile: headless\nrecording: live\nrecordingProcessTimeoutMs: ${milliseconds}\n`))
+      .toThrow('manifest.recordingProcessTimeoutMs must be an integer from 1 to 2147438647 milliseconds')
+  })
+
   it.each(['headless', 'sdk'])('preserves a %s owner replay input while refreshing separate writer output', (profile) => {
     const manifest = parseSnapshotManifest(`version: 1\nprofile: ${profile}\nwriterOutput: true\n`)
     expectTypeOf(manifest.writerOutput).toEqualTypeOf<true | undefined>()

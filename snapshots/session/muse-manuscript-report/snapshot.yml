@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-manuscript-report
+profile: headless
+composition: muse-manuscript-report
+recording: authored
+header:
+  class: muse-manuscript-report
+  pin: true
+writerOutput: true
+workspace:
+  final: true

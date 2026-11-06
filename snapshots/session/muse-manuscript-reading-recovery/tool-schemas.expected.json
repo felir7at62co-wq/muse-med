@@ -1,0 +1,2404 @@
+{
+  "initial": [
+    {
+      "name": "create_goal",
+      "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "objective": {
+            "type": "string",
+            "description": "The concrete completion objective inferred from the direct human request."
+          },
+          "max_goal_rounds": {
+            "type": "number",
+            "description": "Optional positive safe-integer limit on automatic continuation rounds."
+          }
+        },
+        "required": [
+          "objective"
+        ]
+      }
+    },
+    {
+      "name": "edit",
+      "description": "Edit an existing UTF-8 text file by replacing literal text.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to edit, resolved by the filesystem backend. Provide `file_path` before `old_string` and `new_string` in the arguments."
+          },
+          "old_string": {
+            "type": "string",
+            "description": "Literal text to replace."
+          },
+          "new_string": {
+            "type": "string",
+            "description": "Literal replacement text. Use an empty string to delete the match."
+          },
+          "replace_all": {
+            "type": "boolean",
+            "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "file_path",
+          "old_string",
+          "new_string"
+        ]
+      }
+    },
+    {
+      "name": "exit_plan_mode",
+      "description": "Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "plan": {
+            "type": "string",
+            "description": "The complete plan, as markdown, starting with a # heading that names it."
+          }
+        },
+        "required": [
+          "plan"
+        ]
+      }
+    },
+    {
+      "name": "get_goal",
+      "description": "Read the current session goal, including the id and revision that update_goal requires.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "glob",
+      "description": "Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. Returns up to 100 paths in modification-time order; a larger result keeps the first paths and reports where the complete list was saved.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Glob pattern to match file paths against (e.g. \"**/*.ts\", \"src/**/*.test.js\"). A pattern with no \"/\" matches the basename at any depth, so \"*\" and \"*.ts\" both search the whole tree; include a separator to anchor the depth."
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    {
+      "name": "grep",
+      "description": "Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Regular expression to search for (ripgrep syntax)."
+          },
+          "path": {
+            "type": "string",
+            "description": "File or directory to search. Defaults to the session workspace; a relative path resolves against it."
+          },
+          "include": {
+            "type": "string",
+            "description": "One glob filter for which files to search (e.g. \"*.ts\", \"*.{js,jsx}\"). Not a list; negation is not supported."
+          }
+        },
+        "required": [
+          "pattern"
+        ]
+      }
+    },
+    {
+      "name": "interrupt_agent",
+      "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a direct child's conversation later with send_message. Subagents it started will keep running.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "The id of an agent created under you: your direct child or a deeper descendant."
+          }
+        },
+        "required": [
+          "agent_id"
+        ]
+      }
+    },
+    {
+      "name": "job_kill",
+      "description": "Request cancellation of a running background job.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Job id returned by the tool that started the background work."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Optional short reason, recorded in the log and forwarded to the job."
+          }
+        },
+        "required": [
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "job_list",
+      "description": "List your background jobs (running and finished) with their ids, kinds, and statuses.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "job_output",
+      "description": "Read a background job: output since the previous read for stream jobs, or the result of a finished final-output job.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "description": "Job id returned by the tool that started the background work."
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Block until the job finishes or the timeout expires; a timed-out wait leaves the job running. Defaults to false."
+          },
+          "timeout_ms": {
+            "type": "number",
+            "description": "Max wait in milliseconds with wait: true. Defaults to and is capped by configuration."
+          }
+        },
+        "required": [
+          "job_id"
+        ]
+      }
+    },
+    {
+      "name": "list_agents",
+      "description": "List subagents you started, with their ids, labels, and status. running means it is working; inactive means it is not currently working. You will be notified when a subagent finishes; there is no need to keep checking its status. Use send_message to continue the conversation.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "description": "children (default) lists direct children, which accept send_message in any status. descendants lists the whole tree below you with each entry's parent session id and depth; entries deeper than 1 accept only interrupt_agent.",
+            "enum": [
+              "children",
+              "descendants"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "manuscript_revision",
+      "description": "支持Word/Markdown/文本。compare对照上一稿与最新返稿，status读取差异，review可选对照候选稿；没有基线时如实说明。measure只读统计同范围来源与成稿的文字数字数、差额和倍率，不使用或修改返稿基线。仅提供提示，不拦截保存、导出或交付。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "compare",
+              "status",
+              "review",
+              "measure"
+            ]
+          },
+          "baseline_path": {
+            "type": "string",
+            "description": "实际上一稿路径；同路径返稿已有交付快照时可省略。"
+          },
+          "revised_path": {
+            "type": "string",
+            "description": "用户最新返稿的真实本地路径。"
+          },
+          "source_paths": {
+            "type": "array",
+            "description": "measure使用的本轮对应完整来源文件；与candidate_paths覆盖相同范围，不把仅有对白的ASR与含动作场景的成稿当作同口径正文。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidate_paths": {
+            "type": "array",
+            "description": "完整候选正文，按交付顺序；measure时与source_paths覆盖相同范围。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_growth_percent": {
+            "type": "number",
+            "description": "仅measure：本轮明确对照的增长百分比上限。参考区间不是修字配额，不为凑数字删必要情节或添复述；以用户篇幅要求和实际统计口径为准。未提供则标明未设置，不推断目标。"
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "manuscript_work",
+      "description": "文稿来源、阅读覆盖、人物关系与版本工具。bind登记来源和采用稿（可尚未创建）。read_source分页返回完整原文及程序从标题生成的真实集场source_contexts；当前地点须结合标题及本场实际动作，复合设置要回读场内移动，不能用对白提到的别处替代。按continuation与source_sha256续读，覆盖只统计返回文字。characters登记带证据的名册；relationship记录有向关系，集场和时间要有真实出处，相对称谓注明说话人和目标。报告数值矛盾前用comparison登记同人物同指标前后值、岗位/时点/单位和变化原因，不能把调任、调薪、奖励或累积造成的变化误报为矛盾。audit回读当前覆盖、关系与对照；scene/propose_scene处理完整采用稿场景；event记录场末状态。上下文裁剪后恢复当前证据，模型笔记不是独立语义审校。read_source每行source_refs和audit的citation_labels给出本条引文的真实集场，邻场导航不能当作当前出处。source_line及引用line_labels只标注原文行格式、具名发话人和OS/VO写法，不判定可闻性或人物关系真伪。audit大报告返回report_paged分组目录，按report_sections的request读取各组并跟随continuation到null；items中report_item_paged是条目的子目录，还须读取其report_sections，按summary内引用还原完整条目。子组名逐字复制，不自行猜路径。保存回执report_pending仍需audit；目录或组尾不证明已读全。按原文区分计划、尝试、实际完成和后果；人物当前地点、计划目标地点、声音来源和对白谈及地点分别记录。时间线保留已明示的相邻事件与相对时间，未知间隔不补写。条件奖励和算术相合不证明完成任务或到账；但已宣布生效的任命、待遇标准本身就是变化，与实际领取另记，不因没演工资条或到账就把新标准列为未解。关系结论沿用有依据的原称谓和方向，不自行另起亲属总称。称谓所指人不自动是受话人，人物表不证明谁听见；向第三人谈及某人不能写成向该人当面称呼。被阻止或尚在计划中的事，不写成已发生或事后。audit的source_cues逐字列出原稿△提示行和集场出处，便于回读跨场转场；它不是完整正文，也不证明提示中的计划已经发生。较长的保存回执会优先完整回显本次record_review供逐条复核，放不下时明确record_review_omitted并用audit分页；纠正判断必须同ID更新已保存记录。task_request逐字回读已绑定任务的真实用户原始要求与后续修改，保持原问题ID，不自行替换题目；已有绑定及阅读进度继续有效。最终回答的具体集号、时点须逐条对应引文source_contexts和同场原文，动作主体须由实际动作或明确指代支持。条件和规则保留原文适用范围，不把单次条件推广为普遍规则。摘要、旧回答和邻场人物不能替代核对；只写有依据且回答所需的细节。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "bind",
+              "task_request",
+              "read_source",
+              "characters",
+              "relationship",
+              "comparison",
+              "scene",
+              "propose_scene",
+              "audit",
+              "event"
+            ]
+          },
+          "task_key": {
+            "type": "string",
+            "description": "bind：本任务稳定名称；不同任务重新bind，不按文件修改时间挑稿。"
+          },
+          "mode": {
+            "type": "string",
+            "description": "bind：换梗/改编adapt，忠实视频转写transcribe，已有稿修改edit；不会把换梗要求套给转写。",
+            "enum": [
+              "adapt",
+              "transcribe",
+              "edit"
+            ]
+          },
+          "source_paths": {
+            "type": "array",
+            "description": "bind：实际来源文本或Word路径，不覆盖源文件。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "candidate_paths": {
+            "type": "array",
+            "description": "bind：本轮采用的正文文件，按集排列，可登记尚未创建的文件。历史稿不混入；切换返稿时显式重新bind。",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source_path": {
+            "type": "string",
+            "description": "read_source：本任务绑定的原稿、转写或Word来源。初稿尚未创建也可读取。"
+          },
+          "source_sha256": {
+            "type": "string",
+            "description": "read_source续读必填：上一页返回的精确文件摘要。来源改变时从新版本重新阅读。"
+          },
+          "request_sha256": {
+            "type": "string",
+            "description": "仅task_request续读：上一页返回的原始用户要求版本；用户更新或rebind后重读。"
+          },
+          "report_sha256": {
+            "type": "string",
+            "description": "仅audit分组读取：目录返回的当前审查版本，笔记、阅读覆盖或来源变更后重新读目录。"
+          },
+          "report_section": {
+            "type": "string",
+            "description": "仅audit：逐字复制report_sections的分组名。"
+          },
+          "report_offset": {
+            "type": "integer",
+            "description": "仅audit：从1开始的条目位置，跟随continuation.report_offset，不是原稿行号。"
+          },
+          "report_limit": {
+            "type": "integer",
+            "description": "仅audit：本页最多条目数；完整结果按manuscriptReportMaxResultCharacters预算缩小。"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "read_source：从1开始的行号，续读使用continuation.offset。"
+          },
+          "column": {
+            "type": "integer",
+            "description": "read_source：从1开始的Unicode字符列，续读使用continuation.column，不跳过长行后半段。"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "read_source：本页最大行数，默认及上限为100行。"
+          },
+          "characters": {
+            "type": "array",
+            "description": "characters：完整角色名册；每个姓名和明确别名须出现在所附来源完整行中，不把称谓当全局别名。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "character_id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "aliases": {
+                  "type": "array",
+                  "description": "同一人物有原文依据的稳定姓名或外号。爸爸、大嫂等相对亲属称谓不用作全局别名，改用relationship.contextual_name。",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "evidence": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "source_path": {
+                        "type": "string"
+                      },
+                      "source_sha256": {
+                        "type": "string"
+                      },
+                      "start_line": {
+                        "type": "integer"
+                      },
+                      "end_line": {
+                        "type": "integer"
+                      },
+                      "quote": {
+                        "type": "string",
+                        "description": "所选完整来源行的逐字文本，不用摘要代替。"
+                      }
+                    },
+                    "required": [
+                      "source_path",
+                      "source_sha256",
+                      "start_line",
+                      "end_line",
+                      "quote"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "character_id",
+                "name",
+                "evidence"
+              ]
+            }
+          },
+          "relationship": {
+            "type": "object",
+            "description": "relationship：模型依据当前原文记录的有向关系。asserted是模型判断，不是工具证明；缺少依据记uncertain，冲突记contradicted。",
+            "additionalProperties": false,
+            "properties": {
+              "relationship_id": {
+                "type": "string"
+              },
+              "subject_id": {
+                "type": "string"
+              },
+              "object_id": {
+                "type": "string"
+              },
+              "relation": {
+                "type": "string",
+                "description": "subject相对object的身份或行为。subject=A、object=B、relation=父亲，表示A是B的父亲；不能把B的身份填在relation里。"
+              },
+              "status": {
+                "type": "string",
+                "description": "原文明示记asserted；仅语境推断或原文未交代记uncertain；相互冲突记contradicted。这是模型所记，不是工具证实。",
+                "enum": [
+                  "asserted",
+                  "uncertain",
+                  "contradicted"
+                ]
+              },
+              "scope": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "episode": {
+                    "type": "string",
+                    "description": "可选，仅全部引用属于同一真实集时填；跨集省略，由source_contexts逐条标明。不能填原剧情章数。"
+                  },
+                  "scene_id": {
+                    "type": "string",
+                    "description": "可选，仅全部引用属于同一来源场时填其原场号或source_scene_id，不能填采用稿的file-1/...ID。"
+                  },
+                  "story_time": {
+                    "type": "string",
+                    "description": "可选，须完整逐字出现于至少一条引用或真实标题，time_basis会标依据；不自由编写事件前后，未知省略。"
+                  },
+                  "context": {
+                    "type": "string",
+                    "description": "只说明本条引用支持的关系依据，使用relation与原称谓，不另起关系别称或增加情节发生状态、先后时点。引文只证明称呼就只记称呼；推定记uncertain。出处按source_contexts；具体集场和时点用结构字段。"
+                  }
+                },
+                "required": [
+                  "context"
+                ]
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "source_path": {
+                      "type": "string"
+                    },
+                    "source_sha256": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    },
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "quote": {
+                      "type": "string",
+                      "description": "所选完整来源行的逐字文本，不用摘要代替。"
+                    }
+                  },
+                  "required": [
+                    "source_path",
+                    "source_sha256",
+                    "start_line",
+                    "end_line",
+                    "quote"
+                  ]
+                }
+              },
+              "contextual_name": {
+                "type": "object",
+                "description": "相对称谓须出现在引用的对白正文中，speaker_id须与该行发话标签唯一匹配的人物一致；OS/VO标签不证明实际出声。指向不明记uncertain，不把叙述者的称呼当他人对白。",
+                "additionalProperties": false,
+                "properties": {
+                  "term": {
+                    "type": "string"
+                  },
+                  "speaker_id": {
+                    "type": "string"
+                  },
+                  "target_id": {
+                    "type": "string",
+                    "description": "称谓所指人物，不自动是受话人；向第三人提及也可形成称谓，不能据人物表断言当面说给此人听。"
+                  }
+                },
+                "required": [
+                  "term",
+                  "speaker_id",
+                  "target_id"
+                ]
+              }
+            },
+            "required": [
+              "relationship_id",
+              "subject_id",
+              "object_id",
+              "relation",
+              "status",
+              "scope",
+              "evidence"
+            ]
+          },
+          "comparison": {
+            "type": "object",
+            "description": "comparison：数值变化的证据对照。before/after及变化解释分别带原句，工具不会仅凭字面差异判矛盾；读取bridge_ranges补核中间过程。",
+            "additionalProperties": false,
+            "properties": {
+              "comparison_id": {
+                "type": "string"
+              },
+              "subject_id": {
+                "type": "string"
+              },
+              "quantity": {
+                "type": "string",
+                "description": "同一人物的实际指标，如底薪、任职时长或积分余额；不同指标分别登记。"
+              },
+              "before": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "value_text": {
+                    "type": "string",
+                    "description": "该端原句中实际出现的完整数值写法，不把中文数改成原句没有的阿拉伯数字。"
+                  },
+                  "unit": {
+                    "type": "string",
+                    "description": "模型识别的单位和计量周期，未知省略。"
+                  },
+                  "condition": {
+                    "type": "string",
+                    "description": "模型识别的岗位、账户、条件或阶段；不能只为把数字凑成相同口径而假定条件不变。"
+                  },
+                  "story_time": {
+                    "type": "string",
+                    "description": "可选，须完整逐字出现在本端引文或真实标题；未知省略，不把先导画面当正文确定时点，不以集号当已流逝天数。"
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "source_path": {
+                          "type": "string"
+                        },
+                        "source_sha256": {
+                          "type": "string"
+                        },
+                        "start_line": {
+                          "type": "integer"
+                        },
+                        "end_line": {
+                          "type": "integer"
+                        },
+                        "quote": {
+                          "type": "string",
+                          "description": "所选完整来源行的逐字文本，不用摘要代替。"
+                        }
+                      },
+                      "required": [
+                        "source_path",
+                        "source_sha256",
+                        "start_line",
+                        "end_line",
+                        "quote"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "value_text",
+                  "evidence"
+                ]
+              },
+              "after": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "value_text": {
+                    "type": "string",
+                    "description": "该端原句中实际出现的完整数值写法，不把中文数改成原句没有的阿拉伯数字。"
+                  },
+                  "unit": {
+                    "type": "string",
+                    "description": "模型识别的单位和计量周期，未知省略。"
+                  },
+                  "condition": {
+                    "type": "string",
+                    "description": "模型识别的岗位、账户、条件或阶段；不能只为把数字凑成相同口径而假定条件不变。"
+                  },
+                  "story_time": {
+                    "type": "string",
+                    "description": "可选，须完整逐字出现在本端引文或真实标题；未知省略，不把先导画面当正文确定时点，不以集号当已流逝天数。"
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "source_path": {
+                          "type": "string"
+                        },
+                        "source_sha256": {
+                          "type": "string"
+                        },
+                        "start_line": {
+                          "type": "integer"
+                        },
+                        "end_line": {
+                          "type": "integer"
+                        },
+                        "quote": {
+                          "type": "string",
+                          "description": "所选完整来源行的逐字文本，不用摘要代替。"
+                        }
+                      },
+                      "required": [
+                        "source_path",
+                        "source_sha256",
+                        "start_line",
+                        "end_line",
+                        "quote"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "value_text",
+                  "evidence"
+                ]
+              },
+              "explanation_evidence": {
+                "type": "array",
+                "description": "两端之间说明变化原因或条件的逐字原句，保留原文适用范围，不把单次条件推广为普遍规则。核对调任、调薪、奖励、消费、累积等过程，不只看两个数字。",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "source_path": {
+                      "type": "string"
+                    },
+                    "source_sha256": {
+                      "type": "string"
+                    },
+                    "start_line": {
+                      "type": "integer"
+                    },
+                    "end_line": {
+                      "type": "integer"
+                    },
+                    "quote": {
+                      "type": "string",
+                      "description": "所选完整来源行的逐字文本，不用摘要代替。"
+                    }
+                  },
+                  "required": [
+                    "source_path",
+                    "source_sha256",
+                    "start_line",
+                    "end_line",
+                    "quote"
+                  ]
+                }
+              },
+              "explanation_kind": {
+                "type": "string",
+                "description": "explicit_change是原文明示本次已发生变化，含已宣布生效的任命、薪资标准；general_rule是尚待条件的规则，suggested是可能机制。标准生效与实际发款是不同指标，不能要求工资条才承认已宣布的新标准；预测或算术相合不证明实际到账。",
+                "enum": [
+                  "explicit_change",
+                  "general_rule",
+                  "suggested"
+                ]
+              },
+              "interpretation": {
+                "type": "string",
+                "description": "模型判断。explained_change需实际解释引文且kind为explicit_change，一般规则/可能机制只记possible_change；潜在矛盾需单位、条件、时点。字面不同不证明矛盾。",
+                "enum": [
+                  "explained_change",
+                  "possible_change",
+                  "potential_conflict",
+                  "unresolved",
+                  "not_comparable"
+                ]
+              },
+              "rationale": {
+                "type": "string",
+                "description": "依原文说明比较口径和变化过程。岗位或阶段已变时分别记录薪资标准；任命、宣布生效与实际发款分开，不因未演工资条或到账就把已明示新标准列为未解或矛盾；同口径才讨论冲突。"
+              }
+            },
+            "required": [
+              "comparison_id",
+              "subject_id",
+              "quantity",
+              "before",
+              "after",
+              "interpretation",
+              "rationale"
+            ]
+          },
+          "scene_id": {
+            "type": "string",
+            "description": "scene/propose_scene：audit返回的真实场景ID。"
+          },
+          "expected_sha256": {
+            "type": "string",
+            "description": "propose_scene：刚读取的完整场景sha256，防止用旧场景作修改建议。"
+          },
+          "replacement": {
+            "type": "string",
+            "description": "propose_scene：完整新场景，连同场次及原需保留的内容。不是统一塞在钩子前的补字块。"
+          },
+          "source_ranges": {
+            "type": "array",
+            "description": "scene/propose_scene：可选来源对应行范围（从1开始），与整场、前后场一起回读实际原文；由模型选择，不假称自动对齐。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "start_line": {
+                  "type": "integer"
+                },
+                "end_line": {
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "path",
+                "start_line",
+                "end_line"
+              ]
+            }
+          },
+          "event": {
+            "type": "object",
+            "description": "event：事件ID跨集一致；当前稿与来源的实际原句、用途、场末人物/道具状态。工具只核对引文存在，不把模型笔记当独立核实。",
+            "additionalProperties": false,
+            "properties": {
+              "event_id": {
+                "type": "string"
+              },
+              "scene_id": {
+                "type": "string"
+              },
+              "quote": {
+                "type": "string"
+              },
+              "source_quote": {
+                "type": "string"
+              },
+              "source_path": {
+                "type": "string"
+              },
+              "purpose": {
+                "type": "string",
+                "enum": [
+                  "advance",
+                  "recap",
+                  "flashback"
+                ]
+              },
+              "end_state": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event_id",
+              "scene_id",
+              "quote",
+              "source_quote",
+              "source_path",
+              "purpose",
+              "end_state"
+            ]
+          }
+        },
+        "required": [
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "read",
+      "description": "Read a UTF-8 text file and return line-numbered content.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to read, resolved by the filesystem backend."
+          },
+          "offset": {
+            "type": "number",
+            "description": "1-based first line to return. Defaults to 1."
+          },
+          "column": {
+            "type": "number",
+            "description": "1-based Unicode code-point column on the first line. Defaults to 1; use the returned continuation without skipping a partial line."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of lines to return. Defaults to 2000."
+          },
+          "expected_version": {
+            "type": "string",
+            "description": "Provider version from the preceding read; a changed file requires restarting the read."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "read_image",
+      "description": "Read a PNG/JPEG/WebP/GIF file and return the image itself. Large images are downscaled automatically; do not install image libraries or create thumbnails to inspect an image.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to the image file, resolved by the filesystem backend."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "send_message",
+      "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation, not the agent's answer.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agent_id": {
+            "type": "string",
+            "description": "The agent id of your direct continuable child, or your direct parent when you are a resident continuable child."
+          },
+          "message": {
+            "type": "string",
+            "description": "The message to deliver to the agent."
+          }
+        },
+        "required": [
+          "agent_id",
+          "message"
+        ]
+      }
+    },
+    {
+      "name": "subagent",
+      "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "A short (3-5 word) description of the delegated task, for display."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
+          },
+          "run_in_background": {
+            "type": "boolean",
+            "description": "Defaults to true. Set false only when your next action depends on the result."
+          }
+        },
+        "required": [
+          "description",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "subagent_fork",
+      "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This call waits for the subagent and returns its result.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "description": {
+            "type": "string",
+            "description": "A short (3-5 word) description of the delegated task, for display."
+          },
+          "prompt": {
+            "type": "string",
+            "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new."
+          }
+        },
+        "required": [
+          "description",
+          "prompt"
+        ]
+      }
+    },
+    {
+      "name": "todo_update",
+      "description": "Update one existing task without resending the list; task must match its full text. Use status completed with start_next true to finish that task and start the first pending task when no other task is in progress. Repeating an already completed task does not advance again. Use todo_write to add, rename, remove, or reorder tasks. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Exact content of the existing task; surrounding whitespace is ignored."
+          },
+          "status": {
+            "type": "string",
+            "description": "Actual task state: pending, in_progress, or completed.",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed"
+            ]
+          },
+          "start_next": {
+            "type": "boolean",
+            "description": "Only with completed: on a new completion, start the first pending task if no task remains in_progress."
+          }
+        },
+        "required": [
+          "task",
+          "status"
+        ]
+      }
+    },
+    {
+      "name": "todo_write",
+      "description": "Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. Use this tool to create or revise the whole plan; use todo_update for individual status changes. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "todos": {
+            "type": "array",
+            "description": "The COMPLETE task list, replacing any previous list.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "content": {
+                  "type": "string",
+                  "description": "What the task is — a short imperative line."
+                },
+                "status": {
+                  "type": "string",
+                  "description": "pending (not started) | in_progress (now) | completed (done).",
+                  "enum": [
+                    "pending",
+                    "in_progress",
+                    "completed"
+                  ]
+                }
+              },
+              "required": [
+                "content",
+                "status"
+              ]
+            }
+          }
+        },
+        "required": [
+          "todos"
+        ]
+      }
+    },
+    {
+      "name": "update_goal",
+      "description": "Update the current goal.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "goal_id": {
+            "type": "string",
+            "description": "Exact id returned by get_goal."
+          },
+          "revision": {
+            "type": "number",
+            "description": "Exact positive revision returned by get_goal."
+          },
+          "action": {
+            "type": "string",
+            "description": "edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. wait yields the foreground while keeping the goal active; resume on user input, watched job output, or a timer.",
+            "enum": [
+              "edit",
+              "pause",
+              "resume",
+              "complete",
+              "blocked",
+              "wait"
+            ]
+          },
+          "objective": {
+            "type": "string",
+            "description": "Replacement objective; valid only with action edit."
+          },
+          "max_goal_rounds": {
+            "type": "number",
+            "description": "Replacement cap; valid only with action edit."
+          },
+          "blocked_reason": {
+            "type": "string",
+            "description": "Required only with action blocked: the concrete condition that persisted across rounds and blocks progress."
+          },
+          "wait_reason": {
+            "type": "string",
+            "description": "With action wait: describe what new information or event is needed."
+          },
+          "wake_after_seconds": {
+            "type": "number",
+            "description": "With action wait: optional positive whole seconds before continuing."
+          },
+          "job_id": {
+            "type": "string",
+            "description": "With action wait: optional owned job to watch for new output or settlement."
+          }
+        },
+        "required": [
+          "goal_id",
+          "revision",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "web_fetch",
+      "description": "Fetch the content of a specific HTTP(S) URL and return it decoded to text.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The HTTP(S) URL to fetch."
+          }
+        },
+        "required": [
+          "url"
+        ]
+      }
+    },
+    {
+      "name": "web_search",
+      "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "queries": {
+            "type": "array",
+            "description": "1–4 search queries; their results are merged.",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "queries"
+        ]
+      }
+    },
+    {
+      "name": "workflow",
+      "description": "Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.\n\nScript-body hooks:\n- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object, and the child must call its `structured_output` tool to report it: a `schema` call whose child answers in plain text resolves `null`. If the prompt text states its own return format, that text describes the payload, never the reporting channel. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.\n- `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages.\n- `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`.\n- `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim.\n\nMisused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) end the whole script instead of producing `null`. The script has no filesystem, network, timer, or Node.js APIs; the agents do the work.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "script": {
+            "type": "string",
+            "description": "The plain JavaScript body, not TypeScript and without an `export const meta` statement; top-level await is allowed. End with `return <value>`; the JSON-serializable value is this tool's result."
+          },
+          "meta": {
+            "type": "object",
+            "description": "The workflow identity as plain JSON, not code.",
+            "additionalProperties": true,
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Short kebab-case workflow name."
+              },
+              "description": {
+                "type": "string",
+                "description": "One-line description of what the workflow does."
+              },
+              "whenToUse": {
+                "type": "string",
+                "description": "Optional guidance on when this workflow applies."
+              },
+              "phases": {
+                "type": "array",
+                "description": "Optional phase declarations matched by phase() calls.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "properties": {
+                    "title": {
+                      "type": "string",
+                      "description": "The phase title phase() calls match by exact string."
+                    },
+                    "detail": {
+                      "type": "string",
+                      "description": "Optional one-line description of the phase."
+                    },
+                    "provider": {
+                      "type": "string",
+                      "description": "Optional provider override this phase is expected to use."
+                    },
+                    "model": {
+                      "type": "string",
+                      "description": "Optional model override this phase is expected to use."
+                    }
+                  },
+                  "required": [
+                    "title"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "name",
+              "description"
+            ]
+          },
+          "args": {
+            "type": "object",
+            "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]}).",
+            "additionalProperties": true
+          },
+          "run_in_background": {
+            "type": "boolean",
+            "description": "Run as a background job: return a job id immediately instead of waiting; the return value arrives with the completion notice."
+          }
+        },
+        "required": [
+          "script",
+          "meta"
+        ]
+      }
+    },
+    {
+      "name": "write",
+      "description": "Create or fully replace a UTF-8 text file.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to write, resolved by the filesystem backend. Provide `file_path` before `content` in the arguments."
+          },
+          "content": {
+            "type": "string",
+            "description": "Full UTF-8 text content to write."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ]
+      }
+    }
+  ],
+  "changes": [
+    [
+      {
+        "name": "create_goal",
+        "description": "Create a persisted goal that keeps this session working across automatic continuation rounds. Use it when the direct human request is a long-running objective, even if the user did not say \"goal\"; not for single-turn work.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "objective": {
+              "type": "string",
+              "description": "The concrete completion objective inferred from the direct human request."
+            },
+            "max_goal_rounds": {
+              "type": "number",
+              "description": "Optional positive safe-integer limit on automatic continuation rounds."
+            }
+          },
+          "required": [
+            "objective"
+          ]
+        }
+      },
+      {
+        "name": "edit",
+        "description": "Edit an existing UTF-8 text file by replacing literal text.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "Path to edit, resolved by the filesystem backend. Provide `file_path` before `old_string` and `new_string` in the arguments."
+            },
+            "old_string": {
+              "type": "string",
+              "description": "Literal text to replace."
+            },
+            "new_string": {
+              "type": "string",
+              "description": "Literal replacement text. Use an empty string to delete the match."
+            },
+            "replace_all": {
+              "type": "boolean",
+              "description": "Replace all matches. Defaults to false; when false, old_string must appear exactly once."
+            },
+            "sandbox_permissions": {
+              "type": "string",
+              "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+              "enum": [
+                "workspace-write",
+                "danger-full-access"
+              ]
+            },
+            "justification": {
+              "type": "string",
+              "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+            }
+          },
+          "required": [
+            "file_path",
+            "old_string",
+            "new_string"
+          ]
+        }
+      },
+      {
+        "name": "exit_plan_mode",
+        "description": "Use only in plan mode. Present your plan for the user's review and, on approval, leave plan mode. The user may approve (carry out the plan from your next step) or keep planning — their feedback comes back in the tool result; revise and present again.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "plan": {
+              "type": "string",
+              "description": "The complete plan, as markdown, starting with a # heading that names it."
+            }
+          },
+          "required": [
+            "plan"
+          ]
+        }
+      },
+      {
+        "name": "get_goal",
+        "description": "Read the current session goal, including the id and revision that update_goal requires.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "glob",
+        "description": "Find files, not directories, whose paths match a glob pattern, including hidden and ignored files. Returns up to 100 paths in modification-time order; a larger result keeps the first paths and reports where the complete list was saved.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Glob pattern to match file paths against (e.g. \"**/*.ts\", \"src/**/*.test.js\"). A pattern with no \"/\" matches the basename at any depth, so \"*\" and \"*.ts\" both search the whole tree; include a separator to anchor the depth."
+            },
+            "path": {
+              "type": "string",
+              "description": "Directory to search in. Defaults to the session workspace; a relative path resolves against it."
+            }
+          },
+          "required": [
+            "pattern"
+          ]
+        }
+      },
+      {
+        "name": "grep",
+        "description": "Search file contents with a ripgrep regular expression. Returns matching lines with line numbers, grouped by file. Returns up to 250 matches; a larger result reports where the complete match list was saved.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "description": "Regular expression to search for (ripgrep syntax)."
+            },
+            "path": {
+              "type": "string",
+              "description": "File or directory to search. Defaults to the session workspace; a relative path resolves against it."
+            },
+            "include": {
+              "type": "string",
+              "description": "One glob filter for which files to search (e.g. \"*.ts\", \"*.{js,jsx}\"). Not a list; negation is not supported."
+            }
+          },
+          "required": [
+            "pattern"
+          ]
+        }
+      },
+      {
+        "name": "interrupt_agent",
+        "description": "Ask a subagent to stop its current work. This call returns without waiting for it to stop. You can continue a direct child's conversation later with send_message. Subagents it started will keep running.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The id of an agent created under you: your direct child or a deeper descendant."
+            }
+          },
+          "required": [
+            "agent_id"
+          ]
+        }
+      },
+      {
+        "name": "job_kill",
+        "description": "Request cancellation of a running background job.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id returned by the tool that started the background work."
+            },
+            "reason": {
+              "type": "string",
+              "description": "Optional short reason, recorded in the log and forwarded to the job."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        }
+      },
+      {
+        "name": "job_list",
+        "description": "List your background jobs (running and finished) with their ids, kinds, and statuses.",
+        "parameters": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      {
+        "name": "job_output",
+        "description": "Read a background job: output since the previous read for stream jobs, or the result of a finished final-output job.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "job_id": {
+              "type": "string",
+              "description": "Job id returned by the tool that started the background work."
+            },
+            "wait": {
+              "type": "boolean",
+              "description": "Block until the job finishes or the timeout expires; a timed-out wait leaves the job running. Defaults to false."
+            },
+            "timeout_ms": {
+              "type": "number",
+              "description": "Max wait in milliseconds with wait: true. Defaults to and is capped by configuration."
+            }
+          },
+          "required": [
+            "job_id"
+          ]
+        }
+      },
+      {
+        "name": "list_agents",
+        "description": "List subagents you started, with their ids, labels, and status. running means it is working; inactive means it is not currently working. You will be notified when a subagent finishes; there is no need to keep checking its status. Use send_message to continue the conversation.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "scope": {
+              "type": "string",
+              "description": "children (default) lists direct children, which accept send_message in any status. descendants lists the whole tree below you with each entry's parent session id and depth; entries deeper than 1 accept only interrupt_agent.",
+              "enum": [
+                "children",
+                "descendants"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "name": "manuscript_revision",
+        "description": "支持Word/Markdown/文本。compare对照上一稿与最新返稿，status读取差异，review可选对照候选稿；没有基线时如实说明。measure只读统计同范围来源与成稿的文字数字数、差额和倍率，不使用或修改返稿基线。仅提供提示，不拦截保存、导出或交付。",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "compare",
+                "status",
+                "review",
+                "measure"
+              ]
+            },
+            "baseline_path": {
+              "type": "string",
+              "description": "实际上一稿路径；同路径返稿已有交付快照时可省略。"
+            },
+            "revised_path": {
+              "type": "string",
+              "description": "用户最新返稿的真实本地路径。"
+            },
+            "source_paths": {
+              "type": "array",
+              "description": "measure使用的本轮对应完整来源文件；与candidate_paths覆盖相同范围，不把仅有对白的ASR与含动作场景的成稿当作同口径正文。",
+              "items": {
+                "type": "string"
+              }
+            },
+            "candidate_paths": {
+              "type": "array",
+              "description": "完整候选正文，按交付顺序；measure时与source_paths覆盖相同范围。",
+              "items": {
+                "type": "string"
+              }
+            },
+            "max_growth_percent": {
+              "type": "number",
+              "description": "仅measure：本轮明确对照的增长百分比上限。参考区间不是修字配额，不为凑数字删必要情节或添复述；以用户篇幅要求和实际统计口径为准。未提供则标明未设置，不推断目标。"
+            }
+          },
+          "required": [
+            "action"
+          ]
+        }
+      },
+      {
+        "name": "manuscript_work",
+        "description": "文稿来源、阅读覆盖、人物关系与版本工具。bind登记来源和采用稿（可尚未创建）。read_source分页返回完整原文及程序从标题生成的真实集场source_contexts；当前地点须结合标题及本场实际动作，复合设置要回读场内移动，不能用对白提到的别处替代。按continuation与source_sha256续读，覆盖只统计返回文字。characters登记带证据的名册；relationship记录有向关系，集场和时间要有真实出处，相对称谓注明说话人和目标。报告数值矛盾前用comparison登记同人物同指标前后值、岗位/时点/单位和变化原因，不能把调任、调薪、奖励或累积造成的变化误报为矛盾。audit回读当前覆盖、关系与对照；scene/propose_scene处理完整采用稿场景；event记录场末状态。上下文裁剪后恢复当前证据，模型笔记不是独立语义审校。read_source每行source_refs和audit的citation_labels给出本条引文的真实集场，邻场导航不能当作当前出处。source_line及引用line_labels只标注原文行格式、具名发话人和OS/VO写法，不判定可闻性或人物关系真伪。audit大报告返回report_paged分组目录，按report_sections的request读取各组并跟随continuation到null；items中report_item_paged是条目的子目录，还须读取其report_sections，按summary内引用还原完整条目。子组名逐字复制，不自行猜路径。保存回执report_pending仍需audit；目录或组尾不证明已读全。按原文区分计划、尝试、实际完成和后果；人物当前地点、计划目标地点、声音来源和对白谈及地点分别记录。时间线保留已明示的相邻事件与相对时间，未知间隔不补写。条件奖励和算术相合不证明完成任务或到账；但已宣布生效的任命、待遇标准本身就是变化，与实际领取另记，不因没演工资条或到账就把新标准列为未解。关系结论沿用有依据的原称谓和方向，不自行另起亲属总称。称谓所指人不自动是受话人，人物表不证明谁听见；向第三人谈及某人不能写成向该人当面称呼。被阻止或尚在计划中的事，不写成已发生或事后。audit的source_cues逐字列出原稿△提示行和集场出处，便于回读跨场转场；它不是完整正文，也不证明提示中的计划已经发生。较长的保存回执会优先完整回显本次record_review供逐条复核，放不下时明确record_review_omitted并用audit分页；纠正判断必须同ID更新已保存记录。task_request逐字回读已绑定任务的真实用户原始要求与后续修改，保持原问题ID，不自行替换题目；已有绑定及阅读进度继续有效。最终回答的具体集号、时点须逐条对应引文source_contexts和同场原文，动作主体须由实际动作或明确指代支持。条件和规则保留原文适用范围，不把单次条件推广为普遍规则。摘要、旧回答和邻场人物不能替代核对；只写有依据且回答所需的细节。",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "bind",
+                "task_request",
+                "read_source",
+                "characters",
+                "relationship",
+                "comparison",
+                "scene",
+                "propose_scene",
+                "audit",
+                "event"
+              ]
+            },
+            "task_key": {
+              "type": "string",
+              "description": "bind：本任务稳定名称；不同任务重新bind，不按文件修改时间挑稿。"
+            },
+            "mode": {
+              "type": "string",
+              "description": "bind：换梗/改编adapt，忠实视频转写transcribe，已有稿修改edit；不会把换梗要求套给转写。",
+              "enum": [
+                "adapt",
+                "transcribe",
+                "edit"
+              ]
+            },
+            "source_paths": {
+              "type": "array",
+              "description": "bind：实际来源文本或Word路径，不覆盖源文件。",
+              "items": {
+                "type": "string"
+              }
+            },
+            "candidate_paths": {
+              "type": "array",
+              "description": "bind：本轮采用的正文文件，按集排列，可登记尚未创建的文件。历史稿不混入；切换返稿时显式重新bind。",
+              "items": {
+                "type": "string"
+              }
+            },
+            "source_path": {
+              "type": "string",
+              "description": "read_source：本任务绑定的原稿、转写或Word来源。初稿尚未创建也可读取。"
+            },
+            "source_sha256": {
+              "type": "string",
+              "description": "read_source续读必填：上一页返回的精确文件摘要。来源改变时从新版本重新阅读。"
+            },
+            "request_sha256": {
+              "type": "string",
+              "description": "仅task_request续读：上一页返回的原始用户要求版本；用户更新或rebind后重读。"
+            },
+            "report_sha256": {
+              "type": "string",
+              "description": "仅audit分组读取：目录返回的当前审查版本，笔记、阅读覆盖或来源变更后重新读目录。"
+            },
+            "report_section": {
+              "type": "string",
+              "description": "仅audit：逐字复制report_sections的分组名。"
+            },
+            "report_offset": {
+              "type": "integer",
+              "description": "仅audit：从1开始的条目位置，跟随continuation.report_offset，不是原稿行号。"
+            },
+            "report_limit": {
+              "type": "integer",
+              "description": "仅audit：本页最多条目数；完整结果按manuscriptReportMaxResultCharacters预算缩小。"
+            },
+            "offset": {
+              "type": "integer",
+              "description": "read_source：从1开始的行号，续读使用continuation.offset。"
+            },
+            "column": {
+              "type": "integer",
+              "description": "read_source：从1开始的Unicode字符列，续读使用continuation.column，不跳过长行后半段。"
+            },
+            "limit": {
+              "type": "integer",
+              "description": "read_source：本页最大行数，默认及上限为100行。"
+            },
+            "characters": {
+              "type": "array",
+              "description": "characters：完整角色名册；每个姓名和明确别名须出现在所附来源完整行中，不把称谓当全局别名。",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "character_id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "aliases": {
+                    "type": "array",
+                    "description": "同一人物有原文依据的稳定姓名或外号。爸爸、大嫂等相对亲属称谓不用作全局别名，改用relationship.contextual_name。",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "source_path": {
+                          "type": "string"
+                        },
+                        "source_sha256": {
+                          "type": "string"
+                        },
+                        "start_line": {
+                          "type": "integer"
+                        },
+                        "end_line": {
+                          "type": "integer"
+                        },
+                        "quote": {
+                          "type": "string",
+                          "description": "所选完整来源行的逐字文本，不用摘要代替。"
+                        }
+                      },
+                      "required": [
+                        "source_path",
+                        "source_sha256",
+                        "start_line",
+                        "end_line",
+                        "quote"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "character_id",
+                  "name",
+                  "evidence"
+                ]
+              }
+            },
+            "relationship": {
+              "type": "object",
+              "description": "relationship：模型依据当前原文记录的有向关系。asserted是模型判断，不是工具证明；缺少依据记uncertain，冲突记contradicted。",
+              "additionalProperties": false,
+              "properties": {
+                "relationship_id": {
+                  "type": "string"
+                },
+                "subject_id": {
+                  "type": "string"
+                },
+                "object_id": {
+                  "type": "string"
+                },
+                "relation": {
+                  "type": "string",
+                  "description": "subject相对object的身份或行为。subject=A、object=B、relation=父亲，表示A是B的父亲；不能把B的身份填在relation里。"
+                },
+                "status": {
+                  "type": "string",
+                  "description": "原文明示记asserted；仅语境推断或原文未交代记uncertain；相互冲突记contradicted。这是模型所记，不是工具证实。",
+                  "enum": [
+                    "asserted",
+                    "uncertain",
+                    "contradicted"
+                  ]
+                },
+                "scope": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "episode": {
+                      "type": "string",
+                      "description": "可选，仅全部引用属于同一真实集时填；跨集省略，由source_contexts逐条标明。不能填原剧情章数。"
+                    },
+                    "scene_id": {
+                      "type": "string",
+                      "description": "可选，仅全部引用属于同一来源场时填其原场号或source_scene_id，不能填采用稿的file-1/...ID。"
+                    },
+                    "story_time": {
+                      "type": "string",
+                      "description": "可选，须完整逐字出现于至少一条引用或真实标题，time_basis会标依据；不自由编写事件前后，未知省略。"
+                    },
+                    "context": {
+                      "type": "string",
+                      "description": "只说明本条引用支持的关系依据，使用relation与原称谓，不另起关系别称或增加情节发生状态、先后时点。引文只证明称呼就只记称呼；推定记uncertain。出处按source_contexts；具体集场和时点用结构字段。"
+                    }
+                  },
+                  "required": [
+                    "context"
+                  ]
+                },
+                "evidence": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "source_path": {
+                        "type": "string"
+                      },
+                      "source_sha256": {
+                        "type": "string"
+                      },
+                      "start_line": {
+                        "type": "integer"
+                      },
+                      "end_line": {
+                        "type": "integer"
+                      },
+                      "quote": {
+                        "type": "string",
+                        "description": "所选完整来源行的逐字文本，不用摘要代替。"
+                      }
+                    },
+                    "required": [
+                      "source_path",
+                      "source_sha256",
+                      "start_line",
+                      "end_line",
+                      "quote"
+                    ]
+                  }
+                },
+                "contextual_name": {
+                  "type": "object",
+                  "description": "相对称谓须出现在引用的对白正文中，speaker_id须与该行发话标签唯一匹配的人物一致；OS/VO标签不证明实际出声。指向不明记uncertain，不把叙述者的称呼当他人对白。",
+                  "additionalProperties": false,
+                  "properties": {
+                    "term": {
+                      "type": "string"
+                    },
+                    "speaker_id": {
+                      "type": "string"
+                    },
+                    "target_id": {
+                      "type": "string",
+                      "description": "称谓所指人物，不自动是受话人；向第三人提及也可形成称谓，不能据人物表断言当面说给此人听。"
+                    }
+                  },
+                  "required": [
+                    "term",
+                    "speaker_id",
+                    "target_id"
+                  ]
+                }
+              },
+              "required": [
+                "relationship_id",
+                "subject_id",
+                "object_id",
+                "relation",
+                "status",
+                "scope",
+                "evidence"
+              ]
+            },
+            "comparison": {
+              "type": "object",
+              "description": "comparison：数值变化的证据对照。before/after及变化解释分别带原句，工具不会仅凭字面差异判矛盾；读取bridge_ranges补核中间过程。",
+              "additionalProperties": false,
+              "properties": {
+                "comparison_id": {
+                  "type": "string"
+                },
+                "subject_id": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "string",
+                  "description": "同一人物的实际指标，如底薪、任职时长或积分余额；不同指标分别登记。"
+                },
+                "before": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "value_text": {
+                      "type": "string",
+                      "description": "该端原句中实际出现的完整数值写法，不把中文数改成原句没有的阿拉伯数字。"
+                    },
+                    "unit": {
+                      "type": "string",
+                      "description": "模型识别的单位和计量周期，未知省略。"
+                    },
+                    "condition": {
+                      "type": "string",
+                      "description": "模型识别的岗位、账户、条件或阶段；不能只为把数字凑成相同口径而假定条件不变。"
+                    },
+                    "story_time": {
+                      "type": "string",
+                      "description": "可选，须完整逐字出现在本端引文或真实标题；未知省略，不把先导画面当正文确定时点，不以集号当已流逝天数。"
+                    },
+                    "evidence": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "source_path": {
+                            "type": "string"
+                          },
+                          "source_sha256": {
+                            "type": "string"
+                          },
+                          "start_line": {
+                            "type": "integer"
+                          },
+                          "end_line": {
+                            "type": "integer"
+                          },
+                          "quote": {
+                            "type": "string",
+                            "description": "所选完整来源行的逐字文本，不用摘要代替。"
+                          }
+                        },
+                        "required": [
+                          "source_path",
+                          "source_sha256",
+                          "start_line",
+                          "end_line",
+                          "quote"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "value_text",
+                    "evidence"
+                  ]
+                },
+                "after": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "value_text": {
+                      "type": "string",
+                      "description": "该端原句中实际出现的完整数值写法，不把中文数改成原句没有的阿拉伯数字。"
+                    },
+                    "unit": {
+                      "type": "string",
+                      "description": "模型识别的单位和计量周期，未知省略。"
+                    },
+                    "condition": {
+                      "type": "string",
+                      "description": "模型识别的岗位、账户、条件或阶段；不能只为把数字凑成相同口径而假定条件不变。"
+                    },
+                    "story_time": {
+                      "type": "string",
+                      "description": "可选，须完整逐字出现在本端引文或真实标题；未知省略，不把先导画面当正文确定时点，不以集号当已流逝天数。"
+                    },
+                    "evidence": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "properties": {
+                          "source_path": {
+                            "type": "string"
+                          },
+                          "source_sha256": {
+                            "type": "string"
+                          },
+                          "start_line": {
+                            "type": "integer"
+                          },
+                          "end_line": {
+                            "type": "integer"
+                          },
+                          "quote": {
+                            "type": "string",
+                            "description": "所选完整来源行的逐字文本，不用摘要代替。"
+                          }
+                        },
+                        "required": [
+                          "source_path",
+                          "source_sha256",
+                          "start_line",
+                          "end_line",
+                          "quote"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "value_text",
+                    "evidence"
+                  ]
+                },
+                "explanation_evidence": {
+                  "type": "array",
+                  "description": "两端之间说明变化原因或条件的逐字原句，保留原文适用范围，不把单次条件推广为普遍规则。核对调任、调薪、奖励、消费、累积等过程，不只看两个数字。",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "source_path": {
+                        "type": "string"
+                      },
+                      "source_sha256": {
+                        "type": "string"
+                      },
+                      "start_line": {
+                        "type": "integer"
+                      },
+                      "end_line": {
+                        "type": "integer"
+                      },
+                      "quote": {
+                        "type": "string",
+                        "description": "所选完整来源行的逐字文本，不用摘要代替。"
+                      }
+                    },
+                    "required": [
+                      "source_path",
+                      "source_sha256",
+                      "start_line",
+                      "end_line",
+                      "quote"
+                    ]
+                  }
+                },
+                "explanation_kind": {
+                  "type": "string",
+                  "description": "explicit_change是原文明示本次已发生变化，含已宣布生效的任命、薪资标准；general_rule是尚待条件的规则，suggested是可能机制。标准生效与实际发款是不同指标，不能要求工资条才承认已宣布的新标准；预测或算术相合不证明实际到账。",
+                  "enum": [
+                    "explicit_change",
+                    "general_rule",
+                    "suggested"
+                  ]
+                },
+                "interpretation": {
+                  "type": "string",
+                  "description": "模型判断。explained_change需实际解释引文且kind为explicit_change，一般规则/可能机制只记possible_change；潜在矛盾需单位、条件、时点。字面不同不证明矛盾。",
+                  "enum": [
+                    "explained_change",
+                    "possible_change",
+                    "potential_conflict",
+                    "unresolved",
+                    "not_comparable"
+                  ]
+                },
+                "rationale": {
+                  "type": "string",
+                  "description": "依原文说明比较口径和变化过程。岗位或阶段已变时分别记录薪资标准；任命、宣布生效与实际发款分开，不因未演工资条或到账就把已明示新标准列为未解或矛盾；同口径才讨论冲突。"
+                }
+              },
+              "required": [
+                "comparison_id",
+                "subject_id",
+                "quantity",
+                "before",
+                "after",
+                "interpretation",
+                "rationale"
+              ]
+            },
+            "scene_id": {
+              "type": "string",
+              "description": "scene/propose_scene：audit返回的真实场景ID。"
+            },
+            "expected_sha256": {
+              "type": "string",
+              "description": "propose_scene：刚读取的完整场景sha256，防止用旧场景作修改建议。"
+            },
+            "replacement": {
+              "type": "string",
+              "description": "propose_scene：完整新场景，连同场次及原需保留的内容。不是统一塞在钩子前的补字块。"
+            },
+            "source_ranges": {
+              "type": "array",
+              "description": "scene/propose_scene：可选来源对应行范围（从1开始），与整场、前后场一起回读实际原文；由模型选择，不假称自动对齐。",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "start_line": {
+                    "type": "integer"
+                  },
+                  "end_line": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "path",
+                  "start_line",
+                  "end_line"
+                ]
+              }
+            },
+            "event": {
+              "type": "object",
+              "description": "event：事件ID跨集一致；当前稿与来源的实际原句、用途、场末人物/道具状态。工具只核对引文存在，不把模型笔记当独立核实。",
+              "additionalProperties": false,
+              "properties": {
+                "event_id": {
+                  "type": "string"
+                },
+                "scene_id": {
+                  "type": "string"
+                },
+                "quote": {
+                  "type": "string"
+                },
+                "source_quote": {
+                  "type": "string"
+                },
+                "source_path": {
+                  "type": "string"
+                },
+                "purpose": {
+                  "type": "string",
+                  "enum": [
+                    "advance",
+                    "recap",
+                    "flashback"
+                  ]
+                },
+                "end_state": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "event_id",
+                "scene_id",
+                "quote",
+                "source_quote",
+                "source_path",
+                "purpose",
+                "end_state"
+              ]
+            }
+          },
+          "required": [
+            "action"
+          ]
+        }
+      },
+      {
+        "name": "read",
+        "description": "Read a UTF-8 text file and return line-numbered content.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "Path to read, resolved by the filesystem backend."
+            },
+            "offset": {
+              "type": "number",
+              "description": "1-based first line to return. Defaults to 1."
+            },
+            "column": {
+              "type": "number",
+              "description": "1-based Unicode code-point column on the first line. Defaults to 1; use the returned continuation without skipping a partial line."
+            },
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of lines to return. Defaults to 2000."
+            },
+            "expected_version": {
+              "type": "string",
+              "description": "Provider version from the preceding read; a changed file requires restarting the read."
+            }
+          },
+          "required": [
+            "file_path"
+          ]
+        }
+      },
+      {
+        "name": "read_image",
+        "description": "Read a PNG/JPEG/WebP/GIF file and return the image itself. Large images are downscaled automatically; do not install image libraries or create thumbnails to inspect an image.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "Path to the image file, resolved by the filesystem backend."
+            }
+          },
+          "required": [
+            "file_path"
+          ]
+        }
+      },
+      {
+        "name": "send_message",
+        "description": "Send a message to an agent. A working agent receives it at its next step; an idle agent starts a new turn with it. Returns delivery confirmation, not the agent's answer.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "agent_id": {
+              "type": "string",
+              "description": "The agent id of your direct continuable child, or your direct parent when you are a resident continuable child."
+            },
+            "message": {
+              "type": "string",
+              "description": "The message to deliver to the agent."
+            }
+          },
+          "required": [
+            "agent_id",
+            "message"
+          ]
+        }
+      },
+      {
+        "name": "subagent",
+        "description": "Delegate a self-contained task to a subagent (a separate agent that works in its own context) to offload focused, independent work — research, a scoped implementation, an analysis — so it does not consume this conversation's context. The subagent returns its result, not its intermediate steps. It runs in the background by default and returns a subagent id you can continue with `send_message`; you are notified when the run settles.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "A short (3-5 word) description of the delegated task, for display."
+            },
+            "prompt": {
+              "type": "string",
+              "description": "The complete, self-contained task for the subagent. It does not share this conversation's context, so include everything it needs."
+            },
+            "run_in_background": {
+              "type": "boolean",
+              "description": "Defaults to true. Set false only when your next action depends on the result."
+            }
+          },
+          "required": [
+            "description",
+            "prompt"
+          ]
+        }
+      },
+      {
+        "name": "subagent_fork",
+        "description": "Delegate a task to a subagent that inherits this conversation: a child agent seeded with all completed turns so far (it does not see the current in-flight turn). Use this when the subtask builds on this conversation's context — a follow-up analysis, a review, a continuation — without consuming this conversation's context for the work itself. You receive its result, not its intermediate steps. This call waits for the subagent and returns its result.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "A short (3-5 word) description of the delegated task, for display."
+            },
+            "prompt": {
+              "type": "string",
+              "description": "The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new."
+            }
+          },
+          "required": [
+            "description",
+            "prompt"
+          ]
+        }
+      },
+      {
+        "name": "todo_update",
+        "description": "Update one existing task without resending the list; task must match its full text. Use status completed with start_next true to finish that task and start the first pending task when no other task is in progress. Repeating an already completed task does not advance again. Use todo_write to add, rename, remove, or reorder tasks. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "task": {
+              "type": "string",
+              "description": "Exact content of the existing task; surrounding whitespace is ignored."
+            },
+            "status": {
+              "type": "string",
+              "description": "Actual task state: pending, in_progress, or completed.",
+              "enum": [
+                "pending",
+                "in_progress",
+                "completed"
+              ]
+            },
+            "start_next": {
+              "type": "boolean",
+              "description": "Only with completed: on a new completion, start the first pending task if no task remains in_progress."
+            }
+          },
+          "required": [
+            "task",
+            "status"
+          ]
+        }
+      },
+      {
+        "name": "todo_write",
+        "description": "Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. Use this tool to create or revise the whole plan; use todo_update for individual status changes. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "todos": {
+              "type": "array",
+              "description": "The COMPLETE task list, replacing any previous list.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "content": {
+                    "type": "string",
+                    "description": "What the task is — a short imperative line."
+                  },
+                  "status": {
+                    "type": "string",
+                    "description": "pending (not started) | in_progress (now) | completed (done).",
+                    "enum": [
+                      "pending",
+                      "in_progress",
+                      "completed"
+                    ]
+                  }
+                },
+                "required": [
+                  "content",
+                  "status"
+                ]
+              }
+            }
+          },
+          "required": [
+            "todos"
+          ]
+        }
+      },
+      {
+        "name": "update_goal",
+        "description": "Update the current goal.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "goal_id": {
+              "type": "string",
+              "description": "Exact id returned by get_goal."
+            },
+            "revision": {
+              "type": "number",
+              "description": "Exact positive revision returned by get_goal."
+            },
+            "action": {
+              "type": "string",
+              "description": "edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. wait yields the foreground while keeping the goal active; resume on user input, watched job output, or a timer.",
+              "enum": [
+                "edit",
+                "pause",
+                "resume",
+                "complete",
+                "blocked",
+                "wait"
+              ]
+            },
+            "objective": {
+              "type": "string",
+              "description": "Replacement objective; valid only with action edit."
+            },
+            "max_goal_rounds": {
+              "type": "number",
+              "description": "Replacement cap; valid only with action edit."
+            },
+            "blocked_reason": {
+              "type": "string",
+              "description": "Required only with action blocked: the concrete condition that persisted across rounds and blocks progress."
+            },
+            "wait_reason": {
+              "type": "string",
+              "description": "With action wait: describe what new information or event is needed."
+            },
+            "wake_after_seconds": {
+              "type": "number",
+              "description": "With action wait: optional positive whole seconds before continuing."
+            },
+            "job_id": {
+              "type": "string",
+              "description": "With action wait: optional owned job to watch for new output or settlement."
+            }
+          },
+          "required": [
+            "goal_id",
+            "revision",
+            "action"
+          ]
+        }
+      },
+      {
+        "name": "web_fetch",
+        "description": "Fetch the content of a specific HTTP(S) URL and return it decoded to text.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "url": {
+              "type": "string",
+              "description": "The HTTP(S) URL to fetch."
+            }
+          },
+          "required": [
+            "url"
+          ]
+        }
+      },
+      {
+        "name": "web_search",
+        "description": "Search the web for current information. Returns an optional summary answer and a list of source URLs.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "queries": {
+              "type": "array",
+              "description": "1–4 search queries; their results are merged.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "queries"
+          ]
+        }
+      },
+      {
+        "name": "workflow",
+        "description": "Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.\n\nScript-body hooks:\n- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object, and the child must call its `structured_output` tool to report it: a `schema` call whose child answers in plain text resolves `null`. If the prompt text states its own return format, that text describes the payload, never the reporting channel. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.\n- `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages.\n- `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`.\n- `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim.\n\nMisused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) end the whole script instead of producing `null`. The script has no filesystem, network, timer, or Node.js APIs; the agents do the work.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "script": {
+              "type": "string",
+              "description": "The plain JavaScript body, not TypeScript and without an `export const meta` statement; top-level await is allowed. End with `return <value>`; the JSON-serializable value is this tool's result."
+            },
+            "meta": {
+              "type": "object",
+              "description": "The workflow identity as plain JSON, not code.",
+              "additionalProperties": true,
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "description": "Short kebab-case workflow name."
+                },
+                "description": {
+                  "type": "string",
+                  "description": "One-line description of what the workflow does."
+                },
+                "whenToUse": {
+                  "type": "string",
+                  "description": "Optional guidance on when this workflow applies."
+                },
+                "phases": {
+                  "type": "array",
+                  "description": "Optional phase declarations matched by phase() calls.",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true,
+                    "properties": {
+                      "title": {
+                        "type": "string",
+                        "description": "The phase title phase() calls match by exact string."
+                      },
+                      "detail": {
+                        "type": "string",
+                        "description": "Optional one-line description of the phase."
+                      },
+                      "provider": {
+                        "type": "string",
+                        "description": "Optional provider override this phase is expected to use."
+                      },
+                      "model": {
+                        "type": "string",
+                        "description": "Optional model override this phase is expected to use."
+                      }
+                    },
+                    "required": [
+                      "title"
+                    ]
+                  }
+                }
+              },
+              "required": [
+                "name",
+                "description"
+              ]
+            },
+            "args": {
+              "type": "object",
+              "description": "Optional JSON input exposed to the script as the `args` global (wrap a bare list as a field, e.g. {\"files\": [...]}).",
+              "additionalProperties": true
+            },
+            "run_in_background": {
+              "type": "boolean",
+              "description": "Run as a background job: return a job id immediately instead of waiting; the return value arrives with the completion notice."
+            }
+          },
+          "required": [
+            "script",
+            "meta"
+          ]
+        }
+      },
+      {
+        "name": "write",
+        "description": "Create or fully replace a UTF-8 text file.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "file_path": {
+              "type": "string",
+              "description": "Path to write, resolved by the filesystem backend. Provide `file_path` before `content` in the arguments."
+            },
+            "content": {
+              "type": "string",
+              "description": "Full UTF-8 text content to write."
+            },
+            "sandbox_permissions": {
+              "type": "string",
+              "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+              "enum": [
+                "workspace-write",
+                "danger-full-access"
+              ]
+            },
+            "justification": {
+              "type": "string",
+              "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+            }
+          },
+          "required": [
+            "file_path",
+            "content"
+          ]
+        }
+      }
+    ]
+  ]
+}

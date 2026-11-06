@@ -1,9 +1,10 @@
 version: 1
 scenario: fs-write-overwrite
 profile: headless
-composition: default
+composition: portable-fs
 recording: live
+writerOutput: true
 header:
-  class: default
+  class: portable-fs
 workspace:
   final: true

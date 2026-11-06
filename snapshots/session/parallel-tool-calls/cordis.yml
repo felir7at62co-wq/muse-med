@@ -1,3 +1,11 @@
+# This recording exercises no shell or skill loader.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-skill
+  disabled: true
+
 # Filesystem-scenario overlay: the sandboxed filesystem stack already lives in
 # `dsh-base`, so this patch changes only the local tool-result spill
 # storage those scenarios exercise.

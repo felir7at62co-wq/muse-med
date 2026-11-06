@@ -6,4 +6,4 @@ recording: authored
 header:
   class: image
   pin: true
-  toolSchemasSource: text-turn
+  toolSchemasSource: tool-call-turn

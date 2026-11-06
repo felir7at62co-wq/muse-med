@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-manuscript-reading-recovery
+profile: headless
+composition: muse-manuscript-reading-recovery
+recording: authored
+header:
+  class: muse-manuscript-reading-recovery
+  pin: true
+  changes: 1
+writerOutput: true
+workspace:
+  final: true

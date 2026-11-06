@@ -221,19 +221,23 @@ interface FsObservationActor {
 
 ## Read outcome (consumer / read rendering)
 
-A text read is bounded by line window, byte cap, and backend limits. After the byte cap is reached, scanning continues without retaining more lines so `totalLines` remains exact. The result the model-facing `read` tool renders is purely presentational; there is no `full`/`partial` view — authorization is freshness-based (the tool emits a present `fs/observed` directly with the stat's version), so any windowed read can authorize a later write/edit when the file is unchanged. A metadata miss emits an absent observation before the tool returns `FS_NOT_FOUND`, allowing a later guarded write to recreate an externally deleted target without authorizing edit. `dsh-tool-fs`, the executor that owns the read, implements read windowing and constructs this result; the policy plugin does not.
+A text read is bounded by line count, Unicode code points per fragment and UTF-8 bytes. Scanning continues after a cap to count all lines without retaining the unread tail; `continuation` identifies its exact line and Unicode column. The text tool checks the provider version before and after reading, then emits `fs/observed` only for an unchanged file. A window can authorize a later guarded write/edit at that version; it does not establish complete reading. A metadata miss records absence before `FS_NOT_FOUND`, allowing a guarded write to recreate the target without authorizing edit. `dsh-tool-fs` owns the window and its presentation; the policy plugin owns mutation authorization.
 
 ```ts type-equiv
 /** Outcome of a bounded text read — what {@link formatReadOutput} renders. */
 interface FileReadOutcome {
   /** 1-based first line requested. */
   offset: number
+  /** Requested first-line Unicode column; defaults to 1. */
+  column?: number
   /** Returned lines, already numbered. */
   lines: FileTextLine[]
   /** Exact total line count in the file. */
   totalLines: number
-  /** Whether selected output hit the byte cap. */
-  truncatedByBytes?: true
+  /** Exact next unread position, absent only at EOF. */
+  continuation?: ReadPosition
+  /** Provider version callers can retain for the next read. */
+  version?: string
 }
 ```
 

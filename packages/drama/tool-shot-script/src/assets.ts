@@ -31,6 +31,7 @@ import {
 } from './state.ts'
 import type { StateFacts } from './state.ts'
 import { SOURCE_SCENE_PREFIX } from './script.ts'
+import { declaredCharacters } from './visibility.ts'
 import type { BoundAsset, IssueSeverity, ManifestAsset, ParsedShot, ShotIssue } from './types.ts'
 
 /** Manifest types that bind as an on-screen character. */
@@ -284,22 +285,6 @@ function visualDirections(shot: ParsedShot, assets: readonly ManifestAsset[]): s
     }) ? match : ' '.repeat(label.length))
   }
   return directions
-}
-
-/** Split an on-screen list without splitting costume annotations in parentheses. */
-function declaredCharacters(source: string): string[] {
-  const result: string[] = []
-  let depth = 0; let current = ''
-  for (const character of source) {
-    if ('（('.includes(character)) depth++
-    if ('）)'.includes(character)) depth = Math.max(0, depth - 1)
-    if (depth === 0 && /[、,，;；/|｜\n]/.test(character)) {
-      if (current.trim()) result.push(current.trim())
-      current = ''
-    } else current += character
-  }
-  if (current.trim()) result.push(current.trim())
-  return result
 }
 
 /** Select one version per on-screen mention without defaulting to the manifest's first row. */

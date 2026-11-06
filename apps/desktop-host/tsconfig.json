@@ -12,6 +12,15 @@
       "path": "../../packages/fs/fs"
     },
     {
+      "path": "../../packages/fs/tool-fs"
+    },
+    {
+      "path": "../../packages/util/brand"
+    },
+    {
+      "path": "../../packages/compaction/compaction"
+    },
+    {
       "path": "../../vendor/cordis"
     },
     {
@@ -106,6 +115,9 @@
     },
     {
       "path": "../../packages/core/system-prompt"
+    },
+    {
+      "path": "../../packages/session/session-projection"
     },
     {
       "path": "../../vendor/schemastery"

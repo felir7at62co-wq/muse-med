@@ -188,7 +188,10 @@ jobs:
           exit "$sandbox_status"
 
       - name: Prepare media test executables
-        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+        timeout-minutes: 10
+        run: |
+          sudo -- "$(command -v node)" "${GITHUB_WORKSPACE}/scripts/prepare-ci-apt.mjs"
+          sudo apt-get update && sudo apt-get install --yes ffmpeg
 
       - name: Run exhaustive coverage
         run: pnpm run check:ci:coverage
@@ -232,7 +235,10 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Install benchmark browser and hosted dependencies
-        run: pnpm --filter @deepseek-ai/dsh-benchmarks exec playwright install --with-deps chromium
+        timeout-minutes: 15
+        run: |
+          sudo -- "$(command -v node)" "${GITHUB_WORKSPACE}/scripts/prepare-ci-apt.mjs"
+          pnpm --filter @deepseek-ai/dsh-benchmarks exec playwright install --with-deps chromium
 
       - name: Run performance benchmarks
         env:
@@ -328,30 +334,11 @@ jobs:
           if (( install_status != 0 )); then exit "$install_status"; fi
           exit "$sandbox_status"
 
-      # Blacksmith's Ubuntu HTTP archive endpoints can be unreachable while HTTPS works.
-      - name: Use HTTPS for Ubuntu archives on Blacksmith
-        if: vars.DSH_CI_FAILOVER_LINUX == 'blacksmith'
-        run: |
-          sudo python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          apt = Path('/etc/apt')
-          sources = [apt / 'sources.list', apt / 'blacksmith-ubuntu-mirrors.txt',
-                     *(apt / 'sources.list.d').glob('*.list'),
-                     *(apt / 'sources.list.d').glob('*.sources')]
-          for source in sources:
-              if source.is_file():
-                  source.write_text(re.sub(
-                      r'http://((?:[a-z]{2}\.)?archive\.ubuntu\.com|security\.ubuntu\.com)/',
-                      r'https://\1/', source.read_text()))
-          PY
-
       - name: Install Playwright Chromium, WebKit, and hosted dependencies
         if: vars.DSH_CI_FAILOVER_LINUX != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
-        # Ephemeral runner images can carry Ubuntu mirrors whose HTTP endpoints are unreachable.
+        timeout-minutes: 15
         run: |
-          sudo find /etc/apt -maxdepth 2 -type f \( -name '*.list' -o -name '*.sources' \) -exec sed -i -E 's@http://([a-z]{2}\.)?archive\.ubuntu\.com/ubuntu@https://archive.ubuntu.com/ubuntu@g; s@http://security\.ubuntu\.com/ubuntu@https://security.ubuntu.com/ubuntu@g' {} +
+          sudo -- "$(command -v node)" "${GITHUB_WORKSPACE}/scripts/prepare-ci-apt.mjs"
           pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium webkit
 
       # The persistent VM image owns Playwright's Linux system packages; do
@@ -362,7 +349,10 @@ jobs:
 
       - name: Prepare media test executables
         if: vars.DSH_CI_FAILOVER_LINUX != 'selfhosted' || github.event.pull_request.user.login == 'dependabot[bot]'
-        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+        timeout-minutes: 10
+        run: |
+          sudo -- "$(command -v node)" "${GITHUB_WORKSPACE}/scripts/prepare-ci-apt.mjs"
+          sudo apt-get update && sudo apt-get install --yes ffmpeg
 
       - name: Verify media executables on the failover VM
         if: vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]'

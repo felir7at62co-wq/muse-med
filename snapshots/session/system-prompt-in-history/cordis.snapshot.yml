@@ -1,3 +1,11 @@
+# This recording exercises no shell or skill loader.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-skill
+  disabled: true
+
 # Keyless replay counterpart of system-prompt-in-history/cordis.yml: the
 # replay route declares the same in-history capability.
 - id: llm-deepseek

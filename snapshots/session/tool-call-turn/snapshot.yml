@@ -3,8 +3,8 @@ scenario: tool-call-turn
 profile: headless
 composition: default
 recording: live
+# This preserved recording dispatches bash, which the shipped Windows profile does not register.
+platform: posix
 header:
   class: default
   pin: true
-  systemPromptSource: text-turn
-  toolSchemasSource: text-turn

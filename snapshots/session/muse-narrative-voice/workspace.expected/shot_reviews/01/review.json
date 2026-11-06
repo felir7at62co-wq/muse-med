@@ -1,0 +1,407 @@
+{
+  "method": "compile",
+  "review_mode": "advisory",
+  "duration_budget": {
+    "source": "argument",
+    "max_submit_seconds": 30,
+    "selection": null
+  },
+  "ok": true,
+  "script": "{{cwd}}/director.txt",
+  "assets_manifest": "{{cwd}}/assets_manifest.json",
+  "assets_checked": true,
+  "shots": [
+    {
+      "shot": 1,
+      "line": 9,
+      "voice_type": "vo",
+      "speaker": "温雨",
+      "text": "等忙完再休息。",
+      "effective_chars": 6,
+      "duration_seconds": 2,
+      "duration_source": "declared",
+      "offscreen": true,
+      "characters_field": "温雨",
+      "scene": "后厨",
+      "props_field": "无",
+      "bindings": [
+        {
+          "name": "温雨身份母版",
+          "type": "角色",
+          "official": true,
+          "asset_id": "71001",
+          "material_id": "81001",
+          "url": "https://example.invalid/rain.png"
+        },
+        {
+          "name": "后厨",
+          "type": "场景",
+          "official": true,
+          "asset_id": "71004",
+          "material_id": "81004",
+          "url": "https://example.invalid/kitchen.png"
+        }
+      ]
+    },
+    {
+      "shot": 2,
+      "line": 30,
+      "voice_type": "vo",
+      "speaker": "温雨",
+      "text": "今天不能出错。我要是喊出来，周明就会冲进来。",
+      "effective_chars": 19,
+      "duration_seconds": 4,
+      "duration_source": "declared",
+      "offscreen": true,
+      "characters_field": "温雨",
+      "scene": "后厨",
+      "props_field": "无",
+      "bindings": [
+        {
+          "name": "温雨身份母版",
+          "type": "角色",
+          "official": true,
+          "asset_id": "71001",
+          "material_id": "81001",
+          "url": "https://example.invalid/rain.png"
+        },
+        {
+          "name": "后厨",
+          "type": "场景",
+          "official": true,
+          "asset_id": "71004",
+          "material_id": "81004",
+          "url": "https://example.invalid/kitchen.png"
+        }
+      ]
+    },
+    {
+      "shot": 3,
+      "line": 51,
+      "voice_type": "dialogue",
+      "speaker": "温雨",
+      "text": "钥匙到底放哪了？",
+      "effective_chars": 7,
+      "duration_seconds": 3,
+      "duration_source": "declared",
+      "offscreen": false,
+      "characters_field": "温雨",
+      "scene": "后厨",
+      "props_field": "对讲机",
+      "bindings": [
+        {
+          "name": "温雨身份母版",
+          "type": "角色",
+          "official": true,
+          "asset_id": "71001",
+          "material_id": "81001",
+          "url": "https://example.invalid/rain.png"
+        },
+        {
+          "name": "后厨",
+          "type": "场景",
+          "official": true,
+          "asset_id": "71004",
+          "material_id": "81004",
+          "url": "https://example.invalid/kitchen.png"
+        },
+        {
+          "name": "对讲机",
+          "type": "道具",
+          "official": true,
+          "asset_id": "71006",
+          "material_id": "81006",
+          "url": "https://example.invalid/offline-intercom.png"
+        }
+      ]
+    },
+    {
+      "shot": 4,
+      "line": 71,
+      "voice_type": "vo",
+      "speaker": "周明",
+      "text": "在柜子下面。",
+      "effective_chars": 5,
+      "duration_seconds": 3,
+      "duration_source": "declared",
+      "offscreen": true,
+      "characters_field": "温雨",
+      "scene": "后厨",
+      "props_field": "对讲机",
+      "bindings": [
+        {
+          "name": "温雨身份母版",
+          "type": "角色",
+          "official": true,
+          "asset_id": "71001",
+          "material_id": "81001",
+          "url": "https://example.invalid/rain.png"
+        },
+        {
+          "name": "后厨",
+          "type": "场景",
+          "official": true,
+          "asset_id": "71004",
+          "material_id": "81004",
+          "url": "https://example.invalid/kitchen.png"
+        },
+        {
+          "name": "对讲机",
+          "type": "道具",
+          "official": true,
+          "asset_id": "71006",
+          "material_id": "81006",
+          "url": "https://example.invalid/offline-intercom.png"
+        }
+      ]
+    },
+    {
+      "shot": 5,
+      "line": 92,
+      "voice_type": "dialogue",
+      "speaker": "温雨",
+      "text": "别着急。",
+      "effective_chars": 3,
+      "duration_seconds": 4,
+      "duration_source": "declared",
+      "offscreen": false,
+      "characters_field": "温雨",
+      "scene": "后厨",
+      "props_field": "镜子",
+      "bindings": [
+        {
+          "name": "温雨身份母版",
+          "type": "角色",
+          "official": true,
+          "asset_id": "71001",
+          "material_id": "81001",
+          "url": "https://example.invalid/rain.png"
+        },
+        {
+          "name": "后厨",
+          "type": "场景",
+          "official": true,
+          "asset_id": "71004",
+          "material_id": "81004",
+          "url": "https://example.invalid/kitchen.png"
+        },
+        {
+          "name": "镜子",
+          "type": "道具",
+          "official": true,
+          "asset_id": "71007",
+          "material_id": "81007",
+          "url": "https://example.invalid/offline-mirror.png"
+        }
+      ]
+    },
+    {
+      "shot": 6,
+      "line": 113,
+      "voice_type": "vo",
+      "speaker": "温雨",
+      "text": "总算找到了。",
+      "effective_chars": 5,
+      "duration_seconds": 4,
+      "duration_source": "declared",
+      "offscreen": true,
+      "characters_field": "温雨",
+      "scene": "后厨",
+      "props_field": "钥匙",
+      "bindings": [
+        {
+          "name": "温雨身份母版",
+          "type": "角色",
+          "official": true,
+          "asset_id": "71001",
+          "material_id": "81001",
+          "url": "https://example.invalid/rain.png"
+        },
+        {
+          "name": "后厨",
+          "type": "场景",
+          "official": true,
+          "asset_id": "71004",
+          "material_id": "81004",
+          "url": "https://example.invalid/kitchen.png"
+        }
+      ]
+    },
+    {
+      "shot": 7,
+      "line": 134,
+      "voice_type": "vo",
+      "speaker": "温雨",
+      "text": "先把眼前的事做好。",
+      "effective_chars": 8,
+      "duration_seconds": 3,
+      "duration_source": "declared",
+      "offscreen": true,
+      "characters_field": "温雨",
+      "scene": "后厨",
+      "props_field": "无",
+      "bindings": [
+        {
+          "name": "温雨身份母版",
+          "type": "角色",
+          "official": true,
+          "asset_id": "71001",
+          "material_id": "81001",
+          "url": "https://example.invalid/rain.png"
+        },
+        {
+          "name": "后厨",
+          "type": "场景",
+          "official": true,
+          "asset_id": "71004",
+          "material_id": "81004",
+          "url": "https://example.invalid/kitchen.png"
+        }
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "index": 1,
+      "shots": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "content_seconds": 23,
+      "content_duration_ms": 23000,
+      "submit_seconds": 24,
+      "natural_hold_seconds": 1,
+      "hold_instruction": "结尾保持自然反应、呼吸或动作收束，不新增台词",
+      "prompt": "真人短剧写实风格\n【镜头1】\n出镜人物：温雨\n核心场景：后厨\n关键道具：无\n景别：中景\n运镜：相机固定，拍温雨站在台面边、手掌按着台沿\n视角：相机视角平视\n主体状态追踪：\n【温雨】-位置：【站在@[后厨](kitchen)的台面边，台沿在身前，身后是通往门外的门口方向】；\n身体状态：【非孕期；青年；灰色围裙；长发；面容以@[温雨身份母版](rain-face)为准】；\n动作状态：【站着不动，一只手掌按在台沿上，肩线放松】；\n四层朝向链：【身体朝向台面，面部朝向台面，目光落在台沿上，眼神安静】；\n手部状态：【一只手掌按在台沿上，另一只手垂在围裙侧边】；\n情绪状态：【嘴唇放松，呼吸平稳，眉心舒展】；\n台词：温雨：等忙完再休息。\n发声类型：vo\n发声说明：温雨的内心声音，仅配音，不按这句对口型；画面仍是后厨内的温雨与台面。\n无噪点，无跳帧，五官稳定不变形\n\n真人短剧写实风格\n\n真人短剧写实风格\n【镜头2】\n出镜人物：温雨\n核心场景：后厨\n关键道具：无\n景别：近景\n运镜：相机小幅缓推，温雨仍站在台面边、手掌按着台沿\n视角：相机视角平视\n主体状态追踪：\n【温雨】-位置：【仍在@[后厨](kitchen)的台面边，手掌按着台沿，人没有离开台面】；\n身体状态：【非孕期；青年；灰色围裙；长发；面容以@[温雨身份母版](rain-face)为准】；\n动作状态：【手掌按着台沿，肩背微微收紧，抬起眼看向台面外侧】；\n四层朝向链：【身体朝向台面，面部微微抬起，目光落在台面外侧，眼神绷着】；\n手部状态：【手掌按在台沿上，指节压得紧】；\n情绪状态：【下颌收着，呼吸压得短而轻】；\n台词：温雨：今天不能出错。我要是喊出来，周明就会冲进来。\n发声类型：vo\n发声说明：温雨的内心声音，仅配音，不按这句对口型；周明只在这句心里话里被提到，不在画面中。\n无噪点，无跳帧，五官稳定不变形\n\n真人短剧写实风格\n\n真人短剧写实风格\n【镜头3】\n出镜人物：温雨\n核心场景：后厨\n关键道具：对讲机\n景别：中近景\n运镜：相机固定，温雨伸手拿起对讲机并送到唇边前方\n视角：相机视角平视\n主体状态追踪：\n【温雨】-位置：【站在@[后厨](kitchen)的台面边，把对讲机提到面前】；\n身体状态：【非孕期；青年；灰色围裙；长发；面容以@[温雨身份母版](rain-face)为准】；\n动作状态：【一手拿起@[对讲机](offline-intercom)，通话键保持按下，把声音压得很低地说出这句】；\n四层朝向链：【身体朝向台面，面部朝向对讲机，目光落在对讲机上，眼神专注】；\n手部状态：【一手持对讲机，拇指按在通话键上】；\n情绪状态：【眉心微收，嘴唇小幅开合，声音压得低】；\n台词：温雨：钥匙到底放哪了？\n发声类型：dialogue\n无噪点，无跳帧，五官稳定不变形\n\n真人短剧写实风格\n\n真人短剧写实风格\n【镜头4】\n出镜人物：温雨\n核心场景：后厨\n关键道具：对讲机\n景别：近景\n运镜：相机固定，温雨举着对讲机停在面前，听着门外的答复\n视角：相机视角平视\n主体状态追踪：\n【温雨】-位置：【仍站在@[后厨](kitchen)的台面边，对讲机停在唇边前方，通话键保持按下】；\n身体状态：【非孕期；青年；灰色围裙；长发；面容以@[温雨身份母版](rain-face)为准】；\n动作状态：【持着@[对讲机](offline-intercom)停在面前，抬起眼看向门口方向，听着这句答复】；\n四层朝向链：【身体朝向台面，面部转向门口方向，目光落在门口方向，眼神一动后定住】；\n手部状态：【一手持对讲机，拇指仍按在通话键上，没有换手】；\n情绪状态：【唇部合着，呼吸停了一下，眼神落向门口】；\n台词：周明（画外音）：在柜子下面。\n发声类型：vo\n发声说明：周明在门外实际说出这句，声音从门外传入后厨，现场可闻；温雨持着对讲机听这句，这句话由门外传来。\n无噪点，无跳帧，五官稳定不变形\n\n真人短剧写实风格\n\n真人短剧写实风格\n【镜头5】\n出镜人物：温雨\n核心场景：后厨\n关键道具：镜子\n景别：中景\n运镜：相机固定，温雨走到柜门的镜子前站定并整理围裙\n视角：相机视角平视\n主体状态追踪：\n【温雨】-位置：【从@[后厨](kitchen)的台面边走到柜门上@[镜子](offline-mirror)前站定，整个人落在镜面里】；\n身体状态：【非孕期；青年；灰色围裙；长发；面容以@[温雨身份母版](rain-face)为准】；\n动作状态：【走到柜门前停下，双手把围裙抹平，抬眼看向镜中的自己，低声说出这句】；\n四层朝向链：【身体朝向柜门，面部朝向镜面，目光落在镜中的自己上，眼神缓下来】；\n手部状态：【双手捏着围裙下摆抹平】；\n情绪状态：【嘴角轻轻动了一下，呼吸放缓，眉间松开】；\n台词：温雨：别着急。\n发声类型：dialogue\n发声说明：温雨对着镜中的自己低声说出这句，是现场可闻的低声对白，不是内心旁白；镜中只映出她本人。\n无噪点，无跳帧，五官稳定不变形\n\n真人短剧写实风格\n\n真人短剧写实风格\n【镜头6】\n出镜人物：温雨\n核心场景：后厨\n关键道具：钥匙\n景别：中景\n运镜：相机下压俯拍，温雨趴在地上，手臂探进柜底\n视角：相机视角俯视\n主体状态追踪：\n【温雨】-位置：【趴在@[后厨](kitchen)柜门前的地面上，上半身贴向地面，柜门下方是柜底缝隙】；\n身体状态：【非孕期；青年；灰色围裙；长发；面容以@[温雨身份母版](rain-face)为准】；\n动作状态：【趴下身子，一只手臂探进柜底，手指夹住钥匙往外取，取到后把钥匙攥在掌心】；\n四层朝向链：【身体俯向柜底，面部侧向柜门下方，目光落在柜底缝隙里，眼神专注】；\n手部状态：【一手撑在地面上，另一只手伸进柜底取出钥匙】；\n情绪状态：【侧脸贴近地面，眉头松开，呼吸放轻】；\n台词：温雨：总算找到了。\n发声类型：vo\n发声说明：温雨的内心声音，仅配音，不按这句对口型；画面保持趴地取钥匙的动作。\n无噪点，无跳帧，五官稳定不变形\n\n真人短剧写实风格\n\n真人短剧写实风格\n【镜头7】\n出镜人物：温雨\n核心场景：后厨\n关键道具：无\n景别：近景\n运镜：相机固定，温雨站回台面边，扶着台沿\n视角：相机视角平视\n主体状态追踪：\n【温雨】-位置：【从柜门前起身走回@[后厨](kitchen)的台面边，重新站到台沿前】；\n身体状态：【非孕期；青年；灰色围裙；长发；面容以@[温雨身份母版](rain-face)为准】；\n动作状态：【走回台面边站定，一手扶着台沿，抬眼看向台面】；\n四层朝向链：【身体朝向台面，面部朝向台面，目光落在台面上，眼神定下来】；\n手部状态：【一手扶着台沿，另一只手自然垂在身侧】；\n情绪状态：【嘴唇合着，呼吸长而稳】；\n台词：温雨：先把眼前的事做好。\n发声类型：vo\n发声说明：温雨的内心声音，仅配音，不按这句对口型。\n无噪点，无跳帧，五官稳定不变形",
+      "material_keys": [
+        "kitchen",
+        "rain-face",
+        "offline-intercom",
+        "offline-mirror"
+      ],
+      "material_names": [
+        "后厨",
+        "温雨身份母版",
+        "对讲机",
+        "镜子"
+      ],
+      "material_bindings": [
+        {
+          "material_key": "kitchen",
+          "name": "后厨",
+          "type": "场景",
+          "official": true,
+          "asset_id": "71004",
+          "material_id": "81004",
+          "url": "https://example.invalid/kitchen.png",
+          "reference_scope": "appearance"
+        },
+        {
+          "material_key": "rain-face",
+          "name": "温雨身份母版",
+          "type": "角色",
+          "official": true,
+          "asset_id": "71001",
+          "material_id": "81001",
+          "url": "https://example.invalid/rain.png",
+          "reference_scope": "identity"
+        },
+        {
+          "material_key": "offline-intercom",
+          "name": "对讲机",
+          "type": "道具",
+          "official": true,
+          "asset_id": "71006",
+          "material_id": "81006",
+          "url": "https://example.invalid/offline-intercom.png",
+          "reference_scope": "appearance"
+        },
+        {
+          "material_key": "offline-mirror",
+          "name": "镜子",
+          "type": "道具",
+          "official": true,
+          "asset_id": "71007",
+          "material_id": "81007",
+          "url": "https://example.invalid/offline-mirror.png",
+          "reference_scope": "appearance"
+        }
+      ]
+    }
+  ],
+  "failures": [],
+  "warnings": [
+    {
+      "severity": "warning",
+      "code": "legacy_duration_mismatch",
+      "line": 26,
+      "shot": 1,
+      "message": "镜头1估算为1秒，采用声明的2秒。请试听确认语速、停顿与动作时间；估算不覆盖导演声明。"
+    },
+    {
+      "severity": "warning",
+      "code": "speech_above_writing_threshold",
+      "line": 44,
+      "shot": 2,
+      "message": "镜头2语音19字，超过 15 字的写作阈值：按 8 有效字/秒记为 3 秒、不阻塞编译；原文语义上还能拆就拆成连续镜头（不删字、不改顺序）。"
+    },
+    {
+      "severity": "warning",
+      "code": "legacy_duration_mismatch",
+      "line": 47,
+      "shot": 2,
+      "message": "镜头2估算为3秒，采用声明的4秒。请试听确认语速、停顿与动作时间；估算不覆盖导演声明。"
+    },
+    {
+      "severity": "warning",
+      "code": "legacy_duration_mismatch",
+      "line": 67,
+      "shot": 3,
+      "message": "镜头3估算为1秒，采用声明的3秒。请试听确认语速、停顿与动作时间；估算不覆盖导演声明。"
+    },
+    {
+      "severity": "warning",
+      "code": "legacy_duration_mismatch",
+      "line": 88,
+      "shot": 4,
+      "message": "镜头4估算为1秒，采用声明的3秒。请试听确认语速、停顿与动作时间；估算不覆盖导演声明。"
+    },
+    {
+      "severity": "warning",
+      "code": "legacy_duration_mismatch",
+      "line": 109,
+      "shot": 5,
+      "message": "镜头5估算为1秒，采用声明的4秒。请试听确认语速、停顿与动作时间；估算不覆盖导演声明。"
+    },
+    {
+      "severity": "warning",
+      "code": "legacy_duration_mismatch",
+      "line": 130,
+      "shot": 6,
+      "message": "镜头6估算为1秒，采用声明的4秒。请试听确认语速、停顿与动作时间；估算不覆盖导演声明。"
+    },
+    {
+      "severity": "warning",
+      "code": "legacy_duration_mismatch",
+      "line": 151,
+      "shot": 7,
+      "message": "镜头7估算为1秒，采用声明的3秒。请试听确认语速、停顿与动作时间；估算不覆盖导演声明。"
+    }
+  ],
+  "written": [
+    "{{cwd}}/shot_reviews/01/shot_script.txt",
+    "{{cwd}}/shot_reviews/01/review.json"
+  ],
+  "summary": {
+    "shots": 7,
+    "packages": 1,
+    "content_seconds": 23,
+    "failures": 0,
+    "warnings": 8
+  }
+}

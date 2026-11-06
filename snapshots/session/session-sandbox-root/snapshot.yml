@@ -6,8 +6,8 @@ recording: authored
 header:
   class: session-sandbox-root
   pin: true
-  systemPromptSource: text-turn
-  toolSchemasSource: text-turn
+  systemPromptSource: tool-call-turn
+  toolSchemasSource: tool-call-turn
 replay:
   override: true
 permission: workspace-write

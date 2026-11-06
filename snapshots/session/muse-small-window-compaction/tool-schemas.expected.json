@@ -7436,57 +7436,7 @@
               "resource-07346",
               "resource-07347",
               "resource-07348",
-              "resource-07349",
-              "resource-07350",
-              "resource-07351",
-              "resource-07352",
-              "resource-07353",
-              "resource-07354",
-              "resource-07355",
-              "resource-07356",
-              "resource-07357",
-              "resource-07358",
-              "resource-07359",
-              "resource-07360",
-              "resource-07361",
-              "resource-07362",
-              "resource-07363",
-              "resource-07364",
-              "resource-07365",
-              "resource-07366",
-              "resource-07367",
-              "resource-07368",
-              "resource-07369",
-              "resource-07370",
-              "resource-07371",
-              "resource-07372",
-              "resource-07373",
-              "resource-07374",
-              "resource-07375",
-              "resource-07376",
-              "resource-07377",
-              "resource-07378",
-              "resource-07379",
-              "resource-07380",
-              "resource-07381",
-              "resource-07382",
-              "resource-07383",
-              "resource-07384",
-              "resource-07385",
-              "resource-07386",
-              "resource-07387",
-              "resource-07388",
-              "resource-07389",
-              "resource-07390",
-              "resource-07391",
-              "resource-07392",
-              "resource-07393",
-              "resource-07394",
-              "resource-07395",
-              "resource-07396",
-              "resource-07397",
-              "resource-07398",
-              "resource-07399"
+              "resource-07349"
             ]
           }
         }
@@ -8317,9 +8267,17 @@
             "type": "number",
             "description": "1-based first line to return. Defaults to 1."
           },
+          "column": {
+            "type": "number",
+            "description": "1-based Unicode code-point column on the first line. Defaults to 1; use the returned continuation without skipping a partial line."
+          },
           "limit": {
             "type": "number",
             "description": "Maximum number of lines to return. Defaults to 2000."
+          },
+          "expected_version": {
+            "type": "string",
+            "description": "Provider version from the preceding read; a changed file requires restarting the read."
           }
         },
         "required": [
@@ -16159,57 +16117,7 @@
                 "resource-07346",
                 "resource-07347",
                 "resource-07348",
-                "resource-07349",
-                "resource-07350",
-                "resource-07351",
-                "resource-07352",
-                "resource-07353",
-                "resource-07354",
-                "resource-07355",
-                "resource-07356",
-                "resource-07357",
-                "resource-07358",
-                "resource-07359",
-                "resource-07360",
-                "resource-07361",
-                "resource-07362",
-                "resource-07363",
-                "resource-07364",
-                "resource-07365",
-                "resource-07366",
-                "resource-07367",
-                "resource-07368",
-                "resource-07369",
-                "resource-07370",
-                "resource-07371",
-                "resource-07372",
-                "resource-07373",
-                "resource-07374",
-                "resource-07375",
-                "resource-07376",
-                "resource-07377",
-                "resource-07378",
-                "resource-07379",
-                "resource-07380",
-                "resource-07381",
-                "resource-07382",
-                "resource-07383",
-                "resource-07384",
-                "resource-07385",
-                "resource-07386",
-                "resource-07387",
-                "resource-07388",
-                "resource-07389",
-                "resource-07390",
-                "resource-07391",
-                "resource-07392",
-                "resource-07393",
-                "resource-07394",
-                "resource-07395",
-                "resource-07396",
-                "resource-07397",
-                "resource-07398",
-                "resource-07399"
+                "resource-07349"
               ]
             }
           }
@@ -17040,9 +16948,17 @@
               "type": "number",
               "description": "1-based first line to return. Defaults to 1."
             },
+            "column": {
+              "type": "number",
+              "description": "1-based Unicode code-point column on the first line. Defaults to 1; use the returned continuation without skipping a partial line."
+            },
             "limit": {
               "type": "number",
               "description": "Maximum number of lines to return. Defaults to 2000."
+            },
+            "expected_version": {
+              "type": "string",
+              "description": "Provider version from the preceding read; a changed file requires restarting the read."
             }
           },
           "required": [

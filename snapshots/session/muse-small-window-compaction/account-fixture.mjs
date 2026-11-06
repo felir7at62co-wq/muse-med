@@ -24,7 +24,7 @@ export const name = 'snapshot-small-window-compaction'
 /** Normal profile services used by the fixture account, request meter and tools. */
 export const inject = ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'tokenMeter', 'sessions']
 
-const resources = Array.from({ length: 7400 }, (_value, index) => `resource-${index.toString().padStart(5, '0')}`)
+const resources = Array.from({ length: 7350 }, (_value, index) => `resource-${index.toString().padStart(5, '0')}`)
 
 /** Stable sub-threshold tool values; the shipped pruner retains each complete result.
  * @param {string} resource - Resource selected from the real JSON Schema enumeration.
@@ -109,15 +109,21 @@ export async function apply(ctx) {
           assert.equal(payload.max_tokens, step.summary ? 8192 : 32768)
           const measurement = ctx.tokenMeter.measure(active.session)
           const summaries = active.session.snapshotEvents().filter(event => event.type === 'compaction/summary')
-          if (requests.length === 0) assert.ok(measurement.totalTokens > 35000 && measurement.totalTokens < 41000)
-          if (!step.summary && summaries.length === 0) assert.ok(measurement.totalTokens > 29696 && measurement.totalTokens < 78848)
-          if (step.summary) assert.ok(measurement.totalTokens >= 78848)
+          if (requests.length === 0) assert.ok(measurement.totalTokens > 35000 && measurement.totalTokens < 41000,
+            `Initial request tokens: ${measurement.totalTokens}`)
+          if (!step.summary && summaries.length === 0) assert.ok(measurement.totalTokens > 29696 && measurement.totalTokens < 78848,
+            `Pre-compaction request ${requests.length} tokens: ${measurement.totalTokens}`)
+          if (step.summary) assert.ok(measurement.totalTokens >= 78848,
+            `Summary request ${requests.length} tokens: ${measurement.totalTokens}`)
           requests.push({ summary: step.summary, tokens: measurement.totalTokens })
           response.writeHead(200, { 'content-type': 'text/event-stream' }); response.end(completion(step.content)); return
         }
         response.writeHead(404); response.end()
       } catch (error) {
         rejected = error
+        if (error instanceof assert.AssertionError) {
+          process.stderr.write(`snapshot-small-window request ${requests.length}: ${error.message}\n`)
+        }
         response.writeHead(500, { 'content-type': 'application/json' }); response.end('{"error":{"message":"Pressure snapshot mismatch"}}')
       }
     })
