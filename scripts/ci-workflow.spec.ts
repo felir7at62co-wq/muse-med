@@ -429,7 +429,8 @@ describe('CI workflow', () => {
     expect(node24Bench.env).toBeUndefined()
     expect(node24Bench.steps).toContainEqual({
       name: 'Install benchmark browser and hosted dependencies',
-      run: 'pnpm --filter @deepseek-ai/dsh-benchmarks exec playwright install --with-deps chromium',
+      'timeout-minutes': 15,
+      run: 'sudo -- "$(command -v node)" "${GITHUB_WORKSPACE}/scripts/prepare-ci-apt.mjs"\npnpm --filter @deepseek-ai/dsh-benchmarks exec playwright install --with-deps chromium\n',
     })
     expect(JSON.stringify(node24Bench.steps)).not.toContain('DSH_CI_FAILOVER_LINUX')
     expect(node24Bench.steps).toContainEqual({
