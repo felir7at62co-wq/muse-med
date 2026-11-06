@@ -2068,3 +2068,42 @@ it('requires saved review identity and current source when reopening and preserv
   expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SOURCE_CHANGED')
   expect(h.review()).toEqual(reopened)
 })
+
+it('rejects supplemental timestamps for non-scan methods before changing saved observations', async () => {
+  const h = await fixture()
+  await h.run(h.call('status', { timestamps_seconds: [0.5] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('补看时间仅用于scan')
+  expect(reviewsOf(h.ctx, h.agent.session)).toEqual({})
+})
+
+it('rejects an out-of-duration initial supplemental timestamp before creating a review', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan', { timestamps_seconds: [3] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('补看时间必须小于真实视频时长')
+  expect(reviewsOf(h.ctx, h.agent.session)).toEqual({})
+})
+
+it('sorts multiple supplemental timestamps and preserves the source review when its frame bound is exceeded', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), undefined)
+  const before = h.review()
+  await h.plugin.dispose()
+  await h.ctx.plugin(Video, Video.Config({ requireCompleteReview: true, reviewBatchFrames: 2,
+    reviewChunkSeconds: 2, reviewMaxFrames: before.frames.length })).await()
+  await h.run(h.call('scan', { timestamps_seconds: [2.34567, 0.12345] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_SCAN_LIMIT')
+  expect(h.review()).toEqual(before)
+})
+
+it('keeps legacy report-path presentation separate from missing source-issuance hashes', async () => {
+  const h = await fixture()
+  await h.run(h.call('metadata'), undefined)
+  const block = h.results().at(-1)?.content.find(block => block.type === 'text')
+  if (block?.type !== 'text') throw Error('Missing actual metadata output')
+  const value = JSON.parse(block.text) as Record<string, unknown>
+  const legacy = JSON.stringify({ ...value, path: h.input, source_version: 'legacy-source', observation_report: 'legacy-report.json' })
+  const meta = h.ctx.tools.get('video_inspect')?.output.presentationMeta?.({}, legacy)
+  expect(meta).toMatchObject({ videoReviewEvidence: { observationReport: 'legacy-report.json' } })
+  expect(meta).toHaveProperty('videoReviewEvidence')
+  expect((meta as { videoReviewEvidence: object }).videoReviewEvidence).not.toHaveProperty('sha256')
+})
