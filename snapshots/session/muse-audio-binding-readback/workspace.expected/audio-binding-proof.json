@@ -1,0 +1,16 @@
+{
+  "canonicalAudioNames": [
+    "秦铭",
+    "苏浩"
+  ],
+  "canonicalPreviewReachedModel": true,
+  "verifiedResultReachedModel": true,
+  "initialBindingVerified": true,
+  "laterNameChangeVerified": false,
+  "mismatchedFields": [
+    "storyboardMaterialList"
+  ],
+  "reconciliationReplayed": true,
+  "freeProviderPuts": 1,
+  "paidProviderRequests": 0
+}

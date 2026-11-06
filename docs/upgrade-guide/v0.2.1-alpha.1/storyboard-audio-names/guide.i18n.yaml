@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.1-alpha.1/storyboard-audio-names/guide.md
+/:
+  en: d6435857c8a1c010
+  zh: de73c4586a462425
+/storyboard-audio-names-and-prepared-edits:
+  en: 8255001893b747db
+  zh: a1b0cc71f251bd84
+/storyboard-audio-names-and-prepared-edits/change:
+  en: 8561286446384dea
+  zh: 82f021f915dd45d3
+/storyboard-audio-names-and-prepared-edits/migration:
+  en: acc85ab8f2b694ba
+  zh: 893e25b77012b9e1

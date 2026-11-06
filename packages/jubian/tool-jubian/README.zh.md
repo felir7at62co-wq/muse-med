@@ -343,6 +343,10 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 `jubian_asset register asset_type=4` 登记已上传声线。`audio_list`、`audio_get` 读取真实项目音频身份与 URL，不猜时长。登记通过完整列表对照项目、名称、URL；结果不唯一时不猜 ID。同 key 对账不再次登记。`jubian_storyboard audio_preview` 接受原卡 ID、项目绑定、完整提示词与最终有序 `audio_references`；`[]` 移除全部音频。可选 `audio_asset_id` 核对项目、类别与 URL，不编造提供方材质 ID。`audio_apply` 要求同一原卡 ID、已检查指纹与 key；发送一次 `isGenerate=0` PUT，保留图片、模型、时长、集数，再核对真实回读。未知写入只沿用原 key 对账。改动后重新 `prepare_video`。
 
+新音频引用须有非空 `fileName` 或 `materialName`。预览从 `materialName` 补齐缺失或空白的 `fileName`，并冻结最终名称。模型配置保留 `materialName`；音频关系行保存 `fileName`，不依赖提供方在关系行中保留 `materialName`。回读仍须确认保存的文件名、URL、key 与顺序一致。音频提示词标签不能为空；同一 key 的重复引用须保持相同标签，key 的首次出现顺序须与音频列表一致。
+
+只有 `status=applied` 且 `verified_readback=true` 才可报告音频绑定完成；它验证保存的引用，不验证成品说话人的声音。`mismatched_fields` 标出不一致的保存字段，不返回字段值；`next` 说明允许的恢复方式。保存被接受但返回 `readback_mismatch` 时仍未验证；读取卡片并沿原 key 对账，不能假定不一致由时序造成，也不能换新 key 再次保存。已认领的预览只用于只读对账。未认领的旧预览若因当前文件名规范化而不再匹配请求，应重新预览，不得编辑冻结文件或指纹。
+
 角色感知引用同时提供 `character_id`，分期声线还须提供 `voice_period_id`。其精确资产 ID 和 URL 必须匹配当前项目角色及人生时期；儿童声线不能替代成年声线，更换服装保留声线时期。已删除资产不能绑定；分期引用还须有提供方明确有效的证据（delFlag=0 且没有矛盾的删除字段）。分期引用的有效状态未知时不保存该卡，其他独立工作可继续。冻结预览保存选定声音配置，并在新保存前复验。提供方材质行不接收本地身份字段。仅 URL 引用保留已有兼容性，但不验证说话人身份。
 
 共享声线登记同时提供 character_id 与 voice_period_id。规范音频名称后缀保留精确项目／人物／人生时期，普通名称不能认领声线。完整库存先复用已有候选。首次创建带共享身份的音频需要仅供 Host 使用的 Muse 账号协调器：认领槽、持久化开始状态，再用原账本 key 提交一次。忙碌、不可用或已经提交的状态不会另发 POST。完成时核对真实音频资产，再向协作者发布，客户端还会独立回读资产。coordination_state 与 exclusive_registration 表示协调状态，atomic_registration=false 保留供应商限制。旧客户端和剧变网页不参与协调，重复条目仍如实报告且不自动删除。已提交认领不会到期后放行新创建，未知结果沿原 key 对账。采用录音仍需核对实际说话人与时期。迁移或清理前，用[共享用途查询](../../drama/tool-drama-assets/README.zh.md#shared-project-uses)定位当前绑定。
