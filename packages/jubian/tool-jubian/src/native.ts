@@ -1253,13 +1253,13 @@ Promise<VideoBatchReport> {
     const item = items[index] as FrozenBatchItem
     assertRecordedVideo(entry, item.preview)
   })
-  if (recorded.some(entry => entry !== undefined)) {
-    if (recorded.some(entry => entry === undefined)) {
+  const existing = recorded.filter(entry => entry !== undefined)
+  if (existing.length > 0) {
+    if (existing.length !== items.length) {
       throw new JubianError('CONTRACT_CHANGED', 'A partially recorded batch needs read-only per-key reconciliation')
     }
-    const results = await Promise.all(items.map((item, index) => limitedRead(async () => {
-      const entry = recorded[index]
-      if (entry === undefined) return fail()
+    const results = await Promise.all(existing.map((entry, index) => limitedRead(async () => {
+      const item = items[index] as FrozenBatchItem
       const result = await reconcileNativePreview(client, entry, item.preview, item.preview_path)
       const identity = { storyboard_id: item.preview.storyboardId }
       return result.status === 'submitted' ? { ...result, ...identity } : { ...result, ...identity,

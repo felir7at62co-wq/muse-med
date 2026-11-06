@@ -1067,6 +1067,84 @@ describe('submit_video', () => {
     expect(await ledger.records()).toEqual([])
   })
 
+  it.each([null, [], { episodes: null }, { episodes: [] }])
+  ('refuses malformed persisted hold records %j before a new dispatch', async (state) => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const path = join(file.directory, 'pipeline_state.json')
+    const packs = [{ previewPath: file.previewPath, key: file.idempotencyKey }]
+    await writeFile(path, JSON.stringify(state))
+    await expect(assertNewNativeDispatchAllowed(ledger, packs)).rejects.toThrow('EPISODE_STATE_UNREADABLE')
+    await writeFile(path, JSON.stringify({ episodes: {} }))
+    await expect(assertNewNativeDispatchAllowed(ledger, packs)).resolves.toBeUndefined()
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('refuses a hold path that is a directory without admitting a paid intent', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    await mkdir(join(file.directory, 'pipeline_state.json'))
+    await expect(assertNewNativeDispatchAllowed(ledger,
+      [{ previewPath: file.previewPath, key: file.idempotencyKey }])).rejects.toThrow('EPISODE_STATE_UNREADABLE')
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('keeps an already-recorded watch read-only while a manual hold blocks fresh dispatch', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 1 },
+      tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const { payload } = JSON.parse(await readFile(file.previewPath, 'utf8')) as NativeVideoPreview
+    await ledger.begin({ idempotencyKey: file.idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit',
+      requestSha256: bodyHash(payload) })
+    const records = await ledger.records()
+    await writeFile(join(file.directory, 'pipeline_state.json'), JSON.stringify({ episodes: { '1': {
+      video_tasks: { status: 'blocked', status_source: 'manual', metadata: { script_id: 2708, provider_episode_id: 130221 } },
+    } } }))
+    await expect(assertNewNativeDispatchAllowed(ledger,
+      [{ previewPath: file.previewPath, key: file.idempotencyKey }])).resolves.toBeUndefined()
+    expect(provider.calls).toEqual([])
+    await expect(reconcileRecordedVideo(clientFor(provider), ledger,
+      { preview_path: file.previewPath, idempotency_key: file.idempotencyKey }))
+      .resolves.toMatchObject({ replayed: true, status: 'reconcile_required' })
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual(records)
+  })
+
+  it.each([
+    null,
+    { video_tasks: { status: 'completed' } },
+    { video_tasks: { status: 'blocked', status_source: 'auto', metadata: { script_id: 2708 } } },
+    { video_tasks: { status: 'blocked', status_source: 'manual', metadata: { script_id: 2709 } } },
+  ])('does not interpret an unrelated stage %j as an operator hold', async (stage) => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 1 },
+      tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    await writeFile(join(file.directory, 'pipeline_state.json'), JSON.stringify({ episodes: { '1': stage } }))
+    await expect(assertNewNativeDispatchAllowed(ledger,
+      [{ previewPath: file.previewPath, key: file.idempotencyKey }])).resolves.toBeUndefined()
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each(['130221', Number.MAX_SAFE_INTEGER + 1, 0, 1.5])
+  ('refuses a matching episode-count hold with unverifiable provider ID %j', async (providerEpisodeId) => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 1 },
+      tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const path = join(file.directory, 'pipeline_state.json')
+    const state = (id: string | number) => ({ episodes: { '1': { video_tasks: { status: 'blocked', status_source: 'manual',
+      metadata: { script_id: 2708, provider_episode_id: id } } } } })
+    const packs = [{ previewPath: file.previewPath, key: file.idempotencyKey }]
+    await writeFile(path, JSON.stringify(state(providerEpisodeId)))
+    await expect(assertNewNativeDispatchAllowed(ledger, packs)).rejects.toThrow('EPISODE_PAID_HOLD')
+    await writeFile(path, JSON.stringify(state(130222)))
+    await expect(assertNewNativeDispatchAllowed(ledger, packs)).resolves.toBeUndefined()
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
   it.each(['single', 'batch'] as const)('checks the physical project hold through a linked video_tasks directory for %s', async (kind) => {
     const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 50 },
       tasks: [], subtasks: {} }
@@ -1464,6 +1542,81 @@ describe('submit_video', () => {
       replayed: true, status: 'submitted', task_id: '335343',
     })
     expect(putCalls(provider)).toEqual([])
+  })
+
+  it('forwards cancellation to every reconciliation read and rejects an already-aborted read', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const item = { preview_path: previewPath, idempotency_key: idempotencyKey }
+    const { payload } = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    await ledger.begin({ idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit',
+      requestSha256: bodyHash(payload) })
+    provider.tasks = [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 }]
+    provider.subtasks['335343'] = [childOf(payload)]
+    const transport = vi.fn(transportFor(provider))
+    const client = new JubianClient({ credential: async () => 'token', fetch: transport })
+    const controller = new AbortController()
+    await expect(reconcileRecordedVideo(client, ledger, item, controller.signal))
+      .resolves.toMatchObject({ replayed: true, status: 'submitted', task_id: '335343' })
+    expect(transport.mock.calls).toHaveLength(3)
+    expect(transport.mock.calls.every(([, init]) => init?.signal instanceof AbortSignal)).toBe(true)
+    controller.abort()
+    await expect(reconcileRecordedVideo(client, ledger, item, controller.signal)).rejects.toMatchObject({ name: 'AbortError' })
+    expect(transport.mock.calls).toHaveLength(3)
+    expect(putCalls(provider)).toEqual([])
+  })
+
+  it.each(['singleton', 'null', 'list', 'id-alias'] as const)
+  ('reconciles a %s child envelope without another submission', async (shape) => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const { payload } = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    await ledger.begin({ idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit', requestSha256: bodyHash(payload) })
+    provider.tasks = [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 }]
+    const child = childOf(payload)
+    provider.subtaskPage = () => shape === 'singleton' ? child : shape === 'null' ? null
+      : shape === 'list' ? { list: [child], hasMore: false }
+        : { rows: [{ ...child, id: null, subTaskId: '972949' }], hasMore: false }
+    const result = await reconcileRecordedVideo(clientFor(provider), ledger,
+      { preview_path: previewPath, idempotency_key: idempotencyKey })
+    expect(result?.status).toBe(shape === 'null' ? 'reconcile_conflict' : 'submitted')
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toHaveLength(1)
+  })
+
+  it.each([
+    { label: 'total-only', page: { total: 1 }, error: 'expected envelope' },
+    { label: 'hasMore-only', page: { hasMore: false }, error: 'expected envelope' },
+    { label: 'non-scalar child ID', page: { rows: [{ id: {} }], hasMore: false }, error: 'unique child IDs' },
+    { label: 'blank child ID', page: { rows: [{ id: '  ' }], hasMore: false }, error: 'unique child IDs' },
+    { label: 'premature end', page: { total: 2, rows: [{ id: 1 }], hasMore: false }, error: 'do not match their total' },
+    { label: 'empty total page', page: { total: 2, rows: [], hasMore: true }, error: 'do not match their total' },
+    { label: 'empty continuing page', page: { rows: [], hasMore: true }, error: 'empty before the last page' },
+  ])('refuses $label subtask evidence without writing another intent', async ({ page, error }) => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const { payload } = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    await ledger.begin({ idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit', requestSha256: bodyHash(payload) })
+    provider.tasks = [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 }]
+    provider.subtaskPage = () => page
+    await expect(reconcileRecordedVideo(clientFor(provider), ledger,
+      { preview_path: previewPath, idempotency_key: idempotencyKey })).rejects.toThrow(error)
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toHaveLength(1)
+  })
+
+  it('stops subtask reconciliation after the provider keeps promising more pages', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const { payload } = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    await ledger.begin({ idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit', requestSha256: bodyHash(payload) })
+    provider.tasks = [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 }]
+    provider.subtaskPage = (_, page) => ({ rows: [{ id: page }], hasMore: true })
+    await expect(reconcileRecordedVideo(clientFor(provider), ledger,
+      { preview_path: previewPath, idempotency_key: idempotencyKey })).rejects.toThrow('page limit')
+    expect(provider.calls.filter(call => call.path.includes('/task/sub/list?'))).toHaveLength(20)
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toHaveLength(1)
   })
 
   it('does not expose an unexpected local exception in the submission result', async () => {
