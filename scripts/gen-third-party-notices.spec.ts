@@ -310,6 +310,12 @@ describe('parsePyprojectRequirements', () => {
 })
 
 describe('collectPythonDependencies', () => {
+  it('discloses the Muse Session verification codec as a test-only Python dependency', () => {
+    expect(collectPythonDependencies(['[dependency-groups]\ntest = ["zstandard==0.25.0"]\n'])).toEqual([{
+      name: 'zstandard', license: 'BSD-3-Clause', repo: 'https://github.com/indygreg/python-zstandard', role: 'test-only',
+    }])
+  })
+
   it('labels shared Python metadata in the Python-project context', () => {
     const dependencies = collectPythonDependencies(['[project]\ndependencies = ["numpy", "pandas", "six", "tzdata"]\n'])
     expect(dependencies.map(({ role }) => role)).toEqual(Array(4).fill('Python project dependency'))

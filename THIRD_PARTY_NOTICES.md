@@ -279,6 +279,7 @@ Direct dependencies of the `pyproject.toml` manifests, plus `uv` as the developm
 | [`hatchling`](https://github.com/pypa/hatch) | MIT | build backend |
 | [`pydantic`](https://github.com/pydantic/pydantic) | MIT | runtime dependency of `deepseek-harness-sdk` |
 | [`pytest`](https://github.com/pytest-dev/pytest) | MIT | test-only |
+| [`zstandard`](https://github.com/indygreg/python-zstandard) | BSD-3-Clause | test-only |
 | [`uv`](https://github.com/astral-sh/uv) | MIT / Apache-2.0 | development workflow tool |
 
 ## Bundled Python distributions
