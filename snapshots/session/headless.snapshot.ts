@@ -914,6 +914,15 @@ const workspaceSensitiveBudgetScenarios = new Set([
   'muse-working-budget-stop',
 ])
 
+function verifyResidentUiReplay(events: ReturnType<typeof parseSessionLog>, tool: 'ask_user' | 'show_view'): void {
+  const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data.name] : [])
+  expect(calls, 'resident UI replay tool calls remain intact').toEqual([tool])
+  const hostOnlyCatalog = events.some(event => event.type === 'user/message'
+    && event.data.source.kind === 'skill-catalog'
+    && event.data.source.entries.some(entry => entry.name === 'diagnose-windows-sandbox-acl'))
+  expect(hostOnlyCatalog, 'resident UI replay keeps a platform-neutral skill catalog').toBe(false)
+}
+
 function workspaceBudgetExpected(actual: readonly JsonObject[], expected: JsonObject[]): JsonObject[] {
   if (actual.length !== expected.length) return expected
   return expected.map((row, index) => {
@@ -1147,6 +1156,33 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
 }
 
 describe('headless recorded-session snapshots', () => {
+  it.each([
+    ['muse-resident-question', 'ask_user'],
+    ['muse-resident-view', 'show_view'],
+  ] as const)('%s rejects dropped tool calls and an unexpected host-only catalog', async (owner, tool) => {
+    const log = await readFile(join(snapshotsRoot, owner, 'writer.expected.jsonl'), 'utf8')
+    const events = parseSessionLog(log)
+    expect(() => verifyResidentUiReplay(events, tool)).not.toThrow()
+    const droppedCall = events.filter(event => event.type !== 'tool/call')
+    expect(() => verifyResidentUiReplay(droppedCall, tool)).toThrow('tool calls remain intact')
+    const changedCall = log.replaceAll(`"name":"${tool}"`, '"name":"bash"')
+    expect(() => verifyResidentUiReplay(parseSessionLog(changedCall), tool)).toThrow('tool calls remain intact')
+    const unexpectedCatalog = {
+      type: 'user/message',
+      surfaceOp: 'append',
+      data: {
+        content: [{ type: 'text', text: 'Unexpected host-only skill' }],
+        role: 'user',
+        id: 'unexpected-catalog',
+        source: { kind: 'skill-catalog', form: 'catalog', entries: [
+          { name: 'diagnose-windows-sandbox-acl', description: 'Unexpected host-only skill' },
+        ] },
+      },
+    }
+    expect(() => verifyResidentUiReplay(parseSessionLog(log + JSON.stringify(unexpectedCatalog) + '\n'), tool))
+      .toThrow('platform-neutral skill catalog')
+  })
+
   it('preserves the recorded working budget decision and other context fields', () => {
     const context = (estimate: number) => ({
       type: 'request/context', data: { model: 'test-model', workingContextTokens: estimate, workingTokenLimit: 100 },
@@ -1700,6 +1736,9 @@ describe('headless recorded-session snapshots', () => {
               const saved = await readFile(join(cwd, '.dsh/profiles/headless/cordis.patch.yml'), 'utf8')
               expect(saved).toContain('id: demo')
               expect(saved).toContain('disabled: false')
+            }
+            if (scenario.name === 'muse-resident-question' || scenario.name === 'muse-resident-view') {
+              verifyResidentUiReplay(parseSessionLog(actualLogs[0]!.content), scenario.name === 'muse-resident-question' ? 'ask_user' : 'show_view')
             }
             if (scenario.name === 'muse-resident-question') {
               const events = parseSessionLog(actualLogs[0]!.content)
