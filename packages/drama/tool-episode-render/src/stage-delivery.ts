@@ -226,17 +226,17 @@ async function checkPreparedSources(project: string, episode: string, render: De
   }
   if (reviews.length > 0 || previouslyReviewed) {
     if (source.shots.some((item) => {
-      if (!object(item) || typeof item.shot !== 'number') return true
-      const row = approved.get(item.shot)
-      return row === undefined || row.videoSha256 !== item.sha256 || row.audioSha256 !== item.audio_sha256
-        || row.reviewSha256 !== item.review_sha256
+      const stored = item as { shot: number; sha256?: unknown; audio_sha256?: unknown; review_sha256?: unknown }
+      const row = approved.get(stored.shot)
+      return row === undefined || row.videoSha256 !== stored.sha256 || row.audioSha256 !== stored.audio_sha256
+        || row.reviewSha256 !== stored.review_sha256
     })) {
       throw new Error('已准备的画面、原声或审核版本与工作成片不符，请重新 prepare 和渲染。')
     }
   }
   if (sourceSha !== await localDigest(paths.sources)) throw new Error('归档期间已准备选源已变化。')
   return { sourceSha, rows, approved, sourceQa, separateAudio: rows.some(row => hasSeparateAudio(project, row)),
-    reviewedAudioHashes: reviews.flatMap(row => row.audioSha256 === undefined ? [] : [row.audioSha256]) }
+    reviewedAudioHashes: reviews.map(row => row.audioSha256).filter(sha => sha !== undefined) }
 }
 
 /** Compare against current source-bound word evidence before publishing a strict candidate. */
