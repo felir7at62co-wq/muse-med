@@ -336,35 +336,75 @@ describe('work mapping through real agents, questions and project files', () => 
     await expect(f.call({ action: 'lookup', sourceRef: ref(f.qimao, '101'), mappingId: direct.mappingId })).rejects.toThrow();
   });
 
-  it('rejects a competing writer from another provider instance at atomic revision publication', async () => {
+  it('limits proposal publication across a shared filesystem and two service scopes', async () => {
+    const f = await fixture({ maxMappings: 1 });
+    let secondService;
+    const scope = await f.ctx.plugin({ inject: ['fs', 'agents', 'sandboxPolicy', 'userQuestions'], apply(ctx) {
+      secondService = new SourceResearch(ctx, { maxMappings: 1 }, { now: () => Date.parse('2026-11-04T13:00:00.000Z') });
+      ctx.effect(() => () => secondService.dispose());
+    } });
+    cleanup.push(() => scope.dispose());
+    const entered = Promise.withResolvers(), release = Promise.withResolvers(), queued = Promise.withResolvers();
+    cleanup.push(() => release.resolve());
+    const publish = f.service.store.publish.bind(f.service.store);
+    f.service.store.publish = async (...args) => { entered.resolve(); await release.promise; return publish(...args); };
+    const first = f.proposal();
+    await entered.promise;
+    const enqueue = secondService.publishQueued.bind(secondService);
+    secondService.publishQueued = (...args) => { const pending = enqueue(...args); queued.resolve(); return pending; };
+    const second = f.ctx.agents.withInitiator(f.root, () => secondService.execute('mapping', {
+      action: 'propose', left: ref(f.qimao, '101'), right: ref(f.hongguo, '201'), relation: 'same_work', reason: '另一个尚未核实的提案',
+    }, new AbortController().signal));
+    const results = Promise.allSettled([first, second]);
+    await queued.promise;
+    release.resolve();
+    const outcomes = await results;
+    expect(outcomes.map(value => value.status)).toEqual(['fulfilled', 'rejected']);
+    expect(outcomes[1].reason).toMatchObject({ code: 'SOURCE_RESEARCH_LIMIT' });
+    expect((await f.call({ action: 'list' })).mappings).toHaveLength(1);
+    expect(await readdir(join(f.directory, '.muse/source-research/mappings/v1'))).toEqual([outcomes[0].value.mappingId]);
+  });
+
+  it('serializes competing provider revisions and rejects the stale reviewed answer before another write', async () => {
     const f = await fixture(), proposal = await f.proposal();
     const other = await f.makeAgent();
     const secondService = new SourceResearch(f.ctx, {}, { now: () => Date.parse('2026-11-04T13:00:00.000Z') });
     cleanup.push(() => secondService.dispose());
-    f.answerer(labels[0]);
-    const admitted = Promise.withResolvers();
+    const answered = Promise.withResolvers();
+    const provider = f.answerer(request => {
+      if (provider.seen.length === 2) answered.resolve();
+      return { answers: [{ id: request.questions[0].id, selected: [labels[0]] }] };
+    });
+    const entered = Promise.withResolvers(), admitted = Promise.withResolvers();
     const write = f.ctx.fs.writeText.bind(f.ctx.fs);
     let writes = 0;
     cleanup.push(() => { admitted.resolve(); f.ctx.fs.writeText = write; });
-    // Hold both real guarded writes after their independent revision reads.
     f.ctx.fs.writeText = async (...args) => {
       if (args[0].displayPath.replaceAll('\\', '/').endsWith('/revisions/000001.json')) {
-        if (++writes === 2) admitted.resolve();
+        writes++; entered.resolve();
         await admitted.promise;
       }
       return write(...args);
     };
     const first = f.call(revisionArgs(proposal));
+    await entered.promise;
     const second = f.ctx.agents.withInitiator(other, () => secondService.execute('mapping', revisionArgs(proposal), new AbortController().signal));
-    const outcomes = await Promise.allSettled([first, second]);
-    expect(writes).toBe(2);
-    expect(outcomes.filter(value => value.status === 'fulfilled')).toHaveLength(1);
-    const rejected = outcomes.find(value => value.status === 'rejected');
-    expect(rejected.reason).toMatchObject({ code: 'SOURCE_RESEARCH_MAPPING_STALE' });
+    const outcomesPromise = Promise.allSettled([first, second]);
+    await answered.promise;
+    admitted.resolve();
+    const committed = await first;
+    const original = await f.revisionBytes(proposal.mappingId, 1);
+    const outcomes = await outcomesPromise;
+    expect(writes).toBe(1);
+    expect(outcomes.map(value => value.status)).toEqual(['fulfilled', 'rejected']);
+    expect(committed.status).toBe('confirmed');
+    expect(outcomes[1].reason).toMatchObject({ code: 'SOURCE_RESEARCH_MAPPING_STALE' });
+    expect(provider.seen).toHaveLength(2);
     expect(await f.revisions(proposal.mappingId)).toEqual(['000001.json']);
     const saved = JSON.parse(await f.revisionBytes(proposal.mappingId, 1));
-    expect([f.root.session.id, other.session.id]).toContain(saved.reviewerSessionId);
+    expect(saved.reviewerSessionId).toBe(f.root.session.id);
     expect((await f.call({ action: 'read', mappingId: proposal.mappingId })).latestRevision).toEqual(saved);
+    expect(await f.revisionBytes(proposal.mappingId, 1)).toEqual(original);
   });
 
   it('captures mapping decisions in immutable reports without changing earlier evidence', async () => {

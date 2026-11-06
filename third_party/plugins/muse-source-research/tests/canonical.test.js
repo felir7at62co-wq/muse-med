@@ -14,6 +14,28 @@ function snapshot(value, observedAt = time) {
 }
 
 describe('canonical source semantics', () => {
+  it('preserves Hongguo field-specific source reasons for the selected raw observation', () => {
+    const raw = source(null);
+    const item = raw.items[0];
+    item.collection.raw = '暂无收藏';
+    item.observations[0].collection.raw = '暂无收藏';
+    item.observations[0].missingMetrics = [{ field: 'collection', reason: 'unparseable' }, { field: 'likes', reason: 'not_displayed' }, { field: 'heat', reason: 'not_displayed' }];
+    const other = structuredClone(item.observations[0]);
+    other.collection.raw = null; other.fetchedAt = later;
+    other.missingMetrics[0].reason = 'not_displayed';
+    item.observations.push(other);
+    const normalized = canonicalize('hongguo', raw, 'official_public', 10);
+    expect(normalized.canonicalItems[0].metrics.collection).toMatchObject({ raw: '暂无收藏', value: null, missingReason: 'unparseable', observedAt: time });
+    expect(normalized.canonicalItems[0].metrics.likes).toMatchObject({ raw: null, value: null, missingReason: 'not_displayed' });
+    expect(normalized.canonicalItems[0].observations).toEqual(item.observations);
+  });
+
+  it('retains Qimao metric-owned reasons independently of observation missingMetrics', () => {
+    const missing = { raw: '暂不可用', value: null, missingReason: 'unparseable', observedAt: time };
+    const raw = { items: [{ bookId: '101', metrics: { heat: missing }, observations: [{ fetchedAt: time, metrics: { heat: missing }, missingMetrics: [{ field: 'heat', reason: 'not_displayed' }] }] }] };
+    expect(canonicalize('qimao', raw, 'official_public', 10).canonicalItems[0].metrics.heat).toMatchObject(missing);
+  });
+
   it('uses platform IDs, retains missing-ID originals and never merges equal titles', () => {
     const raw = source();
     raw.items.push({ ...structuredClone(raw.items[0]), seriesId: '102' }, { title: '同名', collection: count(50) });

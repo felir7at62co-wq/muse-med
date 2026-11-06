@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "source_snapshot",
-  "adapterVersion": "1.0.0",
+  "adapterVersion": "1.0.1",
   "createdAt": "2026-11-05T12:00:00.000Z",
   "platform": "hongguo",
   "evidenceKind": "official_public",
@@ -299,5 +299,5 @@
     "first": "2026-11-05T12:00:00.000Z",
     "last": "2026-11-05T12:00:00.000Z"
   },
-  "snapshotId": "s-246e43e19bc7a3653c940da5a6db8f44"
+  "snapshotId": "s-2d184ab5ba39992c5fd12c3a0ca0a532"
 }

@@ -5,28 +5,28 @@
   "createdAt": "2026-11-04T14:00:00.000Z",
   "left": {
     "sourceRef": {
-      "snapshotId": "s-7aff160871ccfccaecfee2462775f994",
+      "snapshotId": "s-b8b26ebe7d9ef4083c782aeb9ba7823f",
       "itemId": "71000011"
     },
     "platform": "qimao",
     "key": "qimao:71000011",
     "title": "福星小厨娘",
     "evidenceKind": "official_public",
-    "snapshotSha256": "04e417fc20fe49633be7a7a010a4bb7f88f4e73d7d12949e3e29a499d0476e85",
+    "snapshotSha256": "bbbc0eea2f13809d3b06e1dd24247a8ed7c0f6498dcc8558d6ea2fab27c85cf6",
     "url": "https://www.qimao.com/shuku/71000011/",
     "author": "样例作者",
     "description": "合成选材样本"
   },
   "right": {
     "sourceRef": {
-      "snapshotId": "s-2331249af61a819ece04ef3f341b90c8",
+      "snapshotId": "s-783147bd0be954416f2905d8b7da34ab",
       "itemId": "7100000000000000011"
     },
     "platform": "hongguo",
     "key": "hongguo:7100000000000000011",
     "title": "福星小厨娘",
     "evidenceKind": "official_public",
-    "snapshotSha256": "af01d06e0e5bcbed28ea690d2143c57f3f4aaa3132c6d4903e03fefc7f829522",
+    "snapshotSha256": "7793d77045283bd7d30dccf3f1bebbccb74cdaea95518e37bc437ed4af25e02a",
     "url": "https://hongguoduanju.com/detail?series_id=7100000000000000011",
     "author": null,
     "description": "合成榜单样本"
@@ -34,6 +34,6 @@
   "relation": "same_work",
   "reason": "公开标题相同，仍需人工核验具体证据；同名本身不证明同一作品。",
   "reasonVerified": false,
-  "mappingId": "m-b2156c16a84650057520d31ccd08e833368b72e6c3ff4cb61737f0a1b7a78268",
-  "proposalHash": "b2156c16a84650057520d31ccd08e833368b72e6c3ff4cb61737f0a1b7a78268"
+  "mappingId": "m-d926b58af24e2ebdb7442dc7fa33a25fb76f9fc6dcf8254f6b2df47dcd9aa7b1",
+  "proposalHash": "d926b58af24e2ebdb7442dc7fa33a25fb76f9fc6dcf8254f6b2df47dcd9aa7b1"
 }

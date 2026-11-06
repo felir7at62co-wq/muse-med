@@ -1,0 +1,303 @@
+{
+  "schemaVersion": 1,
+  "kind": "source_snapshot",
+  "adapterVersion": "1.0.1",
+  "createdAt": "2026-11-04T14:00:00.000Z",
+  "platform": "hongguo",
+  "evidenceKind": "official_public",
+  "request": {
+    "operation": "rankings",
+    "boards": [
+      "hot-comic-drama"
+    ],
+    "refresh": true
+  },
+  "scope": {
+    "operation": "rankings",
+    "source": "public_rankings",
+    "boards": [
+      "hot-comic-drama"
+    ],
+    "maxPagesPerBoard": 5
+  },
+  "sourceResult": {
+    "scope": "public_rankings",
+    "items": [
+      {
+        "seriesId": "7100000000000000011",
+        "title": "福星小厨娘",
+        "url": "https://hongguoduanju.com/detail?series_id=7100000000000000011",
+        "urlKind": "official_detail_page",
+        "watchPageUrl": null,
+        "watchPageKind": "official_web_player_page_not_video_file",
+        "coverUrl": null,
+        "description": "合成榜单样本",
+        "tags": [
+          "美食"
+        ],
+        "collection": {
+          "raw": null,
+          "value": null,
+          "approximate": false,
+          "precisionStep": null
+        },
+        "likes": {
+          "raw": null,
+          "value": null,
+          "approximate": false,
+          "precisionStep": null
+        },
+        "heat": {
+          "raw": "200万热度",
+          "value": 2000000,
+          "approximate": true,
+          "precisionStep": 10000
+        },
+        "scoreText": null,
+        "episodeCount": null,
+        "observations": [
+          {
+            "board": "hot-comic-drama",
+            "page": 1,
+            "rank": 1,
+            "sourceUrl": "https://hongguoduanju.com/rank/hot-comic-drama",
+            "fetchedAt": "2026-11-04T14:00:00.000Z",
+            "updateDate": "11月4日已更新",
+            "sourceFormat": "rendered_html",
+            "collection": {
+              "raw": null,
+              "value": null,
+              "approximate": false,
+              "precisionStep": null
+            },
+            "likes": {
+              "raw": null,
+              "value": null,
+              "approximate": false,
+              "precisionStep": null
+            },
+            "heat": {
+              "raw": "200万热度",
+              "value": 2000000,
+              "approximate": true,
+              "precisionStep": 10000
+            },
+            "missingMetrics": [
+              {
+                "field": "collection",
+                "reason": "not_displayed"
+              },
+              {
+                "field": "likes",
+                "reason": "not_displayed"
+              }
+            ]
+          }
+        ],
+        "conflicts": [],
+        "collectionSelection": "minimum_observed"
+      }
+    ],
+    "coverage": {
+      "boards": [
+        "hot-comic-drama"
+      ],
+      "pagesFetched": 1,
+      "pagesExpected": 1,
+      "uniqueSeries": 1,
+      "complete": true,
+      "metrics": {
+        "scope": "fetched_ranking_observations",
+        "observations": 1,
+        "complete": false,
+        "fields": {
+          "collection": {
+            "known": 0,
+            "missing": 1,
+            "complete": false
+          },
+          "likes": {
+            "known": 0,
+            "missing": 1,
+            "complete": false
+          },
+          "heat": {
+            "known": 1,
+            "missing": 0,
+            "complete": true
+          }
+        }
+      },
+      "failures": [],
+      "truncated": false,
+      "pages": [
+        {
+          "board": "hot-comic-drama",
+          "page": 1,
+          "sourceUrl": "https://hongguoduanju.com/rank/hot-comic-drama",
+          "fetchedAt": "2026-11-04T14:00:00.000Z",
+          "updateDate": "11月4日已更新",
+          "fromCache": false,
+          "attempts": 1,
+          "itemCount": 1
+        }
+      ]
+    },
+    "fetchedAt": "2026-11-04T14:00:00.000Z",
+    "fromCache": false,
+    "note": "仅覆盖所选官方公开热播榜的已抓取分页，不是红果全库；分页完整性见coverage.complete，已抓取观察值的指标完整性见coverage.metrics。收藏展示值可能取整，不同页面不是同一时刻快照。"
+  },
+  "coverage": {
+    "boards": [
+      "hot-comic-drama"
+    ],
+    "pagesFetched": 1,
+    "pagesExpected": 1,
+    "uniqueSeries": 1,
+    "complete": true,
+    "metrics": {
+      "scope": "fetched_ranking_observations",
+      "observations": 1,
+      "complete": false,
+      "fields": {
+        "collection": {
+          "known": 0,
+          "missing": 1,
+          "complete": false
+        },
+        "likes": {
+          "known": 0,
+          "missing": 1,
+          "complete": false
+        },
+        "heat": {
+          "known": 1,
+          "missing": 0,
+          "complete": true
+        }
+      }
+    },
+    "failures": [],
+    "truncated": false,
+    "pages": [
+      {
+        "board": "hot-comic-drama",
+        "page": 1,
+        "sourceUrl": "https://hongguoduanju.com/rank/hot-comic-drama",
+        "fetchedAt": "2026-11-04T14:00:00.000Z",
+        "updateDate": "11月4日已更新",
+        "fromCache": false,
+        "attempts": 1,
+        "itemCount": 1
+      }
+    ]
+  },
+  "canonicalItems": [
+    {
+      "key": "hongguo:7100000000000000011",
+      "id": "7100000000000000011",
+      "title": "福星小厨娘",
+      "metrics": {
+        "collection": {
+          "label": "收藏",
+          "semantic": "hongguo.public.collection",
+          "unit": "收藏",
+          "raw": null,
+          "value": null,
+          "approximate": false,
+          "precisionStep": null,
+          "observedAt": "2026-11-04T14:00:00.000Z",
+          "missingReason": "not_displayed",
+          "scope": [
+            {
+              "board": "hot-comic-drama",
+              "page": 1
+            }
+          ]
+        },
+        "likes": {
+          "label": "点赞",
+          "semantic": "hongguo.public.likes",
+          "unit": "点赞",
+          "raw": null,
+          "value": null,
+          "approximate": false,
+          "precisionStep": null,
+          "observedAt": "2026-11-04T14:00:00.000Z",
+          "missingReason": "not_displayed",
+          "scope": [
+            {
+              "board": "hot-comic-drama",
+              "page": 1
+            }
+          ]
+        },
+        "heat": {
+          "label": "热度",
+          "semantic": "hongguo.public.heat",
+          "unit": "热度",
+          "raw": "200万热度",
+          "value": 2000000,
+          "approximate": true,
+          "precisionStep": 10000,
+          "observedAt": "2026-11-04T14:00:00.000Z",
+          "missingReason": null,
+          "scope": [
+            {
+              "board": "hot-comic-drama",
+              "page": 1
+            }
+          ]
+        }
+      },
+      "observations": [
+        {
+          "board": "hot-comic-drama",
+          "page": 1,
+          "rank": 1,
+          "sourceUrl": "https://hongguoduanju.com/rank/hot-comic-drama",
+          "fetchedAt": "2026-11-04T14:00:00.000Z",
+          "updateDate": "11月4日已更新",
+          "sourceFormat": "rendered_html",
+          "collection": {
+            "raw": null,
+            "value": null,
+            "approximate": false,
+            "precisionStep": null
+          },
+          "likes": {
+            "raw": null,
+            "value": null,
+            "approximate": false,
+            "precisionStep": null
+          },
+          "heat": {
+            "raw": "200万热度",
+            "value": 2000000,
+            "approximate": true,
+            "precisionStep": 10000
+          },
+          "missingMetrics": [
+            {
+              "field": "collection",
+              "reason": "not_displayed"
+            },
+            {
+              "field": "likes",
+              "reason": "not_displayed"
+            }
+          ]
+        }
+      ],
+      "sourceItemIndexes": [
+        0
+      ]
+    }
+  ],
+  "unidentifiedItems": [],
+  "observedAt": {
+    "first": "2026-11-04T14:00:00.000Z",
+    "last": "2026-11-04T14:00:00.000Z"
+  },
+  "snapshotId": "s-783147bd0be954416f2905d8b7da34ab"
+}

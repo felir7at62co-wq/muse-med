@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kind": "source_snapshot",
   "adapterVersion": "1.0.0",
-  "createdAt": "2026-11-04T14:00:00.000Z",
+  "createdAt": "2026-11-04T12:00:00.000Z",
   "platform": "hongguo",
   "evidenceKind": "official_public",
   "request": {
@@ -10,7 +10,7 @@
     "boards": [
       "hot-comic-drama"
     ],
-    "refresh": true
+    "refresh": false
   },
   "scope": {
     "operation": "rankings",
@@ -18,40 +18,38 @@
     "boards": [
       "hot-comic-drama"
     ],
-    "maxPagesPerBoard": 5
+    "maxPagesPerBoard": 1
   },
   "sourceResult": {
     "scope": "public_rankings",
     "items": [
       {
-        "seriesId": "7100000000000000011",
-        "title": "福星小厨娘",
-        "url": "https://hongguoduanju.com/detail?series_id=7100000000000000011",
+        "seriesId": "123",
+        "title": "历史红果样例",
+        "url": "https://hongguoduanju.com/detail?series_id=123",
         "urlKind": "official_detail_page",
         "watchPageUrl": null,
         "watchPageKind": "official_web_player_page_not_video_file",
         "coverUrl": null,
-        "description": "合成榜单样本",
-        "tags": [
-          "美食"
-        ],
+        "description": "",
+        "tags": [],
         "collection": {
-          "raw": null,
+          "raw": "暂无收藏",
           "value": null,
           "approximate": false,
           "precisionStep": null
         },
         "likes": {
-          "raw": null,
+          "raw": "1e3点赞",
           "value": null,
           "approximate": false,
           "precisionStep": null
         },
         "heat": {
-          "raw": "200万热度",
-          "value": 2000000,
-          "approximate": true,
-          "precisionStep": 10000
+          "raw": "约12热度",
+          "value": null,
+          "approximate": false,
+          "precisionStep": null
         },
         "scoreText": null,
         "episodeCount": null,
@@ -61,35 +59,39 @@
             "page": 1,
             "rank": 1,
             "sourceUrl": "https://hongguoduanju.com/rank/hot-comic-drama",
-            "fetchedAt": "2026-11-04T14:00:00.000Z",
-            "updateDate": "11月4日已更新",
-            "sourceFormat": "rendered_html",
+            "fetchedAt": "2026-11-04T12:00:00.000Z",
+            "updateDate": null,
+            "sourceFormat": "embedded_json",
             "collection": {
-              "raw": null,
+              "raw": "暂无收藏",
               "value": null,
               "approximate": false,
               "precisionStep": null
             },
             "likes": {
-              "raw": null,
+              "raw": "1e3点赞",
               "value": null,
               "approximate": false,
               "precisionStep": null
             },
             "heat": {
-              "raw": "200万热度",
-              "value": 2000000,
-              "approximate": true,
-              "precisionStep": 10000
+              "raw": "约12热度",
+              "value": null,
+              "approximate": false,
+              "precisionStep": null
             },
             "missingMetrics": [
               {
                 "field": "collection",
-                "reason": "not_displayed"
+                "reason": "unparseable"
               },
               {
                 "field": "likes",
-                "reason": "not_displayed"
+                "reason": "unparseable"
+              },
+              {
+                "field": "heat",
+                "reason": "unparseable"
               }
             ]
           }
@@ -122,9 +124,9 @@
             "complete": false
           },
           "heat": {
-            "known": 1,
-            "missing": 0,
-            "complete": true
+            "known": 0,
+            "missing": 1,
+            "complete": false
           }
         }
       },
@@ -135,15 +137,15 @@
           "board": "hot-comic-drama",
           "page": 1,
           "sourceUrl": "https://hongguoduanju.com/rank/hot-comic-drama",
-          "fetchedAt": "2026-11-04T14:00:00.000Z",
-          "updateDate": "11月4日已更新",
+          "fetchedAt": "2026-11-04T12:00:00.000Z",
+          "updateDate": null,
           "fromCache": false,
           "attempts": 1,
           "itemCount": 1
         }
       ]
     },
-    "fetchedAt": "2026-11-04T14:00:00.000Z",
+    "fetchedAt": "2026-11-04T12:00:00.000Z",
     "fromCache": false,
     "note": "仅覆盖所选官方公开热播榜的已抓取分页，不是红果全库；分页完整性见coverage.complete，已抓取观察值的指标完整性见coverage.metrics。收藏展示值可能取整，不同页面不是同一时刻快照。"
   },
@@ -171,9 +173,9 @@
           "complete": false
         },
         "heat": {
-          "known": 1,
-          "missing": 0,
-          "complete": true
+          "known": 0,
+          "missing": 1,
+          "complete": false
         }
       }
     },
@@ -184,8 +186,8 @@
         "board": "hot-comic-drama",
         "page": 1,
         "sourceUrl": "https://hongguoduanju.com/rank/hot-comic-drama",
-        "fetchedAt": "2026-11-04T14:00:00.000Z",
-        "updateDate": "11月4日已更新",
+        "fetchedAt": "2026-11-04T12:00:00.000Z",
+        "updateDate": null,
         "fromCache": false,
         "attempts": 1,
         "itemCount": 1
@@ -194,19 +196,19 @@
   },
   "canonicalItems": [
     {
-      "key": "hongguo:7100000000000000011",
-      "id": "7100000000000000011",
-      "title": "福星小厨娘",
+      "key": "hongguo:123",
+      "id": "123",
+      "title": "历史红果样例",
       "metrics": {
         "collection": {
           "label": "收藏",
           "semantic": "hongguo.public.collection",
           "unit": "收藏",
-          "raw": null,
+          "raw": "暂无收藏",
           "value": null,
           "approximate": false,
           "precisionStep": null,
-          "observedAt": "2026-11-04T14:00:00.000Z",
+          "observedAt": "2026-11-04T12:00:00.000Z",
           "missingReason": "not_displayed",
           "scope": [
             {
@@ -219,11 +221,11 @@
           "label": "点赞",
           "semantic": "hongguo.public.likes",
           "unit": "点赞",
-          "raw": null,
+          "raw": "1e3点赞",
           "value": null,
           "approximate": false,
           "precisionStep": null,
-          "observedAt": "2026-11-04T14:00:00.000Z",
+          "observedAt": "2026-11-04T12:00:00.000Z",
           "missingReason": "not_displayed",
           "scope": [
             {
@@ -236,12 +238,12 @@
           "label": "热度",
           "semantic": "hongguo.public.heat",
           "unit": "热度",
-          "raw": "200万热度",
-          "value": 2000000,
-          "approximate": true,
-          "precisionStep": 10000,
-          "observedAt": "2026-11-04T14:00:00.000Z",
-          "missingReason": null,
+          "raw": "约12热度",
+          "value": null,
+          "approximate": false,
+          "precisionStep": null,
+          "observedAt": "2026-11-04T12:00:00.000Z",
+          "missingReason": "not_displayed",
           "scope": [
             {
               "board": "hot-comic-drama",
@@ -256,35 +258,39 @@
           "page": 1,
           "rank": 1,
           "sourceUrl": "https://hongguoduanju.com/rank/hot-comic-drama",
-          "fetchedAt": "2026-11-04T14:00:00.000Z",
-          "updateDate": "11月4日已更新",
-          "sourceFormat": "rendered_html",
+          "fetchedAt": "2026-11-04T12:00:00.000Z",
+          "updateDate": null,
+          "sourceFormat": "embedded_json",
           "collection": {
-            "raw": null,
+            "raw": "暂无收藏",
             "value": null,
             "approximate": false,
             "precisionStep": null
           },
           "likes": {
-            "raw": null,
+            "raw": "1e3点赞",
             "value": null,
             "approximate": false,
             "precisionStep": null
           },
           "heat": {
-            "raw": "200万热度",
-            "value": 2000000,
-            "approximate": true,
-            "precisionStep": 10000
+            "raw": "约12热度",
+            "value": null,
+            "approximate": false,
+            "precisionStep": null
           },
           "missingMetrics": [
             {
               "field": "collection",
-              "reason": "not_displayed"
+              "reason": "unparseable"
             },
             {
               "field": "likes",
-              "reason": "not_displayed"
+              "reason": "unparseable"
+            },
+            {
+              "field": "heat",
+              "reason": "unparseable"
             }
           ]
         }
@@ -296,8 +302,8 @@
   ],
   "unidentifiedItems": [],
   "observedAt": {
-    "first": "2026-11-04T14:00:00.000Z",
-    "last": "2026-11-04T14:00:00.000Z"
+    "first": "2026-11-04T12:00:00.000Z",
+    "last": "2026-11-04T12:00:00.000Z"
   },
-  "snapshotId": "s-2331249af61a819ece04ef3f341b90c8"
+  "snapshotId": "s-87b403b90c05a4f293ebd2570b11a5bd"
 }

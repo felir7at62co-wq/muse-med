@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "kind": "source_snapshot",
-  "adapterVersion": "1.0.0",
-  "createdAt": "2026-11-04T14:00:00.000Z",
+  "adapterVersion": "1.0.1",
+  "createdAt": "2026-11-05T12:00:00.000Z",
   "platform": "qimao",
   "evidenceKind": "official_public",
   "request": {
@@ -50,18 +50,18 @@
           "value": 200000,
           "approximate": true,
           "precisionStep": 10000,
-          "observedAt": "2026-11-04T14:00:00.000Z",
+          "observedAt": "2026-11-05T12:00:00.000Z",
           "missingReason": null
         },
         "updatedAt": "2026-11-04 12:00:00",
         "metrics": {
           "heat": {
             "label": "热度",
-            "raw": "12.3万热度",
-            "value": 123000,
+            "raw": "13.3万热度",
+            "value": 133000,
             "approximate": true,
             "precisionStep": 1000,
-            "observedAt": "2026-11-04T14:00:00.000Z",
+            "observedAt": "2026-11-05T12:00:00.000Z",
             "missingReason": null
           },
           "cumulativePopularity": {
@@ -70,7 +70,7 @@
             "value": null,
             "approximate": false,
             "precisionStep": null,
-            "observedAt": "2026-11-04T14:00:00.000Z",
+            "observedAt": "2026-11-05T12:00:00.000Z",
             "missingReason": "not_displayed"
           },
           "readOccurrences": {
@@ -79,14 +79,14 @@
             "value": null,
             "approximate": false,
             "precisionStep": null,
-            "observedAt": "2026-11-04T14:00:00.000Z",
+            "observedAt": "2026-11-05T12:00:00.000Z",
             "missingReason": "not_displayed"
           }
         },
         "currentReaders": null,
         "goldenPick": null,
         "sourceUrl": "https://www.qimao.com/paihang/boy/hot/date/",
-        "fetchedAt": "2026-11-04T14:00:00.000Z",
+        "fetchedAt": "2026-11-05T12:00:00.000Z",
         "observations": [
           {
             "source": "rank",
@@ -96,15 +96,15 @@
             "page": 1,
             "rank": 1,
             "sourceUrl": "https://www.qimao.com/paihang/boy/hot/date/",
-            "fetchedAt": "2026-11-04T14:00:00.000Z",
+            "fetchedAt": "2026-11-05T12:00:00.000Z",
             "metrics": {
               "heat": {
                 "label": "热度",
-                "raw": "12.3万热度",
-                "value": 123000,
+                "raw": "13.3万热度",
+                "value": 133000,
                 "approximate": true,
                 "precisionStep": 1000,
-                "observedAt": "2026-11-04T14:00:00.000Z",
+                "observedAt": "2026-11-05T12:00:00.000Z",
                 "missingReason": null
               },
               "cumulativePopularity": {
@@ -113,7 +113,7 @@
                 "value": null,
                 "approximate": false,
                 "precisionStep": null,
-                "observedAt": "2026-11-04T14:00:00.000Z",
+                "observedAt": "2026-11-05T12:00:00.000Z",
                 "missingReason": "not_displayed"
               },
               "readOccurrences": {
@@ -122,7 +122,7 @@
                 "value": null,
                 "approximate": false,
                 "precisionStep": null,
-                "observedAt": "2026-11-04T14:00:00.000Z",
+                "observedAt": "2026-11-05T12:00:00.000Z",
                 "missingReason": "not_displayed"
               }
             }
@@ -159,7 +159,7 @@
           "page": 1,
           "path": "/paihang/boy/hot/date/",
           "sourceUrl": "https://www.qimao.com/paihang/boy/hot/date/",
-          "fetchedAt": "2026-11-04T14:00:00.000Z",
+          "fetchedAt": "2026-11-05T12:00:00.000Z",
           "fromCache": false,
           "transport": "fetch",
           "itemCount": 1,
@@ -189,7 +189,7 @@
         }
       }
     },
-    "fetchedAt": "2026-11-04T14:00:00.000Z",
+    "fetchedAt": "2026-11-05T12:00:00.000Z",
     "fromCache": false,
     "note": "只覆盖所选公开窗口；榜单仅首屏，未验证榜单翻页。书库限定近3天更新、30万字以下、连载中并按点击量排序。热度、累计人气值、次阅读分别保存；在读人数和金选未知。"
   },
@@ -209,7 +209,7 @@
         "page": 1,
         "path": "/paihang/boy/hot/date/",
         "sourceUrl": "https://www.qimao.com/paihang/boy/hot/date/",
-        "fetchedAt": "2026-11-04T14:00:00.000Z",
+        "fetchedAt": "2026-11-05T12:00:00.000Z",
         "fromCache": false,
         "transport": "fetch",
         "itemCount": 1,
@@ -249,11 +249,11 @@
           "label": "热度",
           "semantic": "qimao.public.heat",
           "unit": "热度",
-          "raw": "12.3万热度",
-          "value": 123000,
+          "raw": "13.3万热度",
+          "value": 133000,
           "approximate": true,
           "precisionStep": 1000,
-          "observedAt": "2026-11-04T14:00:00.000Z",
+          "observedAt": "2026-11-05T12:00:00.000Z",
           "missingReason": null,
           "scope": [
             {
@@ -273,7 +273,7 @@
           "value": null,
           "approximate": false,
           "precisionStep": null,
-          "observedAt": "2026-11-04T14:00:00.000Z",
+          "observedAt": "2026-11-05T12:00:00.000Z",
           "missingReason": "not_displayed",
           "scope": [
             {
@@ -293,7 +293,7 @@
           "value": null,
           "approximate": false,
           "precisionStep": null,
-          "observedAt": "2026-11-04T14:00:00.000Z",
+          "observedAt": "2026-11-05T12:00:00.000Z",
           "missingReason": "not_displayed",
           "scope": [
             {
@@ -313,7 +313,7 @@
           "value": 200000,
           "approximate": true,
           "precisionStep": 10000,
-          "observedAt": "2026-11-04T14:00:00.000Z",
+          "observedAt": "2026-11-05T12:00:00.000Z",
           "missingReason": null,
           "scope": [
             {
@@ -335,15 +335,15 @@
           "page": 1,
           "rank": 1,
           "sourceUrl": "https://www.qimao.com/paihang/boy/hot/date/",
-          "fetchedAt": "2026-11-04T14:00:00.000Z",
+          "fetchedAt": "2026-11-05T12:00:00.000Z",
           "metrics": {
             "heat": {
               "label": "热度",
-              "raw": "12.3万热度",
-              "value": 123000,
+              "raw": "13.3万热度",
+              "value": 133000,
               "approximate": true,
               "precisionStep": 1000,
-              "observedAt": "2026-11-04T14:00:00.000Z",
+              "observedAt": "2026-11-05T12:00:00.000Z",
               "missingReason": null
             },
             "cumulativePopularity": {
@@ -352,7 +352,7 @@
               "value": null,
               "approximate": false,
               "precisionStep": null,
-              "observedAt": "2026-11-04T14:00:00.000Z",
+              "observedAt": "2026-11-05T12:00:00.000Z",
               "missingReason": "not_displayed"
             },
             "readOccurrences": {
@@ -361,7 +361,7 @@
               "value": null,
               "approximate": false,
               "precisionStep": null,
-              "observedAt": "2026-11-04T14:00:00.000Z",
+              "observedAt": "2026-11-05T12:00:00.000Z",
               "missingReason": "not_displayed"
             }
           }
@@ -374,8 +374,8 @@
   ],
   "unidentifiedItems": [],
   "observedAt": {
-    "first": "2026-11-04T14:00:00.000Z",
-    "last": "2026-11-04T14:00:00.000Z"
+    "first": "2026-11-05T12:00:00.000Z",
+    "last": "2026-11-05T12:00:00.000Z"
   },
-  "snapshotId": "s-7aff160871ccfccaecfee2462775f994"
+  "snapshotId": "s-1fca5941baefe8cd722ce97de9b4b5f3"
 }

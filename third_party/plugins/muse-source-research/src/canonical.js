@@ -14,20 +14,24 @@ const numeric = value => typeof value === 'number' && Number.isFinite(value) && 
 const descriptors = { hongguo: { collection: ['收藏', '收藏'], likes: ['点赞', '点赞'], heat: ['热度', '热度'] }, qimao: { heat: ['热度', '热度'], cumulativePopularity: ['累计人气值', '人气值'], readOccurrences: ['次阅读', '次阅读'], wordCount: ['字', '字'] } };
 const windowOf = observation => Object.fromEntries(['source', 'board', 'channel', 'period', 'page', 'filter', 'sort'].filter(key => observation[key] !== undefined).map(key => [key, observation[key]]));
 
-function officialMetric(platform, field, item, observations) {
+function officialMetric(platform, field, item, observations, adapterVersion) {
   const count = platform === 'hongguo' ? item[field] : field === 'wordCount' ? item.wordCount : item.metrics?.[field];
   const [label, unit] = descriptors[platform][field];
   const related = observations.filter(observation => {
     if (field === 'wordCount') return observation.fetchedAt === count?.observedAt;
     const candidate = platform === 'hongguo' ? observation[field] : observation.metrics?.[field];
-    return candidate && candidate.value === count?.value && (platform !== 'qimao' || !count?.observedAt || candidate.observedAt === count.observedAt);
+    return candidate && candidate.value === count?.value
+      && (platform !== 'hongguo' || adapterVersion === '1.0.0' || count?.value != null || candidate.raw === count?.raw)
+      && (platform !== 'qimao' || !count?.observedAt || candidate.observedAt === count.observedAt);
   });
   const times = related.map(observation => observation.fetchedAt).filter(validTime).sort((a, b) => Date.parse(b) - Date.parse(a));
   const observedAt = nullableTime(count?.observedAt) ?? times[0] ?? null;
   const sourceWindows = related.map(windowOf);
+  const sourceReason = platform === 'hongguo' && adapterVersion !== '1.0.0'
+    ? related.flatMap(observation => observation.missingMetrics ?? []).find(metric => metric.field === field)?.reason : undefined;
   return { label: typeof count?.label === 'string' ? count.label : label, semantic: `${platform}.public.${field}`, unit,
     raw: typeof count?.raw === 'string' ? count.raw : null, value: numeric(count?.value), approximate: count?.approximate === true,
-    precisionStep: numeric(count?.precisionStep), observedAt, missingReason: count?.value == null ? count?.missingReason ?? 'not_displayed' : observedAt === null ? 'observation_time_unknown' : null,
+    precisionStep: numeric(count?.precisionStep), observedAt, missingReason: count?.value == null ? count?.missingReason ?? sourceReason ?? 'not_displayed' : observedAt === null ? 'observation_time_unknown' : null,
     scope: sourceWindows.length ? [...new Map(sourceWindows.map(value => [stable(value), value])).values()].sort((a, b) => stable(a).localeCompare(stable(b))) : null };
 }
 
@@ -37,8 +41,8 @@ function legacyMetric(field, value, raw, observedAt, label = field) {
     missingReason: numeric(value) === null ? 'legacy_unavailable' : null, scope: { kind: 'legacy_declared_field', field } };
 }
 
-/** @param platform Source platform. @param sourceResult Unmodified client result or legacy document. @param evidenceKind Official or imported evidence. @param maxItems Maximum raw items. @returns Unique platform IDs, unidentified originals and real observation interval. */
-export function canonicalize(platform, sourceResult, evidenceKind, maxItems) {
+/** @param platform Source platform. @param sourceResult Unmodified client result or legacy document. @param evidenceKind Official or imported evidence. @param maxItems Maximum raw items. @param adapterVersion Normalization version; omitted selects 1.0.1, while 1.0.0 validates committed historical projections. @returns Unique platform IDs, unidentified originals and real observation interval. */
+export function canonicalize(platform, sourceResult, evidenceKind, maxItems, adapterVersion = '1.0.1') {
   if (!sourceResult || typeof sourceResult !== 'object' || !Array.isArray(sourceResult.items)) throw failure('Source result must contain an items array');
   if (sourceResult.items.length > maxItems) throw failure('Source result exceeds maxItems; no items were silently omitted', 'SOURCE_RESEARCH_LIMIT');
   const merged = new Map(), unidentifiedItems = [];
@@ -57,7 +61,7 @@ export function canonicalize(platform, sourceResult, evidenceKind, maxItems) {
       if (typeof raw.metric_type === 'string') metrics[raw.metric_type] = legacyMetric(raw.metric_type, raw.metric_value, raw.metric_raw, observedAt, raw.metric_type);
       for (const field of ['popularity', 'reads']) if (Object.hasOwn(raw, field)) metrics[field] ??= legacyMetric(field, raw[field], null, observedAt);
       // An imported name is evidence of its spelling only; reads/popularity do not establish App readers.
-    } else for (const field of Object.keys(descriptors[platform])) metrics[field] = officialMetric(platform, field, raw, observations);
+    } else for (const field of Object.keys(descriptors[platform])) metrics[field] = officialMetric(platform, field, raw, observations, adapterVersion);
     const item = { key, id, title: typeof raw.title === 'string' ? raw.title : '', metrics, observations,
       sourceItemIndexes: [index] };
     const previous = merged.get(key);

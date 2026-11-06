@@ -1,11 +1,13 @@
 /** Collection, legacy evidence, immutable snapshot reads and evidence-led report generation. */
 import { HongguoClient, resolveConfig as hongguoConfig } from 'muse-hongguo-search/client';
 import { QimaoClient, resolveConfig as qimaoConfig } from 'muse-qimao-data/client';
+import { Context } from '@deepseek-ai/cordis';
 import { ResearchStore, sha256, encode, failure } from './store.js';
 import { canonicalize, compareSnapshots, renderReport } from './canonical.js';
 import { WorkMappings, mappingReceipts, renderMappings } from './mappings.js';
 
-const ADAPTER_VERSION = '1.0.0';
+const SNAPSHOT_ADAPTER_VERSION = '1.0.1';
+const supportedSnapshotAdapter = version => version === '1.0.0' || version === SNAPSHOT_ADAPTER_VERSION;
 const BOARDS = ['hot-drama', 'hot-real-drama', 'hot-ai-drama', 'hot-comic-drama'];
 const defaults = { maxJsonBytes: 16777216, maxItems: 20000, maxSnapshots: 1000, maxReportInputs: 40, maxComparisonPairs: 100, maxReportInputBytes: 67108864, maxListEntries: 5000, maxReportBytes: 4194304, toolTimeoutMs: 300000,
   maxMappings: 1000, maxMappingRevisions: 100, maxMappingReasonChars: 2000, maxMappingExcerptChars: 500, maxMappingHistoryBytes: 16777216, maxMappingListBytes: 67108864 };
@@ -27,6 +29,16 @@ function abortable(promise, signal) {
     signal.addEventListener('abort', abort, { once: true });
     promise.then(value => { signal.removeEventListener('abort', abort); resolve(value); }, error => { signal.removeEventListener('abort', abort); reject(error); });
   });
+}
+
+/** @param ctx Scoped Cordis context. @returns Host-owned publication queues, separated by filesystem service scope. */
+function publicationOwner(ctx) {
+  let owner = ctx.root.get('sourceResearchPublication');
+  if (!owner) {
+    owner = { providers: new Map() };
+    ctx.root.provide('sourceResearchPublication', owner);
+  }
+  return owner;
 }
 
 /** @param input Deployment resource and client settings. @returns Complete validated settings; invalid nested client settings fail at load. */
@@ -79,7 +91,9 @@ export class SourceResearch {
     };
     this.lifetime = new AbortController();
     this.pending = new Set();
-    this.publishing = new Map();
+    this.publicationOwner = publicationOwner(ctx);
+    this.providerScope = ctx[Context.isolate].fs;
+    this.publishing = new Set();
     this.mappings = new WorkMappings(this);
   }
 
@@ -100,7 +114,7 @@ export class SourceResearch {
     this.lifetime.abort();
     await Promise.allSettled(Object.values(this.clients).map(client => client.dispose()));
     await Promise.allSettled([...this.pending]);
-    await Promise.allSettled([...this.publishing.values()]);
+    await Promise.allSettled([...this.publishing]);
   }
 
   /** @param type Tool family. @param request Validated per-action JSON fields. @param signal Combined call/lifetime cancellation. @returns The action result after resolving initiating Session identity and policy. */
@@ -171,7 +185,7 @@ export class SourceResearch {
   /** @param context Project execution context. @param input Complete source result, scope and evidence classification. @returns An immutable snapshot receipt after capacity-guarded publication. */
   async saveSnapshot(context, input) {
     const normalized = canonicalize(input.platform, input.sourceResult, input.evidenceKind, this.config.maxItems);
-    const payload = { schemaVersion: 1, kind: 'source_snapshot', adapterVersion: ADAPTER_VERSION,
+    const payload = { schemaVersion: 1, kind: 'source_snapshot', adapterVersion: SNAPSHOT_ADAPTER_VERSION,
       createdAt: new Date(this.now()).toISOString(), ...input, coverage: structuredClone(input.sourceResult.coverage ?? null), ...normalized };
     const snapshotId = `s-${sha256(encode(payload)).slice(0, 32)}`;
     const snapshot = { ...payload, snapshotId }, text = encode(snapshot);
@@ -183,27 +197,42 @@ export class SourceResearch {
   }
 
   /** @param context Project execution context. @param kind Artifact queue category. @param publish Publication operation after capacity admission. @param admission Optional category-specific capacity validation. @returns Its result; queued cancellation settles immediately without releasing the FIFO barrier early. */
-  async publishQueued(context, kind, publish, admission) {
+  publishQueued(context, kind, publish, admission) {
     // A canceled waiter settles immediately but its FIFO barrier releases only after its predecessor.
-    const key = `${context.root.targetKey}:${kind}`;
-    const previous = this.publishing.get(key) ?? Promise.resolve();
+    context = { ...context, signal: context.signal ? AbortSignal.any([context.signal, this.lifetime.signal]) : this.lifetime.signal };
+    const providers = this.publicationOwner.providers;
+    let projects = providers.get(this.providerScope);
+    if (!projects) providers.set(this.providerScope, projects = new Map());
+    let queues = projects.get(context.root.targetKey);
+    if (!queues) projects.set(context.root.targetKey, queues = new Map());
+    const previous = queues.get(kind) ?? Promise.resolve();
     let release;
     const slot = new Promise(resolve => { release = resolve; });
     const tail = previous.then(() => slot);
-    this.publishing.set(key, tail);
-    void tail.then(() => { if (this.publishing.get(key) === tail) this.publishing.delete(key); });
-    let acquired = false;
-    try {
-      await abortable(previous, context.signal);
-      acquired = true;
-      context.signal?.throwIfAborted();
-      if (admission) await admission();
-      else await this.store.capacity(context, kind);
-      return await publish();
-    } finally {
-      if (acquired) release();
-      else void previous.then(release, release);
-    }
+    queues.set(kind, tail);
+    void tail.then(() => {
+      if (queues.get(kind) !== tail) return;
+      queues.delete(kind);
+      if (!queues.size) projects.delete(context.root.targetKey);
+      if (!projects.size) providers.delete(this.providerScope);
+    });
+    const pending = (async () => {
+      let acquired = false;
+      try {
+        await abortable(previous, context.signal);
+        acquired = true;
+        context.signal.throwIfAborted();
+        if (admission) await admission();
+        else await this.store.capacity(context, kind);
+        return await publish();
+      } finally {
+        if (acquired) release();
+        else void previous.then(release, release);
+      }
+    })();
+    this.publishing.add(pending);
+    void pending.then(() => this.publishing.delete(pending), () => this.publishing.delete(pending));
+    return pending;
   }
 
   /** @param snapshot Verified source document. @param stored Exact artifact path/hash receipt. @returns Public evidence metadata without provider-specific filesystem versions. */
@@ -228,10 +257,10 @@ export class SourceResearch {
   /** @param snapshot Untrusted parsed JSON. @param snapshotId Requested v1 content ID. @returns Nothing; rejects unsupported versions, mismatched IDs or inconsistent canonical data. */
   validateSnapshot(snapshot, snapshotId) {
     if (!object(snapshot) || snapshot.schemaVersion !== 1) throw failure('Unsupported source snapshot schemaVersion; committed versions are never rewritten', 'SOURCE_RESEARCH_VERSION');
-    if (snapshot.kind !== 'source_snapshot' || snapshot.snapshotId !== snapshotId || snapshot.adapterVersion !== ADAPTER_VERSION || !['hongguo', 'qimao'].includes(snapshot.platform) || !['official_public', 'legacy_file'].includes(snapshot.evidenceKind)) throw failure('Stored snapshot identity or adapter is unsupported');
+    if (snapshot.kind !== 'source_snapshot' || snapshot.snapshotId !== snapshotId || !supportedSnapshotAdapter(snapshot.adapterVersion) || !['hongguo', 'qimao'].includes(snapshot.platform) || !['official_public', 'legacy_file'].includes(snapshot.evidenceKind)) throw failure('Stored snapshot identity or adapter is unsupported');
     const { snapshotId: omitted, ...payload } = snapshot;
     if (`s-${sha256(encode(payload)).slice(0, 32)}` !== snapshotId) throw failure('Stored snapshot content does not match its immutable ID', 'SOURCE_RESEARCH_CONFLICT');
-    const expected = canonicalize(snapshot.platform, snapshot.sourceResult, snapshot.evidenceKind, this.config.maxItems);
+    const expected = canonicalize(snapshot.platform, snapshot.sourceResult, snapshot.evidenceKind, this.config.maxItems, snapshot.adapterVersion);
     if (encode(expected.canonicalItems) !== encode(snapshot.canonicalItems) || encode(expected.unidentifiedItems) !== encode(snapshot.unidentifiedItems) || encode(expected.observedAt) !== encode(snapshot.observedAt)) throw failure('Stored snapshot canonical data differs from its source evidence');
   }
 
@@ -286,7 +315,7 @@ export class SourceResearch {
     const capturedMappings = mappingIds === undefined ? null : mappingReceipts(states);
     const markdown = renderReport(selected.map(value => value.snapshot), inputReceipts, comparisons, createdAt) + (capturedMappings === null ? '' : renderMappings(capturedMappings));
     if (Buffer.byteLength(markdown) > this.config.maxReportBytes) throw failure('Report Markdown exceeds maxReportBytes', 'SOURCE_RESEARCH_LIMIT');
-    const payload = { schemaVersion: 1, kind: 'source_report', adapterVersion: ADAPTER_VERSION, createdAt, snapshotIds, baselineIds,
+    const payload = { schemaVersion: 1, kind: 'source_report', adapterVersion: '1.0.0', createdAt, snapshotIds, baselineIds,
       inputReceipts, comparisons, markdownSha256: sha256(markdown), ...(capturedMappings === null ? {} : { mappingIds, mappingReceipts: capturedMappings }) };
     const reportId = `r-${sha256(encode(payload)).slice(0, 32)}`;
     const markdownPath = `deliverables/选材日报/${createdAt.slice(0, 10)}-${reportId}.md`;
@@ -311,7 +340,7 @@ export class SourceResearch {
     catch (error) { throw failure(`Stored report JSON cannot be parsed: ${error.message}`); }
     if (!object(report) || report.schemaVersion !== 1) throw failure('Unsupported report schemaVersion; committed versions are never rewritten', 'SOURCE_RESEARCH_VERSION');
     const { reportId: omitted, markdownPath, ...payload } = report;
-    if (report.kind !== 'source_report' || report.adapterVersion !== ADAPTER_VERSION || report.reportId !== reportId || `r-${sha256(encode(payload)).slice(0, 32)}` !== reportId || markdownPath !== `deliverables/选材日报/${report.createdAt?.slice(0, 10)}-${reportId}.md`) throw failure('Stored report content does not match its immutable ID', 'SOURCE_RESEARCH_CONFLICT');
+    if (report.kind !== 'source_report' || report.adapterVersion !== '1.0.0' || report.reportId !== reportId || `r-${sha256(encode(payload)).slice(0, 32)}` !== reportId || markdownPath !== `deliverables/选材日报/${report.createdAt?.slice(0, 10)}-${reportId}.md`) throw failure('Stored report content does not match its immutable ID', 'SOURCE_RESEARCH_CONFLICT');
     try {
       const markdown = await this.store.read(context, await this.store.target(context, markdownPath), this.config.maxReportBytes);
       if (markdown.sha256 !== report.markdownSha256) throw failure('Report Markdown differs from its immutable receipt', 'SOURCE_RESEARCH_CONFLICT');
