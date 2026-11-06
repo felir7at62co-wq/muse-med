@@ -32,6 +32,7 @@ describe('delivery metadata', () => {
       .toEqual({ ...DEFAULT_DELIVERY, subtitle: {}, audio: {} })
   })
   it.each([
+    { require_source_review: 'true' },
     { subtitle: null }, { subtitle: [] }, { subtitle: 'large' }, { audio: null }, { audio: [] },
     { subtitle: { font_family: null } }, { subtitle: { font_family: ' ' } },
     { subtitle: { font_family: 'font,injected' } }, { subtitle: { font_family: 'font\nStyle: forged' } },
@@ -47,6 +48,16 @@ describe('delivery metadata', () => {
     { audio: { require_music_decision: 'true' } }, { audio: { require_music_decision: null } },
   ])('rejects malformed explicit style or gain values %j', (sections) => {
     expect(() => parseTimelineDelivery({ ...animation, ...sections }, 'timeline.delivery')).toThrow('timeline.delivery')
+  })
+  it('retains speech-validation requirements while replacing obsolete portrait typography', async () => {
+    const portrait = { width: 480, height: 854, fps: 24 }
+    const visual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
+      font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.64, max_width_ratio: 0.9 }
+    const path = await project({ delivery: portrait })
+    const policy = await resolveDeliveryPolicy(path, { ...portrait,
+      subtitle: { font_size_px: 90, require_speech_coverage: true } }, visual, true)
+    expect(policy.delivery.subtitle).toEqual({ require_speech_coverage: true })
+    expect(policy.delivery.subtitle_visual).toEqual(visual)
   })
   it('does not add new fields or change old timeline bytes when no override is configured', async () => {
     const delivery = await readProjectDelivery(await project({ delivery: { width: 480, height: 854, fps: 24 } }))

@@ -1,8 +1,8 @@
 /** A renderer validates declared music plans before consuming their selected bed. */
 import { readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
-import { readBgmPlan } from '../src/bgm.ts'
+import { checkMusicDecision, readBgmPlan } from '../src/bgm.ts'
 import { cleanup, tempProject } from './harness.ts'
 
 const roots: string[] = []
@@ -76,4 +76,53 @@ it('keeps old plans usable while making omitted license facts explicit', async (
   expect(report.intended_use).toBe('unknown')
   expect(report.segments[0]?.license_info).toEqual({ status: 'unknown', license: 'unknown',
     commercial_use: 'unknown', source: 'unknown', attribution: 'unknown', scope: 'unknown' })
+})
+
+function composedMusic() {
+  const project = resolve('composed-music-fixture'), sourceSha = 'a'.repeat(64), bedSha = 'b'.repeat(64)
+  const selected = { ...segment, track_id: `sha256:${sourceSha}`, source_sha256: sourceSha }
+  const plan = { ...episode, music_decision: 'music', decision_reason: 'Fits the present dialogue scene', segments: [selected] }
+  return { project, episode: '01', bodyEnd: 4, planPath: join(project, 'bgm.json'),
+    timelinePath: join(project, 'editing', '01-timeline.json'), planText: JSON.stringify({ episodes: [plan] }),
+    mode: 'music' as const, gain: 0.1, bedSha,
+    generationText: JSON.stringify({ method: 'compose', episode: '01', plan: 'bgm.json', timeline: 'editing/01-timeline.json',
+      body_duration_seconds: 4, media: { sha256: bedSha }, segments: [{ ...selected, source_start_seconds: 0 }] }) }
+}
+
+it('accepts a bound composer receipt and rejects muted or unproved music inputs', () => {
+  const input = composedMusic()
+  expect(checkMusicDecision(input)).toEqual({ decision: 'music', reason: 'Fits the present dialogue scene' })
+  for (const changed of [{ ...input, gain: 0 }, { ...input, bedSha: undefined }, { ...input, generationText: undefined }]) {
+    expect(() => checkMusicDecision(changed)).toThrow('非零实际混音增益')
+  }
+})
+
+it('rejects a composer receipt for different rendered bed bytes', () => {
+  expect(() => checkMusicDecision({ ...composedMusic(), bedSha: 'c'.repeat(64) }))
+    .toThrow('实际采用的 BGM 字节')
+})
+
+it('rejects a declared no-music plan that still contributes sound', () => {
+  const input = composedMusic()
+  const planText = JSON.stringify({ episodes: [{ ...episode, music_decision: 'none', decision_reason: 'Dialogue only', segments: [] }] })
+  const none = { ...input, mode: 'none' as const, planText, gain: 0, bedSha: undefined }
+  expect(checkMusicDecision(none)).toEqual({ decision: 'none', reason: 'Dialogue only' })
+  expect(() => checkMusicDecision({ ...none, gain: 0.1 })).toThrow('必须使用 no_bgm')
+  expect(() => checkMusicDecision({ ...none, bedSha: input.bedSha })).toThrow('必须使用 no_bgm')
+  expect(() => checkMusicDecision({ ...none, planText: JSON.stringify({ episodes: [
+    { ...episode, music_decision: 'none', decision_reason: 'Dialogue only' },
+  ] }) })).toThrow('必须使用 no_bgm')
+})
+
+it('rejects an unreadable or incomplete composer receipt instead of accepting a declared music bed', () => {
+  for (const generationText of ['{broken', '{}']) {
+    expect(() => checkMusicDecision({ ...composedMusic(), generationText })).toThrow('合成收据不可读')
+  }
+})
+
+it('reports a missing declared plan rather than silently switching to no music', async () => {
+  const project = await tempProject()
+  roots.push(project)
+  await expect(readBgmPlan(join(project, 'missing.json'), '01', 4, join(project, 'bed.mp3'), project))
+    .rejects.toThrow('BGM 计划不可读')
 })

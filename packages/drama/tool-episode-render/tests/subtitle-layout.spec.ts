@@ -117,6 +117,15 @@ it('warns about measured overwidth while leaving text and timestamps unchanged',
   expect(result.warnings.join('\n')).toContain('实际字体尚未确认')
 })
 
+it('keeps an unparseable libass font trace unverified despite measurable glyph width', async () => {
+  const root = await directory(), process = stub('fontselect: malformed record\n'
+    + '[Parsed_bbox] x1:400 x2:499 y1:100 y2:119 w:100 h:20')
+  const result = await measureSubtitleLayout({ toolkit: process.toolkit, settings, delivery,
+    cues: [cue('字体仍须核对')], directory: root })
+  expect(result.report.entries[0]).toMatchObject({ font_status: 'unverified', selected_fonts: [], fits_available_width: true })
+  expect(result.warnings.join('\n')).toContain('无可读字形名称')
+})
+
 it.each([
   { selected: ['ZhuqueFangsong-Regular'], status: 'matched' },
   { selected: ['ArialMT', 'MicrosoftYaHeiUI'], status: 'unverified' },

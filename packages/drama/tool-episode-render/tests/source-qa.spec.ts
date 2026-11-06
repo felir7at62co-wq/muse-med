@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { copyFile, mkdir, symlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, realpath, symlink, writeFile } from 'node:fs/promises'
 import { afterEach, expect, it, vi } from 'vitest'
 import { verifySourceQa } from '../src/source-qa.ts'
 import { fileSha256 } from '../src/cache.ts'
@@ -32,7 +32,7 @@ it('accepts a fully inspected unchanged original without unnecessary before/afte
   expect(qa.sha256).toMatch(/^[a-f0-9]{64}$/u)
   expect(qa.files).toHaveLength(3)
   expect(verifier).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-    mediaPath: f.input.videoPath, mediaSha256: f.input.videoSha256, reviewId: 'review-selected' }))
+    mediaPath: await realpath(f.input.videoPath), mediaSha256: f.input.videoSha256, reviewId: 'review-selected' }))
 })
 
 it('requires an independent execution verifier even when every declared artifact looks complete', async () => {
@@ -54,7 +54,7 @@ it('accepts exact Host-proven Session cache paths for a nested production projec
   const qa = await verifySourceQa({ project, videoPath: media, videoSha256: await fileSha256(media),
     originalPath: media, originalSha256: await fileSha256(media), verifier: verifiedSourceQaFixture,
     review: { subtitle_cleanup: 'not_required', source_qa: { version: 1, selected: selected.declaration } } })
-  expect(qa.files).toEqual(expect.arrayContaining([expect.objectContaining({ path: selected.declaration.ocr.path })]))
+  expect(qa.files).toEqual(expect.arrayContaining([expect.objectContaining({ path: await realpath(selected.declaration.ocr.path) })]))
 })
 
 it.runIf(process.platform === 'win32')('accepts the same source through case and junction aliases without accepting another same-byte file', async () => {
