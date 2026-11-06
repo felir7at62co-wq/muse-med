@@ -1,0 +1,38 @@
+- id: llm-deepseek
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- insert:
+    - id: read-snapshot-version
+      name: '../../../packages/fs/tool-fs/tests/fixtures/read-snapshot-version.mjs'
+      config:
+        files:
+          - episodes/01.txt
+          - assets_manifest.json
+          - director-format.md
+          - director.txt
+          - shot_reviews/01/shot_script.txt
+          - shot_reviews/01/review.json
+        maxBytes: 131072
+        reportFiles:
+          - shot_reviews/01/review.json
+    - id: llm-replay
+      name: '@deepseek-ai/dsh-llm-replay'
+      config:
+        file: .snapshot-patches/narrative-voice-replay/session.v4.jsonl
+        providers:
+          - id: deepseek-official
+            name: DeepSeek
+            models:
+              - id: deepseek-flash
+              - id: deepseek-v4-flash
+    - id: narrative-voice-fixture
+      name: './narrative-voice-fixture.mjs'

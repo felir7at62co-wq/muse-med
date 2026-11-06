@@ -15,6 +15,9 @@ import { applyReadImageTool } from './read-image.ts'
 import { READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from './read-render.ts'
 import { FsSandboxController } from './sandbox.ts'
 
+export { buildWindow } from './read-render.ts'
+export type { FileTextLine, ReadPosition, ReadWindow, WindowResult } from './read-render.ts'
+
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-fs'
 
@@ -25,7 +28,7 @@ export const inject = ['tools', 'fs', 'systemPrompt']
 export interface Config {
   /** Default and maximum number of lines returned by one `read` call. */
   readLimit?: number
-  /** Maximum characters returned for a single line before truncation. */
+  /** Maximum Unicode code points returned for a single line fragment. */
   readMaxLineLength?: number
   /** Maximum bytes returned for the selected lines of one `read` call. */
   readMaxBytes?: number

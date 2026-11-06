@@ -6,7 +6,7 @@ recording: authored
 header:
   class: session-title
   pin: true
-  systemPromptSource: session/text-turn
-  toolSchemasSource: session/text-turn
+  systemPromptSource: session/tool-call-turn
+  toolSchemasSource: session/tool-call-turn
 replay:
   override: true

@@ -1,0 +1,112 @@
+{
+  "initial": [
+    {
+      "name": "drama_shot",
+      "description": "镜头脚本检查与分包建议（提示模式）。validate=只读检查，返回镜号、行号、时长估算、资产匹配与具体建议；preview=只读分包草案；compile=只保存原文与检查报告到 shot_reviews/<集号>/shot_script.txt 和 review.json。所有创作、格式、资产匹配和时长问题均为 warning，不硬性拦截，也不要求全部清零。以用户要求、原剧本和已读取的创作 Skill 为准，自行判断建议是否适用，不为满足旧格式重写创作内容。保留原台词、说话人、镜头正文和时长；不自动补资产、不替换素材、不截断超长镜头。已确认且身份完整的素材才列为绑定；无法确认的引用保留原文并提醒核对，不能编造素材身份。估算与结构化字段可能不完整，多条发声时 text 仅首条，完整台词以原文为准。ok=true 只表示检查完成，不是成片质量、素材绑定、费用或生成准备的验收结论。分包建议可以调整，不必采用；不覆盖 prompts/、matches/、episode_packages/。部署启用会话视频选择时，直接读取当前会话模型、分辨率及上限，并在 duration_budget 中报告；max_submit_seconds 旧参数会忽略。切换模型会把最近一次分包时长复核追加为普通上下文；仅核对已记录的包时长，不自动改卡、重写或提交。未知上限不借用其他模型的能力，此时只检查原镜头。参数缺失、文件无法读取、资产清单 JSON 无效或草稿无法安全写入仍会报执行错误。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "description": "validate=只读检查；preview=只读分包建议；compile=仅写独立检查草稿，不覆盖正式视频包。",
+            "enum": [
+              "validate",
+              "preview",
+              "compile"
+            ]
+          },
+          "script": {
+            "type": "string",
+            "description": "镜头脚本路径（绝对，或相对当前工作目录）。"
+          },
+          "assets": {
+            "type": "string",
+            "description": "资产清单 assets_manifest.json 的路径；preview 与 compile 必填，validate 可选——给了才判定资产绑定。"
+          },
+          "project": {
+            "type": "string",
+            "description": "项目根目录；compile 必填。advisory 仅创建 shot_reviews/<集号>/，无需 episodes/ 或本地素材图片。给了它就读该项目的 project_config.json（每镜有效字上限等交付要求）；validate/preview 省略时，从脚本所在目录向上找最近的 project_config.json。"
+          },
+          "max_submit_seconds": {
+            "type": "integer",
+            "description": "启用会话视频选择时自动读取当前会话模型上限，此参数忽略；否则 preview/compile 必填，表示含收束的单包参考上限（至少4秒），须核实模型能力。上限不代表推荐包长；advisory 超预算仅提示，submit_seconds 需核对后再用于生成。"
+          },
+          "episode": {
+            "type": "integer",
+            "description": "集号（正整数，如 3）；compile 必填，写入时补成两位，如 03。validate/preview 也接受：给了就同时判定所挂资产登记的 episodes 是否覆盖这一集。"
+          }
+        },
+        "required": [
+          "method",
+          "script"
+        ]
+      }
+    },
+    {
+      "name": "read",
+      "description": "Read a UTF-8 text file and return line-numbered content.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to read, resolved by the filesystem backend."
+          },
+          "offset": {
+            "type": "number",
+            "description": "1-based first line to return. Defaults to 1."
+          },
+          "column": {
+            "type": "number",
+            "description": "1-based Unicode code-point column on the first line. Defaults to 1; use the returned continuation without skipping a partial line."
+          },
+          "limit": {
+            "type": "number",
+            "description": "Maximum number of lines to return. Defaults to 2000."
+          },
+          "expected_version": {
+            "type": "string",
+            "description": "Provider version from the preceding read; a changed file requires restarting the read."
+          }
+        },
+        "required": [
+          "file_path"
+        ]
+      }
+    },
+    {
+      "name": "write",
+      "description": "Create or fully replace a UTF-8 text file.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "file_path": {
+            "type": "string",
+            "description": "Path to write, resolved by the filesystem backend. Provide `file_path` before `content` in the arguments."
+          },
+          "content": {
+            "type": "string",
+            "description": "Full UTF-8 text content to write."
+          },
+          "sandbox_permissions": {
+            "type": "string",
+            "description": "The narrowest wider sandbox mode for a one-shot retry of the exact operation the sandbox just denied; the retry asks the user for approval.",
+            "enum": [
+              "workspace-write",
+              "danger-full-access"
+            ]
+          },
+          "justification": {
+            "type": "string",
+            "description": "Required with sandbox_permissions: one sentence for the user explaining why this exact file operation needs the wider access. Use the language of the user’s current request."
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ]
+      }
+    }
+  ],
+  "changes": []
+}

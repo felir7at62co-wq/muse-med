@@ -7,8 +7,8 @@ platform: posix
 header:
   class: muse-drama-explicit-work-scope
   pin: true
-  systemPromptSource: text-turn
-  toolSchemasSource: text-turn
+  systemPromptSource: tool-call-turn
+  toolSchemasSource: tool-call-turn
 workspace:
   setup: muse-drama-explicit-work-scope
 writerOutput: true

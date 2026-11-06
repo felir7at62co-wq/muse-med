@@ -1,3 +1,11 @@
+# This recording exercises no shell or skill loader.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-skill
+  disabled: true
+
 # In-history system prompt patch: the route declares `systemPromptUpdate:
 # in-history`, and a fixture section changes the rendered prompt after the
 # first read, so the second step appends a `system/message` after the cached

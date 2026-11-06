@@ -43,12 +43,14 @@ The policy plugin is optional: without it the tools run against the bare provide
 
 | Tool | Arguments | Behavior |
 |---|---|---|
-| `read` | `file_path`, `offset?`, `limit?` | Line-numbered UTF-8 content with a pagination footer; `offset` is 1-based and `limit` defaults to and caps at the configured `readLimit` |
+| `read` | `file_path`, `offset?`, `column?`, `limit?`, `expected_version?` | Line-numbered UTF-8 fragments; line and Unicode code-point column are 1-based, and `limit` defaults to and caps at `readLimit` |
 | `read_image` | `file_path` | Reads and persists a PNG/JPEG/WebP/GIF source; an extension-less path (normalized attachment object paths included) is identified from its file signature; normalization can downscale it before the next model request, so the model need not create a thumbnail first |
 | `write` | `file_path`, `content` | Creates or fully replaces a file; with the policy plugin, overwriting requires a prior `read` at the unchanged version, creating does not |
 | `edit` | `file_path`, `old_string`, `new_string`, `replace_all?` | Literal replacement requiring a unique match unless `replace_all` is true; with the policy plugin, requires a prior `read` and an unchanged file |
 
 Field names are snake_case to match Claude Code and existing harness tool schemas. The `write` and `edit` path descriptions ask the model to emit `file_path` before the content or replacement strings; this guides streaming presentation but does not enforce JSON member order. Successes return compact envelopes — a read window, an image reference, or a `Created file`/`Updated file` confirmation — and `write`/`edit` derive replayable diff-card metadata for UI presentation.
+
+Read results carry the provider `version` and an optional `continuation: {offset, column}` identifying the next unread character. Reuse that position with `expected_version` until continuation is absent. Columns count Unicode code points, not UTF-16 units or grapheme clusters; emoji are never split. A version change before or during the read returns `FS_STALE_VERSION` without recording an observation. The public `buildWindow` helper and its `ReadWindow`/`WindowResult` types provide the same bounded text pagination for other source readers.
 
 ### Configuration
 
@@ -57,8 +59,8 @@ All keys are optional; the defaults are the shipped read caps.
 | Key | Default | Meaning |
 |---|---|---|
 | `readLimit` | `2000` | Default and maximum lines returned by one `read` call |
-| `readMaxLineLength` | `2000` | Characters kept per line before truncation |
-| `readMaxBytes` | `51200` | Byte cap on one `read` call's selected lines; overflow ends the window with a capped footer |
+| `readMaxLineLength` | `2000` | Maximum Unicode code points retained per line fragment |
+| `readMaxBytes` | `51200` | UTF-8 byte cap for selected fragments and separating newlines; an unread tail produces a continuation |
 | `readStreamMinSize` | `10485760` | Files at or above this size (or of unknown size) stream instead of loading whole into memory |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-fs) is the exhaustive source for every accepted field and its JSDoc.
@@ -85,14 +87,14 @@ This section explains the design decisions behind the tool suite and points at t
 
 ### Design concept
 
-The tools are the executor; policy is an event gate. The tools inject no policy service and inspect no cache — each mutation asks the single intent slot for its guard through `ctx.waterfall`, and each operation emits `fs/observed` only after it succeeded. Reads do exactly one provider `stat` (type and size routing plus the observed version); mutations do none, because the guard comes from the intent slot and the provider re-checks under its lock.
+The tools execute operations; policy is an event gate. Each mutation asks the intent slot for its guard through `ctx.waterfall`; successful operations emit `fs/observed`. Text reads compare provider versions before and after scanning. Mutations do not stat in the tool, because the provider rechecks their guard under its lock.
 
 ### Source map
 
 | File | Role |
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config`, tool composition, `read_image` attachments gate |
-| [`src/read.ts`](src/read.ts) | `read` executor: one stat, streaming decision, window build, observation |
+| [`src/read.ts`](src/read.ts) | `read` executor: version checks, streaming, bounded windows and observation |
 | [`src/read-image.ts`](src/read-image.ts) | `read_image` executor: route and media-type gates, bounded bytes, attachment save |
 | [`src/write.ts`](src/write.ts) | `write` executor: intent waterfall, atomic write, observation |
 | [`src/edit.ts`](src/edit.ts) | `edit` executor: intent waterfall, literal edit, observation |
@@ -102,7 +104,7 @@ The tools are the executor; policy is an event gate. The tools inject no policy 
 
 ### Per-tool flow
 
-All four tools share one flow shape: resolve the path with the calling session's cwd, run the applicable gate, perform exactly one provider operation, and emit `fs/observed` only after success. `read` and `read_image` pay one `stat` for type and size routing; `write` and `edit` pay none because their guard comes from the intent slot, and provider failures surface as typed `FsError` results. The per-tool executors live in `src/read.ts`, `src/read-image.ts`, `src/write.ts`, and `src/edit.ts`.
+All tools resolve paths with the calling session's cwd and emit observations only after success. Text reads check the file version twice; image reads stat once for routing. Write and edit guards come from the intent slot. Provider failures surface as typed `FsError` results.
 
 ### Observation and concurrency
 
@@ -138,7 +140,7 @@ At assembly time, each guidance section checks `ctx.tools.get(name, scope)` and 
 ##### Read guidance
 
 ```markdown
-Use the read tool — not shell commands like cat — to inspect text files. Use offset and limit to continue reading large files.
+Use the read tool — not shell commands like cat — to inspect text files. Continue with the returned offset, column and expected_version until no continuation remains; columns count Unicode code points, not grapheme clusters.
 ```
 
 ##### Write guidance
@@ -179,7 +181,7 @@ Prefix-stable while the visible tool definitions and order are unchanged. Regist
 
 #### What the model sees
 
-A successful read is exactly `<path><displayPath></path>`, newline, `<type>file</type>`, newline, `<content>`, numbered lines as `<lineNumber>: <text>`, a blank line, one footer, and `</content>`. The footer is exactly `(Output capped. Showing lines <start>-<end>. Use offset=<next> to continue.)`, `(Showing lines <start>-<end> of <total>. Use offset=<next> to continue.)`, or `(End of file - total <total> lines)`. A long line ends exactly `... (line truncated to <max> chars)`. A missing read still returns `FS_NOT_FOUND`, but it records confirmed absence for the calling session; after an externally deleted file is re-read, a retried `write` can safely recreate it through the provider's no-replace guard.
+A successful read uses a `<path>`, `<type>file</type>` and `<content>` envelope with numbered verbatim fragments. Its footer reports either a partial line or the returned line range, with the exact `offset`, `column` and `expected_version` for continuation. Only an exhausted file reports `(End of file - total <total> lines)`. A byte budget too small for one Unicode code point returns `FS_TOO_LARGE` instead of a non-progressing cursor. A missing read returns `FS_NOT_FOUND` and records absence, allowing a later guarded write to recreate the file.
 
 #### Token effect
 

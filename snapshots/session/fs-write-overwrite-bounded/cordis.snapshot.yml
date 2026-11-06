@@ -1,3 +1,11 @@
+# This recording exercises no shell or skill loader.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-skill
+  disabled: true
+
 # Keyless replay counterpart to fs-diff-bound.cordis.yml. The ACP and
 # persistence rows keep the recorded flash model and raw JSONL harvest.
 - id: llm-deepseek

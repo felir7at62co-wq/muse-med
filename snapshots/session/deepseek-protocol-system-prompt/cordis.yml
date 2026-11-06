@@ -1,3 +1,11 @@
+# This recording exercises no shell or skill loader.
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-skill
+  disabled: true
+
 - id: llm-deepseek
   config:
     models:

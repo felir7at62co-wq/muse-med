@@ -1,0 +1,103 @@
+{
+  "assets": [
+    {
+      "name": "温雨身份母版",
+      "character_name": "温雨",
+      "aliases": [
+        "小雨"
+      ],
+      "type": "角色",
+      "id": "rain-face",
+      "official": true,
+      "jubian_asset_id": "71001",
+      "jubian_material_id": "81001",
+      "url": "https://example.invalid/rain.png",
+      "episodes": [
+        "all"
+      ],
+      "reference_scope": "identity",
+      "state_or_costume": "非孕期；青年"
+    },
+    {
+      "name": "温雨雨衣版",
+      "character_name": "温雨",
+      "type": "角色",
+      "id": "rain-coat",
+      "official": true,
+      "jubian_asset_id": "71002",
+      "jubian_material_id": "81002",
+      "url": "https://example.invalid/rain-coat.png",
+      "episodes": [
+        1
+      ],
+      "reference_scope": "appearance",
+      "state_or_costume": "非孕期；青年；黄色雨衣；长发"
+    },
+    {
+      "name": "温雪身份母版",
+      "character_name": "温雪",
+      "type": "角色",
+      "id": "snow-face",
+      "official": true,
+      "jubian_asset_id": "71003",
+      "jubian_material_id": "81003",
+      "url": "https://example.invalid/snow.png",
+      "episodes": [
+        "all"
+      ],
+      "reference_scope": "identity",
+      "state_or_costume": "非孕期；青年"
+    },
+    {
+      "name": "周明身份母版",
+      "character_name": "周明",
+      "type": "角色",
+      "id": "zhou-face",
+      "official": true,
+      "jubian_asset_id": "71005",
+      "jubian_material_id": "81005",
+      "url": "https://example.invalid/zhou.png",
+      "episodes": [
+        "all"
+      ],
+      "reference_scope": "identity",
+      "state_or_costume": "非孕期；中年"
+    },
+    {
+      "name": "后厨",
+      "type": "场景",
+      "id": "kitchen",
+      "official": true,
+      "jubian_asset_id": "71004",
+      "jubian_material_id": "81004",
+      "url": "https://example.invalid/kitchen.png",
+      "episodes": [
+        "all"
+      ]
+    },
+    {
+      "name": "对讲机",
+      "type": "道具",
+      "id": "offline-intercom",
+      "official": true,
+      "jubian_asset_id": "71006",
+      "jubian_material_id": "81006",
+      "url": "https://example.invalid/offline-intercom.png",
+      "episodes": [
+        "all"
+      ]
+    },
+    {
+      "name": "镜子",
+      "type": "道具",
+      "id": "offline-mirror",
+      "official": true,
+      "jubian_asset_id": "71007",
+      "jubian_material_id": "81007",
+      "url": "https://example.invalid/offline-mirror.png",
+      "episodes": [
+        "all"
+      ]
+    }
+  ]
+}

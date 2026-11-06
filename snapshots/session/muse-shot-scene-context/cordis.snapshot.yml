@@ -28,3 +28,6 @@
     includeDefaultRoots: false
     customSkillDirs: !!js "[process.cwd() + '/.dsh/skills']"
     watch: false
+# These compiler previews do not load skills, including platform sandbox diagnostics.
+- id: tool-skill
+  disabled: true

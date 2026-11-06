@@ -6,5 +6,5 @@ recording: authored
 header:
   class: session-reference-spill
   pin: true
-  systemPromptSource: text-turn
-  toolSchemasSource: text-turn
+  systemPromptSource: tool-call-turn
+  toolSchemasSource: tool-call-turn

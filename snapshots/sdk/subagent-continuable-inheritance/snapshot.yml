@@ -7,7 +7,7 @@ recording: authored
 header:
   class: subagent-continuable-inheritance
   pin: true
-  systemPromptSource: session/text-turn
-  toolSchemasSource: session/text-turn
+  systemPromptSource: session/tool-call-turn
+  toolSchemasSource: session/tool-call-turn
   childSystemPrompts: [1]
   childToolSchemas: [1]

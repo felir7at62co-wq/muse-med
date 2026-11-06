@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-narrative-voice
+profile: headless
+composition: muse-narrative-voice
+recording: live
+recordingProcessTimeoutMs: 360000
+writerOutput: true
+header:
+  class: muse-narrative-voice
+  pin: true
+workspace:
+  setup: muse-narrative-voice
+  final: true

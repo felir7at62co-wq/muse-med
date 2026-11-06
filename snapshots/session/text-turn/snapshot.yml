@@ -1,10 +1,10 @@
 version: 1
 scenario: text-turn
 profile: headless
-composition: default
+composition: text-turn
 recording: live
 sessionFormat:
   version: 1
   coverage: [adjacent-migration]
 header:
-  class: default
+  class: text-turn

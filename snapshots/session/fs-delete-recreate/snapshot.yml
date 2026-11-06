@@ -7,3 +7,5 @@ header:
   class: default
 workspace:
   final: true
+# The committed recording dispatches Bash to delete the observed file.
+platform: posix

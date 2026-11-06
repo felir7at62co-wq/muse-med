@@ -1,0 +1,23 @@
+{
+  "realSession": true,
+  "realPruning": true,
+  "realCompaction": true,
+  "sameTurnRetry": true,
+  "sourceBytesPreserved": true,
+  "wordSourceRead": true,
+  "longLineContinuation": true,
+  "returnedTextCoverageIncomplete": true,
+  "relationshipDirectionPreserved": true,
+  "uncertainRelationshipPreserved": true,
+  "flashbackStateRestored": true,
+  "sourceSceneOwnershipVerified": true,
+  "dialogueLocationKeptAsMention": true,
+  "adoptedSceneScopeRejected": true,
+  "normalChangeComparisonRestored": true,
+  "potentialConflictRestored": true,
+  "generalRuleDowngraded": true,
+  "unsupportedComparisonTimeRejected": true,
+  "originalQuestionIdsRestored": true,
+  "contradictionProven": false,
+  "semanticUnderstandingAssessed": false
+}

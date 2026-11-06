@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { languageForPath } from '@deepseek-ai/dsh-util-code-language'
-import { buildWindow, langFromPath, readMetaFromMeta, READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from '../src/read-render.ts'
+import { buildWindow, formatReadOutput, langFromPath, readMetaFromMeta, READ_MAX_BYTES, READ_MAX_LINE_LENGTH } from '../src/read-render.ts'
 import type { ReadWindow } from '../src/read-render.ts'
 
 const DEFAULT_CAPS = { maxLineLength: READ_MAX_LINE_LENGTH, maxBytes: READ_MAX_BYTES }
@@ -46,9 +46,10 @@ describe('buildWindow', () => {
     expect(result.lines.map(l => l.text)).toEqual(['one', 'two'])
   })
 
-  it('truncates an over-long line', async () => {
+  it('returns the exact next column for an over-long line', async () => {
     const result = await buildWindow(whole('x'.repeat(3000)), READ_ALL, 'f')
-    expect(result.lines[0]?.text).toContain(`... (line truncated to ${READ_MAX_LINE_LENGTH} chars)`)
+    expect(result.lines[0]?.text).toBe('x'.repeat(READ_MAX_LINE_LENGTH))
+    expect(result.continuation).toEqual({ offset: 1, column: 2001 })
   })
 
   it('caps output bytes and reports truncatedByBytes', async () => {
@@ -79,9 +80,10 @@ describe('buildWindow', () => {
   })
 
   describe('caps are per-request (the plugin config reaches the window)', () => {
-    it('truncates lines at a custom maxLineLength and names it in the suffix', async () => {
+    it('returns a bounded fragment at a custom maxLineLength', async () => {
       const result = await buildWindow(whole('abcdefghij'), { offset: 1, limit: 10, maxLineLength: 5, maxBytes: READ_MAX_BYTES }, 'f')
-      expect(result.lines[0]?.text).toBe('abcde... (line truncated to 5 chars)')
+      expect(result.lines[0]?.text).toBe('abcde')
+      expect(result.continuation).toEqual({ offset: 1, column: 6 })
     })
 
     it('caps output at a custom maxBytes', async () => {
@@ -101,7 +103,8 @@ describe('buildWindow', () => {
 
     it('caps a newline-free giant line split across chunks without unbounded buffering', async () => {
       const result = await buildWindow(chunked('z'.repeat(5000), 256), READ_ALL, 'f')
-      expect(result.lines[0]?.text).toContain(`... (line truncated to ${READ_MAX_LINE_LENGTH} chars)`)
+      expect(result.lines[0]?.text).toBe('z'.repeat(READ_MAX_LINE_LENGTH))
+      expect(result.continuation).toEqual({ offset: 1, column: 2001 })
     })
 
     it('caps output bytes mid-stream', async () => {
@@ -115,6 +118,75 @@ describe('buildWindow', () => {
       const result = await buildWindow(chunked('one\ntwo\n', 3), READ_ALL, 'f')
       expect(result.lines.map(l => l.text)).toEqual(['one', 'two'])
     })
+  })
+})
+
+describe('lossless read continuation', () => {
+  it('retrieves a relationship after character 2000 without a false EOF', async () => {
+    const source = '甲'.repeat(1999) + '关系转折：乙其实是甲的父亲。' + '后'.repeat(600)
+    const first = await buildWindow(whole(source), READ_ALL, 'novel.txt')
+    expect(first.lines[0]?.text).not.toContain('乙其实是甲的父亲')
+    const rendered = formatReadOutput('novel.txt', { ...first, offset: 1, version: 'source-v1' })
+    expect(rendered).not.toContain('End of file')
+    expect(rendered).toContain('offset=1, column=2001, expected_version="source-v1"')
+    const next = await buildWindow(whole(source), { ...READ_ALL, ...first.continuation }, 'novel.txt')
+    expect(next.lines[0]?.text).toContain('乙其实是甲的父亲')
+    expect(next.continuation).toBeUndefined()
+    expect([...first.lines, ...next.lines].map(line => line.text).join('')).toBe(source)
+  })
+
+  it('counts emoji as one column and rejoins surrogate pairs split across chunks', async () => {
+    const source = '甲'.repeat(1999) + '😀乙𠮷'
+    const first = await buildWindow(chunked(source, 1), READ_ALL, 'f')
+    expect(first.lines[0]?.text).toBe('甲'.repeat(1999) + '😀')
+    expect(first.continuation).toEqual({ offset: 1, column: 2001 })
+    const next = await buildWindow(chunked(source, 1), { ...READ_ALL, ...first.continuation }, 'f')
+    expect(next.lines).toEqual([{ number: 1, text: '乙𠮷' }])
+    expect(next.continuation).toBeUndefined()
+  })
+
+  it('paginates CRLF, empty lines and a final line without a newline', async () => {
+    const source = 'a\r\n\r\n😀乙\r\n尾'
+    const first = await buildWindow(chunked(source, 1), { ...READ_ALL, limit: 2, maxLineLength: 1 }, 'f')
+    expect(first.lines).toEqual([{ number: 1, text: 'a' }, { number: 2, text: '' }])
+    expect(first.totalLines).toBe(4)
+    expect(first.continuation).toEqual({ offset: 3, column: 1 })
+    const next = await buildWindow(chunked(source, 1), { ...READ_ALL, offset: 3, column: 2, maxLineLength: 1 }, 'f')
+    expect(next.lines).toEqual([{ number: 3, text: '乙' }, { number: 4, text: '尾' }])
+    expect(next.continuation).toBeUndefined()
+  })
+
+  it('uses available bytes within a line and refuses a budget that cannot make progress', async () => {
+    const first = await buildWindow(whole('甲乙'), { ...READ_ALL, maxBytes: 3 }, 'f')
+    expect(first.lines).toEqual([{ number: 1, text: '甲' }])
+    expect(first.continuation).toEqual({ offset: 1, column: 2 })
+    expect(first.truncatedByBytes).toBe(true)
+    await expect(buildWindow(whole('甲'), { ...READ_ALL, maxBytes: 2 }, 'f'))
+      .rejects.toMatchObject({ code: 'FS_TOO_LARGE' })
+    const nextLine = await buildWindow(whole('a\nb'), { ...READ_ALL, maxBytes: 2 }, 'f')
+    expect(nextLine.lines).toEqual([{ number: 1, text: 'a' }])
+    expect(nextLine.continuation).toEqual({ offset: 2, column: 1 })
+  })
+
+  it('does not confuse an exactly full line with an unread tail', async () => {
+    const result = await buildWindow(chunked('abcd\r\nnext', 1), { ...READ_ALL, maxLineLength: 4 }, 'f')
+    expect(result.lines).toEqual([{ number: 1, text: 'abcd' }, { number: 2, text: 'next' }])
+    expect(result.continuation).toBeUndefined()
+    expect(formatReadOutput('f', { ...result, offset: 1 })).toContain('End of file - total 2 lines')
+  })
+
+  it('preserves carriage returns inside a line and skips already-read columns without retaining them', async () => {
+    const result = await buildWindow(chunked('old\nA\r\rB\r\nnext\r', 1), { ...READ_ALL, offset: 2, column: 2 }, 'f')
+    expect(result.lines).toEqual([{ number: 2, text: '\r\rB' }, { number: 3, text: 'next' }])
+    expect(result.totalLines).toBe(3)
+    expect(result.continuation).toBeUndefined()
+  })
+
+  it('validates first-line columns and permits the position immediately after its last character', async () => {
+    await expect(buildWindow(whole('😀乙'), { ...READ_ALL, column: 4 }, 'f')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+    await expect(buildWindow(whole(''), { ...READ_ALL, column: 2 }, 'f')).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+    const end = await buildWindow(whole('😀乙\n后'), { ...READ_ALL, column: 3 }, 'f')
+    expect(end.lines).toEqual([{ number: 1, text: '' }, { number: 2, text: '后' }])
   })
 })
 
@@ -211,6 +283,25 @@ describe('langFromPath', () => {
 })
 
 describe('readMetaFromMeta', () => {
+  it('retains the exact Unicode continuation and version on new saved read results', () => {
+    const current = { path: '/abs/a.txt', offset: 1, column: 2001, version: 'v1',
+      lines: [{ number: 1, text: '😀乙' }], totalLines: 1, continuation: { offset: 1, column: 2003 } }
+    expect(readMetaFromMeta(current)).toEqual(current)
+  })
+
+  it.each(['2', 0, 1.5])('declines a malformed saved Unicode column %s', (column) => {
+    expect(readMetaFromMeta({ path: '/f', offset: 1, column, lines: [], totalLines: 0 })).toBeUndefined()
+  })
+
+  it.each([0, ''])('declines a malformed saved provider version %s', (version) => {
+    expect(readMetaFromMeta({ path: '/f', offset: 1, version, lines: [], totalLines: 0 })).toBeUndefined()
+  })
+
+  it.each([null, 0, {}, { offset: '1', column: 1 }, { offset: 1.5, column: 1 },
+    { offset: 0, column: 1 }, { offset: 2, column: 1 }, { offset: 1, column: '1' },
+    { offset: 1, column: 1.5 }, { offset: 1, column: 0 }])('declines a malformed saved continuation %j', (continuation) => {
+    expect(readMetaFromMeta({ path: '/f', offset: 1, lines: [{ number: 1, text: 'a' }], totalLines: 1, continuation })).toBeUndefined()
+  })
   const good = { path: '/abs/a.ts', offset: 1, lines: [{ number: 1, text: 'x' }], totalLines: 1, lang: 'ts' }
 
   it('narrows a well-formed read meta, with and without a lang hint', () => {

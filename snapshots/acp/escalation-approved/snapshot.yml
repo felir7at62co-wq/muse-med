@@ -6,6 +6,6 @@ recording: live
 header:
   class: acp-default
   pin: true
-  systemPromptSource: session/text-turn
-  toolSchemasSource: session/text-turn
+  systemPromptSource: session/tool-call-turn
+  toolSchemasSource: session/tool-call-turn
 permission: workspace-write

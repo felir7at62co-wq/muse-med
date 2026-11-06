@@ -1,8 +1,9 @@
 /** Load the real revision plugin and verify its private artifacts before moving them out of the user workspace. */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { mkdir, readFile, realpath, rename, rmdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
 
 const revisions = await importSnapshotModule(
@@ -14,6 +15,16 @@ const present = await importSnapshotPackage('@deepseek-ai/dsh-tool-present',
 export const name = 'manuscript-fixture'
 export const inject = ['tools']
 export async function apply(ctx) {
+  if (process.platform === 'win32') ctx.effect(() => {
+    const bash = 'C:/Program Files/Git/bin/bash.exe'
+    assert.ok(existsSync(bash), 'Windows replay requires the installed Git Bash executable')
+    const previous = process.env.PATH
+    process.env.PATH = [dirname(bash), previous].filter(Boolean).join(delimiter)
+    return () => {
+      if (previous === undefined) delete process.env.PATH
+      else process.env.PATH = previous
+    }
+  })
   await ctx.plugin(revisions)
   await ctx.plugin(present)
   let owner
@@ -48,6 +59,8 @@ export async function apply(ctx) {
       const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === id)
       assert.equal(result?.data.message.isError, false)
     }
+    const shellResult = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_manuscript_correct')
+    assert.equal(shellResult?.data.message.isError, false, 'The real Bash correction must succeed before version reconciliation is checked')
     const advisory = events.filter(event => event.type === 'user/message' && event.data.source.kind === 'muse-manuscript'
       && event.data.content.some(block => block.type === 'text' && block.text.includes('采用稿或来源出现新版本')))
     assert.equal(advisory.length, 2, 'Both actual candidate versions are reconciled once')

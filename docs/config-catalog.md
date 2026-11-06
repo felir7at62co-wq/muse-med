@@ -4070,14 +4070,14 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-fs`
 
 - `inject`: `tools` · `fs` · `systemPrompt`
-- `source`: [`packages/fs/tool-fs/src/index.ts:25`](../packages/fs/tool-fs/src/index.ts)
+- `source`: [`packages/fs/tool-fs/src/index.ts:28`](../packages/fs/tool-fs/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config (all optional — `Config` supplies the defaults). */
 export interface Config {
   /** Default and maximum number of lines returned by one `read` call. */
   readLimit?: number
-  /** Maximum characters returned for a single line before truncation. */
+  /** Maximum Unicode code points returned for a single line fragment. */
   readMaxLineLength?: number
   /** Maximum bytes returned for the selected lines of one `read` call. */
   readMaxBytes?: number

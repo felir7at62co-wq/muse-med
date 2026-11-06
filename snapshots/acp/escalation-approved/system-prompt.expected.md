@@ -1,1 +1,1 @@
-../../session/text-turn/system-prompt.expected.md
+../../session/tool-call-turn/system-prompt.expected.md

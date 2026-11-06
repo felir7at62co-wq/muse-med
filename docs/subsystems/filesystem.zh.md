@@ -221,19 +221,23 @@ interface FsObservationActor {
 
 ## 读取结果（消费方 / 读取渲染）
 
-文本读取受行窗口、字节上限和后端限制约束。达到字节上限后，扫描仍会继续，但不再保留更多行，因此 `totalLines` 仍为精确值。面向模型的 `read` 工具渲染的结果纯粹是展示性的；不存在 `full`/`partial` 视图区分——授权基于新鲜度（工具发出表示目标存在的 `fs/observed` 事件，并直接携带 stat 的版本），因此任何窗口化读取在文件未变时都能授权后续的 write/edit。元数据未命中时，工具会在返回 `FS_NOT_FOUND` 前 emit 缺失观测，使后续带守卫的写入可以重新创建外部删除的目标，但不会授权 edit。拥有读取操作的执行器 `dsh-tool-fs` 实现读取窗口化并构造该结果；策略插件不执行这些操作。
+文本读取受行数、每个片段的 Unicode 码点数和 UTF-8 字节数限制。达到上限后继续扫描以统计全部行数，不保留未读尾部；`continuation` 提供精确的续读行号和 Unicode 列号。文本工具在读取前后核对提供方版本，只有文件未变时才发出 `fs/observed`。窗口读取可以授权之后在该版本上的受保护写入或编辑，但不代表全文已读完。元数据未命中时，在返回 `FS_NOT_FOUND` 前记录缺失，使带防护的写入可重新创建目标，但不授权编辑。`dsh-tool-fs` 负责窗口和展示，策略插件负责修改授权。
 
 ```ts type-equiv
 /** Outcome of a bounded text read — what {@link formatReadOutput} renders. */
 interface FileReadOutcome {
   /** 1-based first line requested. */
   offset: number
+  /** Requested first-line Unicode column; defaults to 1. */
+  column?: number
   /** Returned lines, already numbered. */
   lines: FileTextLine[]
   /** Exact total line count in the file. */
   totalLines: number
-  /** Whether selected output hit the byte cap. */
-  truncatedByBytes?: true
+  /** Exact next unread position, absent only at EOF. */
+  continuation?: ReadPosition
+  /** Provider version callers can retain for the next read. */
+  version?: string
 }
 ```
 

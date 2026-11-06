@@ -3,6 +3,11 @@
   disabled: true
 
 - insert:
+    - id: read-snapshot-version
+      name: '../../../packages/fs/tool-fs/tests/fixtures/read-snapshot-version.mjs'
+      config:
+        files: [.dsh/skills/screenplay-format/references/writing-quality.md]
+        maxBytes: 8192
     - id: llm-replay
       name: '@deepseek-ai/dsh-llm-replay'
       config:
