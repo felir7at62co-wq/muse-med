@@ -4,7 +4,8 @@ import unicodedata
 
 
 def normalize_subtitle_display(text: str) -> str:
-    """Remove ordinary punctuation while preserving decimal and grouping separators."""
+    """Merge actual and ASS line breaks; remove ordinary punctuation, preserving numeric separators."""
+    text = text.replace(r'\N', ' ').replace(r'\n', ' ')
     result = []
     for index, char in enumerate(text):
         previous = text[index - 1] if index else ''

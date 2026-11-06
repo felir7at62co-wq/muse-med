@@ -7,6 +7,13 @@ export type SubtitleWidthProbe = (text: string) => Promise<boolean | null>
 
 function compact(text: string): string { return text.replace(/\s+/gu, '') }
 
+/** Only a word boundary rounding to this exact SRT millisecond may extend beyond it. */
+function roundsToSrtTime(wordTime: number, cueTime: number): boolean {
+  const epsilon = Number.EPSILON * Math.max(1, Math.abs(wordTime), Math.abs(cueTime)) * 2
+  return Math.abs(wordTime - cueTime) <= 0.0005 + epsilon
+    && Math.abs(Math.round(wordTime * 1_000) / 1_000 - cueTime) <= epsilon
+}
+
 function matchedWords(cue: SubtitleCue, coverage: SpeechCoverageReport): SpeechCoverageWord[] | undefined {
   if (!/^[\p{Script=Han}\s]+$/u.test(cue.text) || cue.text.normalize('NFKC') !== cue.text) return undefined
   const matches = coverage.matches.filter(match => match.cue_index === cue.index)
@@ -23,7 +30,8 @@ function matchedWords(cue: SubtitleCue, coverage: SpeechCoverageReport): SpeechC
   if (selected.some((word, index) => word.end_seconds <= word.start_seconds
     || (index > 0 && word.start_seconds <= (selected[index - 1]?.start_seconds ?? Infinity))
     || (index > 0 && word.start_seconds < (selected[index - 1]?.end_seconds ?? Infinity))
-    || word.start_seconds < cue.startSeconds || word.end_seconds > cue.endSeconds)) return undefined
+    || (word.start_seconds < cue.startSeconds && !roundsToSrtTime(word.start_seconds, cue.startSeconds))
+    || (word.end_seconds > cue.endSeconds && !roundsToSrtTime(word.end_seconds, cue.endSeconds)))) return undefined
   return selected
 }
 
@@ -73,6 +81,7 @@ export async function fitSubtitleCues(
       // matchedWords already proved that every boundary exists, advances and stays inside the cue.
       const next = best === words.length ? cue.endSeconds : (words[best] as SpeechCoverageWord).start_seconds
       const begin = start === 0 ? cue.startSeconds : (words[start] as SpeechCoverageWord).start_seconds
+      if (next <= begin || Math.round(next * 1_000) <= Math.round(begin * 1_000)) break
       pieces.push({ ...cue, text: segment(start, best), startSeconds: begin, endSeconds: next })
       start = best
     }

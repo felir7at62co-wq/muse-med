@@ -29,7 +29,7 @@ const WATERMARK_END = '9:59:59.00'
  */
 export function normalizeSubtitleDisplay(cues: readonly SubtitleCue[]): SubtitleCue[] {
   return cues.flatMap((cue) => {
-    const text = cue.text.replace(/[\p{P}~～]/gu,
+    const text = cue.text.replace(/\\[nN]/gu, ' ').replace(/[\p{P}~～]/gu,
       (char, offset: number, source: string) => {
         const before = source[offset - 1] ?? '', after = source[offset + 1] ?? ''
         if ('.,:：/-'.includes(char) && /\d/u.test(before) && /\d/u.test(after)) return char
