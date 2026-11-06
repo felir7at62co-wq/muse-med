@@ -25,8 +25,10 @@ function values(content: readonly ContentBlock[], meta?: unknown): Record<string
   const result = object(meta) ? [meta] : []
   for (const block of content) {
     if (block.type !== 'text') continue
-    try { const value: unknown = JSON.parse(block.text); if (object(value)) result.push(value) }
-    catch (error) { if (!(error instanceof SyntaxError)) throw error }
+    let value: unknown
+    try { value = JSON.parse(block.text) }
+    catch (_error) { continue /* Non-JSON tool text does not issue source evidence. */ }
+    if (object(value)) result.push(value)
   }
   return result
 }

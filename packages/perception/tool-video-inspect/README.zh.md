@@ -58,7 +58,7 @@ kind: "package-reference"
 
 `video_ocr` 对请求的视频区间抽样，每批把数量和大小受限的 JPEG 交给一个已配置的本地 OCR bridge 进程，并在工作区创建原始 JSON 证据和带时间码的合并 TXT。每批抽帧先限制滤镜输出，再记录时间戳，诊断仅对应本批实际编码的画面。原始证据保留每行文字、可用的词框、源时间码、扫描范围和保守分类。长时间、位置稳定且完全相同的文字可以标记为 `persistent_text_candidate`，这只表示视觉重复，不表示该文字不是剧情。两类文字都保留为内容候选并计入 `segment_count`，绝不静默删除；同一时间的多行文字保留 OCR 阅读顺序。
 
-成功结果包含 `raw_json_sha256`，即工具实际写入并回读的完整原始文件 SHA-256。Host 来源核对可将该摘要绑定到 Session 中真实成功的工具结果；修改文件或复制 JSON 不会产生新的工具签发记录。缺少该绑定的旧结果需要实际重跑 OCR。
+成功结果包含 `raw_json_sha256`，即工具实际写入并回读的完整原始文件 SHA-256。Host 来源核对可将该摘要绑定到 Session 中真实成功的工具结果；修改文件或复制 JSON 不会产生新的工具签发记录。非 JSON 工具文本、失败或不匹配的嵌套结果不签发来源证据。缺少该绑定的旧结果需要实际重跑 OCR。
 
 ```json
 {"file_path":"source/episode-01.mp4","start_seconds":0,"end_seconds":120,"frame_interval_seconds":0.5,"language":"zh-Hans-CN","raw_json_path":"transcript/raw/episode-01-ocr.json","merged_text_path":"transcript/raw/episode-01-ocr.txt"}
