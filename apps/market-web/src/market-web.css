@@ -1,0 +1,7 @@
+html { font-family: var(--dsw-font-family); }
+body { margin: 0; }
+button, input, select, textarea { font: inherit; }
+*, *::before, *::after { box-sizing: border-box; }
+.market-web-shell { min-height: 100dvh; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); }
+.market-web-tools { display: flex; justify-content: flex-end; gap: 16px; max-width: 1400px; margin: 0 auto; padding: 12px 32px 0; font-size: 14px; }
+.market-web-error { display: grid; justify-content: center; align-content: center; min-height: 70dvh; gap: 16px; padding: 24px; }

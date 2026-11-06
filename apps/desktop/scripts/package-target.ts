@@ -9,6 +9,7 @@ import {
   resolveDesktopAutoUpdateConfig,
 } from './desktop-auto-update-environment.mjs'
 import { desktopTargetBuildPaths } from './desktop-build-paths.mjs'
+import { collectMuseArtifactHashes } from './muse-release-mirror.mjs'
 import { packageMacOSArtifacts, type DesktopPrepackagedArtifact } from './package-macos.ts'
 import { loadDesktopPackageEnvironment, validateDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 import { createPackagingRun, recordPackagingEvent } from './packaging-run.mjs'
@@ -151,11 +152,11 @@ function packageVersion(path: string, label: string): string {
   return manifest.version
 }
 
-function writeReleaseRecord(
+async function writeReleaseRecord(
   target: DesktopPackageTarget,
   environment: NodeJS.ProcessEnv,
   artifactsRoot: string,
-): void {
+): Promise<void> {
   const desktopVersion = packageVersion(join(APP_ROOT, 'package.json'), 'desktop package')
   const dshVersion = packageVersion(join(REPOSITORY_ROOT, 'package.json'), 'dsh package')
   if (desktopVersion !== dshVersion) {
@@ -164,6 +165,8 @@ function writeReleaseRecord(
   const buildVersion = resolveDesktopBuildVersion(environment, readDesktopProductVersion(APP_ROOT))
   const packaged = resolveDesktopBuildCommit(environment)
   const update = resolveDesktopAutoUpdateConfig(environment, target.platform, target.arch)
+  const artifacts = target.platform === 'win32' && update.environment === 'production'
+    ? await collectMuseArtifactHashes(target.name, buildVersion, artifactsRoot) : undefined
   const recordPath = join(artifactsRoot, desktopBuildRecordFilename(target.name))
   const temporaryPath = `${recordPath}.tmp`
   writeFileSync(temporaryPath, `${JSON.stringify({
@@ -173,6 +176,7 @@ function writeReleaseRecord(
     dshVersion,
     environment: update.environment,
     publicUrl: update.publicUrl,
+    ...(artifacts === undefined ? {} : { artifacts }),
     // Upload reads this to tag the commit a production release was packaged from.
     ...packaged === undefined ? {} : { commit: packaged.commit, dirty: packaged.dirty },
   }, null, 2)}\n`)
@@ -595,13 +599,9 @@ export async function packageTarget(
     S1: async () => { await execute(['run', 'build:official'], buildEnv, REPOSITORY_ROOT) },
     S2: async () => { await execute(['run', 'release:pack', '--family', 'dsh', '--out', buildPaths.packedDsh, ...packArguments], buildEnv, REPOSITORY_ROOT) },
     S3: async () => {
-      await execute([
-        '--dir',
-        'apps/desktop-host',
-        'pack',
-        '--pack-destination',
-        buildPaths.packedDsh,
-      ], buildEnv, REPOSITORY_ROOT)
+      for (const directory of ['apps/desktop-host', 'packages/host/muse-market']) {
+        await execute(['--dir', directory, 'pack', '--pack-destination', buildPaths.packedDsh], buildEnv, REPOSITORY_ROOT)
+      }
     },
     S4: async () => {
       await execute([
@@ -671,7 +671,7 @@ export async function packageTarget(
         await signedStage('artifacts', () => execute(desktopElectronBuilderArguments(target, invocation.directory), electronBuilderEnv))
         await execute(['exec', 'tsx', 'scripts/smoke-packaged-runtime.ts', ...(invocation.unsigned ? ['--unsigned'] : [])], targetEnv)
       }
-      if (!invocation.directory && !invocation.unsigned) writeReleaseRecord(target, electronBuilderEnv, buildPaths.artifacts)
+      if (!invocation.directory && !invocation.unsigned) await writeReleaseRecord(target, electronBuilderEnv, buildPaths.artifacts)
       if (journal) recordPackagingEvent(journal, { type: 'artifacts', directory: invocation.unsigned ? buildPaths.unsignedArtifacts : buildPaths.artifacts })
     },
   }

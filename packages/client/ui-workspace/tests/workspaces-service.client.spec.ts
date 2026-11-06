@@ -5,15 +5,15 @@ import { afterEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import type {
   ISessions, SessionListState, SessionReference, SessionSummary,
 } from '@deepseek-ai/dsh-api-session-controller/client'
-import { SessionCreateError } from '@deepseek-ai/dsh-api-session-controller/client'
+import { createScope, SessionCreateError } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type {
   IWorkspaces, WorkspaceId, WorkspaceSnapshot, WorkspaceView,
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { ClientRemote, DirectoryListing } from '@deepseek-ai/dsh-api-remotes/client'
-import { RemoteError } from '@deepseek-ai/dsh-client-test-runtime'
+import { FixtureSession, RemoteError, sessionSnapshot } from '@deepseek-ai/dsh-client-test-runtime'
 import type { RemoteResult } from '@deepseek-ai/dsh-api-remotes/client'
-import { SessionId } from '@deepseek-ai/dsh-session/types'
+import { SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
 import { LayoutController } from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { MainPanelId } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
@@ -141,10 +141,16 @@ class FakeSessions implements ISessions {
   readonly fork = vi.fn<ISessions['fork']>(async () => sid('forked'))
   readonly retained: RetainedSession[] = []
   readonly refreshProjections = vi.fn<ISessions['refreshProjections']>(() => Promise.resolve())
+  readonly rename = vi.fn<SessionReference['binding']['session']['rename']>(async title => ({
+    ok: true, value: { title, seq: SessionSeq(1) },
+  }))
   readonly retain = vi.fn<ISessions['retain']>((target) => {
     const release = vi.fn<() => void>()
     const sessionId = typeof target === 'string' ? target : target.childSessionId
-    const binding = { sessionId } as SessionReference['binding']
+    const session = new FixtureSession(sessionId, createSnapshotStore(sessionSnapshot(sessionId)), { rename: this.rename })
+    const binding: SessionReference['binding'] = {
+      sessionId, session, eventSource: session.eventSource, ctx: createScope(this.ctx, sessionId).ctx,
+    }
     const reference: SessionReference = {
       sessionId,
       binding,
@@ -159,7 +165,12 @@ class FakeSessions implements ISessions {
   readonly binding = vi.fn<ISessions['binding']>(sessionId =>
     this.retained.findLast(item => item.reference.sessionId === sessionId
       && item.release.mock.calls.length === 0)?.reference.binding)
-  declare readonly using: ISessions['using']
+  async using<T>(target: Parameters<ISessions['using']>[0], options: Parameters<ISessions['using']>[1],
+    operation: (reference: SessionReference) => T | Promise<T>): Promise<T> {
+    const reference = this.retain(target, options)
+    try { return await operation(reference) }
+    finally { reference.release() }
+  }
   declare readonly retainInfo: ISessions['retainInfo']
   declare readonly searchResultLimit: ISessions['searchResultLimit']
   declare readonly refresh: ISessions['refresh']
@@ -168,7 +179,7 @@ class FakeSessions implements ISessions {
   declare readonly scopeOf: ISessions['scopeOf']
   declare readonly sessionOf: ISessions['sessionOf']
 
-  constructor(initial: SessionListState) {
+  constructor(private readonly ctx: Context, initial: SessionListState) {
     this.list = new MutableSource(initial)
     this.create = vi.fn<ISessions['create']>(async options =>
       options?.sessionId ?? sid(`created-${String(options?.workspaceId ?? 'none')}`))
@@ -297,7 +308,7 @@ function bench(options: BenchOptions = {}) {
   ctx.effect(() => () => { layout.dispose() })
   const directoryPicker = new FakeDirectoryPicker()
   const workspaces = new FakeWorkspaces(options.workspaces ?? workspaceState([], [], 'pending'))
-  const sessions = new FakeSessions(options.sessions ?? sessionState([], 'pending'))
+  const sessions = new FakeSessions(ctx, options.sessions ?? sessionState([], 'pending'))
   options.configureWorkspaces?.(workspaces)
   options.configureSessions?.(sessions)
   const view = createWorkspaceViewStore().create()
@@ -836,6 +847,70 @@ describe('UiWorkspaceService', () => {
     b.uiWorkspace.startSession()
 
     expect(b.selectPanel).toHaveBeenCalledWith(null)
+  })
+
+  it('creates a new preset task in the current workspace even when it has a blank task', async () => {
+    const current = summary('blank', { blank: true, cwd: '/w/current' })
+    const b = bench({ sessions: sessionState([current]), workspaces: workspaceState([workspace('current', [current.id])]) })
+    b.uiWorkspace.openSession(current.id)
+    b.sessions.create.mockClear()
+    await b.uiWorkspace.startPresetSession('market-release')
+    expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('current'), agentPreset: 'market-release' })
+    expect(b.sessions.retain).toHaveBeenLastCalledWith(sid('created-current'), { source: 'mainView' })
+  })
+
+  it('requires a workspace before creating a preset task', async () => {
+    const b = bench()
+    await expect(b.uiWorkspace.startPresetSession('market-release')).rejects.toThrow('workspace-required')
+    expect(b.sessions.create).not.toHaveBeenCalled()
+  })
+
+  it('lets the product surface open the newly created preset task', async () => {
+    const current = summary('previous', { cwd: '/w/current' })
+    const b = bench({ sessions: sessionState([current]), workspaces: workspaceState([workspace('current', [current.id])]) })
+    b.uiWorkspace.openSession(current.id)
+    b.sessions.retain.mockClear()
+    const open = vi.fn(async () => true)
+    await b.uiWorkspace.startPresetSession('market-release', open)
+    expect(open).toHaveBeenCalledExactlyOnceWith(sid('created-current'), expect.any(AbortSignal))
+    expect(b.sessions.retain).not.toHaveBeenCalled()
+  })
+
+  it('preserves newer navigation when a preset opener declines after being superseded', async () => {
+    const current = summary('previous', { cwd: '/w/current' })
+    const b = bench({ sessions: sessionState([current]), workspaces: workspaceState([workspace('current', [current.id])]) })
+    b.uiWorkspace.openSession(current.id)
+    b.sessions.retain.mockClear()
+    const entered = Promise.withResolvers<AbortSignal>(), declined = Promise.withResolvers<boolean>()
+    const open = vi.fn((_id: SessionId, signal: AbortSignal) => {
+      entered.resolve(signal)
+      return declined.promise
+    })
+    const opening = b.uiWorkspace.startPresetSession('market-release', open)
+    try {
+      const signal = await entered.promise
+      b.uiWorkspace.openSession(sid('manual'))
+      expect(signal.aborted).toBe(true)
+    } finally {
+      declined.resolve(false)
+      await opening
+    }
+    expect(open).toHaveBeenCalledExactlyOnceWith(sid('created-current'), expect.any(AbortSignal))
+    expect(b.sessions.retain).toHaveBeenCalledExactlyOnceWith(sid('manual'), { source: 'mainView' })
+  })
+
+  it('saves the fresh preset task title before the product surface opens it', async () => {
+    const current = summary('previous', { cwd: '/w/current' })
+    const b = bench({ sessions: sessionState([current]), workspaces: workspaceState([workspace('current', [current.id])]) })
+    b.uiWorkspace.openSession(current.id)
+    b.sessions.retain.mockClear()
+    const open = vi.fn(async () => true)
+    await b.uiWorkspace.startPresetSession('market-release', open, '16:9 分镜导演')
+    expect(b.sessions.retain).toHaveBeenCalledExactlyOnceWith(sid('created-current'), { source: 'workspaceOperation' })
+    expect(b.sessions.rename).toHaveBeenCalledExactlyOnceWith('16:9 分镜导演')
+    expect(b.sessions.rename).toHaveBeenCalledBefore(open)
+    expect(open).toHaveBeenCalledExactlyOnceWith(sid('created-current'), expect.any(AbortSignal))
+    expect(b.sessions.retained.at(-1)?.release).toHaveBeenCalledOnce()
   })
 
   describe('startSession draft initialization', () => {

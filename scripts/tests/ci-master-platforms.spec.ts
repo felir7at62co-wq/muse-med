@@ -113,8 +113,8 @@ describe('master-only platform scheduling', () => {
     const preflight = build.steps!.find(step => step.name === 'Preflight installed-wheel real API test (POSIX)')!
     expect(preflight.if).toContain('inputs.ci')
     expect(preflight.if).toContain("github.event_name != 'pull_request'")
-    expect(preflight.if).toContain('github.event.pull_request.head.repo.fork')
-    expect(preflight.if).toContain("github.event.pull_request.user.login == 'dependabot[bot]'")
+    expect(preflight.if).toContain('github.event.pull_request.head.repo.full_name == github.repository')
+    expect(preflight.if).toContain("github.event.pull_request.user.login != 'dependabot[bot]'")
     expect(preflight.run).toContain('exit 1')
   })
 

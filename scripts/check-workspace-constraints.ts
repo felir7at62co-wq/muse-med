@@ -61,6 +61,8 @@ const experimentalPackageNamePrefix = '@deepseek-ai/dsh-experimental-'
 const standardReleaseMemberDirectory = /^(?:packages\/(?!experimental\/)[^/]+\/[^/]+|apps\/(?!desktop(?:-host)?$)[^/]+|vendor\/[^/]+)$/
 /** Installable application assembled by electron-builder rather than published to npm. */
 const desktopApplicationDirectory = 'apps/desktop'
+const marketWebDirectory = 'apps/market-web'
+const marketHostDirectory = 'packages/host/muse-market'
 const localArtifactDirs = new Set(['node_modules'])
 const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
   '@deepseek-ai/dsh': ['lib/*.js', 'lib/types/*.d.ts'],
@@ -176,6 +178,9 @@ export function readWorkspaceManifests(repositoryRoot: string): WorkspaceManifes
 }
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
+  '@deepseek-ai/dsh-muse-market': [
+    'lib/package.js', 'lib/server.js', 'lib/skills.js', 'lib/cloud-host.js', 'lib/bot-skills.js', 'lib/format.js', 'lib/types.js',
+  ],
   // Owned Worker bundles import this public bootstrap before their business entry.
   '@deepseek-ai/dsh-app-boot': ['lib/worker/profile-resolution-bootstrap.js'],
   // Codex-derived discovery surfaces publish their license notices beside the entry.
@@ -427,6 +432,9 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
     && manifest.name !== undefined
     && publicNativePackages.has(manifest.name)
 
+  const isMarketWeb = dir === marketWebDirectory && manifest.name === '@deepseek-ai/dsh-market-web'
+  const isMarketHost = dir === marketHostDirectory && manifest.name === '@deepseek-ai/dsh-muse-market'
+
   if (isPublicNativePackage) {
     if (manifest.private === true) {
       errors.push(`${label}: published Landlock package must not set "private": true`)
@@ -443,6 +451,9 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
   } else if (isPrivateMusicAnalysisPackage(dir, manifest.name)) {
     if (manifest.private !== true) errors.push(`${label}: noncommercial music analysis package must set "private": true`)
     if (manifest.publishConfig !== undefined) errors.push(`${label}: noncommercial music analysis package must omit publishConfig`)
+  } else if (isMarketHost || isMarketWeb) {
+    if (manifest.private !== true) errors.push(`${label}: Muse market package must set "private": true`)
+    if (manifest.publishConfig !== undefined) errors.push(`${label}: Muse market package must omit publishConfig`)
   } else if (isReleaseMemberDirectory(dir)) {
     // Release members state that they are publishable: npm refuses a private
     // package, and the repository field is how a consumer finds the source of
@@ -481,7 +492,9 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
     }
   }
 
-  if (dir.startsWith('apps/') && dir !== desktopApplicationDirectory && manifest.name?.startsWith('@deepseek-ai/')) {
+  if (isMarketWeb) {
+    if (manifest.files !== undefined) errors.push(`${label}: Muse market website must omit npm publication files`)
+  } else if (dir.startsWith('apps/') && dir !== desktopApplicationDirectory && manifest.name?.startsWith('@deepseek-ai/')) {
     const expectedFiles = appPackageFiles[manifest.name]
     if (expectedFiles === undefined) {
       errors.push(`${label}: app package has no publication files policy`)

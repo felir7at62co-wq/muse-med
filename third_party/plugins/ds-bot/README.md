@@ -71,6 +71,8 @@ Appearance changes save when the settings page closes. Selecting a preset accent
 
 The browser settings page reports whether the optional Bot browser automation is enabled. Saved grants remain visible when it is disabled, but new grants cannot be added; those grants do not change permissions for Muse's other browser tools. The browser panel and open-page reading remain separate from automation.
 
+Browser polling ends when its HTTP request is cancelled, including during Desktop update preparation. Pending browser read requests remain queued for a subsequent poll; cancellation does not wait for the polling timeout or require changing the displayed conversation.
+
 Returned reasoning summaries are visible when the user has not set the thinking-display preference. An explicit off setting remains off. This preference changes display only; it does not request hidden reasoning or generate a summary when the model returns none.
 
 ## Source, packaging and checks

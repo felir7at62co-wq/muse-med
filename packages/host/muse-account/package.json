@@ -30,6 +30,10 @@
       "types": "./lib/types/types.d.ts",
       "default": "./lib/types/types.js"
     },
+    "./session": {
+      "types": "./lib/types/session.d.ts",
+      "default": "./lib/types/session.js"
+    },
     "./src/*": "./src/*",
     "./package.json": "./package.json",
     "./desktop-bridge": {

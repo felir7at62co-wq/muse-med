@@ -1,0 +1,3 @@
+{"kind":"tool-call","name":"skill"}
+{"kind":"tool-result","name":"skill","loaded":true}
+{"kind":"assistant","text":"横屏分镜交付完成。"}

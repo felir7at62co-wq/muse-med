@@ -588,3 +588,26 @@ it('requires the standalone shortcut protocol and rejects unrelated runtime file
       .toEqual([expect.stringContaining('package.json files must be')])
   }
 })
+
+it.each(['packages/host/muse-market', 'apps/market-web'])('keeps %s out of npm publication', (dir) => {
+  const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+  expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+  expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, private: false } }))
+    .toContainEqual(expect.stringContaining('Muse market package must set "private": true'))
+  expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, publishConfig: { access: 'public' } } }))
+    .toContainEqual(expect.stringContaining('Muse market package must omit publishConfig'))
+  expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, name: '@deepseek-ai/dsh-other-market' } }))
+    .toContainEqual(expect.stringContaining('release member must not set "private": true'))
+})
+
+it('checks the private market artifacts for their deployment surfaces', () => {
+  const web = 'apps/market-web'
+  const host = 'packages/host/muse-market'
+  const webManifest = JSON.parse(readFileSync(new URL(`../${web}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+  const hostManifest = JSON.parse(readFileSync(new URL(`../${host}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+  expect(checkWorkspaceManifest({ dir: web, manifest: { ...webManifest, files: ['dist/**'] } }))
+    .toContainEqual(expect.stringContaining('Muse market website must omit npm publication files'))
+  const files = (hostManifest.files ?? []).filter(file => file !== 'lib/cloud-host.js')
+  expect(checkWorkspaceManifest({ dir: host, manifest: { ...hostManifest, files } }))
+    .toContainEqual(expect.stringContaining('package.json files must be'))
+})

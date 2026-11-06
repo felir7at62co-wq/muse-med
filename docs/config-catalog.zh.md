@@ -2442,6 +2442,37 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-muse-account -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-muse-market -->
+<a id="deepseek-aidsh-muse-market"></a>
+
+## `@deepseek-ai/dsh-muse-market`
+
+- `inject`: `agentPresets` · `skills`
+- `source`: [`packages/host/muse-market/src/index.ts:22`](../packages/host/muse-market/src/index.ts)
+
+```ts config-catalog
+/** Product configuration for the cloud origin and local publication policy. */
+export interface Config {
+  /** Cloud market origin used for authenticated directory and release requests. */
+  readonly baseUrl: string
+  /** Local installation, immutable release, and session-binding storage directory. */
+  readonly root: string
+  /** Trusted Host account directory containing session.json; defaults to the resolved muse-account home. */
+  readonly accountHome?: string
+  /** Maximum duration in milliseconds for one cloud request. */
+  readonly requestTimeoutMs: number
+  /** Maximum compressed package size in bytes. */
+  readonly archiveBytes: number
+  /** Maximum total expanded file size in bytes. */
+  readonly expandedBytes: number
+  /** Maximum number of files accepted in one package. */
+  readonly fileCount: number
+  /** Explicit product allowlist of package plugin identifiers; internal filesystem providers remain forbidden. */
+  readonly allowedPlugins: string[]
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-muse-market -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-office-to-pdf -->
 <a id="deepseek-aidsh-office-to-pdf"></a>
 
@@ -4641,7 +4672,7 @@ export type DramaShotReviewMode = 'strict' | 'advisory'
 ## `@deepseek-ai/dsh-tool-skill`
 
 - `inject`: `agents` · `tools` · `skills`
-- `source`: [`packages/skill/tool-skill/src/index.ts:63`](../packages/skill/tool-skill/src/index.ts)
+- `source`: [`packages/skill/tool-skill/src/index.ts:66`](../packages/skill/tool-skill/src/index.ts)
 
 ```ts config-catalog
 /** Model-facing skill catalog configuration. */
@@ -4650,6 +4681,8 @@ export interface Config {
   catalogDescriptionMaxLength?: number
   /** Preserve this scoped loader's catalog through other Host loader listeners; defaults to false. */
   scopedCatalogOwner?: boolean
+  /** Maximum advertised summaries per provider source; omitted sources remain unbounded. Does not change invocation permissions. */
+  catalogSourceLimits?: Readonly<Record<string, number>>
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-skill -->

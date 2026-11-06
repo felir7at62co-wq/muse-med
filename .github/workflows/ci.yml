@@ -552,6 +552,8 @@ jobs:
       ci: true
     secrets:
       DEEPSEEK_API_KEY_EXTERNAL: ${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}
+      MUSE_E2E_USERNAME: ${{ secrets.MUSE_E2E_USERNAME }}
+      MUSE_E2E_PASSWORD: ${{ secrets.MUSE_E2E_PASSWORD }}
 
   # Native builds and process tests block pull requests independently of coverage.
   # Observational checks reuse the successful build and remain non-blocking.

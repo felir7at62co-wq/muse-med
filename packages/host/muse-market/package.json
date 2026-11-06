@@ -1,0 +1,94 @@
+{
+  "name": "@deepseek-ai/dsh-muse-market",
+  "version": "0.2.1-alpha.1",
+  "private": true,
+  "description": "Muse publication packages and versioned local market installations",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./package": {
+      "types": "./lib/types/package.d.ts",
+      "default": "./lib/package.js"
+    },
+    "./server": {
+      "types": "./lib/types/server.d.ts",
+      "default": "./lib/server.js"
+    },
+    "./skills": {
+      "types": "./lib/types/skills.d.ts",
+      "default": "./lib/skills.js"
+    },
+    "./types": {
+      "types": "./lib/types/types.d.ts",
+      "default": "./lib/types/types.js"
+    },
+    "./src/*": "./src/*",
+    "./package.json": "./package.json",
+    "./typert": {
+      "types": "./lib/typert.host.d.ts",
+      "default": "./lib/typert.host.js"
+    },
+    "./remote": {
+      "types": "./lib/typert.remote-client.d.ts",
+      "default": "./lib/typert.remote-client.js"
+    },
+    "./cloud-host": {
+      "types": "./lib/types/cloud-host.d.ts",
+      "default": "./lib/cloud-host.js"
+    },
+    "./bot-skills": {
+      "types": "./lib/types/bot-skills.d.ts",
+      "default": "./lib/bot-skills.js"
+    },
+    "./format": {
+      "types": "./lib/types/format.d.ts",
+      "default": "./lib/format.js"
+    }
+  },
+  "scripts": {
+    "bundle": "tsdown"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/package.js",
+    "lib/server.js",
+    "lib/skills.js",
+    "lib/cloud-host.js",
+    "lib/bot-skills.js",
+    "lib/format.js",
+    "lib/types.js",
+    "lib/types/**/*.js",
+    "lib/types/**/*.d.ts",
+    "lib/typert.host.js",
+    "lib/typert.host.d.ts",
+    "lib/typert.remote-client.js",
+    "lib/typert.remote-client.d.ts"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@deepseek-ai/dsh-agent-preset-registry": "workspace:*",
+    "@deepseek-ai/dsh-atomic-write": "workspace:*",
+    "@deepseek-ai/dsh-brand": "workspace:*",
+    "@deepseek-ai/dsh-home-paths": "workspace:*",
+    "@deepseek-ai/dsh-muse-account": "workspace:*",
+    "@deepseek-ai/dsh-skill": "workspace:*",
+    "@deepseek-ai/dsh-typert-protocol": "workspace:*",
+    "@deepseek-ai/schemastery": "workspace:~",
+    "fflate": "^0.8.2",
+    "yaml": "^2.4.2",
+    "@deepseek-ai/dsh-util-values": "workspace:*",
+    "@deepseek-ai/dsh-host-webserver": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:~"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:~"
+  }
+}

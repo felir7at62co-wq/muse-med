@@ -1,0 +1,6 @@
+.page { height: 100%; min-height: 0; min-width: 0; overflow: auto; scrollbar-gutter: stable; background: var(--dsw-alias-bg-base); color: var(--dsw-alias-label-primary); }
+.content { box-sizing: border-box; max-width: 1440px; margin: 0 auto; padding: 28px clamp(24px, 3vw, 44px) 48px; padding-inline-start: max(clamp(24px, 3vw, 44px), var(--dsh-frame-leading-clearance, 0px)); }
+:global([data-platform='darwin']) .content { padding-top: calc(28px + var(--dsh-frame-top-clearance, 0px)); }
+.shortcut { display: flex; align-items: start; flex-direction: column; gap: 12px; }
+.shortcut p { margin: 0; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary); }
+@media (max-width: 600px) { .content { padding-inline-end: 16px; padding-inline-start: max(16px, var(--dsh-frame-leading-clearance, 0px)); } }

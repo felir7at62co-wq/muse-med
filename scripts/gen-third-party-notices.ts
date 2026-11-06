@@ -146,6 +146,7 @@ const PYTHON_METADATA: Record<string, { license: string; repo: string; role?: st
   'typing-extensions': { license: 'PSF-2.0', repo: 'https://github.com/python/typing_extensions' },
   tzdata: { license: 'Apache-2.0', repo: 'https://github.com/python/tzdata' },
   xlsxwriter: { license: 'BSD-2-Clause', repo: 'https://github.com/jmcnamara/XlsxWriter' },
+  zstandard: { license: 'BSD-3-Clause', repo: 'https://github.com/indygreg/python-zstandard', role: 'test-only' },
 }
 
 type PythonMetadata = typeof PYTHON_METADATA

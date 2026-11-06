@@ -158,6 +158,7 @@
     { "path": "./packages/api/workspace-files/tsconfig.client.json" },
     { "path": "./packages/client/web" },
     { "path": "./packages/context/file-reference" },
-    { "path": "./apps/web" }
+    { "path": "./apps/web" },
+    { "path": "./apps/market-web" }
   ]
 }

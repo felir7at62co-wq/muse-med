@@ -3,6 +3,7 @@
 import accountRemote from '@deepseek-ai/dsh-muse-account/remote'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { mountMuseAccountSettings } from './mount.ts'
+import { mountMuseMarket } from './market-mount.ts'
 
 export { inject } from './mount.ts'
 export type { MuseAccountInjected, MuseAccountLocaleKey, MuseAccountOutcome, MuseAccountSectionProps } from './mount.ts'
@@ -13,5 +14,9 @@ export type { MuseAccountInjected, MuseAccountLocaleKey, MuseAccountOutcome, Mus
  * @returns a disposer for both registrations.
  */
 export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
-  return await mountMuseAccountSettings(ctx, accountRemote)
+  const account = await mountMuseAccountSettings(ctx, accountRemote)
+  try {
+    const market = await mountMuseMarket(ctx)
+    return async () => { await market(); await account() }
+  } catch (error) { await account(); throw error }
 }

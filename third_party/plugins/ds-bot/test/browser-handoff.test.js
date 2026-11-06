@@ -51,14 +51,40 @@ function start() {
   return {
     rt, sent, ensured,
     failFlush(error) { flushError = error },
-    call: async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', {
-      method: 'POST', body: JSON.stringify({ endpoint, payload }),
+    call: async (endpoint, payload, signal) => (await route.fetch(new Request('http://localhost/api/bot', {
+      method: 'POST', body: JSON.stringify({ endpoint, payload }), signal,
     }))).json(),
     stop: () => rmSync(home, { recursive: true, force: true, maxRetries: 5 }),
   }
 }
 
 const BOT_HOLD = { by: 'bot', reason: 'login', note: 'Sign in to the shop.', callId: 'call-1' }
+
+test('the browser-wait route releases an aborted HTTP request without waiting for its poll timeout', async () => {
+  const entry = start()
+  const abort = new AbortController()
+  const entered = Promise.withResolvers()
+  const wait = entry.rt.browserChannel.wait
+  entry.rt.browserChannel.wait = (...args) => {
+    const pending = wait(...args)
+    entered.resolve()
+    return pending
+  }
+  const pending = entry.call('browser-wait', { clientId: 'window-1', open: {} }, abort.signal)
+  try {
+    await entered.promise
+    abort.abort()
+    assert.equal(await Promise.race([
+      pending.then(() => 'settled'),
+      new Promise(resolve => setImmediate(() => resolve('pending'))),
+    ]), 'settled')
+    assert.deepEqual(await pending, { ok: true, value: { requests: [], holds: {} } })
+  } finally {
+    entry.rt.browserChannel.dispose()
+    await pending
+    entry.stop()
+  }
+})
 
 test('a browser handoff names the call and the Session that raised it', async () => {
   const tools = new Map()

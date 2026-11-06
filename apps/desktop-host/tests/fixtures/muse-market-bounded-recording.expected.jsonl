@@ -1,0 +1,11 @@
+{"kind":"user","text":"Use saffron rubrics for this task"}
+{"kind":"skill-catalog","bounded":true,"entries":["market-070","market-071","market-072","native-a","native-b","native-c","native-d"]}
+{"kind":"user","text":"/market-090 /market-091 /market-092 /market-093 freely describe the document"}
+{"kind":"skill-catalog","bounded":true,"entries":["market-090","market-091","market-092","native-a","native-b","native-c","native-d"]}
+{"kind":"skill-invocation","name":"market-090"}
+{"kind":"skill-invocation","name":"market-091"}
+{"kind":"skill-invocation","name":"market-092"}
+{"kind":"skill-invocation","name":"market-093"}
+{"kind":"user","text":"/market-094 /market-095 compare invocation policies"}
+{"kind":"skill-catalog","bounded":true,"entries":["market-000","market-001","market-095","native-a","native-b","native-c","native-d"]}
+{"kind":"skill-invocation","name":"market-094"}

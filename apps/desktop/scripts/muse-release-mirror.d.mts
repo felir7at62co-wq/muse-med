@@ -26,7 +26,7 @@ export interface MuseMirrorMetadata {
   readonly sha256: string
 }
 
-/** Selected platform builds of one exact unsigned Muse release. */
+/** Selected platform builds of one exact Muse release. */
 export interface MuseMirrorPlan {
   readonly version: string
   readonly sourceCommit: string
@@ -34,6 +34,17 @@ export interface MuseMirrorPlan {
   readonly metadata: readonly MuseMirrorMetadata[]
   readonly githubMetadata: readonly { readonly filename: string; readonly contents: string }[]
 }
+
+/**
+ * Hash the full artifact inventory after packaging checks have passed.
+ * @param target - Desktop release target.
+ * @param version - Muse product version.
+ * @param artifactsRoot - Completed target's artifact directory.
+ * @returns Hashes by filename.
+ */
+export function collectMuseArtifactHashes(target: string, version: string, artifactsRoot: string): Promise<
+  Record<string, Pick<MuseMirrorArtifact, 'size' | 'sha256' | 'sha512'>>
+>
 
 /**
  * Record hashes after the complete unsigned packaging checks have passed.
@@ -54,4 +65,9 @@ export function createMuseMirrorPlan(options: {
   readonly artifactDirectories: Readonly<Record<string, string>>
   readonly targets?: readonly string[]
   readonly legacyRcDiscovery?: boolean
+  readonly signedWindows?: {
+    readonly dshVersion: string
+    readonly certificateThumbprint: string
+    readonly inspect?: typeof import('./windows-runtime-signature.mjs').inspectWindowsRuntimeSignature
+  }
 }): Promise<MuseMirrorPlan>

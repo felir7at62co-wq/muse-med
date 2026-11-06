@@ -54,7 +54,7 @@ import { RowActionToast } from './session-actions/RowActionToast.tsx'
 import { WorkspacePicker } from './WorkspacePicker.tsx'
 import { en, zh, type WorkspaceKey } from './locales.ts'
 
-export type { StartSessionOptions, UiWorkspace } from './navigation.ts'
+export type { PresetSessionOpener, StartSessionOptions, UiWorkspace } from './navigation.ts'
 export type {
   DirectoryFlowOwnerProps, DirectoryFlowSlotName, DirectoryPickingHooks, DirectoryPickingInjected,
   MenuOpenState, RowToast, SessionRenameTarget, SessionRowOwnerProps, UseMenuOpenState, WorkspaceBrowserInjected,
@@ -158,14 +158,7 @@ export function apply(ctx: Context): void {
       console.warn('session unarchive rejected:', reason)
     })
   }
-  const renameSession: SessionRenameDialogInjected['renameSession'] = async (sessionId, title) => {
-    const result = await sessions.using(
-      sessionId,
-      { source: 'workspaceOperation' },
-      reference => reference.binding.session.rename(title),
-    )
-    if (!result.ok) throw new Error(result.error.message)
-  }
+  const renameSession: SessionRenameDialogInjected['renameSession'] = (sessionId, title) => uiWorkspace.renameSession(sessionId, title)
   const pinInjected = (): PinSessionInjected => ({
     hooks: { pinned: pinnedSet, archived: archivedSet },
     // Pin failures surface as a notice: nothing else on the surface moves, so

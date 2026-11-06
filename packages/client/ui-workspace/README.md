@@ -31,6 +31,8 @@ Use the sidebar to browse Workspaces and their Sessions, reorder them, and start
 
 History rows without a stored title use the localized unnamed label (未命名 / Untitled), rather than a directory name. The current blank row remains New Session; other blank rows remain hidden. Rename drafts use the stored title, or start empty when unnamed; unnamed rows do not offer title copying.
 
+Client plugins can use `uiWorkspace.startPresetSession` to open a fresh Session with a specified Agent preset in the current or most recent Workspace. The call requires an existing Workspace. An optional title is persisted on the created Session before navigation. A product surface can present the titled Session through its own navigation.
+
 ### Reordering and view options
 
 Pinned Sessions lead ordinary Sessions in both grouped and flat views. **Last updated** sorts each partition strictly by the latest user prompt or steer time, newest first; pin time does not affect it. **Manual** uses the relative positions in one complete Session sequence, including hidden archives. Returning to Last updated discards the manual layout, and entering Manual again freezes the then-current chronological order. The browser defaults to Last updated and remembers the selected mode across reloads.

@@ -1,5 +1,5 @@
 ---
-description: "Define an Agent’s child plugins in ordinary Cordis YAML. Declare several presets and let sessions select one. Definitions load eagerly, and edits affect subsequently created Agents."
+description: "Define an Agent’s child plugins in ordinary Cordis YAML. Declare several presets and let sessions select one. Definitions load eagerly by default or on their first binding."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Define an Agent’s child plugins in ordinary Cordis YAML. Declare several presets and let sessions select one. Definitions load eagerly, and edits affect subsequently created Agents.
+Define an Agent’s child plugins in ordinary Cordis YAML. Declare several presets and let sessions select one. Definitions load eagerly by default or on their first binding, and edits affect subsequently created Agents.
 
 ## Table of Contents
 
@@ -44,6 +44,7 @@ Define an Agent’s child plugins in ordinary Cordis YAML. Declare several prese
 | `name` | unset | Display name |
 | `description` | unset | Display description |
 | `order` | unset | Roster order |
+| `activation` | `eager` | `on-demand` loads plugins on the first binding rather than declaration |
 
 The declaration row’s `id` addresses Loader edits; `config.id` is the preset identity saved by sessions. Child entry IDs may be omitted and assigned by Loader.
 

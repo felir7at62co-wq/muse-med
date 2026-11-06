@@ -1,0 +1,45 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../preset/agent-preset-registry"
+    },
+    {
+      "path": "../../util/atomic-write"
+    },
+    {
+      "path": "../../util/brand"
+    },
+    {
+      "path": "../../util/home-paths"
+    },
+    {
+      "path": "../muse-account/tsconfig.host.json"
+    },
+    {
+      "path": "../../skill/skill"
+    },
+    {
+      "path": "../../typert/protocol"
+    },
+    {
+      "path": "../../util/values"
+    },
+    {
+      "path": "../webserver"
+    }
+  ]
+}

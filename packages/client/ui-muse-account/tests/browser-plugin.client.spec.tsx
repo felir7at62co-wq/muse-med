@@ -21,6 +21,9 @@ import { apply } from '../src/client/index.ts'
 vi.mock('@deepseek-ai/dsh-muse-account/remote', () => ({
   default: { package: '@deepseek-ai/dsh-muse-account', descriptors: [] },
 }))
+vi.mock('@deepseek-ai/dsh-muse-market/remote', () => ({
+  default: { package: '@deepseek-ai/dsh-muse-market', descriptors: [] },
+}))
 
 usePinnedBrowserLanguages('zh-CN')
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
@@ -70,7 +73,9 @@ describe('MUSE account browser plugin', () => {
 
   it('binds the browser entry to its generated namespace contribution', async () => {
     const b = await bench(), dispose = await apply(b.ctx)
-    expect(b.mount).toHaveBeenCalledExactlyOnceWith(REMOTE)
+    expect(b.mount).toHaveBeenCalledTimes(2)
+    expect(b.mount).toHaveBeenNthCalledWith(1, REMOTE)
+    expect(b.mount).toHaveBeenNthCalledWith(2, { package: '@deepseek-ai/dsh-muse-market', descriptors: [] })
     expect(b.slots.entries('settings.section')).toHaveLength(1)
     await dispose()
     await b.ctx.fiber.dispose()
@@ -172,5 +177,15 @@ describe('MUSE account browser plugin', () => {
     })
     expect(b.logout).toHaveBeenCalledOnce()
     await b.ctx.fiber.dispose()
+  })
+
+  it('disposes the account contribution when the market Remote cannot mount', async () => {
+    const b = await bench()
+    b.mount.mockResolvedValueOnce(b.disposeMount).mockRejectedValueOnce(new Error('Market Remote unavailable'))
+
+    await expect(apply(b.ctx)).rejects.toThrow('Market Remote unavailable')
+
+    expect(b.disposeMount).toHaveBeenCalledOnce()
+    expect(b.slots.entries('settings.section')).toHaveLength(0)
   })
 })

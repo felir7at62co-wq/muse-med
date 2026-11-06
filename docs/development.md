@@ -133,11 +133,20 @@ Apart from the scoped staged-record verification, the hooks intentionally do not
 
 Contributors can opt into the comprehensive local gate set with `pnpm run check:all`. The command is independent of the Git hooks and is not an agent instruction.
 
+<a id="ci-gates"></a>
 ### CI gates
 
 Without a failover setting, repository copies use standard GitHub Linux and Windows runners. The upstream repository retains its enterprise pools; explicit failover settings retain their selected pools.
 
-Upstream Issue/Project policy, weighted approval, and Cloudflare preview workflows run only in their configured upstream repository. Copies enable real-API CI with `DSH_RUN_REAL_API_E2E=true` in repository variables and `DEEPSEEK_API_KEY_EXTERNAL` in repository secrets; the key preflight and untrusted-PR exclusions remain required.
+Upstream Issue policy, Issue lifecycle, and weighted approval automate upstream Project and review administration. Their repository restrictions make them inapplicable to Muse and other copies; their owning policy tests still run with the static gates.
+
+The [real-model API workflow](../.github/workflows/e2e.yml) validates Muse with a dedicated ordinary account. Store its credentials in repository secrets `MUSE_E2E_USERNAME` and `MUSE_E2E_PASSWORD`; select the gateway and model with repository variables `MUSE_E2E_BASE_URL`, `MUSE_E2E_PROVIDER`, and `MUSE_E2E_MODEL`. The test signs in, streams through the account-authenticated relay, and signs out; supplier keys stay at the gateway. The [Muse account verification reference](../packages/host/muse-account/README.md#live-gateway-verification) owns the scenario and request limits. Credentialed pull requests require a head repository full name matching the current repository and an author other than Dependabot. Missing required configuration fails CI preflight.
+
+The official DeepSeek suite remains enabled upstream and available through explicit `DSH_RUN_REAL_API_E2E=true` opt-in elsewhere, including Muse. It requires the repository secret `DEEPSEEK_API_KEY_EXTERNAL`; a missing key fails preflight. Muse relay results do not establish coverage of the official Anthropic-compatible or Files APIs. The installed-wheel checks likewise retain their separate official and Muse scenarios.
+
+The [PR preview workflow](../.github/workflows/build-preview-cloudflare.yml) builds the Muse market, runs fixture-backed browser checks, and saves a verified preview artifact. Serving that artifact requires the [Muse account gateway](../apps/market-web/README.md); the job does not deploy it to Cloudflare or verify real-model responses. Cloudflare deployment remains upstream-only.
+
+The [Desktop installer workflow](../.github/workflows/muse-desktop.yml) copies verified installers into existing release drafts only on manual dispatch with `upload_draft_release=true` and `target=all`. Ordinary pull-request builds do not publish installers.
 
 The keyless [CI workflow](../.github/workflows/ci.yml) groups independent gates into broad lanes and runs a smaller compatibility signal across supported Node versions. Artifact consumers wait for one build within their lane. Required benchmarks run separately on standard GitHub-hosted Linux; the [benchmark runner reference](../benchmarks/AGENTS.md) owns routing and the job timeout. The separate real-API workflow runs `pnpm run test:e2e` with its configured worker bound. See [scripts/run-gates.ts](../scripts/run-gates.ts) and the workflow files for the current gate and job inventory.
 

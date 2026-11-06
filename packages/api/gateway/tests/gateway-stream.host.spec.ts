@@ -398,6 +398,103 @@ describe('Typert Remote streams', () => {
     }
   })
 
+  it('rejects a superseded pause without draining resumed streams and retains old producer work for the next pause', async () => {
+    const { ctx, service } = await setup(true)
+    const oldReadStarted = Promise.withResolvers<undefined>()
+    const oldReturnStarted = Promise.withResolvers<undefined>()
+    const releaseOldRead = Promise.withResolvers<undefined>()
+    const releaseOldReturn = Promise.withResolvers<undefined>()
+    const newReadStarted = Promise.withResolvers<undefined>()
+    const newReturnStarted = Promise.withResolvers<undefined>()
+    const releaseNewRead = Promise.withResolvers<undefined>()
+    let oldProducerFinished = false
+    service.source = {
+      [Symbol.asyncIterator]: () => ({
+        async next() {
+          oldReadStarted.resolve(undefined)
+          await releaseOldRead.promise
+          oldProducerFinished = true
+          return { done: true, value: undefined }
+        },
+        async return() {
+          oldReturnStarted.resolve(undefined)
+          await releaseOldReturn.promise
+          return { done: true, value: undefined }
+        },
+      }),
+    }
+    let oldSocket: WebSocket | undefined
+    let resumedSocket: WebSocket | undefined
+    let earlierPause: Promise<void> | undefined
+    let currentPause: Promise<void> | undefined
+    try {
+      oldSocket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`, {
+        headers: { cookie: browserCookie(ctx) },
+      })
+      await once(oldSocket, 'open')
+      sendOpen(oldSocket, 'old', 'feed/items', {})
+      await oldReadStarted.promise
+      const oldClosed = once(oldSocket, 'close')
+      earlierPause = ctx.serial('connection/update-pause')
+      const earlierOutcome = earlierPause.then(
+        () => ({ kind: 'resolved' } as const),
+        (error: unknown) => ({ kind: 'rejected', error } as const),
+      )
+      await oldReturnStarted.promise
+      await oldClosed
+      await ctx.serial('connection/update-resume')
+      service.source = {
+        [Symbol.asyncIterator]: () => ({
+          async next() {
+            newReadStarted.resolve(undefined)
+            await releaseNewRead.promise
+            return { done: true, value: undefined }
+          },
+          return() {
+            newReturnStarted.resolve(undefined)
+            return Promise.resolve({ done: true, value: undefined })
+          },
+        }),
+      }
+      resumedSocket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`, {
+        headers: { cookie: browserCookie(ctx) },
+      })
+      await once(resumedSocket, 'open')
+      sendOpen(resumedSocket, 'resumed', 'feed/items', {})
+      await newReadStarted.promise
+      releaseOldReturn.resolve(undefined)
+      const outcome = await Promise.race([
+        earlierOutcome,
+        new Promise<{ readonly kind: 'pending' }>(resolve => setImmediate(() => { resolve({ kind: 'pending' }) })),
+      ])
+      expect(outcome.kind).toBe('rejected')
+      if (outcome.kind === 'rejected') expect(outcome.error).toMatchObject({ message: 'desktop update: stream pause was superseded' })
+      expect(oldProducerFinished).toBe(false)
+      expect(resumedSocket.readyState).toBe(WebSocket.OPEN)
+      const resumedClosed = once(resumedSocket, 'close')
+      currentPause = ctx.serial('connection/update-pause')
+      releaseNewRead.resolve(undefined)
+      await newReturnStarted.promise
+      await resumedClosed
+      expect(await Promise.race([
+        currentPause.then(() => 'finished'),
+        new Promise<string>(resolve => setImmediate(() => { resolve('pending') })),
+      ])).toBe('pending')
+      expect(oldProducerFinished).toBe(false)
+      releaseOldRead.resolve(undefined)
+      await currentPause
+      expect(oldProducerFinished).toBe(true)
+    } finally {
+      releaseOldRead.resolve(undefined)
+      releaseOldReturn.resolve(undefined)
+      releaseNewRead.resolve(undefined)
+      oldSocket?.terminate()
+      resumedSocket?.terminate()
+      await Promise.allSettled([earlierPause, currentPause])
+      await ctx.serial('connection/update-resume')
+    }
+  })
+
   it('quiesces the actual WebSocket carrier and fails closed for active in-process streams', async () => {
     const { ctx, service } = await setup(true)
     const socket = new WebSocket(`ws://127.0.0.1:${String(ctx.webServer.port)}/api/remote.mux`, {

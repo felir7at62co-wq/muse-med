@@ -4,6 +4,49 @@ import { createBrowserChannel, pageText, partEnd } from '../src/host/browser.js'
 
 const ids = items => items.map(item => item.id)
 
+test('cancelling a browser poll releases its wait before the long-poll timeout', async () => {
+  const channel = createBrowserChannel({ waitMs: 60_000 })
+  const abort = new AbortController()
+  const pending = channel.wait('window-1', {}, abort.signal)
+  try {
+    abort.abort()
+    assert.equal(await Promise.race([
+      pending.then(() => 'settled'),
+      new Promise(resolve => setImmediate(() => resolve('pending'))),
+    ]), 'settled')
+    assert.deepEqual(await pending, [])
+  } finally { channel.dispose(); await pending }
+})
+
+test('an already cancelled poll preserves queued reads and the current window poll', async () => {
+  const channel = createBrowserChannel({ waitMs: 60_000, resendMs: 0 })
+  const pending = channel.wait('window-1', { 'bot-a': {} })
+  try {
+    assert.deepEqual(await channel.wait('window-1', {}, AbortSignal.abort()), [])
+    const reading = channel.read('bot-a')
+    const [request] = await pending
+    assert.equal(request.botId, 'bot-a')
+    channel.result({ id: request.id, ok: true, page: { title: 'kept' } })
+    assert.deepEqual(await reading, { page: { title: 'kept' } })
+  } finally { channel.dispose(); await pending }
+})
+
+test('cancellation from a replaced poll cannot end its replacement', async () => {
+  const channel = createBrowserChannel({ waitMs: 60_000 })
+  const abort = new AbortController()
+  const old = channel.wait('window-1', { 'bot-a': {} }, abort.signal)
+  const replacement = channel.wait('window-1', { 'bot-a': {} })
+  try {
+    assert.deepEqual(await old, [])
+    abort.abort()
+    const reading = channel.read('bot-a')
+    const [request] = await replacement
+    assert.equal(request.botId, 'bot-a')
+    channel.result({ id: request.id, ok: true, page: { title: 'replacement' } })
+    assert.deepEqual(await reading, { page: { title: 'replacement' } })
+  } finally { channel.dispose(); await replacement }
+})
+
 test('a read with no window that shows the Bot answers at once', async () => {
   const channel = createBrowserChannel()
   assert.deepEqual(await channel.read('bot-a'), { absent: true })

@@ -1,0 +1,10 @@
+{
+  "name": "muse-market-cloud-profile",
+  "private": true,
+  "type": "module",
+  "dsh": { "profile": { "bundles": [] } },
+  "dependencies": {
+    "@deepseek-ai/dsh-host-webserver": "0.2.1-alpha.1",
+    "@deepseek-ai/dsh-muse-market": "0.2.1-alpha.1"
+  }
+}

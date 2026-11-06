@@ -118,6 +118,8 @@ The authenticated `museAccount` Remote namespace carries [Settings UI](../../cli
 
 Account gateway requests resolve the current global fetch when no transport is injected; an explicitly injected transport remains fixed for the client lifetime.
 
+The `./session` export gives trusted Host integrations origin-bound session reads, serialized writes and revision-checked removal. It is not a Remote or model tool; callers must keep the returned cookie out of UI responses and Session events. The [market Host](../muse-market/README.md) uses this export for authenticated publication requests.
+
 Verified account status exposes administrator navigation only when the current gateway returns strict `admin: true` and the exact `/admin` path. The Host converts that path to its configured origin; it discards other administrator destinations. Locally cached status never reports administrator navigation, and login persistence stores only username, environment and workspace label beside the existing session fields.
 
 The authenticated `museAccount.feedback` Remote receives Typert-validated identifiers and ratings, verifies the live feedback target, captures the origin-bound account revision, and rechecks it after preparing the text. It sends one same-origin JSON POST to `/api/muse.feedback` with the captured cookie and Origin header, without following redirects or retrying unknown writes. A receipt must match the username and exact submitted title, body, and category. Switching accounts during submission reports an account-change result; check the original account inbox. Muse Desktop disables the upstream Session-log delivery plugin. The typed Host `/feedback <text>` command retains its local recording behavior.
@@ -135,6 +137,13 @@ Transcription refusals distinguish queue capacity, upload contention, account re
 No runtime invariant companion is published because account status and registered MCP tools are available through their owning service and tool registry, with no independent observation that could diverge.
 
 </details>
+
+<a id="live-gateway-verification"></a>
+### Live gateway verification
+
+Use a dedicated ordinary account without personal data, administrator access, or publishing membership for the real gateway test. Configure the five `MUSE_E2E_*` values described in the [CI reference](../../../docs/development.md#ci-gates), then run `pnpm run test:e2e packages/host/muse-account/tests/muse-gateway-live.e2e.ts --retry=0` after building the package. With all five values absent, a local run skips the case; a partial configuration fails. CI requires all five values and uses one worker.
+
+The built Muse account plugin signs in, verifies an unpredictable text reply, and runs a tool whose private random challenge is absent from the prompt. The AgentLoop must continue with the actual tool result. The case permits at most three streamed model requests, at most 1,024 output tokens per request, and a 90-second request deadline, without test retries. Requests use relay transport, keeping supplier keys at the gateway. The case checks that Session data excludes account credentials, then verifies logout revocation and removal of the test home's session and model-access files. These test limits do not implement account-level gateway quotas.
 
 -----
 

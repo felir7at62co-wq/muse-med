@@ -137,11 +137,20 @@ vendor manifest 守卫检查 `vendor/*/src` 下的改动是否连同对应的 `v
 
 贡献者可以选择运行 `pnpm run check:all`，执行全面的本地门禁集。该命令独立于 Git 钩子，也不是对 agent 的指令。
 
+<a id="ci-gates"></a>
 ### CI 门禁
 
 未设置 failover 时，仓库副本使用标准 GitHub Linux 和 Windows 运行器。上游仓库保留其企业运行器池；显式 failover 设置仍使用选定的池。
 
-上游 Issue/Project 策略、加权审批及 Cloudflare 预览工作流仅在配置所指向的上游仓库运行。副本可在仓库变量中设置 `DSH_RUN_REAL_API_E2E=true`，并在仓库密钥中配置 `DEEPSEEK_API_KEY_EXTERNAL`，启用真实 API CI；密钥预检及不受信任 PR 的排除规则仍然适用。
+上游 Issue 策略、Issue 生命周期和加权审批用于自动管理上游 Project 与评审。仓库限制使这些功能不适用于 Muse 和其他副本；各自所属的策略测试仍随静态门禁运行。
+
+[真实模型 API 工作流](../.github/workflows/e2e.yml)通过专用普通账号验证 Muse。将账号凭据保存在仓库密钥 `MUSE_E2E_USERNAME` 和 `MUSE_E2E_PASSWORD` 中，并通过仓库变量 `MUSE_E2E_BASE_URL`、`MUSE_E2E_PROVIDER`、`MUSE_E2E_MODEL` 选择网关和模型。测试登录后通过账号认证的中继进行流式调用，再退出登录；供应商密钥保留在网关。[Muse 账号验证参考](../packages/host/muse-account/README.zh.md#live-gateway-verification)负责具体场景和请求上限。只有 head 仓库完整名称与当前仓库一致，且作者不是 Dependabot 的拉取请求，才能使用凭据。缺少必需配置会导致 CI 预检失败。
+
+官方 DeepSeek 测试集仍在上游启用，其他仓库（包括 Muse）可通过显式设置 `DSH_RUN_REAL_API_E2E=true` 选择启用。它需要仓库密钥 `DEEPSEEK_API_KEY_EXTERNAL`；缺少密钥会导致预检失败。Muse 中继测试结果不代表覆盖官方 Anthropic 兼容接口或 Files API。已安装 wheel 的检查同样保留独立的官方与 Muse 场景。
+
+[PR 预览工作流](../.github/workflows/build-preview-cloudflare.yml)构建 Muse 市场、运行基于测试夹具的浏览器检查，并保存已验证的预览产物。提供该产物需要 [Muse 账号网关](../apps/market-web/README.zh.md)；该 job 不会将其部署到 Cloudflare，也不验证真实模型回复。Cloudflare 部署仍仅面向上游。
+
+[Desktop 安装包工作流](../.github/workflows/muse-desktop.yml)仅在手动触发且设置 `upload_draft_release=true` 和 `target=all` 时，将已验证的安装包复制到现有发布草稿中。普通拉取请求构建不发布安装包。
 
 keyless [CI 工作流](../.github/workflows/ci.yml) 将独立门禁分组到若干宽粒度 lane，并在受支持的 Node 版本上运行一组较小的兼容性检查。产物消费方在各自 lane 内等待一次 build。必需 benchmark 在标准 GitHub 托管 Linux 上独立运行；[benchmark 运行器说明](../benchmarks/AGENTS.md)拥有路由及 job 超时。单独的真实 API 工作流按其配置的 worker 上限运行 `pnpm run test:e2e`。当前门禁和 job 清单以 [scripts/run-gates.ts](../scripts/run-gates.ts) 和工作流文件为准。
 

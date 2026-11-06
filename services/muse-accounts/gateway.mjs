@@ -27,6 +27,7 @@ import {createDesktopRelay} from './desktop-relay.mjs';
 import {desktopRoute,desktopPrefix} from './desktop-route.mjs';
 import {desktopPicker} from './desktop-picker.mjs';
 import {createVoiceSlots,createJubianVoiceVerifier,resolveVoiceSlotOptions} from './voice-slots.mjs';
+import {loadMarket,marketPage} from './market.mjs';
 
 /** Load account Wiki storage and administrator grants without opening legacy vector files.
  * @param {object} environment Gateway environment containing the KB directory and credential-file paths.
@@ -54,7 +55,7 @@ function loginPage(register=false,desktopLogin,feishuEnabled=false,feishuAppType
  const legacy=feishuEnabled?'':passwordForm+`<p>${register?`已有账号？<a href="/login${continuation}">登录</a>`:`<a href="/register${continuation}">免费注册个人工作间</a>`}</p>`;
  return page('MUSE',`<img src="/spider.png" alt="MUSE"><h1>MUSE</h1><p>让灵感成形，让故事发生。</p>${feishuEnabled?`${feishuAction}<small>飞书授权后即可使用，无需另设 MUSE 密码。${feishuAppType==='custom'?'仅限本企业应用可用范围内的成员。':''}</small>`:''}${legacy}<small>每个账号拥有独立的文档与会话。</small>`,true);
 }
-export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},desktopLoginOptions={},feishuLoginOptions={},modelConfig,globalModels,modelForward,desktopModelTransport='relay',modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,asrRequestRatePerMinute=60,activityRequestRatePerMinute=120,voiceSlots,now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
+export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},desktopLoginOptions={},feishuLoginOptions={},modelConfig,globalModels,modelForward,desktopModelTransport='relay',modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,asrRequestRatePerMinute=60,activityRequestRatePerMinute=120,voiceSlots,market,now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
  if(!Number.isSafeInteger(activityRequestRatePerMinute)||activityRequestRatePerMinute<1||activityRequestRatePerMinute>10000)throw Error('Invalid activity request rate');
  if(!['cloud','desktop'].includes(workspaceMode))throw Error('Invalid workspace mode');
  if(!['development','production'].includes(environment))throw Error('Invalid environment');
@@ -108,6 +109,26 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
   if(await feishuLogin.handle(req,res,path))return;
   if(await desktopLogin.handle(req,res,path))return;
   if(asrStorage&&await asrStorage.handle(req,res))return;
+  if(!mount&&(path==='/market'||path.startsWith('/market/')||path.startsWith('/api/market/'))){
+   if(!market){reply(res,404);return;}
+   if(!originOK(req,!['GET','HEAD'].includes(req.method))){reply(res,403);return;}
+   if(!rate(req,'market',120)){reply(res,429,JSON.stringify({error:'rate-limited'}),{'content-type':'application/json','retry-after':'60'});return;}
+   if(req.method==='GET'&&path==='/market'){reply(res,200,marketPage,{'content-type':'text/html; charset=utf-8','content-security-policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'"});return;}
+   if(req.method==='GET'&&['/market/client.js','/market/style.css'].includes(path)){reply(res,200,await readFile(new URL(path.endsWith('.js')?'./market-client.js':'./market.css',import.meta.url)),{'content-type':path.endsWith('.js')?'text/javascript; charset=utf-8':'text/css; charset=utf-8'});return;}
+   if(path.startsWith('/api/market/v1/')){
+    const current=session(req);let prepared;
+    if(path==='/api/market/v1/publishers'&&req.method==='POST'){
+     if(!current?.account.admin){req.resume();reply(res,current?403:401,JSON.stringify({error:current?'admin-required':'login-required'}),{'content-type':'application/json'});return;}
+     const chunks=[];let size=0;
+     for await(const chunk of req.iterator({destroyOnReturn:false})){size+=chunk.length;if(size>16384){req.resume();reply(res,413);return;}chunks.push(chunk);}
+     prepared=Buffer.concat(chunks);let invitation;try{invitation=JSON.parse(prepared.toString('utf8'));}catch{reply(res,400);return;}
+     const member=invitation&&validId(invitation.accountId)&&store.get(invitation.accountId);
+     if(!member||member.disabled){reply(res,400,JSON.stringify({error:'invalid-publisher-account'}),{'content-type':'application/json'});return;}
+    }
+    await market.handle(req,res,current?current.account:null,prepared);return;
+   }
+   reply(res,404);return;
+  }
   if(path==='/register'&&devOnlyAdmin){reply(res,403,'开发环境仅供管理员使用');return;}
   if(['/login','/register'].includes(path)&&req.method==='GET'){const requested=new URL(req.url,publicOrigin).searchParams.get('desktop_login'),continuation=desktopLogin.returnPath(requested)==='/'?undefined:requested;let content=devOnlyAdmin?renderLoginPage(false,continuation).replace('<a href="/register">免费注册个人工作间</a>','开发验证环境 · 管理员登录'):renderLoginPage(path==='/register',continuation);if(environment==='development')content=content.replace('<h1>MUSE</h1>','<h1>MUSE</h1><div class="eyebrow">开发验证环境</div>');html(res,200,content);return;}
   if(['/spider.png','/favicon.ico'].includes(path)&&req.method==='GET'){if(logoPath)reply(res,200,await readFile(logoPath),{'content-type':'image/png'});else reply(res,204);return;}
@@ -330,10 +351,10 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
 
 /**
  * Stop ASR admission and release owned sockets and signals after synchronous responses settle.
- * @param options Listening gateway, provider service, and owned model resources.
+ * @param options Listening gateway, provider and market services, and owned model resources.
  * @returns An idempotent close operation rejecting only after cleanup completes.
  */
-export function installGatewayShutdown({accountServer,asr,modelRelay,modelKeyPool,directModelLeases,stopSweep=()=>{},signals=process,onError=()=>console.error('MUSE gateway shutdown failed')}){
+export function installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,directModelLeases,stopSweep=()=>{},signals=process,onError=()=>console.error('MUSE gateway shutdown failed')}){
  const sockets=new Set();let completion;
  const connection=socket=>{sockets.add(socket);socket.once('close',()=>sockets.delete(socket));};
  accountServer.on('connection',connection);
@@ -345,7 +366,7 @@ export function installGatewayShutdown({accountServer,asr,modelRelay,modelKeyPoo
    let failure;try{await accountServer.closeFeishuLogin?.();}catch(error){failure=error;}
    try{await asr?.close();}catch(error){failure??=error;}
    for(const socket of sockets)socket.destroy();
-   const closed=await Promise.allSettled([closeServer(accountServer),...modelRelay?[closeServer(modelRelay)]:[],Promise.resolve().then(()=>directModelLeases?.close())]);
+   const closed=await Promise.allSettled([closeServer(accountServer),...modelRelay?[closeServer(modelRelay)]:[],Promise.resolve().then(()=>market?.close()),Promise.resolve().then(()=>directModelLeases?.close())]);
    modelKeyPool?.close();accountServer.off('connection',connection);
    signals.off('SIGTERM',signal);signals.off('SIGINT',signal);
    if(failure)throw failure;for(const result of closed)if(result.status==='rejected')throw result.reason;
@@ -377,6 +398,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
  const adminAccess=process.env.MUSE_ADMIN_ROOT?await openAdminAccess(process.env.MUSE_ADMIN_ROOT):undefined;
  const adminHosts=process.env.MUSE_ADMIN_HOSTS?JSON.parse(await readFile(process.env.MUSE_ADMIN_HOSTS,'utf8')):{};
  const kb=await loadKnowledgeBase();
+ const market=await loadMarket();
  const voiceSlotOptions=resolveVoiceSlotOptions();
  const voiceSlots=voiceSlotOptions?createVoiceSlots({...voiceSlotOptions,...createJubianVoiceVerifier({timeoutMs:voiceSlotOptions.timeoutMs})}):undefined;
  if(voiceSlots)await voiceSlots.ready();
@@ -404,10 +426,10 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
   await asr.ready();
   asrSweepIntervalSeconds=config.sweepIntervalSeconds;asrRequestRatePerMinute=config.requestRatePerMinute;
  }
- const accountServer=createAccountServer({store,runtime,workspaceMode,feishuLoginOptions:{config:feishuConfig},modelConfig,globalModels,desktopModelTransport,modelKeyPoolPolicy,modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts,kb,asr,asrStorage,asrRequestRatePerMinute,activityRequestRatePerMinute,voiceSlots,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
+ const accountServer=createAccountServer({store,runtime,workspaceMode,feishuLoginOptions:{config:feishuConfig},modelConfig,globalModels,desktopModelTransport,modelKeyPoolPolicy,modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts,kb,asr,asrStorage,asrRequestRatePerMinute,activityRequestRatePerMinute,voiceSlots,market,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
  if(modelConfig)modelRelay=createModelRelay({config:modelConfig,globalModels,secret:modelSecret,accounts:store,keyPool:modelKeyPool,keyPoolPolicy:modelKeyPoolPolicy}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);
  let sweepInterval;
- installGatewayShutdown({accountServer,asr,modelRelay,modelKeyPool,directModelLeases,stopSweep:()=>clearInterval(sweepInterval)});
+ installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,directModelLeases,stopSweep:()=>clearInterval(sweepInterval)});
  accountServer.listen(Number(process.env.MUSE_PORT||19388),'127.0.0.1',()=>{console.log('MUSE accounts gateway listening on loopback:'+accountServer.address().port);if(asr)void asr.start().catch(()=>console.error('MUSE ASR startup failed'));});
  if(asr){
   const sweep=()=>void asr.sweep().catch(()=>console.error('MUSE ASR retention cleanup failed'));

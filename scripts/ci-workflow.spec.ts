@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
@@ -80,7 +81,6 @@ describe('CI workflow', () => {
     ['issue-policy.yml', 'policy'],
     ['issue-lifecycle.yml', 'lifecycle'],
     ['weighted-approval.yml', 'publish-status'],
-    ['build-preview-cloudflare.yml', 'preview'],
   ])('%s restricts upstream services to the configured repository', (file, jobName) => {
     const job = workflowJob(loadWorkflow('.github/workflows/' + file), jobName)
     if (typeof job.if !== 'string') throw new TypeError('Upstream service must declare a repository condition')
@@ -809,20 +809,107 @@ describe('bubblewrap preparation script', () => {
   })
 })
 
-describe('DeepSeek e2e workflow', () => {
+describe('real model e2e workflow', () => {
   it.each([
-    ['deepseek-harness/deepseek-harness', '', false, 'maintainer', true],
-    ['felir7at62co-wq/muse-med', '', false, 'maintainer', false],
-    ['felir7at62co-wq/muse-med', 'true', false, 'maintainer', true],
-    ['felir7at62co-wq/muse-med', 'true', true, 'maintainer', false],
-    ['felir7at62co-wq/muse-med', 'true', false, 'dependabot[bot]', false],
-  ])('admits real-API CI for %s with opt-in=%s fork=%s author=%s', (repository, optIn, fork, login, expected) => {
+    ['deepseek-harness/deepseek-harness', '', 'deepseek-harness/deepseek-harness', false, 'maintainer', true],
+    ['felir7at62co-wq/muse-med', '', 'felir7at62co-wq/muse-med', true, 'maintainer', true],
+    ['felir7at62co-wq/muse-med', 'true', 'contributor/muse-med', true, 'maintainer', false],
+    ['felir7at62co-wq/muse-med', 'true', 'contributor/muse-med', false, 'maintainer', false],
+    ['deepseek-harness/deepseek-harness', '', 'contributor/deepseek-harness', true, 'maintainer', false],
+    ['felir7at62co-wq/muse-med', 'true', '', false, 'maintainer', false],
+    ['felir7at62co-wq/muse-med', '', 'felir7at62co-wq/muse-med', true, 'dependabot[bot]', false],
+    ['contributor/muse-med', '', 'contributor/muse-med', true, 'maintainer', false],
+    ['contributor/muse-med', 'false', 'contributor/muse-med', true, 'maintainer', false],
+    ['contributor/muse-med', 'true', 'contributor/muse-med', true, 'maintainer', true],
+    ['contributor/muse-med', 'true', 'contributor/muse-med', true, 'dependabot[bot]', false],
+  ])('admits real-API CI for %s opt-in=%s head=%s fork=%s author=%s', (repository, optIn, headRepository, fork, login, expected) => {
     const job = workflowJob(loadWorkflow('.github/workflows/e2e.yml'), 'e2e')
     if (typeof job.if !== 'string') throw new TypeError('Real-API CI must declare its credential condition')
     expect(runInNewContext(job.if, {
       vars: { DSH_RUN_REAL_API_E2E: optIn },
-      github: { repository, event_name: 'pull_request', event: { pull_request: { head: { repo: { fork } }, user: { login } } } },
+      github: {
+        repository, actor: 'maintainer', event_name: 'pull_request',
+        event: { pull_request: { head: { repo: { full_name: headRepository, fork } }, user: { login } } },
+      },
     }, { timeout: 1000 })).toBe(expected)
+  })
+
+  it.each(['workflow_dispatch', 'push', 'schedule'])('admits trusted %s without requiring a pull-request payload', (eventName) => {
+    const job = workflowJob(loadWorkflow('.github/workflows/e2e.yml'), 'e2e')
+    if (typeof job.if !== 'string') throw new TypeError('Real-API CI must declare its credential condition')
+    expect(runInNewContext(job.if, {
+      vars: { DSH_RUN_REAL_API_E2E: '' },
+      github: { repository: 'felir7at62co-wq/muse-med', event_name: eventName, event: {}, ref: 'refs/heads/codex/skill-market' },
+    }, { timeout: 1000 })).toBe(true)
+  })
+
+  it('scopes each credential to its own required preflight and real-API test', () => {
+    const workflow = loadWorkflow('.github/workflows/e2e.yml')
+    const e2e = workflowJob(workflow, 'e2e')
+    if (!isRecord(workflow.on) || !Array.isArray(e2e.steps)) throw new TypeError('DeepSeek e2e must define triggers and steps')
+    expect(Object.keys(workflow.on).sort()).toEqual(['pull_request', 'push', 'schedule', 'workflow_dispatch'])
+    expect(workflow.permissions).toEqual({ contents: 'read' })
+    expect(e2e).not.toHaveProperty('continue-on-error')
+    expect(workflow).not.toHaveProperty('env.DEEPSEEK_API_KEY')
+    expect(e2e).not.toHaveProperty('env.DEEPSEEK_API_KEY')
+    const steps = e2e.steps.filter(isRecord)
+    const checkout = steps.find(step => typeof step.uses === 'string' && step.uses.startsWith('actions/checkout@'))
+    expect(checkout).toBeDefined()
+    expect(checkout).not.toHaveProperty('with.ref')
+    const preflight = steps.findIndex(step => step.name === 'Preflight (require DEEPSEEK_API_KEY)')
+    const test = steps.findIndex(step => step.name === 'E2E tests (real DeepSeek API)')
+    expect(preflight).toBe(1)
+    expect(steps.indexOf(checkout ?? {})).toBeGreaterThan(preflight)
+    expect(test).toBeGreaterThan(preflight)
+    expect(steps[preflight]).toMatchObject({ env: { DEEPSEEK_API_KEY: '${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}' } })
+    expect(steps[preflight]?.run).toContain('if [ -z "${DEEPSEEK_API_KEY:-}" ]; then')
+    expect(steps[preflight]?.run).toContain('exit 1')
+    expect(steps[test]).toMatchObject({
+      run: 'pnpm run test:e2e',
+      env: { DEEPSEEK_API_KEY: '${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}', DEEPSEEK_BASE_URL: 'https://api.deepseek.com/anthropic' },
+    })
+    const musePreflight = steps.findIndex(step => step.name === 'Preflight (require Muse test account and model route)')
+    const museTest = steps.findIndex(step => step.name === 'E2E tests (real Muse API)')
+    expect(musePreflight).toBe(0)
+    expect(museTest).toBeGreaterThan(musePreflight)
+    expect(steps[museTest]).toMatchObject({
+      if: "github.repository == 'felir7at62co-wq/muse-med'",
+      run: 'pnpm run test:e2e packages/host/muse-account/tests/muse-gateway-live.e2e.ts --retry=0',
+      env: {
+        MUSE_E2E_BASE_URL: '${{ vars.MUSE_E2E_BASE_URL }}',
+        MUSE_E2E_PROVIDER: '${{ vars.MUSE_E2E_PROVIDER }}',
+        MUSE_E2E_MODEL: '${{ vars.MUSE_E2E_MODEL }}',
+        MUSE_E2E_USERNAME: '${{ secrets.MUSE_E2E_USERNAME }}',
+        MUSE_E2E_PASSWORD: '${{ secrets.MUSE_E2E_PASSWORD }}',
+        DSH_E2E_MAX_WORKERS: 1,
+      },
+    })
+    const official = "github.repository != 'felir7at62co-wq/muse-med' || vars.DSH_RUN_REAL_API_E2E == 'true'"
+    for (const index of [preflight, test]) expect(steps[index]?.if).toBe(official)
+    expect(steps.find(step => step.name === 'Prepare Office runtime')?.if).toBe(official)
+    for (const [index, step] of steps.entries()) {
+      if (![preflight, test, musePreflight, museTest].includes(index)) expect(JSON.stringify(step)).not.toContain('secrets.')
+      else expect(step).not.toHaveProperty('continue-on-error')
+      if ([musePreflight, museTest].includes(index)) expect(JSON.stringify(step)).not.toContain('DEEPSEEK_API_KEY_EXTERNAL')
+    }
+  })
+
+  it.each([
+    ['deepseek-harness/deepseek-harness', '', false, true],
+    ['felir7at62co-wq/muse-med', '', true, false],
+    ['felir7at62co-wq/muse-med', 'false', true, false],
+    ['felir7at62co-wq/muse-med', 'true', true, true],
+    ['contributor/private', 'true', false, true],
+  ])('selects the real API suites for %s opt-in=%s', (repository, optIn, muse, official) => {
+    const job = workflowJob(loadWorkflow('.github/workflows/e2e.yml'), 'e2e')
+    if (!Array.isArray(job.steps)) throw new TypeError('E2E steps are required')
+    const steps = job.steps.filter(isRecord)
+    const context = { github: { repository }, vars: { DSH_RUN_REAL_API_E2E: optIn } }
+    for (const [name, expected] of [['E2E tests (real Muse API)', muse], ['E2E tests (real DeepSeek API)', official]] as const) {
+      const step = steps.find(candidate => candidate.name === name)
+      if (typeof step?.if !== 'string') throw new TypeError('Real suite must have an explicit selector')
+      expect(runInNewContext(step.if, context, { timeout: 1000 })).toBe(expected)
+    }
   })
 
   it('prepares bubblewrap from the pinned payload without a package transaction', () => {
@@ -848,6 +935,149 @@ describe('DeepSeek e2e workflow', () => {
 })
 
 describe('Python release workflows', () => {
+  it('passes only the dedicated Muse credentials through both CI callers', () => {
+    const builder = loadWorkflow('.github/workflows/build-exe-for-python-sdk.yml')
+    expect(workflowEvent(builder, 'workflow_call').secrets).toMatchObject({
+      MUSE_E2E_USERNAME: { required: false }, MUSE_E2E_PASSWORD: { required: false },
+    })
+    for (const file of ['.github/workflows/ci.yml', '.github/workflows/ci-master.yml']) {
+      const caller = workflowJob(loadWorkflow(file), 'python-runtime')
+      expect(caller.secrets).toMatchObject({
+        MUSE_E2E_USERNAME: '${{ secrets.MUSE_E2E_USERNAME }}', MUSE_E2E_PASSWORD: '${{ secrets.MUSE_E2E_PASSWORD }}',
+      })
+      expect(caller.secrets).not.toBe('inherit')
+    }
+  })
+
+  it.each(['POSIX', 'Windows'])('runs Muse relay checks for trusted Muse %s callers without an official key', (platform) => {
+    const build = workflowJob(loadWorkflow('.github/workflows/build-exe-for-python-sdk.yml'), 'build')
+    if (!Array.isArray(build.steps)) throw new TypeError('Python wheel steps are required')
+    const steps = build.steps.filter(isRecord)
+    const preflight = steps.find(step => step.name === `Preflight installed-wheel Muse API test (${platform})`)
+    const execute = steps.find(step => step.name === `Run installed-wheel Muse API black-box test (${platform})`)
+    if (typeof preflight?.if !== 'string' || typeof execute?.if !== 'string') throw new TypeError('Muse credential conditions are required')
+    expect(preflight.if).toBe(execute.if)
+    expect(steps.indexOf(preflight)).toBeLessThan(steps.indexOf(execute))
+    expect(execute).toMatchObject({ env: {
+      MUSE_E2E_BASE_URL: '${{ vars.MUSE_E2E_BASE_URL }}', MUSE_E2E_PROVIDER: '${{ vars.MUSE_E2E_PROVIDER }}',
+      MUSE_E2E_MODEL: '${{ vars.MUSE_E2E_MODEL }}', MUSE_E2E_USERNAME: '${{ secrets.MUSE_E2E_USERNAME }}',
+      MUSE_E2E_PASSWORD: '${{ secrets.MUSE_E2E_PASSWORD }}',
+    } })
+    const dependency = steps.find(step => step.name === `Install Muse Session verification dependency (${platform})`)
+    expect(dependency?.if).toBe(preflight.if)
+    expect(steps.indexOf(dependency ?? {})).toBeLessThan(steps.indexOf(preflight))
+    expect(String(dependency?.run)).toContain('-m pip install zstandard==0.25.0')
+    expect(dependency).not.toHaveProperty('env')
+    for (const step of [preflight, execute]) {
+      expect(step).not.toHaveProperty('continue-on-error')
+      expect(JSON.stringify(step)).not.toContain('DEEPSEEK_API_KEY')
+    }
+    expect(String(execute.run)).toContain('--scenario sdk-muse-live')
+    expect(String(execute.run)).toContain('--installed-wheel')
+    if (platform === 'Windows') expect(execute.shell).toBe('pwsh')
+    for (const [repository, head, login, ci, eventName, trusted] of [
+      ['felir7at62co-wq/muse-med', 'felir7at62co-wq/muse-med', 'maintainer', true, 'pull_request', true],
+      ['felir7at62co-wq/muse-med', 'external/fork', 'maintainer', true, 'pull_request', false],
+      ['felir7at62co-wq/muse-med', 'felir7at62co-wq/muse-med', 'dependabot[bot]', true, 'pull_request', false],
+      ['felir7at62co-wq/muse-med', '', 'maintainer', false, 'workflow_dispatch', false],
+      ['felir7at62co-wq/muse-med', '', 'maintainer', true, 'workflow_dispatch', true],
+      ['felir7at62co-wq/muse-med', '', 'maintainer', true, 'push', true],
+      ['deepseek-harness/deepseek-harness', 'deepseek-harness/deepseek-harness', 'maintainer', true, 'pull_request', false],
+      ['external/fork', 'external/fork', 'maintainer', true, 'pull_request', false],
+    ] as const) {
+      for (const os of ['Linux', 'macOS', 'Windows']) {
+        const context = { inputs: { ci }, runner: { os }, vars: { DSH_RUN_REAL_API_E2E: '' }, github: {
+          repository, event_name: eventName,
+          event: { pull_request: { head: { repo: { full_name: head } }, user: { login } } },
+        } }
+        const expected = trusted && (platform === 'Windows' ? os === 'Windows' : os !== 'Windows')
+        expect(runInNewContext(preflight.if, context, { timeout: 1000 }), `${repository} ${eventName} ${login} ${os}`).toBe(expected)
+      }
+    }
+  })
+
+  it.each([undefined, 'MUSE_E2E_BASE_URL', 'MUSE_E2E_PROVIDER', 'MUSE_E2E_MODEL', 'MUSE_E2E_USERNAME', 'MUSE_E2E_PASSWORD'])(
+    'requires every Muse variable before invoking the live SDK scenario: missing=%s', (missing) => {
+      const build = workflowJob(loadWorkflow('.github/workflows/build-exe-for-python-sdk.yml'), 'build')
+      if (!Array.isArray(build.steps)) throw new TypeError('Python wheel steps are required')
+      const platform = process.platform === 'win32' ? 'Windows' : 'POSIX'
+      const step = build.steps.filter(isRecord).find(candidate => candidate.name === `Preflight installed-wheel Muse API test (${platform})`)
+      if (typeof step?.run !== 'string') throw new TypeError('Native Muse preflight is required')
+      const required = ['MUSE_E2E_BASE_URL', 'MUSE_E2E_PROVIDER', 'MUSE_E2E_MODEL', 'MUSE_E2E_USERNAME', 'MUSE_E2E_PASSWORD']
+      const env: NodeJS.ProcessEnv = Object.fromEntries(
+        Object.entries(process.env).filter(([name]) => !required.includes(name.toUpperCase())),
+      )
+      for (const name of required) if (name !== missing) env[name] = 'fixture-present'
+      const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash'
+      const args = process.platform === 'win32' ? ['-NoProfile', '-NonInteractive', '-Command', "$ErrorActionPreference='Stop';\n" + step.run] : ['-c', step.run]
+      const result = spawnSync(shell, args, { env, encoding: 'utf8', timeout: 30_000 })
+      expect(result.error).toBeUndefined()
+      expect(result.signal).toBeNull()
+      expect(result.status).toBe(missing ? 1 : 0)
+      if (missing) expect(result.stdout + result.stderr).toContain(missing)
+    },
+  )
+
+  it.each(['POSIX', 'Windows'])('keeps installed-wheel real API trust identical for %s preflight and execution', (platform) => {
+    const build = workflowJob(loadWorkflow('.github/workflows/build-exe-for-python-sdk.yml'), 'build')
+    if (!Array.isArray(build.steps)) throw new TypeError('Python wheel builder must define steps')
+    const steps = build.steps.filter(isRecord)
+    const preflight = steps.find(step => step.name === `Preflight installed-wheel real API test (${platform})`)
+    const execute = steps.find(step => step.name === `Run installed-wheel real API black-box test (${platform})`)
+    if (typeof preflight?.if !== 'string' || typeof execute?.if !== 'string') {
+      throw new TypeError('Installed-wheel real API steps must declare credential conditions')
+    }
+    expect(preflight.if).toBe(execute.if)
+    expect(steps.indexOf(preflight)).toBeLessThan(steps.indexOf(execute))
+    expect(preflight).not.toHaveProperty('continue-on-error')
+    expect(execute).not.toHaveProperty('continue-on-error')
+    for (const [repository, optIn, headRepository, fork, login, ci, eventName, admitted] of [
+      ['deepseek-harness/deepseek-harness', '', 'deepseek-harness/deepseek-harness', false, 'maintainer', true, 'pull_request', true],
+      ['felir7at62co-wq/muse-med', '', 'felir7at62co-wq/muse-med', true, 'maintainer', true, 'pull_request', false],
+      ['felir7at62co-wq/muse-med', 'true', 'felir7at62co-wq/muse-med', true, 'maintainer', true, 'pull_request', true],
+      ['felir7at62co-wq/muse-med', 'true', 'contributor/muse-med', false, 'maintainer', true, 'pull_request', false],
+      ['felir7at62co-wq/muse-med', '', 'felir7at62co-wq/muse-med', true, 'dependabot[bot]', true, 'pull_request', false],
+      ['contributor/muse-med', '', 'contributor/muse-med', true, 'maintainer', true, 'pull_request', false],
+      ['contributor/muse-med', 'true', 'contributor/muse-med', true, 'maintainer', true, 'pull_request', true],
+      ['felir7at62co-wq/muse-med', '', '', false, 'maintainer', false, 'workflow_dispatch', false],
+      ['felir7at62co-wq/muse-med', '', '', false, 'maintainer', true, 'workflow_dispatch', false],
+      ['felir7at62co-wq/muse-med', 'true', '', false, 'maintainer', true, 'workflow_dispatch', true],
+      ['felir7at62co-wq/muse-med', '', '', false, 'maintainer', true, 'push', false],
+    ] as const) {
+      for (const os of ['Linux', 'macOS', 'Windows']) {
+        const expected = admitted && (platform === 'Windows' ? os === 'Windows' : os !== 'Windows')
+        const event = eventName === 'pull_request'
+          ? { pull_request: { head: { repo: { full_name: headRepository, fork } }, user: { login } } }
+          : {}
+        const context = {
+          inputs: { ci }, runner: { os }, vars: { DSH_RUN_REAL_API_E2E: optIn },
+          github: { repository, actor: 'maintainer', event_name: eventName, event },
+        }
+        expect(runInNewContext(preflight.if, context, { timeout: 1000 }), `${repository} ${eventName} ${login} ${os} ci=${ci}`).toBe(expected)
+      }
+    }
+  })
+
+  it('retains verified runtime artifacts before installed-wheel credential failures', () => {
+    const build = workflowJob(loadWorkflow('.github/workflows/build-exe-for-python-sdk.yml'), 'build')
+    if (!Array.isArray(build.steps)) throw new TypeError('Python wheel builder must define steps')
+    const steps = build.steps.filter(isRecord)
+    const credentialed = steps.filter(step => typeof step.name === 'string' && /^(?:Preflight installed-wheel (?:real|Muse) API test|Run installed-wheel (?:real|Muse) API black-box test) \(/u.test(step.name))
+    expect(credentialed).toHaveLength(8)
+    expect(steps.slice(-8)).toEqual(credentialed)
+    const preflight = steps.indexOf(credentialed[0]!)
+    for (const name of ['Check Linux GLIBC requirements', 'Check macOS payload architecture and deployment target', 'Run wheel in a manylinux 2.28 container']) {
+      const index = steps.findIndex(step => step.name === name)
+      expect(index, name).toBeGreaterThanOrEqual(0)
+      expect(index, name).toBeLessThan(preflight)
+    }
+    const artifact = steps.findIndex(step => typeof step.uses === 'string' && step.uses.startsWith('actions/upload-artifact@'))
+    expect(artifact).toBeGreaterThanOrEqual(0)
+    expect(artifact).toBeLessThan(preflight)
+    expect(steps[artifact]).not.toHaveProperty('if')
+    expect(steps[artifact]).not.toHaveProperty('continue-on-error')
+  })
+
   it('keeps complete wheel validation separate from protected public publication', () => {
     const workflow = loadWorkflow('.github/workflows/python-release.yml')
     const dispatch = workflowEvent(workflow, 'workflow_dispatch')
@@ -1009,12 +1239,15 @@ describe('Python release workflows', () => {
     expect(realApiPreflightPosix).toMatchObject({
       env: { DEEPSEEK_API_KEY: '${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}' },
     })
+    expect(realApiPreflightPosix.run).toContain('exit 1')
+    expect(realApiPreflightWindows.run).toContain("throw 'DEEPSEEK_API_KEY_EXTERNAL is empty;")
     expect(String(realApiPreflightPosix.if)).toContain('inputs.ci')
-    expect(String(realApiPreflightPosix.if)).toContain('head.repo.fork')
+    expect(String(realApiPreflightPosix.if)).toContain('head.repo.full_name == github.repository')
     expect(String(realApiPreflightPosix.if)).toContain('dependabot[bot]')
     expect(realApiPreflightWindows).toMatchObject({ shell: 'pwsh' })
     for (const step of [realApiPreflightPosix, realApiPreflightWindows, installedRealApiPosix, installedRealApiWindows]) {
-      expect(String(step.if)).toContain("github.repository == 'deepseek-harness/deepseek-harness' || vars.DSH_RUN_REAL_API_E2E == 'true'")
+      expect(String(step.if)).toContain("github.repository == 'deepseek-harness/deepseek-harness'")
+      expect(String(step.if)).not.toContain("github.repository == 'felir7at62co-wq/muse-med'")
     }
     for (const step of [installedRealApiPosix, installedRealApiWindows]) {
       expect(step).toMatchObject({
