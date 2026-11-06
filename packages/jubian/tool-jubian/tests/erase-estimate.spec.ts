@@ -208,6 +208,17 @@ describe('caller-declared erasure reservations', () => {
 })
 
 describe('verified-free-only erasure', () => {
+  it('does not reuse a verified-free receipt for a different explicitly requested project', async () => {
+    const { client, ledger, calls, paidCalls } = await fixture({ catalogue: [FIRE_ROW], expectedQuote: '0.00', limitCents: 0 })
+    await storyboardMethod(client, ledger, FREE_ARGS)
+    const count = calls.length
+    await expect(storyboardMethod(client, ledger, { ...FREE_ARGS, script_id: 9999 })).rejects.toMatchObject({
+      code: 'CONTRACT_CHANGED', detail: expect.stringContaining('no matching verified free quote') as string,
+    })
+    expect(calls).toHaveLength(count)
+    expect(paidCalls()).toHaveLength(1)
+  })
+
   it('records and submits the exact live free row without a project allowance', async () => {
     const row = { ...FIRE_ROW }
     const { client, ledger, root, calls, paidCalls } = await fixture({ catalogue: [row], expectedQuote: '0.00', limitCents: 0 })

@@ -121,6 +121,14 @@ const savedAudio = [{ materialType: 'audio', materialKey: 'voice_401', materialU
 const matchingVoice = { asset_id: 401, kind: 'voice' as const, name: '苏晚', url: 'https://cdn.example.test/voice.wav',
   material_id: null, usable: true, duration_seconds: 2 }
 
+it('preserves an explicitly absent optional audio name across an exact publication readback', async () => {
+  const f = await fixture()
+  f.state.card.storyboardMaterialList = [{ ...savedAudio[0], materialName: null }]
+  f.input.expected_snapshot_sha256 = (await productionCard(f.client, 11)).sha256
+  expect(await f.publish()).toMatchObject({ status: 'saved' })
+  expect(f.state.card.storyboardMaterialList[0]?.materialName).toBeNull()
+})
+
 it.each([
   { name: 'omitted', voices: [], unbound: [] },
   { name: 'unresolved', voices: [{ ...matchingVoice, asset_id: 402, usable: false }], unbound: [402] },

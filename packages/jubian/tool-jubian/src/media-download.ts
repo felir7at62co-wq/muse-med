@@ -48,10 +48,7 @@ async function readReceipt(path: string): Promise<DownloadReceipt | undefined> {
   }
   let value: unknown
   try { value = JSON.parse(text) }
-  catch (error) {
-    if (error instanceof SyntaxError) return undefined
-    throw error
-  }
+  catch (_error) { return undefined }
   const parsed = receiptSchema.safeParse(value)
   return parsed.success ? parsed.data : undefined
 }

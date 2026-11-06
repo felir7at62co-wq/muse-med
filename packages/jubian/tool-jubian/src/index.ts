@@ -1142,7 +1142,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         if ('error' in owner) throw new Error('Submit paid video from the ordinary owning Muse session so it can resume after restart.')
         exec.signal.throwIfAborted()
         const packs = method === 'submit_video_batch'
-          ? (input.video_previews ?? []).map(item => ({ previewPath: resolve(item.preview_path), key: requireKey(item.idempotency_key) }))
+          ? need(input.video_previews, 'video_previews').map(item => ({
+            previewPath: resolve(item.preview_path), key: requireKey(item.idempotency_key) }))
           : [{ previewPath: await resolvePreviewPath(input), key: requireKey(input.idempotency_key) }]
         if (packs.length === 0 || packs.length > videoBatch.maxItems) return await dispatch()
         await assertNewNativeDispatchAllowed(ledger, packs)

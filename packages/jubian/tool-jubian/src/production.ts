@@ -113,7 +113,7 @@ export interface ProductionCardInput {
   storyboard_id: number | null
   expected_snapshot_sha256: string | null
   images: { asset_id: number; material_key: string }[]
-  /** Candidates for a card with no saved audio. Replacements use the dedicated audio preview and apply. */
+  /** Candidates for a card with no saved audio; shared character/period identities reach the binding verifier unchanged. */
   voices: ProductionLibraryEntry[]
   key: string
   page_size: number
@@ -145,7 +145,7 @@ function matchesAudioReferences(expected: Row[], materials: Row[]): boolean {
   const actual = materials.filter(row => row.materialType === 'audio')
   const fields = ['materialKey', 'materialUrl', 'fileName', 'materialName', 'assetId', 'materialAssetId', 'sortOrder', 'audioDuration']
   return actual.length === expected.length && expected.every((row, index) => fields.every(field =>
-    row[field] === undefined || Object.is(actual[index]?.[field] ?? null, row[field])))
+    row[field] === undefined || Object.is((actual[index] as Row)[field] ?? null, row[field])))
 }
 
 /** Save one production package and preserve existing audio without calling any paid generation method.
@@ -215,7 +215,9 @@ export async function publishProductionCard(client: JubianClient, ledger: Jubian
     prompt += '\n本包声音参考：' + measured.map(voice => `@[${voice.name}](voice_${voice.asset_id})`).join('、')
     expectedAudio = measured.map((voice, index) => ({ materialType: 'audio', materialKey: `voice_${voice.asset_id}`,
       materialUrl: voice.url, fileName: voice.name, sortOrder: index + 1, audioDuration: voice.duration_seconds,
-      audio_asset_id: voice.asset_id }))
+      audio_asset_id: voice.asset_id,
+      ...(voice.character_id === undefined ? {} : { character_id: voice.character_id }),
+      ...(voice.voice_period_id === undefined ? {} : { voice_period_id: voice.voice_period_id }) }))
     const preview = await run({ method: 'audio_preview', script_id: input.script_id, project_dir: input.project_dir,
       storyboard_id: id, prompt, audio_references: expectedAudio })
     const applied = await run({ method: 'audio_apply', script_id: input.script_id, project_dir: input.project_dir,
