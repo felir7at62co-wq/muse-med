@@ -32,6 +32,8 @@ Desktop 默认组合包在用户配置补丁之前注册[短剧设置](../../pac
 <a id="compaction-defaults"></a>
 短剧交付按项目明确类型和已准备画布执行；选择方式与旧项目行为见[项目圣经](../../packages/drama/drama-settings/README.zh.md)。
 
+编辑与创作策略在 `present`、`send_file`、`dsh_im_return_file` 交付前检查原生工具已登记的单集输出，以及已绑定短剧项目的 `exports`、`export`、`final`、`01_可交付视频` 位置中的视频。交付须有当前 `stage_delivery` 候选及已绑定的源片复验证据，渲染、字幕、时间线、选源与原草稿配对证据须一致。依据已绑定时间线判为竖屏的成片还须有产品字幕配置及实际朱雀字族测量；横屏和方形保留原字体规则。视频输入变化后需重建并重新归档。后续编辑原生草稿不使 MP4 失效，也不证明编辑草稿仍与其一致。状态保持 `candidate`，不证明内容或剪映显示已验收；普通文件和原始视频包附件保持原行为。任意 shell 复制与 Markdown 链接不受这些检查约束；项目 JSON 回执用于一致性核对，并非防篡改签名。创作模式保留原 `video_inspect` 抽样，新增 `video_source_review` 完成源片观察。见[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/short-drama-file-delivery/guide.zh.md)。
+
 Muse 内置 Codex 订阅插件，并在设置中提供 ChatGPT 登录入口。独立订阅登录使用官方 Codex OAuth 提供方；Muse 账号登录不授予此权限。凭据保留在本地 Host 凭据服务中，浏览器账号响应不包含令牌。仅在连接账号时列出订阅模型。升级会恢复内置组合包，不替换已保存的订阅设置或凭据。此订阅接入不包含或启用可选 Codex CLI 子代理提供方。产品覆盖继续停用 Agent 笔记设置页及其 Host API；工程笔记文件与 Muse 知识库功能仍可使用。
 
 ## 用户返稿对照

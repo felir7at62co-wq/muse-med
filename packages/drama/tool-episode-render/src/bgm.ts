@@ -64,7 +64,10 @@ function readPlan(text: string, path: string, episode: string, bodyEnd: number) 
   return { plan, selected }
 }
 
-/** Read the explicit music choice and compare any composer receipt to the exact rendered bed and plan. */
+/** Read the explicit music choice and compare any composer receipt to the exact rendered bed and plan.
+ * @param input - Current episode, plan and exact rendered music input bindings.
+ * @returns The checked music decision and its recorded reason.
+ */
 export function checkMusicDecision(input: {
   readonly project: string
   readonly episode: string
@@ -113,7 +116,7 @@ export function checkMusicDecision(input: {
     }
   }
   if (receipt.segments.length !== selected.segments.length || receipt.segments.some((row, index) => {
-    const segment = selected.segments[index]!
+    const segment = selected.segments[index] as typeof selected.segments[number]
     return row.track !== segment.track || resolve(input.project, row.source) !== resolve(input.project, segment.source)
       || row.track_id !== segment.track_id || !/^[0-9a-f]{64}$/u.test(row.source_sha256)
       || segment.source_sha256?.replace(/^sha256:/u, '').toLowerCase() !== row.source_sha256

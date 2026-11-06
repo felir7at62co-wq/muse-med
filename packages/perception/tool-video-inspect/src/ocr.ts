@@ -1,5 +1,5 @@
 /** Local OCR over bounded, timestamped video frame batches. */
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { platform } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
@@ -124,6 +124,8 @@ export interface VideoOcrResult {
   persistent_text_count: number
   preview_segments: (Omit<OcrSegment, 'evidence_frame_ids'> & { evidence_frame_count: number })[]
   raw_json_path: string
+  /** SHA-256 of the exact complete evidence bytes written and read back by this tool. */
+  raw_json_sha256: string
   merged_text_path: string
   language_requested: OcrLanguage
   language_used?: string
@@ -160,7 +162,8 @@ const outputSchema = { type: 'object', additionalProperties: false, properties: 
   } },
   segment_count: { type: 'integer', required: true }, persistent_text_count: { type: 'integer', required: true },
   preview_segments: { type: 'array', items: segmentSchema, required: true },
-  raw_json_path: { type: 'string', required: true }, merged_text_path: { type: 'string', required: true },
+  raw_json_path: { type: 'string', required: true }, raw_json_sha256: { type: 'string', required: true },
+  merged_text_path: { type: 'string', required: true },
   language_requested: { type: 'string', enum: ['auto', 'zh-Hans-CN', 'zh-Hant-TW', 'en-US'], required: true },
   language_used: { type: 'string' },
   failure_code: { type: 'string', enum: ['windows_only', 'ocr_runtime_unavailable', 'language_unavailable', 'ocr_engine_unavailable'] },
@@ -260,7 +263,11 @@ export function showinfoTimestamps(diagnostic: string): number[] {
     .filter(value => Number.isFinite(value) && value >= 0)
 }
 
-function normalized(text: string): string {
+/** Normalize OCR grouping text without removing punctuation or changing letter case.
+ * @param text - Exact recognized text or the corresponding raw-line text.
+ * @returns NFKC text with whitespace removed, shared by grouping and source verification.
+ */
+export function normalizeOcrText(text: string): string {
   return text.normalize('NFKC').replace(/\s+/gu, '').trim()
 }
 
@@ -290,7 +297,7 @@ export function classifyAndMerge(frames: RawOcrFrame[], options: {
   type Occurrence = { frame: RawOcrFrame; line: RawOcrLine }
   const occurrences = new Map<string, [Occurrence, ...Occurrence[]]>()
   for (const frame of frames) for (const candidate of frame.lines) {
-    const key = normalized(candidate.text)
+    const key = normalizeOcrText(candidate.text)
     if (!key) continue
     const matching = occurrences.get(key)
     if (matching) matching.push({ frame, line: candidate })
@@ -308,9 +315,9 @@ export function classifyAndMerge(frames: RawOcrFrame[], options: {
   const segments: OcrSegment[] = [], open = new Map<string, OcrSegment[]>()
   for (const frame of frames) for (const candidate of frame.lines) {
     const text = candidate.text.trim()
-    if (!normalized(text)) continue
+    if (!normalizeOcrText(text)) continue
     const classification = candidate.classification ?? 'content_candidate'
-    const key = `${classification}:${normalized(text)}`
+    const key = `${classification}:${normalizeOcrText(text)}`
     const matching = open.get(key) ?? []
     const prior = matching.find(item => !item.evidence_frame_ids.includes(frame.id)
       && frame.timestamp_seconds - item.end_seconds <= options.frameIntervalSeconds * 1.5)
@@ -432,6 +439,7 @@ export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime)
       schema: outputSchema,
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],
       presentationMeta: (_args, value) => ({ path: value.path, rawJsonPath: value.raw_json_path,
+        rawJsonSha256: value.raw_json_sha256, sourceVersion: value.source_version,
         mergedTextPath: value.merged_text_path, scanStatus: value.scan_status, textStatus: value.text_status }),
     },
     presentCall: args => ({ card: 'generic', title: 'video_ocr', kind: 'read', locations: [{ path: args.file_path }] }),
@@ -571,7 +579,7 @@ export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime)
         persistent_text_count: segments.filter(segment => segment.classification === 'persistent_text_candidate').length,
         preview_segments: segments.slice(0, config.ocrPreviewSegments).map(({ evidence_frame_ids, ...segment }) => ({
           ...segment, evidence_frame_count: evidence_frame_ids.length,
-        })), raw_json_path: rawTarget.displayPath,
+        })), raw_json_path: rawTarget.displayPath, raw_json_sha256: createHash('sha256').update(raw).digest('hex'),
         merged_text_path: textTarget.displayPath, language_requested: evidence.language_requested,
         ...languageUsed === undefined ? {} : { language_used: languageUsed },
         ...failureCode === undefined ? {} : { failure_code: failureCode },

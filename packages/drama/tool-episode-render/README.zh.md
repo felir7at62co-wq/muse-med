@@ -25,7 +25,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-把插件作为短剧预设的一行挂载；它只需要工具注册表，以及 `PATH` 上的 `ffmpeg` 与 `ffprobe`：
+把插件作为短剧预设的一行挂载；基本方法需要工具注册表，以及 `PATH` 上的 `ffmpeg` 与 `ffprobe`。严格源片复验还需要当前 Host 的文件系统、沙箱策略和 Session 投影。复验服务缺失时，严格渲染报 `SOURCE_QA_HOST_UNAVAILABLE` 并停止，基本方法仍可使用。
 
 ```yaml
 - id: tool-episode-render
@@ -221,7 +221,17 @@ kind: "package-reference"
 
 `stage_delivery` 要求提供已准备的选源清单，并复核其中经审核的来源和原声切点。现有审核待定或拒绝，或另用的音源未获审核、已被禁用时，停止归档。审核通过的独立音源需要在草稿与成片中共用同一份独立原声。没有审核记录的历史项目，重新准备且只用视频自带音源后仍可归档为候选。`verify` 继续执行媒体技术检查。画面、对白和剪映播放需另做内容验收。
 
-启用 `delivery.require_source_review` 后，每个分包需要当前复核抽帧、各项内容审核和原片下载证据。正式去字幕选片还需操作记录和与净画面匹配的下载回执。两条正式路线都确认用不了时，才可复核本地处理；记录两路终态、处理区间及独立的处理前后抽帧。两种处理均保留原片下载对应的音轨。独立音轨草稿的保留素材必须位于本集目录。检查核对来源身份和已记录的审核，实际画面与声音仍需实看实听。
+启用 `delivery.require_source_review` 后，正式渲染和归档要求每包都有当前 `source_qa` 证据。`source_qa.version: 1` 包含 `selected`，清理片另含 `original` 和 `affected_intervals`。各源绑定 `media_path`、`media_sha256`、`ocr: {path, sha256}` 及 `inspection: {path, sha256, session_id, review_id}`。Host 核实真实成功的 OCR 执行和完整持久审看记录，缺少执行证据须重新检查。完整 OCR 覆盖及已观察帧必须对应当前源片。每个仍存在的 OCR 时段都须有精确的 `text_decisions` 项，包含 `segment_index`、`text`、源片 `start_seconds` 和 `end_seconds`、`kind`（`non_dialogue_text` 或 `disclosure_watermark`）、`reason` 及 `observation_frame_ids`。文字分类仍是模型判断。清理片须在每个处理区间内有真实观察的处理前后帧，并保留原声。缺少时点时，优先用 `video_source_review`，或已启用完整审看模式的 `video_inspect`，附带对应时间补看。渲染指纹和归档回执绑定复验摘要与文件，换片、观察或判定变化后须重新验证。非严格工作预览沿用原行为。
+
+缺少证据时，先对完整选源运行 `video_ocr`，使用 `frame_interval_seconds: 0.5`，必要时按 `next_start_seconds` 继续。检查要求一份覆盖完整源片的文件，因此部署上限须足够覆盖实际分包。读回原始文字行和时段，再优先用完整伴随工具 `video_source_review`，仅在 `video_inspect` 已启用完整审看模式时使用它。执行 `scan`，通过 `timestamps_seconds` 补入相关OCR或处理区间中点。用 `next` 实际展示每张图片，再用 `observe` 记录实际内容。`ocr.path`、`ocr.sha256` 分别取自 `raw_json_path`、`raw_json_sha256`。审看路径、摘要、会话身份和审看身份分别取自 `observation_report`、`observation_report_sha256`、`observation_session_id`、`review_id`。保留工具原路径，包括嵌套项目外的会话缓存路径。将这些值写入 `reviews/ep<集号>-p<包号>.json` 的 `source_qa`；处理过画面时对原片重复执行。只为实际看过的非对白字写精确判定。随后重跑 `prepare`、带 `resume: true` 的正式 `render` 和 `stage_delivery`。这些证据操作沿用既有授权，无须再次确认。
+
+已完成的 native 和 PTC 证据可在同一真实会话重启后恢复。`SOURCE_QA_TOOL_PENDING` 表示成功的子工具结果仍待提交。结束当前 `run_code`，在后续独立工具调用中重试 `render` 或 `stage_delivery`，保留已完成的 OCR 和观察。待处理或未知证据不能标记完成。新会话重新采用来源时需自行完成免费扫描和观察；已归档且字节未变的交付可走 Host 只读回执检查。
+
+严格统一字幕交付拒绝 `retain_embedded` 对白决定。非严格工作预览可继续使用已有的保留原片字幕计划。
+
+源复验按已观察帧的实际 `decoded_time` 匹配左闭右开区间 `[start_seconds, end_seconds)`。请求的跳转时间在区间内，不能证明解出的画面也在区间内。源路径按解析后的真实文件身份匹配，Windows 大小写或 junction 别名可指向同一文件，字节相同的另一份副本仍是不同来源。
+
+实际测量过字幕排版的续跑渲染记录 `delivery_inputs.subtitle_visual_verification`，绑定最终 SRT 摘要、实际排版报告路径及摘要、通过的文字／宽度／实际字族检查、请求字族、交付 `width`／`height`／`fps` 及完整有效的 `visual` 配置。报告保留在 `input_files`。旧候选缺少完整视觉配置时会保留，不能据此复用当前测量的渲染结果。
 
 将 `project_bible.delivery.audio.require_music_decision` 设为 `true`，重跑 `prepare` 并以 `resume=true` 完整渲染，即可在归档前强制核对配乐决定。传入本集 `bgm_plan`，记录 `music_decision` 和非空 `decision_reason`。决定为 `none` 时使用 `mix_profile` 的 `no_bgm`，并写空 `segments`。决定为 `music` 时使用合成输出的原始 WAV 作为 `bgm`，传入 `bgm_generation` 合成回执。每段配乐记录源曲 `source_sha256` 及曲库 `track_id`。复用已认可的曲目时改用 `selection_origin: "approved_reuse"`，并在该段 `reason` 写明复用原因。归档核对集号、计划、时间线、源曲顺序和区间、实际参与混音的配乐 SHA-256，以及非零实际混音增益。混音导出的独立配乐轨或转码副本与合成 WAV 字节不同时，需重新采用正确的合成结果。候选回执记录决定、理由、实际增益和输入摘要。听感和授权仍需另行验收。省略开关时沿用旧归档行为。
 

@@ -23,7 +23,7 @@ import { dirname, resolve } from 'node:path'
 import { audioMixReport, loadAudioMixProfile, requireNewAudioOutput, requireProjectAudioFile } from './audio.ts'
 import { readBgmPlan } from './bgm.ts'
 import { fileSha256, readCacheIdentity } from './cache.ts'
-import { buildSourceRecord, sourceRecordPathFor, writeSourceRecord } from './source-record.ts'
+import { buildSourceRecord, sourceRecordPathFor, writeSourceRecord, type DeliveryRenderInputs } from './source-record.ts'
 import {
   audioMixFilter,
   deliveryRenderSettings,
@@ -46,7 +46,9 @@ import {
 } from './ending.ts'
 import { firstStreamOfType, mediaFactsOf, probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
-import { pictureClockFrames, verifyPreparedSubtitleClock } from './prepare.ts'
+import { parseShotManifest, readJsonDocument, pictureClockFrames, verifyPreparedSubtitleClock } from './prepare.ts'
+import { verifySelectedSourceReviews } from './approved-sources.ts'
+import { summarizeSourceQa, type SourceQaVerifier } from './source-qa.ts'
 import { buildRenderPreview, renderPreviewWarnings } from './preview.ts'
 import { buildReport, NO_MEDIA, NO_TAIL_FRAME, type ReportInput } from './report.ts'
 import { subtitleReviewWarnings, subtitleTextWarnings, readSubtitleCues, buildAssDocument, formatSrtDocument, normalizeSubtitleDisplay, subtitleDisplayWarnings } from './subtitles.ts'
@@ -100,6 +102,8 @@ export interface RenderInput {
   readonly force: boolean
   /** Whether to verify and reuse a matching candidate or publish a new one exclusively. */
   readonly resume?: boolean
+  /** Host access to actual OCR execution and durable visual observation evidence. */
+  readonly sourceQaVerifier?: SourceQaVerifier
 }
 
 /** Demand ending paths only after the explicit medium has selected a marked delivery. */
@@ -169,6 +173,24 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     throw new Error('drama_render render 的 resume 只支持完整单集时间线。')
   }
   const selectedVideos = clips.map(clip => resolve(paths.videoDir, shotFileName(clip.shot)))
+  const sourceQa = policy.delivery.require_source_review !== true ? undefined : await (async () => {
+    const document = await readJsonDocument(paths.sources, '已准备选源')
+    const rows = parseShotManifest(document, paths.sources)
+    const reviews = await verifySelectedSourceReviews(paths, rows, true, true, input.sourceQaVerifier)
+    const approved = new Map(reviews.map(review => [review.shot, review]))
+    const prepared = document as { shots?: { shot?: number; sha256?: string; review_sha256?: string; audio_sha256?: string }[] }
+    if (rows.length !== clips.length || !Array.isArray(prepared.shots) || prepared.shots.some((row) => {
+      const review = row.shot === undefined ? undefined : approved.get(row.shot)
+      return review === undefined || row.sha256 !== review.videoSha256 || row.review_sha256 !== review.reviewSha256
+        || row.audio_sha256 !== review.audioSha256 || !clips.some(clip => clip.shot === row.shot)
+    })) throw new Error('正式渲染的选源或审核已变化，请重新 prepare 并复验。')
+    for (const clip of clips) {
+      if (await fileSha256(resolve(paths.videoDir, shotFileName(clip.shot))) !== approved.get(clip.shot)?.videoSha256) {
+        throw new Error('正式渲染的镜头副本与已审看源片字节不符，请重新 prepare。')
+      }
+    }
+    return summarizeSourceQa(reviews)
+  })()
   await assertVideosAllowed(input.project, [...selectedVideos, ...(endingAssets === undefined ? [] : [endingAssets.effect])])
   const bodyEndSeconds = bodyEndSecondsOf(clips)
   const totalSeconds = bodyEndSeconds + policy.endingSeconds
@@ -223,16 +245,21 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const emitsStem = profile !== undefined && bgm !== undefined
   let output = input.output
   if (captured !== undefined) {
-    const more = [paths.masterAudio, ...selectedVideos, ...(strictSpeech ? [paths.sources] : []),
+    const more = [paths.masterAudio, ...selectedVideos, ...(strictSpeech || sourceQa !== undefined ? [paths.sources] : []),
+      ...(sourceQa?.files.map(file => file.path) ?? []),
       ...(bgm === undefined ? [] : [bgm]),
       ...((strictMusic || bgm !== undefined) && input.bgmPlan !== undefined ? [input.bgmPlan] : []),
       ...(music?.generation_path === undefined ? [] : [music.generation_path]),
       ...(endingAssets === undefined ? [] : [endingAssets.audio, endingAssets.effect])]
     const files = [...captured, ...await Promise.all(more.map(file => readRenderResumeFile(file)))]
+    if (sourceQa?.files.some(file => files.find(saved => saved.path === file.path)?.sha256 !== file.sha256)) {
+      throw new Error('源片复验后文件发生变化，请重新执行OCR与审看核验。')
+    }
     const { channel: _channel, ...effective } = effectiveSettings
     resumeRequest = renderResumeRequest(files, [input.project, input.episode, input.lastShot, effective, policy.delivery,
       policy.endingSeconds, policy.addWatermark, endingEffectFit, profile, input.subtitlePlan ?? null,
       input.mixProfile ?? null, bgm ?? null, bgm === undefined ? null : input.bgmPlan ?? null, ...(music === undefined ? [] : [music]),
+      ...(sourceQa === undefined ? [] : [sourceQa.sha256]),
       endingAssets?.audio ?? null, endingAssets?.effect ?? null])
     await assertRenderResumeInputs(resumeRequest)
   }
@@ -243,6 +270,9 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     subtitleSrt: input.subtitleSrt, planPath: input.subtitlePlan,
     ...(settings.normalizeSubtitleText ? { normalizeDisplay: true } : {}),
   })
+  if (sourceQa !== undefined && (overlay?.report.retained_embedded.length ?? 0) > 0) {
+    throw new Error('严格统一字幕交付要求清理源片对白字，不能沿用retain_embedded对白。请按实际原片完成去字幕和源复验后重跑。')
+  }
   const originalCues = overlay?.cues ?? await readSubtitleCues(input.subtitleSrt)
   if (settings.normalizeSubtitleText && overlay === undefined) subtitleWarnings.push(...subtitleDisplayWarnings(originalCues))
   const cues = settings.normalizeSubtitleText ? normalizeSubtitleDisplay(originalCues) : originalCues
@@ -259,7 +289,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     if (clock !== undefined) displayWritten.push(clock)
   }
   const renderedSubtitle = displaySubtitle
-  const publicationRequest = resumeRequest === undefined || renderedSubtitle === input.subtitleSrt ? resumeRequest : {
+  let publicationRequest = resumeRequest === undefined || renderedSubtitle === input.subtitleSrt ? resumeRequest : {
     ...resumeRequest,
     files: [...resumeRequest.files, await readRenderResumeFile(renderedSubtitle)],
   }
@@ -291,10 +321,23 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
       encodedShots: [], reusedShots: [], tailFrame: NO_TAIL_FRAME, media: NO_MEDIA, checks: layoutChecks,
       warnings: [...subtitleWarnings, ...policy.warnings, ...previewWarnings], logPath: paths.renderLog })
   }
+  const visualVerification: DeliveryRenderInputs['subtitle_visual_verification'] = layout?.report.status === 'measured'
+    && layout.report.report_path !== null && policy.delivery.subtitle_visual?.schema_version === 1 ? {
+      version: 1, subtitle_sha256: await fileSha256(renderedSubtitle), report_path: layout.report.report_path,
+      report_sha256: await fileSha256(layout.report.report_path), requested_font: layout.report.requested_font,
+      delivery: { width: policy.delivery.width, height: policy.delivery.height, fps: policy.delivery.fps },
+      visual: { ...policy.delivery.subtitle_visual, font_family: layout.report.requested_font },
+      checks: layoutChecks.map(check => ({ id: check.id, ok: true })),
+    } : undefined
+  if (visualVerification !== undefined && publicationRequest !== undefined) {
+    publicationRequest = { ...publicationRequest, files: [...publicationRequest.files,
+      { path: visualVerification.report_path, sha256: visualVerification.report_sha256 }] }
+  }
   if (resumeRequest !== undefined) {
     const candidate = await findRenderResumeCandidate({ toolkit, settings: effectiveSettings,
       project: input.project, episode: input.episode, timelinePath: input.timelinePath,
-      subtitleSrt: renderedSubtitle, output }, resumeRequest, emitsStem)
+      subtitleSrt: renderedSubtitle, output, requireSubtitleVisualVerification: visualVerification !== undefined },
+    resumeRequest, emitsStem)
     await assertRenderResumeInputs(publicationRequest ?? resumeRequest)
     if (candidate.verified !== undefined) {
       return { ...candidate.verified, method: 'render', encoder: candidate.record.encoder,
@@ -428,13 +471,16 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const receipt = (media: MediaFacts, checks: RenderCheck[], outputSha256: string, musicStemSha256?: string) => buildSourceRecord({
     episode: input.episode, output, outputSha256, sizeBytes: media.sizeBytes, durationSeconds: media.durationSeconds,
     inputs: [...consumedHashes, ...(overlay === undefined ? [] : [overlay.report.plan_sha256,
-      overlay.report.original_srt_sha256, overlay.report.resolved_srt_sha256])],
+      overlay.report.original_srt_sha256, overlay.report.resolved_srt_sha256]),
+    ...(sourceQa === undefined ? [] : [sourceQa.sha256, ...sourceQa.files.map(file => file.sha256)])],
     ...(resumeRequest === undefined ? {} : { requestSha256: resumeRequest.sha256 }),
     ...(publicationRequest === undefined ? {} : {
       inputFiles: publicationRequest.files,
       deliveryInputs: {
         timeline_sha256: deliveryDigest(input.timelinePath),
         subtitle_sha256: deliveryDigest(renderedSubtitle),
+        ...(sourceQa === undefined ? {} : { source_qa_sha256: sourceQa.sha256 }),
+        ...(visualVerification === undefined ? {} : { subtitle_visual_verification: visualVerification }),
         ...(strictSpeech ? { subtitle_display: overlay === undefined ? 'external' as const : 'overlay' as const } : {}),
         ...(music === undefined ? {} : { music }),
         master_audio_sha256: deliveryDigest(paths.masterAudio),
@@ -472,6 +518,9 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     }
     await withFileLock(resolve(input.project, 'video-bans.json'), async () => {
       await assertVideoHashesAllowed(input.project, consumedHashes)
+      for (const file of sourceQa?.files ?? []) {
+        if (await fileSha256(file.path) !== file.sha256) throw new Error('渲染期间源片复验文件已变化，须重新核验。')
+      }
       if (publicationRequest !== undefined) await assertRenderResumeInputs(publicationRequest)
       if (profile === undefined && resumeRequest === undefined) {
         await rename(stagedOutput, output)

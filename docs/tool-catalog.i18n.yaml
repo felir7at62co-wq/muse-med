@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 94503b6b13de09f7
 /tool-schema-catalog/tool-package-map:
-  en: 0ef3f2913376807f
-  zh: d531a8b891f2c0e8
+  en: d44542c454e17561
+  zh: ca506d382cefa37a
 /tool-schema-catalog/deepseek-ai-dsh-plugin-manager:
   en: e0143916bb634762
   zh: e0143916bb634762
@@ -78,8 +78,8 @@
   en: 67a6d4d454045139
   zh: e15d31807da6c24b
 /tool-schema-catalog/deepseek-ai-dsh-tool-video-inspect/video-ocr:
-  en: 1cfe16106e5fc0e8
-  zh: 76ff14fb0a3f9463
+  en: 50b1350c2e637bf3
+  zh: d11c6e79cfc71435
 /tool-schema-catalog/deepseek-ai-dsh-tools:
   en: 76fbbf0fe38aef10
   zh: 76fbbf0fe38aef10
@@ -426,8 +426,8 @@
   en: cd8c46a68524b061
   zh: cd8c46a68524b061
 /tool-schema-catalog/deepseek-ai-dsh-tool-episode-render/drama-render:
-  en: fc653debff65d621
-  zh: fc653debff65d621
+  en: f571dfe6e0a17aef
+  zh: f571dfe6e0a17aef
 /tool-schema-catalog/deepseek-ai-dsh-tool-episode-render/drama-video:
   en: f3cfd64d19bee2a4
   zh: 1a0f26e0183dc10b

@@ -2,6 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+import { installShortDramaDelivery } from './short-drama-delivery.ts'
 
 /** Cordis plugin identity. */
 export const name = 'muse-editing-policy'
@@ -13,6 +14,7 @@ export const inject = ['systemPrompt']
  * @param ctx - Editing preset's standing scope.
  */
 export function apply(ctx: Context): void {
+  installShortDramaDelivery(ctx)
   ctx.systemPrompt.section({
     name: 'editing:format',
     order: ctx.systemPrompt.getSectionOrder('DEPLOYMENT_PERSONA_PREFIX'),

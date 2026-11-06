@@ -1,6 +1,7 @@
 /** Video inspection uses the real filesystem, attachment store and managed FFmpeg subprocesses. */
 import { mkdtemp, rm, readFile, appendFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { createHash } from 'node:crypto'
 import * as Os from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -448,6 +449,7 @@ it('runs real bounded frame extraction with one mocked local OCR batch and publi
     .toEqual(expect.arrayContaining(['-ExecutionPolicy', 'Bypass', '-NoProfile', '-NonInteractive']))
   expect(run.mock.calls.filter(call => call[1].includes('mjpeg'))).toHaveLength(1)
   const raw = JSON.parse(await readFile(join(h.root, 'qa/ocr.json'), 'utf8')) as { text_source: string; frames: unknown[]; segments: unknown[] }
+  expect(result.value).toHaveProperty('raw_json_sha256', createHash('sha256').update(await readFile(join(h.root, 'qa/ocr.json'))).digest('hex'))
   expect(raw).toMatchObject({ text_source: 'ocr' })
   expect(raw.frames).toHaveLength(2)
   expect(raw.frames[0]).toMatchObject({ requested_seconds: 0, lines: [{ text: '你好 Hello' }] })

@@ -5,12 +5,14 @@ import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileSha256 } from './cache.ts'
 import type { EpisodePaths } from './paths.ts'
 import type { ShotSource } from './types.ts'
+import { verifySourceQa, type SourceQaVerifier, type SourceQaVerification } from './source-qa.ts'
 
 interface ReviewedShot {
   readonly shot: number
   readonly videoSha256: string
   readonly audioSha256?: string
   readonly reviewSha256: string
+  readonly sourceQa?: SourceQaVerification
 }
 
 function document(bytes: Buffer, file: string): Record<string, unknown> {
@@ -106,7 +108,11 @@ async function verifyContentEvidence(project: string, review: Record<string, unk
   await verifyDownload(project, review.original_download_receipt_path, row.audio, audioSha256, label)
 }
 
-/** Compare normalized selected paths, including the manifest's default embedded audio. */
+/** Compare normalized selected paths, including the manifest's default embedded audio.
+ * @param project - Absolute project root for resolving selected media.
+ * @param row - One selected picture and sound source.
+ * @returns Whether picture and sound use different source paths.
+ */
 export function hasSeparateAudio(project: string, row: ShotSource): boolean {
   return resolve(project, row.video) !== resolve(project, row.audio)
 }
@@ -140,9 +146,15 @@ async function episodeReviews(paths: EpisodePaths): Promise<Map<number, { row: R
  * Verify evidence independently of the caller's shot manifest. Legacy previews may
  * work without reviews; delivery requires approval for each distinct audio source.
  * Strict source review also requires full content evidence on every selected package.
+ * @param paths - Current project's episode paths.
+ * @param rows - Explicit selected picture and sound sources.
+ * @param delivering - Whether missing required source approval must prevent delivery.
+ * @param requireContent - Whether each source needs complete content and real OCR/visual evidence.
+ * @param sourceQaVerifier - Host-owned access to the actual OCR execution and durable observation records.
+ * @returns Checked per-shot media and review identities with optional strict source QA evidence.
  */
 export async function verifySelectedSourceReviews(paths: EpisodePaths, rows: readonly ShotSource[],
-  delivering = false, requireContent = false): Promise<ReviewedShot[]> {
+  delivering = false, requireContent = false, sourceQaVerifier?: SourceQaVerifier): Promise<ReviewedShot[]> {
   const reviews = await episodeReviews(paths)
   const approvedPackages = [...reviews].filter(([, review]) => review.row.status === 'approved').map(([pack]) => pack)
   const hashes = new Map<string, Promise<string>>()
@@ -209,9 +221,19 @@ export async function verifySelectedSourceReviews(paths: EpisodePaths, rows: rea
       || review.audio_sha256 !== audioSha256)) {
       throw new Error(`${label} 所选原声音频路径或字节与已审核来源不符。`)
     }
-    if (requireContent) await verifyContentEvidence(paths.project, review, row, videoSha256, audioSha256, label)
+    let sourceQa: SourceQaVerification | undefined
+    if (requireContent) {
+      await verifyContentEvidence(paths.project, review, row, videoSha256, audioSha256, label)
+      sourceQa = await verifySourceQa({ project: paths.project, review, videoPath: row.video, videoSha256,
+        originalPath: row.audio, originalSha256: audioSha256 ?? videoSha256,
+        ...(sourceQaVerifier === undefined ? {} : { verifier: sourceQaVerifier }) })
+      sourceQa = { ...sourceQa, files: [...sourceQa.files,
+        { path: resolve(paths.project, 'reviews', `ep${paths.episode}-p${String(row.package).padStart(2, '0')}.json`), sha256: approved.sha256 },
+        { path: resolve(paths.project, 'episode_packages', paths.episode, 'package.json'), sha256: packageSha256 as string }] }
+    }
     verified.push({ shot: row.shot, videoSha256,
-      ...(audioSha256 === undefined ? {} : { audioSha256 }), reviewSha256: approved.sha256 })
+      ...(audioSha256 === undefined ? {} : { audioSha256 }), reviewSha256: approved.sha256,
+      ...(sourceQa === undefined ? {} : { sourceQa }) })
   }
   return verified
 }

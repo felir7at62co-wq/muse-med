@@ -313,6 +313,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
     source: 'packages/perception/tool-video-inspect/src/index.ts',
     requires: ['ctx.tools', 'ctx.fs', 'ctx.subprocess', 'ctx.attachments', 'ctx.sandboxPolicy', 'FFmpeg and FFprobe'],
     writes: ['tool/call', 'tool/result with timestamped image attachments', 'optional project-relative JSON manifest'],
+    shippedNames: ['video_source_review'],
     async mount(ctx) {
       await ctx.plugin(LocalFileSystem)
       await ctx.plugin(LocalSubprocessRuntime)
@@ -320,7 +321,9 @@ const TOOL_PACKAGES: ToolPackage[] = [
       await ctx.plugin(SandboxPolicy)
       await ctx.plugin(ToolVideoInspect, ToolVideoInspect.Config({}))
     },
-    note: 'Video observations cover only the reported sampled frames and time ranges. '
+    note: 'The default video_inspect retains metadata and sample operations. Creation enables sourceReviewCompanion '
+      + 'to add video_source_review with complete scan/next/observe operations without replacing legacy sampling or trusted receipts. '
+      + 'Video observations cover only the reported sampled frames and time ranges. '
       + 'Use audio_transcribe separately for timed speech; sampling never submits a paid transcription.',
   },
   {

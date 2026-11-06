@@ -107,6 +107,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'video_contact_sheet',
   'video_inspect',
   'video_ocr',
+  'video_source_review',
   'web_fetch',
   'web_search',
   'write',
