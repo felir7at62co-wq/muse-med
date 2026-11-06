@@ -178,9 +178,9 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     const rows = parseShotManifest(document, paths.sources)
     const reviews = await verifySelectedSourceReviews(paths, rows, true, true, input.sourceQaVerifier)
     const approved = new Map(reviews.map(review => [review.shot, review]))
-    const prepared = document as { shots?: { shot?: number; sha256?: string; review_sha256?: string; audio_sha256?: string }[] }
-    if (rows.length !== clips.length || !Array.isArray(prepared.shots) || prepared.shots.some((row) => {
-      const review = row.shot === undefined ? undefined : approved.get(row.shot)
+    const prepared = document as { shots: { shot: number; sha256?: string; review_sha256?: string; audio_sha256?: string }[] }
+    if (rows.length !== clips.length || prepared.shots.some((row) => {
+      const review = approved.get(row.shot)
       return review === undefined || row.sha256 !== review.videoSha256 || row.review_sha256 !== review.reviewSha256
         || row.audio_sha256 !== review.audioSha256 || !clips.some(clip => clip.shot === row.shot)
     })) throw new Error('正式渲染的选源或审核已变化，请重新 prepare 并复验。')
@@ -307,7 +307,7 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   if (layout !== undefined) subtitleWarnings.push(...layout.warnings)
   const layoutLog = layout === undefined ? []
     : [`subtitle_layout=${layout.report.report_path ?? '(not saved)'} status=${layout.report.status}`, ...layoutChecks.map(logCheck)]
-  if (layoutChecks.some(check => !check.ok)) {
+  if (layout !== undefined && layoutChecks.some(check => !check.ok)) {
     await mkdir(dirname(paths.renderLog), { recursive: true })
     await writeFile(paths.renderLog, `${layoutLog.join('\n')}\n`, 'utf8')
     return buildReport({ method: 'render', project: input.project, episode: input.episode,
@@ -315,8 +315,8 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
       sources: new Map(clips.map(clip => [clip.shot, resolve(paths.videoDir, shotFileName(clip.shot))])),
       expectedDurationSeconds, renderPreview: preview, bgmPlan,
       ...(overlay === undefined ? {} : { subtitleOverlay: overlay.report }),
-      ...(layout === undefined ? {} : { subtitleLayout: layout.report }),
-      written: [...displayWritten, ...overlay?.written ?? [], ...layout?.written ?? [], paths.renderLog],
+      subtitleLayout: layout.report,
+      written: [...displayWritten, ...overlay?.written ?? [], ...layout.written, paths.renderLog],
       output: '', encoder: '', gpuRequested: settings.preferNvenc, gpuUsed: false, encoderFallbackReason: '',
       encodedShots: [], reusedShots: [], tailFrame: NO_TAIL_FRAME, media: NO_MEDIA, checks: layoutChecks,
       warnings: [...subtitleWarnings, ...policy.warnings, ...previewWarnings], logPath: paths.renderLog })
@@ -333,12 +333,12 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
     publicationRequest = { ...publicationRequest, files: [...publicationRequest.files,
       { path: visualVerification.report_path, sha256: visualVerification.report_sha256 }] }
   }
-  if (resumeRequest !== undefined) {
+  if (publicationRequest !== undefined) {
     const candidate = await findRenderResumeCandidate({ toolkit, settings: effectiveSettings,
       project: input.project, episode: input.episode, timelinePath: input.timelinePath,
       subtitleSrt: renderedSubtitle, output, requireSubtitleVisualVerification: visualVerification !== undefined },
-    resumeRequest, emitsStem)
-    await assertRenderResumeInputs(publicationRequest ?? resumeRequest)
+    publicationRequest, emitsStem)
+    await assertRenderResumeInputs(publicationRequest)
     if (candidate.verified !== undefined) {
       return { ...candidate.verified, method: 'render', encoder: candidate.record.encoder,
         written: [...overlay?.written ?? [], ...displayWritten],
@@ -463,33 +463,35 @@ export async function renderEpisode(input: RenderInput): Promise<DramaRenderRepo
   const stagedOutput = resolve(staging, 'output.mp4')
   const stagedStem = resolve(staging, 'music-stem.wav')
   const stagedReceipt = resolve(staging, 'source-record.json')
-  const deliveryDigest = (path: string) => {
-    const digest = publicationRequest?.files.find(file => file.path === path)?.sha256
-    if (digest == null) throw new Error(`渲染输入未保存文件摘要：${path}`)
-    return digest
+  // The timeline, display, master and video entries were required captures in this render.
+  const deliveryDigest = (request: RenderResumeRequest, path: string) =>
+    (request.files.find(file => file.path === path) as { sha256: string }).sha256
+  const receipt = (media: MediaFacts, checks: RenderCheck[], outputSha256: string, musicStemSha256?: string) => {
+    const request = publicationRequest
+    return buildSourceRecord({
+      episode: input.episode, output, outputSha256, sizeBytes: media.sizeBytes, durationSeconds: media.durationSeconds,
+      inputs: [...consumedHashes, ...(overlay === undefined ? [] : [overlay.report.plan_sha256,
+        overlay.report.original_srt_sha256, overlay.report.resolved_srt_sha256]),
+      ...(sourceQa === undefined ? [] : [sourceQa.sha256, ...sourceQa.files.map(file => file.sha256)])],
+      ...(resumeRequest === undefined ? {} : { requestSha256: resumeRequest.sha256 }),
+      ...(request === undefined ? {} : {
+        inputFiles: request.files,
+        deliveryInputs: {
+          timeline_sha256: deliveryDigest(request, input.timelinePath),
+          subtitle_sha256: deliveryDigest(request, renderedSubtitle),
+          ...(sourceQa === undefined ? {} : { source_qa_sha256: sourceQa.sha256 }),
+          ...(visualVerification === undefined ? {} : { subtitle_visual_verification: visualVerification }),
+          ...(strictSpeech ? { subtitle_display: overlay === undefined ? 'external' as const : 'overlay' as const } : {}),
+          ...(music === undefined ? {} : { music }),
+          master_audio_sha256: deliveryDigest(request, paths.masterAudio),
+          videos: clips.map(clip => ({ shot: clip.shot,
+            sha256: deliveryDigest(request, resolve(paths.videoDir, shotFileName(clip.shot))) }))
+            .sort((a, b) => a.shot - b.shot),
+        },
+      }),
+      ...(musicStemSha256 === undefined ? {} : { musicStemSha256 }), encoder: choice.encoder, checks, now: new Date(),
+    })
   }
-  const receipt = (media: MediaFacts, checks: RenderCheck[], outputSha256: string, musicStemSha256?: string) => buildSourceRecord({
-    episode: input.episode, output, outputSha256, sizeBytes: media.sizeBytes, durationSeconds: media.durationSeconds,
-    inputs: [...consumedHashes, ...(overlay === undefined ? [] : [overlay.report.plan_sha256,
-      overlay.report.original_srt_sha256, overlay.report.resolved_srt_sha256]),
-    ...(sourceQa === undefined ? [] : [sourceQa.sha256, ...sourceQa.files.map(file => file.sha256)])],
-    ...(resumeRequest === undefined ? {} : { requestSha256: resumeRequest.sha256 }),
-    ...(publicationRequest === undefined ? {} : {
-      inputFiles: publicationRequest.files,
-      deliveryInputs: {
-        timeline_sha256: deliveryDigest(input.timelinePath),
-        subtitle_sha256: deliveryDigest(renderedSubtitle),
-        ...(sourceQa === undefined ? {} : { source_qa_sha256: sourceQa.sha256 }),
-        ...(visualVerification === undefined ? {} : { subtitle_visual_verification: visualVerification }),
-        ...(strictSpeech ? { subtitle_display: overlay === undefined ? 'external' as const : 'overlay' as const } : {}),
-        ...(music === undefined ? {} : { music }),
-        master_audio_sha256: deliveryDigest(paths.masterAudio),
-        videos: clips.map(clip => ({ shot: clip.shot, sha256: deliveryDigest(resolve(paths.videoDir, shotFileName(clip.shot))) }))
-          .sort((a, b) => a.shot - b.shot),
-      },
-    }),
-    ...(musicStemSha256 === undefined ? {} : { musicStemSha256 }), encoder: choice.encoder, checks, now: new Date(),
-  })
   let measured: { media: MediaFacts; checks: RenderCheck[] } | undefined
   try {
     await runFfmpeg(toolkit, [
