@@ -235,7 +235,7 @@ kind: "package-reference"
 
 将 `project_bible.delivery.audio.require_music_decision` 设为 `true`，重跑 `prepare` 并以 `resume=true` 完整渲染，即可在归档前强制核对配乐决定。传入本集 `bgm_plan`，记录 `music_decision` 和非空 `decision_reason`。决定为 `none` 时使用 `mix_profile` 的 `no_bgm`，并写空 `segments`。决定为 `music` 时使用合成输出的原始 WAV 作为 `bgm`，传入 `bgm_generation` 合成回执。每段配乐记录源曲 `source_sha256` 及曲库 `track_id`。复用已认可的曲目时改用 `selection_origin: "approved_reuse"`，并在该段 `reason` 写明复用原因。归档核对集号、计划、时间线、源曲顺序和区间、实际参与混音的配乐 SHA-256，以及非零实际混音增益。混音导出的独立配乐轨或转码副本与合成 WAV 字节不同时，需重新采用正确的合成结果。候选回执记录决定、理由、实际增益和输入摘要。听感和授权仍需另行验收。省略开关时沿用旧归档行为。
 
-将 `project_bible.delivery.subtitle.require_speech_coverage` 设为 `true`，重跑 `prepare` 并以 `resume=true` 渲染，即可启用严格归档。传入实际选定音频的 `speech_transcripts`，并在映射中加入 `display: {embedded: false, subtitle_sha256, video_sha256: [...]}`，声明外加 SRT 覆盖全部显示字幕，同时提供完整 SRT 和按镜号排列的全部选片 SHA-256。归档会拒绝已知叠加字幕以及缺少字幕来源回执的成片。字幕首尾可以按 SRT 的毫秒精度贴合已准备时间线中的画面切点，跨过切点则停止归档。归档读取当前同源词级证据，遇到证据不完整或未处理疑点时停止。只有绑定本次比对的 `keep` 或 `asr_error` 核听声明可处理相应声文疑点。候选回执记录本次比对的证据 SHA-256。源片内部的切镜、画面和对白质量仍需播放验收。省略开关时沿用旧归档行为。
+将 `project_bible.delivery.subtitle.require_speech_coverage` 设为 `true`，重跑 `prepare` 并以 `resume=true` 渲染，即可启用严格归档。传入实际选定音频的 `speech_transcripts`，并在映射中加入 `display: {embedded: false, subtitle_sha256, video_sha256: [...]}`，声明外加 SRT 覆盖全部显示字幕，同时提供完整 SRT 和按镜号排列的全部选片 SHA-256。归档会拒绝已知叠加字幕以及未保存字幕来源回执的成片。字幕首尾可以按 SRT 的毫秒精度贴合已准备时间线中的画面切点，跨过切点则停止归档。归档读取当前同源词级证据，遇到证据不完整或未处理疑点时停止。只有绑定本次比对的 `keep` 或 `asr_error` 核听声明可处理相应声文疑点。候选回执记录本次比对的证据 SHA-256。源片内部的切镜、画面和对白质量仍需播放验收。省略开关时沿用旧归档行为。
 
 严格归档还要求实测音画流边界和新核查的独立音轨草稿。草稿回执绑定已核查的整集原声位置、静音的正文片段，以及可编辑字幕的文字和时间。
 
