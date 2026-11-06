@@ -1,5 +1,5 @@
 /** Negative controls for the live account gateway's request and credential limits. */
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { assertMuseLivePrivacy, MUSE_LIVE_LIMITS, museGatewayLiveConfig, museGatewayLiveTransport } from './muse-gateway-live-fixture.ts'
 
 const environment = {
@@ -177,6 +177,37 @@ describe('Muse live gateway admission', () => {
     const logoutSignal = delegate.mock.calls[1]![1]!.signal
     expect(logoutSignal?.aborted).toBe(false)
     expect(delegate).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['dispose', 'scenario-abort'])('settles the external reader and awaits inner cancellation during %s', async (mode) => {
+    const scenario = new AbortController()
+    const entered = Promise.withResolvers<undefined>()
+    const released = Promise.withResolvers<undefined>()
+    const delegate = vi.fn<typeof fetch>().mockResolvedValue(new Response(new ReadableStream({
+      async cancel() { entered.resolve(undefined); await released.promise },
+    })))
+    const transport = museGatewayLiveTransport(config, delegate, scenario.signal)
+    const response = await transport.fetcher(completion, { body })
+    const reader = response.body!.getReader()
+    const observed = vi.fn()
+    const read = reader.read().then((value) => { observed({ done: value.done }) }, (error: unknown) => {
+      observed(error instanceof Error ? { name: error.name, message: error.message } : { name: 'unknown' })
+    })
+    onTestFinished(async () => {
+      released.resolve(undefined)
+      await Promise.allSettled([reader.cancel(), read, transport.dispose()])
+    })
+    if (mode === 'scenario-abort') scenario.abort()
+    let disposed = false
+    const disposing = transport.dispose().then(() => { disposed = true })
+    await entered.promise
+    expect(disposed).toBe(false)
+    released.resolve(undefined)
+    await disposing
+    await Promise.resolve()
+    expect(observed).toHaveBeenCalledOnce()
+    expect(observed).toHaveBeenCalledWith({ name: 'AbortError', message: 'Live Muse acceptance stopped its owned response stream' })
+    await read
   })
 
   it('withholds stream errors and refuses a retry after an interrupted stream', async () => {

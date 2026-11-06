@@ -117,6 +117,8 @@ export function museGatewayLiveTransport(config: MuseGatewayLiveConfig, delegate
         const reader = response.body.getReader()
         let finished = false
         let cancelling = false
+        let cancellation: Promise<void> | undefined
+        let outerController!: ReadableStreamDefaultController<Uint8Array>
         let done = false
         let tail = ''
         const decoder = new TextDecoder()
@@ -125,17 +127,27 @@ export function museGatewayLiveTransport(config: MuseGatewayLiveConfig, delegate
           if (failure) failed = true
           finished = true
           active = false
-          streams.delete(cancelStream)
+          streams.delete(disposeStream)
           reader.releaseLock()
           release()
         }
-        async function cancelStream(reason?: unknown): Promise<void> {
+        function cancelStream(reason?: unknown): Promise<void> {
+          if (cancellation) return cancellation
           cancelling = true
-          try { await reader.cancel(reason) }
-          finally { finish(!done) }
+          cancellation = (async () => {
+            try { await reader.cancel(reason) }
+            finally { finish(!done) }
+          })()
+          return cancellation
         }
-        streams.add(cancelStream)
+        async function disposeStream(): Promise<void> {
+          if (finished) return
+          outerController.error(new DOMException('Live Muse acceptance stopped its owned response stream', 'AbortError'))
+          await cancelStream()
+        }
+        streams.add(disposeStream)
         return new Response(new ReadableStream<Uint8Array>({
+          start(controller) { outerController = controller },
           async pull(controller) {
             try {
               const next = await reader.read()
