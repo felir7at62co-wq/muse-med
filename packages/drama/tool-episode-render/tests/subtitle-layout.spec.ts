@@ -260,7 +260,7 @@ it.skipIf(!ffmpeg || !ffprobe || !hasZhuque)('measures bundled Zhuque text again
   const family = 'Zhuque Fangsong (technical preview)'
   const input = { ...await nativeInput(family), delivery: { width: 480, height: 854, fps: 60,
     subtitle_visual: { ...visual, reference_width: 480, reference_height: 854, font_size_px: 46, outline_px: 1.25,
-      center_y_ratio: 0.736747073, max_width_ratio: 0.9, font_family: family } } }
+      center_y_ratio: 0.64, max_width_ratio: 0.9, font_family: family } } }
   const result = await measureSubtitleLayout({ ...input, cues: [cue('可我现在每天按时起'),
     cue('可我现在每天按时起每天都干活再继续努力', 2)] })
   expect(result.report.status, result.warnings.join('\n')).toBe('measured')
@@ -276,7 +276,7 @@ it.skipIf(!ffmpeg || !ffprobe || !hasZhuque)('splits an overwide line using real
   const family = 'Zhuque Fangsong (technical preview)'
   const input = { ...await nativeInput(family), delivery: { width: 480, height: 854, fps: 60,
     subtitle_visual: { ...visual, reference_width: 480, reference_height: 854, font_size_px: 46, outline_px: 1.25,
-      center_y_ratio: 0.736747073, max_width_ratio: 0.9, font_family: family } } }
+      center_y_ratio: 0.64, max_width_ratio: 0.9, font_family: family } } }
   const words: SpeechCoverageWord[] = [
     { id: '1', shot: 1, clip_index: 0, word_index: 0, text: '可我现在每天按时起', source_start_seconds: 64.528,
       source_end_seconds: 65.848, start_seconds: 64.528, end_seconds: 65.848 },
@@ -303,7 +303,7 @@ it.skipIf(!ffmpeg || !ffprobe || !hasZhuque)('fits archived EP26 word times afte
   const family = 'Zhuque Fangsong (technical preview)'
   const input = { ...await nativeInput(family), delivery: { width: 480, height: 854, fps: 60,
     subtitle_visual: { ...visual, reference_width: 480, reference_height: 854, font_size_px: 46, outline_px: 1.25,
-      center_y_ratio: 0.736747073, max_width_ratio: 0.9, font_family: family } } }
+      center_y_ratio: 0.64, max_width_ratio: 0.9, font_family: family } } }
   const measured = new Map<string, boolean | null>()
   const result = await fitSubtitleCues([ep26Cue], ep26Evidence(), async (text) => {
     const report = await measureSubtitleLayout({ ...input, cues: [cue(text)] })

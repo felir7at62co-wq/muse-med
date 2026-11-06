@@ -11,6 +11,8 @@ description: "Desktop 正式短剧文件交付须有当前已归档的单集候�
 
 Desktop 编辑与创作会话原先允许 `present`、`send_file`、`dsh_im_return_file` 直接交付短剧工作成片。现在，原生工具已登记的单集输出、已绑定短剧项目正式输出位置中的视频，须与当前 `stage_delivery` 候选一致才能交付。修改 MP4、SRT、时间线、已记录选源或原配对证据后，这些文件交付操作不再接受旧候选。仅后续编辑原生草稿文件不会使已有 MP4 失效。其他文件任务与原始视频包附件保持原行为。
 
+竖屏候选还须符合[当前认可的字幕高度](../../../../apps/desktop/README.zh.md)。按原来偏下位置渲染的候选，即使旧回执仍一致，也不符合该配置。采用新高度时需重新 prepare、渲染并生成对应草稿；已有视频、字幕和可编辑草稿不会迁移或改写。
+
 ## 迁移
 
 1. 按[渲染器证据要求](../../../../packages/drama/tool-episode-render/README.zh.md)完成源片 OCR 与实际帧观察。创作会话保留原抽样，使用 `video_source_review` 完成观察；短剧预设使用完整模式 `video_inspect`。无需切换预设。

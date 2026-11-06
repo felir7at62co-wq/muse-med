@@ -106,7 +106,7 @@ describe('explicit shared subtitle visual intent', () => {
   it('applies the product visual to EP46-shaped existing projects with geometry but no subtitle settings', async () => {
     const project = await mkdtemp(join(tmpdir(), 'subtitle-ep46-shape-'))
     const productVisual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
-      font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073, max_width_ratio: 0.9 }
+      font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.64, max_width_ratio: 0.9 }
     // Regression fixture based on the reported EP46 project configuration; unrelated fields are omitted.
     await writeFile(join(project, 'project_config.json'), JSON.stringify({ project_bible: {
       delivery: { width: 1440, height: 2560, fps: 60, min_bitrate_mbps: 4.6 },
@@ -120,7 +120,7 @@ describe('explicit shared subtitle visual intent', () => {
   it('documents that EP26-shaped legacy project and saved timeline styles are not automatically migrated', async () => {
     const project = await mkdtemp(join(tmpdir(), 'subtitle-ep26-shape-'))
     const productVisual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
-      font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073, max_width_ratio: 0.9 }
+      font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.64, max_width_ratio: 0.9 }
     const oldVisual = { ...productVisual, font_size_px: 52, outline_px: 2, font_family: 'Noto Sans CJK SC' }
     const oldSubtitle = { font_size_px: 30 }
     await writeFile(join(project, 'project_config.json'), JSON.stringify({ project_bible: {
@@ -154,7 +154,7 @@ describe('explicit shared subtitle visual intent', () => {
   it('enforces the Muse product visual for EP26-shaped project and old timeline without modifying saved data', async () => {
     const project = await mkdtemp(join(tmpdir(), 'subtitle-force-ep26-'))
     const productVisual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
-      font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073, max_width_ratio: 0.9 }
+      font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.64, max_width_ratio: 0.9 }
     const config = JSON.stringify({ project_bible: { delivery: { ...geometry,
       subtitle: { font_size_px: 70, font_family: 'LegacyFont' },
       subtitle_visual: { ...productVisual, font_size_px: 52, font_family: 'Noto Sans CJK SC' },
@@ -187,7 +187,7 @@ describe('explicit shared subtitle visual intent', () => {
 
   it('enforces the product visual for an EP46-shaped geometry while preserving frame rate and dimensions', async () => {
     const project = await mkdtemp(join(tmpdir(), 'subtitle-force-ep46-'))
-    const productVisual = { ...visual, font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073 }
+    const productVisual = { ...visual, font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.64 }
     await writeFile(join(project, 'project_config.json'), JSON.stringify({ project_bible: {
       delivery: { width: 1440, height: 2560, fps: 60, subtitle: { font_family: 'OldFamily', font_size_px: 88 } },
     } }))

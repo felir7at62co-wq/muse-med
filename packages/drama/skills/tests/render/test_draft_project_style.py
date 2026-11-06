@@ -91,7 +91,7 @@ class DraftStyleResolutionTests(unittest.TestCase):
         self.assertEqual(self.inputs.draft_style({}, self.project), LEGACY_STYLE)
 
     def test_product_policy_replaces_old_subtitle_style_but_preserves_watermark_and_audio(self):
-        visual = {**VISUAL_STYLE, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9,
+        visual = {**VISUAL_STYLE, 'center_y_ratio': 0.64, 'max_width_ratio': 0.9,
                   'font_family': 'Zhuque Fangsong (technical preview)'}
         timeline = {'delivery': {'draft_style': {
             'watermark': {'font_size_ui': 8},
@@ -107,7 +107,7 @@ class DraftStyleResolutionTests(unittest.TestCase):
             self.assertEqual(style['subtitle']['font_family'], None)
             self.assertEqual(style['subtitle']['font_size_ui'], 11)
             self.assertEqual(style['subtitle']['border_width_ui'], 20)
-            self.assertAlmostEqual(style['subtitle']['transform_y'], 1 - 2 * visual['center_y_ratio'])
+            self.assertAlmostEqual(style['subtitle']['transform_y'], -0.28)
             self.assertFalse(style['subtitle']['auto_wrapping'])
             self.assertEqual(style['subtitle']['max_line_width'], 0.9)
             self.assertEqual(self.inputs.audio_gains(timeline, self.project),

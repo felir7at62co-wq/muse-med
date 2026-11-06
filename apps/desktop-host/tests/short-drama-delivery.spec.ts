@@ -75,7 +75,7 @@ async function fixture() {
       master_audio_sha256: inputs[2]!.sha256, videos: selected, source_qa_sha256: sourceQa,
       subtitle_visual_verification: { version: 1, subtitle_sha256: inputs[1]!.sha256, report_path: layout, report_sha256: layoutSha,
         delivery: { width: 480, height: 854, fps: 24 }, visual: { schema_version: 1, reference_width: 480, reference_height: 854,
-          font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073, max_width_ratio: 0.9, font_family: font },
+          font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.64, max_width_ratio: 0.9, font_family: font },
         requested_font: font, checks: ['subtitle_display_text', 'subtitle_display_width', 'subtitle_display_font'].map(id => ({ id, ok: true })) } },
     input_files: [...inputs, { path: layout, sha256: layoutSha }], inputs: [...inputs.map(row => row.sha256), layoutSha, sourceQa] })
   const native = ['draft_content.json', 'draft_meta_info.json']
@@ -187,13 +187,14 @@ it('rejects a claimed landscape timeline when its bound actual layout still desc
   await expect(validateShortDramaDelivery([f.video], signal)).rejects.toThrow('实测画布')
 })
 
-it.each([['font_size_px', 90], ['center_y_ratio', 0.5]] as const)('rejects changed portrait product %s despite passing flags', async (field, value) => {
-  const f = await fixture(), source = await readFixture<FixtureSource>(f.sourcePath)
-  source.delivery_inputs.subtitle_visual_verification!.visual[field] = value
-  const receipt = await readFixture<Record<string, unknown>>(f.receipt)
-  await f.json(f.receipt, { ...receipt, render_source_sha256: await f.json(f.sourcePath, source) })
-  await expect(validateShortDramaDelivery([f.video], signal)).rejects.toThrow('short_drama_delivery_evidence')
-})
+it.each([['font_size_px', 90], ['center_y_ratio', 0.5], ['center_y_ratio', 0.736747073]] as const)(
+  'rejects changed portrait product %s=%s despite passing flags', async (field, value) => {
+    const f = await fixture(), source = await readFixture<FixtureSource>(f.sourcePath)
+    source.delivery_inputs.subtitle_visual_verification!.visual[field] = value
+    const receipt = await readFixture<Record<string, unknown>>(f.receipt)
+    await f.json(f.receipt, { ...receipt, render_source_sha256: await f.json(f.sourcePath, source) })
+    await expect(validateShortDramaDelivery([f.video], signal)).rejects.toThrow('short_drama_delivery_evidence')
+  })
 
 it('requires missing recorded inputs to remain absent even when replaced by a directory', async () => {
   const f = await fixture(), absentPath = join(f.project, 'unselected-overlay.json')
