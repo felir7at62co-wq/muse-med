@@ -77,3 +77,11 @@ it('refuses invalid strict JSON fields and bounds outgoing records before arming
   expect(() => guardianParsers.parseRequest({ version: 1, kind: 'run', identity: { ...identity(), execution: '../other' } })).toThrow()
   expect(() => guardianParsers.parseReply({ version: 1, kind: 'result', identity: identity(), result: { kind: 'unknown' } })).toThrow()
 })
+
+it('refuses a valid drain JSON filed under another physical execution UUID', async () => {
+  const f = await fixture()
+  await f.journal.publishDrain(f.proof)
+  await writeFile(f.path, JSON.stringify({ ...f.proof, identity: { ...f.proof.identity,
+    execution: '00000000-0000-4000-8000-000000000004' } }))
+  await expect(f.journal.readDrain(f.proof.identity.execution)).rejects.toThrow('filename and execution identity differ')
+})

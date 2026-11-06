@@ -20,6 +20,7 @@ import * as desktopOffice from './office.ts'
 import { readPrimaryRuntime, workspaceDependencyPaths } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import { localDragResource } from './file-drag.ts'
 
+import * as approvedEpisodeRender from './approved-episode-render.ts'
 import { installDesktopUpdateTaskControl } from './update-tasks.ts'
 import { shutdownDesktopHost } from './shutdown.ts'
 import { installDesktopQuitInspection } from './quit-inspection.ts'
@@ -252,6 +253,8 @@ async function main(): Promise<void> {
     if (kind !== undefined && process.connected) process.send?.({ type: 'attention-sound', kind })
   })
   installOperationDiagnostics(ctx, record => send({ type: 'plugin-operation', record }), 32, runId)
+  await ctx.plugin(approvedEpisodeRender, approvedEpisodeRender.Config.parse({ runtimeDir, allowLinkedProfile: allowLinkedPackages,
+    endingAssetRoot: join(runtimeDir, 'node_modules', '@deepseek-ai', 'dsh-drama-skills', 'skills') })).await()
   control.updateTasks = installDesktopUpdateTaskControl(ctx)
   control.quitInspection = installDesktopQuitInspection(ctx)
   const forceDraftSubtitleVisual = process.env.MUSE_FORCE_SUBTITLE_VISUAL === '1'

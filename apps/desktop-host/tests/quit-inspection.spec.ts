@@ -3,10 +3,11 @@ import { JobId, JobRegistry } from '@deepseek-ai/dsh-jobs'
 import type { JobStatus, JobView } from '@deepseek-ai/dsh-jobs'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionActivity } from '@deepseek-ai/dsh-workspace'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installDesktopQuitInspection } from '../src/quit-inspection.ts'
 
 type AgentState = { id: SessionId; status: 'idle' | 'running'; inbox: { nextTurn: object[]; nextStep: object[] } }
+type EpisodeInspection = Pick<Context['jubianEpisodeDelivery'], 'pauseAdmission' | 'resumeAdmission' | 'hasActiveWork'>
 
 let ctx: Context
 let inspect: ReturnType<typeof installDesktopQuitInspection>
@@ -58,6 +59,18 @@ beforeEach(() => {
 afterEach(async () => { await ctx.fiber.dispose() })
 
 describe('Desktop Host quit inspection', () => {
+  it('counts episode work without an Agent or job and leaves admission unchanged while inspecting', async () => {
+    let active = true
+    const episode: EpisodeInspection = { pauseAdmission: vi.fn(), resumeAdmission: vi.fn(), hasActiveWork: () => active }
+    // Quit inspection reads this service's active-work member without starting its other operations.
+    ctx.provide('jubianEpisodeDelivery', episode as never)
+    expect(await inspect()).toEqual({ activeTasks: true, scheduledTasks: false })
+    expect(episode.pauseAdmission).not.toHaveBeenCalled()
+    expect(episode.resumeAdmission).not.toHaveBeenCalled()
+    active = false
+    expect(await inspect()).toEqual({ activeTasks: false, scheduledTasks: false })
+  })
+
   it('reports neither active nor scheduled work for idle loaded sessions', async () => {
     agents.push(agent('quiet'))
     activity.set(SessionId('quiet'), [{ kind: 'turn' }])

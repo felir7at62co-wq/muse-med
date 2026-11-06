@@ -96,6 +96,15 @@ function schemas() {
   return { admission, execution, record }
 }
 
+/**
+ * Parse one strict durable logical job without creating or mutating its directory.
+ * @param value - Parsed bounded journal JSON.
+ * @returns Validated immutable admission and armed execution history.
+ */
+export function parseEpisodeDeliveryJobRecord(value: unknown): EpisodeDeliveryJobRecord {
+  return schemas().record.parse(value)
+}
+
 function absent(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
 }

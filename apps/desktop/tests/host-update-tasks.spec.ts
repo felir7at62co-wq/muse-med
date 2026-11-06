@@ -12,6 +12,7 @@ import { Peer } from '../../../packages/client/connection/src/peer.ts'
 import { bridge } from '../../../packages/client/connection/src/http-bridge.ts'
 
 type AgentState = { id: SessionId; status: 'idle' | 'running'; inbox: { nextTurn: object[]; nextStep: object[] } }
+type EpisodeInspection = Pick<Context['jubianEpisodeDelivery'], 'pauseAdmission' | 'resumeAdmission' | 'hasActiveWork'>
 
 let ctx: Context
 let peer: Peer
@@ -65,6 +66,61 @@ function request(next: () => Promise<void>) {
 }
 
 describe('Desktop Host update task protection', () => {
+  it('counts episode work without an Agent or job and pauses admission without awaiting that work', async () => {
+    let active = true
+    const episode: EpisodeInspection = { pauseAdmission: vi.fn(), resumeAdmission: vi.fn(), hasActiveWork: vi.fn(() => active) }
+    // This inspector only uses the declared admission/inspection members of the service.
+    ctx.provide('jubianEpisodeDelivery', episode as never)
+    expect(await inspect('inspect')).toBe(true)
+    expect(episode.pauseAdmission).not.toHaveBeenCalled()
+    expect(await inspect('lock')).toBe(true)
+    expect(episode.pauseAdmission).toHaveBeenCalledOnce()
+    expect(active).toBe(true)
+    expect(await inspect('unlock')).toBe(true)
+    expect(episode.resumeAdmission).toHaveBeenCalledOnce()
+    active = false
+    expect(await inspect('inspect')).toBe(false)
+  })
+
+  it('pauses and inspects a replacement episode provider after admitted API requests drain', async () => {
+    const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+    const first: EpisodeInspection = { pauseAdmission: vi.fn(), resumeAdmission: vi.fn(), hasActiveWork: () => false }
+    const second: EpisodeInspection = { pauseAdmission: vi.fn(), resumeAdmission: vi.fn(), hasActiveWork: () => true }
+    const withdraw = ctx.provide('jubianEpisodeDelivery', first as never)
+    ctx.on('connection/update-pause', async () => {
+      entered.resolve(undefined); await release.promise
+    })
+    const locking = inspect('lock')
+    try {
+      await entered.promise
+      expect(first.pauseAdmission).toHaveBeenCalledOnce()
+      withdraw()
+      ctx.provide('jubianEpisodeDelivery', second as never)
+      release.resolve(undefined)
+      expect(await locking).toBe(true)
+      expect(second.pauseAdmission).toHaveBeenCalledOnce()
+      expect(second.resumeAdmission).not.toHaveBeenCalled()
+    } finally { release.resolve(undefined); await Promise.allSettled([locking]) }
+  })
+
+  it('does not pause the replacement episode provider when an unlock supersedes the draining lock', async () => {
+    const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+    const first: EpisodeInspection = { pauseAdmission: vi.fn(), resumeAdmission: vi.fn(), hasActiveWork: () => false }
+    const second: EpisodeInspection = { pauseAdmission: vi.fn(), resumeAdmission: vi.fn(), hasActiveWork: () => false }
+    const withdraw = ctx.provide('jubianEpisodeDelivery', first as never)
+    ctx.on('connection/update-pause', async () => { entered.resolve(undefined); await release.promise })
+    const locking = inspect('lock'), rejected = expect(locking).rejects.toThrow('lock was superseded')
+    try {
+      await entered.promise
+      withdraw()
+      ctx.provide('jubianEpisodeDelivery', second as never)
+      expect(await inspect('unlock')).toBe(false)
+      expect(second.resumeAdmission).toHaveBeenCalledOnce()
+      release.resolve(undefined); await rejected
+      expect(second.pauseAdmission).not.toHaveBeenCalled()
+    } finally { release.resolve(undefined); await Promise.allSettled([locking, rejected]) }
+  })
+
   it('cancels and drains an admitted streaming HTTP read before locking', async () => {
     const aborted = Promise.withResolvers<undefined>()
     const server = createServer((incoming, response) => {

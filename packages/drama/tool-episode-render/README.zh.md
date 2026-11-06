@@ -53,7 +53,7 @@ kind: "package-reference"
 
 上面的字体族是部署默认值，不是模型工具参数。两者都必须是非空白字符串，不能包含逗号或换行；无效值会被 Config 校验拒绝。项目可以按下文覆盖正文字幕字族，但不能覆盖水印字族。提供 Noto Sans CJK SC 的部署可将两个默认值设为 `Noto Sans CJK SC`。选择字族不会修改 `fontsDir` 或安装字体：libass 必须能访问它，否则可能回退到其他已安装字体。需要标记与片尾时，拼接后统一烧录一份 ASS，因此片尾全程使用同一水印字体族。
 
-库调用方可从包根入口导入 `ProcessChannel` 和 `MediaCommandOutcome`，为 `runDramaRender` 使用的托管媒体通道声明类型。
+库调用方可从包根入口导入 `ProcessChannel`、`MediaCommandOutcome` 和 `RenderSettings`，为 `runDramaRender` 提供自己持有的媒体通道。暂存音频与片尾辅助函数为已私有捕获的输入复用同一时间线和交付策略；调用方负责输入核验、取消和发布。
 
 ### 可撤销的视频禁用
 

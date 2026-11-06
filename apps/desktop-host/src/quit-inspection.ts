@@ -3,11 +3,12 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-schedule'
+import type {} from '@deepseek-ai/dsh-tool-jubian'
 import { hasDesktopActiveTasks } from './update-tasks.ts'
 
 /** What quitting the Host now would affect. */
 export interface DesktopQuitInspection {
-  /** Work the shared update-restart check also counts: running agents, queued messages, live jobs. */
+  /** Work counted by update inspection, including currently owned or unresolved episode exports. */
   readonly activeTasks: boolean
   /** A loaded session holds a scheduled reminder whose timer is armed in this process. */
   readonly scheduledTasks: boolean
@@ -29,7 +30,7 @@ export function installDesktopQuitInspection(ctx: Context): () => Promise<Deskto
     const jobs = ctx.get('jobs')
     if (agents === undefined || jobs === undefined) throw new Error('desktop quit: task services are unavailable')
     const liveAgents = agents.list()
-    const activeTasks = hasDesktopActiveTasks(liveAgents, jobs)
+    const activeTasks = hasDesktopActiveTasks(liveAgents, jobs) || ctx.get('jubianEpisodeDelivery')?.hasActiveWork() === true
     let scheduledTasks = false
     for (const agent of liveAgents) {
       const activity = await ctx.waterfall('workspace/session-activity', { sessionId: agent.id }, () => Promise.resolve([]))

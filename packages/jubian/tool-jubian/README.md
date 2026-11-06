@@ -506,12 +506,29 @@ Each review identifies its expected project-relative source path and captured SH
 
 Unload stops admission, aborts and joins admitted initialization, requests, worker reads, native processes and file operations. Completed atomic settings writes and published decisions or receipts remain committed when their response is cancelled. Atomic replacement does not promise power-loss durability. A missing saved project is reported as unavailable and can be replaced or disabled without preventing Host startup.
 
+<a id="approved-episode-export"></a>
+### Approved episode export
+
+Settings-mode recovery also mounts the authenticated `jubianEpisodeDelivery` namespace. Its separate `episodeReadiness`, `admitEpisode` and `episodeStatus` methods prepare, admit and observe a local episode without adding model tools or submitting provider generation. Desktop supplies the configured renderer; another deployment without that provider reports readiness unavailable.
+
+Readiness requires an authored `editing/NN-episode-delivery.json` for episode 1–99, unique original approved clips in contiguous shot order, the matching timeline and SRT, and an explicit mix profile with optional BGM. It measures those current inputs and preserves their project binding; it does not create a plan or approve a clip. The [plan reader](src/approved-episode-plan.ts) owns the accepted fields and validation.
+
+Admission commits the original logical task before returning and queues the long render under the service lifetime. Repeated ordinary requests only find that task. Status reads bounded records and file metadata; its output describes bytes measured at publication, not a fresh media or playback check. When the Host reports `canResume`, an explicit `admitEpisode` request with `resume: true` continues the original task. An armed previous execution requires matching drain evidence before another physical execution; an unconfirmed media range cannot be bypassed with a new UUID.
+
+Private version-one intent, state, cancellation and delivery records live under `.muse/episode-delivery/<attempt>/` in the captured project. Prepared publication metadata binds the output to its actual completed execution. Publication refuses occupied different bytes; recovery can repair a matching output's missing receipt while preserving its inode and without restoring lost source files. Invalid or contradictory records refuse recovery. These records remain separate from clip approvals and direct-copy receipts, and their technical checks do not establish creative acceptance.
+
+`episodeDeliveryMetadataMaxBytes` bounds each editing metadata read, `episodeDeliveryRecordBytes` bounds each durable record, and `episodeDeliveryLockWaitMs` bounds contention waits. The plugin validates these fields before registering effects; the [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-tool-jubian) owns their defaults and limits.
+
 <a id="episode-execution-library"></a>
 ### Episode execution library
 
 The `@deepseek-ai/dsh-tool-jubian/episode-delivery` library binds one logical attempt to immutable input and approval identities, with a separate identity for every physical execution. Strict versioned records distinguish missing files from invalid content. Arming persists the execution reference before the running record or first media command. A successor cannot execute without matching prior running and drain evidence; every armed execution UUID remains occupied as the attempt advances. Callers verify current human approval before admission; recorded approval references do not authorize a new decision.
 
 `EpisodeExecutionOwner` separates short durable admission from serial work. Repeated identical admissions share one completion. Disposal stops admission synchronously, cancels queued and running work, and awaits every admitted operation. Queue settlement alone does not certify media drain; consumers must verify guardian evidence. The library registers no model tools, Remote methods or automatic startup scan. Process ownership belongs to the [Desktop guardian](../../../apps/desktop-host/README.md#episode-execution-supervision).
+
+Host consumers use `jubianVideoRecovery.withApprovedSources` to retain a batch of existing approved clips under one selected-project generation. Media hashing and consumer work run outside the recovery queue; `lease.commit` rechecks approvals, ledger intents, project configuration and current file versions before one short prepared publication. Its callback may only publish prepared files and small receipts; it cannot copy or hash media or invoke recovery operations. A project change or disposal closes admission and joins old consumers. An optional consumer hook records cancellation intent before the signal aborts; hook failure still aborts and joins the consumer. Before starting new work, call `lease.assertActive()` to refuse cancellation even while its journal hook is pending and the signal has not aborted. A committed publication remains committed if its caller disconnects.
+
+Readiness can retain `lease.admission` for a later short claim through the same owner's `admitApprovedSources`. The owner rechecks metadata and captured file versions without hashing media again. Copied tokens, another recovery owner, changed files and retired project generations are refused before the claim callback runs. The token stays within its owning process and observes selection cancellation; it owns no resource or disposer and cannot serialize approval.
 
 <a id="understand-the-implementation"></a>
 ## Understand the implementation

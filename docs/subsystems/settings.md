@@ -63,6 +63,67 @@ Host Remote file reads and writes for one notes root over the composed filesyste
 
 Source: [`packages/api/agent-notes/src/index.ts`](../../packages/api/agent-notes/src/index.ts)
 
+<a id="ctxapprovedepisoderenderer--approvedepisoderenderer"></a>
+
+### `ctx.approvedEpisodeRenderer` — `ApprovedEpisodeRenderer`
+
+Renderer Definition; the Host supplies the provider and the episode service consumes it.
+
+```ts cordis-catalog
+/**
+ * Capture actual resolved settings, selected media/fonts and code without reading later mutable Settings.
+ * @param input - Canonical project and strict current editing-plan snapshot.
+ * @param signal - Capture cancellation; an admitted capture also retains its provider lifetime.
+ * @returns An immutable identity and render closure belonging to this actual provider instance.
+ */
+capture(input: ApprovedEpisodeCaptureInput, signal: AbortSignal): Promise<ApprovedEpisodeRendererCapture>
+```
+
+Source: [`packages/jubian/tool-jubian/src/episode-delivery.ts`](../../packages/jubian/tool-jubian/src/episode-delivery.ts)
+
+<a id="ctxjubianepisodedelivery--jubianepisodedelivery"></a>
+
+### `ctx.jubianEpisodeDelivery` — `JubianEpisodeDelivery`
+
+Service-owned long work; only the exact immutable logical claim is committed by admission RPC.
+
+```ts cordis-catalog
+/** Stop accepting new work without cancelling or awaiting an active encoder. */
+pauseAdmission(): void
+
+/** Resume new admission after an update inspection releases its pause. */
+resumeAdmission(): void
+
+/**
+ * Inspect this instance's owned work and observed unresolved executions without waiting.
+ * @returns Whether preparation, queued/running work or an observed unknown fence remains.
+ */
+hasActiveWork(): boolean
+
+/**
+ * Measure current editing inputs, original approvals and the actual renderer without admitting work.
+ * @param input - Explicit project and episode.
+ * @returns A selection digest excluding random provider generation, or actionable readiness errors.
+ */
+@Remote episodeReadiness(input: EpisodeReadinessInput): Promise<EpisodeReadiness>
+
+/**
+ * Persist a tiny original-attempt claim before returning; media work belongs to the service queue.
+ * @param input - Exact readiness digest, project and episode.
+ * @returns The original admission, including after a lost reply; this method never waits for rendering.
+ */
+@Remote admitEpisode(input: EpisodeAdmissionInput): Promise<EpisodeDeliveryStatus>
+
+/**
+ * Read one original durable admission without preparing, hashing media or admitting another attempt.
+ * @param input - Exact project, episode and original readiness digest.
+ * @returns Persisted publication measurements or targeted state; output is not a current-file verification.
+ */
+@Remote episodeStatus(input: EpisodeStatusInput): Promise<EpisodeDeliveryStatus>
+```
+
+Source: [`packages/jubian/tool-jubian/src/episode-delivery-service.ts`](../../packages/jubian/tool-jubian/src/episode-delivery-service.ts)
+
 <a id="ctxjubianimage--jubianimageroutes"></a>
 
 ### `ctx.jubianImage` — `JubianImageRoutes`
@@ -105,6 +166,34 @@ Dynamic project selection, read-only recovery and explicit human decisions.
  * @returns Committed selection and reports for that project.
  */
 @Remote configure(input: VideoRecoveryConfigurationInput): Promise<VideoRecoveryStatus>
+
+/**
+ * Own a verified batch without holding the recovery queue during consumer work.
+ * Consumers must await their work and commit prepared publication once; they must
+ * not call recovery operations from a commit or cancellation-journal callback.
+ * @param input - Original approved keys/digests and the consumer Config's metadata budget.
+ * @param caller - Consumer operation cancellation, never an implicit invocation signal.
+ * @param consume - Long stage/render work with one final short source-owner commit.
+ * @param beforeCancel - Optional durable cancellation-intent write before the consumer signal aborts.
+ * @param admission - Optional readiness generation for already admitted queued work.
+ * @returns The consumer result after all source checks and cancellation IO settle.
+ */
+withApprovedSources<Result>(input: ApprovedVideoSourceRequest, caller: AbortSignal, consume: (lease: ApprovedVideoSourceLease) => Promise<Result>, beforeCancel?: (reason: ApprovedVideoSourceCancellationReason) => Promise<void>, admission?: ApprovedVideoSourceAdmission): Promise<Result>
+
+/**
+ * Serialize a tiny durable admission against the exact readiness generation and current approvals.
+ * @param admission - Same-process facts captured by a completed source lease.
+ * @param signal - Short admission caller cancellation.
+ * @param publish - Prepared small journal IO; no hashing, copying, consumers or recovery calls.
+ * @returns The committed admission; callers must retain any already written records after cancellation.
+ */
+admitApprovedSources<Result>(admission: ApprovedVideoSourceAdmission, signal: AbortSignal, publish: (signal: AbortSignal) => Promise<Result>): Promise<Result>
+
+/**
+ * Read the saved project selection without scanning reports or reading source media.
+ * @returns The saved canonical project path, or null when no selection is saved.
+ */
+selectedProjectDirectory(): string | null
 
 /**
  * Read, decide or reopen the exact displayed report once.

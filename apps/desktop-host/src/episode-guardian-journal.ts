@@ -67,7 +67,10 @@ export function createGuardianJournal(input: {
     },
     readDrain: async (id) => {
       const value = await readEpisodeRecord(proofPath(id), input.recordBytes)
-      return value === undefined ? undefined : drain.parse(value)
+      if (value === undefined) return undefined
+      const parsed = drain.parse(value)
+      if (parsed.identity.execution !== id) throw new Error('episode guardian: drain filename and execution identity differ')
+      return parsed
     },
     assertAdmission: input.assertAdmission,
     writeRunning: async (record) => {

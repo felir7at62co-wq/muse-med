@@ -28,7 +28,9 @@
     "licenses",
     "lib/computer-use.js",
     "lib/computer-input-worker.js",
-    "lib/delegation-policy.js"
+    "lib/delegation-policy.js",
+    "lib/approved-episode-render.js",
+    "lib/episode-render-worker.js"
   ],
   "dependencies": {
     "koffi": "3.1.1",
@@ -104,7 +106,9 @@
     "@deepseek-ai/dsh-client-ui-session-video": "workspace:*",
     "@deepseek-ai/dsh-brand": "workspace:*",
     "@deepseek-ai/dsh-subprocess": "workspace:*",
-    "@deepseek-ai/dsh-subprocess-local": "workspace:*"
+    "@deepseek-ai/dsh-subprocess-local": "workspace:*",
+    "@deepseek-ai/dsh-jubian-api": "workspace:*",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:~"
   },
   "devDependencies": {
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
@@ -146,7 +150,9 @@
     "./manuscript-source-review": "./lib/manuscript-source-review.js",
     "./source-recovery": "./lib/source-recovery.js",
     "./computer-use": "./lib/computer-use.js",
-    "./delegation-policy": "./lib/delegation-policy.js"
+    "./delegation-policy": "./lib/delegation-policy.js",
+    "./approved-episode-render": "./lib/approved-episode-render.js",
+    "./episode-render-worker": "./lib/episode-render-worker.js"
   },
   "dsh": {
     "bundle": {

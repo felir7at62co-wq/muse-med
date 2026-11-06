@@ -189,7 +189,9 @@ While the native tool is mounted, its standing system guidance also reaches cont
 
 The internal [episode guardian](src/episode-render-worker-core.ts) starts work after an explicitly composed named `dsh` profile becomes ready. Stdin EOF or premature closure cancels its task. It awaits both command completion and an empty managed process range before publishing drain evidence; an unconfirmed range cannot authorize another encoder. Publication normalizes parsed records, replays identical evidence and refuses conflicting occupied records.
 
-Consumers use the [episode execution library](../../packages/jubian/tool-jubian/README.md#episode-execution-library) for durable admission and retain raw child ownership through preparation and shutdown. A recovered process lock alone does not establish media exit. The default Desktop composition registers no episode-export provider or worker, and the helpers give no guarantee of guardian survival inside a Windows parent Job.
+The default Desktop composition supplies a renderer captured from the current creation preset, owner code, media binaries and available font files. The [approved episode service](../../packages/jubian/tool-jubian/README.md#approved-episode-export) owns durable admission, serial execution and separate publication receipts. Its guardian starts through an empty private named profile, while the Host retains raw child ownership through preparation and shutdown. A recovered process lock alone does not establish media exit; this process arrangement does not certify Windows parent-Job survival or visual font selection.
+
+Update checks synchronously pause new episode admissions and read active work without awaiting the encoder. Quit checks also count episode work that has no Agent or job-registry entry. These checks include unresolved execution observed by the current service; they do not scan every historical project. Client disconnection does not cancel an admitted export.
 
 ## Desktop computer use
 

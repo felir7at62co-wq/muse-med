@@ -166,6 +166,23 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Reconciles recorded video submissions with provider reads, checks captured media and publishes explicitly approved MP4 bytes without a new generation.',
   },
   {
+    key: 'approvedEpisodeRenderer',
+    pkg: 'tool-jubian',
+    title: 'Approved episode renderer',
+    mode: 'seam',
+    implementations: ['desktop-host'],
+    consumers: ['tool-jubian'],
+    note: 'Desktop Host captures renderer configuration and manages media processes; the episode service consumes approved inputs without new video generation.',
+  },
+  {
+    key: 'jubianEpisodeDelivery',
+    pkg: 'tool-jubian',
+    title: 'Approved episode admission and publication',
+    mode: 'core',
+    consumers: ['desktop-host'],
+    note: 'Owns admitted local render jobs and publication records; Desktop Host pauses admission and observes remaining work during update or quit.',
+  },
+  {
     key: 'jubianImage',
     pkg: 'tool-jubian',
     title: 'Jubian account image routes',

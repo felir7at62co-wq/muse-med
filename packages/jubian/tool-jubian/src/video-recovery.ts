@@ -1,6 +1,6 @@
 /** Resume project-scoped video completion checks from recorded submission keys. */
 import { createHash, randomUUID } from 'node:crypto'
-import { createReadStream, createWriteStream } from 'node:fs'
+import { createReadStream, createWriteStream, type Stats } from 'node:fs'
 import { link, lstat, mkdir, open, readFile, realpath, unlink } from 'node:fs/promises'
 import { dirname, join, relative } from 'node:path'
 import { Transform } from 'node:stream'
@@ -13,7 +13,9 @@ import { z } from 'zod'
 import { recoverVideoSubmission } from './native.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { recordedVideoPreview, recoveryProject } from './video-recovery-project.ts'
-import type { ApprovedClipDirectDelivery, VideoArtifactSha256, VideoRecoverySource } from './types.ts'
+import type { ApprovedClipDirectDelivery, ApprovedVideoSourceMetadata, ApprovedVideoSourceVersion,
+  VideoArtifactSha256, VideoRecoveryDigest, VideoRecoverySource } from './types.ts'
+import { hashEpisodeFile, readEpisodeBytes } from './episode-delivery.ts'
 import { observe, watchArgs } from './watch.ts'
 import { VideoMediaDrainError, type checkVideoMedia } from './video-media-check.ts'
 
@@ -107,10 +109,14 @@ const derivativeSchema = z.object({
   audio: z.boolean(),
 })
 
-async function optionalReport(path: string, signal?: AbortSignal): Promise<string | undefined> {
+type ReviewTextReader = (path: string, signal?: AbortSignal) => Promise<string>
+const readReviewText: ReviewTextReader = (path, signal) => readFile(path, { encoding: 'utf8', signal })
+
+async function optionalReport(path: string, signal?: AbortSignal,
+  readText: ReviewTextReader = readReviewText): Promise<string | undefined> {
   try {
     await regularReport(path)
-    return await readFile(path, { encoding: 'utf8', signal })
+    return await readText(path, signal)
   } catch (error) {
     if (!missing(error)) throw error
     return undefined
@@ -172,19 +178,20 @@ function validateDecision(recorded: JsonValue, digest: string): void {
   if (reviewDecisionSchema.parse(recorded).digest !== digest) throw new Error('The decision belongs to another report')
 }
 
-async function readReviewMetadata(projectDir: string, key: string, signal?: AbortSignal): Promise<ReviewMetadata> {
+async function readReviewMetadata(projectDir: string, key: string, signal?: AbortSignal,
+  readText: ReviewTextReader = readReviewText): Promise<ReviewMetadata> {
   signal?.throwIfAborted()
   await reportDirectory(reviewPath(projectDir, key), false)
   const root = await realpath(projectDir), path = reviewPath(root, key)
   await reportDirectory(path, false)
   await regularReport(path)
-  const report = await readFile(path, { encoding: 'utf8', signal })
+  const report = await readText(path, signal)
   let digest = createHash('sha256').update(report).digest('hex')
   const evidence = reportSchema.parse(JSON.parse(report))
   const facts = recoveryEvidenceSchema.parse(evidence)
   if (facts.idempotency_key !== key) throw new Error('The video report belongs to another original key')
   let decisionPath = path + '.decision.json'
-  const initial = await optionalReport(decisionPath, signal)
+  const initial = await optionalReport(decisionPath, signal, readText)
   let decisionBytes = initial
   let recorded: JsonValue = initial === undefined ? null : jsonValueSchema.parse(JSON.parse(initial))
   let derivative: DerivativeView | null = null
@@ -197,11 +204,11 @@ async function readReviewMetadata(projectDir: string, key: string, signal?: Abor
       path: 'video_tasks/review/' + adoption.filename, sha256: adoption.sha256, video: adoption.video, audio: adoption.audio,
     }
     decisionPath = path + '.derivative.decision.json'
-    decisionBytes = await optionalReport(decisionPath, signal)
+    decisionBytes = await optionalReport(decisionPath, signal, readText)
     recorded = decisionBytes === undefined ? null : jsonValueSchema.parse(JSON.parse(decisionBytes))
   }
   const reopeningPath = decisionPath + '.reopen.json'
-  const reopeningBytes = await optionalReport(reopeningPath, signal)
+  const reopeningBytes = await optionalReport(reopeningPath, signal, readText)
   let reopenedFrom: JsonValue | undefined
   if (reopeningBytes !== undefined) {
     const rejection = rejectionSchema.parse(recorded)
@@ -213,12 +220,83 @@ async function readReviewMetadata(projectDir: string, key: string, signal?: Abor
     reopenedFrom = { digest, rejectionReason: rejection.reason ?? null, reason: reopening.reason }
     digest = createHash('sha256').update(digest).update('\0').update(reopeningBytes).digest('hex')
     decisionPath += '.reopened.json'
-    const active = await optionalReport(decisionPath, signal)
+    const active = await optionalReport(decisionPath, signal, readText)
     recorded = active === undefined ? null : jsonValueSchema.parse(JSON.parse(active))
   }
   validateDecision(recorded, digest)
   return { projectDir: root, evidence, digest, derivative, candidate: candidateFor(facts, derivative), decisionPath, decisionBytes,
     recorded, reopeningPath, reopeningBytes, reopenedFrom }
+}
+
+/**
+ * Read strict immutable approval facts without inspecting or acquiring media.
+ * @param projectDir - Canonical selected project.
+ * @param key - Original ledger key owned by that project.
+ * @param metadataMaxBytes - Validated per-file metadata budget from consumer Config.
+ * @param signal - Owning source operation cancellation.
+ * @returns Expected source facts; callers must separately verify actual bytes.
+ */
+export async function readApprovedVideoSourceMetadata(projectDir: string, key: string,
+  metadataMaxBytes: number, signal: AbortSignal): Promise<ApprovedVideoSourceMetadata> {
+  const metadata = await readReviewMetadata(projectDir, key, signal, async (path, control) => {
+    const bytes = await readEpisodeBytes(path, metadataMaxBytes, control)
+    if (bytes === undefined) throw Object.assign(new Error('Video approval metadata is unavailable'), { code: 'ENOENT' })
+    return bytes.toString('utf8')
+  })
+  const decision = reviewDecisionSchema.parse(metadata.recorded), candidate = metadata.candidate
+  if (decision.action !== 'approve' || candidate === undefined || !candidate.passing) {
+    throw new Error('Select an approved video with passing picture and audio evidence')
+  }
+  return { idempotencyKey: key, digest: brandString<VideoRecoveryDigest>(metadata.digest), taskId: candidate.taskId,
+    kind: candidate.kind, path: candidate.path, sha256: brandString<VideoArtifactSha256>(candidate.sha256) }
+}
+
+function approvedVersion(path: string, sha256: VideoArtifactSha256, info: Stats): ApprovedVideoSourceVersion {
+  return { path, sha256, dev: info.dev, ino: info.ino, size: info.size, mtimeMs: info.mtimeMs, ctimeMs: info.ctimeMs }
+}
+
+function sameApprovedVersion(left: ApprovedVideoSourceVersion, right: ApprovedVideoSourceVersion): boolean {
+  return left.path === right.path && left.sha256 === right.sha256 && left.dev === right.dev && left.ino === right.ino
+    && left.size === right.size && left.mtimeMs === right.mtimeMs && left.ctimeMs === right.ctimeMs
+}
+
+/**
+ * Hash one actual approved managed source outside the recovery metadata queue.
+ * @param projectDir - Captured canonical project.
+ * @param metadata - Strict immutable expected source facts.
+ * @param signal - Owning source operation cancellation.
+ * @returns Current exact-hash regular-file identity for the final short check.
+ */
+export async function verifyApprovedVideoSource(projectDir: string, metadata: ApprovedVideoSourceMetadata,
+  signal: AbortSignal): Promise<ApprovedVideoSourceVersion> {
+  const path = join(projectDir, metadata.path)
+  await reportDirectory(path, false)
+  await regularReport(path)
+  if (await realpath(path) !== path) throw new Error('Approved source path changed')
+  const before = approvedVersion(path, metadata.sha256, await lstat(path))
+  const actual = (await hashEpisodeFile(path, signal)).sha256
+  const afterInfo = await lstat(path), after = approvedVersion(path, metadata.sha256, afterInfo)
+  signal.throwIfAborted()
+  if (!afterInfo.isFile() || afterInfo.isSymbolicLink() || await realpath(path) !== path
+    || actual !== metadata.sha256 || !sameApprovedVersion(before, after)) {
+    throw new Error('The current approved source changed')
+  }
+  return after
+}
+
+/**
+ * Recheck a freshly hashed source's identity without hashing media under the queue.
+ * @param version - This operation's current full-hash observation.
+ * @param signal - Owning source operation cancellation.
+ */
+export async function assertApprovedVideoSourceVersion(version: ApprovedVideoSourceVersion, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted()
+  await reportDirectory(version.path, false)
+  const actual = await lstat(version.path)
+  if (!actual.isFile() || actual.isSymbolicLink() || await realpath(version.path) !== version.path
+    || !sameApprovedVersion(version, approvedVersion(version.path, version.sha256, actual))) {
+    throw new Error('The approved source changed after hashing')
+  }
 }
 
 function sourceState(candidate: SourceCandidate, state: 'verified' | 'changed' | 'unreadable'): VideoRecoverySource {

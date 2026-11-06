@@ -4,6 +4,7 @@ import { lstat, readFile, realpath } from 'node:fs/promises'
 import { dirname, isAbsolute, join } from 'node:path'
 import type { JubianLedgerRecord } from '@deepseek-ai/dsh-jubian'
 import { z } from 'zod'
+import { readEpisodeBytes } from './episode-delivery.ts'
 
 /** Project identity read from the selected regular configuration file. */
 export interface RecoveryProject {
@@ -21,9 +22,10 @@ const bindingSchema = z.object({
  * Validate the project endpoints and resolve ancestor aliases to one identity.
  * @param path - Absolute operator-selected project directory.
  * @param signal - Cancellation of local inspection; omitted for a caller without a lifetime.
+ * @param metadataMaxBytes - Optional bounded-read budget for the source-lease path.
  * @returns Canonical directory, project ID and exact configuration hash.
  */
-export async function recoveryProject(path: string, signal?: AbortSignal): Promise<RecoveryProject> {
+export async function recoveryProject(path: string, signal?: AbortSignal, metadataMaxBytes?: number): Promise<RecoveryProject> {
   signal?.throwIfAborted()
   if (!isAbsolute(path)) throw new Error('Select an absolute Jubian project directory')
   const entry = await lstat(path)
@@ -32,7 +34,9 @@ export async function recoveryProject(path: string, signal?: AbortSignal): Promi
   const configPath = join(directory, 'project_config.json')
   const config = await lstat(configPath)
   if (!config.isFile() || config.isSymbolicLink()) throw new Error('The project configuration must be a regular file')
-  const bytes = await readFile(configPath, { signal })
+  const bytes = metadataMaxBytes === undefined ? await readFile(configPath, { signal })
+    : await readEpisodeBytes(configPath, metadataMaxBytes, signal)
+  if (bytes === undefined) throw new Error('The selected project configuration is unavailable')
   const binding = bindingSchema.parse(JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/u, '')))
   signal?.throwIfAborted()
   return { directory, scriptId: binding.jubian_script_id, configSha256: createHash('sha256').update(bytes).digest('hex') }

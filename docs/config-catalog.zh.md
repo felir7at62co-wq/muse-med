@@ -4704,7 +4704,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-episode-render`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-episode-render/src/index.ts:83`](../packages/drama/tool-episode-render/src/index.ts)
+- `source`: [`packages/drama/tool-episode-render/src/index.ts:84`](../packages/drama/tool-episode-render/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -4921,11 +4921,11 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:84`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:87`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
-export interface Config extends ImageRouteConfig, VideoRecoveryConfig {
+export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDeliveryConfig {
   /** Rows per read-only existing-video history page; integer 1..100, default 100. */
   videoSourcePageSize?: number
   /** Maximum pages per existing-video history scan; integer 1..100, default 20. */
@@ -5073,6 +5073,16 @@ export interface VideoRecoveryConfig {
   videoRecoveryDecodeGraceMs?: number
   /** Collected bytes per decoder output stream; default 65536, integer 1..1048576. */
   videoRecoveryDecodeMaxOutputBytes?: number
+}
+
+/** Optional episode delivery deployment limits; Settings mode mounts the service. */
+export interface EpisodeDeliveryConfig {
+  /** Bytes per editing JSON/SRT/policy snapshot; default 1048576, integer 1..16777216. */
+  episodeDeliveryMetadataMaxBytes?: number
+  /** Bytes per durable episode journal record; default 1048576, integer 1..16777216. */
+  episodeDeliveryRecordBytes?: number
+  /** Cross-process admission lock wait in milliseconds; default 30000, integer 1..60000. */
+  episodeDeliveryLockWaitMs?: number
 }
 
 /** Deployment-owned terms and output bounds for advisory prompt review. */

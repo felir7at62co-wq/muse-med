@@ -497,6 +497,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'approvedEpisodeRenderer',
+    summary: 'Renderer Definition; the Host supplies the provider and the episode service consumes it.',
+    description: 'Renderer Definition; the Host supplies the provider and the episode service consumes it.',
+    methods: [
+      {
+        signature: 'capture(input: ApprovedEpisodeCaptureInput, signal: AbortSignal): Promise<ApprovedEpisodeRendererCapture>',
+        description: 'Capture actual resolved settings, selected media/fonts and code without reading later mutable Settings.',
+        parameters: [{ name: 'input', description: 'Canonical project and strict current editing-plan snapshot.' }, { name: 'signal', description: 'Capture cancellation; an admitted capture also retains its provider lifetime.' }],
+        returns: 'An immutable identity and render closure belonging to this actual provider instance.',
+      },
+    ],
+  },
+  {
     key: 'attachments',
     summary: 'Immutable binary attachment service.',
     description: 'Immutable binary attachment service. Implementations validate bytes before publishing a reference.',
@@ -2006,6 +2019,47 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'jubianEpisodeDelivery',
+    summary: 'Service-owned long work; only the exact immutable logical claim is committed by admission RPC.',
+    description: 'Service-owned long work; only the exact immutable logical claim is committed by admission RPC.',
+    methods: [
+      {
+        signature: 'pauseAdmission(): void',
+        description: 'Stop accepting new work without cancelling or awaiting an active encoder.',
+        parameters: [],
+      },
+      {
+        signature: 'resumeAdmission(): void',
+        description: 'Resume new admission after an update inspection releases its pause.',
+        parameters: [],
+      },
+      {
+        signature: 'hasActiveWork(): boolean',
+        description: 'Inspect this instance\'s owned work and observed unresolved executions without waiting.',
+        parameters: [],
+        returns: 'Whether preparation, queued/running work or an observed unknown fence remains.',
+      },
+      {
+        signature: '@Remote episodeReadiness(input: EpisodeReadinessInput): Promise<EpisodeReadiness>',
+        description: 'Measure current editing inputs, original approvals and the actual renderer without admitting work.',
+        parameters: [{ name: 'input', description: 'Explicit project and episode.' }],
+        returns: 'A selection digest excluding random provider generation, or actionable readiness errors.',
+      },
+      {
+        signature: '@Remote admitEpisode(input: EpisodeAdmissionInput): Promise<EpisodeDeliveryStatus>',
+        description: 'Persist a tiny original-attempt claim before returning; media work belongs to the service queue.',
+        parameters: [{ name: 'input', description: 'Exact readiness digest, project and episode.' }],
+        returns: 'The original admission, including after a lost reply; this method never waits for rendering.',
+      },
+      {
+        signature: '@Remote episodeStatus(input: EpisodeStatusInput): Promise<EpisodeDeliveryStatus>',
+        description: 'Read one original durable admission without preparing, hashing media or admitting another attempt.',
+        parameters: [{ name: 'input', description: 'Exact project, episode and original readiness digest.' }],
+        returns: 'Persisted publication measurements or targeted state; output is not a current-file verification.',
+      },
+    ],
+  },
+  {
     key: 'jubianImage',
     summary: 'Host service backing the generated `ctx.remote.jubianImage` namespace: the rows the paid image route may buy from.',
     description: 'Host service backing the generated `ctx.remote.jubianImage` namespace: the rows the paid image route may buy from.\n\nThe namespace reads and never writes, and it carries rows only — the token that authorizes the read never crosses to the browser.',
@@ -2062,6 +2116,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Persist a selected project and replace its single background worker.',
         parameters: [{ name: 'input', description: 'New switch and optional absolute project path.' }],
         returns: 'Committed selection and reports for that project.',
+      },
+      {
+        signature: 'withApprovedSources<Result>(input: ApprovedVideoSourceRequest, caller: AbortSignal, consume: (lease: ApprovedVideoSourceLease) => Promise<Result>, beforeCancel?: (reason: ApprovedVideoSourceCancellationReason) => Promise<void>, admission?: ApprovedVideoSourceAdmission): Promise<Result>',
+        description: 'Own a verified batch without holding the recovery queue during consumer work. Consumers must await their work and commit prepared publication once; they must not call recovery operations from a commit or cancellation-journal callback.',
+        parameters: [{ name: 'input', description: 'Original approved keys/digests and the consumer Config\'s metadata budget.' }, { name: 'caller', description: 'Consumer operation cancellation, never an implicit invocation signal.' }, { name: 'consume', description: 'Long stage/render work with one final short source-owner commit.' }, { name: 'beforeCancel', description: 'Optional durable cancellation-intent write before the consumer signal aborts.' }, { name: 'admission', description: 'Optional readiness generation for already admitted queued work.' }],
+        returns: 'The consumer result after all source checks and cancellation IO settle.',
+      },
+      {
+        signature: 'admitApprovedSources<Result>(admission: ApprovedVideoSourceAdmission, signal: AbortSignal, publish: (signal: AbortSignal) => Promise<Result>): Promise<Result>',
+        description: 'Serialize a tiny durable admission against the exact readiness generation and current approvals.',
+        parameters: [{ name: 'admission', description: 'Same-process facts captured by a completed source lease.' }, { name: 'signal', description: 'Short admission caller cancellation.' }, { name: 'publish', description: 'Prepared small journal IO; no hashing, copying, consumers or recovery calls.' }],
+        returns: 'The committed admission; callers must retain any already written records after cancellation.',
+      },
+      {
+        signature: 'selectedProjectDirectory(): string | null',
+        description: 'Read the saved project selection without scanning reports or reading source media.',
+        parameters: [],
+        returns: 'The saved canonical project path, or null when no selection is saved.',
       },
       {
         signature: '@Remote review(input: VideoRecoveryReviewInput): Promise<VideoRecoveryReview>',
@@ -6104,6 +6176,58 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ApprovedClipDirectDelivery {\n    readonly path: string;\n    readonly sha256: VideoArtifactSha256;\n}',
   },
   {
+    name: 'ApprovedEpisodeCandidate',
+    declaration: 'export interface ApprovedEpisodeCandidate {\n    readonly path: string;\n    readonly sha256: Sha256;\n    readonly bytes: number;\n    readonly width: number;\n    readonly height: number;\n    readonly durationUs: number;\n    readonly video: true;\n    readonly audio: true;\n}',
+  },
+  {
+    name: 'ApprovedEpisodeCaptureInput',
+    declaration: 'export interface ApprovedEpisodeCaptureInput {\n    readonly projectDir: string;\n    readonly episode: number;\n    readonly planPath: string;\n    readonly timelinePath: string;\n    readonly subtitlePath: string;\n    readonly mixProfilePath: string;\n    readonly bgmPath?: string;\n    readonly inputHashes: readonly ApprovedEpisodeInputFile[];\n    readonly digest: Sha256;\n}',
+  },
+  {
+    name: 'ApprovedEpisodeInputFile',
+    declaration: 'export interface ApprovedEpisodeInputFile {\n    readonly role: \'project\' | \'plan\' | \'timeline\' | \'subtitle\' | \'mix-profile\' | \'bgm\';\n    readonly path: string;\n    readonly sha256: Sha256;\n    readonly bytes: number;\n}',
+  },
+  {
+    name: 'ApprovedEpisodeRendererCapture',
+    declaration: 'export interface ApprovedEpisodeRendererCapture {\n    readonly identity: ApprovedEpisodeRendererIdentity;\n    readonly runtimeInputs: readonly ApprovedEpisodeRuntimeInput[];\n    readonly signal: AbortSignal;\n    render(input: ApprovedEpisodeRenderInput, signal: AbortSignal): Promise<EpisodeRenderResult>;\n}',
+  },
+  {
+    name: 'ApprovedEpisodeRendererIdentity',
+    declaration: 'export interface ApprovedEpisodeRendererIdentity {\n    readonly generation: EpisodeRendererGeneration;\n    readonly configurationSha256: Sha256;\n    readonly codeSha256: Sha256;\n}',
+  },
+  {
+    name: 'ApprovedEpisodeRenderInput',
+    declaration: 'export interface ApprovedEpisodeRenderInput {\n    readonly identity: AttemptIdentity;\n    readonly execution: EpisodeExecutionId;\n    readonly retry: \'initial\' | \'host-disconnect-recovery\' | \'explicit-retry\';\n    readonly job: EpisodeDeliveryJob;\n    readonly stageRoot: string;\n    readonly sources: readonly ApprovedEpisodeRenderSource[];\n}',
+  },
+  {
+    name: 'ApprovedEpisodeRenderSource',
+    declaration: 'export interface ApprovedEpisodeRenderSource extends EpisodeApprovedSource {\n    readonly shot: number;\n    readonly path: string;\n    readonly bytes: number;\n}',
+  },
+  {
+    name: 'ApprovedEpisodeRuntimeInput',
+    declaration: 'export interface ApprovedEpisodeRuntimeInput {\n    readonly path: string;\n    readonly sha256: Sha256;\n    readonly bytes: number;\n    readonly owner: \'renderer\' | \'media\' | \'font\';\n}',
+  },
+  {
+    name: 'ApprovedVideoSource',
+    declaration: 'export interface ApprovedVideoSource {\n    readonly idempotencyKey: string;\n    readonly digest: VideoRecoveryDigest;\n    readonly taskId: number;\n    readonly intentDigest: VideoRecoveryIntentDigest;\n    readonly project: {\n        readonly directory: string;\n        readonly scriptId: number;\n        readonly configurationDigest: VideoRecoveryProjectDigest;\n    };\n    readonly source: {\n        readonly kind: \'provider\' | \'derivative\';\n        readonly path: string;\n        readonly sha256: VideoArtifactSha256;\n    };\n}',
+  },
+  {
+    name: 'ApprovedVideoSourceAdmission',
+    declaration: 'export interface ApprovedVideoSourceAdmission {\n    readonly signal: AbortSignal;\n    readonly sources: readonly ApprovedVideoSource[];\n}',
+  },
+  {
+    name: 'ApprovedVideoSourceCancellationReason',
+    declaration: 'export type ApprovedVideoSourceCancellationReason = \'configuration-changed\' | \'provider-disposed\' | \'caller-cancelled\';',
+  },
+  {
+    name: 'ApprovedVideoSourceLease',
+    declaration: 'export interface ApprovedVideoSourceLease {\n    readonly admission: ApprovedVideoSourceAdmission;\n    readonly sources: readonly ApprovedVideoSource[];\n    readonly signal: AbortSignal;\n    assertActive(): void;\n    recheck(): Promise<void>;\n    commit<Result>(publish: (signal: AbortSignal) => Promise<Result>): Promise<Result>;\n}',
+  },
+  {
+    name: 'ApprovedVideoSourceRequest',
+    declaration: 'export interface ApprovedVideoSourceRequest {\n    readonly items: readonly ApprovedClipDeliveryInput[];\n    readonly metadataMaxBytes: number;\n}',
+  },
+  {
     name: 'ArchiveSessionOptions',
     declaration: 'export interface ArchiveSessionOptions {\n    readonly stopActivity?: boolean;\n}',
   },
@@ -6190,6 +6314,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'AttachmentId',
     declaration: 'export type AttachmentId = Branded<\'AttachmentId\'>;',
+  },
+  {
+    name: 'AttemptIdentity',
+    declaration: 'export interface AttemptIdentity {\n    readonly attempt: EpisodeAttemptId;\n    readonly planSha256: Sha256;\n    readonly projectSha256: Sha256;\n    readonly rendererGeneration: EpisodeRendererGeneration;\n    readonly configurationSha256: Sha256;\n}',
   },
   {
     name: 'AuthoritativeCharacterReference',
@@ -6294,6 +6422,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ButtonProps',
     declaration: 'export interface ButtonProps {\n    readonly label: string;\n    readonly hotkey?: string | undefined;\n    readonly disabled?: boolean | undefined;\n    readonly onPress?: (() => unknown) | undefined;\n}',
+  },
+  {
+    name: 'CandidateEvidence',
+    declaration: 'export interface CandidateEvidence {\n    readonly outputSha256: Sha256;\n    readonly outputBytes: number;\n}',
   },
   {
     name: 'CatalogAssetId',
@@ -6940,6 +7072,66 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface EncodedImageAttachment {\n    mediaType: ImageMediaType;\n    data: string;\n    name?: string;\n}',
   },
   {
+    name: 'EpisodeAdmissionInput',
+    declaration: 'export interface EpisodeAdmissionInput extends EpisodeStatusInput {\n    readonly resume?: true;\n}',
+  },
+  {
+    name: 'EpisodeApprovedSource',
+    declaration: 'export interface EpisodeApprovedSource {\n    readonly idempotencyKey: string;\n    readonly digest: VideoRecoveryDigest;\n    readonly sha256: VideoArtifactSha256;\n}',
+  },
+  {
+    name: 'EpisodeAttemptId',
+    declaration: 'export type EpisodeAttemptId = Branded<\'EpisodeAttemptId\'>;',
+  },
+  {
+    name: 'EpisodeCancellationReason',
+    declaration: 'export type EpisodeCancellationReason = \'configuration-changed\' | \'provider-disposed\' | \'explicit-stop\' | \'host-disconnected\';',
+  },
+  {
+    name: 'EpisodeDeliveryAdmission',
+    declaration: 'export interface EpisodeDeliveryAdmission {\n    readonly approvals: readonly EpisodeApprovedSource[];\n    readonly inputs: readonly {\n        readonly path: string;\n        readonly sha256: Sha256;\n        readonly bytes: number;\n    }[];\n}',
+  },
+  {
+    name: 'EpisodeDeliveryJob',
+    declaration: 'export interface EpisodeDeliveryJob {\n    readonly attemptRoot: string;\n    read(): Promise<EpisodeDeliveryJobRecord | undefined>;\n    admit(input: EpisodeDeliveryAdmission): Promise<EpisodeDeliveryJobRecord>;\n    admitExecution(input: EpisodeExecutionAdmission): Promise<EpisodeExecutionAdmission>;\n    readExecution(execution: EpisodeExecutionId): Promise<EpisodeExecutionAdmission | undefined>;\n    assertAdmission(identity: ExecutionIdentity): Promise<void>;\n    armExecution(record: RunningExecution): Promise<void>;\n}',
+  },
+  {
+    name: 'EpisodeDeliveryJobRecord',
+    declaration: 'export interface EpisodeDeliveryJobRecord extends EpisodeDeliveryAdmission {\n    readonly version: 1;\n    readonly kind: \'episode-delivery\';\n    readonly projectDir: string;\n    readonly identity: AttemptIdentity;\n    readonly executionRef: RunningExecution | null;\n    readonly armedExecutions: readonly EpisodeExecutionId[];\n}',
+  },
+  {
+    name: 'EpisodeDeliveryStatus',
+    declaration: 'export interface EpisodeDeliveryStatus {\n    readonly projectDir: string;\n    readonly episode: number;\n    readonly digest: VideoArtifactSha256;\n    readonly attempt: EpisodeAttemptId | null;\n    readonly canResume: boolean;\n    readonly state: \'not-admitted\' | \'queued\' | \'preparing\' | \'running\' | \'stopping\' | \'completed\' | \'cancelled\' | \'failed\' | \'unknown\';\n    readonly execution?: EpisodeExecutionId;\n    readonly cancellationReason?: EpisodeCancellationReason;\n    readonly output?: {\n        readonly path: string;\n        readonly sha256: VideoArtifactSha256;\n        readonly bytes: number;\n    };\n    readonly problem?: string;\n}',
+  },
+  {
+    name: 'EpisodeExecutionAdmission',
+    declaration: 'export interface EpisodeExecutionAdmission {\n    readonly identity: ExecutionIdentity;\n    readonly descriptorPath: string;\n    readonly candidatePath: string;\n    readonly retry: \'initial\' | \'host-disconnect-recovery\' | \'explicit-retry\';\n}',
+  },
+  {
+    name: 'EpisodeExecutionId',
+    declaration: 'export type EpisodeExecutionId = Branded<\'EpisodeExecutionId\'>;',
+  },
+  {
+    name: 'EpisodeReadiness',
+    declaration: 'export interface EpisodeReadiness {\n    readonly projectDir: string;\n    readonly episode: number;\n    readonly ready: boolean;\n    readonly digest: VideoArtifactSha256 | null;\n    readonly shots: number;\n    readonly issues: readonly string[];\n    readonly renderer: {\n        readonly generation: EpisodeRendererGeneration;\n        readonly configurationSha256: VideoArtifactSha256;\n        readonly codeSha256: VideoArtifactSha256;\n    } | null;\n}',
+  },
+  {
+    name: 'EpisodeReadinessInput',
+    declaration: 'export interface EpisodeReadinessInput {\n    readonly projectDir: string;\n    readonly episode: number;\n}',
+  },
+  {
+    name: 'EpisodeRendererGeneration',
+    declaration: 'export type EpisodeRendererGeneration = Branded<\'EpisodeRendererGeneration\'>;',
+  },
+  {
+    name: 'EpisodeRenderResult',
+    declaration: 'export type EpisodeRenderResult = ({\n    readonly kind: \'drained\' | \'reconcile\';\n} & ({\n    readonly proof: Extract<ExecutionDrain, {\n        result: \'completed\';\n    }>;\n    readonly candidate: ApprovedEpisodeCandidate;\n} | {\n    readonly proof: Exclude<ExecutionDrain, {\n        result: \'completed\';\n    }>;\n    readonly candidate?: never;\n})) | {\n    readonly kind: \'retry-required\';\n    readonly proof: ExecutionDrain;\n} | {\n    readonly kind: \'unknown\';\n    readonly previous: RunningExecution;\n    readonly diagnostic: string;\n};',
+  },
+  {
+    name: 'EpisodeStatusInput',
+    declaration: 'export interface EpisodeStatusInput extends EpisodeReadinessInput {\n    readonly digest: VideoArtifactSha256;\n}',
+  },
+  {
     name: 'EpochHeader',
     declaration: 'export interface EpochHeader {\n    config: LlmCallConfig;\n    adapterDefaults?: LlmCallConfigAdapterDefaults;\n    tools?: ToolSchema[];\n    system?: never;\n}',
   },
@@ -6954,6 +7146,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'EveryScheduleRecord',
     declaration: 'export interface EveryScheduleRecord {\n    readonly id: ScheduleId;\n    readonly kind: \'every\';\n    readonly title: string;\n    readonly prompt: string;\n    readonly everySeconds: number;\n    readonly scheduledAt: string;\n}',
+  },
+  {
+    name: 'ExecutionDrain',
+    declaration: 'export type ExecutionDrain = {\n    readonly version: 1;\n    readonly kind: \'drained\';\n    readonly identity: ExecutionIdentity;\n    readonly guardianPid: number;\n    readonly commands: number;\n} & ({\n    readonly result: \'completed\';\n    readonly candidate: CandidateEvidence;\n} | {\n    readonly result: \'cancelled\' | \'failed\';\n});',
+  },
+  {
+    name: 'ExecutionIdentity',
+    declaration: 'export interface ExecutionIdentity extends AttemptIdentity {\n    readonly execution: EpisodeExecutionId;\n    readonly descriptorSha256: Sha256;\n}',
   },
   {
     name: 'FeedbackCategory',
@@ -8708,6 +8908,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface RunnerFailureRule {\n    allowedExitCodes?: readonly number[];\n    fatalSignatures: readonly string[];\n    informationalLines?: readonly string[];\n}',
   },
   {
+    name: 'RunningExecution',
+    declaration: 'export interface RunningExecution {\n    readonly version: 1;\n    readonly kind: \'running\';\n    readonly identity: ExecutionIdentity;\n    readonly guardianPid: number;\n}',
+  },
+  {
     name: 'SandboxEnforcement',
     declaration: 'export type SandboxEnforcement = \'full\' | \'partial\';',
   },
@@ -9610,6 +9814,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SettingsSecretView',
     declaration: 'export interface SettingsSecretView {\n    path: string[];\n    set: boolean;\n}',
+  },
+  {
+    name: 'Sha256',
+    declaration: 'export type Sha256 = VideoArtifactSha256;',
   },
   {
     name: 'ShareAccess',
@@ -10674,6 +10882,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'VideoRecoveryDigest',
     declaration: 'export type VideoRecoveryDigest = Branded<\'VideoRecoveryDigest\'>;',
+  },
+  {
+    name: 'VideoRecoveryIntentDigest',
+    declaration: 'export type VideoRecoveryIntentDigest = Branded<\'VideoRecoveryIntentDigest\'>;',
+  },
+  {
+    name: 'VideoRecoveryProjectDigest',
+    declaration: 'export type VideoRecoveryProjectDigest = Branded<\'VideoRecoveryProjectDigest\'>;',
   },
   {
     name: 'VideoRecoveryReview',

@@ -71,7 +71,10 @@ import type {
 import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
 import { resolveVideoSourceOptions } from './video-sources.ts'
 import { mountVideoRecovery, resolveVideoRecovery, type VideoRecoveryConfig } from './video-recovery-config.ts'
-export { JubianVideoRecovery } from './video-recovery-service.ts'
+export { JubianVideoRecovery, ApprovedSourceCancelled, ApprovedSourceCancellationError } from './video-recovery-service.ts'
+import { JubianEpisodeDelivery, resolveEpisodeDelivery, type EpisodeDeliveryConfig } from './episode-delivery-service.ts'
+export { JubianEpisodeDelivery } from './episode-delivery-service.ts'
+export type { JubianEpisodeDeliveryOptions } from './episode-delivery-service.ts'
 
 export { JubianToken } from './token.ts'
 export { JubianImageRoutes, pinnedImageSelection } from './image.ts'
@@ -81,7 +84,7 @@ export const name = 'tool-jubian'
 export const inject = ['tools', 'credentials']
 
 /** Where the tool row keeps its ledger and which origin it calls. */
-export interface Config extends ImageRouteConfig, VideoRecoveryConfig {
+export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDeliveryConfig {
   /** Rows per read-only existing-video history page; integer 1..100, default 100. */
   videoSourcePageSize?: number
   /** Maximum pages per existing-video history scan; integer 1..100, default 20. */
@@ -558,6 +561,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   }
   const watchConfig = resolveWatchConfig(config)
   const recovery = resolveVideoRecovery(config, watchConfig.watchTimeoutMs, process.env.DSH_FFMPEG_PATH)
+  const episodeDelivery = resolveEpisodeDelivery(config)
   const claimConfig: ClaimWatchConfig = resolveClaimWatchConfig(config)
   const imageBatch = resolveImageBatchOptions(config)
   const imageReferenceScan = resolveImageReferenceScanOptions(config)
@@ -665,6 +669,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     settingsPath: join(home, 'jubian', 'video-recovery.json'),
     clientForProject: directory => configuredJubianClient(storedCredential, config, directory),
     intervalMs: watchConfig.watchPollIntervalMs })
+  if (recovery.settings) await ctx.plugin(JubianEpisodeDelivery, episodeDelivery).await()
   const voiceCoordinator = museVoiceCoordinator(ctx, async () => {
     const stored = await storedCredential()
     return stored.trim() || config.workspaceSecrets === false ? stored : await workspacePipelineToken(process.cwd())

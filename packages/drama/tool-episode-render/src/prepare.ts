@@ -17,12 +17,13 @@ import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { isAbsolute, resolve } from 'node:path'
 import { fileSha256 } from './cache.ts'
 import { assertVideoHashesAllowed, assertVideosAllowed } from './video.ts'
-import { firstStreamOfType, probeMedia, runFfmpeg } from './ffmpeg.ts'
+import { createMediaToolkit, firstStreamOfType, probeMedia, runFfmpeg } from './ffmpeg.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { subtitleReviewWarnings, subtitleTextWarnings, readSubtitleCues } from './subtitles.ts'
-import { deliveryPolicyFor, readProjectDelivery } from './delivery-policy.ts'
-import { appendClips, formatTimelineDocument } from './timeline.ts'
-import type { DeliverySubtitleVisual, EndingEffectFit, MediaToolkit, ShotSource, SubtitleCue, Timeline, TimelineClip } from './types.ts'
+import { deliveryPolicyFor, readProjectDelivery, resolveDeliveryPolicy } from './delivery-policy.ts'
+import { appendClips, formatTimelineDocument, readTimeline } from './timeline.ts'
+import { ENDING_AUDIO_ASSET, ENDING_EFFECT_ASSET, type ShippedEndingAsset } from './delivery.ts'
+import type { RenderSettings, DeliverySubtitleVisual, EndingEffectFit, MediaToolkit, ShotSource, SubtitleCue, Timeline, TimelineClip } from './types.ts'
 
 /** Microseconds in one second. */
 const MICROSECONDS_PER_SECOND = 1_000_000
@@ -228,12 +229,12 @@ export async function readJsonDocument(path: string, description: string): Promi
 /** Build the episode master by mixing every shot's own sound onto the picture clock. */
 async function buildMaster(
   toolkit: MediaToolkit,
-  shots: readonly ResolvedShot[],
+  audioPaths: readonly string[],
   clips: readonly TimelineClip[],
   target: string,
 ): Promise<void> {
   const args: string[] = ['-y', '-v', 'error']
-  for (const shot of shots) args.push('-i', shot.audio)
+  for (const path of audioPaths) args.push('-i', path)
   args.push('-filter_complex', masterAudioFilter(clips), '-map', '[a]', '-c:a', 'pcm_s16le', '-ar', '48000', target)
   await runFfmpeg(toolkit, args)
 }
@@ -299,7 +300,7 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
   written.push(paths.timeline)
 
   await mkdir(resolve(input.project, 'audio'), { recursive: true })
-  await buildMaster(input.toolkit, shots, timeline.clips, paths.masterAudio)
+  await buildMaster(input.toolkit, shots.map(shot => shot.audio), timeline.clips, paths.masterAudio)
   written.push(paths.masterAudio)
 
   const cues = await readSubtitleCues(input.subtitleSrt)
@@ -318,4 +319,37 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
     warnings: [...subtitleWarnings, ...subtitleTextWarnings(cues), ...deliveryPolicyFor(delivery).warnings,
       ...cueOverrunWarnings(cues, timeline.bodyEndSeconds)],
   }
+}
+
+/**
+ * Resolve the bundled ending assets using the captured deployment subtitle policy.
+ * @param input - Staged project and immutable timeline path.
+ * @param settings - The same resolved policy passed to the current renderer.
+ * @returns Exact bundled descriptors, or undefined for a body-only delivery.
+ */
+export async function stagedEpisodeEndingAssets(
+  input: { readonly project: string; readonly timelinePath: string },
+  settings: Pick<RenderSettings, 'defaultSubtitleVisual' | 'enforceSubtitleVisual'>,
+): Promise<{ readonly audio: ShippedEndingAsset; readonly effect: ShippedEndingAsset } | undefined> {
+  const timeline = await readTimeline(input.timelinePath, settings.enforceSubtitleVisual)
+  const policy = await resolveDeliveryPolicy(input.project, timeline.delivery,
+    settings.defaultSubtitleVisual, settings.enforceSubtitleVisual)
+  return policy.endingSeconds === 0 ? undefined : { audio: ENDING_AUDIO_ASSET, effect: ENDING_EFFECT_ASSET }
+}
+
+/**
+ * Build the original-audio master from already verified staged episode videos.
+ * @param input - Private project, two-digit episode and immutable timeline path.
+ * @param settings - Captured executables, subtitle policy and guardian media channel.
+ * @returns When the complete WAV has been written through the owned channel.
+ */
+export async function prepareStagedEpisodeAudio(
+  input: { readonly project: string; readonly episode: string; readonly timelinePath: string },
+  settings: Pick<RenderSettings, 'ffmpeg' | 'ffprobe' | 'channel' | 'enforceSubtitleVisual'>,
+): Promise<void> {
+  const paths = episodePaths(input.project, input.episode)
+  const { clips } = await readTimeline(input.timelinePath, settings.enforceSubtitleVisual)
+  await mkdir(resolve(input.project, 'audio'), { recursive: true })
+  await buildMaster(createMediaToolkit(settings), clips.map(clip => resolve(paths.videoDir, shotFileName(clip.shot))),
+    clips, paths.masterAudio)
 }

@@ -509,12 +509,29 @@ Settings 入口可用绝对路径 `videoRecoveryFfmpegPath` 覆盖解码器；�
 
 卸载先停止接收新操作，再取消并等待已接收的初始化、请求、工作者读取、原生进程和文件操作。已经原子写完的设置、已发布的决定或回执不会因响应取消而回滚。原子替换不承诺断电持久性。保存的项目丢失时报告不可用，仍可更换或关闭，不阻断 Host 启动。
 
+<a id="approved-episode-export"></a>
+### 已审批片段整集导出
+
+Settings 恢复入口同时挂载经过认证的独立 `jubianEpisodeDelivery` 命名空间。其 `episodeReadiness`、`admitEpisode` 和 `episodeStatus` 方法分别准备、受理和观察本地整集，不增加模型工具或提交提供方生成。Desktop 提供已配置渲染器；其他部署缺少该提供者时，就绪检查会报告不可用。
+
+就绪检查要求为第 1–99 集准备 `editing/NN-episode-delivery.json`，按连续镜号排列唯一的原始已审批片段，并具有对应时间线、SRT，以及明确的混音配置和可选 BGM。它测量这些当前输入并保留项目绑定，不创建计划或批准片段。[计划读取器](src/approved-episode-plan.ts)负责接受字段及其校验。
+
+受理方法先提交原逻辑任务再返回，由服务生命周期持有排队的长时间渲染。重复的普通请求只查找该任务。状态查询读取有界记录和文件元数据；其输出描述发布时已测量的字节，不代表再次检查媒体或播放。Host 返回 `canResume` 时，可明确调用带 `resume: true` 的 `admitEpisode` 继续原任务。前次执行已有运行引用时，另起实际执行必须先核对相匹配的退出证据；不能用新 UUID 绕过未确认清空的媒体进程范围。
+
+私有版本一的意图、状态、取消和交付记录保存在已捕获项目的 `.muse/episode-delivery/<attempt>/` 内。准备发布的元数据把输出绑定到实际已完成的执行。发布拒绝覆盖已有不同字节；恢复可以在不还原已丢失源文件的情况下，为字节相符的已有输出补回执并保留 inode。无效或矛盾记录会拒绝恢复。这些记录与片段审批及直接复制回执分开，技术检查不代表创作验收通过。
+
+`episodeDeliveryMetadataMaxBytes` 限制单个编辑元数据读取，`episodeDeliveryRecordBytes` 限制单个持久化记录，`episodeDeliveryLockWaitMs` 限制锁争用等待。插件在注册 effect 前校验这些字段；默认值及限制以[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)为准。
+
 <a id="episode-execution-library"></a>
 ### 整集执行库
 
 `@deepseek-ai/dsh-tool-jubian/episode-delivery` 库把一个逻辑任务绑定到不可变的输入与审批身份，并为每次实际执行保留独立身份。严格的版本化记录区分文件缺失与内容无效。登记执行时，先持久化执行引用，再写运行记录或启动首个媒体命令。后续执行必须具有与前次运行相符的退出证据；任务推进后，所有已登记执行 UUID 仍被占用。调用方须在登记前核验当前人工批准，记录中的审批引用不授权新的决定。
 
 `EpisodeExecutionOwner` 将短暂的持久化登记与串行工作分开。相同的重复登记共享同一次完成结果。dispose（资源释放）同步停止接收登记，取消排队及运行中的工作，并等待全部已登记操作结束。队列结束本身不能证明媒体进程已退出，调用方仍须核验守护者证据。该库不注册模型工具、Remote 方法或自动启动扫描。进程所有权由 [Desktop 守护者](../../../apps/desktop-host/README.zh.md#episode-execution-supervision)负责。
+
+Host 调用方通过 `jubianVideoRecovery.withApprovedSources` 在同一所选项目代际下持有一批已批准片段。媒体哈希与调用方工作在恢复队列外执行；`lease.commit` 在一次短暂的已准备发布前，重新核对审批、账本意图、项目配置及当前文件版本。其回调只能发布已准备文件和小型回执，不能复制或计算媒体哈希，也不能调用恢复操作。切换项目或卸载会停止接收新操作，并等待旧调用方结束。可选的调用方 Hook 在取消信号触发前记录取消意图；Hook 失败仍会取消并等待调用方结束。开始新工作前应调用 `lease.assertActive()`，即使取消日志 Hook 尚未完成、信号尚未触发，也能拒绝已取消的工作。调用方断线不会回滚已提交的发布。
+
+就绪检查可以保留 `lease.admission`，稍后通过同一所有者的 `admitApprovedSources` 提交短暂的任务声明。所有者重新核对元数据和已捕获文件版本，不再次计算媒体哈希。复制的令牌、另一恢复所有者、已变化文件和已退休项目代际都会在声明回调运行前被拒绝。令牌只在其所有者进程内使用，并观察所选项目的取消信号；它不拥有资源或 disposer，也不能序列化审批。
 
 <a id="understand-the-implementation"></a>
 ## 理解实现

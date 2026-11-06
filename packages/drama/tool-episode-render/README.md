@@ -53,7 +53,7 @@ Mount the plugin as one row of a short-drama preset; it needs only the tool regi
 
 Font families above are deployment defaults, not model tool parameters. Both must be nonblank strings without commas or line breaks; invalid values fail Config validation. A project can override the body subtitle family as described below, but not the watermark family. Deployments providing Noto Sans CJK SC can set both defaults to `Noto Sans CJK SC`. Selecting a family does not change `fontsDir` or install fonts: libass must have access to it, or may fall back to a different installed font. When the medium requires a mark and ending, the single ASS burn follows their concatenation and uses the same watermark family throughout.
 
-Library consumers can import `ProcessChannel` and `MediaCommandOutcome` from the package root to type a managed media channel for `runDramaRender`.
+Library consumers can import `ProcessChannel`, `MediaCommandOutcome` and `RenderSettings` from the package root to supply an owned media channel to `runDramaRender`. The staged audio and ending helpers reuse the same timeline and delivery policy for privately captured inputs; the caller owns input verification, cancellation and publication.
 
 ### Reversible video bans
 

@@ -46,7 +46,8 @@ import { measureSubtitleLayout } from './subtitle-layout.ts'
 import { fitSubtitleCues } from './subtitle-fit.ts'
 import { formatSrtDocument, normalizeSubtitleDisplay, readSubtitleCues, subtitleDisplayWarnings } from './subtitles.ts'
 
-export type { MediaCommandOutcome, ProcessChannel } from './types.ts'
+export type { MediaCommandOutcome, ProcessChannel, RenderSettings } from './types.ts'
+export { prepareStagedEpisodeAudio, stagedEpisodeEndingAssets } from './prepare.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-episode-render'

@@ -1,21 +1,18 @@
 /** Recovery decisions, current-file truth and cancellation belong to one service lifetime. */
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, unlink, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { mkdir, readFile, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
-import { Context } from '@deepseek-ai/cordis'
+import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
-import SubprocessLocal from '@deepseek-ai/dsh-subprocess-local'
 import { downloadMedia } from '@deepseek-ai/dsh-jubian-api'
 import type { PeerId } from '@deepseek-ai/dsh-typert-protocol'
-import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { JubianVideoRecovery } from '../src/video-recovery-service.ts'
+import { createVideoRecoveryFixture as fixture } from './fixtures/video-recovery-service.ts'
 import * as Recovery from '../src/video-recovery.ts'
 import * as Files from 'node:fs/promises'
 import * as media from '../src/video-media-check.ts'
 import { resolveVideoRecovery } from '../src/video-recovery-config.ts'
-import type { VideoRecoveryDigest } from '../src/types.ts'
 
 vi.mock('@deepseek-ai/dsh-jubian-api', async original => ({
   ...await original<typeof import('@deepseek-ai/dsh-jubian-api')>(), downloadMedia: vi.fn(),
@@ -27,33 +24,6 @@ const hash = (bytes: string | Buffer) => createHash('sha256').update(bytes).dige
 beforeEach(() => { vi.mocked(downloadMedia).mockReset().mockRejectedValue(new Error('No media transfer is allowed')) })
 afterEach(() => { vi.restoreAllMocks() })
 
-async function fixture() {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-recovery-service-')))
-  const ctx = new Context()
-  onTestFinished(async () => { try { await ctx.fiber.dispose() } finally { await rm(root, { recursive: true, force: true }) } })
-  await ctx.plugin(SubprocessLocal)
-  const project = join(root, 'project'), directory = join(project, 'video_tasks', 'review')
-  await mkdir(directory, { recursive: true })
-  await writeFile(join(project, 'project_config.json'), '{"jubian_script_id":1}')
-  const preview = join(project, 'video_tasks', 'preview.json')
-  await writeFile(preview, '{}')
-  const ledger = new JubianLedger({ root: join(root, 'ledger') }), key = 'original-video'
-  await ledger.begin({ idempotencyKey: key, method: 'storyboard_native_submit', requestSha256: 'original', scriptId: 1,
-    beforeTaskIds: [], videoPreviewPath: preview })
-  const evidence = JSON.stringify({ idempotency_key: key, task_id: 42, status: 'awaiting_review',
-    media_checks: [{ sha256: 'sha256:' + hash('approved bytes'), video: true, audio: true }] })
-  await writeFile(join(directory, hash(key) + '.json'), evidence)
-  await writeFile(join(directory, 'original-' + hash('approved bytes') + '.mp4'), 'approved bytes')
-  const fetch = vi.fn<typeof globalThis.fetch>(async () => { throw new Error('No new provider operation is allowed') })
-  const settingsPath = join(root, 'recovery.json')
-  const options = { ledger, settingsPath, clientForProject: () => new JubianClient({ credential: async () => 'fixture', fetch }),
-    ffmpegPath: process.execPath, intervalMs: 100, decodeTimeoutMs: 1000, decodeGraceMs: 50, decodeMaxOutputBytes: 4096 }
-  const fiber = ctx.plugin(JubianVideoRecovery, options)
-  await fiber.await()
-  const service = ctx.jubianVideoRecovery
-  const input = { idempotencyKey: key, digest: brandString<VideoRecoveryDigest>(hash(evidence)) }
-  return { root, project, directory, preview, ledger, key, settingsPath, options, ctx, fiber, service, input, fetch }
-}
 
 function permitOriginalReads(f: Awaited<ReturnType<typeof fixture>>, bytes = 'approved bytes'): void {
   const mediaUrl = 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture/approved.mp4'

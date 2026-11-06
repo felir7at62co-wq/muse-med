@@ -40,6 +40,148 @@ export type VideoRecoveryDigest = Branded<'VideoRecoveryDigest'>
 /** Lowercase hexadecimal digest of an exact local media file. */
 export type VideoArtifactSha256 = Branded<'VideoArtifactSha256'>
 
+/** Logical episode delivery attempt retained across physical executions. */
+export type EpisodeAttemptId = Branded<'EpisodeAttemptId'>
+/** One physical renderer execution; an armed value cannot be reused. */
+export type EpisodeExecutionId = Branded<'EpisodeExecutionId'>
+/** Actual captured renderer provider lifetime. */
+export type EpisodeRendererGeneration = Branded<'EpisodeRendererGeneration'>
+/** Durable cancellation origin; a cancelled media proof does not select a retry policy. */
+export type EpisodeCancellationReason = 'configuration-changed' | 'provider-disposed' | 'explicit-stop' | 'host-disconnected'
+
+/** One authored project episode whose plan is read from editing/NN-episode-delivery.json. */
+export interface EpisodeReadinessInput {
+  readonly projectDir: string
+  readonly episode: number
+}
+
+/** Exact readiness digest selected for an idempotent logical admission. */
+export interface EpisodeStatusInput extends EpisodeReadinessInput {
+  readonly digest: VideoArtifactSha256
+}
+
+/** Explicit original-task recovery; omission only reconciles its admission receipt. */
+export interface EpisodeAdmissionInput extends EpisodeStatusInput {
+  readonly resume?: true
+}
+
+/** Current source/renderer readiness without provider URLs or model calls. */
+export interface EpisodeReadiness {
+  readonly projectDir: string
+  readonly episode: number
+  readonly ready: boolean
+  readonly digest: VideoArtifactSha256 | null
+  readonly shots: number
+  readonly issues: readonly string[]
+  readonly renderer: {
+    readonly generation: EpisodeRendererGeneration
+    readonly configurationSha256: VideoArtifactSha256
+    readonly codeSha256: VideoArtifactSha256
+  } | null
+}
+
+/** Durable targeted state; cancellation cause is separate from guardian media outcome. */
+export interface EpisodeDeliveryStatus {
+  readonly projectDir: string
+  readonly episode: number
+  readonly digest: VideoArtifactSha256
+  readonly attempt: EpisodeAttemptId | null
+  /** True only when the original task has matching durable drain and needs explicit recovery. */
+  readonly canResume: boolean
+  readonly state: 'not-admitted' | 'queued' | 'preparing' | 'running' | 'stopping' | 'completed' | 'cancelled' | 'failed' | 'unknown'
+  readonly execution?: EpisodeExecutionId
+  readonly cancellationReason?: EpisodeCancellationReason
+  /** Measurements recorded at publication; this field does not verify current files or listening. */
+  readonly output?: { readonly path: string; readonly sha256: VideoArtifactSha256; readonly bytes: number }
+  readonly problem?: string
+}
+
+/** Exact selected project configuration used by a source lease. */
+export type VideoRecoveryProjectDigest = Branded<'VideoRecoveryProjectDigest'>
+
+/** Immutable original ledger intent fields used by a source lease. */
+export type VideoRecoveryIntentDigest = Branded<'VideoRecoveryIntentDigest'>
+
+/** Approved immutable metadata; this value alone does not verify current media bytes. */
+export interface ApprovedVideoSourceMetadata {
+  readonly idempotencyKey: string
+  readonly digest: VideoRecoveryDigest
+  readonly taskId: number
+  readonly kind: 'provider' | 'derivative'
+  readonly path: string
+  readonly sha256: VideoArtifactSha256
+}
+
+/** Current regular file identity after a full hash; not a persisted media-drain proof. */
+export interface ApprovedVideoSourceVersion {
+  readonly path: string
+  readonly sha256: VideoArtifactSha256
+  readonly dev: number
+  readonly ino: number
+  readonly size: number
+  readonly mtimeMs: number
+  readonly ctimeMs: number
+}
+
+/** One actual approved source captured under one selected-project generation. */
+export interface ApprovedVideoSource {
+  readonly idempotencyKey: string
+  readonly digest: VideoRecoveryDigest
+  readonly taskId: number
+  readonly intentDigest: VideoRecoveryIntentDigest
+  readonly project: {
+    readonly directory: string
+    readonly scriptId: number
+    readonly configurationDigest: VideoRecoveryProjectDigest
+  }
+  readonly source: {
+    readonly kind: 'provider' | 'derivative'
+    readonly path: string
+    readonly sha256: VideoArtifactSha256
+  }
+}
+
+/** Source-owner cancellation origin, persisted before a long consumer is stopped. */
+export type ApprovedVideoSourceCancellationReason = 'configuration-changed' | 'provider-disposed' | 'caller-cancelled'
+
+/** One batch, so multiple clips never require nesting recovery-queue commits. */
+export interface ApprovedVideoSourceRequest {
+  readonly items: readonly ApprovedClipDeliveryInput[]
+  /** Positive byte budget resolved by the consumer's validated deployment Config. */
+  readonly metadataMaxBytes: number
+}
+
+/** Same-process admission facts; the recovery owner retains their generation and file versions. */
+export interface ApprovedVideoSourceAdmission {
+  /** Captured selection lifetime; consumers own no resources through this token. */
+  readonly signal: AbortSignal
+  readonly sources: readonly ApprovedVideoSource[]
+}
+
+/** Source-owner lifetime and one final serialized prepared publication. */
+export interface ApprovedVideoSourceLease {
+  /** Readiness token for a later short admission; it owns no consumer or disposer. */
+  readonly admission: ApprovedVideoSourceAdmission
+  readonly sources: readonly ApprovedVideoSource[]
+  readonly signal: AbortSignal
+  /** Refuse new work immediately once this lease is ending, before deferred cancellation IO finishes. */
+  assertActive(): void
+  /**
+   * Hash every current source outside the queue, then reread all immutable facts inside it.
+   * @returns Completion only when the whole captured batch still matches.
+   */
+  recheck(): Promise<void>
+  /**
+   * Verify all sources, then serialize a small prepared publication with decisions and configuration.
+   * The callback must only version-check prepared files and atomically link/write small receipts;
+   * copying, hashing, media work and calling recovery operations are forbidden inside it.
+   * A successful atomic commit is retained when its caller disconnects afterward.
+   * @param publish - Prepared, no-overwrite small IO; its signal belongs to provider teardown.
+   * @returns The committed result, without rolling back already published bytes.
+   */
+  commit<Result>(publish: (signal: AbortSignal) => Promise<Result>): Promise<Result>
+}
+
 /** Operator selection; omission of projectDir retains the selected directory. */
 export interface VideoRecoveryConfigurationInput {
   readonly enabled: boolean
@@ -129,6 +271,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'jubian-budget/rejected': {}
     /** The selected project, settings or review cannot authorize this recovery operation. */
     'jubian-video-recovery/rejected': {}
+    /** New episode admission is paused during update inspection or teardown. */
+    'jubian-episode-delivery/paused': {}
     /**
      * The credential provider refused a write of the Jubian admin token — for
      * example because a read-only source shadows the reference. The details

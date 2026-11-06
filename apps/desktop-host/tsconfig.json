@@ -144,6 +144,9 @@
     },
     {
       "path": "../../packages/jubian/tool-jubian/tsconfig.host.json"
+    },
+    {
+      "path": "../../packages/jubian/jubian-api"
     }
   ]
 }

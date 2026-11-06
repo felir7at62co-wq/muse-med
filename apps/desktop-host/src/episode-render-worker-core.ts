@@ -91,6 +91,10 @@ export function installEpisodeGuardian(ctx: Context, config: GuardianWorkerConfi
     if (transport.signal.aborted) aborted()
   })
   void ready.catch((_cancelledReadiness: unknown) => { /* operation owns the rejection. */ })
+  const diagnose = (error: unknown): void => {
+    const detail = error instanceof Error ? error.message : 'operation failed without an Error diagnostic'
+    process.stderr.write(Buffer.from('episode guardian: ' + detail + '\n').subarray(0, config.diagnosticBytes))
+  }
   const operation = async (): Promise<void> => {
     const request = await transport.request
     await ready
@@ -102,7 +106,10 @@ export function installEpisodeGuardian(ctx: Context, config: GuardianWorkerConfi
     const result = await runWithEncoderGate({ journal: adapter.journal(execution, config),
       identity: execution.identity, signal: transport.signal, lockWaitMs: config.lockWaitMs,
       retry: execution.retry, media,
-      render: async () => await adapter.render(execution, mediaChannel(), transport.signal) })
+      render: async () => {
+        try { return await adapter.render(execution, mediaChannel(), transport.signal) }
+        catch (error) { diagnose(error); throw error }
+      } })
     const reply: GuardianReply = { version: 1, kind: 'result', identity: execution.identity, result }
     const frame = Buffer.from(JSON.stringify(reply) + '\n')
     if (frame.length > config.replyBytes) throw new Error('episode guardian: reply exceeds limit')
@@ -126,6 +133,7 @@ export function installEpisodeGuardian(ctx: Context, config: GuardianWorkerConfi
   }, 'episode guardian task and media drain')
   // The owner is registered before the operation can read a request or await readiness.
   settled = operation().catch(async (_operationFailed: unknown) => {
+    diagnose(_operationFailed)
     // If joining cannot prove empty, no proof is synthesized by this handler.
     if (media !== undefined) await media.stopAndJoin()
     cancelExit = appReady.onReady(() => { appExit(1) })

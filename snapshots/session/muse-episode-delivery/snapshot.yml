@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-episode-delivery
+profile: headless
+composition: muse-episode-delivery
+recording: authored
+platform: posix
+header:
+  class: muse-episode-delivery
+  pin: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-episode-fixture
