@@ -57,8 +57,10 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
    * One long poll from a window. Resolves with the read requests due for it, at once when
    * there are some, else when one arrives or a handed-out one is due again, or after
    * `waitMs`. A newer poll from the same window ends the older one empty.
+   * Cancelling the request ends only its poll and retains queued read requests.
    */
-  function wait(clientId, open) {
+  function wait(clientId, open, signal) {
+    if (signal?.aborted) return Promise.resolve([])
     const client = clients.get(clientId) ?? { open: {}, seen: 0, queue: [], holdVersion: 0 }
     clients.set(clientId, client)
     client.open = open && typeof open === 'object' ? open : {}
@@ -75,6 +77,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
     return new Promise((resolve) => {
       const finish = (items) => {
         clearTimeout(timer)
+        signal?.removeEventListener('abort', end)
         if (client.end === end) client.wake = client.end = undefined
         client.seen = now()
         client.holdVersion = holdVersion
@@ -84,6 +87,7 @@ export function createBrowserChannel({ now = Date.now, waitMs = WAIT_MS, staleMs
       const timer = setTimeout(() => finish(due(client)), Math.min(waitMs, resend))
       client.wake = () => finish(due(client))
       client.end = end
+      signal?.addEventListener('abort', end, { once: true })
     })
   }
 
