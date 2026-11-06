@@ -921,9 +921,6 @@ flowchart TD
   pkg_tool_drama_assets --> pkg_credentials
   pkg_tool_drama_assets --> pkg_llm
   pkg_tool_drama_assets --> pkg_tools
-  pkg_tool_episode_render --> pkg_bgm_license_info
-  pkg_tool_episode_render --> pkg_llm
-  pkg_tool_episode_render --> pkg_tools
   pkg_experimental_browser_use_chrome_devtools_mcp --> pkg_agent
   pkg_experimental_browser_use_chrome_devtools_mcp --> pkg_browser_use
   pkg_experimental_browser_use_chrome_devtools_mcp --> pkg_system_prompt
@@ -1379,6 +1376,10 @@ flowchart TD
   pkg_screenplay_project --> pkg_tool_video_inspect
   pkg_screenplay_project --> pkg_tools
   pkg_screenplay_project --> pkg_util_values
+  pkg_tool_episode_render --> pkg_bgm_license_info
+  pkg_tool_episode_render --> pkg_llm
+  pkg_tool_episode_render --> pkg_tool_video_inspect
+  pkg_tool_episode_render --> pkg_tools
   pkg_experimental_agent_team --> pkg_agent
   pkg_experimental_agent_team --> pkg_llm
   pkg_experimental_agent_team --> pkg_session
@@ -1768,7 +1769,6 @@ flowchart TD
 | [`tool-bgm-compose`](../packages/drama/tool-bgm-compose) | `drama` | [`bgm-license-info`](../packages/drama/bgm-license-info), [`llm`](../packages/llm/llm), [`subprocess`](../packages/subprocess/subprocess), [`tools`](../packages/core/tools) |
 | [`tool-character-reference`](../packages/drama/tool-character-reference) | `drama` | [`attachment`](../packages/attachment/attachment), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings), [`tools`](../packages/core/tools) |
 | [`tool-drama-assets`](../packages/drama/tool-drama-assets) | `drama` | [`credentials`](../packages/credentials/credentials), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
-| [`tool-episode-render`](../packages/drama/tool-episode-render) | `drama` | [`bgm-license-info`](../packages/drama/bgm-license-info), [`llm`](../packages/llm/llm), [`tools`](../packages/core/tools) |
 | [`experimental-browser-use-chrome-devtools-mcp`](../packages/experimental/browser-use-chrome-devtools-mcp) | `experimental` | [`agent`](../packages/core/agent), [`browser-use`](../packages/browser-use/browser-use), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`experimental-browser-use-playwright-mcp`](../packages/experimental/browser-use-playwright-mcp) | `experimental` | [`agent`](../packages/core/agent), [`browser-use`](../packages/browser-use/browser-use), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`experimental-browser-use-stagehand-native`](../packages/experimental/browser-use-stagehand-native) | `experimental` | [`agent`](../packages/core/agent), [`browser-use`](../packages/browser-use/browser-use), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
@@ -1839,6 +1839,7 @@ flowchart TD
 | [`compaction-basic`](../packages/compaction/compaction-basic) | `compaction` | [`agent`](../packages/core/agent), [`commands`](../packages/interaction/commands), [`compaction`](../packages/compaction/compaction), [`compaction-tool-result-pruner`](../packages/compaction/compaction-tool-result-pruner), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
 | [`session-reference`](../packages/context/session-reference) | `context` | [`agent`](../packages/core/agent), [`compaction`](../packages/compaction/compaction), [`llm`](../packages/llm/llm), [`output-retention`](../packages/util/output-retention), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`session-projection-cache`](../packages/session/session-projection-cache), [`session-query`](../packages/session-query/session-query), [`session-title`](../packages/session/session-title), [`spill`](../packages/spill/spill), [`subagent`](../packages/subagent/subagent), [`system-prompt`](../packages/core/system-prompt), [`typert-protocol`](../packages/typert/protocol) |
 | [`screenplay-project`](../packages/drama/screenplay-project) | `drama` | [`agent`](../packages/core/agent), [`attachment`](../packages/attachment/attachment), [`brand`](../packages/util/brand), [`fs`](../packages/fs/fs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`session-query`](../packages/session-query/session-query), [`tool-video-inspect`](../packages/perception/tool-video-inspect), [`tools`](../packages/core/tools), [`util-values`](../packages/util/values) |
+| [`tool-episode-render`](../packages/drama/tool-episode-render) | `drama` | [`bgm-license-info`](../packages/drama/bgm-license-info), [`llm`](../packages/llm/llm), [`tool-video-inspect`](../packages/perception/tool-video-inspect), [`tools`](../packages/core/tools) |
 | [`experimental-agent-team`](../packages/experimental/agent-team) | `experimental` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-projection`](../packages/session/session-projection), [`subagent`](../packages/subagent/subagent) |
 | [`sdk-protocol`](../packages/sdk/protocol) | `sdk` | [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent) |
 | [`tool-ralph`](../packages/workflow/tool-ralph) | `workflow` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`subagent`](../packages/subagent/subagent), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`workflow`](../packages/workflow/workflow) |
