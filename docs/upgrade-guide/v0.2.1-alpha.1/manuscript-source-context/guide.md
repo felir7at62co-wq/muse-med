@@ -11,7 +11,7 @@ English | [中文](guide.zh.md)
 
 `manuscript_work` returns versioned `audit` directories and save receipts. `manuscriptReportMaxResultCharacters` defaults to 8000 UTF-16 units, minimum 1024, including metadata. Oversized rows expose recursive `report_item_paged` directories; scalar fields remain intact or fail. Small reports stay unchanged; group completion is not complete reading.
 
-Declared in-workspace output paths use `./relative` with `/` separators instead of native absolute paths. External paths and business text stay unchanged; durable records retain native absolute paths, and absolute inputs remain accepted.
+Declared workspace output paths and diagnostic source locations now use `./relative` with `/` separators. External paths and business text stay unchanged; durable records retain native absolute paths, and absolute inputs remain accepted.
 
 `read_source.lines[]` adds `source_refs`/`source_line` without changing `text`. Citation `line_labels` retain speaker/voice notation, not audibility. Pages include compact neighbors; `citation_labels` omit them. `bridge_ranges` gives source path, hash and bounds.
 

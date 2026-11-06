@@ -5,6 +5,7 @@ import { brandString, type Branded } from '@deepseek-ai/dsh-brand'
 import { z } from 'zod'
 import type { ManuscriptDocument } from './manuscript-document.ts'
 import { manuscriptReadingText } from './manuscript-reading.ts'
+import { formatManuscriptPath } from './manuscript-report.ts'
 import { indexManuscriptSource, manuscriptSourceLineLabels, manuscriptSourceRangeContext,
   type ManuscriptSourceLineLabel, type ManuscriptSourceRangeContext } from './manuscript-source-context.ts'
 
@@ -124,37 +125,38 @@ export function manuscriptRelationshipSourceContexts(note: ManuscriptRelationshi
   return note.evidence.map(anchor => manuscriptEvidenceContext(anchor, sources, note.scope.story_time))
 }
 
-function contextLocation(context: ManuscriptRelationshipSourceContext): string {
+function contextLocation(context: ManuscriptRelationshipSourceContext, cwd?: string): string {
   const headings = context.sections.map(section => `集=${section.episode_label ?? section.episode}，`
     + `场=${section.scene_id ?? '未标明'}，标题行=${section.heading_line ?? '无'}，标题=${JSON.stringify(section.heading)}`)
-  return `source_path=${JSON.stringify(context.source_path)}，引用行=${context.start_line}-${context.end_line}，${headings.join('；')}`
+  return `source_path=${JSON.stringify(formatManuscriptPath(context.source_path, cwd))}，引用行=${context.start_line}-${context.end_line}，${headings.join('；')}`
 }
 
 /**
  * Identify unsupported explicit scope in new or previously saved relationship notes.
  * @param note - Model-authored note whose current citation locations must be checked.
  * @param sources - Bound source documents; absent or changed evidence is reported for rereading.
+ * @param cwd - Optional canonical workspace for diagnostic paths; source identities remain unchanged.
  * @returns Issues without changing model-authored notes or source contents. Omitted scope fields do not establish unknown locations.
  */
 export function manuscriptRelationshipScopeIssues(note: ManuscriptRelationship,
-  sources: readonly ManuscriptDocument[]): ManuscriptRelationshipScopeIssue[] {
+  sources: readonly ManuscriptDocument[], cwd?: string): ManuscriptRelationshipScopeIssue[] {
   const issues: ManuscriptRelationshipScopeIssue[] = [], contexts: ManuscriptRelationshipSourceContext[] = []
   for (const anchor of note.evidence) {
     const source = sources.find(row => row.path === anchor.source_path && row.sha256 === anchor.source_sha256)
     if (!source) {
       issues.push({ field: 'evidence', code: 'source_unavailable',
-        message: `source_path=${JSON.stringify(anchor.source_path)}，引用行=${anchor.start_line}-${anchor.end_line}：来源版本不可用。` })
+        message: `source_path=${JSON.stringify(formatManuscriptPath(anchor.source_path, cwd))}，引用行=${anchor.start_line}-${anchor.end_line}：来源版本不可用。` })
       continue
     }
     const lines = manuscriptReadingText(source.text).split('\n'), index = indexManuscriptSource(source.text)
     if (anchor.end_line < anchor.start_line || anchor.end_line > index.total_lines) {
       issues.push({ field: 'evidence', code: 'range_unavailable',
-        message: `source_path=${JSON.stringify(source.path)}，引用行=${anchor.start_line}-${anchor.end_line}：范围不在当前来源中。` })
+        message: `source_path=${JSON.stringify(formatManuscriptPath(source.path, cwd))}，引用行=${anchor.start_line}-${anchor.end_line}：范围不在当前来源中。` })
       continue
     }
     if (lines.slice(anchor.start_line - 1, anchor.end_line).join('\n') !== anchor.quote) {
       issues.push({ field: 'evidence', code: 'quote_mismatch',
-        message: `source_path=${JSON.stringify(source.path)}，引用行=${anchor.start_line}-${anchor.end_line}：原句与当前来源不一致。` })
+        message: `source_path=${JSON.stringify(formatManuscriptPath(source.path, cwd))}，引用行=${anchor.start_line}-${anchor.end_line}：原句与当前来源不一致。` })
       continue
     }
     contexts.push(manuscriptEvidenceContext(anchor, sources, note.scope.story_time))
@@ -165,17 +167,17 @@ export function manuscriptRelationshipScopeIssues(note: ManuscriptRelationship,
       || ![section.episode, section.episode_number, section.episode_label].includes(episode))) {
       const unknown = section.episode_basis === 'unassigned'
       issues.push({ field: 'episode', code: unknown ? 'unassigned' : 'mismatch',
-        message: `${contextLocation(context)}：scope.episode=${JSON.stringify(episode)}${unknown ? '没有实际集标题依据' : '与引用归属不符'}。` })
+        message: `${contextLocation(context, cwd)}：scope.episode=${JSON.stringify(episode)}${unknown ? '没有实际集标题依据' : '与引用归属不符'}。` })
     }
     if (scene && scene !== section.scene_id && scene !== section.source_scene_id) {
       issues.push({ field: 'scene_id', code: section.scene_id === null ? 'unassigned' : 'mismatch',
-        message: `${contextLocation(context)}：scope.scene_id=${JSON.stringify(scene)}没有对应的来源场景；不能使用采用稿场景ID。` })
+        message: `${contextLocation(context, cwd)}：scope.scene_id=${JSON.stringify(scene)}没有对应的来源场景；不能使用采用稿场景ID。` })
     }
   }
   if (note.scope.story_time && !contexts.some(context => context.time_basis.length > 0)) {
     issues.push({ field: 'story_time', code: 'unsupported_time',
       message: `scope.story_time=${JSON.stringify(note.scope.story_time)}须完整逐字出现在所引原句或真实标题中；`
-        + `不能自由拼写事件前后时点。${contexts.map(contextLocation).join('；')}` })
+        + `不能自由拼写事件前后时点。${contexts.map(context => contextLocation(context, cwd)).join('；')}` })
   }
   const numberedScope = /第\s*[\d一二三四五六七八九十百千万零〇两]+\s*[集场]|(?:场景|场次)\s*\d+\s*[-—－]\s*\d+|\d{1,2}[:：]\d{2}/u
   if (numberedScope.test(note.scope.context)) {
@@ -190,10 +192,11 @@ export function manuscriptRelationshipScopeIssues(note: ManuscriptRelationship,
  * @param note - Directed note whose optional designation identifies a speaker and target.
  * @param sources - Complete current bound sources with unchanged quotations.
  * @param roster - Registered full names and explicit aliases, without inferred identity matches.
+ * @param cwd - Optional canonical workspace for diagnostic paths; quoted text remains exact.
  * @returns Mechanical attribution issues; OS and VO labels do not establish audibility or prove the relationship's meaning.
  */
 export function manuscriptRelationshipSpeakerIssues(note: ManuscriptRelationship, sources: readonly ManuscriptDocument[],
-  roster: readonly ManuscriptCharacter[]): ManuscriptRelationshipScopeIssue[] {
+  roster: readonly ManuscriptCharacter[], cwd?: string): ManuscriptRelationshipScopeIssue[] {
   const designation = note.contextual_name
   if (!designation) return []
   const issue = (code: ManuscriptRelationshipScopeIssue['code'], message: string): ManuscriptRelationshipScopeIssue[] =>
@@ -204,7 +207,7 @@ export function manuscriptRelationshipSpeakerIssues(note: ManuscriptRelationship
     const lines = source === undefined ? [] : manuscriptReadingText(source.text).split('\n')
     if (source === undefined || anchor.end_line < anchor.start_line || anchor.end_line > indexManuscriptSource(source.text).total_lines
       || lines.slice(anchor.start_line - 1, anchor.end_line).join('\n') !== anchor.quote) {
-      return issue('speaker_unresolved', `source_path=${JSON.stringify(anchor.source_path)}，引用行=${anchor.start_line}-${anchor.end_line}：`
+      return issue('speaker_unresolved', `source_path=${JSON.stringify(formatManuscriptPath(anchor.source_path, cwd))}，引用行=${anchor.start_line}-${anchor.end_line}：`
         + '没有当前、完整匹配的原句可核对称谓发话标签；先回读来源。')
     }
     for (const label of manuscriptSourceLineLabels(source.text, anchor.start_line, anchor.end_line)) {
@@ -212,7 +215,7 @@ export function manuscriptRelationshipSpeakerIssues(note: ManuscriptRelationship
       // Labels address the validated range in this same unchanged source text.
       const body = Array.from(lines[label.line - 1] as string).slice(label.speech_column - 1).join('')
       if (body.includes(designation.term)) occurrences.push({
-        location: `${source.path}:${label.line}，发话标签=${JSON.stringify(label.speaker_label)}`, speaker: label.speaker_label,
+        location: `${formatManuscriptPath(source.path, cwd)}:${label.line}，发话标签=${JSON.stringify(label.speaker_label)}`, speaker: label.speaker_label,
       })
     }
   }
@@ -269,6 +272,7 @@ export async function validateManuscriptEvidence(evidence: readonly ManuscriptSo
  * @param raw - Model-authored character rows with stable IDs and source evidence for every name and alias.
  * @param sources - Complete current documents read through the manuscript reader, with canonical paths and file hashes.
  * @param cwd - Workspace used to resolve incoming relative citation paths.
+ * @param diagnosticCwd - Canonical workspace for displayed paths; defaults to the citation workspace.
  * @returns Character rows with canonical citation paths; source content remains unchanged.
  */
 export async function validateCharacterRoster(raw: unknown, sources: readonly ManuscriptDocument[],
@@ -306,7 +310,7 @@ export async function validateCharacterRoster(raw: unknown, sources: readonly Ma
  * @returns A note with canonical citation paths; no inverse relation, identity merge or truth verdict is generated.
  */
 export async function validateManuscriptRelationship(raw: unknown, sources: readonly ManuscriptDocument[],
-  roster: readonly ManuscriptCharacter[], cwd: string): Promise<ManuscriptRelationship> {
+  roster: readonly ManuscriptCharacter[], cwd: string, diagnosticCwd = cwd): Promise<ManuscriptRelationship> {
   const note = manuscriptRelationshipSchema.parse(raw)
   const ids = new Set(roster.map(character => character.character_id))
   const referenced = [note.subject_id, note.object_id, ...(note.contextual_name
@@ -325,9 +329,9 @@ export async function validateManuscriptRelationship(raw: unknown, sources: read
     throw Error('MANUSCRIPT_RELATION_TERM: 相对称谓须实际出现在所引原句中。')
   }
   const validated = { ...note, evidence }
-  const issues = manuscriptRelationshipScopeIssues(validated, sources)
+  const issues = manuscriptRelationshipScopeIssues(validated, sources, diagnosticCwd)
   if (issues.length > 0) throw Error(`MANUSCRIPT_RELATION_SCOPE: ${issues.map(issue => issue.message).join('\n')}`)
-  const speakerIssues = manuscriptRelationshipSpeakerIssues(validated, sources, roster)
+  const speakerIssues = manuscriptRelationshipSpeakerIssues(validated, sources, roster, diagnosticCwd)
   if (speakerIssues.length > 0) throw Error(`MANUSCRIPT_RELATION_SPEAKER: ${speakerIssues.map(issue => issue.message).join('\n')}`)
   return validated
 }

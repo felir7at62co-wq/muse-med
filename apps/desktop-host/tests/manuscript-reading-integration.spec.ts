@@ -1,6 +1,6 @@
 /** Registered manuscript tools retain exact reading receipts and source-bound relationships across owner reloads. */
 import { afterEach, expect, it, vi } from 'vitest'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { z } from 'zod'
@@ -16,7 +16,7 @@ import { MockAdapter, textResponse } from '../../../packages/core/agent-loop/tes
 import * as RevisionPlugin from '../src/manuscript-revisions.ts'
 import { Config } from '../src/manuscript-revisions.ts'
 import * as Reading from '../src/manuscript-reading.ts'
-import { manuscriptCharacterSchema } from '../src/manuscript-relationships.ts'
+import { manuscriptCharacterSchema, manuscriptRelationshipSchema } from '../src/manuscript-relationships.ts'
 import { manuscriptTextHash } from '../src/manuscript-scenes.ts'
 import { readAuditCollections, reportedRelationshipSchema, recheckRelationshipSchema, sourcePageContextSchema } from './manuscript-test-schemas.ts'
 
@@ -194,9 +194,14 @@ it('invalidates a relationship whose third-person contextual speaker leaves the 
     relation: '父亲', status: 'uncertain', scope: { context: '丙称乙为爸爸，与甲的关系尚待核实。' },
     contextual_name: { term: '爸爸', speaker_id: '2', target_id: '1' }, evidence: [anchor(2, '丙：爸爸。')] } })
   await f.request({ action: 'characters', characters: characters.slice(0, 2) })
+  const persisted = await readFile(f.statePath, 'utf8')
   const audit = await f.audit()
   expect(audit.relationships).toEqual([])
   expect(audit.relationships_needing_recheck).toHaveLength(1)
+  expect(audit.relationships_needing_recheck[0]?.scope_issues.some(issue => issue.message.startsWith('./source.txt:2'))).toBe(true)
+  expect(await readFile(f.statePath, 'utf8')).toBe(persisted)
+  const saved = z.object({ relationships: z.array(manuscriptRelationshipSchema) }).parse(JSON.parse(persisted))
+  expect(saved.relationships[0]?.evidence[0]?.source_path).toBe(await realpath(join(f.root, 'source.txt')))
 })
 
 it('does not retain old-version coverage or role notes after the source changes on disk', async () => {
@@ -208,6 +213,7 @@ it('does not retain old-version coverage or role notes after the source changes 
   expect(audit.characters).toEqual([])
   expect(audit.relationships).toEqual([])
   expect(audit.relationships_needing_recheck).toHaveLength(1)
+  expect(audit.relationships_needing_recheck[0]?.scope_issues.some(issue => issue.message.includes('source_path="./source.txt"'))).toBe(true)
   expect((await f.call({ action: 'characters', characters: f.roster })).isError).toBe(true)
 })
 

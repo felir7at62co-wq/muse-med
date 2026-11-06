@@ -11,7 +11,7 @@ description: 文稿调用方须解析相对输出路径，并支持带版本的�
 
 `manuscript_work` 返回带版本的 `audit` 目录和保存回执。`manuscriptReportMaxResultCharacters` 默认为 8000 个 UTF-16 单元，最小 1024，包含元数据。超大记录通过 `report_item_paged` 返回递归目录；标量字段完整保留，无法容纳时失败。小报告不变，某组读完不表示已读完整。
 
-工作目录内已声明的输出路径使用 `./relative` 和 `/` 分隔符，不再返回原生绝对路径。外部路径和业务正文不变；持久记录保留原生绝对路径，绝对路径输入仍可使用。
+工作目录内已声明的输出路径及诊断中的来源位置改用 `./relative` 和 `/` 分隔符。外部路径和业务正文不变；持久记录保留原生绝对路径，绝对路径输入仍可使用。
 
 `read_source.lines[]` 增加 `source_refs`/`source_line`，不改变 `text`。引文的 `line_labels` 保留发话和声音原写法，不判定可闻性。阅读页保留紧凑邻段，`citation_labels` 不带邻段；`bridge_ranges` 给出来源路径、哈希和范围。
 

@@ -15,6 +15,22 @@ export interface ManuscriptReportCursor {
 }
 
 /**
+ * Display a workspace-local filesystem path without changing external or already-relative paths.
+ * @param value - Declared filesystem path, separate from manuscript prose.
+ * @param cwd - Canonical workspace; omitted when no workspace is available.
+ * @returns A portable ./ path inside the workspace, or the unchanged value outside it.
+ */
+export function formatManuscriptPath(value: string, cwd?: string): string {
+  if (cwd === undefined || !isAbsolute(value)) return value
+  const path = relative(cwd, value)
+  return isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`) ? value : `./${path.split(sep).join('/')}`
+}
+
+const pathArrayKeys = new Set(['paths', 'source_paths', 'candidate_paths', 'missing_files'])
+const formatPathArray = (values: readonly unknown[], cwd?: string): readonly unknown[] =>
+  values.map(entry => typeof entry === 'string' ? formatManuscriptPath(entry, cwd) : entry)
+
+/**
  * Encode declared manuscript paths relative to their owning workspace before applying text budgets.
  * External paths and manuscript prose remain exact; stored filesystem identities are not changed.
  * @param input - Complete review, source page, checkpoint, or scene response.
@@ -23,16 +39,9 @@ export interface ManuscriptReportCursor {
  */
 export function serializeManuscriptData(input: object, cwd?: string): string {
   if (cwd === undefined) return JSON.stringify(input)
-  const localPath = (value: string): string => {
-    if (!isAbsolute(value)) return value
-    const path = relative(cwd, value)
-    return isAbsolute(path) || path === '..' || path.startsWith(`..${sep}`) ? value : `./${path.split(sep).join('/')}`
-  }
   return JSON.stringify(input, (key: string, value: unknown): unknown => {
-    if ((key === 'path' || key === 'source_path' || key === 'file_path') && typeof value === 'string') return localPath(value)
-    if ((key === 'paths' || key === 'source_paths' || key === 'candidate_paths' || key === 'missing_files') && Array.isArray(value)) {
-      return value.map((entry: unknown) => typeof entry === 'string' ? localPath(entry) : entry)
-    }
+    if ((key === 'path' || key === 'source_path' || key === 'file_path') && typeof value === 'string') return formatManuscriptPath(value, cwd)
+    if (pathArrayKeys.has(key) && Array.isArray(value)) return formatPathArray(value, cwd)
     return value
   })
 }
@@ -110,6 +119,7 @@ export function formatManuscriptReport(report: { task_key: string } & Record<str
   }
   if (!Array.isArray(selected) || selected.length === 0) throw Error('MANUSCRIPT_REPORT_SECTION: 当前审查没有该非空分组，请重新audit读取目录。')
   const items: readonly unknown[] = selected
+  const isPathArray = pathArrayKeys.has(cursor.report_section.slice(cursor.report_section.lastIndexOf('.') + 1))
   const offset = cursor.report_offset ?? 1
   if (!Number.isSafeInteger(offset) || offset < 1 || offset > items.length) throw Error('MANUSCRIPT_REPORT_OFFSET: 分组起始条目不存在。')
   if (cursor.report_limit !== undefined && (!Number.isSafeInteger(cursor.report_limit) || cursor.report_limit < 1)) {
@@ -120,7 +130,7 @@ export function formatManuscriptReport(report: { task_key: string } & Record<str
     const end = offset - 1 + count
     const page = (rows: readonly unknown[]) => encode({ task_key: report.task_key,
       report_sha256: version, report_section: cursor.report_section,
-      report_offset: offset, items: rows, total_items: items.length,
+      report_offset: offset, items: isPathArray ? formatPathArray(rows, options.cwd) : rows, total_items: items.length,
       is_last_page: end === items.length,
       continuation: end === items.length ? null : { action: 'audit', report_sha256: version,
         report_section: cursor.report_section, report_offset: end + 1 },

@@ -188,7 +188,7 @@ export class ManuscriptWork {
       characters, relationships, comparisons }
   }
 
-  private report(state: WorkState, data: Awaited<ReturnType<ManuscriptWork['reconcile']>>) {
+  private report(state: WorkState, data: Awaited<ReturnType<ManuscriptWork['reconcile']>>, cwd: string) {
     const repeatedEvents = data.active.filter((entry, i, all) => entry.purpose === 'advance'
       && all.findIndex(prior => prior.event_id === entry.event_id && prior.purpose === 'advance') < i)
     return { task_key: state.task_key, mode: state.mode, advisory: true, semantic_assessment: 'not_performed',
@@ -211,8 +211,8 @@ export class ManuscriptWork {
           ...manuscriptSourceCitationContext(context) })) })),
       relationships_needing_recheck: state.relationships.filter(row => !data.relationships.some(
         active => active.relationship_id === row.relationship_id))
-        .map(row => ({ ...row, scope_issues: [...manuscriptRelationshipScopeIssues(row, data.sources),
-          ...manuscriptRelationshipSpeakerIssues(row, data.sources, data.characters)] })),
+        .map(row => ({ ...row, scope_issues: [...manuscriptRelationshipScopeIssues(row, data.sources, cwd),
+          ...manuscriptRelationshipSpeakerIssues(row, data.sources, data.characters, cwd)] })),
       comparisons: data.comparisons.map(row => annotateComparison(row, data.sources)),
       comparisons_needing_recheck: state.comparisons.filter(row => !data.comparisons.some(
         active => active.comparison_id === row.comparison_id)).map((row) => {
@@ -329,7 +329,7 @@ export class ManuscriptWork {
       }
       if (args.action === 'relationship') {
         if (!args.relationship) throw Error('MANUSCRIPT_RELATIONSHIP: 提供方向、范围、确定性与来源原句。')
-        const relationship = await validateManuscriptRelationship(args.relationship, data.sources, data.characters, cwd)
+        const relationship = await validateManuscriptRelationship(args.relationship, data.sources, data.characters, cwd, canonicalCwd)
         const relationships = [...state.relationships.filter(row => row.relationship_id !== relationship.relationship_id), relationship]
         state = { ...state, relationships }
         data.relationships = [...data.relationships.filter(row => row.relationship_id !== relationship.relationship_id), relationship]
@@ -354,7 +354,7 @@ export class ManuscriptWork {
         data.active = data.active.filter(entry => !(entry.scene_id === record.scene_id && entry.event_id === record.event_id))
         data.active.push(record)
       }
-      const report = this.report(state, data)
+      const report = this.report(state, data, canonicalCwd)
       if (args.action === 'audit') {
         const version = manuscriptReportVersion({ format: 'manuscript-review/1', state,
           sources: data.sources.map(({ path, sha256 }) => ({ path, sha256 })),
@@ -495,7 +495,7 @@ export class ManuscriptWork {
         }, canonicalCwd) : undefined
       const { scenes, event_notes: _notes, reading_coverage: _coverage, source_cues: _cues, characters: _characters,
         relationships: _relationships, relationships_needing_recheck: _stale,
-        comparisons: _comparisons, comparisons_needing_recheck: _oldComparisons, ...summary } = this.report(state, data)
+        comparisons: _comparisons, comparisons_needing_recheck: _oldComparisons, ...summary } = this.report(state, data, canonicalCwd)
       const result = serializeManuscriptData({ ...summary, notice, scene_count: scenes.length,
         event_note_count: data.active.length, detail: 'audit可读完整场景目录和事件笔记；此处只返回实际改动，不回灌前后全文。' }, canonicalCwd)
       save({ ...state, current: data.current, sources: data.sources, events: data.active, notified: data.fingerprint })

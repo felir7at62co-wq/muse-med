@@ -2,7 +2,7 @@
 import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import { z } from 'zod'
-import { formatManuscriptReport, manuscriptReportVersion } from '../src/manuscript-report.ts'
+import { formatManuscriptPath, formatManuscriptReport, manuscriptReportVersion, serializeManuscriptData } from '../src/manuscript-report.ts'
 import { readAuditCollections } from './manuscript-test-schemas.ts'
 
 const manifestSchema = z.object({ report_paged: z.literal(true), report_sha256: z.string(),
@@ -174,4 +174,56 @@ it('makes only declared workspace path fields portable and keeps note text and o
   expect(manuscriptReportVersion({ path: join(process.cwd(), 'outside.txt') }, leftRoot))
     .not.toBe(manuscriptReportVersion({ path: join(process.cwd(), 'other.txt') }, leftRoot))
   expect(manuscriptReportVersion({ path: 'source.txt', paths: [null] }, leftRoot)).toBeDefined()
+})
+
+it('shares path spelling with diagnostics while preserving quotes and similarly prefixed external paths', () => {
+  for (const name of ['x', '较长的剧本工作区'.repeat(8)]) {
+    const cwd = join(process.cwd(), name), path = join(cwd, '资料', 'source.txt')
+    expect(formatManuscriptPath(path, cwd)).toBe('./资料/source.txt')
+    expect(formatManuscriptPath(cwd, cwd)).toBe('./')
+    expect(formatManuscriptPath(path)).toBe(path)
+    expect(formatManuscriptPath('./资料/source.txt', cwd)).toBe('./资料/source.txt')
+    const outside = join(cwd + '-other', 'source.txt')
+    expect(formatManuscriptPath(outside, cwd)).toBe(outside)
+    expect(formatManuscriptPath(join(cwd, '..', 'outside.txt'), cwd)).toBe(join(cwd, '..', 'outside.txt'))
+    const quote = `甲OS：保留原文中的${path}。`
+    expect(JSON.parse(serializeManuscriptData({ source_path: path, quote }, cwd)))
+      .toEqual({ source_path: './资料/source.txt', quote })
+  }
+})
+
+it.each(['paths', 'source_paths', 'candidate_paths', 'missing_files'])('keeps %s pages portable at root and nested sections', (key) => {
+  const outside = join(process.cwd(), 'outside-source.txt')
+  const pages = ['short', '较长的剧本工作区'.repeat(8)].map((name) => {
+    const cwd = join(process.cwd(), name)
+    const paths = [join(cwd, '资料', 'source.txt'), outside, './already.txt', null]
+    const data = { task_key: '路径分页', [key]: paths, nested: [{ [key]: paths }] }
+    const digest = manuscriptReportVersion(data, cwd)
+    return [key, `nested.0.${key}`].map((section) => {
+      const cursor = { report_sha256: digest, report_section: section }
+      const text = formatManuscriptReport(data, digest, { cwd, maxCharacters: 1600, cursor })
+      const page = z.object({ items: z.array(z.string().nullable()) }).parse(JSON.parse(text))
+      expect(page.items).toEqual(['./资料/source.txt', outside, './already.txt', null])
+      const withoutWorkspace = formatManuscriptReport(data, digest, { maxCharacters: 8000, cursor })
+      expect(z.object({ items: z.array(z.string().nullable()) }).parse(JSON.parse(withoutWorkspace)).items).toEqual(paths)
+      return text
+    })
+  })
+  expect(pages[0]).toEqual(pages[1])
+})
+
+it('preserves absolute path text in ordinary item and quotation pages', () => {
+  const cwd = join(process.cwd(), 'quotation-workspace')
+  const literal = join(cwd, '原文中的文件.txt')
+  const data = { task_key: '原文分页', items: [literal], quote: [literal], records: [{ items: [literal], quote: literal }] }
+  const digest = manuscriptReportVersion(data, cwd)
+  for (const section of ['items', 'quote', 'records.0.items']) {
+    const text = formatManuscriptReport(data, digest, { cwd, maxCharacters: 1600,
+      cursor: { report_sha256: digest, report_section: section } })
+    expect(z.object({ items: z.array(z.string()) }).parse(JSON.parse(text)).items).toEqual([literal])
+  }
+  const text = formatManuscriptReport(data, digest, { cwd, maxCharacters: 1600,
+    cursor: { report_sha256: digest, report_section: 'records' } })
+  expect(z.object({ items: z.array(z.object({ items: z.array(z.string()), quote: z.string() })) }).parse(JSON.parse(text)).items)
+    .toEqual(data.records)
 })

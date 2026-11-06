@@ -1,7 +1,7 @@
 /** Directed relationships retain model uncertainty while rejecting invented or stale source attribution. */
 import { afterEach, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readManuscript } from '../src/manuscript-document.ts'
@@ -14,8 +14,8 @@ afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, {
 
 const original = '第1集\n1-1 客厅 日 内\n▲林遥（小遥）走向林宁。\n林遥：妈妈，我回来了。\n▲林宁是林遥的母亲。\n1-2 门口 日 外\n▲林澄望着程芳。\n林澄：妈妈，你等等。\n▲程芳是林澄的母亲。'
 
-async function fixture(contents = original) {
-  const cwd = await mkdtemp(join(tmpdir(), 'manuscript-relationships-'))
+async function fixture(contents = original, prefix = 'manuscript-relationships-') {
+  const cwd = await mkdtemp(join(tmpdir(), prefix))
   roots.push(cwd)
   const path = join(cwd, 'source.txt')
   await writeFile(path, contents, { flag: 'wx', mode: 0o600 })
@@ -313,6 +313,43 @@ it('rejects explicit episode, source-scene, and unquoted time mistakes with the 
     expect(message).toContain('标题行=2')
     expect(message).toContain('1-1 客厅 日 内')
   }
+})
+
+it('keeps scope and speaker diagnostics identical under short, long and Unicode workspace roots', async () => {
+  const messages: string[] = [], speakers: string[] = []
+  for (const prefix of ['mr-', 'manuscript-long-workspace-'.repeat(4), '剧本资料工作区-'.repeat(5)]) {
+    const f = await fixture(original, prefix), cwd = await realpath(f.cwd)
+    const valid = await f.validate(f.note), before = JSON.stringify(valid)
+    const invalid = { ...valid, scope: { ...valid.scope, scene_id: 'file-1/1:1' } }
+    const message = await rejectedMessage(validateManuscriptRelationship(invalid, [f.source], f.roster, f.cwd, cwd))
+    expect(message).toContain('MANUSCRIPT_RELATION_SCOPE: source_path="./source.txt"')
+    expect(message).toContain('引用行=4-5')
+    expect(message).toContain('标题="1-1 客厅 日 内"')
+    expect(message).not.toContain(cwd)
+    messages.push(message)
+    const speaker = { ...valid, contextual_name: { ...valid.contextual_name!, speaker_id: f.roster[1]!.character_id } }
+    const issues = manuscriptRelationshipSpeakerIssues(speaker, [f.source], f.roster, cwd)
+    expect(issues[0]?.message).toContain('./source.txt:4')
+    speakers.push(JSON.stringify(issues))
+    expect(JSON.stringify(valid)).toBe(before)
+    expect(valid.evidence[0]?.source_path).toBe(f.source.path)
+    expect(await readFile(f.path, 'utf8')).toBe(original)
+  }
+  expect(new Set(messages).size).toBe(1)
+  expect(new Set(speakers).size).toBe(1)
+})
+
+it('keeps external source paths and omitted-workspace diagnostics absolute without changing rejection conditions', async () => {
+  const f = await fixture(), other = await fixture(original, 'another-manuscript-workspace-')
+  const valid = await f.validate(f.note), invalid = { ...valid, scope: { ...valid.scope, scene_id: 'not-a-source-scene' } }
+  const originalNote = JSON.stringify(invalid)
+  const issues = manuscriptRelationshipScopeIssues(invalid, [f.source])
+  expect(issues[0]?.message).toContain(JSON.stringify(f.source.path))
+  const message = await rejectedMessage(validateManuscriptRelationship(invalid, [f.source], f.roster,
+    other.cwd, await realpath(other.cwd)))
+  expect(message).toContain('MANUSCRIPT_RELATION_SCOPE')
+  expect(message).toContain(JSON.stringify(f.source.path))
+  expect(JSON.stringify(invalid)).toBe(originalNote)
 })
 
 it('uses an actual quoted time as evidence without automatically applying it to other citations', async () => {
