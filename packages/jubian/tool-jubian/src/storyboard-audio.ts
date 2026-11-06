@@ -139,6 +139,7 @@ async function projectCharacters(root: string, scriptId: number, required: boole
   if (positiveInteger(config.jubian_script_id) !== scriptId) invalid('Project voice identity belongs to another project')
   if (config.project_bible === undefined && !required) return []
   const bible = localObject(config.project_bible, 'project_bible')
+  if (bible.characters === undefined && !required) return []
   if (!Array.isArray(bible.characters)) invalid('Project voice identities are not configured: adopt the approved audio asset for the character and life period in project_config.json project_bible.characters, then preview again')
   return bible.characters.map(row => localObject(row, 'project_bible.characters[]'))
 }
@@ -345,12 +346,13 @@ async function readback(client: JubianClient, plan: AudioPlan, replayed: boolean
  * another period. Deleted assets are rejected; phased references require explicit active evidence.
  * Legacy unphased references retain compatibility when deletion evidence is absent. Refusal affects
  * this card's audio edit only; it sends no PUT and does not block independent work.
- * Shared-slot assets and adopted phased references require explicit local identities; removing
+ * Asset-ID references to shared slots and references matching adopted phases require explicit local identities; removing
  * identity fields cannot downgrade them to legacy references. Missing project-bible adoption
  * reports a local configuration error. Local identity fields are omitted from provider material rows.
  * A claimed key only reads the original card, even if its
  * audio-library asset has changed. Unphased legacy and unrelated URL-only references remain supported
- * without a fabricated asset ID.
+ * without a fabricated asset ID. A URL without an asset ID or local adopted profile does not
+ * establish a remote shared identity.
  * @param client - Current-card reads and the single free isGenerate=0 PUT transport.
  * @param ledger - Durable write claims preventing repeated saves under one reviewed key.
  * @param args - Bound card, final audio list and prompt for preview, or frozen preview fields for apply.

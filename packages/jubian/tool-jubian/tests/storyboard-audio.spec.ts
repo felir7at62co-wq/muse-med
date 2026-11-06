@@ -837,6 +837,12 @@ it('retains legacy references when unrelated characters have no voice profiles',
   expect(await preview([voice])).toMatchObject({ status: 'ready' })
 })
 
+it('retains unrelated legacy URL editing when the project bible configures delivery without characters', async () => {
+  await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708,
+    project_bible: { delivery: { type: 'short_drama' } } }))
+  expect(await apply(await preview([voice]))).toMatchObject({ status: 'applied', verified_readback: true })
+})
+
 it.each(['add', 'remove'])('rejects image-marker %s during an audio-only edit', async (change) => {
   const prompt = change === 'add' ? `${audioPrompt}，@[门](door)` : '@[周海生声音](zhou-voice)'
   await expect(preview([voice], prompt)).rejects.toThrow('preserve image marker names, keys and order')

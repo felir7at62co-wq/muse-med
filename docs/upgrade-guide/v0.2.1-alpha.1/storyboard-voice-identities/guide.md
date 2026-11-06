@@ -9,7 +9,7 @@ English | [中文](guide.zh.md)
 
 ## Change
 
-`jubian_storyboard audio_preview` and new `audio_apply` saves refuse shared-slot assets or project-adopted phased voices when their local identity fields are omitted. Previously, omitting these fields selected legacy checking and bypassed the character-period comparison. Unphased legacy references and unrelated URL-only audio remain supported. Existing claimed keys continue read-only reconciliation without another save. Session generations and existing audio assets are unchanged.
+`jubian_storyboard audio_preview` and new `audio_apply` saves refuse asset-ID references to shared slots or references matching project-adopted phased voices when their local identity fields are omitted. Previously, omitting these fields selected legacy checking and bypassed the character-period comparison. Unphased legacy references and unrelated URL-only audio remain supported; a URL alone cannot identify a remote shared slot when no local adopted profile matches. Existing claimed keys continue read-only reconciliation without another save. Session generations and existing audio assets are unchanged.
 
 ## Migration
 
