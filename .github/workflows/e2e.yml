@@ -1,54 +1,29 @@
-name: E2E (real DeepSeek API)
+name: E2E (real model API)
 
-# Real-API end-to-end suite (`pnpm run test:e2e`). Unlike ci.yml this job
-# consumes the DEEPSEEK_API_KEY_EXTERNAL secret (mapped to the env var
-# DEEPSEEK_API_KEY the tests read) and hits the external API at
-# https://api.deepseek.com/anthropic (DEEPSEEK_BASE_URL is pinned explicitly so a
-# stray repo-root .env can't redirect the run).
+# Muse validates its authenticated model relay with a dedicated ordinary account.
+# The upstream and opted-in repositories retain the official DeepSeek protocol
+# suite. Muse can also opt into that suite with DSH_RUN_REAL_API_E2E=true.
+# Credentials reach only preflight and their corresponding test steps.
 #
-# GitHub withholds repo secrets from cross-repository and Dependabot PRs. The
-# job admits same-repository branches even when the repository itself is a
-# fork; head.repo.fork describes the repository, not who owns the PR branch.
-# The Dependabot test keys on the PR AUTHOR (pull_request.user.login), not
-# github.actor (the run trigger) — a maintainer reopening a Dependabot PR would
-# make github.actor human while the PR is still keyless. When the job runs, the
-# secret is expected, so the preflight hard-fails if it's missing (a missing
-# secret would otherwise make the self-skipping suite report a false green). A
-# job skipped by a job-level `if:` reports as a SUCCESSFUL check, so this
-# workflow is safe to use as a required status check if desired.
-#
-# SECURITY — NEVER change this trigger to `pull_request_target`. `pull_request`
-# checks out and runs the PR's HEAD code WITHOUT secrets for forks, which is what
-# keeps an untrusted fork from exfiltrating the key. `pull_request_target` runs
-# in the BASE repo's context WITH secrets while still able to check out untrusted
-# fork code — a textbook key-leak vector, especially once this repo is public.
-# The fork/secret model and its public-repo implications are recorded in
-# .agents/notes/implemented/testing/2026-06-19-real-api-e2e-ci.md.
-#
-# Note: scheduled triggers are auto-disabled after 60 days of repo inactivity;
-# push/pull_request/workflow_dispatch act as backstops.
+# Never use pull_request_target: untrusted PR code must not receive credentials.
+# A same-repository branch is trusted even when the repository itself is a fork;
+# Dependabot PRs remain keyless regardless of who triggers the run.
 on:
   workflow_dispatch:
   push:
     branches: [main, master]
   pull_request:
   schedule:
-    # 00:17 UTC nightly = 08:17 Asia/Shanghai — off the top-of-hour cron stampede.
     - cron: '17 0 * * *'
 
-# Keep only the newest validation in each workflow/ref, including master
-# pushes, nightly runs, and manual dispatches.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Least privilege: this job only reads the repo to run tests.
 permissions:
   contents: read
 
 env:
-  # CI runs must never report to the production telemetry endpoint baked
-  # into apps/cli/cordis.yml (AppCLIEntry disables the row when set).
   DSH_TELEMETRY_DISABLED: '1'
 
 jobs:
@@ -57,8 +32,6 @@ jobs:
       ${{ vars.DSH_CI_FAILOVER_LINUX == 'blacksmith'
           && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
     name: e2e
-    # Muse and upstream run with-key CI by default; other repositories opt in.
-    # Same-repository PRs require an author other than Dependabot.
     if: >-
       (github.repository == 'deepseek-harness/deepseek-harness'
       || github.repository == 'felir7at62co-wq/muse-med'
@@ -66,25 +39,39 @@ jobs:
       && (github.event_name != 'pull_request'
       || (github.event.pull_request.head.repo.full_name == github.repository
       && github.event.pull_request.user.login != 'dependabot[bot]'))
-    # Profile e2e files can each own several complete dsh subprocess trees, so
-    # four file workers preserve process/PTY headroom. Tests retain 120s/test
-    # and retry 2; 45m still bounds retry storms against a slow API.
     timeout-minutes: 45
     steps:
-      # Missing credentials fail before checkout, installation, or API work.
+      - name: Preflight (require Muse test account and model route)
+        if: github.repository == 'felir7at62co-wq/muse-med'
+        env:
+          MUSE_E2E_BASE_URL: ${{ vars.MUSE_E2E_BASE_URL }}
+          MUSE_E2E_PROVIDER: ${{ vars.MUSE_E2E_PROVIDER }}
+          MUSE_E2E_MODEL: ${{ vars.MUSE_E2E_MODEL }}
+          MUSE_E2E_USERNAME: ${{ secrets.MUSE_E2E_USERNAME }}
+          MUSE_E2E_PASSWORD: ${{ secrets.MUSE_E2E_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in MUSE_E2E_BASE_URL MUSE_E2E_PROVIDER MUSE_E2E_MODEL MUSE_E2E_USERNAME MUSE_E2E_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is empty; Muse real API tests cannot self-skip."
+              exit 1
+            fi
+          done
+
       - name: Preflight (require DEEPSEEK_API_KEY)
+        if: github.repository != 'felir7at62co-wq/muse-med' || vars.DSH_RUN_REAL_API_E2E == 'true'
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}
         run: |
           set -euo pipefail
           if [ -z "${DEEPSEEK_API_KEY:-}" ]; then
-            echo "::error::DEEPSEEK_API_KEY is empty. The e2e suite would self-skip and"
-            echo "::error::report a false green. Configure the repo secret DEEPSEEK_API_KEY_EXTERNAL."
+            echo "::error::DEEPSEEK_API_KEY_EXTERNAL is empty; official API tests cannot self-skip."
             exit 1
           fi
-          echo "DEEPSEEK_API_KEY present."
 
       - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v6
 
@@ -96,27 +83,29 @@ jobs:
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile
 
-      # The with-key escalation e2e self-skips without a usable runner. Prepare
-      # bwrap so trusted CI exercises it; the functional probe remains the
-      # authority on whether the runner can use the sandbox.
       - name: Prepare bubblewrap (unrestrict userns)
         run: bash scripts/prepare-ci-bubblewrap.sh
 
-      # The e2e suites boot the example bins in `lib` mode (DSH_EXAMPLE_MODE=lib):
-      # the built artifact under plain Node, resolving plugins through real package
-      # exports — the shape a real consumer runs. That requires a prior build.
       - name: Build (lib for the e2e example bins)
         run: pnpm run build:official
 
       - name: Prepare Office runtime
+        if: github.repository != 'felir7at62co-wq/muse-med' || vars.DSH_RUN_REAL_API_E2E == 'true'
         run: pnpm run prepare:primary-runtime --target linux-x64 --output .cache/e2e-office
 
-      # Real-API end-to-end tests only. The keyless gates (lint/typecheck/
-      # coverage/snapshot/etc.) already run in ci.yml (pull requests) and
-      # ci-master.yml (master push standby).
-      # DEEPSEEK_BASE_URL is pinned to the external API; the secret is scoped to
-      # this step (and preflight) only — never exposed to checkout/setup/install.
+      - name: E2E tests (real Muse API)
+        if: github.repository == 'felir7at62co-wq/muse-med'
+        env:
+          MUSE_E2E_BASE_URL: ${{ vars.MUSE_E2E_BASE_URL }}
+          MUSE_E2E_PROVIDER: ${{ vars.MUSE_E2E_PROVIDER }}
+          MUSE_E2E_MODEL: ${{ vars.MUSE_E2E_MODEL }}
+          MUSE_E2E_USERNAME: ${{ secrets.MUSE_E2E_USERNAME }}
+          MUSE_E2E_PASSWORD: ${{ secrets.MUSE_E2E_PASSWORD }}
+          DSH_E2E_MAX_WORKERS: 1
+        run: pnpm run test:e2e packages/host/muse-account/tests/muse-gateway-live.e2e.ts --retry=0
+
       - name: E2E tests (real DeepSeek API)
+        if: github.repository != 'felir7at62co-wq/muse-med' || vars.DSH_RUN_REAL_API_E2E == 'true'
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY_EXTERNAL }}
           DEEPSEEK_BASE_URL: https://api.deepseek.com/anthropic

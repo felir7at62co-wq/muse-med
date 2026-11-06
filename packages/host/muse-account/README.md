@@ -138,6 +138,13 @@ No runtime invariant companion is published because account status and registere
 
 </details>
 
+<a id="live-gateway-verification"></a>
+### Live gateway verification
+
+Use a dedicated ordinary account without personal data, administrator access, or publishing membership for the real gateway test. Configure the five `MUSE_E2E_*` values described in the [CI reference](../../../docs/development.md#ci-gates), then run `pnpm run test:e2e packages/host/muse-account/tests/muse-gateway-live.e2e.ts --retry=0` after building the package. With all five values absent, a local run skips the case; a partial configuration fails. CI requires all five values and uses one worker.
+
+The built Muse account plugin signs in, verifies an unpredictable text reply, and runs a tool whose private random challenge is absent from the prompt. The AgentLoop must continue with the actual tool result. The case permits at most three streamed model requests, at most 1,024 output tokens per request, and a 90-second request deadline, without test retries. Requests use relay transport, keeping supplier keys at the gateway. The case checks that Session data excludes account credentials, then verifies logout revocation and removal of the test home's session and model-access files. These test limits do not implement account-level gateway quotas.
+
 -----
 
 <a id="further-exploration"></a>

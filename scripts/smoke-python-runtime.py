@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Keyless full-turn and snapshot smoke for the Python SDK runtime."""
+"""Keyless, snapshot and explicitly selected live-model smokes for the Python SDK runtime."""
 
 from __future__ import annotations
 
 import argparse
 from collections import deque
+from contextlib import ExitStack
+from dataclasses import asdict
 import difflib
 import importlib
 import importlib.metadata
@@ -22,9 +24,13 @@ import tempfile
 import threading
 import time
 import zipfile
+from email.message import Message
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 if TYPE_CHECKING:
     from deepseek_harness import RunResult
@@ -32,6 +38,45 @@ if TYPE_CHECKING:
 
 EXPECTED_TEXT = "runtime smoke ok"
 LIVE_API_SENTINEL = "PYTHON_SDK_LIVE_OK"
+MUSE_FETCH_BUDGET_PLUGIN = """\
+import { writeFileSync } from 'node:fs';
+
+/** Limit the exact Muse relay fetch route inside one isolated SDK process. */
+export function apply(ctx, config) {
+  const original = globalThis.fetch;
+  const deadline = new AbortController();
+  let requests = 0;
+  const record = () => writeFileSync(config.receipt, JSON.stringify({ requests }), { mode: 0o600 });
+  const guarded = async (input, init) => {
+    const url = input instanceof Request ? input.url : String(input);
+    if (url !== config.url) throw Error('Muse smoke refused an unexpected network endpoint');
+    deadline.signal.throwIfAborted();
+    if (requests >= config.requests) throw Error('Muse smoke exhausted its HTTP request budget');
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body)
+      : input instanceof Request ? await input.clone().json() : undefined;
+    const limits = ['max_tokens', 'max_completion_tokens'].filter(key => body?.[key] !== undefined);
+    if (!limits.length || limits.some(key => !Number.isSafeInteger(body[key]) || body[key] < 1 || body[key] > config.tokens)) {
+      throw Error('Muse smoke refused an unbounded model output');
+    }
+    requests++;
+    record();
+    const signals = [deadline.signal, init?.signal, input instanceof Request ? input.signal : undefined].filter(Boolean);
+    return original(input, { ...init, signal: AbortSignal.any(signals) });
+  };
+  ctx.effect(() => {
+    globalThis.fetch = guarded;
+    record();
+    const timer = setTimeout(() => deadline.abort(Error('Muse smoke exceeded its runtime deadline')), config.milliseconds);
+    timer.unref();
+    return () => {
+      clearTimeout(timer);
+      deadline.abort();
+      if (globalThis.fetch === guarded) globalThis.fetch = original;
+      record();
+    };
+  });
+}
+"""
 CODE_PROMPT = "Use run_code to compute the packaged worker smoke value."
 CODE_WORKER_TEXT = "code worker smoke ok"
 WORKFLOW_PROMPT = "Use workflow to compute the packaged worker smoke value without agents."
@@ -784,7 +829,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--scenario",
-        choices=("all", "sdk-default", "sdk-custom", "sdk-minimal", "sdk-minimal-in-history", "sdk-dynamic-tools", "sdk-fs-search", "sdk-spawn-node", "sdk-mcp", "sdk-snapshot", "sdk-recovery", "sdk-restart", "sdk-shutdown", "sdk-profile-plugin", "sdk-office", "sdk-authoring", "sdk-live", "runner", "direct"),
+        choices=("all", "sdk-default", "sdk-custom", "sdk-minimal", "sdk-minimal-in-history", "sdk-dynamic-tools", "sdk-fs-search", "sdk-spawn-node", "sdk-mcp", "sdk-snapshot", "sdk-recovery", "sdk-restart", "sdk-shutdown", "sdk-profile-plugin", "sdk-office", "sdk-authoring", "sdk-live", "sdk-muse-live", "runner", "direct"),
         default="all",
     )
     parser.add_argument("--exe", type=Path)
@@ -797,8 +842,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.installed_wheel and args.exe is not None:
         parser.error("--installed-wheel resolves the wheel's own runtime and cannot be combined with --exe")
-    if args.scenario == "sdk-live" and not args.installed_wheel:
-        parser.error("--scenario sdk-live requires --installed-wheel")
+    if args.scenario in {"sdk-live", "sdk-muse-live"} and not args.installed_wheel:
+        parser.error(f"--scenario {args.scenario} requires --installed-wheel")
     if args.scenario == "sdk-profile-plugin" and not args.installed_wheel:
         parser.error("--scenario sdk-profile-plugin requires --installed-wheel")
     if args.installed_wheel:
@@ -827,6 +872,11 @@ def main() -> None:
     if args.scenario == "sdk-live":
         smoke_sdk_live()
         print("smoke-python-runtime: sdk-live passed")
+        return
+
+    if args.scenario == "sdk-muse-live":
+        smoke_sdk_muse_live()
+        print("smoke-python-runtime: sdk-muse-live passed")
         return
 
     if args.scenario == "sdk-shutdown":
@@ -1068,8 +1118,6 @@ def assert_installed_wheel_environment() -> Path:
 
 def smoke_sdk_live() -> None:
     """Run a real-model, tool-using two-turn task through installed wheels."""
-    from deepseek_harness import DeepSeekHarness
-
     api_key = os.environ.get("DEEPSEEK_API_KEY")
     base_url = os.environ.get("DEEPSEEK_BASE_URL")
     if not api_key:
@@ -1078,60 +1126,292 @@ def smoke_sdk_live() -> None:
         raise AssertionError("sdk-live requires an explicit DEEPSEEK_BASE_URL")
 
     with tempfile.TemporaryDirectory(prefix="dsh-sdk-live-") as temporary:
-        root = Path(temporary).resolve()
-        dsh_home = root / "home"
-        sessions = dsh_home / "sessions"
-        marker = root / "live-api-marker.txt"
-        session_id = "installed-wheel-live-api"
-        shell_tool = "pwsh" if IS_WINDOWS else "bash"
-        create_prompt = (
-            f"Use the {shell_tool} tool to create the file at the absolute path below with exact UTF-8 "
-            f"content {LIVE_API_SENTINEL}, with no newline or byte-order mark. "
-            f"Then reply with exactly {LIVE_API_SENTINEL}.\n{marker}"
-        )
-        with DeepSeekHarness(
-            provider="deepseek-official",
-            model="deepseek-v4-flash",
-            cwd=str(root),
-            dsh_home=str(dsh_home),
-            env={
-                "DSH_PERMISSION_MODE": "danger-full-access",
-                "DSH_TELEMETRY_DISABLED": "1",
-            },
-            api_key=api_key,
-            base_url=base_url,
-            request_timeout_seconds=180,
-        ) as harness:
-            created = harness.run(create_prompt, session_id=session_id)
-            assert_live_turn("create", created)
-            if not marker.is_file():
-                raise AssertionError(f"create turn did not create {marker}")
-            if marker.read_bytes() != LIVE_API_SENTINEL.encode("utf-8"):
-                raise AssertionError(f"create turn wrote unexpected bytes to {marker}")
+        run_sdk_live_task(Path(temporary).resolve(), {
+            "provider": "deepseek-official", "model": "deepseek-v4-flash",
+            "api_key": api_key, "base_url": base_url,
+        })
 
-            # The challenge is absent from the prior turn and the verification prompt.
-            challenge = secrets.token_hex(32).encode("ascii")
-            marker.write_bytes(challenge)
-            with tempfile.TemporaryDirectory(prefix="receipt-", dir=root) as receipt_directory:
-                receipt = Path(receipt_directory) / "receipt.txt"
-                verify_prompt = (
-                    "The file created in the previous turn has changed externally. "
-                    "Use a tool to read that same file and copy its exact current content to the "
-                    "new receipt path below, without changing the source file. "
-                    "Preserve every byte; do not add a newline or byte-order mark. "
-                    f"{LIVE_API_SENTINEL} is only the completion acknowledgement, "
-                    "not a claim about the source or receipt contents. "
-                    f"Then reply with exactly {LIVE_API_SENTINEL}.\n{receipt}"
-                )
-                verified = harness.run(verify_prompt, session_id=session_id)
-                assert_live_turn("verify", verified)
-                if not receipt.is_file():
-                    raise AssertionError(f"verify turn did not create receipt {receipt}")
-                if receipt.read_bytes() != challenge:
-                    raise AssertionError(f"verify turn wrote unexpected bytes to receipt {receipt}")
-                if not marker.is_file() or marker.read_bytes() != challenge:
-                    raise AssertionError(f"verify turn changed source file {marker}")
-        assert_zstd_session_log(sessions)
+
+class MuseSmokeNoRedirect(HTTPRedirectHandler):
+    """Keep account cookies and credentials on the configured Muse origin."""
+
+    def redirect_request(self, *args: object, **kwargs: object) -> None:
+        return None
+
+
+def muse_smoke_request(
+    origin: str, path: str, method: str, body: bytes | None = None, cookie: str | None = None,
+) -> tuple[int, Message, bytes]:
+    """Make one bounded, non-redirecting account request without recording credentials."""
+    headers = {"origin": origin, "accept": "application/json"}
+    if body is not None:
+        headers["content-type"] = "application/x-www-form-urlencoded"
+    if cookie is not None:
+        headers["cookie"] = cookie
+    request = Request(origin + path, data=body, method=method, headers=headers)
+    try:
+        response = build_opener(MuseSmokeNoRedirect()).open(request, timeout=30)
+    except HTTPError as error:
+        response = error
+    except (URLError, OSError):
+        raise AssertionError("Muse account request failed") from None
+    with response:
+        content = response.read(2 * 1024 * 1024 + 1)
+        if len(content) > 2 * 1024 * 1024:
+            raise AssertionError("Muse account response exceeded its byte limit")
+        return response.code, response.headers, content
+
+
+def muse_smoke_json(response: tuple[int, Message, bytes]) -> dict[str, object]:
+    """Accept successful account metadata without including response text in errors."""
+    status, _, content = response
+    if status != 200:
+        raise AssertionError(f"Muse account metadata request returned HTTP {status}")
+    try:
+        value = json.loads(content)
+    except (ValueError, UnicodeError):
+        raise AssertionError("Muse account metadata is not valid JSON") from None
+    if not isinstance(value, dict):
+        raise AssertionError("Muse account metadata must be an object")
+    return value
+
+
+def muse_smoke_configuration() -> dict[str, str]:
+    """Require an explicit ordinary account and relay model for the installed-wheel test."""
+    fields = ("BASE_URL", "USERNAME", "PASSWORD", "PROVIDER", "MODEL")
+    values = {field: os.environ.get("MUSE_E2E_" + field, "") for field in fields}
+    for field, value in values.items():
+        if not value:
+            raise AssertionError("sdk-muse-live requires MUSE_E2E_" + field)
+    try:
+        address = urlsplit(values["BASE_URL"])
+        valid_origin = (address.scheme == "https" and bool(address.hostname)
+                        and address.port in {None, 443} and address.path in {"", "/"}
+                        and not any((address.username, address.password, address.query, address.fragment)))
+    except ValueError:
+        valid_origin = False
+    if not valid_origin:
+        raise AssertionError("MUSE_E2E_BASE_URL must be an HTTPS origin without credentials")
+    if not re.fullmatch(r"[a-z][a-z0-9-]{0,63}", values["PROVIDER"]):
+        raise AssertionError("MUSE_E2E_PROVIDER is invalid")
+    if len(values["MODEL"]) > 200 or any(ord(char) < 32 for char in values["MODEL"]):
+        raise AssertionError("MUSE_E2E_MODEL is invalid")
+    return {**values, "BASE_URL": values["BASE_URL"].rstrip("/")}
+
+
+def muse_smoke_profile(config: dict[str, str], catalog: dict[str, object]) -> dict[str, object]:
+    """Configure pi-ai exclusively with public relay metadata, never supplier access."""
+    providers = catalog.get("providers")
+    if catalog.get("transport") == "direct" or not isinstance(providers, list):
+        raise AssertionError("Muse smoke requires public relay model metadata")
+    if any(not isinstance(provider, dict) or "access" in provider for provider in providers):
+        raise AssertionError("Muse smoke refuses supplier access metadata")
+    matches = [provider for provider in providers if provider.get("id") == config["PROVIDER"]]
+    if len(matches) != 1 or not isinstance(matches[0].get("models"), list):
+        raise AssertionError("Muse smoke provider is not available")
+    models = [model for model in matches[0]["models"] if isinstance(model, dict) and model.get("id") == config["MODEL"]]
+    if len(models) != 1:
+        raise AssertionError("Muse smoke model is not available")
+    model = models[0]
+    if any(type(model.get(field)) is not int or model[field] < 1 for field in ("contextWindow", "maxTokens")):
+        raise AssertionError("Muse smoke model limits are invalid")
+    if not isinstance(model.get("input"), list) or "text" not in model["input"]:
+        raise AssertionError("Muse smoke model does not offer text input")
+    compatibility: dict[str, object] = {
+        "supportsStore": False, "supportsDeveloperRole": False, "maxTokensField": "max_tokens",
+    }
+    if config["PROVIDER"] == "deepseek-official":
+        compatibility.update(thinkingFormat="deepseek", requiresReasoningContentOnAssistantMessages=True)
+    selected = {field: model[field] for field in ("id", "name", "contextWindow", "maxTokens", "input", "reasoningEfforts") if field in model}
+    selected["compat"] = {"supportsReasoningEffort": model.get("reasoningEfforts") is not False}
+    if re.search(r"(?:^|/)glm-5\.3(?:-|$)", config["MODEL"], re.IGNORECASE):
+        selected["compat"].update(
+            thinkingFormat="zai" if config["PROVIDER"] == "zhipu-official" else "deepseek",
+            requiresReasoningContentOnAssistantMessages=True,
+        )
+        if config["PROVIDER"] == "zhipu-official":
+            selected["compat"]["zaiToolStream"] = True
+    if config["PROVIDER"] == "yunying" and config["MODEL"] == "gpt-6.1-sol":
+        selected["compat"]["maxTokensField"] = "max_completion_tokens"
+    if config["PROVIDER"] == "yunying" and config["MODEL"] == "gemini-3.1-pro":
+        selected["googleThoughtSummaries"] = True
+    return {
+        "api": "openai-completions", "displayName": "Muse CI relay",
+        "apiKeyEnv": "MUSE_E2E_SESSION_TOKEN",
+        "baseURL": config["BASE_URL"] + "/api/desktop-models/" + config["PROVIDER"],
+        "headers": {"origin": config["BASE_URL"]}, "models": [selected], "compat": compatibility,
+        "retryPolicy": {"mode": "normal", "maxRetries": 0},
+    }
+
+
+def smoke_sdk_muse_live() -> None:
+    """Run the installed-wheel two-turn test using an ordinary Muse login and relay."""
+    config = muse_smoke_configuration()
+    try:
+        import zstandard  # noqa: F401 — installed only in the explicit Muse CI smoke environment.
+    except ImportError:
+        raise AssertionError("sdk-muse-live requires the zstandard verification dependency") from None
+    origin = config["BASE_URL"]
+    login = muse_smoke_request(origin, "/login", "POST", urlencode({
+        "username": config["USERNAME"], "password": config["PASSWORD"],
+    }).encode("utf-8"))
+    cookies = login[1].get_all("set-cookie", [])
+    cookie = next((header.split(";", 1)[0] for header in cookies if header.startswith("__Host-muse=")), "")
+    if login[0] != 303 or not re.fullmatch(r"__Host-muse=[A-Za-z0-9_-]+", cookie):
+        raise AssertionError(f"Muse smoke login was rejected (HTTP {login[0]})")
+    try:
+        identity = muse_smoke_json(muse_smoke_request(origin, "/api/muse.account", "GET", cookie=cookie))
+        if identity.get("username") != config["USERNAME"] or identity.get("admin") is not None and identity.get("admin") is not False:
+            raise AssertionError("Muse smoke requires its dedicated ordinary account")
+        catalog = muse_smoke_json(muse_smoke_request(origin, "/api/desktop-models/providers", "GET", cookie=cookie))
+        profile = muse_smoke_profile(config, catalog)
+        with tempfile.TemporaryDirectory(prefix="dsh-sdk-muse-live-") as temporary:
+            root = Path(temporary).resolve()
+            patch = root / "muse-relay.patch.json"
+            budget_plugin = root / "muse-fetch-budget.mjs"
+            budget_receipt = root / "muse-fetch-budget.json"
+            budget_plugin.write_text(MUSE_FETCH_BUDGET_PLUGIN, encoding="utf-8")
+            patch.write_text(json.dumps([
+                {"id": "llm-deepseek", "disabled": True},
+                {"id": "llm-deepseek-account", "disabled": True},
+                {"id": "llm-retry", "disabled": True},
+                {"id": "llm-pi-ai", "config": {"providers": {"muse-ci-relay": profile}}},
+                {"insert": [{"id": "muse-live-fetch-budget", "name": budget_plugin.as_uri(), "config": {
+                    "url": profile["baseURL"] + "/chat/completions", "receipt": str(budget_receipt),
+                    "requests": 6, "tokens": 1024, "milliseconds": 180000,
+                }}]},
+            ]), encoding="utf-8")
+            reasoning = profile["models"][0].get("reasoningEfforts")
+            effort = next((level for level in ("minimal", "low") if isinstance(reasoning, dict) and level in reasoning), None)
+            run_sdk_live_task(root, {
+                "provider": "muse-ci-relay", "model": config["MODEL"], "patches": (str(patch),),
+                "max_tokens": min(1024, profile["models"][0]["maxTokens"]),
+                **({"reasoning_effort": effort} if effort is not None else {}),
+            }, {
+                "MUSE_E2E_SESSION_TOKEN": cookie.split("=", 1)[1], "MUSE_E2E_PASSWORD": "", "MUSE_E2E_USERNAME": "",
+                "DEEPSEEK_API_KEY": "", "DEEPSEEK_BASE_URL": "",
+            }, sensitive=(config["USERNAME"], config["PASSWORD"], cookie, cookie.split("=", 1)[1]),
+                total_seconds=180, budget_receipt=budget_receipt)
+            receipt = json.loads(budget_receipt.read_text(encoding="utf-8"))
+            if type(receipt.get("requests")) is not int or not 4 <= receipt["requests"] <= 6:
+                raise AssertionError("Muse smoke did not observe its bounded HTTP relay requests")
+            print(f"smoke-python-runtime: Muse relay HTTP requests={receipt['requests']} (limit=6)")
+    except AssertionError:
+        raise
+    except Exception:
+        raise AssertionError("Muse installed-wheel runtime failed before verified completion") from None
+    finally:
+        logout = muse_smoke_request(origin, "/logout", "POST", b"", cookie)
+        if logout[0] not in {200, 303}:
+            raise AssertionError(f"Muse smoke logout was rejected (HTTP {logout[0]})")
+
+
+def assert_muse_secret_free(content: bytes, sensitive: tuple[str, ...]) -> None:
+    """Reject credential-bearing runtime data before any model failure is printed."""
+    if any(value and value.encode("utf-8") in content for value in sensitive):
+        raise AssertionError("Muse smoke runtime data contains sensitive account information")
+
+
+def assert_muse_logs_secret_free(sessions: Path, sensitive: tuple[str, ...]) -> None:
+    """Inspect the decompressed persisted Session rather than only its compressed header."""
+    import zstandard
+
+    logs = latest_persisted_session_paths(sessions, compressed=True)
+    if not logs:
+        raise AssertionError("Muse smoke has no persisted Session to inspect")
+    for path in logs:
+        with path.open("rb") as source, zstandard.ZstdDecompressor().stream_reader(source) as reader:
+            content = reader.read(16 * 1024 * 1024 + 1)
+        if len(content) > 16 * 1024 * 1024:
+            raise AssertionError("Muse smoke Session exceeded its verification byte limit")
+        assert_muse_secret_free(content, sensitive)
+
+
+def run_sdk_live_task(
+    root: Path, model: dict[str, object], environment: dict[str, str] | None = None,
+    *, sensitive: tuple[str, ...] = (), total_seconds: float | None = None, budget_receipt: Path | None = None,
+) -> None:
+    """Check the same two model-requested tool turns and external bytes for either live route."""
+    from deepseek_harness import DeepSeekHarness
+
+    dsh_home = root / "home"
+    sessions = dsh_home / "sessions"
+    marker = root / "live-api-marker.txt"
+    session_id = "installed-wheel-live-api"
+    shell_tool = "pwsh" if IS_WINDOWS else "bash"
+    create_prompt = (
+        f"Use the {shell_tool} tool to create the file at the absolute path below with exact UTF-8 "
+        f"content {LIVE_API_SENTINEL}, with no newline or byte-order mark. "
+        f"Then reply with exactly {LIVE_API_SENTINEL}.\n{marker}"
+    )
+    started = time.monotonic()
+    with ExitStack() as stack:
+        harness = stack.enter_context(DeepSeekHarness(
+        **model,
+        cwd=str(root),
+        dsh_home=str(dsh_home),
+        env={
+            "DSH_PERMISSION_MODE": "danger-full-access",
+            "DSH_TELEMETRY_DISABLED": "1",
+            **(environment or {}),
+        },
+        request_timeout_seconds=180,
+        ))
+        if budget_receipt is not None:
+            if not budget_receipt.is_file() or json.loads(budget_receipt.read_text(encoding="utf-8")) != {"requests": 0}:
+                raise AssertionError("Muse SDK runtime did not activate its HTTP request guard before model use")
+        expired = threading.Event()
+        if total_seconds is not None:
+            def expire() -> None:
+                expired.set()
+                harness.close()
+
+            watchdog = threading.Timer(max(0, total_seconds - (time.monotonic() - started)), expire)
+            watchdog.start()
+            stack.callback(watchdog.join)
+            stack.callback(watchdog.cancel)
+        if expired.is_set():
+            raise AssertionError("Muse smoke exceeded its total runtime deadline")
+        created = harness.run(create_prompt, session_id=session_id)
+        if sensitive:
+            assert_muse_secret_free(json.dumps(asdict(created), ensure_ascii=False).encode("utf-8"), sensitive)
+        if expired.is_set():
+            raise AssertionError("Muse smoke exceeded its total runtime deadline")
+        assert_live_turn("create", created)
+        if not marker.is_file():
+            raise AssertionError(f"create turn did not create {marker}")
+        if marker.read_bytes() != LIVE_API_SENTINEL.encode("utf-8"):
+            raise AssertionError(f"create turn wrote unexpected bytes to {marker}")
+
+        # The challenge is absent from the prior turn and the verification prompt.
+        challenge = secrets.token_hex(32).encode("ascii")
+        marker.write_bytes(challenge)
+        with tempfile.TemporaryDirectory(prefix="receipt-", dir=root) as receipt_directory:
+            receipt = Path(receipt_directory) / "receipt.txt"
+            verify_prompt = (
+                "The file created in the previous turn has changed externally. "
+                "Use a tool to read that same file and copy its exact current content to the "
+                "new receipt path below, without changing the source file. "
+                "Preserve every byte; do not add a newline or byte-order mark. "
+                f"{LIVE_API_SENTINEL} is only the completion acknowledgement, "
+                "not a claim about the source or receipt contents. "
+                f"Then reply with exactly {LIVE_API_SENTINEL}.\n{receipt}"
+            )
+            verified = harness.run(verify_prompt, session_id=session_id)
+            if sensitive:
+                assert_muse_secret_free(json.dumps(asdict(verified), ensure_ascii=False).encode("utf-8"), sensitive)
+            if expired.is_set():
+                raise AssertionError("Muse smoke exceeded its total runtime deadline")
+            assert_live_turn("verify", verified)
+            if not receipt.is_file():
+                raise AssertionError(f"verify turn did not create receipt {receipt}")
+            if receipt.read_bytes() != challenge:
+                raise AssertionError(f"verify turn wrote unexpected bytes to receipt {receipt}")
+            if not marker.is_file() or marker.read_bytes() != challenge:
+                raise AssertionError(f"verify turn changed source file {marker}")
+    assert_zstd_session_log(sessions)
+    if sensitive:
+        assert_muse_logs_secret_free(sessions, sensitive)
 
 
 def assert_live_turn(label: str, result: RunResult) -> None:

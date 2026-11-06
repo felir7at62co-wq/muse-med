@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import json
+import io
 import runpy
 import subprocess
+import sys
+from urllib.error import HTTPError, URLError
 import urllib.request
+from email.message import Message
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -40,6 +44,7 @@ def live_smoke(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         prompts=[], session_ids=[], challenges=[], checked_logs=[], closed=False,
         create_bytes=SMOKE["LIVE_API_SENTINEL"].encode("utf-8"),
         create_result=live_result(), verify_result=live_result(), receipt_mode="copy",
+        budget_activated=True,
     )
     globals_ = SMOKE["smoke_sdk_live"].__globals__
     token_hex = globals_["secrets"].token_hex
@@ -53,6 +58,12 @@ def live_smoke(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     class ScriptedHarness:
         def __init__(self, **kwargs: object) -> None:
             state.root = Path(kwargs["cwd"])
+            state.options = kwargs
+            state.patches = [json.loads(Path(path).read_text(encoding="utf-8")) for path in kwargs.get("patches", ())]
+            state.patch_entries = [entry for patch in state.patches for operation in patch for entry in operation.get("insert", [])]
+            for entry in state.patch_entries:
+                if entry["id"] == "muse-live-fetch-budget" and state.budget_activated:
+                    Path(entry["config"]["receipt"]).write_text(json.dumps({"requests": 0}))
             assert "toolChoice" not in kwargs
 
         def __enter__(self) -> ScriptedHarness:
@@ -61,9 +72,15 @@ def live_smoke(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         def __exit__(self, *args: object) -> None:
             state.closed = True
 
+        def close(self) -> None:
+            state.closed = True
+
         def run(self, prompt: str, *, session_id: str) -> RunResult:
             state.prompts.append(prompt)
             state.session_ids.append(session_id)
+            for entry in state.patch_entries:
+                if entry["id"] == "muse-live-fetch-budget":
+                    Path(entry["config"]["receipt"]).write_text(json.dumps({"requests": len(state.prompts) * 2}))
             if len(state.prompts) == 1:
                 state.marker = Path(prompt.splitlines()[-1])
                 assert state.marker.parent == state.root
@@ -101,6 +118,333 @@ def live_smoke(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     monkeypatch.setattr(globals_["secrets"], "token_hex", fresh_challenge)
     monkeypatch.setitem(globals_, "assert_zstd_session_log", state.checked_logs.append)
     return state
+
+
+@pytest.fixture
+def muse_smoke(live_smoke: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    state = live_smoke
+    state.requests = []
+    state.login_status = 303
+    state.login_cookie = "__Host-muse=temporary_session; Path=/; Secure; HttpOnly"
+    state.identity = {"username": "ordinary-ci", "admin": False}
+    state.catalog = {"providers": [{"id": "deepseek-official", "models": [{
+        "id": "muse-test-model", "name": "Muse test model", "contextWindow": 32768,
+        "maxTokens": 4096, "input": ["text"], "reasoningEfforts": False,
+    }]}]}
+    state.logout_status = 303
+    state.secret_checked_logs = []
+    values = {"BASE_URL": "https://muse.invalid", "USERNAME": "ordinary-ci", "PASSWORD": "unit-account-password",
+              "PROVIDER": "deepseek-official", "MODEL": "muse-test-model"}
+    for field, value in values.items():
+        monkeypatch.setenv("MUSE_E2E_" + field, value)
+
+    def request(origin: str, path: str, method: str, body: bytes | None = None, cookie: str | None = None):
+        assert origin == "https://muse.invalid"
+        state.requests.append((path, method, body, cookie))
+        headers = Message()
+        if path == "/login":
+            assert cookie is None
+            headers["set-cookie"] = state.login_cookie
+            return state.login_status, headers, b""
+        assert cookie == "__Host-muse=temporary_session"
+        if path == "/logout":
+            return state.logout_status, headers, b""
+        if path == "/api/muse.account":
+            return 200, headers, json.dumps(state.identity).encode()
+        assert path == "/api/desktop-models/providers"
+        return 200, headers, json.dumps(state.catalog).encode()
+
+    monkeypatch.setitem(SMOKE["smoke_sdk_muse_live"].__globals__, "muse_smoke_request", request)
+    monkeypatch.setitem(SMOKE["smoke_sdk_muse_live"].__globals__, "assert_muse_logs_secret_free",
+                        lambda sessions, sensitive: state.secret_checked_logs.append(sessions))
+    return state
+
+
+def test_muse_live_smoke_uses_session_authorized_relay_and_logs_out(muse_smoke: SimpleNamespace) -> None:
+    SMOKE["smoke_sdk_muse_live"]()
+    assert [(path, method) for path, method, _, _ in muse_smoke.requests] == [
+        ("/login", "POST"), ("/api/muse.account", "GET"), ("/api/desktop-models/providers", "GET"), ("/logout", "POST"),
+    ]
+    assert muse_smoke.requests[0][2] == b"username=ordinary-ci&password=unit-account-password"
+    assert len(muse_smoke.prompts) == 2 and len(muse_smoke.checked_logs) == 1
+    assert muse_smoke.closed and not muse_smoke.root.exists()
+    assert muse_smoke.options["provider"] == "muse-ci-relay"
+    assert "api_key" not in muse_smoke.options and "base_url" not in muse_smoke.options
+    assert muse_smoke.options["max_tokens"] == 1024
+    assert len(muse_smoke.secret_checked_logs) == 1
+    environment = muse_smoke.options["env"]
+    assert environment["MUSE_E2E_PASSWORD"] == environment["DEEPSEEK_API_KEY"] == ""
+    assert environment["MUSE_E2E_USERNAME"] == ""
+    assert environment["DEEPSEEK_BASE_URL"] == ""
+    assert environment["MUSE_E2E_SESSION_TOKEN"] == "temporary_session"
+    patch = muse_smoke.patches[0]
+    assert patch[:2] == [{"id": "llm-deepseek", "disabled": True}, {"id": "llm-deepseek-account", "disabled": True}]
+    assert patch[2] == {"id": "llm-retry", "disabled": True}
+    profile = patch[3]["config"]["providers"]["muse-ci-relay"]
+    assert profile["baseURL"] == "https://muse.invalid/api/desktop-models/deepseek-official"
+    assert profile["apiKeyEnv"] == "MUSE_E2E_SESSION_TOKEN"
+    assert profile["headers"] == {"origin": "https://muse.invalid"}
+    assert profile["retryPolicy"] == {"mode": "normal", "maxRetries": 0}
+    assert patch[4]["insert"][0]["id"] == "muse-live-fetch-budget"
+    assert patch[4]["insert"][0]["config"] == {
+        "url": "https://muse.invalid/api/desktop-models/deepseek-official/chat/completions",
+        "receipt": str(muse_smoke.root / "muse-fetch-budget.json"), "requests": 6, "tokens": 1024, "milliseconds": 180000,
+    }
+    assert "temporary_session" not in json.dumps(patch) and "unit-account-password" not in json.dumps(patch)
+
+
+@pytest.mark.parametrize("field", ["BASE_URL", "USERNAME", "PASSWORD", "PROVIDER", "MODEL"])
+def test_muse_live_smoke_requires_explicit_configuration(
+    muse_smoke: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, field: str,
+) -> None:
+    monkeypatch.delenv("MUSE_E2E_" + field)
+    with pytest.raises(AssertionError, match="requires MUSE_E2E_" + field):
+        SMOKE["smoke_sdk_muse_live"]()
+    assert not muse_smoke.requests
+
+
+@pytest.mark.parametrize(("field", "value", "message"), [
+    ("BASE_URL", "http://muse.invalid", "HTTPS origin"),
+    ("BASE_URL", "https://user:password@muse.invalid", "HTTPS origin"),
+    ("BASE_URL", "https://muse.invalid/api", "HTTPS origin"),
+    ("BASE_URL", "https://muse.invalid:invalid", "HTTPS origin"),
+    ("BASE_URL", "https://muse.invalid?token=private", "HTTPS origin"),
+    ("PROVIDER", "../supplier", "PROVIDER is invalid"),
+    ("MODEL", "bad\nmodel", "MODEL is invalid"),
+])
+def test_muse_live_smoke_rejects_invalid_configuration(
+    muse_smoke: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, field: str, value: str, message: str,
+) -> None:
+    monkeypatch.setenv("MUSE_E2E_" + field, value)
+    with pytest.raises(AssertionError, match=message):
+        SMOKE["smoke_sdk_muse_live"]()
+    assert not muse_smoke.requests
+
+
+@pytest.mark.parametrize("failure", ["admin", "admin-shape", "identity", "direct", "access", "provider", "model", "limits", "input"])
+def test_muse_live_smoke_refuses_privileged_or_unavailable_routes_and_revokes_login(
+    muse_smoke: SimpleNamespace, failure: str,
+) -> None:
+    if failure == "admin":
+        muse_smoke.identity["admin"] = True
+    elif failure == "admin-shape":
+        muse_smoke.identity["admin"] = "false"
+    elif failure == "identity":
+        muse_smoke.identity["username"] = "another-account"
+    elif failure == "direct":
+        muse_smoke.catalog["transport"] = "direct"
+    elif failure == "access":
+        muse_smoke.catalog["providers"][0]["access"] = {"apiKey": "must-never-use"}
+    elif failure == "provider":
+        muse_smoke.catalog["providers"] = []
+    elif failure == "model":
+        muse_smoke.catalog["providers"][0]["models"] = []
+    elif failure == "limits":
+        muse_smoke.catalog["providers"][0]["models"][0]["maxTokens"] = 0
+    else:
+        muse_smoke.catalog["providers"][0]["models"][0]["input"] = ["image"]
+    with pytest.raises(AssertionError):
+        SMOKE["smoke_sdk_muse_live"]()
+    assert muse_smoke.requests[-1][:2] == ("/logout", "POST")
+    assert not muse_smoke.prompts
+
+
+@pytest.mark.parametrize(("status", "cookie"), [(401, "__Host-muse=temporary_session"), (302, "__Host-muse=temporary_session"),
+                                               (303, "other=value"), (303, "__Host-muse=bad token")])
+def test_muse_live_smoke_rejects_failed_login_without_model_calls(
+    muse_smoke: SimpleNamespace, status: int, cookie: str,
+) -> None:
+    muse_smoke.login_status, muse_smoke.login_cookie = status, cookie
+    with pytest.raises(AssertionError, match="login was rejected"):
+        SMOKE["smoke_sdk_muse_live"]()
+    assert len(muse_smoke.requests) == 1 and not muse_smoke.prompts
+
+
+def test_muse_live_smoke_revokes_login_after_invalid_tool_receipt(muse_smoke: SimpleNamespace) -> None:
+    muse_smoke.receipt_mode = "stale"
+    with pytest.raises(AssertionError, match="verify turn wrote unexpected bytes"):
+        SMOKE["smoke_sdk_muse_live"]()
+    assert muse_smoke.requests[-1][:2] == ("/logout", "POST")
+    assert muse_smoke.closed and not muse_smoke.root.exists()
+
+
+def test_muse_live_smoke_requires_logout_success(muse_smoke: SimpleNamespace) -> None:
+    muse_smoke.logout_status = 503
+    with pytest.raises(AssertionError, match="logout was rejected"):
+        SMOKE["smoke_sdk_muse_live"]()
+
+
+def test_muse_live_smoke_requires_an_active_http_guard_before_any_model_use(muse_smoke: SimpleNamespace) -> None:
+    muse_smoke.budget_activated = False
+    with pytest.raises(AssertionError, match="did not activate its HTTP request guard"):
+        SMOKE["smoke_sdk_muse_live"]()
+    assert not muse_smoke.prompts
+    assert muse_smoke.requests[-1][:2] == ("/logout", "POST")
+
+
+def test_muse_live_smoke_rejects_sensitive_model_output_before_displaying_it(muse_smoke: SimpleNamespace) -> None:
+    muse_smoke.create_result = live_result(final_response="temporary_session")
+    with pytest.raises(AssertionError, match="sensitive account information") as error:
+        SMOKE["smoke_sdk_muse_live"]()
+    assert "temporary_session" not in str(error.value)
+    assert muse_smoke.requests[-1][:2] == ("/logout", "POST")
+    assert muse_smoke.closed and not muse_smoke.root.exists()
+
+
+def test_muse_live_smoke_joins_its_expired_watchdog_before_cleanup(
+    muse_smoke: SimpleNamespace, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = SimpleNamespace(cancelled=False, joined=False)
+
+    class Timer:
+        def __init__(self, seconds: float, callback: object) -> None:
+            assert 0 < seconds <= 180
+            self.callback = callback
+
+        def start(self) -> None:
+            self.callback()
+
+        def cancel(self) -> None:
+            state.cancelled = True
+
+        def join(self) -> None:
+            assert state.cancelled
+            state.joined = True
+
+    monkeypatch.setattr(SMOKE["run_sdk_live_task"].__globals__["threading"], "Timer", Timer)
+    with pytest.raises(AssertionError, match="total runtime deadline"):
+        SMOKE["smoke_sdk_muse_live"]()
+    assert state.cancelled and state.joined
+    assert not muse_smoke.prompts and muse_smoke.closed and not muse_smoke.root.exists()
+    assert muse_smoke.requests[-1][:2] == ("/logout", "POST")
+
+
+def test_muse_live_budget_guards_actual_fetch_and_restores_process_state(tmp_path: Path) -> None:
+    plugin = tmp_path / "budget.mjs"
+    plugin.write_text(SMOKE["MUSE_FETCH_BUDGET_PLUGIN"], encoding="utf-8")
+    script = """\
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+const { apply } = await import(pathToFileURL(process.argv[2]));
+const receipt = process.argv[3];
+const url = 'https://muse.invalid/api/desktop-models/provider/chat/completions';
+const forwarded = [], timers = [];
+const original = async (_input, init) => { forwarded.push(init.signal); return new Response('ok'); };
+globalThis.fetch = original;
+globalThis.setTimeout = callback => { const timer = { callback, unref() {} }; timers.push(timer); return timer; };
+globalThis.clearTimeout = timer => { timer.cleared = true; };
+let dispose;
+const mount = () => apply({ effect(callback) { dispose = callback(); } }, {
+  url, receipt, requests: 6, tokens: 1024, milliseconds: 180000,
+});
+const request = tokens => ({ method: 'POST', body: JSON.stringify({ max_tokens: tokens }) });
+mount();
+for (let index = 0; index < 6; index++) await fetch(url, request(1024));
+await assert.rejects(fetch(url, request(1024)), /HTTP request budget/);
+assert.equal(forwarded.length, 6);
+assert.equal(JSON.parse(readFileSync(receipt)).requests, 6);
+dispose();
+assert.equal(globalThis.fetch, original);
+assert.ok(forwarded.every(signal => signal.aborted));
+assert.ok(timers.at(-1).cleared);
+mount();
+for (const body of [{}, { max_tokens: 0 }, { max_tokens: 1025 }, { max_tokens: 1024, max_completion_tokens: 1025 }]) {
+  await assert.rejects(fetch(url, { body: JSON.stringify(body) }), /unbounded model output/);
+}
+await assert.rejects(fetch('https://supplier.invalid/chat/completions', request(1)), /unexpected network endpoint/);
+assert.equal(forwarded.length, 6);
+timers.at(-1).callback();
+await assert.rejects(fetch(url, request(1)), /runtime deadline/);
+dispose();
+assert.equal(globalThis.fetch, original);
+console.log('MUSE_HTTP_BUDGET_ENFORCED');
+"""
+    result = subprocess.run(["node", "--input-type=module", "-", str(plugin), str(tmp_path / "receipt.json")],
+                            input=script, text=True, capture_output=True, timeout=20, check=False)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "MUSE_HTTP_BUDGET_ENFORCED"
+
+
+def test_muse_session_scan_checks_decompressed_bytes(tmp_path: Path) -> None:
+    import zstandard
+
+    log = tmp_path / f"session.v{SESSION_FORMAT_VERSION}.jsonl.zstd"
+    log.write_bytes(zstandard.ZstdCompressor().compress(b'{"content":"ordinary-account-token"}\n'))
+    with pytest.raises(AssertionError, match="sensitive account information") as error:
+        SMOKE["assert_muse_logs_secret_free"](tmp_path, ("ordinary-account-token",))
+    assert "ordinary-account-token" not in str(error.value)
+    SMOKE["assert_muse_logs_secret_free"](tmp_path, ("absent-token",))
+
+
+def test_muse_session_scan_requires_a_persisted_log(tmp_path: Path) -> None:
+    with pytest.raises(AssertionError, match="no persisted Session"):
+        SMOKE["assert_muse_logs_secret_free"](tmp_path, ("sensitive-token",))
+
+
+def test_muse_account_transport_never_negotiates_direct_or_follows_redirects(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = SimpleNamespace(request=None, handler=None, timeout=None)
+
+    class Response(io.BytesIO):
+        code = 200
+        headers = Message()
+
+    class Opener:
+        def open(self, request: urllib.request.Request, *, timeout: int) -> Response:
+            state.request, state.timeout = request, timeout
+            return Response(b'{"providers":[]}')
+
+    def opener(handler: object) -> Opener:
+        state.handler = handler
+        return Opener()
+
+    globals_ = SMOKE["muse_smoke_request"].__globals__
+    monkeypatch.setitem(globals_, "build_opener", opener)
+    status, _, body = SMOKE["muse_smoke_request"](
+        "https://muse.invalid", "/api/desktop-models/providers", "GET", cookie="__Host-muse=transport-test",
+    )
+    assert status == 200 and json.loads(body) == {"providers": []}
+    assert state.request.full_url == "https://muse.invalid/api/desktop-models/providers"
+    assert dict(state.request.header_items()) == {
+        "Origin": "https://muse.invalid", "Accept": "application/json", "Cookie": "__Host-muse=transport-test",
+    }
+    assert state.timeout == 30
+    assert state.handler.redirect_request(state.request, None, 303, "See Other", Message(), "https://elsewhere.invalid") is None
+
+
+@pytest.mark.parametrize("failure", ["redirect", "network", "oversize"])
+def test_muse_account_transport_bounds_and_sanitizes_responses(monkeypatch: pytest.MonkeyPatch, failure: str) -> None:
+    class Response(io.BytesIO):
+        code = 200
+        headers = Message()
+
+    class Opener:
+        def open(self, request: urllib.request.Request, *, timeout: int) -> Response:
+            if failure == "redirect":
+                headers = Message()
+                headers["set-cookie"] = "__Host-muse=issued-session; Path=/"
+                raise HTTPError(request.full_url, 303, "See Other", headers, io.BytesIO(b""))
+            if failure == "network":
+                raise URLError("private credential detail")
+            return Response(b"x" * (2 * 1024 * 1024 + 1))
+
+    monkeypatch.setitem(SMOKE["muse_smoke_request"].__globals__, "build_opener", lambda _: Opener())
+    if failure == "redirect":
+        status, headers, body = SMOKE["muse_smoke_request"]("https://muse.invalid", "/login", "POST", b"username=ordinary")
+        assert status == 303 and headers.get("set-cookie").startswith("__Host-muse=issued-session") and body == b""
+    else:
+        with pytest.raises(AssertionError, match="request failed" if failure == "network" else "exceeded its byte limit") as error:
+            SMOKE["muse_smoke_request"]("https://muse.invalid", "/login", "POST", b"username=ordinary")
+        assert "private credential detail" not in str(error.value)
+
+
+@pytest.mark.parametrize("scenario", ["sdk-live", "sdk-muse-live"])
+def test_live_scenarios_require_installed_wheels(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], scenario: str) -> None:
+    monkeypatch.setattr(sys, "argv", ["smoke-python-runtime.py", "--scenario", scenario])
+    with pytest.raises(SystemExit) as error:
+        SMOKE["main"]()
+    assert error.value.code == 2
+    assert f"--scenario {scenario} requires --installed-wheel" in capsys.readouterr().err
 
 
 def test_live_smoke_requires_fresh_external_content(live_smoke: SimpleNamespace) -> None:

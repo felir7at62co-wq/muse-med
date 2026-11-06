@@ -138,6 +138,13 @@ Host 转写调用同时接受调用方取消信号与请求超时。取消会终
 
 </details>
 
+<a id="live-gateway-verification"></a>
+### 真实网关验证
+
+真实网关测试使用不含个人数据、管理员权限或发布团队成员身份的专用普通账号。配置 [CI 参考](../../../docs/development.zh.md#ci-gates)中的五个 `MUSE_E2E_*` 值，构建此包后运行 `pnpm run test:e2e packages/host/muse-account/tests/muse-gateway-live.e2e.ts --retry=0`。本地运行未配置这五个值时跳过该用例；只配置部分值会失败。CI 要求五个值全部配置，并使用一个 worker。
+
+测试使用构建后的 Muse 账号插件登录，验证不可预知的文本回复，再调用一个返回私有随机挑战值的工具；该挑战值不出现在提示词中。AgentLoop 必须使用真实工具结果继续回答。该用例最多发起三次流式模型请求，每次最多输出 1,024 tokens，请求期限为 90 秒，且不重试测试。请求使用中继传输，供应商密钥保留在网关。用例检查 Session 数据不含账号凭据，再验证退出登录后的会话撤销，以及测试目录中会话与模型直连文件的删除。这些测试上限不代表网关实现了账号级配额。
+
 -----
 
 <a id="further-exploration"></a>

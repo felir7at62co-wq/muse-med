@@ -30,6 +30,12 @@ on:
       DEEPSEEK_API_KEY_EXTERNAL:
         description: Real DeepSeek API key for trusted installed-wheel pull-request tests.
         required: false
+      MUSE_E2E_USERNAME:
+        description: Dedicated ordinary Muse account for trusted live relay tests.
+        required: false
+      MUSE_E2E_PASSWORD:
+        description: Password of the dedicated Muse test account.
+        required: false
   workflow_dispatch:
     inputs:
       targets:
@@ -465,14 +471,36 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      # Verify and retain keyless runtime artifacts before credentialed CI.
-      # Muse and upstream require the key; other repositories opt in. External
-      # PR branches and Dependabot cannot enter these secret-bearing steps.
+      - name: Install Muse Session verification dependency (POSIX)
+        if: >-
+          inputs.ci
+          && github.repository == 'felir7at62co-wq/muse-med'
+          && runner.os != 'Windows'
+          && (github.event_name != 'pull_request'
+              || (github.event.pull_request.head.repo.full_name == github.repository
+                  && github.event.pull_request.user.login != 'dependabot[bot]'))
+        run: '"${{ steps.smoke-venv-posix.outputs.python }}" -m pip install zstandard==0.25.0'
+
+      - name: Install Muse Session verification dependency (Windows)
+        if: >-
+          inputs.ci
+          && github.repository == 'felir7at62co-wq/muse-med'
+          && runner.os == 'Windows'
+          && (github.event_name != 'pull_request'
+              || (github.event.pull_request.head.repo.full_name == github.repository
+                  && github.event.pull_request.user.login != 'dependabot[bot]'))
+        shell: pwsh
+        run: |
+          & "${{ steps.smoke-venv-windows.outputs.python }}" -m pip install zstandard==0.25.0
+          if ($LASTEXITCODE -ne 0) { throw 'Muse Session verification dependency installation failed' }
+
+      # All keyless checks and artifacts finish before credentialed checks.
+      # Official protocol and Muse relay scenarios use separate credentials;
+      # external PR branches and Dependabot cannot enter either live scenario.
       - name: Preflight installed-wheel real API test (POSIX)
         if: >-
           inputs.ci
           && (github.repository == 'deepseek-harness/deepseek-harness'
-              || github.repository == 'felir7at62co-wq/muse-med'
               || vars.DSH_RUN_REAL_API_E2E == 'true')
           && runner.os != 'Windows'
           && (github.event_name != 'pull_request'
@@ -491,7 +519,6 @@ jobs:
         if: >-
           inputs.ci
           && (github.repository == 'deepseek-harness/deepseek-harness'
-              || github.repository == 'felir7at62co-wq/muse-med'
               || vars.DSH_RUN_REAL_API_E2E == 'true')
           && runner.os == 'Windows'
           && (github.event_name != 'pull_request'
@@ -509,7 +536,6 @@ jobs:
         if: >-
           inputs.ci
           && (github.repository == 'deepseek-harness/deepseek-harness'
-              || github.repository == 'felir7at62co-wq/muse-med'
               || vars.DSH_RUN_REAL_API_E2E == 'true')
           && runner.os != 'Windows'
           && (github.event_name != 'pull_request'
@@ -532,7 +558,6 @@ jobs:
         if: >-
           inputs.ci
           && (github.repository == 'deepseek-harness/deepseek-harness'
-              || github.repository == 'felir7at62co-wq/muse-med'
               || vars.DSH_RUN_REAL_API_E2E == 'true')
           && runner.os == 'Windows'
           && (github.event_name != 'pull_request'
@@ -550,6 +575,102 @@ jobs:
           try {
             & "${{ steps.smoke-venv-windows.outputs.python }}" "$env:GITHUB_WORKSPACE\scripts\smoke-python-runtime.py" --scenario sdk-live --installed-wheel
             if ($LASTEXITCODE -ne 0) { throw "Installed-wheel live API smoke failed with exit code $LASTEXITCODE" }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Preflight installed-wheel Muse API test (POSIX)
+        if: >-
+          inputs.ci
+          && github.repository == 'felir7at62co-wq/muse-med'
+          && runner.os != 'Windows'
+          && (github.event_name != 'pull_request'
+              || (github.event.pull_request.head.repo.full_name == github.repository
+                  && github.event.pull_request.user.login != 'dependabot[bot]'))
+        env:
+          MUSE_E2E_BASE_URL: ${{ vars.MUSE_E2E_BASE_URL }}
+          MUSE_E2E_PROVIDER: ${{ vars.MUSE_E2E_PROVIDER }}
+          MUSE_E2E_MODEL: ${{ vars.MUSE_E2E_MODEL }}
+          MUSE_E2E_USERNAME: ${{ secrets.MUSE_E2E_USERNAME }}
+          MUSE_E2E_PASSWORD: ${{ secrets.MUSE_E2E_PASSWORD }}
+        run: |
+          set -euo pipefail
+          for name in MUSE_E2E_BASE_URL MUSE_E2E_PROVIDER MUSE_E2E_MODEL MUSE_E2E_USERNAME MUSE_E2E_PASSWORD; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is empty; installed-wheel Muse API tests cannot self-skip."
+              exit 1
+            fi
+          done
+
+      - name: Preflight installed-wheel Muse API test (Windows)
+        if: >-
+          inputs.ci
+          && github.repository == 'felir7at62co-wq/muse-med'
+          && runner.os == 'Windows'
+          && (github.event_name != 'pull_request'
+              || (github.event.pull_request.head.repo.full_name == github.repository
+                  && github.event.pull_request.user.login != 'dependabot[bot]'))
+        shell: pwsh
+        env:
+          MUSE_E2E_BASE_URL: ${{ vars.MUSE_E2E_BASE_URL }}
+          MUSE_E2E_PROVIDER: ${{ vars.MUSE_E2E_PROVIDER }}
+          MUSE_E2E_MODEL: ${{ vars.MUSE_E2E_MODEL }}
+          MUSE_E2E_USERNAME: ${{ secrets.MUSE_E2E_USERNAME }}
+          MUSE_E2E_PASSWORD: ${{ secrets.MUSE_E2E_PASSWORD }}
+        run: |
+          foreach ($name in @('MUSE_E2E_BASE_URL', 'MUSE_E2E_PROVIDER', 'MUSE_E2E_MODEL', 'MUSE_E2E_USERNAME', 'MUSE_E2E_PASSWORD')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "$name is empty; installed-wheel Muse API tests cannot self-skip."
+            }
+          }
+
+      - name: Run installed-wheel Muse API black-box test (POSIX)
+        if: >-
+          inputs.ci
+          && github.repository == 'felir7at62co-wq/muse-med'
+          && runner.os != 'Windows'
+          && (github.event_name != 'pull_request'
+              || (github.event.pull_request.head.repo.full_name == github.repository
+                  && github.event.pull_request.user.login != 'dependabot[bot]'))
+        env:
+          MUSE_E2E_BASE_URL: ${{ vars.MUSE_E2E_BASE_URL }}
+          MUSE_E2E_PROVIDER: ${{ vars.MUSE_E2E_PROVIDER }}
+          MUSE_E2E_MODEL: ${{ vars.MUSE_E2E_MODEL }}
+          MUSE_E2E_USERNAME: ${{ secrets.MUSE_E2E_USERNAME }}
+          MUSE_E2E_PASSWORD: ${{ secrets.MUSE_E2E_PASSWORD }}
+        run: |
+          set -euo pipefail
+          blackbox_root="$(python -c 'import tempfile; print(tempfile.mkdtemp(prefix="muse-sdk-blackbox-live-"))')"
+          cd "$blackbox_root"
+          env -u PYTHONPATH -u DSH_RUNTIME_MODE \
+            "${{ steps.smoke-venv-posix.outputs.python }}" \
+            "$GITHUB_WORKSPACE/scripts/smoke-python-runtime.py" \
+            --scenario sdk-muse-live \
+            --installed-wheel
+
+      - name: Run installed-wheel Muse API black-box test (Windows)
+        if: >-
+          inputs.ci
+          && github.repository == 'felir7at62co-wq/muse-med'
+          && runner.os == 'Windows'
+          && (github.event_name != 'pull_request'
+              || (github.event.pull_request.head.repo.full_name == github.repository
+                  && github.event.pull_request.user.login != 'dependabot[bot]'))
+        shell: pwsh
+        env:
+          MUSE_E2E_BASE_URL: ${{ vars.MUSE_E2E_BASE_URL }}
+          MUSE_E2E_PROVIDER: ${{ vars.MUSE_E2E_PROVIDER }}
+          MUSE_E2E_MODEL: ${{ vars.MUSE_E2E_MODEL }}
+          MUSE_E2E_USERNAME: ${{ secrets.MUSE_E2E_USERNAME }}
+          MUSE_E2E_PASSWORD: ${{ secrets.MUSE_E2E_PASSWORD }}
+        run: |
+          $blackboxRoot = (& python -c 'import tempfile; print(tempfile.mkdtemp(prefix="muse-sdk-blackbox-live-"))').Trim()
+          Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+          Remove-Item Env:DSH_RUNTIME_MODE -ErrorAction SilentlyContinue
+          Push-Location $blackboxRoot
+          try {
+            & "${{ steps.smoke-venv-windows.outputs.python }}" "$env:GITHUB_WORKSPACE\scripts\smoke-python-runtime.py" --scenario sdk-muse-live --installed-wheel
+            if ($LASTEXITCODE -ne 0) { throw "Installed-wheel Muse API smoke failed with exit code $LASTEXITCODE" }
           } finally {
             Pop-Location
           }
