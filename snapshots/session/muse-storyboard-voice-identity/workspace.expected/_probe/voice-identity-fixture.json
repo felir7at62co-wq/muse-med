@@ -1,0 +1,18 @@
+{
+  "simulated": true,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/storyboard/901"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/storyboard/901"
+    },
+    {
+      "method": "GET",
+      "path": "/prod-api/aigc/asset/77"
+    }
+  ],
+  "writes": 0
+}

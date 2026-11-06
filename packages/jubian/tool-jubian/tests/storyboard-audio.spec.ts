@@ -512,7 +512,7 @@ it('reports a readback mismatch when the saved audio URL differs from the review
 })
 
 it.each([
-  ['storyboardMaterialList', 'rename'], ['storyboardMaterialList', 'drop'],
+  ['storyboardMaterialList', 'rename'],
   ['modelConfig', 'rename'], ['modelConfig', 'drop'],
 ])('reports a readback mismatch when %s materials %s the requested materialName', async (list, change) => {
   const named = { ...voice, materialName: 'reviewed voice name' }
@@ -788,10 +788,90 @@ it('accepts an exact remote character/period slot but refuses a later remote ren
   expect(writes()).toEqual([])
 })
 
-it('does not label a URL-only legacy association as speaker-verified despite a structured remote name', async () => {
+it('requires explicit character identities for a canonical shared asset instead of downgrading to asset-only', async () => {
   assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: `声音 ${encodeVoiceSlot(2708, 'zhou', 'adult')}`,
     url: voice.materialUrl, isLocal: 1, delFlag: '0' })
-  expect(await preview([{ ...voice, audio_asset_id: 77 }])).toMatchObject({ status: 'ready' })
+  await expect(preview([{ ...voice, audio_asset_id: 77 }])).rejects.toThrow('Shared character voice requires character_id and voice_period_id')
+  expect(writes()).toEqual([])
+})
+
+it.each([undefined, null, []])('reports a missing or malformed project bible %s as a local configuration error', async (bible) => {
+  await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708, project_bible: bible }))
+  await expect(preview([adultReference])).rejects.toMatchObject({ code: 'INVALID_ARGUMENT',
+    message: 'Jubian tool call is missing an argument it cannot run without: Project voice configuration project_bible must be a JSON object; adopt the approved character voice, then preview again' })
+  expect(writes()).toEqual([])
+})
+
+it.each([false, true])('cannot downgrade an adopted phased voice to a legacy reference with asset ID %s', async (includeId) => {
+  await voices([phasedCharacter])
+  await expect(preview([{ ...voice, ...(includeId ? { audio_asset_id: 77 } : {}) }])).rejects.toThrow('Adopted character voice requires its exact')
+  expect(writes()).toEqual([])
+})
+
+it('requires identities when a legacy prepared reference becomes an adopted phased voice before apply', async () => {
+  const plan = await preview([voice])
+  await voices([phasedCharacter])
+  await expect(apply(plan)).rejects.toThrow('Adopted character voice requires its exact')
+  expect(writes()).toEqual([])
+})
+
+it('requires identities when a legacy asset acquires a shared slot before apply', async () => {
+  const plan = await preview([{ ...voice, audio_asset_id: 77 }])
+  assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: `声音 ${encodeVoiceSlot(2708, 'zhou', 'adult')}`,
+    url: voice.materialUrl, isLocal: 1, delFlag: '0' })
+  await expect(apply(plan)).rejects.toThrow('Shared character voice requires')
+  expect(writes()).toEqual([])
+})
+
+it('retains a URL-only reference unrelated to adopted character voices', async () => {
+  await voices([phasedCharacter])
+  const unrelated = { ...voice, materialUrl: 'https://media.example/ambient.wav' }
+  const plan = await preview([unrelated])
+  expect(await apply(plan)).toMatchObject({ status: 'applied', verified_readback: true })
+})
+
+it('retains legacy references when unrelated characters have no voice profiles', async () => {
+  await voices([{ character_id: 'unrelated' }])
+  expect(await preview([voice])).toMatchObject({ status: 'ready' })
+  await voices([{ character_id: 'zhou', voice_profile: adultProfile }])
+  expect(await preview([voice])).toMatchObject({ status: 'ready' })
+})
+
+it.each(['add', 'remove'])('rejects image-marker %s during an audio-only edit', async (change) => {
+  const prompt = change === 'add' ? `${audioPrompt}，@[门](door)` : '@[周海生声音](zhou-voice)'
+  await expect(preview([voice], prompt)).rejects.toThrow('preserve image marker names, keys and order')
+  expect(writes()).toEqual([])
+})
+
+it.each([undefined, null])('accepts omitted provider audio display fields only when the model list corroborates them (%s)', async (omission) => {
+  const named = { ...voice, materialName: 'reviewed voice name' }
+  const plan = await preview([named])
+  onPut = (body) => {
+    const revised: Row = omission === undefined
+      ? Object.fromEntries(Object.entries(named).filter(([field]) => !['materialName', 'audioDuration'].includes(field)))
+      : { ...named, materialName: null, audioDuration: null }
+    body.storyboardMaterialList = [image, revised]
+  }
+  expect(await apply(plan)).toMatchObject({ status: 'applied', verified_readback: true })
+  expect(await apply(plan)).toMatchObject({ status: 'applied', verified_readback: true, replayed: true })
+  expect(writes()).toHaveLength(1)
+})
+
+it.each(['materialName', 'audioDuration'])('does not accept %s omitted from both provider audio lists', async (field) => {
+  const named = { ...voice, materialName: 'reviewed voice name' }
+  const plan = await preview([named])
+  onPut = (body) => {
+    const revised: Row = Object.fromEntries(Object.entries(named).filter(([key]) => key !== field))
+    body.storyboardMaterialList = [image, revised]
+    body.modelConfig = { ...model, prompt: audioPrompt, materialList: [image, revised] }
+  }
+  expect(await apply(plan)).toMatchObject({ status: 'readback_mismatch', verified_readback: false })
+})
+
+it.each(['materialUrl', 'materialKey', 'materialType', 'sortOrder', 'audioDuration'])('rejects a changed audio %s despite model-list corroboration', async (field) => {
+  const plan = await preview([voice])
+  onPut = (body) => { body.storyboardMaterialList = [image, { ...voice, [field]: field === 'sortOrder' || field === 'audioDuration' ? 8 : 'different' }] }
+  expect(await apply(plan)).toMatchObject({ status: 'readback_mismatch', verified_readback: false })
 })
 
 

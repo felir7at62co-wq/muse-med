@@ -2216,6 +2216,22 @@ describe('headless recorded-session snapshots', () => {
               expect(existsSync(join(cwd, 'music'))).toBe(false)
               expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
             }
+            if (scenario.name === 'muse-storyboard-voice-identity') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results).toHaveLength(2)
+              for (const [index, message] of results.entries()) {
+                expect(message.isError).toBe(true)
+                const block = message.content[0]
+                if (block?.type !== 'text') throw new Error('Missing voice identity refusal')
+                expect(block.text).toContain(index === 0 ? 'Project voice configuration project_bible' : 'Shared character voice requires')
+                expect(block.text).not.toContain('expected envelope')
+              }
+              const evidence = JSON.parse(await readFile(join(cwd, '_probe/voice-identity-fixture.json'), 'utf8'))
+              expect(evidence).toMatchObject({ simulated: true, writes: 0 })
+              expect(evidence.requests).toHaveLength(3)
+              expect(evidence.requests.every((row: JsonObject) => row.method === 'GET')).toBe(true)
+            }
             if (scenario.name === 'muse-voice-periods') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const result = events.find(event => event.type === 'tool/result' && event.data.message.toolCallId === 'call_usage_preview')

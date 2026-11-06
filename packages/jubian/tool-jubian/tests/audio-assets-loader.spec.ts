@@ -38,7 +38,15 @@ it('registers, binds, detaches and deletes audio through the original card and i
     }
     if (method === 'GET' && path === '/aigc/storyboard/1745324') return answer(board)
     if (method === 'GET' && path === '/aigc/storyboard/list') return answer({ total: 1, rows: [board] })
-    if (method === 'PUT' && path === '/aigc/storyboard' && body) { board = body; return answer(null) }
+    if (method === 'PUT' && path === '/aigc/storyboard' && body) {
+      board = structuredClone(body)
+      board.storyboardMaterialList = (board.storyboardMaterialList as Record<string, unknown>[]).map((row) => {
+        if (row.materialType !== 'audio') return row
+        const { materialName: _name, audioDuration: _duration, ...saved } = row
+        return saved
+      })
+      return answer(null)
+    }
     if (method === 'DELETE' && path === '/aigc/asset/removeAsset/7') { asset = null; return answer(null) }
     throw new Error(`Unexpected request ${method} ${path}`)
   })
@@ -64,7 +72,7 @@ it('registers, binds, detaches and deletes audio through the original card and i
     expect(registered.isError).not.toBe(true)
     expect(registered.value).toMatchObject({ created_asset_id: 7 })
     const voice = { materialType: 'audio', materialKey: 'zhou-voice', materialUrl: url,
-      fileName: '周海生声线', sortOrder: 1, audioDuration: 2, audio_asset_id: 7 }
+      fileName: '周海生声线', materialName: '周海生声线', sortOrder: 1, audioDuration: 2, audio_asset_id: 7 }
     const edit = await invoke('jubian_storyboard', { method: 'audio_preview', script_id: 2708, project_dir: root,
       storyboard_id: 1745324, prompt: '@[周海生](zhou)走到门口，声音参照@[周海生声线](zhou-voice)', audio_references: [voice] })
     expect(edit.isError).not.toBe(true)
@@ -73,10 +81,12 @@ it('registers, binds, detaches and deletes audio through the original card and i
       storyboard_id: 1745324,
       preview_path: plan.preview_path, expected_fingerprint: plan.fingerprint, idempotency_key: plan.fingerprint })
     expect(edited.isError, JSON.stringify(edited.content)).not.toBe(true)
+    expect(edited.value).toMatchObject({ status: 'applied', verified_readback: true })
     expect(board).toMatchObject({ id: 1745324, episodeId: 13, isGenerate: 0, storyboardMaterialList: [image, {
-      materialType: 'audio', materialKey: 'zhou-voice', materialUrl: url, audioDuration: 2,
+      materialType: 'audio', materialKey: 'zhou-voice', materialUrl: url,
     }] })
-    expect(JSON.parse(String(board.modelConfig))).toMatchObject({ duration: 8, modelId: 'doubao-seedance-2-5-260628' })
+    expect(JSON.parse(String(board.modelConfig))).toMatchObject({ duration: 8, modelId: 'doubao-seedance-2-5-260628',
+      materialList: [image, { materialName: '周海生声线', audioDuration: 2 }] })
     const blocked = await invoke('jubian_asset', { method: 'audio_delete_apply', script_id: 2708, project_dir: root, asset_id: 7 })
     expect(blocked.isError).toBe(true)
     expect(blocked.content).toMatchSnapshot('unreviewed audio deletion')
