@@ -240,7 +240,7 @@ export class GenerationWatchRuntime {
     }
     for (const pack of packs) {
       if (pack.taskId === undefined) continue
-      if ((counts.get(pack.taskId) ?? 0) > 1) {
+      if (counts.get(pack.taskId) !== 1) {
         pack.outcome = { status: 'unverified', detail: 'The same provider task was matched to multiple frozen packs.' }
         continue
       }
