@@ -12,3 +12,5 @@ kind: "reference"
 模型调用原生 executor 的 `jubian_storyboard(method="reconcile_video")`。夹具随后模拟明确的操作者批准和直接 MP4 交付，删除托管原片，核验离线重放、补回执、输出字节一致及 inode 保留。可变媒体放在忽略的私有 `.dsh` 测试根目录；`workspace.expected/recovery-proof.json` 保存稳定的实际结果。
 
 解码器依次从 `MUSE_RECOVERY_TEST_FFMPEG`、`DSH_FFMPEG_PATH` 和 PATH 上的 `ffmpeg` 解析。产物验收时把首项指向已审阅的 Desktop bundled 二进制。资源缺失会失败，不会静默跳过或替换为 mock。Linux snapshot CI 已安装 FFmpeg。`platform: posix` 对应该 subprocess 验收通道，不代表 Windows 已验证。
+
+已提交的 Session 继续作为回放输入。`writer.expected.jsonl` 单独记录当前写入结果；刷新其请求头与工具说明时保留原始恢复事件。

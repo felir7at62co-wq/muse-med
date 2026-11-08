@@ -3,6 +3,7 @@ scenario: muse-video-recovery
 profile: headless
 composition: muse-video-recovery
 recording: authored
+writerOutput: true
 platform: posix
 header:
   class: muse-video-recovery

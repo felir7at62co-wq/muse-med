@@ -874,7 +874,7 @@
         "properties": {
           "method": {
             "type": "string",
-            "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=兼容入口，无预览仅准备、有预览按原 key 提交（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；reconcile_video=按project_dir和原idempotency_key只读恢复已有意图，缺证据保持unknown，绝不新建key或重发生成PUT；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（按实时目录计价、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）。",
+            "description": "list=按 script_id 分页读已有分镜；get=读分镜（含 model_config 与素材键）；create=按 body 字段说明新建；create_batch=整批预检后并行免费创建分镜；save=仅将现卡存为不生成，不写新提示词；edit_preview/edit_batch_preview=原位修改单卡/多卡预览并提醒写入前检查；edit_apply=应用预览（免费）；generate=兼容入口，无预览仅准备、有预览按原 key 提交（计费）；select_assets=写入选定资产（免费，强制 isGenerate=0）；prepare_video=免费同步本会话模型后准备并落 preview；submit_video=按 preview 提交一次（计费、异步）；submit_video_batch=整包预检后并行提交多个独立分镜（逐项计费、异步）；reconcile_video=按project_dir和原idempotency_key只读恢复已有意图，缺证据保持unknown，绝不新建key或重发生成PUT；delete_preview=检查删除目标；delete_apply=按检查结果删除卡（不可恢复）；erase_subtitle=去字幕（按实时目录计价、异步）；audio_preview=预览原卡音频引用替换；audio_apply=应用并真实回读（免费，不新建、不生成）；只有 status=applied 且 verified_readback=true 才可报告音频绑定完成，accepted 不代表完成。",
             "enum": [
               "list",
               "get",
@@ -1003,11 +1003,11 @@
           },
           "prompt": {
             "type": "string",
-            "description": "audio_preview 必填：完整新提示词，原图片素材标记及其顺序必须保留，声音标记与 audio_references 一一对应。"
+            "description": "audio_preview 必填：完整新提示词，保留原图片素材标记及其顺序；音频标签不能为空，同一 key 的重复标签须一致，首次出现顺序与 audio_references 一致。"
           },
           "audio_references": {
             "type": "array",
-            "description": "audio_preview 必填：最终完整、有序的音频引用列表；[] 明确移除全部声音引用，保留原图片。",
+            "description": "audio_preview 必填：最终完整、有序的音频引用列表；每项须有非空 fileName 或 materialName；[] 明确移除全部声音引用，保留原图片。",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -1025,10 +1025,12 @@
                   "type": "string"
                 },
                 "fileName": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "音频保存与回读使用的名称；缺失或空白时从非空 materialName 补齐。"
                 },
                 "materialName": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "可选显示名；保留在模型配置中，音频关系表使用 fileName。"
                 },
                 "sortOrder": {
                   "type": "integer",
@@ -1177,11 +1179,11 @@
           },
           "project_dir": {
             "type": "string",
-            "description": "prepare_video / generate 准备阶段必填、submit_video 可选：项目目录，必须含 project_config.json，且其 jubian_script_id 必须等于实时 scriptId。"
+            "description": "audio_preview / audio_apply 必填；prepare_video / generate 准备阶段必填、submit_video 可选：项目目录须含 project_config.json，且 jubian_script_id 必须等于实时 scriptId。"
           },
           "preview_path": {
             "type": "string",
-            "description": "submit_video / generate 提交阶段：准备结果返回的 preview_path，不要猜测或手写文件名；新 generate 不带此项时仅准备预览。"
+            "description": "audio_apply 必填：audio_preview 返回的 preview_path；submit_video / generate 提交阶段使用 prepare_video 返回的路径。原样传入，不猜测或手写文件名；新 generate 不带此项时仅准备预览。"
           },
           "video_previews": {
             "type": "array",

@@ -92,6 +92,119 @@ const apply = (plan: Row, extra = {}) => storyboardAudioMethod(client, ledger, {
 })
 const writes = () => calls.filter(call => call.method !== 'GET')
 
+it('freezes a materialName-only voice with a persistent fileName before saving', async () => {
+  const named: Row = { ...voice, materialName: '周海生声线' }
+  delete named.fileName
+  const plan = await preview([named])
+  expect(plan.audio_references).toEqual([{ ...named, fileName: '周海生声线' }])
+  onPut = (body) => {
+    body.storyboardMaterialList = (body.storyboardMaterialList as Row[]).map((row) => {
+      if (row.materialType !== 'audio') return row
+      const saved: Row = { ...row, fileName: row.fileName ?? null }
+      delete saved.materialName
+      return saved
+    })
+  }
+  expect(await apply(plan)).toMatchObject({ status: 'applied', verified_readback: true })
+  expect(await apply(plan)).toMatchObject({ status: 'applied', replayed: true, verified_readback: true })
+  expect(writes()).toHaveLength(1)
+  expect((board.storyboardMaterialList as Row[])[1]).toMatchObject({ fileName: '周海生声线' })
+})
+
+it('preserves distinct file and role names without requiring the relationship table to store materialName', async () => {
+  const named = { ...voice, fileName: 'zhou-reference.wav', materialName: '周海生声线' }
+  const plan = await preview([named])
+  expect(((plan.after_snapshot as Row).storyboardMaterialList as Row[])[1]).toEqual({
+    ...voice, fileName: 'zhou-reference.wav',
+  })
+  expect(await apply(plan)).toMatchObject({ status: 'applied', verified_readback: true })
+  expect((JSON.parse(String(board.modelConfig)) as Row).materialList).toEqual([image, named])
+})
+
+it.each([{}, { fileName: null }, { fileName: ' ', materialName: '' }, { fileName: 123, materialName: null }])(
+  'rejects a new voice without a usable persisted name %j', async (names) => {
+    const unnamed: Row = { ...voice }
+    delete unnamed.fileName
+    await expect(preview([{ ...unnamed, ...names }])).rejects.toThrow('nonempty fileName or materialName')
+    expect(writes()).toEqual([])
+  },
+)
+
+it.each(['@[](zhou-voice)', '@[   ](zhou-voice)', '@[另一个人](zhou-voice)'])(
+  'rejects an empty or conflicting audio label even after a valid reference: %s', async (marker) => {
+    await expect(preview([voice], `${audioPrompt}，${marker}`)).rejects.toThrow('Audio prompt labels')
+    expect(writes()).toEqual([])
+  },
+)
+
+it('allows the same named voice reference at multiple dialogue positions', async () => {
+  const plan = await preview([voice], `${audioPrompt}，下一句仍参照@[周海生声音](zhou-voice)`)
+  expect(await apply(plan)).toMatchObject({ status: 'applied', verified_readback: true })
+})
+
+it('repairs an old unnamed reference without requiring a saved name on the old card', async () => {
+  const unnamed: Row = { ...voice, fileName: null }
+  board.storyboardMaterialList = [image, unnamed]
+  board.modelConfig = { ...model, prompt: `${basePrompt} @[](zhou-voice)`, materialList: [image, unnamed] }
+  const plan = await preview([{ ...voice, fileName: ' ', materialName: '周海生声音' }])
+  expect(await apply(plan)).toMatchObject({ status: 'applied', verified_readback: true })
+  expect((board.storyboardMaterialList as Row[])[1]).toMatchObject({ fileName: '周海生声音' })
+})
+
+async function legacyNamedPlan(includeName = true): Promise<{ plan: Row; saved: Row }> {
+  const plan = await preview([voice])
+  const named: Row = { ...voice, materialName: 'legacy voice' }
+  if (!includeName) {
+    delete named.fileName
+    delete named.materialName
+  }
+  const saved = { ...board, isGenerate: 0, modelConfig: JSON.stringify({ ...model,
+    prompt: audioPrompt, materialList: [image, named] }), storyboardMaterialList: [image, named] }
+  const legacy = await revisedPlan(plan, (prepared) => {
+    prepared.audio_references = [named]
+    const after = prepared.after_snapshot as Row
+    const modelRows = (after.modelConfig as Row).materialList as Row[]
+    modelRows[1] = named
+    ;(after.storyboardMaterialList as Row[])[1] = named
+    prepared.request_hash = bodyHash(saved)
+  })
+  return { plan: legacy, saved }
+}
+
+it('requires a fresh preview before sending an old unclaimed relationship-name payload', async () => {
+  const { plan } = await legacyNamedPlan()
+  await expect(apply(plan)).rejects.toThrow('request changed since audio preview; preview again')
+  expect(writes()).toEqual([])
+})
+
+it('refuses an unclaimed legacy preview that has no persistent audio name', async () => {
+  const { plan } = await legacyNamedPlan(false)
+  await expect(apply(plan)).rejects.toThrow('nonempty persisted fileName; preview again')
+  expect(writes()).toEqual([])
+})
+
+it('only reads an already claimed legacy preview that has no persistent audio name', async () => {
+  const { plan, saved } = await legacyNamedPlan(false)
+  const prepared = JSON.parse(await readFile(String(plan.preview_path), 'utf8')) as Row
+  await ledger.begin({ idempotencyKey: String(plan.fingerprint), method: 'storyboard_save',
+    scriptId: 2708, requestSha256: String(prepared.request_hash) })
+  board = saved
+  expect(await apply(plan)).toMatchObject({ replayed: true, verified_readback: true })
+  expect(writes()).toEqual([])
+})
+
+it.each([true, false])('only reconciles an already claimed legacy preview with retained name=%s', async (retained) => {
+  const { plan, saved } = await legacyNamedPlan()
+  const prepared = JSON.parse(await readFile(String(plan.preview_path), 'utf8')) as Row
+  await ledger.begin({ idempotencyKey: String(plan.fingerprint), method: 'storyboard_save',
+    scriptId: 2708, requestSha256: String(prepared.request_hash) })
+  board = saved
+  if (!retained) delete (board.storyboardMaterialList as Row[])[1]!.materialName
+  expect(await apply(plan)).toMatchObject({ replayed: true, verified_readback: retained,
+    status: retained ? 'applied' : 'readback_mismatch' })
+  expect(writes()).toEqual([])
+})
+
 it('propagates a card-lock storage failure without fetching the current card or saving', async () => {
   const plan = await preview([voice]), start = calls.length
   storage.lockFailure = true
@@ -487,20 +600,36 @@ it('reports a readback mismatch when the saved audio URL differs from the review
   expect(await apply(plan)).toMatchObject({ status: 'readback_mismatch', verified_readback: false })
 })
 
-it.each([
-  ['storyboardMaterialList', 'rename'], ['storyboardMaterialList', 'drop'],
-  ['modelConfig', 'rename'], ['modelConfig', 'drop'],
-])('reports a readback mismatch when %s materials %s the requested materialName', async (list, change) => {
+it.each(['rename', 'drop'])('reports a readback mismatch when model materials %s the requested materialName', async (change) => {
   const named = { ...voice, materialName: 'reviewed voice name' }
   const plan = await preview([named])
   onPut = (body) => {
     const revised: Row = { ...named }
     if (change === 'drop') delete revised.materialName
     else revised.materialName = 'different voice name'
-    if (list === 'storyboardMaterialList') body.storyboardMaterialList = [image, revised]
-    else body.modelConfig = { ...model, prompt: audioPrompt, materialList: [image, revised] }
+    body.modelConfig = { ...model, prompt: audioPrompt, materialList: [image, revised] }
   }
-  expect(await apply(plan)).toMatchObject({ status: 'readback_mismatch', verified_readback: false })
+  const result = await apply(plan)
+  expect(result).toMatchObject({ status: 'readback_mismatch', verified_readback: false,
+    mismatched_fields: ['modelConfig'] })
+  expect(result.next).toContain('Do not claim completion')
+})
+
+it.each(['rename', 'drop'])('does not verify a relationship table that %s the persisted fileName', async (change) => {
+  const plan = await preview([voice])
+  onPut = (body) => {
+    const revised: Row = { ...voice }
+    if (change === 'drop') delete revised.fileName
+    else revised.fileName = 'another character'
+    body.storyboardMaterialList = [image, revised]
+  }
+  const result = await apply(plan)
+  expect(result).toMatchObject({ status: 'readback_mismatch', verified_readback: false,
+    mismatched_fields: ['storyboardMaterialList'] })
+  expect(result.next).toContain('original preview and key')
+  expect(JSON.stringify(result)).not.toContain('https://')
+  expect(await apply(plan)).toMatchObject({ replayed: true, verified_readback: false })
+  expect(writes()).toHaveLength(1)
 })
 
 it('does not resend an unknown save and reconciles the applied card under the original key', async () => {
@@ -798,5 +927,44 @@ it('retains legacy unphased binding compatibility when deletion evidence is unav
   assets.set(77, { id: 77, scriptId: 2708, assetType: 4, assetName: '周海生声音', assetUrl: voice.materialUrl })
   const plan = await preview([{ ...voice, audio_asset_id: 77 }])
   expect(await apply(plan)).toMatchObject({ status: 'applied', verified_readback: true })
+  expect(writes()).toHaveLength(1)
+})
+
+
+it('keeps same-name references separate by their keys, URLs and group order', async () => {
+  const first: Row = { ...voice, materialKey: 'voice-a', materialName: '同一显示名' }
+  delete first.fileName
+  const second: Row = { ...voice, materialKey: 'voice-b', materialUrl: 'https://media.example/second.wav',
+    materialName: '同一显示名', fileName: 'explicit-second.wav', sortOrder: 2 }
+  const plan = await preview([first, second], `${basePrompt}，参照@[同一显示名](voice-a)与@[同一显示名](voice-b)`)
+  expect(plan.audio_references).toEqual([{ ...first, fileName: '同一显示名' }, second])
+  expect(await apply(plan)).toMatchObject({ status: 'applied', verified_readback: true })
+  expect((board.storyboardMaterialList as Row[]).slice(1)).toEqual([
+    { ...voice, materialKey: 'voice-a', fileName: '同一显示名' },
+    { ...voice, materialKey: 'voice-b', materialUrl: 'https://media.example/second.wav', fileName: 'explicit-second.wav', sortOrder: 2 },
+  ])
+  expect(writes()).toHaveLength(1)
+})
+
+it.each([
+  ['fileName', 'different-name.wav'], ['materialUrl', 'https://media.example/wrong.wav'],
+  ['materialKey', 'voice-a'], ['sortOrder', 1],
+])('retains the claimed key when saved reference %s differs', async (field, value) => {
+  const references = [
+    { ...voice, materialKey: 'voice-a', materialName: '同一显示名' },
+    { ...voice, materialKey: 'voice-b', materialName: '同一显示名', materialUrl: 'https://media.example/second.wav', sortOrder: 2 },
+  ]
+  const plan = await preview(references, `${basePrompt}，参照@[同一显示名](voice-a)与@[同一显示名](voice-b)`)
+  onPut = (body) => {
+    const rows = body.storyboardMaterialList as Row[]
+    body.storyboardMaterialList = [rows[0], rows[1], { ...rows[2], [field]: value }]
+  }
+  expect(await apply(plan)).toMatchObject({ status: 'readback_mismatch', verified_readback: false,
+    mismatched_fields: ['storyboardMaterialList'] })
+  const claimed = await ledger.records()
+  expect(claimed).toHaveLength(1)
+  expect(claimed[0]?.idempotency_key).toBe(plan.fingerprint)
+  expect(await apply(plan)).toMatchObject({ replayed: true, verified_readback: false })
+  expect(await ledger.records()).toEqual(claimed)
   expect(writes()).toHaveLength(1)
 })
