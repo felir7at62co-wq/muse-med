@@ -306,7 +306,7 @@ it('confirms an import only after full consumption and native publication using 
     if (path.endsWith('/imported')) {
       expect(published).toBe(true)
       expect(init?.method).toBe('POST')
-      expect(JSON.parse(String(init?.body))).toEqual({ lease, sha256: saved.files[0]!.sha256 })
+      expect(await new Response(init?.body).json()).toEqual({ lease, sha256: saved.files[0]!.sha256 })
       return Response.json({ state: 'acknowledged' })
     }
     if (path.endsWith('/files/video.mp4')) return new Response('abc', { headers: { 'x-muse-media-lease': lease } })
