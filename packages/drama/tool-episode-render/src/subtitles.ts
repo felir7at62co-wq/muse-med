@@ -25,11 +25,12 @@ const WATERMARK_END = '9:59:59.00'
 /** Normalize ordinary dialogue punctuation without changing the input cues or their measured times.
  * Number separators and word-internal apostrophes/hyphens are retained when removing them changes meaning.
  * @param cues - Authored input cues.
- * @returns Display cues with ordinary punctuation and line breaks replaced by spaces; empty display cues are omitted.
+ * @returns Display cues with ordinary punctuation, physical line breaks and literal ASS breaks replaced by spaces;
+ * empty display cues are omitted.
  */
 export function normalizeSubtitleDisplay(cues: readonly SubtitleCue[]): SubtitleCue[] {
   return cues.flatMap((cue) => {
-    const text = cue.text.replace(/[\p{P}~～]/gu,
+    const text = cue.text.replace(/\\[Nn]/gu, ' ').replace(/[\p{P}~～]/gu,
       (char, offset: number, source: string) => {
         const before = source[offset - 1] ?? '', after = source[offset + 1] ?? ''
         if ('.,:：/-'.includes(char) && /\d/u.test(before) && /\d/u.test(after)) return char

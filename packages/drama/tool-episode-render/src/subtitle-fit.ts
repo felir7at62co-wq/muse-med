@@ -7,6 +7,13 @@ export type SubtitleWidthProbe = (text: string) => Promise<boolean | null>
 
 function compact(text: string): string { return text.replace(/\s+/gu, '') }
 
+/** Only a word boundary rounding to this exact SRT millisecond may extend beyond it. */
+function roundsToSrtTime(wordTime: number, cueTime: number): boolean {
+  const epsilon = Number.EPSILON * Math.max(1, Math.abs(wordTime), Math.abs(cueTime)) * 2
+  return Math.abs(wordTime - cueTime) <= 0.0005 + epsilon
+    && Math.abs(Math.round(wordTime * 1_000) / 1_000 - cueTime) <= epsilon
+}
+
 function matchedWords(cue: SubtitleCue, coverage: SpeechCoverageReport): SpeechCoverageWord[] | undefined {
   if (!/^[\p{Script=Han}\s]+$/u.test(cue.text) || cue.text.normalize('NFKC') !== cue.text) return undefined
   const matches = coverage.matches.filter(match => match.cue_index === cue.index)
@@ -23,11 +30,13 @@ function matchedWords(cue: SubtitleCue, coverage: SpeechCoverageReport): SpeechC
   if (selected.some((word, index) => word.end_seconds <= word.start_seconds
     || (index > 0 && word.start_seconds <= (selected[index - 1]?.start_seconds ?? Infinity))
     || (index > 0 && word.start_seconds < (selected[index - 1]?.end_seconds ?? Infinity))
-    || word.start_seconds < cue.startSeconds || word.end_seconds > cue.endSeconds)) return undefined
+    || (word.start_seconds < cue.startSeconds && !roundsToSrtTime(word.start_seconds, cue.startSeconds))
+    || (word.end_seconds > cue.endSeconds && !roundsToSrtTime(word.end_seconds, cue.endSeconds)))) return undefined
   return selected
 }
 
 /** Preserve original text and times when width or complete word boundaries cannot be established.
+ * Only outer word endpoints rounding to the exact SRT millisecond may exceed a cue; serialized pieces retain positive duration.
  * @param cues - The normalized display cues, in delivery order.
  * @param coverage - Existing source-bound recognition evidence, never a new transcription request.
  * @param fits - Real font-width measurement for a proposed single line.
@@ -49,9 +58,14 @@ export async function fitSubtitleCues(
     }
     const original = Array.from(cue.text), indices = original.flatMap((char, index) => /\s/u.test(char) ? [] : [index])
     const boundaries = [0]
-    for (const word of words) boundaries.push((boundaries.at(-1) ?? 0) + Array.from(word.text).length)
-    const segment = (from: number, to: number): string => original.slice(indices[boundaries[from] ?? 0],
-      (indices[(boundaries[to] ?? 0) - 1] ?? -1) + 1).join('').trim()
+    let characters = 0
+    for (const word of words) {
+      characters += Array.from(word.text).length
+      boundaries.push(characters)
+    }
+    // Bounded search indices address complete Han words already matched to the source character count.
+    const segment = (from: number, to: number): string => original.slice(indices[boundaries[from] as number],
+      (indices[(boundaries[to] as number) - 1] as number) + 1).join('').trim()
     const pieces: SubtitleCue[] = []
     let start = 0
     while (start < words.length) {
@@ -65,7 +79,8 @@ export async function fitSubtitleCues(
       if (best === start) break
       const next = best === words.length ? cue.endSeconds : words[best]?.start_seconds
       const begin = start === 0 ? cue.startSeconds : words[start]?.start_seconds
-      if (begin === undefined || next === undefined || next <= begin || next > cue.endSeconds) break
+      if (begin === undefined || next === undefined || next <= begin || next > cue.endSeconds
+        || Math.round(next * 1_000) <= Math.round(begin * 1_000)) break
       pieces.push({ ...cue, text: segment(start, best), startSeconds: begin, endSeconds: next })
       start = best
     }

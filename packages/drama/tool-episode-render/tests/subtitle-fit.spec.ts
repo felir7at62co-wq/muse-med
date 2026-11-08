@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { fitSubtitleCues } from '../src/subtitle-fit.ts'
 import type { SpeechCoverageReport, SpeechCoverageWord } from '../src/speech-coverage.ts'
 import type { SubtitleCue } from '../src/types.ts'
+import { ep26Cue, ep26Evidence } from './subtitle-fit-ep26-fixture.ts'
 
 const cue: SubtitleCue = { index: 1, startSeconds: 0, endSeconds: 4, text: '今天我们一起去做饭' }
 function evidence(): SpeechCoverageReport {
@@ -30,6 +31,79 @@ describe('source-bound subtitle width fitting', () => {
   it('leaves an already fitting cue unchanged', async () => {
     expect((await fitSubtitleCues([cue], evidence(), async () => true)).cues).toEqual([cue])
   })
+  it('splits the archived EP26 cue with a millisecond SRT end without moving its measured word boundaries', async () => {
+    const coverage = ep26Evidence(), before = structuredClone(coverage)
+    const result = await fitSubtitleCues([ep26Cue], coverage, async text => Array.from(text).length <= 9)
+    expect(result.warnings).toEqual([])
+    expect(result.cues.map(item => [item.text, item.startSeconds, item.endSeconds])).toEqual([
+      ['可我现在每天按时起', 64.408, 65.728333], ['每天都干活', 65.728333, 66.368],
+    ])
+    expect(result.cues.map(item => item.text).join('')).toBe(ep26Cue.text)
+    expect(coverage).toEqual(before)
+    expect(coverage.words.at(-1)?.end_seconds).toBe(66.368333)
+  })
+
+  it.each(['start', 'end', 'both'] as const)('accepts only the SRT rounding at the %s outer boundary', async (edge) => {
+    const shifted = { ...cue, startSeconds: 60, endSeconds: 63.3 }
+    const coverage = evidence()
+    const words = coverage.words.map((word, index) => ({ ...word,
+      start_seconds: index === 0 && edge !== 'end' ? 59.999667 : 60 + word.start_seconds,
+      end_seconds: index === coverage.words.length - 1 && edge !== 'start' ? 63.300333 : 60 + word.end_seconds,
+    }))
+    const result = await fitSubtitleCues([shifted], { ...coverage, words }, fits)
+    expect(result.warnings).toEqual([])
+    expect(result.cues.map(item => [item.startSeconds, item.endSeconds])).toEqual([
+      [60, 61.4], [61.4, 62.8], [62.8, 63.3],
+    ])
+  })
+
+  it.each([
+    ['start beyond half a millisecond', 59.999499, 63.3],
+    ['end beyond half a millisecond', 60, 63.300501],
+    ['start one millisecond early', 59.999, 63.3],
+    ['end one millisecond late', 60, 63.301],
+    ['end one frame late', 60, 63.3 + 1 / 24],
+  ] as const)('preserves the cue with %s', async (_name, start, end) => {
+    const shifted = { ...cue, startSeconds: 60, endSeconds: 63.3 }
+    const coverage = evidence()
+    const words = coverage.words.map((word, index) => ({ ...word,
+      start_seconds: index === 0 ? start : 60 + word.start_seconds,
+      end_seconds: index === coverage.words.length - 1 ? end : 60 + word.end_seconds,
+    }))
+    const result = await fitSubtitleCues([shifted], { ...coverage, words }, fits)
+    expect(result.cues).toEqual([shifted])
+    expect(result.warnings).toHaveLength(1)
+  })
+
+  it('does not extend rounding tolerance to precise non-SRT cue times or overlapping words', async () => {
+    const coverage = ep26Evidence()
+    for (const [candidate, words] of [
+      [{ ...ep26Cue, endSeconds: 66.3681 }, coverage.words],
+      [ep26Cue, coverage.words.map((word, index) => index === 1
+        ? { ...word, start_seconds: 64.648333 - 0.000333 } : word)],
+    ] as const) {
+      const result = await fitSubtitleCues([candidate], { ...coverage, words }, fits)
+      expect(result.cues).toEqual([{ ...candidate, index: 1 }])
+      expect(result.warnings).toHaveLength(1)
+    }
+    const incomplete = { ...coverage, matches: coverage.matches.slice(0, -1) }
+    expect((await fitSubtitleCues([ep26Cue], incomplete, fits)).warnings).toHaveLength(1)
+  })
+
+  it.each([
+    ['nonpositive measured duration', 64.4079, 1.199567],
+    ['zero duration after SRT serialization', 64.4081, 1.199767],
+  ] as const)('preserves the original cue instead of producing %s', async (_name, next, sourceStart) => {
+    const coverage = ep26Evidence()
+    const words = coverage.words.map((word, index) => index === 0
+      ? { ...word, start_seconds: 64.4077, end_seconds: 64.4078,
+        source_start_seconds: 1.199367, source_end_seconds: 1.199467 }
+      : index === 1 ? { ...word, start_seconds: next, source_start_seconds: sourceStart } : word)
+    const result = await fitSubtitleCues([ep26Cue], { ...coverage, words }, async text => text.length <= 1)
+    expect(result.cues).toEqual([{ ...ep26Cue, index: 1 }])
+    expect(result.warnings).toHaveLength(1)
+  })
+
   it('does not invent boundaries when words overlap, are missing, or a width probe fails', async () => {
     const input = evidence()
     const overlapping = { ...input, words: input.words.map((word, i) => i === 1 ? { ...word, start_seconds: 0.4 } : word) }
@@ -40,6 +114,61 @@ describe('source-bound subtitle width fitting', () => {
       expect(result.warnings).toHaveLength(1)
     }
   })
+  it('preserves authored spaces while splitting at the same whole-word boundaries', async () => {
+    const spaced = { ...cue, text: ' 今天 我们 一起 去 做饭 ' }
+    const result = await fitSubtitleCues([spaced], evidence(), async text => text.replace(/\s/gu, '').length <= 4)
+    expect(result.warnings).toEqual([])
+    expect(result.cues.map(item => item.text)).toEqual(['今天 我们', '一起 去', '做饭'])
+    expect(result.cues.map(item => [item.startSeconds, item.endSeconds])).toEqual([[0, 1.4], [1.4, 2.8], [2.8, 4]])
+  })
+
+  it('preserves the cue if measurement becomes unavailable during its boundary search', async () => {
+    let calls = 0
+    const result = await fitSubtitleCues([cue], evidence(), async () => ++calls === 1 ? false : null)
+    expect(calls).toBe(2)
+    expect(result.cues).toEqual([cue])
+    expect(result.warnings).toHaveLength(1)
+  })
+
+  it.each(['Latin text', 'compatibility Han'] as const)('does not infer source-word splits for %s', async (kind) => {
+    const input = { ...cue, text: kind === 'Latin text' ? 'Dinner now' : '神今天' }
+    const result = await fitSubtitleCues([input], evidence(), async () => false)
+    expect(result.cues).toEqual([input])
+    expect(result.warnings).toHaveLength(1)
+  })
+
+  it.each(['missing word', 'repeated word', 'shared word', 'mismatched text', 'mixed-language word',
+    'coarse whole-cue word', 'nonpositive word', 'out-of-order word'] as const)(
+    'preserves the cue with %s recognition evidence', async (kind) => {
+      const source = evidence()
+      const input: SpeechCoverageReport = {
+        ...source,
+        words: kind === 'missing word' ? [] : kind === 'coarse whole-cue word'
+          ? source.words.slice(0, 1).map(word => ({ ...word, text: cue.text }))
+          : source.words.map((word, index) => kind === 'mixed-language word' && index === 0 ? { ...word, text: 'Today' }
+            : kind === 'nonpositive word' && index === 0 ? { ...word, end_seconds: word.start_seconds }
+              : kind === 'out-of-order word' && index === 1 ? { ...word, start_seconds: 0 } : word),
+        matches: kind === 'repeated word' ? [...source.matches.slice(0, 1), ...source.matches]
+          : kind === 'shared word' ? [...source.matches, { word_id: 'w0', cue_index: 2, text: '今天', precision: 'word' }]
+            : kind === 'coarse whole-cue word' ? source.matches.slice(0, 1).map(match => ({ ...match, text: cue.text }))
+              : source.matches.map((match, index) => index === 0 && kind === 'mismatched text' ? { ...match, text: '昨天' }
+                : index === 0 && kind === 'mixed-language word' ? { ...match, text: 'Today' } : match),
+      }
+      const result = await fitSubtitleCues([cue], input, fits)
+      expect(result.cues).toEqual([cue])
+      expect(result.warnings).toHaveLength(1)
+    },
+  )
+
+  it('does not split at a word start beyond the exact SRT end even when its word end rounds back', async () => {
+    const input = ep26Evidence()
+    const words = input.words.map((word, index) => index === input.words.length - 1
+      ? { ...word, start_seconds: 66.3681 } : word)
+    const result = await fitSubtitleCues([ep26Cue], { ...input, words }, async text => text.length <= 1)
+    expect(result.cues).toEqual([{ ...ep26Cue, index: 1 }])
+    expect(result.warnings).toHaveLength(1)
+  })
+
   it('does not split a word even if it alone exceeds the available width', async () => {
     const result = await fitSubtitleCues([cue], evidence(), async text => Array.from(text).length <= 1)
     expect(result.cues).toEqual([cue])

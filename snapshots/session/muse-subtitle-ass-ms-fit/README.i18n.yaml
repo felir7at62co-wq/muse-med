@@ -1,0 +1,10 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write snapshots/session/muse-subtitle-ass-ms-fit/README.md
+/:
+  en: 64e6057720f384b6
+  zh: 6871d65af375eb51
+/subtitle-display-and-source-times:
+  en: df0475da611f85bf
+  zh: cfc5faed49468ca9
