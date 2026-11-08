@@ -13,7 +13,7 @@ export const imDesktopCompatibility = {
   newGroups: 'saved native access settings authorize messages and card actions without legacy sender or chat gates',
   workspace: 'one selected workspace per Feishu bot with independent conversation histories',
   remoteProvider: 'retained at @wenbin_wb/dsh-bridge/remote',
-  teamRouting: 'registered app and chat bind one Muse Bot named from available Feishu metadata; native Sessions and workspace fences remain authoritative',
+  sessionRouting: 'existing chat keys, native Session and workspace bindings, durable claims and topic replies remain authoritative without Muse Bot',
   updates: 'supplied only by Muse application updates',
 }
 
@@ -43,11 +43,9 @@ export function applyImDesktopCompatibility(directory) {
         readSessionWorkspace: async sessionId => ctx.sessions.get(sessionId)?.header.cwd
           ?? (await ctx.sessionPersistence.stat(sessionId))?.header.cwd,
       });
-      const teamScope = config.museTeam?.forBot(id, botConfig.appId, workspaceScope, workspaces) ?? workspaceScope;`],
-    ['        harness: workspaceScope.harness,\n        state: workspaceScope.state,', '        harness: teamScope.harness,\n        state: teamScope.state,'],
-    ['      return new Runtime({', '      const runtime = new Runtime({'],
-    ['      });\n    },\n    deleteState:', '      });\n      teamScope.setRuntime?.(runtime);\n      return runtime;\n    },\n    deleteState:'],
-    ['        accessPolicy: accessPolicyProvider(workspaces, id, {', '        museAdmission: teamScope.admission ?? config.museAdmission?.forBot(id, workspaces),\n        accessPolicy: accessPolicyProvider(workspaces, id, {'],
+      const sessionScope = config.museSession?.forBot(id, botConfig.appId, workspaceScope, workspaces) ?? workspaceScope;`],
+    ['        harness: workspaceScope.harness,\n        state: workspaceScope.state,', '        harness: sessionScope.harness,\n        state: sessionScope.state,'],
+    ['        accessPolicy: accessPolicyProvider(workspaces, id, {', '        museAdmission: sessionScope.admission ?? config.museAdmission?.forBot(id, workspaces),\n        accessPolicy: accessPolicyProvider(workspaces, id, {'],
   ])
   edit(directory, 'plugin-src/client/channels/feishu/index.js', '4dfa9310756bd0ca6d0d570b1cbde24f18175a1c18997f077a47d2c526e492bc', [
     ['          onSave: onWorkspaceSave,\n        }),', '          onSave: onWorkspaceSave,\n        }),\n      h("p", { className: "dim-help" }, "同一机器人的私聊和群聊共用此工作区，聊天记录各自独立。"),'],

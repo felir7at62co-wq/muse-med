@@ -281,6 +281,13 @@ ctx.effect(()=>ctx.systemPrompt.section({name:'im-muse-persona',order:1,text:'Mu
   }
   const expectedTranscript = JSON.parse(await readFile(new URL('./expected/im-host-transcript.json', import.meta.url), 'utf8'))
   assert.deepEqual(transcript, { continuedMessages: expectedTranscript.continuedMessages, nativeFinalCard: expectedTranscript.nativeFinalCard })
+  const acceptedFeishuEvents = await eventsFor(ctx, sessionId)
+  assert.deepEqual({
+    requestMessages: modelCalls[2].messages.map(({ role, content }) => ({ role, content })),
+    sessionMessages: acceptedFeishuEvents.filter(event => ['user/message', 'assistant/message'].includes(event.type))
+      .map(event => ({ type: event.type, content: event.type === 'assistant/message' ? event.data.message.content : event.data.content })),
+    finalCard: finalCard.content,
+  }, expectedTranscript.acceptedFeishuContinuation)
 
   questionOnNext = true
   const pendingQuestionTurn = bridge.accept(message('ask-style', 'Ask me for the style'))

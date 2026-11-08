@@ -232,11 +232,11 @@ export function codexFilesystemPath(value) {
     }
     if (name === 'dsh-im') {
       cpSync(join(sourceRoot, 'checks/expected/im-host-transcript.json'), join(directory, 'expected/im-host-transcript.json'))
-      for (const check of ['im-migration', 'im-admission', 'im-host-runtime', 'im-socket', 'im-files', 'im-workspace', 'im-team']) {
+      for (const check of ['im-migration', 'im-admission', 'im-host-runtime', 'im-native-session', 'im-socket', 'im-files', 'im-workspace', 'im-team']) {
         cpSync(join(sourceRoot, 'checks', `${check}.mjs`), join(directory, `.muse-${check}.test.mjs`))
       }
       run(['--test', '--test-concurrency=1', '--test-timeout=30000',
-        '.muse-im-migration.test.mjs', '.muse-im-admission.test.mjs', '.muse-im-host-runtime.test.mjs', '.muse-im-socket.test.mjs', '.muse-im-files.test.mjs', '.muse-im-workspace.test.mjs', '.muse-im-team.test.mjs'], directory)
+        '.muse-im-migration.test.mjs', '.muse-im-admission.test.mjs', '.muse-im-host-runtime.test.mjs', '.muse-im-native-session.test.mjs', '.muse-im-socket.test.mjs', '.muse-im-files.test.mjs', '.muse-im-workspace.test.mjs', '.muse-im-team.test.mjs'], directory)
     }
     if (name === 'dsh-skill-mcp-panel') {
       cpSync(join(sourceRoot, 'checks/mcp-desktop-runtime.mjs'), join(directory, '.muse-mcp.test.mjs'))
