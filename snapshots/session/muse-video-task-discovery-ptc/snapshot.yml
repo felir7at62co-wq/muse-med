@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-video-task-discovery-ptc
+profile: headless
+composition: muse-video-task-discovery-ptc
+recording: authored
+writerOutput: true
+header:
+  class: muse-video-task-discovery-ptc
+  pin: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-task-discovery

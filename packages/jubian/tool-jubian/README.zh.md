@@ -37,11 +37,14 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 
 当 agent 需要查询或认领当前账号剧本池里的本、按名字查剧本、整理资产、上传参考图、保存主体选择、准备和提交视频、确认出演、生成图片、擦除字幕、转高清或下载提供方媒体时，选择本包。凭证能解析的地方都可以挂载它；会话不接触剧变时不要挂载，因为这些 schema 在挂载期间始终对模型可见。
 
+<a id="extract-or-reuse-existing-video"></a>
 ### 提取或复用已有视频
 
 提取声线或复用成片前，用 `jubian_video sources` 提供精确 `script_id` 与原 `storyboard_id` 查询已有媒体。它只读核对卡片、任务及子结果身份，在配置范围内翻页读取历史，返回成功视频 URL 和原任务／结果 ID，不要求与当前模型或分辨率一致。原卡已关联的任务即使未出现在完整项目列表中，也会继续核对；两份历史不一致时，查询覆盖标记为不完整。 同一任务的卡片归属冲突时也标记覆盖不完整，来源卡片只能由独立任务详情及子结果证据确认。`available` 表示存在已核实媒体，`pending` 表示原任务或子任务仍在运行，`none_found` 表示完整查询后未找到成功媒体，`unknown` 保留查询不完整或无法读取的状态。这些结论不授权生成，也不证明实际说话人或视频内容合格。
 
-`tasks` 与 `subtasks` 实际传递 `page_num`、`page_size`，并返回查询时间、返回数量、`complete`、`has_more` 与 `next_page`。`complete` 只描述本次响应；读到末页不代表前页已查。部分查询未返回某条记录，不证明该卡从未生成。`prepare_video` 同时返回提示性 `existing_video_sources`，这些观测不写进冻结预览，也不改变生成指纹。历史查询失败时，准备仍可完成，来源覆盖标记为未知。
+`jubian_video` 的 `method: tasks` 默认查询全部任务类型。可传入正整数 `task_type` 筛选；`task_type: 1` 保留生成任务筛选。`tasks.scope` 标明 `script_id` 和选定类型，其中 `task_type: null` 表示未发送类型筛选。某类型的空页不代表项目没有任务。即使项目列表为空，也应使用 `method: task` 与原 `task_id` 单独回读已知任务。缺少记录或查询来源都不授权收费生成。
+
+`tasks` 与 `subtasks` 实际传递 `page_num`、`page_size`，并返回查询时间、返回数量、`total_verified`、`complete`、`has_more` 与 `next_page`。`total_verified` 只表示提供方返回了本次查询的有效数值总数。`complete` 只描述相应查询范围内的本次响应；读到末页不代表前页已查。对于 `tasks`，只有未按类型筛选且本次响应包含提供方报告的完整项目列表时，`project_complete` 才可能为 true；它不证明提供方保留了全部历史任务。部分查询未返回某条记录，不证明该卡从未生成。`prepare_video` 同时返回提示性 `existing_video_sources`，这些观测不写进冻结预览，也不改变生成指纹。历史查询失败时，准备仍可完成，来源覆盖标记为未知。
 
 来源查询使用 `videoSourcePageSize`（100）、`videoSourcePageLimit`（20）、`videoSourceTaskLimit`（50）、`videoSourceResultLimit`（20），四项范围均为 1–100；`videoSourceMaxResultChars` 默认将完整结果限制为 12000 个 JSON 字符，范围 2048–1000000。达到限制时保留能容纳的已核实记录，删除整行而不截断 URL，并明确覆盖不完整。来源查询或缺少声线样本不会发起付费请求。新用户消息不再自动追加提取或复用提示；历史提示仍作为已保存的普通上下文保留。
 

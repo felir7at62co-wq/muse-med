@@ -34,7 +34,7 @@ describe.skipIf(!enabled)('live video read and media download', () => {
     const client = new JubianClient({ credential: storedToken, maxResponseBytes: 32 * 1024 * 1024 })
     const ledger = new JubianLedger({ root: join(OUTPUT_DIR, 'ledger') })
 
-    const listed = await videoMethod(client, ledger, { method: 'tasks', script_id: SCRIPT_ID, page_num: 1 })
+    const listed = await videoMethod(client, ledger, { method: 'tasks', script_id: SCRIPT_ID, task_type: 1, page_num: 1 })
     const tasks = (listed.tasks as { total: number; rows: { task_id: number; status: string | null }[] }).rows
     expect(tasks.length).toBeGreaterThan(0)
 

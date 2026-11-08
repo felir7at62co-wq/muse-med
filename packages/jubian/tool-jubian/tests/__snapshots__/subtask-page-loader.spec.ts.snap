@@ -23,11 +23,19 @@ exports[`exposes subtask rows in PTC output types while accepting other video-me
     page_num: number;
     page_size: number;
     returned: number;
+    /** 提供方返回有效数值 total；不是独立核验全部历史。 */
     total_verified: boolean;
-    /** 仅本次响应覆盖全部结果时为 true；末页不代表已读过前页。 */
+    /** 仅本次响应覆盖相应查询范围全部结果时为 true；末页不代表已读过前页。 */
     complete: boolean;
     has_more: boolean | null;
     next_page: number | null;
+    /** 本次总数与完整性对应的查询范围；task_type=null 表示不按类型筛选。 */
+    scope: {
+      script_id: number;
+      task_type: number | null;
+    };
+    /** 仅本次未按任务类型筛选且完整读到提供方项目列表时为 true；不保证提供方保留全部历史。 */
+    project_complete: boolean;
     total: number;
     rows: Record<string, JsonValue>[];
   } & Record<string, JsonValue>;
@@ -37,8 +45,9 @@ exports[`exposes subtask rows in PTC output types while accepting other video-me
     page_num: number;
     page_size: number;
     returned: number;
+    /** 提供方返回有效数值 total；不是独立核验全部历史。 */
     total_verified: boolean;
-    /** 仅本次响应覆盖全部结果时为 true；末页不代表已读过前页。 */
+    /** 仅本次响应覆盖相应查询范围全部结果时为 true；末页不代表已读过前页。 */
     complete: boolean;
     has_more: boolean | null;
     next_page: number | null;
@@ -57,6 +66,91 @@ exports[`exposes subtask rows in PTC output types while accepting other video-me
   };
   guidance?: string;
 } & Record<string, JsonValue>"
+`;
+
+exports[`logs provider-limited empty discovery before reading a known task without changing its original key > empty provider list followed by known original task and key 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "{
+  "tasks": {
+    "total": 0,
+    "rows": [],
+    "queried_at": "2026-11-06T06:00:00.000Z",
+    "page_num": 1,
+    "page_size": 20,
+    "returned": 0,
+    "total_verified": true,
+    "complete": true,
+    "has_more": false,
+    "next_page": null,
+    "scope": {
+      "script_id": 5933,
+      "task_type": 1
+    },
+    "project_complete": false
+  },
+  "guidance": "tasks.rows 仅是本页；scope.task_type=null 表示没有按任务类型筛选。total_verified 和 complete 仅说明 scope 范围内的提供方列表；按类型筛选时 project_complete 恒为 false，该类型为空不能说明项目没有任务。未按类型筛选且本次完整，也仅覆盖提供方本次返回的项目列表，不保证保留全部历史；已知任务 ID 仍须单独回读。未读完所有页前，不能把未找到某集或某卡当作从未生成。提取现有视频请用 sources(script_id,storyboard_id) 查询原卡来源；已有任务继续按原 task_id 回读。"
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+  {
+    "content": [
+      {
+        "text": "{
+  "tasks": {
+    "total": 0,
+    "rows": [],
+    "queried_at": "2026-11-06T06:00:00.000Z",
+    "page_num": 1,
+    "page_size": 20,
+    "returned": 0,
+    "total_verified": true,
+    "complete": true,
+    "has_more": false,
+    "next_page": null,
+    "scope": {
+      "script_id": 5933,
+      "task_type": null
+    },
+    "project_complete": true
+  },
+  "guidance": "tasks.rows 仅是本页；scope.task_type=null 表示没有按任务类型筛选。total_verified 和 complete 仅说明 scope 范围内的提供方列表；按类型筛选时 project_complete 恒为 false，该类型为空不能说明项目没有任务。未按类型筛选且本次完整，也仅覆盖提供方本次返回的项目列表，不保证保留全部历史；已知任务 ID 仍须单独回读。未读完所有页前，不能把未找到某集或某卡当作从未生成。提取现有视频请用 sources(script_id,storyboard_id) 查询原卡来源；已有任务继续按原 task_id 回读。"
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+  {
+    "content": [
+      {
+        "text": "{
+  "task": {
+    "task_id": 749810,
+    "task_type": null,
+    "status": "succeeded",
+    "first_result_id": null,
+    "parent_result_id": null,
+    "real_cost": null,
+    "estimated_cost": null,
+    "discount_cost": null,
+    "script_id": 5933,
+    "episode_id": 130172,
+    "episode_count": null,
+    "task_name": "EP01-P3"
+  }
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+]
 `;
 
 exports[`logs the actual failed child page and its download guidance into the next model request > failed paged video results 1`] = `

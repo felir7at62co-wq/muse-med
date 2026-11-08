@@ -1,0 +1,29 @@
+{
+  "executor": "ptc",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/admin/aigc/video/task/list?scriptId=5933&taskType=1&pageNum=1&pageSize=20"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/aigc/video/task/list?scriptId=5933&pageNum=1&pageSize=20"
+    },
+    {
+      "method": "GET",
+      "path": "/admin/aigc/video/task/749810"
+    }
+  ],
+  "filteredProjectComplete": false,
+  "unfilteredProjectComplete": true,
+  "providerListOnly": true,
+  "knownTaskId": 749810,
+  "originalKeys": [
+    "known-original-video-key"
+  ],
+  "originalLedgerBytesUnchanged": true,
+  "loggedResultsSeenByNextModel": 4,
+  "ptcDispatches": 4,
+  "paidPUTs": 0,
+  "paidPOSTs": 0
+}

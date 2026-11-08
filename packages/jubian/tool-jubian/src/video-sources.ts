@@ -168,7 +168,7 @@ export async function readVideoSources(client: JubianClient, args: { script_id: 
     let total: number | null = null, complete = false
     for (let num = 1; num <= options.pageLimit; num++) {
       const response = await read({ method: 'GET', path: `/admin/aigc/video/task/list?scriptId=${args.script_id}`
-        + `&taskType=1&pageNum=${num}&pageSize=${options.pageSize}&orderByColumn=createTime&orderBy=desc` })
+        + `&pageNum=${num}&pageSize=${options.pageSize}&orderByColumn=createTime&orderBy=desc` })
       if (response === null) break
       result.coverage.pages_read++
       const data = page(response)

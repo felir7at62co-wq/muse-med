@@ -1,0 +1,40 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: agent-instructions
+  disabled: true
+- id: skill-filesystem
+  disabled: true
+- id: skill
+  disabled: true
+- id: tool-skill
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+- id: tool-web
+  disabled: true
+- insert:
+    - id: task-discovery-fixture
+      name: '../muse-video-task-discovery-native/task-discovery-fixture.mjs'
+      config:
+        ptc: true
+    - id: tool-jubian
+      name: '../../../packages/jubian/tool-jubian/tests/snapshot-plugin.mjs'
+      config:
+        baseUrl: https://task-discovery.invalid/prod-api
+        workspaceSecrets: false
+- id: tool-executor-native
+  disabled: true
+- id: tool-executor-ptc
+  disabled: false
+- id: ptc-runtime
+  disabled: true
+- insert:
+    - id: task-discovery-ptc-runtime
+      name: '@deepseek-ai/dsh-ptc-runtime-node'
+- id: sandbox
+  name: '@deepseek-ai/dsh-sandbox-local'
+  config:
+    runnerCommand: [bash, -c, 'while [ "$1" != "--" ]; do shift; done; shift; exec "$@"', passthrough-runner]
+    runnerFailureSignatures: ['passthrough-runner: profile rejected']
