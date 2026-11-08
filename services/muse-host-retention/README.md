@@ -6,11 +6,19 @@ This service inventories application releases and archived logs independently of
 
 ## References and protection
 
-The collector extracts only retention-root paths from process commands, working directories, executables, open descriptors, installed systemd files, effective unit properties, environment files, Nginx configuration, Docker mounts and container commands. Raw process arguments and configuration bodies are not persisted. Release symlinks and receipts form dependencies between versions. References from retained versions protect their dependencies transitively; self-references in a historical receipt do not make that release permanently active.
+The collector extracts only retention-root paths from process commands, working directories, executables, mapped files, environment values, open descriptors, installed systemd files, effective unit properties, environment files, Nginx configuration, Docker mounts and container commands. Raw process arguments and configuration bodies are not persisted. Release symlinks and receipts form dependencies between versions. References from retained versions protect their dependencies transitively; self-references in a historical receipt do not make that release permanently active.
 
 The planner protects directly referenced versions, explicit pins, unknown families, incomplete builds and at least two additional rollback candidates per family. A family without a referenced current version keeps three build-complete versions. Retained rollback candidates preserve their dependencies too. Required-file checks establish build completeness, not a successful live rollback or database downgrade compatibility. No service is switched to an older version during inspection.
 
 Only numbered log archives matching the effective Nginx configuration and archived journal files can become log candidates. Active filenames are outside the selector. Open files, symlinks, recent writes and journal files without an archived state and old final-entry timestamp remain protected. Defaults retain releases and logs for at least 14 days. Missing roots, unreadable references, failed commands and truncated inventories fail the scan; they cannot be interpreted as empty reference sets.
+
+## Preview and recovery
+
+The observer stores private SQLite audit rows and the latest full inventory in `state_dir`. Dry-run mode changes neither release directories nor log archives. Promotion requires at least 24 continuous hours from the same code and policy, no observation gaps exceeding `maximum_gap_seconds`, no errors or target mutations, a recent observation and a matching runtime test qualification. Code or policy changes require a new preview; changing the mode alone does not change the policy digest. Approval identifies a fixed sequence of observations. Re-running promotion after activation does not grant another approval.
+
+Enabled cleanup rechecks references and filesystem identities before each mutation. It atomically moves candidates to an owner-only quarantine on the same filesystem, waits another 24 hours, then rechecks before deletion. A new reference to any pending object restores the entire pending batch, preserving dependencies between quarantined releases. A shrinking rollback reserve also restores its version. Restoration never overwrites a replacement. Uncertain moves, interrupted purges, changed contents and failed scans stop execution for operator review. Dry-run mode suspends both quarantine and deletion, preserving pending objects.
+
+Each invocation moves at most ten objects totalling 1 GiB and separately deletes at most ten quarantined objects totalling 1 GiB. Restoration is not limited by the deletion budget. Active deployment units suspend release selection and final deletion. Deployment writers must take the same exclusive `state_dir/cleanup.lock` before changing release references; an uncoordinated root writer cannot be made safe by periodic scans alone. Existing Nginx rotation remains responsible for creating archives. This service manages only expired closed archives, without truncating active logs or changing journal retention globally.
 
 ## Verification
 

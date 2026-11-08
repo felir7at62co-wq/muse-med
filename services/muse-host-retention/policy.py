@@ -91,7 +91,7 @@ def plan(snapshot, policy, now):
                 changed = True
     output = []
     for row in releases:
-        reason = protected.get(row['path'])
+        reason = 'deployment-in-progress' if snapshot.get('deployment_busy') else protected.get(row['path'])
         if reason is None and now - row['identity']['mtime_ns'] / 1e9 < policy['release_days'] * 86400:
             reason = 'release-retention-period'
         output.append({**row, 'kind': 'release', 'eligible': reason is None, 'reason': reason or 'unreferenced-expired-release'})
