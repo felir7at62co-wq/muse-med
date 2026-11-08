@@ -4,11 +4,12 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { expect, it, onTestFinished, vi } from 'vitest'
-import { measureSubtitleLayout } from '../src/subtitle-layout.ts'
+import { measureSubtitleLayout, subtitleVisualChecks } from '../src/subtitle-layout.ts'
 import { fitSubtitleCues } from '../src/subtitle-fit.ts'
 import type { SpeechCoverageReport, SpeechCoverageWord } from '../src/speech-coverage.ts'
 import type { MediaToolkit, RenderSettings, SubtitleCue, TimelineDelivery } from '../src/types.ts'
 import { createMediaRunner } from './audio-ffmpeg-harness.ts'
+import { ep26Cue, ep26Evidence } from './subtitle-fit-ep26-fixture.ts'
 
 const fsFaults = vi.hoisted(() => ({ access: null as Error | null, mkdir: null as string | null }))
 async function rejectNonError(reason: string): Promise<never> {
@@ -209,7 +210,7 @@ it('keeps measurement directory failures advisory', async () => {
   await writeFile(blocked, 'not a directory')
   const result = await measureSubtitleLayout({ toolkit: process.toolkit, settings, delivery, cues: [cue('字幕')], directory: blocked })
   expect(result.report.status).toBe('not_measured')
-  expect(result.warnings.join('\n')).toContain('不阻断制作')
+  expect(result.warnings.join('\n')).toContain('仍需通过显示检查')
   expect(process.run).not.toHaveBeenCalled()
 })
 
@@ -251,6 +252,8 @@ it.skipIf(!ffmpeg || !ffprobe || !hasZhuque).each([
   expect(result.report.entries[0]?.outline_allowance_px).toBe(outline * 2)
   expect(result.report.entries[0]?.fits_available_width).toBe(true)
   expect(result.report.entries[1]?.fits_available_width).toBe(false)
+  expect(subtitleVisualChecks(result.report).find(check => check.id === 'subtitle_display_font')?.ok).toBe(true)
+  expect(subtitleVisualChecks(result.report).find(check => check.id === 'subtitle_display_width')?.ok).toBe(false)
   expect(result.warnings.join('\n')).toContain('实际字词时间')
 }, 60_000)
 
@@ -281,6 +284,30 @@ it.skipIf(!ffmpeg || !ffprobe || !hasZhuque).each([
   expect(result.cues.map(item => [item.text, item.startSeconds, item.endSeconds])).toEqual([
     ['可我现在每天按时起', 64.528, 65.848], ['每天都干活', 65.848, 66.488],
   ])
+}, 60_000)
+
+it.skipIf(!ffmpeg || !ffprobe || !hasZhuque)('fits archived EP26 word times after SRT quantization with real Zhuque measurements', async () => {
+  const family = 'Zhuque Fangsong (technical preview)'
+  const input = { ...await nativeInput(family), delivery: { width: 480, height: 854, fps: 60,
+    subtitle_visual: { ...visual, reference_width: 480, reference_height: 854, font_size_px: 46, outline_px: 1.25,
+      center_y_ratio: 0.736747073, max_width_ratio: 0.9, font_family: family } } }
+  const measured = new Map<string, boolean | null>()
+  const result = await fitSubtitleCues([ep26Cue], ep26Evidence(), async (text) => {
+    const report = await measureSubtitleLayout({ ...input, cues: [cue(text)] })
+    expect(report.report.entries[0]?.fontselect_trace.join('\n')).toContain('ZhuqueFangsong-Regular')
+    const fits = report.report.entries[0]?.fits_available_width ?? null
+    measured.set(text, fits)
+    return fits
+  })
+  expect(measured.get(ep26Cue.text)).toBe(false)
+  expect(result.warnings).toEqual([])
+  expect(result.cues.length).toBeGreaterThan(1)
+  expect(result.cues.map(item => item.text).join('')).toBe(ep26Cue.text)
+  expect(result.cues[0]?.startSeconds).toBe(ep26Cue.startSeconds)
+  expect(result.cues.at(-1)?.endSeconds).toBe(ep26Cue.endSeconds)
+  for (const part of result.cues) expect(measured.get(part.text)).toBe(true)
+  const actualStarts = new Set(ep26Evidence().words.map(word => word.start_seconds))
+  for (const part of result.cues.slice(1)) expect(actualStarts.has(part.startSeconds)).toBe(true)
 }, 60_000)
 
 it.skipIf(!ffmpeg || !ffprobe)('measures actual WWWW and iiii differently and flags a real overwide line', async () => {
@@ -340,3 +367,45 @@ it.skipIf(!ffmpeg || !ffprobe || !hasNoto)('keeps natural Chinese width and show
   expect(result.report.entries.map(entry => entry.cues[0])).toEqual(cues.map(row => ({
     index: row.index, start_seconds: row.startSeconds, end_seconds: row.endSeconds })))
 }, 60_000)
+
+
+it.each([
+  { label: 'exact requested face', family: 'Example Font', face: 'Example Font', text: '字幕', ok: true },
+  { label: 'regular family face', family: 'Noto Sans CJK SC', face: 'NotoSansCJKsc-Regular', text: '字幕', ok: true },
+  { label: 'bundled Zhuque alias', family: 'Zhuque Fangsong (technical preview)', face: 'ZhuqueFangsong-Regular', text: '字幕', ok: true },
+  { label: 'Arial alias', family: 'Arial', face: 'ArialMT', text: '价格99.9%', ok: true },
+  { label: 'fallback face', family: 'Arial', face: 'SystemFallback', text: '字幕', ok: false },
+])('checks the actual reported $label without changing the standalone measurement', async ({ family, face, text, ok }) => {
+  const root = await directory()
+  const process = stub(`fontselect: (${family}, 400, 0) -> ${face}, 0, ${face}\n`
+    + '[Parsed_bbox] x1:400 x2:499 y1:100 y2:119 w:100 h:20')
+  const result = await measureSubtitleLayout({ toolkit: process.toolkit, settings: { ...settings, subtitleFontFamily: family },
+    delivery: { ...delivery, subtitle_visual: { ...visual, font_family: family } }, cues: [cue(text)], directory: root })
+  const before = structuredClone(result.report)
+  const checks = subtitleVisualChecks(result.report)
+  expect(checks.find(check => check.id === 'subtitle_display_text')?.ok).toBe(true)
+  expect(checks.find(check => check.id === 'subtitle_display_width')?.ok).toBe(true)
+  expect(checks.find(check => check.id === 'subtitle_display_font')?.ok).toBe(ok)
+  expect(result.report).toEqual(before)
+})
+
+it.each([
+  ['physical row break', '你好\n世界'], ['literal ASS row break', String.raw`你好\n世界`],
+  ['punctuation-only display', '……'], ['ordinary punctuation', '你好，世界！'],
+])('reports $0 as a repair while keeping the diagnostic source text', async (_label, text) => {
+  const root = await directory(), process = stub()
+  const result = await measureSubtitleLayout({ toolkit: process.toolkit, settings, delivery, cues: [cue(text)], directory: root })
+  expect(subtitleVisualChecks(result.report).find(check => check.id === 'subtitle_display_text')?.ok).toBe(false)
+  expect(result.report.entries[0]?.text).toBe(text)
+})
+
+it.each([
+  ['missing font selection', '[Parsed_bbox] x1:400 x2:499 y1:100 y2:119 w:100 h:20', 0, 'subtitle_display_font'],
+  ['malformed native trace', 'fontselect: unable to resolve\n[Parsed_bbox] x1:400 x2:499 y1:100 y2:119 w:100 h:20', 0, 'subtitle_display_font'],
+  ['clipped measurement', 'fontselect: (Arial, 400, 0) -> ArialMT, 0, ArialMT\n[Parsed_bbox] x1:0 x2:99 y1:100 y2:119 w:100 h:20', 0, 'subtitle_display_width'],
+  ['failed native probe', 'probe failed', 7, 'subtitle_display_width'],
+])('keeps $0 diagnostic evidence but refuses active delivery', async (_label, stderr, code, checkId) => {
+  const root = await directory(), process = stub(stderr, code)
+  const result = await measureSubtitleLayout({ toolkit: process.toolkit, settings, delivery, cues: [cue('字幕')], directory: root })
+  expect(subtitleVisualChecks(result.report).find(check => check.id === checkId)).toMatchObject({ severity: 'failure', ok: false })
+})

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { apply as mountPreset } from '../muse-editing-tool-catalog/editing-preset-fixture.mjs'
 export const name = 'snapshot-creation-preset'
-export const inject = ['agentPresets', 'tools', 'systemPrompt', 'skills', 'llm', 'agents']
+export const inject = ['agentPresets', 'tools', 'systemPrompt', 'workingDirectory', 'skills', 'llm', 'agents']
 /** Mount the current preset and inspect actual model-visible inputs. */
 export async function apply(ctx) {
   await mountPreset(ctx, { presetId: 'creation', hidePlatformShellTools: true })

@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-subtitle-visual-preflight-ptc
+profile: headless
+composition: muse-subtitle-visual-preflight-ptc
+recording: authored
+header:
+  class: muse-subtitle-visual-preflight-ptc
+  pin: true
+workspace:
+  final: true

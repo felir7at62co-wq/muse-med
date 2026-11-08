@@ -724,3 +724,24 @@ describe('renderEpisode', () => {
     )
   })
 })
+
+
+it.each(['audio', 'effect'] as const)('requires the %s ending input at the direct render entry', async (missing) => {
+  const prepared = await preparedProject(), channel = renderChannel(prepared)
+  const input: RenderInput = { toolkit: toolkit(channel), settings, project: prepared.project, episode: '02',
+    timelinePath: prepared.timeline, subtitleSrt: prepared.subtitle, lastShot: 2, bgm: prepared.bgm,
+    ...(missing === 'audio' ? { endingEffect: prepared.endingEffect } : { endingAudio: prepared.endingAudio }),
+    output: prepared.output, force: false }
+  await expect(renderEpisode(input)).rejects.toThrow(missing === 'audio' ? '需要 endingAudio' : '需要 endingEffect')
+  expect(channel.calls).toEqual([])
+})
+
+it.each(['photorealistic', 'animation_3d'] as const)('retains explicit source_once ending semantics for %s', async (medium) => {
+  const prepared = await preparedProject()
+  await writePlaceholder(join(prepared.project, 'project_config.json'), JSON.stringify({ project_bible: { visual_medium: medium } }))
+  const channel = renderChannel(prepared, { durationSeconds: medium === 'photorealistic' ? 116.733332 : 114.733332 })
+  const result = await render(prepared, channel, false, undefined, { settings: { ...settings, defaultEndingEffectFit: 'source_once' } })
+  expect(result.ok, result.failures.join('\n')).toBe(true)
+  if (medium === 'photorealistic') expect(result.ending_effect?.fit).toBe('source_once')
+  else expect(result).not.toHaveProperty('ending_effect')
+})

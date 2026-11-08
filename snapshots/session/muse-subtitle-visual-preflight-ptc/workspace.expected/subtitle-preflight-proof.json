@@ -1,0 +1,10 @@
+{
+  "refusalBeforeBody": true,
+  "priorMp4BytesAndInodePreserved": true,
+  "priorSourceRecordBytesAndInodePreserved": true,
+  "originalSrtPreserved": true,
+  "repairedDisplayText": "你好 世界",
+  "activeVisualChecks": 3,
+  "controlledBodyCommandsObserved": true,
+  "seenRefusalAndSuccessInModelRequests": true
+}

@@ -6,7 +6,8 @@
  * silent stretches, and whether any subtitle cue would be burned outside the
  * picture. `verify` reports every check instead of stopping at the first
  * failure, so one call is one complete repair list; nothing here writes to the
- * delivered file.
+ * delivered file or the selected SRT. An active visual profile remeasures that exact claimed display SRT
+ * and saves separate glyph evidence; this does not compare the video’s burned text with the SRT.
  *
  * @module @deepseek-ai/dsh-tool-episode-render/verify
  */
@@ -15,13 +16,14 @@ import { resolve } from 'node:path'
 import { fileSha256 } from './cache.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { readVideoBans } from './video.ts'
-import { DEFAULT_DELIVERY, MIN_BITRATE_BPS } from './delivery.ts'
+import { DEFAULT_DELIVERY, deliveryRenderSettings, MIN_BITRATE_BPS } from './delivery.ts'
 import { mediaFactsOf, probeMedia } from './ffmpeg.ts'
 import { buildReport, NO_TAIL_FRAME, type ReportInput } from './report.ts'
 import { sourceRecordPathFor, readSourceRecord } from './source-record.ts'
 import { readSubtitleCues } from './subtitles.ts'
 import { assertBodyOnlyAnimation, resolveDeliveryPolicy } from './delivery-policy.ts'
 import { readTimeline } from './timeline.ts'
+import { measureSubtitleLayout, subtitleVisualChecks } from './subtitle-layout.ts'
 import type {
   DramaRenderReport,
   MediaFacts,
@@ -453,7 +455,13 @@ export async function verifyEpisode(input: VerifyInput): Promise<DramaRenderRepo
   const black = await detectBlackSegments(input.toolkit, input.output, media.durationSeconds)
   const silence = await detectSilenceSegments(input.toolkit, input.output, media.durationSeconds)
   const cues = await readSubtitleCues(input.subtitleSrt)
+  const layout = policy.delivery.subtitle_visual?.schema_version === 1
+    ? await measureSubtitleLayout({ toolkit: input.toolkit,
+      settings: deliveryRenderSettings(input.settings, policy.delivery), delivery: policy.delivery,
+      cues, directory: episodePaths(input.project, input.episode).cacheDir })
+    : undefined
   const checks: RenderCheck[] = [
+    ...(layout === undefined ? [] : subtitleVisualChecks(layout.report)),
     ...deliveryChecks(media, expectedDurationSeconds, policy.delivery),
     ...await decodeChecks(input.toolkit, input.output, media.durationSeconds),
     ...await videoBanChecks(input, timeline.clips.map(clip => clip.shot)),
@@ -477,12 +485,13 @@ export async function verifyEpisode(input: VerifyInput): Promise<DramaRenderRepo
   const sources = new Map<number, string>()
   const reportInput: ReportInput = {
     method: 'verify',
+    ...(layout === undefined ? {} : { subtitleLayout: layout.report }),
     project: input.project,
     episode: input.episode,
     timeline,
     sources,
     expectedDurationSeconds,
-    written: [],
+    written: [...layout?.written ?? []],
     output: input.output,
     encoder: '',
     gpuRequested: false,
@@ -493,7 +502,7 @@ export async function verifyEpisode(input: VerifyInput): Promise<DramaRenderRepo
     tailFrame: NO_TAIL_FRAME,
     media,
     checks,
-    warnings: [...policy.warnings],
+    warnings: [...policy.warnings, ...layout?.warnings ?? []],
     logPath: '',
   }
   return buildReport(reportInput)

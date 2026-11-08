@@ -15,14 +15,14 @@
   en: d152484eb41ac6b4
   zh: f0f7f88fe2f53b05
 /deepseek-ai-dsh-tool-episode-render/use-this-package:
-  en: 0190019b2e3d597c
-  zh: f04bb958a145a634
+  en: 5be0bfb7b5e782f8
+  zh: 783c6d96854cc8f0
 /deepseek-ai-dsh-tool-episode-render/use-this-package/reversible-video-bans:
   en: bb04e98a08b2006c
   zh: 6aa143d0ccea86f8
 /deepseek-ai-dsh-tool-episode-render/use-this-package/render-and-audio-audition-methods:
-  en: 4c0826ad3dd816f0
-  zh: 8d9d27ad709385b5
+  en: 1b59c0e5d1106dde
+  zh: 1edfa7227a3c71e6
 /deepseek-ai-dsh-tool-episode-render/use-this-package/explicit-audio-profiles-and-auditions:
   en: 78c3c324394122c4
   zh: 26ff2f647e3b9dd1
@@ -45,8 +45,8 @@
   en: de33577677b9ac8c
   zh: c1b85a1a119dced6
 /deepseek-ai-dsh-tool-episode-render/use-this-package/what-subtitles-does:
-  en: 27839b9c1bd51514
-  zh: daa9ee28f51ce903
+  en: fbc346549202cc72
+  zh: f2b7dc4caac2c753
 /deepseek-ai-dsh-tool-episode-render/use-this-package/what-prepare-writes:
   en: 737aa11eadbdeaaf
   zh: a36030423543b0a7
@@ -60,8 +60,8 @@
   en: e5bd784ee79e3644
   zh: f1df2cc076f9248d
 /deepseek-ai-dsh-tool-episode-render/use-this-package/check-codes:
-  en: 40be061a584fd926
-  zh: 46a4a791dd740493
+  en: 0508281f3d9f25fd
+  zh: 249aa3c4ba740003
 /deepseek-ai-dsh-tool-episode-render/understand-the-implementation:
   en: d035a09534004c59
   zh: 3a43afce99eaa2b9
@@ -84,14 +84,14 @@
   en: 4b61240f29425c68
   zh: 2d447e4597bd92cd
 /deepseek-ai-dsh-tool-episode-render/model-experience/the-render-and-video-decision-tool-schemas/token-effect:
-  en: 168d3e94481c140f
-  zh: 294d54b65537bcea
+  en: e6cf32965bf98aa1
+  zh: 1a90c0af37217ba1
 /deepseek-ai-dsh-tool-episode-render/model-experience/the-render-and-video-decision-tool-schemas/kv-cache-effect:
   en: 064f99a9c816466f
   zh: 656fd64286b15620
 /deepseek-ai-dsh-tool-episode-render/known-limitations-and-deferred-work:
-  en: 7bb4910e1ab21f7c
-  zh: b6a155758b83f01f
+  en: 96d771590c76fb9e
+  zh: 4345ec09587b2840
 /deepseek-ai-dsh-tool-episode-render/known-limitations-and-deferred-work/dev-note:
   en: 7592720dbb825107
   zh: b45c7ac69e2f8d1a

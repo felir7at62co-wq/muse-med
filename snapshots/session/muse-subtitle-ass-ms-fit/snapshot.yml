@@ -3,6 +3,7 @@ scenario: muse-subtitle-ass-ms-fit
 profile: headless
 composition: muse-subtitle-ass-ms-fit
 recording: authored
+writerOutput: true
 header:
   class: muse-subtitle-ass-ms-fit
   pin: true

@@ -8,7 +8,7 @@
  * classification is reported. Explicit project subtitle and linear mix settings
  * override the existing delivery defaults; rate control is unchanged.
  *
- * `subtitles`, `prepare`, and `render` write; `verify` only reads. Everything that makes a
+ * `subtitles`, `prepare`, and `render` write; `verify` preserves its video and SRT but may save glyph evidence. Everything that makes a
  * render impossible throws with a Chinese repair instruction. The delivered
  * file's own properties do not throw: `render` and `verify` report them as
  * checks, so one call tells the operator everything that needs fixing while
@@ -855,7 +855,7 @@ const RESULT_SCHEMA = {
     expected_duration_seconds: { type: 'number', required: true,
       description: '按明确媒介计算的交付时长：3D 动画等于正片结束；写实或未声明媒介的旧项目再加片尾 2 秒。' },
     written: { type: 'array', required: true, items: { type: 'string' },
-      description: '本次写入的绝对路径；verify 不写任何文件。' },
+      description: '本次写入的绝对路径；verify 不改视频或所选 SRT，启用字幕视觉配置时保存字形测量证据。' },
     output: { type: 'string', required: true,
       description: '成片绝对路径；prepare 与 verify 之外的场合为空串。' },
     encoder: { type: 'string', required: true,
@@ -1006,6 +1006,8 @@ const DESCRIPTION = '处理一集短剧的字幕、渲染准备、成片与检�
   + '混音为原声+BGM（到正片结束）+适用片尾音，amix 后 alimiter=0.95；显式增益不改混音算法。'
   + 'h264_nvenc 探测失败回退 libx264，原因写入 encoder_fallback_reason 与日志；回读实际分辨率、帧率、码率、时长、大小和编码器。'
   + 'verify 检查时长、音视频流、4.6 Mbps 总码率下限、首中尾真实解码、黑帧、静音和字幕越界，不能只看元数据。'
+  + '启用字幕视觉配置时，render 在编码正文前检查实际显示文字、宽度和字体，失败保留旧成片与来源记录；'
+  + 'verify 按传入显示 SRT 的原文复测并保存字形证据，不改视频或 SRT，也不证明视频内烧字与 SRT 一致。'
   + '尾帧通过 framemd5 与顺序解码末帧核对，失败先顺序重取，仍无法证明则报错。'
   + '缺参数/文件、命令失败等无法执行的问题报错；成片质量问题保留文件与实测参数，按 checks、ok=false、failures 返回中文修法。'
 
@@ -1060,7 +1062,7 @@ export function apply(ctx: Context, config: Config = {}): void {
           + '跨工具调用优先传 prepare 或 drama_bgm 返回的绝对路径。' },
       subtitle_srt: { type: 'string',
         description: '本集 SRT 字幕路径；subtitles 写出它（省略时写 editing/<集>.srt），'
-          + 'prepare 装到 editing/<集>.srt，render 烧录它，verify 检查它的 cue 是否越界。'
+          + 'prepare 装到 editing/<集>.srt，render 烧录显示字幕；verify 原样读取所选显示 SRT 检查越界，并在启用视觉配置时复测字形，不改它或证明视频内文字一致。'
           + 'speech_coverage 必填最终完整显示的字幕（含保留原片烧字），不能拿删减 overlay 当完整对白；'
           + 'subtitle_layout 必填待预览SRT，不更改其文本和时间。' },
       speech_transcripts: { type: 'string', description: 'speech_coverage 必填、prepare 可选：项目内现有映射 {shots:[{shot,receipt}]}，'
