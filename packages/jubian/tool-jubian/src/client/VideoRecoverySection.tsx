@@ -38,6 +38,7 @@ const deliveryLabels = { missing: 'recoveryDeliveryMissing', changed: 'recoveryD
 const noticeLabels = {
   configured: 'recoveryConfiguredNotice', approve: 'recoveryApprovedNotice', reject: 'recoveryRejectedNotice',
   reopen: 'recoveryReopenedNotice', adopt: 'recoveryImportedNotice', delivered: 'recoveryDeliveredNotice',
+  episodeAccepted: 'episodeAcceptedNotice', episodeCompleted: 'episodeCompletedNotice',
 } as const
 
 /**

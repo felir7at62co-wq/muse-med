@@ -55,6 +55,33 @@ export interface EpisodeReadinessInput {
   readonly episode: number
 }
 
+/** Explicit history discovery for one canonical project episode. */
+export type EpisodeHistoryInput = EpisodeReadinessInput
+
+/** Persisted observations label history only; they never grant execution or recovery permission. */
+export type EpisodeRecordedState = Exclude<EpisodeDeliveryStatus['state'], 'not-admitted'>
+
+/** Original admitted identity; selecting an entry requires a separate targeted status request. */
+export interface EpisodeHistoryEntry {
+  readonly attempt: EpisodeAttemptId
+  readonly digest: VideoArtifactSha256
+  /** Last valid recorded state, or null when no valid state record is available. */
+  readonly recordedState: EpisodeRecordedState | null
+}
+
+/** Bounded metadata discovery, without source validation, renderer work or active-work fencing. */
+export interface EpisodeHistory {
+  readonly projectDir: string
+  readonly episode: number
+  readonly entries: readonly EpisodeHistoryEntry[]
+  /** Additional directory entries or metadata remain outside the configured bounds. */
+  readonly truncated: boolean
+  /** Malformed, unsafe or foreign intent/state records encountered within the scanned subset. */
+  readonly unreadableRecords: number
+  /** Directory entries processed, including unrelated names; truncation detection can read one additional name. */
+  readonly scannedEntries: number
+}
+
 /** Exact readiness digest selected for an idempotent logical admission. */
 export interface EpisodeStatusInput extends EpisodeReadinessInput {
   readonly digest: VideoArtifactSha256

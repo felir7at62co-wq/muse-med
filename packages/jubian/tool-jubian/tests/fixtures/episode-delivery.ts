@@ -94,7 +94,8 @@ export async function createEpisodeDeliveryFixture() {
     },
   }
   const removeRenderer = ctx.effect(() => ctx.provide('approvedEpisodeRenderer', provider))
-  const episodeOptions = { metadataMaxBytes: 1000000, recordBytes: 1000000, lockWaitMs: 1000 }
+  const episodeOptions = { metadataMaxBytes: 1000000, recordBytes: 1000000, lockWaitMs: 1000,
+    historyScanLimit: 1000, historyResultLimit: 50, historyMetadataMaxBytes: 4194304 }
   const fiber = ctx.plugin(JubianEpisodeDelivery, episodeOptions)
   await fiber.await()
   return { ...fixture, recovery: fixture.service, service: ctx.jubianEpisodeDelivery, episodeFiber: fiber,

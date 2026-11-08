@@ -88,7 +88,7 @@ describe('tool-jubian browser plugin', () => {
   it('mounts the generated namespace and registers the page with localized nav copy', async () => {
     const b = await bench()
     declare(b.slots)
-    const dispose = await mountJubianTokenSettings(b.ctx, REMOTE)
+    const dispose = await mountJubianTokenSettings(b.ctx, REMOTE, 1000)
 
     expect(b.mount).toHaveBeenCalledWith(REMOTE)
     const entry = b.slots.entries('settings.section')[0]!
@@ -116,7 +116,7 @@ describe('tool-jubian browser plugin', () => {
       unset: async () => ({ ok: false, error: { code: 'credential/rejected', message: 'shadowed' } }),
     })
     declare(b.slots)
-    await mountJubianTokenSettings(b.ctx, REMOTE)
+    await mountJubianTokenSettings(b.ctx, REMOTE, 1000)
 
     const injected = injectedOf(b.slots)
     await expect(injected.describe()).resolves.toEqual({
@@ -137,7 +137,7 @@ describe('tool-jubian browser plugin', () => {
 
   it('follows a late slot declaration and releases the namespace when registration fails', async () => {
     const late = await bench()
-    const pending = mountJubianTokenSettings(late.ctx, REMOTE)
+    const pending = mountJubianTokenSettings(late.ctx, REMOTE, 1000)
     await Promise.resolve()
     expect(late.slots.entries('settings.section')).toHaveLength(0)
 
@@ -150,7 +150,7 @@ describe('tool-jubian browser plugin', () => {
     const failing = await bench()
     declare(failing.slots)
     vi.spyOn(failing.slots, 'inject').mockImplementationOnce(() => { throw new Error('slot registration failed') })
-    await expect(mountJubianTokenSettings(failing.ctx, REMOTE)).rejects.toThrow('slot registration failed')
+    await expect(mountJubianTokenSettings(failing.ctx, REMOTE, 1000)).rejects.toThrow('slot registration failed')
     expect(failing.mount).toHaveBeenCalledOnce()
     expect(failing.disposeMount).toHaveBeenCalledOnce()
     await failing.ctx.fiber.dispose()
@@ -182,7 +182,7 @@ describe('recovery registration ownership', () => {
     const api = recoveryClient()
     let withdraw = b.ctx.provide('remote.jubianVideoRecovery', api)
     const unsubscribe = vi.spyOn(generation, 'subscribe')
-    const dispose = await mountJubianTokenSettings(b.ctx, REMOTE)
+    const dispose = await mountJubianTokenSettings(b.ctx, REMOTE, 1000)
     const face = injectedOf(b.slots)
     expect(face.hooks.recoveryState.getSnapshot().connected).toBe(false)
     expect(api.status).not.toHaveBeenCalled()
@@ -225,7 +225,7 @@ describe('recovery registration ownership', () => {
     const generation = createSnapshotStore<ConnectionGeneration | undefined>({ id: 1, host: { home: '/home' } })
     b.ctx.provide('connection', { generation })
     b.ctx.provide('remote.jubianVideoRecovery', api)
-    await mountJubianTokenSettings(b.ctx, REMOTE)
+    await mountJubianTokenSettings(b.ctx, REMOTE, 1000)
     const face = injectedOf(b.slots)
     await vi.waitFor(() => { expect(face.hooks.recoveryState.getSnapshot().busy).toBe(false) })
     face.setRecoveryProjectDir('/project')
@@ -268,7 +268,7 @@ describe('recovery registration ownership', () => {
     vi.stubGlobal('__DSH_DIRECTORY_PICKER__', { pick })
     const access = b.ctx.plugin({ name: 'test-picker-access', apply(scope: Context) { new StaticRemoteAccess(scope) } })
     await access.await()
-    await mountJubianTokenSettings(b.ctx, REMOTE)
+    await mountJubianTokenSettings(b.ctx, REMOTE, 1000)
     const face = injectedOf(b.slots)
     await vi.waitFor(() => { expect(face.hooks.recoveryState.getSnapshot().busy).toBe(false) })
     expect(face.hooks.recoveryState.getSnapshot().pickerAvailable).toBe(true)
@@ -298,7 +298,7 @@ it.each(['absent', 'unauthorized'] as const)('does not offer a native folder cho
   } }).await()
   b.ctx.provide('connection', { generation: createSnapshotStore<ConnectionGeneration | undefined>({ id: 1, host: { home: '/home' } }) })
   b.ctx.provide('remote.jubianVideoRecovery', recoveryClient())
-  await mountJubianTokenSettings(b.ctx, REMOTE)
+  await mountJubianTokenSettings(b.ctx, REMOTE, 1000)
   const face = injectedOf(b.slots)
   await vi.waitFor(() => { expect(face.hooks.recoveryState.getSnapshot().busy).toBe(false) })
   expect(face.hooks.recoveryState.getSnapshot().pickerAvailable).toBe(false)

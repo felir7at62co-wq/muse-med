@@ -2052,6 +2052,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'The original admission, including after a lost reply; this method never waits for rendering.',
       },
       {
+        signature: '@Remote episodeHistory(input: EpisodeHistoryInput): Promise<EpisodeHistory>',
+        description: 'Discover bounded original identities without inspecting media, preparing a renderer or resuming work. Directory order is unspecified and entries carry no recovery permission; select one and query status.',
+        parameters: [{ name: 'input', description: 'Explicit project and episode; the current recovery selection is not changed.' }],
+        returns: 'Validated original identities, recorded labels and visible scan/read limits or damaged-record counts.',
+      },
+      {
         signature: '@Remote episodeStatus(input: EpisodeStatusInput): Promise<EpisodeDeliveryStatus>',
         description: 'Read one original durable admission without preparing, hashing media or admitting another attempt.',
         parameters: [{ name: 'input', description: 'Exact project, episode and original readiness digest.' }],
@@ -7112,12 +7118,28 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type EpisodeExecutionId = Branded<\'EpisodeExecutionId\'>;',
   },
   {
+    name: 'EpisodeHistory',
+    declaration: 'export interface EpisodeHistory {\n    readonly projectDir: string;\n    readonly episode: number;\n    readonly entries: readonly EpisodeHistoryEntry[];\n    readonly truncated: boolean;\n    readonly unreadableRecords: number;\n    readonly scannedEntries: number;\n}',
+  },
+  {
+    name: 'EpisodeHistoryEntry',
+    declaration: 'export interface EpisodeHistoryEntry {\n    readonly attempt: EpisodeAttemptId;\n    readonly digest: VideoArtifactSha256;\n    readonly recordedState: EpisodeRecordedState | null;\n}',
+  },
+  {
+    name: 'EpisodeHistoryInput',
+    declaration: 'export type EpisodeHistoryInput = EpisodeReadinessInput;',
+  },
+  {
     name: 'EpisodeReadiness',
     declaration: 'export interface EpisodeReadiness {\n    readonly projectDir: string;\n    readonly episode: number;\n    readonly ready: boolean;\n    readonly digest: VideoArtifactSha256 | null;\n    readonly shots: number;\n    readonly issues: readonly string[];\n    readonly renderer: {\n        readonly generation: EpisodeRendererGeneration;\n        readonly configurationSha256: VideoArtifactSha256;\n        readonly codeSha256: VideoArtifactSha256;\n    } | null;\n}',
   },
   {
     name: 'EpisodeReadinessInput',
     declaration: 'export interface EpisodeReadinessInput {\n    readonly projectDir: string;\n    readonly episode: number;\n}',
+  },
+  {
+    name: 'EpisodeRecordedState',
+    declaration: 'export type EpisodeRecordedState = Exclude<EpisodeDeliveryStatus[\'state\'], \'not-admitted\'>;',
   },
   {
     name: 'EpisodeRendererGeneration',

@@ -15,7 +15,11 @@
     "src/client/video-directory.ts",
     "src/client/recovery-directory.ts",
     "src/client/VideoRecoverySection.tsx",
+    "src/client/episode-directory.ts",
+    "src/client/episode-resources.ts",
+    "src/client/EpisodeExportSection.tsx",
     "src/types.ts",
+    "src/episode-ui-config.ts",
     "src/video-session-types.ts"
   ],
   "references": [
@@ -45,6 +49,9 @@
     },
     {
       "path": "../../client/store"
+    },
+    {
+      "path": "../../client/resources"
     },
     {
       "path": "../../client/ui-conversation/tsconfig.client.json"

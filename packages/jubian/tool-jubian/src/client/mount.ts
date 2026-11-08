@@ -22,10 +22,12 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-api-remote-access/client'
 import type {} from '@deepseek-ai/dsh-tool-jubian/remote'
+import type {} from '@deepseek-ai/dsh-client-resources/client'
 import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import { RecoveryDirectory, type RecoveryClient } from './recovery-directory.ts'
 import { RecoveryToast, type RecoveryInjected, type RecoveryToastInjected } from './VideoRecoverySection.tsx'
 import { JubianTokenSection } from './JubianTokenSection.tsx'
+import { registerEpisodeResources } from './episode-resources.ts'
 import type { JubianTokenInjected, JubianTokenOutcome, JubianTokenStatus } from './JubianTokenSection.tsx'
 import { en, zh, ja, es, fr, de, ru, pt, type JubianLocaleKey } from './locales.ts'
 
@@ -82,12 +84,30 @@ function outcomeOf(result: RemoteResult<JubianTokenStatus>): JubianTokenOutcome 
 }
 
 /** Contribute credentials, recovery controls and shell feedback through Settings-owned facts. */
-function registerSection(ctx: ClientContext): void {
+function registerSection(ctx: ClientContext, pollIntervalMs: number): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'tool-jubian: token dictionaries')
 
   const t = ctx.locale.bind(NS)
   const recovery = new RecoveryDirectory()
   ctx.effect(() => () => { recovery.dispose() })
+  ctx.inject(['remote.jubianEpisodeDelivery', 'connection', 'resources'], (scope) => {
+    const connection = scope.get('connection') as ConnectionHandle
+    let generation: object | undefined
+    let release: (() => void) | undefined
+    const update = (): void => {
+      const current = connection.generation.getSnapshot()
+      if (current === generation) return
+      release?.(); release = undefined; generation = current
+      if (current === undefined) return
+      const remote = scope.remote.jubianEpisodeDelivery
+      const providers = registerEpisodeResources(scope, remote, recovery.episodes, pollIntervalMs)
+      const client = recovery.episodes.connect(remote, (address, signal) => { scope.resources.pin(address, signal) })
+      release = () => { client(); providers() }
+    }
+    scope.effect(() => connection.generation.subscribe(update))
+    scope.effect(() => () => { release?.() })
+    update()
+  })
   const recoveryFace: RecoveryInjected = {
     hooks: { recoveryState: recovery.state },
     setRecoveryProjectDir: (path) => { recovery.setProjectDir(path) },
@@ -138,6 +158,13 @@ function registerSection(ctx: ClientContext): void {
   }, RecoveryToast))
   const injected = (): JubianTokenInjected => ({
     ...recoveryFace,
+    hooks: { ...recoveryFace.hooks, episodeState: recovery.episodes.state },
+    setEpisodeText: (value) => { recovery.episodes.retireSelection(value) },
+    checkEpisode: (input) => { recovery.episodes.check(input) },
+    loadEpisodeHistory: (input) => { recovery.episodes.history(input) },
+    selectEpisodeOriginal: (input, address) => { recovery.episodes.selectOriginal(input, address) },
+    refreshEpisode: () => { recovery.episodes.refresh() },
+    admitEpisode: resume => recovery.episodes.admit(resume),
     describe: async (): Promise<JubianTokenOutcome> => outcomeOf(await ctx.remote.jubianToken.describe()),
     set: async (value: string): Promise<JubianTokenOutcome> => outcomeOf(await ctx.remote.jubianToken.set(value)),
     unset: async (): Promise<JubianTokenOutcome> => outcomeOf(await ctx.remote.jubianToken.unset()),
@@ -204,14 +231,16 @@ function registerSection(ctx: ClientContext): void {
  * Mount the generated Jubian Remote contribution and register its Settings page.
  * @param ctx - Client context carrying the slot registry, locale, and Remote service.
  * @param contribution - Generated Jubian descriptors used by the Settings page.
+ * @param pollIntervalMs - Validated interval for pending episode status only.
  * @returns a disposer that removes the page registrations and the namespace.
  */
 export async function mountJubianTokenSettings(
   ctx: ClientContext,
   contribution: TypertRemoteContribution,
+  pollIntervalMs: number,
 ): Promise<() => Promise<void>> {
   const disposeRemote = await ctx.remote.$mount(contribution)
-  const section = ctx.inject(['slots', 'locale', 'remote.jubianToken'], registerSection)
+  const section = ctx.inject(['slots', 'locale', 'remote.jubianToken'], (scope) => { registerSection(scope, pollIntervalMs) })
   try {
     await section
   } catch (error) {

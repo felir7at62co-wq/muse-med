@@ -1,7 +1,7 @@
 /** Short durable episode admission and instance-owned approved-source rendering. */
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { copyFile, link, lstat, mkdir, readdir, realpath, unlink } from 'node:fs/promises'
+import { copyFile, link, lstat, mkdir, opendir, readdir, realpath, unlink } from 'node:fs/promises'
 import { isAbsolute, join, relative, sep } from 'node:path'
 import { type Context } from '@deepseek-ai/cordis'
 import { writeFileAtomic, withFileLock } from '@deepseek-ai/dsh-atomic-write'
@@ -10,12 +10,12 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 import { z } from 'zod'
 import { assertApprovedEpisodePlan, readApprovedEpisodePlan, episodePlanDigest, type ApprovedEpisodePlan } from './approved-episode-plan.ts'
 import { attemptIdentitySchema, createEpisodeDeliveryJob, parseEpisodeDeliveryJobRecord, episodeHashSchema, executionDrainSchema,
-  hashEpisodeFile, assertEpisodeFileVersion, readEpisodeRecord, runningExecutionSchema } from './episode-delivery.ts'
+  hashEpisodeFile, assertEpisodeFileVersion, readEpisodeBytes, readEpisodeRecord, runningExecutionSchema } from './episode-delivery.ts'
 import type { ApprovedEpisodeRendererCapture, ApprovedEpisodeCandidate, AttemptIdentity, EpisodeAttemptId,
   EpisodeCancellationReason, EpisodeExecutionId, EpisodeFileVersion, EpisodeRenderResult, Sha256 } from './episode-delivery.ts'
 import { ApprovedSourceCancellationError } from './video-recovery-service.ts'
 import type { ApprovedVideoSource, ApprovedVideoSourceAdmission, EpisodeReadinessInput, EpisodeAdmissionInput, EpisodeStatusInput,
-  EpisodeReadiness, EpisodeDeliveryStatus, VideoRecoveryDigest, VideoRecoveryIntentDigest } from './types.ts'
+  EpisodeReadiness, EpisodeDeliveryStatus, EpisodeHistory, EpisodeHistoryInput, EpisodeHistoryEntry, VideoRecoveryDigest, VideoRecoveryIntentDigest } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -29,6 +29,9 @@ export interface JubianEpisodeDeliveryOptions {
   readonly metadataMaxBytes: number
   readonly recordBytes: number
   readonly lockWaitMs: number
+  readonly historyScanLimit: number
+  readonly historyResultLimit: number
+  readonly historyMetadataMaxBytes: number
 }
 
 /** Optional episode delivery deployment limits; Settings mode mounts the service. */
@@ -39,6 +42,12 @@ export interface EpisodeDeliveryConfig {
   episodeDeliveryRecordBytes?: number
   /** Cross-process admission lock wait in milliseconds; default 30000, integer 1..60000. */
   episodeDeliveryLockWaitMs?: number
+  /** Directory entries visited by history; default 1000, integer 1..10000. */
+  episodeDeliveryHistoryScanLimit?: number
+  /** Original identities returned by history; default 50, integer 1..500. */
+  episodeDeliveryHistoryResultLimit?: number
+  /** Aggregate bytes read by history; default 4194304, integer 1..67108864. */
+  episodeDeliveryHistoryMetadataMaxBytes?: number
 }
 
 /**
@@ -50,12 +59,18 @@ export function resolveEpisodeDelivery(config: EpisodeDeliveryConfig): JubianEpi
   const metadataMaxBytes = config.episodeDeliveryMetadataMaxBytes ?? 1048576
   const recordBytes = config.episodeDeliveryRecordBytes ?? 1048576
   const lockWaitMs = config.episodeDeliveryLockWaitMs ?? 30000
+  const historyScanLimit = config.episodeDeliveryHistoryScanLimit ?? 1000
+  const historyResultLimit = config.episodeDeliveryHistoryResultLimit ?? 50
+  const historyMetadataMaxBytes = config.episodeDeliveryHistoryMetadataMaxBytes ?? 4194304
   if (!Number.isSafeInteger(metadataMaxBytes) || metadataMaxBytes < 1 || metadataMaxBytes > 16777216
     || !Number.isSafeInteger(recordBytes) || recordBytes < 1 || recordBytes > 16777216
-    || !Number.isSafeInteger(lockWaitMs) || lockWaitMs < 1 || lockWaitMs > 60000) {
+    || !Number.isSafeInteger(lockWaitMs) || lockWaitMs < 1 || lockWaitMs > 60000
+    || !Number.isSafeInteger(historyScanLimit) || historyScanLimit < 1 || historyScanLimit > 10000
+    || !Number.isSafeInteger(historyResultLimit) || historyResultLimit < 1 || historyResultLimit > 500
+    || !Number.isSafeInteger(historyMetadataMaxBytes) || historyMetadataMaxBytes < 1 || historyMetadataMaxBytes > 67108864) {
     throw new Error('Episode delivery requires bounded positive metadata, record and lock limits')
   }
-  return { metadataMaxBytes, recordBytes, lockWaitMs }
+  return { metadataMaxBytes, recordBytes, lockWaitMs, historyScanLimit, historyResultLimit, historyMetadataMaxBytes }
 }
 
 const targetSchema = z.strictObject({ projectDir: z.string().min(1), episode: z.number().int().min(1).max(99) })
@@ -282,6 +297,80 @@ export class JubianEpisodeDelivery extends TypertRemoteService {
   }
 
   /**
+   * Discover bounded original identities without inspecting media, preparing a renderer or resuming work.
+   * Directory order is unspecified and entries carry no recovery permission; select one and query status.
+   * @param input - Explicit project and episode; the current recovery selection is not changed.
+   * @returns Validated original identities, recorded labels and visible scan/read limits or damaged-record counts.
+   */
+  @Remote
+  episodeHistory(input: EpisodeHistoryInput): Promise<EpisodeHistory> {
+    const request = targetSchema.parse(input)
+    return this.owned(async (signal) => {
+      const projectDir = await canonical(request.projectDir), root = join(projectDir, '.muse', 'episode-delivery')
+      const entries: EpisodeHistoryEntry[] = []
+      let scannedEntries = 0, unreadableRecords = 0, truncated = false, remaining = this.options.historyMetadataMaxBytes
+      if (!await this.existingRoot(root)) return { projectDir, episode: request.episode, entries,
+        truncated, unreadableRecords, scannedEntries }
+      const directory = await opendir(root, { bufferSize: 1 })
+      const read = async (path: string):
+      Promise<{ readonly limited: true } | { readonly limited: false; readonly value: Buffer | undefined }> => {
+        signal.throwIfAborted()
+        let info
+        try { info = await lstat(path) } catch (error) { if (absent(error)) return { limited: false, value: undefined }; throw error }
+        if (info.isFile() && info.size <= this.options.recordBytes && info.size > remaining) return { limited: true }
+        const budget = Math.min(remaining, this.options.recordBytes)
+        try {
+          const bytes = await readEpisodeBytes(path, budget, signal)
+          if (bytes === undefined) return { limited: false, value: undefined }
+          remaining -= bytes.length
+          return { limited: false, value: bytes }
+        } catch (error) {
+          // A failed stable read may have consumed its complete reserved byte allowance.
+          remaining -= budget
+          throw error
+        }
+      }
+      try {
+        while (true) {
+          signal.throwIfAborted()
+          const item = await directory.read()
+          if (item === null) break
+          if (scannedEntries >= this.options.historyScanLimit || entries.length >= this.options.historyResultLimit || remaining === 0) {
+            truncated = true; break
+          }
+          scannedEntries++
+          if (!z.uuid().safeParse(item.name).success) continue
+          const attemptRoot = join(root, item.name)
+          try {
+            if (!await this.existingRoot(attemptRoot)) continue
+            const original = await read(join(attemptRoot, 'intent.json'))
+            if (original.limited) { truncated = true; break }
+            if (original.value === undefined) { unreadableRecords++; continue }
+            const originalValue: unknown = JSON.parse(original.value.toString('utf8'))
+            const facts = intentSchema.parse(originalValue)
+            if (facts.episode !== request.episode && facts.projectDir === projectDir) continue
+            const intent = this.parseIntent(originalValue, { projectDir, episode: request.episode, digest: facts.digest })
+            if (intent.identity.attempt !== item.name) throw new Error('Episode history directory belongs to another intent')
+            let recordedState: EpisodeHistoryEntry['recordedState'] = null
+            try {
+              const state = await read(join(attemptRoot, 'state.json'))
+              if (state.limited) { truncated = true; break }
+              if (state.value !== undefined) {
+                const stateValue: unknown = JSON.parse(state.value.toString('utf8'))
+                const record = stateSchema.parse(stateValue)
+                if (record.attempt !== intent.identity.attempt || record.digest !== intent.digest) throw new Error('Foreign episode history state')
+                recordedState = record.state
+              }
+            } catch (_error) { signal.throwIfAborted(); unreadableRecords++ }
+            entries.push({ attempt: intent.identity.attempt, digest: intent.digest, recordedState })
+          } catch (_error) { signal.throwIfAborted(); unreadableRecords++ }
+        }
+      } finally { await directory.close() }
+      return { projectDir, episode: request.episode, entries, truncated, unreadableRecords, scannedEntries }
+    }, this.ctx.invocation?.signal, false)
+  }
+
+  /**
    * Read one original durable admission without preparing, hashing media or admitting another attempt.
    * @param input - Exact project, episode and original readiness digest.
    * @returns Persisted publication measurements or targeted state; output is not a current-file verification.
@@ -335,10 +424,7 @@ export class JubianEpisodeDelivery extends TypertRemoteService {
   private async hasFootprint(root: string): Promise<boolean> {
     return await this.existingRoot(root) && (await readdir(root)).some(name => name !== 'intent.json.lock')
   }
-  private async readIntent(root: string, target: EpisodeStatusInput): Promise<Intent | undefined> {
-    if (!await this.existingRoot(root)) return undefined
-    const value = await readEpisodeRecord(join(root, 'intent.json'), this.options.recordBytes)
-    if (value === undefined) return undefined
+  private parseIntent(value: unknown, target: EpisodeStatusInput): Intent {
     const intent = intentSchema.parse(value)
     const mainProject = intent.planInputs.find(file => file.role === 'project' && file.path === join(intent.projectDir, 'project_config.json'))
     const logical = hash({ planDigest: intent.planDigest, sources: intent.sources,
@@ -352,6 +438,12 @@ export class JubianEpisodeDelivery extends TypertRemoteService {
     }
     return intent
   }
+  private async readIntent(root: string, target: EpisodeStatusInput): Promise<Intent | undefined> {
+    if (!await this.existingRoot(root)) return undefined
+    const value = await readEpisodeRecord(join(root, 'intent.json'), this.options.recordBytes)
+    return value === undefined ? undefined : this.parseIntent(value, target)
+  }
+
   private async writeState(root: string, state: StoredState): Promise<void> {
     const text = JSON.stringify(state) + '\n'
     if (Buffer.byteLength(text) > this.options.recordBytes) throw new Error('Episode state exceeds its configured budget')

@@ -115,6 +115,14 @@ hasActiveWork(): boolean
 @Remote admitEpisode(input: EpisodeAdmissionInput): Promise<EpisodeDeliveryStatus>
 
 /**
+ * Discover bounded original identities without inspecting media, preparing a renderer or resuming work.
+ * Directory order is unspecified and entries carry no recovery permission; select one and query status.
+ * @param input - Explicit project and episode; the current recovery selection is not changed.
+ * @returns Validated original identities, recorded labels and visible scan/read limits or damaged-record counts.
+ */
+@Remote episodeHistory(input: EpisodeHistoryInput): Promise<EpisodeHistory>
+
+/**
  * Read one original durable admission without preparing, hashing media or admitting another attempt.
  * @param input - Exact project, episode and original readiness digest.
  * @returns Persisted publication measurements or targeted state; output is not a current-file verification.

@@ -76,7 +76,8 @@
         "@deepseek-ai/dsh-client-ui-session",
         "@deepseek-ai/dsh-api-remote-access",
         "@deepseek-ai/dsh-client-connection",
-        "@deepseek-ai/dsh-client-ui-layout"
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-resources"
       ],
       "platform": "web"
     }
@@ -141,6 +142,7 @@
     "@deepseek-ai/dsh-jubian-api": "workspace:*",
     "@deepseek-ai/dsh-user-questions": "workspace:*",
     "@deepseek-ai/dsh-client-store": "workspace:*",
+    "@deepseek-ai/dsh-client-resources": "workspace:*",
     "@deepseek-ai/dsh-client-ui-conversation": "workspace:*",
     "@deepseek-ai/dsh-client-ui-session": "workspace:*",
     "@deepseek-ai/dsh-api-session-controller": "workspace:*",

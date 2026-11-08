@@ -82,7 +82,7 @@ async function fixture(authenticated = true) {
     cookie = saved.split(';', 1)[0]!
   }
   if (authenticated) await authenticate()
-  const call = (method: 'episodeReadiness' | 'admitEpisode' | 'episodeStatus',
+  const call = (method: 'episodeReadiness' | 'admitEpisode' | 'episodeStatus' | 'episodeHistory',
     input: EpisodeReadinessInput | EpisodeAdmissionInput, signal?: AbortSignal) =>
     connection.rpc.call('/api', `jubianEpisodeDelivery/${method}`, { args: { input } }, signal)
   const readiness = async () => readinessSchema.parse(valueOf(await call('episodeReadiness', f.planInput)))
@@ -105,10 +105,10 @@ function admission(input: EpisodeReadinessInput, readiness: z.output<typeof read
   return { ...input, digest: readiness.digest }
 }
 
-it('requires actual browser authentication before any of the three episode methods runs', async () => {
+it('requires actual browser authentication before any episode method runs', async () => {
   const f = await fixture(false)
   const input = { ...f.planInput, digest: brandString<VideoArtifactSha256>('a'.repeat(64)) }
-  for (const method of ['episodeReadiness', 'admitEpisode', 'episodeStatus'] as const) {
+  for (const method of ['episodeReadiness', 'admitEpisode', 'episodeStatus', 'episodeHistory'] as const) {
     await expect(f.call(method, input)).rejects.toThrow('HTTP 401')
   }
   expect(f.renderer.calls).toBe(0)
@@ -307,4 +307,27 @@ it('reads publication facts cheaply and offers explicit repair when the output d
   expect(f.renderer.encodes).toBe(encodes)
   ledgerReads.mockRestore()
   outputOpens.mockRestore()
+})
+
+
+it('discovers selectable original identities through authenticated history without renderer or status work', async () => {
+  const f = await fixture(), input = admission(f.planInput, await f.readiness())
+  await f.admit(input); f.renderer.release()
+  await expect.poll(async () => (await f.status(input)).state).toBe('completed')
+  const completed = await f.status(input), calls = f.renderer.calls, captures = f.renderer.captures
+  const keys = await f.originalKeys(), originalRead = vi.spyOn(f.ledger, 'records')
+  const historySchema = z.strictObject({ projectDir: z.string(), episode: z.number(), entries: z.array(z.strictObject({
+    attempt: z.uuid(), digest: digestSchema, recordedState: z.enum(['queued', 'preparing', 'running', 'stopping', 'completed', 'cancelled', 'failed', 'unknown']).nullable(),
+  })), truncated: z.boolean(), unreadableRecords: z.number().int().nonnegative(), scannedEntries: z.number().int().nonnegative() })
+  const history = historySchema.parse(valueOf(await f.call('episodeHistory', f.planInput)))
+  expect(history).toEqual({ ...f.planInput, entries: [{ attempt: completed.attempt, digest: input.digest, recordedState: 'completed' }],
+    truncated: false, unreadableRecords: 0, scannedEntries: 1 })
+  expect(originalRead).not.toHaveBeenCalled()
+  expect(f.renderer.calls).toBe(calls); expect(f.renderer.captures).toBe(captures)
+  expect(f.service.hasActiveWork()).toBe(false)
+  originalRead.mockRestore(); expect(await f.originalKeys()).toEqual(keys)
+  const controller = new AbortController(); controller.abort(new Error('history observer retired'))
+  await expect(f.call('episodeHistory', f.planInput, controller.signal)).rejects.toThrow('history observer retired')
+  expect(f.renderer.calls).toBe(calls)
+  expect(f.endpoints.at(-1)).toBe('/api/jubianEpisodeDelivery/episodeHistory')
 })

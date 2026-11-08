@@ -230,9 +230,11 @@ describe('approved episode service', () => {
     expect(f.renderer.encodes).toBe(2); expect(f.fetch).not.toHaveBeenCalled()
   })
   it('resolves bounded deployment options and refuses invalid configuration', () => {
-    expect(resolveEpisodeDelivery({})).toEqual({ metadataMaxBytes: 1048576, recordBytes: 1048576, lockWaitMs: 30000 })
+    expect(resolveEpisodeDelivery({})).toEqual({ metadataMaxBytes: 1048576, recordBytes: 1048576, lockWaitMs: 30000,
+      historyScanLimit: 1000, historyResultLimit: 50, historyMetadataMaxBytes: 4194304 })
     expect(resolveEpisodeDelivery({ episodeDeliveryMetadataMaxBytes: 1, episodeDeliveryRecordBytes: 2, episodeDeliveryLockWaitMs: 3 }))
-      .toEqual({ metadataMaxBytes: 1, recordBytes: 2, lockWaitMs: 3 })
+      .toEqual({ metadataMaxBytes: 1, recordBytes: 2, lockWaitMs: 3,
+        historyScanLimit: 1000, historyResultLimit: 50, historyMetadataMaxBytes: 4194304 })
     for (const field of ['episodeDeliveryMetadataMaxBytes', 'episodeDeliveryRecordBytes', 'episodeDeliveryLockWaitMs']) {
       for (const value of [0, -1, 0.5, Number.NaN, 16777217]) expect(() => resolveEpisodeDelivery({ [field]: value })).toThrow('bounded')
     }

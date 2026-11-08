@@ -54,7 +54,7 @@ async function bench(available: () => Promise<RemoteResult<boolean>>) {
 
 it('shares a directory for a session binding and releases its projection before late reads publish', async () => {
   const b = await bench(async () => ({ ok: true, value: true }))
-  const dispose = await mountJubianTokenSettings(b.ctx, contribution)
+  const dispose = await mountJubianTokenSettings(b.ctx, contribution, 1000)
   await vi.waitFor(() => { expect(b.slots.entries('conversation.input.right')).toHaveLength(1) })
   const entry = b.slots.entries('conversation.input.right')[0]!
   const inject = entry.inject as (id: SessionId) => VideoModelSelectInjected & Record<string, unknown>
@@ -77,7 +77,7 @@ it('shares a directory for a session binding and releases its projection before 
 
 it('retains the replacement Session directory when its old scope disposes later', async () => {
   const b = await bench(async () => ({ ok: true, value: true }))
-  const dispose = await mountJubianTokenSettings(b.ctx, contribution)
+  const dispose = await mountJubianTokenSettings(b.ctx, contribution, 1000)
   onTestFinished(dispose)
   await vi.waitFor(() => { expect(b.slots.entries('conversation.input.right')).toHaveLength(1) })
   const entry = b.slots.entries('conversation.input.right')[0]
@@ -102,7 +102,7 @@ it('retains the replacement Session directory when its old scope disposes later'
 it.each(['disabled', 'refused', 'disposed'] as const)('does not register a composer picker when availability is %s', async (mode) => {
   const pending = Promise.withResolvers<RemoteResult<boolean>>()
   const b = await bench(() => pending.promise)
-  const dispose = await mountJubianTokenSettings(b.ctx, contribution)
+  const dispose = await mountJubianTokenSettings(b.ctx, contribution, 1000)
   await vi.waitFor(() => { expect(b.remote.available).toHaveBeenCalledOnce() })
   const closing = mode === 'disposed' ? dispose() : undefined
   pending.resolve(mode === 'refused' ? { ok: false, error: new RemoteError('gateway/internal', 'video selection unavailable', {}) }
@@ -117,7 +117,7 @@ it.each(['disabled', 'refused', 'disposed'] as const)('does not register a compo
 it('reuses the Session selector in Bot details and survives a missing or replaced Session scope', async () => {
   const b = await bench(async () => ({ ok: true, value: true }))
   onTestFinished(cleanup)
-  const dispose = await mountJubianTokenSettings(b.ctx, contribution)
+  const dispose = await mountJubianTokenSettings(b.ctx, contribution, 1000)
   await vi.waitFor(() => { expect(b.ctx.get('jubianVideoUi')).toBeDefined() })
   const service = b.ctx.jubianVideoUi
   expect(service.render(SessionId('missing'))).toBeNull()

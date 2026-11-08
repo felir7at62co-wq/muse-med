@@ -1,5 +1,6 @@
 /** Recovery reads and explicit decisions, isolated from retired connections and project selections. */
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import { EpisodeDirectory } from './episode-directory.ts'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type {
   ApprovedClipDeliveryInput, VideoRecoveryAdoptionInput, VideoRecoveryConfigurationInput,
@@ -41,7 +42,7 @@ export interface RecoveryState {
 
 /** Shell-owned transient operation outcome. */
 export type RecoveryNotice = { sequence: number } & (
-  | { kind: 'configured' | RecoveryAction | 'delivered' | null; reason: null }
+  | { kind: 'configured' | RecoveryAction | 'delivered' | 'episodeAccepted' | 'episodeCompleted' | null; reason: null }
   | { kind: 'failed'; reason: string }
 )
 
@@ -52,6 +53,11 @@ function valueOf<T>(result: RemoteResult<T>): T {
 
 /** One settings registration's requests, last accepted data and shell notices. */
 export class RecoveryDirectory {
+  /** Episode interaction lifetime follows the existing Settings registration. */
+  readonly episodes = new EpisodeDirectory((notice) => {
+    if (typeof notice === 'string') this.notify({ kind: notice, reason: null })
+    else this.notify({ kind: 'failed', reason: notice.failed })
+  })
   /** Facts read through the renderer's generated useRecoveryState hook. */
   readonly state = createSnapshotStore<RecoveryState>({ connected: false, seen: false, loading: false, busy: false,
     pickerAvailable: false, projectDir: '', status: null, queryError: null, fieldError: false, dialog: null })
@@ -106,6 +112,7 @@ export class RecoveryDirectory {
 
   /** Retire asynchronous completions without rolling back Host commits already made. */
   dispose(): void {
+    this.episodes.dispose()
     this.closed = true
     this.epoch++
     this.binding = undefined
@@ -119,6 +126,7 @@ export class RecoveryDirectory {
    */
   setProjectDir(path: string): void {
     if (this.closed) return
+    this.episodes.retireSelection()
     this.selection++
     this.operation = undefined
     this.state.update((state) => { state.projectDir = path; state.fieldError = false
@@ -228,6 +236,7 @@ export class RecoveryDirectory {
   }
 
   private accept(status: VideoRecoveryStatus, select: boolean): void {
+    if (this.state.getSnapshot().status?.projectDir !== status.projectDir) this.episodes.retireSelection()
     this.state.update((state) => {
       state.status = status; state.seen = true; state.queryError = null
       if (select) state.projectDir = status.projectDir ?? ''
@@ -268,7 +277,7 @@ export class RecoveryDirectory {
     }
   }
 
-  private notify(notice: { kind: 'configured' | RecoveryAction | 'delivered'; reason: null } | { kind: 'failed'; reason: string }): void {
+  private notify(notice: { kind: 'configured' | RecoveryAction | 'delivered' | 'episodeAccepted' | 'episodeCompleted'; reason: null } | { kind: 'failed'; reason: string }): void {
     this.notice.set({ sequence: this.notice.getSnapshot().sequence + 1, ...notice })
   }
 }

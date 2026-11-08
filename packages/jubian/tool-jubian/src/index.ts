@@ -72,6 +72,8 @@ import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
 import { resolveVideoSourceOptions } from './video-sources.ts'
 import { mountVideoRecovery, resolveVideoRecovery, type VideoRecoveryConfig } from './video-recovery-config.ts'
 export { JubianVideoRecovery, ApprovedSourceCancelled, ApprovedSourceCancellationError } from './video-recovery-service.ts'
+import { EPISODE_UI_CONFIG_GLOBAL, EpisodeUiConfig } from './episode-ui-config.ts'
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import { JubianEpisodeDelivery, resolveEpisodeDelivery, type EpisodeDeliveryConfig } from './episode-delivery-service.ts'
 export { JubianEpisodeDelivery } from './episode-delivery-service.ts'
 export type { JubianEpisodeDeliveryOptions } from './episode-delivery-service.ts'
@@ -85,6 +87,8 @@ export const inject = ['tools', 'credentials']
 
 /** Where the tool row keeps its ledger and which origin it calls. */
 export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDeliveryConfig {
+  /** Browser pending-episode polling interval; integer 100..60000ms, default 1000. */
+  episodePollIntervalMs?: number
   /** Rows per read-only existing-video history page; integer 1..100, default 100. */
   videoSourcePageSize?: number
   /** Maximum pages per existing-video history scan; integer 1..100, default 20. */
@@ -543,6 +547,7 @@ function characterReferenceAuthorityFor(
  * @param config - Optional ledger location, origin, timeout and image-route values.
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
+  const episodeUi = EpisodeUiConfig.parse({ episodePollIntervalMs: config.episodePollIntervalMs })
   if (config.sessionVideoSelection !== undefined && typeof config.sessionVideoSelection !== 'boolean') {
     throw new Error('sessionVideoSelection must be a boolean')
   }
@@ -578,6 +583,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
   const naming: Naming = resolveNaming(
     { ...(config.nameSeparator === undefined ? {} : { separator: config.nameSeparator }),
       ...(config.seriesLabel === undefined ? {} : { seriesLabel: config.seriesLabel }) })
+  ctx.on('webserver/index-inject', (table) => {
+    table.push({ kind: 'global', name: EPISODE_UI_CONFIG_GLOBAL, value: episodeUi })
+  })
   const ledger = new JubianLedger({ root: config.ledgerRoot ?? join(home, 'jubian', 'ledger'),
     defaultLimitCents: () => seriesBudgetLimit(ctx) })
   const qaCharacterReferenceStore = await openCharacterReferenceQaAuthorizationStore({

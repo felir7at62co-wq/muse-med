@@ -512,15 +512,17 @@ Settings 入口可用绝对路径 `videoRecoveryFfmpegPath` 覆盖解码器；�
 <a id="approved-episode-export"></a>
 ### 已审批片段整集导出
 
-Settings 恢复入口同时挂载经过认证的独立 `jubianEpisodeDelivery` 命名空间。其 `episodeReadiness`、`admitEpisode` 和 `episodeStatus` 方法分别准备、受理和观察本地整集，不增加模型工具或提交提供方生成。Desktop 提供已配置渲染器；其他部署缺少该提供者时，就绪检查会报告不可用。
+Settings 恢复入口同时挂载经过认证的独立 `jubianEpisodeDelivery` 命名空间。其 `episodeReadiness`、`admitEpisode`、`episodeStatus` 和 `episodeHistory` 方法分别准备、受理、观察和查找本地整集任务，不增加模型工具或提交提供方生成。Desktop 提供已配置渲染器；其他部署缺少该提供者时，就绪检查会报告不可用。
 
 就绪检查要求为第 1–99 集准备 `editing/NN-episode-delivery.json`，按连续镜号排列唯一的原始已审批片段，并具有对应时间线、SRT，以及明确的混音配置和可选 BGM。它测量这些当前输入并保留项目绑定，不创建计划或批准片段。[计划读取器](src/approved-episode-plan.ts)负责接受字段及其校验。
 
 受理方法先提交原逻辑任务再返回，由服务生命周期持有排队的长时间渲染。重复的普通请求只查找该任务。状态查询读取有界记录和文件元数据；其输出描述发布时已测量的字节，不代表再次检查媒体或播放。Host 返回 `canResume` 时，可明确调用带 `resume: true` 的 `admitEpisode` 继续原任务。前次执行已有运行引用时，另起实际执行必须先核对相匹配的退出证据；不能用新 UUID 绕过未确认清空的媒体进程范围。
 
+Settings 子区域只在明确发起检查后执行成本较高的就绪检查。历史查找在所选项目和集数内有界读取本地意图与状态记录，返回原任务和摘要、记录状态、不可读记录数及是否截断。已处理条目数不包括为判断截断而最多额外读取的一个名称；稳定读取记录失败时，按预留字节保守扣除额度。记录状态为 null 时仍保留合法原身份，不授予恢复权限。查找不核验源媒体。选择原记录后才查询其当前状态，界面不会自动挑选最新记录。连接或响应丢失后仍保留原目标，重新连接后须取得新鲜状态才可继续。已有可恢复发布物可以在不重新检查源文件就绪情况的条件下补回执。
+
 私有版本一的意图、状态、取消和交付记录保存在已捕获项目的 `.muse/episode-delivery/<attempt>/` 内。准备发布的元数据把输出绑定到实际已完成的执行。发布拒绝覆盖已有不同字节；恢复可以在不还原已丢失源文件的情况下，为字节相符的已有输出补回执并保留 inode。无效或矛盾记录会拒绝恢复。这些记录与片段审批及直接复制回执分开，技术检查不代表创作验收通过。
 
-`episodeDeliveryMetadataMaxBytes` 限制单个编辑元数据读取，`episodeDeliveryRecordBytes` 限制单个持久化记录，`episodeDeliveryLockWaitMs` 限制锁争用等待。插件在注册 effect 前校验这些字段；默认值及限制以[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)为准。
+`episodeDeliveryMetadataMaxBytes` 限制单个编辑元数据读取，`episodeDeliveryRecordBytes` 限制单个持久化记录，`episodeDeliveryLockWaitMs` 限制锁争用等待。历史查找还通过 `episodeDeliveryHistoryScanLimit`、`episodeDeliveryHistoryResultLimit` 和 `episodeDeliveryHistoryMetadataMaxBytes`，分别限制访问条目数、返回身份数及元数据总字节数。Host 校验 `episodePollIntervalMs` 并在启动时投影给浏览器；该间隔只控制待完成任务的状态轮询，可在工具插件行配置，默认 1000 毫秒，接受 100–60000 毫秒内的整数。插件在注册 effect 前校验这些字段；默认值及限制以[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-tool-jubian)为准。
 
 <a id="episode-execution-library"></a>
 ### 整集执行库

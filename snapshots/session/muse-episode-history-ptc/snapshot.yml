@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-episode-history-ptc
+profile: headless
+composition: muse-episode-history-ptc
+recording: authored
+platform: posix
+header:
+  class: muse-episode-history-ptc
+  pin: true
+workspace:
+  final: true
+environment:
+  JUBIANAI_ADMIN_TOKEN: offline-episode-fixture

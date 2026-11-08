@@ -56,9 +56,13 @@
     "src/episode-delivery-job.ts",
     "src/episode-execution.ts",
     "src/approved-episode-plan.ts",
-    "src/episode-delivery-service.ts"
+    "src/episode-delivery-service.ts",
+    "src/episode-ui-config.ts"
   ],
   "references": [
+    {
+      "path": "../../host/webserver"
+    },
     {
       "path": "../../host/muse-account/tsconfig.host.json"
     },

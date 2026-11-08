@@ -4921,11 +4921,13 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:87`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:89`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
 export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDeliveryConfig {
+  /** Browser pending-episode polling interval; integer 100..60000ms, default 1000. */
+  episodePollIntervalMs?: number
   /** Rows per read-only existing-video history page; integer 1..100, default 100. */
   videoSourcePageSize?: number
   /** Maximum pages per existing-video history scan; integer 1..100, default 20. */
@@ -5083,6 +5085,12 @@ export interface EpisodeDeliveryConfig {
   episodeDeliveryRecordBytes?: number
   /** Cross-process admission lock wait in milliseconds; default 30000, integer 1..60000. */
   episodeDeliveryLockWaitMs?: number
+  /** Directory entries visited by history; default 1000, integer 1..10000. */
+  episodeDeliveryHistoryScanLimit?: number
+  /** Original identities returned by history; default 50, integer 1..500. */
+  episodeDeliveryHistoryResultLimit?: number
+  /** Aggregate bytes read by history; default 4194304, integer 1..67108864. */
+  episodeDeliveryHistoryMetadataMaxBytes?: number
 }
 
 /** Deployment-owned terms and output bounds for advisory prompt review. */

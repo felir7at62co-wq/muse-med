@@ -2,6 +2,7 @@
 
 import jubianTokenRemote from '@deepseek-ai/dsh-tool-jubian/remote'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import { EPISODE_UI_CONFIG_GLOBAL, EpisodeUiConfig } from '../episode-ui-config.ts'
 import { mountJubianTokenSettings } from './mount.ts'
 
 export { inject } from './mount.ts'
@@ -19,5 +20,7 @@ export type {
  * @returns a disposer that removes the page registrations and the namespace.
  */
 export async function apply(ctx: ClientContext): Promise<() => Promise<void>> {
-  return await mountJubianTokenSettings(ctx, jubianTokenRemote)
+  const page = globalThis as Partial<Record<typeof EPISODE_UI_CONFIG_GLOBAL, unknown>>
+  const config = EpisodeUiConfig.parse(page[EPISODE_UI_CONFIG_GLOBAL] ?? {})
+  return await mountJubianTokenSettings(ctx, jubianTokenRemote, config.episodePollIntervalMs)
 }
