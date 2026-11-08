@@ -49,3 +49,13 @@ From the repository root:
 ```sh
 python3 -m unittest discover -s services/muse-media/ops -p 'test_*.py' -v
 ```
+
+## Start and review retention
+
+Build the immutable gateway image and run its tests with network access disabled before deployment. Qualify the native importer and recorded media snapshot separately. Place an owner-only `retention-qualification.json` beside `compose.env`, containing the gateway `code_hash`, `passed: true`, and passed checks named `gateway_runtime`, `retention_isolation`, `native_import`, and `media_snapshot`, each with its executed positive `count`. Qualification must describe actual executed checks, not configured commands.
+
+Run `retention_prepare.py --image <reviewed-image>` from the immutable release. It refuses a second start, takes a consistent SQLite backup, preserves the original Compose environment, writes the default dry-run policy, verifies independent DTK media eviction is disabled and configures only the media gateway environment. Recreate only the gateway with this release's `compose.yml`, then verify schema 2, healthy containers and successful `media_audits` observations. The account service remains running. A failed partial preparation requires inspecting the private baseline and environment backup; do not reset its history or restore a database that accepted newer requests.
+
+After the first successful server sweep, run `retention_schedule.py --release <immutable-release-directory>`. It installs a persistent one-time systemd review for 24 hours plus ten minutes after the initial observation. Its service invokes `retention_control.py promote`, which verifies continuous matching observations, passing qualification and the actual running image before publishing approval and enabling deletion. Short, failed, changed or interrupted previews stay in dry-run; the private result at `/opt/muse/media-gateway/receipts/retention-review.json` records the outcome. The timer is not an unconditional switch and does not automatically retry a failed review. Use `retention_control.py review --output <private-report>` to inspect readiness without enabling. A restart failure restores the policy file to dry-run; inspect the live process before another attempt.
+
+Container logging retains the existing bounded JSON logs. Journals, Nginx logs, application release trees and Docker caches are not deleted by the media service. The [host storage report](host_storage.py) lists their usage independently; unknown release references require operator review before any removal. No deployment command runs Docker prune or recursively deletes an application release.

@@ -10,6 +10,7 @@ services:
     user: "${MUSE_MEDIA_UID:?set MUSE_MEDIA_UID}:${MUSE_MEDIA_GID:?set MUSE_MEDIA_GID}"
     environment:
       MUSE_MEDIA_CONFIG: /run/secrets/media-config.json
+      MUSE_MEDIA_RETENTION_CONFIG: ${MUSE_MEDIA_RETENTION_CONFIG:-}
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
       - ${MUSE_MEDIA_PRIVATE_DIR:?set MUSE_MEDIA_PRIVATE_DIR}:/run/secrets:ro

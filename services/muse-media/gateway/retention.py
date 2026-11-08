@@ -81,8 +81,9 @@ def timestamp(value):
 class Retention:
     """The gateway owns the lock; no second process may delete managed media."""
 
-    def __init__(self, gateway, rules):
+    def __init__(self, gateway, rules, rules_path=None):
         self.gateway, self.rules = gateway, rules
+        self.rules_path = rules_path
         self.db, self.clock = gateway.ledger.db, gateway.clock
         self.lock = asyncio.Lock()
         self.code_hash = code_digest()
@@ -123,9 +124,13 @@ class Retention:
         disk = shutil.disk_usage(Path(self.gateway.config.database_file).parent)
         if (disk.total - disk.free) * 100 >= disk.total * self.rules.disk_stop_percent:
             raise Failure(429, 'media_disk_full', 300)
-        row = self.db.execute("SELECT payload FROM media_audits WHERE kind='sweep' ORDER BY id DESC LIMIT 1").fetchone()
+        row = self.db.execute("SELECT payload,created_at,policy_hash,code_hash FROM media_audits WHERE kind='sweep' ORDER BY id DESC LIMIT 1").fetchone()
+        if row is None or row['created_at'] < self.clock() - self.rules.maximum_gap_seconds or row['policy_hash'] != self.policy_hash or row['code_hash'] != self.code_hash:
+            raise Failure(503, 'media_retention_unavailable', 300)
         if row:
             value = json.loads(row[0])
+            if value.get('error') or 'volume_bytes' not in value:
+                raise Failure(503, 'media_retention_unavailable', 300)
             if value.get('volume_bytes', 0) >= self.rules.maximum_bytes:
                 raise Failure(429, 'media_storage_limit', 300)
 
@@ -186,7 +191,7 @@ class Retention:
                 if row['pinned']:
                     reason = 'pinned'
                     break
-                if row['state'] not in ('completed', 'partial', 'failed', 'cancelled'):
+                if row['state'] not in ('done', 'partial', 'failed', 'cancelled'):
                     reason = 'unfinished'
                     break
                 refs = by_id.get(row['id'], [])
@@ -208,7 +213,8 @@ class Retention:
                         if any(claim['lease_until'] > now for claim in claims):
                             reason = 'active_transfer'
                         ack = [claim['imported_at'] for claim in claims if claim['imported_at'] is not None]
-                        base = max(job['created_at'], timestamp(row['created_at']))
+                        base = max(job['created_at'], job['updated_at'], timestamp(row['created_at']),
+                                   timestamp(row['finished_at']) if row.get('finished_at') else 0)
                         deadline = max(deadline, max(ack) + self.rules.acknowledged_seconds if ack else base + self.rules.unacknowledged_seconds)
             if not reason and now < deadline:
                 reason = 'retention_period'
@@ -247,6 +253,9 @@ class Retention:
     async def sweep(self):
         """Preview every decision; enabled deletion rechecks inventory while holding the admission lock."""
         async with self.lock:
+            if self.rules_path:
+                self.rules = Rules.load(self.rules_path)
+                self.policy_hash = self.rules.digest()
             result = {'mode': self.rules.mode, 'deleted': 0, 'freed_bytes': 0}
             try:
                 storage = await self.api('GET', '/api/v1/downloads/storage')
@@ -277,6 +286,10 @@ class Retention:
                         latest = self.plan(await self.inventory(), self.clock())
                         if not any(row == candidate for row in latest):
                             raise ValueError('Retention candidate changed')
+                        if self.rules_path:
+                            current = Rules.load(self.rules_path)
+                            if current.mode != 'enabled' or current.digest() != self.policy_hash:
+                                raise ValueError('The live retention policy changed')
                         self.db.execute('INSERT INTO media_deletions VALUES (?,?,?,?) ON CONFLICT(resource) DO UPDATE SET download_id=excluded.download_id,state=excluded.state,created_at=excluded.created_at', (candidate['resource'], candidate['download_id'], 'deleting', self.clock()))
                         removed = await self.api('DELETE', '/api/v1/downloads/' + candidate['download_id'] + '/files')
                         after = await self.inventory()
