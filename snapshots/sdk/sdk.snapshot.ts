@@ -1009,6 +1009,15 @@ async function runScenario(scenario: CorpusScenario): Promise<{
           result = outcome
         }
         results.push(result)
+        if (scenario.name === 'multi-turn') {
+          expect(session.id, 'the recorded conversation keeps its SDK handle').toBe(sessionId)
+          expect(result.sessionId, 'each turn completes on the original Session').toBe(sessionId)
+          expect(await session.getWorkingDirectory(), 'native workspace binding survives each turn').toBe(cwd)
+          const assistant = result.events.findLast(event => event.type === 'assistant/message')
+          expect(assistant?.data.message.source, 'each turn retains the recorded model route').toEqual({
+            kind: 'model', provider: route.provider, model: route.model,
+          })
+        }
         if (titleSubscription !== undefined) {
           const expected = expectedTitles[results.length - 1]?.data as JsonObject | undefined
           expect(expected, 'each turn has a recorded provider title').toBeDefined()
@@ -1087,6 +1096,10 @@ async function runScenario(scenario: CorpusScenario): Promise<{
       persistedLogs(sessionsRoot),
       ...(childSessionsRoot === undefined ? [] : [persistedLogs(childSessionsRoot)]),
     ])).flat()
+    if (scenario.name === 'multi-turn') {
+      expect(logs, 'continuation persists one original Session without replacement').toHaveLength(1)
+      expect(logs[0]?.header).toMatchObject({ id: sessionId, cwd })
+    }
     const finalWorkspace = await captureWorkspaceSnapshot(cwd, {
       ignoredRootEntries: RUNTIME_WORKSPACE_ENTRIES,
     })
