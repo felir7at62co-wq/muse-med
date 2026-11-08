@@ -1067,6 +1067,9 @@ importers:
       '@deepseek-ai/dsh-perception-bgm':
         specifier: workspace:*
         version: link:../../packages/perception/perception-bgm
+      '@deepseek-ai/dsh-muse-video-ui':
+        specifier: workspace:*
+        version: link:../../packages/bundle/muse-video-ui
       '@deepseek-ai/dsh-plugin-manager':
         specifier: workspace:*
         version: link:../../packages/boot/plugin-manager

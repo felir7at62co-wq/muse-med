@@ -101,7 +101,8 @@
     "@deepseek-ai/dsh-mcp-client": "workspace:*",
     "@deepseek-ai/dsh-tool-executor-ptc": "workspace:*",
     "@deepseek-ai/dsh-session-video": "workspace:*",
-    "@deepseek-ai/dsh-client-ui-session-video": "workspace:*"
+    "@deepseek-ai/dsh-client-ui-session-video": "workspace:*",
+    "@deepseek-ai/dsh-muse-video-ui": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
