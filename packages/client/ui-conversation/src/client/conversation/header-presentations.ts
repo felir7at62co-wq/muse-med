@@ -10,7 +10,10 @@ interface HeaderContribution {
 
 /** Observable header preferences that restore the preceding value on disposal. */
 export class HeaderPresentations extends ConversationDefinitionRegistry<HeaderContribution> {
-  /** @returns The last registered preference, or undefined for the deployment default. */
+  /**
+   * Read the plugin override used before the deployment's header default.
+   * @returns The last registered preference, or undefined for the deployment default.
+   */
   getSnapshot(): HeaderPresentation | undefined {
     return this.entries().at(-1)?.presentation
   }
