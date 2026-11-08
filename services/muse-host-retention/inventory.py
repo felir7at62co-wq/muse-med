@@ -73,9 +73,10 @@ def references(roots, *, proc=Path('/proc'), command=execute):
                 except UnicodeError:
                     raise RuntimeError('Reference configuration is not text') from None
     units = command(['systemctl', 'list-units', '--all', '--type=service', '--type=timer', '--type=socket', '--no-legend', '--plain'])
+    busy = any(len(line.split()) > 3 and line.split()[2] in ('active', 'activating', 'deactivating') and any(word in line.split()[0].lower() for word in ('deploy', 'build@', 'upgrade', 'publish')) for line in units.splitlines())
     names = [line.split()[0] for line in units.splitlines() if line.split() and 'muse' in line.split()[0]]
     if names:
-        effective = command(['systemctl', 'show', *names, '--property=ExecStart,ExecStartPre,ExecStartPost,WorkingDirectory,RootDirectory,EnvironmentFiles,FragmentPath,DropInPaths'])
+        effective = command(['systemctl', 'show', *names, '--property=ExecStart,ExecStartPre,ExecStartPost,WorkingDirectory,RootDirectory,Environment,EnvironmentFiles,FragmentPath,DropInPaths'])
         add('effective-systemd', 'systemd', paths(effective, roots))
         # Resolve references carried by environment files without persisting their values.
         for row in effective.splitlines():
@@ -109,6 +110,8 @@ def references(roots, *, proc=Path('/proc'), command=execute):
                 except FileNotFoundError:
                     pass
             add('process-command', process.name, paths((process / 'cmdline').read_bytes().decode(errors='replace'), roots))
+            add('process-environment', process.name, paths((process / 'environ').read_bytes().decode(errors='replace'), roots))
+            add('process-mapping', process.name, paths((process / 'maps').read_text(), roots))
             for fd in (process / 'fd').iterdir():
                 try:
                     target = os.readlink(fd).removesuffix(' (deleted)')
@@ -120,13 +123,15 @@ def references(roots, *, proc=Path('/proc'), command=execute):
         except (FileNotFoundError, ProcessLookupError):
             continue
         # Permission and other errors propagate; an unreadable process is not an absent reference.
-    return sorted(refs, key=lambda row: (row['path'], row['kind'], row['owner'])), sorted(opened)
+    return sorted(refs, key=lambda row: (row['path'], row['kind'], row['owner'])), sorted(opened), busy
 
 
 def tree(path, limit):
     """Fingerprint immutable release entries and collect cross-release symlinks without following them."""
     result, links, byte_count = [], [], 0
-    for base, directories, files in os.walk(path, followlinks=False):
+    def unreadable(error):
+        raise error
+    for base, directories, files in os.walk(path, followlinks=False, onerror=unreadable):
         for name in sorted(directories + files):
             file = Path(base) / name
             info = identity(file)
@@ -148,7 +153,9 @@ def scan(policy, *, reference_reader=references, command=execute):
     """A complete snapshot is required before any candidate can be selected."""
     roots = sorted(set(group['root'] for group in policy['release_groups']))
     logs = policy['log_roots']
-    refs, opened = reference_reader(roots + logs)
+    readback = reference_reader(roots + logs)
+    refs, opened = readback[:2]
+    busy = readback[2] if len(readback) == 3 else False
     releases, archives = [], []
     for root in roots:
         directory = Path(root)
@@ -183,7 +190,9 @@ def scan(policy, *, reference_reader=references, command=execute):
     for root in logs:
         if not Path(root).is_dir() or Path(root).is_symlink():
             raise RuntimeError('Log root must be an existing real directory')
-        for base, directories, files in os.walk(root, followlinks=False):
+        def unreadable(error):
+            raise error
+        for base, directories, files in os.walk(root, followlinks=False, onerror=unreadable):
             for name in files:
                 file = Path(base) / name
                 if file.is_symlink():
@@ -204,4 +213,4 @@ def scan(policy, *, reference_reader=references, command=execute):
                         item['last_entry'] = int(tail.group(1), 16) / 1000000 if tail else None
                     archives.append(item)
     return {'observed_at': time.time(), 'complete': True, 'references': refs, 'opened': opened,
-            'releases': releases, 'logs': archives}
+            'releases': releases, 'logs': archives, 'deployment_busy': busy}

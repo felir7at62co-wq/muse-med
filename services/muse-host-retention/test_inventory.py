@@ -100,3 +100,15 @@ class InventoryTests(unittest.TestCase):
     def test_reference_failure_never_becomes_an_empty_successful_snapshot(self):
         def fail(_): raise PermissionError('unreadable process')
         with self.assertRaises(PermissionError): scan(self.policy,reference_reader=fail)
+
+    def test_missing_tree_cannot_be_fingerprinted_as_an_empty_release(self):
+        with self.assertRaises(FileNotFoundError):tree(self.releases/'missing',100)
+
+    def test_journal_state_and_final_entry_age_both_control_log_eligibility(self):
+        journal=self.root/'journal';journal.mkdir();self.policy['log_roots']=[str(journal)]
+        file=journal/'system@abcdef-012345-012345.journal';file.write_bytes(b'archive')
+        os.utime(file,(self.now-30*86400,)*2)
+        for state,age,eligible in [('ONLINE',30,False),('ARCHIVED',1,False),('ARCHIVED',30,True)]:
+            header=f'State: {state}\nTail realtime timestamp: date ({int((self.now-age*86400)*1e6):x})\n'
+            snapshot=scan(self.policy,reference_reader=lambda roots:([],[]),command=lambda argv:header)
+            self.assertEqual(plan(snapshot,self.policy,self.now)[0]['eligible'],eligible)
