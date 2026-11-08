@@ -36,7 +36,7 @@ class RetentionTests(unittest.IsolatedAsyncioTestCase):
         self.data = b'private media data'
         self.sha = hashlib.sha256(self.data).hexdigest()
         self.file = {'name': 'video.mp4', 'sha256': self.sha, 'bytes': len(self.data), 'kind': 'video'}
-        self.inventory = [{'id': self.download_id, 'directory': 'douyin/user/post', 'state': 'completed',
+        self.inventory = [{'id': self.download_id, 'directory': 'douyin/user/post', 'state': 'done',
             'pinned': False, 'on_disk': True, 'bytes_total': len(self.data), 'created_at': datetime.fromtimestamp(self.now - 8 * 86400, timezone.utc).isoformat(), 'files': [self.file]}]
         self.media = self.root / 'video.mp4'
         self.media.write_bytes(self.data)
@@ -49,7 +49,9 @@ class RetentionTests(unittest.IsolatedAsyncioTestCase):
     def add_job(self, account, request, download_id):
         row, _ = self.ledger.create(account, 'download_media', {'request_id': request, 'url': 'https://www.douyin.com/video/1'})
         self.ledger.db.execute('UPDATE jobs SET created_at=? WHERE job_id=?', (self.now - 8 * 86400, row['job_id']))
-        return self.ledger.update(self.ledger.owned(account, row['job_id']), 'cloud_saved', download=download_id, files=[self.file])
+        updated = self.ledger.update(self.ledger.owned(account, row['job_id']), 'cloud_saved', download=download_id, files=[self.file])
+        self.ledger.db.execute('UPDATE jobs SET updated_at=created_at WHERE job_id=?', (row['job_id'],))
+        return self.ledger.owned(account, row['job_id'])
 
     async def api(self, method, path):
         self.calls.append((method, path))
@@ -215,6 +217,40 @@ class RetentionTests(unittest.IsolatedAsyncioTestCase):
         await sweep
         with self.assertRaises(Failure):
             await claim
+
+    async def test_recent_completion_of_an_old_job_starts_a_new_retention_period(self):
+        self.inventory[0]['finished_at'] = datetime.fromtimestamp(self.now, timezone.utc).isoformat()
+        self.assertEqual(self.retention.plan(self.inventory, self.now)[0]['reason'], 'retention_period')
+        self.now += 7 * 86400 + 1
+        self.assertTrue(self.retention.plan(self.inventory, self.now)[0]['eligible'])
+
+    async def test_live_dry_run_switch_stops_deletion_without_waiting_for_a_restart(self):
+        self.history()
+        self.enable()
+        from dataclasses import asdict
+        policy = self.root / 'live-rules.json'
+        policy.write_text(json.dumps(asdict(self.rules)))
+        self.retention.rules_path = policy
+        result = await self.retention.sweep()
+        self.assertEqual(result['mode'], 'dry-run')
+        self.assertTrue(self.media.exists())
+        self.assertFalse(any(method == 'DELETE' for method, _ in self.calls))
+
+    async def test_unknown_stale_failed_or_full_usage_refuses_new_downloads(self):
+        with self.assertRaises(Failure):
+            self.retention.download_admission()
+        self.retention.audit('sweep', {'mode': 'dry-run', 'volume_bytes': 0, 'deleted': 0})
+        self.retention.download_admission()
+        self.now += self.rules.maximum_gap_seconds + 1
+        with self.assertRaises(Failure):
+            self.retention.download_admission()
+        self.retention.audit('sweep', {'mode': 'dry-run', 'volume_bytes': 0, 'error': 'ValueError', 'deleted': 0})
+        with self.assertRaises(Failure):
+            self.retention.download_admission()
+        self.retention.audit('sweep', {'mode': 'dry-run', 'volume_bytes': self.rules.maximum_bytes, 'deleted': 0})
+        with self.assertRaises(Failure) as full:
+            self.retention.download_admission()
+        self.assertEqual(full.exception.code, 'media_storage_limit')
 
     async def test_schema_one_upgrades_without_changing_original_job(self):
         self.ledger.db.execute('PRAGMA user_version=1')

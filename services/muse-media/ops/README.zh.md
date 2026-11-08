@@ -49,3 +49,13 @@ python3 nginx.py activate --expected-site-sha256 REVIEWED_SITE_SHA256
 ```sh
 python3 -m unittest discover -s services/muse-media/ops -p 'test_*.py' -v
 ```
+
+## 启动与复核保留期
+
+部署前构建不可变网关镜像，并在禁用网络的容器中运行测试。原生导入器和媒体记录快照单独验证。在 `compose.env` 旁保存仅所有者可读的 `retention-qualification.json`，包含网关 `code_hash`、`passed: true`，以及名为 `gateway_runtime`、`retention_isolation`、`native_import`、`media_snapshot` 的通过检查，每项记录实际执行的正整数 `count`。资格记录必须描述已运行的检查，不能只是配置好的命令。
+
+在不可变发布目录运行 `retention_prepare.py --image <reviewed-image>`。它拒绝重复初始化，生成一致的 SQLite 备份，保留原 Compose 环境，写入默认预演策略，确认独立 DTK 媒体清理已关闭，并只配置媒体网关环境。使用该发布的 `compose.yml` 仅重建网关，随后核对 schema 2、容器健康及成功的 `media_audits` 观察。账号服务保持运行。准备过程部分失败时，需要检查私有基线和环境备份；不能清空历史，也不能恢复已受理较新请求前的数据库。
+
+服务器第一轮成功预演后运行 `retention_schedule.py --release <immutable-release-directory>`，安装持久化、单次执行的 systemd 复核，时间为初次观察后 24 小时再加十分钟。该服务调用 `retention_control.py promote`，先核对连续且匹配的观察、通过的资格检查及真实运行镜像，再发布批准并开启删除。预演不足、失败、变化或中断时保持预演；私有结果写入 `/opt/muse/media-gateway/receipts/retention-review.json`。定时器不是无条件开关，复核失败后不自动重试。可用 `retention_control.py review --output <private-report>` 只检查就绪情况，不启用。重启失败会把策略文件恢复为预演；重试前检查实际运行进程。
+
+容器日志保留现有有上限的 JSON 日志策略。媒体服务不删除 journal、Nginx 日志、应用发布目录和 Docker 缓存。[主机存储报告](host_storage.py)独立列出占用，无法确认引用关系的版本目录需要运维审查后才能删除。部署命令不执行 Docker prune，也不递归删除应用发布目录。
