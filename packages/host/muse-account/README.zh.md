@@ -77,6 +77,8 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 
 云转写响应只保留校验过的供应商额度类别和可选的 `recovery.retry_after` 等待秒数。lifetime 额度耗尽时，先恢复原应用额度，再查询既有任务；这些字段或 HTTP 429 都不授权新建付费任务。
 
+原生导入器完成校验和发布后，账号传输使用准确的文件占用和摘要，发送一次有时限、按账号归属验证的导入确认。普通读取、解码失败及不完整传输不发送确认。确认失败或丢失时不重试，云端继续使用较长保留期，不使已验证的本地文件失效。没有占用字段的旧服务器仍可使用。切换账号和取消操作仍会拒绝交付。
+
 ### Minimal configuration
 
 桌面 Host 从 [`desktop.cordis.patch.yml`](../../../apps/desktop-host/config/desktop.cordis.patch.yml) 装载此配置行：
