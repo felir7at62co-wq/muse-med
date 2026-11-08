@@ -242,3 +242,29 @@ it.each(['account-change', 'cancel'] as const)('rolls back after %s at the real 
   expect(finalized).toBe(true)
   expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
 })
+
+it('keeps the real verified file when cancellation arrives during the cloud confirmation after local commit', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'muse-media-committed-')); roots.push(directory)
+  const origin = 'https://muse.test', sessionFile = join(directory, 'session.json')
+  await writeMuseSession(sessionFile, { baseUrl: origin, username: 'alice', cookie: '__Host-muse=' + 'A'.repeat(43) })
+  const hash = createHash('sha256').update(video).digest('hex')
+  const manifest = { state: 'cloud_saved', job_id: id, files: [{ name: 'video.mp4', bytes: video.length, sha256: hash, kind: 'video' }],
+    file_coverage: { reported: 1, accepted: 1, rejected: 0, complete: true, truncated: false } }
+  const caller = new AbortController()
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json(manifest))
+    .mockResolvedValueOnce(new Response(new Uint8Array(video), {
+      headers: { 'x-muse-media-lease': '22222222-2222-4222-8222-222222222222' },
+    })).mockImplementationOnce(async () => {
+      caller.abort()
+      return Response.json({ state: 'acknowledged' })
+    })
+  const client = new MuseMediaClient({ baseUrl: origin, sessionFile, requestTimeoutMs: 60_000, fileTimeoutMs: 60_000,
+    maxReplyBytes: 1_048_576, maxFileBytes: 1_048_576, fetcher }); clients.push(client)
+  const f = await fixture({ client, mode: 'workspace-write' })
+  const result = await f.importer.import(f.agent, id, 'video.mp4', caller.signal)
+  expect(caller.signal.aborted).toBe(true)
+  expect(result).toMatchObject({ state: 'local_ready', fullDecodeVerified: true, sha256: hash })
+  expect(await readFile(result.path)).toEqual(video)
+  expect(await readFile(result.receipt, 'utf8')).toContain(hash)
+  expect(fetcher).toHaveBeenCalledTimes(3)
+})

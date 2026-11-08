@@ -95,6 +95,7 @@ interface Operation {
   readonly session: MuseStoredSession
   readonly signal: AbortSignal
   readonly assertCurrent: () => Promise<void>
+  afterCommit?: () => Promise<void>
 }
 
 function retryAfter(response: Response): number | undefined {
@@ -245,13 +246,15 @@ export class MuseMediaClient {
         await operation.assertCurrent()
         const lease = response.headers.get('x-muse-media-lease')
         if (confirmImport && lease !== null && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(lease)) {
-          try {
-            const acknowledgement = await this.json(operation,
-              `/api/media/jobs/${encodeURIComponent(id)}/files/${encodeURIComponent(entry.name)}/imported`,
-              JSON.stringify({ lease, sha256: entry.sha256 }))
-            this.parse(z.object({ state: z.literal('acknowledged') }), acknowledgement)
-          } catch (_error) {
-            // An absent confirmation preserves cloud retention; a verified local file remains usable.
+          operation.afterCommit = async () => {
+            try {
+              const acknowledgement = await this.json(operation,
+                `/api/media/jobs/${encodeURIComponent(id)}/files/${encodeURIComponent(entry.name)}/imported`,
+                JSON.stringify({ lease, sha256: entry.sha256 }))
+              this.parse(z.object({ state: z.literal('acknowledged') }), acknowledgement)
+            } catch (_error) {
+              // Confirmation cannot undo a local file committed before the account or transport changed.
+            }
           }
         }
         return result
@@ -302,8 +305,10 @@ export class MuseMediaClient {
         signal.throwIfAborted()
         if (current?.revision !== original.revision) throw new MuseMediaError('account-changed')
       }
-      const result = await execute({ session: original, signal, assertCurrent })
+      const operation: Operation = { session: original, signal, assertCurrent }
+      const result = await execute(operation)
       await assertCurrent()
+      await operation.afterCommit?.()
       return result
     } catch (error) {
       if (caller?.aborted === true || this.stop.signal.aborted) throw new MuseMediaError('cancelled')

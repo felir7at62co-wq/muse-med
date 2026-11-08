@@ -351,3 +351,20 @@ it('keeps a verified local file when confirmation is unavailable without retryin
   }, undefined, true)).resolves.toBe('local_ready')
   expect(value.fetcher).toHaveBeenCalledTimes(3)
 })
+
+it('preserves committed local delivery if the account changes or cancellation arrives during confirmation', async () => {
+  const value = await fixture()
+  const controller = new AbortController()
+  value.fetcher.mockResolvedValueOnce(Response.json(saved)).mockResolvedValueOnce(new Response('abc', {
+    headers: { 'x-muse-media-lease': '22222222-2222-4222-8222-222222222222' },
+  })).mockImplementationOnce(async () => {
+    await writeMuseSession(value.sessionFile, { baseUrl: origin, username: 'bob', cookie: '__Host-muse=' + 'B'.repeat(43) })
+    controller.abort()
+    return Response.json({ state: 'acknowledged' })
+  })
+  await expect(value.client.withFile(id, 'video.mp4', async (transfer) => {
+    await new Response(transfer.body).arrayBuffer()
+    return 'committed_local_file'
+  }, controller.signal, true)).resolves.toBe('committed_local_file')
+  expect(value.fetcher).toHaveBeenCalledTimes(3)
+})
