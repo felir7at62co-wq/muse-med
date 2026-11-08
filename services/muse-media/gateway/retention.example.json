@@ -1,0 +1,21 @@
+{
+  "mode": "dry-run",
+  "interval_seconds": 300,
+  "acknowledged_seconds": 86400,
+  "unacknowledged_seconds": 604800,
+  "lease_seconds": 7200,
+  "maximum_bytes": 21474836480,
+  "high_bytes": 17179869184,
+  "low_bytes": 12884901888,
+  "preview_seconds": 86400,
+  "maximum_gap_seconds": 600,
+  "max_inventory_rows": 10000,
+  "max_delete_directories": 20,
+  "max_delete_bytes": 1073741824,
+  "audit_days": 90,
+  "disk_warn_percent": 80,
+  "disk_clean_percent": 85,
+  "disk_stop_percent": 92,
+  "staging_seconds": 86400,
+  "approval_file": "/run/secrets/retention-approval.json"
+}

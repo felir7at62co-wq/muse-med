@@ -17,7 +17,8 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 import httpx
 
 from configuration import Config, Failure, document, from_environment, policy
-from ledger import Ledger
+from ledger import Ledger, SCHEMA_VERSION
+from retention import Retention, Rules
 from projection import MAX_MANIFEST_FILES, safe_files, safe_result
 
 
@@ -169,6 +170,8 @@ class Gateway:
         self.ledger = Ledger(config, clock)
         self.client = httpx.AsyncClient(transport=transport, trust_env=False, follow_redirects=False, timeout=config.request_timeout_seconds)
         self.rates, self.active = {}, {}
+        rules_path = os.environ.get('MUSE_MEDIA_RETENTION_CONFIG')
+        self.retention = Retention(self, Rules.load(rules_path) if rules_path else None)
 
     async def close(self):
         await self.client.aclose()
@@ -341,7 +344,13 @@ class Gateway:
         if name == "get_task_result":
             return await self.query(request, actor, arguments["job_id"])
         async with self.admit(actor):
-            row, created = self.ledger.create(actor.account_id, name, arguments)
+            async with self.retention.lock:
+                # A repeated key still queries its original receipt, including at capacity.
+                existing = arguments.get('request_id') and self.ledger.db.execute(
+                    'SELECT 1 FROM jobs WHERE account_id=? AND request_id=?', (actor.account_id, arguments['request_id'])).fetchone()
+                if name == 'download_media' and not existing:
+                    self.retention.download_admission()
+                row, created = self.ledger.create(actor.account_id, name, arguments)
             if not created:
                 await self.authenticate(request, actor)
                 return self.ledger.public(row)
@@ -387,6 +396,8 @@ class Gateway:
                 raise Failure(404, "file_not_found")
             if entry["bytes"] > self.config.max_file_bytes:
                 raise Failure(413, "file_too_large")
+            async with self.retention.lock:
+                lease = self.retention.lease(row, entry)
             staging = Path(self.config.database_file).parent / "staging"
             staging.mkdir(mode=0o700, exist_ok=True)
             fd, path = tempfile.mkstemp(prefix="media-", dir=staging)
@@ -408,7 +419,7 @@ class Gateway:
                 if size != entry["bytes"] or digest.hexdigest() != entry["sha256"]:
                     raise Failure(502, "file_integrity_failed")
                 await self.authenticate(request, actor)
-                response = OwnedFileResponse(path, permit, filename=name, media_type="application/octet-stream", headers={"cache-control": "no-store", "x-content-type-options": "nosniff", "x-content-sha256": entry["sha256"]})
+                response = OwnedFileResponse(path, permit, filename=name, media_type="application/octet-stream", headers={"cache-control": "no-store", "x-content-type-options": "nosniff", "x-content-sha256": entry["sha256"], "x-muse-media-lease": lease})
                 permit.retained = True
                 keep = True
                 return response
@@ -427,9 +438,16 @@ def create_app(config: Config, *, transport=None, clock=time.time):
 
     @asynccontextmanager
     async def lifespan(_application):
+        worker = asyncio.create_task(gateway.retention.run()) if gateway.retention.rules else None
         try:
             yield
         finally:
+            if worker:
+                worker.cancel()
+                try:
+                    await worker
+                except asyncio.CancelledError:
+                    pass
             await gateway.close()
 
     application = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
@@ -446,7 +464,7 @@ def create_app(config: Config, *, transport=None, clock=time.time):
     async def ready():
         gateway.ledger.db.execute("SELECT 1").fetchone()
         policy(config.policy_file)
-        return {"ready": True, "service": "muse-media", "schema_version": 1}
+        return {"ready": True, "service": "muse-media", "schema_version": SCHEMA_VERSION}
 
     @application.get("/api/media/jobs")
     async def jobs(request: Request):
@@ -478,6 +496,26 @@ def create_app(config: Config, *, transport=None, clock=time.time):
     async def file(request: Request, job_id: str, name: str):
         actor = await gateway.authenticate(request)
         return await gateway.file(request, actor, job_id, name)
+
+    @application.post("/api/media/jobs/{job_id}/files/{name}/imported")
+    async def imported(request: Request, job_id: str, name: str):
+        actor = await gateway.authenticate(request)
+        if request.headers.get('content-type', '').split(';')[0] != 'application/json':
+            raise Failure(415, 'json_required')
+        body = bytearray()
+        async for chunk in request.stream():
+            body.extend(chunk)
+            if len(body) > config.max_request_bytes:
+                raise Failure(413, 'request_too_large')
+        try:
+            value = json_value(body)
+        except (ValueError, UnicodeError):
+            raise Failure(400, 'invalid_json') from None
+        async with gateway.admit(actor, query=True):
+            async with gateway.retention.lock:
+                await gateway.authenticate(request, actor)
+                result = gateway.retention.acknowledge(actor.account_id, job_id, name, value)
+                return JSONResponse(result, headers={'cache-control': 'no-store'})
 
     @application.post("/api/media/mcp/")
     async def mcp(request: Request):
