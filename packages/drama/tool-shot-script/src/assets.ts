@@ -31,7 +31,10 @@ import {
 } from './state.ts'
 import type { StateFacts } from './state.ts'
 import { SOURCE_SCENE_PREFIX } from './script.ts'
+import { declaredCharacters, materialFieldLabel } from './visibility.ts'
 import type { BoundAsset, IssueSeverity, ManifestAsset, ParsedShot, ShotIssue } from './types.ts'
+
+export { materialFieldLabel } from './visibility.ts'
 
 /** Manifest types that bind as an on-screen character. */
 const CHARACTER_TYPES = new Set(['角色', 'character'])
@@ -285,35 +288,6 @@ function visualDirections(shot: ParsedShot, assets: readonly ManifestAsset[]): s
     }) ? match : ' '.repeat(label.length))
   }
   return directions
-}
-
-/** Read a field label without treating a repeated inline reference as another identity.
- * @param source - Authored field text, retained separately for reference validation.
- * @returns The explicit plain label, or reference labels when no plain label exists.
- */
-export function materialFieldLabel(source: string): string {
-  const labels: string[] = []
-  const plain = source.replace(/@\[([^\]]+)\]\(([^()\s]+)\)/g, (_match, label: string) => {
-    labels.push(label)
-    return ''
-  }).trim()
-  return plain || labels.join('、')
-}
-
-/** Split an on-screen list without splitting costume annotations in parentheses. */
-function declaredCharacters(source: string): string[] {
-  const result: string[] = []
-  let depth = 0; let current = ''
-  for (const character of source) {
-    if ('（('.includes(character)) depth++
-    if ('）)'.includes(character)) depth = Math.max(0, depth - 1)
-    if (depth === 0 && /[、,，;；/|｜\n]/.test(character)) {
-      if (current.trim()) result.push(materialFieldLabel(current))
-      current = ''
-    } else current += character
-  }
-  if (current.trim()) result.push(materialFieldLabel(current))
-  return result
 }
 
 /** Select one version per on-screen mention without defaulting to the manifest's first row. */

@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-shot-offscreen-roster-ptc
+profile: headless
+composition: muse-shot-offscreen-roster-ptc
+recording: authored
+writerOutput: true
+header:
+  class: muse-shot-offscreen-roster-ptc
+  pin: true
+workspace:
+  final: true

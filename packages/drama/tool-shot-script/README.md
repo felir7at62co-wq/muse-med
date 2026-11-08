@@ -129,6 +129,7 @@ Style declarations preserve the project medium: `真人短剧写实风格` for l
 | More than 15 or 36 effective characters; declared timing differs from estimate | Warning: review pacing and actual speech, without forced splitting |
 | More than `delivery.max_effective_chars_per_shot` declared in the project's `project_config.json` | Failure (`speech_exceeds_project_limit`): split along the original semantics, or change that project requirement |
 | Narration/inner-monologue declarations | Warning; preserve the complete payload, including colons, as `vo`; use `说话人` to identify its speaker |
+| A listed visible subject whose own position explicitly places the whole subject offscreen | Warning (`offscreen_character_listed`) in both modes; review the actual framing without changing the roster, speech or voice type. Visible inner speech, partial visibility, uncertain positions and staged entry/exit do not establish this contradiction |
 | Missing suggested realistic style or fixed negative phrase | Warning; neither phrase is automatically inserted |
 | Seconds expressions in shot prose or dialogue | Warning; preserve text, and do not infer duration from prose |
 | Missing shot blocks, nonconsecutive numbering, malformed explicit duration | Failure |
