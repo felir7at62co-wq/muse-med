@@ -171,7 +171,7 @@ class Gateway:
         self.client = httpx.AsyncClient(transport=transport, trust_env=False, follow_redirects=False, timeout=config.request_timeout_seconds)
         self.rates, self.active = {}, {}
         rules_path = os.environ.get('MUSE_MEDIA_RETENTION_CONFIG')
-        self.retention = Retention(self, Rules.load(rules_path) if rules_path else None)
+        self.retention = Retention(self, Rules.load(rules_path) if rules_path else None, rules_path)
 
     async def close(self):
         await self.client.aclose()
