@@ -3,6 +3,7 @@
 import argparse
 import json
 from pathlib import Path
+import re
 import time
 
 from engine import Engine, atomic, code_hash
@@ -34,8 +35,15 @@ def main():
                     atomic(engine.state/'approval.json',report)
                     atomic(args.policy,{**engine.policy,'mode':'enabled'})
                 value={'state':'enabled' if args.action=='promote' else 'review-passed','approval':report}
+                if args.action=='promote':atomic(engine.state/'review.json',value)
         print(json.dumps(value))
         return 1 if value.get('error') else 0
+    except Exception as error:
+        value={'state':'blocked','error':type(error).__name__}
+        if isinstance(error,ValueError) and re.fullmatch('[a-z-]+',str(error)):
+            value['reason']=str(error)
+        if args.action=='promote':atomic(engine.state/'review.json',value)
+        print(json.dumps(value));return 1
     finally:
         engine.close()
 

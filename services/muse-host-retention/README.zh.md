@@ -22,4 +22,10 @@
 
 ## 验证
 
-运行 `python3 -m unittest discover -s services/muse-host-retention -p 'test_*.py'` 和 `python3 -m compileall -q services/muse-host-retention`。测试使用临时根目录、受控快照和真实符号链接。生产盘点需要 root 读取进程描述符和系统配置；报告包含路径和保护原因，不含秘密。
+运行 `python3 -m unittest discover -s services/muse-host-retention -p 'test_*.py'` 和 `python3 -m compileall -q services/muse-host-retention`。使用 `python3 services/muse-host-retention/build.py --output .artifacts/host-retention.tar.gz` 构建。可复现构建包含文件摘要，并编译每个 Python 模块。测试使用临时根目录、受控时钟，以及真实子进程、文件、符号链接和隔离恢复。生产盘点需要 root 读取进程描述符和系统配置；报告包含路径和保护原因，不含秘密。
+
+## 服务器操作
+
+将验证过的构建包安装到 `/opt/muse/host-retention/releases` 下以摘要命名的不可变目录，再以 root 运行其中的 `deploy.py install`。安装器逐文件验证，在服务器运行隔离测试，以预演模式写入 `/etc/muse/host-retention/policy.json`，并记录首个成功观测。策略或审计历史已存在会阻止安装；恢复前先核查未完成部署。安装器仅创建 `muse-host-retention-observe` 和 `muse-host-retention-review` 单元，不重启账号服务或容器，不修改媒体保留期或重置其预演。
+
+周期定时器使用策略间隔。持久化单次复核定时器在首个成功观测加预演时长及最大间隔宽限后运行。复核将成功或失败写入 `/var/lib/muse-host-retention/review.json`；失败会保持清理关闭。部署、测试合格记录、批准、最新清单及当前状态均为同目录下的私有记录。审计数据库保留批准时的观测及待处理恢复记录。本服务不清理自己的审计历史。暂停清理时，原子地将策略模式改为 `dry-run`；不要删除数据库或隔离目录。其他策略字段或代码变更要求重新验证，并在批准前重新连续预演。
