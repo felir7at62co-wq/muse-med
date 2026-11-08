@@ -236,6 +236,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
   private readonly updateCalls = new Set<Promise<void>>()
   private readonly updateStreamOperations = new Set<Promise<void>>()
   private updatePaused = false
+  private updatePauseGeneration = 0
 
   /**
    * Register the Gateway against the active Typert registry.
@@ -248,13 +249,19 @@ export class TypertGatewayService extends Service implements TypertGateway {
     super(ctx, 'typertGateway')
     const resolved = config as ResolvedConfig
     ctx.on('connection/update-pause', async () => {
+      const generation = ++this.updatePauseGeneration
       this.updatePaused = true
       if (this.localUpdateStreams.size > 0) throw new Error('desktop update: in-process Remote streams are active')
       await Promise.all([...this.updateCalls, ...[...this.updateMuxes].map(mux => mux.pause())])
       // Cancellation can settle the carrier before a source iterator's pending read.
-      while (this.updateStreamOperations.size > 0) await Promise.all(this.updateStreamOperations)
+      for (;;) {
+        if (generation !== this.updatePauseGeneration) throw new Error('desktop update: stream pause was superseded')
+        if (this.updateStreamOperations.size === 0) break
+        await Promise.all(this.updateStreamOperations)
+      }
     })
     ctx.on('connection/update-resume', () => {
+      this.updatePauseGeneration++
       this.updatePaused = false
       for (const mux of this.updateMuxes) mux.resume()
     })
