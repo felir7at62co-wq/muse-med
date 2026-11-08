@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, writeFile, mkdir, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, mkdir, readdir, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -14,6 +14,7 @@ afterEach(async () => { for (const close of cleanups.splice(0).reverse()) await 
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const collect = { action: 'collect', platform: 'qimao', request: { operation: 'rankings', channels: ['boy'], boards: ['hot'], periods: ['date'] } };
 const signal = () => new AbortController().signal;
+function deferred() { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; }
 
 async function fixture(config = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'muse-research-test-'));
@@ -21,22 +22,196 @@ async function fixture(config = {}) {
   const ctx = new Context();
   const fiber = await ctx.plugin(LocalFileSystem, { cwd: directory });
   cleanups.push(() => fiber.dispose());
-  const state = { mode: 'workspace-write', time: Date.parse('2026-11-04T10:00:00.000Z'), calls: [], heat: '10万 热度', policyCalls: 0 };
-  const host = { fs: ctx.fs, agents: { requireInitiator: () => ({ session: { header: { cwd: directory } } }) },
-    sandboxPolicy: { resolve() { state.policyCalls++; return { mode: state.mode, workspaceRoot: directory }; } } };
+  const state = { mode: 'workspace-write', time: Date.parse('2026-11-04T10:00:00.000Z'), calls: [], heat: '10万 热度', hongguo: {}, policyCalls: 0 };
+  ctx.provide('agents', { requireInitiator: () => ({ session: { header: { cwd: directory } } }) });
+  ctx.provide('sandboxPolicy', { resolve() { state.policyCalls++; return { mode: state.mode, workspaceRoot: directory }; } });
+  const host = ctx;
   const fetch = async url => {
     state.calls.push(String(url));
     if (String(url) === 'https://www.qimao.com/paihang/boy/hot/date/') return new Response(rankingHtml({ heat: state.heat }), { headers: { 'content-type': 'text/html' } });
-    if (String(url) === 'https://hongguoduanju.com/rank/hot-comic-drama') return new Response(`<script>_ROUTER_DATA = ${JSON.stringify({ loaderData: { 'rank_hot-comic-drama/page': { content: { isSuccess: true, pagination: { pageNum: 1, totalPages: 1 }, rankList: [{ seriesId: '123', title: '红果样例', rank: 1, favoriteText: '120万收藏', likeText: '10万点赞', heatText: '200万热度' }] } } } })}</script>`, { headers: { 'content-type': 'text/html' } });
+    if (String(url) === 'https://hongguoduanju.com/rank/hot-comic-drama') return new Response(`<script>_ROUTER_DATA = ${JSON.stringify({ loaderData: { 'rank_hot-comic-drama/page': { content: { isSuccess: true, pagination: { pageNum: 1, totalPages: 1 }, rankList: [{ seriesId: '123', title: '红果样例', rank: 1, favoriteText: '120万收藏', likeText: '10万点赞', heatText: '200万热度', ...state.hongguo }] } } } })}</script>`, { headers: { 'content-type': 'text/html' } });
     throw new Error(`Unexpected fixture request: ${url}`);
   };
   const service = new SourceResearch(host, { hongguo: { requestIntervalMs: 0, maxPages: 1, incompletePageRetries: 0 }, qimao: { requestIntervalMs: 0 }, ...config }, { now: () => state.time, hongguo: { fetch, now: () => state.time }, qimao: { fetch, now: () => state.time } });
   cleanups.push(() => service.dispose());
   const call = (type, args, abort = signal()) => service.execute(type, args, abort);
-  return { directory, ctx, host, service, state, call };
+  const scope = async (parent = ctx) => {
+    let scoped;
+    const owner = await parent.plugin({ inject: ['fs', 'agents', 'sandboxPolicy'], apply(child) {
+      const instance = new SourceResearch(child, service.config, { now: () => state.time, hongguo: { fetch, now: () => state.time }, qimao: { fetch, now: () => state.time } });
+      child.effect(() => () => instance.dispose());
+      scoped = { ctx: child, service: instance, call: (type, args, abort = signal()) => instance.execute(type, args, abort) };
+    } });
+    cleanups.push(() => owner.dispose());
+    return { ...scoped, dispose: () => owner.dispose() };
+  };
+  return { directory, ctx, host, service, state, call, scope };
 }
 
 describe('source research through the real local filesystem', () => {
+  it('persists real Hongguo parser reasons while preserving absence and original raw evidence', async () => {
+    const f = await fixture();
+    f.state.hongguo = { favoriteText: '暂无收藏', likeText: '未知点赞', heatText: null };
+    const receipt = await f.call('snapshot', { action: 'collect', platform: 'hongguo', request: { operation: 'rankings', boards: ['hot-comic-drama'] } });
+    const { snapshot } = await f.call('snapshot', { action: 'read', snapshotId: receipt.snapshotId });
+    expect(snapshot.sourceResult.items[0].observations[0].missingMetrics).toContainEqual({ field: 'collection', reason: 'unparseable' });
+    expect(snapshot.canonicalItems[0].metrics.collection).toMatchObject({ raw: '暂无收藏', value: null, missingReason: 'unparseable' });
+    expect(snapshot.canonicalItems[0].metrics.likes).toMatchObject({ raw: '未知点赞', value: null, missingReason: 'unparseable' });
+    expect(snapshot.canonicalItems[0].metrics.heat).toMatchObject({ raw: null, value: null, missingReason: 'not_displayed' });
+    expect(digest(await readFile(receipt.path))).toBe(receipt.sha256);
+  });
+
+  it.each(['snapshots', 'reports', 'mapping-proposals'])('shares %s admission between real Cordis Session scopes', async kind => {
+    const f = await fixture({ maxSnapshots: 1, maxMappings: 1 });
+    const a = await f.scope(), b = await f.scope();
+    expect(a.ctx.fs).not.toBe(b.ctx.fs);
+    const context = await a.service.store.context(f.directory, undefined, { mode: 'workspace-write', workspaceRoot: f.directory }, signal());
+    const entered = deferred(), release = deferred();
+    cleanups.push(() => release.resolve());
+    const folder = kind === 'mapping-proposals' ? 'mappings' : kind;
+    const admission = service => async () => {
+      const entries = await service.store.entries(context, `.muse/source-research/${folder}/v1`);
+      if (entries.length >= 1) throw Object.assign(new Error('artifact capacity reached'), { code: 'SOURCE_RESEARCH_LIMIT' });
+    };
+    const first = a.service.publishQueued(context, kind, async () => {
+      entered.resolve(); await release.promise;
+      return a.service.store.publish(context, `.muse/source-research/${folder}/v1/first.json`, '{"first":true}\n');
+    }, admission(a.service));
+    await entered.promise;
+    const second = b.service.publishQueued(context, kind, () => b.service.store.publish(context, `.muse/source-research/${folder}/v1/second.json`, '{"second":true}\n'), admission(b.service));
+    const result = Promise.allSettled([first, second]);
+    // A different category supplies a completion barrier without joining the held queue.
+    await b.service.publishQueued(context, 'independent', async () => {}, async () => {});
+    release.resolve();
+    const outcomes = await result;
+    expect(outcomes.map(value => value.status)).toEqual(['fulfilled', 'rejected']);
+    expect(outcomes[1].reason).toMatchObject({ code: 'SOURCE_RESEARCH_LIMIT' });
+    expect(await readdir(join(f.directory, `.muse/source-research/${folder}/v1`))).toEqual(['first.json']);
+  });
+
+  it('reads and reports immutable 1.0.0 projections without reinterpreting their source reasons', async () => {
+    const f = await fixture();
+    const bytes = await readFile(new URL('./fixtures/hongguo-snapshot-adapter-1.0.0.json', import.meta.url), 'utf8');
+    const { snapshotId, ...body } = JSON.parse(bytes);
+    const encode = value => JSON.stringify(value, null, 2) + '\n';
+    expect(snapshotId).toBe('s-87b403b90c05a4f293ebd2570b11a5bd');
+    expect(digest(bytes)).toBe('9612dcaa845ad8ceb6bc7c44460b8c7c433f236ea753de79970208264acf98f6');
+    const context = await f.service.store.context(f.directory, undefined, undefined, signal());
+    const saved = await f.service.store.publish(context, `.muse/source-research/snapshots/v1/${snapshotId}.json`, bytes);
+    const read = await f.call('snapshot', { action: 'read', snapshotId });
+    expect(read.snapshot.adapterVersion).toBe('1.0.0');
+    expect(read.snapshot.canonicalItems[0].metrics.collection.missingReason).toBe('not_displayed');
+    expect((await f.call('snapshot', { action: 'list' })).snapshots).toEqual([expect.objectContaining({ snapshotId, sha256: digest(bytes) })]);
+    const report = await f.call('report', { action: 'build', snapshotIds: [snapshotId] });
+    const reportBytes = await readFile(report.path), markdownBytes = await readFile(report.markdownPath);
+    expect((await f.call('report', { action: 'read', reportId: report.reportId })).report.adapterVersion).toBe('1.0.0');
+    expect(await readFile(saved.path, 'utf8')).toBe(bytes);
+    expect(await readFile(report.path)).toEqual(reportBytes);
+    expect(await readFile(report.markdownPath)).toEqual(markdownBytes);
+    const reinterpreted = structuredClone(body);
+    reinterpreted.canonicalItems[0].metrics.collection.missingReason = 'unparseable';
+    const invalidId = `s-${digest(encode(reinterpreted)).slice(0, 32)}`;
+    await f.service.store.publish(context, `.muse/source-research/snapshots/v1/${invalidId}.json`, encode({ ...reinterpreted, snapshotId: invalidId }));
+    await expect(f.call('snapshot', { action: 'read', snapshotId: invalidId })).rejects.toThrow('canonical data differs');
+  });
+
+  it('admits only one public collection across scopes and leaves the project list readable', async () => {
+    const f = await fixture({ maxSnapshots: 1 }), a = await f.scope(), b = await f.scope();
+    const entered = deferred(), release = deferred(), queued = deferred();
+    cleanups.push(() => release.resolve());
+    const publish = a.service.store.publish.bind(a.service.store);
+    a.service.store.publish = async (...args) => { entered.resolve(); await release.promise; return publish(...args); };
+    const first = a.call('snapshot', collect);
+    await entered.promise;
+    const enqueue = b.service.publishQueued.bind(b.service);
+    b.service.publishQueued = (...args) => { const pending = enqueue(...args); queued.resolve(); return pending; };
+    const second = b.call('snapshot', collect);
+    const results = Promise.allSettled([first, second]);
+    await queued.promise;
+    release.resolve();
+    const outcomes = await results;
+    expect(outcomes.map(value => value.status)).toEqual(['fulfilled', 'rejected']);
+    expect(outcomes[1].reason).toMatchObject({ code: 'SOURCE_RESEARCH_LIMIT' });
+    const list = await f.call('snapshot', { action: 'list' });
+    expect(list).toMatchObject({ count: 1, complete: true });
+    expect(list.snapshots[0].snapshotId).toBe(outcomes[0].value.snapshotId);
+    expect((await readdir(join(f.directory, '.muse/source-research/snapshots/v1')))).toHaveLength(1);
+  });
+
+  it('disposes a queued Session scope without awaiting another scope or releasing the FIFO barrier', async () => {
+    const f = await fixture(), a = await f.scope(), b = await f.scope();
+    const context = await a.service.store.context(f.directory, undefined, undefined, signal());
+    const entered = deferred(), release = deferred(), events = [];
+    cleanups.push(() => release.resolve());
+    const first = a.service.publishQueued(context, 'reports', async () => { events.push('A'); entered.resolve(); await release.promise; });
+    await entered.promise;
+    const second = b.service.publishQueued(context, 'reports', async () => { events.push('B'); });
+    const rejected = expect(second).rejects.toBeDefined();
+    const third = a.service.publishQueued(context, 'reports', async () => { events.push('C'); });
+    await b.dispose();
+    await rejected;
+    expect(events).toEqual(['A']);
+    release.resolve();
+    await Promise.all([first, third]);
+    expect(events).toEqual(['A', 'C']);
+    expect(a.service.publicationOwner.providers.size).toBe(0);
+    // An idle owner must be reusable by an already-live scope and a newly mounted scope.
+    const c = await f.scope();
+    const held = deferred(), started = deferred();
+    cleanups.push(() => held.resolve());
+    const again = a.service.publishQueued(context, 'reports', async () => { started.resolve(); await held.promise; });
+    await started.promise;
+    const last = c.service.publishQueued(context, 'reports', async () => { events.push('D'); });
+    held.resolve();
+    await Promise.all([again, last]);
+    expect(events).toEqual(['A', 'C', 'D']);
+  });
+
+  it('keeps filesystem provider isolation independent within the same Host', async () => {
+    const f = await fixture(), a = await f.scope();
+    const isolated = f.ctx.isolate('fs');
+    const filesystem = await isolated.plugin(LocalFileSystem, { cwd: f.directory });
+    cleanups.push(() => filesystem.dispose());
+    const b = await f.scope(isolated);
+    expect(a.ctx[Context.isolate].fs).not.toBe(b.ctx[Context.isolate].fs);
+    const context = await a.service.store.context(f.directory, undefined, undefined, signal());
+    const entered = deferred(), release = deferred();
+    cleanups.push(() => release.resolve());
+    const first = a.service.publishQueued(context, 'reports', async () => { entered.resolve(); await release.promise; });
+    await entered.promise;
+    const second = await b.service.publishQueued(context, 'reports', () => b.service.store.publish(context, '.muse/source-research/reports/v1/isolated.json', '{}\n'));
+    expect(await readFile(second.path, 'utf8')).toBe('{}\n');
+    release.resolve();
+    await first;
+  });
+
+  it('keeps injected filesystem access until root disposal drains a committed publication', async () => {
+    const f = await fixture(), a = await f.scope(), b = await f.scope();
+    const committed = deferred(), release = deferred();
+    cleanups.push(() => release.resolve());
+    const publish = a.service.store.publish.bind(a.service.store);
+    a.service.store.publish = async (...args) => {
+      const receipt = await publish(...args);
+      committed.resolve(receipt);
+      await release.promise;
+      return receipt;
+    };
+    const call = a.call('snapshot', collect);
+    const receipt = await committed.promise;
+    const bytes = await readFile(receipt.path);
+    let disposed = false;
+    const disposal = f.ctx.fiber.dispose().then(() => { disposed = true; });
+    await b.dispose();
+    expect(disposed).toBe(false);
+    const target = await a.ctx.fs.resolve(receipt.path);
+    expect(Buffer.from(await a.ctx.fs.readBytes(target, signal(), bytes.byteLength))).toEqual(bytes);
+    release.resolve();
+    expect(await call).toMatchObject({ path: receipt.path, sha256: digest(bytes) });
+    await disposal;
+    expect(disposed).toBe(true);
+    expect(await readFile(receipt.path)).toEqual(bytes);
+  });
+
   it('collects both real clients, stores full results and exact hashes, and preserves cached measurement times', async () => {
     const f = await fixture();
     const first = await f.call('snapshot', collect);
@@ -201,18 +376,19 @@ describe('source research through the real local filesystem', () => {
   it('rechecks report capacity after concurrent publication admission', async () => {
     const f = await fixture({ maxSnapshots: 1 });
     const snapshot = await f.call('snapshot', collect);
+    const a = await f.scope(), b = await f.scope();
     let entered, release;
     const entry = new Promise(resolve => { entered = resolve; }), held = new Promise(resolve => { release = resolve; });
     cleanups.push(() => release());
-    const publish = f.service.store.publish.bind(f.service.store);
+    const publish = a.service.store.publish.bind(a.service.store);
     let reportPublications = 0;
-    f.service.store.publish = async (context, path, ...args) => {
+    a.service.store.publish = async (context, path, ...args) => {
       if (path.includes('/reports/')) { reportPublications++; entered(); await held; }
       return publish(context, path, ...args);
     };
-    const first = f.call('report', { action: 'build', snapshotIds: [snapshot.snapshotId] });
+    const first = a.call('report', { action: 'build', snapshotIds: [snapshot.snapshotId] });
     await entry;
-    const second = f.call('report', { action: 'build', snapshotIds: [snapshot.snapshotId] });
+    const second = b.call('report', { action: 'build', snapshotIds: [snapshot.snapshotId] });
     const rejected = expect(second).rejects.toMatchObject({ code: 'SOURCE_RESEARCH_LIMIT' });
     release();
     expect((await first).status).toBe('complete');
@@ -250,7 +426,7 @@ describe('source research through the real local filesystem', () => {
 
   it('registers three scoped object-schema tools, rejects extra model evidence, and disposes registrations', async () => {
     const f = await fixture(), definitions = [], cleanup = [];
-    const host = { ...f.host, tools: { register(definition) { definitions.push(definition); return () => definitions.splice(definitions.indexOf(definition), 1); } }, effect(factory) { cleanup.push(factory()); } };
+    const host = f.host.extend({ tools: { register(definition) { definitions.push(definition); return () => definitions.splice(definitions.indexOf(definition), 1); } }, effect(factory) { cleanup.push(factory()); } });
     apply(host, { qimao: { requestIntervalMs: 0 }, hongguo: { requestIntervalMs: 0 } });
     expect(definitions.map(value => value.name)).toEqual(['source_snapshot', 'source_report', 'work_mapping']);
     for (const definition of definitions) expect(definition.parameters).toMatchObject({ type: 'object', required: ['action'], additionalProperties: false });
@@ -259,6 +435,6 @@ describe('source research through the real local filesystem', () => {
     expect(definitions).toEqual([]);
     expect(() => resolveConfig({ maxItems: 0 })).toThrow();
     expect(() => resolveConfig({ qimao: { cacheTtlMs: -1 } })).toThrow();
-    expect(() => new SourceResearch({ ...f.host, fs: { sandboxMode: 'workspace-write' }, sandboxPolicy: undefined })).toThrow('requires sandboxPolicy');
+    expect(() => new SourceResearch({ fs: { sandboxMode: 'workspace-write' } })).toThrow('requires sandboxPolicy');
   });
 });

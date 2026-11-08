@@ -26,9 +26,15 @@ sh compose.sh up -d --wait --wait-timeout 240
 python3 verify.py --source /opt/muse/dtk/source-v5.1.10
 ```
 
-Preparation creates `/etc/muse/dtk.env` and `/etc/muse/dtk-admin.json` with mode `0600`; repeated runs preserve their values. The default port is `19580`. The `browser` and `downloader` profiles are enabled; transcription is disabled. A temporary build proxy must not be added to the runtime environment.
+Preparation creates `/etc/muse/dtk.env` and `/etc/muse/dtk-admin.json` with mode `0600`; repeated runs preserve their values. New configuration defaults to loopback port `19580` without a transcriber URL. The Compose wrapper selects the `browser` and `downloader` profiles. Existing private files are preserved; verification checks the running configuration independently. A temporary build proxy must not be added to the runtime environment.
 
 Verification initializes the private administrator once, saves a limited service key in `/etc/muse/dtk-service-key`, and writes a secret-free receipt to `/opt/muse/dtk/receipts/deployment.json`. It checks running version, image identifiers, database migration, sidecar health, anonymous rejection, and the MCP tool list without requesting platform content.
+
+All verifier HTTP requests go directly to loopback without using an installation proxy. Before private bootstrap, it checks the actual running container port publications and transcriber settings. Published ports must use loopback, and the API must publish `127.0.0.1:<port>` to container port `8000/tcp`; host/shared network modes or missing observations fail verification. API and worker transcriber settings must be disabled, no transcriber container may be running, and the authenticated API must explicitly report the unconfigured transcriber state before a limited key is issued.
+
+Readiness has one monotonic 120-second budget covering probe startup, response headers and body, retries and sleeps. `--readiness-timeout <seconds>` accepts a positive finite budget for this phase; it does not bound the later setup and runtime checks. Operating-system process creation and termination can add uninterruptible overhead; time spent starting a probe reduces its remaining wait rather than renewing the budget. A timed-out anonymous probe is terminated and reaped before another probe starts.
+
+A successful receipt records observed `publishedBindings`, `networkModes` and `transcriberRuntime`. The `profiles` field is removed because running containers do not establish which Compose profile flags started them; `images` identifies the observed services. Check the exit status and a fresh `verifiedAt` when using a receipt. Failed verification does not replace an earlier receipt.
 
 ## Access and recovery
 

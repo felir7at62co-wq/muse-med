@@ -225,7 +225,7 @@ function mount(
       return opts?.fallback ?? null
     }
     if (key === 'conversation.header') {
-      return <ConversationHeader {...runtimeProps} headerPresentation={options.headerPresentation ?? 'standard'} renderSlot={renderSlot as never} />
+      return <ConversationHeader {...runtimeProps} useHeaderPresentation={selector => selector(options.headerPresentation ?? 'standard')} renderSlot={renderSlot as never} />
     }
     if (key === 'conversation.content.overlayHost') {
       return <ConversationOverlays {...runtimeProps} sessionId={SID} useConversationViews={useConversationViews}

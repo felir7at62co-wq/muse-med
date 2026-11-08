@@ -7,6 +7,10 @@ import { standardDecoratorPlugin } from '../../../vitest.shared.ts';
 const root = fileURLToPath(new URL('./', import.meta.url));
 export default defineConfig({
   root,
+  resolve: { alias: [
+    { find: /^muse-hongguo-search\/client$/, replacement: fileURLToPath(new URL('../muse-hongguo-search/src/client.js', import.meta.url)) },
+    { find: /^muse-qimao-data\/client$/, replacement: fileURLToPath(new URL('../muse-qimao-data/src/client.js', import.meta.url)) },
+  ] },
   plugins: [tsconfigPaths({ projects: [fileURLToPath(new URL('../../../tsconfig.base.json', import.meta.url))], loose: true }), standardDecoratorPlugin()],
   test: { include: ['tests/*.test.js'], pool: 'forks' },
 });

@@ -147,7 +147,7 @@ export interface CanonicalItem {
 export interface SourceSnapshot {
   schemaVersion: 1;
   kind: 'source_snapshot';
-  adapterVersion: '1.0.0';
+  adapterVersion: '1.0.0' | '1.0.1';
   snapshotId: SourceSnapshotId;
   createdAt: string;
   platform: Platform;

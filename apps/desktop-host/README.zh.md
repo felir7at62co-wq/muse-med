@@ -58,7 +58,7 @@ Office 组合全局注册 `manuscript_revision`，对照实际上一稿与返回
 
 `delivery` 动作通过 `candidate_paths` 登记实际最终文件，并返回每个文件的标签。编写或修改剧本的任务中，`present` 要求当前文件字节匹配已有一致性审校的 `reviewed` 登记，或附说明的明确 `draft` 登记；描述须原样使用返回标签。实际核对的集数或行范围保留在标签中，局部审校不代表全文通过。文件字节变化后登记失效。Word 交付须核对最终 Word，不继承 Markdown 审校。对已有待交付文件却停止，或用户明确要求剧本文件却没有核实交付回执的轮次，最多追加配置次数的已记录提醒。代码块、外部执行标签与文本链接不代表本机执行或文件交付；提醒不猜测路径、不执行引用代码，取消和新的真人请求不触发续接。自动识别要求常见场次标题与戏剧动作或对白同时存在；其他自定义格式可显式登记最终文件，启用相同的版本与标签检查。普通报告、仅翻译与仅格式转换保持原交付方式。`continuityDeliveryChecks` 默认启用上述检查，`continuityMaxDeliveryCorrections` 限制提醒次数。参见[交付迁移指南](../../docs/upgrade-guide/v0.2.2-rc.1/muse-manuscript-delivery/guide.zh.md)。
 
-改稿任务的已复核交付须以所选原稿作为 `current`，不同路径的最终文件作为 `candidate` 对照；只审最终文件的内部核对不能批准改稿交付。已有已复核登记在交付时也须满足相同检查。全新创作无需虚构原稿，可进行内部审校；明确草稿仍可交付。[交付迁移指南](../../docs/upgrade-guide/v0.2.2-rc.1/muse-manuscript-delivery/guide.zh.md)说明调用步骤。
+改稿任务的已复核交付须以所选原稿作为 `current`，不同路径的最终文件作为 `candidate` 对照；只审最终文件的内部核对不能批准改稿交付。“修改下剧本”“帮我改一下这个剧本”和“Edit the screenplay”等请求启用相同的改稿检查，明确要求 Word 文件时也须检查交付回执。旧缓存中的任务意图根据已记录的真人要求重新构建。已有已复核登记在交付时也须满足相同检查。全新创作无需虚构原稿，可进行内部审校；明确草稿仍可交付。[交付迁移指南](../../docs/upgrade-guide/v0.2.2-rc.1/muse-manuscript-delivery/guide.zh.md)说明调用步骤。
 
 本地记录保留在工作区的 `.muse/manuscript-revisions/` 下。Office 的 `manuscriptRevisions` 设置控制资源限额，对照不静默截断。差异作为已记录的上下文进入模型。参见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-manuscript-protection/guide.zh.md)。
 

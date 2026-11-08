@@ -65,6 +65,8 @@ The closing prose links paths the turn produced or delivered, including those re
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
+The delivery-video chain keeps native playback as its empty-chain fallback. Disposing a presentation plugin restores this player while preserving native file actions.
+
 <details>
 <summary>Implementation internals — click to expand</summary>
 

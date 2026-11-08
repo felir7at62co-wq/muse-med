@@ -209,6 +209,38 @@ it('streams only an owned manifest file without exposing Response headers or pri
   expect(address(value.fetcher.mock.calls[1]![0])).toBe(origin + `/api/media/jobs/${id}/files/video.mp4`)
 })
 
+it.each([
+  ['video (1).mp4', 'video%20(1).mp4'], ['cover image.jpg', 'cover%20image.jpg'],
+  ['video.mp4 ', 'video.mp4%20'], ['a'.repeat(128), 'a'.repeat(128)],
+])('retains an exact safe manifest filename through file lookup and URL encoding: %j', async (name, encoded) => {
+  const value = await fixture(), entry = { ...saved.files[0]!, name }
+  value.fetcher.mockResolvedValueOnce(Response.json({ ...saved, files: [entry] }))
+    .mockResolvedValueOnce(new Response('abc', { headers: { 'content-length': '3' } }))
+  await expect(value.client.withFile(id, name, async (transfer) => {
+    expect(transfer.file).toEqual(entry)
+    return await new Response(transfer.body).text()
+  })).resolves.toBe('abc')
+  expect(value.fetcher).toHaveBeenCalledTimes(2)
+  expect(address(value.fetcher.mock.calls[1]![0])).toBe(origin + `/api/media/jobs/${id}/files/${encoded}`)
+})
+
+it('does not substitute a sanitized alias for the exact manifest member', async () => {
+  const value = await fixture(), consume = vi.fn()
+  value.fetcher.mockResolvedValueOnce(Response.json({ ...saved, files: [{ ...saved.files[0]!, name: 'video (1).mp4' }] }))
+  await expect(value.client.withFile(id, 'video_1.mp4', consume)).rejects.toMatchObject({ code: 'not-found' })
+  expect(value.fetcher).toHaveBeenCalledTimes(1)
+  expect(consume).not.toHaveBeenCalled()
+})
+
+it.each(['../video.mp4', 'dir/video.mp4', 'dir\\video.mp4', '.video.mp4', 'video..mp4', 'v'.repeat(129),
+  'video.mp4\n', 'video.mp4\r\n'])('rejects an unsafe wire manifest name before requesting file bytes: %j', async (name) => {
+  const value = await fixture(), consume = vi.fn()
+  value.fetcher.mockResolvedValueOnce(Response.json({ ...saved, files: [{ ...saved.files[0]!, name }] }))
+  await expect(value.client.withFile(id, name, consume)).rejects.toMatchObject({ code: 'invalid-response' })
+  expect(value.fetcher).toHaveBeenCalledTimes(1)
+  expect(consume).not.toHaveBeenCalled()
+})
+
 it('blocks publication after an account change during streamed import', async () => {
   const value = await fixture()
   value.fetcher.mockResolvedValueOnce(Response.json(saved)).mockResolvedValueOnce(new Response('abc'))
@@ -263,4 +295,76 @@ it('disposal cancels and awaits import callback cleanup before settling', async 
   await stopping
   expect(disposed).toBe(true)
   await expect(value.client.status()).rejects.toMatchObject({ code: 'cancelled' })
+})
+
+it('confirms an import only after full consumption and native publication using its exact lease and digest', async () => {
+  const value = await fixture()
+  const lease = '22222222-2222-4222-8222-222222222222'
+  let published = false
+  value.fetcher.mockImplementation(async (url, init) => {
+    const path = new URL(address(url)).pathname
+    if (path.endsWith('/imported')) {
+      expect(published).toBe(true)
+      expect(init?.method).toBe('POST')
+      expect(await new Response(init?.body).json()).toEqual({ lease, sha256: saved.files[0]!.sha256 })
+      return Response.json({ state: 'acknowledged' })
+    }
+    if (path.endsWith('/files/video.mp4')) return new Response('abc', { headers: { 'x-muse-media-lease': lease } })
+    return Response.json(saved)
+  })
+  const output = await value.client.withFile(id, 'video.mp4', async (transfer) => {
+    expect(value.fetcher).toHaveBeenCalledTimes(2)
+    expect(await new Response(transfer.body).text()).toBe('abc')
+    published = true
+    return 'verified local file'
+  }, undefined, true)
+  expect(output).toBe('verified local file')
+  expect(value.fetcher).toHaveBeenCalledTimes(3)
+})
+
+it.each(['ordinary-read', 'consumer-failed', 'incomplete', 'legacy-server'] as const)(
+  'does not confirm a %s transfer', async (kind) => {
+    const value = await fixture()
+    value.fetcher.mockResolvedValueOnce(Response.json(saved)).mockResolvedValueOnce(new Response('abc', {
+      headers: kind === 'legacy-server' ? {} : { 'x-muse-media-lease': '22222222-2222-4222-8222-222222222222' },
+    }))
+    const operation = value.client.withFile(id, 'video.mp4', async (transfer) => {
+      if (kind === 'incomplete') return 'no read'
+      await new Response(transfer.body).text()
+      if (kind === 'consumer-failed') throw Error('Local decoder rejected video')
+      return 'read'
+    }, undefined, kind !== 'ordinary-read')
+    if (kind === 'incomplete' || kind === 'consumer-failed') await expect(operation).rejects.toBeDefined()
+    else await expect(operation).resolves.toBe('read')
+    expect(value.fetcher).toHaveBeenCalledTimes(2)
+  },
+)
+
+it('keeps a verified local file when confirmation is unavailable without retrying', async () => {
+  const value = await fixture()
+  value.fetcher.mockResolvedValueOnce(Response.json(saved)).mockResolvedValueOnce(new Response('abc', {
+    headers: { 'x-muse-media-lease': '22222222-2222-4222-8222-222222222222' },
+  })).mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
+  await expect(value.client.withFile(id, 'video.mp4', async (transfer) => {
+    await new Response(transfer.body).arrayBuffer()
+    return 'local_ready'
+  }, undefined, true)).resolves.toBe('local_ready')
+  expect(value.fetcher).toHaveBeenCalledTimes(3)
+})
+
+it('preserves committed local delivery if the account changes or cancellation arrives during confirmation', async () => {
+  const value = await fixture()
+  const controller = new AbortController()
+  value.fetcher.mockResolvedValueOnce(Response.json(saved)).mockResolvedValueOnce(new Response('abc', {
+    headers: { 'x-muse-media-lease': '22222222-2222-4222-8222-222222222222' },
+  })).mockImplementationOnce(async () => {
+    await writeMuseSession(value.sessionFile, { baseUrl: origin, username: 'bob', cookie: '__Host-muse=' + 'B'.repeat(43) })
+    controller.abort()
+    return Response.json({ state: 'acknowledged' })
+  })
+  await expect(value.client.withFile(id, 'video.mp4', async (transfer) => {
+    await new Response(transfer.body).arrayBuffer()
+    return 'committed_local_file'
+  }, controller.signal, true)).resolves.toBe('committed_local_file')
+  expect(value.fetcher).toHaveBeenCalledTimes(3)
 })

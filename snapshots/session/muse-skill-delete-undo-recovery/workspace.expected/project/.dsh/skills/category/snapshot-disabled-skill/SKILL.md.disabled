@@ -1,0 +1,6 @@
+---
+name: snapshot-disabled-skill
+description: Snapshot nested disabled bundle recovery fixture
+---
+# Disabled fixture
+Keep this skill disabled after undo.

@@ -526,6 +526,7 @@
       "@deepseek-ai/dsh-message-feedback": ["./packages/feedback/message-feedback/src"],
       "@deepseek-ai/dsh-message-quotes": ["./packages/session/message-quotes/src"],
       "@deepseek-ai/dsh-muse-account": ["./packages/host/muse-account/src"],
+      "@deepseek-ai/dsh-muse-video-ui": ["./packages/bundle/muse-video-ui/src"],
       "@deepseek-ai/dsh-native-command": ["./packages/util/native-command/src"],
       "@deepseek-ai/dsh-office-to-pdf": ["./packages/document/office-to-pdf/src"],
       "@deepseek-ai/dsh-official-bundles": ["./packages/util/official-bundles/src"],

@@ -119,6 +119,14 @@ The panel works exactly like the host's built-in Plugins page: a single **Skill 
 
 Archive files must use relative paths; parent-directory components, absolute paths and drive-qualified paths are rejected before an import writes files. Payload writes from both the panel and CLI stay inside the current skill's staging directory. Normal scripts, hidden resources and binary files remain part of the skill bundle.
 
+Panel deletion first moves the complete file or bundle into a hidden recovery folder beside its original location. Undo restores the exact path, resources, permissions and enabled state without reimporting the body. The Undo action is available in the current notification, and its receipt is valid only in the current Host instance; CLI deletion and `deleteSkill` remain permanent.
+
+Restoration refuses to replace an existing file or directory. A failed restoration retains the complete original and receipt; the destination may contain an incomplete copy. A disabled entrypoint keeps a bundle’s partial contents out of discovery during copying. Inspect and move conflicting or incomplete copies aside before retrying. If restoration succeeds but backup cleanup fails, the notification reports that separately so another restore is not attempted.
+
+Closing the notification, leaving the page or stopping the Host does not erase unrestored originals. For manual recovery, find `.dsh-skill-deleted-*` beside the original skill. The `originalName` field in `original.json` records the original file or directory name, and `entry` holds the complete entity. After inspecting the destination, move `entry` back under that name without replacing existing content. Successful restoration attempts to remove its backup; other unrestored backups are not removed automatically.
+
+Quick migration counts only items explicitly acknowledged as successful by the Host. Failed or unconfirmed items remain in the source list and current selection unless the user changes that selection. All-failed and partial outcomes have distinct notifications; View details opens the original batch’s per-item receipts without submitting another migration. For an unconfirmed result, inspect the source and destination before retrying. An older batch response does not clear a new selection after a workspace or selection change.
+
 ### MCP panel
 
 - **Server management** — **Stdio** and **HTTP** transports: add, edit, enable/disable, delete and test connections; saving is hot-reloaded by DSH HMR, no gateway restart. Only the panel's own managed block is edited — everything else in `cordis.patch.yml` (including rows inside the block that are not ours) is preserved byte for byte

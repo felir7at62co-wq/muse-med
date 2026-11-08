@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "kind": "source_report",
+  "adapterVersion": "1.0.0",
+  "createdAt": "2026-11-05T12:00:00.000Z",
+  "snapshotIds": [
+    "s-1fca5941baefe8cd722ce97de9b4b5f3",
+    "s-2d184ab5ba39992c5fd12c3a0ca0a532"
+  ],
+  "baselineIds": [
+    "s-fa1f5092c7c9228233e97092e69a061e"
+  ],
+  "inputReceipts": [
+    {
+      "snapshotId": "s-1fca5941baefe8cd722ce97de9b4b5f3",
+      "sha256": "d51a1341d53d8096866dfb40edcf057009348ba8acae85c8d22e74b70efbe971",
+      "platform": "qimao",
+      "evidenceKind": "official_public"
+    },
+    {
+      "snapshotId": "s-2d184ab5ba39992c5fd12c3a0ca0a532",
+      "sha256": "9cf43ea9d68110433e5f5fef8c01b59a7f7f6882efdd87ad07e354647925723c",
+      "platform": "hongguo",
+      "evidenceKind": "official_public"
+    },
+    {
+      "snapshotId": "s-fa1f5092c7c9228233e97092e69a061e",
+      "sha256": "09cb3c6e11337c2797d1beef34e05ac26bca1522e4b1d3df278a16bd62c01fc7",
+      "platform": "qimao",
+      "evidenceKind": "official_public"
+    }
+  ],
+  "comparisons": [
+    {
+      "beforeId": "s-fa1f5092c7c9228233e97092e69a061e",
+      "afterId": "s-1fca5941baefe8cd722ce97de9b4b5f3",
+      "platform": "qimao",
+      "sameScope": true,
+      "comparisons": [
+        {
+          "key": "qimao:71000011",
+          "id": "71000011",
+          "title": "福星小厨娘",
+          "metrics": [
+            {
+              "field": "heat",
+              "label": "热度",
+              "semantic": "qimao.public.heat",
+              "unit": "热度",
+              "before": 123000,
+              "after": 133000,
+              "delta": 10000,
+              "approximate": true,
+              "beforeObservedAt": "2026-11-04T12:00:00.000Z",
+              "afterObservedAt": "2026-11-05T12:00:00.000Z",
+              "measurementAdvanced": true
+            },
+            {
+              "field": "wordCount",
+              "label": "字",
+              "semantic": "qimao.public.wordCount",
+              "unit": "字",
+              "before": 200000,
+              "after": 200000,
+              "delta": 0,
+              "approximate": true,
+              "beforeObservedAt": "2026-11-04T12:00:00.000Z",
+              "afterObservedAt": "2026-11-05T12:00:00.000Z",
+              "measurementAdvanced": true
+            }
+          ]
+        }
+      ],
+      "excluded": [
+        {
+          "key": "qimao:71000011",
+          "field": "cumulativePopularity",
+          "reason": "unknown_value"
+        },
+        {
+          "key": "qimao:71000011",
+          "field": "readOccurrences",
+          "reason": "unknown_value"
+        }
+      ],
+      "limitations": [
+        "仅比较相同平台、相同请求范围、相同指标语义/单位/标签及测量来源的共有已知值。",
+        "null不等于0；缓存时间保持原值，负变化保留。",
+        "样本不是市场全量；不据此宣称新增、退榜或市场总量变化。"
+      ]
+    }
+  ],
+  "markdownSha256": "7f8fba937af289e1b910f4b6d8bbb2493e90efee0f54c5382bafc1aab91eca44",
+  "reportId": "r-ce467cd434fe12dca1b8e69a60e3cacc",
+  "markdownPath": "deliverables/选材日报/2026-11-05-r-ce467cd434fe12dca1b8e69a60e3cacc.md"
+}

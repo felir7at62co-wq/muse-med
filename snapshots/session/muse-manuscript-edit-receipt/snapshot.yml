@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-manuscript-edit-receipt
+profile: headless
+composition: muse-manuscript-edit-receipt
+recording: authored
+writerOutput: true
+header:
+  class: muse-manuscript-edit-receipt
+  pin: true
+  childSystemPrompts: [1]
+  childToolSchemas: [1]
+workspace:
+  final: true

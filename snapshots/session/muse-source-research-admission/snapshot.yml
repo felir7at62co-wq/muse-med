@@ -1,0 +1,14 @@
+version: 1
+scenario: muse-source-research-admission
+profile: headless
+composition: muse-source-research-admission
+recording: authored
+writerOutput: true
+header:
+  class: muse-source-research-admission
+  pin: true
+  childSystemPrompts: [1, 2]
+  childToolSchemas: [1, 2]
+permission: workspace-write
+workspace:
+  final: true

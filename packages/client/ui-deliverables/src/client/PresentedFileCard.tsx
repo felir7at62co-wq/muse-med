@@ -15,7 +15,12 @@ function cardDescription(description: string | undefined, fallback: string): str
   return trimmed === undefined || trimmed === '' ? fallback : trimmed
 }
 
-function DeliveredVideo({ source, name, t }: { source: string; name: string } & PropsLocale<typeof NS>) {
+/**
+ * Native playback retained when no delivery-video extension is registered.
+ * @param props - Session-authorized stream, file name and native localized copy.
+ * @returns A player that releases its source on unmount.
+ */
+export function DeliveredVideo({ source, name, t }: { source: string; name: string } & PropsLocale<typeof NS>) {
   const [failed, setFailed] = useState(false)
   const player = useRef<HTMLVideoElement>(null)
   useEffect(() => {

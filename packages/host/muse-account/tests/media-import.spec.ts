@@ -15,12 +15,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeAll, expect, it, vi } from 'vitest'
 import { MuseMediaImporter } from '../src/media-import.ts'
-import { MuseMediaError } from '../src/media.ts'
-import type { MuseMediaClient } from '../src/media.ts'
+import { MuseMediaClient, MuseMediaError } from '../src/media.ts'
 import type { MuseMediaJobId, MuseMediaTransfer } from '../src/media-types.ts'
+import { writeMuseSession } from '../src/session.ts'
 
 const execute = promisify(execFile)
-const roots: string[] = [], contexts: Context[] = [], importers: MuseMediaImporter[] = []
+const roots: string[] = [], contexts: Context[] = [], importers: MuseMediaImporter[] = [], clients: MuseMediaClient[] = []
 const id = brandString<MuseMediaJobId>('80000000-0000-4000-8000-000000000001')
 let video: Buffer
 beforeAll(async () => {
@@ -31,12 +31,14 @@ beforeAll(async () => {
 })
 afterEach(async () => {
   await Promise.all(importers.splice(0).map(value => value.dispose()))
+  await Promise.all(clients.splice(0).map(value => value.dispose()))
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
   vi.restoreAllMocks()
 })
 
 interface FixtureOptions {
+  client?: Pick<MuseMediaClient, 'withFile'>
   mode?: 'danger-full-access' | 'read-only' | 'workspace-write'
   missingCwd?: boolean
   bytes?: Buffer
@@ -73,7 +75,7 @@ async function fixture(options: FixtureOptions = {}) {
       signal: signal ?? new AbortController().signal, assertCurrent: options.guard ?? (async () => {}) })
     },
   }
-  const importer = new MuseMediaImporter(ctx, client, { directory: 'source/media/company', nodePath: process.execPath,
+  const importer = new MuseMediaImporter(ctx, options.client ?? client, { directory: 'source/media/company', nodePath: process.execPath,
     ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe', timeoutMs: 30_000, graceMs: 1000, maxBytes: 1_048_576,
     maxOutputBytes: 65_536, maxPixels: 1_000_000, maxDurationSeconds: 60 })
   importers.push(importer)
@@ -91,6 +93,41 @@ it('publishes a complete real video and a stable file-backed receipt without pri
   expect(receipt).toMatchObject({ sha256: createHash('sha256').update(video).digest('hex') })
   expect(receipt).not.toHaveProperty('transaction')
   expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([`${id}-video.mp4`, `${id}-video.mp4.source.json`])
+})
+
+it('imports the exact spaced and parenthesized manifest member through the current-account client', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'muse-media-manifest-')); roots.push(directory)
+  const origin = 'https://muse.test', sessionFile = join(directory, 'session.json'), name = 'video (1).mp4'
+  await writeMuseSession(sessionFile, { baseUrl: origin, username: 'alice', cookie: '__Host-muse=' + 'A'.repeat(43) })
+  const hash = createHash('sha256').update(video).digest('hex')
+  const manifest = { state: 'cloud_saved', job_id: id, files: [{ name, bytes: video.length, sha256: hash, kind: 'video' }],
+    file_coverage: { reported: 1, accepted: 1, rejected: 0, complete: true, truncated: false } }
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json(manifest))
+    .mockResolvedValueOnce(new Response(new Uint8Array(video), { headers: { 'content-length': String(video.length) } }))
+  const client = new MuseMediaClient({ baseUrl: origin, sessionFile, requestTimeoutMs: 60_000, fileTimeoutMs: 60_000,
+    maxReplyBytes: 1_048_576, maxFileBytes: 1_048_576, fetcher }); clients.push(client)
+  const withFile = vi.spyOn(client, 'withFile'), f = await fixture({ client })
+  const result = await f.importer.import(f.agent, id, name, new AbortController().signal)
+  const destination = join(f.cwd, 'source/media/company', `${id}-${name}`)
+  expect(withFile).toHaveBeenCalledWith(id, name, expect.any(Function), expect.any(AbortSignal), true)
+  expect(fetcher).toHaveBeenCalledTimes(2)
+  expect(fetcher).toHaveBeenNthCalledWith(2, new URL(`${origin}/api/media/jobs/${id}/files/video%20(1).mp4`),
+    expect.objectContaining({ method: 'GET' }))
+  expect(result).toMatchObject({ state: 'local_ready', fileName: name, path: destination, bytes: video.length,
+    sha256: hash, fullDecodeVerified: true, kind: 'video', width: 128, height: 72 })
+  expect(await readFile(destination)).toEqual(video)
+  expect(JSON.parse(await readFile(result.receipt, 'utf8'))).toMatchObject({ jobId: id, fileName: name,
+    path: destination, sha256: hash, bytes: video.length, fullDecodeVerified: true })
+  expect((await readdir(join(f.cwd, 'source/media/company'))).sort()).toEqual([`${id}-${name}`, `${id}-${name}.source.json`])
+})
+
+it.each(['../video.mp4', 'dir/video.mp4', 'dir\\video.mp4', '.video.mp4', 'video..mp4', 'v'.repeat(129),
+  'video.mp4\n', 'video.mp4\r\n'])('refuses an unsafe manifest filename before client or subprocess work: %j', async (name) => {
+  const f = await fixture(), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  await expect(f.importer.import(f.agent, id, name, new AbortController().signal)).rejects.toMatchObject({ code: 'invalid-input' })
+  expect(f.requests()).toBe(0)
+  expect(spawn).not.toHaveBeenCalled()
+  expect(await readdir(f.cwd)).toEqual([])
 })
 
 it('uses the actual OS sandbox for workspace-write imports', async () => {
@@ -204,4 +241,30 @@ it.each(['account-change', 'cancel'] as const)('rolls back after %s at the real 
   })
   expect(finalized).toBe(true)
   expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+})
+
+it('keeps the real verified file when cancellation arrives during the cloud confirmation after local commit', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'muse-media-committed-')); roots.push(directory)
+  const origin = 'https://muse.test', sessionFile = join(directory, 'session.json')
+  await writeMuseSession(sessionFile, { baseUrl: origin, username: 'alice', cookie: '__Host-muse=' + 'A'.repeat(43) })
+  const hash = createHash('sha256').update(video).digest('hex')
+  const manifest = { state: 'cloud_saved', job_id: id, files: [{ name: 'video.mp4', bytes: video.length, sha256: hash, kind: 'video' }],
+    file_coverage: { reported: 1, accepted: 1, rejected: 0, complete: true, truncated: false } }
+  const caller = new AbortController()
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json(manifest))
+    .mockResolvedValueOnce(new Response(new Uint8Array(video), {
+      headers: { 'x-muse-media-lease': '22222222-2222-4222-8222-222222222222' },
+    })).mockImplementationOnce(async () => {
+      caller.abort()
+      return Response.json({ state: 'acknowledged' })
+    })
+  const client = new MuseMediaClient({ baseUrl: origin, sessionFile, requestTimeoutMs: 60_000, fileTimeoutMs: 60_000,
+    maxReplyBytes: 1_048_576, maxFileBytes: 1_048_576, fetcher }); clients.push(client)
+  const f = await fixture({ client, mode: 'workspace-write' })
+  const result = await f.importer.import(f.agent, id, 'video.mp4', caller.signal)
+  expect(caller.signal.aborted).toBe(true)
+  expect(result).toMatchObject({ state: 'local_ready', fullDecodeVerified: true, sha256: hash })
+  expect(await readFile(result.path)).toEqual(video)
+  expect(await readFile(result.receipt, 'utf8')).toContain(hash)
+  expect(fetcher).toHaveBeenCalledTimes(3)
 })

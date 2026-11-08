@@ -579,22 +579,26 @@ function expandDouyinExpectedReceipt(text: string, cwd: string): string {
   return `${JSON.stringify(receipt, null, 2)}\n`
 }
 
-function expandCompanyMediaExpectedReceipt(text: string, cwd: string): string {
+function expandCompanyMediaExpectedReceipt(text: string, cwd: string, selectedName?: 'video (1).mp4'): string {
   const receipt = JSON.parse(text) as JsonObject
   if (typeof receipt.path !== 'string'
-    || !/^\{\{cwd\}\}\/source\/media\/company\/[a-f0-9-]{36}-[A-Za-z0-9._ -]+$/u.test(receipt.path)
+    || (selectedName === undefined
+      ? !/^\{\{cwd\}\}\/source\/media\/company\/[a-f0-9-]{36}-[A-Za-z0-9._ -]+$/u.test(receipt.path)
+      : receipt.path !== `{{cwd}}/source/media/company/91000000-0000-4000-8000-000000000001-${selectedName}`)
     || receipt.path.includes('..')) throw new Error('Company media expected receipt requires a path under {{cwd}}/source/media/company/')
   receipt.path = join(cwd, ...receipt.path.slice('{{cwd}}/'.length).split('/'))
   return `${JSON.stringify(receipt)}\n`
 }
 
-async function prepareCompanyMediaExpectedWorkspace(cwd: string, scenarioDir: string): Promise<string> {
+async function prepareCompanyMediaExpectedWorkspace(
+  cwd: string, scenarioDir: string, fileName: 'fixture.mp4' | 'video (1).mp4',
+): Promise<string> {
   const expectedRoot = join(cwd, '.snapshot-patches', 'expected-company-media')
   await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
-  const receiptPath = 'source/media/company/91000000-0000-4000-8000-000000000001-fixture.mp4.source.json'
+  const receiptPath = `source/media/company/91000000-0000-4000-8000-000000000001-${fileName}.source.json`
   const expected = join(expectedRoot, receiptPath)
   await writeFile(expected, expandCompanyMediaExpectedReceipt(
-    await readFile(expected, 'utf8'), await realpath(cwd),
+    await readFile(expected, 'utf8'), await realpath(cwd), fileName === 'fixture.mp4' ? undefined : fileName,
   ))
   return expectedRoot
 }
@@ -1446,6 +1450,20 @@ describe('headless recorded-session snapshots', () => {
     }
   })
 
+  it('company media expected workspace retains the exact selected manifest filename', async () => {
+    const template = await readFile(join(snapshotsRoot,
+      'muse-media-tools/workspace.expected/source/media/company/91000000-0000-4000-8000-000000000001-fixture.mp4.source.json'), 'utf8')
+    const document = JSON.parse(template) as JsonObject
+    const path = '{{cwd}}/source/media/company/91000000-0000-4000-8000-000000000001-video (1).mp4'
+    const cwd = join(tmpdir(), 'company-media-named-workspace-oracle')
+    expect(JSON.parse(expandCompanyMediaExpectedReceipt(JSON.stringify({ ...document, path }), cwd, 'video (1).mp4')))
+      .toEqual({ ...document, path: join(cwd, 'source/media/company/91000000-0000-4000-8000-000000000001-video (1).mp4') })
+    for (const invalid of [document.path, `${path}/../outside.mp4`, path.replace('video (1)', 'video_1'),
+      '{{cwd}}/source/media/company/..\\outside.mp4']) {
+      expect(() => expandCompanyMediaExpectedReceipt(JSON.stringify({ ...document, path: invalid }), cwd, 'video (1).mp4')).toThrow()
+    }
+  })
+
   it('subtitle overlay workspace expected expands only declared path fields', async () => {
     const template = await readFile(join(snapshotsRoot, 'drama-subtitle-overlay/workspace.expected/editing/review-overlay.srt.decision-report.json'), 'utf8')
     const report = JSON.parse(template) as JsonObject
@@ -2041,8 +2059,9 @@ describe('headless recorded-session snapshots', () => {
               expect(result?.data.message.isError).toBe(false)
               expect(JSON.stringify(result?.data.message.content)).toContain('The card is on screen')
             }
-            if (scenario.name === 'muse-media-tools') {
-              expectedWorkspaceRoot = await prepareCompanyMediaExpectedWorkspace(cwd, scenario.dir)
+            if (scenario.name === 'muse-media-tools' || scenario.name === 'muse-media-import-safe-filename') {
+              expectedWorkspaceRoot = await prepareCompanyMediaExpectedWorkspace(cwd, scenario.dir,
+                scenario.name === 'muse-media-tools' ? 'fixture.mp4' : 'video (1).mp4')
             }
             if (scenario.name === 'muse-video-review-lifecycle') {
               const events = parseSessionLog(actualLogs[0]!.content)
@@ -2621,12 +2640,14 @@ describe('headless recorded-session snapshots', () => {
             if (scenario.name === 'worktree') {
               await verifyWorktree(actualLogs[0]!.content, await realpath(cwd))
             }
-            if (['muse-manuscript-final-delivery', 'muse-manuscript-ptc-delivery', 'muse-manuscript-no-receipt', 'muse-manuscript-revision-basis'].includes(scenario.name)) {
+            if (['muse-manuscript-final-delivery', 'muse-manuscript-ptc-delivery', 'muse-manuscript-no-receipt',
+              'muse-manuscript-revision-basis', 'muse-manuscript-ordinary-revision', 'muse-manuscript-edit-receipt'].includes(scenario.name)) {
               const parentId = actualLogs[0]?.header.id
               if (typeof parentId !== 'string') throw new Error('manuscript delivery requires the independent actual parent identity')
               expectedWorkspaceRoot = await prepareManuscriptDeliveryExpectedWorkspace(cwd, scenario.dir, parentId,
                 scenario.name === 'muse-manuscript-ptc-delivery' ? 'ptc'
-                  : ['muse-manuscript-no-receipt', 'muse-manuscript-revision-basis'].includes(scenario.name) ? 'no-receipt' : 'native')
+                  : ['muse-manuscript-no-receipt', 'muse-manuscript-revision-basis',
+                    'muse-manuscript-ordinary-revision', 'muse-manuscript-edit-receipt'].includes(scenario.name) ? 'no-receipt' : 'native')
             }
             finalWorkspace = await captureWorkspaceSnapshot(cwd, {
               ignoredRootEntries: ignoredWorkspaceEntries,

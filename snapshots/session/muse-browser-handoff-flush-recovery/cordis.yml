@@ -1,0 +1,11 @@
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: typert-loader
+  disabled: true
+- insert:
+    - id: handoff-connection
+      name: '@deepseek-ai/dsh-client-connection'
+    - id: handoff-fixture
+      name: ./handoff-fixture.mjs

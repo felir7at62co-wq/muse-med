@@ -1,12 +1,13 @@
 /** Durable admission, strict records and one-shot arm ownership use actual files. */
 import { createHash, randomUUID } from 'node:crypto'
+import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import * as files from 'node:fs/promises'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { createEpisodeDeliveryJob, readEpisodeRecord, attemptIdentitySchema, executionIdentitySchema,
+import { createEpisodeDeliveryJob, readEpisodeRecord, readEpisodeStateSnapshot, attemptIdentitySchema, executionIdentitySchema,
   executionDrainSchema, runningExecutionSchema } from '../src/episode-delivery.ts'
 import type { EpisodeExecutionId, RunningExecution, Sha256 } from '../src/episode-delivery.ts'
 import type { EpisodeExecutionAdmission } from '../src/episode-delivery-job.ts'
@@ -220,6 +221,129 @@ it('distinguishes missing from malformed, over-budget and nonregular journal fil
   await expect(f.job.admit(f.admission)).resolves.toMatchObject({ executionRef: null })
   await writeFile(join(f.job.attemptRoot, 'job.json'), '{')
   await expect(f.job.read()).rejects.toThrow(SyntaxError)
+})
+
+it('observes bounded state JSON and rejects missing-parent errors, malformed JSON and oversized files', async () => {
+  const f = await fixture(), path = join(f.root, 'state.json')
+  expect(await readEpisodeStateSnapshot(path, 4)).toBeUndefined()
+  await writeFile(path, '{}'); expect(await readEpisodeStateSnapshot(path, 2)).toEqual({})
+  await expect(readEpisodeStateSnapshot(join(path, 'nested.json'), 4)).rejects.toThrow()
+  await writeFile(path, '{'); await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow(SyntaxError)
+  await writeFile(path, '12345'); await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow('bounded regular file')
+  await expect(readEpisodeStateSnapshot(f.root, 4)).rejects.toThrow('bounded regular file')
+})
+
+it('retains the complete opened state when its path is atomically replaced', async () => {
+  const f = await fixture(), path = join(f.root, 'state.json')
+  await writeFile(path, '{"state":"running"}')
+  const open = files.open
+  const spy = vi.spyOn(files, 'open').mockImplementation(async (...args) => {
+    const handle = await open(...args)
+    if (args[0] === path) {
+      await files.rename(path, path + '.old')
+      await writeFile(path, '{"state":"completed"}')
+    }
+    return handle
+  })
+  try {
+    expect(await readEpisodeStateSnapshot(path, 128)).toEqual({ state: 'running' })
+    expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ state: 'completed' })
+  } finally { spy.mockRestore() }
+})
+
+it.each(['growth before reading', 'size change after reading', 'same-size modification after reading'] as const)(
+  'refuses mutable state %s through the actual descriptor', async (change) => {
+    const f = await fixture(), path = join(f.root, 'state.json')
+    await writeFile(path, '{}')
+    const open = files.open
+    const spy = vi.spyOn(files, 'open').mockImplementation(async (...args) => {
+      const handle = await open(...args)
+      if (args[0] === path) {
+        const stat = handle.stat.bind(handle)
+        let calls = 0
+        Object.defineProperty(handle, 'stat', { value: async () => {
+          if (++calls === 2 && change !== 'growth before reading') {
+            await writeFile(path, change === 'size change after reading' ? '{"changed":true}' : '[]')
+            const before = await stat()
+            await files.utimes(path, before.atime, new Date(before.mtimeMs + 2000))
+          }
+          const result = await stat()
+          if (calls === 1 && change === 'growth before reading') await writeFile(path, '12345')
+          return result
+        } })
+      }
+      return handle
+    })
+    try { await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow('changed or exceeded') }
+    finally { spy.mockRestore() }
+  },
+)
+
+it('honors state observation cancellation and closes an already opened descriptor', async () => {
+  const f = await fixture(), path = join(f.root, 'state.json'), control = new AbortController()
+  await writeFile(path, '{}')
+  const open = files.open
+  let opened: Awaited<ReturnType<typeof open>> | undefined
+  const spy = vi.spyOn(files, 'open').mockImplementation(async (...args) => {
+    const handle = await open(...args)
+    if (args[0] === path) {
+      opened = handle
+      const stat = handle.stat.bind(handle)
+      Object.defineProperty(handle, 'stat', { value: async () => {
+        const result = await stat(); control.abort(new Error('State observation cancelled')); return result
+      } })
+    }
+    return handle
+  })
+  try {
+    await expect(readEpisodeStateSnapshot(path, 4, control.signal)).rejects.toThrow('State observation cancelled')
+    expect(opened?.fd).toBe(-1)
+    await expect(readEpisodeStateSnapshot(path, 4, control.signal)).rejects.toThrow('State observation cancelled')
+  } finally { spy.mockRestore() }
+})
+
+it.skipIf(process.platform === 'win32')('does not follow a state observation symlink', async () => {
+  const f = await fixture(), path = join(f.root, 'state-link.json')
+  await symlink(f.input, path)
+  await expect(readEpisodeStateSnapshot(path, 16384)).rejects.toThrow('bounded regular file')
+})
+
+it.skipIf(process.platform === 'win32')('refuses a named pipe state without waiting for a writer', async () => {
+  const f = await fixture(), path = join(f.root, 'state-pipe')
+  execFileSync('mkfifo', [path])
+  await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow('bounded regular file')
+})
+
+it('retains strict path identity and absence semantics in the Windows state-observation branch', async () => {
+  const f = await fixture(), path = join(f.root, 'state.json')
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+  if (descriptor === undefined) throw new Error('Expected process platform descriptor')
+  const open = files.open
+  let replace = false
+  const spy = vi.spyOn(files, 'open').mockImplementation(async (...args) => {
+    if (args[0] === path && replace) {
+      await files.rename(path, path + '.old'); await writeFile(path, '{}')
+    }
+    return open(...args)
+  })
+  try {
+    Object.defineProperty(process, 'platform', { ...descriptor, value: 'win32' })
+    expect(await readEpisodeStateSnapshot(path, 4)).toBeUndefined()
+    await writeFile(path, '{}'); expect(await readEpisodeStateSnapshot(path, 4)).toEqual({})
+    replace = true
+    await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow('changed while opening')
+  } finally { Object.defineProperty(process, 'platform', descriptor); spy.mockRestore() }
+})
+
+it.skipIf(process.platform === 'win32')('keeps an existing symlink rejected through the Windows compatibility branch', async () => {
+  const f = await fixture(), path = join(f.root, 'state-link.json')
+  await symlink(f.input, path)
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+  if (descriptor === undefined) throw new Error('Expected process platform descriptor')
+  try {
+    Object.defineProperty(process, 'platform', { ...descriptor, value: 'win32' })
+    await expect(readEpisodeStateSnapshot(path, 16384)).rejects.toThrow('bounded regular file')
+  } finally { Object.defineProperty(process, 'platform', descriptor) }
 })
 
 it('rejects unknown durable fields, unsupported versions and changed logical identities', async () => {

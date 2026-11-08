@@ -1,11 +1,11 @@
 /** Current-version screenplay declarations, actual dispatch receipts, recovery and owner teardown. */
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { mountAgentLoopTestDependencies, unsupportedModel, createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { createToolResultMessage, createUserMessage, ToolCallId, type UserMessage } from '@deepseek-ai/dsh-llm'
+import { createAssistantMessage, createToolResultMessage, createUserMessage, ToolCallId, type UserMessage } from '@deepseek-ai/dsh-llm'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { Session, SessionId, SessionLogOffset, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
@@ -180,7 +180,7 @@ it('replays an older delivery checkpoint instead of retaining its report misclas
     val: { ...z.record(z.string(), z.unknown()).parse(current.val), writing: true, file_request: true } }
   const restored = f.ctx.sessionProjections.restore({ [key]: stale }, f.session.snapshotEvents(),
     SessionLogOffset(0), f.session.header, SessionLogOffset(0))
-  expect(restored.checkpoint[key]).toMatchObject({ ver: 4, val: { writing: false, file_request: false } })
+  expect(restored.checkpoint[key]).toMatchObject({ ver: 5, val: { writing: false, file_request: false } })
 })
 
 it('blocks unreviewed direct present, accepts explicit draft and rejects a stale same-path declaration', async () => {
@@ -223,6 +223,60 @@ it('permits a new screenplay to use a full internal review without inventing an 
   await f.review('consistent', undefined, undefined, true)
   const declaration = await f.declare('reviewed')
   expect((await f.present(declaration.files[0]!.label)).isError).toBe(false)
+})
+
+it.each(['修改下剧本，保留新增台词并导出Word。', '帮我改一下这个剧本，保留新增台词并导出Word。'])('ordinary affirmative revisions reject a final-only review: %s', async (request) => {
+  const f = await runtime()
+  human(f.session, request)
+  await f.review('consistent', undefined, undefined, true)
+  await expect(f.declare('reviewed')).rejects.toThrow('MANUSCRIPT_DELIVERY_BASELINE_REQUIRED')
+})
+
+it.each(['修改下剧本，保留新增台词并导出Word。', '帮我改一下这个剧本，保留新增台词并导出Word。',
+  'Edit the screenplay and give me a Word file.'])('ordinary affirmative revisions accept a separate current and candidate review: %s', async (request) => {
+  const f = await runtime()
+  human(f.session, request)
+  await f.review('consistent')
+  const declaration = await f.declare('reviewed')
+  expect(declaration).toMatchObject({ mode: 'reviewed', files: [{ path: await realpath(join(f.root, 'final.md')) }] })
+  expect((await f.present(declaration.files[0]!.label)).isError).toBe(false)
+})
+
+it('ordinary affirmative English editing requires a delivery declaration before direct present', async () => {
+  const f = await runtime()
+  human(f.session, 'Edit the screenplay and give me a Word file.')
+  expect(await f.present()).toMatchObject({ isError: true, error: { info: { code: 'MANUSCRIPT_DELIVERY_REQUIRED' } } })
+})
+
+it('ordinary affirmative English file delivery retains a missing-receipt reminder after a prose claim', async () => {
+  const f = await runtime()
+  human(f.session, 'Edit the screenplay and give me a Word file.')
+  const text = 'The screenplay Word file is ready.'
+  f.session.append('assistant/message', { turn: 1, step: 1,
+    stream: [{ type: 'text-chunks', time0: 1, index: 0, dt: [], texts: [text] }],
+    message: createAssistantMessage({ source: { provider: 'mock', model: 'writer' },
+      content: [{ type: 'text', text }] }) }, { surfaceOp: 'append' })
+  await f.service.remind(f.agent, signal)
+  expect(f.injected).toHaveLength(1)
+  expect(f.injected[0]!.content.filter(block => block.type === 'text').map(block => block.text).join('\n'))
+    .toContain('当前没有已核实的本机文件交付回执')
+})
+
+it('ordinary affirmative intent refolds stale version-four false flags before the actual present guard', async () => {
+  const f = await runtime()
+  human(f.session, 'Edit the screenplay and give me a Word file.')
+  const key = 'muse.manuscript-delivery'
+  const current = f.ctx.sessionProjections.checkpoint(f.session)[key]!
+  const stale = { ...current, ver: 4,
+    val: { ...z.record(z.string(), z.unknown()).parse(current.val), writing: false, file_request: false } }
+  const events = f.session.snapshotEvents()
+  const restored = Session.create(f.session.id, events, f.session.header)
+  f.ctx.sessionProjections.hydrate(restored, { [key]: stale }, events, SessionLogOffset(0))
+  const agent: Agent = { ...f.agent, session: restored }
+  const result = await executeModelToolFixture(f.ctx, { callId: ToolCallId(`restored-present-${++serial}`), name: 'present',
+    arguments: { files: [{ path: 'final.md' }] }, agent, signal })
+  expect(result).toMatchObject({ isError: true, error: { info: { code: 'MANUSCRIPT_DELIVERY_REQUIRED' } } })
+  expect(f.ctx.sessionProjections.checkpoint(restored)[key]).toMatchObject({ ver: 5, val: { writing: true, file_request: true } })
 })
 
 it('does not infer a new creation when only a continuation remains in restored human context', async () => {

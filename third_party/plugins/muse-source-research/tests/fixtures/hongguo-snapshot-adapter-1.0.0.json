@@ -1,0 +1,309 @@
+{
+  "schemaVersion": 1,
+  "kind": "source_snapshot",
+  "adapterVersion": "1.0.0",
+  "createdAt": "2026-11-04T12:00:00.000Z",
+  "platform": "hongguo",
+  "evidenceKind": "official_public",
+  "request": {
+    "operation": "rankings",
+    "boards": [
+      "hot-comic-drama"
+    ],
+    "refresh": false
+  },
+  "scope": {
+    "operation": "rankings",
+    "source": "public_rankings",
+    "boards": [
+      "hot-comic-drama"
+    ],
+    "maxPagesPerBoard": 1
+  },
+  "sourceResult": {
+    "scope": "public_rankings",
+    "items": [
+      {
+        "seriesId": "123",
+        "title": "历史红果样例",
+        "url": "https://hongguoduanju.com/detail?series_id=123",
+        "urlKind": "official_detail_page",
+        "watchPageUrl": null,
+        "watchPageKind": "official_web_player_page_not_video_file",
+        "coverUrl": null,
+        "description": "",
+        "tags": [],
+        "collection": {
+          "raw": "暂无收藏",
+          "value": null,
+          "approximate": false,
+          "precisionStep": null
+        },
+        "likes": {
+          "raw": "1e3点赞",
+          "value": null,
+          "approximate": false,
+          "precisionStep": null
+        },
+        "heat": {
+          "raw": "约12热度",
+          "value": null,
+          "approximate": false,
+          "precisionStep": null
+        },
+        "scoreText": null,
+        "episodeCount": null,
+        "observations": [
+          {
+            "board": "hot-comic-drama",
+            "page": 1,
+            "rank": 1,
+            "sourceUrl": "https://hongguoduanju.com/rank/hot-comic-drama",
+            "fetchedAt": "2026-11-04T12:00:00.000Z",
+            "updateDate": null,
+            "sourceFormat": "embedded_json",
+            "collection": {
+              "raw": "暂无收藏",
+              "value": null,
+              "approximate": false,
+              "precisionStep": null
+            },
+            "likes": {
+              "raw": "1e3点赞",
+              "value": null,
+              "approximate": false,
+              "precisionStep": null
+            },
+            "heat": {
+              "raw": "约12热度",
+              "value": null,
+              "approximate": false,
+              "precisionStep": null
+            },
+            "missingMetrics": [
+              {
+                "field": "collection",
+                "reason": "unparseable"
+              },
+              {
+                "field": "likes",
+                "reason": "unparseable"
+              },
+              {
+                "field": "heat",
+                "reason": "unparseable"
+              }
+            ]
+          }
+        ],
+        "conflicts": [],
+        "collectionSelection": "minimum_observed"
+      }
+    ],
+    "coverage": {
+      "boards": [
+        "hot-comic-drama"
+      ],
+      "pagesFetched": 1,
+      "pagesExpected": 1,
+      "uniqueSeries": 1,
+      "complete": true,
+      "metrics": {
+        "scope": "fetched_ranking_observations",
+        "observations": 1,
+        "complete": false,
+        "fields": {
+          "collection": {
+            "known": 0,
+            "missing": 1,
+            "complete": false
+          },
+          "likes": {
+            "known": 0,
+            "missing": 1,
+            "complete": false
+          },
+          "heat": {
+            "known": 0,
+            "missing": 1,
+            "complete": false
+          }
+        }
+      },
+      "failures": [],
+      "truncated": false,
+      "pages": [
+        {
+          "board": "hot-comic-drama",
+          "page": 1,
+          "sourceUrl": "https://hongguoduanju.com/rank/hot-comic-drama",
+          "fetchedAt": "2026-11-04T12:00:00.000Z",
+          "updateDate": null,
+          "fromCache": false,
+          "attempts": 1,
+          "itemCount": 1
+        }
+      ]
+    },
+    "fetchedAt": "2026-11-04T12:00:00.000Z",
+    "fromCache": false,
+    "note": "仅覆盖所选官方公开热播榜的已抓取分页，不是红果全库；分页完整性见coverage.complete，已抓取观察值的指标完整性见coverage.metrics。收藏展示值可能取整，不同页面不是同一时刻快照。"
+  },
+  "coverage": {
+    "boards": [
+      "hot-comic-drama"
+    ],
+    "pagesFetched": 1,
+    "pagesExpected": 1,
+    "uniqueSeries": 1,
+    "complete": true,
+    "metrics": {
+      "scope": "fetched_ranking_observations",
+      "observations": 1,
+      "complete": false,
+      "fields": {
+        "collection": {
+          "known": 0,
+          "missing": 1,
+          "complete": false
+        },
+        "likes": {
+          "known": 0,
+          "missing": 1,
+          "complete": false
+        },
+        "heat": {
+          "known": 0,
+          "missing": 1,
+          "complete": false
+        }
+      }
+    },
+    "failures": [],
+    "truncated": false,
+    "pages": [
+      {
+        "board": "hot-comic-drama",
+        "page": 1,
+        "sourceUrl": "https://hongguoduanju.com/rank/hot-comic-drama",
+        "fetchedAt": "2026-11-04T12:00:00.000Z",
+        "updateDate": null,
+        "fromCache": false,
+        "attempts": 1,
+        "itemCount": 1
+      }
+    ]
+  },
+  "canonicalItems": [
+    {
+      "key": "hongguo:123",
+      "id": "123",
+      "title": "历史红果样例",
+      "metrics": {
+        "collection": {
+          "label": "收藏",
+          "semantic": "hongguo.public.collection",
+          "unit": "收藏",
+          "raw": "暂无收藏",
+          "value": null,
+          "approximate": false,
+          "precisionStep": null,
+          "observedAt": "2026-11-04T12:00:00.000Z",
+          "missingReason": "not_displayed",
+          "scope": [
+            {
+              "board": "hot-comic-drama",
+              "page": 1
+            }
+          ]
+        },
+        "likes": {
+          "label": "点赞",
+          "semantic": "hongguo.public.likes",
+          "unit": "点赞",
+          "raw": "1e3点赞",
+          "value": null,
+          "approximate": false,
+          "precisionStep": null,
+          "observedAt": "2026-11-04T12:00:00.000Z",
+          "missingReason": "not_displayed",
+          "scope": [
+            {
+              "board": "hot-comic-drama",
+              "page": 1
+            }
+          ]
+        },
+        "heat": {
+          "label": "热度",
+          "semantic": "hongguo.public.heat",
+          "unit": "热度",
+          "raw": "约12热度",
+          "value": null,
+          "approximate": false,
+          "precisionStep": null,
+          "observedAt": "2026-11-04T12:00:00.000Z",
+          "missingReason": "not_displayed",
+          "scope": [
+            {
+              "board": "hot-comic-drama",
+              "page": 1
+            }
+          ]
+        }
+      },
+      "observations": [
+        {
+          "board": "hot-comic-drama",
+          "page": 1,
+          "rank": 1,
+          "sourceUrl": "https://hongguoduanju.com/rank/hot-comic-drama",
+          "fetchedAt": "2026-11-04T12:00:00.000Z",
+          "updateDate": null,
+          "sourceFormat": "embedded_json",
+          "collection": {
+            "raw": "暂无收藏",
+            "value": null,
+            "approximate": false,
+            "precisionStep": null
+          },
+          "likes": {
+            "raw": "1e3点赞",
+            "value": null,
+            "approximate": false,
+            "precisionStep": null
+          },
+          "heat": {
+            "raw": "约12热度",
+            "value": null,
+            "approximate": false,
+            "precisionStep": null
+          },
+          "missingMetrics": [
+            {
+              "field": "collection",
+              "reason": "unparseable"
+            },
+            {
+              "field": "likes",
+              "reason": "unparseable"
+            },
+            {
+              "field": "heat",
+              "reason": "unparseable"
+            }
+          ]
+        }
+      ],
+      "sourceItemIndexes": [
+        0
+      ]
+    }
+  ],
+  "unidentifiedItems": [],
+  "observedAt": {
+    "first": "2026-11-04T12:00:00.000Z",
+    "last": "2026-11-04T12:00:00.000Z"
+  },
+  "snapshotId": "s-87b403b90c05a4f293ebd2570b11a5bd"
+}

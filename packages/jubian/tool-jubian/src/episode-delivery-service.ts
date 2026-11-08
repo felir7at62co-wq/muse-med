@@ -10,7 +10,7 @@ import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typer
 import { z } from 'zod'
 import { assertApprovedEpisodePlan, readApprovedEpisodePlan, episodePlanDigest, type ApprovedEpisodePlan } from './approved-episode-plan.ts'
 import { attemptIdentitySchema, createEpisodeDeliveryJob, parseEpisodeDeliveryJobRecord, episodeHashSchema, executionDrainSchema,
-  hashEpisodeFile, assertEpisodeFileVersion, readEpisodeBytes, readEpisodeRecord, runningExecutionSchema } from './episode-delivery.ts'
+  hashEpisodeFile, assertEpisodeFileVersion, readEpisodeBytes, readEpisodeRecord, readEpisodeStateSnapshot, runningExecutionSchema } from './episode-delivery.ts'
 import type { ApprovedEpisodeRendererCapture, ApprovedEpisodeCandidate, AttemptIdentity, EpisodeAttemptId,
   EpisodeCancellationReason, EpisodeExecutionId, EpisodeFileVersion, EpisodeRenderResult, Sha256 } from './episode-delivery.ts'
 import { ApprovedSourceCancellationError } from './video-recovery-service.ts'
@@ -451,7 +451,7 @@ export class JubianEpisodeDelivery extends TypertRemoteService {
   }
   private async statusOf(intent: Intent, root: string): Promise<EpisodeDeliveryStatus> {
     const ownerBefore = this.work.get(intent.identity.attempt), pendingBefore = ownerBefore?.pending === true
-    const value = await readEpisodeRecord(join(root, 'state.json'), this.options.recordBytes)
+    const value = await readEpisodeStateSnapshot(join(root, 'state.json'), this.options.recordBytes, this.lifetime.signal)
     const state = value === undefined ? undefined : stateSchema.parse(value)
     if (state !== undefined && (state.attempt !== intent.identity.attempt || state.digest !== intent.digest)) throw new Error('Episode state belongs to another admission')
     const ownerAfter = this.work.get(intent.identity.attempt)

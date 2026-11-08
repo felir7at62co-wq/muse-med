@@ -1,6 +1,7 @@
-/** Immutable episode admission identities and strict shared execution records. */
-import { constants } from 'node:fs'
+/** Immutable episode identities, strict execution records and mutable state observations. */
+import { constants, type Stats } from 'node:fs'
 import { lstat, open } from 'node:fs/promises'
+import type { FileHandle } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
@@ -190,6 +191,23 @@ export const executionDrainSchema = z.discriminatedUnion('result', [
   z.strictObject({ ...drainBase, result: z.enum(['cancelled', 'failed']) }),
 ])
 
+async function readEpisodeHandle(file: FileHandle, opened: Stats, maxBytes: number, signal?: AbortSignal): Promise<Buffer> {
+  const buffer = Buffer.alloc(maxBytes + 1)
+  let count = 0
+  while (count < buffer.length) {
+    signal?.throwIfAborted()
+    const read = await file.read(buffer, count, buffer.length - count, null)
+    if (read.bytesRead === 0) break
+    count += read.bytesRead
+  }
+  const after = await file.stat()
+  if (count > maxBytes || count !== opened.size || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs) {
+    throw new Error('Episode journal changed or exceeded its budget')
+  }
+  signal?.throwIfAborted()
+  return buffer.subarray(0, count)
+}
+
 /**
  * Read exact bounded regular bytes without treating invalid files as absent.
  * @param path - Captured local journal path.
@@ -211,21 +229,45 @@ export async function readEpisodeBytes(path: string, maxBytes: number, signal?: 
     if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino || opened.size > maxBytes) {
       throw new Error('Episode journal changed while opening')
     }
-    const buffer = Buffer.alloc(maxBytes + 1)
-    let count = 0
-    while (count < buffer.length) {
-      signal?.throwIfAborted()
-      const read = await file.read(buffer, count, buffer.length - count, null)
-      if (read.bytesRead === 0) break
-      count += read.bytesRead
-    }
-    const after = await file.stat()
-    if (count > maxBytes || count !== opened.size || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs) {
-      throw new Error('Episode journal changed or exceeded its budget')
-    }
-    signal?.throwIfAborted()
-    return buffer.subarray(0, count)
+    return await readEpisodeHandle(file, opened, maxBytes, signal)
   } finally { await file.close() }
+}
+
+/**
+ * Read one complete mutable state observation from a regular-file descriptor.
+ * On POSIX, no-follow open permits the preceding or new complete JSON snapshot
+ * during atomic path replacement. Windows retains strict path-identity checks
+ * because its open flags do not provide O_NOFOLLOW, so replacement may be refused.
+ * In-place changes, malformed JSON and oversized files still fail. Callers validate
+ * the original attempt and digest before using its state. Immutable execution records
+ * continue to use the stricter path-identity reader.
+ * @param path - Mutable state journal replaced by atomic publication.
+ * @param maxBytes - Positive validated record budget.
+ * @param signal - Operation cancellation; cleanup closes the descriptor.
+ * @returns Parsed JSON, or undefined only when the path is absent.
+ */
+export async function readEpisodeStateSnapshot(path: string, maxBytes: number, signal?: AbortSignal): Promise<unknown> {
+  signal?.throwIfAborted()
+  let bytes: Buffer | undefined
+  if (process.platform === 'win32') bytes = await readEpisodeBytes(path, maxBytes, signal)
+  else {
+    let file: FileHandle
+    try { file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK) } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined
+      if (error instanceof Error && 'code' in error && error.code === 'ELOOP') {
+        throw new Error('Episode state must be a bounded regular file', { cause: error })
+      }
+      throw error
+    }
+    try {
+      const opened = await file.stat()
+      if (!opened.isFile() || opened.size > maxBytes) throw new Error('Episode state must be a bounded regular file')
+      bytes = await readEpisodeHandle(file, opened, maxBytes, signal)
+    } finally { await file.close() }
+  }
+  if (bytes === undefined) return undefined
+  const value: unknown = JSON.parse(bytes.toString('utf8'))
+  return value
 }
 
 /** Stable local file identity measured while streaming every byte without a provider download limit. */

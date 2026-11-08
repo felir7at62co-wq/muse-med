@@ -341,7 +341,8 @@
     "vitest": "^4.1.11",
     "ws": "8.21.0",
     "yaml": "2.9.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@deepseek-ai/dsh-client-connection": "workspace:*"
   },
   "description": "muse-med short-drama desktop agent, built on the DeepSeek Harness fork"
 }

@@ -12,7 +12,7 @@ import { basename, changesForClosing, presentedForClosing, type ChangesTurnData,
 import type { NS } from './locales.ts'
 import { changesSummaryUrl, type ChangesReviewCoordinates } from '../changes.ts'
 import { presentedFileUrl } from '../presented.ts'
-import { PresentedFileCard } from './PresentedFileCard.tsx'
+import { PresentedFileCard, DeliveredVideo } from './PresentedFileCard.tsx'
 import css from './Deliverables.module.css'
 
 interface DeliverablesMatch { changes: ChangesTurnData | null; presented: readonly PresentedPath[] }
@@ -122,7 +122,7 @@ export function Deliverables({
             videoContent={videoSource !== undefined
               ? renderSlotChain('deliverables.video', { sourceUrl: videoSource,
                 label: file.description ?? basename(file.path), path: file.path, seq: file.seq, index: file.index,
-              }, { fallback: null }) : undefined}
+              }, { fallback: <DeliveredVideo source={videoSource} name={basename(file.path)} t={t} /> }) : undefined}
             contextMenuProps={getTriggerProps({ kind: 'file', value: { sessionId, path: file.path } })}
             actions={renderSlot('deliverables.file.actions', {
               actionUrl: presentedFileUrl(sessionId, file.seq, file.index),

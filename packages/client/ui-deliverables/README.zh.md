@@ -65,6 +65,8 @@ Web 的 `standard`、`ptc` 与 `cordis` preset 提供 `present`，用于声明�
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
+交付视频链以原生播放器作为空链的回退。卸载界面插件时会恢复此播放器，并保留原生文件操作。
+
 <details>
 <summary>实现细节——点击展开</summary>
 

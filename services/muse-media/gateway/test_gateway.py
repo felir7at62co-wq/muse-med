@@ -125,6 +125,37 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         listed = await self.client.get("/api/media/jobs", headers=self.headers("B"))
         self.assertEqual(listed.json()["jobs"], [])
 
+    async def test_import_acknowledgement_is_owned_digest_bound_and_idempotent(self):
+        async def finish(_params):
+            return self.download()
+        self.on_upstream = finish
+        receipt = self.output(await self.rpc('download_media', {'url': 'https://www.douyin.com/video/1', 'request_id': 'ack-one'}))
+        path = f"/api/media/jobs/{receipt['job_id']}/files/video.mp4"
+        response = await self.client.get(path, headers=self.headers())
+        lease = response.headers['x-muse-media-lease']
+        sha = receipt['files'][0]['sha256']
+        self.assertEqual((await self.client.post(path + '/imported', headers=self.headers('B'), json={'lease': lease, 'sha256': sha})).status_code, 404)
+        self.assertEqual((await self.client.post(path + '/imported', headers=self.headers(), json={'lease': lease, 'sha256': '0' * 64})).status_code, 409)
+        for _ in range(2):
+            accepted = await self.client.post(path + '/imported', headers=self.headers(), json={'lease': lease, 'sha256': sha})
+            self.assertEqual(accepted.json(), {'state': 'acknowledged'})
+        self.assertEqual((await self.client.post(path + '/imported', headers=self.headers(origin='https://evil.test'), json={'lease': lease, 'sha256': sha})).status_code, 403)
+        self.assertEqual((await self.client.post(path + '/imported', headers=self.headers(), json={'lease': lease, 'sha256': sha, 'account_id': 'b' * 16})).status_code, 400)
+
+    async def test_expired_and_disabled_account_cannot_confirm_import(self):
+        async def finish(_params):
+            return self.download()
+        self.on_upstream = finish
+        receipt = self.output(await self.rpc('download_media', {'url': 'https://www.douyin.com/video/1', 'request_id': 'ack-expired'}))
+        path = f"/api/media/jobs/{receipt['job_id']}/files/video.mp4"
+        response = await self.client.get(path, headers=self.headers())
+        value = {'lease': response.headers['x-muse-media-lease'], 'sha256': receipt['files'][0]['sha256']}
+        self.now += 7201
+        self.assertEqual((await self.client.post(path + '/imported', headers=self.headers(), json=value)).status_code, 409)
+        self.accounts['A']['disabled'] = True
+        self.write_accounts()
+        self.assertEqual((await self.client.post(path + '/imported', headers=self.headers(), json=value)).status_code, 401)
+
     async def test_account_limit_is_independent_of_network_address_and_account(self):
         self.app.state.gateway.config = self.config = replace(self.config, requests_per_minute=1)
         self.assertEqual((await self.rpc(method="tools/list", headers=self.headers(**{"x-real-ip": "1.1.1.1"}))).status_code, 200)
@@ -283,7 +314,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             replace(self.config, upstream_origin="https://attacker.test")
         with self.assertRaises(ValueError):
             replace(self.config, upstream_origin="http://127.0.0.1:19580/")
-        self.app.state.gateway.ledger.db.execute("PRAGMA user_version=2")
+        self.app.state.gateway.ledger.db.execute("PRAGMA user_version=3")
         with self.assertRaises(ValueError):
             create_app(self.config, transport=httpx.MockTransport(self.transport))
 

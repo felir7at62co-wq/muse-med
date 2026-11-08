@@ -747,11 +747,14 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-client-ui-session-video`
 
-- `source`: [`packages/client/ui-session-video/src/config.ts:5`](../packages/client/ui-session-video/src/config.ts)
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/client/ui-session-video/src/config.ts:6`](../packages/client/ui-session-video/src/config.ts)
 
 ```ts config-catalog
 /** Validated presentation settings shared by Host and Client. */
 export interface Config {
+  /** Live switch for all conversation presentation contributions. */
+  readonly enabled: Volatile<boolean>
   /** Horizontal pixels occupied by one second in the shot timeline. */
   readonly pixelsPerSecond: number
 }
@@ -6190,6 +6193,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 | `@deepseek-ai/dsh-llm-deepseek` | — | [`packages/llm/llm-deepseek/src/index.ts`](../packages/llm/llm-deepseek/src/index.ts) |
 | `@deepseek-ai/dsh-llm-mock-server` | — | [`packages/test-support/llm-mock-server/src/index.ts`](../packages/test-support/llm-mock-server/src/index.ts) |
 | `@deepseek-ai/dsh-loader-smoke` | — | [`packages/test-support/loader-smoke/src/index.ts`](../packages/test-support/loader-smoke/src/index.ts) |
+| `@deepseek-ai/dsh-muse-video-ui` | — | [`packages/bundle/muse-video-ui/src/index.ts`](../packages/bundle/muse-video-ui/src/index.ts) |
 | `@deepseek-ai/dsh-native-command` | — | [`packages/util/native-command/src/index.ts`](../packages/util/native-command/src/index.ts) |
 | `@deepseek-ai/dsh-official-bundles` | — | [`packages/util/official-bundles/src/index.ts`](../packages/util/official-bundles/src/index.ts) |
 | `@deepseek-ai/dsh-output-retention` | — | [`packages/util/output-retention/src/index.ts`](../packages/util/output-retention/src/index.ts) |

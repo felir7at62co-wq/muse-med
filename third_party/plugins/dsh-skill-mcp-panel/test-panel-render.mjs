@@ -101,12 +101,14 @@ const registrations = [];
 const batchCalls = [];
 const addCalls = [];
 const deleted = [];
+const restoreCalls = [];
+const trashedRows = new Map();
 const skills = [
-  { name: "alpha", description: "A 技能", provider: "filesystem", source: "user", enabled: true, pluginProvided: false, rel: "alpha/SKILL.md", scope: { kind: "global" } },
-  { name: "beta", description: "B 技能", provider: "nested", source: "user", enabled: false, pluginProvided: false, rel: "cat/beta/SKILL.md", scope: { kind: "global" }, groups: ["g1"] },
+  { name: "alpha", description: "A 技能", provider: "filesystem", source: "user", enabled: true, pluginProvided: false, rel: "alpha", scope: { kind: "global" } },
+  { name: "beta", description: "B 技能", provider: "nested", source: "user", enabled: false, pluginProvided: false, rel: "cat/beta", scope: { kind: "global" }, groups: ["g1"] },
   { name: "gamma", description: "G 技能", provider: "bundled", source: "bundled", enabled: true, pluginProvided: true, rel: "", scope: { kind: "global" } },
-  { name: "delta", description: "D 技能", provider: "filesystem", source: "user", enabled: true, pluginProvided: false, rel: "delta/SKILL.md", scope: { kind: "workspace", path: "C:/proj/one" }, groups: ["g2"] },
-  { name: "omega", description: "O 技能", provider: "filesystem", source: "user", enabled: true, pluginProvided: false, rel: "omega/SKILL.md", scope: { kind: "global" } }
+  { name: "delta", description: "D 技能", provider: "filesystem", source: "user", enabled: true, pluginProvided: false, rel: "delta", scope: { kind: "workspace", path: "C:/proj/one" }, groups: ["g2"] },
+  { name: "omega", description: "O 技能", provider: "filesystem", source: "user", enabled: true, pluginProvided: false, rel: "omega", scope: { kind: "global" } }
 ];
 const ctx = {
   effect: (fn) => { const d = fn(); return typeof d === "function" ? d : () => {}; },
@@ -142,7 +144,8 @@ const rpc = {
   listGroups: async () => ({ groups: [{ id: "g1", name: "办公", scopes: { global: ["beta"] } }, { id: "g2", name: "组件", scopes: { "C:/proj/one": ["delta"] } }] }),
   loadContent: async (name) => ({ name: name, description: "d", content: "--- body of " + name + " ---", provider: "filesystem", path: "C:/Users/x/.dsh/skills/" + name + "/SKILL.md" }),
   setSkillEnabled: async () => ({ ok: true }),
-  removeSkill: async (name) => { deleted.push(name); skillRows = skillRows.filter((s) => s.name !== name); return { removed: true }; },
+  removeSkill: async (name) => { deleted.push(name); trashedRows.set("receipt-" + name, skillRows.find((s) => s.name === name)); skillRows = skillRows.filter((s) => s.name !== name); return { name, undoToken: "receipt-" + name }; },
+  restoreSkill: async (undoToken) => { restoreCalls.push(undoToken); const row = trashedRows.get(undoToken); skillRows.push(row); trashedRows.delete(undoToken); return { name: row.name, recoveryRetained: false }; },
   addSkill: async (payload) => { addCalls.push(payload); return { added: [{ name: "restored" }], skipped: [], warnings: [] }; },
   batchMigrateSkill: async (payload) => { batchCalls.push(payload); return { results: payload.names.map((name) => ({ name, ok: true })) }; },
   saveGroupSkill: async (payload) => ({ groups: [{ id: "g9", name: payload.name, scopes: {} }] }),
@@ -180,6 +183,8 @@ const reset = (rows = skills, lastTab = "skills") => {
   effectRuns.clear();
   skillRows = rows.map((row) => ({ ...row }));
   deleted.length = 0;
+  restoreCalls.length = 0;
+  trashedRows.clear();
   addCalls.length = 0;
   batchCalls.length = 0;
   store.clear();
@@ -422,6 +427,256 @@ const assert = (cond, message) => { if (!cond) throw new Error(message); };
   });
 }
 
+for (const locale of ["zh", "en"]) {
+  reset();
+  const tables = dictionaries.get("settings.skills");
+  const t = (key) => (tables?.[locale] ?? {})[key] ?? key;
+  const conflict = "destination already contains alpha";
+  const props = { ...rpc, t, batchMigrateSkill: async (payload) => ({ results: payload.names.map((name) => ({ name, target: payload.targets[0], ok: false, error: conflict })) }) };
+  const initial = await mount(props);
+  byClass(initial.section, "SKV_toolButton")[1].props.onClick();
+  const batched = await mount(props);
+  const alpha = byClass(batched.section, "SKV_card").find((card) => card.props["data-skill-name"] === "alpha");
+  byClass(alpha, "SKV_checkBox")[0].props.onChange();
+  const selected = await mount(props);
+  const menu = findAll(selected.section, (node) => node.type === MenuStub).find((node) => node.props.items?.some((item) => item.id === "C:/proj/two"));
+  menu.props.onSelect("C:/proj/two");
+  await flush();
+  const after = await mount(props);
+  check(locale + " all-failed quick migration keeps the source row and selection", () => {
+    const retained = byClass(after.section, "SKV_card").find((card) => card.props["data-skill-name"] === "alpha");
+    assert(retained !== undefined, "a failed migration must retain its source row");
+    assert(after.section.props["data-batch"] === "true", "all-failed migration must remain in batch mode");
+    assert(retained.props["data-selected"] === "true", "all-failed migration lost the failed selection");
+  });
+}
+
+const quickMenu = (view) => findAll(view.section, (node) => node.type === MenuStub).find((node) => node.props.items?.some((item) => item.id === "C:/proj/two"));
+const pickQuick = async (props, names) => {
+  const initial = await mount(props);
+  byClass(initial.section, "SKV_toolButton")[1].props.onClick();
+  const batched = await mount(props);
+  for (const name of names) {
+    const card = byClass(batched.section, "SKV_card").find((row) => row.props["data-skill-name"] === name);
+    byClass(card, "SKV_checkBox")[0].props.onChange();
+  }
+  return mount(props);
+};
+const renderMigrateResult = (view) => {
+  const dialog = findAll(view.section, (node) => node.type?.name === "MigrateDialog")[0];
+  assert(dialog !== undefined, "migration details dialog is absent");
+  cursor = 0;
+  current = "MigrateDialog";
+  return { props: dialog.props, tree: dialog.type(dialog.props) };
+};
+
+for (const locale of ["zh", "en"]) {
+  const tables = dictionaries.get("settings.skills");
+  const t = (key) => (tables?.[locale] ?? {})[key] ?? key;
+  reset();
+  let dispatches = 0;
+  const props = {
+    ...rpc,
+    t,
+    batchMigrateSkill: async (payload) => {
+      dispatches += 1;
+      return { results: [
+        { name: "alpha", target: payload.targets[0], ok: true },
+        { name: "alpha", target: payload.targets[0], ok: true },
+        { name: "beta", target: payload.targets[0], ok: false, error: "destination beta already exists" },
+        { name: "omega", target: payload.targets[0], ok: true }
+      ] };
+    }
+  };
+  const selected = await pickQuick(props, ["alpha", "beta"]);
+  quickMenu(selected).props.onSelect("C:/proj/two");
+  await flush();
+  const after = await mount(props);
+  check(locale + " mixed receipts remove only unique requested successes and retain failed selection", () => {
+    const cards = byClass(after.section, "SKV_card");
+    assert(!cards.some((card) => card.props["data-skill-name"] === "alpha"), "confirmed move remains in source");
+    assert(cards.some((card) => card.props["data-skill-name"] === "omega"), "unrequested receipt removed another row");
+    const beta = cards.find((card) => card.props["data-skill-name"] === "beta");
+    assert(beta !== undefined && beta.props["data-selected"] === "true", "failed row/selection lost");
+    assert(byClass(after.section, "SKV_batchBar")[0].props.children[0].props.children === t("batchSelected").replace("{count}", "1"), "failed selection count wrong");
+    const expected = t("batchMigratePartial").replace("{moved}", "1").replace("{target}", "two").replace("{failed}", "1");
+    assert(byClass(after.section, "SKV_toastText")[0].props.children === expected, "partial result was not localized or counted correctly");
+  });
+  byClass(after.section, "SKV_toastAction")[0].props.onClick();
+  const details = renderMigrateResult(await mount(props));
+  check(locale + " result details retain per-row errors and cannot dispatch successful names again", () => {
+    assert(details.props.from === "global" && details.props.targets.has("C:/proj/two"), "result scope changed");
+    assert(details.props.result.length === 2, "duplicate/unrequested receipts leaked into result counts");
+    const errors = byClass(details.tree, "SKV_migrateResultList");
+    assert(errors.length === 1 && String(errors[0].props.children[0].props.children).includes("destination beta already exists"), "failure detail missing");
+    assert(byClass(details.tree, "SKV_scopeAction").length === 1, "result view must offer only Close");
+    assert(dispatches === 1, "opening details dispatched another migration");
+  });
+
+  for (const scenario of [
+    { label: "empty", snapshot: { results: [] } },
+    { label: "missing", snapshot: undefined },
+    { label: "missing success flag", snapshot: { results: [{ name: "alpha" }] } },
+    { label: "unrequested name", snapshot: { results: [{ name: "omega", ok: true }] } },
+    { label: "another target", snapshot: { results: [{ name: "alpha", target: "C:/proj/one", ok: true }] } },
+    { label: "contradictory", snapshot: { results: [{ name: "alpha", ok: true }, { name: "alpha", ok: false, error: "ambiguous conflict" }] } }
+  ]) {
+    reset();
+    const scenarioProps = { ...rpc, t, batchMigrateSkill: async () => scenario.snapshot };
+    const picked = await pickQuick(scenarioProps, ["alpha"]);
+    quickMenu(picked).props.onSelect("C:/proj/two");
+    await flush();
+    const result = await mount(scenarioProps);
+    check(locale + " " + scenario.label + " receipts never invent a successful move", () => {
+      const alpha = byClass(result.section, "SKV_card").find((card) => card.props["data-skill-name"] === "alpha");
+      assert(alpha !== undefined && alpha.props["data-selected"] === "true", "unconfirmed result discarded source selection");
+      assert(result.section.props["data-batch"] === "true", "unconfirmed result exited batch mode");
+      assert(byClass(result.section, "SKV_toastText")[0].props.children === t("batchMigrateFailed").replace("{failed}", "1").replace("{target}", "two"), "unknown result falsely reports success");
+      assert(byClass(result.section, "SKV_toastAction")[0].props.children === t("batchMigrateDetails"), "details action missing");
+    });
+  }
+
+  reset();
+  const rejectedProps = { ...rpc, t, batchMigrateSkill: async () => { throw new Error("fixture transport unavailable"); } };
+  const rejected = await pickQuick(rejectedProps, ["alpha"]);
+  quickMenu(rejected).props.onSelect("C:/proj/two");
+  await flush();
+  const uncertain = await mount(rejectedProps);
+  byClass(uncertain.section, "SKV_toastAction")[0].props.onClick();
+  const uncertainDetails = renderMigrateResult(await mount(rejectedProps));
+  check(locale + " transport rejection reports an unknown outcome with safe inspection guidance", () => {
+    assert(uncertainDetails.props.result.length === 1 && uncertainDetails.props.result[0].ok === false, "rejection became success");
+    assert(uncertainDetails.props.result[0].error === t("batchMigrateUnconfirmed"), "unknown outcome lacks localized guidance");
+  });
+}
+
+const selectRail = (view, label) => {
+  const row = byClass(view.section, "SKV_railItem").find((item) => item.props.children[0].props.children === label);
+  assert(row !== undefined, "workspace row is absent: " + label);
+  row.props.onClick({ currentTarget: null });
+};
+const pendingQuick = async (locale, rows = skills, names = ["alpha"]) => {
+  reset(rows);
+  const tables = dictionaries.get("settings.skills");
+  const t = (key) => (tables?.[locale] ?? {})[key] ?? key;
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  let dispatches = 0;
+  let sessionId = "session-before";
+  const props = { ...rpc, t, currentSessionId: () => sessionId, batchMigrateSkill: async () => { dispatches += 1; return pending; } };
+  const picked = await pickQuick(props, names);
+  const menu = quickMenu(picked);
+  menu.props.onSelect("C:/proj/two");
+  menu.props.onSelect("C:/proj/two");
+  await flush();
+  return { props, t, release, dispatches: () => dispatches, setSession: (value) => { sessionId = value; } };
+};
+for (const locale of ["zh", "en"]) {
+  const request = await pendingQuick(locale, [...skills, { ...skills[0], scope: { kind: "workspace", path: "C:/proj/one" } }]);
+  try {
+    const busy = await mount(request.props);
+    check(locale + " a pending quick move admits one request and disables its Go button", () => {
+      assert(request.dispatches() === 1, "duplicate quick request was dispatched");
+      assert(findAll(byClass(busy.section, "SKV_batchBar")[0], (node) => String(node.props.className ?? "").includes("SKV_batchGo"))[0].props.disabled === true, "pending Go button remained enabled");
+    });
+    selectRail(busy, "one");
+    const otherScope = await mount(request.props);
+    byClass(otherScope.section, "SKV_toolButton")[1].props.onClick();
+    const batched = await mount(request.props);
+    const twin = byClass(batched.section, "SKV_card").find((card) => card.props["data-skill-name"] === "alpha");
+    byClass(twin, "SKV_checkBox")[0].props.onChange();
+    request.release({ results: [{ name: "alpha", target: "C:/proj/two", ok: true }] });
+    await flush();
+    const after = await mount(request.props);
+    check(locale + " late global success cannot clear the same-name workspace selection", () => {
+      const retained = byClass(after.section, "SKV_card").find((card) => card.props["data-skill-name"] === "alpha");
+      assert(retained !== undefined && retained.props["data-selected"] === "true", "another scope's twin was removed or deselected");
+      assert(after.section.props["data-batch"] === "true", "another scope's new batch was closed");
+    });
+  } finally { request.release({ results: [] }); await flush(); }
+
+  const aba = await pendingQuick(locale);
+  try {
+    selectRail(await mount(aba.props), "one");
+    selectRail(await mount(aba.props), aba.t("scopeGlobal"));
+    const returned = await mount(aba.props);
+    byClass(returned.section, "SKV_toolButton")[1].props.onClick();
+    const newBatch = await mount(aba.props);
+    const beta = byClass(newBatch.section, "SKV_card").find((card) => card.props["data-skill-name"] === "beta");
+    byClass(beta, "SKV_checkBox")[0].props.onChange();
+    aba.release({ results: [{ name: "alpha", target: "C:/proj/two", ok: true }] });
+    await flush();
+    const after = await mount(aba.props);
+    check(locale + " scope A to B to A does not let an old receipt close the new batch", () => {
+      assert(after.section.props["data-batch"] === "true", "scope ABA reset the new batch");
+      const retained = byClass(after.section, "SKV_card").find((card) => card.props["data-skill-name"] === "beta");
+      assert(retained.props["data-selected"] === "true", "scope ABA cleared the new selection");
+      assert(!byClass(after.section, "SKV_card").some((card) => card.props["data-skill-name"] === "alpha"), "captured source success was not reconciled");
+    });
+  } finally { aba.release({ results: [] }); await flush(); }
+
+  const edited = await pendingQuick(locale);
+  try {
+    const during = await mount(edited.props);
+    const beta = byClass(during.section, "SKV_card").find((card) => card.props["data-skill-name"] === "beta");
+    byClass(beta, "SKV_checkBox")[0].props.onChange();
+    edited.release({ results: [{ name: "alpha", target: "C:/proj/two", ok: true }] });
+    await flush();
+    const after = await mount(edited.props);
+    check(locale + " selection edits retain new names and prune moved names without ghost counts", () => {
+      assert(after.section.props["data-batch"] === "true", "new selection caused the batch to close");
+      const retained = byClass(after.section, "SKV_card").find((card) => card.props["data-skill-name"] === "beta");
+      assert(retained.props["data-selected"] === "true", "newly selected name was cleared");
+      assert(byClass(after.section, "SKV_batchBar")[0].props.children[0].props.children === edited.t("batchSelected").replace("{count}", "1"), "moved name remained as a ghost selection");
+    });
+  } finally { edited.release({ results: [] }); await flush(); }
+
+  const deselected = await pendingQuick(locale, skills, ["alpha", "beta"]);
+  try {
+    const during = await mount(deselected.props);
+    const beta = byClass(during.section, "SKV_card").find((card) => card.props["data-skill-name"] === "beta");
+    byClass(beta, "SKV_checkBox")[0].props.onChange();
+    deselected.release({ results: [{ name: "alpha", target: "C:/proj/two", ok: true }, { name: "beta", target: "C:/proj/two", ok: false, error: "beta conflict" }] });
+    await flush();
+    const after = await mount(deselected.props);
+    check(locale + " a failed receipt cannot reselect a name the user deselected while pending", () => {
+      const retained = byClass(after.section, "SKV_card").find((card) => card.props["data-skill-name"] === "beta");
+      assert(retained !== undefined && retained.props["data-selected"] === undefined, "failure repopulated a changed selection");
+      assert(byClass(after.section, "SKV_batchBar")[0].props.children[0].props.children === deselected.t("batchSelected").replace("{count}", "0"), "selection count was restored from stale request data");
+    });
+  } finally { deselected.release({ results: [] }); await flush(); }
+
+  const selectionAba = await pendingQuick(locale);
+  try {
+    const during = await mount(selectionAba.props);
+    const alpha = byClass(during.section, "SKV_card").find((card) => card.props["data-skill-name"] === "alpha");
+    const checkbox = byClass(alpha, "SKV_checkBox")[0];
+    checkbox.props.onChange();
+    checkbox.props.onChange();
+    selectionAba.release({ results: [{ name: "alpha", target: "C:/proj/two", ok: true }] });
+    await flush();
+    const after = await mount(selectionAba.props);
+    check(locale + " same-value selection ABA keeps the new batch interaction without a moved-name ghost", () => {
+      assert(after.section.props["data-batch"] === "true", "deselect/reselect ABA let the old receipt close batch mode");
+      assert(!byClass(after.section, "SKV_card").some((card) => card.props["data-skill-name"] === "alpha"), "confirmed source move was not reconciled");
+      assert(byClass(after.section, "SKV_batchBar")[0].props.children[0].props.children === selectionAba.t("batchSelected").replace("{count}", "0"), "same-name selection ABA kept a ghost selection");
+    });
+  } finally { selectionAba.release({ results: [] }); await flush(); }
+
+  const changedSession = await pendingQuick(locale);
+  try {
+    changedSession.setSession("session-after");
+    changedSession.release({ results: [{ name: "alpha", target: "C:/proj/two", ok: true }] });
+    await flush();
+    const after = await mount(changedSession.props);
+    check(locale + " a session change retains batch mode but reconciles the same explicit source scope", () => {
+      assert(after.section.props["data-batch"] === "true", "an old session receipt closed current batch mode");
+      assert(!byClass(after.section, "SKV_card").some((card) => card.props["data-skill-name"] === "alpha"), "explicit source move was not reconciled");
+      assert(byClass(after.section, "SKV_batchBar")[0].props.children[0].props.children === changedSession.t("batchSelected").replace("{count}", "0"), "session change kept a ghost moved-name selection");
+    });
+  } finally { changedSession.release({ results: [] }); await flush(); }
+}
+
 // ── 4. 删除：乐观删除 + 撤销 ──────────────────────────────────────────────
 {
   reset();
@@ -450,14 +705,71 @@ const assert = (cond, message) => { if (!cond) throw new Error(message); };
   const toast = byClass(after.section, "SKV_toast")[0];
   findAll(toast, (n) => n.props.className === "SKV_toastAction")[0].props.onClick();
   await flush();
-  check("undo re-adds the skill through addSkill with the captured body", () => {
-    assert(addCalls.length === 1, "addSkill not called");
-    const payload = addCalls[0];
-    assert(payload.kind === "auto", "kind wrong");
-    assert(payload.files[0].path === targetName + "/SKILL.md", "restore path wrong: " + payload.files[0].path);
-    const decoded = Buffer.from(payload.files[0].base64, "base64").toString("utf8");
-    assert(decoded.includes("body of " + targetName), "restored body wrong: " + decoded);
-    assert(payload.workspace === null, "global skill must restore with workspace=null");
+  check("Undo forwards only the Host receipt and never re-imports a body", () => {
+    assert(restoreCalls.length === 1, "restoreSkill must be called once");
+    assert(restoreCalls[0] === "receipt-" + targetName, "the issued receipt was not forwarded");
+    assert(addCalls.length === 0, "Undo must never send a body-only import");
+    assert(skillRows.some((row) => row.name === targetName), "the restored row was not reloaded");
+  });
+}
+
+for (const locale of ["zh", "en"]) {
+  const tables = dictionaries.get("settings.skills");
+  const t = (key) => (tables?.[locale] ?? {})[key] ?? key;
+  reset();
+  let restoreAttempts = 0;
+  let release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  const props = {
+    ...rpc,
+    t,
+    restoreSkill: async (token) => {
+      restoreAttempts += 1;
+      if (restoreAttempts === 1) { await pending; throw new Error("fixture transport failure"); }
+      return rpc.restoreSkill(token);
+    }
+  };
+  const initial = await mount(props);
+  const target = byClass(initial.section, "SKV_card").find((row) => row.props["data-skill-name"] === "alpha");
+  byClass(target, "SKV_rowDelete")[0].props.onClick();
+  await flush();
+  const deletedView = await mount(props);
+  const action = byClass(deletedView.section, "SKV_toastAction")[0];
+  action.props.onClick();
+  action.props.onClick();
+  await flush();
+  check(locale + " double-click Undo sends one request while pending", () => {
+    assert(restoreAttempts === 1, "duplicate restore was dispatched");
+  });
+  release();
+  await flush();
+  const failed = await mount(props);
+  check(locale + " uncertain restoration explains inspection and retains Retry", () => {
+    const text = byClass(failed.section, "SKV_toastText")[0].props.children;
+    assert(text === t("toastUndoFailed"), "failure message is not localized: " + text);
+    const retry = byClass(failed.section, "SKV_toastAction")[0];
+    assert(retry.props.children === t("toastUndoRetry"), "retry action missing");
+    assert(!String(text).includes("originals are kept"), "unknown outcome must not assert a backup remains");
+  });
+  byClass(failed.section, "SKV_toastAction")[0].props.onClick();
+  await flush();
+  const restored = await mount(props);
+  check(locale + " retry consumes the original receipt and reports confirmed restoration", () => {
+    assert(restoreCalls[0] === "receipt-alpha", "retry changed the receipt");
+    assert(byClass(restored.section, "SKV_toastText")[0].props.children === t("toastUndoDone").replace("{name}", "alpha"), "success text wrong");
+    assert(addCalls.length === 0, "retry must not re-import a body");
+  });
+
+  reset();
+  const failedProps = { ...rpc, t, removeSkill: async () => { throw new Error("fixture deletion failure"); } };
+  const before = await mount(failedProps);
+  const card = byClass(before.section, "SKV_card").find((row) => row.props["data-skill-name"] === "alpha");
+  byClass(card, "SKV_rowDelete")[0].props.onClick();
+  await flush();
+  const unchanged = await mount(failedProps);
+  check(locale + " failed deletion keeps the row and reports an unconfirmed outcome", () => {
+    assert(byClass(unchanged.section, "SKV_card").some((row) => row.props["data-skill-name"] === "alpha"), "failed deletion hid its row");
+    assert(byClass(unchanged.section, "SKV_toastText")[0].props.children === t("toastDeleteFailed"), "deletion failure toast missing");
   });
 }
 

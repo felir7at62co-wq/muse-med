@@ -82,7 +82,7 @@ return { coverage: result.coverage, count: result.totalMatched, dramas: result.i
 
 `coverage.metrics` 按已抓取的原始榜单观察值统计，`observations` 包含同一作品在不同榜单上的重复观察；`fields.collection/likes/heat` 分别返回 `known/missing/complete`，三项均无缺失时 `coverage.metrics.complete` 为 true。失败页不计入这个分母，必须同时检查分页完整性。可见卡片缺少互动指标时仍保留已核验的 ID、标题和排名；对应数值为 null，每次 `observations[].missingMetrics` 记录指标名和 `not_displayed/unparseable` 原因。页面身份、分页、标题或排名错误仍会拒绝该页。
 
-每条收藏指标保留 `raw`、`value`、`approximate`、`precisionStep`。缺失或无法解释的数据为 null，不会记成 0。
+每条指标保留 `raw`、`value`、`approximate`、`precisionStep`。无法解释的可见指标保留完整原文，数值为 null，缺失原因为 `unparseable`；只有未展示的指标使用 `not_displayed`。不支持的符号、前缀或单位不会通过截取数字变成已知值，缺失数据不会记成 0。
 
 - 榜单与搜索上的 `124.3万收藏` 转为 1,243,000，仍标为近似展示值
 - `100万`、`100.0万` 等阈值附近缩写列为待核实；保守地预留上下一个显示单位，不猜测榜单舍入规则

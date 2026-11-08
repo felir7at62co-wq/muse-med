@@ -51,6 +51,9 @@ importers:
       '@deepseek-ai/dsh-browser-use':
         specifier: workspace:*
         version: link:packages/browser-use/browser-use
+      '@deepseek-ai/dsh-client-connection':
+        specifier: workspace:*
+        version: link:packages/client/connection
       '@deepseek-ai/dsh-computer-use':
         specifier: workspace:*
         version: link:packages/computer-use/computer-use
@@ -1079,6 +1082,9 @@ importers:
       '@deepseek-ai/dsh-perception-bgm':
         specifier: workspace:*
         version: link:../../packages/perception/perception-bgm
+      '@deepseek-ai/dsh-muse-video-ui':
+        specifier: workspace:*
+        version: link:../../packages/bundle/muse-video-ui
       '@deepseek-ai/dsh-plugin-manager':
         specifier: workspace:*
         version: link:../../packages/boot/plugin-manager
@@ -3130,6 +3136,20 @@ importers:
       '@deepseek-ai/dsh-user-approval':
         specifier: workspace:*
         version: link:../../interaction/user-approval
+
+  packages/bundle/muse-video-ui:
+    dependencies:
+      '@deepseek-ai/dsh-client-ui-session-video':
+        specifier: workspace:*
+        version: link:../../client/ui-session-video
+      '@deepseek-ai/dsh-session-video':
+        specifier: workspace:*
+        version: link:../../drama/session-video
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+
 
   packages/bundle/sdk-app:
     dependencies:
@@ -6031,6 +6051,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-session':
         specifier: workspace:*
         version: link:../ui-session
+      '@deepseek-ai/dsh-client-ui-settings':
+        specifier: workspace:*
+        version: link:../ui-settings
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:*
         version: link:../ui-slots
@@ -6043,6 +6066,9 @@ importers:
       '@deepseek-ai/dsh-session-video':
         specifier: workspace:*
         version: link:../../drama/session-video
+      '@deepseek-ai/dsh-settings':
+        specifier: workspace:*
+        version: link:../../settings/settings
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:*
         version: link:../../typert/protocol

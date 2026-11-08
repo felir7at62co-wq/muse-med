@@ -4,5 +4,5 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | light | user | bubble | rgb(237, 243, 254) | true | true | true |
 | light | assistant | open | none | true | true | true |
-| dark | user | bubble | rgb(67, 69, 74) | true | true | true |
+| dark | user | bubble | rgb(44, 44, 46) | true | true | true |
 | dark | assistant | open | none | true | true | true |

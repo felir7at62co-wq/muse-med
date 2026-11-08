@@ -1012,6 +1012,9 @@
       "path": "./packages/bundle/acp-app"
     },
     {
+      "path": "./packages/bundle/muse-video-ui"
+    },
+    {
       "path": "./packages/bundle/base"
     },
     {

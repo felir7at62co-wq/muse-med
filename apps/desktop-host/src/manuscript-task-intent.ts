@@ -19,7 +19,8 @@ export class ManuscriptTaskContextLimitError extends Error {
 }
 
 function positiveText(text: string): string {
-  return text.replace(/(?:不需要|不|勿|无需|不要|不必)(?:再)?(?:进行|涉及|做)?(?:剧本|短剧|分集|分场|剧情|台词|对白)?(?:新增|改写|重写|修改|改稿|改变|续写|润色|创作|写作|修订|修正|修复|纠正)(?:\s*[\/、和或]\s*(?:新增|改写|重写|修改|改稿|改变|续写|润色|创作|修订|修正|修复|纠正))*(?:剧情|内容|稿件|剧本)?/gu, '')
+  return text.replace(/(?:不需要|不|勿|无需|不要|不必|不用)(?:再)?(?:进行|涉及|做)?(?:剧本|短剧|分集|分场|剧情|台词|对白)?(?:新增|改写|重写|修改|改稿|改变|续写|润色|创作|写作|修订|修正|修复|纠正|改)(?:\s*[\/、和或]\s*(?:新增|改写|重写|修改|改稿|改变|续写|润色|创作|修订|修正|修复|纠正|改))*(?:剧情|内容|稿件|剧本)?/gu, '')
+    .replace(negatedBareRevision, '')
     .replace(/\b(?:do not|don't|without|no need to)\s+(?:revise|rewrite|fix|repair|edit)(?:\s+(?:the|this))?(?:\s+(?:screenplay|plot|dialogue))?/giu, '')
 }
 function instructionOnly(text: string): boolean {
@@ -37,16 +38,21 @@ function continuation(text: string): boolean {
     && !/^\s*(?:继续|接着|然后继续|continue)\s*[，,：:；;]\s*(?:现在|接下来)?(?:改做|换个任务|处理新任务)/iu.test(text)
 }
 
-const revisionAction = '(?:修正|修复|纠正|修改|重写|改写|续写|改稿|修订|润色|精修)'
 const revisionSubject = '(?:剧本|短剧|分集|分场|剧情|台词|对白|第[\\d一二三四五六七八九十百零〇]+集)'
+const bareRevisionAction = String.raw`改(?=一下|下|这|那|该|原有|现有|当前|整个|全部|重新|的|${revisionSubject}|\s|[。.!?！？,，；;：:]|$)`
+const revisionAction = String.raw`(?:修正|修复|纠正|修改|重写|改写|续写|改稿|修订|润色|精修|${bareRevisionAction})`
+const negatedBareRevision = new RegExp(String.raw`(?<![分个特])别(?:再)?${bareRevisionAction}`, 'gu')
 const forwardRevision = new RegExp(
-  String.raw`${revisionAction}\s*(?:(?:这|那)(?:份|个|段|部)?|该|原有|现有|当前|整个|全部|一下|重新|的|\s)*`
+  String.raw`${revisionAction}\s*(?:(?:这|那)(?:份|个|段|部)?|该|原有|现有|当前|整个|全部|一下|下|重新|的|\s)*`
   + String.raw`(?:第?[\d一二三四五六七八九十百零〇]+[集幕场章段]\s*)?`
   + String.raw`(?:[\p{L}\p{N}_./\\-]+\.(?:md|txt|docx)\s*(?:的|中|里)?\s*)?${revisionSubject}`, 'iu')
 const reverseRevision = new RegExp(
   String.raw`${revisionSubject}(?:正文|内容|稿件)?\s*(?:(?:需要|进行|重新|请|要|做)\s*)*${revisionAction}`, 'u')
 const englishRevision = new RegExp(String.raw`\b(?:revise|rewrite|fix|repair|edit)\s+`
   + String.raw`(?:(?:the|this|that|existing|current|entire|whole)\s+)*(?:screenplay|short drama|plot|dialogue)\b`, 'iu')
+const englishFileRequest = String.raw`(?:give|send|export|save|provide|deliver|output|create|generate)\s+(?:(?:me|us)\s+)?(?:(?:a|an|the|this|that)\s+)?(?:word|docx|markdown|file|document)\b(?:\s+(?:file|document))?`
+const englishFile = new RegExp(String.raw`\b${englishFileRequest}`, 'iu')
+const negatedEnglishFile = new RegExp(String.raw`\b(?:do not|don't|without|no need to)\s+${englishFileRequest}`, 'giu')
 
 /** Classify actual user requests, preserving short continuations and excluding negated editing or screenplay creation.
  * @param text - Human-authored request, never manuscript contents or model prose.
@@ -57,10 +63,13 @@ export function manuscriptDeliveryIntent(text: string): { writing: boolean; cont
   const action = /重写|改写|创作|写作|编写|续写|改稿|润色|精修|写|修改|修订|修正|修复|纠正|rewrite|write|revise|\bfix\b|\brepair\b/iu.test(positive)
     || /(?:生成|generate).{0,12}(?:剧本|短剧|分集|分场|screenplay)/iu.test(positive)
   const fileRequest = text.replace(/(?:不需要|不必|不要|不用|无需|勿|不)(?:再|另外|额外)?(?:(?:生成|导出|保存|交付|提供|输出)(?:\s*[或和、/]\s*(?:生成|导出|保存|交付|提供|输出))*)?\s*(?:文件|文档|Word|DOCX|Markdown)(?:\s*(?:格式)?(?:文件|文档))?/giu, '')
+    .replace(negatedEnglishFile, '')
   const file = /(?:交付|生成|导出|保存|提供|给我?|发送|发我|输出|做成|转成).{0,24}(?:文件|文档|\bword\b|\bdocx\b|\bmarkdown\b)/iu.test(fileRequest)
     || /(?:文件|文档|\bword\b|\bdocx\b|\bmarkdown\b).{0,12}(?:交付|导出|保存|给我|发我)/iu.test(fileRequest)
+    || englishFile.test(fileRequest)
   const tutorial = instructionOnly(text)
-  return { writing: screenplaySubject(positive) && action && !tutorial, continuation: continuation(text), file: file && !tutorial }
+  return { writing: manuscriptRevisionIntent(text) || (screenplaySubject(positive) && action && !tutorial),
+    continuation: continuation(text), file: file && !tutorial }
 }
 
 /** Identify an affirmative request to revise existing screenplay material.

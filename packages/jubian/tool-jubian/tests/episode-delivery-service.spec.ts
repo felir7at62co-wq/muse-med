@@ -34,6 +34,38 @@ function observeRenderer(f: Awaited<ReturnType<typeof createEpisodeDeliveryFixtu
 }
 
 describe('approved episode service', () => {
+  it('keeps targeted status available across an atomic state publication', async () => {
+    const f = await createEpisodeDeliveryFixture(), input = await selection(f)
+    const admitted = await f.service.admitEpisode(input)
+    await f.renderer.entered
+    if (admitted.attempt === null) throw new Error('Expected original attempt')
+    const statePath = join(f.project, '.muse', 'episode-delivery', admitted.attempt, 'state.json')
+    const before = await stat(statePath), opening = Promise.withResolvers<undefined>(), proceed = Promise.withResolvers<undefined>()
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+    let held = false
+    const spy = vi.spyOn(Files, 'open').mockImplementation(async (...args: Parameters<typeof actual.open>) => {
+      if (args[0] === statePath && !held) {
+        held = true; opening.resolve(undefined); await proceed.promise
+      }
+      return actual.open(...args)
+    })
+    const observation = f.service.episodeStatus(input).then(status => ({ status }), (error: unknown) => ({ error }))
+    try {
+      await opening.promise
+      f.renderer.release()
+      await vi.waitFor(async () => {
+        const state: unknown = JSON.parse(await readFile(statePath, 'utf8'))
+        expect(state).toMatchObject({ state: 'completed', attempt: admitted.attempt })
+      })
+      expect((await stat(statePath)).ino).not.toBe(before.ino)
+      proceed.resolve(undefined)
+      const result = await observation
+      if ('error' in result) throw result.error
+      expect(result.status).toMatchObject({ state: 'completed', attempt: admitted.attempt, canResume: false })
+      expect(f.renderer.calls).toBe(1); expect(f.renderer.encodes).toBe(1)
+      expect(f.fetch).not.toHaveBeenCalled()
+    } finally { proceed.resolve(undefined); await observation; spy.mockRestore() }
+  })
   it('admits once and returns while real render is held; targeted status never recaptures', async () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f)
     const first = await f.service.admitEpisode(input)
@@ -497,11 +529,11 @@ describe('approved episode service', () => {
   })
 
   it('does not convert an owned running snapshot to unknown when completion wins during its state read', async () => {
-    const f = await createEpisodeDeliveryFixture(), input = await selection(f), read = library.readEpisodeRecord
+    const f = await createEpisodeDeliveryFixture(), input = await selection(f), read = library.readEpisodeStateSnapshot
     await f.service.admitEpisode(input); await f.renderer.entered
     const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
     let held = false
-    const spy = vi.spyOn(library, 'readEpisodeRecord').mockImplementation(async (...args) => {
+    const spy = vi.spyOn(library, 'readEpisodeStateSnapshot').mockImplementation(async (...args) => {
       const value = await read(...args)
       if (!held && args[0].endsWith('/state.json') && z.object({ state: z.string() }).safeParse(value).data?.state === 'running') {
         held = true; entered.resolve(undefined); await release.promise
@@ -529,7 +561,7 @@ describe('approved episode service', () => {
     await unlink(join(f.project, '.muse', 'episode-delivery', first.attempt ?? '', 'receipt.json'))
     const queued = Promise.withResolvers<undefined>(), releaseClaim = Promise.withResolvers<undefined>()
     const stateRead = Promise.withResolvers<undefined>(), releaseRead = Promise.withResolvers<undefined>()
-    const write = atomic.writeFileAtomic, read = library.readEpisodeRecord
+    const write = atomic.writeFileAtomic, read = library.readEpisodeStateSnapshot
     let held = false
     const writeSpy = vi.spyOn(atomic, 'writeFileAtomic').mockImplementation(async (...args) => {
       await write(...args)
@@ -537,7 +569,7 @@ describe('approved episode service', () => {
         queued.resolve(undefined); await releaseClaim.promise
       }
     })
-    const readSpy = vi.spyOn(library, 'readEpisodeRecord').mockImplementation(async (...args) => {
+    const readSpy = vi.spyOn(library, 'readEpisodeStateSnapshot').mockImplementation(async (...args) => {
       const value = await read(...args)
       if (!held && args[0].endsWith('/state.json') && z.object({ state: z.string() }).safeParse(value).data?.state === 'queued') {
         held = true; stateRead.resolve(undefined); await releaseRead.promise

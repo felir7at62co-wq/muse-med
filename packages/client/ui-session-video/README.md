@@ -25,7 +25,11 @@ Review the current conversation's recorded videos in a compact spider control an
 <a id="use-this-package"></a>
 ## Use this package
 
-The Muse Desktop composition mounts this UI and the [Session video service](../../drama/session-video/README.md). Ordinary Web profiles do not activate either package by default. A custom composition needs both rows plus the native Chat, Deliverables, locale, renderer and Remote services.
+The independent [Muse video bundle](../../bundle/muse-video-ui/README.md) installs this presentation and its media service together.
+
+This package owns the optional Muse conversation presentation. In **Settings → General → Video bubble and timeline**, turn it on or off without restarting or reloading the page. The accepted switch persists in the profile through the native configuration forms. Disabling removes the spider, timeline, inline replacement players, collection layers, spacer and user-bubble enhancements, restores native navigation and delivered-video playback, and pauses and releases preview media. Transcript identity, input drafts, attachments, recorded files and running Agent jobs remain owned by Muse. Re-enabling creates a fresh presentation scope without duplicate controls. The settings row remains available while the package is installed.
+
+The Muse Desktop composition mounts this UI and the [Session video service](../../drama/session-video/README.md). Ordinary Web profiles do not activate either package by default. A custom composition retains the canonical `ui-session-video` entry id for its live settings and needs both rows plus the native Chat, Deliverables, locale, renderer and Remote services.
 
 ```yaml
 - insert:
@@ -39,9 +43,10 @@ The Muse Desktop composition mounts this UI and the [Session video service](../.
 
 | Field | Default | Meaning |
 |---|---|---|
+| `enabled` | `true` | Live switch for the complete conversation presentation; also available in General settings |
 | `pixelsPerSecond` | `48` | Positive timeline scale; one second occupies this many horizontal pixels |
 
-The Host validates this non-secret presentation policy and includes it in the page bootstrap. A new page reads the resolved value before registering the surface. It is separate from media-processing limits owned by the Session video service.
+The Host validates this non-secret presentation policy and includes it in the page bootstrap. A new page reads the resolved value before registering the surface; accepted live settings replace the startup switch. The `enabled` field is volatile and changes only presentation registrations, even when configuration HMR is disabled. It is separate from media-processing limits owned by the Session video service.
 
 The shelf reserves one compact header footprint; its expanded curtain floats over the transcript without moving messages or the composer. Opening and closing use the same 900 ms eased transition, and closing content stays mounted only until its exit transition finishes. Reduced-motion preferences remove this transition.
 
@@ -60,6 +65,8 @@ When a video is available, the modification control stays visible at the right o
 
 <details>
 <summary>Implementation internals — click to expand</summary>
+
+The settings controller owns a serialized child Cordis scope for all optional contributions. The child registers a reversible native header preference; disposal restores the preceding preference or deployment default. Its scoped styles apply only while the Chat spacer exists, including when the browser retains the loaded stylesheet. The Session video Host service remains separate and available to other consumers; disabling this presentation makes no inventory or analysis requests.
 
 The plugin mounts its generated `sessionVideo` Remote contribution, registers the session-scoped `conversation.content.overlay` shelf and a fixed `conversation.chat.pinned` spacer, and contributes to the native delivery-video chain and closing-Turn surface. The shelf mounts only while Chat is active; its expanded layer sits above transcript popovers. Queries use caller cancellation; closing pauses retained playback, and unmounting players releases their media source. The absorption preview remains in its original Chat frame and finds the receiving anchor only inside that frame's enclosing conversation. It preserves the original inline card's layout position and respects reduced-motion preferences. Collection also hides the surrounding native delivery panel; reverse scrolling or teardown restores its original visibility, inert state and ARIA attributes. The spider control, expanded player and inline video card share a dark material with light labels in both page themes.
 

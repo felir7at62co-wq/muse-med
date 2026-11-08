@@ -2,7 +2,7 @@
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
-import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
+import { composeEntries, loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { afterEach, expect, it, vi } from 'vitest'
 
 const patchPath = fileURLToPath(new URL('../../desktop-host/config/desktop.cordis.patch.yml', import.meta.url))
@@ -43,4 +43,16 @@ it.each([
     await ctx.fiber.dispose()
   }
   expect(captured).toMatchObject(expected)
+})
+
+it('keeps the presentation default below a saved disabled preference', () => {
+  const defaultsPath = fileURLToPath(new URL('../../desktop-host/config/defaults.cordis.patch.yml', import.meta.url))
+  const defaults = loadOverlayPatches('muse-med', defaultsPath)
+  const ui = defaults.flatMap(patch => patch.insert ?? []).find(entry => entry.id === 'ui-session-video')
+  if (ui === undefined) throw new Error('Optional video presentation must be a profile-editable default')
+  const highPriority = loadOverlayPatches('muse-med', patchPath)
+    .flatMap(patch => patch.insert ?? []).filter(entry => entry.id === 'ui-session-video')
+  const effective = composeEntries([[{ insert: [ui] }], [{ id: 'ui-session-video', config: { enabled: false } }],
+    [{ insert: highPriority }]])
+  expect(effective.find(entry => entry.id === 'ui-session-video')?.config).toEqual({ enabled: false })
 })

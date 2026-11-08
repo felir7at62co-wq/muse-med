@@ -63,9 +63,10 @@ describe('web e2e: recorded conversation video inspection', () => {
   let consoleWatch: ReturnType<typeof watchConsole>
 
   beforeAll(async () => {
-    scaffold = await launchWebScaffold({ extraOverlayPath: OVERLAY, profile: { hmr: false, packages: [
+    scaffold = await launchWebScaffold({ extraOverlayPath: [fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)), OVERLAY], profile: { hmr: false, packages: [
       { dir: fileURLToPath(new URL('../../../packages/drama/session-video', import.meta.url)) },
       { dir: fileURLToPath(new URL('../../../packages/client/ui-session-video', import.meta.url)) },
+      { dir: fileURLToPath(new URL('../../../packages/bundle/muse-video-ui', import.meta.url)), enabled: true },
     ] } })
     execFileSync('ffmpeg', ['-v', 'error', '-nostdin', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=10:d=1',
       '-f', 'lavfi', '-i', 'color=c=white:s=64x64:r=10:d=1', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=10:d=1',
@@ -770,5 +771,100 @@ describe('web e2e: recorded conversation video inspection', () => {
     expect(afterEvents.events.filter(event => event.type === 'request/header')).toHaveLength(0)
     expect(consoleWatch.pageErrors).toEqual([])
   })
+
+
+  it('hot-unplugs the complete presentation, preserves draft and jobs, and persists across reload', async () => {
+    onTestFailed(() => saveFailureShot(page, 'session-video-plugin-switch'))
+    const editor = page.locator('[data-composer-input][contenteditable="true"]').last()
+    const draft = 'Keep this unfinished instruction while switching the video presentation.'
+    await editor.fill(draft)
+    const savedDraft = () => page.evaluate((id) => {
+      const raw = localStorage.getItem(`dsh.conversation.${id}`)
+      const stored: unknown = raw === null ? null : JSON.parse(raw)
+      if (stored === null || typeof stored !== 'object' || !('draft' in stored)) throw new Error('Draft is not persisted')
+      return stored.draft
+    }, SESSION)
+    await expect.poll(savedDraft).toMatchObject({ text: draft })
+    const persistedDraft = await savedDraft()
+    const originalEvents = await scaffold.ctx.sessionQuery.readSession(SessionId(SESSION))
+    const agent = scaffold.ctx.agents.get(SessionId(SESSION))
+    if (agent === undefined) throw new Error('Opened fixture has no Agent')
+    const release = '.session-video-plugin-switch.release'
+    const started = await executeToolFixture(scaffold.ctx, {
+      signal: new AbortController().signal, callId: ToolCallId('session-video-plugin-switch'), name: 'bash', agent,
+      arguments: { command: `printf 'presentation-switch-job\\n'; for _ in $(seq 1 1200); do [ -e ${release} ] && break; sleep 0.1; done`,
+        description: 'Retain background work while switching the presentation', run_in_background: true },
+    })
+    const match = /\bbash-[0-9a-f]{16}\b/u.exec(started.content.map(block => block.type === 'text' ? block.text : '').join(''))
+    if (match === null) throw new Error('No background job receipt')
+    const jobId = JobId(match[0])
+    try {
+      const anchor = page.locator('[data-muse-video-anchor]')
+      if (await anchor.getAttribute('aria-expanded') !== 'true') await anchor.click()
+      const oldVideo = await page.locator('[data-muse-shelf-video]').elementHandle()
+      const transcript = await page.locator('[data-chat-frame]').elementHandle()
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      const dialog = page.getByRole('dialog', { name: 'Settings', exact: true })
+      await dialog.getByRole('button', { name: 'General', exact: true }).click()
+      const toggle = dialog.getByRole('switch', { name: 'Video bubble and timeline', exact: true })
+      await expect.poll(() => toggle.getAttribute('aria-checked')).toBe('true')
+      await toggle.click()
+      await expect.poll(() => toggle.getAttribute('aria-checked')).toBe('false')
+      await expect.poll(() => anchor.count()).toBe(0)
+      expect(await page.locator('[data-muse-video-shelf], [data-muse-video-spacer], [data-muse-inline-video], [data-video-absorption]').count()).toBe(0)
+      expect(await transcript?.evaluate(element => element.isConnected)).toBe(true)
+      expect(await oldVideo?.evaluate(element => ({ connected: element.isConnected, src: element.getAttribute('src'), paused: (element as HTMLVideoElement).paused })))
+        .toEqual({ connected: false, src: null, paused: true })
+      const header = page.locator('[data-conversation-header-presentation]')
+      await expect.poll(() => header.getAttribute('data-conversation-header-presentation')).toBe('standard')
+      expect(await header.evaluate(element => getComputedStyle(element).position)).not.toBe('absolute')
+      expect(await header.getByRole('tab', { name: 'Chat', exact: true }).count()).toBe(1)
+      expect(await page.locator('[data-presented-file][data-video="true"] video').count()).toBeGreaterThan(0)
+      expect(await page.locator('[data-presented-file][data-video="true"]').evaluateAll(elements => elements.every(element =>
+        !element.hasAttribute('inert') && element.getAttribute('aria-hidden') !== 'true' && getComputedStyle(element).visibility !== 'hidden'))).toBe(true)
+      expect(await editor.innerText()).toBe(draft)
+      expect(scaffold.ctx.jobs.get(jobId, agent.id).status).toBe('running')
+      await compareOrRefreshGolden(fileURLToPath(new URL('./expected/session-video/plugin-switch.expected.md', import.meta.url)), [
+        '- Optional presentation: disabled', '- Native header: standard; Chat tab available',
+        '- Original video player: available', '- Spider, spacer, absorption layers: removed',
+        '- Transcript: same mounted instance', '- Composer draft: preserved', '- Background job: running',
+        await captureStableAria(page, '[data-muse-presentation-setting]', scaffold.workspaceCwd, { runningJobs: 'keep' }),
+      ].join('\n'), MODE)
+      await page.reload({ waitUntil: 'load' })
+      await page.getByText(TAIL, { exact: true }).waitFor()
+      expect(await anchor.count()).toBe(0)
+      expect(await header.getAttribute('data-conversation-header-presentation')).toBe('standard')
+      expect(await savedDraft()).toEqual(persistedDraft)
+      const restoredDraft = await editor.innerText()
+      expect(restoredDraft).toBe(draft)
+      expect(readFileSync(join(scaffold.harnessHome, 'profiles', 'scaffold', 'cordis.patch.yml'), 'utf8')).toContain('enabled: false')
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await dialog.getByRole('button', { name: 'General', exact: true }).click()
+      await expect.poll(() => toggle.getAttribute('aria-checked')).toBe('false')
+      for (const enabled of [true, false, true]) {
+        await toggle.click()
+        await expect.poll(() => toggle.getAttribute('aria-checked')).toBe(String(enabled))
+        await expect.poll(() => anchor.count()).toBe(enabled ? 1 : 0)
+        await expect.poll(() => header.getAttribute('data-conversation-header-presentation')).toBe(enabled ? 'floating' : 'standard')
+      }
+      await dialog.getByRole('button', { name: 'Close', exact: true }).last().click()
+      await anchor.click()
+      await page.locator('[data-muse-shelf-video]').waitFor()
+      expect(await page.locator('[data-muse-video-spacer]').count()).toBe(1)
+      expect(await page.locator('[data-muse-shelf-video]').count()).toBe(1)
+      expect(await editor.innerText()).toBe(restoredDraft)
+      expect(await savedDraft()).toEqual(persistedDraft)
+      expect(scaffold.ctx.jobs.get(jobId, agent.id).status).toBe('running')
+      const finalEvents = await scaffold.ctx.sessionQuery.readSession(SessionId(SESSION))
+      expect(finalEvents.events.filter(event => ['user/message', 'request/header'].includes(event.type)))
+        .toEqual(originalEvents.events.filter(event => ['user/message', 'request/header'].includes(event.type)))
+    } finally {
+      await writeFile(join(scaffold.workspaceCwd, release), '')
+      const settled = await scaffold.ctx.jobs.wait(jobId, 15000, agent.id)
+      expect(settled.status).not.toBe('running')
+      await scaffold.ctx.settings.update('ui-session-video', { enabled: true })
+    }
+    expect(consoleWatch.pageErrors).toEqual([])
+  }, 90000)
 
 })

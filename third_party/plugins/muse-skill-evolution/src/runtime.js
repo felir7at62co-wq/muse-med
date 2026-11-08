@@ -179,6 +179,9 @@ export class EvolutionRuntime extends Service {
 
   async skillOutcome(job, result, catalog, signal) {
     const candidate = result.proposal
+    if (candidate.action === 'rejected') return { state: 'failed',
+      error: 'The Skill proposal was rejected without creating or applying a Skill; inspect its saved review Session. Feedback is evaluated independently.',
+      validation: { format: 'rejected', semantic: 'not_performed', code: candidate.code } }
     if (candidate.action === 'none') return { state: 'none' }
     const previous = catalog.find(skill => skill.name === candidate.name)
     if (candidate.action === 'create' && previous !== undefined) throw new Error('A Skill with this name already exists')

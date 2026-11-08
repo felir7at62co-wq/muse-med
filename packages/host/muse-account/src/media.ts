@@ -13,8 +13,10 @@ const jobId = z.string().regex(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f
   .transform(value => brandString<MuseMediaJobId>(value))
 const requestId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u).transform(value => brandString<MuseMediaRequestId>(value))
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
+/** Gateway manifest filenames are preserved exactly for owned retrieval and local import. */
+export const mediaFileNameSchema = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._() -]{0,127}$/u).refine(value => !value.includes('..'))
 const file = z.object({
-  name: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._() -]{0,127}$/u).refine(value => !value.includes('..')),
+  name: mediaFileNameSchema,
   bytes: count.positive(), sha256: z.string().regex(/^[a-f0-9]{64}$/u), kind: z.enum(['video', 'image', 'cover', 'live_video', 'metadata']),
 })
 const coverage = z.object({
@@ -93,6 +95,7 @@ interface Operation {
   readonly session: MuseStoredSession
   readonly signal: AbortSignal
   readonly assertCurrent: () => Promise<void>
+  afterCommit?: () => Promise<void>
 }
 
 function retryAfter(response: Response): number | undefined {
@@ -184,10 +187,13 @@ export class MuseMediaClient {
    * @param name - Exact persisted manifest name.
    * @param consume - Consume the whole stream, using assertCurrent before and after publishing files.
    * @param signal - Optional caller cancellation, also provided to the consumer.
-   * @returns Consumer result only after complete consumption and a final account check.
+   * @param confirmImport - Native importer confirmation after hash, decoding and publication; ordinary reads leave it false.
+   * @returns Consumer result after complete consumption and a final account check;
+   * an unconfirmed cloud receipt retains longer protection.
    */
   async withFile<Result>(
-    id: MuseMediaJobId, name: string, consume: (transfer: MuseMediaTransfer) => Promise<Result>, signal?: AbortSignal,
+    id: MuseMediaJobId, name: string, consume: (transfer: MuseMediaTransfer) => Promise<Result>,
+    signal?: AbortSignal, confirmImport = false,
   ): Promise<Result> {
     return await this.run(signal, true, false, async (operation) => {
       const job = await this.getReceipt(operation, id)
@@ -238,6 +244,19 @@ export class MuseMediaClient {
         const result = await consume({ body, file: entry, job, signal: operation.signal, assertCurrent: operation.assertCurrent })
         if (!consumption.complete) throw new MuseMediaError('file-incomplete')
         await operation.assertCurrent()
+        const lease = response.headers.get('x-muse-media-lease')
+        if (confirmImport && lease !== null && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(lease)) {
+          operation.afterCommit = async () => {
+            try {
+              const acknowledgement = await this.json(operation,
+                `/api/media/jobs/${encodeURIComponent(id)}/files/${encodeURIComponent(entry.name)}/imported`,
+                JSON.stringify({ lease, sha256: entry.sha256 }))
+              this.parse(z.object({ state: z.literal('acknowledged') }), acknowledgement)
+            } catch (_error) {
+              // Confirmation cannot undo a local file committed before the account or transport changed.
+            }
+          }
+        }
         return result
       } finally {
         operation.signal.removeEventListener('abort', abort)
@@ -286,8 +305,10 @@ export class MuseMediaClient {
         signal.throwIfAborted()
         if (current?.revision !== original.revision) throw new MuseMediaError('account-changed')
       }
-      const result = await execute({ session: original, signal, assertCurrent })
+      const operation: Operation = { session: original, signal, assertCurrent }
+      const result = await execute(operation)
       await assertCurrent()
+      await operation.afterCommit?.()
       return result
     } catch (error) {
       if (caller?.aborted === true || this.stop.signal.aborted) throw new MuseMediaError('cancelled')

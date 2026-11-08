@@ -34,6 +34,7 @@ import { McpManagerGateway } from "./mcp/gateway.js";
 import { ensureGlobalShim } from "./global-shim.js";
 import { MCP_MANIFEST } from "./mcp/wire.js";
 import { NestedSkillProvider, NESTED_SKILL_RANK, NESTED_PROVIDER_NAME } from "./provider.js";
+import { SkillDeletionRecovery, undoTokenSchema } from "./skill-recovery.js";
 
 /**
  * dsh-skill-mcp-panel —— 宿主半区。
@@ -44,7 +45,7 @@ import { NestedSkillProvider, NESTED_SKILL_RANK, NESTED_PROVIDER_NAME } from "./
  *
  * 实体模型（0.3.0）：技能文件直接存放在其所属位置的技能文件夹——
  * 全局用户根（~/.dsh/skills）或某工作区的项目根（<workspace>/.dsh/skills）。
- * 没有中心仓库、没有联接点、没有插件私有状态：会话看到什么，完全等于
+ * 活动技能不经过中心仓库或联接点；删除恢复副本与短期撤销记录由本插件保管。会话看到什么，完全等于
  * 技能文件系统提供方在各根目录里发现的东西。监听器约 200ms 内热感知
  * 变化，因此以上所有操作都无需重启。
  */
@@ -136,6 +137,8 @@ const skillContentSchema = z
 const setEnabledResultSchema = z.object({ name: z.string(), enabled: z.boolean() });
 
 const deleteSkillResultSchema = z.object({ name: z.string() });
+const trashSkillResultSchema = z.object({ name: z.string(), undoToken: undoTokenSchema });
+const restoreSkillResultSchema = z.object({ name: z.string(), recoveryRetained: z.boolean() });
 
 const migratePayloadSchema = z.object({
   target: z.string().nullable(),
@@ -312,6 +315,30 @@ const MANIFEST = {
       result: strictCodec("dsh-skill-mcp-panel#DeleteSkillResult", deleteSkillResultSchema)
     },
     {
+      id: "dsh-skill-mcp-panel#skillsViewer/trashSkill",
+      service: "skillsViewer",
+      namespace: "skillsViewer",
+      method: "trashSkill",
+      invocation: { kind: "direct" },
+      parameters: [
+        { name: "name", wire: "name", source: "json", codec: strictCodec("dsh-skill-mcp-panel#SkillName", z.string()) },
+        { name: "sessionId", wire: "sessionId", source: "json", acceptsUndefined: true, codec: strictCodec("dsh-skill-mcp-panel#sessionId", sessionIdSchema) },
+        { name: "scope", wire: "scope", source: "json", acceptsUndefined: true, codec: strictCodec("dsh-skill-mcp-panel#SkillScope", z.union([z.string(), z.null()])) }
+      ],
+      result: strictCodec("dsh-skill-mcp-panel#TrashSkillResult", trashSkillResultSchema)
+    },
+    {
+      id: "dsh-skill-mcp-panel#skillsViewer/restoreSkill",
+      service: "skillsViewer",
+      namespace: "skillsViewer",
+      method: "restoreSkill",
+      invocation: { kind: "direct" },
+      parameters: [
+        { name: "undoToken", wire: "undoToken", source: "json", codec: strictCodec("dsh-skill-mcp-panel#UndoToken", undoTokenSchema) }
+      ],
+      result: strictCodec("dsh-skill-mcp-panel#RestoreSkillResult", restoreSkillResultSchema)
+    },
+    {
       id: "dsh-skill-mcp-panel#skillsViewer/addSkill",
       service: "skillsViewer",
       namespace: "skillsViewer",
@@ -353,6 +380,9 @@ const MAX_ADD_TOTAL_BYTES = 8 * 1024 * 1024;
  * 让 API 网关可以分发端点。
  */
 export class SkillsViewerGateway extends TypertRemoteService {
+  private readonly deletionRecovery = new SkillDeletionRecovery();
+  private readonly trashRequests = new Set<string>();
+
   constructor(ctx) {
     super(ctx, "skillsViewer");
   }
@@ -801,6 +831,46 @@ export class SkillsViewerGateway extends TypertRemoteService {
     if (scoped) throw new Error('技能 "' + name + '" 在指定作用域中不存在');
     await this.removeEntry(located.entry);
     return { name };
+  }
+
+  /**
+   * Remove a selected file skill from discovery while retaining its complete entity.
+   * @param name - Skill name in the selected scope.
+   * @param sessionId - Session used only when no explicit scope is supplied.
+   * @param scope - Exact global/workspace scope; empty or absent uses existing Session/registry selection.
+   * @returns An opaque Undo receipt, valid for this Host instance.
+   */
+  async trashSkill(name: string, sessionId?: string, scope?: string | null) {
+    const key = name + "\u0000" + (scope ?? sessionId ?? "");
+    if (this.trashRequests.has(key)) throw Object.assign(new Error("该技能正在删除，请等待操作完成"), { code: "skill/delete-busy" });
+    this.trashRequests.add(key);
+    try {
+      const scoped = typeof scope === "string" && scope !== "";
+      if (scoped) {
+        const entry = await this.entryInScope(name, scope);
+        if (entry !== undefined) return await this.deletionRecovery.trash(name, entry.file, entry.dirBundle);
+        if (scope !== "global") throw new Error('技能 "' + name + '" 在指定作用域中不存在');
+      }
+      const located = await this.locate(name, sessionId);
+      if (located.kind === "missing") throw new Error('技能 "' + name + '" 不存在');
+      if (located.kind === "live") {
+        this.assertEditable(located.skill);
+        return await this.deletionRecovery.trash(name, located.skill.path, basename(located.skill.path) === "SKILL.md");
+      }
+      if (scoped) throw new Error('技能 "' + name + '" 在指定作用域中不存在');
+      return await this.deletionRecovery.trash(name, located.entry.file, located.entry.dirBundle);
+    } finally {
+      this.trashRequests.delete(key);
+    }
+  }
+
+  /**
+   * Restore one Host-issued receipt to its original file path and enabled state.
+   * @param undoToken - Receipt from this instance's successful recoverable deletion.
+   * @returns The restored name and a flag for retained recovery files after cleanup failure.
+   */
+  restoreSkill(undoToken: z.infer<typeof undoTokenSchema>) {
+    return this.deletionRecovery.restore(undoToken);
   }
 
   /** 迁移可以挪动的条目（或用户根里的在线技能）。 */

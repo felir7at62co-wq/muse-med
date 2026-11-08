@@ -26,6 +26,7 @@ import { ConversationViewRegistry } from './view-registry.ts'
 import { ConversationGroupRegistry } from './group-registry.ts'
 import { ConversationInteractionRegistry } from './interaction-registry.ts'
 import { UserTextRegistry } from './user-text-registry.ts'
+import { HeaderPresentations } from './header-presentations.ts'
 
 /** Observable faces published for one Session's Conversation assembly. */
 export interface ConversationBinding {
@@ -186,6 +187,8 @@ interface BindingRecord {
 
 /** Root service owning Conversation registries and per-Session bindings. */
 export class UiConversation extends Service {
+  /** Reversible presentation preferences over the deployment's header default. */
+  readonly headerPresentations: HeaderPresentations
   /** Registry of event matchers and target snapshot builders. */
   readonly events: ConversationEventRegistry
   /** Registry of target View definitions. */
@@ -205,6 +208,7 @@ export class UiConversation extends Service {
    */
   constructor(ctx: Context, private readonly sessions: ISessions) {
     super(ctx, 'uiConversation')
+    this.headerPresentations = new HeaderPresentations(ctx)
     this.events = new ConversationEventRegistry(ctx)
     this.views = new ConversationViewRegistry(ctx)
     this.groups = new ConversationGroupRegistry(ctx, this.views)

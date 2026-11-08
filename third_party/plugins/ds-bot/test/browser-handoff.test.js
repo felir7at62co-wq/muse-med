@@ -54,7 +54,10 @@ function start() {
     call: async (endpoint, payload) => (await route.fetch(new Request('http://localhost/api/bot', {
       method: 'POST', body: JSON.stringify({ endpoint, payload }),
     }))).json(),
-    stop: () => rmSync(home, { recursive: true, force: true, maxRetries: 5 }),
+    stop: async () => {
+      await ctx.dispose()
+      rmSync(home, { recursive: true, force: true, maxRetries: 5 })
+    },
   }
 }
 
@@ -310,23 +313,125 @@ test('browser-give-back refuses a stale call, an unknown outcome, and an unknown
   assert.equal(sent.length, 0)
 })
 
-test('browser-give-back restores the hold when the Bot cannot be told', async (t) => {
+test('browser-give-back keeps an admitted answer consumed when saving fails', async (t) => {
   const { rt, call, sent, failFlush, stop } = start()
   t.after(stop)
   await rt.load()
 
   rt.browserChannel.setHold('b2', BOT_HOLD)
-  failFlush(new Error('flush failed'))
+  failFlush(new Error('private flush failure'))
   const failed = await call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })
   assert.equal(failed.ok, false)
-  assert.match(failed.error.message, /flush failed/)
-  assert.deepEqual(rt.browserChannel.holdOf('b2'), BOT_HOLD)
+  assert.equal(sent.length, 1)
 
   failFlush(undefined)
-  sent.length = 0
-  assert.equal((await call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })).value, true)
+  const retry = await call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })
+  assert.equal(sent.length, 1, 'retry must not admit a second answer to the same browser call')
+  assert.equal(retry.error.code, 'bot/forbidden')
+  assert.equal(rt.browserChannel.holdOf('b2'), null)
+  assert.equal(failed.error.code, 'bot/handoff-unconfirmed')
+  assert.match(failed.error.message, /may already be queued/)
+  assert.match(failed.error.message, /saving is unconfirmed/i)
+  assert.doesNotMatch(failed.error.message, /private flush failure/)
+  assert.match(await rt.diagnostics.logText(), /private flush failure/)
+})
+
+test('browser-give-back leaves the original hold retryable after either preflight failure', async (t) => {
+  for (const stage of ['ensureCapabilities', 'resolveAgent']) await t.test(stage, async (t) => {
+    const { rt, call, sent, stop } = start()
+    t.after(stop)
+    await rt.load()
+    rt.browserChannel.setHold('b2', BOT_HOLD)
+    const hold = rt.browserChannel.holdOf('b2')
+    const original = rt[stage]
+    rt[stage] = async () => { throw new Error('preflight unavailable') }
+    const failed = await call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })
+    assert.equal(failed.error.code, 'bot/refused')
+    assert.equal(rt.browserChannel.holdOf('b2'), hold)
+    assert.equal(sent.length, 0)
+
+    rt[stage] = original
+    assert.equal((await call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })).value, true)
+    assert.equal(rt.browserChannel.holdOf('b2'), null)
+    assert.equal(sent.length, 1)
+  })
+})
+
+test('browser-give-back admits only one of two concurrent answers after preflight', async (t) => {
+  const { rt, call, sent, stop } = start()
+  t.after(stop)
+  await rt.load()
+  rt.browserChannel.setHold('b2', BOT_HOLD)
+  const entered = Promise.withResolvers(), both = Promise.withResolvers(), release = Promise.withResolvers()
+  let preflights = 0
+  rt.ensureCapabilities = async () => {
+    if (++preflights === 1) entered.resolve()
+    if (preflights === 2) both.resolve()
+    await release.promise
+  }
+  const first = call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })
+  await entered.promise
+  const second = call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'skip' })
+  await Promise.race([both.promise, second])
+  release.resolve()
+  const replies = await Promise.all([first, second])
+  assert.equal(preflights, 2)
+  assert.equal(replies.filter(reply => reply.ok).length, 1)
+  assert.equal(replies.find(reply => !reply.ok).error.code, 'bot/stale')
   assert.equal(rt.browserChannel.holdOf('b2'), null)
   assert.equal(sent.length, 1)
+})
+
+test('browser-give-back refuses a changed hold or owner after delayed preflight', async (t) => {
+  const cases = [
+    ['new-hold', 'ensureCapabilities'], ['new-hold', 'resolveAgent'],
+    ['replacement-cleared', 'resolveAgent'], ['session-rotation', 'resolveAgent'],
+    ['bot-deleted', 'resolveAgent'], ['disposed', 'resolveAgent'],
+  ]
+  for (const [change, stage] of cases) await t.test(`${change} during ${stage}`, async (t) => {
+    const { rt, call, sent, stop } = start()
+    t.after(stop)
+    await rt.load()
+    rt.browserChannel.setHold('b2', BOT_HOLD)
+    const entered = Promise.withResolvers(), release = Promise.withResolvers()
+    const original = rt[stage]
+    rt[stage] = async (...args) => { entered.resolve(); await release.promise; return original(...args) }
+    const answering = call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })
+    await entered.promise
+    if (change === 'new-hold' || change === 'replacement-cleared') {
+      rt.browserChannel.setHold('b2', { ...BOT_HOLD, callId: 'call-2' })
+      if (change === 'replacement-cleared') rt.browserChannel.setHold('b2', null)
+    } else if (change === 'session-rotation') rt.state.bots.b2.sessionId = 'next-session'
+    else if (change === 'bot-deleted') delete rt.state.bots.b2
+    else rt.browserChannel.dispose()
+    const retained = rt.browserChannel.holdOf('b2')
+    release.resolve()
+    const stale = await answering
+    assert.equal(stale.ok, false)
+    assert.equal(stale.error.code, 'bot/stale')
+    assert.equal(rt.browserChannel.holdOf('b2'), retained)
+    assert.equal(sent.length, 0)
+  })
+})
+
+test('browser-give-back never restores a hold after a synchronous dispatch failure', async (t) => {
+  for (const admitted of [false, true]) await t.test(`admitted: ${admitted}`, async (t) => {
+    const { rt, call, sent, stop } = start()
+    t.after(stop)
+    await rt.load()
+    rt.browserChannel.setHold('b2', BOT_HOLD)
+    rt.resolveAgent = async sessionId => ({ session: { id: sessionId }, followup(message) {
+      if (admitted) sent.push({ sessionId, message })
+      throw new Error('private synchronous dispatch failure')
+    } })
+    const failed = await call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })
+    assert.equal(failed.error.code, 'bot/handoff-unconfirmed')
+    assert.doesNotMatch(failed.error.message, /private synchronous dispatch failure/)
+    assert.equal(rt.browserChannel.holdOf('b2'), null)
+    assert.equal(sent.length, Number(admitted))
+    assert.equal((await call('browser-give-back', { botId: 'b2', callId: 'call-1', outcome: 'done' })).error.code, 'bot/forbidden')
+    assert.equal(sent.length, Number(admitted))
+  })
 })
 
 test('a handoff answer carries its reason, so it reads on its own', () => {

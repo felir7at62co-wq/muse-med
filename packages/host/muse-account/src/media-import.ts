@@ -12,7 +12,7 @@ import type {} from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-subprocess'
 import { SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
-import { MuseMediaError } from './media.ts'
+import { mediaFileNameSchema, MuseMediaError } from './media.ts'
 import type { MuseMediaClient } from './media.ts'
 import type { MuseMediaJobId, MuseMediaTransfer, MuseMediaFileCoverage } from './media-types.ts'
 import { MEDIA_FILE_HELPER } from './media-file-helper.ts'
@@ -260,7 +260,7 @@ export class MuseMediaImporter {
   }
 
   private async perform(agent: Agent, jobId: MuseMediaJobId, name: string, signal: AbortSignal): Promise<MuseMediaImportReceipt> {
-    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/u.test(name)) throw new MuseMediaError('invalid-input')
+    if (!mediaFileNameSchema.safeParse(name).success) throw new MuseMediaError('invalid-input')
     const location = await this.location(agent, signal)
     let spec: HelperSpec | undefined
     try {
@@ -278,8 +278,7 @@ export class MuseMediaImporter {
         await transfer.assertCurrent()
         transfer.signal.throwIfAborted()
         return receipt
-      }, signal)
-      signal.throwIfAborted()
+      }, signal, true)
       return result
     } catch (error) {
       if (spec !== undefined) await this.settle(spec, 'cleanup', location.policy)

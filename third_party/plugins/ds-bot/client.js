@@ -1212,6 +1212,7 @@ var HOST_ZH = {
   "The message request identifier is invalid.": "消息请求标识无效",
   "This message request identifier was already used for different content.": "此发送回执已用于其他内容，请先核对原消息",
   "The computer has not confirmed this message.": "电脑尚未确认接收这条消息",
+  "The browser handoff answer may already be queued; saving is unconfirmed. Check the conversation before sending another request.": "浏览器交接答复可能已被接收，但尚未确认保存成功。发送新请求前，请先检查会话",
   "Request failed": "请求失败",
   "Permissions are not available in this DeepSeek Harness": "这个 DeepSeek Harness 不支持权限设置",
   "Avatar images must be PNG, JPEG, WebP, or GIF": "头像图片必须是 PNG、JPEG、WebP 或 GIF",
@@ -4496,7 +4497,7 @@ var HANDOFF_CSS = `
 .bt-handoff .bt-q-foot{flex-wrap:wrap}
 `;
 
-// ../../../node_modules/.pnpm/deep-view@0.1.0_@deepseek-ai+cordis@vendor+cordis_@deepseek-ai+dsh-llm@packages+llm+llm_b011bd9aa8e4e2a265aab920cf0b216d/node_modules/deep-view/src/react/ui.js
+// node_modules/deep-view/src/react/ui.js
 var import_react7 = require("react");
 var FallbackMarkdown = ({ text }) => (0, import_react7.createElement)("span", null, String(text ?? ""));
 var ViewUi = (0, import_react7.createContext)({ t: (key) => key, Markdown: FallbackMarkdown });
@@ -4563,7 +4564,7 @@ function useOptionKeys2(count, onPick, ownRef) {
   return count > 0 && listening <= 1;
 }
 
-// ../../../node_modules/.pnpm/deep-view@0.1.0_@deepseek-ai+cordis@vendor+cordis_@deepseek-ai+dsh-llm@packages+llm+llm_b011bd9aa8e4e2a265aab920cf0b216d/node_modules/deep-view/src/core/formula.js
+// node_modules/deep-view/src/core/formula.js
 var FUNCTIONS = {
   min: { args: [1, Infinity], run: (...values) => Math.min(...values.map(num)) },
   max: { args: [1, Infinity], run: (...values) => Math.max(...values.map(num)) },
@@ -4844,7 +4845,7 @@ function evaluate(tree, lookup) {
   }
 }
 
-// ../../../node_modules/.pnpm/deep-view@0.1.0_@deepseek-ai+cordis@vendor+cordis_@deepseek-ai+dsh-llm@packages+llm+llm_b011bd9aa8e4e2a265aab920cf0b216d/node_modules/deep-view/src/core/views.js
+// node_modules/deep-view/src/core/views.js
 var LAYOUT = ["stack", "row"];
 var DISPLAY = ["text", "metric", "table", "chart", "progress", "callout", "sources", "html"];
 var INPUT_TYPES = ["slider", "choice", "toggle", "number"];
@@ -5464,7 +5465,7 @@ function validateForm(node, values) {
   return { fields };
 }
 
-// ../../../node_modules/.pnpm/deep-view@0.1.0_@deepseek-ai+cordis@vendor+cordis_@deepseek-ai+dsh-llm@packages+llm+llm_b011bd9aa8e4e2a265aab920cf0b216d/node_modules/deep-view/src/react/chart.js
+// node_modules/deep-view/src/react/chart.js
 var import_react8 = require("react");
 var PALETTE = ["var(--dv-accent)", "var(--dv-ink-tangerine)", "var(--dv-ink-green)", "var(--dv-ink-violet)", "var(--dv-ink-sky)", "var(--dv-ink-rose)", "var(--dv-ink-yellow)", "var(--dv-ink-cyan)", "var(--dv-ink-magenta)"];
 var colorAt = (index) => PALETTE[index % PALETTE.length];
@@ -5903,7 +5904,7 @@ var CHART_CSS = `
 @media (prefers-reduced-motion:reduce){.dv-chart-mark,.dv-chart-dot{transition:none}.dv-chart-tip{animation:none}}
 `;
 
-// ../../../node_modules/.pnpm/deep-view@0.1.0_@deepseek-ai+cordis@vendor+cordis_@deepseek-ai+dsh-llm@packages+llm+llm_b011bd9aa8e4e2a265aab920cf0b216d/node_modules/deep-view/src/react/frame.js
+// node_modules/deep-view/src/react/frame.js
 var import_react9 = require("react");
 var THEME_VARS = [
   ["--view-ink", "--bt-ink", "--dv-ink"],
@@ -5985,7 +5986,7 @@ var HTML_CSS = `
 .dv-view-frame-stopped{margin:0;font-size:13px;line-height:18px;color:var(--dv-ink-2)}
 `;
 
-// ../../../node_modules/.pnpm/deep-view@0.1.0_@deepseek-ai+cordis@vendor+cordis_@deepseek-ai+dsh-llm@packages+llm+llm_b011bd9aa8e4e2a265aab920cf0b216d/node_modules/deep-view/src/react/card.js
+// node_modules/deep-view/src/react/card.js
 var import_react10 = require("react");
 var mdLabels = (ui2) => ({ code: { copyLabel: ui2.t("Copy"), copiedLabel: ui2.t("Copied") }, footnotes: ui2.t("Footnotes") });
 var TONES2 = ["good", "warn", "bad"];
@@ -6654,7 +6655,7 @@ ${CHART_CSS}
 ${HTML_CSS}
 `;
 
-// ../../../node_modules/.pnpm/deep-view@0.1.0_@deepseek-ai+cordis@vendor+cordis_@deepseek-ai+dsh-llm@packages+llm+llm_b011bd9aa8e4e2a265aab920cf0b216d/node_modules/deep-view/src/react/styles.js
+// node_modules/deep-view/src/react/styles.js
 var THEME_CSS = `
 body{
 --dv-ink:var(--dsw-alias-label-primary);
@@ -6751,10 +6752,10 @@ button.dv-q-opt:active{background:var(--dv-active)}
 @media (prefers-reduced-motion:reduce){.dv-q,.dv-view-bare,.dv-q-submit,.dv-menu,.dv-q-check{animation:none}}
 `;
 
-// ../../../node_modules/.pnpm/deep-view@0.1.0_@deepseek-ai+cordis@vendor+cordis_@deepseek-ai+dsh-llm@packages+llm+llm_b011bd9aa8e4e2a265aab920cf0b216d/node_modules/deep-view/src/react/index.js
+// node_modules/deep-view/src/react/index.js
 var DEEP_VIEW_CSS = THEME_CSS + QUESTION_CSS + WIDGET_CSS;
 
-// ../../../node_modules/.pnpm/deep-view@0.1.0_@deepseek-ai+cordis@vendor+cordis_@deepseek-ai+dsh-llm@packages+llm+llm_b011bd9aa8e4e2a265aab920cf0b216d/node_modules/deep-view/src/core/reply.js
+// node_modules/deep-view/src/core/reply.js
 var REPLY_KIND = "user-question-reply";
 function viewCardText(args) {
   let card = args;

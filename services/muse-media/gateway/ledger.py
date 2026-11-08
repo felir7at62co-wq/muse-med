@@ -9,7 +9,7 @@ import uuid
 
 from configuration import Failure
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class Ledger:
@@ -23,7 +23,7 @@ class Ledger:
         target.chmod(0o600)
         self.db.row_factory = sqlite3.Row
         version = self.db.execute("PRAGMA user_version").fetchone()[0]
-        if version not in (0, SCHEMA_VERSION):
+        if version not in (0, 1, SCHEMA_VERSION):
             self.db.close()
             raise ValueError("Unsupported media ledger generation")
         self.db.execute("PRAGMA journal_mode=WAL")
@@ -33,6 +33,15 @@ class Ledger:
             upstream_task TEXT, upstream_download TEXT, result TEXT NOT NULL,
             files TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL,
             reserved_until REAL NOT NULL, UNIQUE(account_id, request_id))""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS media_receipts (
+            token TEXT PRIMARY KEY, job_id TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL,
+            created_at REAL NOT NULL, lease_until REAL NOT NULL, imported_at REAL)""")
+        self.db.execute("CREATE INDEX IF NOT EXISTS media_receipts_job ON media_receipts(job_id,name,sha256)")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS media_audits (
+            id INTEGER PRIMARY KEY, created_at REAL NOT NULL, kind TEXT NOT NULL,
+            policy_hash TEXT, code_hash TEXT NOT NULL, payload TEXT NOT NULL)""")
+        self.db.execute("""CREATE TABLE IF NOT EXISTS media_deletions (
+            resource TEXT PRIMARY KEY, download_id TEXT NOT NULL, state TEXT NOT NULL, created_at REAL NOT NULL)""")
         self.db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
         # A process loss cannot prove whether a submission reached the upstream.
         self.db.execute("UPDATE jobs SET state='unconfirmed',result=? WHERE state='submitting'", ('{"code":"process_interrupted"}',))
