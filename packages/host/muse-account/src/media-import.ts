@@ -279,7 +279,6 @@ export class MuseMediaImporter {
         transfer.signal.throwIfAborted()
         return receipt
       }, signal, true)
-      signal.throwIfAborted()
       return result
     } catch (error) {
       if (spec !== undefined) await this.settle(spec, 'cleanup', location.policy)
