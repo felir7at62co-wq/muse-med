@@ -107,7 +107,7 @@ root 作用域的 `conversation.session.header.views.actions` list 有注册项�
 
 工作区选择使用 `uiWorkspace.openWorkspace` 准备目标并提交导航。草稿内容（包括结构化引用）和附件仅在该请求仍为当前请求、且没有在途提交时，通过它的同步准备回调搬移；后续导航、所有者释放或在途提交都会把原草稿留在它的 Session 中。
 
-Host 配置 `headerPresentation` 默认为 `standard`。Muse Desktop 为 Chat 使用 `floating`：当前 Session 标题在左上角单行显示并在过长时省略，更多视图按钮紧邻标题，原生操作保留在右上方。标题省略时，更多视图按钮仍可点击，并提供所有 View。标题与操作悬浮在不拦截指针的顶部渐隐遮罩上方，不占据垂直流空间；标签栏保持隐藏。其他 View 使用正常文档流中的标准顶栏，使其工具栏位于标题和标签栏下方。
+Host 配置 `headerPresentation` 默认为 `standard`。插件可通过 `ctx.uiConversation.headerPresentations.register()` 注册可撤销的 `{ id, presentation }` 偏好。最后注册的偏好优先；卸载时恢复前一个注册或 Host 默认值，不替换聊天记录或输入框。可选的 Muse 视频界面为 Chat 使用 `floating`：当前 Session 标题在左上角单行显示并在过长时省略，更多视图按钮紧邻标题，原生操作保留在右上方。标题省略时，更多视图按钮仍可点击，并提供所有 View。标题与操作悬浮在不拦截指针的顶部渐隐遮罩上方，不占据垂直流空间；标签栏保持隐藏。其他 View 使用正常文档流中的标准顶栏，使其工具栏位于标题和标签栏下方。
 
 Session 作用域的 `conversation.content.overlay` 列表接收解析后的 `activeView` id，无可用 View 时为 `null`。其绝对定位容器直接位于共享正文中，在滚动容器与 Chat 查询容器之外，继承实时内容宽度变量，且不创建层叠上下文。条目不占布局空间，自行管理面板层级、指针事件及 View 可见性；挂载到 body 的任务面板层级为 100，对话框为 1000。空白 Hero 不渲染该浮层列表。
 

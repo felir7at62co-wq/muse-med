@@ -61,3 +61,10 @@
     enabled: false
     requireMention: true
     denyTools: [exit_plan_mode]
+
+# Optional conversation presentation remains below the editable profile layer.
+- insert:
+    - id: ui-session-video
+      name: '@deepseek-ai/dsh-client-ui-session-video'
+      config:
+        pixelsPerSecond: 48

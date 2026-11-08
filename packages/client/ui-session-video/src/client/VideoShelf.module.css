@@ -99,3 +99,8 @@
 .inlineLabel { padding: 5px 10px; font-size: 11px; color: var(--dsw-alias-label-secondary); }
 .anchor:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .curtain, .bubble, .sourcePill, .sourceControls { transition: none; } }
+/* These enhancements exist only while this plugin owns the Chat spacer. */
+:global([data-chat-frame]):has(.spacer) :global([data-message-bubble]) {
+  border-bottom-right-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-chat-user-bg);
+}

@@ -697,7 +697,9 @@ export type ConversationSessionSlotProps =
   & InjectFace<ConversationSessionInjected>
 
 /** Deployment-selected layout passed to the native header. */
-export interface ConversationHeaderInjected { readonly headerPresentation: HeaderPresentation }
+export interface ConversationHeaderInjected {
+  readonly hooks: { readonly headerPresentation: ObservableSnapshot<HeaderPresentation> }
+}
 
 /** Full props of the resident navigation header. */
 export type ConversationHeaderProps =

@@ -62,6 +62,9 @@
     },
     {
       "path": "../../util/brand"
+    },
+    {
+      "path": "../ui-settings/tsconfig.client.json"
     }
   ]
 }

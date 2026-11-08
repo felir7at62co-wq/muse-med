@@ -9,7 +9,8 @@ import css from './ConversationRoot.module.css'
  * @param props - Optional Session sources and authorized header slots.
  * @returns The persistent header with any selected Session's title and views.
  */
-export function ConversationHeader({ sessionId, useSession, useConversation, renderSlot, headerPresentation }: ConversationHeaderProps) {
+export function ConversationHeader({ sessionId, useSession, useConversation, renderSlot, useHeaderPresentation }: ConversationHeaderProps) {
+  const headerPresentation = useHeaderPresentation(value => value)
   const session = useSession(s => s)
   const conversation = useConversation(s => s)
   const blank = session === undefined || conversation === undefined

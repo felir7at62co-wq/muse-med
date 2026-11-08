@@ -21,7 +21,7 @@ import { sessionReferenceRule } from './user-text/session-reference-rule.ts'
 import { collapseWhitespaceRule, trimWhitespaceRule } from './user-text/whitespace-rules.ts'
 import type { ViewTab } from './contract/views.ts'
 import type {
-  ComposerBarInjected, ConversationInjected, ConversationSessionHeaderInjected,
+  ComposerBarInjected, ConversationHeaderInjected, ConversationInjected, ConversationSessionHeaderInjected,
   ConversationSessionInjected, DraftFileUploads, UserTextInjected,
 } from './contract/slots.ts'
 import type { InputNotice } from './contract/input.ts'
@@ -447,7 +447,10 @@ export function apply(ctx: Context, config: Config = Config({})): void {
 
   const registerHeader = () => slots.register({
     name: 'conversation.header',
-    inject: () => ({ headerPresentation }),
+    inject: (): ConversationHeaderInjected => ({ hooks: { headerPresentation: {
+      getSnapshot: () => uiConversation.headerPresentations.getSnapshot() ?? headerPresentation,
+      subscribe: listener => uiConversation.headerPresentations.subscribe(listener),
+    } } }),
     children: {
       'conversation.header.leading': { kind: 'single', scope: 'root' },
       'conversation.session.header': { kind: 'single', scope: 'session' },

@@ -1,0 +1,48 @@
+{
+  "name": "@deepseek-ai/dsh-muse-video-ui",
+  "description": "Optional Muse conversation bubbles, video timeline and reversible collection animation",
+  "version": "0.2.2-rc.1",
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
+    "directory": "packages/bundle/muse-video-ui"
+  },
+  "exports": {
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    }
+  },
+  "files": [
+    "cordis.patch.yml",
+    "locale/*.json",
+    "lib/index.js",
+    "lib/types/**/*.d.ts"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml",
+      "listedByDefault": false
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-session-video": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-session-video": "workspace:*"
+  },
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "workspace:~"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "workspace:~"
+  }
+}

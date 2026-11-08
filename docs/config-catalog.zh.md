@@ -749,11 +749,14 @@ export interface Config {
 
 ## `@deepseek-ai/dsh-client-ui-session-video`
 
-- `source`: [`packages/client/ui-session-video/src/config.ts:5`](../packages/client/ui-session-video/src/config.ts)
+- `refs`: `Volatile` (`@deepseek-ai/cordis`)
+- `source`: [`packages/client/ui-session-video/src/config.ts:6`](../packages/client/ui-session-video/src/config.ts)
 
 ```ts config-catalog
 /** Validated presentation settings shared by Host and Client. */
 export interface Config {
+  /** Live switch for all conversation presentation contributions. */
+  readonly enabled: Volatile<boolean>
   /** Horizontal pixels occupied by one second in the shot timeline. */
   readonly pixelsPerSecond: number
 }

@@ -3110,6 +3110,20 @@ importers:
         specifier: workspace:*
         version: link:../../interaction/user-approval
 
+  packages/bundle/muse-video-ui:
+    dependencies:
+      '@deepseek-ai/dsh-client-ui-session-video':
+        specifier: workspace:*
+        version: link:../../client/ui-session-video
+      '@deepseek-ai/dsh-session-video':
+        specifier: workspace:*
+        version: link:../../drama/session-video
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:~
+        version: link:../../../vendor/cordis
+
+
   packages/bundle/sdk-app:
     dependencies:
       '@deepseek-ai/dsh-client-connection':
@@ -6010,6 +6024,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-session':
         specifier: workspace:*
         version: link:../ui-session
+      '@deepseek-ai/dsh-client-ui-settings':
+        specifier: workspace:*
+        version: link:../ui-settings
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:*
         version: link:../ui-slots
@@ -6022,6 +6039,9 @@ importers:
       '@deepseek-ai/dsh-session-video':
         specifier: workspace:*
         version: link:../../drama/session-video
+      '@deepseek-ai/dsh-settings':
+        specifier: workspace:*
+        version: link:../../settings/settings
       '@deepseek-ai/dsh-typert-protocol':
         specifier: workspace:*
         version: link:../../typert/protocol
