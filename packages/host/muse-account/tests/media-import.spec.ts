@@ -109,7 +109,7 @@ it('imports the exact spaced and parenthesized manifest member through the curre
   const withFile = vi.spyOn(client, 'withFile'), f = await fixture({ client })
   const result = await f.importer.import(f.agent, id, name, new AbortController().signal)
   const destination = join(f.cwd, 'source/media/company', `${id}-${name}`)
-  expect(withFile).toHaveBeenCalledWith(id, name, expect.any(Function), expect.any(AbortSignal))
+  expect(withFile).toHaveBeenCalledWith(id, name, expect.any(Function), expect.any(AbortSignal), true)
   expect(fetcher).toHaveBeenCalledTimes(2)
   expect(fetcher).toHaveBeenNthCalledWith(2, new URL(`${origin}/api/media/jobs/${id}/files/video%20(1).mp4`),
     expect.objectContaining({ method: 'GET' }))

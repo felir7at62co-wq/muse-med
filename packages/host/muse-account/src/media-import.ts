@@ -278,7 +278,7 @@ export class MuseMediaImporter {
         await transfer.assertCurrent()
         transfer.signal.throwIfAborted()
         return receipt
-      }, signal)
+      }, signal, true)
       signal.throwIfAborted()
       return result
     } catch (error) {

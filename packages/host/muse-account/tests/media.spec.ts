@@ -296,3 +296,58 @@ it('disposal cancels and awaits import callback cleanup before settling', async 
   expect(disposed).toBe(true)
   await expect(value.client.status()).rejects.toMatchObject({ code: 'cancelled' })
 })
+
+it('confirms an import only after full consumption and native publication using its exact lease and digest', async () => {
+  const value = await fixture()
+  const lease = '22222222-2222-4222-8222-222222222222'
+  let published = false
+  value.fetcher.mockImplementation(async (url, init) => {
+    const path = new URL(address(url)).pathname
+    if (path.endsWith('/imported')) {
+      expect(published).toBe(true)
+      expect(init?.method).toBe('POST')
+      expect(JSON.parse(String(init?.body))).toEqual({ lease, sha256: saved.files[0]!.sha256 })
+      return Response.json({ state: 'acknowledged' })
+    }
+    if (path.endsWith('/files/video.mp4')) return new Response('abc', { headers: { 'x-muse-media-lease': lease } })
+    return Response.json(saved)
+  })
+  const output = await value.client.withFile(id, 'video.mp4', async (transfer) => {
+    expect(value.fetcher).toHaveBeenCalledTimes(2)
+    expect(await new Response(transfer.body).text()).toBe('abc')
+    published = true
+    return 'verified local file'
+  }, undefined, true)
+  expect(output).toBe('verified local file')
+  expect(value.fetcher).toHaveBeenCalledTimes(3)
+})
+
+it.each(['ordinary-read', 'consumer-failed', 'incomplete', 'legacy-server'] as const)(
+  'does not confirm a %s transfer', async (kind) => {
+    const value = await fixture()
+    value.fetcher.mockResolvedValueOnce(Response.json(saved)).mockResolvedValueOnce(new Response('abc', {
+      headers: kind === 'legacy-server' ? {} : { 'x-muse-media-lease': '22222222-2222-4222-8222-222222222222' },
+    }))
+    const operation = value.client.withFile(id, 'video.mp4', async (transfer) => {
+      if (kind === 'incomplete') return 'no read'
+      await new Response(transfer.body).text()
+      if (kind === 'consumer-failed') throw Error('Local decoder rejected video')
+      return 'read'
+    }, undefined, kind !== 'ordinary-read')
+    if (kind === 'incomplete' || kind === 'consumer-failed') await expect(operation).rejects.toBeDefined()
+    else await expect(operation).resolves.toBe('read')
+    expect(value.fetcher).toHaveBeenCalledTimes(2)
+  },
+)
+
+it('keeps a verified local file when confirmation is unavailable without retrying', async () => {
+  const value = await fixture()
+  value.fetcher.mockResolvedValueOnce(Response.json(saved)).mockResolvedValueOnce(new Response('abc', {
+    headers: { 'x-muse-media-lease': '22222222-2222-4222-8222-222222222222' },
+  })).mockResolvedValueOnce(new Response('unavailable', { status: 503 }))
+  await expect(value.client.withFile(id, 'video.mp4', async (transfer) => {
+    await new Response(transfer.body).arrayBuffer()
+    return 'local_ready'
+  }, undefined, true)).resolves.toBe('local_ready')
+  expect(value.fetcher).toHaveBeenCalledTimes(3)
+})

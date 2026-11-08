@@ -77,6 +77,8 @@ Cloud submission requires a stable `requestId`; uncertainty requires querying th
 
 Cloud transcription responses retain only validated provider quota categories and an optional `recovery.retry_after` delay in seconds. A lifetime quota requires restoring the original application's allowance before querying its existing task; neither this metadata nor an HTTP 429 authorizes a new paid submission.
 
+After the native importer finishes verification and publication, the account transport sends one bounded, owner-scoped import confirmation using the exact file lease and digest. Ordinary reads, failed decodes and incomplete transfers do not confirm imports. A failed or lost confirmation is not retried and leaves the longer cloud retention period; it does not invalidate an otherwise verified local file. Old servers without a lease remain usable. Account changes and cancellation still refuse delivery.
+
 ### Minimal configuration
 
 The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps/desktop-host/config/desktop.cordis.patch.yml):

@@ -186,10 +186,13 @@ export class MuseMediaClient {
    * @param name - Exact persisted manifest name.
    * @param consume - Consume the whole stream, using assertCurrent before and after publishing files.
    * @param signal - Optional caller cancellation, also provided to the consumer.
-   * @returns Consumer result only after complete consumption and a final account check.
+   * @param confirmImport - Native importer confirmation after hash, decoding and publication; ordinary reads leave it false.
+   * @returns Consumer result after complete consumption and a final account check;
+   * an unconfirmed cloud receipt retains longer protection.
    */
   async withFile<Result>(
-    id: MuseMediaJobId, name: string, consume: (transfer: MuseMediaTransfer) => Promise<Result>, signal?: AbortSignal,
+    id: MuseMediaJobId, name: string, consume: (transfer: MuseMediaTransfer) => Promise<Result>,
+    signal?: AbortSignal, confirmImport = false,
   ): Promise<Result> {
     return await this.run(signal, true, false, async (operation) => {
       const job = await this.getReceipt(operation, id)
@@ -240,6 +243,17 @@ export class MuseMediaClient {
         const result = await consume({ body, file: entry, job, signal: operation.signal, assertCurrent: operation.assertCurrent })
         if (!consumption.complete) throw new MuseMediaError('file-incomplete')
         await operation.assertCurrent()
+        const lease = response.headers.get('x-muse-media-lease')
+        if (confirmImport && lease !== null && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/u.test(lease)) {
+          try {
+            const acknowledgement = await this.json(operation,
+              `/api/media/jobs/${encodeURIComponent(id)}/files/${encodeURIComponent(entry.name)}/imported`,
+              JSON.stringify({ lease, sha256: entry.sha256 }))
+            this.parse(z.object({ state: z.literal('acknowledged') }), acknowledgement)
+          } catch (_error) {
+            // An absent confirmation preserves cloud retention; a verified local file remains usable.
+          }
+        }
         return result
       } finally {
         operation.signal.removeEventListener('abort', abort)
