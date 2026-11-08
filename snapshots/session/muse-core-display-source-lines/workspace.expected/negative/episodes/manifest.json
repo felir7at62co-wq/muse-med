@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "expected_episode_count": 3,
+  "work_scope": {
+    "episode_ids": [
+      "03"
+    ]
+  },
+  "episodes": {
+    "03": {
+      "sha256": "76a8f2ab3e818d0c5b4efaf3aefcef441147f6629e27b61ef81e2024e0d1cda6",
+      "char_count": 124
+    }
+  }
+}

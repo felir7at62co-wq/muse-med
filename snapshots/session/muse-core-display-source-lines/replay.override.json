@@ -1,0 +1,90 @@
+{
+  "patches": [
+    {
+      "at": 1,
+      "entry": {
+        "kind": "chunks",
+        "chunks": [
+          {
+            "type": "block-start",
+            "index": 0,
+            "blockType": "tool-call"
+          },
+          {
+            "type": "tool-call-delta",
+            "index": 0,
+            "id": "call_display_cli",
+            "name": "bash",
+            "argumentsDelta": "{\"command\":\"python3 -I -X utf8 -B - <<'PYTHON'\\nimport copy\\nimport hashlib\\nimport json\\nimport subprocess\\nimport sys\\nfrom pathlib import Path\\n\\ncore = Path('{{fromRequest:Base directory for this skill: (.+)}}')\\ncli = core / 'scripts/episode_coverage.py'\\nassert cli.is_file() and (core / 'SKILL.md').is_file()\\ndef sha(data):\\n    return hashlib.sha256(data).hexdigest()\\ndef invoke(project, *args):\\n    result = subprocess.run([sys.executable, '-X', 'utf8', '-B', str(cli), str(project), *args], capture_output=True, text=True)\\n    assert not result.stderr, result.stderr\\n    return result.returncode, json.loads(result.stdout)\\ndef files(project):\\n    return {str(path.relative_to(project)): path.read_bytes() for path in project.rglob('*') if path.is_file()}\\ndef mapping(project, report, memberships):\\n    rows = copy.deepcopy(report['entries'])\\n    for row, number in zip(rows, memberships, strict=True):\\n        row.pop('reason', None)\\n        if row['kind'] is None:\\n            row['kind'] = 'state'\\n        row['shots'] = [number]\\n    path = project / 'shots_and_matches/ep03-source-map.json'\\n    path.parent.mkdir(exist_ok=True)\\n    path.write_text(json.dumps({'version': 1, 'episode': '03', 'source_sha256': report['source_sha256'],\\n        'shot_script': 'shots/EP03-9x16.md', 'entries': rows}, ensure_ascii=False, indent=2) + '\\\\n', encoding='utf-8')\\n    return path\\n\\nevidence = {'check': 'display_source_lines', 'projects': {}}\\nfor name, memberships in [('positive', [1,1,1,1,2,3,3,3,4,5,6]), ('negative', [1,1,1,1,2,2,2,2,2,2,2,2])]:\\n    project = Path(name)\\n    source = project / 'episodes/03.txt'\\n    original = source.read_bytes()\\n    manifest = project / 'episodes/manifest.json'\\n    original_manifest = manifest.read_bytes()\\n    before = files(project)\\n    lines_code, report = invoke(project, 'source-lines', '03')\\n    assert files(project) == before\\n    assert report['source_sha256'] == sha(original)\\n    assert report['coverage_acceptance'] is False\\n    assert [(row['source_line'], row['source_text']) for row in report['entries']] == list(enumerate(original.decode().splitlines(), 1))\\n    if name == 'positive':\\n        assert lines_code == 0 and report['status'] == 'passed'\\n        assert [row['kind'] for row in report['entries']] == ['scene','scene','action','state','action','scene','action','state','os','vo','action']\\n        assert report['pending_lines'] == []\\n    else:\\n        assert lines_code == 1 and report['status'] == 'pending'\\n        assert report['entries'][3]['kind'] == 'state'\\n        assert report['entries'][4]['kind'] == 'scene'\\n        assert report['entries'][5]['kind'] is None and report['entries'][5]['reason']\\n        assert report['pending_lines'] == [6,7,8,9,11,12]\\n        assert all(report['entries'][index]['kind'] is None for index in [6,7,8,10,11])\\n    map_path = mapping(project, report, memberships)\\n    audit_code, audited = invoke(project, 'audit')\\n    accept_code, accepted = invoke(project, 'accept', '03')\\n    gate_code, gated = invoke(project, 'gate', '03')\\n    receipt_path = project / 'shots_and_matches/ep03-coverage-acceptance.json'\\n    item = {'source_sha256': sha(original), 'source_bytes': len(original),\\n        'manifest_sha256': sha(original_manifest), 'source_lines': report['entries'],\\n        'pending_lines': report['pending_lines'], 'exit_codes': [lines_code, audit_code, accept_code, gate_code],\\n        'audit': audited['status'], 'accept': accepted['accept_status'], 'gate': gated['status']}\\n    if name == 'positive':\\n        assert [audit_code, accept_code, gate_code] == [0,0,0]\\n        assert audited['status'] == 'passed' and accepted['accept_status'] == 'passed' and gated['status'] == 'passed'\\n        receipt = json.loads(receipt_path.read_text())\\n        assert receipt['source_sha256'] == receipt['source_file_sha256'] == sha(original)\\n        assert receipt['mapping_sha256'] == sha(map_path.read_bytes())\\n        shot = project / 'shots/EP03-9x16.md'\\n        authored = shot.read_bytes()\\n        assert receipt['shot_sha256'] == sha(authored)\\n        assert receipt['episode_manifest_sha256'] == audited['episodes']['03']['episode_manifest_sha256']\\n        shot.write_bytes(authored.replace('发声类型：os\\\\nOS：'.encode(), '发声类型：vo\\\\nVO：'.encode()))\\n        changed_code, changed = invoke(project, 'gate', '03')\\n        assert changed_code == 1 and changed['status'] == 'blocked'\\n        assert json.loads(receipt_path.read_text()) == receipt\\n        shot.write_bytes(authored)\\n        item['changed_os_to_vo_gate'] = changed['status']\\n        item['receipt_binds_source_map_shot_manifest'] = True\\n        receipt_path.unlink()\\n    else:\\n        assert [audit_code, accept_code, gate_code] == [1,1,1]\\n        assert audited['status'] == 'pending' and accepted['accept_status'] == 'blocked' and gated['status'] == 'blocked'\\n        assert not receipt_path.exists()\\n        item['reasons'] = audited['episodes']['03']['reasons']\\n        item['acceptance_absent'] = True\\n    assert source.read_bytes() == original and manifest.read_bytes() == original_manifest\\n    evidence['projects'][name] = item\\nprint('DISPLAY_SOURCE_EVIDENCE ' + json.dumps(evidence, ensure_ascii=False, separators=(',', ':')))\\nPYTHON\",\"description\":\"Classify original display text, verify real coverage CLI acceptance and refusal\"}"
+          },
+          {
+            "type": "block-end",
+            "index": 0,
+            "block": {
+              "type": "tool-call",
+              "id": "call_display_cli",
+              "name": "bash",
+              "arguments": "{\"command\":\"python3 -I -X utf8 -B - <<'PYTHON'\\nimport copy\\nimport hashlib\\nimport json\\nimport subprocess\\nimport sys\\nfrom pathlib import Path\\n\\ncore = Path('{{fromRequest:Base directory for this skill: (.+)}}')\\ncli = core / 'scripts/episode_coverage.py'\\nassert cli.is_file() and (core / 'SKILL.md').is_file()\\ndef sha(data):\\n    return hashlib.sha256(data).hexdigest()\\ndef invoke(project, *args):\\n    result = subprocess.run([sys.executable, '-X', 'utf8', '-B', str(cli), str(project), *args], capture_output=True, text=True)\\n    assert not result.stderr, result.stderr\\n    return result.returncode, json.loads(result.stdout)\\ndef files(project):\\n    return {str(path.relative_to(project)): path.read_bytes() for path in project.rglob('*') if path.is_file()}\\ndef mapping(project, report, memberships):\\n    rows = copy.deepcopy(report['entries'])\\n    for row, number in zip(rows, memberships, strict=True):\\n        row.pop('reason', None)\\n        if row['kind'] is None:\\n            row['kind'] = 'state'\\n        row['shots'] = [number]\\n    path = project / 'shots_and_matches/ep03-source-map.json'\\n    path.parent.mkdir(exist_ok=True)\\n    path.write_text(json.dumps({'version': 1, 'episode': '03', 'source_sha256': report['source_sha256'],\\n        'shot_script': 'shots/EP03-9x16.md', 'entries': rows}, ensure_ascii=False, indent=2) + '\\\\n', encoding='utf-8')\\n    return path\\n\\nevidence = {'check': 'display_source_lines', 'projects': {}}\\nfor name, memberships in [('positive', [1,1,1,1,2,3,3,3,4,5,6]), ('negative', [1,1,1,1,2,2,2,2,2,2,2,2])]:\\n    project = Path(name)\\n    source = project / 'episodes/03.txt'\\n    original = source.read_bytes()\\n    manifest = project / 'episodes/manifest.json'\\n    original_manifest = manifest.read_bytes()\\n    before = files(project)\\n    lines_code, report = invoke(project, 'source-lines', '03')\\n    assert files(project) == before\\n    assert report['source_sha256'] == sha(original)\\n    assert report['coverage_acceptance'] is False\\n    assert [(row['source_line'], row['source_text']) for row in report['entries']] == list(enumerate(original.decode().splitlines(), 1))\\n    if name == 'positive':\\n        assert lines_code == 0 and report['status'] == 'passed'\\n        assert [row['kind'] for row in report['entries']] == ['scene','scene','action','state','action','scene','action','state','os','vo','action']\\n        assert report['pending_lines'] == []\\n    else:\\n        assert lines_code == 1 and report['status'] == 'pending'\\n        assert report['entries'][3]['kind'] == 'state'\\n        assert report['entries'][4]['kind'] == 'scene'\\n        assert report['entries'][5]['kind'] is None and report['entries'][5]['reason']\\n        assert report['pending_lines'] == [6,7,8,9,11,12]\\n        assert all(report['entries'][index]['kind'] is None for index in [6,7,8,10,11])\\n    map_path = mapping(project, report, memberships)\\n    audit_code, audited = invoke(project, 'audit')\\n    accept_code, accepted = invoke(project, 'accept', '03')\\n    gate_code, gated = invoke(project, 'gate', '03')\\n    receipt_path = project / 'shots_and_matches/ep03-coverage-acceptance.json'\\n    item = {'source_sha256': sha(original), 'source_bytes': len(original),\\n        'manifest_sha256': sha(original_manifest), 'source_lines': report['entries'],\\n        'pending_lines': report['pending_lines'], 'exit_codes': [lines_code, audit_code, accept_code, gate_code],\\n        'audit': audited['status'], 'accept': accepted['accept_status'], 'gate': gated['status']}\\n    if name == 'positive':\\n        assert [audit_code, accept_code, gate_code] == [0,0,0]\\n        assert audited['status'] == 'passed' and accepted['accept_status'] == 'passed' and gated['status'] == 'passed'\\n        receipt = json.loads(receipt_path.read_text())\\n        assert receipt['source_sha256'] == receipt['source_file_sha256'] == sha(original)\\n        assert receipt['mapping_sha256'] == sha(map_path.read_bytes())\\n        shot = project / 'shots/EP03-9x16.md'\\n        authored = shot.read_bytes()\\n        assert receipt['shot_sha256'] == sha(authored)\\n        assert receipt['episode_manifest_sha256'] == audited['episodes']['03']['episode_manifest_sha256']\\n        shot.write_bytes(authored.replace('发声类型：os\\\\nOS：'.encode(), '发声类型：vo\\\\nVO：'.encode()))\\n        changed_code, changed = invoke(project, 'gate', '03')\\n        assert changed_code == 1 and changed['status'] == 'blocked'\\n        assert json.loads(receipt_path.read_text()) == receipt\\n        shot.write_bytes(authored)\\n        item['changed_os_to_vo_gate'] = changed['status']\\n        item['receipt_binds_source_map_shot_manifest'] = True\\n        receipt_path.unlink()\\n    else:\\n        assert [audit_code, accept_code, gate_code] == [1,1,1]\\n        assert audited['status'] == 'pending' and accepted['accept_status'] == 'blocked' and gated['status'] == 'blocked'\\n        assert not receipt_path.exists()\\n        item['reasons'] = audited['episodes']['03']['reasons']\\n        item['acceptance_absent'] = True\\n    assert source.read_bytes() == original and manifest.read_bytes() == original_manifest\\n    evidence['projects'][name] = item\\nprint('DISPLAY_SOURCE_EVIDENCE ' + json.dumps(evidence, ensure_ascii=False, separators=(',', ':')))\\nPYTHON\",\"description\":\"Classify original display text, verify real coverage CLI acceptance and refusal\"}"
+            }
+          },
+          {
+            "type": "usage",
+            "usage": {
+              "inputTokens": 180,
+              "outputTokens": 10,
+              "cacheReadTokens": 0,
+              "reasoningTokens": 4
+            }
+          },
+          {
+            "type": "finish",
+            "reason": {
+              "kind": "tool-calls"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "at": 2,
+      "entry": {
+        "kind": "chunks",
+        "chunks": [
+          {
+            "type": "block-start",
+            "index": 0,
+            "blockType": "text"
+          },
+          {
+            "type": "text-delta",
+            "index": 0,
+            "text": "OBSERVED {{fromRequest:DISPLAY_SOURCE_EVIDENCE (.+)}}"
+          },
+          {
+            "type": "block-end",
+            "index": 0,
+            "block": {
+              "type": "text",
+              "text": "OBSERVED {{fromRequest:DISPLAY_SOURCE_EVIDENCE (.+)}}"
+            }
+          },
+          {
+            "type": "usage",
+            "usage": {
+              "inputTokens": 180,
+              "outputTokens": 10,
+              "cacheReadTokens": 0,
+              "reasoningTokens": 4
+            }
+          },
+          {
+            "type": "finish",
+            "reason": {
+              "kind": "stop"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

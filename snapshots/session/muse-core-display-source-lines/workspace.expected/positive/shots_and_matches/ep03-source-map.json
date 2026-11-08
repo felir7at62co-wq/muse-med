@@ -1,0 +1,100 @@
+{
+  "version": 1,
+  "episode": "03",
+  "source_sha256": "b39809d3cfcd0f07c474e00c3262eafca822f01d4d7a84d4d54aa32d40a0bd00",
+  "shot_script": "shots/EP03-9x16.md",
+  "entries": [
+    {
+      "source_line": 1,
+      "source_text": "03-1 主厅 日 内",
+      "kind": "scene",
+      "shots": [
+        1
+      ]
+    },
+    {
+      "source_line": 2,
+      "source_text": "人物：甲、乙",
+      "kind": "scene",
+      "shots": [
+        1
+      ]
+    },
+    {
+      "source_line": 3,
+      "source_text": "△光幕亮起。",
+      "kind": "action",
+      "shots": [
+        1
+      ]
+    },
+    {
+      "source_line": 4,
+      "source_text": "【余额：20元】",
+      "kind": "state",
+      "shots": [
+        1
+      ]
+    },
+    {
+      "source_line": 5,
+      "source_text": "△甲指向“选项一”。",
+      "kind": "action",
+      "shots": [
+        2
+      ]
+    },
+    {
+      "source_line": 6,
+      "source_text": "【2-1 走廊 日 内】",
+      "kind": "scene",
+      "shots": [
+        3
+      ]
+    },
+    {
+      "source_line": 7,
+      "source_text": "△屏幕亮起。",
+      "kind": "action",
+      "shots": [
+        3
+      ]
+    },
+    {
+      "source_line": 8,
+      "source_text": "【余额：30元】",
+      "kind": "state",
+      "shots": [
+        3
+      ]
+    },
+    {
+      "source_line": 9,
+      "source_text": "甲（OS）：先别动。",
+      "kind": "os",
+      "speaker": "甲",
+      "speech_text": "先别动。",
+      "shots": [
+        4
+      ]
+    },
+    {
+      "source_line": 10,
+      "source_text": "乙（VO）：门开了。",
+      "kind": "vo",
+      "speaker": "乙",
+      "speech_text": "门开了。",
+      "shots": [
+        5
+      ]
+    },
+    {
+      "source_line": 11,
+      "source_text": "△甲一面说着，一面打开盒子。",
+      "kind": "action",
+      "shots": [
+        6
+      ]
+    }
+  ]
+}

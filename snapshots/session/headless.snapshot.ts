@@ -896,6 +896,9 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
     await cp(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-core'),
       join(cwd, '.dsh/skills/tweet-drama-core'), { recursive: true })
   },
+  async 'muse-core-display-source-lines'(cwd) {
+    await workspaceSetups['muse-drama-explicit-work-scope']!(cwd)
+  },
   async 'muse-shot-director-format'(cwd) {
     // The recorded resource belongs to the retired compiler, not the installed skill catalogue.
     const resource = await readFile(join(repoRoot, 'packages/drama/tool-shot-script/tests/director-format.fixture.txt'), 'utf8')
@@ -2016,6 +2019,49 @@ describe('headless recorded-session snapshots', () => {
           },
           inspect: async (cwd) => {
             actualLogs = await persistedSessions(cwd)
+            if (scenario.name === 'muse-core-display-source-lines') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+              expect(calls.map(call => call.name)).toEqual(['skill', 'bash'])
+              expect(JSON.parse(calls[0]!.arguments)).toEqual({ name: 'tweet-drama-core' })
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results.map(message => message.toolCallId)).toEqual(calls.map(call => call.callId))
+              expect(results.every(message => message.isError === false)).toBe(true)
+              const skill = results[0]?.content.find(block => block.type === 'text')
+              const output = results[1]?.content.find(block => block.type === 'text')
+              if (skill?.type !== 'text' || output?.type !== 'text') throw new Error('Missing real Core Skill or CLI result')
+              const core = join(await realpath(cwd), '.dsh/skills/tweet-drama-core')
+              expect(skill.text).toContain(`Base directory for this skill: ${core}`)
+              const packagedSkill = await readFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-core/SKILL.md'), 'utf8')
+              expect(skill.text).toContain(packagedSkill.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim())
+              const bash = JSON.parse(calls[1]!.arguments) as { command: string }
+              expect(bash.command).toContain(`core = Path('${core}')`)
+              expect(await readFile(join(core, 'scripts/episode_coverage.py')))
+                .toEqual(await readFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-core/scripts/episode_coverage.py')))
+              expect(output.text.startsWith('DISPLAY_SOURCE_EVIDENCE '), output.text).toBe(true)
+              const evidenceText = output.text.trim().slice('DISPLAY_SOURCE_EVIDENCE '.length)
+              const evidence = JSON.parse(evidenceText)
+              expect(evidence).toMatchObject({ check: 'display_source_lines', projects: {
+                positive: { exit_codes: [0, 0, 0, 0], audit: 'passed', accept: 'passed', gate: 'passed',
+                  pending_lines: [], changed_os_to_vo_gate: 'blocked', receipt_binds_source_map_shot_manifest: true },
+                negative: { exit_codes: [1, 1, 1, 1], audit: 'pending', accept: 'blocked', gate: 'blocked',
+                  pending_lines: [6, 7, 8, 9, 11, 12], acceptance_absent: true },
+              } })
+              expect(evidence.projects.positive.source_lines.map((row: JsonObject) => row.kind))
+                .toEqual(['scene', 'scene', 'action', 'state', 'action', 'scene', 'action', 'state', 'os', 'vo', 'action'])
+              expect(evidence.projects.negative.source_lines[4]).toMatchObject({ source_line: 5, kind: 'scene' })
+              expect(evidence.projects.negative.source_lines[5]).toMatchObject({ source_line: 6, kind: null, reason: expect.any(String) })
+              for (const name of ['positive', 'negative']) {
+                for (const file of ['episodes/03.txt', 'episodes/manifest.json', 'shots/EP03-9x16.md']) {
+                  expect(await readFile(join(cwd, name, file))).toEqual(await readFile(join(scenario.dir, 'workspace', name, file)))
+                }
+                expect(existsSync(join(cwd, name, 'shots_and_matches/ep03-coverage-acceptance.json'))).toBe(false)
+              }
+              const final = events.findLast(event => event.type === 'assistant/message')
+              if (final?.type !== 'assistant/message') throw new Error('Missing model observation of complete CLI evidence')
+              expect(final.data.message.content).toEqual([{ type: 'text', text: `OBSERVED ${evidenceText}` }])
+              expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+            }
             if (scenario.name === 'drama-subtitle-visual-review') {
               const expectedHash = await expectedVisualSpeechHash(cwd, scenario.dir)
               visualSpeechHash = expectedHash

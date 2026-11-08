@@ -1,0 +1,17 @@
+version: 1
+scenario: muse-core-display-source-lines
+profile: headless
+composition: muse-core-display-source-lines
+recording: authored
+writerOutput: true
+platform: posix
+header:
+  class: muse-core-display-source-lines
+  pin: true
+  systemPromptSource: text-turn
+  toolSchemasSource: text-turn
+replay:
+  override: true
+workspace:
+  setup: muse-core-display-source-lines
+  final: true

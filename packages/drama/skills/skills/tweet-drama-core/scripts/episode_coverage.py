@@ -61,6 +61,39 @@ WRITTEN_OBJECT_ACTION = re.compile(
     r"(?:拿起|放下|翻开|合上)(?:了|着)?(?:一本|一份|这份|那份|那本|这本)?"
     r"(?:说明书|说明文件|说明页|问卷|答题卡|答案页)[。.!]?$"
 )
+DIRECTION_PREFIX = re.compile(r"^(?:[△▲]\s*|(?:动作|画面)[：:]\s*)")
+DISPLAY_ANCHOR = re.compile(
+    r"光幕|屏幕|面板|弹窗|工牌|门牌|标牌|牌匾|告示|黑板|白底黑字"
+    r"|(?:刻|写|印)(?:着|有).{0,12}(?:字|文字)|数字.{0,12}映入"
+)
+VOICE_DIRECTION = re.compile(
+    r"说|喊|问|答|念|低语|耳语|自语|开口|播报|朗读|读出|发声|声音"
+    r"|脱口|嘀咕|咕哝|嘟囔|呢喃|高呼|大叫|叫道|吼|嚷|唱|哼|告诉|吐出|蹦出"
+)
+DISPLAY_AMOUNT = re.compile(r"(?:基本工资|底薪|月薪|余额|积分)[：:]\s*[+\-¥￥]?\d+(?:[,，]\d{3})*(?:\.\d+)?\s*(?:元|分|积分|%|％)[。.]?")
+LITERAL_TEXT = r'''[^“”‘’"'「」『』\n]+'''
+DISPLAY_LITERAL = re.compile("|".join(re.escape(left) + LITERAL_TEXT + re.escape(right) for left, right in QUOTE_PAIRS))
+DISPLAY_WRITING = re.compile(r"(?:刻着|刻有|写着|写有|印着|印有|显示|显示着|显示为|标注|标注为)\s*$")
+DISPLAY_OPTION = re.compile(r"选项(?:[一二三四五六七八九十百零〇\d]+|[A-Z])")
+DISPLAY_SELECT = re.compile(r'''(?:抓住|点选|点击|选中|选择|按下|指向|触碰)[^“”‘’"'「」『』：:\n]{0,12}$''')
+REMOVED_LABELS = re.compile(
+    r'''(?:[^“”‘’"'「」『』：:\n]*[，,]\s*)?(?:原本|原来)的(?:'''
+    + DISPLAY_LITERAL.pattern + r")(?:\s*[、和及与]\s*(?:" + DISPLAY_LITERAL.pattern
+    + r"))*(?:的)?(?:字样|文字|标签)?(?:都|均)?(?:已|已经)?(?:不见了|消失了|消失不见了)[。.]?"
+)
+DISPLAY_METRIC = re.compile(r"(?:基本工资|底薪|月薪|余额|积分|得分|奖励|[\u4e00-\u9fff]{1,12}(?:率|度|值))")
+DISPLAY_NUMBER = re.compile(r"[+\-¥￥]?\d+(?:[,，]\d{3})*(?:\.\d+)?\s*(?:元|分|积分|%|％)?[。.]?")
+DISPLAY_SETTLEMENT = re.compile(r"(?:积分|奖励|余额|得分)(?:结算|发放|更新|兑换|到账)(?:完成|成功)?")
+DISPLAY_SETTLEMENT_VALUE = re.compile(r"\d+(?:\.\d+)?(?:积分|元|分)(?:已[^：:\n]+)?[。.]?")
+DISPLAY_CONGRATULATION = re.compile(r"恭喜(?:可执行|执行者|宿主|玩家|用户)")
+PANEL_VOICE = re.compile(r"^(?:OS\b|VO\b|画外音|旁白|心声|解说|独白|系统音|系统语音|男声|女声)", re.I)
+PAIRED_PHYSICAL_ACTION = re.compile(
+    r'''(?P<subject>[^：:，,。.!！?？；;“”‘’"'「」『』\n]{1,30})一面说着[，,]\s*一面'''
+    r"(?P<physical>(?:(?:缓缓|慢慢|轻轻|迅速|小心翼翼|颤巍巍|默默|利落|麻利|颤抖|艰难)(?:地)?){0,2}"
+    r"(?:揭开|拿起|放下|打开|合上|盖上|端起|提起|放回|关上)"
+    r'''[^：:，,。.!！?？；;“”‘’"'「」『』\n]+)[。.!]?$'''
+)
+PHYSICAL_TRANSMISSION = re.compile(r"转告|通知|示意|交代|请求|命令|要求|提醒|解释|重复|表示|话|并|随后|接着|然后|同时")
 SKIP_SPEAKER = {"场景", "时间", "地点", "镜头", "画面", "动作", "人物", "状态", "环境", "转场", "备注", "说明"}
 PARSER_REPAIR_HINT = "识别能力缺口应保留原文并修复解析器；不改原文凑格式，不以人工备注代替accept/gate，不提供‘先跳过门禁’选项。pending期间不进行收费提交。"
 
@@ -264,6 +297,11 @@ def _non_speech_kind(line: str) -> str | None:
         if WRITTEN_OBJECT_ACTION.fullmatch(stripped):
             return "action"
         body = re.sub(r"^(?:[△▲]\s*|(?:动作|画面)[：:]\s*)", "", stripped, count=1)
+        paired = PAIRED_PHYSICAL_ACTION.fullmatch(body)
+        if paired is not None:
+            remainder = paired.group("subject") + paired.group("physical")
+            if not VOICE_DIRECTION.search(remainder) and not PHYSICAL_TRANSMISSION.search(remainder):
+                return "action"
         # Only supported object sounds with sound or impact context are removable.
         # Remaining quotes, speech cues or colon clauses require speech review.
         remaining = body
@@ -305,15 +343,120 @@ def _direction_speaker(line: str, characters: set[str]) -> str | None:
     return speaker
 
 
-def _source_non_speech_kind(lines: list[str], index: int, characters: set[str]) -> str | None:
-    """Resolve a terminal delivery cue only beside the same named speaker's dialogue.
+def _visual_literal_text(text: str) -> str | None:
+    """Remove only literals bound to writing, removed labels or selected options."""
+    literals = list(DISPLAY_LITERAL.finditer(text))
+    visible = DISPLAY_LITERAL.sub("", text)
+    if QUOTED_ANNOTATION.search(visible) or VOICE_DIRECTION.search(visible):
+        return None
+    if not literals or REMOVED_LABELS.fullmatch(text):
+        return visible
+    previous_written = None
+    for literal in literals:
+        before = text[:literal.start()]
+        written = bool(DISPLAY_ANCHOR.search(visible) and DISPLAY_WRITING.search(before))
+        if previous_written is not None and re.fullmatch(r"\s*[、和及与]\s*", text[previous_written:literal.start()]):
+            written = True
+        option = DISPLAY_OPTION.fullmatch(literal.group()[1:-1]) and DISPLAY_SELECT.search(before)
+        if not written and not option:
+            return None
+        previous_written = literal.end() if written else None
+    return visible
 
-    Colon/quoted payloads, earlier speech hints and unresolved identities retain
-    their standalone classification; the source and mapping supply no override.
+
+def _display_panel_field(prefix: str, value: str) -> bool:
+    """Recognize limited display fields rather than treating unknown names as labels."""
+    if QUOTED_ANNOTATION.search(prefix + value):
+        return False
+    return bool(DISPLAY_OPTION.fullmatch(prefix)
+                or DISPLAY_METRIC.fullmatch(prefix) and DISPLAY_NUMBER.fullmatch(value)
+                or DISPLAY_SETTLEMENT.fullmatch(prefix) and DISPLAY_SETTLEMENT_VALUE.fullmatch(value)
+                or DISPLAY_CONGRATULATION.fullmatch(prefix))
+
+
+def _display_direction(line: str) -> bool:
+    """Require an explicit visual carrier in a direction, outside quoted text."""
+    body = DIRECTION_PREFIX.sub("", line.strip(), count=1)
+    if body == line.strip():
+        return False
+    visible = _visual_literal_text(body)
+    return visible is not None and bool(DISPLAY_ANCHOR.search(visible)) and not VOICE_DIRECTION.search(visible)
+
+
+def _display_context(lines: list[str], index: int) -> bool:
+    """Use adjacent visual directions, crossing only blanks and one panel block."""
+    if _display_direction(lines[index]):
+        return True
+    for step, limit in ((-1, 2), (1, 1)):
+        cursor, directions = index + step, 0
+        while 0 <= cursor < len(lines):
+            text = lines[cursor].strip()
+            cursor += step
+            if text in {"【下集钩子】", "【全剧终】"}:
+                break
+            if not text:
+                continue
+            panel = re.fullmatch(r"【([^【】]+)】", text)
+            if panel is not None:
+                if _non_speech_kind(panel.group(1)) in {"heading", "scene", "transition"}:
+                    break
+                continue
+            if not DIRECTION_PREFIX.match(text):
+                break
+            if _display_direction(text):
+                return True
+            directions += 1
+            if directions >= limit or VOICE_DIRECTION.search(text):
+                break
+    return False
+
+
+def _visual_non_speech_kind(lines: list[str], index: int, characters: set[str]) -> str | None:
+    """Recognize displayed labels without interpreting bracketed speech as a panel."""
+    text = lines[index].strip()
+    panel = re.fullmatch(r"【([^【】]+)】", text)
+    if panel is not None:
+        content = panel.group(1)
+        structural = _non_speech_kind(content)
+        if structural in {"heading", "scene", "transition"}:
+            return structural
+        prefix = SOURCE_PREFIX.fullmatch(content)
+        identity = _speaker_parts(prefix.group(1).strip()) if prefix is not None else None
+        if identity is not None and identity[0] in characters | {"系统", "系统音", "旁白", "画外音", "OS", "VO"}:
+            return None
+        if PANEL_VOICE.match(content):
+            return None
+        if prefix is not None and not _display_panel_field(prefix.group(1).strip(), prefix.group(2).strip()):
+            return None
+        if prefix is None and ("：" in content or ":" in content):
+            return None
+        if prefix is None and _visual_literal_text(content) is None:
+            return None
+        return "state" if _display_context(lines, index) else None
+    if not DIRECTION_PREFIX.match(text):
+        return None
+    body = DIRECTION_PREFIX.sub("", text, count=1)
+    visible = _visual_literal_text(body)
+    if visible is None or VOICE_DIRECTION.search(visible) or not _display_context(lines, index):
+        return None
+    if DISPLAY_AMOUNT.fullmatch(body):
+        return "action"
+    if "：" in visible or ":" in visible:
+        return "action" if _display_direction(text) and visible.endswith(("：", ":")) else None
+    return "action" if visible != body else None
+
+
+def _source_non_speech_kind(lines: list[str], index: int, characters: set[str]) -> str | None:
+    """Resolve supported displayed text or a terminal cue beside the same speaker.
+
+    Unresolved speech and identities remain pending; maps cannot override source.
     """
     kind = _non_speech_kind(lines[index])
     if kind is not None:
         return kind
+    visual = _visual_non_speech_kind(lines, index, characters)
+    if visual is not None:
+        return visual
     speaker = _direction_speaker(lines[index], characters)
     if speaker is None:
         return None
