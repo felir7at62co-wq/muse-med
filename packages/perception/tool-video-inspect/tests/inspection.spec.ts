@@ -50,6 +50,65 @@ it('decodes every FFmpeg batch and continues from a nonzero source range', async
   expect(run.mock.calls.filter(call => call[1].includes('mjpeg'))).toHaveLength(4)
 })
 
+async function elevenSecondVideo(h: Awaited<ReturnType<typeof setup>>) {
+  const ffmpeg = await h.ctx.subprocess.resolveExecutable(h.config.ffmpegPath)
+  await runMedia(h.ctx, [ffmpeg, '-nostdin', '-v', 'error', '-y', '-f', 'lavfi', '-i',
+    'testsrc2=size=64x48:rate=24', '-frames:v', '266', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', h.input],
+  { mode: 'danger-full-access', workspaceRoot: h.root }, undefined,
+  { timeoutMs: 20_000, maxBytes: 1024, graceMs: 1000 })
+}
+
+it.each([{ interval: 0.5, count: 23, last: 11 }, { interval: 0.4, count: 28, last: 10.8 }])(
+  'decodes the complete $interval-second plan through the final real frame and fractional batch boundary', async ({ interval, count, last }) => {
+    const h = await setup({ ocrFrameIntervalSeconds: interval, ocrBatchFrames: 24 })
+    await elevenSecondVideo(h)
+    const run = mockWindowsOcr()
+    const result = await h.ocr({ raw_json_path: 'qa/long.json', merged_text_path: 'qa/long.txt' })
+    expect(result.isError, JSON.stringify(result.content)).toBe(false)
+    expect(result.value).toMatchObject({ scan_status: 'complete', coverage: {
+      planned_frame_count: count, processed_frame_count: count, failed_frame_count: 0, failed_timestamps_seconds: [],
+    } })
+    const raw = JSON.parse(await readFile(join(h.root, 'qa/long.json'), 'utf8')) as {
+      frames: { requested_seconds: number; timestamp_seconds: number }[] }
+    expect(raw.frames.map(frame => Math.round(frame.requested_seconds * 1_000_000)))
+      .toEqual(Array.from({ length: count }, (_, index) => Math.round(index * interval * 1_000_000)))
+    expect(raw.frames.at(-1)?.timestamp_seconds).toBe(last)
+    const batches = run.mock.calls.filter(call => call[1].includes('mjpeg')).map(call => call[1])
+    expect(batches.every(argv => argv[argv.indexOf('-vf') + 1]?.includes('eof_action=pass'))).toBe(true)
+    if (interval === 0.4) expect(batches[1]?.[batches[1].indexOf('-ss') + 1]).toBe('9.6')
+  }, 30_000,
+)
+
+it('keeps a missing planned final sample partial rather than treating EOF as completed evidence', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 24 })
+  await elevenSecondVideo(h)
+  const run = mockWindowsOcr(), recognize = run.getMockImplementation()!
+  run.mockImplementation(async (...args) => {
+    const output = await recognize(...args)
+    if (!args[1].includes('mjpeg')) return output
+    return { bytes: Buffer.concat(splitMjpeg(output.bytes).slice(0, -1)),
+      diagnostic: output.diagnostic.replace(/^.*\bpts_time:11\s.*(?:\r?\n|$)/mu, '') }
+  })
+  expect((await h.ocr({})).value).toMatchObject({ scan_status: 'partial', coverage: {
+    planned_frame_count: 23, processed_frame_count: 22, failed_frame_count: 1, failed_timestamps_seconds: [11],
+  } })
+}, 30_000)
+
+it('rejects an actually earlier timestamp at a fractional batch boundary', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 0.4, ocrBatchFrames: 24 })
+  await elevenSecondVideo(h)
+  const run = mockWindowsOcr(), recognize = run.getMockImplementation()!
+  run.mockImplementation(async (...args) => {
+    const output = await recognize(...args)
+    return args[1].includes('mjpeg') && args[1][args[1].indexOf('-ss') + 1] === '9.6'
+      ? { ...output, diagnostic: output.diagnostic.replace('pts_time:9.6 ', 'pts_time:9.599999 ') } : output
+  })
+  expect((await h.ocr({})).value).toMatchObject({ scan_status: 'partial', coverage: {
+    planned_frame_count: 28, processed_frame_count: 24, failed_frame_count: 4,
+    failed_timestamps_seconds: [24 * 0.4, 25 * 0.4, 26 * 0.4, 27 * 0.4],
+  } })
+}, 30_000)
+
 it('logs only encoded batch samples when FFmpeg reads ahead of a low-rate source', async () => {
   const h = await setup({ ocrFrameIntervalSeconds: 0.25, ocrBatchFrames: 2 })
   const run = mockWindowsOcr(), recognize = run.getMockImplementation()!

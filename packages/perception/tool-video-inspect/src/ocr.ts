@@ -376,16 +376,18 @@ export function ocrBridgeHostPath(moduleUrl = import.meta.url, engine: Config['o
 async function extractBatch(ctx: Context, config: Config, source: string, ffmpeg: string,
   policy: ReturnType<Context['sandboxPolicy']['resolve']>, signal: AbortSignal, start: number, count: number,
   interval: number): Promise<ExtractedFrame[]> {
-  const duration = count * interval
+  // FFmpeg seeks on a microsecond clock; compare that clock instead of binary-float products.
+  const startUs = Math.round(start * 1_000_000), endUs = Math.round((start + count * interval) * 1_000_000)
   const output = await Media.runMedia(ctx, [ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'info',
-    '-protocol_whitelist', 'file,pipe', '-ss', String(start), '-copyts', '-i', source, '-to', String(start + duration),
-    '-map', '0:v:0', '-an', '-sn', '-dn', '-vf', `fps=1/${interval},trim=end_frame=${count},scale=w='min(${config.ocrFrameMaxDimension},iw)':h='min(${config.ocrFrameMaxDimension},ih)':force_original_aspect_ratio=decrease,showinfo`,
+    '-protocol_whitelist', 'file,pipe', '-ss', String(startUs / 1_000_000), '-copyts', '-i', source, '-to', String(endUs / 1_000_000),
+    '-map', '0:v:0', '-an', '-sn', '-dn', '-vf', `fps=1/${interval}:eof_action=pass,trim=end_frame=${count},scale=w='min(${config.ocrFrameMaxDimension},iw)':h='min(${config.ocrFrameMaxDimension},ih)':force_original_aspect_ratio=decrease,showinfo`,
     '-frames:v', String(count), '-c:v', 'mjpeg', '-q:v', String(config.ocrFrameJpegQuality),
     '-f', 'image2pipe', 'pipe:1'], policy, signal, { timeoutMs: config.ocrCommandTimeoutMs,
     graceMs: config.graceMs, maxBytes: config.maxOcrBatchImageBytes, maxDiagnosticBytes: config.maxOcrDiagnosticBytes })
   const images = splitMjpeg(output.bytes), timestamps = showinfoTimestamps(output.diagnostic)
   if (timestamps.length > images.length || images.length > count
-    || timestamps.some(timestamp => timestamp < start || timestamp >= start + duration + 0.001)) {
+    || timestamps.some(timestamp => Math.round(timestamp * 1_000_000) < startUs
+      || Math.round(timestamp * 1_000_000) >= endUs + 1000)) {
     throw Error('OCR frame batch did not return matching images and timestamps')
   }
   return images.map((bytes, index) => {
