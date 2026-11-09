@@ -2,7 +2,7 @@
   "name": "@deepseek-ai/dsh-muse-market",
   "version": "0.2.2-rc.1",
   "private": true,
-  "description": "Local immutable Skill publications without activation or cloud access",
+  "description": "Skill publications with separate local storage, activation and optional account-bound cloud services",
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
@@ -40,6 +40,14 @@
     "./session": {
       "types": "./lib/types/session.d.ts",
       "default": "./lib/types/session.js"
+    },
+    "./cloud": {
+      "types": "./lib/types/cloud.d.ts",
+      "default": "./lib/cloud.js"
+    },
+    "./cloud-host": {
+      "types": "./lib/types/cloud-host.d.ts",
+      "default": "./lib/cloud-host.js"
     }
   },
   "scripts": {
@@ -50,6 +58,8 @@
     "lib/package.js",
     "lib/format.js",
     "lib/activation.js",
+    "lib/cloud.js",
+    "lib/cloud-host.js",
     "lib/shared-*.js",
     "lib/types/**/*.js",
     "lib/types/**/*.d.ts",
@@ -74,7 +84,9 @@
     "@deepseek-ai/dsh-session-projection": "workspace:*",
     "@deepseek-ai/dsh-session-query": "workspace:*",
     "@deepseek-ai/dsh-scope": "workspace:*",
-    "@deepseek-ai/dsh-api-session-controller": "workspace:*"
+    "@deepseek-ai/dsh-api-session-controller": "workspace:*",
+    "@deepseek-ai/dsh-muse-account": "workspace:*",
+    "@deepseek-ai/dsh-host-webserver": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~"
@@ -83,6 +95,14 @@
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
     "@deepseek-ai/dsh-session-format-v3-to-v4": "workspace:*",
-    "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:*"
+    "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:*",
+    "@deepseek-ai/dsh-api-gateway": "workspace:*",
+    "@deepseek-ai/dsh-client-connection": "workspace:*",
+    "@deepseek-ai/dsh-typert-registry": "workspace:*",
+    "@deepseek-ai/dsh-typert-generator": "workspace:*",
+    "@deepseek-ai/dsh-api-remote-access": "workspace:*",
+    "@deepseek-ai/dsh-app-boot": "workspace:*",
+    "@deepseek-ai/dsh-loader-smoke": "workspace:*",
+    "@deepseek-ai/dsh-tools": "workspace:*"
   }
 }

@@ -13,7 +13,11 @@
     "src/index.ts",
     "src/activation.ts",
     "src/session.ts",
-    "src/skills.ts"
+    "src/skills.ts",
+    "src/cloud-protocol.ts",
+    "src/cloud.ts",
+    "src/server.ts",
+    "src/cloud-host.ts"
   ],
   "references": [
     {
@@ -54,6 +58,12 @@
     },
     {
       "path": "../../api/session-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../muse-account/tsconfig.host.json"
+    },
+    {
+      "path": "../webserver"
     }
   ]
 }

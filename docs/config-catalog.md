@@ -2788,7 +2788,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-muse-account`
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel` · `sessions`
-- `source`: [`packages/host/muse-account/src/index.ts:43`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:45`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */

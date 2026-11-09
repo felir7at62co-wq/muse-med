@@ -334,6 +334,58 @@ publicationStorage(): MarketLocalConfig
 
 Source: [`packages/host/muse-market/src/index.ts`](../../packages/host/muse-market/src/index.ts)
 
+<a id="ctxmusemarketcloud--musemarketcloud"></a>
+
+### `ctx.museMarketCloud` — `MuseMarketCloud`
+
+Explicit cloud operations over immutable local archives; installation never activates a Skill.
+
+```ts cordis-catalog
+/** Search published metadata, or the signed-in creator's private records.
+ * @param q - Search text, at most 200 characters; empty requests the bounded current catalog.
+ * @param mine - Whether private creator-visible publications are requested.
+ * @returns At most catalogLimit validated records; oversized replies refuse instead of truncating.
+ */
+@Remote('catalog') async catalog(q: string, mine: boolean): Promise<MarketPublication[]>
+
+/** Read admitted publishing teams and administrator capability for the current login.
+ * @returns Validated public identity facts without the private account cookie.
+ */
+@Remote('identity') async identity(): Promise<MarketIdentity>
+
+/** Read one original publication using current account visibility.
+ * @param id - Exact 32-character cloud publication identity, distinct from a local SHA.
+ * @returns Complete validated public or authorized private metadata.
+ */
+@Remote('getPublication') async getPublication(id: MarketPublicationId): Promise<MarketPublication>
+
+/** Upload exact retained local bytes as a private draft; retry only with the original key and archive.
+ * @param localId - Exact 64-character local archive SHA identity.
+ * @param publisherId - Admitted publishing team selected by the caller.
+ * @param requestId - Original account-scoped upload key retained across uncertain replies.
+ * @returns The exact archive's cloud record; upload never submits it for review.
+ */
+@Remote('publishDraft') async publishDraft( localId: MarketReleaseId, publisherId: MarketPublisherId, requestId: MarketUploadRequestId, ): Promise<MarketPublication>
+
+/** Install the archive selected by its catalog digest without choosing a default or changing Session bindings.
+ * @param id - Exact cloud publication identity.
+ * @param expectedSha256 - Digest the caller observed when selecting the publication.
+ * @returns Original cloud metadata and the verified disabled local installation.
+ */
+@Remote('installPublication') async installPublication( id: MarketPublicationId, expectedSha256: string, ): Promise<{ publication: MarketPublication; installation: MuseMarketInstallation }>
+
+/** Explicitly submit, approve, reject or withdraw the revision the caller inspected.
+ * @param id - Original cloud publication identity.
+ * @param revision - Positive revision the caller reviewed; never replaced after a conflict.
+ * @param action - Requested transition; submit is separate from private upload.
+ * @param note - Explicit review note, at most 2000 characters.
+ * @returns Confirmed response or exact matching state read back after an uncertain response.
+ */
+@Remote('review') async review(id: MarketPublicationId, revision: number, action: MarketReviewAction, note: string): Promise<MarketPublication>
+```
+
+Source: [`packages/host/muse-market/src/cloud.ts`](../../packages/host/muse-market/src/cloud.ts)
+
 <a id="ctxwebapp--webapp"></a>
 
 ### `ctx.webApp` — `WebApp`

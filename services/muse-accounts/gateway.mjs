@@ -27,6 +27,7 @@ import {createDesktopRelay} from './desktop-relay.mjs';
 import {desktopRoute,desktopPrefix} from './desktop-route.mjs';
 import {desktopPicker} from './desktop-picker.mjs';
 import {createVoiceSlots,createJubianVoiceVerifier,resolveVoiceSlotOptions} from './voice-slots.mjs';
+import {loadMarket,marketRoute} from './market.mjs';
 
 /** Load account Wiki storage and administrator grants without opening legacy vector files.
  * @param {object} environment Gateway environment containing the KB directory and credential-file paths.
@@ -54,7 +55,13 @@ function loginPage(register=false,desktopLogin,feishuEnabled=false,feishuAppType
  const legacy=feishuEnabled?'':passwordForm+`<p>${register?`已有账号？<a href="/login${continuation}">登录</a>`:`<a href="/register${continuation}">免费注册个人工作间</a>`}</p>`;
  return page('MUSE',`<img src="/spider.png" alt="MUSE"><h1>MUSE</h1><p>让灵感成形，让故事发生。</p>${feishuEnabled?`${feishuAction}<small>飞书授权后即可使用，无需另设 MUSE 密码。${feishuAppType==='custom'?'仅限本企业应用可用范围内的成员。':''}</small>`:''}${legacy}<small>每个账号拥有独立的文档与会话。</small>`,true);
 }
-export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},desktopLoginOptions={},feishuLoginOptions={},modelConfig,globalModels,modelForward,desktopModelTransport='relay',modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,asrRequestRatePerMinute=60,activityRequestRatePerMinute=120,voiceSlots,now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
+/** Create the account gateway on a new or supplied HTTP carrier.
+ * @param {object} options Account, session, service and deployment options.
+ * @param {import('node:http').Server} [options.httpServer] Unhandled carrier, optionally already listening; the factory installs gateway handlers and owns their close cleanup.
+ * @returns {import('node:http').Server} The supplied carrier or a new HTTP server.
+ */
+export function createAccountServer({store,runtime={},workspaceMode='cloud',desktopRelayOptions={},desktopLoginOptions={},feishuLoginOptions={},modelConfig,globalModels,modelForward,desktopModelTransport='relay',modelKeyPoolPolicy=resolveModelKeyPoolPolicy(),modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts={},publicOrigin='https://muse.aigc-pipeline.cn',logoPath,kb,asr,asrStorage,asrRequestRatePerMinute=60,activityRequestRatePerMinute=120,voiceSlots,market,httpServer,now=Date.now,sessionTtlMs=DEFAULT_SESSION_TTL_MS,sessionStore=createMemorySessionStore({now}),devOnlyAdmin=process.env.MUSE_DEV_ONLY_ADMIN==='true',environment=process.env.MUSE_ENVIRONMENT||(devOnlyAdmin?'development':'production'),maintenanceFile=process.env.MUSE_MAINTENANCE_FILE,cookieName=process.env.MUSE_COOKIE_NAME||'__Host-muse'}){
+ if(httpServer&&(httpServer.listenerCount('request')!==0||httpServer.listenerCount('upgrade')!==0))throw Error('Account HTTP carrier must have no request or upgrade handlers');
  if(!Number.isSafeInteger(activityRequestRatePerMinute)||activityRequestRatePerMinute<1||activityRequestRatePerMinute>10000)throw Error('Invalid activity request rate');
  if(!['cloud','desktop'].includes(workspaceMode))throw Error('Invalid workspace mode');
  if(!['development','production'].includes(environment))throw Error('Invalid environment');
@@ -102,12 +109,14 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
  const renderLoginPage=(register,continuation,consent)=>loginPage(register,continuation,!!feishuLoginOptions.config,feishuLoginOptions.config?.appType,consent);
  const desktopLogin=createDesktopLogin({...desktopLoginOptions,publicOrigin,store,sessionStore,sessionTtlMs,cookieName,session,originOK,rate,form,reply,html,page,loginPage:renderLoginPage,escape,feishuEnabled:!!feishuLoginOptions.config,now});
  const feishuLogin=createFeishuLogin({...feishuLoginOptions,publicOrigin,environment,store,session,sessionStore,sessionTtlMs,cookieName,originOK,rate,form,reply,page,returnPath:desktopLogin.returnPath,desktopConsent:desktopLogin,now,allowAccount:account=>!devOnlyAdmin||account.admin});
- const server=http.createServer(async(req,res)=>{try{
+ const server=httpServer??http.createServer();
+ server.on('request',async(req,res)=>{try{
   if(!req.url.startsWith('/')||req.url.startsWith('//')){reply(res,400);return;}
   const mount=workspaceMode==='desktop'?desktopRoute(req.url):null,path=new URL(mount?.path??req.url,'http://localhost').pathname;
   if(await feishuLogin.handle(req,res,path))return;
   if(await desktopLogin.handle(req,res,path))return;
   if(asrStorage&&await asrStorage.handle(req,res))return;
+  if(!mount&&await marketRoute(req,res,{market,path,currentSession:()=>session(req),originOK:required=>originOK(req,required),rate:limit=>rate(req,'market',limit),store,reply,admissionStopped}))return;
   if(path==='/register'&&devOnlyAdmin){reply(res,403,'开发环境仅供管理员使用');return;}
   if(['/login','/register'].includes(path)&&req.method==='GET'){const requested=new URL(req.url,publicOrigin).searchParams.get('desktop_login'),continuation=desktopLogin.returnPath(requested)==='/'?undefined:requested;let content=devOnlyAdmin?renderLoginPage(false,continuation).replace('<a href="/register">免费注册个人工作间</a>','开发验证环境 · 管理员登录'):renderLoginPage(path==='/register',continuation);if(environment==='development')content=content.replace('<h1>MUSE</h1>','<h1>MUSE</h1><div class="eyebrow">开发验证环境</div>');html(res,200,content);return;}
   if(['/spider.png','/favicon.ico'].includes(path)&&req.method==='GET'){if(logoPath)reply(res,200,await readFile(logoPath),{'content-type':'image/png'});else reply(res,204);return;}
@@ -333,7 +342,7 @@ export function createAccountServer({store,runtime={},workspaceMode='cloud',desk
  * @param options Listening gateway, provider service, and owned model resources.
  * @returns An idempotent close operation rejecting only after cleanup completes.
  */
-export function installGatewayShutdown({accountServer,asr,modelRelay,modelKeyPool,directModelLeases,stopSweep=()=>{},signals=process,onError=()=>console.error('MUSE gateway shutdown failed')}){
+export function installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,directModelLeases,stopSweep=()=>{},signals=process,onError=()=>console.error('MUSE gateway shutdown failed')}){
  const sockets=new Set();let completion;
  const connection=socket=>{sockets.add(socket);socket.once('close',()=>sockets.delete(socket));};
  accountServer.on('connection',connection);
@@ -344,6 +353,7 @@ export function installGatewayShutdown({accountServer,asr,modelRelay,modelKeyPoo
   completion=(async()=>{
    let failure;try{await accountServer.closeFeishuLogin?.();}catch(error){failure=error;}
    try{await asr?.close();}catch(error){failure??=error;}
+   try{await market?.close();}catch(error){failure??=error;}
    for(const socket of sockets)socket.destroy();
    const closed=await Promise.allSettled([closeServer(accountServer),...modelRelay?[closeServer(modelRelay)]:[],Promise.resolve().then(()=>directModelLeases?.close())]);
    modelKeyPool?.close();accountServer.off('connection',connection);
@@ -377,6 +387,7 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
  const adminAccess=process.env.MUSE_ADMIN_ROOT?await openAdminAccess(process.env.MUSE_ADMIN_ROOT):undefined;
  const adminHosts=process.env.MUSE_ADMIN_HOSTS?JSON.parse(await readFile(process.env.MUSE_ADMIN_HOSTS,'utf8')):{};
  const kb=await loadKnowledgeBase();
+ const market=await loadMarket();
  const voiceSlotOptions=resolveVoiceSlotOptions();
  const voiceSlots=voiceSlotOptions?createVoiceSlots({...voiceSlotOptions,...createJubianVoiceVerifier({timeoutMs:voiceSlotOptions.timeoutMs})}):undefined;
  if(voiceSlots)await voiceSlots.ready();
@@ -404,10 +415,10 @@ if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(process.argv[1]
   await asr.ready();
   asrSweepIntervalSeconds=config.sweepIntervalSeconds;asrRequestRatePerMinute=config.requestRatePerMinute;
  }
- const accountServer=createAccountServer({store,runtime,workspaceMode,feishuLoginOptions:{config:feishuConfig},modelConfig,globalModels,desktopModelTransport,modelKeyPoolPolicy,modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts,kb,asr,asrStorage,asrRequestRatePerMinute,activityRequestRatePerMinute,voiceSlots,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
+ const accountServer=createAccountServer({store,runtime,workspaceMode,feishuLoginOptions:{config:feishuConfig},modelConfig,globalModels,desktopModelTransport,modelKeyPoolPolicy,modelKeyPool,directModelLeases,feedback,adminAccess,adminHosts,kb,asr,asrStorage,asrRequestRatePerMinute,activityRequestRatePerMinute,voiceSlots,market,sessionStore,sessionTtlMs,publicOrigin:process.env.MUSE_PUBLIC_ORIGIN,logoPath:process.env.MUSE_LOGO_PATH});
  if(modelConfig)modelRelay=createModelRelay({config:modelConfig,globalModels,secret:modelSecret,accounts:store,keyPool:modelKeyPool,keyPoolPolicy:modelKeyPoolPolicy}).listen(Number(process.env.MUSE_MODEL_PORT),process.env.MUSE_MODEL_HOST);
  let sweepInterval;
- installGatewayShutdown({accountServer,asr,modelRelay,modelKeyPool,directModelLeases,stopSweep:()=>clearInterval(sweepInterval)});
+ installGatewayShutdown({accountServer,asr,market,modelRelay,modelKeyPool,directModelLeases,stopSweep:()=>clearInterval(sweepInterval)});
  accountServer.listen(Number(process.env.MUSE_PORT||19388),'127.0.0.1',()=>{console.log('MUSE accounts gateway listening on loopback:'+accountServer.address().port);if(asr)void asr.start().catch(()=>console.error('MUSE ASR startup failed'));});
  if(asr){
   const sweep=()=>void asr.sweep().catch(()=>console.error('MUSE ASR retention cleanup failed'));

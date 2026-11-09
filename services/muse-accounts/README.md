@@ -21,6 +21,33 @@ Authenticated accounts submit issues and suggestions with `POST /api/muse.feedba
 
 Clients may include a `requestId` of 1–128 ASCII characters, starting with a letter or digit and otherwise using letters, digits, `.`, `_`, `:`, or `-`. Within one account, repeating that ID with the same title, body, category, and normalized screenshots returns the original record with HTTP 201, including any later status and revision. Reusing it for different content returns HTTP 409. The ID and SHA-256 content fingerprint are persisted atomically with the record, so deduplication survives restart and runs before the daily submission quota. Clients without an ID retain independent submissions. Keep the same ID and content when reconciling an uncertain submission; there is no automatic retry. A single gateway process owns an inbox directory.
 
+<a id="skill-market-proxy"></a>
+## Skill market proxy
+
+`MUSE_MARKET_CONFIG` enables `/market` and `/api/market/v1/*`; omission returns HTTP 404 for those routes. Set it to an absolute, owner-only regular JSON file outside the release. The gateway forwards market traffic to a separately configured loopback catalog without starting a workspace agent. The [market package](../../packages/host/muse-market/README.md) owns publication validation, approval, download and local installation.
+
+All seven policy fields are required; unknown fields and invalid values fail startup:
+
+```json
+{
+  "upstream": "http://127.0.0.1:8921/",
+  "secretFile": "/etc/muse/market-gateway-secret",
+  "archiveBytes": 16777216,
+  "jsonRequestBytes": 65536,
+  "jsonResponseBytes": 4194304,
+  "requestTimeoutMs": 30000,
+  "requestRatePerMinute": 120
+}
+```
+
+`upstream` permits only an HTTP loopback origin without credentials, path, query or fragment. Raw request paths and queries remain on that configured host and port; ambiguous origin targets are rejected. `secretFile` is an absolute, owner-only, non-symlink regular file containing a 32–256 character URL-safe secret shared with the catalog. Browser credentials and authority headers are removed; the gateway supplies its shared Bearer credential and the current account's `id`, `username` and `admin` fields. The secret never reaches the browser or Desktop.
+
+`archiveBytes` bounds each complete ZIP upload or download; `jsonRequestBytes` and `jsonResponseBytes` bound each complete JSON request or response. Each byte budget is a positive integer up to 64 MiB. A whole catalog response can contain several records and must fit `jsonResponseBytes`; the catalog's per-record `recordBytes` is a separate storage limit. `requestTimeoutMs` is a positive integer up to 300000 and covers invitation-body buffering, upstream transmission and response completion with one deadline. `requestRatePerMinute` is a positive integer up to 10000 and uses the gateway's existing per-IP admission policy. Oversized requests fail with 413, oversized upstream responses with 502, and deadline expiry with 504. If response bytes have already been sent, failure closes the stream instead of completing a truncated success. Shutdown stops new admission, cancels owned upstream work and awaits its connection cleanup.
+
+Catalog browsing is public. Identity, private catalog reads, downloads and mutations require the current Muse cookie; mutations also require the configured same-origin `Origin`. Publisher invitations additionally require a current administrator and an existing enabled target account. Every request checks current session validity, account revision and disabled state. Revocation affects the next admitted request; it does not promise cancellation of work already admitted by the catalog. Forged browser administrator headers cannot grant authority. An upload with an unknown result must retain its original idempotency key and ZIP; after an uncertain review, read the original publication and revision before deciding whether another action is needed.
+
+Library composition may pass an empty `httpServer` to `createAccountServer`. It may already listen on loopback port zero so the caller can use its actual origin. The factory rejects existing request or upgrade handlers, attaches its own handlers to that same server and owns their close cleanup. Omitting it creates a new server as usual.
+
 <a id="feishu-login"></a>
 ## Feishu login
 

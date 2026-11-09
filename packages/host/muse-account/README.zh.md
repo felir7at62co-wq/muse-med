@@ -73,6 +73,11 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 
 `MuseAccountService.requestVoiceSlot` 仅供 Host 使用，沿当前私密 Muse 会话调用[共享登记协调器](../../../services/muse-accounts/README.zh.md#shared-voice-registration)。剧变 token 仅通过私密请求头发送，响应后核对账号修订，拒绝重定向，将严格 UTF-8 协调响应限制为 16 KiB，且不自动重试。该方法不是 Remote 接口，也不是模型可见的凭据读取器。未配置服务时拒绝新的协调登记，已有音频复用和其他制作工作仍可继续。
 
+<a id="host-credential-reads"></a>
+### Host 凭据读取
+
+包主入口导出的 `readMuseSession(file, baseUrl)` 读取显式指定的私有会话文件，并核对配置中的规范化网关 origin。文件不存在或会话属于其他 origin 时返回 null；存储数据格式错误时明确拒绝。Host 集成可复用该读取器，无需挂载账号的模型 provider。返回的 cookie 属于 Host 私有数据，不得进入 Remote 结果、模型消息或发往其他 origin 的请求。[`muse-market/cloud`](../muse-market/README.zh.md#account-bound-cloud) 通过独立的 `sessionFile` 配置使用该读取器。
+
 ### 云转写
 
 云转写响应只保留校验过的供应商额度类别和可选的 `recovery.retry_after` 等待秒数。lifetime 额度耗尽时，先恢复原应用额度，再查询既有任务；这些字段或 HTTP 429 都不授权新建付费任务。

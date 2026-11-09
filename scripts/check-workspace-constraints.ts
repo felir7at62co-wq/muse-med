@@ -195,7 +195,7 @@ export function readWorkspaceManifests(repositoryRoot: string): WorkspaceManifes
 }
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
-  '@deepseek-ai/dsh-muse-market': ['lib/package.js', 'lib/format.js', 'lib/activation.js', 'lib/shared-*.js'],
+  '@deepseek-ai/dsh-muse-market': ['lib/package.js', 'lib/format.js', 'lib/activation.js', 'lib/cloud.js', 'lib/cloud-host.js', 'lib/shared-*.js'],
   // Tools entry points share error classes and invocation stages through runtime chunks.
   '@deepseek-ai/dsh-tools': ['lib/pipeline.js', 'lib/shared-*.js'],
   // The embedded OAR implementation retains its upstream license.

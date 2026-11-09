@@ -21,6 +21,33 @@ kind: "package-reference"
 
 客户端可附带 `requestId`：长度为 1–128 个 ASCII 字符，以字母或数字开头，其余字符仅限字母、数字、`.`、`_`、`:` 或 `-`。同一账号以相同编号和相同标题、正文、类别、规范化截图重复提交时，返回 HTTP 201 和原记录，包含后来更新的状态与 revision；相同编号用于不同内容时返回 HTTP 409。编号与内容的 SHA-256 指纹随记录原子持久化，去重在重启后仍有效，且先于每日提交限额检查。不带编号的客户端仍逐次创建独立意见。核对结果不明的提交时须沿用原编号和内容；接口不会自动重试。一个意见箱目录仅由一个网关进程写入。
 
+<a id="skill-market-proxy"></a>
+## Skill 市场代理
+
+`MUSE_MARKET_CONFIG` 启用 `/market` 和 `/api/market/v1/*`；省略时这些路由返回 HTTP 404。将它设为发布目录之外、绝对路径且仅所有者可读的普通 JSON 文件。网关将市场请求转发给单独配置的回环目录服务，不启动工作区 Agent。[市场包](../../packages/host/muse-market/README.zh.md) 定义发布物校验、审核、下载和本地安装。
+
+以下七个策略字段均必填；未知字段或无效值会使启动失败：
+
+```json
+{
+  "upstream": "http://127.0.0.1:8921/",
+  "secretFile": "/etc/muse/market-gateway-secret",
+  "archiveBytes": 16777216,
+  "jsonRequestBytes": 65536,
+  "jsonResponseBytes": 4194304,
+  "requestTimeoutMs": 30000,
+  "requestRatePerMinute": 120
+}
+```
+
+`upstream` 只允许不含凭据、路径、查询参数或片段的 HTTP 回环源地址。原始请求路径和查询参数始终发往配置的主机与端口；含歧义的源目标会被拒绝。`secretFile` 为绝对路径、仅所有者可读且不是符号链接的普通文件，保存与目录服务共享的 32–256 字符 URL 安全密钥。浏览器凭据和权限标头会被移除；网关使用自己的共享 Bearer 凭据，并填写当前账号的 `id`、`username` 和 `admin`。密钥不进入浏览器或桌面端。
+
+`archiveBytes` 限制每次完整 ZIP 上传或下载；`jsonRequestBytes` 和 `jsonResponseBytes` 分别限制每次完整 JSON 请求与响应。字节限额均为不超过 64 MiB 的正整数。完整目录响应可能包含多条记录，必须整体满足 `jsonResponseBytes`；目录服务的单记录 `recordBytes` 是独立存储限额。`requestTimeoutMs` 为不超过 300000 的正整数，使用同一个截止时间覆盖邀请请求正文缓冲、上游传输和响应完成。`requestRatePerMinute` 为不超过 10000 的正整数，沿用网关按 IP 进行的准入控制。请求超限返回 413，上游响应超限返回 502，超过时限返回 504。若已发送部分响应，则关闭流，不把截断内容作为成功响应完成。关闭服务时停止新的准入、取消所属上游请求，并等待其连接清理。
+
+目录浏览向公众开放。身份、私有目录、下载和写入要求当前 Muse Cookie；写入还要求与配置一致的同源 `Origin`。邀请发布者另外要求当前管理员权限，以及目标账号已存在且未停用。每次请求重新检查登录有效性、账号 revision 和停用状态。撤权会影响下一次准入，不承诺取消目录服务已经接收的工作。伪造浏览器管理员标头不能获得权限。上传结果不明时必须保留原幂等编号和 ZIP；审核结果不明时，先读取原发布物及其 revision，再决定是否需要下一步操作。
+
+组合服务的调用者可向 `createAccountServer` 传入空的 `httpServer`。它可先监听回环端口零，让调用者取得实际源地址。工厂拒绝已有 request 或 upgrade 处理器的服务器，将自己的处理器挂到同一实例，并负责关闭清理。省略时仍创建新服务器。
+
 <a id="feishu-login"></a>
 ## 飞书登录
 
