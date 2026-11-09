@@ -17,10 +17,13 @@ import { createManuscriptDelivery, hasManuscriptDeliveryStructure, manuscriptDel
   type ManuscriptDelivery } from '../src/manuscript-delivery.ts'
 import { readManuscriptMaterials } from '../src/manuscript-materials.ts'
 import * as Reader from '../src/manuscript-document.ts'
+import { ManuscriptNotes } from '../src/manuscript-notes.ts'
 
 const cleanups: (() => Promise<unknown>)[] = []
 const signal = new AbortController().signal
 const config = { maxDocuments: 4, maxFileBytes: 65536, maxTextChars: 20000, maxMaterialChars: 20000,
+  maxNotes: 256, maxNoteChars: 40000, maxVersions: 256, maxVersionBytes: 1024 * 1024,
+  maxLedgerBytes: 1024 * 1024, lockWaitMs: 5000,
   continuityDeliveryChecks: true, continuityMaxDeliveryCorrections: 1 }
 const body = '第1集\n1-1 门口 日 外\n▲甲来到门口。\n甲：请开门。\n第2集\n2-1 客厅 日 内\n▲甲坐下。\n甲：谢谢。\n第3集\n3-1 院子 日 外\n▲甲离开。'
 let serial = 0
@@ -77,6 +80,7 @@ async function runtime(seed?: { session: Session; root: string }) {
       ? [{ role: 'current', path: 'final.md', ...(lines === undefined ? {} : { lines }) }]
       : [{ role: 'current', path: 'adopted.md' }, { role: 'candidate', path: 'final.md', ...(lines === undefined ? {} : { lines }) }], root, config, signal)
     const target = materials.documents.find(document => document.role === (selfOnly ? 'current' : 'candidate'))!
+    const notes = await new ManuscriptNotes(config).read(agent, materials.documents.filter(document => document.role === 'current').map(document => document.path), signal)
     if (referenceVersion !== undefined) materials.documents.push({ ...target, role: 'reference', path: join(root, 'reference.md'), file_sha256: referenceVersion })
     const value = { state: 'continuity', advisory: true, scope: 'returned_text_lines_only', status, reason: 'reviewed',
       target: { role: target.role, path: target.path, file_sha256: target.file_sha256, text_sha256: target.text_sha256 },
@@ -84,7 +88,8 @@ async function runtime(seed?: { session: Session; root: string }) {
       findings: status === 'issues' ? [{ category: 'transition', description: 'Fixture conflict',
         evidence: target.lines.slice(0, 2).map(line => ({ role: target.role, path: target.path, file_sha256: target.file_sha256,
           text_sha256: target.text_sha256, line: line.number, quote: line.text })) }] : [],
-      unknowns: status === 'unknown' ? ['Missing facts'] : [], file_verification: 'verified', reviewer: { session_id: null, selection: null, requests: 1 } }
+      unknowns: status === 'unknown' ? ['Missing facts'] : [], file_verification: 'verified', reviewer: { session_id: null, selection: null, requests: 1 },
+      ...(notes === undefined ? {} : { notes_sha256: notes.notes_sha256 }) }
     return logResult(session, 'manuscript_revision', { action: 'continuity' }, value)
   }
   async function present(description?: string, path = 'final.md') {
@@ -97,6 +102,40 @@ async function runtime(seed?: { session: Session; root: string }) {
   }
   return { root, ctx, owner, service, agent, session, injected, declare, review, present }
 }
+
+it('requires a fresh review when retained requirements are imported after an earlier review', async () => {
+  const f = await runtime()
+  await f.review('consistent')
+  await new ManuscriptNotes(config).capture(['adopted.md'], f.agent, signal)
+  await expect(f.declare('reviewed')).rejects.toThrow('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED')
+  await f.review('consistent')
+  const declaration = await f.declare('reviewed')
+  expect(declaration.files[0]?.notes_sha256).toHaveLength(64)
+  expect((await f.present(declaration.files[0]!.label)).isError).toBe(false)
+})
+
+it('invalidates an already declared reviewed file when its source notes change before presentation', async () => {
+  const f = await runtime()
+  await f.review('consistent')
+  const declaration = await f.declare('reviewed')
+  await new ManuscriptNotes(config).capture(['adopted.md'], f.agent, signal)
+  const presented = await f.present(declaration.files[0]!.label)
+  expect(presented.isError).toBe(true)
+  expect(JSON.stringify(presented.content)).toContain('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED')
+})
+
+it('rejects the reviewed receipt when notes are imported inside the actual presentation body', async () => {
+  const f = await runtime()
+  await f.review('consistent')
+  const declaration = await f.declare('reviewed')
+  f.ctx.on('tools/execute', async (execution, next) => {
+    if (execution.name === 'present') await new ManuscriptNotes(config).capture(['adopted.md'], f.agent, signal)
+    return next()
+  })
+  const presented = await f.present(declaration.files[0]!.label)
+  expect(presented.isError).toBe(true)
+  expect(JSON.stringify(presented.content)).toContain('MANUSCRIPT_DELIVERY_STALE')
+})
 
 it.each([
   ['仅把已有四集剧本转换为 Word，正文逐字不变，不创作或修订剧情。', false],

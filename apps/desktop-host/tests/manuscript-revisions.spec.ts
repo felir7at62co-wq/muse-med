@@ -21,6 +21,7 @@ import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/c
 import * as RevisionPlugin from '../src/manuscript-revisions.ts'
 import { Config, ManuscriptRevisions } from '../src/manuscript-revisions.ts'
 import { readManuscript } from '../src/manuscript-document.ts'
+import { ManuscriptNotes } from '../src/manuscript-notes.ts'
 import { LocalFileSystem } from '../../../packages/fs/fs-local/src/index.ts'
 import * as FsPolicy from '../../../packages/fs/fs-observation-policy/src/index.ts'
 import * as ToolFs from '../../../packages/fs/tool-fs/src/index.ts'
@@ -29,6 +30,57 @@ const roots: string[] = [], contexts: Context[] = []
 const signal = new AbortController().signal
 const baseline = '第1集\n甲：我不相信你。\n乙：我们回家。\n▲她转身。'
 const returned = '第1集\n甲：证据就在这里，别再骗我。\n▲她转身。\n乙：等我说完。'
+
+it('retains complete human constraints across a different later request and restores a logged note notice', async () => {
+  const f = await fixture()
+  await f.ctx.plugin(RevisionPlugin, f.config)
+  const first = '修改剧本开场，第三集不要动。只删这一句的“死死”，其他位置按剧情需要判断。'
+  f.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: first }] }))
+  await f.agent.whenIdle()
+  const notes = new ManuscriptNotes(f.config), captured = await notes.capture(['returned.md'], f.agent, signal)
+  expect(captured.documents[0]?.user_requests.map(request => request.text)).toEqual([first])
+  f.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '把第一集的解释说得更自然，保留必要动作。' }] }))
+  await f.agent.whenIdle()
+  expect(JSON.stringify(f.adapter.requests.at(-1)?.messages)).toContain(first)
+  const refreshed = await notes.capture(['returned.md'], f.agent, signal)
+  expect(refreshed.documents[0]?.user_requests.map(request => request.text)).toEqual([first, '把第一集的解释说得更自然，保留必要动作。'])
+  expect(refreshed.notes_sha256).not.toBe(captured.notes_sha256)
+  expect(await new ManuscriptNotes(f.config).capture(['returned.md'], f.agent, signal)).toEqual(refreshed)
+  expect(await notes.read(f.agent, [join(await realpath(f.root), 'baseline.md')], signal)).toBeUndefined()
+})
+
+it('archives Word comments and their original anchors before source changes or disappearance', async () => {
+  const f = await fixture(), path = join(f.root, '批注.docx')
+  const bytes = zipSync({ 'word/document.xml': strToU8('<w:document xmlns:w="urn:test"><w:body><w:p><w:commentRangeStart w:id="3"/><w:r><w:t>甲：死死抓住。</w:t></w:r><w:commentRangeEnd w:id="3"/></w:p></w:body></w:document>'),
+    'word/comments.xml': strToU8('<w:comments xmlns:w="urn:test"><w:comment w:id="3"><w:p><w:r><w:t>只改这里；第三集保留。</w:t></w:r></w:p></w:comment></w:comments>') })
+  await writeFile(path, bytes)
+  const notes = new ManuscriptNotes(f.config), saved = await notes.capture([path], f.agent, signal)
+  await rm(path)
+  const restored = await new ManuscriptNotes(f.config).read(f.agent, [saved.documents[0]!.snapshot_path], signal)
+  expect(restored).toEqual(saved)
+  expect(saved.documents[0]?.comments[0]).toMatchObject({ text: '只改这里；第三集保留。', anchor: { quote: '甲：死死抓住。', start_line: 1, end_line: 1 } })
+  expect(await readFile(saved.documents[0]!.snapshot_path)).toEqual(Buffer.from(bytes))
+  await writeFile(saved.documents[0]!.snapshot_path, 'broken')
+  await expect(notes.read(f.agent, undefined, signal)).rejects.toThrow('VERSION_CHANGED')
+})
+
+it('does not treat tool or model text as human requirements, and keeps another Session isolated', async () => {
+  const f = await fixture(), other = await f.ctx.agentLoop.create(SessionId('another-manuscript'), { provider: 'mock', model: 'mock' }, { cwd: f.root })
+  f.agent.followup(createUserMessage({ source: { kind: 'muse-manuscript', form: 'notice', summary: '模型建议' }, content: [{ type: 'text', text: '模型自己的删改建议。' }] }))
+  await f.agent.whenIdle()
+  const notes = new ManuscriptNotes(f.config), saved = await notes.capture(['returned.md'], f.agent, signal)
+  expect(saved.documents[0]?.user_requests).toEqual([])
+  expect(await notes.read(other, undefined, signal)).toBeUndefined()
+})
+
+it('preserves earlier notes when a later complete request exceeds retention capacity', async () => {
+  const f = await fixture(), notes = new ManuscriptNotes(Config({ maxNotes: 1 }))
+  f.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '修改剧本，第三集不动。' }] })); await f.agent.whenIdle()
+  const first = await notes.capture(['returned.md'], f.agent, signal)
+  f.agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '修改第一集开头。' }] })); await f.agent.whenIdle()
+  await expect(notes.capture(['returned.md'], f.agent, signal)).rejects.toThrow('NOTES_LIMIT')
+  expect(await notes.read(f.agent, undefined, signal)).toEqual(first)
+})
 it('rejects a review deadline that would overflow the Node timer into an immediate timeout', () => {
   expect(() => Config({ continuityTimeoutMs: 2 ** 31 })).toThrow()
 })

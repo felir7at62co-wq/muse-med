@@ -10,16 +10,17 @@ import type {} from '@deepseek-ai/dsh-tool-present/types'
 import type {} from '@deepseek-ai/dsh-tool-executor-ptc/types'
 import type {} from '@deepseek-ai/dsh-tool-executor-ptc'
 import { z } from 'zod'
-import { continuityFilesUnchanged, CONTINUITY_REVIEW_PRESET } from './manuscript-continuity.ts'
+import { continuityFilesUnchanged, manuscriptReviewNotesUnchanged, CONTINUITY_REVIEW_PRESET } from './manuscript-continuity.ts'
 import { isManuscript, readManuscript, type DocumentLimits } from './manuscript-document.ts'
 import { manuscriptDeliveryIntent, manuscriptTaskRequest, ManuscriptTaskContextLimitError,
   type ManuscriptTaskRequest } from './manuscript-task-intent.ts'
 import type {} from './manuscript-revisions.ts'
+import type { ManuscriptNoteLimits } from './manuscript-notes.ts'
 
 export { manuscriptDeliveryIntent } from './manuscript-task-intent.ts'
 
 /** Deployment limits; completed deliveries never become a global adopted-manuscript selection. */
-export interface ManuscriptDeliveryConfig extends DocumentLimits {
+export interface ManuscriptDeliveryConfig extends DocumentLimits, ManuscriptNoteLimits {
   maxDocuments: number
   continuityDeliveryChecks: boolean
   continuityMaxDeliveryCorrections: number
@@ -38,12 +39,15 @@ const scopeSchema = z.object({ selection: selectionSchema, coverage: coverageSch
 const reviewSchema = z.object({ state: z.literal('continuity'), status: z.enum(['consistent', 'issues', 'unknown']),
   reason: z.string(), target: identitySchema, documents: z.array(documentSchema),
   findings: z.array(z.object({ evidence: z.array(identitySchema.extend({ line: z.number().int().positive() })) })),
-  unknowns: z.array(z.string()), file_verification: z.enum(['verified', 'changed', 'unavailable']) })
+  unknowns: z.array(z.string()), file_verification: z.enum(['verified', 'changed', 'unavailable']),
+  notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional() })
 const fileSchema = z.object({ path: z.string(), file_sha256: z.string(), aliases: z.array(z.string()),
-  label: z.string(), review_scope: scopeSchema.nullable(), dependencies: z.array(documentSchema) })
+  label: z.string(), review_scope: scopeSchema.nullable(), dependencies: z.array(documentSchema),
+  notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional() })
 const declarationSchema = z.object({ state: z.literal('delivery'), mode: z.enum(['reviewed', 'draft']), advisory: z.literal(true),
   task_id: z.string(), files: z.array(fileSchema), note: z.string().optional() })
 const metadataFactSchema = z.object({ manuscript_delivery_fact: z.union([reviewSchema, declarationSchema.omit({ note: true })]) })
+const metadataJsonSchema = z.json()
 /** Exact selected text ranges displayed beside a reviewed file; null means explicit draft. */
 export type ManuscriptDeliveryScope = z.infer<typeof scopeSchema>
 /** Host-verified declaration; the caller must still successfully invoke present. */
@@ -88,9 +92,9 @@ function parseBlocks<T>(content: readonly ContentBlock[], schema: z.ZodType<T>):
  * @param value - Actual successful manuscript_revision canonical string value.
  * @returns Parsed versions, ranges and judgment flags; freeform draft notes never become verification facts.
  */
-export function manuscriptDeliveryMetadata(value: string): z.infer<typeof metadataFactSchema> | null {
+export function manuscriptDeliveryMetadata(value: string): z.infer<typeof metadataJsonSchema> | null {
   const parsed = z.union([reviewSchema, declarationSchema.omit({ note: true })]).safeParse(json(value))
-  return parsed.success ? { manuscript_delivery_fact: parsed.data } : null
+  return parsed.success ? metadataJsonSchema.parse({ manuscript_delivery_fact: parsed.data }) : null
 }
 
 /** Recognize screenplay body structure only after an actual writing request identified a path.
@@ -429,7 +433,8 @@ export class ManuscriptDelivery {
           if (row === undefined || review === null || review.status !== 'consistent' || review.reason !== 'reviewed'
             || review.file_verification !== 'verified' || review.findings.length > 0 || review.unknowns.length > 0
             || row.unresolved.length > 0 || row.unresolved_overflow
-            || !await continuityFilesUnchanged(review.documents, this.config, checkSignal)) {
+            || !await continuityFilesUnchanged(review.documents, this.config, checkSignal)
+            || !await manuscriptReviewNotesUnchanged(review, agent, this.config, checkSignal)) {
             throw failure('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED', '最终文件缺少有效的一致性审校，或仍有未解决的问题；请重新审校或明确标为草稿。')
           }
           const basisProblem = this.reviewBasisProblem(review, agent)
@@ -441,7 +446,8 @@ export class ManuscriptDelivery {
           dependencies = review.documents
         }
         files.push({ path: current.path, file_sha256: current.sha256, aliases: [resolve(cwd, path)],
-          label, review_scope: reviewScope, dependencies })
+          label, review_scope: reviewScope, dependencies,
+          ...(mode === 'reviewed' && review?.notes_sha256 !== undefined ? { notes_sha256: review.notes_sha256 } : {}) })
       }
       const activePaths = new Set([...state.rows.filter(row => !row.presented).map(row => row.path), ...files.map(file => file.path)])
       if (activePaths.size > this.config.maxDocuments) throw failure('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED', '当前待交付路径超过文稿数量限制，请先交付已声明批次，再处理下一批。')
@@ -482,7 +488,9 @@ export class ManuscriptDelivery {
         }
         if (bound.file_sha256 !== current.sha256) return denial(failure('MANUSCRIPT_DELIVERY_STALE', '文件字节已变化，旧交付声明失效；请重新核对最终文件或声明草稿。'))
         if (declaration.mode === 'reviewed' && (!await continuityFilesUnchanged(bound.dependencies, this.config, signal)
-          || row.unresolved.length > 0 || row.unresolved_overflow || row.review?.status !== 'consistent')) {
+          || row.unresolved.length > 0 || row.unresolved_overflow || row.review?.status !== 'consistent'
+          || !await manuscriptReviewNotesUnchanged({ notes_sha256: bound.notes_sha256, documents: bound.dependencies },
+            agent, this.config, signal))) {
           return denial(failure('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED', '审校材料已变化或仍有待解决问题，请重新审校或声明草稿。'))
         }
         if (declaration.mode === 'reviewed') {
@@ -520,6 +528,12 @@ export class ManuscriptDelivery {
       if (!await continuityFilesUnchanged(pending.files, this.config, signal)) throw failure('MANUSCRIPT_DELIVERY_STALE', '交付期间文件字节已变化。')
       for (const file of pending.files) if (!await continuityFilesUnchanged(file.dependencies, this.config, signal)) {
         throw failure('MANUSCRIPT_DELIVERY_STALE', '交付期间审校材料已变化。')
+      }
+      if (pending.mode === 'reviewed') for (const file of pending.files) {
+        if (!await manuscriptReviewNotesUnchanged({ notes_sha256: file.notes_sha256, documents: file.dependencies },
+          execution.agent, this.config, signal)) {
+          throw failure('MANUSCRIPT_DELIVERY_STALE', '交付期间批注或修改要求已变化，请重新核对。')
+        }
       }
       return JSON.stringify({ manuscript_delivery_receipt: {
         call_id: execution.callId, task_id: pending.task, mode: pending.mode, files: pending.files,

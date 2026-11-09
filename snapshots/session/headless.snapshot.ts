@@ -579,6 +579,34 @@ async function prepareManuscriptVersionsExpectedWorkspace(cwd: string, scenarioD
   return expectedRoot
 }
 
+async function prepareManuscriptNotesExpectedWorkspace(cwd: string, scenarioDir: string, parentSession: string,
+  humans: readonly { id: string; text: string }[]): Promise<string> {
+  const expectedRoot = join(cwd, '.snapshot-patches', 'expected-manuscript-notes')
+  await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+  for (const name of ['versions/index.json', 'notes.json']) {
+    const file = join(expectedRoot, '.muse', 'manuscript-revisions', name)
+    const index = JSON.parse(await readFile(file, 'utf8')) as JsonObject
+    const field = name === 'notes.json' ? 'documents' : 'records'
+    const records = index[field]
+    if (!Array.isArray(records)) throw Error('manuscript notes expected records are missing')
+    index[field] = records.map((record: JsonObject) => {
+      if (record.source_path !== '{{cwd}}/current.docx' || record.session_id !== '{{session:1}}') throw Error('manuscript notes expected owner or source is undeclared')
+      const result: JsonObject = { ...record, source_path: join(cwd, 'current.docx'), session_id: parentSession }
+      if (name === 'notes.json') {
+        if (!Array.isArray(result.user_requests)) throw Error('manuscript notes expected human requests are missing')
+        result.user_requests = result.user_requests.map((request: JsonObject, position: number) => {
+          const human = humans[position]
+          if (human === undefined || request.message_id !== `{{human:${position + 1}}}` || request.text !== human.text) throw Error('manuscript notes expected human requirement does not match the actual input')
+          return { ...request, message_id: human.id }
+        })
+      }
+      return result
+    })
+    await writeFile(file, JSON.stringify(index) + '\n')
+  }
+  return expectedRoot
+}
+
 function expandDouyinExpectedReceipt(text: string, cwd: string): string {
   const receipt = JSON.parse(text) as JsonObject
   for (const field of ['path', 'receipt']) {
@@ -2704,6 +2732,13 @@ describe('headless recorded-session snapshots', () => {
               const parentId = actualLogs[0]?.header.id
               if (typeof parentId !== 'string') throw Error('manuscript versions require the actual parent identity')
               expectedWorkspaceRoot = await prepareManuscriptVersionsExpectedWorkspace(await realpath(cwd), scenario.dir, parentId)
+            }
+            if (scenario.name === 'muse-manuscript-notes') {
+              const parentId = actualLogs[0]?.header.id
+              if (typeof parentId !== 'string') throw Error('manuscript notes require the actual parent identity')
+              const humans = parseSessionLog(actualLogs[0]!.content).flatMap(event => event.type === 'user/message' && event.data.source.kind === 'user'
+                ? [{ id: event.data.id, text: event.data.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n') }] : [])
+              expectedWorkspaceRoot = await prepareManuscriptNotesExpectedWorkspace(await realpath(cwd), scenario.dir, parentId, humans)
             }
             if (['muse-manuscript-final-delivery', 'muse-manuscript-ptc-delivery', 'muse-manuscript-no-receipt',
               'muse-manuscript-revision-basis', 'muse-manuscript-ordinary-revision', 'muse-manuscript-edit-receipt'].includes(scenario.name)) {

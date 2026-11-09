@@ -16,6 +16,7 @@ import Subagents from '@deepseek-ai/dsh-subagent'
 import * as Spawn from '@deepseek-ai/dsh-subagent-spawn-in-process'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { afterEach, expect, it, vi } from 'vitest'
+import { ManuscriptNotes } from '../src/manuscript-notes.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
 import { continuityFilesUnchanged, installManuscriptContinuityPreset, ManuscriptContinuity,
   buildContinuityOutputSchema, CONTINUITY_OUTPUT_SCHEMA, CONTINUITY_REVIEW_PRESET,
@@ -28,6 +29,8 @@ import { readManuscriptMaterials, type ManuscriptMaterialsDocument } from '../sr
 const contexts: Context[] = [], roots: string[] = []
 const signal = new AbortController().signal
 const config: ManuscriptContinuityConfig = { maxFileBytes: 65536, maxTextChars: 20000,
+  maxNotes: 256, maxNoteChars: 40000, maxVersions: 256, maxVersionBytes: 1024 * 1024,
+  maxLedgerBytes: 1024 * 1024, lockWaitMs: 5000,
   maxDocuments: 8, maxMaterialChars: 40000, continuityMaxRequests: 3,
   continuityMaxOutputTokens: 4096, continuityTimeoutMs: 120000, continuityMaxFindings: 8, continuityMaxCorrections: 1 }
 const text = '第1集\n1-1 门口 日 外\n▲甲尚未进门。\n第2集\n2-1 主卧 日 内\n▲甲已经拆开旧床。'
@@ -172,6 +175,33 @@ async function runtime(script: ConstructorParameters<typeof MockAdapter>[0], ove
   if (service === undefined) throw Error('Review service did not initialize')
   return { ...fixture, ctx, parent, adapter, childSessions, service, owner, removePreset }
 }
+
+it('provides retained earlier human requirements to the isolated reviewer after a different later request', async () => {
+  let encoded = ''
+  const fixture = await runtime([(options) => {
+    encoded = JSON.stringify(options.messages)
+    return toolCallResponse('notes-review', 'structured_output', { status: 'consistent', findings: [], unknowns: [] })
+  }])
+  const notes = await new ManuscriptNotes(config).capture(['current.md'], fixture.parent, signal)
+  const later = createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '把第一集对白润色自然，第三集不要动。' }] })
+  fixture.parent.session.append('user/message', later, { surfaceOp: 'append' })
+  const result = await fixture.service.review([{ role: 'current', path: 'current.md' }], '核对当前范围', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'consistent', notes_sha256: notes.notes_sha256 })
+  expect(encoded).toContain('revision_notes')
+  expect(encoded).toContain('保持原有事实，检查事件先后。')
+  expect(encoded).toContain('把第一集对白润色自然，第三集不要动。')
+  expect(encoded).not.toContain('Parent-only history.')
+})
+
+it('returns unknown if retained notes are first captured during an in-flight review', async () => {
+  const fixture = await runtime([toolCallResponse('stale-notes-review', 'structured_output', { status: 'consistent', findings: [], unknowns: [] })])
+  fixture.ctx.on('llm/stream', async function* (options, next) {
+    if (options.sessionId !== fixture.parent.id) await new ManuscriptNotes(config).capture(['current.md'], fixture.parent, signal)
+    yield* next()
+  })
+  expect(await fixture.service.review([{ role: 'current', path: 'current.md' }], '核对当前范围', fixture.parent, signal))
+    .toMatchObject({ status: 'unknown', reason: 'notes_changed' })
+})
 
 it('uses the newly selected model in a real isolated child and records its material prompt and structured result', async () => {
   let request: GenerateOptions | undefined
