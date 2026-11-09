@@ -4,6 +4,7 @@ import { JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { readAssetList, readEpisodes, readMaterialList, readStoryboard, readStoryboardPage, readVoiceSlot,
   stableSha256, storyboardMaterials, trustedSubjectId } from '@deepseek-ai/dsh-jubian-api'
 import { storyboardMethod } from './methods.ts'
+import { corroborateAudioMetadata } from './audio-readback.ts'
 
 type Row = Record<string, unknown>
 
@@ -149,6 +150,7 @@ function matchesAudioReferences(expected: Row[], materials: Row[]): boolean {
 }
 
 /** Save one production package and preserve existing audio without calling any paid generation method.
+ * Missing storyboard audio display metadata requires exact corroboration from one saved model audio row.
  * @param client - Authenticated transport.
  * @param ledger - Existing account-local storyboard ledger.
  * @param input - Frozen package and original expected card version.
@@ -231,10 +233,12 @@ export async function publishProductionCard(client: JubianClient, ledger: Jubian
     'genType', 'ratio', 'resolution', 'duration', 'genNum']
   const materials = storyboardMaterials(after.card.snapshot).materials
   const modelMaterials = storyboardMaterials({ storyboardMaterialList: config.materialList ?? [] }).materials
+  const audio = materials.filter(item => item.materialType === 'audio')
+    .map((row, index) => corroborateAudioMetadata(row, expectedAudio[index], modelMaterials))
   const images = materials.filter(item => item.materialType === 'image')
   const imageIdentity = images.map(item => [Number(item.materialAssetId), String(item.materialKey)])
   if (config.prompt !== prompt || modelFields.some(field => String(config[field]) !== String(input.model[field]))
-    || !matchesAudioReferences(expectedAudio, materials) || !matchesAudioReferences(expectedAudio, modelMaterials)
+    || !matchesAudioReferences(expectedAudio, audio) || !matchesAudioReferences(expectedAudio, modelMaterials)
     || JSON.stringify(imageIdentity) !== JSON.stringify(input.images.map(item => [item.asset_id, item.material_key]))) {
     return { status: 'readback_mismatch', storyboard_id: id, paid_requests: 0, verified_readback: after.card,
       next: '最终原卡与本次模型、提示词、图片或音频绑定不一致；保留原回执核对。' }

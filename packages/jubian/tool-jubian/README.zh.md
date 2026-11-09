@@ -351,7 +351,7 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 主体素材和视频任务列表可读取仅含一条记录的顶层数组，视频模型目录也支持同样格式。素材身份、分页完整性和生成安全校验仍然生效。
 
-`jubian_asset register asset_type=4` 登记已上传声线。`audio_list`、`audio_get` 读取真实项目音频身份与 URL，不猜时长。登记通过完整列表对照项目、名称、URL；结果不唯一时不猜 ID。同 key 对账不再次登记。`jubian_storyboard audio_preview` 接受原卡 ID、项目绑定、完整提示词与最终有序 `audio_references`；`[]` 移除全部音频。可选 `audio_asset_id` 核对项目、类别与 URL，不编造提供方材质 ID。`audio_apply` 要求同一原卡 ID、已检查指纹与 key；发送一次 `isGenerate=0` PUT，保留图片、模型、时长、集数，再核对真实回读。分镜音频行缺失 `materialName` 或 `audioDuration` 时，仅当 `modelConfig.materialList` 中同 key、同 URL 的唯一音频行保留完全一致的请求值才接受；有值但矛盾、两处都缺少证据以及图片变化仍判不一致。未知写入只沿用原 key 对账。改动后重新 `prepare_video`。
+`jubian_asset register asset_type=4` 登记已上传声线。`audio_list`、`audio_get` 读取真实项目音频身份与 URL，不猜时长。登记通过完整列表对照项目、名称、URL；结果不唯一时不猜 ID。同 key 对账不再次登记。`jubian_storyboard audio_preview` 接受原卡 ID、项目绑定、完整提示词与最终有序 `audio_references`；`[]` 移除全部音频。可选 `audio_asset_id` 核对项目、类别与 URL，不编造提供方材质 ID。`audio_apply` 要求同一原卡 ID、已检查指纹与 key；发送一次 `isGenerate=0` PUT，保留图片、模型、时长、集数，再核对真实回读。分镜音频行缺失 `materialName` 或 `audioDuration` 时，仅当 `modelConfig.materialList` 中同 key、同 URL 的唯一音频行保留完全一致的请求值才接受；有值但矛盾、两处都缺少证据以及图片变化仍判不一致。制作方案发布的最终音频回读也遵循同一规则。未知写入只沿用原 key 对账。改动后重新 `prepare_video`。
 
 卡片正文中的音频标记若尚未进入选择列表，保留名称与 key，提供已核对的同项目音频资产 ID，即可补回绑定。旧模型配置已有对应音频行时，也可清除失配标记。任一保存列表中仍属于图片的 key 按图片处理。
 

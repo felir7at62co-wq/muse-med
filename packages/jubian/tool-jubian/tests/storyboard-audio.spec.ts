@@ -874,9 +874,10 @@ it.each(['materialName', 'audioDuration'])('does not accept %s omitted from both
   expect(await apply(plan)).toMatchObject({ status: 'readback_mismatch', verified_readback: false })
 })
 
-it.each(['materialUrl', 'materialKey', 'materialType', 'sortOrder', 'audioDuration'])('rejects a changed audio %s despite model-list corroboration', async (field) => {
-  const plan = await preview([voice])
-  onPut = (body) => { body.storyboardMaterialList = [image, { ...voice, [field]: field === 'sortOrder' || field === 'audioDuration' ? 8 : 'different' }] }
+it.each(['materialUrl', 'materialKey', 'materialType', 'sortOrder', 'audioDuration', 'materialName'])('rejects a changed audio %s despite model-list corroboration', async (field) => {
+  const named = { ...voice, materialName: 'reviewed voice name' }
+  const plan = await preview([named])
+  onPut = (body) => { body.storyboardMaterialList = [image, { ...named, [field]: field === 'sortOrder' || field === 'audioDuration' ? 8 : 'different' }] }
   expect(await apply(plan)).toMatchObject({ status: 'readback_mismatch', verified_readback: false })
 })
 

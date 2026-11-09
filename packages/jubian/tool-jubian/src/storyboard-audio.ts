@@ -9,6 +9,7 @@ import { readPreparedJson } from './prepared-file.ts'
 import { bodyHash, need, requireKey, writeUnderLedger } from './write.ts'
 import { getAudioAsset } from './audio-asset-read.ts'
 import { assertNoAudioDeletion } from './audio-operation-lock.ts'
+import { corroborateAudioMetadata } from './audio-readback.ts'
 
 type Row = Record<string, unknown>
 const BOARD_FIELDS = ['id', 'scriptId', 'episodeId', 'episodeCount', 'scriptName', 'storyboardName', 'sortOrder'] as const
@@ -93,22 +94,8 @@ function readbackSnapshot(board: Row, expected: Row): Row {
   const result = snapshot(board, expected)
   const modelRows = materials(object(result.modelConfig).materialList)
   const expectedRows = materials(expected.storyboardMaterialList)
-  result.storyboardMaterialList = materials(result.storyboardMaterialList).map((row, index) => {
-    const reviewed = expectedRows[index]
-    if (row.materialType !== 'audio' || reviewed === undefined) return row
-    const matching = modelRows.filter(candidate => candidate.materialType === 'audio'
-      && candidate.materialKey === row.materialKey && candidate.materialUrl === row.materialUrl)
-    const corroboration = matching.length === 1 ? matching[0] : undefined
-    if (corroboration === undefined) return row
-    const normalized = { ...row }
-    // This endpoint omits audio display fields that the saved model list retains.
-    // Missing values require exact corroboration; contradictory values never normalize.
-    for (const field of ['materialName', 'audioDuration']) {
-      if (normalized[field] === null && reviewed[field] !== undefined && reviewed[field] !== null
-        && corroboration[field] === reviewed[field]) normalized[field] = reviewed[field]
-    }
-    return normalized
-  })
+  result.storyboardMaterialList = materials(result.storyboardMaterialList).map((row, index) =>
+    corroborateAudioMetadata(row, expectedRows[index], modelRows))
   return result
 }
 async function verifyBindings(client: JubianClient, scriptId: number, bindings: AudioBinding[]): Promise<void> {
