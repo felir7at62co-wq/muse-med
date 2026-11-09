@@ -42,7 +42,8 @@ async function fixture(missing: 'omitted' | 'null') {
       return answer(card)
     }
     if (['POST', 'PUT'].includes(method) && path === '/aigc/storyboard') {
-      const body = JSON.parse(String(init?.body)) as Row
+      if (typeof init?.body !== 'string') throw new Error('Expected a JSON request body')
+      const body = JSON.parse(init.body) as Row
       writes.push({ method, path, body: structuredClone(body) })
       state.card = { ...body, id: 11, storyboardMaterialList: body.storyboardMaterialList ?? [] }
       for (const row of state.card.storyboardMaterialList as Row[]) {
