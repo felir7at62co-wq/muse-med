@@ -62,7 +62,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: ${{ matrix.target == 'win-x64' && '26.13.0' || '24' }}
       - name: Check the candidate export network route

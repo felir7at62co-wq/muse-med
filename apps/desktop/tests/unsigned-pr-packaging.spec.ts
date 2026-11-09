@@ -73,7 +73,7 @@ it('checks the unauthenticated TOS route before building an encrypted export', (
   const workflow = record(load(readFileSync(new URL('../../../.github/workflows/muse-desktop.yml', import.meta.url), 'utf8')))
   const steps = record(record(workflow.jobs).build).steps
   if (!Array.isArray(steps)) throw new Error('Expected packaging steps')
-  const setup = steps.map((step: unknown) => record(step)).find(step => step.uses === 'actions/setup-node@v6')
+  const setup = steps.map((step: unknown) => record(step)).find(step => step.uses === 'actions/setup-node@v7.0.0')
   if (!setup) throw new Error('Expected CI Node setup')
   expect(record(setup.with)['node-version']).toBe("${{ matrix.target == 'win-x64' && '26.13.0' || '24' }}")
   const route = steps.map((step: unknown) => record(step)).find(step => step.name === 'Check the candidate export network route')
