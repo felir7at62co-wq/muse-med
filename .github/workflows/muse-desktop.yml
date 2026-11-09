@@ -187,7 +187,7 @@ jobs:
         run: node apps/desktop/scripts/export-muse-ci-candidate.mjs
       - name: Upload installers, update metadata and build identity
         if: "!(inputs.export_candidate_to_tos && matrix.target == 'win-x64')"
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: muse-${{ matrix.target }}-${{ github.sha }}
           path: |
@@ -202,7 +202,7 @@ jobs:
           retention-days: 30
       - name: Retain native installer acceptance evidence
         if: always() && github.event_name == 'workflow_dispatch' && !(inputs.export_candidate_to_tos && matrix.target == 'win-x64')
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: muse-${{ matrix.target }}-installed-acceptance-${{ github.sha }}
           path: |
@@ -217,7 +217,7 @@ jobs:
           retention-days: 30
       - name: Retain packaging diagnostics
         if: always() && !(inputs.export_candidate_to_tos && matrix.target == 'win-x64')
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: muse-${{ matrix.target }}-diagnostics-${{ github.sha }}
           path: apps/desktop/.desktop-build/packaging-runs/
@@ -225,7 +225,7 @@ jobs:
           retention-days: 14
       - name: Retain Windows installer UI evidence
         if: always() && matrix.target == 'win-x64' && !inputs.export_candidate_to_tos
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: muse-win-x64-installer-ui-${{ github.sha }}
           path: apps/desktop/.desktop-build/installer-tests/
