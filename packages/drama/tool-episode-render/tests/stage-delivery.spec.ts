@@ -34,7 +34,7 @@ vi.mock('node:fs/promises', async (original) => {
     },
     readFile: async (path: string, options?: Parameters<typeof fs.readFile>[1]) => {
       await storage.beforeRead?.(path)
-      const bytes = await fs.readFile(path, options)
+      const bytes = await fs.readFile(path, options ?? null)
       await storage.afterRead?.(path)
       return bytes
     },
