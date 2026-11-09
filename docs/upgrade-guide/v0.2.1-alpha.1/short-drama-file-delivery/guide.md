@@ -11,7 +11,7 @@ English | [中文](guide.zh.md)
 
 Desktop editing and creation sessions previously allowed `present`, `send_file` and `dsh_im_return_file` to hand off a short-drama working export directly. These operations now reject registered native episode outputs and videos in bound short-drama formal output locations unless they match a current `stage_delivery` candidate. Changes to the MP4, SRT, timeline, recorded sources or original pairing evidence invalidate that candidate for these file operations. Later edits of native draft files alone do not invalidate the existing MP4. Other file tasks and raw source-clip attachments retain their behavior.
 
-Portrait candidates also require the [current approved subtitle height](../../../../apps/desktop/README.md). A candidate rendered at the previous lower position does not meet that profile, even if its old receipt still matches. Re-prepare, render and build the matching draft to adopt the new height; existing videos, subtitles and editable drafts are not migrated or rewritten.
+The portrait subtitle center remains at ratio `0.736747073` from the top (about 74%). The proposed 64% position is not the product default. Font size, outline, single-line formatting and source-bound timing rules retain their existing settings.
 
 ## Migration
 

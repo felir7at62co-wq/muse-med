@@ -225,7 +225,7 @@ it('keeps strict source policies and the generated subtitle clock when product t
   const result = await runDramaRender({ method: 'prepare', project: prepared.project, episode: 2,
     shots: prepared.shots, subtitleSrt: prepared.subtitle }, { ...settingsWith(channel.channel), normalizeSubtitleText: true,
     enforceSubtitleVisual: true, defaultSubtitleVisual: { schema_version: 1, reference_width: 480, reference_height: 854,
-      font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.64, max_width_ratio: 0.9 } })
+      font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073, max_width_ratio: 0.9 } })
   const display = result.render_preview?.subtitle.path ?? ''
   expect(await readFile(display, 'utf8')).toContain('你好 世界')
   expect(await readFile(prepared.subtitle, 'utf8')).toBe(original)

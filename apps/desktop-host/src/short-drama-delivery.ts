@@ -17,7 +17,7 @@ const fileDigest = z.object({ path: absolute, sha256: hash.nullable() })
 const videoDigest = z.object({ shot: z.number().int().positive(), sha256: hash })
 const PRODUCT_FONT = 'Zhuque Fangsong (technical preview)'
 const productVisual = z.object({ schema_version: z.literal(1), reference_width: z.literal(480), reference_height: z.literal(854),
-  font_size_px: z.literal(46), outline_px: z.literal(1.25), center_y_ratio: z.literal(0.64), max_width_ratio: z.literal(0.9),
+  font_size_px: z.literal(46), outline_px: z.literal(1.25), center_y_ratio: z.literal(0.736747073), max_width_ratio: z.literal(0.9),
   font_family: z.literal(PRODUCT_FONT) })
 const DISPLAY_CHECKS = ['subtitle_display_text', 'subtitle_display_width', 'subtitle_display_font']
 const visualVerification = z.object({ version: z.literal(1), subtitle_sha256: hash,

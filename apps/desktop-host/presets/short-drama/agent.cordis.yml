@@ -128,7 +128,7 @@
       reference_height: 854
       font_size_px: 46
       outline_px: 1.25
-      center_y_ratio: 0.64
+      center_y_ratio: 0.736747073
       max_width_ratio: 0.9
     maxBgmVolume: 1
     ffmpegPath: !!js process.env.DSH_FFMPEG_PATH || 'ffmpeg'

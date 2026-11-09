@@ -31,7 +31,7 @@ class PortabilityTests(unittest.TestCase):
         render = load('python_preset_subtitle_render', RENDER / 'scripts/render_episode.py')
         policy_module = load('python_preset_subtitle_policy', RENDER / 'scripts/delivery_policy.py')
         visual = {'schema_version': 1, 'reference_width': 480, 'reference_height': 854,
-                  'font_size_px': 46, 'outline_px': 1.25, 'center_y_ratio': 0.64, 'max_width_ratio': 0.9}
+                  'font_size_px': 46, 'outline_px': 1.25, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
             project = Path(temporary)
             srt, ass = project / 'a.srt', project / 'a.ass'
@@ -47,7 +47,7 @@ class PortabilityTests(unittest.TestCase):
                 text = ass.read_text(encoding='utf-8-sig')
                 self.assertIn('Style: Default,Zhuque Fangsong (technical preview),103.527,', text)
                 self.assertIn(',100,100,0,0,1,2.813,0,5,54.0,54.0,0,1', text)
-                self.assertIn(r'{\an5\pos(540,1230.08)\q2}你好 世界 数字 3.14', text)
+                self.assertIn(r'{\an5\pos(540,1416.028)\q2}你好 世界 数字 3.14', text)
                 self.assertIn('Dialogue: 0,0:00:00.12,0:00:01.23', text)
                 self.assertEqual(srt.read_text(encoding='utf-8'), original)
                 self.assertEqual(render.normalize_subtitle_display('……'), '')
@@ -55,7 +55,7 @@ class PortabilityTests(unittest.TestCase):
     def test_python_subtitle_sections_inherit_like_main_renderer(self):
         policy = load('python_subtitle_inheritance_policy', RENDER / 'scripts/delivery_policy.py')
         visual = {'schema_version': 1, 'reference_width': 480, 'reference_height': 854,
-                  'font_size_px': 46, 'outline_px': 1.25, 'center_y_ratio': 0.64, 'max_width_ratio': 0.9}
+                  'font_size_px': 46, 'outline_px': 1.25, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
             project = Path(temporary)
             with patch.dict(os.environ, {'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(visual)}, clear=True):
@@ -83,7 +83,7 @@ class PortabilityTests(unittest.TestCase):
         policy = load('python_forced_subtitle_policy', RENDER / 'scripts/delivery_policy.py')
         render = load('python_forced_subtitle_render', RENDER / 'scripts/render_episode.py')
         visual = {'schema_version': 1, 'reference_width': 480, 'reference_height': 854,
-                  'font_size_px': 46, 'outline_px': 1.25, 'center_y_ratio': 0.64, 'max_width_ratio': 0.9}
+                  'font_size_px': 46, 'outline_px': 1.25, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
             project = Path(temporary)
             config_path = project / 'project_config.json'
@@ -107,7 +107,7 @@ class PortabilityTests(unittest.TestCase):
                 render.write_ass(srt, ass, False, 480, 854, selected)
                 text = ass.read_text(encoding='utf-8-sig')
                 self.assertIn('Style: Default,Zhuque Fangsong (technical preview),103.527,', text)
-                self.assertIn(r'{\an5\pos(540,1230.08)\q2}你好 世界', text)
+                self.assertIn(r'{\an5\pos(540,1416.028)\q2}你好 世界', text)
             self.assertEqual(config_path.read_text(encoding='utf-8'), original_config)
             self.assertEqual(json.dumps(timeline), original_timeline)
 
@@ -122,7 +122,7 @@ class PortabilityTests(unittest.TestCase):
     def test_product_force_follows_actual_output_aspect_not_project_geometry(self):
         policy = load('python_force_output_geometry_policy', RENDER / 'scripts/delivery_policy.py')
         visual = {'schema_version': 1, 'reference_width': 480, 'reference_height': 854,
-                  'font_size_px': 46, 'outline_px': 1.25, 'center_y_ratio': 0.64, 'max_width_ratio': 0.9}
+                  'font_size_px': 46, 'outline_px': 1.25, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
         old_style = {'font_family': 'Old', 'font_size_px': 40}
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temporary:
             project = Path(temporary)
@@ -152,7 +152,7 @@ class PortabilityTests(unittest.TestCase):
     def test_product_portrait_default_does_not_change_unstyled_landscape_or_square(self):
         policy = load('python_force_unstyled_geometry_policy', RENDER / 'scripts/delivery_policy.py')
         visual = {'schema_version': 1, 'reference_width': 480, 'reference_height': 854,
-                  'font_size_px': 46, 'outline_px': 1.25, 'center_y_ratio': 0.64, 'max_width_ratio': 0.9}
+                  'font_size_px': 46, 'outline_px': 1.25, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
         for width, height in ((1920, 1080), (600, 600), (480, 854)):
             for flag in ('1', '0'):
                 with self.subTest(width=width, height=height, force=flag), patch.dict(
