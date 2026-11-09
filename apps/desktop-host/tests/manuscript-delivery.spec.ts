@@ -75,7 +75,8 @@ async function runtime(seed?: { session: Session; root: string }) {
     logResult(session, 'manuscript_revision', { action: 'delivery', candidate_paths: paths, delivery_mode: mode }, result)
     return result
   }
-  async function review(status: 'consistent' | 'issues' | 'unknown', lines?: { start: number; end: number }, referenceVersion?: string, selfOnly = false) {
+  async function review(status: 'consistent' | 'issues' | 'unknown', lines?: { start: number; end: number }, referenceVersion?: string,
+    selfOnly = false, action: 'continuity' | 'cross_episode' = 'continuity') {
     const materials = await readManuscriptMaterials(selfOnly
       ? [{ role: 'current', path: 'final.md', ...(lines === undefined ? {} : { lines }) }]
       : [{ role: 'current', path: 'adopted.md' }, { role: 'candidate', path: 'final.md', ...(lines === undefined ? {} : { lines }) }], root, config, signal)
@@ -89,8 +90,9 @@ async function runtime(seed?: { session: Session; root: string }) {
         evidence: target.lines.slice(0, 2).map(line => ({ role: target.role, path: target.path, file_sha256: target.file_sha256,
           text_sha256: target.text_sha256, line: line.number, quote: line.text })) }] : [],
       unknowns: status === 'unknown' ? ['Missing facts'] : [], file_verification: 'verified', reviewer: { session_id: null, selection: null, requests: 1 },
-      ...(notes === undefined ? {} : { notes_sha256: notes.notes_sha256 }) }
-    return logResult(session, 'manuscript_revision', { action: 'continuity' }, value)
+      ...(notes === undefined ? {} : { notes_sha256: notes.notes_sha256 }),
+      ...(action === 'cross_episode' ? { episode_plan: { checks: [{ from_episode: 1, to_episode: 2 }] } } : {}) }
+    return logResult(session, 'manuscript_revision', { action }, value)
   }
   async function present(description?: string, path = 'final.md') {
     const id = ToolCallId(`present-unit-${++serial}`), args = { files: [{ path, ...(description === undefined ? {} : { description }) }] }
@@ -112,6 +114,21 @@ it('requires a fresh review when retained requirements are imported after an ear
   const declaration = await f.declare('reviewed')
   expect(declaration.files[0]?.notes_sha256).toHaveLength(64)
   expect((await f.present(declaration.files[0]!.label)).isError).toBe(false)
+})
+
+it('labels a cross-episode review by its actual pairs instead of declaring the complete file reviewed', async () => {
+  const f = await runtime()
+  await f.review('consistent', undefined, undefined, false, 'cross_episode')
+  const declaration = await f.declare('reviewed')
+  expect(declaration.files[0]?.label).toBe('已复核跨集接缝1→2（仅此范围）')
+  expect((await f.present(declaration.files[0]!.label)).isError).toBe(false)
+})
+
+it('keeps earlier unresolved manuscript findings after a pair-only consistent review of unchanged bytes', async () => {
+  const f = await runtime()
+  await f.review('issues')
+  await f.review('consistent', undefined, undefined, false, 'cross_episode')
+  await expect(f.declare('reviewed')).rejects.toThrow('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED')
 })
 
 it('invalidates an already declared reviewed file when its source notes change before presentation', async () => {
@@ -219,7 +236,7 @@ it('replays an older delivery checkpoint instead of retaining its report misclas
     val: { ...z.record(z.string(), z.unknown()).parse(current.val), writing: true, file_request: true } }
   const restored = f.ctx.sessionProjections.restore({ [key]: stale }, f.session.snapshotEvents(),
     SessionLogOffset(0), f.session.header, SessionLogOffset(0))
-  expect(restored.checkpoint[key]).toMatchObject({ ver: 5, val: { writing: false, file_request: false } })
+  expect(restored.checkpoint[key]).toMatchObject({ ver: 6, val: { writing: false, file_request: false } })
 })
 
 it('blocks unreviewed direct present, accepts explicit draft and rejects a stale same-path declaration', async () => {
@@ -315,7 +332,7 @@ it('ordinary affirmative intent refolds stale version-four false flags before th
   const result = await executeModelToolFixture(f.ctx, { callId: ToolCallId(`restored-present-${++serial}`), name: 'present',
     arguments: { files: [{ path: 'final.md' }] }, agent, signal })
   expect(result).toMatchObject({ isError: true, error: { info: { code: 'MANUSCRIPT_DELIVERY_REQUIRED' } } })
-  expect(f.ctx.sessionProjections.checkpoint(restored)[key]).toMatchObject({ ver: 5, val: { writing: true, file_request: true } })
+  expect(f.ctx.sessionProjections.checkpoint(restored)[key]).toMatchObject({ ver: 6, val: { writing: true, file_request: true } })
 })
 
 it('does not infer a new creation when only a continuation remains in restored human context', async () => {

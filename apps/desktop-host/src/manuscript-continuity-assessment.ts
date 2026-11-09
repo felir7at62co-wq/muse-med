@@ -1,5 +1,6 @@
 /** Pure structured-review fields and status rules shared by the submitting tool and Host validation. */
 import { z } from 'zod'
+import { episodeCheckSchema } from './manuscript-episode-checks.ts'
 
 const evidenceSchema = z.strictObject({ role: z.enum(['current', 'reference', 'candidate']),
   path: z.string().min(1), file_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -12,7 +13,8 @@ const findingSchema = z.strictObject({
 
 /** JSON returned through the child's committed structured_output tool. */
 export const continuityAssessmentSchema = z.strictObject({ status: z.enum(['consistent', 'issues', 'unknown']),
-  findings: z.array(findingSchema), unknowns: z.array(z.string().min(1).refine(value => value.trim().length > 0)) })
+  findings: z.array(findingSchema), unknowns: z.array(z.string().min(1).refine(value => value.trim().length > 0)),
+  episode_checks: z.array(episodeCheckSchema).optional() })
 /** Validated review finding with two or more exact, distinct material citations. */
 export type ContinuityFinding = z.infer<typeof findingSchema>
 /** Semantic judgment before file freshness and exact quotation checks. */
