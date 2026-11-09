@@ -215,6 +215,15 @@ const SERVICE_ROLES: ServiceRole[] = [
       + 'Explicit Remote callers prepare, import, verify, export and remove disabled releases.',
   },
   {
+    key: 'museMarketCloud',
+    pkg: 'muse-market',
+    title: 'Account-bound Skill cloud publication',
+    mode: 'service',
+    implementations: ['muse-market'],
+    note: 'Muse Market owns the optional cloud service definition and Host transport. '
+      + 'Explicit Remote callers browse publications, publish private drafts, review original revisions and import verified disabled releases.',
+  },
+  {
     key: 'museMarketActivation',
     pkg: 'muse-market',
     title: 'Session-bound Skill publication activation',

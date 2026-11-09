@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/host/muse-market/README.md
 /:
-  en: 766f64bc89f285c8
-  zh: 581724bbb4cbbf7b
+  en: da7e4fd09b1a4ad0
+  zh: b23732f2b1e72a9d
 /local-skill-publications:
   en: 6232dc6b8b3f1d4b
   zh: 2743238fca92b1df
 /local-skill-publications/summary:
-  en: 7b43c80cc13f04a1
-  zh: 0cff72100b98cd11
+  en: ec3f09e83eb0ac7c
+  zh: 1b45377b5d47f280
 /local-skill-publications/table-of-contents:
   en: d152484eb41ac6b4
   zh: 7b30b973a849247d
@@ -24,11 +24,14 @@
   en: 51fcd69d4723d647
   zh: 2c1bf321dab5be7e
 /local-skill-publications/use-this-package/storage-and-configuration:
-  en: 842b7adfadf6269a
-  zh: 95f7e32ed6479dea
+  en: 5bbc50710ae581f8
+  zh: 5222b32331cfd062
+/local-skill-publications/use-this-package/account-bound-cloud:
+  en: b9fec027a95a90bf
+  zh: 9a517ae43df5d175
 /local-skill-publications/understand-the-implementation:
-  en: 2e6929ecf13aef6c
-  zh: 0d3baa8c555d331c
+  en: c97f3e6fb750ac85
+  zh: cc19f46dfa2ec917
 /local-skill-publications/further-exploration:
   en: 647f16a597f1e8e5
   zh: 51c96fea50771024
@@ -39,8 +42,8 @@
   en: 4f6dfcb5234ea888
   zh: c48c4295eec8c01f
 /local-skill-publications/model-experience/publication-results-and-selected-skills/what-the-model-sees:
-  en: c8962bbb392ffe92
-  zh: 11e43445d04d807e
+  en: 17fb4c96c11ef62c
+  zh: 0d9e75bb066603bc
 /local-skill-publications/model-experience/publication-results-and-selected-skills/token-effect:
   en: 6f884d3c923d618a
   zh: dee62af157c34557
@@ -48,8 +51,8 @@
   en: cc39ac11503a39b6
   zh: 0bddfc06a2725cf6
 /local-skill-publications/known-limitations-and-deferred-work:
-  en: 4971e36f2709d30e
-  zh: ea244b885ccd9c66
+  en: 28fa8331924f8cc9
+  zh: 0be44ddc8fe9999e
 /local-skill-publications/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: e88aeb617ffb74ea

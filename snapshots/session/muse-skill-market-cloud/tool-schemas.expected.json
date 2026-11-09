@@ -1,0 +1,28 @@
+{
+  "initial": [
+    {
+      "name": "market_cloud",
+      "description": "Verify the real cloud draft, explicit submission, authorization, review and selected-archive installation.",
+      "parameters": {
+        "type": "object",
+        "required": [
+          "operation"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "read-draft",
+              "submit",
+              "reader-private",
+              "approve",
+              "install"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "changes": []
+}

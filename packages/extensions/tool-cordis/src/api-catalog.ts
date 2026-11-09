@@ -2633,6 +2633,49 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'museMarketCloud',
+    summary: 'Explicit cloud operations over immutable local archives; installation never activates a Skill.',
+    description: 'Explicit cloud operations over immutable local archives; installation never activates a Skill.',
+    methods: [
+      {
+        signature: '@Remote(\'catalog\') async catalog(q: string, mine: boolean): Promise<MarketPublication[]>',
+        description: 'Search published metadata, or the signed-in creator\'s private records.',
+        parameters: [{ name: 'q', description: 'Search text, at most 200 characters; empty requests the bounded current catalog.' }, { name: 'mine', description: 'Whether private creator-visible publications are requested.' }],
+        returns: 'At most catalogLimit validated records; oversized replies refuse instead of truncating.',
+      },
+      {
+        signature: '@Remote(\'identity\') async identity(): Promise<MarketIdentity>',
+        description: 'Read admitted publishing teams and administrator capability for the current login.',
+        parameters: [],
+        returns: 'Validated public identity facts without the private account cookie.',
+      },
+      {
+        signature: '@Remote(\'getPublication\') async getPublication(id: MarketPublicationId): Promise<MarketPublication>',
+        description: 'Read one original publication using current account visibility.',
+        parameters: [{ name: 'id', description: 'Exact 32-character cloud publication identity, distinct from a local SHA.' }],
+        returns: 'Complete validated public or authorized private metadata.',
+      },
+      {
+        signature: '@Remote(\'publishDraft\') async publishDraft( localId: MarketReleaseId, publisherId: MarketPublisherId, requestId: MarketUploadRequestId, ): Promise<MarketPublication>',
+        description: 'Upload exact retained local bytes as a private draft; retry only with the original key and archive.',
+        parameters: [{ name: 'localId', description: 'Exact 64-character local archive SHA identity.' }, { name: 'publisherId', description: 'Admitted publishing team selected by the caller.' }, { name: 'requestId', description: 'Original account-scoped upload key retained across uncertain replies.' }],
+        returns: 'The exact archive\'s cloud record; upload never submits it for review.',
+      },
+      {
+        signature: '@Remote(\'installPublication\') async installPublication( id: MarketPublicationId, expectedSha256: string, ): Promise<{ publication: MarketPublication; installation: MuseMarketInstallation }>',
+        description: 'Install the archive selected by its catalog digest without choosing a default or changing Session bindings.',
+        parameters: [{ name: 'id', description: 'Exact cloud publication identity.' }, { name: 'expectedSha256', description: 'Digest the caller observed when selecting the publication.' }],
+        returns: 'Original cloud metadata and the verified disabled local installation.',
+      },
+      {
+        signature: '@Remote(\'review\') async review(id: MarketPublicationId, revision: number, action: MarketReviewAction, note: string): Promise<MarketPublication>',
+        description: 'Explicitly submit, approve, reject or withdraw the revision the caller inspected.',
+        parameters: [{ name: 'id', description: 'Original cloud publication identity.' }, { name: 'revision', description: 'Positive revision the caller reviewed; never replaced after a conflict.' }, { name: 'action', description: 'Requested transition; submit is separate from private upload.' }, { name: 'note', description: 'Explicit review note, at most 2000 characters.' }],
+        returns: 'Confirmed response or exact matching state read back after an uncertain response.',
+      },
+    ],
+  },
+  {
     key: 'officeToPdf',
     summary: 'A provider lifetime owns all converters, queued calls, and temporary files.',
     description: 'A provider lifetime owns all converters, queued calls, and temporary files.',
@@ -8003,6 +8046,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MarketEngines {\n    readonly dsh?: string;\n}',
   },
   {
+    name: 'MarketIdentity',
+    declaration: 'export interface MarketIdentity {\n    readonly publishers: readonly {\n        readonly id: MarketPublisherId;\n        readonly title: string;\n    }[];\n    readonly admin: boolean;\n}',
+  },
+  {
     name: 'MarketIndexMetadata',
     declaration: 'export interface MarketIndexMetadata {\n    readonly categories: Readonly<Record<string, MarketDeclaration>>;\n    readonly labels: Readonly<Record<string, MarketDeclaration>>;\n    readonly sortKeys: Readonly<Record<string, MarketSortKeyDeclaration>>;\n}',
   },
@@ -8055,6 +8102,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MarketPluginMetadata {\n    readonly category?: string;\n    readonly keywords: readonly string[];\n    readonly labels: readonly string[];\n    readonly sortKeys: Readonly<Record<string, number>>;\n}',
   },
   {
+    name: 'MarketPublication',
+    declaration: 'export interface MarketPublication {\n    readonly id: MarketPublicationId;\n    readonly publisherId: MarketPublisherId;\n    readonly publisher: string;\n    readonly manifest: MarketManifest;\n    readonly sha256: string;\n    readonly bytes: number;\n    readonly status: \'draft\' | \'pending\' | \'published\' | \'rejected\' | \'withdrawn\';\n    readonly reviewNote: string;\n    readonly revision: number;\n    readonly createdAt: string;\n}',
+  },
+  {
+    name: 'MarketPublicationId',
+    declaration: 'export type MarketPublicationId = Branded<\'MarketPublicationId\'>;',
+  },
+  {
+    name: 'MarketPublisherId',
+    declaration: 'export type MarketPublisherId = Branded<\'MarketPublisherId\'>;',
+  },
+  {
     name: 'MarketQuery',
     declaration: 'export interface MarketQuery {\n    readonly text?: string;\n    readonly category?: string;\n    readonly labels?: readonly string[];\n    readonly sort: MarketSort;\n    readonly offset: number;\n    readonly limit: number;\n    readonly refresh?: boolean;\n    readonly fetchedAt?: number;\n}',
   },
@@ -8071,6 +8130,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MarketRepository {\n    readonly url: string;\n    readonly directory?: string;\n}',
   },
   {
+    name: 'MarketReviewAction',
+    declaration: 'export type MarketReviewAction = \'submit\' | \'approve\' | \'reject\' | \'withdraw\';',
+  },
+  {
     name: 'MarketSearchResult',
     declaration: 'export interface MarketSearchResult {\n    readonly url: string;\n    readonly title: LocalizedText;\n    readonly description?: LocalizedText;\n    readonly metadata: MarketIndexMetadata;\n    readonly fetchedAt: number;\n    readonly entries: readonly MarketListingEntry[];\n    readonly total: number;\n    readonly nextOffset: number | null;\n}',
   },
@@ -8085,6 +8148,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MarketSource',
     declaration: 'export type MarketSource = {\n    readonly type: \'npm\';\n    readonly registry?: string;\n} | {\n    readonly type: \'git\';\n    readonly url: string;\n    readonly commit: string;\n    readonly path?: string;\n};',
+  },
+  {
+    name: 'MarketUploadRequestId',
+    declaration: 'export type MarketUploadRequestId = Branded<\'MarketUploadRequestId\'>;',
   },
   {
     name: 'MarketVersion',

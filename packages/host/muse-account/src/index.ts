@@ -30,6 +30,8 @@ export { MuseVoiceSlotsClient, MuseVoiceSlotError } from './voice-slots.ts'
 export type { MuseVoiceLeaseId, MuseVoiceSlotRequest, MuseVoiceSlotsOptions } from './voice-slots.ts'
 export type { MuseAsrJob, MuseAsrSegment, MuseAsrPurpose, MuseAsrMetadata } from './asr.ts'
 export { createMuseAccountGateway, museGatewayOrigin } from './gateway.ts'
+/** Host-only origin-bound credential reader; callers own the configured origin and private session-file path. */
+export { readMuseSession } from './session.ts'
 export type * from './types.ts'
 export { mountMuseFeedbackTools } from './feedback-tools.ts'
 

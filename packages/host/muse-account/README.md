@@ -73,6 +73,11 @@ Cloud submission requires a stable `requestId`; uncertainty requires querying th
 
 `MuseAccountService.requestVoiceSlot` is Host-only and uses the current private Muse session to call the [shared registration coordinator](../../../services/muse-accounts/README.md#shared-voice-registration). It sends the Jubian token only as a private transport header, verifies the account revision after the response, refuses redirects, bounds strict UTF-8 coordination responses to 16 KiB and performs no retries. It is not a Remote method or model-visible credential accessor. Unconfigured servers refuse new coordinated registration; existing audio reuse and non-audio work remain available.
 
+<a id="host-credential-reads"></a>
+### Host credential reads
+
+The package's main export `readMuseSession(file, baseUrl)` reads the explicitly selected private session file for one configured canonical gateway origin. An absent file or a session for another origin returns null; malformed stored data refuses. Host integrations can reuse this reader without mounting the account's model providers. The returned cookie is private Host data and must never enter Remote results, model messages or another origin's requests. [`muse-market/cloud`](../muse-market/README.md#account-bound-cloud) uses this reader with its independent `sessionFile` setting.
+
 ### Cloud transcription
 
 Cloud transcription responses retain only validated provider quota categories and an optional `recovery.retry_after` delay in seconds. A lifetime quota requires restoring the original application's allowance before querying its existing task; neither this metadata nor an HTTP 429 authorizes a new paid submission.

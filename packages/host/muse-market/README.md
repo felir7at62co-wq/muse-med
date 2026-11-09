@@ -1,5 +1,5 @@
 ---
-description: "Prepare local Skill publications and select exact releases for each Session."
+description: "Prepare and bind exact Skill releases, with optional account-bound cloud publication."
 kind: "package-reference"
 ---
 
@@ -10,6 +10,8 @@ English | [中文](README.zh.md)
 ## Summary
 
 Prepare and retain complete local Skill publications, select releases for future Sessions, and keep executed Sessions on their recorded versions. Storage and activation are separate: importing does not select a default. The private Desktop composition mounts both components; other named `dsh` profiles can mount either storage alone or both.
+
+The optional `./cloud` service exchanges publications with a configured Muse Account gateway. Upload, submission, review, installation and activation remain explicit, separate operations. It requires local storage alone and is not mounted by default.
 
 ## Table of Contents
 
@@ -62,13 +64,26 @@ Storage reads private version-1 and version-2 `installations.json` records. Load
 
 Back up the complete `root` directory if retaining local publications. Session backups alone do not include this independent storage. Invalid or unsupported ledgers, links, special files and changed resources fail explicitly.
 
+<a id="account-bound-cloud"></a>
+### Account-bound cloud
+
+Add `@deepseek-ai/dsh-muse-market/cloud` to a named profile with `baseUrl` set to the same canonical HTTPS Muse Account origin used for login; loopback HTTP is allowed. Its independent `sessionFile` defaults to the Harness home's `muse-account/session.json`. It reads that file through the [Host account reader](../muse-account/README.md#host-credential-reads), refuses redirects and account revision changes, and never returns credentials. `requestTimeoutMs` covers each full HTTP response; `jsonRequestBytes` and `jsonResponseBytes` bound complete JSON, while local archive limits separately bound ZIP bytes. Oversized JSON replies refuse instead of truncating metadata.
+
+`ctx.museMarketCloud.catalog(q, mine)` returns at most `catalogLimit` records, bounded to 100; empty search requests the current bounded catalog, not an exhaustive directory. Search matches the Skill manifest name and invocation id as well as publication metadata. `mine: true` and `identity()` require login; public catalog and `getPublication(id)` may be anonymous. Cloud publication and publisher ids are 32 hexadecimal characters; local release ids are 64-character ZIP SHA-256 values. Account ids remain separate 16-character server identities. Import `parseMarketPublicationId`, `parseMarketPublisherId` and `parseMarketUploadRequestId` from `@deepseek-ai/dsh-muse-market/cloud` to validate retained external strings and construct the branded values required by Host callers.
+
+`publishDraft(localId, publisherId, requestId)` uploads verified original local ZIP bytes as a private draft. Retain the original account-scoped request key and archive before calling; retry an uncertain upload with that same key and archive. It never submits automatically. Explicit `review(id, revision, 'submit', '')` requests review; approve, reject and withdraw also require the original inspected revision and current server authority. A lost response triggers a GET of the original id. Only an exact matching next revision confirms the requested state; conflicts and unconfirmed replies retain the original id, inspected revision and available full observed record in structured error details. No newer revision is submitted automatically. Gateway authority is checked at request admission; later account or role changes do not retroactively cancel committed server work.
+
+`installPublication(id, expectedSha256)` verifies the selected catalog digest, complete ZIP byte count and manifest before using the base service's disabled import. It neither changes defaults nor activates a release. Cloud failures use `muse-market/cloud-failed` with bounded `code` and HTTP `status`; original local storage failures retain `muse-market/operation-failed`. Unloading joins owned requests and refuses later calls.
+
+The separate `./cloud-host` provider serves a private loopback store under a dedicated named `dsh` profile, with an administrator-owned `policyFile`, fixed archive and JSON bounds, and a gateway-only secret. [Gateway deployment](../../../services/muse-accounts/README.md) owns account admission and proxy configuration. Back up its complete store, including SQLite and immutable blobs, independently of Desktop storage; unknown schema versions refuse. Neither this private endpoint nor a stored draft grants publication approval or Skill execution permission.
+
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-[The archive codec](src/package.ts) checks manifests and resource digests; [local storage](src/local.ts) owns immutable packages and atomic records. [The base service](src/index.ts) serializes publication operations. [Activation](src/activation.ts), [binding projection](src/session.ts) and [Skill provider](src/skills.ts) retain and resolve exact Session selections.
+[The archive codec](src/package.ts) checks manifests and resource digests; [local storage](src/local.ts) owns immutable packages and atomic records. [The base service](src/index.ts) serializes publication operations. [Activation](src/activation.ts), [binding projection](src/session.ts) and [Skill provider](src/skills.ts) retain and resolve exact Session selections. [Cloud transport](src/cloud.ts) verifies remote metadata and archives; [the private server](src/server.ts) owns publisher membership, immutable blobs and revision-checked review transitions.
 
 </details>
 
@@ -86,7 +101,7 @@ Back up the complete `root` directory if retaining local publications. Session b
 
 #### What the model sees
 
-An explicit caller can present storage results: discovery metadata with `complete`, release metadata with `enabled: false`, or exported archive bytes. With activation mounted, existing Skill consumers present the selected catalog metadata and load the complete instruction body and resource location. `muse-market/bound` records the exact selection used by those consumers.
+An explicit caller can present storage results: discovery metadata with `complete`, release metadata with `enabled: false`, or exported archive bytes. Cloud callers can present complete validated publication metadata and review results, including structured refusal details; no cloud tool is installed automatically. With activation mounted, existing Skill consumers present the selected catalog metadata and load the complete instruction body and resource location. `muse-market/bound` records the exact selection used by those consumers.
 
 #### Token effect
 
@@ -100,7 +115,7 @@ Changing defaults does not replace a bound Session's release set. Its catalog, l
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- Bounded catalog presentation, market browsing UI, upload, review and cloud requests are not provided. Local storage or activation is not publication approval or permission to execute a Skill.
+- Market browsing UI and default cloud mounting are not provided. The bounded cloud catalog is not an exhaustive enumeration; narrow the search when its limit is reached.
 - URL, opaque and shared flat-Skill resource roots cannot be prepared as local directory bundles.
 
 <a id="dev-note"></a>

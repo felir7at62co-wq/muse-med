@@ -328,7 +328,7 @@ describe('package payload constraints', () => {
     expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, 'src/**'] } }))
       .toContainEqual(expect.stringContaining('package.json files must not publish'))
     for (const files of [
-      ...['lib/package.js', 'lib/activation.js', 'lib/shared-*.js']
+      ...['lib/package.js', 'lib/activation.js', 'lib/cloud.js', 'lib/cloud-host.js', 'lib/shared-*.js']
         .map(required => manifest.files!.filter(file => file !== required)),
       manifest.files!.map(file => file === 'lib/shared-*.js' ? 'lib/**/*.js' : file),
       [...manifest.files!, 'lib/*.js'],
