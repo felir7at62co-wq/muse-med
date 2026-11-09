@@ -34,6 +34,7 @@ flowchart LR
   pkg_ui_muse_account["ui-muse-account"]
   pkg_muse_market["muse-market"]
   svc_museMarket["ctx.museMarket<br/>Local Skill publication storage"]
+  pkg_client_ui_muse_market["client-ui-muse-market"]
   svc_museMarketCloud["ctx.museMarketCloud<br/>Account-bound Skill cloud publication"]
   svc_museMarketActivation["ctx.museMarketActivation<br/>Session-bound Skill publication activation"]
   svc_museDesktopBridge["ctx.museDesktopBridge<br/>Muse authenticated desktop tunnel"]
@@ -608,6 +609,9 @@ flowchart LR
   svc_museAccount --> pkg_tool_jubian
   svc_museAccount --> pkg_ui_muse_account
   svc_museDesktopBridge --> pkg_muse_account
+  svc_museMarket --> pkg_client_ui_muse_market
+  svc_museMarketActivation --> pkg_client_ui_muse_market
+  svc_museMarketCloud --> pkg_client_ui_muse_market
   svc_officeToPdf --> pkg_client_ui_sidebar_documentpreview
   svc_otel --> pkg_host_product_telemetry_otel
   svc_otel --> pkg_session_telemetry_otel
@@ -734,9 +738,9 @@ flowchart LR
 | `ctx.jubianImage` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`drama-settings`](../packages/drama/drama-settings) | - | Reads account-accessible image generation routes without exposing the credential or submitting paid work. |
 | `ctx.jubianToken` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Describes, stores and clears the credential through the existing credential provider; the browser receives status without the stored token. |
 | `ctx.museAccount` | `service` | [`muse-account`](../packages/host/muse-account) | - | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe), [`tool-jubian`](../packages/jubian/tool-jubian), `ui-muse-account` | - | Muse Account owns the service definition and Host implementation; tools use authenticated transcription and shared voice registration, while the account UI uses its public Remote methods. Voice-slot transport remains Host-only. |
-| `ctx.museMarket` | `service` | [`muse-market`](../packages/host/muse-market) | - | - | - | Muse Market owns the local publication API and immutable storage. Explicit Remote callers prepare, import, verify, export and remove disabled releases. |
-| `ctx.museMarketCloud` | `service` | [`muse-market`](../packages/host/muse-market) | [`muse-market`](../packages/host/muse-market) | - | - | Muse Market owns the optional cloud service definition and Host transport. Explicit Remote callers browse publications, publish private drafts, review original revisions and import verified disabled releases. |
-| `ctx.museMarketActivation` | `service` | [`muse-market`](../packages/host/muse-market) | - | - | - | Owns explicit publication defaults and immutable Session selections. It provides the recorded Skill versions to live Agents and temporary cold catalog scopes. |
+| `ctx.museMarket` | `service` | [`muse-market`](../packages/host/muse-market) | - | [`client-ui-muse-market`](../packages/client/ui-muse-market) | - | Muse Market owns the local publication API and immutable storage. Explicit Remote callers prepare, import, verify, export and remove disabled releases. |
+| `ctx.museMarketCloud` | `service` | [`muse-market`](../packages/host/muse-market) | [`muse-market`](../packages/host/muse-market) | [`client-ui-muse-market`](../packages/client/ui-muse-market) | - | Muse Market owns the optional cloud service definition and Host transport. Explicit Remote callers browse publications, publish private drafts, review original revisions and import verified disabled releases. |
+| `ctx.museMarketActivation` | `service` | [`muse-market`](../packages/host/muse-market) | - | [`client-ui-muse-market`](../packages/client/ui-muse-market) | - | Owns explicit publication defaults and immutable Session selections. It provides the recorded Skill versions to live Agents and temporary cold catalog scopes. |
 | `ctx.museDesktopBridge` | `seam` | [`muse-account`](../packages/host/muse-account) | `dsh-bridge` | [`muse-account`](../packages/host/muse-account) | - | The pinned bridge creates account-bound tunnels to the local Host; Muse Account owns connection refresh and disposal without cancelling agent turns. |
 | `ctx.actionCards` | `service` | [`action-cards`](../packages/experimental/action-cards) | - | [`creation-recommendations`](../packages/experimental/creation-recommendations), [`client-ui-action-cards`](../packages/experimental/client-ui-action-cards) | - | Owns the card tool, card state, user actions and status notices; card kinds register their actions and handlers. |
 | `ctx.pluginRecommendations` | `service` | [`plugin-recommendations`](../packages/experimental/plugin-recommendations) | - | [`client-ui-plugin-recommendations`](../packages/experimental/client-ui-plugin-recommendations) | - | Reads the current catalog text of an official plugin card and enables the plugin through the profile plugin manager after a click. |

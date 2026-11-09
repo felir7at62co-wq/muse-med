@@ -1,0 +1,20 @@
+/* Uses the Plugins page's spacing, typography and theme tokens. */
+.page { height: 100%; overflow: auto; padding: 24px; }
+:global([data-platform='darwin']) .page { padding-top: calc(var(--dsh-frame-top-clearance, 0px) + 24px); }
+.section { display: flex; flex-direction: column; gap: 16px; max-width: 1120px; margin: 0 auto; color: var(--dsw-alias-label-primary); }
+.section h1, .section h2, .section h3 { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+.section h1 { font-size: 20px; line-height: 28px; }
+.section h2, .section h3 { font-size: 14px; line-height: 20px; }
+.section p { margin: 0; font-size: 13px; line-height: 20px; overflow-wrap: anywhere; }
+.section header { display: flex; flex-direction: column; gap: 8px; }
+.toolbar, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.query { flex: 1; min-width: 120px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 16px; }
+.card { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; gap: 12px; border: 1px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-xl); padding: 16px; }
+.form { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.form label, .field { display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 20px; }
+.form textarea, .form select { min-width: 0; max-width: 100%; padding: 8px; background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); border: 1px solid var(--dsw-alias-border-l4); border-radius: var(--dsw-radius-md); font: inherit; }
+.form code { overflow-wrap: anywhere; }
+.notice { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; border-radius: var(--dsw-radius-md); background: var(--dsw-alias-state-warn-tertiary); }
+.skeletons { display: grid; min-height: 120px; place-items: center; }
+@media (max-width: 480px) { .page { padding: 16px; } :global([data-platform='darwin']) .page { padding-top: calc(var(--dsh-frame-top-clearance, 0px) + 16px); } }

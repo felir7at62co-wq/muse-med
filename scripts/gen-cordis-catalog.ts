@@ -252,6 +252,7 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
  * {@link EVENT_WALK_EXEMPTIONS} names each one with its documentation owner.
  */
 export const EVENT_SCOPE_PAGE: Record<string, string> = {
+  'muse-account': 'web-server.md',
   'muse-market': 'skills.md',
   'session-skills': 'skills.md',
   deliverables: 'deliverables.md',

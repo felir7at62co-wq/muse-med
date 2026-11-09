@@ -1,6 +1,6 @@
 /** Skill publication metadata shared by local storage and its consumers. */
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** SHA-256 identity of one immutable publication archive. */
 export type MarketReleaseId = Branded<'MarketReleaseId'>
@@ -92,6 +92,10 @@ export interface MuseMarketBindingState {
 
 declare module '@deepseek-ai/cordis' {
   interface Events {
+    /** Local publication records changed; observers refetch authoritative inventory.
+     * @mode emit
+     */
+    'muse-market/inventory-changed'(): void
     /** Refuse removal of a publication retained by an activation consumer.
      * @mode serial
      * @param releaseId - Exact local archive identity being removed.

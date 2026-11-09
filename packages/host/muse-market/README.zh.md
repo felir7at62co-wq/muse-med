@@ -11,7 +11,7 @@ kind: "package-reference"
 
 准备并保留完整的本地 Skill 发行包，为未来 Session 选择版本，并让已执行的 Session 保持其已记录版本。存储与激活相互独立：导入不会选择默认版本。私有 Desktop 组合挂载这两个组件；其他具名 `dsh` profile 可仅挂载存储，也可同时挂载两者。
 
-可选的 `./cloud` 服务与配置的 Muse Account 网关交换发行包。上传、提交、审核、安装与激活均为独立的显式操作。该服务仅依赖本地存储，默认不会挂载。
+可选的 `./cloud` 服务与配置的 Muse Account 网关交换发行包。上传、提交、审核、安装与激活均为独立的显式操作。该服务仅依赖本地存储。Desktop 使用配置中的账号 origin 挂载它；自定义 profile 显式选择是否启用。[独立市场界面](../../client/ui-muse-market/README.zh.md)负责浏览与创作者展示。
 
 ## 目录
 
@@ -69,11 +69,11 @@ kind: "package-reference"
 
 在具名 profile 中添加 `@deepseek-ai/dsh-muse-market/cloud`，将 `baseUrl` 设为登录所用的同一规范化 HTTPS Muse Account origin；允许回环 HTTP。独立的 `sessionFile` 默认使用 Harness 主目录下的 `muse-account/session.json`。服务通过 [Host 账号读取器](../muse-account/README.zh.md#host-credential-reads)读取该文件，拒绝重定向与账号修订变化，且不会返回凭据。`requestTimeoutMs` 覆盖每次完整 HTTP 响应；`jsonRequestBytes` 与 `jsonResponseBytes` 限制完整 JSON，本地归档限制另行约束 ZIP 字节。超限 JSON 响应会明确拒绝，不会截断元数据。
 
-`ctx.museMarketCloud.catalog(q, mine)` 最多返回 `catalogLimit` 条记录，该值上限为 100；空搜索获取当前有界目录，不代表完整枚举。搜索同时匹配 Skill 清单名称、调用 id 及发行包元数据。`mine: true` 和 `identity()` 要求登录；公开目录与 `getPublication(id)` 可匿名访问。云端发行包和发布团队 id 为 32 位十六进制字符；本地版本 id 为 64 位 ZIP SHA-256。账号 id 则是独立的 16 位服务端身份。请从 `@deepseek-ai/dsh-muse-market/cloud` 导入 `parseMarketPublicationId`、`parseMarketPublisherId` 与 `parseMarketUploadRequestId`，校验外部保留的字符串，并构造 Host 调用方所需的品牌类型值。
+`ctx.museMarketCloud.catalog(q, mine)` 最多返回 `catalogLimit` 条记录，该值上限为 100；空搜索获取当前有界目录，不代表完整枚举。搜索同时匹配 Skill 清单名称、调用 id 及发行包元数据。`identity()` 包含已认证的 `accountId`，使结果不确定的上传仅能由原账号恢复。`mine: true` 和 `identity()` 要求登录；公开目录与 `getPublication(id)` 可匿名访问。云端发行包和发布团队 id 为 32 位十六进制字符；本地版本 id 为 64 位 ZIP SHA-256。账号 id 则是独立的 16 位服务端身份。请从 `@deepseek-ai/dsh-muse-market/cloud` 导入 `parseMarketPublicationId`、`parseMarketPublisherId` 与 `parseMarketUploadRequestId`，校验外部保留的字符串，并构造 Host 调用方所需的品牌类型值。
 
 `publishDraft(localId, publisherId, requestId)` 将已核验的本地原始 ZIP 上传为私有草稿。调用前保留原账号范围的请求 key 与归档；上传结果不确定时，仅使用同一 key 和同一归档重试。上传不会自动提交审核。显式调用 `review(id, revision, 'submit', '')` 才请求审核；通过、拒绝和撤回同样要求原先查看的修订号及当前服务端权限。响应丢失时，服务 GET 原 id 对账；只有精确匹配的下一修订才能确认请求状态。冲突与未确认响应在结构化错误详情中保留原 id、查看过的修订号及可获取的完整观察记录，不会自动提交更新的修订。网关在请求准入时检查权限；后续账号或角色变化不会追溯取消已提交的服务端操作。
 
-`installPublication(id, expectedSha256)` 核对所选目录摘要、完整 ZIP 字节数和清单后，调用基础服务进行停用状态的导入，不会改变默认值或激活版本。云端失败通过 `muse-market/cloud-failed` 返回有界的 `code` 和 HTTP `status`；原本的本地存储失败保持 `muse-market/operation-failed`。卸载会等待所属请求结束，并拒绝后续调用。
+`installPublication(id, expectedSha256)` 核对所选目录摘要、完整 ZIP 字节数和清单后，调用基础服务进行停用状态的导入，不会改变默认值或激活版本。浏览器消费者使用与 Host 共用的公共 `./cloud-values` 解析器；独立的 `lib/cloud-values.browser.js` 构建不依赖 Node、Cordis 或凭据。云端失败通过 `muse-market/cloud-failed` 返回有界的 `code` 和 HTTP `status`；原本的本地存储失败保持 `muse-market/operation-failed`。卸载会等待所属请求结束，并拒绝后续调用。
 
 独立的 `./cloud-host` provider 在专用具名 `dsh` profile 下提供私有回环存储，使用管理员拥有的 `policyFile`、明确的归档与 JSON 限制，以及仅供网关使用的 secret。[网关部署](../../../services/muse-accounts/README.zh.md)负责账号准入与代理配置。请独立于 Desktop 存储备份整个云端存储，包括 SQLite 与不可变 blob；未知 schema 版本会被拒绝。私有端点与已保存草稿均不代表发行审核通过，也不授予 Skill 执行权限。
 
@@ -115,7 +115,7 @@ kind: "package-reference"
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- 不提供市场浏览界面，也不默认挂载云端服务。有界云端目录并非完整枚举；达到数量上限时请缩小搜索范围。
+- 有界云端目录并非完整枚举；达到数量上限时请缩小搜索范围。云端访问需要匹配且已配置的服务端。
 - URL、opaque 以及由平铺 Skill 共享的资源根目录不能被准备为本地目录包。
 
 <a id="dev-note"></a>

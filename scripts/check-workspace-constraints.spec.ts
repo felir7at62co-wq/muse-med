@@ -328,7 +328,7 @@ describe('package payload constraints', () => {
     expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, 'src/**'] } }))
       .toContainEqual(expect.stringContaining('package.json files must not publish'))
     for (const files of [
-      ...['lib/package.js', 'lib/activation.js', 'lib/cloud.js', 'lib/cloud-host.js', 'lib/shared-*.js']
+      ...['lib/package.js', 'lib/activation.js', 'lib/cloud.js', 'lib/cloud-host.js', 'lib/shared-*.js', 'lib/cloud-values.js', 'lib/cloud-values.browser.js']
         .map(required => manifest.files!.filter(file => file !== required)),
       manifest.files!.map(file => file === 'lib/shared-*.js' ? 'lib/**/*.js' : file),
       [...manifest.files!, 'lib/*.js'],
@@ -336,6 +336,16 @@ describe('package payload constraints', () => {
       expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files } }))
         .toContainEqual(expect.stringContaining('package.json files must be'))
     }
+  })
+
+  it('requires the browser-safe skill-name leaf without widening the Skill package payload', () => {
+    const dir = 'packages/skill/skill'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: manifest.files!.filter(file => file !== 'lib/name.js') } }))
+      .toContainEqual(expect.stringContaining('package.json files must be'))
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, 'lib/*.js'] } }))
+      .toContainEqual(expect.stringContaining('package.json files must be'))
   })
 
   it('requires the exact tool discovery runtime, locale, and Codex attribution files', () => {

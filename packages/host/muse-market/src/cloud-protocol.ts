@@ -1,7 +1,7 @@
 /** Skill-only cloud records and identifiers, independent of local archive identities. */
 import { brandString, type Branded } from '@deepseek-ai/dsh-brand'
-import { isDeepStrictEqual } from 'node:util'
-import { marketManifest, marketRecord } from './format.ts'
+import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
+import { marketManifest, marketRecord } from './format-values.ts'
 import type { MarketLimits, MarketManifest } from './types.ts'
 
 /** Opaque cloud publication identity; local release identities remain archive SHA-256. */
@@ -38,6 +38,8 @@ export interface MarketPublication {
 
 /** Current publishing memberships without cookies or account secrets. */
 export interface MarketIdentity {
+  /** Current authenticated account identity, retained with uncertain upload attempts. */
+  readonly accountId: MarketAccountId
   readonly publishers: readonly { readonly id: MarketPublisherId; readonly title: string }[]
   readonly admin: boolean
 }
@@ -117,7 +119,7 @@ export function parseMarketActor(value: unknown): MarketActor {
  * @param limits - Resolved manifest and archive bounds.
  * @returns A validated Skill-only publication with separate moderation identity.
  */
-export function parseMarketPublication(value: unknown, limits: MarketLimits): MarketPublication {
+export function parseMarketPublication(value: unknown, limits: Pick<MarketLimits, 'archiveBytes' | 'recordBytes'>): MarketPublication {
   try {
     if (!marketRecord(value) || !exact(value, ['id', 'publisherId', 'publisher', 'manifest', 'sha256', 'bytes',
       'status', 'reviewNote', 'revision', 'createdAt']) || !label(value.publisher, 100)
@@ -128,9 +130,9 @@ export function parseMarketPublication(value: unknown, limits: MarketLimits): Ma
       || typeof value.revision !== 'number' || !Number.isSafeInteger(value.revision) || value.revision < 1
       || typeof value.createdAt !== 'string' || !Number.isFinite(Date.parse(value.createdAt))
       || new Date(value.createdAt).toISOString() !== value.createdAt
-      || Buffer.byteLength(JSON.stringify(value.manifest)) > limits.recordBytes) throw new Error('Invalid cloud record')
+      || new TextEncoder().encode(JSON.stringify(value.manifest)).byteLength > limits.recordBytes) throw new Error('Invalid cloud record')
     const manifest = marketManifest(value.manifest)
-    if (!isDeepStrictEqual(value.manifest, manifest)) throw new Error('Unexpected cloud manifest fields')
+    if (!deepEqualJson(value.manifest, manifest)) throw new Error('Unexpected cloud manifest fields')
     return { id: parseMarketPublicationId(value.id), publisherId: parseMarketPublisherId(value.publisherId),
       publisher: value.publisher, manifest, sha256: value.sha256, bytes: value.bytes, status: value.status,
       reviewNote: value.reviewNote, revision: value.revision, createdAt: value.createdAt }
@@ -146,13 +148,13 @@ export function parseMarketPublication(value: unknown, limits: MarketLimits): Ma
  */
 export function parseMarketIdentity(value: unknown): MarketIdentity {
   try {
-    if (!marketRecord(value) || !exact(value, ['publishers', 'admin']) || !Array.isArray(value.publishers)
+    if (!marketRecord(value) || !exact(value, ['accountId', 'publishers', 'admin']) || !Array.isArray(value.publishers)
       || typeof value.admin !== 'boolean') throw new MarketCloudError('invalid-response', 502)
     const publishers = value.publishers.map((row: unknown) => {
       if (!marketRecord(row) || !exact(row, ['id', 'title']) || !label(row.title, 100)) throw new MarketCloudError('invalid-response', 502)
       return { id: parseMarketPublisherId(row.id), title: row.title }
     })
     if (new Set(publishers.map(row => row.id)).size !== publishers.length) throw new MarketCloudError('invalid-response', 502)
-    return { publishers, admin: value.admin }
+    return { accountId: parseMarketAccountId(value.accountId), publishers, admin: value.admin }
   } catch (error) { throw new MarketCloudError('invalid-response', 502, { cause: error }) }
 }

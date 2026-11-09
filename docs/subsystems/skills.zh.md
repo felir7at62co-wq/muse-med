@@ -389,6 +389,21 @@ Default publication choices committed; consumers refetch their own Session views
 
 Source: [`packages/host/muse-market/src/types.ts`](../../packages/host/muse-market/src/types.ts)
 
+<a id="muse-marketinventory-changed--emit"></a>
+
+#### `muse-market/inventory-changed` — emit
+
+Local publication records changed; observers refetch authoritative inventory.
+
+```ts cordis-catalog
+/** Local publication records changed; observers refetch authoritative inventory.
+ * @mode emit
+ */
+'muse-market/inventory-changed'(): void
+```
+
+Source: [`packages/host/muse-market/src/types.ts`](../../packages/host/muse-market/src/types.ts)
+
 <a id="session-skills-events"></a>
 
 ### `session-skills/*` events

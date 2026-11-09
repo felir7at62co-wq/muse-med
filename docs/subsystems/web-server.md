@@ -556,6 +556,25 @@ Resume client streams after a cancelled or failed Desktop update.
 
 Source: [`packages/client/connection/src/index.ts`](../../packages/client/connection/src/index.ts)
 
+<a id="muse-account-events"></a>
+
+### `muse-account/*` events
+
+<a id="muse-accountsession-changed--emit"></a>
+
+#### `muse-account/session-changed` — emit
+
+Local account identity changed; consumers discard private authority and reverify.
+
+```ts cordis-catalog
+/** Local account identity changed; consumers discard private authority and reverify.
+ * @mode emit
+ */
+'muse-account/session-changed'(): void
+```
+
+Source: [`packages/host/muse-account/src/types.ts`](../../packages/host/muse-account/src/types.ts)
+
 <a id="webserver-events"></a>
 
 ### `webserver/*` events

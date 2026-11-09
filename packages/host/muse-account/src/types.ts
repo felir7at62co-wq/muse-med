@@ -114,3 +114,12 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
     'muse-account/storage-failed': {}
   }
 }
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /** Local account identity changed; consumers discard private authority and reverify.
+     * @mode emit
+     */
+    'muse-account/session-changed'(): void
+  }
+}

@@ -48,7 +48,7 @@ async function fixture() {
     }
     let result: unknown = publication
     if (req.url?.startsWith('/api/market/v1/catalog?')) result = { items: [publication] }
-    if (req.url === '/api/market/v1/me') result = { publishers: [{ id: publication.publisherId, title: publication.publisher }], admin: true }
+    if (req.url === '/api/market/v1/me') result = { accountId: 'd'.repeat(16), publishers: [{ id: publication.publisherId, title: publication.publisher }], admin: true }
     if (req.url?.endsWith('/review')) { publication = { ...publication, revision: 2, status: 'pending' }; result = publication }
     res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(result))
   })
@@ -92,7 +92,7 @@ it('dispatches all six generated operations with whole DTOs and independent loca
     'catalog', 'identity', 'getPublication', 'publishDraft', 'installPublication', 'review',
   ])
   expect(await f.consume('catalog', { q: 'fixture-skill', mine: true })).toEqual([initial])
-  expect(await f.consume('identity', {})).toEqual({ publishers: [{ id: initial.publisherId, title: initial.publisher }], admin: true })
+  expect(await f.consume('identity', {})).toEqual({ accountId: 'd'.repeat(16), publishers: [{ id: initial.publisherId, title: initial.publisher }], admin: true })
   expect(await f.consume('getPublication', { id: parseMarketPublicationId(initial.id) })).toEqual(initial)
   const prepared = await f.ctx.museMarket.prepare(metadata, f.source.skill.name)
   expect(await f.consume('publishDraft', { localId: prepared.release.id, publisherId: parseMarketPublisherId(initial.publisherId),

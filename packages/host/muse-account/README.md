@@ -78,6 +78,8 @@ Cloud submission requires a stable `requestId`; uncertainty requires querying th
 
 The package's main export `readMuseSession(file, baseUrl)` reads the explicitly selected private session file for one configured canonical gateway origin. An absent file or a session for another origin returns null; malformed stored data refuses. Host integrations can reuse this reader without mounting the account's model providers. The returned cookie is private Host data and must never enter Remote results, model messages or another origin's requests. [`muse-market/cloud`](../muse-market/README.md#account-bound-cloud) uses this reader with its independent `sessionFile` setting.
 
+Successful local sign-in, sign-out and browser-login completion emit ordinary `muse-account/session-changed`; changed observed account status also emits it. The notification carries no credential or identity payload. Consumers revoke cached private capabilities and query the actual current identity again; external session-file replacements are verified by the account-bound transport on each request.
+
 ### Cloud transcription
 
 Cloud transcription responses retain only validated provider quota categories and an optional `recovery.retry_after` delay in seconds. A lifetime quota requires restoring the original application's allowance before querying its existing task; neither this metadata nor an HTTP 429 authorizes a new paid submission.

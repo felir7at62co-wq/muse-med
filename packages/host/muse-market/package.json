@@ -48,6 +48,10 @@
     "./cloud-host": {
       "types": "./lib/types/cloud-host.d.ts",
       "default": "./lib/cloud-host.js"
+    },
+    "./cloud-values": {
+      "types": "./lib/types/cloud-values.d.ts",
+      "default": "./lib/cloud-values.js"
     }
   },
   "scripts": {
@@ -61,6 +65,8 @@
     "lib/cloud.js",
     "lib/cloud-host.js",
     "lib/shared-*.js",
+    "lib/cloud-values.js",
+    "lib/cloud-values.browser.js",
     "lib/types/**/*.js",
     "lib/types/**/*.d.ts",
     "lib/typert.host.js",
@@ -86,7 +92,8 @@
     "@deepseek-ai/dsh-scope": "workspace:*",
     "@deepseek-ai/dsh-api-session-controller": "workspace:*",
     "@deepseek-ai/dsh-muse-account": "workspace:*",
-    "@deepseek-ai/dsh-host-webserver": "workspace:*"
+    "@deepseek-ai/dsh-host-webserver": "workspace:*",
+    "@deepseek-ai/dsh-util-values": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~"

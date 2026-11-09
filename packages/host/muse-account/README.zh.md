@@ -78,6 +78,8 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 
 包主入口导出的 `readMuseSession(file, baseUrl)` 读取显式指定的私有会话文件，并核对配置中的规范化网关 origin。文件不存在或会话属于其他 origin 时返回 null；存储数据格式错误时明确拒绝。Host 集成可复用该读取器，无需挂载账号的模型 provider。返回的 cookie 属于 Host 私有数据，不得进入 Remote 结果、模型消息或发往其他 origin 的请求。[`muse-market/cloud`](../muse-market/README.zh.md#account-bound-cloud) 通过独立的 `sessionFile` 配置使用该读取器。
 
+本地登录、登出和浏览器登录完成后会发送普通 `muse-account/session-changed`；观察到账号状态变化时也会发送。该通知不携带凭据或身份 payload。消费者撤销缓存的私有能力，并重新查询真实当前身份；外部会话文件替换由账号绑定的传输在每次请求时校验。
+
 ### 云转写
 
 云转写响应只保留校验过的供应商额度类别和可选的 `recovery.retry_after` 等待秒数。lifetime 额度耗尽时，先恢复原应用额度，再查询既有任务；这些字段或 HTTP 429 都不授权新建付费任务。

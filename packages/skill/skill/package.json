@@ -20,11 +20,16 @@
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json",
-    "./locale/*.json": "./locale/*.json"
+    "./locale/*.json": "./locale/*.json",
+    "./name": {
+      "types": "./lib/types/name.d.ts",
+      "default": "./lib/name.js"
+    }
   },
   "files": [
     "locale/*.json",
     "lib/index.js",
+    "lib/name.js",
     "lib/types/**/*.d.ts"
   ],
   "license": "MIT",

@@ -150,8 +150,11 @@ export function desktopPackageSteps(
     },
     {
       id: 'S3',
-      title: 'pack the Desktop Host tarball',
-      artifacts: [packedTarball('apps/desktop-host', 'Desktop Host')],
+      title: 'pack the Desktop Host and private Skill market tarballs',
+      artifacts: [
+        packedTarball('apps/desktop-host', 'Desktop Host'),
+        packedTarball('packages/host/muse-market', 'Skill market Host'),
+      ],
     },
     {
       id: 'S4',

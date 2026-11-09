@@ -28,6 +28,12 @@
     // not declaration path aliases, keep each package/vendor source compiled
     // under its own tsconfig boundary.
     "paths": {
+      "@deepseek-ai/dsh-muse-market/activation": ["./packages/host/muse-market/src/activation.ts"],
+      "@deepseek-ai/dsh-muse-market/cloud": ["./packages/host/muse-market/src/cloud.ts"],
+      "@deepseek-ai/dsh-muse-market/types": ["./packages/host/muse-market/src/types.ts"],
+      "@deepseek-ai/dsh-muse-market/package": ["./packages/host/muse-market/src/package.ts"],
+      "@deepseek-ai/dsh-skill/name": ["./packages/skill/skill/src/name.ts"],
+      "@deepseek-ai/dsh-muse-market/cloud-values": ["./packages/host/muse-market/src/cloud-values.ts"],
       "@deepseek-ai/dsh-desktop-host": ["./apps/desktop-host/src/index.ts"],
       "@deepseek-ai/dsh-drama-settings/client": ["./packages/drama/drama-settings/src/client/index.ts"],
       "@deepseek-ai/dsh-feishu-settings/client": ["./packages/host/feishu-settings/src/client/index.ts"],
@@ -428,6 +434,8 @@
       "@deepseek-ai/dsh-api-agent-notes/types": ["./packages/api/agent-notes/src/types.ts"],
       "@deepseek-ai/dsh-client-ui-muse-account": ["./packages/client/ui-muse-account/src/index.ts"],
       "@deepseek-ai/dsh-client-ui-muse-account/client": ["./packages/client/ui-muse-account/src/client/index.ts"],
+      "@deepseek-ai/dsh-client-ui-muse-market": ["./packages/client/ui-muse-market/src/index.ts"],
+      "@deepseek-ai/dsh-client-ui-muse-market/client": ["./packages/client/ui-muse-market/src/client/index.ts"],
       "@deepseek-ai/dsh-client-ui-settings-agent-notes": ["./packages/client/ui-settings-agent-notes/src"],
       "@deepseek-ai/dsh-guard-drama": ["./packages/guard/drama-gate/src"],
       "@deepseek-ai/dsh-jubian/types": ["./packages/jubian/jubian/src/types.ts"],

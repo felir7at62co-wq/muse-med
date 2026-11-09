@@ -36,6 +36,7 @@ flowchart LR
   pkg_ui_muse_account["ui-muse-account"]
   pkg_muse_market["muse-market"]
   svc_museMarket["ctx.museMarket<br/>Local Skill publication storage"]
+  pkg_client_ui_muse_market["client-ui-muse-market"]
   svc_museMarketCloud["ctx.museMarketCloud<br/>Account-bound Skill cloud publication"]
   svc_museMarketActivation["ctx.museMarketActivation<br/>Session-bound Skill publication activation"]
   svc_museDesktopBridge["ctx.museDesktopBridge<br/>Muse authenticated desktop tunnel"]
@@ -610,6 +611,9 @@ flowchart LR
   svc_museAccount --> pkg_tool_jubian
   svc_museAccount --> pkg_ui_muse_account
   svc_museDesktopBridge --> pkg_muse_account
+  svc_museMarket --> pkg_client_ui_muse_market
+  svc_museMarketActivation --> pkg_client_ui_muse_market
+  svc_museMarketCloud --> pkg_client_ui_muse_market
   svc_officeToPdf --> pkg_client_ui_sidebar_documentpreview
   svc_otel --> pkg_host_product_telemetry_otel
   svc_otel --> pkg_session_telemetry_otel
@@ -736,9 +740,9 @@ flowchart LR
 | `ctx.jubianImage` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`drama-settings`](../packages/drama/drama-settings) | - | 读取账号可访问的图像生成路由，不暴露凭据，也不提交付费任务。 |
 | `ctx.jubianToken` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | 通过已有凭据提供方描述、存储和清除凭据；浏览器仅接收状态，不接收保存的 token。 |
 | `ctx.museAccount` | `service` | [`muse-account`](../packages/host/muse-account) | - | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe), [`tool-jubian`](../packages/jubian/tool-jubian), `ui-muse-account` | - | Muse Account 同时拥有服务定义与 Host 实现；工具通过该服务使用已认证的转写与共享声线登记，账号界面使用公开 Remote 方法。声线槽传输仅供 Host 使用。 |
-| `ctx.museMarket` | `service` | [`muse-market`](../packages/host/muse-market) | - | - | - | Muse Market 拥有本地发行包 API 与不可变存储。显式 Remote 调用者可准备、导入、校验、导出和移除未启用的发行包。 |
-| `ctx.museMarketCloud` | `service` | [`muse-market`](../packages/host/muse-market) | [`muse-market`](../packages/host/muse-market) | - | - | Muse Market 拥有可选云端服务定义与 Host 传输实现。显式 Remote 调用方可浏览发行包、发布私有草稿、审核原修订，并导入已核验的停用版本。 |
-| `ctx.museMarketActivation` | `service` | [`muse-market`](../packages/host/muse-market) | - | - | - | 管理显式的发行包默认版本与不可变的会话选择，并为活跃 Agent 和临时冷目录提供日志中记录的 Skill 版本。 |
+| `ctx.museMarket` | `service` | [`muse-market`](../packages/host/muse-market) | - | [`client-ui-muse-market`](../packages/client/ui-muse-market) | - | Muse Market 拥有本地发行包 API 与不可变存储。显式 Remote 调用者可准备、导入、校验、导出和移除未启用的发行包。 |
+| `ctx.museMarketCloud` | `service` | [`muse-market`](../packages/host/muse-market) | [`muse-market`](../packages/host/muse-market) | [`client-ui-muse-market`](../packages/client/ui-muse-market) | - | Muse Market 拥有可选云端服务定义与 Host 传输实现。显式 Remote 调用方可浏览发行包、发布私有草稿、审核原修订，并导入已核验的停用版本。 |
+| `ctx.museMarketActivation` | `service` | [`muse-market`](../packages/host/muse-market) | - | [`client-ui-muse-market`](../packages/client/ui-muse-market) | - | 管理显式的发行包默认版本与不可变的会话选择，并为活跃 Agent 和临时冷目录提供日志中记录的 Skill 版本。 |
 | `ctx.museDesktopBridge` | `seam` | [`muse-account`](../packages/host/muse-account) | `dsh-bridge` | [`muse-account`](../packages/host/muse-account) | - | 钉住的桥接提供方创建账号绑定的本地 Host 隧道；Muse Account 负责连接刷新和资源释放，不取消智能体回合。 |
 | `ctx.actionCards` | `service` | [`action-cards`](../packages/experimental/action-cards) | - | [`creation-recommendations`](../packages/experimental/creation-recommendations), [`client-ui-action-cards`](../packages/experimental/client-ui-action-cards) | - | 负责卡片工具、卡片状态、用户操作和状态通知；各卡片种类注册自己的动作和处理器。 |
 | `ctx.pluginRecommendations` | `service` | [`plugin-recommendations`](../packages/experimental/plugin-recommendations) | - | [`client-ui-plugin-recommendations`](../packages/experimental/client-ui-plugin-recommendations) | - | 读取官方插件卡片的当前目录文本，并在用户点击后通过配置插件管理器启用该插件。 |

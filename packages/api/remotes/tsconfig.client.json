@@ -121,6 +121,12 @@
     },
     {
       "path": "../../skill/skill"
+    },
+    {
+      "path": "../../host/muse-market"
+    },
+    {
+      "path": "../../host/muse-account/tsconfig.host.json"
     }
   ]
 }

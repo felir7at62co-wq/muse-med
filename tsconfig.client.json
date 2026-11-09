@@ -65,6 +65,7 @@
     "packages/client/*/tests/**/*.host.ts"
   ],
   "references": [
+    { "path": "./packages/client/ui-muse-market" },
     { "path": "./packages/client/ui-session-video/tsconfig.client.json" },
     { "path": "./packages/experimental/client-ui-action-cards" },
     { "path": "./packages/experimental/client-ui-creation-recommendations" },

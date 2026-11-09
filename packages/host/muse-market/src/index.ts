@@ -51,9 +51,15 @@ export default class MuseMarket extends TypertRemoteService {
    */
   publicationStorage(): MarketLocalConfig { return { root: this.config.root, limits: this.config } }
 
-  private serial<T>(operation: () => Promise<T>): Promise<T> {
+  private serial<T>(operation: () => Promise<T>, changed = false): Promise<T> {
     if (this.closing) return Promise.reject(new RemoteError('muse-market/operation-failed', 'Skill publication service is closing', { code: 'closing' }))
-    const result = this.operations.then(operation)
+    const result = this.operations.then(operation).then((value) => {
+      if (changed) {
+        try { this.ctx.emit('muse-market/inventory-changed') }
+        catch (error) { this.ctx.logger.warn('Market inventory observer failed', error) }
+      }
+      return value
+    })
     this.operations = result.catch(() => undefined)
     return result.catch((error: unknown) => {
       throw new RemoteError('muse-market/operation-failed', 'Skill publication operation failed', {
@@ -88,7 +94,7 @@ export default class MuseMarket extends TypertRemoteService {
       const archive = createMarketPackage({ ...info, formatVersion: 1, kind: 'skill',
         skills: [{ name: skill.name, path: `skills/${skill.name}/SKILL.md` }] }, files, this.config)
       return await this.local.install(archive)
-    })
+    }, true)
   }
 
   /** Import a user-selected publication without activation or network access.
@@ -102,7 +108,7 @@ export default class MuseMarket extends TypertRemoteService {
       const archive = Buffer.from(base64, 'base64')
       if (archive.toString('base64') !== base64) throw new MarketError('invalid-archive')
       return await this.local.install(archive)
-    })
+    }, true)
   }
 
   /** List retained publication records; none is activated by this service.
@@ -129,7 +135,7 @@ export default class MuseMarket extends TypertRemoteService {
    * @param id - Exact installed release identity.
    */
   @Remote('removePackage')
-  async removePackage(id: MarketReleaseId): Promise<void> { await this.serial(() => this.local.remove(id)) }
+  async removePackage(id: MarketReleaseId): Promise<void> { await this.serial(() => this.local.remove(id), true) }
 }
 
 declare module '@deepseek-ai/dsh-typert-protocol' {

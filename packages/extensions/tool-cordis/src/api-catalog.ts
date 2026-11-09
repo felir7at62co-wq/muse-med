@@ -5778,6 +5778,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'options', description: 'the full request. A LOOP-built request carries the process-local {@link markAgentLoopRequest} identity and arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. Hand-built calls do not carry that marker; callers own their request inputs and must keep them unchanged until the stream settles.' }],
   },
   {
+    name: 'muse-account/session-changed',
+    mode: 'emit',
+    signature: '\'muse-account/session-changed\'(): void',
+    summary: 'Local account identity changed; consumers discard private authority and reverify.',
+    description: 'Local account identity changed; consumers discard private authority and reverify.',
+    parameters: [],
+  },
+  {
     name: 'muse-market/before-remove',
     mode: 'serial',
     signature: '\'muse-market/before-remove\'(releaseId: MarketReleaseId): Promise<void>',
@@ -5791,6 +5799,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'muse-market/defaults-changed\'(): void',
     summary: 'Default publication choices committed; consumers refetch their own Session views.',
     description: 'Default publication choices committed; consumers refetch their own Session views.',
+    parameters: [],
+  },
+  {
+    name: 'muse-market/inventory-changed',
+    mode: 'emit',
+    signature: '\'muse-market/inventory-changed\'(): void',
+    summary: 'Local publication records changed; observers refetch authoritative inventory.',
+    description: 'Local publication records changed; observers refetch authoritative inventory.',
     parameters: [],
   },
   {
@@ -8046,24 +8062,12 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MarketEngines {\n    readonly dsh?: string;\n}',
   },
   {
-    name: 'MarketIdentity',
-    declaration: 'export interface MarketIdentity {\n    readonly publishers: readonly {\n        readonly id: MarketPublisherId;\n        readonly title: string;\n    }[];\n    readonly admin: boolean;\n}',
-  },
-  {
     name: 'MarketIndexMetadata',
     declaration: 'export interface MarketIndexMetadata {\n    readonly categories: Readonly<Record<string, MarketDeclaration>>;\n    readonly labels: Readonly<Record<string, MarketDeclaration>>;\n    readonly sortKeys: Readonly<Record<string, MarketSortKeyDeclaration>>;\n}',
   },
   {
     name: 'MarketIndexSummary',
     declaration: 'export interface MarketIndexSummary {\n    readonly url: string;\n    readonly title?: LocalizedText;\n    readonly description?: LocalizedText;\n    readonly error?: string;\n}',
-  },
-  {
-    name: 'MarketInstallation',
-    declaration: 'export interface MarketInstallation {\n    readonly status: MarketInstallationStatus;\n    readonly installedVersion?: string;\n}',
-  },
-  {
-    name: 'MarketInstallationStatus',
-    declaration: 'export type MarketInstallationStatus = \'not-installed\' | \'installed\' | \'update-available\' | \'different-version\' | \'provided\';',
   },
   {
     name: 'MarketInstallTarget',
@@ -8100,10 +8104,6 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MarketPluginMetadata',
     declaration: 'export interface MarketPluginMetadata {\n    readonly category?: string;\n    readonly keywords: readonly string[];\n    readonly labels: readonly string[];\n    readonly sortKeys: Readonly<Record<string, number>>;\n}',
-  },
-  {
-    name: 'MarketPublication',
-    declaration: 'export interface MarketPublication {\n    readonly id: MarketPublicationId;\n    readonly publisherId: MarketPublisherId;\n    readonly publisher: string;\n    readonly manifest: MarketManifest;\n    readonly sha256: string;\n    readonly bytes: number;\n    readonly status: \'draft\' | \'pending\' | \'published\' | \'rejected\' | \'withdrawn\';\n    readonly reviewNote: string;\n    readonly revision: number;\n    readonly createdAt: string;\n}',
   },
   {
     name: 'MarketPublicationId',

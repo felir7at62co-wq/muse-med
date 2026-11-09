@@ -211,6 +211,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'muse-market',
     title: 'Local Skill publication storage',
     mode: 'service',
+    consumers: ['client-ui-muse-market'],
     note: 'Muse Market owns the local publication API and immutable storage. '
       + 'Explicit Remote callers prepare, import, verify, export and remove disabled releases.',
   },
@@ -220,6 +221,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Account-bound Skill cloud publication',
     mode: 'service',
     implementations: ['muse-market'],
+    consumers: ['client-ui-muse-market'],
     note: 'Muse Market owns the optional cloud service definition and Host transport. '
       + 'Explicit Remote callers browse publications, publish private drafts, review original revisions and import verified disabled releases.',
   },
@@ -228,6 +230,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'muse-market',
     title: 'Session-bound Skill publication activation',
     mode: 'service',
+    consumers: ['client-ui-muse-market'],
     note: 'Owns explicit publication defaults and immutable Session selections. '
       + 'It provides the recorded Skill versions to live Agents and temporary cold catalog scopes.',
   },

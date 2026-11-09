@@ -17,7 +17,9 @@
     "src/cloud-protocol.ts",
     "src/cloud.ts",
     "src/server.ts",
-    "src/cloud-host.ts"
+    "src/cloud-host.ts",
+    "src/format-values.ts",
+    "src/cloud-values.ts"
   ],
   "references": [
     {
@@ -64,6 +66,9 @@
     },
     {
       "path": "../webserver"
+    },
+    {
+      "path": "../../util/values"
     }
   ]
 }

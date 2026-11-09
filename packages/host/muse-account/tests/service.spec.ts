@@ -19,6 +19,8 @@ const homes: string[] = []
 it('keeps browser redemption private, refreshes consumers after commit and cancels before manual authentication', async () => {
   const context = new Context(), operations: string[] = []
   contexts.push(context)
+  const changes: unknown[][] = []
+  context.on('muse-account/session-changed', (...args) => { changes.push(args) })
   const id = 'attempt' as import('../src/types.ts').MuseBrowserLoginId
   const attempt = { id, code: 'A1B2C3D4', authorizeUrl: 'https://muse.test/desktop-login', expiresAt: Date.now() + 60_000, pollIntervalMs: 2000 }
   const status = { state: 'signed-in', username: 'writer', verified: true } as const
@@ -34,13 +36,43 @@ it('keeps browser redemption private, refreshes consumers after commit and cance
   const service = context.get('museAccount') as MuseAccountService
   expect(await service.startBrowserLogin()).toEqual(attempt)
   expect(await service.checkBrowserLogin(id)).toEqual({ state: 'pending' })
+  expect(changes).toEqual([])
   expect(operations).toEqual([])
   expect(await service.checkBrowserLogin(id)).toEqual({ state: 'signed-in', status })
   expect(operations).toEqual(['remote', 'models'])
   expect(await service.cancelBrowserLogin(id)).toEqual(status)
   await service.login({ username: 'writer', password: 'password', registerIfMissing: false })
   await service.logout()
+  expect(changes).toEqual([[], [], []])
   expect(operations).toEqual(['remote', 'models', 'cancel', 'cancel', 'login', 'remote', 'models', 'cancel', 'pause', 'logout', 'models'])
+})
+
+it('notifies credential-free account changes after real local session persistence and suppresses unchanged status reads', async () => {
+  const context = new Context(), home = await mkdtemp(join(tmpdir(), 'muse-account-notifications-'))
+  contexts.push(context); homes.push(home)
+  const baseUrl = 'https://muse.example', sessionFile = join(home, 'session.json')
+  const controller = new MuseAccountController({ baseUrl, sessionFile, gateway: {
+    signIn: async () => '__Host-muse=notification-fixture', register: async () => '__Host-muse=notification-fixture',
+    signOut: async () => {}, identity: async () => ({ username: 'writer' }),
+  } })
+  await context.plugin(MuseAccountService, { controller })
+  const service = context.get('museAccount') as MuseAccountService
+  const changes: unknown[][] = [], observations: ReturnType<typeof readMuseSession>[] = []
+  const off = context.on('muse-account/session-changed', (...args) => {
+    changes.push(args); observations.push(readMuseSession(sessionFile, baseUrl))
+  })
+  await service.status({ verify: false })
+  expect(await observations.pop()).toBeNull()
+  await service.status({ verify: false })
+  expect(changes).toHaveLength(1)
+  await service.login({ username: 'writer', password: 'private-password', registerIfMissing: false })
+  expect(await observations.pop()).toMatchObject({ username: 'writer', cookie: '__Host-muse=notification-fixture' })
+  await service.logout()
+  expect(await observations.pop()).toBeNull()
+  expect(changes).toEqual([[], [], []])
+  off()
+  await service.login({ username: 'writer', password: 'private-password', registerIfMissing: false })
+  expect(changes).toHaveLength(3)
 })
 
 it('bounds browser login failures and reports unavailable Hosts without exposing errors', async () => {

@@ -163,7 +163,7 @@ export class MuseMarketCatalog {
     this.admit()
     const rows = actor.admin ? this.database.prepare('SELECT id,title FROM publishers ORDER BY title,id').all()
       : this.database.prepare('SELECT p.id,p.title FROM publishers p JOIN members m ON m.publisherId=p.id WHERE m.accountId=? ORDER BY p.title,p.id').all(actor.id)
-    return { publishers: rows.map((row) => {
+    return { accountId: actor.id, publishers: rows.map((row) => {
       if (typeof row.title !== 'string' || row.title.trim().length === 0 || row.title.length > 100) failure('corrupt-storage')
       return { id: parseMarketPublisherId(row.id), title: row.title }
     }), admin: actor.admin }

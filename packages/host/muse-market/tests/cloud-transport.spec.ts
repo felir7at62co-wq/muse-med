@@ -79,8 +79,8 @@ it('uses the configured origin and exact account file while preserving complete 
   expect(await f.cloud.catalog('fixture-skill 场景', false)).toEqual([publication])
   expect(f.requests).toEqual([{ path: '/api/market/v1/catalog?q=fixture-skill+%E5%9C%BA%E6%99%AF&mine=false',
     cookie: '__Host-muse=author', origin: f.origin, method: 'GET' }])
-  f.route((_req, res) => { json(res, { publishers: [{ id: publisher, title: 'Writing team' }], admin: false }) })
-  expect(await f.cloud.identity()).toEqual({ publishers: [{ id: publisher, title: 'Writing team' }], admin: false })
+  f.route((_req, res) => { json(res, { accountId: 'd'.repeat(16), publishers: [{ id: publisher, title: 'Writing team' }], admin: false }) })
+  expect(await f.cloud.identity()).toEqual({ accountId: 'd'.repeat(16), publishers: [{ id: publisher, title: 'Writing team' }], admin: false })
 })
 
 it('treats another origin account as anonymous and refuses authenticated operations before HTTP', async () => {

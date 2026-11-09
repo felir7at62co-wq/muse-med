@@ -7,6 +7,8 @@
  */
 
 import type {} from '@deepseek-ai/dsh-api-session-controller/remote-events'
+import type {} from '@deepseek-ai/dsh-muse-market/types'
+import type {} from '@deepseek-ai/dsh-muse-account/types'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {} from '@deepseek-ai/dsh-deepseek-account/types'
 import type {} from '@deepseek-ai/dsh-permission-presets/types'
@@ -55,5 +57,8 @@ export const API_REMOTE_FORWARDED_EVENTS = [
   { event: 'settings/document-updated', mode: 'emit' },
   { event: 'schedule/changed', mode: 'emit' },
   { event: 'skills/change', mode: 'emit' },
+  { event: 'muse-market/inventory-changed', mode: 'emit' },
+  { event: 'muse-market/defaults-changed', mode: 'emit' },
+  { event: 'muse-account/session-changed', mode: 'emit' },
   { event: 'user-questions/request', mode: 'waterfall' },
 ] as const satisfies readonly TypertForwardableEventEntry[]

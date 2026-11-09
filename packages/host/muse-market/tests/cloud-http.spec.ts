@@ -90,7 +90,7 @@ it('authenticates the private gateway before reading a complete actor assertion'
   expect((await fetch(f.origin + prefix + '/me', { headers: { authorization: `Bearer ${secret}`,
     'x-muse-market-actor': Buffer.from(JSON.stringify({ ...admin, admin: 'yes' })).toString('base64url') } })).status).toBe(400)
   const identity = await f.api('/me', reader)
-  expect(await identity.json()).toEqual({ publishers: [], admin: false })
+  expect(await identity.json()).toEqual({ accountId: reader.id, publishers: [], admin: false })
 })
 
 it('reconciles a committed upload after its original HTTP response is deliberately unobserved', async () => {

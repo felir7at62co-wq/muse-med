@@ -63,7 +63,7 @@ test('real gateway keeps original upload identity and review revision after comm
  const invitation=await json('/api/market/v1/publishers',adminCookie,{title:'Studio',accountId:author.id});
  assert.equal(invitation.status,201);const publisher=(await invitation.json()).id;assert.match(publisher,/^[a-f0-9]{32}$/u);
  const identity=await(await request('/api/market/v1/me',{cookie:authorCookie})).json();
- assert.deepEqual(identity,{publishers:[{id:publisher,title:'Studio'}],admin:false});
+ assert.deepEqual(identity,{accountId:author.id,publishers:[{id:publisher,title:'Studio'}],admin:false});
  function archive(version){return Buffer.from(createMarketPackage({name:'gateway-scene-review',title:'Scene review',
   description:'Retain original dialogue while reviewing a scene.',version,license:'MIT',category:'writing',
   examples:['Review the scene.'],requirements:['The original scene.'],formatVersion:1,kind:'skill',
