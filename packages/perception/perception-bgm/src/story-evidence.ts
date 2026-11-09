@@ -41,10 +41,16 @@ async function visualReview(root: string, text: string, signal: AbortSignal): Pr
   const value: unknown = JSON.parse(text)
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('visual_review must be a JSON record')
   const row = value as Record<string, unknown>
+  const observations = typeof row.observations === 'string' ? row.observations
+    : Array.isArray(row.observations) && row.observations.length > 0
+      && row.observations.every(item => typeof item === 'string' && item.trim())
+      ? row.observations.join('\n') : undefined
   if (typeof row.video !== 'string' || !row.video.trim() || typeof row.video_sha256 !== 'string'
     || !/^(?:sha256:)?[a-f0-9]{64}$/iu.test(row.video_sha256)
-    || typeof row.observations !== 'string' || !row.observations.trim()) {
-    throw new Error('visual_review requires video, video_sha256 and observations from actual inspection')
+    || observations === undefined || !observations.trim()) {
+    throw new Error('visual_review requires video (project video path), video_sha256 (64 hex characters), '
+      + 'and observations (nonempty text or an array of nonempty text from actual inspection). '
+      + 'Write these fields in the referenced JSON file; story.evidence contains kind, file and quotes only.')
   }
   const file = await projectFile(root, row.video)
   const digest = createHash('sha256')
@@ -52,7 +58,7 @@ async function visualReview(root: string, text: string, signal: AbortSignal): Pr
     digest.update(chunk)
   }
   const sha256 = `sha256:${digest.digest('hex')}`
-  return { text: row.observations, video: { file, sha256,
+  return { text: observations, video: { file, sha256,
     matches_record: sha256 === `sha256:${row.video_sha256.replace(/^sha256:/iu, '').toLowerCase()}` } }
 }
 

@@ -67,13 +67,31 @@ export function resolveJianyingDraftBackend(audioMode: 'embedded' | 'independent
   return { script: 'windows_aa_draft.py', library: 'aa-jianying' }
 }
 
-/** Resolve the optional audio mode at the episode JSON parser, preserving the released default. */
-function resolveAudioMode(bytes: Buffer): 'embedded' | 'independent' {
+/** Resolve source-audio mode and missing-music feedback without treating an old mix profile as a current decision. */
+function resolveDraftRequest(bytes: Buffer): { audioMode: 'embedded' | 'independent'; musicReminder?: string } {
   const request: unknown = JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/u, ''))
   if (typeof request !== 'object' || request === null || Array.isArray(request)) throw new Error('Draft request must be a JSON object')
-  if (!('audio_mode' in request) || request.audio_mode === 'independent') return 'independent'
-  if (request.audio_mode === 'embedded') return 'embedded'
-  throw new Error('audio_mode must be embedded or independent')
+  const audioMode = !('audio_mode' in request) || request.audio_mode === 'independent' ? 'independent'
+    : request.audio_mode === 'embedded' ? 'embedded' : undefined
+  if (audioMode === undefined) throw new Error('audio_mode must be embedded or independent')
+  const sourceProvided = 'bgm' in request && typeof request.bgm === 'string' && request.bgm.trim() !== ''
+  if ('music_decision' in request && request.music_decision !== 'music' && request.music_decision !== 'none') {
+    throw new Error('music_decision must be music or none')
+  }
+  if ('music_decision' in request && request.music_decision === 'none' && sourceProvided) {
+    throw new Error('music_decision=none conflicts with a supplied bgm; use the actual music decision')
+  }
+  if ('music_decision' in request && request.music_decision === 'none'
+    && 'decision_reason' in request && typeof request.decision_reason === 'string' && request.decision_reason.trim()) {
+    return { audioMode }
+  }
+  if (sourceProvided && (!('bgm_role' in request) || request.bgm_role !== 'dialogue_music_mix')) return { audioMode }
+  return { audioMode, musicReminder: '剪映配乐待完成：本次未提供可导入的独立纯音乐 BGM。'
+    + '请按剧本、对白与采用画面用 bgm_match 选曲，drama_bgm 合成并核验纯音乐底轨，'
+    + '将输出绝对路径写入 bgm、bgm_role=music_only 后另存新草稿，并回读实际 BGM 轨道和音量。'
+    + '只生成音乐底轨即可，不必先渲染整集 MP4；片尾音不算正文 BGM。'
+    + '用户明确不要配乐或剧情确需留白时，写 music_decision=none 与 decision_reason；'
+    + '旧 audio-mix.json 的 no_bgm 不自动代表本次要求。草稿候选保留，不能宣称配乐完成。' }
 }
 
 const DraftResult = z.object({
@@ -108,7 +126,8 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
   if (!requestStat.isFile() || requestStat.size > config.maxInputBytes) throw new Error('Draft request must be a regular file within the input limit')
   const requestBytes = await readFile(input.request_file)
   if (requestBytes.byteLength > config.maxInputBytes) throw new Error('Draft request exceeds the input limit')
-  const backend = resolveJianyingDraftBackend(resolveAudioMode(requestBytes), process.platform)
+  const request = resolveDraftRequest(requestBytes)
+  const backend = resolveJianyingDraftBackend(request.audioMode, process.platform)
   const python = config.pythonPath ?? (process.platform === 'win32'
     ? join(dirname(config.source), 'media', 'python', 'python.exe')
     : (await resolvePrimaryRuntime(config.source)).python)
@@ -145,7 +164,7 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
   const stdout = handle.collected.stdout?.readFrom(0)
   if (stdout === undefined || stdout.lossy) throw new Error('Draft generator output is missing or exceeds the output limit')
   if (!stdout.text.trim()) {
-    const stderr = handle.collected.stderr?.readFrom(0)?.text.trim()
+    const stderr = handle.collected.stderr?.readFrom(0).text.trim()
     throw new Error(`Draft generator returned no JSON (exit ${outcome.exitCode}): ${stderr || 'no diagnostic output'}`)
   }
   const value: unknown = JSON.parse(stdout.text)
@@ -160,6 +179,14 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
     || result.editor_open_verified || result.library.name !== backend.library
     || (backend.library === 'aa-jianying' && row.backend !== 'aa-jianying')) {
     throw new Error('Draft generator returned inconsistent saved-draft results')
+  }
+  if (request.musicReminder !== undefined) {
+    result.warnings = [...new Set([...result.warnings, request.musicReminder])]
+    result.quality = 'needs_review'
+    for (const draft of result.drafts) {
+      draft.warnings = [...new Set([...draft.warnings, request.musicReminder])]
+      draft.quality = 'needs_review'
+    }
   }
   return result
 }
@@ -181,10 +208,12 @@ export function apply(ctx: Context, config: Config): void {
 
 当前实例提供 jianying_draft。历史会话续做、升级后恢复或首次生成草稿时，重新读取当前 tweet-drama-draft-build 技能，以当前工具及技能为准，不以历史成功记录代替。用 drama_draft_dir 取得根目录，write 单集 JSON 请求，再调用 jianying_draft（也可经 run_code 调用 tools.jianying_draft）。不要沿用历史记录中的绝对开发路径、.desktop-build、sys.path 或 DraftGenerator 脚本来生成草稿。原生工具失败时核查本次实际错误与当前打包资源，不静默退回旧脚本或另装依赖绕过。
 
+生成剪映文件时，先完成本集 BGM 并一起导入：重新读取 tweet-drama-background-render 的 references/story-bgm-selection.md，根据真实剧本、对白、剧情发展和采用画面用 bgm_match 选曲，drama_bgm 合成并核验纯音乐底轨，把输出绝对路径写入请求 bgm、bgm_role="music_only"，再调用 jianying_draft。生成纯音乐底轨不要求先渲染整集 MP4；保留视频原声。剧情不需换曲可沿用一首，相邻两集尽量不重复，源音乐至少衰减 10 dB，已衰减底轨导入增益不大于 1。回读实际 BGM 轨道、覆盖时间和音量，片尾音不算正文 BGM。旧 no_bgm 配置不是当前用户明确不要配乐；确实不加配乐时在请求写 music_decision="none" 和 decision_reason。缺配乐时保留候选并处理返回的提醒，不把草稿创建成功当作配乐完成，也不新增用户审批。
+
 Windows 保留原视频声音时，请求写 audio_mode="embedded"，省略 audio；由 aa剪映后端直接保留视频声音，BGM 独立；仅 9:16 在整集末尾追加片尾，16:9 不加。未声明模式的旧请求仍走独立主音轨：成功导入后才静音正文源视频，导入失败保留原声并说明缺口。Mac 暂不支持 embedded，不改用独立音轨冒称满足。独立 BGM 必须是纯音乐，不能叠加含对白的审查混音。已有草稿不会自动迁移；修复旧稿时生成唯一名称的新候选，不覆盖原稿。以上为 Agent 操作指导，不新增用户审批，不把保存成功写成剪映打开、播放或听感已验收。` })
   ctx.effect(() => ctx.tools.register(defineTool({
     name: 'jianying_draft',
-    description: '生成一集可编辑剪映草稿，先读 tweet-drama-draft-build 并用 drama_draft_dir 取得根目录。write JSON 请求文件，包含 project、episode、name_prefix、按镜头顺序的 videos、subtitle_srt、timeline；Windows 保留原视频声音时写 audio_mode=embedded 并省略 audio，使用 aa剪映后端。未声明模式或 audio_mode=independent 时仍用 pyJianYingDraft 并要求 audio 为未混 BGM 的完整主音轨；Mac 暂不支持 embedded。可选 bgm、bgm_role、ending_audio、ending_effect，所有文件用绝对路径。Windows 片尾仅在 9:16 末尾追加，16:9 不加。BGM 为独立纯音乐轨，声明 bgm_role=music_only；含对白的审查混音不能当配乐重复叠加。字幕复用同源云转写时间轴，对照剧本在派生文件纠错，不均分时间。只处理指定集，不覆盖已有草稿；质量疑点返回 warnings 与 review_path 供核对，不要求提示清零。返回 backend、草稿路径与实际实现身份；editor_open_verified=false 表示尚未在剪映打开验收。',
+    description: '生成一集可编辑剪映草稿，先读 tweet-drama-draft-build 并用 drama_draft_dir 取得根目录。先按剧情选曲、用 drama_bgm 生成纯音乐底轨，再将 bgm 绝对路径和 bgm_role=music_only 一起写入草稿请求；确实不加配乐时写 music_decision=none、decision_reason。缺配乐返回待完成提醒，不自动选曲或把片尾音算作正文 BGM。write JSON 请求文件，包含 project、episode、name_prefix、按镜头顺序的 videos、subtitle_srt、timeline；Windows 保留原视频声音时写 audio_mode=embedded 并省略 audio，使用 aa剪映后端。未声明模式或 audio_mode=independent 时仍用 pyJianYingDraft 并要求 audio 为未混 BGM 的完整主音轨；Mac 暂不支持 embedded。可选 ending_audio、ending_effect，所有文件用绝对路径。Windows 片尾仅在 9:16 末尾追加，16:9 不加。含对白的审查混音不能当配乐重复叠加。字幕复用同源云转写时间轴，对照剧本在派生文件纠错，不均分时间。只处理指定集，不覆盖已有草稿；质量疑点返回 warnings 与 review_path 供核对，不要求提示清零。返回 backend、草稿路径与实际实现身份；editor_open_verified=false 表示尚未在剪映打开验收。',
     parameters: {
       request_file: { type: 'string', required: true, description: 'Existing JSON request file for one selected episode; relative paths use the current workspace.' },
       drafts_dir: { type: 'string', required: true, description: 'Existing editor root returned by drama_draft_dir.' },

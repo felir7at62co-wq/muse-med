@@ -55,6 +55,9 @@ it.each([false, true])('refreshes legacy draft guidance in the same Agent; in-hi
     expect(systemText(current)).toContain('不要沿用历史记录中的绝对开发路径')
     expect(systemText(current)).toContain('audio_mode="embedded"')
     expect(systemText(current)).toContain('BGM 独立')
+    expect(systemText(current)).toContain('先完成本集 BGM 并一起导入')
+    expect(systemText(current)).toContain('music_decision="none"')
+    expect(systemText(current)).toContain('片尾音不算正文 BGM')
     expect(systemText(current)).toContain('未声明模式的旧请求仍走独立主音轨')
     expect(systemText(current)).toContain('不新增用户审批')
     expect(agent.session.snapshotEvents().filter(event => event.type === 'system/message')
@@ -75,6 +78,7 @@ it.each([false, true])('refreshes legacy draft guidance in the same Agent; in-hi
     resumed.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '恢复会话，继续交付草稿。' }] }))
     await resumed.whenIdle()
     expect(systemText(adapter.requests[3]!)).toContain('## 剪映草稿：当前原生入口')
+    expect(systemText(adapter.requests[3]!)).toContain('先完成本集 BGM 并一起导入')
     expect(JSON.stringify(adapter.requests[3]!.messages)).toContain(JSON.stringify(legacy).slice(1, -1))
     expect(adapter.requests[3]!.tools?.some(tool => tool.name === 'jianying_draft')).toBe(true)
   } finally { await ctx.fiber.dispose() }

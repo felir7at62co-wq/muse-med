@@ -54,6 +54,20 @@ function Save-Result([object] $Value) {
   [IO.File]::WriteAllText($ResultPath, ($Value | ConvertTo-Json -Depth 100 -Compress), $utf8)
 }
 
+function Get-CliSha256([string] $Path) {
+  $algorithm = [Security.Cryptography.SHA256]::Create()
+  try {
+    $stream = [IO.File]::OpenRead($Path)
+    try {
+      return [BitConverter]::ToString($algorithm.ComputeHash($stream)).Replace('-', '').ToLowerInvariant()
+    } finally {
+      $stream.Dispose()
+    }
+  } finally {
+    $algorithm.Dispose()
+  }
+}
+
 function Invoke-Native([string[]] $Arguments, [switch] $HelpText) {
   $raw = @(& $script:cli @Arguments 2>&1)
   $code = $LASTEXITCODE
@@ -141,6 +155,7 @@ try {
     }
   }
   if (-not $cli) { throw 'Installed Jianying lyra-cli.exe is unavailable; no alternate renderer was used' }
+  $cliSha256 = Get-CliSha256 $cli
   $version = Invoke-Native @('--version') -HelpText
   Require-Flags @('draft','project','create') @('--ref','--dir')
   Require-Flags @('draft','video','add') @('--ref','--resource','--start','--duration','--track','--width','--height')
@@ -238,7 +253,7 @@ try {
   $timeline = Invoke-Step 'readback-timeline' @('draft','extract','--ref',$ref,'--scope','timeline')
   if (-not (Test-Path -LiteralPath (Join-Path $draftPath 'draft_content.json') -PathType Leaf)) { throw 'Jianying did not save the project at the requested draft root' }
   Save-Result ([ordered]@{ ok = $true; state = 'saved'; backend = 'aa-jianying'; ref = $ref; path = $draftPath; draft_id = $created.draft_id;
-    runtime = @{ cli = $cli; version = $version; cli_sha256 = (Get-FileHash -LiteralPath $cli -Algorithm SHA256).Hash.ToLowerInvariant() };
+    runtime = @{ cli = $cli; version = $version; cli_sha256 = $cliSha256 };
     body_segment_ids = $bodyIds.ToArray(); subtitle_segment_ids = $subtitleIds.ToArray();
     bgm_segment_id = $bgmId; ending_image_segment_id = $endingImageId; ending_audio_segment_id = $endingAudioId;
     ending_effect_segment_id = $endingEffectId;

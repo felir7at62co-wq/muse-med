@@ -83,9 +83,29 @@ it.each([
   null, [], {}, { video: '', video_sha256: 'a'.repeat(64), observations: 'observed' },
   { video: 'video.mp4', video_sha256: 'bad', observations: 'observed' },
   { video: 'video.mp4', video_sha256: 'a'.repeat(64), observations: ' ' },
+  { video: 'video.mp4', video_sha256: 'a'.repeat(64), observations: [] },
+  { video: 'video.mp4', video_sha256: 'a'.repeat(64), observations: ['observed', ' '] },
+  { video: 'video.mp4', video_sha256: 'a'.repeat(64), observations: [{ visible: 'observed' }] },
 ])('rejects incomplete visual-review records: %j', async (value) => {
   const root = await fixture()
   await writeFile(join(root, 'review.json'), JSON.stringify(value))
   await expect(groundStory(root, [{ kind: 'visual_review', file: 'review.json', quotes: ['observed'] }], false, signal()))
     .rejects.toThrow('visual_review')
 })
+
+it.each(['observed first\nobserved second', ['observed first', 'observed second']])(
+  'checks literal visual notes and current video bytes for text representation %j', async (observations) => {
+    const root = await fixture()
+    const video = Buffer.from('recorded media identity')
+    await writeFile(join(root, 'video.mp4'), video)
+    await writeFile(join(root, 'review.json'), JSON.stringify({ video: 'video.mp4',
+      video_sha256: createHash('sha256').update(video).digest('hex'), observations }))
+    const refs: StoryEvidenceReference[] = [{ kind: 'visual_review', file: 'review.json', quotes: ['observed second'] }]
+    expect(await groundStory(root, refs, false, signal())).toMatchObject({ status: 'quotes_matched',
+      sources: [{ video: { matches_record: true }, quotes: [{ found: true }] }] })
+    refs[0]!.quotes = ['invented observation']
+    expect(await groundStory(root, refs, false, signal())).toMatchObject({ status: 'quote_mismatch' })
+    refs[0]!.quotes = ['observed second']
+    await writeFile(join(root, 'video.mp4'), 'replaced media')
+    expect(await groundStory(root, refs, false, signal())).toMatchObject({ status: 'video_changed' })
+  })

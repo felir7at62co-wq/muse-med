@@ -149,6 +149,8 @@ Host 默认值与 `standard`、`ptc`、`cordis`、`short-drama`、`creation` 预
 <a id="video-screenplay-delivery"></a>
 ## 视频剧本交付
 
+草稿工具的已记录提示会提醒新建与恢复的 Agent，在导入同一集剪映草稿前完成有剧情依据的 BGM。缺少配乐或误传对白／音乐审查混音时，返回的候选会增加配乐待完成提示，不删除候选也不增加审批。确实不加音乐时，请求写 `music_decision: "none"` 和非空 `decision_reason`，并省略 `bgm`；旧渲染配置不能代替本次决定。Windows 适配器在创建项目之前用 .NET 计算 CLI 摘要，不依赖 PowerShell 可选的文件哈希命令。实际轨道回读和听校仍分别核验。
+
 受管视频剧本项目通过 [screenplay-project](../../packages/drama/screenplay-project/README.zh.md) 整理视觉事实并保存各集版本。Muse 为新旧项目选择建议型审校，不要求独立批准、A/B/C 分轮或先采用前集，才可起草或采用指定集。受管视频项目使用 `workflow: video_to_screenplay` 和 `qa/screenplay-project.json`；正式文件位于同级 `final/` 目录。分块场景文件和持久化覆盖清单支持恢复，不依赖压缩后的对话摘要。
 
 Muse 建议型 Word 导出固定本次实际 Markdown 输入，通过内置 Python 转换，并逐段核对生成的 Word 正文与实际输入，不要求项目、候选批准或 `.docx.screenplay.json` 收据。建议型交付检查预算内实际可读的 Markdown、文本或 Word，用户返稿保护继续独立生效。导出或呈现草稿不会自动采用，也不代表创作审校通过。

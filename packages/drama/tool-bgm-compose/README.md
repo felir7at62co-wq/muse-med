@@ -51,6 +51,8 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 ### Plan and methods
 
+Invalid plan fields report the schema path and expected value, such as `episodes[0].episode`. Episode IDs are strings, `body_duration_seconds` comes from the selected timeline, and each segment needs `track`, `source`, start/end seconds and `reason`. Schema errors do not publish media or change the plan; correct the named field before retrying.
+
 The plan uses `episodes[].segments[]`. Each selected episode declares `body_duration_seconds`, optional `crossfade_seconds`, and ordered segments with `track`, `source`, `start_seconds`, `end_seconds`, and a non-empty `reason`. A segment may freeze `source_start_seconds` and `source_sha256`; `valence` and `arousal` preserve optional candidate measurements without invoking `bgm_match`.
 
 Optional `tags`, `story_context`, `dialogue_context` and `transition_reason` retain selected labels, plot development, dialogue meaning and the reason for a larger musical change in analyzed segments and receipts. R6 advises on touching segments whose measured emotion distance or tag difference exceeds configuration. Missing metadata does not establish continuity; a declared plot turn explains a finding without removing it. Silence gaps are not treated as direct music changes. These checks do not interpret dialogue or certify musical fit.

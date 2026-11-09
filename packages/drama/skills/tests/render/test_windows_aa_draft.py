@@ -4,6 +4,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -20,6 +21,30 @@ spec.loader.exec_module(aa)
 
 
 class AaDraftTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows PowerShell host regression')
+    def test_cli_digest_works_without_the_filehash_cmdlet_and_releases_the_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / '剪映 cli.bin'
+            source.write_bytes(b'isolated native CLI identity\x00\xff')
+            want = hashlib.sha256(source.read_bytes()).hexdigest()
+            powershell = Path(os.environ['SystemRoot']) / 'System32/WindowsPowerShell/v1.0/powershell.exe'
+            command = '''
+$ErrorActionPreference = 'Stop'
+function Get-FileHash { throw 'The cmdlet is unavailable in this host' }
+$tokens = $null; $errors = $null
+$ast = [Management.Automation.Language.Parser]::ParseFile($env:MUSE_HASH_SCRIPT, [ref]$tokens, [ref]$errors)
+$definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-CliSha256' }, $true)
+if ($null -eq $definition) { throw 'Native digest helper is missing' }
+Invoke-Expression $definition.Extent.Text
+Get-CliSha256 $env:MUSE_HASH_INPUT
+'''
+            result = subprocess.run([str(powershell), '-NoProfile', '-NonInteractive', '-Command', command],
+                capture_output=True, text=True, timeout=20, env={**os.environ,
+                    'MUSE_HASH_SCRIPT': str(SCRIPTS / 'windows/aa-draft.ps1'), 'MUSE_HASH_INPUT': str(source)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), want)
+            source.unlink()
+
     def test_isolated_packaged_python_loads_adjacent_helpers(self):
         with tempfile.TemporaryDirectory() as work:
             request = Path(work) / 'invalid.json'
@@ -519,7 +544,7 @@ class AaDraftTests(unittest.TestCase):
             {'start_us': 600000, 'end_us': 1789000, 'text': '答案是\n42'}])
 
     def test_uri_decoding_preserves_unicode_spaces_and_drive_prefix(self):
-        self.assertEqual(str(aa.native_source_path('local:///C:/dir%20one/%E5%8E%9F%E7%89%87.mp4')), 'C:/dir one/原片.mp4')
+        self.assertEqual(aa.native_source_path('local:///C:/dir%20one/%E5%8E%9F%E7%89%87.mp4'), Path('C:/dir one/原片.mp4'))
         self.assertEqual(aa.native_source_path(self.sources[0].as_uri()), self.sources[0])
         self.assertEqual(aa.native_source_path(str(self.sources[0])), self.sources[0])
 
