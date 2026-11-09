@@ -95,7 +95,7 @@ pnpm --dir third_party/plugins/toolchain run test:bot
 DSH_HARNESS="$PWD" node --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test "third_party/plugins/ds-bot/test/*.test.js"
 ```
 
-保留的上游团队夹具显式选择原有主理人、预设、Bot 管理的上下文和记忆审阅。提问和视图夹具使用已有团队，不自动创建专业 Bot。`muse-host.test.js` 单独检查默认主理人与 Muse 专业 Bot 的初始化。测试解析器使用实际 Web 与 base 配置包的依赖，回归检查将解析模块与这些配置包的消费者进行比对。
+保留的上游团队夹具显式选择原有主理人、预设、Bot 管理的上下文和记忆审阅。提问和视图夹具使用已有团队，不自动创建专业 Bot。`muse-host.test.js` 单独检查默认主理人与 Muse 专业 Bot 的初始化。原生模型选择夹具在提供选择状态的同时，注册并归约 Bot 的回执投影。测试解析器使用实际 Web 与 base 配置包的依赖，回归检查将解析模块与这些配置包的消费者进行比对。
 
 打包检查验证原生组合、浏览器入口、来源记录和署名。录制会话用隔离状态执行实际的名单工具。这些检查不代表付费提供方可用、创作质量通过或账号实测通过；Host 激活与 Muse Bot 界面另行进行桌面验证。
 

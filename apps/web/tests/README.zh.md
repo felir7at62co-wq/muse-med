@@ -24,6 +24,8 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 
 桌面引导通过[只读账号观察器](fixtures/plugins/fixture-onboarding-account/client.js)等待余额结果发布。暂扣返回充值页后的响应，将请求到达、导航按钮启用与失败结果到达账号订阅区分开；夹具在其 Client 插件停止时释放该订阅。
 
+引导重载检查先等待目标步骤保存到 Host。队列快照在同一次观察中确认标题、条目数量、收起状态与待提交消息，再捕获稳定布局。
+
 依赖状态的用例使用 Workspace、接纳、附件和模型流屏障，区分可见中间状态与已完成操作。模型选择器的持久化断言等待默认设置保存完成，不以菜单关闭作为完成信号。文件卡片的几何断言等待精确的渲染高度，不以 Host Turn 完成或先前观察到可见作为完成信号。详情关闭等待框架过渡结束；归档验证为 seed Session 设置显式标题，并跨重载跟踪该身份。[CI 测试可靠性工作流](../../../.agents/skills/dsh-ci-test-reliability/SKILL.md#synchronize-on-state)负责这些同步规则。
 
 SVG 交付场景在连接警告失败时附带有界的 Host WebSocket 观察结果：Ping 排队与写入完成、Pong 到达、关闭码及调用栈。真实升级钩子必须观察到传输连接，保持安装直到 Host 清理完成，再恢复自己的方法和监听器。它不记录帧正文、请求 URL 或未识别的关闭文本；通过的用例不打印诊断输出。

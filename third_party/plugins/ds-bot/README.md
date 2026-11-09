@@ -95,7 +95,7 @@ The repository development dependencies pin `esbuild` to the version declared by
 DSH_HARNESS="$PWD" node --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test "third_party/plugins/ds-bot/test/*.test.js"
 ```
 
-Retained upstream team fixtures explicitly select their original coordinator, preset, Bot-managed context and memory review. Question and view fixtures use an existing team without automatically creating a specialist. `muse-host.test.js` separately checks the default coordinator and Muse specialist setup. The test resolver uses the actual Web and base profile bundle dependencies; its regression checks compare the resolved modules with those profile consumers.
+Retained upstream team fixtures explicitly select their original coordinator, preset, Bot-managed context and memory review. Question and view fixtures use an existing team without automatically creating a specialist. `muse-host.test.js` separately checks the default coordinator and Muse specialist setup. Native-selection fixtures register and fold the Bot's receipt projections alongside their supplied selection state. The test resolver uses the actual Web and base profile bundle dependencies; its regression checks compare the resolved modules with those profile consumers.
 
 The package checks validate the native composition, browser entry, source metadata and retained attribution. The recorded-session case exercises the actual roster tool with isolated state. They do not establish paid-provider availability, creative quality, or authenticated account acceptance; desktop verification covers Host activation and the Muse Bot interface separately.
 

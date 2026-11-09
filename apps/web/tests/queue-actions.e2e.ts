@@ -366,16 +366,29 @@ describe('web e2e: queue row actions', () => {
     })
     await page.locator('[data-testid="todo-panel"]').waitFor({ timeout: 10_000 })
 
-    for (const text of ['Layout queue first', 'Layout queue second']) {
+    const queuedTexts = ['Layout queue first', 'Layout queue second']
+    for (const text of queuedTexts) {
       // A just-submitted composer is read-only for the prompt round-trip.
       await page.locator('[data-composer-input][contenteditable="true"]').first().waitFor({ timeout: 10_000 })
       await input.fill(text)
       await input.press('Enter')
     }
+    const activeAgent = scaffold.ctx.agents.get(sessions[0]!.id)
+    await expect.poll(() => activeAgent?.inbox.nextTurn.map(message =>
+      message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join(''),
+    )).toEqual(queuedTexts)
     const queueHeader = page.getByRole('button', { name: '2 queued messages' })
-    await expect.poll(() => queueHeader.getAttribute('aria-expanded'), { timeout: 10_000 })
-      .toBe('false')
-    await expect.poll(() => queueHeader.getByRole('status').count(), { timeout: 10_000 }).toBe(0)
+    // Count and sending state must belong to the same rendered queue.
+    await expect.poll(() => page.locator('[data-queue-dock]').evaluate((dock) => {
+      const headers = dock.querySelectorAll('button[aria-controls]')
+      const header = headers[0]
+      return {
+        headerCount: headers.length,
+        headerText: header?.textContent?.trim() ?? null,
+        expanded: header?.getAttribute('aria-expanded') ?? null,
+        sending: dock.querySelectorAll('[role="status"]').length,
+      }
+    }), { timeout: 10_000 }).toEqual({ headerCount: 1, headerText: '2 queued messages', expanded: 'false', sending: 0 })
 
     const layoutSnapshot = await captureStableAria(
       page,
