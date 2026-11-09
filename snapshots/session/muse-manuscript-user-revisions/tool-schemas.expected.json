@@ -274,7 +274,7 @@
     },
     {
       "name": "manuscript_revision",
-      "description": "支持Word/Markdown/文本。materials显式读取当前稿current、参考reference与候选candidate的正文、版本和范围。continuity使用当前模型在独立只读会话检查所选正文因果与跨集状态，返回原句和未知项，不自动改稿。delivery声明候选文件按实际核对范围交付或明确按草稿交付，将返回的files[].label原样用作present描述；文件变化需重新核验。compare/status对照返稿，review检查候选是否保留返稿修改，measure只统计同范围文字量，这些动作不作语义审校。",
+      "description": "支持Word/Markdown/文本。snapshot用source_paths保留修改前完整原件，history查询这些原稿的历史版本；不自动选当前稿。materials显式读取current、reference与candidate的正文、版本和范围。continuity使用当前模型在独立只读会话检查所选正文因果与跨集状态，返回原句和未知项，不自动改稿。delivery按实际核对范围或草稿交付，将files[].label原样用作present描述；文件变化需重新核验。compare/status对照返稿，review检查候选是否保留返稿修改，measure只统计同范围文字量，这些动作不作语义审校。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -287,7 +287,9 @@
               "measure",
               "materials",
               "continuity",
-              "delivery"
+              "delivery",
+              "snapshot",
+              "history"
             ]
           },
           "delivery_mode": {
@@ -365,7 +367,7 @@
           },
           "source_paths": {
             "type": "array",
-            "description": "measure使用的本轮对应完整来源文件；与candidate_paths覆盖相同范围，不把仅有对白的ASR与含动作场景的成稿当作同口径正文。",
+            "description": "snapshot/history必填：明确实际原稿路径，保留完整原件或列出这些路径的历史。measure用于与candidate_paths相同范围的来源；不把仅有对白的ASR与含动作场景的成稿冒称同口径。",
             "items": {
               "type": "string"
             }

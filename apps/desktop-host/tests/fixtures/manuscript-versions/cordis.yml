@@ -1,0 +1,17 @@
+- id: agent-default-model
+  config:
+    provider: manuscript-versions-fixture
+    model: version-test-model
+- id: llm-deepseek
+  disabled: true
+- id: session-persistence-jsonl
+  config:
+    root: './.sessions'
+    compression: none
+- id: tool-result-pruner
+  disabled: true
+- id: tool-web
+  disabled: true
+- insert:
+    - id: manuscript-versions-fixture
+      name: './fixture.mjs'

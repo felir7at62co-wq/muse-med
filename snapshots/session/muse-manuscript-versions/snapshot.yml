@@ -1,0 +1,10 @@
+version: 1
+scenario: muse-manuscript-versions
+profile: headless
+composition: muse-manuscript-versions
+recording: authored
+header:
+  class: muse-manuscript-versions
+  pin: true
+workspace:
+  final: true

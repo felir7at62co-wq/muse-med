@@ -565,6 +565,20 @@ async function prepareManuscriptDeliveryExpectedWorkspace(cwd: string, scenarioD
   return expectedRoot
 }
 
+async function prepareManuscriptVersionsExpectedWorkspace(cwd: string, scenarioDir: string, parentSession: string): Promise<string> {
+  const expectedRoot = join(cwd, '.snapshot-patches', 'expected-manuscript-versions')
+  await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+  const file = join(expectedRoot, '.muse', 'manuscript-revisions', 'versions', 'index.json')
+  const index = JSON.parse(await readFile(file, 'utf8')) as JsonObject
+  if (!Array.isArray(index.records)) throw Error('manuscript versions expected records are missing')
+  index.records = index.records.map((record: JsonObject) => {
+    if (record.source_path !== '{{cwd}}/current.md' || record.session_id !== '{{session:1}}') throw Error('manuscript versions expected owner or source is not declared')
+    return { ...record, source_path: join(cwd, 'current.md'), session_id: parentSession }
+  })
+  await writeFile(file, JSON.stringify(index) + '\n')
+  return expectedRoot
+}
+
 function expandDouyinExpectedReceipt(text: string, cwd: string): string {
   const receipt = JSON.parse(text) as JsonObject
   for (const field of ['path', 'receipt']) {
@@ -2685,6 +2699,11 @@ describe('headless recorded-session snapshots', () => {
             }
             if (scenario.name === 'worktree') {
               await verifyWorktree(actualLogs[0]!.content, await realpath(cwd))
+            }
+            if (scenario.name === 'muse-manuscript-versions') {
+              const parentId = actualLogs[0]?.header.id
+              if (typeof parentId !== 'string') throw Error('manuscript versions require the actual parent identity')
+              expectedWorkspaceRoot = await prepareManuscriptVersionsExpectedWorkspace(await realpath(cwd), scenario.dir, parentId)
             }
             if (['muse-manuscript-final-delivery', 'muse-manuscript-ptc-delivery', 'muse-manuscript-no-receipt',
               'muse-manuscript-revision-basis', 'muse-manuscript-ordinary-revision', 'muse-manuscript-edit-receipt'].includes(scenario.name)) {

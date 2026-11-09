@@ -125,9 +125,9 @@ interface ToolArgsMap {
     /** Max wait in milliseconds with wait: true. Defaults to and is capped by configuration. */
     timeout_ms?: number;
   } & Record<string, JsonValue>;
-  /** 支持Word/Markdown/文本。materials显式读取当前稿current、参考reference与候选candidate的正文、版本和范围。continuity使用当前模型在独立只读会话检查所选正文因果与跨集状态，返回原句和未知项，不自动改稿。delivery声明候选文件按实际核对范围交付或明确按草稿交付，将返回的files[].label原样用作present描述；文件变化需重新核验。compare/status对照返稿，review检查候选是否保留返稿修改，measure只统计同范围文字量，这些动作不作语义审校。 */
+  /** 支持Word/Markdown/文本。snapshot用source_paths保留修改前完整原件，history查询这些原稿的历史版本；不自动选当前稿。materials显式读取current、reference与candidate的正文、版本和范围。continuity使用当前模型在独立只读会话检查所选正文因果与跨集状态，返回原句和未知项，不自动改稿。delivery按实际核对范围或草稿交付，将files[].label原样用作present描述；文件变化需重新核验。compare/status对照返稿，review检查候选是否保留返稿修改，measure只统计同范围文字量，这些动作不作语义审校。 */
   manuscript_revision: {
-    action: "compare" | "status" | "review" | "measure" | "materials" | "continuity" | "delivery";
+    action: "compare" | "status" | "review" | "measure" | "materials" | "continuity" | "delivery" | "snapshot" | "history";
     /** delivery必填，同时提供candidate_paths。reviewed只声明实际核对范围；改稿须先continuity对照不同路径的current原稿和candidate最终稿，只审最终稿不能声明改稿已复核。draft明确未核验或仍有问题，不冒称修复完成。 */
     delivery_mode?: "reviewed" | "draft";
     /** draft交付说明未核验范围或未解决项。 */
@@ -150,7 +150,7 @@ interface ToolArgsMap {
     baseline_path?: string;
     /** 用户最新返稿的真实本地路径。 */
     revised_path?: string;
-    /** measure使用的本轮对应完整来源文件；与candidate_paths覆盖相同范围，不把仅有对白的ASR与含动作场景的成稿当作同口径正文。 */
+    /** snapshot/history必填：明确实际原稿路径，保留完整原件或列出这些路径的历史。measure用于与candidate_paths相同范围的来源；不把仅有对白的ASR与含动作场景的成稿冒称同口径。 */
     source_paths?: string[];
     /** 完整候选正文，按交付顺序；delivery是实际待交付文件；measure与source_paths覆盖相同范围。 */
     candidate_paths?: string[];
