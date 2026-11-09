@@ -292,6 +292,11 @@ Source: [`packages/host/muse-account/src/desktop-bridge.ts`](../../packages/host
 Local publication service; installing a package never registers or executes its Skill.
 
 ```ts cordis-catalog
+/** Internal storage specification for co-located activation; not a Remote endpoint.
+ * @returns Readonly resolved paths and bounds, without exposing archive contents.
+ */
+publicationStorage(): MarketLocalConfig
+
 /** List current authoring candidates without reading or uploading resource directories.
  * @returns Discovered metadata and whether every provider completed this observation.
  */

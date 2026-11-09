@@ -32,6 +32,14 @@
     "./remote": {
       "types": "./lib/typert.remote-client.d.ts",
       "default": "./lib/typert.remote-client.js"
+    },
+    "./activation": {
+      "types": "./lib/types/activation.d.ts",
+      "default": "./lib/activation.js"
+    },
+    "./session": {
+      "types": "./lib/types/session.d.ts",
+      "default": "./lib/types/session.js"
     }
   },
   "scripts": {
@@ -41,6 +49,8 @@
     "lib/index.js",
     "lib/package.js",
     "lib/format.js",
+    "lib/activation.js",
+    "lib/shared-*.js",
     "lib/types/**/*.js",
     "lib/types/**/*.d.ts",
     "lib/typert.host.js",
@@ -58,12 +68,21 @@
     "@deepseek-ai/schemastery": "workspace:~",
     "fflate": "^0.8.3",
     "yaml": "^2.4.2",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@deepseek-ai/dsh-agent": "workspace:*",
+    "@deepseek-ai/dsh-session": "workspace:*",
+    "@deepseek-ai/dsh-session-projection": "workspace:*",
+    "@deepseek-ai/dsh-session-query": "workspace:*",
+    "@deepseek-ai/dsh-scope": "workspace:*",
+    "@deepseek-ai/dsh-api-session-controller": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "workspace:~"
+    "@deepseek-ai/cordis": "workspace:~",
+    "@deepseek-ai/dsh-agent-loop-testkit": "workspace:*",
+    "@deepseek-ai/dsh-session-format-v3-to-v4": "workspace:*",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:*"
   }
 }

@@ -389,6 +389,17 @@ describe('catalog cache', () => {
     expect(payloads).toHaveLength(4)
   })
 
+  it('skills/change clears cached views after a committed provider default change', async () => {
+    const { list, payloads } = countingList()
+    const { source, remote } = await bench(list)
+    await source.candidates(proj('s1'), req(''))
+    await source.candidates(proj('s2'), req(''))
+    remote.emit('skills/change', [])
+    await source.candidates(proj('s1'), req(''))
+    await source.candidates(proj('s2'), req(''))
+    expect(payloads).toHaveLength(4)
+  })
+
   it('plugin-manager/changed clears every cached session', async () => {
     const { list, payloads } = countingList()
     const { source, remote } = await bench(list)

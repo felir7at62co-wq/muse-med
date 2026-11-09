@@ -3,50 +3,53 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/host/muse-market/README.md
 /:
-  en: ef4901418e45b211
-  zh: 1661079353215e3c
+  en: 766f64bc89f285c8
+  zh: 581724bbb4cbbf7b
 /local-skill-publications:
   en: 6232dc6b8b3f1d4b
   zh: 2743238fca92b1df
 /local-skill-publications/summary:
-  en: 93fa9c85f9ae4326
-  zh: 75f930eee02d63ce
+  en: 7b43c80cc13f04a1
+  zh: 0cff72100b98cd11
 /local-skill-publications/table-of-contents:
   en: d152484eb41ac6b4
   zh: 7b30b973a849247d
 /local-skill-publications/use-this-package:
-  en: a30c82bdf3895cbd
-  zh: 7d066149c77c79ef
+  en: 0423308ce1aa5d1b
+  zh: 505acc5c3d492f49
 /local-skill-publications/use-this-package/publication-lifecycle:
-  en: 8b91a194697c4868
-  zh: 6cd75c98752b1dcb
+  en: 16f39fb1da988350
+  zh: 19b2f353839c22aa
+/local-skill-publications/use-this-package/default-releases-and-session-binding:
+  en: 51fcd69d4723d647
+  zh: 2c1bf321dab5be7e
 /local-skill-publications/use-this-package/storage-and-configuration:
-  en: aaba466bf9436292
-  zh: 7886c96a63daec58
+  en: 842b7adfadf6269a
+  zh: 95f7e32ed6479dea
 /local-skill-publications/understand-the-implementation:
-  en: a6b170c3f8fbf749
-  zh: b05a5f29108cd959
+  en: 2e6929ecf13aef6c
+  zh: 0d3baa8c555d331c
 /local-skill-publications/further-exploration:
   en: 647f16a597f1e8e5
   zh: 51c96fea50771024
 /local-skill-publications/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
-/local-skill-publications/model-experience/caller-owned-publication-results:
-  en: b237a7c851085851
-  zh: 18751de87a965325
-/local-skill-publications/model-experience/caller-owned-publication-results/what-the-model-sees:
-  en: 8504ec2052c5f803
-  zh: ac8b438126bedb81
-/local-skill-publications/model-experience/caller-owned-publication-results/token-effect:
-  en: af9073026a241f74
-  zh: 8fa9561ac79162a1
-/local-skill-publications/model-experience/caller-owned-publication-results/kv-cache-effect:
-  en: 990d524e8ee5a76e
-  zh: b6a7bda942070337
+/local-skill-publications/model-experience/publication-results-and-selected-skills:
+  en: 4f6dfcb5234ea888
+  zh: c48c4295eec8c01f
+/local-skill-publications/model-experience/publication-results-and-selected-skills/what-the-model-sees:
+  en: c8962bbb392ffe92
+  zh: 11e43445d04d807e
+/local-skill-publications/model-experience/publication-results-and-selected-skills/token-effect:
+  en: 6f884d3c923d618a
+  zh: dee62af157c34557
+/local-skill-publications/model-experience/publication-results-and-selected-skills/kv-cache-effect:
+  en: cc39ac11503a39b6
+  zh: 0bddfc06a2725cf6
 /local-skill-publications/known-limitations-and-deferred-work:
-  en: 6726188abb41c4d4
-  zh: a2f2b4da216d553e
+  en: 4971e36f2709d30e
+  zh: ea244b885ccd9c66
 /local-skill-publications/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: e88aeb617ffb74ea

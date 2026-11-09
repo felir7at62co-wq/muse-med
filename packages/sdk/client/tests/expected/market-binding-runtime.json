@@ -1,0 +1,353 @@
+{
+  "finalResponse": "SKILL_VERSION_BINDING_VERIFIED",
+  "finishReason": "completed",
+  "bindingEvents": [
+    {
+      "type": "muse-market/bound",
+      "data": {
+        "releases": [
+          {
+            "release": {
+              "id": "36c57f2b809312cd6b4c2f9e4fe9ab7cd98daebb1b1f55ead14e9d1158bbd5d5",
+              "sha256": "36c57f2b809312cd6b4c2f9e4fe9ab7cd98daebb1b1f55ead14e9d1158bbd5d5",
+              "bytes": 975,
+              "manifest": {
+                "name": "version-bound-publication",
+                "title": "Version-bound scene review",
+                "description": "Review a scene using version one.",
+                "version": "1.0.0",
+                "license": "MIT",
+                "category": "writing",
+                "examples": [
+                  "Review the supplied scene."
+                ],
+                "requirements": [
+                  "The original scene."
+                ],
+                "formatVersion": 1,
+                "kind": "skill",
+                "skills": [
+                  {
+                    "name": "version-bound-review",
+                    "path": "skills/version-bound-review/SKILL.md"
+                  }
+                ]
+              }
+            },
+            "skill": {
+              "name": "version-bound-review",
+              "description": "Review a scene using version one.",
+              "invocation": {
+                "modelInvocable": true,
+                "userInvocable": true
+              },
+              "whenToUse": "When reviewing the supplied scene."
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "lifecycle": {
+    "call_version_2": {
+      "defaults": {
+        "revision": 2,
+        "defaults": [
+          {
+            "skillName": "version-bound-review",
+            "releaseId": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32"
+          }
+        ]
+      },
+      "blankBeforeFirstTask": {
+        "phase": "blank",
+        "releases": [
+          {
+            "release": {
+              "id": "36c57f2b809312cd6b4c2f9e4fe9ab7cd98daebb1b1f55ead14e9d1158bbd5d5",
+              "sha256": "36c57f2b809312cd6b4c2f9e4fe9ab7cd98daebb1b1f55ead14e9d1158bbd5d5",
+              "bytes": 975,
+              "manifest": {
+                "name": "version-bound-publication",
+                "title": "Version-bound scene review",
+                "description": "Review a scene using version one.",
+                "version": "1.0.0",
+                "license": "MIT",
+                "category": "writing",
+                "examples": [
+                  "Review the supplied scene."
+                ],
+                "requirements": [
+                  "The original scene."
+                ],
+                "formatVersion": 1,
+                "kind": "skill",
+                "skills": [
+                  {
+                    "name": "version-bound-review",
+                    "path": "skills/version-bound-review/SKILL.md"
+                  }
+                ]
+              }
+            },
+            "skill": {
+              "name": "version-bound-review",
+              "description": "Review a scene using version one.",
+              "invocation": {
+                "modelInvocable": true,
+                "userInvocable": true
+              },
+              "whenToUse": "When reviewing the supplied scene."
+            }
+          }
+        ]
+      },
+      "oldBindingAfterSwitch": {
+        "phase": "bound",
+        "releases": [
+          {
+            "release": {
+              "id": "36c57f2b809312cd6b4c2f9e4fe9ab7cd98daebb1b1f55ead14e9d1158bbd5d5",
+              "sha256": "36c57f2b809312cd6b4c2f9e4fe9ab7cd98daebb1b1f55ead14e9d1158bbd5d5",
+              "bytes": 975,
+              "manifest": {
+                "name": "version-bound-publication",
+                "title": "Version-bound scene review",
+                "description": "Review a scene using version one.",
+                "version": "1.0.0",
+                "license": "MIT",
+                "category": "writing",
+                "examples": [
+                  "Review the supplied scene."
+                ],
+                "requirements": [
+                  "The original scene."
+                ],
+                "formatVersion": 1,
+                "kind": "skill",
+                "skills": [
+                  {
+                    "name": "version-bound-review",
+                    "path": "skills/version-bound-review/SKILL.md"
+                  }
+                ]
+              }
+            },
+            "skill": {
+              "name": "version-bound-review",
+              "description": "Review a scene using version one.",
+              "invocation": {
+                "modelInvocable": true,
+                "userInvocable": true
+              },
+              "whenToUse": "When reviewing the supplied scene."
+            }
+          }
+        ]
+      }
+    },
+    "call_version_4": {
+      "binding": {
+        "phase": "bound",
+        "releases": [
+          {
+            "release": {
+              "id": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32",
+              "sha256": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32",
+              "bytes": 981,
+              "manifest": {
+                "name": "version-bound-publication",
+                "title": "Version-bound scene review",
+                "description": "Review a scene using version two.",
+                "version": "2.0.0",
+                "license": "MIT",
+                "category": "writing",
+                "examples": [
+                  "Review the supplied scene."
+                ],
+                "requirements": [
+                  "The original scene."
+                ],
+                "formatVersion": 1,
+                "kind": "skill",
+                "skills": [
+                  {
+                    "name": "version-bound-review",
+                    "path": "skills/version-bound-review/SKILL.md"
+                  }
+                ]
+              }
+            },
+            "skill": {
+              "name": "version-bound-review",
+              "description": "Review a scene using version two.",
+              "invocation": {
+                "modelInvocable": true,
+                "userInvocable": true
+              },
+              "whenToUse": "When reviewing the supplied scene."
+            }
+          }
+        ]
+      },
+      "projection": {
+        "bound": true,
+        "requested": true,
+        "releases": [
+          {
+            "release": {
+              "id": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32",
+              "sha256": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32",
+              "bytes": 981,
+              "manifest": {
+                "name": "version-bound-publication",
+                "title": "Version-bound scene review",
+                "description": "Review a scene using version two.",
+                "version": "2.0.0",
+                "license": "MIT",
+                "category": "writing",
+                "examples": [
+                  "Review the supplied scene."
+                ],
+                "requirements": [
+                  "The original scene."
+                ],
+                "formatVersion": 1,
+                "kind": "skill",
+                "skills": [
+                  {
+                    "name": "version-bound-review",
+                    "path": "skills/version-bound-review/SKILL.md"
+                  }
+                ]
+              }
+            },
+            "skill": {
+              "name": "version-bound-review",
+              "description": "Review a scene using version two.",
+              "invocation": {
+                "modelInvocable": true,
+                "userInvocable": true
+              },
+              "whenToUse": "When reviewing the supplied scene."
+            }
+          }
+        ]
+      }
+    },
+    "call_version_5": {
+      "binding": {
+        "phase": "bound",
+        "releases": [
+          {
+            "release": {
+              "id": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32",
+              "sha256": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32",
+              "bytes": 981,
+              "manifest": {
+                "name": "version-bound-publication",
+                "title": "Version-bound scene review",
+                "description": "Review a scene using version two.",
+                "version": "2.0.0",
+                "license": "MIT",
+                "category": "writing",
+                "examples": [
+                  "Review the supplied scene."
+                ],
+                "requirements": [
+                  "The original scene."
+                ],
+                "formatVersion": 1,
+                "kind": "skill",
+                "skills": [
+                  {
+                    "name": "version-bound-review",
+                    "path": "skills/version-bound-review/SKILL.md"
+                  }
+                ]
+              }
+            },
+            "skill": {
+              "name": "version-bound-review",
+              "description": "Review a scene using version two.",
+              "invocation": {
+                "modelInvocable": true,
+                "userInvocable": true
+              },
+              "whenToUse": "When reviewing the supplied scene."
+            }
+          }
+        ]
+      },
+      "projection": {
+        "bound": true,
+        "requested": true,
+        "releases": [
+          {
+            "release": {
+              "id": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32",
+              "sha256": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32",
+              "bytes": 981,
+              "manifest": {
+                "name": "version-bound-publication",
+                "title": "Version-bound scene review",
+                "description": "Review a scene using version two.",
+                "version": "2.0.0",
+                "license": "MIT",
+                "category": "writing",
+                "examples": [
+                  "Review the supplied scene."
+                ],
+                "requirements": [
+                  "The original scene."
+                ],
+                "formatVersion": 1,
+                "kind": "skill",
+                "skills": [
+                  {
+                    "name": "version-bound-review",
+                    "path": "skills/version-bound-review/SKILL.md"
+                  }
+                ]
+              }
+            },
+            "skill": {
+              "name": "version-bound-review",
+              "description": "Review a scene using version two.",
+              "invocation": {
+                "modelInvocable": true,
+                "userInvocable": true
+              },
+              "whenToUse": "When reviewing the supplied scene."
+            }
+          }
+        ]
+      }
+    }
+  },
+  "proof": {
+    "oldReleaseSha256": "36c57f2b809312cd6b4c2f9e4fe9ab7cd98daebb1b1f55ead14e9d1158bbd5d5",
+    "newReleaseSha256": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32",
+    "oldSessionReleaseSha256": "36c57f2b809312cd6b4c2f9e4fe9ab7cd98daebb1b1f55ead14e9d1158bbd5d5",
+    "blankFirstTaskReleaseSha256": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32",
+    "freshFirstTaskReleaseSha256": "eb745655ecbe60ef1b8b5aeae2e13db9777cb9e12d59c3c089d79a5d0037db32",
+    "oldBindingRetained": true,
+    "blankWasUnboundBeforeFirstTask": true,
+    "bindingEventsPerSession": {
+      "old": 1,
+      "blank": 1,
+      "fresh": 1
+    },
+    "eventProjectionAndProviderIdentityMatch": true,
+    "completeSkillResultsReachedNextModel": true,
+    "completeLifecycleResultsReachedNextModel": true,
+    "modelRequests": {
+      "old": 6,
+      "blank": 2,
+      "fresh": 2
+    },
+    "ptcDispatchStarts": 0,
+    "ptcDispatchSettles": 0,
+    "executor": "native"
+  }
+}

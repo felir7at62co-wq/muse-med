@@ -65,6 +65,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   museDesktopBridge: 'web-server.md',
   museAccount: 'web-server.md',
   museMarket: 'web-server.md',
+  museMarketActivation: 'skills.md',
   pluginManager: 'boot.md',
   actionCards: 'boot.md',
   pluginRecommendations: 'boot.md',
@@ -250,6 +251,8 @@ export const SERVICE_WALK_EXEMPTIONS: Record<string, string> = {
  * {@link EVENT_WALK_EXEMPTIONS} names each one with its documentation owner.
  */
 export const EVENT_SCOPE_PAGE: Record<string, string> = {
+  'muse-market': 'skills.md',
+  'session-skills': 'skills.md',
   deliverables: 'deliverables.md',
   'app-boot': 'boot.md',
   hmr: 'boot.md',
@@ -1011,6 +1014,11 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  MuseMarketDefaults: 'Skill publication defaults are owned by packages/host/muse-market/README.md and src/types.ts',
+  MuseMarketDefaultInput: 'Skill publication default changes are owned by packages/host/muse-market/README.md and src/types.ts',
+  MuseMarketBindingRequest: 'Session Skill selection queries are owned by packages/host/muse-market/README.md and src/types.ts',
+  MuseMarketBindingView: 'Session Skill selections are owned by packages/host/muse-market/README.md and src/types.ts',
+  MarketLocalConfig: 'Private publication storage fields are owned by packages/host/muse-market/README.md and src/local.ts',
   MuseMarketInstallation: 'Local Skill publication records are owned by packages/host/muse-market/README.md and src/types.ts',
   MarketMetadata: 'Local Skill publication metadata is owned by packages/host/muse-market/README.md and src/types.ts',
   MarketReleaseId: 'Local Skill publication identities are owned by packages/host/muse-market/README.md and src/types.ts',

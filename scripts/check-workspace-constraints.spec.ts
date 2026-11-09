@@ -327,9 +327,15 @@ describe('package payload constraints', () => {
     }
     expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, 'src/**'] } }))
       .toContainEqual(expect.stringContaining('package.json files must not publish'))
-    expect(checkWorkspaceManifest({ dir, manifest: {
-      ...manifest, files: manifest.files!.filter(file => file !== 'lib/package.js'),
-    } })).toContainEqual(expect.stringContaining('package.json files must be'))
+    for (const files of [
+      ...['lib/package.js', 'lib/activation.js', 'lib/shared-*.js']
+        .map(required => manifest.files!.filter(file => file !== required)),
+      manifest.files!.map(file => file === 'lib/shared-*.js' ? 'lib/**/*.js' : file),
+      [...manifest.files!, 'lib/*.js'],
+    ]) {
+      expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files } }))
+        .toContainEqual(expect.stringContaining('package.json files must be'))
+    }
   })
 
   it('requires the exact tool discovery runtime, locale, and Codex attribution files', () => {

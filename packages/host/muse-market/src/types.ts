@@ -1,5 +1,6 @@
 /** Skill publication metadata shared by local storage and its consumers. */
 import type { Branded } from '@deepseek-ai/dsh-brand'
+import type { SessionId } from '@deepseek-ai/dsh-session'
 
 /** SHA-256 identity of one immutable publication archive. */
 export type MarketReleaseId = Branded<'MarketReleaseId'>
@@ -47,4 +48,58 @@ export interface MarketLimits {
   readonly fileCount: number
   /** Maximum bytes in a publication manifest or local installation ledger. */
   readonly recordBytes: number
+}
+
+/** Stable candidate facts retained with an exact Session publication selection. */
+export interface MuseMarketBindingEntry {
+  readonly release: MarketRelease
+  readonly skill: {
+    readonly name: string
+    readonly description: string
+    readonly whenToUse?: string
+    readonly invocation: { readonly modelInvocable: boolean; readonly userInvocable: boolean }
+  }
+}
+
+/** Complete default selection after an atomic activation update. */
+export interface MuseMarketDefaults {
+  readonly revision: number
+  readonly defaults: readonly { readonly skillName: string; readonly releaseId: MarketReleaseId }[]
+}
+
+/** Explicit compare-and-set request; null selects no default for this Skill. */
+export interface MuseMarketDefaultInput {
+  readonly skillName: string
+  readonly expected: MarketReleaseId | null
+  readonly target: MarketReleaseId | null
+}
+
+/** Session-addressed release-set observation. */
+export interface MuseMarketBindingRequest { readonly sessionId: SessionId }
+
+/** A bound set never follows subsequent global default updates. */
+export interface MuseMarketBindingView {
+  readonly phase: 'blank' | 'bound' | 'legacy'
+  readonly releases: readonly MuseMarketBindingEntry[]
+}
+
+/** Log-derived release set and whether a model request has been recorded. */
+export interface MuseMarketBindingState {
+  readonly bound: boolean
+  readonly requested: boolean
+  readonly releases: readonly MuseMarketBindingEntry[]
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Events {
+    /** Refuse removal of a publication retained by an activation consumer.
+     * @mode serial
+     * @param releaseId - Exact local archive identity being removed.
+     */
+    'muse-market/before-remove'(releaseId: MarketReleaseId): Promise<void>
+    /** Default publication choices committed; consumers refetch their own Session views.
+     * @mode emit
+     */
+    'muse-market/defaults-changed'(): void
+  }
 }

@@ -100,6 +100,7 @@
     "@deepseek-ai/dsh-deepseek-account": "workspace:*",
     "@deepseek-ai/dsh-client-product-analytics": "workspace:*",
     "@deepseek-ai/dsh-client-ui-trajectory": "workspace:*",
-    "@deepseek-ai/dsh-api-agent-notes": "workspace:*"
+    "@deepseek-ai/dsh-api-agent-notes": "workspace:*",
+    "@deepseek-ai/dsh-skill": "workspace:*"
   }
 }

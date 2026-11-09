@@ -10,7 +10,10 @@
     "src/package.ts",
     "src/author.ts",
     "src/local.ts",
-    "src/index.ts"
+    "src/index.ts",
+    "src/activation.ts",
+    "src/session.ts",
+    "src/skills.ts"
   ],
   "references": [
     {
@@ -33,6 +36,24 @@
     },
     {
       "path": "../../typert/protocol"
+    },
+    {
+      "path": "../../core/agent"
+    },
+    {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../../session-query/session-query"
+    },
+    {
+      "path": "../../core/scope"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.host.json"
     }
   ]
 }

@@ -244,6 +244,33 @@ interface Config {
 
 Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnpm run verify-cordis-catalog` in doc-sync; regenerate with `pnpm run gen-cordis-catalog`) — the language sides differ only in locale-specific paired document paths. Signature blocks use a `ts cordis-catalog` fence and keep the original source JSDoc; dispatch modes are defined in the [primer](../cordis-primer.zh.md#dispatch-modes), and the framework-inherited `ctx` API lives in [cordis-api/inherited.md](../cordis-api/inherited.md).
 
+<a id="ctxmusemarketactivation--musemarketactivation"></a>
+
+### `ctx.museMarketActivation` — `MuseMarketActivation`
+
+Activation policy is separate from the local-only publication service.
+
+```ts cordis-catalog
+/** Read the complete committed defaults without rebinding any Session.
+ * @returns Activation revision and exact local archive choices.
+ */
+@Remote('defaults') async defaults(): Promise<MuseMarketDefaults>
+
+/** Explicitly switch or disable one default using the last observed archive identity.
+ * @param input - Skill name, expected current archive and selected target or null.
+ * @returns Complete committed defaults; existing bound Sessions are unchanged.
+ */
+@Remote('setDefault') async setDefault(input: MuseMarketDefaultInput): Promise<MuseMarketDefaults>
+
+/** Inspect a live or cold Session's exact selection without creating an Agent.
+ * @param input - Session identity.
+ * @returns Bound releases, latest blank-session defaults, or the unchanged legacy empty set.
+ */
+@Remote('binding') async binding(input: MuseMarketBindingRequest): Promise<MuseMarketBindingView>
+```
+
+Source: [`packages/host/muse-market/src/activation.ts`](../../packages/host/muse-market/src/activation.ts)
+
 <a id="ctxsessionskillcatalog--sessionskillcatalog"></a>
 
 ### `ctx.sessionSkillCatalog` — `SessionSkillCatalog`
@@ -326,6 +353,63 @@ async get(name: string, options: SkillViewOptions = {}): Promise<SkillDefinition
 ```
 
 Source: [`packages/skill/skill/src/index.ts`](../../packages/skill/skill/src/index.ts)
+
+<a id="muse-market-events"></a>
+
+### `muse-market/*` events
+
+<a id="muse-marketbefore-remove--serial"></a>
+
+#### `muse-market/before-remove` — serial
+
+Refuse removal of a publication retained by an activation consumer.
+
+```ts cordis-catalog
+/** Refuse removal of a publication retained by an activation consumer.
+ * @mode serial
+ * @param releaseId - Exact local archive identity being removed.
+ */
+'muse-market/before-remove'(releaseId: MarketReleaseId): Promise<void>
+```
+
+Source: [`packages/host/muse-market/src/types.ts`](../../packages/host/muse-market/src/types.ts)
+
+<a id="muse-marketdefaults-changed--emit"></a>
+
+#### `muse-market/defaults-changed` — emit
+
+Default publication choices committed; consumers refetch their own Session views.
+
+```ts cordis-catalog
+/** Default publication choices committed; consumers refetch their own Session views.
+ * @mode emit
+ */
+'muse-market/defaults-changed'(): void
+```
+
+Source: [`packages/host/muse-market/src/types.ts`](../../packages/host/muse-market/src/types.ts)
+
+<a id="session-skills-events"></a>
+
+### `session-skills/*` events
+
+<a id="session-skillsprepare-view--serial"></a>
+
+#### `session-skills/prepare-view` — serial
+
+Populate a temporary cold Session Skill view; all contributions end with the read.
+
+```ts cordis-catalog
+/** Populate a temporary cold Session Skill view; all contributions end with the read.
+ * @mode serial
+ * @param view - Exact Session projections and the owned registration context.
+ */
+'session-skills/prepare-view'(view: { readonly sessionId: SessionId readonly projections: ProjectionSnapshot readonly context: () => Context readonly signal: AbortSignal }): Promise<void>
+```
+
+Types: [ProjectionSnapshot](session-projection.zh.md) · [SessionId](core.zh.md)
+
+Source: [`packages/api/session-controller/src/skill-catalog.ts`](../../packages/api/session-controller/src/skill-catalog.ts)
 
 <a id="skills-events"></a>
 

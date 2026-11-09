@@ -215,6 +215,14 @@ const SERVICE_ROLES: ServiceRole[] = [
       + 'Explicit Remote callers prepare, import, verify, export and remove disabled releases.',
   },
   {
+    key: 'museMarketActivation',
+    pkg: 'muse-market',
+    title: 'Session-bound Skill publication activation',
+    mode: 'service',
+    note: 'Owns explicit publication defaults and immutable Session selections. '
+      + 'It provides the recorded Skill versions to live Agents and temporary cold catalog scopes.',
+  },
+  {
     key: 'museDesktopBridge',
     pkg: 'muse-account',
     title: 'Muse authenticated desktop tunnel',
@@ -801,7 +809,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'skill',
     title: 'Skill provider registry',
     mode: 'seam',
-    implementations: ['sandbox-windows-acl', 'skill-badge', 'skill-filesystem', 'skill-office'],
+    implementations: ['sandbox-windows-acl', 'skill-badge', 'skill-filesystem', 'skill-office', 'muse-market'],
     consumers: ['tool-skill'],
     note: 'Merges provider skill catalogs; tool-skill renders the session-prefix catalog and loads complete skill bodies.',
   },

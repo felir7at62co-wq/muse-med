@@ -2565,6 +2565,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Local publication service; installing a package never registers or executes its Skill.',
     methods: [
       {
+        signature: 'publicationStorage(): MarketLocalConfig',
+        description: 'Internal storage specification for co-located activation; not a Remote endpoint.',
+        parameters: [],
+        returns: 'Readonly resolved paths and bounds, without exposing archive contents.',
+      },
+      {
         signature: '@Remote(\'sources\') async sources(): Promise<{ skills: { name: string; description: string; whenToUse?: string }[]; complete: boolean }>',
         description: 'List current authoring candidates without reading or uploading resource directories.',
         parameters: [],
@@ -2598,6 +2604,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: '@Remote(\'removePackage\') async removePackage(id: MarketReleaseId): Promise<void>',
         description: 'Remove a disabled publication record without deleting reusable archive bytes.',
         parameters: [{ name: 'id', description: 'Exact installed release identity.' }],
+      },
+    ],
+  },
+  {
+    key: 'museMarketActivation',
+    summary: 'Activation policy is separate from the local-only publication service.',
+    description: 'Activation policy is separate from the local-only publication service.',
+    methods: [
+      {
+        signature: '@Remote(\'defaults\') async defaults(): Promise<MuseMarketDefaults>',
+        description: 'Read the complete committed defaults without rebinding any Session.',
+        parameters: [],
+        returns: 'Activation revision and exact local archive choices.',
+      },
+      {
+        signature: '@Remote(\'setDefault\') async setDefault(input: MuseMarketDefaultInput): Promise<MuseMarketDefaults>',
+        description: 'Explicitly switch or disable one default using the last observed archive identity.',
+        parameters: [{ name: 'input', description: 'Skill name, expected current archive and selected target or null.' }],
+        returns: 'Complete committed defaults; existing bound Sessions are unchanged.',
+      },
+      {
+        signature: '@Remote(\'binding\') async binding(input: MuseMarketBindingRequest): Promise<MuseMarketBindingView>',
+        description: 'Inspect a live or cold Session\'s exact selection without creating an Agent.',
+        parameters: [{ name: 'input', description: 'Session identity.' }],
+        returns: 'Bound releases, latest blank-session defaults, or the unchanged legacy empty set.',
       },
     ],
   },
@@ -5704,6 +5735,22 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [{ name: 'options', description: 'the full request. A LOOP-built request carries the process-local {@link markAgentLoopRequest} identity and arrives deep-frozen (mutation throws): its content is a pure function of the session log (the reconstructability Agent Note), so listeners read it, never rewrite it. Hand-built calls do not carry that marker; callers own their request inputs and must keep them unchanged until the stream settles.' }],
   },
   {
+    name: 'muse-market/before-remove',
+    mode: 'serial',
+    signature: '\'muse-market/before-remove\'(releaseId: MarketReleaseId): Promise<void>',
+    summary: 'Refuse removal of a publication retained by an activation consumer.',
+    description: 'Refuse removal of a publication retained by an activation consumer.',
+    parameters: [{ name: 'releaseId', description: 'Exact local archive identity being removed.' }],
+  },
+  {
+    name: 'muse-market/defaults-changed',
+    mode: 'emit',
+    signature: '\'muse-market/defaults-changed\'(): void',
+    summary: 'Default publication choices committed; consumers refetch their own Session views.',
+    description: 'Default publication choices committed; consumers refetch their own Session views.',
+    parameters: [],
+  },
+  {
     name: 'permission-presets/catalog-changed',
     mode: 'emit',
     signature: '\'permission-presets/catalog-changed\'(): void',
@@ -5774,6 +5821,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     summary: 'Restore a reminder\'s Session through its embedding\'s owning controller.',
     description: 'Restore a reminder\'s Session through its embedding\'s owning controller. Call next() to use the Web Session controller.',
     parameters: [{ name: 'sessionId', description: 'Original Session receiving the reminder.' }],
+  },
+  {
+    name: 'session-skills/prepare-view',
+    mode: 'serial',
+    signature: '\'session-skills/prepare-view\'(view: { readonly sessionId: SessionId readonly projections: ProjectionSnapshot readonly context: () => Context readonly signal: AbortSignal }): Promise<void>',
+    summary: 'Populate a temporary cold Session Skill view; all contributions end with the read.',
+    description: 'Populate a temporary cold Session Skill view; all contributions end with the read.',
+    parameters: [{ name: 'view', description: 'Exact Session projections and the owned registration context.' }],
   },
   {
     name: 'session-telemetry/record',
@@ -7968,12 +8023,20 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MarketInstallTarget {\n    readonly spec: string;\n    readonly registry?: string;\n}',
   },
   {
+    name: 'MarketLimits',
+    declaration: 'export interface MarketLimits {\n    readonly archiveBytes: number;\n    readonly expandedBytes: number;\n    readonly fileCount: number;\n    readonly recordBytes: number;\n}',
+  },
+  {
     name: 'MarketListingEntry',
     declaration: 'export interface MarketListingEntry extends Omit<MarketPlugin, \'versions\'> {\n    readonly versions: readonly MarketListingVersion[];\n    readonly defaultVersion?: string;\n    readonly installation: MarketInstallation;\n}',
   },
   {
     name: 'MarketListingVersion',
     declaration: 'export interface MarketListingVersion extends MarketVersion {\n    readonly install: MarketInstallTarget;\n    readonly compatibility: MarketCompatibility;\n}',
+  },
+  {
+    name: 'MarketLocalConfig',
+    declaration: 'export interface MarketLocalConfig {\n    readonly root: string;\n    readonly limits: MarketLimits;\n    readonly beforeRemove?: (id: MarketReleaseId) => Promise<void>;\n}',
   },
   {
     name: 'MarketManifest',
@@ -8286,6 +8349,26 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MuseFeedbackRequest',
     declaration: 'export interface MuseFeedbackRequest {\n    readonly sessionId: SessionId;\n    readonly target: {\n        readonly kind: \'session\';\n    } | {\n        readonly kind: \'message\';\n        readonly messageId: MessageId;\n        readonly rating: \'positive\' | \'negative\';\n    };\n    readonly category?: FeedbackCategory;\n    readonly text?: string;\n    readonly includeDiagnostics: boolean;\n    readonly title?: string;\n    readonly kind?: \'bug\' | \'suggestion\' | \'other\';\n    readonly requestId?: string;\n}',
+  },
+  {
+    name: 'MuseMarketBindingEntry',
+    declaration: 'export interface MuseMarketBindingEntry {\n    readonly release: MarketRelease;\n    readonly skill: {\n        readonly name: string;\n        readonly description: string;\n        readonly whenToUse?: string;\n        readonly invocation: {\n            readonly modelInvocable: boolean;\n            readonly userInvocable: boolean;\n        };\n    };\n}',
+  },
+  {
+    name: 'MuseMarketBindingRequest',
+    declaration: 'export interface MuseMarketBindingRequest {\n    readonly sessionId: SessionId;\n}',
+  },
+  {
+    name: 'MuseMarketBindingView',
+    declaration: 'export interface MuseMarketBindingView {\n    readonly phase: \'blank\' | \'bound\' | \'legacy\';\n    readonly releases: readonly MuseMarketBindingEntry[];\n}',
+  },
+  {
+    name: 'MuseMarketDefaultInput',
+    declaration: 'export interface MuseMarketDefaultInput {\n    readonly skillName: string;\n    readonly expected: MarketReleaseId | null;\n    readonly target: MarketReleaseId | null;\n}',
+  },
+  {
+    name: 'MuseMarketDefaults',
+    declaration: 'export interface MuseMarketDefaults {\n    readonly revision: number;\n    readonly defaults: readonly {\n        readonly skillName: string;\n        readonly releaseId: MarketReleaseId;\n    }[];\n}',
   },
   {
     name: 'MuseMarketInstallation',

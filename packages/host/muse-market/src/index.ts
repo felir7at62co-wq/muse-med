@@ -6,7 +6,7 @@ import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { isAbsolute } from 'node:path'
 import { collectMarketSkill } from './author.ts'
 import { MarketError, marketMetadata } from './format.ts'
-import { MuseMarketLocal } from './local.ts'
+import { MuseMarketLocal, type MarketLocalConfig } from './local.ts'
 import { createMarketPackage } from './package.ts'
 import type { MuseMarketInstallation, MarketLimits, MarketMetadata, MarketReleaseId } from './types.ts'
 
@@ -39,11 +39,17 @@ export default class MuseMarket extends TypertRemoteService {
   constructor(ctx: Context, private readonly config: Config) {
     if (!isAbsolute(config.root)) throw new MarketError('invalid-storage')
     super(ctx, 'museMarket')
-    this.local = new MuseMarketLocal({ root: config.root, limits: config })
+    this.local = new MuseMarketLocal({ root: config.root, limits: config,
+      beforeRemove: async (id) => { await ctx.serial('muse-market/before-remove', id) } })
     ctx.effect(() => async () => { this.closing = true; await this.operations })
   }
 
   async [Service.init](): Promise<void> { await this.local.ready() }
+
+  /** Internal storage specification for co-located activation; not a Remote endpoint.
+   * @returns Readonly resolved paths and bounds, without exposing archive contents.
+   */
+  publicationStorage(): MarketLocalConfig { return { root: this.config.root, limits: this.config } }
 
   private serial<T>(operation: () => Promise<T>): Promise<T> {
     if (this.closing) return Promise.reject(new RemoteError('muse-market/operation-failed', 'Skill publication service is closing', { code: 'closing' }))

@@ -1,7 +1,7 @@
 import { defineConfig } from 'tsdown'
 
 export default defineConfig([{
-  entry: ['lib/types/index.js', 'lib/types/package.js', 'lib/types/format.js'],
+  entry: ['lib/types/index.js', 'lib/types/package.js', 'lib/types/format.js', 'lib/types/activation.js'],
   outDir: 'lib',
   format: ['esm'],
   platform: 'node',
@@ -9,4 +9,5 @@ export default defineConfig([{
   fixedExtension: false,
   dts: false,
   clean: false,
+  outputOptions: { chunkFileNames: 'shared-[hash].js' },
 }])

@@ -109,7 +109,8 @@
     "@deepseek-ai/dsh-subprocess-local": "workspace:*",
     "@deepseek-ai/dsh-jubian-api": "workspace:*",
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
-    "@deepseek-ai/dsh-muse-video-ui": "workspace:*"
+    "@deepseek-ai/dsh-muse-video-ui": "workspace:*",
+    "@deepseek-ai/dsh-muse-market": "workspace:*"
   },
   "devDependencies": {
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",

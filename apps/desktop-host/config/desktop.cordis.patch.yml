@@ -133,6 +133,12 @@
   config: {}
 
 - insert:
+    - id: muse-market
+      name: '@deepseek-ai/dsh-muse-market'
+
+    - id: muse-market-activation
+      name: '@deepseek-ai/dsh-muse-market/activation'
+
     - id: muse-lvpaopao-bridge
       name: muse-lvpaopao/bridge
 

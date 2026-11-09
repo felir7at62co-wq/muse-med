@@ -80,6 +80,8 @@ Office 组合全局注册 `manuscript_revision`，对照实际上一稿与返回
 
 Desktop 扫描内置资源、`<Muse home>/skills`、显式配置的 `customSkillDirs`，以及当前项目的 `.muse/skills`、`.dsh/skills`、`.agents/skills`。启动时在既有产品／用户根后保留额外目录，不复制、删除或替换用户文件。字面路径会规范化并去重，`!!js` 目录表达式仍由 Loader 在激活时求值。共享用户 `.agents/skills` 与旧环境目录仍保持隔离，除非用户显式配置。通过 `includeProjectRoots: true` 单独启用项目发现，不需要将 `includeDefaultRoots: false` 改为开启。
 
+Creation 保留原有经允许的全局内置 Skill 与用户目录来源，同时按请求 Agent 日志中的发布集合加载显式启用的市场 Skill。选定的市场版本仅在该 Session 中覆盖同名可变原文件；归档资源缺失时会拒绝加载，不会改用原文件。卸载激活插件会移除这些限定作用域的版本并恢复原目录视图。
+
 ## 内置桥接选择
 
 Host 从内置桥接包的 remote 导出解析 `muse-desktop-bridge`，并将原有 `feishu-channel` 配置项交给内置 `@xmanrui/dsh-im` 提供方。IM 配置项的规范包名也用于发现其原生浏览器模块。正式包的 profile 通过安装目录回退解析 Host 和浏览器两部分，不创建 profile 包链接；开发环境指向同一包的链接也可使用。启动时先对 profile 原文件做私有字节备份，再迁移已知旧包名的匹配条件；凭证、启用开关、发送者策略和无关字节保持不变。共享 home patch 中仍有旧包名匹配条件，或 profile 安装的 IM 包遮蔽了内置产物时，启动会停止并给出诊断。内置导出缺失时，组合阶段会明确报出受影响的入口；其他 profile 插件仍按普通规则解析。

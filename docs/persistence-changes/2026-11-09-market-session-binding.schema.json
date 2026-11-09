@@ -1,0 +1,27 @@
+{
+  "formatVersion": 2,
+  "roots": [
+    {"key":"event:muse-market/bound","kind":"event","event":"muse-market/bound","surface":false,"digest":"5f1e4fe6e8aa242d8c33ece014004d8082b0429eb4bee69a93c0093c30bcac8f"}
+  ],
+  "types": [],
+  "nodes": {
+    "0657d3ca5ac4e7bf": {"kind":"primitive","type":"number"},
+    "106361827cb21ef2": {"kind":"array","element":"d213eee83406b01b"},
+    "144cc843ba1d6758": {"kind":"object","properties":[{"name":"name","type":"4cd48f3e5108bd6e","optional":false},{"name":"path","type":"4cd48f3e5108bd6e","optional":false}],"indices":[]},
+    "3d3daf0a05ef1c19": {"kind":"object","properties":[{"name":"category","type":"4cd48f3e5108bd6e","optional":false},{"name":"description","type":"4cd48f3e5108bd6e","optional":false},{"name":"examples","type":"93c33d9687613293","optional":false},{"name":"formatVersion","type":"f88f1b7b6bb733f6","optional":false},{"name":"kind","type":"41d0671eac86848f","optional":false},{"name":"license","type":"4cd48f3e5108bd6e","optional":false},{"name":"name","type":"4cd48f3e5108bd6e","optional":false},{"name":"requirements","type":"93c33d9687613293","optional":false},{"name":"skills","type":"49a17e7abc039809","optional":false},{"name":"title","type":"4cd48f3e5108bd6e","optional":false},{"name":"version","type":"4cd48f3e5108bd6e","optional":false}],"indices":[]},
+    "41d0671eac86848f": {"kind":"literal","value":"skill"},
+    "49a17e7abc039809": {"kind":"array","element":"144cc843ba1d6758"},
+    "4cd48f3e5108bd6e": {"kind":"primitive","type":"string"},
+    "50b8fd77985dda41": {"kind":"object","properties":[{"name":"modelInvocable","type":"aa93010d0e521ad7","optional":false},{"name":"userInvocable","type":"aa93010d0e521ad7","optional":false}],"indices":[]},
+    "5f1e4fe6e8aa242d": {"kind":"object","properties":[{"name":"data","type":"dda5e97d7a59dc0b","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"7d3c954053e22f9e","optional":false}],"indices":[]},
+    "7d3c954053e22f9e": {"kind":"literal","value":"muse-market/bound"},
+    "9126e1701dbab7a2": {"kind":"object","properties":[{"name":"bytes","type":"0657d3ca5ac4e7bf","optional":false},{"name":"id","type":"4cd48f3e5108bd6e","optional":false},{"name":"manifest","type":"3d3daf0a05ef1c19","optional":false},{"name":"sha256","type":"4cd48f3e5108bd6e","optional":false}],"indices":[]},
+    "93c33d9687613293": {"kind":"array","element":"4cd48f3e5108bd6e"},
+    "aa93010d0e521ad7": {"kind":"primitive","type":"boolean"},
+    "d213eee83406b01b": {"kind":"object","properties":[{"name":"release","type":"9126e1701dbab7a2","optional":false},{"name":"skill","type":"d727abbce0452cca","optional":false}],"indices":[]},
+    "d727abbce0452cca": {"kind":"object","properties":[{"name":"description","type":"4cd48f3e5108bd6e","optional":false},{"name":"invocation","type":"50b8fd77985dda41","optional":false},{"name":"name","type":"4cd48f3e5108bd6e","optional":false},{"name":"whenToUse","type":"4cd48f3e5108bd6e","optional":true}],"indices":[]},
+    "dacf3d5f3e4ff619": {"kind":"literal","value":true},
+    "dda5e97d7a59dc0b": {"kind":"object","properties":[{"name":"releases","type":"106361827cb21ef2","optional":false}],"indices":[]},
+    "f88f1b7b6bb733f6": {"kind":"literal","value":1}
+  }
+}

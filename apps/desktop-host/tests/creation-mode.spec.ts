@@ -2,7 +2,7 @@
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import * as PtcToolExecutor from '@deepseek-ai/dsh-tool-executor-ptc'
-import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile, mkdir, rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
@@ -34,6 +34,16 @@ import * as ManuscriptRevisions from '../src/manuscript-revisions.ts'
 import * as CreationSkills from '../src/creation-skills.ts'
 import { CREATION_GUIDANCE, CREATION_GUIDANCE_SECTION } from '../src/creation-guidance.ts'
 import { SHORT_DRAMA_GUIDANCE, SHORT_DRAMA_GUIDANCE_SECTION } from '../src/short-drama-guidance.ts'
+
+import MuseMarket from '@deepseek-ai/dsh-muse-market'
+import MuseMarketActivation from '@deepseek-ai/dsh-muse-market/activation'
+import { createMarketPackage } from '@deepseek-ai/dsh-muse-market/package'
+import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
+
+class MarketPointQuery extends SessionQueryEngine {
+  override searchSessions(): Promise<never> { return Promise.reject(new Error('Search is not used')) }
+  override searchEvents(): Promise<never> { return Promise.reject(new Error('Search is not used')) }
+}
 
 class RuntimeProbe extends PtcRuntime {
   readonly language = 'typescript'
@@ -381,3 +391,51 @@ it.each(['dsh_im_return_file', 'muse_media_data', 'muse_media_download', 'muse_m
       expect(JSON.stringify(result.content)).toContain('queued')
     } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
   })
+
+it('creation forwards exact per-Agent market releases and retains user-directory and disposal rules', async () => {
+  const f = await fixture()
+  try {
+    const originalPath = join(f.root, 'user-skills', 'market-review', 'SKILL.md')
+    await mkdir(join(originalPath, '..'), { recursive: true })
+    await writeFile(originalPath, '---\nname: market-review\ndescription: Mutable original review.\n---\nOriginal mutable body.\n')
+    expect((await f.ctx.skills.get('market-review', { cwd: f.root }))?.source).toBe('custom')
+    const limits = { archiveBytes: 1024 * 1024, expandedBytes: 2 * 1024 * 1024, fileCount: 64, recordBytes: 1024 * 1024 }
+    await f.ctx.plugin(MarketPointQuery).await()
+    await f.ctx.plugin(MuseMarket, { root: join(f.root, 'market'), ...limits }).await()
+    const activation = f.ctx.plugin(MuseMarketActivation); await activation.await()
+    const manifest = { name: 'market-review-release', title: 'Market review', description: 'Review test scenes.',
+      version: '1.0.0', license: 'MIT', category: 'writing', examples: [], requirements: [],
+      formatVersion: 1 as const, kind: 'skill' as const,
+      skills: [{ name: 'market-review', path: 'skills/market-review/SKILL.md' }] }
+    const pack = (version: string) => Buffer.from(createMarketPackage({ ...manifest, version }, {
+      'skills/market-review/SKILL.md': Buffer.from(`---\nname: market-review\ndescription: Review test scenes.\n---\nBody version ${version}.\n`),
+    }, limits)).toString('base64')
+    const first = await f.ctx.museMarket.importPackage(pack('1.0.0'))
+    const second = await f.ctx.museMarket.importPackage(pack('2.0.0'))
+    await f.ctx.museMarketActivation.setDefault({ skillName: 'market-review', expected: null, target: first.release.id })
+    const create = (name: string) => f.ctx.agents.create({ sessionId: SessionId(name),
+      agentOptions: { provider: 'fixture', model: 'fixture' }, meta: { cwd: f.root, agentPreset: 'creation' },
+      setup: async (agentCtx) => { await f.ctx.agentPresets.mount(agentCtx, 'creation') } })
+    const old = await create('creation-market-v1')
+    const selected = await f.ctx.museMarketActivation.binding({ sessionId: old.agent.id })
+    old.agent.session.append('muse-market/bound', { releases: selected.releases })
+    await f.ctx.museMarketActivation.setDefault({ skillName: 'market-review', expected: first.release.id, target: second.release.id })
+    const fresh = await create('creation-market-v2')
+    const oldSkills = f.ctx.agentPresets.serviceFor(old.agent, 'skills')
+    const newSkills = f.ctx.agentPresets.serviceFor(fresh.agent, 'skills')
+    if (oldSkills === undefined || newSkills === undefined) throw new Error('Missing actual creation registry')
+    expect((await oldSkills.get('market-review', { cwd: f.root, scope: old.agent }))?.content).toContain('Body version 1.0.0.')
+    expect((await newSkills.get('market-review', { cwd: f.root, scope: fresh.agent }))?.content).toContain('Body version 2.0.0.')
+    await writeFile(originalPath, '---\nname: market-review\ndescription: Mutable original review.\n---\nChanged mutable original.\n')
+    expect((await f.ctx.skills.get('market-review', { cwd: f.root }))?.content).toContain('Changed mutable original.')
+    expect((await oldSkills.get('market-review', { cwd: f.root, scope: old.agent }))?.content).toContain('Body version 1.0.0.')
+    expect((await oldSkills.get('user-creative', { cwd: f.root, scope: old.agent }))?.content).toContain('user-creative instructions')
+    expect(await oldSkills.get('hidden-authoring', { cwd: f.root, scope: old.agent })).toBeUndefined()
+    await rename(join(f.root, 'market', 'packages', first.release.id), join(f.root, 'missing-market-cache'))
+    expect((await oldSkills.list({ cwd: f.root, scope: old.agent })).some(skill => skill.name === 'market-review')).toBe(true)
+    await expect(oldSkills.get('market-review', { cwd: f.root, scope: old.agent })).rejects.toMatchObject({ code: 'ENOENT' })
+    await activation.dispose()
+    expect((await oldSkills.get('market-review', { cwd: f.root, scope: old.agent }))?.content).toContain('Changed mutable original.')
+    expect((await oldSkills.get('user-creative', { cwd: f.root, scope: old.agent }))?.content).toContain('user-creative instructions')
+  } finally { await f.ctx.fiber.dispose(); await rm(f.root, { recursive: true, force: true }) }
+})

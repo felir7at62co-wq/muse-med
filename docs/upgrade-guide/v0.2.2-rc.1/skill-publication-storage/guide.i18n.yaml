@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/skill-publication-storage/guide.md
 /:
-  en: 2acbcfc1772db609
-  zh: af11565f8f200177
-/local-skill-publication-storage:
-  en: 3a72810850e0b997
-  zh: bd052f1fbd271f98
-/local-skill-publication-storage/change:
-  en: 94d0c78e18c03ac4
-  zh: 6ca36f14d266b2c8
-/local-skill-publication-storage/migration:
-  en: 5e145fb197ce6409
-  zh: 11f6025350fd815f
+  en: d4e985e01ff2b785
+  zh: d3492f940fd15e5b
+/skill-publication-storage-and-session-bindings:
+  en: 82daad9176455754
+  zh: ba33025bfe281e95
+/skill-publication-storage-and-session-bindings/change:
+  en: 11b87033708fa699
+  zh: 0a2b5603660f3ac5
+/skill-publication-storage-and-session-bindings/migration:
+  en: 0693e0890f09d92c
+  zh: 9ed92bf39f8585e8

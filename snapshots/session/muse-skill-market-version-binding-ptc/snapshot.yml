@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-skill-market-version-binding-ptc
+profile: headless
+composition: muse-skill-market-version-binding-ptc
+recording: authored
+writerOutput: true
+header:
+  class: muse-skill-market-version-binding-ptc
+  pin: true
+  childSystemPrompts: [1, 2]
+  childToolSchemas: [1, 2]
+workspace:
+  final: true
