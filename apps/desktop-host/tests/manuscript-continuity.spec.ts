@@ -34,7 +34,8 @@ const config: ManuscriptContinuityConfig = { maxFileBytes: 65536, maxTextChars: 
   maxLedgerBytes: 1024 * 1024, lockWaitMs: 5000,
   maxDocuments: 8, maxMaterialChars: 40000, continuityMaxRequests: 3,
   continuityMaxOutputTokens: 4096, continuityTimeoutMs: 120000, continuityMaxFindings: 8,
-  continuityMaxCorrections: 1, continuityMaxEpisodeChecks: 12 }
+  continuityMaxCorrections: 1, continuityMaxEpisodeChecks: 12,
+  repeatMinChars: 32, repeatMaxSeedPairs: 50000, repeatMaxCandidates: 12, repeatMaxOutputChars: 20000 }
 const text = '第1集\n1-1 门口 日 外\n▲甲尚未进门。\n第2集\n2-1 主卧 日 内\n▲甲已经拆开旧床。'
 
 afterEach(async () => {
@@ -113,6 +114,28 @@ it('returns unknown without starting a reviewer when no complete adjacent episod
   const fixture = await runtime([])
   expect(await fixture.service.reviewCrossEpisode([{ role: 'current', path: 'current.md', lines: { start: 1, end: 2 } }],
     '只读前两行', fixture.parent, signal)).toMatchObject({ status: 'unknown', reason: 'cross_episode_scope', reviewer: { requests: 0 } })
+  expect(fixture.childSessions).toEqual([])
+})
+
+it('reviews complete selected text in a real child even when the literal scan has no candidates', async () => {
+  let request: GenerateOptions | undefined
+  const fixture = await runtime([(options) => {
+    request = options
+    return toolCallResponse('semantic-zero-literal', 'structured_output', { status: 'consistent', findings: [], unknowns: [], repeat_checks: [] })
+  }])
+  const result = await fixture.service.reviewRepetitions([{ role: 'current', path: 'current.md' }], '检查换词重演', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'consistent', reason: 'reviewed', repetition_review: true,
+    repeat_scan: { candidates: [], coverage: { complete: true } }, reviewer: { requests: 1 } })
+  expect(JSON.stringify(request?.messages)).toContain('▲甲尚未进门。')
+  expect(JSON.stringify(request?.messages)).toContain('▲甲已经拆开旧床。')
+  expect(request?.tools?.[0]?.parameters.required).toContain('repeat_checks')
+})
+
+it('returns unknown without spending a model request when literal pair enumeration exceeds its budget', async () => {
+  const fixture = await runtime([], { repeatMaxSeedPairs: 1 })
+  await writeFile(join(fixture.root, 'current.md'), '甲乙丙丁'.repeat(80))
+  expect(await fixture.service.reviewRepetitions([{ role: 'current', path: 'current.md' }], '检查重复剧情', fixture.parent, signal))
+    .toMatchObject({ status: 'unknown', reason: 'repetition_scan_incomplete', repeat_scan: { coverage: { complete: false } }, reviewer: { requests: 0 } })
   expect(fixture.childSessions).toEqual([])
 })
 

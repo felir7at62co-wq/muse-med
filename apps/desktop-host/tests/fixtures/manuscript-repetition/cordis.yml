@@ -1,0 +1,28 @@
+- id: agent-default-model
+  config:
+    provider: manuscript-repetition-fixture
+    model: repetition-test-model
+- id: llm-deepseek
+  disabled: true
+- id: session-persistence-jsonl
+  config:
+    root: './.sessions'
+    compression: none
+- id: tool-result-pruner
+  disabled: true
+- id: tool-web
+  disabled: true
+- insert:
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: repetition-test-parent
+    - id: repetition-test-parent
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: repetition-test-parent
+        name: Repetition test parent
+        description: Parent inherits the shipped headless tools.
+        plugins: []
+    - id: manuscript-repetition-fixture
+      name: './fixture.mjs'
