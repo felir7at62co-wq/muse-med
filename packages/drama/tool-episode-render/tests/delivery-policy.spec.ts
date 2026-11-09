@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DEFAULT_DELIVERY, audioMixFilter, deliveryScaleFilter, subtitleBurnFilter } from '../src/delivery.ts'
-import { assertBodyOnlyAnimation, deliveryPolicyFor, isShortDramaProject, parseTimelineDelivery, readProjectDelivery, resolveDeliveryPolicy } from '../src/delivery-policy.ts'
+import { assertBodyOnlyAnimation, deliveryPolicyFor, findShortDramaProject, isShortDramaProject, parseTimelineDelivery, readProjectDelivery, resolveDeliveryPolicy } from '../src/delivery-policy.ts'
 import { buildAssDocument } from '../src/subtitles.ts'
 import { appendClips, formatTimelineDocument, parseTimelineDocument } from '../src/timeline.ts'
 
@@ -18,6 +18,22 @@ async function project(bible?: unknown): Promise<string> {
 }
 const animation = { width: 1920, height: 1080, fps: 30, visual_medium: 'animation_3d' } as const
 const fonts = { subtitleFontFamily: 'SimHei', watermarkFontFamily: 'Microsoft YaHei' }
+
+it('finds the nearest marked ancestor without treating unmarked or malformed child metadata as a scope reset', async () => {
+  const root = await project(), child = join(root, '第26集'), leaf = join(child, 'draft')
+  await mkdir(leaf, { recursive: true })
+  await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933 }))
+  await writeFile(join(child, 'project_config.json'), '{broken')
+  expect(await findShortDramaProject(leaf)).toBe(root)
+  await writeFile(join(child, 'project_config.json'), JSON.stringify({ project_bible: { schema_version: 1 } }))
+  expect(await findShortDramaProject(leaf)).toBe(child)
+})
+
+it('leaves unmarked directories and directory-shaped configuration paths outside short-drama scope', async () => {
+  const root = await project()
+  await mkdir(join(root, 'project_config.json'))
+  expect(await findShortDramaProject(root)).toBeUndefined()
+})
 
 it.each([
   null, [], 'project', {}, { jubian_script_id: 0 }, { jubian_script_id: 1.5 }, { jubian_script_id: '5933' },

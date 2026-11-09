@@ -11,7 +11,7 @@ English | [中文](guide.zh.md)
 
 When `require_source_review` is active, formal rendering and staging require complete current-source OCR and actual observed video frames from the initiating Session. A review JSON alone, an old OCR result without its full artifact digest, or another Session's report cannot establish this evidence. Original files and the released Session event format are unchanged; the new private projection cache rebuilds issuance facts from existing successful tool events.
 
-Projects with a positive `jubian_script_id` or `project_bible.schema_version: 1` require current source review, speech coverage, measured audio/video boundaries and independently checked draft tracks before `stage_delivery` writes to `01_可交付视频`. Omitting or disabling the project or timeline review flags no longer permits an unreviewed legacy candidate into that directory. Unmarked editing projects and working renders retain their existing behavior.
+Projects with a positive `jubian_script_id` or `project_bible.schema_version: 1` require current source review, speech coverage, measured audio/video boundaries and independently checked draft tracks before `stage_delivery` writes to `01_可交付视频`. Omitting or disabling the project or timeline review flags no longer permits an unreviewed legacy candidate into that directory. The same checks apply when the tool uses an episode subdirectory of that project. Unmarked editing projects and working renders retain their existing behavior.
 
 ## Migration
 

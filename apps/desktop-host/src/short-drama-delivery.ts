@@ -6,7 +6,7 @@ import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from '
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-tool-present'
 import type {} from '@deepseek-ai/dsh-tools'
-import { isShortDramaProject } from '@deepseek-ai/dsh-tool-episode-render'
+import { findShortDramaProject } from '@deepseek-ai/dsh-tool-episode-render'
 import { z } from 'zod'
 
 const hash = z.string().regex(/^[a-f0-9]{64}$/u)
@@ -137,22 +137,7 @@ async function checkProductEvidence(source: z.infer<typeof renderRecord>, signal
 async function formalProject(file: string): Promise<string | undefined> {
   let directory = dirname(file)
   while (true) {
-    const part = relative(directory, file).split(sep)
-    if (part.some(name => FORMAL.has(name.toLowerCase()))) {
-      const config = resolve(directory, 'project_config.json')
-      if (await optionalFile(config)) {
-        let document: unknown
-        try { document = JSON.parse((await readFile(config, 'utf8')).replace(/^\uFEFF/u, '')) }
-        catch {
-          // Unrecognized project metadata does not establish short-drama scope; native registrations still do.
-          const parent = dirname(directory)
-          if (parent === directory) return undefined
-          directory = parent
-          continue
-        }
-        if (isShortDramaProject(document)) return directory
-      }
-    }
+    if (FORMAL.has(basename(directory).toLowerCase())) return await findShortDramaProject(dirname(directory))
     const parent = dirname(directory)
     if (parent === directory) return undefined
     directory = parent

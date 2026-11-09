@@ -3,8 +3,8 @@
  * @module @deepseek-ai/dsh-tool-episode-render/delivery-policy
  */
 
-import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { lstat, readFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
 import { DEFAULT_DELIVERY, ENDING_SECONDS, FONT_FAMILY_PATTERN, subtitleRenderStyle } from './delivery.ts'
 import { parseSubtitleVisual } from './subtitle-visual.ts'
 import { activeSubtitleVisual } from './subtitle-visual.ts'
@@ -30,6 +30,32 @@ export function isShortDramaProject(value: unknown): boolean {
   const bible = typeof row.project_bible === 'object' && row.project_bible !== null
     && !Array.isArray(row.project_bible) && 'schema_version' in row.project_bible && row.project_bible.schema_version === 1
   return bound || bible
+}
+
+/** Find the nearest short-drama project containing a working directory.
+ * @param directory - Project or episode directory; its ancestors are checked up to the filesystem root.
+ * @returns The nearest directory with recognized project metadata, or undefined for an unmarked workspace.
+ * Invalid JSON does not establish scope; filesystem errors other than absence still reject the lookup.
+ */
+export async function findShortDramaProject(directory: string): Promise<string | undefined> {
+  let current = resolve(directory)
+  while (true) {
+    const path = resolve(current, 'project_config.json')
+    let text: string | undefined
+    try { if ((await lstat(path)).isFile()) text = await readFile(path, 'utf8') }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    if (text !== undefined) {
+      let config: unknown
+      try { config = JSON.parse(text.replace(/^\uFEFF/u, '')) }
+      catch (_error) { config = undefined }
+      if (isShortDramaProject(config)) return current
+    }
+    const parent = dirname(current)
+    if (parent === current) return undefined
+    current = parent
+  }
 }
 
 /**

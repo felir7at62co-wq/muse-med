@@ -221,7 +221,7 @@ kind: "package-reference"
 
 本集已有通过审核的分包时，`prepare` 在探测及写入时间线前核对当前分包版本、显式包号，以及所选视频的路径和 SHA-256。审核记录指定音源时，所选音源须匹配记录中的 `audio_path` 和 `audio_sha256`。去字幕后的视频可以保留单独审核过的原声。准备清单绑定已审核音源、审核记录、整集原声和精确切点。缺少音源审核时仍可做工作预览。
 
-`stage_delivery` 要求提供已准备的选源清单，并复核其中经审核的来源和原声切点。现有审核待定或拒绝，或另用的音源未获审核、已被禁用时，停止归档。审核通过的独立音源需要在草稿与成片中共用同一份独立原声。具有正整数 `jubian_script_id` 或 `project_bible.schema_version: 1` 的项目，归档前必须具备当前来源审核、声文覆盖、音画流边界实测和独立草稿轨道核查证据；项目或时间线缺少开关或将其设为 false 都不能关闭这些检查。没有短剧标记且无审核记录的项目，重新准备且只用视频自带音源后仍可归档为候选。`verify` 继续执行媒体技术检查。画面、对白和剪映播放需另做内容验收。
+`stage_delivery` 要求提供已准备的选源清单，并复核其中经审核的来源和原声切点。现有审核待定或拒绝，或另用的音源未获审核、已被禁用时，停止归档。审核通过的独立音源需要在草稿与成片中共用同一份独立原声。具有正整数 `jubian_script_id` 或 `project_bible.schema_version: 1` 的项目，归档前必须具备当前来源审核、声文覆盖、音画流边界实测和独立草稿轨道核查证据；项目或时间线缺少开关或将其设为 false 都不能关闭这些检查；工具使用该短剧项目下的集数子目录时也同样执行。没有短剧标记且无审核记录的项目，重新准备且只用视频自带音源后仍可归档为候选。`verify` 继续执行媒体技术检查。画面、对白和剪映播放需另做内容验收。
 
 启用 `delivery.require_source_review` 后，正式渲染和归档要求每包都有当前 `source_qa` 证据。`source_qa.version: 1` 包含 `selected`，清理片另含 `original` 和 `affected_intervals`。各源绑定 `media_path`、`media_sha256`、`ocr: {path, sha256}` 及 `inspection: {path, sha256, session_id, review_id}`。Host 核实真实成功的 OCR 执行和完整持久审看记录，缺少执行证据须重新检查。完整 OCR 覆盖及已观察帧必须对应当前源片。工具记录必须是 JSON 对象，整集汇总要求每个镜头都有证据。Host 核验作用域随其服务提供方释放，并在服务恢复后重新取得。每个仍存在的 OCR 时段都须有精确的 `text_decisions` 项，包含 `segment_index`、`text`、源片 `start_seconds` 和 `end_seconds`、`kind`（`non_dialogue_text` 或 `disclosure_watermark`）、`reason` 及 `observation_frame_ids`。文字分类仍是模型判断。清理片须在每个处理区间内有真实观察的处理前后帧，并保留原声。缺少时点时，优先用 `video_source_review`，或已启用完整审看模式的 `video_inspect`，附带对应时间补看。渲染指纹和归档回执绑定复验摘要与文件，换片、观察或判定变化后须重新验证。非严格工作预览沿用原行为。
 

@@ -7,7 +7,7 @@ import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { hasSeparateAudio, verifySelectedSourceReviews } from './approved-sources.ts'
 import { checkMusicDecision } from './bgm.ts'
 import { fileSha256 } from './cache.ts'
-import { isShortDramaProject, resolveDeliveryPolicy } from './delivery-policy.ts'
+import { findShortDramaProject, resolveDeliveryPolicy } from './delivery-policy.ts'
 import { episodePaths, shotFileName } from './paths.ts'
 import { parseShotManifest } from './prepare.ts'
 import { readSourceRecord, sourceRecordPathFor, type DeliveryRenderInputs } from './source-record.ts'
@@ -41,18 +41,6 @@ function object(value: unknown): value is Record<string, unknown> {
 
 function list(value: unknown): value is readonly unknown[] {
   return Array.isArray(value)
-}
-
-/** Project markers also used to recognize formal short-drama outputs at presentation. */
-async function requiresShortDramaEvidence(project: string): Promise<boolean> {
-  let text: string
-  try { text = await readFile(resolve(project, 'project_config.json'), 'utf8') }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
-    throw error
-  }
-  const config: unknown = JSON.parse(text.replace(/^\uFEFF/u, ''))
-  return isShortDramaProject(config)
 }
 
 function inside(root: string, path: string): boolean {
@@ -363,7 +351,7 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
     const timelineText = await readBoundText(timelinePath, render.timeline_sha256)
     const timeline = parseTimelineDocument(JSON.parse(timelineText.replace(/^\uFEFF/u, '')), timelinePath)
     const policy = await resolveDeliveryPolicy(project, timeline.delivery)
-    const shortDrama = await requiresShortDramaEvidence(project)
+    const shortDrama = await findShortDramaProject(project) !== undefined
     const musicDecision = policy.delivery.audio?.require_music_decision === true
       ? await checkBoundMusicDecision(input, render.music, timeline.bodyEndSeconds, checked) : undefined
     const requireSpeech = shortDrama || policy.delivery.subtitle?.require_speech_coverage === true

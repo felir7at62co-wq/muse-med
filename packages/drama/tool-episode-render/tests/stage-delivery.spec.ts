@@ -67,9 +67,11 @@ async function fixture(clips = [{ shot: 1, startUs: 0, durationUs: 5_000_000 }],
     display?: 'external' | 'overlay' | 'unknown'
     missingStreamClock?: boolean
     cues?: Parameters<typeof srtDocument>[0]
-  } = { explicitVisual: false, text: '台词' }, musicKind?: string) {
-  const project = await realpath(await tempProject())
-  temporary.push(project)
+  } = { explicitVisual: false, text: '台词' }, musicKind?: string, nestedProject = false) {
+  const projectRoot = await realpath(await tempProject())
+  temporary.push(projectRoot)
+  const project = nestedProject ? join(projectRoot, '第26集') : projectRoot
+  await mkdir(project, { recursive: true })
   const episode = '26'
   const paths = episodePaths(project, episode)
   const shots = clips.map(clip => join(paths.videoDir, `shot_${String(clip.shot).padStart(3, '0')}.mp4`))
@@ -186,7 +188,7 @@ async function fixture(clips = [{ shot: 1, startUs: 0, durationUs: 5_000_000 }],
     toolkit, settings: resolveSettings({}), project, episode,
     output: paths.output, timelinePath: paths.timeline, subtitleSrt: paths.subtitle,
   }
-  return { project, paths, shot: shots[0]!, input, draft, draftSourcePath, source, upload, video, receipt, sha256 }
+  return { projectRoot, project, paths, shot: shots[0]!, input, draft, draftSourcePath, source, upload, video, receipt, sha256 }
 }
 
 type Fixture = Awaited<ReturnType<typeof fixture>>
@@ -277,6 +279,20 @@ async function reviewedFixture(strict = false, separate = false) {
 }
 
 describe('stageEpisodeDelivery', () => {
+  it.each([false, true])('recognizes the parent short-drama project when staging an episode subdirectory (local config: %s)', async (localConfig) => {
+    const f = await fixture(undefined, undefined, undefined, true)
+    await writePlaceholder(join(f.projectRoot, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933 }))
+    if (localConfig) await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({
+      project_bible: { delivery: { width: 1440, height: 2560, fps: 60, require_source_review: false,
+        subtitle: { require_speech_coverage: false } } },
+    }))
+    const call = resolveCall({ method: 'stage_delivery', project: f.project, episode: 26, output: f.input.output,
+      timeline: f.input.timelinePath, subtitleSrt: f.input.subtitleSrt, draft: f.draft })
+    expect(call.project).toBe(f.project)
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/实测起止时间/u)
+    await expectNoDelivery(f)
+  })
+
   it('rejects an unreviewed bound legacy render before creating a delivery directory', async () => {
     const f = await fixture()
     await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933,
