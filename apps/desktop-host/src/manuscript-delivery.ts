@@ -36,11 +36,13 @@ const identitySchema = z.object({ role: z.enum(['current', 'reference', 'candida
   file_sha256: z.string().regex(/^[a-f0-9]{64}$/u), text_sha256: z.string().regex(/^[a-f0-9]{64}$/u) })
 const documentSchema = identitySchema.extend({ line_count: z.number().int(), selection: selectionSchema, coverage: coverageSchema })
 const scopeSchema = z.object({ selection: selectionSchema, coverage: coverageSchema })
+const episodePlanSchema = z.object({ checks: z.array(z.object({ from_episode: z.number().int().positive(),
+  to_episode: z.number().int().positive() })) })
 const reviewSchema = z.object({ state: z.literal('continuity'), status: z.enum(['consistent', 'issues', 'unknown']),
   reason: z.string(), target: identitySchema, documents: z.array(documentSchema),
   findings: z.array(z.object({ evidence: z.array(identitySchema.extend({ line: z.number().int().positive() })) })),
   unknowns: z.array(z.string()), file_verification: z.enum(['verified', 'changed', 'unavailable']),
-  notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional() })
+  notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional(), episode_plan: episodePlanSchema.optional() })
 const fileSchema = z.object({ path: z.string(), file_sha256: z.string(), aliases: z.array(z.string()),
   label: z.string(), review_scope: scopeSchema.nullable(), dependencies: z.array(documentSchema),
   notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional() })
@@ -144,6 +146,7 @@ function combineBlocks(a: ReviewBlock[], b: ReviewBlock[]): ReviewBlock[] {
   return result
 }
 function covers(review: Review, block: ReviewBlock): boolean {
+  if (review.episode_plan !== undefined) return false
   const document = review.documents.find(item => sameIdentity(item, block))
   return document !== undefined && block.ranges.every(range => document.coverage.read_ranges
     .some(covered => covered.start <= range.start && covered.end >= range.end))
@@ -184,7 +187,7 @@ function joinPresented(state: DeliveryState): DeliveryState {
  * @returns Host-only projection definition; no client or Session event vocabulary is added.
  */
 function manuscriptDeliveryProjection(maxDocuments: number): ProjectionDefinition<'muse.manuscript-delivery', DeliveryState> {
-  return { key: 'muse.manuscript-delivery', stateVersion: 5, stateSchema,
+  return { key: 'muse.manuscript-delivery', stateVersion: 6, stateSchema,
     init: header => ({ task_id: '', writing: false, file_request: false, cwd: header.cwd ?? '', turn: 0, corrections: 0,
       fingerprint: '', overflow: false, rows: [], outputs: [], calls: [], packets: [], presented: [] }),
     apply(state, event) { return foldDelivery(state, event, maxDocuments) } }
@@ -236,7 +239,7 @@ function foldDelivery(state: DeliveryState, event: SessionEvent, max: number): D
     if (!args.success) return next
     const metadata = metadataFactSchema.safeParse(result.meta)
     const fact = metadata.success ? metadata.data.manuscript_delivery_fact : undefined
-    if (args.data.action === 'continuity') {
+    if (args.data.action === 'continuity' || args.data.action === 'cross_episode') {
       const review = fact?.state === 'continuity' ? fact : parseBlocks(result.content, reviewSchema)
       return review === undefined ? next : rememberReview(next, review, max)
     }
@@ -272,6 +275,10 @@ function foldDelivery(state: DeliveryState, event: SessionEvent, max: number): D
 function labelOf(review: Review): string {
   const target = review.documents.find(document => sameIdentity(document, review.target))
   if (target === undefined) throw failure('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED', '审校结果缺少目标文件范围。')
+  if (review.episode_plan !== undefined) {
+    const pairs = review.episode_plan.checks.map(pair => `${pair.from_episode}→${pair.to_episode}`).join('、')
+    return `已复核跨集接缝${pairs}（仅此范围）`
+  }
   if (target.coverage.full_document) return '已复核本文件全部提取正文（仅当前版本）'
   if (target.selection.kind === 'episodes') {
     const numbers = target.selection.included.toSorted((a, b) => a - b)
@@ -366,7 +373,7 @@ export class ManuscriptDelivery {
    */
   pendingCommit(execution: ToolExecution, result: Readonly<ToolExecutionResult>): void {
     if (!this.accepting || execution.parent === undefined || execution.agent === undefined || result.isError) return
-    const action = z.object({ action: z.enum(['continuity', 'delivery']) }).safeParse(execution.arguments)
+    const action = z.object({ action: z.enum(['continuity', 'cross_episode', 'delivery']) }).safeParse(execution.arguments)
     if (!(execution.name === 'manuscript_revision' && action.success)
       && !(execution.name === 'present' && this.pending.has(execution))) return
     let session = this.commits.get(execution.agent.session)

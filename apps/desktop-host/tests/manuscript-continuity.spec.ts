@@ -24,6 +24,7 @@ import { continuityFilesUnchanged, installManuscriptContinuityPreset, Manuscript
   type ManuscriptContinuityConfig } from '../src/manuscript-continuity.ts'
 import * as ReviewPreset from '../src/manuscript-continuity-preset.ts'
 import * as Reader from '../src/manuscript-document.ts'
+import { buildEpisodePlan } from '../src/manuscript-episode-checks.ts'
 import { readManuscriptMaterials, type ManuscriptMaterialsDocument } from '../src/manuscript-materials.ts'
 
 const contexts: Context[] = [], roots: string[] = []
@@ -32,7 +33,8 @@ const config: ManuscriptContinuityConfig = { maxFileBytes: 65536, maxTextChars: 
   maxNotes: 256, maxNoteChars: 40000, maxVersions: 256, maxVersionBytes: 1024 * 1024,
   maxLedgerBytes: 1024 * 1024, lockWaitMs: 5000,
   maxDocuments: 8, maxMaterialChars: 40000, continuityMaxRequests: 3,
-  continuityMaxOutputTokens: 4096, continuityTimeoutMs: 120000, continuityMaxFindings: 8, continuityMaxCorrections: 1 }
+  continuityMaxOutputTokens: 4096, continuityTimeoutMs: 120000, continuityMaxFindings: 8,
+  continuityMaxCorrections: 1, continuityMaxEpisodeChecks: 12 }
 const text = '第1集\n1-1 门口 日 外\n▲甲尚未进门。\n第2集\n2-1 主卧 日 内\n▲甲已经拆开旧床。'
 
 afterEach(async () => {
@@ -71,6 +73,47 @@ it('accepts two exact target locations and keeps the assessment limited to the s
   expect(validateContinuityAssessment(issue(current), materials, target, 8)).toMatchObject({ status: 'issues', reason: 'reviewed' })
   expect(validateContinuityAssessment({ status: 'consistent', findings: [], unknowns: [] }, materials, target, 8))
     .toEqual({ status: 'consistent', findings: [], unknowns: [], reason: 'reviewed' })
+})
+
+function episodeCheck(document: ManuscriptMaterialsDocument) {
+  return { from_episode: 1, to_episode: 2, status: 'consistent' as const,
+    explanation: '普通场景切换未构成有证据的矛盾；人物此前尚未进门、后续已在室内，不据此强加过场戏。',
+    evidence: [3, 6].map(line => ({ role: document.role, path: document.path, file_sha256: document.file_sha256,
+      text_sha256: document.text_sha256, line, quote: document.lines.find(item => item.number === line)!.text })) }
+}
+
+it('requires exact pair coverage instead of accepting an empty global consistent assessment', async () => {
+  const { materials, current, target } = await materialFixture(), plan = buildEpisodePlan(current, 12)
+  const empty = { status: 'consistent', findings: [], unknowns: [] }
+  expect(validateContinuityAssessment(empty, materials, target, 8, plan).status).toBe('unknown')
+  const report = { ...empty, episode_checks: [episodeCheck(current)] }
+  expect(validateContinuityAssessment(report, materials, target, 8, plan)).toMatchObject({ status: 'consistent', reason: 'reviewed' })
+  expect(validateContinuityAssessment(report, materials, target, 8).status).toBe('unknown')
+  expect(validateJsonSchemaValue(buildContinuityOutputSchema(materials, plan), empty).length).toBeGreaterThan(0)
+  expect(validateJsonSchemaValue(buildContinuityOutputSchema(materials, plan), report)).toEqual([])
+})
+
+it('records the Host pair schedule and both-side assessment in the real isolated review', async () => {
+  let request: GenerateOptions | undefined
+  const fixture = await runtime([(options) => {
+    request = options
+    return toolCallResponse('episode-result', 'structured_output', { status: 'consistent', findings: [], unknowns: [],
+      episode_checks: [episodeCheck(fixture.current)] })
+  }])
+  const result = await fixture.service.reviewCrossEpisode([{ role: 'current', path: 'current.md' }], '核对集间实际承接', fixture.parent, signal)
+  expect(result).toMatchObject({ status: 'consistent', reason: 'reviewed', episode_plan: { checks: [{ from_episode: 1, to_episode: 2 }] },
+    episode_checks: [{ status: 'consistent', evidence: [{ line: 3 }, { line: 6 }] }] })
+  expect(request?.tools?.[0]?.parameters.required).toContain('episode_checks')
+  expect(JSON.stringify(request?.messages)).toContain('For changed events, check later references visible in the supplied ranges')
+  expect(fixture.childSessions[0]?.snapshotEvents().some(event => event.type === 'user/message'
+    && JSON.stringify(event.data).includes('episode_plan'))).toBe(true)
+})
+
+it('returns unknown without starting a reviewer when no complete adjacent episode pair was read', async () => {
+  const fixture = await runtime([])
+  expect(await fixture.service.reviewCrossEpisode([{ role: 'current', path: 'current.md', lines: { start: 1, end: 2 } }],
+    '只读前两行', fixture.parent, signal)).toMatchObject({ status: 'unknown', reason: 'cross_episode_scope', reviewer: { requests: 0 } })
+  expect(fixture.childSessions).toEqual([])
 })
 
 it.each(['quote', 'line', 'file_sha256', 'text_sha256', 'role'] as const)('rejects the entire result when %s is fabricated', async (key) => {

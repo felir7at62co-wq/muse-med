@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-manuscript-cross-episode
+profile: headless
+composition: muse-manuscript-cross-episode
+recording: authored
+header:
+  class: muse-manuscript-cross-episode
+  pin: true
+  childSystemPrompts: [1, 2]
+  childToolSchemas: [1, 2]
+workspace:
+  final: true
