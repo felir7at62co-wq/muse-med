@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto'
 import { copyFile, link, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, rmdir, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, format, isAbsolute, parse, relative, resolve, sep } from 'node:path'
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { hasSeparateAudio, verifySelectedSourceReviews } from './approved-sources.ts'
 import { checkMusicDecision } from './bgm.ts'
@@ -50,11 +50,18 @@ function inside(root: string, path: string): boolean {
 
 async function localEntry(path: string) {
   try {
-    const info = await lstat(path)
-    if (info.isSymbolicLink() || relative(path, await realpath(path)) !== '') {
-      throw new Error(`交付归档不接受通过链接访问的文件或目录：${path}`)
+    // A trailing separator can make lstat follow a directory link; keep every raw parent component.
+    let current = format(parse(path))
+    const info = await lstat(current)
+    let entry = info
+    // Realpath can expand Windows short names without traversing a link.
+    for (;;) {
+      if (entry.isSymbolicLink()) throw new Error(`交付归档不接受通过链接访问的文件或目录：${path}`)
+      const parent = dirname(current)
+      if (parent === current) return info
+      current = parent
+      entry = await lstat(current)
     }
-    return info
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     return undefined
@@ -279,6 +286,7 @@ async function checkBoundSpeechCoverage(input: StageDeliveryInput, render: Deliv
 
 /**
  * Stage a technically verified candidate without changing the working render or the draft.
+ * Input and publication paths must not traverse symbolic links or junctions.
  * Short-drama project markers require current source, speech and draft-track evidence even when
  * the project or saved timeline omits or disables the corresponding optional checks.
  * @param input - The working MP4 and its effective timeline and subtitle inputs.

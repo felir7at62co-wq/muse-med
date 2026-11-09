@@ -1,5 +1,5 @@
 import { mkdir, readdir, readFile, realpath, rename, symlink, unlink } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fileSha256 } from '../src/cache.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
@@ -24,10 +24,15 @@ const storage = vi.hoisted(() => ({
   afterCopy: undefined as ((source: string, target: string) => Promise<void>) | undefined,
   beforeLink: undefined as ((source: string, target: string) => Promise<void>) | undefined,
   afterMkdir: undefined as ((path: string) => Promise<void>) | undefined,
+  realpathAlias: undefined as ((path: string, canonical: string) => string) | undefined,
 }))
 vi.mock('node:fs/promises', async (original) => {
   const fs = await original<typeof import('node:fs/promises')>()
   return { ...fs,
+    realpath: async (path: string) => {
+      const canonical = await fs.realpath(path)
+      return storage.realpathAlias?.(path, canonical) ?? canonical
+    },
     lstat: async (...args: Parameters<typeof fs.lstat>) => {
       await storage.beforeStat?.(String(args[0]))
       return await fs.lstat(...args)
@@ -745,10 +750,43 @@ describe('stageEpisodeDelivery', () => {
     await expectNoDelivery(f)
   })
 
-  it('refuses a linked draft directory and preserves the real draft', async () => {
+  it('accepts a regular draft when realpath changes its short-name spelling', async () => {
+    const f = await fixture()
+    storage.realpathAlias = (path, canonical) => path === f.draft
+      ? canonical.replace(f.project, join(dirname(f.project), 'DRAMA~1')) : canonical
+    const report = await stageEpisodeDelivery(f.input, f.draft)
+    expect(report.ok).toBe(true)
+    expect(await readFile(f.video, 'utf8')).toBe('verified render bytes')
+    expect(await readFile(join(f.draft, 'draft_content.json'), 'utf8')).toBe('{}')
+  })
+
+  it.each(['entry', 'trailing separator'] as const)
+  ('refuses a linked draft directory and preserves the real draft: %s', async (kind) => {
     const f = await fixture(), link = join(dirname(f.draft), 'linked-draft')
     await symlink(f.draft, link, 'junction')
-    try { await expect(stageEpisodeDelivery(f.input, link)).rejects.toThrow('不接受通过链接') }
+    try { await expect(stageEpisodeDelivery(f.input, link + (kind === 'entry' ? '' : sep))).rejects.toThrow('不接受通过链接') }
+    finally { await unlink(link) }
+    expect(await readFile(join(f.draft, 'draft_content.json'), 'utf8')).toBe('{}')
+    await expectNoDelivery(f)
+  })
+
+  it('refuses a regular draft reached through a linked ancestor', async () => {
+    const f = await fixture(), link = join(f.project, 'linked-ancestor')
+    await symlink(f.project, link, 'junction')
+    try {
+      await expect(stageEpisodeDelivery(f.input, join(link, '02_剪映草稿', '第26集')))
+        .rejects.toThrow('不接受通过链接')
+    } finally { await unlink(link) }
+    expect(await readFile(join(f.draft, 'draft_content.json'), 'utf8')).toBe('{}')
+    await expectNoDelivery(f)
+  })
+
+  it('refuses a linked path component before parent-directory traversal', async () => {
+    const f = await fixture(), target = join(f.project, 'container'), link = join(f.project, 'linked-container')
+    await mkdir(target)
+    await symlink(target, link, 'junction')
+    const draft = `${link}${sep}..${sep}02_剪映草稿${sep}第26集`
+    try { await expect(stageEpisodeDelivery(f.input, draft)).rejects.toThrow('不接受通过链接') }
     finally { await unlink(link) }
     expect(await readFile(join(f.draft, 'draft_content.json'), 'utf8')).toBe('{}')
     await expectNoDelivery(f)

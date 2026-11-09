@@ -1,6 +1,6 @@
 /** `render`: the encode pipeline, its cache, its log, and the delivery verdict it returns. */
 
-import { copyFile, mkdir, readFile, readdir, rm } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, realpath, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDramaRender } from '../src/index.ts'
@@ -407,7 +407,9 @@ describe('renderEpisode', () => {
     expect(prepared.verifier).toHaveBeenCalledTimes(2)
     const record = await readSourceRecord(sourceRecordPathFor(result.output))
     expect(record?.delivery_inputs?.source_qa_sha256).toMatch(/^[a-f0-9]{64}$/u)
-    for (const path of prepared.artifacts) expect(record?.input_files).toContainEqual({ path, sha256: await fileSha256(path) })
+    for (const path of prepared.artifacts) {
+      expect(record?.input_files).toContainEqual({ path: await realpath(path), sha256: await fileSha256(path) })
+    }
     const checkpoint = channel.calls.length
     const next = await render(prepared, channel, false, undefined, { resume: true, sourceQaVerifier: prepared.verifier })
     expect(next.output).toBe(result.output)

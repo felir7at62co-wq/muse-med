@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
@@ -1021,6 +1021,20 @@ describe('submit_video', () => {
     return { directory, previewPath: String(preview.preview_path),
       idempotencyKey: String(preview.idempotencyKey) }
   }
+
+  it('checks an unlinked canonical preview without dispatching and then honors its manual hold', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 1 },
+      tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const packs = [{ previewPath: await realpath(file.previewPath), key: file.idempotencyKey }]
+    await expect(assertNewNativeDispatchAllowed(ledger, packs)).resolves.toBeUndefined()
+    await writeFile(join(file.directory, 'pipeline_state.json'), JSON.stringify({ episodes: { '1': {
+      video_tasks: { status: 'blocked', status_source: 'manual', metadata: { script_id: 2708, provider_episode_id: 130221 } },
+    } } }))
+    await expect(assertNewNativeDispatchAllowed(ledger, packs)).rejects.toThrow('EPISODE_PAID_HOLD')
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
 
   it.each(['single', 'batch'] as const)('honors a matching manual hold on a new %s submission', async (kind) => {
     const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 1 }, tasks: [], subtasks: {} }

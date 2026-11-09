@@ -108,6 +108,8 @@ Stage the exact returned render and saved draft together. The upload folder cont
 
 Staging rechecks source and draft receipts before publication and removes temporary copies after failure. If interruption leaves a matching receipt and an empty upload folder, the same request resumes without replacing the receipt.
 
+Staging rejects symbolic links and junctions in a file or directory path, including its ancestors. A Windows short-name alias of a regular entry remains acceptable.
+
 Every relative project input and output path resolves from `project`, including manifests, subtitle plans, alignment, subtitles, BGM, ending files, and explicit output. Absolute paths remain unchanged. Pass an absolute `project` across tools; a relative project root is resolved once from the process working directory. Ending assets outside the project use their installed absolute paths. Binary and font deployment configuration is unchanged.
 
 Tool calls use the snake_case parameter names above; the registered executor maps them to the renderer's internal camelCase arguments. Common required arguments are checked before opening files; ending arguments are required only after the asynchronous medium resolution selects a marked delivery. Everything that makes a render impossible — a missing input, a failed command, an ending file whose bytes are not the shipped asset's, a `source_once` effect longer than the ending window, a tail frame that cannot be proved — throws with a Chinese repair instruction. The delivered file's own properties do not throw: they come back as checks, so one call reports every defect while still handing back the measurement.
