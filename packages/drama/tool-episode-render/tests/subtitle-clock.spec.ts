@@ -40,8 +40,14 @@ it('verifies generated source bytes and carries only the verified clock to displ
   await writeFile(f.target, display)
   await expect(writeDerivedSubtitleClock(f.source, f.target, display)).resolves.toBe(subtitleClockPath(f.target))
   const derived = await verifySubtitleClock(f.target, '01', async () => f.shots)
-  expect(JSON.parse(derived ?? '{}')).toMatchObject({ srt_sha256: sha(display),
-    source_clock_sha256: JSON.parse(original ?? '{}').source_clock_sha256 })
+  const originalReceipt: unknown = JSON.parse(original ?? '{}')
+  const derivedReceipt: unknown = JSON.parse(derived ?? '{}')
+  if (originalReceipt === null || typeof originalReceipt !== 'object'
+    || !('source_clock_sha256' in originalReceipt) || typeof originalReceipt.source_clock_sha256 !== 'string') {
+    throw new Error('Expected a verified source clock receipt')
+  }
+  expect(derivedReceipt).toMatchObject({ srt_sha256: sha(display),
+    source_clock_sha256: originalReceipt.source_clock_sha256 })
   expect(await readFile(f.source, 'utf8')).toBe(text)
 })
 
