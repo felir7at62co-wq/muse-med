@@ -63,9 +63,42 @@ it.each([{ interval: 0.5, count: 23, last: 11 }, { interval: 0.4, count: 28, las
     const h = await setup({ ocrFrameIntervalSeconds: interval, ocrBatchFrames: 24 })
     await elevenSecondVideo(h)
     const run = mockWindowsOcr()
+    const recognize = run.getMockImplementation()!
+    const batchDiagnostics: {
+      start_seconds: string | undefined
+      frame_count: string | undefined
+      elapsed_ms?: number
+      output_bytes?: number
+      jpeg_count?: number
+      timestamps_seconds?: number[]
+      stderr_tail?: string
+      error?: string
+      jpeg_error?: string
+    }[] = []
+    run.mockImplementation(async (...args) => {
+      const argv = args[1]
+      if (!argv.includes('mjpeg')) return await recognize(...args)
+      const batch: (typeof batchDiagnostics)[number] = {
+        start_seconds: argv[argv.indexOf('-ss') + 1], frame_count: argv[argv.indexOf('-frames:v') + 1],
+      }
+      batchDiagnostics.push(batch)
+      const started = Date.now()
+      try {
+        const output = await recognize(...args)
+        batch.output_bytes = output.bytes.byteLength
+        batch.timestamps_seconds = showinfoTimestamps(output.diagnostic)
+        batch.stderr_tail = output.diagnostic.slice(-4000)
+        try { batch.jpeg_count = splitMjpeg(output.bytes).length }
+        catch (error) { batch.jpeg_error = String(error).slice(-4000) }
+        return output
+      } catch (error) {
+        batch.error = String(error).slice(-4000)
+        throw error
+      } finally { batch.elapsed_ms = Date.now() - started }
+    })
     const result = await h.ocr({ raw_json_path: 'qa/long.json', merged_text_path: 'qa/long.txt' })
     expect(result.isError, JSON.stringify(result.content)).toBe(false)
-    expect(result.value).toMatchObject({ scan_status: 'complete', coverage: {
+    expect(result.value, JSON.stringify({ batches: batchDiagnostics })).toMatchObject({ scan_status: 'complete', coverage: {
       planned_frame_count: count, processed_frame_count: count, failed_frame_count: 0, failed_timestamps_seconds: [],
     } })
     const raw = JSON.parse(await readFile(join(h.root, 'qa/long.json'), 'utf8')) as {
