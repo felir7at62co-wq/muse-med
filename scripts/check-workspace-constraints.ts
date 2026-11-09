@@ -195,6 +195,7 @@ export function readWorkspaceManifests(repositoryRoot: string): WorkspaceManifes
 }
 
 const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
+  '@deepseek-ai/dsh-muse-market': ['lib/package.js', 'lib/format.js'],
   // Tools entry points share error classes and invocation stages through runtime chunks.
   '@deepseek-ai/dsh-tools': ['lib/pipeline.js', 'lib/shared-*.js'],
   // The embedded OAR implementation retains its upstream license.
@@ -545,6 +546,9 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
       || manifest.repository.directory !== expectedDirectory) {
       errors.push(`${label}: published Landlock package repository must use ${publishedRepositoryUrl} with directory ${expectedDirectory}`)
     }
+  } else if (dir === 'packages/host/muse-market' && manifest.name === '@deepseek-ai/dsh-muse-market') {
+    if (manifest.private !== true) errors.push(`${label}: Skill publication package must set "private": true`)
+    if (manifest.publishConfig !== undefined) errors.push(`${label}: Skill publication package must omit publishConfig`)
   } else if (isPrivateMusicAnalysisPackage(dir, manifest.name)) {
     if (manifest.private !== true) errors.push(`${label}: noncommercial music analysis package must set "private": true`)
     if (manifest.publishConfig !== undefined) errors.push(`${label}: noncommercial music analysis package must omit publishConfig`)

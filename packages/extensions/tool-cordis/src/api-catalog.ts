@@ -2560,6 +2560,48 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'museMarket',
+    summary: 'Local publication service; installing a package never registers or executes its Skill.',
+    description: 'Local publication service; installing a package never registers or executes its Skill.',
+    methods: [
+      {
+        signature: '@Remote(\'sources\') async sources(): Promise<{ skills: { name: string; description: string; whenToUse?: string }[]; complete: boolean }>',
+        description: 'List current authoring candidates without reading or uploading resource directories.',
+        parameters: [],
+        returns: 'Discovered metadata and whether every provider completed this observation.',
+      },
+      {
+        signature: '@Remote(\'prepare\') async prepare(metadata: MarketMetadata, skillName: string): Promise<MuseMarketInstallation>',
+        description: 'Prepare one selected local Skill as a disabled publication without uploading it.',
+        parameters: [{ name: 'metadata', description: 'Explicit author metadata.' }, { name: 'skillName', description: 'Exact registry invocation name.' }],
+        returns: 'Verified disabled installation containing the selected complete bundle.',
+      },
+      {
+        signature: '@Remote(\'importPackage\') async importPackage(base64: string): Promise<MuseMarketInstallation>',
+        description: 'Import a user-selected publication without activation or network access.',
+        parameters: [{ name: 'base64', description: 'Complete, canonical base64 ZIP bytes.' }],
+        returns: 'Matching installation or a newly committed disabled release.',
+      },
+      {
+        signature: '@Remote(\'installed\') async installed(): Promise<MuseMarketInstallation[]>',
+        description: 'List retained publication records; none is activated by this service.',
+        parameters: [],
+        returns: 'Validated disabled local installations.',
+      },
+      {
+        signature: '@Remote(\'exportPackage\') async exportPackage(id: MarketReleaseId): Promise<{ name: string; base64: string }>',
+        description: 'Export original package bytes after verifying every extracted resource.',
+        parameters: [{ name: 'id', description: 'Exact installed release identity.' }],
+        returns: 'Portable filename and complete canonical base64 ZIP.',
+      },
+      {
+        signature: '@Remote(\'removePackage\') async removePackage(id: MarketReleaseId): Promise<void>',
+        description: 'Remove a disabled publication record without deleting reusable archive bytes.',
+        parameters: [{ name: 'id', description: 'Exact installed release identity.' }],
+      },
+    ],
+  },
+  {
     key: 'officeToPdf',
     summary: 'A provider lifetime owns all converters, queued calls, and temporary files.',
     description: 'A provider lifetime owns all converters, queued calls, and temporary files.',
@@ -7934,6 +7976,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface MarketListingVersion extends MarketVersion {\n    readonly install: MarketInstallTarget;\n    readonly compatibility: MarketCompatibility;\n}',
   },
   {
+    name: 'MarketManifest',
+    declaration: 'export interface MarketManifest extends MarketMetadata {\n    readonly formatVersion: 1;\n    readonly kind: \'skill\';\n    readonly skills: readonly {\n        readonly name: string;\n        readonly path: string;\n    }[];\n}',
+  },
+  {
+    name: 'MarketMetadata',
+    declaration: 'export interface MarketMetadata {\n    readonly name: string;\n    readonly title: string;\n    readonly description: string;\n    readonly version: string;\n    readonly license: string;\n    readonly category: string;\n    readonly examples: readonly string[];\n    readonly requirements: readonly string[];\n}',
+  },
+  {
     name: 'MarketPlugin',
     declaration: 'export interface MarketPlugin {\n    readonly name: string;\n    readonly title?: LocalizedText;\n    readonly description?: LocalizedText;\n    readonly icon?: string;\n    readonly author?: string;\n    readonly homepage?: string;\n    readonly repository?: MarketRepository;\n    readonly metadata: MarketPluginMetadata;\n    readonly versions: readonly MarketVersion[];\n}',
   },
@@ -7944,6 +7994,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MarketQuery',
     declaration: 'export interface MarketQuery {\n    readonly text?: string;\n    readonly category?: string;\n    readonly labels?: readonly string[];\n    readonly sort: MarketSort;\n    readonly offset: number;\n    readonly limit: number;\n    readonly refresh?: boolean;\n    readonly fetchedAt?: number;\n}',
+  },
+  {
+    name: 'MarketRelease',
+    declaration: 'export interface MarketRelease {\n    readonly id: MarketReleaseId;\n    readonly sha256: string;\n    readonly bytes: number;\n    readonly manifest: MarketManifest;\n}',
+  },
+  {
+    name: 'MarketReleaseId',
+    declaration: 'export type MarketReleaseId = Branded<\'MarketReleaseId\'>;',
   },
   {
     name: 'MarketRepository',
@@ -8228,6 +8286,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'MuseFeedbackRequest',
     declaration: 'export interface MuseFeedbackRequest {\n    readonly sessionId: SessionId;\n    readonly target: {\n        readonly kind: \'session\';\n    } | {\n        readonly kind: \'message\';\n        readonly messageId: MessageId;\n        readonly rating: \'positive\' | \'negative\';\n    };\n    readonly category?: FeedbackCategory;\n    readonly text?: string;\n    readonly includeDiagnostics: boolean;\n    readonly title?: string;\n    readonly kind?: \'bug\' | \'suggestion\' | \'other\';\n    readonly requestId?: string;\n}',
+  },
+  {
+    name: 'MuseMarketInstallation',
+    declaration: 'export interface MuseMarketInstallation {\n    readonly release: MarketRelease;\n    readonly enabled: false;\n}',
   },
   {
     name: 'MuseVoiceLeaseId',

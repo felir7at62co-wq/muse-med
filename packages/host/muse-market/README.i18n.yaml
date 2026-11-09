@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/host/muse-market/README.md
+/:
+  en: ef4901418e45b211
+  zh: 1661079353215e3c
+/local-skill-publications:
+  en: 6232dc6b8b3f1d4b
+  zh: 2743238fca92b1df
+/local-skill-publications/summary:
+  en: 93fa9c85f9ae4326
+  zh: 75f930eee02d63ce
+/local-skill-publications/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 7b30b973a849247d
+/local-skill-publications/use-this-package:
+  en: a30c82bdf3895cbd
+  zh: 7d066149c77c79ef
+/local-skill-publications/use-this-package/publication-lifecycle:
+  en: 8b91a194697c4868
+  zh: 6cd75c98752b1dcb
+/local-skill-publications/use-this-package/storage-and-configuration:
+  en: aaba466bf9436292
+  zh: 7886c96a63daec58
+/local-skill-publications/understand-the-implementation:
+  en: a6b170c3f8fbf749
+  zh: b05a5f29108cd959
+/local-skill-publications/further-exploration:
+  en: 647f16a597f1e8e5
+  zh: 51c96fea50771024
+/local-skill-publications/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/local-skill-publications/model-experience/caller-owned-publication-results:
+  en: b237a7c851085851
+  zh: 18751de87a965325
+/local-skill-publications/model-experience/caller-owned-publication-results/what-the-model-sees:
+  en: 8504ec2052c5f803
+  zh: ac8b438126bedb81
+/local-skill-publications/model-experience/caller-owned-publication-results/token-effect:
+  en: af9073026a241f74
+  zh: 8fa9561ac79162a1
+/local-skill-publications/model-experience/caller-owned-publication-results/kv-cache-effect:
+  en: 990d524e8ee5a76e
+  zh: b6a7bda942070337
+/local-skill-publications/known-limitations-and-deferred-work:
+  en: 6726188abb41c4d4
+  zh: a2f2b4da216d553e
+/local-skill-publications/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: e88aeb617ffb74ea

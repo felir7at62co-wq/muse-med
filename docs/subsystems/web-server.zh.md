@@ -285,6 +285,50 @@ abstract createTunnel(options: MuseDesktopTunnelOptions): MuseDesktopTunnel
 
 Source: [`packages/host/muse-account/src/desktop-bridge.ts`](../../packages/host/muse-account/src/desktop-bridge.ts)
 
+<a id="ctxmusemarket--musemarket"></a>
+
+### `ctx.museMarket` — `MuseMarket`
+
+Local publication service; installing a package never registers or executes its Skill.
+
+```ts cordis-catalog
+/** List current authoring candidates without reading or uploading resource directories.
+ * @returns Discovered metadata and whether every provider completed this observation.
+ */
+@Remote('sources') async sources(): Promise<{ skills: { name: string; description: string; whenToUse?: string }[]; complete: boolean }>
+
+/** Prepare one selected local Skill as a disabled publication without uploading it.
+ * @param metadata - Explicit author metadata.
+ * @param skillName - Exact registry invocation name.
+ * @returns Verified disabled installation containing the selected complete bundle.
+ */
+@Remote('prepare') async prepare(metadata: MarketMetadata, skillName: string): Promise<MuseMarketInstallation>
+
+/** Import a user-selected publication without activation or network access.
+ * @param base64 - Complete, canonical base64 ZIP bytes.
+ * @returns Matching installation or a newly committed disabled release.
+ */
+@Remote('importPackage') async importPackage(base64: string): Promise<MuseMarketInstallation>
+
+/** List retained publication records; none is activated by this service.
+ * @returns Validated disabled local installations.
+ */
+@Remote('installed') async installed(): Promise<MuseMarketInstallation[]>
+
+/** Export original package bytes after verifying every extracted resource.
+ * @param id - Exact installed release identity.
+ * @returns Portable filename and complete canonical base64 ZIP.
+ */
+@Remote('exportPackage') async exportPackage(id: MarketReleaseId): Promise<{ name: string; base64: string }>
+
+/** Remove a disabled publication record without deleting reusable archive bytes.
+ * @param id - Exact installed release identity.
+ */
+@Remote('removePackage') async removePackage(id: MarketReleaseId): Promise<void>
+```
+
+Source: [`packages/host/muse-market/src/index.ts`](../../packages/host/muse-market/src/index.ts)
+
 <a id="ctxwebapp--webapp"></a>
 
 ### `ctx.webApp` — `WebApp`

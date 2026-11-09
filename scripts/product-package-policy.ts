@@ -16,6 +16,10 @@ export interface ProductPackagePolicy {
  * Optional integrations may be reached by an optional bundle without becoming default capabilities.
  */
 export const PRODUCT_PACKAGE_POLICY: Readonly<Record<string, ProductPackagePolicy>> = {
+  'packages/host/muse-market': {
+    category: 'optional',
+    reason: 'Private local Skill publication storage used by explicit profiles and Remote callers.',
+  },
   'packages/guard/composition-guard': { category: 'optional', reason: 'Explicit profile-reload diagnostics for deployments that opt into tool-withdrawal notices.' },
   'packages/util/session-workspace': { category: 'optional', reason: 'Maintained Node plugin compatibility helpers for recorded initial session directories and trusted production-root checks; not effective-directory or sandbox authority.' },
   'packages/core/agent-tool-presentation': { category: 'optional', reason: 'Deprecated selector retained for existing executor configurations.' },

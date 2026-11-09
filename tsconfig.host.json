@@ -1319,6 +1319,9 @@
     },
     {
       "path": "./packages/host/muse-account/tsconfig.host.json"
+    },
+    {
+      "path": "./packages/host/muse-market"
     }
   ]
 }

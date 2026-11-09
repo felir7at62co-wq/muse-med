@@ -64,6 +64,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   connection: 'web-server.md',
   museDesktopBridge: 'web-server.md',
   museAccount: 'web-server.md',
+  museMarket: 'web-server.md',
   pluginManager: 'boot.md',
   actionCards: 'boot.md',
   pluginRecommendations: 'boot.md',
@@ -1010,6 +1011,9 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  MuseMarketInstallation: 'Local Skill publication records are owned by packages/host/muse-market/README.md and src/types.ts',
+  MarketMetadata: 'Local Skill publication metadata is owned by packages/host/muse-market/README.md and src/types.ts',
+  MarketReleaseId: 'Local Skill publication identities are owned by packages/host/muse-market/README.md and src/types.ts',
   AuthoritativeCharacterReference: 'Host character-reference authority fields are owned by packages/drama/tool-character-reference/README.md and src/authority.ts',
   CharacterReferenceAuthorityRequest: 'Host character-reference authority fields are owned by packages/drama/tool-character-reference/README.md and src/authority.ts',
   CharacterLibraryStatus: 'character reference and object-store fields are owned by packages/drama/character-library/README.md and src/types.ts',

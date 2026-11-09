@@ -2877,6 +2877,35 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-muse-account -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-muse-market -->
+<a id="deepseek-aidsh-muse-market"></a>
+
+## `@deepseek-ai/dsh-muse-market`
+
+- `inject`: `skills`
+- `source`: [`packages/host/muse-market/src/index.ts:16`](../packages/host/muse-market/src/index.ts)
+
+```ts config-catalog
+/** Resolved local publication storage and size limits. */
+export interface Config extends MarketLimits {
+  /** Absolute private storage root. */
+  readonly root: string
+}
+
+/** Deployment-owned bounds for archives, expanded resources and local records. */
+export interface MarketLimits {
+  /** Maximum compressed ZIP bytes accepted for one publication. */
+  readonly archiveBytes: number
+  /** Maximum combined expanded bytes, including the publication manifest. */
+  readonly expandedBytes: number
+  /** Maximum ZIP entry count, including manifest and directory entries. */
+  readonly fileCount: number
+  /** Maximum bytes in a publication manifest or local installation ledger. */
+  readonly recordBytes: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-muse-market -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-office-to-pdf -->
 <a id="deepseek-aidsh-office-to-pdf"></a>
 

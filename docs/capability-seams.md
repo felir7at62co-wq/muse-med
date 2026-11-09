@@ -32,6 +32,8 @@ flowchart LR
   svc_museAccount["ctx.museAccount<br/>Muse authenticated account operations"]
   pkg_tool_audio_transcribe["tool-audio-transcribe"]
   pkg_ui_muse_account["ui-muse-account"]
+  pkg_muse_market["muse-market"]
+  svc_museMarket["ctx.museMarket<br/>Local Skill publication storage"]
   svc_museDesktopBridge["ctx.museDesktopBridge<br/>Muse authenticated desktop tunnel"]
   pkg_dsh_bridge["dsh-bridge"]
   pkg_action_cards["action-cards"]
@@ -442,6 +444,7 @@ flowchart LR
   pkg_message_feedback --> svc_messageFeedback
   pkg_muse_account --> svc_museAccount
   pkg_muse_account --> svc_museDesktopBridge
+  pkg_muse_market --> svc_museMarket
   pkg_office_to_pdf --> svc_officeToPdf
   pkg_otel --> svc_otel
   pkg_permission_presets --> svc_permissionPresets
@@ -726,6 +729,7 @@ flowchart LR
 | `ctx.jubianImage` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`drama-settings`](../packages/drama/drama-settings) | - | Reads account-accessible image generation routes without exposing the credential or submitting paid work. |
 | `ctx.jubianToken` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Describes, stores and clears the credential through the existing credential provider; the browser receives status without the stored token. |
 | `ctx.museAccount` | `service` | [`muse-account`](../packages/host/muse-account) | - | [`tool-audio-transcribe`](../packages/drama/tool-audio-transcribe), [`tool-jubian`](../packages/jubian/tool-jubian), `ui-muse-account` | - | Muse Account owns the service definition and Host implementation; tools use authenticated transcription and shared voice registration, while the account UI uses its public Remote methods. Voice-slot transport remains Host-only. |
+| `ctx.museMarket` | `service` | [`muse-market`](../packages/host/muse-market) | - | - | - | Muse Market owns the local publication API and immutable storage. Explicit Remote callers prepare, import, verify, export and remove disabled releases. |
 | `ctx.museDesktopBridge` | `seam` | [`muse-account`](../packages/host/muse-account) | `dsh-bridge` | [`muse-account`](../packages/host/muse-account) | - | The pinned bridge creates account-bound tunnels to the local Host; Muse Account owns connection refresh and disposal without cancelling agent turns. |
 | `ctx.actionCards` | `service` | [`action-cards`](../packages/experimental/action-cards) | - | [`creation-recommendations`](../packages/experimental/creation-recommendations), [`client-ui-action-cards`](../packages/experimental/client-ui-action-cards) | - | Owns the card tool, card state, user actions and status notices; card kinds register their actions and handlers. |
 | `ctx.pluginRecommendations` | `service` | [`plugin-recommendations`](../packages/experimental/plugin-recommendations) | - | [`client-ui-plugin-recommendations`](../packages/experimental/client-ui-plugin-recommendations) | - | Reads the current catalog text of an official plugin card and enables the plugin through the profile plugin manager after a click. |

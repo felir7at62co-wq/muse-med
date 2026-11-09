@@ -311,6 +311,27 @@ describe('dsh family version coherence', () => {
 })
 
 describe('package payload constraints', () => {
+  it('keeps only the named Skill publication service private and limits its runtime payload', () => {
+    const dir = 'packages/host/muse-market'
+    const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, private: false } }))
+      .toContainEqual(expect.stringContaining('Skill publication package must set "private": true'))
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, publishConfig: { access: 'public' } } }))
+      .toContainEqual(expect.stringContaining('Skill publication package must omit publishConfig'))
+    for (const other of [
+      { dir: 'packages/host/other', manifest },
+      { dir, manifest: { ...manifest, name: '@deepseek-ai/dsh-other' } },
+    ]) {
+      expect(checkWorkspaceManifest(other)).toContainEqual(expect.stringContaining('release member must not set "private": true'))
+    }
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, 'src/**'] } }))
+      .toContainEqual(expect.stringContaining('package.json files must not publish'))
+    expect(checkWorkspaceManifest({ dir, manifest: {
+      ...manifest, files: manifest.files!.filter(file => file !== 'lib/package.js'),
+    } })).toContainEqual(expect.stringContaining('package.json files must be'))
+  })
+
   it('requires the exact tool discovery runtime, locale, and Codex attribution files', () => {
     const dir = 'packages/core/tool-discovery'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']

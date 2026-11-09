@@ -207,6 +207,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Muse Account owns the service definition and Host implementation; tools use authenticated transcription and shared voice registration, while the account UI uses its public Remote methods. Voice-slot transport remains Host-only.',
   },
   {
+    key: 'museMarket',
+    pkg: 'muse-market',
+    title: 'Local Skill publication storage',
+    mode: 'service',
+    note: 'Muse Market owns the local publication API and immutable storage. '
+      + 'Explicit Remote callers prepare, import, verify, export and remove disabled releases.',
+  },
+  {
     key: 'museDesktopBridge',
     pkg: 'muse-account',
     title: 'Muse authenticated desktop tunnel',
