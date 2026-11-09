@@ -253,7 +253,7 @@ it('preserves verified packs while timing out an unresolved sibling', async () =
 
 it('reconciles an already claimed task and records the original provider failure', async () => {
   const f = await fixture()
-  vi.mocked(reconcileRecordedVideo).mockResolvedValue({ status: 'submitted', task_id: 42,
+  vi.mocked(reconcileRecordedVideo).mockResolvedValue({ status: 'submitted', task_id: '42',
     replayed: true, outcome: 'accepted', response_sha256: null, result_urls: [], next: 'Observe original',
     idempotency_key: key, preview_path: f.packs[0]!.previewPath })
   vi.mocked(observeWatchTask).mockResolvedValue({ status: 'failed', detail: 'Original provider task failed' })

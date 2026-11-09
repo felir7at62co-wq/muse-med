@@ -130,7 +130,7 @@ it.each([0, 3])('leaves a batch of %s previews to normal preflight without enrol
 it('refuses a session that the Host cannot resolve before enrolling or dispatching', async () => {
   const f = await host()
   const resolve = vi.spyOn(f.ctx.sessionController, 'resolveAgent').mockResolvedValueOnce({
-    error: new RemoteError('session/not-found', 'The ordinary owner is absent'),
+    error: new RemoteError('session/not-found', 'The ordinary owner is absent', { sessionId: f.agent.session.id }),
   })
   onTestFinished(() => { resolve.mockRestore() })
   const result = await f.invoke({ method: 'submit_video', preview_path: f.plan.preview_path, idempotency_key: f.plan.idempotencyKey })

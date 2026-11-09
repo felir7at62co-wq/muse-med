@@ -20,22 +20,24 @@ async function fixture(adapter: MockAdapter) {
   ctx.llm.registerAdapter(['mock'], adapter)
   await mountAgentLoopTestHarness(ctx)
   const { agent } = await ctx.agents.create({ sessionId: SessionId(randomUUID()), agentOptions: { provider: 'mock', model: 'mock' } })
+  if (agent.wakePending === undefined) throw new Error('The production AgentLoop must support waking persisted input')
+  const wakePending = agent.wakePending.bind(agent)
   const message = (text: string) => createUserMessage({ content: [{ type: 'text', text }], source: { kind: 'user' } })
   const committed = () => agent.session.snapshotEvents().flatMap(event => event.type === 'user/message' ? [event.data.id] : [])
-  return { ctx, agent, message, committed }
+  return { ctx, agent, wakePending, message, committed }
 }
 
 it('does not start a turn for an absent message and wakes the exact parked next-turn entry once', async () => {
   const adapter = new MockAdapter([textResponse('Restored result')]), f = await fixture(adapter)
-  expect(f.agent.wakePending(MessageId('missing'))).toBe(false)
+  expect(f.wakePending(MessageId('missing'))).toBe(false)
   const parked = f.message('Resume the already committed generation notice')
   f.agent.inbox.append('next-turn', parked)
-  expect(f.agent.wakePending(MessageId('another-message'))).toBe(false)
+  expect(f.wakePending(MessageId('another-message'))).toBe(false)
   expect(adapter.requests).toHaveLength(0)
-  expect(f.agent.wakePending(parked.id)).toBe(true)
+  expect(f.wakePending(parked.id)).toBe(true)
   await f.agent.whenIdle()
   expect(f.committed()).toEqual([parked.id])
-  expect(f.agent.wakePending(parked.id)).toBe(false)
+  expect(f.wakePending(parked.id)).toBe(false)
   expect(adapter.requests).toHaveLength(1)
 })
 
@@ -43,8 +45,8 @@ it('wakes an existing next-step entry without appending a replacement input', as
   const adapter = new MockAdapter([textResponse('Recovered next step')]), f = await fixture(adapter)
   const parked = f.message('Use the existing verified output')
   f.agent.inject(parked)
-  expect(f.agent.wakePending(MessageId('another-next-step'))).toBe(false)
-  expect(f.agent.wakePending(parked.id)).toBe(true)
+  expect(f.wakePending(MessageId('another-next-step'))).toBe(false)
+  expect(f.wakePending(parked.id)).toBe(true)
   await f.agent.whenIdle()
   expect(f.committed()).toEqual([parked.id])
   expect(adapter.requests).toHaveLength(1)
@@ -59,7 +61,7 @@ it('latches the original pending notice while an aborted turn is converging to i
   await vi.waitFor(() => { expect(adapter.requests).toHaveLength(1) })
   f.agent.inbox.append('next-turn', parked)
   f.agent.cancel({ kind: 'user' }, { keepInbox: true })
-  expect(f.agent.wakePending(parked.id)).toBe(true)
+  expect(f.wakePending(parked.id)).toBe(true)
   await f.agent.whenIdle()
   expect(f.committed()).toEqual([active.id, parked.id])
   expect(adapter.requests).toHaveLength(2)
@@ -82,7 +84,7 @@ it('lets a live driver claim the pending notice without opening a second driver'
   f.agent.followup(active)
   await entered
   f.agent.inbox.append('next-turn', parked)
-  expect(f.agent.wakePending(parked.id)).toBe(true)
+  expect(f.wakePending(parked.id)).toBe(true)
   release()
   await f.agent.whenIdle()
   expect(f.committed()).toEqual([active.id, parked.id])

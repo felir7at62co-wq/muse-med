@@ -92,7 +92,9 @@ function composedMusic() {
 it('accepts a bound composer receipt and rejects muted or unproved music inputs', () => {
   const input = composedMusic()
   expect(checkMusicDecision(input)).toEqual({ decision: 'music', reason: 'Fits the present dialogue scene' })
-  for (const changed of [{ ...input, gain: 0 }, { ...input, bedSha: undefined }, { ...input, generationText: undefined }]) {
+  const { bedSha: _bedSha, ...withoutBed } = input
+  const { generationText: _generationText, ...withoutReceipt } = input
+  for (const changed of [{ ...input, gain: 0 }, withoutBed, withoutReceipt]) {
     expect(() => checkMusicDecision(changed)).toThrow('非零实际混音增益')
   }
 })
@@ -104,8 +106,9 @@ it('rejects a composer receipt for different rendered bed bytes', () => {
 
 it('rejects a declared no-music plan that still contributes sound', () => {
   const input = composedMusic()
+  const { bedSha: _bedSha, ...withoutBed } = input
   const planText = JSON.stringify({ episodes: [{ ...episode, music_decision: 'none', decision_reason: 'Dialogue only', segments: [] }] })
-  const none = { ...input, mode: 'none' as const, planText, gain: 0, bedSha: undefined }
+  const none = { ...withoutBed, mode: 'none' as const, planText, gain: 0 }
   expect(checkMusicDecision(none)).toEqual({ decision: 'none', reason: 'Dialogue only' })
   expect(() => checkMusicDecision({ ...none, gain: 0.1 })).toThrow('必须使用 no_bgm')
   expect(() => checkMusicDecision({ ...none, bedSha: input.bedSha })).toThrow('必须使用 no_bgm')
