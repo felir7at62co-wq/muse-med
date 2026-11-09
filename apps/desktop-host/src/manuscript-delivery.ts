@@ -42,7 +42,8 @@ const reviewSchema = z.object({ state: z.literal('continuity'), status: z.enum([
   reason: z.string(), target: identitySchema, documents: z.array(documentSchema),
   findings: z.array(z.object({ evidence: z.array(identitySchema.extend({ line: z.number().int().positive() })) })),
   unknowns: z.array(z.string()), file_verification: z.enum(['verified', 'changed', 'unavailable']),
-  notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional(), episode_plan: episodePlanSchema.optional() })
+  notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional(), episode_plan: episodePlanSchema.optional(),
+  repetition_review: z.literal(true).optional() })
 const fileSchema = z.object({ path: z.string(), file_sha256: z.string(), aliases: z.array(z.string()),
   label: z.string(), review_scope: scopeSchema.nullable(), dependencies: z.array(documentSchema),
   notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional() })
@@ -57,7 +58,7 @@ export type ManuscriptDeliveryResult = z.infer<typeof declarationSchema>
 type Review = z.infer<typeof reviewSchema>
 type DeliveryFile = z.infer<typeof fileSchema>
 type Range = z.infer<typeof rangeSchema>
-const blockSchema = identitySchema.extend({ ranges: z.array(rangeSchema) })
+const blockSchema = identitySchema.extend({ ranges: z.array(rangeSchema), repetition: z.boolean() })
 type ReviewBlock = z.infer<typeof blockSchema>
 const rowSchema = z.object({ path: z.string(), sha: z.string(), review: reviewSchema.nullable(),
   unresolved: z.array(blockSchema), unresolved_overflow: z.boolean(), declaration: declarationSchema.nullable(), presented: z.boolean() })
@@ -128,13 +129,13 @@ function blocksOf(review: Review): ReviewBlock[] {
     const ranges = review.status === 'unknown' || lines.length === 0 ? document.coverage.read_ranges
       : lines.map(line => ({ start: line, end: line }))
     return { role: document.role, path: document.path, file_sha256: document.file_sha256,
-      text_sha256: document.text_sha256, ranges: mergeRanges(ranges) }
+      text_sha256: document.text_sha256, ranges: mergeRanges(ranges), repetition: review.repetition_review === true }
   })
 }
 function combineBlocks(a: ReviewBlock[], b: ReviewBlock[]): ReviewBlock[] {
   const result = a.map(block => ({ ...block, ranges: [...block.ranges] }))
   for (const block of b) {
-    const previous = result.find(item => sameIdentity(item, block))
+    const previous = result.find(item => sameIdentity(item, block) && item.repetition === block.repetition)
     if (previous === undefined) result.push(block)
     else {
       const ranges = [...previous.ranges, ...block.ranges]
@@ -146,7 +147,9 @@ function combineBlocks(a: ReviewBlock[], b: ReviewBlock[]): ReviewBlock[] {
   return result
 }
 function covers(review: Review, block: ReviewBlock): boolean {
-  if (review.episode_plan !== undefined) return false
+  const wrongPurpose = block.repetition ? review.repetition_review !== true
+    : review.episode_plan !== undefined || review.repetition_review === true
+  if (wrongPurpose) return false
   const document = review.documents.find(item => sameIdentity(item, block))
   return document !== undefined && block.ranges.every(range => document.coverage.read_ranges
     .some(covered => covered.start <= range.start && covered.end >= range.end))
@@ -187,7 +190,7 @@ function joinPresented(state: DeliveryState): DeliveryState {
  * @returns Host-only projection definition; no client or Session event vocabulary is added.
  */
 function manuscriptDeliveryProjection(maxDocuments: number): ProjectionDefinition<'muse.manuscript-delivery', DeliveryState> {
-  return { key: 'muse.manuscript-delivery', stateVersion: 6, stateSchema,
+  return { key: 'muse.manuscript-delivery', stateVersion: 8, stateSchema,
     init: header => ({ task_id: '', writing: false, file_request: false, cwd: header.cwd ?? '', turn: 0, corrections: 0,
       fingerprint: '', overflow: false, rows: [], outputs: [], calls: [], packets: [], presented: [] }),
     apply(state, event) { return foldDelivery(state, event, maxDocuments) } }
@@ -239,7 +242,7 @@ function foldDelivery(state: DeliveryState, event: SessionEvent, max: number): D
     if (!args.success) return next
     const metadata = metadataFactSchema.safeParse(result.meta)
     const fact = metadata.success ? metadata.data.manuscript_delivery_fact : undefined
-    if (args.data.action === 'continuity' || args.data.action === 'cross_episode') {
+    if (['continuity', 'cross_episode', 'repetitions'].includes(args.data.action)) {
       const review = fact?.state === 'continuity' ? fact : parseBlocks(result.content, reviewSchema)
       return review === undefined ? next : rememberReview(next, review, max)
     }
@@ -279,15 +282,16 @@ function labelOf(review: Review): string {
     const pairs = review.episode_plan.checks.map(pair => `${pair.from_episode}→${pair.to_episode}`).join('、')
     return `已复核跨集接缝${pairs}（仅此范围）`
   }
-  if (target.coverage.full_document) return '已复核本文件全部提取正文（仅当前版本）'
+  if (target.coverage.full_document) return review.repetition_review === true
+    ? '已复核本文件重复情节（仅当前提取正文与版本）' : '已复核本文件全部提取正文（仅当前版本）'
   if (target.selection.kind === 'episodes') {
     const numbers = target.selection.included.toSorted((a, b) => a - b)
     const consecutive = numbers.every((number, index) => index === 0 || number - 1 === numbers[index - 1])
     const episodes = consecutive && numbers.length > 1 ? `${numbers[0]}–${numbers.at(-1)}` : numbers.join('、')
-    return `已复核第${episodes}集（仅此范围）`
+    return `已复核第${episodes}集${review.repetition_review === true ? '重复情节' : ''}（仅此范围）`
   }
   const ranges = target.coverage.read_ranges.map(range => range.start === range.end ? String(range.start) : `${range.start}–${range.end}`).join('、')
-  return `已复核正文第${ranges}行（仅此范围）`
+  return `已复核正文第${ranges}行${review.repetition_review === true ? '重复情节' : ''}（仅此范围）`
 }
 function failure(code: string, reason: string): Error {
   return Object.assign(new Error(`${code}: ${reason}`), { code })
@@ -373,7 +377,7 @@ export class ManuscriptDelivery {
    */
   pendingCommit(execution: ToolExecution, result: Readonly<ToolExecutionResult>): void {
     if (!this.accepting || execution.parent === undefined || execution.agent === undefined || result.isError) return
-    const action = z.object({ action: z.enum(['continuity', 'cross_episode', 'delivery']) }).safeParse(execution.arguments)
+    const action = z.object({ action: z.enum(['continuity', 'cross_episode', 'repetitions', 'delivery']) }).safeParse(execution.arguments)
     if (!(execution.name === 'manuscript_revision' && action.success)
       && !(execution.name === 'present' && this.pending.has(execution))) return
     let session = this.commits.get(execution.agent.session)

@@ -1,6 +1,7 @@
 /** Host-scheduled episode boundaries and exact evidence checks for a merged manuscript review. */
 import { z } from 'zod'
 import type { ManuscriptMaterialEpisode, ManuscriptMaterialsDocument } from './manuscript-materials.ts'
+import { manuscriptQuotationMatches, manuscriptReviewEvidenceSchema } from './manuscript-review-evidence.ts'
 
 /** One physical boundary between two indexed episode sections in the assessed manuscript. */
 export interface EpisodePair { from_episode: number; to_episode: number }
@@ -16,11 +17,7 @@ export interface EpisodePlan {
 }
 
 /** Model quotations must identify a returned line of the assessed document, never an old or reference version. */
-export const episodeCheckEvidenceSchema = z.strictObject({
-  role: z.enum(['current', 'reference', 'candidate']), path: z.string().min(1),
-  file_sha256: z.string().regex(/^[a-f0-9]{64}$/u), text_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-  line: z.number().int().positive(), quote: z.string().min(1).refine(value => value.trim().length > 0),
-})
+export const episodeCheckEvidenceSchema = manuscriptReviewEvidenceSchema
 /** Exact cited location used to verify both sides of an episode boundary. */
 export type EpisodeCheckEvidence = z.infer<typeof episodeCheckEvidenceSchema>
 
@@ -79,7 +76,7 @@ function belongs(evidence: EpisodeCheckEvidence, document: ManuscriptMaterialsDo
   const section = document.episode_index.episodes.find(value => value.episode === episode)
   if (section === undefined || evidence.line < section.start || evidence.line > section.end) return false
   const line = document.lines.find(value => value.number === evidence.line)
-  return line !== undefined && line.text.includes(evidence.quote)
+  return line !== undefined && manuscriptQuotationMatches(line.text, evidence)
 }
 
 /** Require complete planned coverage and grounded two-sided evidence before accepting a cross-episode judgment.

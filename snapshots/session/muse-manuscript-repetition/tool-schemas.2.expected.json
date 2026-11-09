@@ -1,0 +1,216 @@
+{
+  "initial": [
+    {
+      "name": "structured_output",
+      "description": "Report your final structured result. Call this exactly once, when your answer is complete; the arguments must match this tool's parameter schema exactly.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "findings",
+          "unknowns",
+          "repeat_checks"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "consistent",
+              "issues",
+              "unknown"
+            ],
+            "description": "consistent requires findings=[] and unknowns=[]. issues requires findings. unknown requires substantive unknowns. Never discard real uncertainties just to select consistent."
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "category",
+                "description",
+                "evidence"
+              ],
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "event_order",
+                    "character_state",
+                    "information_state",
+                    "object_state",
+                    "transition",
+                    "event_repetition"
+                  ]
+                },
+                "description": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "role",
+                      "path",
+                      "file_sha256",
+                      "text_sha256",
+                      "line",
+                      "quote"
+                    ],
+                    "properties": {
+                      "role": {
+                        "type": "string",
+                        "enum": [
+                          "current",
+                          "candidate"
+                        ],
+                        "description": "Copy the exact document.role identity label. reference means only a document whose role is reference, never an earlier passage or a flashback."
+                      },
+                      "path": {
+                        "type": "string",
+                        "description": "Copy the exact path of that same material document; do not infer or rewrite it.",
+                        "enum": [
+                          "{{cwd}}/current.md",
+                          "{{cwd}}/recap.md"
+                        ]
+                      },
+                      "file_sha256": {
+                        "type": "string",
+                        "description": "Copy file_sha256 verbatim from the same document as role and path.",
+                        "enum": [
+                          "26940b1548921faad42ed6dc675083efc15fbcf4c27d0e4c71dd1e8db45bc089",
+                          "c8b8f1001860cea10a7a75fe39c39939c109e6db09bb726ddfcbb11191f83bfc"
+                        ]
+                      },
+                      "text_sha256": {
+                        "type": "string",
+                        "description": "Copy text_sha256 verbatim from the same document as role and path.",
+                        "enum": [
+                          "26940b1548921faad42ed6dc675083efc15fbcf4c27d0e4c71dd1e8db45bc089",
+                          "c8b8f1001860cea10a7a75fe39c39939c109e6db09bb726ddfcbb11191f83bfc"
+                        ]
+                      },
+                      "line": {
+                        "type": "integer"
+                      },
+                      "quote": {
+                        "type": "string"
+                      },
+                      "column": {
+                        "type": "integer",
+                        "description": "Optional one-based Unicode code-point start column; required to distinguish same-line occurrences."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "unknowns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Substantive uncertainties or missing evidence. A nonempty array cannot accompany consistent; preserve actual uncertainties and select unknown, or issues when evidenced findings are also present."
+          },
+          "repeat_checks": {
+            "type": "array",
+            "description": "Exactly one explained semantic verdict for every literal candidate. Empty only when the literal scan returned no candidates; still review the complete selected text for rephrased event replays.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "candidate_sha256",
+                "status",
+                "explanation",
+                "evidence"
+              ],
+              "properties": {
+                "candidate_sha256": {
+                  "type": "string",
+                  "enum": [
+                    "81850e42ffb0f473cf42f312f9f156bb061ae50bf73f9d1f979bca3ddb08a17e"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "repeated_event",
+                    "legitimate",
+                    "unknown"
+                  ]
+                },
+                "explanation": {
+                  "type": "string"
+                },
+                "evidence": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "role",
+                      "path",
+                      "file_sha256",
+                      "text_sha256",
+                      "line",
+                      "quote"
+                    ],
+                    "properties": {
+                      "role": {
+                        "type": "string",
+                        "enum": [
+                          "current",
+                          "candidate"
+                        ],
+                        "description": "Copy the exact document.role identity label. reference means only a document whose role is reference, never an earlier passage or a flashback."
+                      },
+                      "path": {
+                        "type": "string",
+                        "description": "Copy the exact path of that same material document; do not infer or rewrite it.",
+                        "enum": [
+                          "{{cwd}}/current.md",
+                          "{{cwd}}/recap.md"
+                        ]
+                      },
+                      "file_sha256": {
+                        "type": "string",
+                        "description": "Copy file_sha256 verbatim from the same document as role and path.",
+                        "enum": [
+                          "26940b1548921faad42ed6dc675083efc15fbcf4c27d0e4c71dd1e8db45bc089",
+                          "c8b8f1001860cea10a7a75fe39c39939c109e6db09bb726ddfcbb11191f83bfc"
+                        ]
+                      },
+                      "text_sha256": {
+                        "type": "string",
+                        "description": "Copy text_sha256 verbatim from the same document as role and path.",
+                        "enum": [
+                          "26940b1548921faad42ed6dc675083efc15fbcf4c27d0e4c71dd1e8db45bc089",
+                          "c8b8f1001860cea10a7a75fe39c39939c109e6db09bb726ddfcbb11191f83bfc"
+                        ]
+                      },
+                      "line": {
+                        "type": "integer"
+                      },
+                      "quote": {
+                        "type": "string"
+                      },
+                      "column": {
+                        "type": "integer",
+                        "description": "Optional one-based Unicode code-point start column; required to distinguish same-line occurrences."
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "changes": []
+}

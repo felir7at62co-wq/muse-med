@@ -76,7 +76,7 @@ async function runtime(seed?: { session: Session; root: string }) {
     return result
   }
   async function review(status: 'consistent' | 'issues' | 'unknown', lines?: { start: number; end: number }, referenceVersion?: string,
-    selfOnly = false, action: 'continuity' | 'cross_episode' = 'continuity') {
+    selfOnly = false, action: 'continuity' | 'cross_episode' | 'repetitions' = 'continuity') {
     const materials = await readManuscriptMaterials(selfOnly
       ? [{ role: 'current', path: 'final.md', ...(lines === undefined ? {} : { lines }) }]
       : [{ role: 'current', path: 'adopted.md' }, { role: 'candidate', path: 'final.md', ...(lines === undefined ? {} : { lines }) }], root, config, signal)
@@ -91,7 +91,8 @@ async function runtime(seed?: { session: Session; root: string }) {
           text_sha256: target.text_sha256, line: line.number, quote: line.text })) }] : [],
       unknowns: status === 'unknown' ? ['Missing facts'] : [], file_verification: 'verified', reviewer: { session_id: null, selection: null, requests: 1 },
       ...(notes === undefined ? {} : { notes_sha256: notes.notes_sha256 }),
-      ...(action === 'cross_episode' ? { episode_plan: { checks: [{ from_episode: 1, to_episode: 2 }] } } : {}) }
+      ...(action === 'cross_episode' ? { episode_plan: { checks: [{ from_episode: 1, to_episode: 2 }] } } : {}),
+      ...(action === 'repetitions' ? { repetition_review: true } : {}) }
     return logResult(session, 'manuscript_revision', { action }, value)
   }
   async function present(description?: string, path = 'final.md') {
@@ -129,6 +130,37 @@ it('keeps earlier unresolved manuscript findings after a pair-only consistent re
   await f.review('issues')
   await f.review('consistent', undefined, undefined, false, 'cross_episode')
   await expect(f.declare('reviewed')).rejects.toThrow('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED')
+})
+
+it('labels repetition review by its narrower purpose and retains other unresolved findings', async () => {
+  const f = await runtime()
+  await f.review('consistent', undefined, undefined, false, 'repetitions')
+  const declaration = await f.declare('reviewed')
+  expect(declaration.files[0]?.label).toBe('已复核本文件重复情节（仅当前提取正文与版本）')
+  expect((await f.present(declaration.files[0]!.label)).isError).toBe(false)
+  await f.review('issues')
+  await f.review('consistent', undefined, undefined, false, 'repetitions')
+  await expect(f.declare('reviewed')).rejects.toThrow('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED')
+})
+
+it('keeps known repetition issues after ordinary continuity approves unchanged bytes and clears them only with matching review', async () => {
+  const f = await runtime()
+  await f.review('issues', undefined, undefined, false, 'repetitions')
+  await f.review('consistent')
+  await expect(f.declare('reviewed')).rejects.toThrow('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED')
+  await f.review('consistent', undefined, undefined, false, 'repetitions')
+  const declaration = await f.declare('reviewed')
+  expect(declaration.files[0]?.label).toBe('已复核本文件重复情节（仅当前提取正文与版本）')
+})
+
+it('retains both generic and repetition issue scopes while each matching review resolves its own purpose', async () => {
+  const f = await runtime()
+  await f.review('issues')
+  await f.review('issues', undefined, undefined, false, 'repetitions')
+  await f.review('consistent', undefined, undefined, false, 'repetitions')
+  await expect(f.declare('reviewed')).rejects.toThrow('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED')
+  await f.review('consistent')
+  expect((await f.declare('reviewed')).files[0]?.label).toBe('已复核本文件全部提取正文（仅当前版本）')
 })
 
 it('invalidates an already declared reviewed file when its source notes change before presentation', async () => {
@@ -236,7 +268,7 @@ it('replays an older delivery checkpoint instead of retaining its report misclas
     val: { ...z.record(z.string(), z.unknown()).parse(current.val), writing: true, file_request: true } }
   const restored = f.ctx.sessionProjections.restore({ [key]: stale }, f.session.snapshotEvents(),
     SessionLogOffset(0), f.session.header, SessionLogOffset(0))
-  expect(restored.checkpoint[key]).toMatchObject({ ver: 6, val: { writing: false, file_request: false } })
+  expect(restored.checkpoint[key]).toMatchObject({ ver: 8, val: { writing: false, file_request: false } })
 })
 
 it('blocks unreviewed direct present, accepts explicit draft and rejects a stale same-path declaration', async () => {
@@ -332,7 +364,7 @@ it('ordinary affirmative intent refolds stale version-four false flags before th
   const result = await executeModelToolFixture(f.ctx, { callId: ToolCallId(`restored-present-${++serial}`), name: 'present',
     arguments: { files: [{ path: 'final.md' }] }, agent, signal })
   expect(result).toMatchObject({ isError: true, error: { info: { code: 'MANUSCRIPT_DELIVERY_REQUIRED' } } })
-  expect(f.ctx.sessionProjections.checkpoint(restored)[key]).toMatchObject({ ver: 6, val: { writing: true, file_request: true } })
+  expect(f.ctx.sessionProjections.checkpoint(restored)[key]).toMatchObject({ ver: 8, val: { writing: true, file_request: true } })
 })
 
 it('does not infer a new creation when only a continuation remains in restored human context', async () => {

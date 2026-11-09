@@ -1,0 +1,119 @@
+{
+  "parentRequests": 6,
+  "childRequests": [
+    1,
+    1,
+    1
+  ],
+  "childTools": [
+    "structured_output"
+  ],
+  "results": [
+    {
+      "call_id": "repeat-scan-repeated",
+      "kind": "scan",
+      "target": "candidate.md",
+      "file_sha256": "26940b1548921faad42ed6dc675083efc15fbcf4c27d0e4c71dd1e8db45bc089",
+      "characters": 180,
+      "occurrences": [
+        {
+          "start": {
+            "line": 3,
+            "column": 2
+          },
+          "end": {
+            "line": 3,
+            "column": 181
+          },
+          "episode": 1
+        },
+        {
+          "start": {
+            "line": 7,
+            "column": 3
+          },
+          "end": {
+            "line": 7,
+            "column": 182
+          },
+          "episode": 2
+        }
+      ],
+      "complete": true,
+      "enumeration_complete": true,
+      "omitted_candidates": 0
+    },
+    {
+      "call_id": "repetition-review-repeated",
+      "kind": "review",
+      "status": "issues",
+      "reason": "reviewed",
+      "finding_categories": [
+        "event_repetition",
+        "event_repetition"
+      ],
+      "literal_check_statuses": [
+        "repeated_event"
+      ],
+      "file_verification": "verified"
+    },
+    {
+      "call_id": "repeat-scan-recap",
+      "kind": "scan",
+      "target": "recap.md",
+      "file_sha256": "c8b8f1001860cea10a7a75fe39c39939c109e6db09bb726ddfcbb11191f83bfc",
+      "characters": 180,
+      "occurrences": [
+        {
+          "start": {
+            "line": 3,
+            "column": 2
+          },
+          "end": {
+            "line": 3,
+            "column": 181
+          },
+          "episode": 1
+        },
+        {
+          "start": {
+            "line": 8,
+            "column": 5
+          },
+          "end": {
+            "line": 8,
+            "column": 184
+          },
+          "episode": 2
+        }
+      ],
+      "complete": true,
+      "enumeration_complete": true,
+      "omitted_candidates": 0
+    },
+    {
+      "call_id": "repetition-review-recap",
+      "kind": "review",
+      "status": "consistent",
+      "reason": "reviewed",
+      "finding_categories": [],
+      "literal_check_statuses": [
+        "legitimate"
+      ],
+      "file_verification": "verified"
+    },
+    {
+      "call_id": "repetition-review-omitted",
+      "kind": "review",
+      "status": "unknown",
+      "reason": "invalid_evidence",
+      "finding_categories": [],
+      "literal_check_statuses": [],
+      "file_verification": "verified"
+    }
+  ],
+  "allFilesUnchanged": true,
+  "sourceCopyNotCounted": true,
+  "literalCandidatesAreAdvisory": true,
+  "semanticRephraseHasSeparateEvidence": true
+}

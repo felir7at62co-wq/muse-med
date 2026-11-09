@@ -1,20 +1,18 @@
 /** Pure structured-review fields and status rules shared by the submitting tool and Host validation. */
 import { z } from 'zod'
 import { episodeCheckSchema } from './manuscript-episode-checks.ts'
+import { manuscriptReviewEvidenceSchema } from './manuscript-review-evidence.ts'
+import { repetitionCheckSchema } from './manuscript-repeat-review.ts'
 
-const evidenceSchema = z.strictObject({ role: z.enum(['current', 'reference', 'candidate']),
-  path: z.string().min(1), file_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-  text_sha256: z.string().regex(/^[a-f0-9]{64}$/u), line: z.number().int().positive(),
-  quote: z.string().min(1).refine(quote => quote.trim().length > 0) })
 const findingSchema = z.strictObject({
-  category: z.enum(['event_order', 'character_state', 'information_state', 'object_state', 'transition']),
-  description: z.string().min(1).refine(value => value.trim().length > 0), evidence: z.array(evidenceSchema).min(2),
+  category: z.enum(['event_order', 'character_state', 'information_state', 'object_state', 'transition', 'event_repetition']),
+  description: z.string().min(1).refine(value => value.trim().length > 0), evidence: z.array(manuscriptReviewEvidenceSchema).min(2),
 })
 
 /** JSON returned through the child's committed structured_output tool. */
 export const continuityAssessmentSchema = z.strictObject({ status: z.enum(['consistent', 'issues', 'unknown']),
   findings: z.array(findingSchema), unknowns: z.array(z.string().min(1).refine(value => value.trim().length > 0)),
-  episode_checks: z.array(episodeCheckSchema).optional() })
+  episode_checks: z.array(episodeCheckSchema).optional(), repeat_checks: z.array(repetitionCheckSchema).optional() })
 /** Validated review finding with two or more exact, distinct material citations. */
 export type ContinuityFinding = z.infer<typeof findingSchema>
 /** Semantic judgment before file freshness and exact quotation checks. */
