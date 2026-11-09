@@ -1,12 +1,13 @@
-/** Real offline evidence that explicit stretching spans the complete ending window. */
+/** Real offline evidence for ending timing and preservation through subtitle burning. */
 import { execFile, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { COVERAGE_TEST_TIMEOUT_ENV, parseCoverageTestTimeout } from '../../../../scripts/coverage-partitions.ts'
 import { buildEndingClip, requireEndingEffectFits } from '../src/ending.ts'
+import { subtitleBurnFilter } from '../src/delivery.ts'
 import { describeCommand, MediaCommandError, runFfmpeg } from '../src/ffmpeg.ts'
 
 const ffmpeg = process.env.MUSE_FFMPEG_EXECUTABLE || process.env.FFMPEG_PATH || 'ffmpeg'
@@ -108,6 +109,50 @@ it('reports its own child deadline through the media channel and reaps the child
   const pid = caught.facts.pid
   if (pid === undefined) throw new Error('Missing interrupted child PID')
   expect(() => process.kill(pid, 0)).toThrow()
+}, testBudgetMs)
+
+it.skipIf(!available)('keeps decoded ending frames beside the audio when concat color properties change', async ({ task, signal }) => {
+  const runner = createRunner(task.timeout - cleanupReserveMs, signal)
+  const project = await mkdtemp(join(tmpdir(), 'dsh-ending-concat-'))
+  cleanups.push(async () => { await runner.dispose(); await rm(project, { recursive: true, force: true }) })
+  const command = async (args: string[]) => {
+    const result = await runner.run(ffmpeg, ['-threads', '1', '-filter_threads', '1', ...args])
+    expect(result.code, result.stderr).toBe(0)
+    return result
+  }
+  const body = join(project, 'body.mp4'), ending = join(project, 'ending.mp4')
+  // The real PNG/blend ending loses the BT.709 matrix tag retained by body video.
+  // FFmpeg rebuilds the burn graph at this transition and resets filter-local N.
+  await command(['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=red:s=64x64:r=60:d=3',
+    '-vf', 'setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=bt709',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '1', body])
+  await command(['-y', '-v', 'error', '-f', 'lavfi', '-i', 'color=blue:s=64x64:r=60:d=2',
+    '-vf', 'setparams=range=limited:color_primaries=bt709:color_trc=bt709:colorspace=unknown',
+    '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '1', ending])
+  const list = join(project, 'concat.txt'), base = join(project, 'base.mp4'), ass = join(project, 'display.ass')
+  await writeFile(list, [body, ending].map(path => `file '${path.replaceAll('\\', '/')}'`).join('\n') + '\n')
+  await command(['-y', '-v', 'error', '-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', base])
+  await writeFile(ass, '[Script Info]\nScriptType: v4.00+\nPlayResX: 64\nPlayResY: 64\n'
+    + '[Events]\nFormat: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text\n')
+  const output = join(project, 'output.mp4')
+  await command(['-y', '-v', 'error', '-i', base, '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000:duration=5',
+    '-t', '5', '-vf', subtitleBurnFilter(ass, project, { width: 64, height: 64, fps: 60 }),
+    '-map', '0:v:0', '-map', '1:a:0', '-r', '60', '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '1',
+    '-c:a', 'aac', output])
+  const probed = await runner.run(ffprobe, ['-v', 'error', '-count_frames',
+    '-show_entries', 'stream=codec_type,duration,nb_read_frames', '-of', 'json', output])
+  expect(probed.code, probed.stderr).toBe(0)
+  expect(JSON.parse(probed.stdout)).toMatchObject({ streams: [
+    { codec_type: 'video', duration: '5.000000', nb_read_frames: '300' },
+    { codec_type: 'audio', duration: '5.000000' },
+  ] })
+  const frame = join(project, 'tail.rgb')
+  await command(['-y', '-v', 'error', '-ss', '4.9', '-i', output, '-frames:v', '1',
+    '-vf', 'scale=1:1', '-pix_fmt', 'rgb24', '-f', 'rawvideo', frame])
+  const pixels = await readFile(frame)
+  expect(pixels.length).toBe(3)
+  expect(pixels[2]).toBeGreaterThan(200)
+  expect(pixels[0]).toBeLessThan(20)
 }, testBudgetMs)
 
 it('keeps an ordinary command failure distinct from a fixture interruption', async ({ task, signal }) => {

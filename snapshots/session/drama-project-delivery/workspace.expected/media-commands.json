@@ -104,7 +104,7 @@
       "-t",
       "5.000000",
       "-vf",
-      "scale=960:1708:flags=lanczos,ass='{{cwd}}/exports/.render_cache/01/display.ass':fontsdir='',scale=480:854:flags=lanczos,tpad=stop_mode=clone:stop_duration=0.041666667,fps=24,setpts=N/(24*TB)",
+      "scale=960:1708:flags=lanczos,ass='{{cwd}}/exports/.render_cache/01/display.ass':fontsdir='',scale=480:854:flags=lanczos,tpad=stop_mode=clone:stop_duration=0.041666667,fps=24",
       "-an",
       "-r",
       "24",

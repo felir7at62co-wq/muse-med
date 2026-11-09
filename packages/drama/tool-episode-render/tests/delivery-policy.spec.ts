@@ -272,6 +272,6 @@ describe('medium delivery resolution', () => {
   it('carries snapshot canvas and rate into scale and burn filters', () => {
     expect(deliveryScaleFilter('yuv420p', animation)).toContain('crop=1920:1080,tpad=stop_mode=clone:stop_duration=0.033333333,fps=30')
     expect(subtitleBurnFilter('display.ass', 'fonts', animation)).toContain('scale=3840:2160')
-    expect(subtitleBurnFilter('display.ass', 'fonts', animation)).toContain('fps=30,setpts=N/(30*TB)')
+    expect(subtitleBurnFilter('display.ass', 'fonts', animation).endsWith('fps=30')).toBe(true)
   })
 })
