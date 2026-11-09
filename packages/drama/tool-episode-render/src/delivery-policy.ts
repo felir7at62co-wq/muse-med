@@ -18,6 +18,20 @@ function object(value: unknown, path: string): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
+/** Identify project metadata that requires formal short-drama delivery evidence.
+ * @param value - Parsed project_config.json; at least one recognized marker must be present.
+ * @returns Whether a positive Jubian binding or version-one project bible identifies the project.
+ */
+export function isShortDramaProject(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const row = value as Record<string, unknown>
+  const bound = typeof row.jubian_script_id === 'number' && Number.isSafeInteger(row.jubian_script_id)
+    && row.jubian_script_id > 0
+  const bible = typeof row.project_bible === 'object' && row.project_bible !== null
+    && !Array.isArray(row.project_bible) && 'schema_version' in row.project_bible && row.project_bible.schema_version === 1
+  return bound || bible
+}
+
 /**
  * Select the product subtitle policy for portrait output.
  * @param enabled - Whether the deployment enforces its subtitle visual.

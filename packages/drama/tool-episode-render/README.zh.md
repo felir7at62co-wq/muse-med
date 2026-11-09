@@ -221,7 +221,7 @@ kind: "package-reference"
 
 本集已有通过审核的分包时，`prepare` 在探测及写入时间线前核对当前分包版本、显式包号，以及所选视频的路径和 SHA-256。审核记录指定音源时，所选音源须匹配记录中的 `audio_path` 和 `audio_sha256`。去字幕后的视频可以保留单独审核过的原声。准备清单绑定已审核音源、审核记录、整集原声和精确切点。缺少音源审核时仍可做工作预览。
 
-`stage_delivery` 要求提供已准备的选源清单，并复核其中经审核的来源和原声切点。现有审核待定或拒绝，或另用的音源未获审核、已被禁用时，停止归档。审核通过的独立音源需要在草稿与成片中共用同一份独立原声。没有审核记录的历史项目，重新准备且只用视频自带音源后仍可归档为候选。`verify` 继续执行媒体技术检查。画面、对白和剪映播放需另做内容验收。
+`stage_delivery` 要求提供已准备的选源清单，并复核其中经审核的来源和原声切点。现有审核待定或拒绝，或另用的音源未获审核、已被禁用时，停止归档。审核通过的独立音源需要在草稿与成片中共用同一份独立原声。具有正整数 `jubian_script_id` 或 `project_bible.schema_version: 1` 的项目，归档前必须具备当前来源审核、声文覆盖、音画流边界实测和独立草稿轨道核查证据；项目或时间线缺少开关或将其设为 false 都不能关闭这些检查。没有短剧标记且无审核记录的项目，重新准备且只用视频自带音源后仍可归档为候选。`verify` 继续执行媒体技术检查。画面、对白和剪映播放需另做内容验收。
 
 启用 `delivery.require_source_review` 后，正式渲染和归档要求每包都有当前 `source_qa` 证据。`source_qa.version: 1` 包含 `selected`，清理片另含 `original` 和 `affected_intervals`。各源绑定 `media_path`、`media_sha256`、`ocr: {path, sha256}` 及 `inspection: {path, sha256, session_id, review_id}`。Host 核实真实成功的 OCR 执行和完整持久审看记录，缺少执行证据须重新检查。完整 OCR 覆盖及已观察帧必须对应当前源片。工具记录必须是 JSON 对象，整集汇总要求每个镜头都有证据。Host 核验作用域随其服务提供方释放，并在服务恢复后重新取得。每个仍存在的 OCR 时段都须有精确的 `text_decisions` 项，包含 `segment_index`、`text`、源片 `start_seconds` 和 `end_seconds`、`kind`（`non_dialogue_text` 或 `disclosure_watermark`）、`reason` 及 `observation_frame_ids`。文字分类仍是模型判断。清理片须在每个处理区间内有真实观察的处理前后帧，并保留原声。缺少时点时，优先用 `video_source_review`，或已启用完整审看模式的 `video_inspect`，附带对应时间补看。渲染指纹和归档回执绑定复验摘要与文件，换片、观察或判定变化后须重新验证。非严格工作预览沿用原行为。
 
@@ -237,7 +237,7 @@ kind: "package-reference"
 
 将 `project_bible.delivery.audio.require_music_decision` 设为 `true`，重跑 `prepare` 并以 `resume=true` 完整渲染，即可在归档前强制核对配乐决定。传入本集 `bgm_plan`，记录 `music_decision` 和非空 `decision_reason`。决定为 `none` 时使用 `mix_profile` 的 `no_bgm`，并写空 `segments`。决定为 `music` 时使用合成输出的原始 WAV 作为 `bgm`，传入 `bgm_generation` 合成回执。每段配乐记录源曲 `source_sha256` 及曲库 `track_id`。复用已认可的曲目时改用 `selection_origin: "approved_reuse"`，并在该段 `reason` 写明复用原因。归档核对集号、计划、时间线、源曲顺序和区间、实际参与混音的配乐 SHA-256，以及非零实际混音增益。混音导出的独立配乐轨或转码副本与合成 WAV 字节不同时，需重新采用正确的合成结果。候选回执记录决定、理由、实际增益和输入摘要。听感和授权仍需另行验收。省略开关时沿用旧归档行为。
 
-将 `project_bible.delivery.subtitle.require_speech_coverage` 设为 `true`，重跑 `prepare` 并以 `resume=true` 渲染，即可启用严格归档。传入实际选定音频的 `speech_transcripts`，并在映射中加入 `display: {embedded: false, subtitle_sha256, video_sha256: [...]}`，声明外加 SRT 覆盖全部显示字幕，同时提供完整 SRT 和按镜号排列的全部选片 SHA-256。归档会拒绝已知叠加字幕以及未保存字幕来源回执的成片。字幕首尾可以按 SRT 的毫秒精度贴合已准备时间线中的画面切点，跨过切点则停止归档。归档读取当前同源词级证据，遇到证据不完整或未处理疑点时停止。只有绑定本次比对的 `keep` 或 `asr_error` 核听声明可处理相应声文疑点。候选回执记录本次比对的证据 SHA-256。源片内部的切镜、画面和对白质量仍需播放验收。省略开关时沿用旧归档行为。
+将 `project_bible.delivery.subtitle.require_speech_coverage` 设为 `true`，重跑 `prepare` 并以 `resume=true` 渲染，以生成严格归档所需证据。传入实际选定音频的 `speech_transcripts`，并在映射中加入 `display: {embedded: false, subtitle_sha256, video_sha256: [...]}`，声明外加 SRT 覆盖全部显示字幕，同时提供完整 SRT 和按镜号排列的全部选片 SHA-256。归档会拒绝已知叠加字幕以及未保存字幕来源回执的成片。字幕首尾可以按 SRT 的毫秒精度贴合已准备时间线中的画面切点，跨过切点则停止归档。归档读取当前同源词级证据，遇到证据不完整或未处理疑点时停止。只有绑定本次比对的 `keep` 或 `asr_error` 核听声明可处理相应声文疑点。候选回执记录本次比对的证据 SHA-256。源片内部的切镜、画面和对白质量仍需播放验收。无短剧标记的项目仍可选择是否启用声文检查。
 
 严格归档还要求实测音画流边界和新核查的独立音轨草稿。草稿回执绑定已核查的整集原声位置、静音的正文片段，以及可编辑字幕的文字和时间。
 

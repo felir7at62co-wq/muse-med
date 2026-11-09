@@ -6,6 +6,7 @@ import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from '
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-tool-present'
 import type {} from '@deepseek-ai/dsh-tools'
+import { isShortDramaProject } from '@deepseek-ai/dsh-tool-episode-render'
 import { z } from 'zod'
 
 const hash = z.string().regex(/^[a-f0-9]{64}$/u)
@@ -149,9 +150,7 @@ async function formalProject(file: string): Promise<string | undefined> {
           directory = parent
           continue
         }
-        const marker = z.object({ jubian_script_id: z.number().int().positive().optional(),
-          project_bible: z.looseObject({ schema_version: z.literal(1) }).optional() }).safeParse(document)
-        if (marker.success && (marker.data.jubian_script_id !== undefined || marker.data.project_bible !== undefined)) return directory
+        if (isShortDramaProject(document)) return directory
       }
     }
     const parent = dirname(directory)

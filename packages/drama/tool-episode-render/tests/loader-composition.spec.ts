@@ -12,7 +12,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { DramaRenderReport } from '../src/types.ts'
 import * as Render from '../src/index.ts'
 import * as Media from '../src/ffmpeg.ts'
-import { cleanup, decodeHandler, framemd5Line, placeholderHandler, probeHandler, runContext,
+import { cleanup, decodeHandler, framemd5Line, placeholderHandler, probeHandler, probeJson, runContext,
   seekHandler, shippedEndingAsset, stubChannel, tempProject, writePlaceholder } from './harness.ts'
 
 /** Load the real renderer contribution through a private test-only Cordis config. */
@@ -101,6 +101,45 @@ it('prepares strict source-review projects through the Loader without leaking po
     expect(validateJsonSchemaValue(tool.output.schema, leaked, '').length).toBeGreaterThan(0)
   } finally {
     mediaFactory.mockRestore()
+    await ctx.fiber.dispose()
+    await cleanup(root)
+  }
+})
+
+it('keeps legacy bound-project working renders available but refuses unreviewed staging through the Loader', async () => {
+  const root = await tempProject(), ctx = new Context()
+  const output = join(root, 'exports', '01.mp4'), draft = join(root, '02_剪映草稿', 'legacy-draft')
+  const channel = stubChannel([
+    call => call.command === 'ffprobe' && call.args.at(-1)?.includes('.drama-render-')
+      ? { stdout: probeJson({ durationSeconds: 3, video: { width: 480, height: 854, fps: 24 }, audio: {} }) } : undefined,
+    probeHandler({
+      [join(root, 'source.mp4')]: { durationSeconds: 3, video: { width: 480, height: 854, fps: 24 }, audio: {} },
+      [join(root, 'video', '01', 'shot_001.mp4')]: { durationSeconds: 3, video: { width: 480, height: 854, fps: 24 }, audio: {} },
+      [output]: { durationSeconds: 3, video: { width: 480, height: 854, fps: 24 }, audio: {} },
+    }), decodeHandler(), placeholderHandler(), () => ({}),
+  ])
+  const factory = vi.spyOn(Media, 'createMediaToolkit').mockReturnValue(
+    Media.createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }))
+  try {
+    await writePreviewInputs(root)
+    await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933,
+      project_bible: { schema_version: 1, visual_medium: 'animation_3d', delivery: { width: 480, height: 854, fps: 24 } } }))
+    await loadRenderer(ctx, root)
+    const tool = ctx.tools.get('drama_render')
+    if (tool === undefined) throw new Error('missing Loader renderer')
+    expect(await invoke(tool, { method: 'prepare', project: root, episode: 1,
+      shots: 'shots.json', subtitle_srt: 'source.srt', bgm: 'approved-bgm.wav' })).toMatchObject({ ok: true })
+    expect(await invoke(tool, { method: 'render', project: root, episode: 1,
+      timeline: 'editing/01-timeline.json', subtitle_srt: 'editing/01.srt', last_shot: 1,
+      bgm: 'approved-bgm.wav', output, resume: true })).toMatchObject({ ok: true })
+    await mkdir(draft, { recursive: true })
+    await expect(invoke(tool, { method: 'stage_delivery', project: root, episode: 1,
+      timeline: 'editing/01-timeline.json', subtitle_srt: 'editing/01.srt', output, draft }))
+      .rejects.toThrow(/实测起止时间/u)
+    await expect(readFile(join(root, '01_可交付视频', '第01集.mp4'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(output, 'utf8')).toBe('media')
+  } finally {
+    factory.mockRestore()
     await ctx.fiber.dispose()
     await cleanup(root)
   }

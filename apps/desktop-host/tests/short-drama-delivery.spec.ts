@@ -99,6 +99,20 @@ it('keeps a matching same-episode artifact chain at candidate status', async () 
   expect(JSON.parse(await readFile(f.receipt, 'utf8'))).toMatchObject({ status: 'candidate', wholeEpisodeContentAccepted: false })
 })
 
+it.each([
+  { jubian_script_id: 5933, project_bible: { delivery: { width: 480, height: 854, fps: 24 } } },
+  { project_bible: { schema_version: 1 } },
+])('requires source evidence for a short-drama project with legacy metadata: %j', async (config) => {
+  const f = await fixture()
+  await f.json(join(f.project, 'project_config.json'), config)
+  const source = await readFixture<FixtureSource>(f.sourcePath)
+  delete source.delivery_inputs.source_qa_sha256
+  const sourceSha = await f.json(f.sourcePath, source)
+  const receipt = await readFixture<Record<string, unknown>>(f.receipt)
+  await f.json(f.receipt, { ...receipt, render_source_sha256: sourceSha })
+  await expect(validateShortDramaDelivery([f.video], signal)).rejects.toThrow('short_drama_delivery_evidence')
+})
+
 it.each(['subtitle', 'timeline', 'sourceVideo', 'master', 'video', 'working'] as const)('rejects changed %s after prior staging', async (field) => {
   const f = await fixture()
   await writeFile(f[field], `replaced-${field}`)

@@ -50,6 +50,8 @@ import { formatSrtDocument, normalizeSubtitleDisplay, readSubtitleCues, subtitle
 import { StaleSubtitleClockError, subtitleClockPath, writeDerivedSubtitleClock } from './subtitle-clock.ts'
 import type { SourceQaVerifier } from './source-qa.ts'
 
+export { isShortDramaProject } from './delivery-policy.ts'
+
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-episode-render'
 

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DEFAULT_DELIVERY, audioMixFilter, deliveryScaleFilter, subtitleBurnFilter } from '../src/delivery.ts'
-import { assertBodyOnlyAnimation, deliveryPolicyFor, parseTimelineDelivery, readProjectDelivery, resolveDeliveryPolicy } from '../src/delivery-policy.ts'
+import { assertBodyOnlyAnimation, deliveryPolicyFor, isShortDramaProject, parseTimelineDelivery, readProjectDelivery, resolveDeliveryPolicy } from '../src/delivery-policy.ts'
 import { buildAssDocument } from '../src/subtitles.ts'
 import { appendClips, formatTimelineDocument, parseTimelineDocument } from '../src/timeline.ts'
 
@@ -18,6 +18,21 @@ async function project(bible?: unknown): Promise<string> {
 }
 const animation = { width: 1920, height: 1080, fps: 30, visual_medium: 'animation_3d' } as const
 const fonts = { subtitleFontFamily: 'SimHei', watermarkFontFamily: 'Microsoft YaHei' }
+
+it.each([
+  null, [], 'project', {}, { jubian_script_id: 0 }, { jubian_script_id: 1.5 }, { jubian_script_id: '5933' },
+  { project_bible: null }, { project_bible: [] }, { project_bible: { delivery: {} } }, { project_bible: { schema_version: 2 } },
+])('does not infer a short-drama project without a recognized marker: %j', (config) => {
+  expect(isShortDramaProject(config)).toBe(false)
+})
+
+it.each([
+  { jubian_script_id: 5933 }, { project_bible: { schema_version: 1 } },
+  { jubian_script_id: 5933, project_bible: { delivery: {} } },
+  { jubian_script_id: 'legacy', project_bible: { schema_version: 1 } },
+])('recognizes a short-drama project independently of legacy delivery settings: %j', (config) => {
+  expect(isShortDramaProject(config)).toBe(true)
+})
 
 describe('delivery metadata', () => {
   it('round trips only explicit project subtitle and audio fields into the timeline', async () => {

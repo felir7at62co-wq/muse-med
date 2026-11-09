@@ -7,7 +7,7 @@ import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { hasSeparateAudio, verifySelectedSourceReviews } from './approved-sources.ts'
 import { checkMusicDecision } from './bgm.ts'
 import { fileSha256 } from './cache.ts'
-import { resolveDeliveryPolicy } from './delivery-policy.ts'
+import { isShortDramaProject, resolveDeliveryPolicy } from './delivery-policy.ts'
 import { episodePaths, shotFileName } from './paths.ts'
 import { parseShotManifest } from './prepare.ts'
 import { readSourceRecord, sourceRecordPathFor, type DeliveryRenderInputs } from './source-record.ts'
@@ -41,6 +41,18 @@ function object(value: unknown): value is Record<string, unknown> {
 
 function list(value: unknown): value is readonly unknown[] {
   return Array.isArray(value)
+}
+
+/** Project markers also used to recognize formal short-drama outputs at presentation. */
+async function requiresShortDramaEvidence(project: string): Promise<boolean> {
+  let text: string
+  try { text = await readFile(resolve(project, 'project_config.json'), 'utf8') }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
+  const config: unknown = JSON.parse(text.replace(/^\uFEFF/u, ''))
+  return isShortDramaProject(config)
 }
 
 function inside(root: string, path: string): boolean {
@@ -279,6 +291,8 @@ async function checkBoundSpeechCoverage(input: StageDeliveryInput, render: Deliv
 
 /**
  * Stage a technically verified candidate without changing the working render or the draft.
+ * Short-drama project markers require current source, speech and draft-track evidence even when
+ * the project or saved timeline omits or disables the corresponding optional checks.
  * @param input - The working MP4 and its effective timeline and subtitle inputs.
  * @param draft - The saved native draft directory in this episode's draft folder.
  * @returns The verification report and, if staged, the exact candidate paths.
@@ -349,10 +363,11 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
     const timelineText = await readBoundText(timelinePath, render.timeline_sha256)
     const timeline = parseTimelineDocument(JSON.parse(timelineText.replace(/^\uFEFF/u, '')), timelinePath)
     const policy = await resolveDeliveryPolicy(project, timeline.delivery)
+    const shortDrama = await requiresShortDramaEvidence(project)
     const musicDecision = policy.delivery.audio?.require_music_decision === true
       ? await checkBoundMusicDecision(input, render.music, timeline.bodyEndSeconds, checked) : undefined
-    const requireSpeech = policy.delivery.subtitle?.require_speech_coverage === true
-    const requireSourceReview = policy.delivery.require_source_review === true
+    const requireSpeech = shortDrama || policy.delivery.subtitle?.require_speech_coverage === true
+    const requireSourceReview = shortDrama || policy.delivery.require_source_review === true
     if (requireSpeech && !verified.checks.some(check => check.id === 'av_stream_clock' && check.ok)) {
       throw new Error('严格归档缺少成片音视频流的实测起止时间。请从当前已核对的原声与时间线重新渲染后复验。')
     }

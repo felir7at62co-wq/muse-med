@@ -201,6 +201,22 @@ async function changeRender(f: Fixture, change: (value: Record<string, unknown>)
   await changeJson(sourceRecordPathFor(f.paths.output), change)
 }
 
+async function legacyDelivery(f: Fixture, disabled: boolean) {
+  const delivery = { width: 1440, height: 2560, fps: 60,
+    ...(disabled ? { require_source_review: false, subtitle: { require_speech_coverage: false } } : {}) }
+  await changeJson(f.paths.timeline, (row) => { row.delivery = delivery })
+  const timelineSha = await fileSha256(f.paths.timeline)
+  await changeRender(f, (row) => {
+    ;(row.delivery_inputs as Record<string, unknown>).timeline_sha256 = timelineSha
+    const files = row.input_files as { path: string; sha256: string }[]
+    files.find(file => file.path === f.paths.timeline)!.sha256 = timelineSha
+  })
+  f.source.timeline_sha256 = timelineSha
+  f.source.materials.find(file => file.path === f.paths.timeline)!.sha256 = timelineSha
+  await writePlaceholder(f.draftSourcePath, JSON.stringify({ ...f.source, material_scope: 'episode' }))
+  return delivery
+}
+
 async function expectNoDelivery(f: Fixture) {
   expect(await readdir(f.project)).not.toContain('01_可交付视频')
   expect(await readdir(f.project)).not.toContain('成片与草稿回执.json')
@@ -261,6 +277,85 @@ async function reviewedFixture(strict = false, separate = false) {
 }
 
 describe('stageEpisodeDelivery', () => {
+  it('rejects an unreviewed bound legacy render before creating a delivery directory', async () => {
+    const f = await fixture()
+    await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933,
+      project_bible: { schema_version: 1, delivery: { width: 1440, height: 2560, fps: 60 } } }))
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/实测起止时间/u)
+    await expectNoDelivery(f)
+  })
+
+  it('propagates unreadable project identity during the final staging policy check', async () => {
+    const f = await fixture()
+    const config = join(f.project, 'project_config.json')
+    await writePlaceholder(config, JSON.stringify({ jubian_script_id: 5933 }))
+    let reads = 0
+    storage.beforeRead = async (path) => {
+      if (path === config && ++reads === 3) {
+        throw Object.assign(new Error('project identity unavailable'), { code: 'EACCES' })
+      }
+    }
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('project identity unavailable')
+    expect(reads).toBe(3)
+    await expectNoDelivery(f)
+  })
+
+  it.each([
+    { marker: { jubian_script_id: 5933 }, disabled: false },
+    { marker: { jubian_script_id: 5933 }, disabled: true },
+    { marker: {}, disabled: false },
+    { marker: {}, disabled: true },
+  ])('requires current short-drama source evidence with legacy requirements: %j', async ({ marker, disabled }) => {
+    const f = await fixture(undefined, { explicitVisual: false, text: '现在做饭', requireSpeechCoverage: true })
+    const delivery = await legacyDelivery(f, disabled)
+    await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({ ...marker,
+      project_bible: { ...(Object.keys(marker).length ? {} : { schema_version: 1 }), delivery } }))
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/缺少本集选源审核/u)
+    await expectNoDelivery(f)
+  })
+
+  it.each([false, true])('publishes reviewed short-drama evidence despite legacy disabled requirements: %s', async (disabled) => {
+    const f = await reviewedFixture(true, true)
+    const delivery = await legacyDelivery(f, disabled)
+    await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933,
+      project_bible: { delivery } }))
+    const before = await fileSha256(f.audio)
+    const result = await stageEpisodeDelivery(f.input, f.draft)
+    expect(result).toMatchObject({ ok: true, delivery_package: { status: 'candidate', video: f.video } })
+    const receipt: unknown = JSON.parse(await readFile(f.receipt, 'utf8'))
+    expect(receipt).toMatchObject({ source_qa_sha256: f.verified.sha256 })
+    expect(receipt).toHaveProperty('speech_evidence_sha256', expect.stringMatching(/^[0-9a-f]{64}$/u))
+    expect(await fileSha256(f.audio)).toBe(before)
+  })
+
+  it.each(['missing transcripts', 'missing stream clock', 'stale source review'] as const)(
+    'refuses legacy short-drama delivery with %s', async (fault) => {
+      const f = await reviewedFixture(true)
+      const delivery = await legacyDelivery(f, true)
+      await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933,
+        project_bible: { delivery } }))
+      if (fault === 'stale source review') await changeJson(f.reviewPath, (row) => { row.video_sha256 = '0'.repeat(64) })
+      const input = fault === 'missing stream clock' ? { ...f.input, toolkit: createMediaToolkit({
+        ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: stubChannel([
+          probeHandler({ [f.paths.output]: { durationSeconds: 7,
+            video: {} } }), decodeHandler(), () => ({}),
+        ]).channel,
+      }) } : f.input
+      const { transcriptsPath: _transcriptsPath, ...withoutTranscripts } = input
+      const attempt = stageEpisodeDelivery(fault === 'missing transcripts' ? withoutTranscripts : input, f.draft)
+      await expect(attempt).rejects.toThrow(fault === 'missing transcripts' ? /缺少 speech_transcripts/u
+        : fault === 'missing stream clock' ? /实测起止时间/u : /输入已变化|字节与已审核/u)
+      await expectNoDelivery(f)
+    },
+  )
+
+  it('retains unbound generic-editing compatibility when review requirements are disabled', async () => {
+    const f = await fixture()
+    const delivery = await legacyDelivery(f, true)
+    await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({ project_bible: { delivery } }))
+    expect((await stageEpisodeDelivery(f.input, f.draft)).delivery_package?.status).toBe('candidate')
+  })
+
   it('refuses an unreviewed episode when the project requires source review', async () => {
     const f = await fixture()
     await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({
