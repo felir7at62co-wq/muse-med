@@ -30,6 +30,8 @@
       name: '@deepseek-ai/dsh-tool-skill'
       config:
         scopedCatalogOwner: true
+        catalogSourceLimits:
+          muse-market: 12
 
 - id: agent-instructions
   name: '@deepseek-ai/dsh-agent-instructions'

@@ -622,7 +622,8 @@ const TOOL_PACKAGES: ToolPackage[] = [
     dir: 'tool-skill',
     source: 'packages/skill/tool-skill/src/index.ts',
     requires: ['ctx.workingDirectory', 'ctx.tools', 'ctx.agents', 'ctx.skills'],
-    writes: ['tool/call', 'tool/result', 'user/message replacement catalogs via agent.inject()'],
+    writes: ['tool/call', 'tool/result', 'user/message selected and replacement catalogs'],
+    note: 'Shown with the optional muse-market source limit of 12 used by Muse creation. The skill_catalog metadata tool belongs to the active loader of a selected directory; incomplete discovery refuses queries. Unlimited profiles expose only skill.',
     async mount(ctx) {
       await ctx.plugin(AgentRegistry)
       await ctx.plugin(SkillRegistry)
@@ -630,7 +631,7 @@ const TOOL_PACKAGES: ToolPackage[] = [
         dshHome: resolve(root, '.tmp/tool-catalog/.dsh'),
         agentsHome: resolve(root, '.tmp/tool-catalog/.agents'),
       })
-      await ctx.plugin(ToolSkill)
+      await ctx.plugin(ToolSkill, { catalogSourceLimits: { 'muse-market': 12 } })
     },
   },
   {

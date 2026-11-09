@@ -52,6 +52,12 @@ The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-a
 
 A skill with a distinct, nonblank `whenToUse` publishes `When to use: <whenToUse> Description: <description>` as its routing summary. Whitespace is normalized; a blank hint or one identical to the normalized description keeps the description alone. `catalogDescriptionMaxLength` caps the complete summary, so a long trigger can consume the budget and omit the description. Durable catalog entries record that same summary in their existing `description` field.
 
+### Selected source summaries
+
+`catalogSourceLimits` defaults to an empty map. A configured source is shortened only when its complete, model-invocable directory exceeds that source’s positive entry limit; other sources keep every summary. Desktop creation configures only `muse-market: 12`. A shortened catalog records `bounded: true` independently of discovery completeness and tells the model to query the metadata-only `skill_catalog` tool for the full permitted directory. No truncation preserves the existing catalog text, digest and admitted tool set.
+
+`catalogPageSize` defaults to 20 and accepts integers from 1 through 100. `skill_catalog` accepts optional `query`, `limit` and a transparent `cursor` containing `version`, `sessionId`, `digest`, normalized `query` and `offset`. Its response contains `entries`, `totalMatched`, `catalogComplete: true` and an optional `nextCursor`. Entries contain names, descriptions, sources and optional routing hints, never instruction bodies or resource paths. Cursors name one Session and directory observation; a stale or foreign cursor is rejected, and incomplete discovery returns an explicit error. Exact Skill loading still applies the existing invocation policy.
+
 ### What the model gets
 
 - **A session catalog.** When model-invocable skills exist and the `skill` tool is visible, the agent receives a durable user-role message before its first request, listing each skill's name and a capped routing summary; the message tells the model to load a skill with the tool before acting on it, and never to infer instructions from the summary alone.
@@ -236,6 +242,20 @@ Each gesture adds one rendered skill body to that turn as injected context — t
 #### KV Cache effect
 
 Append-only; the injection lands after the reusable request prefix inside the step's message batch and does not invalidate existing KV-cache entries.
+
+### Metadata directory queries
+
+#### What the model sees
+
+A source-limited catalog identifies itself as selected summaries and exposes `skill_catalog` only through its owning loader. Complete metadata pages contain every permitted match, including names omitted from the selected summaries; the normal `skill` call still checks invocation permissions before loading a body. Partial discovery refuses a directory query, while stale, foreign and invalid cursors return structured `SkillCatalogError` codes.
+
+#### Token effect
+
+The initial selected summaries reduce catalog tokens for configured sources. Each queried page adds retained metadata tool-result tokens; instruction bodies are added only by a separate permitted load.
+
+#### KV Cache effect
+
+An unchanged selection preserves its catalog prefix. A changed selection appends a replacement; directory results append ordinary tool history.
 
 ## Known Limitations and Deferred Work
 

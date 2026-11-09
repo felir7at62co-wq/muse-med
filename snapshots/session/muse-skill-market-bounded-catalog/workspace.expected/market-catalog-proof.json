@@ -1,0 +1,40 @@
+{
+  "executor": "native",
+  "actualCreationPreset": false,
+  "marketArchives": 3,
+  "sourceLimit": 2,
+  "initialVisibleCatalogNames": [
+    "market-scene-01",
+    "market-scene-02",
+    "other-control-one",
+    "other-control-three",
+    "other-control-two"
+  ],
+  "fullEligibleNames": [
+    "market-scene-01",
+    "market-scene-02",
+    "market-scene-03",
+    "other-control-one",
+    "other-control-three",
+    "other-control-two"
+  ],
+  "omittedMarketName": "market-scene-03",
+  "metadataPageCount": 3,
+  "metadataOnly": true,
+  "fullDirectoryComplete": true,
+  "omittedSkillLoaded": true,
+  "modelDisabledNotListed": true,
+  "modelDisabledLoadRefused": true,
+  "completeToolResultsReachedNextModel": true,
+  "bindingEventCount": 1,
+  "boundReleaseCount": 3,
+  "eventAndProjectionIdentityMatch": true,
+  "modelRequests": 12,
+  "ptcDispatchStarts": 0,
+  "ptcDispatchSettles": 0,
+  "directoryRefusals": {
+    "foreign": true,
+    "stale": true,
+    "invalid": true
+  }
+}

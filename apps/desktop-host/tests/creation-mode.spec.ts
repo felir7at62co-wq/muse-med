@@ -249,7 +249,10 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(text).not.toContain('Hidden team policy')
     expect(text).not.toContain('spawn_teammate')
     expect(text).not.toContain('late-agent-alias')
-    expect(f.ctx.tools.schemas(f.agent).map(entry => entry.name).sort()).toEqual(['read', 'skill'])
+    const admitted = await f.ctx.tools.resolve({ agent: f.agent, modelSelection, signal: new AbortController().signal })
+    try {
+      expect(f.ctx.tools.schemas(f.agent, admitted).map(entry => entry.name).sort()).toEqual(['read', 'skill'])
+    } finally { admitted.dispose() }
     for (const name of ['spawn_teammate', 'late-agent-alias']) {
       const result = await executeModelToolFixture(f.ctx, { agent: f.agent, name, arguments: {},
         callId: ToolCallId(name), signal: new AbortController().signal })

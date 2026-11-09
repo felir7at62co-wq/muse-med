@@ -100,6 +100,7 @@ export const CREATION_TOOL_NAMES: readonly string[] = [
   'schedule_update',
   'screenplay_export_docx',
   'skill',
+  'skill_catalog',
   'todo_update',
   'todo_write',
   'update_goal',

@@ -23,6 +23,9 @@
 /deepseek-ai-dsh-tool-skill/use-this-package/mount-and-configure:
   en: d4c06c102b25ef2c
   zh: f0afab4730703ac3
+/deepseek-ai-dsh-tool-skill/use-this-package/selected-source-summaries:
+  en: 6b026fac9bba3729
+  zh: beea74e76a4caa61
 /deepseek-ai-dsh-tool-skill/use-this-package/what-the-model-gets:
   en: e53a681b72adbf90
   zh: a8432d7dfa128cfe
@@ -128,6 +131,18 @@
 /deepseek-ai-dsh-tool-skill/model-experience/user-explicit-invocation-injection/kv-cache-effect:
   en: 127c0139472bfaab
   zh: 805dc2f730c47f40
+/deepseek-ai-dsh-tool-skill/model-experience/metadata-directory-queries:
+  en: 063699f9ac9a15ae
+  zh: 44739260e82c61cf
+/deepseek-ai-dsh-tool-skill/model-experience/metadata-directory-queries/what-the-model-sees:
+  en: 44c78c6dc110efe7
+  zh: 07dd521d1085cd48
+/deepseek-ai-dsh-tool-skill/model-experience/metadata-directory-queries/token-effect:
+  en: 32c0fc1290bc6424
+  zh: e6b2a0fbfbd4dbc6
+/deepseek-ai-dsh-tool-skill/model-experience/metadata-directory-queries/kv-cache-effect:
+  en: 547fac274cbad9c4
+  zh: ae50036e991d9a1c
 /deepseek-ai-dsh-tool-skill/known-limitations-and-deferred-work:
   en: 58820889982d59e1
   zh: 668c5f507f1a0363

@@ -5334,7 +5334,7 @@ export type DramaShotReviewMode = 'strict' | 'advisory'
 ## `@deepseek-ai/dsh-tool-skill`
 
 - `inject`: `agents` · `tools` · `skills` · `workingDirectory`
-- `source`: [`packages/skill/tool-skill/src/index.ts:66`](../packages/skill/tool-skill/src/index.ts)
+- `source`: [`packages/skill/tool-skill/src/index.ts:72`](../packages/skill/tool-skill/src/index.ts)
 
 ```ts config-catalog
 /** Model-facing skill catalog configuration. */
@@ -5343,7 +5343,14 @@ export interface Config {
   catalogDescriptionMaxLength?: number
   /** Preserve this scoped loader's catalog through other Host loader listeners; defaults to false. */
   scopedCatalogOwner?: boolean
+  /** Maximum advertised summaries for each exact source; omitted sources remain complete. */
+  catalogSourceLimits?: CatalogSourceLimits
+  /** Default metadata directory page size, an integer from 1 through 100. */
+  catalogPageSize?: number
 }
+
+/** Limits indexed by the exact provider source label. */
+export type CatalogSourceLimits = Readonly<Record<string, number>>
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-tool-skill -->
 
