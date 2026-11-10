@@ -60,7 +60,7 @@ function fixture(packaged = false) {
   const unpacked = (path: string) => path.replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
   const home = join(temporaryRoot, 'home')
   mkdirSync(home)
-  const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'creation']
+  const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'bot-coordinator', 'creation']
   const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
   for (const id of ids) {
     mkdirSync(dirname(presetPath(id)), { recursive: true })
@@ -218,7 +218,7 @@ it('defers preset checks until the Host-ready caller requests them', async () =>
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
   await f.request()
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(14)
 })
 
 it('rejects a product runtime without the Muse inbox feedback entry', async () => {
@@ -236,8 +236,8 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.home })
   expect(f.ctx.agentPresets.serviceFor).toHaveBeenCalledWith({ preset: 'creation' }, 'skills')
   expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.home })
-  expect(f.dispose).toHaveBeenCalledTimes(12)
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(12)
+  expect(f.dispose).toHaveBeenCalledTimes(14)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(14)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
@@ -335,7 +335,7 @@ it('rejects extra agent-local tools in the minimal preset', async () => {
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it.each(['short-drama', 'ptc', 'standard', 'cordis', 'creation'])('rejects missing transcription in %s', async (preset) => {
+it.each(['short-drama', 'ptc', 'standard', 'cordis', 'bot-coordinator', 'creation'])('rejects missing transcription in %s', async (preset) => {
   const f = fixture()
   const schemas = f.ctx.tools.schemas.getMockImplementation()!
   f.ctx.tools.schemas.mockImplementation(key => key?.preset === preset
@@ -498,11 +498,24 @@ it.each(['missing', 'legacy-only', 'shadow'])('rejects %s custom skill isolation
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it('refuses a roster with additional presets before creating an agent', async () => {
+it.each(['additional', 'missing', 'duplicate'])('refuses a roster with %s presets before creating an agent', async (kind) => {
   const f = fixture()
-  f.ctx.agentPresets.list.mockResolvedValue([{ id: 'short-drama' }, { id: 'personal' }])
-  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the six product presets')
+  const roster = await f.ctx.agentPresets.list()
+  const altered = kind === 'additional' ? [...roster, { id: 'personal' }]
+    : kind === 'missing' ? roster.filter(row => row.id !== 'bot-coordinator')
+      : [...roster.slice(0, -1), { id: 'bot-coordinator' }]
+  f.ctx.agentPresets.list.mockResolvedValue(altered)
+  await expect(f.apply(f.ctx)).rejects.toThrow('expected exactly the seven product presets')
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
+})
+
+it('rejects a coordinator without its delegation tool', async () => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'bot-coordinator'
+    ? schemas(key).filter(tool => tool.name !== 'subagent') : schemas(key))
+  await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool subagent in bot-coordinator')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
 it('fails missing tools and still disposes the created agent', async () => {
@@ -637,7 +650,7 @@ it('accepts an additional model-invocable virtual skill without a filesystem pat
   }])
   await f.apply(f.ctx)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
-  expect(f.dispose).toHaveBeenCalledTimes(12)
+  expect(f.dispose).toHaveBeenCalledTimes(14)
 })
 
 it.each(['audio-transcribe',
