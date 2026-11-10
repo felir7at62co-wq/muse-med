@@ -14,10 +14,12 @@ const id = '7687919221593885758'
 function response(url) {
   const target = new URL(url)
   assert.equal(target.origin, 'https://hongguoduanju.com')
-  let html
-  if (target.pathname.startsWith('/search/')) {
-    html = routed('search_(keyword)/page', { isSuccess: true, query: decodeURIComponent(target.pathname.slice(8)), totalCount: '100',
+  let html, contentType = 'text/html'
+  if (target.pathname === '/api/search/result') {
+    assert.equal(target.searchParams.get('query'), '剧')
+    html = JSON.stringify({ totalCount: '100', pageNum: 1, totalPages: 10, hasMore: true,
       searchList: [{ doc_type: 23, video_data: { series_id: id, series_title: '样例短剧', favorite_text: '120万收藏' } }] })
+    contentType = 'application/json'
   } else if (target.pathname === '/detail') {
     html = routed('detail_page', { isSuccess: true, seriesDetail: { series_id: id, series_name: '样例短剧', episode_cnt: 20, tags: [], celebrities: [] },
       seriesSocialInfo: { series_favorite_count: '1200123', series_like_count: '900', hot_score_data: { score: '2001', text: '2001热度' } } })
@@ -27,7 +29,7 @@ function response(url) {
       rankList: [{ seriesId: id, title: '样例短剧', rank: 1, favoriteText: '124.3万收藏', likeText: '10万点赞', heatText: '200万热度', episodeVids: ['1', '2'], tags: ['爱情'], description: '介绍' }],
       pagination: { pageNum: 1, totalPages: 1 } } })
   }
-  return new Response(html, { headers: { 'content-type': 'text/html' } })
+  return new Response(html, { headers: { 'content-type': contentType } })
 }
 
 test('current Host validates four canonical results and removes registrations on unload', async () => {
