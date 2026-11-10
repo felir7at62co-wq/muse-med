@@ -51,6 +51,9 @@ describe('recorded-session corpus policy', () => {
     }
     expect(assertSnapshotCorpusPolicy([current, baseline, completeV0, ...adjacent, retired]).retainedScenarios)
       .toBe(2 + adjacent.length)
+    expect(() => assertSnapshotCorpusPolicy([current, baseline, completeV0, ...adjacent, {
+      ...retired, retained: { version: SESSION_FORMAT_VERSION, coverage: ['retired-tools', 'adjacent-migration'] },
+    }])).toThrow('retained Session format must precede')
     expect(() => assertSnapshotCorpusPolicy([current, completeV0, retired]))
       .toThrow('coverage: adjacent-migration')
     expect(() => assertSnapshotCorpusPolicy([current, completeV0, ...adjacent, {
