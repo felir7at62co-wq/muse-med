@@ -1,0 +1,8 @@
+version: 1
+scenario: muse-video-screenplay-entry-creation
+profile: headless
+composition: muse-video-screenplay-entry-creation
+recording: authored
+header:
+  class: muse-video-screenplay-entry-creation
+  pin: true
