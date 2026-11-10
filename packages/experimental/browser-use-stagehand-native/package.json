@@ -48,7 +48,7 @@
     "@deepseek-ai/schemastery": "workspace:~",
     "zod": "4.4.3",
     "@deepseek-ai/dsh-subprocess": "workspace:*",
-    "@puppeteer/browsers": "3.2.2"
+    "@puppeteer/browsers": "3.2.4"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
