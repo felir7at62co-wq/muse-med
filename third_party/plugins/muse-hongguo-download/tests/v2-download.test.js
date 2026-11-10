@@ -23,8 +23,8 @@ async function fixture(t, change = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-v2-download-test-'))), output = join(root, 'user-output');
   const config = { v2RuntimeDir: join(root, 'runtime'), v2StateDir: join(root, 'state'), v2Quality: '720p',
     maxEpisodeBytes: 1024 * 1024, maxResponseBytes: 1024 * 1024, callTimeoutMs: 10_000, ...change.config };
-  const f = { root, output, sessions: [], jobs: [], processed: [], events: [], authorizationCalls: 0,
-    count: 3, sourceIdentity: identity, processFailureAt: null, ...change };
+  const f = { root, output, sessions: [], jobs: [], processed: [], events: [], catalogCalls: [], authorizationCalls: 0,
+    count: 3, sourceIdentity: identity, processFailureAt: null, disposeEntered: deferred(), ...change };
   const processMedia = async (media, args) => {
     assert.deepEqual(media, { encryption: null });
     assert.equal(args.inputPath.endsWith('.part'), true);
@@ -38,8 +38,14 @@ async function fixture(t, change = {}) {
     assert.equal(actualConfig, config);
     const session = { paths, disposed: false, closeTask: null,
       async start(signal) { signal.throwIfAborted(); session.sourceIdentity = f.sourceIdentity; f.events.push('start'); },
+      async health(signal) {
+        signal.throwIfAborted(); f.events.push('health');
+        if (f.healthFailure) throw f.healthFailure;
+        return { sourceIdentity: f.sourceIdentity, engine: { engineVersion: 'hongguo-helper-0.3.14', protocol: 2, build: 15 },
+          localLicenseStatus: { mode: 'Checking', reason: 'checking', refreshed: false } };
+      },
       async catalog(id, signal) {
-        signal.throwIfAborted(); const count = f.counts?.[id] ?? f.count;
+        signal.throwIfAborted(); f.catalogCalls.push(id); const count = f.counts?.[id] ?? f.count;
         const value = { seriesId: id, title: `标题${id}`, episodeCount: count, source: 'hongguo-v2',
           episodes: Array.from({ length: count }, (_, index) => ({ index: index + 1, vid: `${id}:${index + 1}`, title: `集${index + 1}`, durationSeconds: 12 })) };
         return f.catalogChange ? f.catalogChange(value) : value;
@@ -56,6 +62,7 @@ async function fixture(t, change = {}) {
       dispose() {
         if (!session.closeTask) session.closeTask = (async () => {
           f.events.push('dispose-enter');
+          f.disposeEntered.resolve();
           if (f.disposeBarrier) await f.disposeBarrier.promise;
           if (f.disposeFailure) throw Object.assign(new Error('PRIVATE_DISPOSE'), { code: 'v2_shutdown' });
           session.disposed = true; f.events.push('disposed');
@@ -172,6 +179,78 @@ test('catalog information neither creates user output nor claims verified media'
   assert.equal(result.items[0].mediaUrlsVerified, false); assert.equal(result.items[0].fullSeriesAvailable, null);
   assert.equal(f.jobs.length, 0); assert.equal(f.processed.length, 0);
   await assert.rejects(lstat(f.output), { code: 'ENOENT' }); await cleanSession(f);
+});
+
+test('default health confirms local checks only after shutdown and never creates user media output', async t => {
+  const f = await fixture(t), result = await f.client.health();
+  assert.deepEqual(result, { ok: true, sourceBackend: 'v2', scope: 'local', sourceIdentity: identity,
+    authorization: 'not_checked', mediaAvailability: 'not_tested', verifiedDownload: false,
+    engine: { engineVersion: 'hongguo-helper-0.3.14', protocol: 2, build: 15 },
+    localLicenseStatus: { mode: 'Checking', reason: 'checking', refreshed: false }, items: [],
+    checks: { runtimeIntegrity: 'passed', physicalDevice: 'matched', engineHandshake: 'passed',
+      licenseBrokerHandshake: 'passed', localLicenseStatus: 'read', catalog: 'not_requested', shutdown: 'confirmed' } });
+  assert.equal(Object.hasOwn(result, 'complete'), false);
+  assert.equal(f.authorizationCalls, 0); assert.deepEqual(f.catalogCalls, []);
+  assert.equal(f.jobs.length, 0); assert.equal(f.processed.length, 0);
+  assert.deepEqual(f.events, ['start', 'health', 'dispose-enter', 'disposed']);
+  await assert.rejects(lstat(f.output), { code: 'ENOENT' }); await cleanSession(f);
+});
+
+test('health with series IDs checks catalog summaries without asserting media or permission', async t => {
+  const f = await fixture(t), result = await f.client.health({ seriesIds: ['101', '102'] });
+  assert.equal(result.ok, true); assert.equal(result.scope, 'catalog');
+  assert.equal(result.checks.catalog, 'passed');
+  assert.deepEqual(result.items, ['101', '102'].map(seriesId => ({ seriesId, title: `标题${seriesId}`, episodeCount: 3,
+    completeCatalog: true, mediaUrlsVerified: false, fullSeriesAvailable: null })));
+  assert.equal(Object.hasOwn(result, 'complete'), false);
+  assert.equal(result.authorization, 'not_checked'); assert.equal(result.mediaAvailability, 'not_tested');
+  assert.equal(result.verifiedDownload, false); assert.equal(f.authorizationCalls, 0);
+  assert.equal(f.processed.length, 0); assert.deepEqual(f.catalogCalls, ['101', '102']);
+  await cleanSession(f);
+});
+
+test('health cannot return success before its owned process cleanup settles', async t => {
+  const barrier = deferred(), f = await fixture(t, { disposeBarrier: barrier });
+  let settled = false;
+  const work = f.client.health().then(result => { settled = true; return result; });
+  await f.disposeEntered.promise;
+  assert.equal(settled, false);
+  barrier.resolve(); const result = await work;
+  assert.equal(result.ok, true); assert.equal(result.checks.shutdown, 'confirmed');
+  await cleanSession(f);
+});
+
+test('health cleanup failure remains safe, preserves its private directory and has no completion claim', async t => {
+  const f = await fixture(t, { disposeFailure: true }), result = await f.client.health();
+  assert.equal(result.ok, false); assert.equal(result.code, 'v2_shutdown');
+  assert.equal(Object.hasOwn(result, 'complete'), false); assert.equal(Object.hasOwn(result, 'checks'), false);
+  assert.equal(result.scope, 'local'); assert.equal(result.authorization, 'not_checked');
+  assert.equal(result.mediaAvailability, 'not_tested'); assert.equal(result.verifiedDownload, false);
+  assert.equal(JSON.stringify(result).includes('PRIVATE'), false);
+  assert.equal((await lstat(f.sessions[0].paths.runDir)).isDirectory(), true);
+});
+
+test('health status and catalog failures retain untested labels without leaking private messages', async t => {
+  for (const change of [
+    { healthFailure: Object.assign(new Error('PRIVATE_STATUS'), { code: 'v2_protocol' }) },
+    { catalogChange: value => ({ ...value, episodes: [] }) },
+  ]) {
+    const f = await fixture(t, change), result = await f.client.health({ seriesIds: ['101'] });
+    assert.equal(result.ok, false); assert.equal(Object.hasOwn(result, 'complete'), false);
+    assert.equal(result.scope, 'catalog'); assert.equal(result.authorization, 'not_checked');
+    assert.equal(result.mediaAvailability, 'not_tested'); assert.equal(result.verifiedDownload, false);
+    assert.equal(JSON.stringify(result).includes('PRIVATE'), false); assert.equal(f.authorizationCalls, 0);
+    await cleanSession(f);
+  }
+});
+
+test('an already cancelled health call performs no startup and retains explicit untested scope', async t => {
+  const f = await fixture(t), controller = new AbortController(); controller.abort(new Error('PRIVATE_ABORT'));
+  const result = await f.client.health({}, controller.signal);
+  assert.equal(result.ok, false); assert.equal(result.code, 'cancelled');
+  assert.equal(Object.hasOwn(result, 'complete'), false); assert.equal(result.authorization, 'not_checked');
+  assert.equal(result.mediaAvailability, 'not_tested'); assert.equal(result.verifiedDownload, false);
+  assert.equal(f.sessions.length, 0); assert.equal(f.authorizationCalls, 0);
 });
 
 test('selected episode is verified and published as partial with independent final hash', async t => {

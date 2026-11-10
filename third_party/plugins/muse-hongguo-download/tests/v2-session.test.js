@@ -82,6 +82,13 @@ async function fixture(t, options = {}) {
       else if (message.method === 'app.shutdown') {
         peer.send({ jsonrpc: '2.0', id: message.id, result: {} }); peer.finish(); return;
       } else if (message.method === 'series.detail') result = options.catalogs?.[message.params.id] ?? options.detail ?? detail;
+      else if (message.method === 'local_status') {
+        if (options.holdLocalStatus) return;
+        result = Object.hasOwn(options, 'localStatus') ? options.localStatus : {
+          mode: 'Checking', reason: 'checking', licensed: false, hasKey: false, pcOnly: false,
+          privateToken: 'PRIVATE_LOCAL_TOKEN', deviceId: 'd1:00000000000000000000000000000000',
+        };
+      }
       else if (message.method === 'refresh') {
         if (options.holdRefresh) return;
         result = { mode: 'Unlicensed', licensed: false, hasKey: false, pcOnly: false, reason: 'no_key' };
@@ -191,6 +198,45 @@ test('catalog uses the complete original directory without a license or media ca
     { index: 2, vid: detail.id + ':2', title: '第 2 集', durationSeconds: 90 },
   ] });
   assert.deepEqual(f.calls.filter(call => !call.method.startsWith('app.')).map(call => call.method), ['series.detail']);
+});
+
+test('health reads only unrefreshed local status and returns whitelisted handshake facts', async t => {
+  const f = await fixture(t), result = await f.session.health();
+  assert.deepEqual(result, { sourceIdentity: sha(f.manifestBytes),
+    engine: { engineVersion: f.manifest.engineVersion, protocol: 2, build: 15 },
+    localLicenseStatus: { mode: 'Checking', reason: 'checking', refreshed: false } });
+  assert.equal(JSON.stringify(result).includes('PRIVATE'), false);
+  assert.equal(JSON.stringify(result).includes('d1:'), false);
+  await f.session.dispose();
+  assert.deepEqual(f.calls.filter(call => !call.method.startsWith('app.')).map(call => call.method), ['local_status']);
+  assert.ok(f.peers.every(peer => peer.finished));
+});
+
+test('health accepts each real SDK mode without interpreting it as refreshed authorization', async t => {
+  for (const mode of ['Checking', 'Licensed', 'Grace', 'Unlicensed']) {
+    const f = await fixture(t, { localStatus: { mode, reason: 'cached', PRIVATE: 'not-returned' } });
+    const result = await f.session.health();
+    assert.deepEqual(result.localLicenseStatus, { mode, reason: 'cached', refreshed: false });
+    assert.deepEqual(f.calls.filter(call => !call.method.startsWith('app.')).map(call => call.method), ['local_status']);
+  }
+});
+
+test('health rejects unknown SDK modes and unsafe status text without exposing it', async t => {
+  for (const localStatus of [null, { mode: 'licensed', reason: 'checking' }, { mode: 'PRIVATE_UNKNOWN', reason: 'checking' },
+    { mode: 'Checking', reason: 'https://PRIVATE/token' }, { mode: 'Checking', reason: 'x'.repeat(65) }, { mode: 'Checking', reason: '' }]) {
+    const f = await fixture(t, { localStatus });
+    await assert.rejects(f.session.health(), safe('v2_protocol'));
+    assert.deepEqual(f.calls.filter(call => !call.method.startsWith('app.')).map(call => call.method), ['local_status']);
+  }
+});
+
+test('cancelling a pending local health read joins peers without a licensing or media call', async t => {
+  const f = await fixture(t, { holdLocalStatus: true }), controller = new AbortController();
+  const work = f.session.health(controller.signal), rejected = assert.rejects(work, safe('v2_cancelled'));
+  await f.next('local_status'); controller.abort(new Error('PRIVATE_CANCEL'));
+  await rejected;
+  assert.ok(f.peers.every(peer => peer.finished));
+  assert.equal(f.calls.some(call => /^(?:refresh|check_series|license\.|downloads\.|playback\.)/.test(call.method)), false);
 });
 
 test('mismatched IDs and episode gaps cannot become a complete catalog', async t => {

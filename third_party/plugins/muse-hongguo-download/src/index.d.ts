@@ -53,12 +53,25 @@ export interface DownloadInfo {
   items: { seriesId: string; title: string; source: string; episodeCount: number; accessibleEpisodeCount: number | null;
     completeCatalog: boolean; downloaded: false; mediaUrlsVerified: false; fullSeriesAvailable: false | null }[];
 }
+export interface DownloadHealthFailure {
+  ok: false; code: string; message: string; sourceBackend?: 'v1' | 'v2';
+  authorization: 'not_checked'; mediaAvailability: 'not_tested'; verifiedDownload: false;
+}
+export interface DownloadHealth {
+  ok: true; sourceBackend: 'v2'; scope: 'local' | 'catalog'; sourceIdentity: string;
+  checks: { runtimeIntegrity: 'passed'; physicalDevice: 'matched'; engineHandshake: 'passed'; licenseBrokerHandshake: 'passed'; localLicenseStatus: 'read'; catalog: 'not_requested' | 'passed'; shutdown: 'confirmed' };
+  engine: { engineVersion: string; protocol: 2; build: number };
+  localLicenseStatus: { mode: string; reason: string; refreshed: false };
+  authorization: 'not_checked'; mediaAvailability: 'not_tested'; verifiedDownload: false;
+  items?: { seriesId: string; title: string; episodeCount: number; completeCatalog: boolean; mediaUrlsVerified: false; fullSeriesAvailable: null }[];
+}
 /** Downloads require a managed subprocess provider and workspace; external destinations additionally require full-access policy. */
 export class HongguoDownloadClient {
   constructor(config?: HongguoDownloadConfig, dependencies?: { subprocess?: SubprocessRuntime });
   readonly config: Readonly<Required<HongguoDownloadConfig>>;
   info(options: Pick<DownloadOptions, 'seriesIds' | 'sourceMode'>, signal?: AbortSignal): Promise<DownloadInfo | DownloadFailure>;
   download(options: DownloadOptions, signal?: AbortSignal, workspace?: string, filePolicy?: SandboxExecutionPolicy): Promise<DownloadResult | DownloadFailure>;
+  health(options?: { seriesIds?: string[] }, signal?: AbortSignal): Promise<DownloadHealth | DownloadHealthFailure>;
   dispose(): Promise<void>;
 }
 export const name: 'muse-hongguo-download';

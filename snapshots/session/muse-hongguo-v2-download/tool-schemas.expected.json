@@ -183,6 +183,24 @@
       }
     },
     {
+      "name": "hongguo_download_health",
+      "description": "检查红果 v2 本地运行资源、当前物理设备绑定、原引擎及许可桥接进程握手，并读取未刷新的本地许可状态。默认不访问网络、不刷新授权、不申请剧目许可、不下载视频；提供 seriesIds 时只额外查询对应目录。检查成功仅表示这些检查项通过，authorization 始终为 not_checked，mediaAvailability 始终为 not_tested，不能据此宣称已授权或全集可下载。错误保留固定安全诊断，不输出设备标识、密钥、签名和媒体直链。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "seriesIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "一部或多部系列 ID；红果 ID 保持十进制字符串，默认最多10部"
+          }
+        },
+        "required": []
+      }
+    },
+    {
       "name": "hongguo_download_info",
       "description": "使用已配置的红果 2.0.0 本地引擎检查一部或多部剧的目录和连续集号。仅查询目录，不请求媒体地址，不消耗剧目下载许可。completeCatalog 不代表可下载，mediaUrlsVerified 为 false，只有实际下载与完整解码后才能确认可用。原授权、设备标识、签名和媒体直链不会返回给模型。",
       "parameters": {
