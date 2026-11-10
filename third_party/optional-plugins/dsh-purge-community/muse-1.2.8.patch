@@ -1,0 +1,1131 @@
+diff --git a/client.js b/client.js
+index c030e5b..825f75f 100644
+--- a/client.js
++++ b/client.js
+@@ -13244,7 +13244,7 @@ function SettingsRoot(props = {}) {
+       h(
+         "span",
+         { className: "dshpp-native-badge" },
+-        (true ? "\u793E\u533A\u7248 " : "\u72EC\u7ACB\u754C\u9762 ") + "1.6.86"
++        (true ? "\u793E\u533A\u7248 " : "\u72EC\u7ACB\u754C\u9762 ") + "1.6.86-muse.1"
+       )
+     ),
+     h(CompatibilityNote, { status: backendStatus }),
+@@ -13401,7 +13401,7 @@ function StatusStrip({ info }) {
+       "span",
+       { className: "dshpp-strip-item" },
+       "\u63D2\u4EF6 ",
+-      h("b", null, info?.plugin_version || "1.6.86")
++      h("b", null, info?.plugin_version || "1.6.86-muse.1")
+     )
+   );
+ }
+@@ -13456,11 +13456,11 @@ function VersionNotice({ info }) {
+     );
+   }
+   const backend = info?.plugin_version;
+-  if (!backend || backend === "1.6.86") return null;
++  if (!backend || backend === "1.6.86-muse.1") return null;
+   return h(
+     "p",
+     { className: "dshpp-warn", role: "status" },
+-    `\u5B98\u65B9\u7248\u672C ${backend}\uFF1B\u754C\u9762 ${"1.6.86"}\u3002\u4E24\u8005\u4E0D\u4E00\u81F4\u65F6\u8BBE\u7F6E\u53EF\u80FD\u4E0D\u751F\u6548\uFF0C\u8BF7\u66F4\u65B0\u5230\u540C\u4E00\u7248\u672C\u540E\u91CD\u542F DSH\u3002`
++    `\u5B98\u65B9\u7248\u672C ${backend}\uFF1B\u754C\u9762 ${"1.6.86-muse.1"}\u3002\u4E24\u8005\u4E0D\u4E00\u81F4\u65F6\u8BBE\u7F6E\u53EF\u80FD\u4E0D\u751F\u6548\uFF0C\u8BF7\u66F4\u65B0\u5230\u540C\u4E00\u7248\u672C\u540E\u91CD\u542F DSH\u3002`
+   );
+ }
+ function PurgePage() {
+@@ -13510,7 +13510,7 @@ function PurgePage() {
+           true ? h(
+             "span",
+             { className: "dshpp-page-ver" },
+-            "\u793E\u533A\u7248 1.6.86"
++            "\u793E\u533A\u7248 1.6.86-muse.1"
+           ) : null
+         )
+       )
+diff --git a/docs/MUSE-COMPATIBILITY.md b/docs/MUSE-COMPATIBILITY.md
+new file mode 100644
+index 0000000..a8f61f8
+--- /dev/null
++++ b/docs/MUSE-COMPATIBILITY.md
+@@ -0,0 +1,27 @@
++# Muse 1.2.8 compatibility candidate
++
++This local candidate is based on dsh-purge Community 1.6.86. It targets the inspected Muse 1.2.8 runtime (DSH 0.2.1-alpha.1 and Cordis 4.0.5-alpha.1). It does not qualify other alpha builds or future Muse releases.
++
++## Scope
++
++- Add a precise SystemPrompt patch variant for the shipped Muse implementation, preserving context suppression and existing tool/variable behavior.
++- Preserve Muse's own update coordinator and verified native shutdown behavior. These DSH shell patches are reported as not applicable, not as applied.
++- Select Windows restart targets by full executable path and creation identity; reject ambiguous or stale process identities.
++- Avoid repeated header/hook edits when patches are applied again.
++- Keep original and applied file identities for backup and rollback; report unknown changes instead of silently adopting them.
++
++The original upstream license and notices remain in this package. Local adaptation files are identified in the accompanying build manifest.
++
++## Validation
++
++The adaptation tests cover real Cordis/SystemPrompt services, native shutdown behavior, two Windows process instances, repeated patch application, backup identity, and rollback. Full-host integration also compares the original bytes after reverting every target file and checks the generated JavaScript syntax.
++
++Passing these checks does not establish any guarantee about model responses, all external services, or video quality. Production scene, subtitle, audio, payment and delivery checks remain separate Muse responsibilities.
++
++## Installation and updates
++
++Use the isolated candidate first. Its profile, temporary directories and Electron user data must be separate from the regular installation. Do not enable automatic upstream replacement of this local adaptation. A later upstream package or Muse runtime requires renewed compatibility tests.
++
++Do not load an old dsh-purge alongside this package. Existing capability differences must be reviewed individually rather than double-registering hooks and commands.
++
++Local desktop loading, frontend/backend version alignment, forced restart and session retention have been checked. User acceptance is pending. The generic installer path from a sealed third-party archive has not been qualified by this extracted-host test. This candidate has not been submitted or merged into the production Muse repository.
+diff --git a/lib/backup-ledger.js b/lib/backup-ledger.js
+new file mode 100644
+index 0000000..91a802a
+--- /dev/null
++++ b/lib/backup-ledger.js
+@@ -0,0 +1,175 @@
++import path from 'node:path';
++import {createHash} from 'node:crypto';
++import {hostFs,fsFor} from './extract-asar.js';
++import {atomicFiles} from './atomic-files.js';
++import {acquireMaintenanceLock} from './maintenance-lock.js';
++
++const SUFFIX='.dshpurge.bak';
++const digest=value=>createHash('sha256').update(value).digest('hex');
++const isHash=value=>typeof value==='string'&&/^[a-f0-9]{64}$/.test(value);
++const key=file=>path.resolve(file);
++
++// A missing desktop entry is not returned by targetFiles. Recover its exact
++// declaration from this selected app's manifest, while retaining the same
++// lexical/physical boundary that the normal existing-entry resolver enforces.
++export function declaredDesktopBackupTarget(appDir,fs=hostFs) {
++  const app=key(appDir);
++  const inside=(root,file)=>{
++    const rel=path.relative(root,file);
++    return rel!==''&&rel!=='..'&&!rel.startsWith('..'+path.sep)&&!path.isAbsolute(rel);
++  };
++  try {
++    const meta=JSON.parse(fs.readFileSync(path.join(app,'package.json'),'utf8').replace(/^\uFEFF/,''));
++    const main=meta?.main;
++    if(typeof main!=='string'||!main.trim()||main.includes('\0')||path.posix.isAbsolute(main)||path.win32.isAbsolute(main)||/^[A-Za-z]:/.test(main))return null;
++    const file=path.resolve(app,main.replaceAll('\\','/'));
++    if(!inside(app,file))return null;
++    const appReal=fs.realpathSync(app);
++    let ancestor=file;
++    while(true){
++      try {
++        const real=fs.realpathSync(ancestor);
++        if(real!==appReal&&!inside(appReal,real))return null;
++        return file;
++      }catch(error){if(error.code!=='ENOENT')return null;}
++      const parent=path.dirname(ancestor);if(parent===ancestor)return null;ancestor=parent;
++    }
++  }catch{return null;}
++}
++
++export class BackupLedger {
++  constructor(aiBase,{fs=hostFs,allowedTargets=[]}={}) {
++    this.fs=fs;
++    this.base=key(aiBase);
++    this.file=path.join(this.base,'.dshpurge-backup-ledger.json');
++    this.allowedTargets=new Set(allowedTargets.map(key));
++    this.lockDirectory=path.join(this.base,'.dshpurge-ledger-lock');
++    this.atomic=atomicFiles(fs);
++    this.read();
++  }
++  read() {
++    try {
++      const raw=this.fs.readFileSync(this.file,'utf8');
++      const doc=JSON.parse(raw);
++      if(doc.schema!==1||doc.host!==this.base||!doc.entries||Array.isArray(doc.entries)||typeof doc.entries!=='object')throw Error('invalid schema or host');
++      for(const [file,entry] of Object.entries(doc.entries)){
++        if(!path.isAbsolute(file)||key(file)!==file||!this.ownsPath(file))throw Error('backup path is outside this host');
++        if(!entry||!isHash(entry.backup)||typeof entry.source!=='string'||!Array.isArray(entry.outputs)||!entry.outputs.every(isHash))throw Error('invalid backup identity');
++      }
++      this.doc=doc;
++      this.diskHash=digest(raw);
++    } catch(error) {
++      if(error.code!=='ENOENT')throw Error('Backup ledger unreadable; files and backups retained: '+error.message);
++      this.doc={schema:1,host:this.base,entries:{}};
++      this.diskHash=null;
++    }
++  }
++  ownsPath(file) {
++    const fp=key(file), rel=path.relative(this.base,fp);
++    const inside=rel===''||(!rel.startsWith('..'+path.sep)&&rel!=='..'&&!path.isAbsolute(rel));
++    if(!inside)return this.allowedTargets.has(fp);
++    // A lexically contained path may still escape through a junction/symlink.
++    let ancestor=fp;
++    while(true){
++      try {
++        const real=this.fs.realpathSync(ancestor), baseReal=this.fs.realpathSync(this.base);
++        const relative=path.relative(baseReal,real);
++        return relative===''||(!relative.startsWith('..'+path.sep)&&relative!=='..'&&!path.isAbsolute(relative));
++      }catch(error){if(error.code!=='ENOENT')throw error;}
++      const parent=path.dirname(ancestor);if(parent===ancestor)return false;ancestor=parent;
++    }
++  }
++  trackedFiles(){return Object.keys(this.doc.entries);}
++  save() {
++    if(!this.ownsPath(this.lockDirectory))throw Error('Backup lock path escapes host');
++    this.fs.mkdirSync(this.lockDirectory,{recursive:true});
++    // The routing facade does not expose linkSync; lock operations need the
++    // selected complete filesystem (original-fs while an ASAR is present).
++    const lock=acquireMaintenanceLock(this.lockDirectory,{fs:fsFor(this.lockDirectory)});
++    let failure;
++    try {
++      let current=null;
++      try {current=digest(this.fs.readFileSync(this.file));}catch(error){if(error.code!=='ENOENT')throw error;}
++      if(current!==this.diskHash)throw Error('Backup ledger changed during this operation; retained for review');
++      const next=JSON.stringify(this.doc,null,2)+'\n';
++      lock.check();
++      this.atomic.atomicWriteSync(this.file,next);
++      this.diskHash=digest(next);
++    } catch(error){failure=error;}
++    const warning=lock.release();
++    if(failure)throw failure;
++    if(warning)throw Error('Backup ledger lock release failed; retained for review');
++  }
++  hash(file) {return digest(this.fs.readFileSync(file));}
++  backupHash(file){
++    const stat=this.fs.lstatSync(file);
++    if(!stat.isFile()||stat.isSymbolicLink())throw Error('Backup is not a regular file');
++    return this.hash(file);
++  }
++  source(file) {
++    const packages=[];
++    for(const name of ['dsh-base','dsh-agent-loop','dsh-system-prompt']){
++      try {const raw=this.fs.readFileSync(path.join(this.base,name,'package.json'));packages.push([name,digest(raw)]);}catch(error){if(error.code!=='ENOENT')throw error;}
++    }
++    let directory=path.dirname(key(file));
++    for(let count=0;count<16;count++){
++      try {const raw=this.fs.readFileSync(path.join(directory,'package.json'));packages.push(['owner',key(path.join(directory,'package.json')),digest(raw)]);break;}
++      catch(error){if(error.code!=='ENOENT')throw error;}
++      const parent=path.dirname(directory);if(parent===directory)break;directory=parent;
++    }
++    return digest(JSON.stringify(packages));
++  }
++  baseline(file) {
++    const fp=key(file), backup=this.backupHash(fp+SUFFIX), current=this.hash(fp);
++    if(!this.ownsPath(fp))throw Error('Backup path is outside this host');
++    const entry=this.doc.entries[fp];
++    if(!entry){
++      if(current!==backup)throw Error('Untracked backup differs from current file; retained for review');
++      this.doc.entries[fp]={backup,source:this.source(fp),outputs:[]};this.save();return;
++    }
++    const result=this.inspect(fp);
++    if(!result.ok)throw Error(result.reason);
++  }
++  inspect(file) {
++    const fp=key(file), entry=this.doc.entries[fp];
++    try {
++      if(!this.ownsPath(fp))return {ok:false,reason:'backup_path_outside_host'};
++      let backup;
++      try{backup=this.backupHash(fp+SUFFIX);}catch(error){
++        if(error.code==='ENOENT'&&entry){
++          const canCreate=this.canCreateBackup(fp);
++          return {...canCreate,backupMissing:true};
++        }
++        throw error;
++      }
++      if(entry&&backup!==entry.backup)return {ok:false,reason:'backup_hash_changed'};
++      if(entry&&this.source(fp)!==entry.source)return {ok:false,reason:'host_upgrade_requires_rebaseline'};
++      let current;
++      try {current=this.hash(fp);}catch(error){
++        if(error.code==='ENOENT'&&entry)return {ok:true,missing:true,backup};
++        throw error;
++      }
++      if(!entry)return {ok:current===backup,reason:'untracked_backup',current,backup};
++      return {ok:current===entry.backup||entry.outputs.includes(current),reason:'unrecognized_current_content',current,backup};
++    } catch(error){return {ok:false,reason:'backup_identity_read_error: '+error.message};}
++  }
++  canCreateBackup(file) {
++    const fp=key(file), entry=this.doc.entries[fp];
++    if(!this.ownsPath(fp))return {ok:false,reason:'backup_path_outside_host'};
++    if(!entry)return {ok:true};
++    try{
++      if(this.source(fp)!==entry.source)return {ok:false,reason:'host_upgrade_requires_rebaseline'};
++      if(this.hash(fp)!==entry.backup)return {ok:false,reason:'missing_original_backup_cannot_rebuild_from_patched_or_unknown_content'};
++      return {ok:true};
++    }catch(error){return {ok:false,reason:'backup_rebuild_read_error: '+error.message};}
++  }
++  applied(file,expected) {
++    const fp=key(file), entry=this.doc.entries[fp];
++    if(!entry)throw Error('Missing backup ledger entry for applied file');
++    if(!isHash(expected)||this.hash(fp)!==expected)throw Error('Applied output changed before it could be recorded');
++    if(this.backupHash(fp+SUFFIX)!==entry.backup||this.source(fp)!==entry.source)throw Error('Backup/source identity changed while applying');
++    if(!entry.outputs.includes(expected)){entry.outputs.push(expected);this.save();}
++  }
++}
++
++export {digest as backupContentHash};
+diff --git a/lib/core.js b/lib/core.js
+index ac6ac3e..6e9191e 100644
+--- a/lib/core.js
++++ b/lib/core.js
+@@ -1,4 +1,6 @@
+ import { restoreBackupFile, restoreBackupFileSync } from "./restore-backup.js";
++import { BackupLedger, backupContentHash, declaredDesktopBackupTarget } from "./backup-ledger.js";
++import { musePatchDisposition } from "./muse-compat.js";
+ import { memoDesktopRead, withDesktopReadScope, clearDesktopReadScope } from "./desktop-read-scope.js";
+ import { resolveDesktopEntry } from "./desktop-entry.js";
+ import { removeTreeNoFollowSync } from "./remove-tree.js";
+@@ -2506,6 +2508,29 @@ export async function dropStaleUserProfilePatchBackups(dshHome = findDshHome())
+ 
+ const BAK_SUFFIX = ".dshpurge.bak";
+ 
++function backupLedgerForHost(aiBase) {
++  const allowedTargets=flattenTargetPaths(targetFiles(aiBase));
++  const resources=desktopResourcesForHost(aiBase);
++  const missingEntry=resources&&declaredDesktopBackupTarget(path.join(resources,'app'),fs);
++  if(missingEntry)allowedTargets.push(missingEntry);
++  return new BackupLedger(aiBase,{allowedTargets});
++}
++
++function backupInventory(aiBase) {
++  const originals=[];
++  const visit=(directory,depth)=>{
++    if(depth>10)return;
++    for(const entry of fs.readdirSync(directory,{withFileTypes:true})){
++      if(entry.name==='node_modules'||entry.name==='.git')continue;
++      const file=path.join(directory,entry.name);
++      if(entry.isDirectory())visit(file,depth+1);
++      else if(entry.name.endsWith(BAK_SUFFIX))originals.push(file.slice(0,-BAK_SUFFIX.length));
++    }
++  };
++  visit(aiBase,0);
++  return originals;
++}
++
+ function shouldRestoreOriginal(original, bak) {
+   if (isUserProfilePatchFile(original)) return false;
+   let bakStat;
+@@ -2532,6 +2557,11 @@ function shouldRestoreOriginal(original, bak) {
+ export function restoreMissingOriginalsFromBak(aiBase, options = {}) {
+   const restored = [];
+   if (!aiBase || !isDir(aiBase)) return restored;
++  restored.errors = options.errors || [];
++  const errors = restored.errors;
++  let ledger;
++  try {ledger=backupLedgerForHost(aiBase);}
++  catch(error){errors.push([aiBase,String(error.message)]);return restored;}
+   const seen = new Set();
+   const consider = (original) => {
+     if (!original || seen.has(original)) return;
+@@ -2550,12 +2580,15 @@ export function restoreMissingOriginalsFromBak(aiBase, options = {}) {
+     }
+     if (!shouldRestoreOriginal(original, bak)) return;
+     try {
++      const state=ledger.inspect(original);
++      if(!state.ok)throw Error('Refused backup restore: '+state.reason);
+       restoreBackupFileSync(original, bak);
+       restored.push(original);
+     } catch (error) {
+-      if (options.errors) options.errors.push([original, String(error)]);
++      errors.push([original, String(error)]);
+     }
+   };
++  for(const fp of ledger.trackedFiles())consider(fp);
+   for (const fp of flattenTargetPaths(targetFiles(aiBase))) consider(fp);
+   const roots = [aiBase];
+   const nested = path.join(aiBase, "dsh", "node_modules", "@deepseek-ai");
+@@ -2579,65 +2612,49 @@ export function restoreMissingOriginalsFromBak(aiBase, options = {}) {
+ 
+ export function restoreMissingOriginalsAllHosts(options = {}) {
+   const restored = [];
++  restored.errors = [];
+   const bases = options.boot === true
+     ? [findAiBase()].filter((p) => p && isAiBase(p))
+     : enumeratePatchAiBases({ discover: options.discover === true });
+   for (const aiBase of bases) {
+     try {
+-      restored.push(...restoreMissingOriginalsFromBak(aiBase));
+-    } catch {
+-      /* 一个宿主失败不挡住其余 */
++      const result=restoreMissingOriginalsFromBak(aiBase);
++      restored.push(...result);
++      restored.errors.push(...(result.errors||[]));
++    } catch(error) {
++      restored.errors.push([aiBase,String(error.message)]);
+     }
+   }
+   return restored;
+ }
+ 
+-const DSH_PURGE_MARKER_NEEDLE = "dsh-purge";
+-
+ /**
+- * DSH 自升级会把宿主文件整个换成官方新版,但旁边的 .dshpurge.bak 不会动
+- * (backupAll 对已有 bak 走 wx 独占直接 continue)。老 bak 变过期后:
+- *   · revertAll 会把当前的新版文件写回成老版 → 新代码/旧代码混合直接崩
+- *   · patchesMatchInstall 的 hostCleanMarkersPresent 只看任一文件存在清洗 marker 就算对齐,
+-     *     结果 #74/#87 这类放到 agent-loop 的补丁从未被重打,hang-inject 全路径哑火。
+- * 这里:current 里不含任何 dsh-purge marker 字串、且和 bak 字节不同 → 把 bak 刷到 current。
+- * 本函数不动文件内容,只重做基线;后续 applyPatches 会把 marker 补回去。
++ * Inspect backup ownership without guessing from source markers. Markerless
++ * patch output is legitimate and must never replace the original backup.
++ * Unknown content or a changed host package requires an explicit new baseline;
++ * leave both files untouched and report the conflict.
+  */
+ export function refreshStaleBaksForUpgrade(aiBase) {
+   const refreshed = [];
++  refreshed.conflicts = [];
+   if (!aiBase || !isDir(aiBase)) return refreshed;
+-  const roots = [aiBase];
+-  const nested = path.join(aiBase, "dsh", "node_modules", "@deepseek-ai");
+-  if (isDir(nested)) roots.push(nested);
+-  const visit = (dir, depth) => {
+-    if (depth > 10) return;
+-    let ents = [];
+-    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+-    for (const ent of ents) {
+-      if (ent.name === "node_modules" || ent.name === ".git") continue;
+-      const fp = path.join(dir, ent.name);
+-      if (ent.isDirectory()) { visit(fp, depth + 1); continue; }
+-      if (!ent.isFile() || !ent.name.endsWith(BAK_SUFFIX)) continue;
+-      const original = fp.slice(0, -BAK_SUFFIX.length);
+-      if (isUserProfilePatchFile(original)) continue;
+-      let originalBuf;
+-      let bakBuf;
+-      try {
+-        originalBuf = fs.readFileSync(original);
+-        bakBuf = fs.readFileSync(fp);
+-      } catch { continue; }
+-      if (originalBuf.equals(bakBuf)) continue;
+-      // 原文件里只要还带 dsh-purge 标识就视为"我们打过的版本",不碰 bak。
+-      if (originalBuf.includes(DSH_PURGE_MARKER_NEEDLE)) continue;
+-      try {
+-        fs.writeFileSync(fp, originalBuf);
+-        refreshed.push(original);
+-      } catch {
+-        /* bak 被占用下次再试 */
+-      }
++  let ledger;
++  try {ledger = backupLedgerForHost(aiBase);}
++  catch (error) {refreshed.conflicts.push([aiBase,String(error.message)]);return refreshed;}
++  let candidates;
++  try{candidates=new Set([...flattenTargetPaths(targetFiles(aiBase)),...ledger.trackedFiles(),...backupInventory(aiBase)]);}
++  catch(error){refreshed.conflicts.push([aiBase,String(error.message)]);return refreshed;}
++  for (const fp of candidates) {
++    if (isUserProfilePatchFile(fp)) continue;
++    if(!fs.existsSync(fp+BAK_SUFFIX)&&!ledger.doc.entries[path.resolve(fp)])continue;
++    try {
++      const state = ledger.inspect(fp);
++      if (!state.ok) {refreshed.conflicts.push([fp,state.reason]);continue;}
++      if (!state.missing && !state.backupMissing) ledger.baseline(fp);
++    } catch (error) {
++      refreshed.conflicts.push([fp,String(error.message)]);
+     }
+-  };
+-  for (const root of roots) visit(root, 0);
++  }
+   return refreshed;
+ }
+ 
+@@ -2646,6 +2663,9 @@ export async function backupAll(aiBase) {
+   const made = [];
+   const errors = [];
+   const skippedUser = [];
++  let ledger;
++  try {ledger = backupLedgerForHost(aiBase);}
++  catch (error) {return {made,errors:[[aiBase,String(error.message)]],skippedUser,dropped:[]};}
+   for (const fp of flattenTargetPaths(files)) {
+     if (!fs.existsSync(fp)) continue;
+     // 用户 patch 层永不建 bak（#43）。
+@@ -2654,13 +2674,20 @@ export async function backupAll(aiBase) {
+       continue;
+     }
+     const bak = fp + ".dshpurge.bak";
++    if(!fs.existsSync(bak)){
++      const state=ledger.canCreateBackup(fp);
++      if(!state.ok){errors.push([fp,state.reason]);continue;}
++    }
+     // M36:race-free。existsSync+copyFile 之间可能被覆盖。
+     // 先用 wx 独占创建占位,成功就正式写入内容;EEXIST 代表 bak 已经存在,无需重建。
+     let placeholderFd;
+     try {
+       placeholderFd = fs.openSync(bak, "wx");
+     } catch (e) {
+-      if (e && e.code === "EEXIST") continue;
++      if (e && e.code === "EEXIST") {
++        try {ledger.baseline(fp);}catch(error){errors.push([fp,String(error.message)]);}
++        continue;
++      }
+       errors.push([fp, String(e)]);
+       continue;
+     }
+@@ -2672,7 +2699,11 @@ export async function backupAll(aiBase) {
+       // atomicCopyFile 失败时清掉占位,避免下次误判已有有效 bak。
+       try { fs.unlinkSync(bak); } catch { /* ignore */ }
+       errors.push([fp, String(e)]);
++      continue;
+     }
++    // A ledger write failure must preserve the completed backup and stop the
++    // caller from applying. Never unlink a valid backup to hide that failure.
++    try {ledger.baseline(fp,{created:true});}catch(error){errors.push([fp,String(error.message)]);}
+   }
+   const dropped = await dropStaleUserProfilePatchBackups();
+   return { made, errors, skippedUser, dropped };
+@@ -2689,6 +2720,8 @@ async function sameFileBytes(left, right) {
+ 
+ export async function revertAll(aiBase, options = {}) {
+   const errors = [];
++  const preflight = refreshStaleBaksForUpgrade(aiBase);
++  if (preflight.conflicts.length) return {reverted:[],skipped:[],preservedUser:[],dropped:[],errors:preflight.conflicts};
+   restoreMissingOriginalsFromBak(aiBase, {errors});
+   const files = targetFiles(aiBase);
+   const reverted = [];
+@@ -3392,13 +3425,21 @@ export async function applyPatches(aiBase, patches = ALL_PATCHES, options = {})
+     snapshot = `error:${e && e.message ? e.message : e}`;
+     console.warn("[dsh-purge] profile snapshot before apply failed:", snapshot);
+   }
++  const backupPreflight = refreshStaleBaksForUpgrade(aiBase);
++  if (backupPreflight.conflicts.length) return backupPreflight.conflicts.map(([file,error]) => ({patch_id:"backup",name:"BACKUP_IDENTITY",status:"failed",path:file,error,applied:0,already:0,missing:0}));
+   restoreMissingOriginalsFromBak(aiBase);
+-  refreshStaleBaksForUpgrade(aiBase);
++  const backupLedger = backupLedgerForHost(aiBase);
++  const writtenOutputs = new Map();
+   const files = targetFiles(aiBase);
+   const report = [];
+   const preserveClientBundles = options.preserveClientBundles === true;
+   await repairPluginCordisYaml();
+   for (const p of patches) {
++    const native = musePatchDisposition(p, files, fs);
++    if (native) {
++      report.push({ patch_id: p.id, name: p.name, ...native, applied: 0, already: 0, missing: 0 });
++      continue;
++    }
+     if (!patchAppliesHere(p, options.surface)) {
+       if (p.id === 91) {
+         const legacy = await legacyWebCookieStatus(files, p, true);
+@@ -3475,7 +3516,10 @@ export async function applyPatches(aiBase, patches = ALL_PATCHES, options = {})
+         if (changed) {
+           try {
+             const wrote = await saveText(fp, textOut);
+-            if (wrote) applied += 1;
++            if (wrote) {
++              applied += 1;
++              writtenOutputs.set(fp,backupContentHash(Buffer.from(textOut,"utf8")));
++            }
+             else already += 1;
+           } catch (e) {
+             lastError = `write_error:${e}`;
+@@ -3504,6 +3548,10 @@ export async function applyPatches(aiBase, patches = ALL_PATCHES, options = {})
+       missing,
+     });
+   }
++  for (const [file,expected] of writtenOutputs) {
++    try {backupLedger.applied(file,expected);}
++    catch (error) {report.push({patch_id:"backup",name:"BACKUP_LEDGER_WRITE",status:"failed",path:file,error:String(error.message),applied:0,already:0,missing:0});}
++  }
+   {
+     const summary = summarizeApplyReport(report);
+     logAudit("apply", {
+@@ -3719,6 +3767,12 @@ async function readPatchReport(aiBase, patches, options) {
+   const detail = {};
+   for (const p of patches) {
+     detail[p.id] = [];
++    const native = musePatchDisposition(p, files, fs);
++    if (native) {
++      detail[p.id] = [native];
++      status[p.id] = native.status;
++      continue;
++    }
+     if (!patchAppliesHere(p, options.surface ?? detectSurface())) {
+       const legacy = p.id === 91 ? await legacyWebCookieStatus(files, p, false) : [];
+       detail[p.id] = legacy;
+diff --git a/lib/desktop.js b/lib/desktop.js
+index ed3188f..ee84b45 100644
+--- a/lib/desktop.js
++++ b/lib/desktop.js
+@@ -996,8 +996,19 @@ function jsString(value) {
+   return wshLiteral(value);
+ }
+ 
+-function officialRestartScript(exe, asar, dshHome) {
++export function officialRestartScript(exe, asar, dshHome) {
+   const log = path.join(os.tmpdir(), "dsh-purge-official-restart.log");
++  const exitProbe = String.raw`function Test-ObservedExit($observed,[int]$observedId) {
++  try {if($observed.HasExited){return $true}} catch {}
++  for($attempt=0;$attempt -lt 2;$attempt++) {
++    $probe=$null
++    try {$probe=[Diagnostics.Process]::GetProcessById($observedId);if($probe.HasExited){return $true};return $false}
++    catch [ArgumentException] {return $true}
++    catch {if($attempt -eq 1){return $false}}
++    finally {if($null -ne $probe){$probe.Dispose()}}
++  }
++  return $false
++}`;
+   return [
+     "var exe = " + jsString(exe) + ";",
+     "var asar = " + jsString(asar) + ";",
+@@ -1010,8 +1021,11 @@ function officialRestartScript(exe, asar, dshHome) {
+     "function stamp() { var d = new Date(); return d.getFullYear() + '-' + z(d.getMonth() + 1) + '-' + z(d.getDate()) + 'T' + z(d.getHours()) + ':' + z(d.getMinutes()) + ':' + z(d.getSeconds()); }",
+     "function log(m) { var f = fso.OpenTextFile(logPath, 8, true); f.WriteLine(stamp() + ' ' + m); f.Close(); }",
+     "function samePath(a, b) { return String(a || '').replace(/\\//g, '\\\\').toLowerCase() === String(b || '').replace(/\\//g, '\\\\').toLowerCase(); }",
+-    "function installRoot() { return fso.GetParentFolderName(exe); }",
+-    "function pids() { var out = []; var root = String(installRoot() || '').replace(/\\//g, '\\\\').toLowerCase(); var e = new Enumerator(wmi.ExecQuery(\"SELECT ProcessId, ExecutablePath FROM Win32_Process WHERE Name = 'DeepSeek Harness.exe'\")); for (; !e.atEnd(); e.moveNext()) { var p = e.item(); var ep = String(p.ExecutablePath || '').replace(/\\//g, '\\\\').toLowerCase(); if (samePath(p.ExecutablePath, exe) || (root && ep.indexOf(root) === 0)) out.push(p.ProcessId); } return out; }",
++    "function pids() { var out = []; var wantedName = fso.GetFileName(exe).toLowerCase(); var e = new Enumerator(wmi.ExecQuery('SELECT ProcessId, Name, ExecutablePath, CreationDate FROM Win32_Process')); for (; !e.atEnd(); e.moveNext()) { var p = e.item(); if (String(p.Name || '').toLowerCase() !== wantedName) continue; if (!p.ExecutablePath) throw new Error('Cannot identify desktop process ' + p.ProcessId); if (samePath(p.ExecutablePath, exe)) { if (!p.CreationDate) throw new Error('Missing desktop process creation time'); out.push({pid: Number(p.ProcessId), created: String(p.CreationDate)}); } } return out; }",
++    "function psLiteral(value) { return '\\'' + String(value).replace(/'/g, '\\'\\'') + '\\''; }",
++    "function utf16Base64(text) { var stream = new ActiveXObject('ADODB.Stream'); stream.Type = 2; stream.Charset = 'unicode'; stream.Open(); stream.WriteText(text); stream.Position = 0; stream.Type = 1; stream.Position = 2; var bytes = stream.Read(); stream.Close(); var xml = new ActiveXObject('MSXML2.DOMDocument.6.0'); var node = xml.createElement('b64'); node.dataType = 'bin.base64'; node.nodeTypedValue = bytes; return node.text.replace(/\\s/g, ''); }",
++    "function exitProbe() { return " + jsString(exitProbe) + "; }",
++    "function terminateObserved(record) { if (!(record.pid > 0) || !record.created) throw new Error('Invalid desktop process identity'); var command = \"$ErrorActionPreference='Stop';Add-Type -AssemblyName System.Management;\" + exitProbe() + \";try{$p=[Diagnostics.Process]::GetProcessById(\" + Number(record.pid) + \")}catch [ArgumentException]{exit 0};try{[void]$p.Handle;if($p.HasExited){exit 0};$actual=$p.MainModule.FileName;$expected=[Management.ManagementDateTimeConverter]::ToDateTime(\" + psLiteral(record.created) + \").ToUniversalTime().Ticks.ToString();$stamp=$p.StartTime.ToUniversalTime().Ticks.ToString();if(-not [string]::Equals($actual,\" + psLiteral(exe) + \",[StringComparison]::OrdinalIgnoreCase) -or $expected.Substring(0,$expected.Length-1) -ne $stamp.Substring(0,$stamp.Length-1)){exit 4};$p.Kill()}catch{$failure=$_;if(Test-ObservedExit $p \" + Number(record.pid) + \"){exit 0};[Console]::Error.WriteLine($failure.Exception.Message);try{Add-Content -LiteralPath \" + psLiteral(logPath) + \" -Value ('termination failed: '+$failure.Exception.Message)}catch{};exit 1}finally{$p.Dispose()}\"; var code = sh.Run('powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ' + utf16Base64(command), 0, true); if (code === 4) { log('PID identity changed; not terminated ' + record.pid); return; } if (code !== 0) throw new Error('Desktop termination failed for PID ' + record.pid + ': ' + code); }",
+     "log('begin');",
+     "var promptFile = asar.replace(/app\\.asar$/i, 'app') + '\\\\dsh\\\\node_modules\\\\@deepseek-ai\\\\dsh-system-prompt\\\\lib\\\\index.js';",
+     "var altFile = asar.replace(/app\\.asar$/i, 'app') + '\\\\node_modules\\\\@deepseek-ai\\\\dsh-system-prompt\\\\lib\\\\index.js';",
+@@ -1028,19 +1042,20 @@ function officialRestartScript(exe, asar, dshHome) {
+     "WScript.Sleep(800);",
+     "var list = pids();",
+     "log('pids ' + list.join(','));",
+-    "for (var i = 0; i < list.length; i++) sh.Run('taskkill.exe /F /PID ' + list[i], 0, true);",
++    "for (var i = 0; i < list.length; i++) terminateObserved(list[i]);",
+     "// 不再按 /IM 全名杀，避免误伤同名第三方。超时后再按 pid 列表重跑。",
+     "var deadline = new Date().getTime() + 20000;",
+     "var left = list;",
+     "while (new Date().getTime() < deadline) { left = pids(); if (left.length === 0) break; WScript.Sleep(200); }",
+     "log('left ' + left.length);",
++    "if (left.length !== 0) { log('desktop still running; not renaming or starting'); WScript.Quit(1); }",
+     "var unpacked = asar + '.unpacked';",
+     "var appDir = asar.replace(/app\\.asar$/i, 'app');",
+     "var marker = appDir + '\\\\dsh\\\\node_modules\\\\node-addon-require-builtin-win32-x64-msvc\\\\prebuilt\\\\win32-x64-msvc-napi-v9.node';",
+     "if (fso.FolderExists(unpacked) && !fso.FileExists(marker)) { sh.Run('robocopy.exe \"' + unpacked + '\" \"' + appDir + '\" /E /XC /XN /XO /NFL /NDL /NJH /NJS /nc /ns /np', 0, true); log('overlay'); }",
+     "var renamed = false;",
+     "if (!fso.FileExists(asar)) { renamed = true; log('asar already absent'); }",
+-    "if (fso.FileExists(asar)) { var bak = asar + '.bak'; if (fso.FileExists(bak)) fso.DeleteFile(bak, true); for (var n = 0; n < 80; n++) { try { fso.MoveFile(asar, bak); renamed = true; log('renamed'); break; } catch (err) { log(err && err.message ? err.message : String(err)); if (n === 20 || n === 50) { var hold = pids(); for (var k = 0; k < hold.length; k++) sh.Run('taskkill.exe /F /PID ' + hold[k], 0, true); WScript.Sleep(800); } WScript.Sleep(300); } } }",
++    "if (fso.FileExists(asar)) { var bak = asar + '.bak'; if (fso.FileExists(bak)) fso.DeleteFile(bak, true); for (var n = 0; n < 80; n++) { try { if (pids().length !== 0) throw new Error('Desktop instance appeared while waiting for archive'); fso.MoveFile(asar, bak); renamed = true; log('renamed'); break; } catch (err) { log(err && err.message ? err.message : String(err)); if (n === 20 || n === 50) { for (var k = 0; k < list.length; k++) terminateObserved(list[k]); WScript.Sleep(800); } WScript.Sleep(300); } } }",
+     "if (!renamed) { log('rename failed; not starting'); try { if (fso.FileExists(" + jsString(path.join(os.tmpdir(), "dsh-purge-official-restarting")) + ")) fso.DeleteFile(" + jsString(path.join(os.tmpdir(), "dsh-purge-official-restarting")) + ", true); } catch (ignoreStop2) {} WScript.Quit(1); }",
+     "if (renamed) {",
+     "try { sh.Environment('PROCESS').Remove('ELECTRON_RUN_AS_NODE'); } catch (ignore) {}",
+diff --git a/lib/muse-compat.js b/lib/muse-compat.js
+new file mode 100644
+index 0000000..1ec80a9
+--- /dev/null
++++ b/lib/muse-compat.js
+@@ -0,0 +1,54 @@
++import { createHash } from "node:crypto";
++import path from "node:path";
++
++// This exact shipped class already suppresses expected shutdown errors while
++// reporting unexpected exits and requiring a clean update handoff.
++const VERIFIED_MUSE_CLOSE = "ed4b1682ac4deda715249c0e2e433f5767d10b9b3e70927b5e1f7ebe635dc121";
++
++/** Return the unique shipped DesktopHostProcess class without executing it. */
++export function museHostProcessSource(text) {
++  const source = String(text).replace(/\r\n/g, "\n");
++  const start = source.indexOf("var DesktopHostProcess = class {");
++  if (start < 0 || source.indexOf("var DesktopHostProcess = class {", start + 1) >= 0) return null;
++  const end = source.indexOf("\n};", start);
++  return end < 0 ? null : source.slice(start, end + 3);
++}
++
++/** Identify the narrow, behavior-tested Muse shutdown implementation. */
++export function verifiedMuseClose(text) {
++  const source = museHostProcessSource(text);
++  if (source === null) return false;
++  const closeStart = source.indexOf("\t\tthis.exitPromise = new Promise((resolve) => {");
++  const closeEnd = source.indexOf("\n\t\treturn this.readyPromise;", closeStart);
++  const stopStart = source.indexOf("\n\tasync stop(requireGraceful = false) {");
++  const classEnd = source.lastIndexOf("\n};");
++  if (closeStart < 0 || closeEnd < closeStart || stopStart < 0 || classEnd < stopStart) return false;
++  const lifecycle = source.slice(closeStart, closeEnd) + "\n" + source.slice(stopStart, classEnd);
++  return createHash("sha256").update(lifecycle).digest("hex") === VERIFIED_MUSE_CLOSE;
++}
++
++/**
++ * Exclude DSH-only shell patches using product identity and source evidence.
++ * Unknown products and modified shutdown implementations retain normal drift
++ * diagnostics. A native exclusion is reported as not applicable, not applied.
++ */
++export function musePatchDisposition(patch, files, io) {
++  if (![45, 46, 83, 84].includes(patch?.id)) return null;
++  const entries = Array.isArray(files?.["desktop-shell"]) ? files["desktop-shell"] : [files?.["desktop-shell"]].filter(Boolean);
++  if (entries.length !== 1) return null;
++  const entry = path.resolve(entries[0]);
++  const productDir = path.dirname(path.dirname(entry));
++  let manifest;
++  try { manifest = JSON.parse(io.readFileSync(path.join(productDir, "package.json"), "utf8")); }
++  catch { return null; }
++  if (manifest.name !== "muse-med" || typeof manifest.main !== "string" || path.resolve(productDir, manifest.main) !== entry) return null;
++  if (patch.id === 45 || patch.id === 46) {
++    return { status: "na", reason: "muse_owns_desktop_updates", product: manifest.name, version: manifest.version, path: entry };
++  }
++  if (manifest.version !== "1.2.8") return null;
++  let source;
++  try { source = io.readFileSync(entry, "utf8"); }
++  catch { return null; }
++  if (!verifiedMuseClose(source)) return null;
++  return { status: "na", reason: "verified_native_muse_shutdown", product: manifest.name, version: manifest.version, path: entry, sha256: VERIFIED_MUSE_CLOSE };
++}
+diff --git a/lib/patches/engine.mjs b/lib/patches/engine.mjs
+index 1996fec..a797476 100644
+--- a/lib/patches/engine.mjs
++++ b/lib/patches/engine.mjs
+@@ -261,7 +261,9 @@ export const ENGINE_PATCHES = [
+     optional: true,
+     replacements: [
+       {
+-        pattern: '"--expose-internals",',
++        // Keep the original flag while excluding this patch's own expansion.
++        // A second apply must not add another max-header argument.
++        pattern: /"--expose-internals",(?![ \t]*\/\* \[dsh-purge\] raise-host-header-limit \*\/)/g,
+         replace:
+           '"--expose-internals", /* [dsh-purge] raise-host-header-limit */ "--max-http-header-size=262144",',
+       },
+diff --git a/lib/patches/new-tools.mjs b/lib/patches/new-tools.mjs
+index 0ff6cbc..ae7ffc0 100644
+--- a/lib/patches/new-tools.mjs
++++ b/lib/patches/new-tools.mjs
+@@ -399,7 +399,9 @@ export const NEW_TOOL_PATCHES = [
+     optional: true,
+     replacements: [
+       {
+-        pattern: 'if (merged.decision === "deny")',
++        // #65 leaves an intentional empty deny branch. Only target known
++        // rejection bodies, so reapply cannot rewrite that owned empty guard.
++        pattern: /if \(merged\.decision === "deny"\)(?= return \{ kind: "reject" \};| return \{\n\t\t\tkind: "(?:deny|block)",| \{\n\t\t\tconst text = merged\.reason \?\? "continue: blocked by Stop hook";)/g,
+         replace: 'if (merged.decision === "__dsh_purge_deny_disabled__") /* [dsh-purge] hooks deny→allow */',
+       },
+       {
+@@ -421,7 +423,7 @@ export const NEW_TOOL_PATCHES = [
+     optional: true,
+     replacements: [
+       {
+-        pattern: 'if (merged.decision === "deny")',
++        pattern: /if \(merged\.decision === "deny"\)(?= return \{ kind: "reject" \};| return \{\n\t\t\tkind: "(?:deny|block)",| \{\n\t\t\tconst text = merged\.reason \?\? "continue: blocked by Stop hook";)/g,
+         replace: 'if (merged.decision === "__dsh_purge_deny_disabled__") /* [dsh-purge] hooks deny→allow */',
+       },
+     ],
+@@ -690,6 +692,13 @@ export const NEW_TOOL_PATCHES = [
+         pattern: "\t\tconst transformed = await this.ctx.waterfall(scopeTarget(this, scope), \"system-prompt/assemble\", assembly, context, () => Promise.resolve(assembly));\n\t\tif (completeSection === void 0 && !runtimeContextSuppressed) return transformed;\n\t\tconst requiredContexts = new Set([...contextByName.values()].filter((entry) => entry.required === true).map((entry) => entry.name));\n\t\treturn {\n\t\t\t...transformed,\n\t\t\tsections: completeSection === void 0 ? transformed.sections : [completeSection],\n\t\t\tcontexts: runtimeContextSuppressed ? transformed.contexts.filter((entry) => requiredContexts.has(entry.name)) : transformed.contexts\n\t\t};",
+         replace: "\t\tconst transformed = await this.ctx.waterfall(scopeTarget(this, scope), \"system-prompt/assemble\", assembly, context, () => Promise.resolve(assembly));\n\t\tif (completeSection === void 0 && !runtimeContextSuppressed) return transformed;\n\t\tconst requiredContexts = new Set([...contextByName.values()].filter((entry) => entry.required === true).map((entry) => entry.name));\n\t\treturn {\n\t\t\t...transformed,\n\t\t\tsections: completeSection === void 0 ? transformed.sections : [completeSection, ...transformed.sections.filter(s => s.name !== completeSection.name && String(s.name || \"\").startsWith(\"dsh-purge\") && String(s.text || \"\").length > 0)], // [dsh-purge] complete preset still keeps the inject\n\t\t\tcontexts: runtimeContextSuppressed ? transformed.contexts.filter((entry) => requiredContexts.has(entry.name)) : transformed.contexts\n\t\t};",
+       },
++      {
++        // Muse 1.2.8 / DSH alpha.1 suppresses every runtime context. Keep that
++        // contract, the waterfall's tools, and complete-section authority;
++        // only retain the same explicit Purge sections as the rc.5 branch.
++        pattern: "\t\tconst transformed = await this.ctx.waterfall(scopeTarget(this, scope), \"system-prompt/assemble\", assembly, context, () => Promise.resolve(assembly));\n\t\tif (completeSection === void 0 && !runtimeContextSuppressed) return transformed;\n\t\treturn {\n\t\t\t...transformed,\n\t\t\tsections: completeSection === void 0 ? transformed.sections : [completeSection],\n\t\t\tcontexts: runtimeContextSuppressed ? [] : transformed.contexts\n\t\t};",
++        replace: "\t\tconst transformed = await this.ctx.waterfall(scopeTarget(this, scope), \"system-prompt/assemble\", assembly, context, () => Promise.resolve(assembly));\n\t\tif (completeSection === void 0 && !runtimeContextSuppressed) return transformed;\n\t\treturn {\n\t\t\t...transformed,\n\t\t\tsections: completeSection === void 0 ? transformed.sections : [completeSection, ...(Array.isArray(transformed.sections) ? transformed.sections : []).filter(s => s.name !== completeSection.name && String(s.name || \"\").startsWith(\"dsh-purge\") && String(s.text || \"\").length > 0)], // [dsh-purge] complete preset still keeps the inject (Muse alpha.1)\n\t\t\tcontexts: runtimeContextSuppressed ? [] : transformed.contexts\n\t\t};",
++      },
+     ],
+     forbid: ["dsh-purge:committed"],
+     markersAny: true,
+diff --git a/lib/patches/prompt.mjs b/lib/patches/prompt.mjs
+index f7ca7f5..d74b3f5 100644
+--- a/lib/patches/prompt.mjs
++++ b/lib/patches/prompt.mjs
+@@ -151,7 +151,10 @@ export const PATCHES = [
+     // 不参与 strictFiles 的硬判定，这样有没有这个预设都不会拖累 #43。
+     id: 76,
+     name: "PRESET_UNRESTRICTED_IDENTITY_STRIP",
+-    silentWhenMissing: true, // 预设里本来就没有官方身份行 = 已经干净，不是漂移
++    // This removes only the listed legacy strings. A preset without them is
++    // a no-op (skipped), not evidence that we removed an arbitrary identity.
++    silentWhenMissing: true,
++    settleWhenAbsent: true,
+     layer: "提示词",
+     layer_en: "Prompt",
+     desc: "用户自造 unrestricted 预设只去掉身份句（软补丁）/ soft strip for a user-made unrestricted preset",
+diff --git a/lib/reapply.js b/lib/reapply.js
+index 60d2ad8..bf08649 100644
+--- a/lib/reapply.js
++++ b/lib/reapply.js
+@@ -317,20 +317,25 @@ export async function reapplyInstalled(options = {}) {
+   if (!aiBase) return { ok: false, error: core.missingAiBaseMessage() };
+   // 刚解开的是官方原件。已经在用的目录仍先还原再按这一版重打。
+   const preserveClientBundles = options.preserveClientBundles !== false;
+-  // DSH 自升级会把宿主文件整个换成新版,但旁边老 bak 不变。此时直接 revertAll 会把当前新版
+-  // 写回成旧版 → 新旧混码直接崩。先把"原文无 dsh-purge marker 却和 bak 字节不同"的 bak
+-  // 刷到 current,再 revertAll 就不会毁掉新宿主,下面 applyPatches 把 marker 补回来。
++  // Check recorded backup/output hashes first. An unknown edit or host upgrade
++  // must not overwrite the backup or continue to restore shims.
+   if (!freshExtract) {
+     try {
+       const refreshed = core.refreshStaleBaksForUpgrade(aiBase);
++      if (refreshed.conflicts?.length) {
++        return {ok:false,error:"备份身份冲突，已保留当前文件和备份，请确认新基线后重试",backupConflicts:refreshed.conflicts};
++      }
+       if (refreshed.length) {
+         console.warn(`[dsh-purge] refreshed ${refreshed.length} stale bak(s) before revert:`, refreshed);
+       }
+     } catch (e) {
+-      console.warn("[dsh-purge] refresh stale bak failed:", String(e && e.message ? e.message : e));
++      return {ok:false,error:"无法核对备份身份，已停止重新应用："+String(e && e.message ? e.message : e)};
+     }
+   }
+   const reverted = freshExtract ? { reverted: [] } : await core.revertAll(aiBase, { preserveClientBundles });
++  if (reverted.errors?.length) {
++    return {ok:false,error:"还原失败，已停止后续应用并保留现场",backupConflicts:reverted.errors};
++  }
+   if (!freshExtract) await core.revertAllShims();
+   const multi = await core.applyPatchesAllHosts(core.ALL_PATCHES, { preserveClientBundles, forApply: true });
+   await core.patchAllShims();
+diff --git a/lib/restart-desktop.js b/lib/restart-desktop.js
+index 042d1cf..5715dcf 100644
+--- a/lib/restart-desktop.js
++++ b/lib/restart-desktop.js
+@@ -1,18 +1,19 @@
+ import fs from "node:fs";
+ import path from "node:path";
+ import { execFileSync, spawn } from "node:child_process";
++import { fileURLToPath } from "node:url";
+ 
+ const encoded = process.env.DSH_PURGE_RESTART;
+-if (!encoded) process.exit(1);
+-
+ let info;
+-try {
++if (encoded) try {
+   info = JSON.parse(encoded);
++  if (!info || typeof info !== "object" || Array.isArray(info)) throw new Error("Invalid restart payload");
+ } catch {
+   process.exit(1);
+ }
++if (!encoded && process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = 1;
+ 
+-const cleanup = Array.isArray(info.cleanup) ? info.cleanup : [];
++const cleanup = Array.isArray(info?.cleanup) ? info.cleanup : [];
+ const logPath = path.join(
+   process.env.TEMP || process.env.TMPDIR || "/tmp",
+   "dsh-purge-restart-desktop.log",
+@@ -77,21 +78,166 @@ function rmTree(dir) {
+   }
+ }
+ 
+-function pidsForImage(image) {
+-  const out = execFileSync("tasklist", ["/FI", `IMAGENAME eq ${image}`, "/FO", "CSV", "/NH"], {
+-    encoding: "utf8",
+-    windowsHide: true,
+-    timeout: 8000,
+-  });
+-  const pids = [];
+-  for (const line of String(out || "").split(/\r?\n/)) {
+-    const cols = line.split(",");
+-    const pid = Number(String(cols[1] || "").replace(/"/g, "").trim());
+-    if (pid) pids.push(pid);
++// Keep this block self-contained: uninstall copies this helper to a temporary
++// .mjs file. Never find/kill Windows processes by image name alone.
++export function normalizeWindowsExecutable(value) {
++  if (typeof value !== "string" || !value || /[\0\r\n]/.test(value) || !path.win32.isAbsolute(value)) {
++    throw new Error("A fully qualified Windows executable path is required");
++  }
++  let normalized = value.replace(/\//g, "\\");
++  if (normalized.startsWith("\\\\?\\UNC\\")) normalized = "\\\\" + normalized.slice(8);
++  else if (normalized.startsWith("\\\\?\\")) normalized = normalized.slice(4);
++  if (!/^(?:[a-z]:\\|\\\\[^\\]+\\[^\\]+\\)/i.test(normalized)) {
++    throw new Error("A drive-qualified or UNC executable path is required");
++  }
++  return path.win32.normalize(normalized).toLowerCase();
++}
++
++export function selectWindowsProcessRecords(records, exe) {
++  if (!Array.isArray(records)) throw new Error("Windows process inventory is not an array");
++  const wanted = normalizeWindowsExecutable(exe);
++  const name = path.win32.basename(wanted, path.win32.extname(wanted));
++  const selected = new Map();
++  for (const record of records) {
++    if (!record || typeof record !== "object") throw new Error("Invalid process identity");
++    if (String(record.name || "").toLowerCase() !== name) continue;
++    if (!record.executablePath) throw new Error(`Cannot identify ${name} PID ${record.pid}`);
++    if (normalizeWindowsExecutable(record.executablePath) !== wanted) continue;
++    if (!Number.isSafeInteger(record.pid) || record.pid <= 0 || typeof record.startTime !== "string" || !/^\d+$/.test(record.startTime)) {
++      throw new Error("Cannot verify target PID and creation time");
++    }
++    const previous = selected.get(record.pid);
++    if (previous && previous.startTime !== record.startTime) throw new Error("Conflicting process identity");
++    selected.set(record.pid, { pid: record.pid, startTime: record.startTime, executablePath: wanted, name });
++  }
++  return [...selected.values()];
++}
++
++function powershellValue(value) {
++  return `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${Buffer.from(value, "utf8").toString("base64")}'))`;
++}
++
++const windowsExitProbe = String.raw`function Test-ObservedExit($observed,[int]$observedId) {
++  try {if($observed.HasExited){return $true}} catch {}
++  # A failed handle/path query is not proof of exit. Confirm absence or an
++  # exited process using a new process object; access denial stays unknown.
++  for($attempt=0;$attempt -lt 2;$attempt++) {
++    $probe=$null
++    try {
++      $probe=[Diagnostics.Process]::GetProcessById($observedId)
++      if($probe.HasExited){return $true}
++      return $false
++    } catch [ArgumentException] {return $true}
++    catch {if($attempt -eq 1){return $false}}
++    finally {if($null -ne $probe){$probe.Dispose()}}
++  }
++  return $false
++}`;
++
++export function windowsProcessListScript(exe) {
++  normalizeWindowsExecutable(exe);
++  return String.raw`$ErrorActionPreference='Stop'
++[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
++$target=${powershellValue(exe)}
++$name=[IO.Path]::GetFileNameWithoutExtension($target)
++${windowsExitProbe}
++$rows=@()
++foreach($item in @(Get-Process)) {
++  if(-not [string]::Equals($item.ProcessName,$name,[StringComparison]::OrdinalIgnoreCase)){continue}
++  try {
++    [void]$item.Handle
++    if($item.HasExited){continue}
++    $file=$item.MainModule.FileName
++    if(-not $file){throw 'Executable path is unavailable'}
++    $rows+=[pscustomobject]@{pid=$item.Id;name=$item.ProcessName;executablePath=$file;startTime=$item.StartTime.ToUniversalTime().Ticks.ToString()}
++  } catch {
++    if(Test-ObservedExit $item $item.Id){continue}
++    throw ('Cannot identify desktop process PID '+$item.Id+': '+$_.Exception.Message)
++  } finally {$item.Dispose()}
++}
++ConvertTo-Json -InputObject @($rows) -Compress`;
++}
++
++export function windowsTerminateScript(exe, records) {
++  const selected = selectWindowsProcessRecords(records, exe);
++  return String.raw`$ErrorActionPreference='Stop'
++[Console]::OutputEncoding=[Text.UTF8Encoding]::new($false)
++$target=${powershellValue(normalizeWindowsExecutable(exe))}
++$targets=ConvertFrom-Json -InputObject (${powershellValue(JSON.stringify(selected))})
++${windowsExitProbe}
++function Normalize-Exe([string]$value) {
++  $file=[IO.Path]::GetFullPath($value).Replace('/','\')
++  if($file.StartsWith('\\?\UNC\',[StringComparison]::OrdinalIgnoreCase)){$file='\\'+$file.Substring(8)}
++  elseif($file.StartsWith('\\?\',[StringComparison]::OrdinalIgnoreCase)){$file=$file.Substring(4)}
++  return $file.ToLowerInvariant()
++}
++foreach($item in @($targets)) {
++  try {$p=[Diagnostics.Process]::GetProcessById([int]$item.pid)}
++  catch [ArgumentException] {continue}
++  try {
++    # Hold a handle while checking identity and terminating, so PID reuse cannot
++    # redirect the termination to a newly created process.
++    [void]$p.Handle
++    if($p.HasExited){continue}
++    $actual=Normalize-Exe $p.MainModule.FileName
++    $stamp=$p.StartTime.ToUniversalTime().Ticks.ToString()
++    if(-not [string]::Equals($actual,$target,[StringComparison]::OrdinalIgnoreCase) -or $stamp -ne [string]$item.startTime){throw ('Desktop process identity changed for PID '+$item.pid)}
++    $p.Kill()
++  } catch {
++    $failure=$_
++    if(Test-ObservedExit $p $item.pid){continue}
++    throw $failure
++  } finally {$p.Dispose()}
++}
++# A caught GetProcessById failure can leave $? false. A fully handled exit is
++# success; unhandled identity/access errors terminate before this statement.
++exit 0`;
++}
++
++/** Keep the operating-system reason without logging the generated command. */
++export function formatRestartError(error) {
++  const headline=String(error?.message || error).split(/\r?\n/,1)[0].slice(0,1024);
++  const stderr=error?.stderr ?? error?.output?.[2];
++  const stdout=error?.stdout ?? error?.output?.[1];
++  const facts=[headline];
++  if(error?.restartStage)facts.push(`stage=${error.restartStage}`);
++  if(error?.code != null)facts.push(`code=${error.code}`);
++  if(error?.status != null)facts.push(`status=${error.status}`);
++  if(error?.signal != null)facts.push(`signal=${error.signal}`);
++  if(stdout!=null&&String(stdout).trim())facts.push(`stdout=${String(stdout).replace(/\0/g, "").trim().slice(0,4096)}`);
++  if(stderr!=null&&String(stderr).trim())facts.push(`stderr=${String(stderr).replace(/\0/g, "").trim().slice(0,4096)}`);
++  return facts.join("; ");
++}
++
++function runWindowsProcessScript(script, io = {}, stage) {
++  if(info)log(`process stage=${stage} entry=${fileURLToPath(import.meta.url)}`);
++  try {
++    return (io.execFileSync || execFileSync)("powershell.exe", ["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", script], {
++      encoding: "utf8", windowsHide: true, timeout: 12000, stdio: ["ignore", "pipe", "pipe"],
++    });
++  } catch(error) {
++    error.restartStage=stage;
++    throw error;
+   }
+-  return pids;
+ }
+ 
++export function readWindowsDesktopProcesses(exe, io = {}) {
++  const output = runWindowsProcessScript(windowsProcessListScript(exe), io, "enumerate");
++  let records;
++  try {records=JSON.parse(String(output || "").replace(/^\uFEFF/, "").trim());}
++  catch {throw new Error("Cannot parse Windows desktop process inventory");}
++  return selectWindowsProcessRecords(records, exe);
++}
++
++export function terminateWindowsDesktopProcesses(exe, records, keepPids = [], io = {}) {
++  const keep = new Set(keepPids);
++  const selected = selectWindowsProcessRecords(records, exe).filter(record => !keep.has(record.pid));
++  if (selected.length) runWindowsProcessScript(windowsTerminateScript(exe, selected), io, "terminate");
++  return selected.map(record => record.pid);
++}
++
++let windowsRestartSnapshot;
++
+ function darwinBundleOf(exe) {
+   const n = String(exe || "").replace(/\\/g, "/");
+   const m = n.match(/^(.*\.app)\/Contents\/MacOS\//i);
+@@ -181,19 +327,10 @@ function listPosixPids(exe) {
+   return [...new Set(pids)];
+ }
+ 
+-function listDesktopPids(exe = info.execPath) {
++function listDesktopPids(exe = info?.execPath) {
+   if (process.platform === "darwin") return listDarwinPids(exe);
+   if (process.platform !== "win32") return listPosixPids(exe);
+-  const images = ["DeepSeek Harness.exe", "DSH Desktop.exe"];
+-  const pids = [];
+-  for (const image of images) {
+-    try {
+-      pids.push(...pidsForImage(image));
+-    } catch {
+-      // 该进程名不存在
+-    }
+-  }
+-  return pids;
++  return readWindowsDesktopProcesses(exe).map(record => record.pid);
+ }
+ 
+ function signalPids(pids, signal) {
+@@ -260,6 +397,10 @@ async function quitDarwinDesktop(exe) {
+ }
+ 
+ function killOtherDesktopProcesses(keepPid, exe = info.execPath) {
++  if (process.platform === "win32") {
++    if (!windowsRestartSnapshot) throw new Error("Desktop process identities were not captured before restart");
++    return terminateWindowsDesktopProcesses(exe, windowsRestartSnapshot, [keepPid, process.pid]);
++  }
+   for (const pid of listDesktopPids(exe)) {
+     if (pid === keepPid || pid === process.pid) continue;
+     try {
+@@ -417,6 +558,14 @@ function relaunchDesktop() {
+   }
+ }
+ 
++async function performRestart() {
++log(`restart begin entry=${fileURLToPath(import.meta.url)} executable=${process.execPath}`);
++if (process.platform === "win32") {
++  const realExecutable = fs.realpathSync(info.execPath);
++  if (!fs.statSync(realExecutable).isFile()) throw new Error("Target desktop executable is not a file");
++  info.execPath = realExecutable;
++  windowsRestartSnapshot = readWindowsDesktopProcesses(realExecutable);
++}
+ let asarReleased = true;
+ if (info.killApp) {
+   // #85: 先杀 Electron,再 sleep + cleanup。原顺序 sleep 400ms 开头 →
+@@ -430,6 +579,7 @@ if (info.killApp) {
+     await sleep(500);
+     // 二次保险:再杀一次,防第一次漏掉的 pid
+     killOtherDesktopProcesses(process.pid);
++    if (!await waitDesktopGone(info.execPath, 8000)) throw new Error("Target desktop is still running; refusing cleanup or relaunch");
+   } else {
+     await quitPosixDesktop(info.execPath);
+   }
+@@ -445,6 +595,9 @@ if (info.killApp) {
+ } else {
+   const gone = await waitPidGone(info.pid);
+   if (!gone) process.exit(1);
++  if (process.platform === "win32" && !await waitDesktopGone(info.execPath, 8000)) {
++    throw new Error("Target desktop did not finish shutting down; refusing cleanup or relaunch");
++  }
+   for (const dir of cleanup) rmTree(dir);
+   if (info.helper) {
+     try {
+@@ -470,6 +623,15 @@ if (!info.execPath) process.exit(1);
+ relaunchDesktop();
+ await sleep(400);
+ process.exit(0);
++}
++
++if (info) {
++  try { await performRestart(); }
++  catch (error) {
++    log(`restart failed: ${formatRestartError(error)}`);
++    process.exitCode = 1;
++  }
++}
+ 
+ // BEGIN standalone no-follow cleanup (checked against lib/remove-tree.js)
+ function removeTreeNoFollowSync(target, options = {}) {
+diff --git a/package.json b/package.json
+index 1e4cdd1..659e5ea 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "dsh-purge-community",
+-  "version": "1.6.86",
++  "version": "1.6.86-muse.1",
+   "description": "让 AI 更专注地辅助学习与动手实验：DSH 附加组件，提供状态自检、提示词与规则管理、本机备份与回滚。",
+   "type": "module",
+   "main": "lib/index.js",
+@@ -101,7 +101,7 @@
+       "git": "https://github.com/kingcharleslzy-ai/dsh-purge.git"
+     },
+     "compatibility": {
+-      "dsh": ">=0.2.1-rc.1 <0.3.0",
++      "dsh": ">=0.2.1-rc.1 <0.3.0 || 0.2.1-alpha.1",
+       "profiles": [
+         "desktop",
+         "web"
+@@ -112,7 +112,8 @@
+         "0.2.1-rc.3": "compatible",
+         "0.2.1-rc.4": "unknown",
+         "0.2.1-rc.5": "compatible",
+-        "0.2.2-alpha.2": "unknown"
++        "0.2.2-alpha.2": "unknown",
++        "0.2.1-alpha.1": "unknown"
+       }
+     }
+   },
+@@ -120,12 +121,12 @@
+     "access": "public"
+   },
+   "peerDependencies": {
+-    "@deepseek-ai/cordis": "^4.0.1"
++    "@deepseek-ai/cordis": "^4.0.1 || 4.0.5-alpha.1"
+   },
+   "engines": {
+     "node": ">=18"
+   },
+-  "dshTarget": "0.2.1-rc.1 (runtime injection + host patches verified)",
++  "dshTarget": "Muse 1.2.8 isolated candidate; DSH 0.2.1-alpha.1 interface tested",
+   "contributors": [
+     "小杨 / YuJunZhiXue (original dsh-purge author)",
+     {
+@@ -162,5 +163,12 @@
+   },
+   "devDependencies": {
+     "@deepseek-ai/cordis": "4.0.5"
++  },
++  "museAdapter": {
++    "upstreamVersion": "1.6.86",
++    "upstreamReleaseSha256": "6dd569142dfdfc0fe33199d84454426bee3dde36b4e2b56a9f6bff46bf72784b",
++    "targetProduct": "muse-med",
++    "targetVersion": "1.2.8",
++    "validation": "isolated candidate; full desktop acceptance pending"
+   }
+ }
+diff --git a/scripts/sync-muse-client-version.mjs b/scripts/sync-muse-client-version.mjs
+new file mode 100644
+index 0000000..3ddbaf3
+--- /dev/null
++++ b/scripts/sync-muse-client-version.mjs
+@@ -0,0 +1,18 @@
++import fs from 'node:fs';
++import {fileURLToPath} from 'node:url';
++
++const manifest=JSON.parse(fs.readFileSync(new URL('../package.json',import.meta.url),'utf8'));
++const original=manifest.museAdapter?.upstreamVersion;
++const version=manifest.version;
++if(!/^\d+\.\d+\.\d+$/.test(original||'')||!version.startsWith(original+'-muse.'))throw Error('Not a pinned Muse adaptation');
++const file=fileURLToPath(new URL('../client.js',import.meta.url));
++let source=fs.readFileSync(file,'utf8');
++const literals=[['"'+original+'"','"'+version+'"',4],['\\u793E\\u533A\\u7248 '+original+'"','\\u793E\\u533A\\u7248 '+version+'"',1]];
++for(const [before,after,expected] of literals){
++  const count=source.split(before).length-1;
++  if(count===0&&source.split(after).length-1===expected)continue;
++  if(count!==expected)throw Error('Unknown client version layout; rebuild or review before editing');
++  source=source.split(before).join(after);
++}
++if(source!==fs.readFileSync(file,'utf8'))fs.writeFileSync(file,source);
++console.log('Client version: '+version);
