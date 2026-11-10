@@ -57,6 +57,12 @@ Encrypted tracks use the supplied offline modules through [python/decrypt.py](py
 
 The bundled patch reads the source, Java and Python paths from `MUSE_HONGGUO_LEGACY_APP_DIR`, `MUSE_HONGGUO_JAVA_PATH` and `MUSE_HONGGUO_PYTHON_PATH`; `MUSE_HONGGUO_BOOTSTRAP_DEVICES=1` enables the original generator for a generic source installation. Desktop supplies these entries. Media paths use `DSH_FFMPEG_PATH` / `DSH_FFPROBE_PATH`, with `FFMPEG_PATH` / `FFPROBE_PATH` as alternatives. The standalone tarball includes both Python bridges but excludes Java, original bytecode, saved device configuration and tokens. Desktop distributes its independently locked runtime; [SOURCE.json](SOURCE.json) records the source fingerprints and owning lock.
 
+## Internal v2 transport
+
+[`V2EngineClient`](src/v2-engine.js) provides internal NDJSON communication with a caller-specified process. Callers supply its arguments, environment, working directory and limits. It validates protocol-2 startup, associates replies with requests, and owns cancellation and process/pipe cleanup. Errors contain fixed diagnostics rather than raw engine messages; an unconfirmed shutdown fails explicitly.
+
+The download tools do not select this module as a backend. It makes no device or license decisions, so callers must preserve the original authorization checks. Transport tests use fake subprocesses; they establish neither v2 runtime compatibility nor successful media downloads.
+
 ## Validation
 
 Run `npm test` and `npm run check` in the plugin directory. Run `python3.11 -I -B -m unittest discover -s tests -p 'test_*.py'` for the bridge; these tests create isolated bytecode fixtures and never load the user's original modules or make platform requests. `node scripts/pack.mjs --out /absolute/output/directory` produces a tarball. Original-source acceptance must download at least two complete declared lists and fully decode every requested episode. Run `npm run test:live` from this workspace with `MUSE_HONGGUO_LIVE_IDS` containing at least two comma-separated real series IDs and the documented source/runtime environment settings; it uses the real managed subprocess provider and writes `live-evidence.json`. Validate retained and newly initialized private device configurations separately: a successful retained device does not establish new-install availability. Initialization creates local fields; it does not verify platform acceptance. Public previews and authorized catalogs must be recorded separately from original-source multi-series acceptance.

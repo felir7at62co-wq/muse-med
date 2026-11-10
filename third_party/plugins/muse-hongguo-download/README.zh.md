@@ -57,6 +57,12 @@ Muse Desktop 内置本地 Java 17、CPython 3.11、PyCryptodome、签名素材�
 
 内置 patch 从 `MUSE_HONGGUO_LEGACY_APP_DIR`、`MUSE_HONGGUO_JAVA_PATH` 和 `MUSE_HONGGUO_PYTHON_PATH` 读取源码、Java 和 Python 路径；`MUSE_HONGGUO_BOOTSTRAP_DEVICES=1` 为通用源码安装启用原设备生成器。Desktop 提供这些配置。媒体路径读取 `DSH_FFMPEG_PATH` / `DSH_FFPROBE_PATH`，也可用 `FFMPEG_PATH` / `FFPROBE_PATH`。独立 tarball 包含两个 Python 桥接脚本，不含 Java、原字节码、已保存的设备配置和令牌。Desktop 分发独立锁定的运行时；[SOURCE.json](SOURCE.json) 记录源码指纹及所属锁定文件。
 
+## 内部 v2 通信
+
+[`V2EngineClient`](src/v2-engine.js) 为调用方指定的进程提供内部 NDJSON 通信。调用方提供进程参数、环境变量、工作目录及各项限制。它校验协议 2 启动握手，将响应与请求对应，并负责取消及进程、管道的清理。错误使用固定诊断，不包含引擎原始消息；无法确认进程退出时明确失败。
+
+下载工具没有选择此模块作为后端。它不决定设备或许可状态，调用方必须保留原有授权检查。通信测试使用模拟子进程，不能证明 v2 运行时兼容或媒体下载成功。
+
 ## 开发验证
 
 在此插件目录运行 `npm test` 和 `npm run check`。运行 `python3.11 -I -B -m unittest discover -s tests -p 'test_*.py'` 检查桥接；这些测试创建独立字节码样本，不加载用户原模块，也不发送平台请求。`node scripts/pack.mjs --out /绝对输出目录` 打包当前版本。原源验收必须下载至少两部完整声明列表，并对每个请求集完整解码。在此工作区配置前述原源和运行时环境变量，将至少两个真实 ID 以逗号分隔设为 `MUSE_HONGGUO_LIVE_IDS`，再运行 `npm run test:live`；它使用真实受管子进程服务并写出 `live-evidence.json`。已保留的私有设备与新初始化的私有设备须分别验证：旧设备成功不代表新安装可用。初始化只创建本地字段，不验证平台是否接受。公开试看及授权目录测试必须与真实原源多部全集验收分别记录。
