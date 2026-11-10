@@ -1,6 +1,7 @@
 /** Bounded, read-only client for official public Hongguo metadata pages. */
 import { setTimeout as delay } from 'node:timers/promises';
-import { BOARDS, ORIGIN, parseRanking, parseDetail, parseSearch, IncompletePageError } from './parser.js';
+import { BOARDS, ORIGIN, SEARCH_WINDOW_LIMIT, parseRanking, parseDetail, parseSearchResponse,
+  IncompletePageError, SearchUnavailableError } from './parser.js';
 
 const DEFAULTS = Object.freeze({ requestTimeoutMs: 15000, maxResponseBytes: 8388608, cacheTtlMs: 300000, maxPages: 5, requestIntervalMs: 1000, maxCacheEntries: 128, incompletePageRetries: 2 });
 const LIMITS = { requestTimeoutMs: [100, 120000], maxResponseBytes: [1024, 33554432], cacheTtlMs: [0, 3600000], maxPages: [1, 20], requestIntervalMs: [0, 60000], maxCacheEntries: [1, 1024], incompletePageRetries: [0, 4] };
@@ -105,9 +106,18 @@ export class HongguoClient {
   dispose() { this.lifetime.abort(); this.cache.clear(); }
 
   async page(path, refresh, signal) {
+    const value = await this.readPage(path, refresh, signal, 'html');
+    const { body, ...metadata } = value;
+    return { ...metadata, html: body };
+  }
+
+  async readPage(path, refresh, signal, format) {
     assertRefresh(refresh);
     const url = new URL(path, ORIGIN);
-    if (url.origin !== ORIGIN || !/^\/(rank\/hot-(?:drama|real-drama|ai-drama|comic-drama)|detail|search\/[^/]+)$/.test(url.pathname)) throw new Error('Only supported official public URLs are allowed');
+    const allowed = format === 'json' ? url.pathname === '/api/search/result'
+      && [...url.searchParams.keys()].length === 1 && url.searchParams.has('query')
+      : format === 'html' && /^\/(rank\/hot-(?:drama|real-drama|ai-drama|comic-drama)|detail|search\/[^/]+)$/.test(url.pathname);
+    if (url.origin !== ORIGIN || !allowed || url.username || url.password || url.hash) throw new Error('Only supported official public URLs are allowed');
     const activeSignal = signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal;
     activeSignal.throwIfAborted();
     const cached = this.cache.get(url.href);
@@ -124,15 +134,22 @@ export class HongguoClient {
       if (wait > 0) await delay(wait, undefined, { signal: activeSignal });
       this.lastRequestAt = this.now();
       const requestSignal = AbortSignal.any([activeSignal, AbortSignal.timeout(this.config.requestTimeoutMs)]);
-      const response = await this.fetch(url.href, { signal: requestSignal, redirect: 'error', headers: { accept: 'text/html', 'user-agent': 'Muse-Hongguo-Search/0.1 (+https://github.com/felir7at62co-wq/muse-hongguo-serch)' } });
+      const response = await this.fetch(url.href, { signal: requestSignal, redirect: 'error', credentials: 'omit', headers: { accept: format === 'json' ? 'application/json' : 'text/html', 'user-agent': 'Muse-Hongguo-Search/0.1 (+https://github.com/felir7at62co-wq/muse-hongguo-serch)' } });
       const rejectResponse = async message => { await response.body?.cancel(); throw new Error(message); };
       if (!response.ok) await rejectResponse(`Official site HTTP ${response.status}`);
       if (response.redirected || (response.url && new URL(response.url).origin !== ORIGIN)) await rejectResponse('Unexpected response redirect');
       const contentType = response.headers.get('content-type') ?? '';
-      if (!contentType.toLowerCase().includes('text/html')) await rejectResponse('Expected a public HTML page');
+      if (format === 'json' ? !/^application\/json(?:\s*;|$)/iu.test(contentType) : !contentType.toLowerCase().includes('text/html')) {
+        await response.body?.cancel();
+        if (format === 'json') throw new SearchUnavailableError('The official keyword endpoint did not return public JSON; an HTML shell or verification page is not a zero-result response.');
+        throw new Error('Expected a public HTML page');
+      }
       const contentLength = Number(response.headers.get('content-length'));
       if (Number.isFinite(contentLength) && contentLength > this.config.maxResponseBytes) { await response.body?.cancel(); throw new Error('Response exceeds maxResponseBytes'); }
-      if (!response.body) throw new Error('Empty HTML response');
+      if (!response.body) {
+        if (format === 'json') throw new SearchUnavailableError('The official keyword endpoint returned no JSON body; this does not establish zero matches.');
+        throw new Error('Empty HTML response');
+      }
       const reader = response.body.getReader();
       const chunks = [];
       let size = 0;
@@ -148,8 +165,8 @@ export class HongguoClient {
       } catch (error) { await reader.cancel().catch(() => {}); throw error; }
       finally { reader.releaseLock(); }
       requestSignal.throwIfAborted();
-      const html = Buffer.concat(chunks).toString('utf8');
-      const value = { html, sourceUrl: url.href, fetchedAt: new Date(this.now()).toISOString(), fromCache: false };
+      const body = Buffer.concat(chunks).toString('utf8');
+      const value = { body, sourceUrl: url.href, fetchedAt: new Date(this.now()).toISOString(), fromCache: false };
       if (this.config.cacheTtlMs > 0) {
         this.cache.delete(url.href);
         this.cache.set(url.href, { at: this.now(), value });
@@ -213,9 +230,16 @@ export class HongguoClient {
     if (typeof options?.query !== 'string' || !options.query.trim() || options.query.length > 100) throw new TypeError('query must be 1..100 characters');
     const query = options.query.trim();
     if (/[\u0000-\u001f\u007f]/.test(query)) throw new TypeError('query must not contain control characters');
-    const { limit, offset } = pagination({ ...options, limit: options.limit ?? 10 });
-    if (limit > 10) throw new TypeError('search limit must be 1..10');
-    const { fetched, parsed } = await this.loadParsed(`/search/${encodeURIComponent(query)}`, options.refresh, parseSearch, { query }, signal);
+    const { limit, offset } = pagination({ ...options, limit: options.limit ?? SEARCH_WINDOW_LIMIT });
+    if (limit > SEARCH_WINDOW_LIMIT) throw new TypeError('search limit must be 1..10');
+    const fetched = await this.readPage(`/api/search/result?query=${encodeURIComponent(query)}`, options.refresh, signal, 'json');
+    signal?.throwIfAborted(); this.lifetime.signal.throwIfAborted();
+    let value;
+    try { value = JSON.parse(fetched.body); }
+    catch (error) { this.cache.delete(fetched.sourceUrl); void error; throw new SearchUnavailableError('The official keyword JSON could not be decoded; retry later instead of treating it as zero matches.'); }
+    let parsed;
+    try { parsed = parseSearchResponse(value, { query, sourceUrl: fetched.sourceUrl, fetchedAt: fetched.fetchedAt }); }
+    catch (error) { this.cache.delete(fetched.sourceUrl); throw error; }
     return { scope: 'public_keyword_search_initial_window', query, items: parsed.items.slice(offset, offset + limit), availableInWindow: parsed.items.length, sourceReportedTotal: parsed.sourceReportedTotal, offset, limit, sourceUrl: fetched.sourceUrl, fetchedAt: fetched.fetchedAt, fromCache: fetched.fromCache,
       complete: false, truncated: parsed.sourceReportedTotal !== null && Number(parsed.sourceReportedTotal) > parsed.items.length, note: '官网关键词搜索首屏结果（当前最多10条），可能含语义推荐，不保证精确标题匹配；offset/limit 只切分已返回窗口，未验证搜索翻页，不保证全量命中。' };
   }

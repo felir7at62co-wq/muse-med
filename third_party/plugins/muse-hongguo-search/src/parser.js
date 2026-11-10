@@ -1,6 +1,17 @@
 /** Parse only JSON data embedded in public Hongguo pages; never execute page scripts. */
 export const ORIGIN = 'https://hongguoduanju.com';
 export const BOARDS = Object.freeze(['hot-drama', 'hot-real-drama', 'hot-ai-drama', 'hot-comic-drama']);
+/** The official keyword endpoint's first window; later pages are not enumerated by this plugin. */
+export const SEARCH_WINDOW_LIMIT = 10;
+
+/** Public search did not provide a complete, usable response; this is never an empty-result assertion. */
+export class SearchUnavailableError extends Error {
+  constructor(reason) {
+    super(`HONGGUO_SEARCH_UNAVAILABLE: ${reason}`);
+    this.name = 'SearchUnavailableError';
+    this.code = 'HONGGUO_SEARCH_UNAVAILABLE';
+  }
+}
 
 export class IncompletePageError extends Error {
   constructor() { super('Public page ended before its streamed data completed'); this.name = 'IncompletePageError'; }
@@ -246,18 +257,55 @@ export function parseDetail(html, { seriesId, sourceUrl, fetchedAt }) {
 export function parseSearch(html, { query, sourceUrl, fetchedAt }) {
   const data = routeData(html, 'search_(keyword)/page');
   if (data.isSuccess !== true || !Array.isArray(data.searchList) || data.query !== query) throw new Error('Search data unavailable or query mismatch');
+  return { items: searchItems(data.searchList, { sourceUrl, fetchedAt }, html), sourceReportedTotal: typeof data.totalCount === 'string' ? data.totalCount : null };
+}
+
+function searchItems(rows, { sourceUrl, fetchedAt }, html) {
   const items = [];
-  for (const row of data.searchList) {
+  for (const row of rows) {
     if (!record(row) || row.doc_type !== 23 || !record(row.video_data)) continue;
     const video = row.video_data;
     if (!video.series_id) continue;
     const item = baseItem({ ...video, series_name: video.series_title ?? row.name,
       tags: Array.isArray(video.category_list) ? video.category_list.map(x => typeof x === 'string' ? x : x?.name).filter(x => typeof x === 'string') : [] });
-    item.watchPageUrl = sourceWatchLink(html, item.seriesId);
+    if (html !== undefined) item.watchPageUrl = sourceWatchLink(html, item.seriesId);
     items.push({ ...item, episodeCount: Number.isSafeInteger(video.episode_cnt) ? video.episode_cnt : null,
       episodeStatus: text(video.episode_right_text) || null, collection: parseCount(video.favorite_text),
       likes: parseCount(video.like_text, '点赞'), heat: parseCount(video.hot_score_data?.text, '热度'),
       sourceUrl, fetchedAt });
   }
-  return { items: [...new Map(items.map(item => [item.seriesId, item])).values()], sourceReportedTotal: typeof data.totalCount === 'string' ? data.totalCount : null };
+  return [...new Map(items.map(item => [item.seriesId, item])).values()];
+}
+
+/** Parse only the official unauthenticated keyword JSON; reject shells, restrictions and contradictory empty pages. */
+export function parseSearchResponse(data, { query, sourceUrl, fetchedAt }) {
+  const fail = reason => { throw new SearchUnavailableError(reason); };
+  if (!record(data) || !Array.isArray(data.searchList)) fail('The official keyword response has no searchList; retry later or use the normal official search page.');
+  if (['code', 'Code', 'status_code'].some(key => Object.hasOwn(data, key) && data[key] !== 0 && data[key] !== '0')
+    || record(data.BaseResp) && Object.hasOwn(data.BaseResp, 'StatusCode') && ![0, '0'].includes(data.BaseResp.StatusCode)
+    || ['isSuccess', 'success'].some(key => Object.hasOwn(data, key) && data[key] !== true)) {
+    fail('The official keyword endpoint reported a failure or access restriction; complete any normal website verification outside this tool.');
+  }
+  if (Object.hasOwn(data, 'query') && data.query !== query) fail('The official keyword response belongs to another query.');
+  if (typeof data.totalCount !== 'string' && typeof data.totalCount !== 'number') fail('The official keyword total is absent or unsupported.');
+  const countText = typeof data.totalCount === 'string' ? data.totalCount : String(data.totalCount);
+  const total = /^\d+$/u.test(countText) ? Number(countText) : NaN;
+  if (!Number.isSafeInteger(total) || total < 0 || data.pageNum !== 1 || !Number.isSafeInteger(data.totalPages)
+    || data.totalPages < 0 || typeof data.hasMore !== 'boolean' || data.searchList.length > SEARCH_WINDOW_LIMIT) {
+    fail('The official keyword response has missing, unsafe or unsupported first-page metadata.');
+  }
+  if (total === 0 ? data.searchList.length !== 0 || data.hasMore || data.totalPages > 1
+    : data.searchList.length === 0 || data.searchList.length > total || data.totalPages < 1
+      || data.hasMore !== (data.totalPages > 1) || data.hasMore && total <= data.searchList.length
+      || !data.hasMore && total > data.searchList.length) {
+    fail('The official keyword counts and page contents disagree; missing data cannot be reported as zero results.');
+  }
+  if (data.searchList.some(row => !record(row) || row.doc_type === 23 && (!record(row.video_data) || !row.video_data.series_id))) {
+    fail('The official keyword response contains an incomplete drama record.');
+  }
+  let items;
+  try { items = searchItems(data.searchList, { sourceUrl, fetchedAt }); }
+  catch (error) { void error; fail('The official keyword response contains an invalid drama ID or title.'); }
+  if (total > 0 && items.length === 0) fail('The returned keyword window contains no usable drama records; this does not establish zero matches.');
+  return { items, sourceReportedTotal: countText };
 }

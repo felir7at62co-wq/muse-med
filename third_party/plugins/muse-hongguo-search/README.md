@@ -2,11 +2,11 @@
 
 > 仓库保留已交付 v0.1.0 原包及其校验值；该原包与恢复记录见 [发布恢复说明](https://github.com/felir7at62co-wq/muse-hongguo-serch/blob/main/RECOVERY.md)。下文描述当前工作区源码。
 
-独立、可安装的 Muse / DeepSeek Harness（DSH）Cordis 插件。只读红果官方公开网页，提供关键词搜索、剧集详情、榜单汇总和收藏数筛选；无需登录、Cookie、API Key 或第三方签名服务，不下载视频。
+独立、可安装的 Muse / DeepSeek Harness（DSH）Cordis 插件。只读红果官网公开搜索 JSON 与详情、榜单网页，提供关键词搜索、剧集详情、榜单汇总和收藏数筛选；无需登录、Cookie、API Key 或第三方签名服务，不下载视频。
 
 ## 能做什么
 
-- `hongguo_search`：官方关键词搜索首屏，当前最多 10 条；可以发现不在热播榜里的剧，可能包含语义推荐
+- `hongguo_search`：读取官网 `/api/search/result` 的关键词搜索首屏，当前最多 10 条；可以发现不在热播榜里的剧，可能包含语义推荐
 - `hongguo_detail`：按字符串 `seriesId` 查询剧名、简介、演员、集数、收藏、点赞、热度和评分
 - `hongguo_rankings`：读取综合、真人、AI、漫剧四个热播榜，默认遍历每榜全部 5 页，而不是只读首页
 - `hongguo_collections`：在上述榜单覆盖范围内筛选收藏数，默认阈值 1,000,000；保留原文、来源、时间、跨榜冲突和待核实条目
@@ -76,7 +76,7 @@ return { coverage: result.coverage, count: result.totalMatched, dramas: result.i
 - 榜单：`boards`（默认全部）；可选 `hot-drama`、`hot-real-drama`、`hot-ai-drama`、`hot-comic-drama`
 - 收藏筛选：`minCollections`（默认 1000000）、`includeUncertain`（默认 false）、`boards`、`limit`（1–400，默认 20）、`offset`
 
-搜索只返回官网首屏实际可获得的数据。`sourceReportedTotal` 是网页宣称的总量，`availableInWindow` 是本次可用条数；两者不能混为一谈。未验证公开搜索分页，`offset` 只切分已抓取窗口，`complete` 固定 false。
+搜索通过同站公开 JSON 接口读取首屏实际结果，不依赖初始 HTML 中的搜索数据或浏览器 Cookie、Token、签名。HTTP 200 的 HTML 壳页、错误或不完整 JSON 都明确失败，不解释为零结果。`sourceReportedTotal` 是网页宣称的总量，`availableInWindow` 是本次可用条数；两者不能混为一谈。只验证首屏读取，`offset` 只切分已抓取窗口，不跟随公开分页，`complete` 固定 false；不能将来源总数或页数当成已取得数量。
 
 榜单返回 `coverage.pagesFetched/pagesExpected/uniqueSeries/complete/failures/truncated/pages`。`coverage.complete: true` 只表示所选榜单当前公开分页已读完，不表示指标齐全或全平台片库。任何失败或配置截断都会明确标记；所有页面失败会报错。抓取并非同一时点的事务快照。
 
