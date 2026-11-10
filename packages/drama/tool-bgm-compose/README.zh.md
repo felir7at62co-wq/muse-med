@@ -51,6 +51,8 @@ kind: "package-reference"
 
 ### 计划与方法
 
+计划字段错误会报告 schema 路径和期望值，例如 `episodes[0].episode`。集号为字符串，`body_duration_seconds` 来自所选时间线，每段须提供 `track`、`source`、起止秒数和 `reason`。格式错误不会发布媒体或修改计划；修正指明的字段后再重试。
+
 计划使用 `episodes[].segments[]`。选中集声明 `body_duration_seconds`、可选 `crossfade_seconds`，以及有序段落；每段包含 `track`、`source`、`start_seconds`、`end_seconds` 与非空 `reason`。段落可以冻结 `source_start_seconds` 和 `source_sha256`；`valence` 与 `arousal` 可保留候选实测值，但不会调用 `bgm_match`。
 
 可选 `tags`、`story_context`、`dialogue_context` 和 `transition_reason` 将实选标签、情节发展、对白含义及较大音乐变化的依据保留到分析段落与合成记录。R6 提醒实测情绪距离或标签差异超出配置的相接段落。缺少元数据不能证明衔接合格；剧情转折说明依据但不清除提示。无音乐间隔不视为直接换曲。这些检查不理解对白，也不认证听感适配。

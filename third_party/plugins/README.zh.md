@@ -21,6 +21,8 @@ pnpm --dir third_party/plugins/toolchain run test:im
 
 [build.mjs](build.mjs) 按独立的[工具链锁文件](toolchain/pnpm-lock.yaml)执行冻结安装并禁用安装脚本，再在临时目录中逐个编译和打包插件。`--only dsh-ffmpeg` 可选择单个源码目录。临时目录链接当前仓库已构建的 Host 包，不使用在线用户配置。子进程检查使用临时 Harness 主目录，并排除含凭据的环境变量。脚本先移除链接，再删除临时目录；源码目录不会产生构建输出或 `node_modules`。桥接的上游 JavaScript 源码本就位于 `lib`。
 
+订阅插件的 Host 检查显式隔离缺失的可选 Codex 子任务运行时，防止 Host 回退解析在设置重载后重新引入该依赖。检查结束时释放进程内的解析钩子。
+
 每个压缩包保留上游许可证和 Codex 声明，按需添加所内嵌 Heroicons 的许可证，并在 `SOURCE.json` 记录上游固定版本、已审核的 Host/vendor 版本及工具链锁文件摘要。[Host 版本审核](compatibility/host-runtime.mjs)拒绝未审核的 Host 或 vendor 版本。产物清单禁用生命周期脚本、固定运行时依赖，并在 peer 候选中显式允许已审核的 Host 和 vendor 预发行版本。产物移除已退役的 `dsh-invariants` 依赖。构建覆盖不修改保留的清单与源码文件。
 
 Codex 兼容构建在 `SOURCE.json` 记录修改：子任务检查与准备仅接受已审核的 Host provider 版本，CLI 仍固定为 `0.153.4`。provider 与 Host adapter 共用 Host 安装的 pi-ai `0.87.1`；复制后的运行时与产物 peer 仅接受该精确版本。覆盖检查保留的 provider 模块和目录测试的 SHA-256。复制后的检查使用当前模型目录，并通过 GPT-5.6 Luna 验证自定义上下文；不会给已移除的离线模型虚构别名。打包后从 `app.asar.unpacked` 解析 CLI 清单和启动文件。保留的上游文件不变；源码文本不符合预期时，补丁失败，而非静默跳过。
@@ -85,7 +87,7 @@ node third_party/plugins/build-downloads.mjs --out .artifacts/download-plugins
 
 标准、PTC、创造、短剧和编辑预设在各自的智能体作用域内启用 `hongguo_download_info`、`hongguo_download`、`douyin_download`、`reverse_skill`、`reverse_analyze`、`fanqie_download_info` 和 `fanqie_download`；极简预设不提供这些工具。工具以发起调用的会话工作区为输出位置。通过 `dsh plugin --profile headless add <tarball>` 安装压缩包会在该 profile 启用对应 bundle 补丁；构建新的桌面发行版则通过预设组合内置它们。
 
-下载 bundle 打包支持 npm 与 pnpm 的生命周期入口，在 Windows 上直接运行 JavaScript 入口，并通过包管理器环境禁用生命周期脚本。`node --test third_party/plugins/download-pack.test.mjs` 使用桌面打包采用的 pnpm 入口验证所有自有压缩包，检查凭证文件排除规则，并保持源码清单不变。Node tar 解析器按精确 Unicode 路径读取归档成员。逆向与番茄压缩包必须包含 `SOURCE.json` 声明的文件，且 SHA-256 完全一致；npm 排除的上游 `.gitignore` 元数据除外。
+下载 bundle 打包支持 npm 与 pnpm 的生命周期入口；生命周期入口为原生程序时，解析已安装 pnpm 的 JavaScript bin 或 Corepack 启动器，并通过包管理器环境禁用生命周期脚本。Node 打包器不会将原生 pnpm 程序当成 JavaScript；桌面进程编排可以不经过 shell 直接运行该程序。`node --test third_party/plugins/download-pack.test.mjs` 使用已安装的 JavaScript 启动器和 pnpm 的实际生命周期入口分别验证所有自有压缩包，检查凭证文件排除规则，并保持源码清单不变。Node tar 解析器按精确 Unicode 路径读取归档成员。逆向与番茄压缩包必须包含 `SOURCE.json` 声明的文件，且 SHA-256 完全一致；npm 排除的上游 `.gitignore` 元数据除外。
 
 红果默认使用用户提供源码的原接口，并接受多部系列 ID。操作者必须按包内文档配置原始 `config.json`、`devices.json` 和可用的签名服务。缺少原源配置会明确失败，公开试看集不代表全集可用。抖音接受用户指定的视频链接列表，对每个下载运行 FFmpeg 验证，并报告被拦截或部分完成的批次。视频列表本身不代表已覆盖整部剧；平台登录或验证在 Muse 内置浏览器面板中完成，不使用外部 profile 或 Cookie 文件导入。
 

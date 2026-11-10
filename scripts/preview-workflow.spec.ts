@@ -21,7 +21,7 @@ describe('PR preview workflow', () => {
     expect(preview['runs-on']).toBe('ubuntu-24.04')
     expect(workflow.on).toEqual({ pull_request: { types: ['opened', 'synchronize', 'reopened'] } })
     expect(workflow.permissions).toEqual({ contents: 'read', 'pull-requests': 'write' })
-    expect(preview.steps.find(step => step.uses === 'actions/checkout@v6')?.with).toEqual({ 'persist-credentials': false })
+    expect(preview.steps.find(step => step.uses === 'actions/checkout@v7')?.with).toEqual({ 'persist-credentials': false })
   })
 
   it('keeps the immutable full build and restore-only dependency cache', () => {
@@ -33,7 +33,7 @@ describe('PR preview workflow', () => {
     expect(commands).toContain('pnpm --filter @deepseek-ai/dsh-web-frontend run build:preview')
     expect(commands.indexOf('pnpm run build')).toBeLessThan(commands.indexOf('pnpm --filter @deepseek-ai/dsh-web-frontend run build:preview'))
     expect(preview.steps.filter(step => step.uses?.startsWith('actions/cache'))).toHaveLength(1)
-    expect(preview.steps.find(step => step.uses === 'actions/cache/restore@v4')?.with).toMatchObject({
+    expect(preview.steps.find(step => step.uses === 'actions/cache/restore@v6')?.with).toMatchObject({
       key: "${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}",
     })
   })

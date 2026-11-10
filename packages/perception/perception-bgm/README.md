@@ -25,6 +25,8 @@ Find BGM candidates near a requested mood on a 1–9 valence/arousal scale. `mat
 <a id="use-this-package"></a>
 ## Use this package
 
+Visual-review `observations` accepts nonempty text or an array of nonempty text. Each array item remains a literal inspection note; object entries, empty notes, invented quotes and changed video bytes are rejected. Invalid records identify the expected fields and distinguish the referenced JSON file from the `story.evidence` entry.
+
 The bundle's [patch](cordis.patch.yml) contributes one `perception-bgm` row to a profile with the tools registry. The package does not automatically install or activate itself in a running profile. Desktop assembly and profile-install verification remain release-owner tasks.
 
 Without `catalogUrl`, `match` reads `indexPath` and preserves the local candidate `path` result. A missing or empty local index asks for indexing. With `catalogUrl`, `match` reads only that public catalogue and returns `track_id`, original `name`, public `url` and measurements, never a nonexistent local path. It downloads no audio automatically. Call `download` with the selected `track_id`; its verified `path` can be supplied directly as a `drama_bgm` track source. Cached reuse verifies SHA-256 again and still requires the live catalogue. `index` and `inspect` remain local, optional analysis methods; Python dependency errors occur only when their worker starts.

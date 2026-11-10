@@ -1190,10 +1190,15 @@ describe('headless recorded-session snapshots', () => {
     expect(result.text).not.toContain(cwd)
   })
 
-  it('gives every composition and header class exactly one current-writer pin', () => {
+  it('uses current header pins except for explicitly retained retired tools', () => {
     for (const scenario of scenarios) {
       expect(ownerOf(scenario), `${scenario.name}: composition owner`).toBeDefined()
-      expect(pinOf(scenario).manifest.sessionFormat, `${scenario.name}: current-writer header pin`).toBeUndefined()
+      const retained = pinOf(scenario).manifest.sessionFormat
+      if (retained?.coverage.includes('retired-tools')) {
+        expect(retained.coverage, `${scenario.name}: retired-tool header pin`).toEqual(['retired-tools'])
+      } else {
+        expect(retained, `${scenario.name}: current-writer header pin`).toBeUndefined()
+      }
     }
   })
 

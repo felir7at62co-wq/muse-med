@@ -237,7 +237,7 @@ async function loadBatch(directory: string): Promise<BgmBatchRow[]> {
       parsed = PlanSchema(document)
     } catch (error) {
       throw new Error(`${directory} 里的 ${entry.name} 有 episodes 数组但不是合法的 BGM 计划：`
-        + '请修好它的字段后重试。', { cause: error })
+        + `${String(error)}。请修好字段后重试。`, { cause: error })
     }
     for (const row of parsed.episodes) rows.push({ episode: row.episode, segments: [...row.segments],
       ...(row.music_decision === undefined ? {} : { music_decision: row.music_decision }) })
@@ -247,12 +247,20 @@ async function loadBatch(directory: string): Promise<BgmBatchRow[]> {
 
 /** Read and select one episode while reporting repeated ordered source sequences. */
 async function loadPlan(path: ResolvedProjectPath, episode: string, project: string): Promise<LoadedPlan> {
-  let plan: { episodes: BgmEpisodePlan[] }
+  let document: unknown
   try {
-    const document: unknown = JSON.parse((await readFile(path.resolved, 'utf8')).replace(/^\ufeff/u, ''))
-    plan = PlanSchema(document as Parameters<typeof PlanSchema>[0])
+    document = JSON.parse((await readFile(path.resolved, 'utf8')).replace(/^\ufeff/u, ''))
   } catch (error) {
     throw new Error(`BGM 计划不可读：${pathContext(path, 'JSON 或计划字段无效')}。`, { cause: error })
+  }
+  let plan: { episodes: BgmEpisodePlan[] }
+  try {
+    plan = PlanSchema(document as Parameters<typeof PlanSchema>[0])
+  } catch (error) {
+    throw new Error(`BGM 计划字段无效：${pathContext(path, String(error))}。`
+      + 'episodes[].episode 使用字符串（如 "01"），body_duration_seconds 使用本次 timeline 的 body_end；'
+      + '每段填写 track、source、start_seconds、end_seconds、reason。仅修正文件格式，不改写剧本或编造选曲理由。',
+    { cause: error })
   }
   const ids = plan.episodes.map(row => row.episode.padStart(2, '0'))
   if (ids.some(id => !/^\d+$/u.test(id)) || new Set(ids).size !== ids.length) {

@@ -1,5 +1,5 @@
 /** Existing videos remain extractable across model choices; incomplete inventory never establishes absence. */
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { JubianClient, JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { readVideoSources, resolveVideoSourceOptions } from '../src/video-sources.ts'
 import { videoMethod } from '../src/methods.ts'
@@ -27,12 +27,99 @@ function fixture(overrides: (path: string, body: Row | undefined) => unknown = (
       else if (path.startsWith('/admin/aigc/video/task/sub/list?')) data = { total: 1, rows: [child()] }
       else throw new Error(`Unexpected fixture read: ${path}`)
     }
-    return new Response(JSON.stringify({ code: 200, data }))
+    return new Response(JSON.stringify(Array.isArray(data) ? data : { code: 200, data }))
   } })
   return { client, calls }
 }
 const args = { script_id: 5542, storyboard_id: 2165139 }
 const defaults = resolveVideoSourceOptions()
+
+interface InvalidHistory {
+  name: string
+  card?: unknown
+  history?: unknown
+  project?: unknown
+  detail?: unknown
+  children?: unknown
+  issue: string
+}
+const partial = { total: 2, rows: [] }
+const invalidHistory: InvalidHistory[] = [
+  { name: 'empty media URL', children: { total: 1, rows: [child(88, { resultList: [] })] }, issue: 'SUCCESS_WITHOUT_MEDIA' },
+  { name: 'non-record card', card: [], issue: 'UNREADABLE_CARD' },
+  { name: 'negative link identity', history: [task(-1)], issue: 'TASK_IDENTITY_MISMATCH' },
+  { name: 'unsafe integral link identity', history: [task(Number.MAX_SAFE_INTEGER + 1)], issue: 'TASK_IDENTITY_MISMATCH' },
+  { name: 'bare multi-child inventory', children: [child(), child(89)], issue: 'UNSTABLE_CHILD_TOTAL' },
+  { name: 'bare singleton child inventory', children: [child()], issue: 'UNSTABLE_CHILD_TOTAL' },
+  { name: 'non-list child rows', children: { rows: {} }, issue: 'UNREADABLE_HISTORY' },
+  { name: 'child read failure', children: new Error('no child inventory'), issue: 'NETWORK_ERROR' },
+  { name: 'project read failure', history: partial, project: new Error('no project inventory'), issue: 'NETWORK_ERROR' },
+  { name: 'linked transport failure survives complete inventory', history: new Error('no history'),
+    project: { total: 0, rows: [] }, issue: 'NETWORK_ERROR' },
+  { name: 'unknown linked owner with foreign detail', history: [task(77, { storyboardId: undefined })],
+    detail: task(77, { storyboardId: 9 }), issue: 'LINKED_CARD_MISMATCH' },
+  { name: 'unknown owner on project and child', history: partial,
+    project: { total: 1, rows: [task(77, { storyboardId: undefined })] }, detail: task(77, { storyboardId: undefined }),
+    children: { total: 1, rows: [child(88, { storyboardId: 9 })] }, issue: 'TASK_CARD_UNKNOWN' },
+  { name: 'absent child status', children: { total: 1, rows: [child(88, { taskStatus: 23 })] }, issue: 'CHILD_STATUS_UNKNOWN' },
+  { name: 'password-only media URL', children: { total: 1, rows: [child(88,
+    { resultList: [{ tosVideoUrl: 'https://:pass@media.example/a.mp4' }] })] }, issue: 'UNREADABLE_MEDIA_URL' },
+  { name: 'overfull child inventory', children: { total: 0, rows: [child()] }, issue: 'INCOMPLETE_CHILD_PAGE' },
+
+  { name: 'wrong card alias', card: { storyboardId: 8, scriptId: 5542 }, issue: 'CARD_IDENTITY_MISMATCH' },
+  { name: 'invalid linked page and task total', history: null, project: { rows: [] }, issue: 'UNSTABLE_TASK_TOTAL' },
+  { name: 'overfull task page', history: partial, project: { total: 0, rows: [task()] }, issue: 'INCOMPLETE_TASK_PAGE' },
+  { name: 'empty nonfinal task page', history: partial, project: { total: 1, rows: [] }, issue: 'INCOMPLETE_TASK_PAGE' },
+  { name: 'task without identity', history: partial, project: { total: 1, rows: [{ scriptId: 5542 }] }, issue: 'TASK_IDENTITY_MISMATCH' },
+  { name: 'foreign task project', history: partial, project: { total: 1, rows: [task(77, { scriptId: 9 })] }, issue: 'TASK_IDENTITY_MISMATCH' },
+  { name: 'linked task absent from complete project inventory', history: { total: 2, rows: [task()] }, project: { total: 0, rows: [] }, issue: 'HISTORY_TASK_MISMATCH' },
+  { name: 'unidentified partial link', history: { total: 2, rows: [{}] }, project: { total: 0, rows: [] }, issue: 'TASK_IDENTITY_MISMATCH' },
+  { name: 'conflicting project in duplicate linked task', history: { total: 2, rows: [task(77, { scriptId: 9 })] },
+    project: { total: 1, rows: [task()] }, issue: 'HISTORY_TASK_MISMATCH' },
+  { name: 'duplicate linked task', history: [task(), task()], issue: 'TASK_IDENTITY_MISMATCH' },
+  { name: 'foreign linked task', history: [task(77, { scriptId: 9 })], issue: 'TASK_IDENTITY_MISMATCH' },
+  { name: 'non-record task detail', detail: [], issue: 'UNREADABLE_TASK' },
+  { name: 'wrong detail identity', detail: task(88), issue: 'TASK_IDENTITY_MISMATCH' },
+  { name: 'unknown parent status', history: [task(77, { taskStatus: '' })], detail: task(77, { taskStatus: '' }), issue: 'TASK_STATUS_UNKNOWN' },
+  { name: 'unowned parent and child', history: [task(77, { storyboardId: undefined })], detail: task(77, { storyboardId: undefined }),
+    children: { total: 1, rows: [child(88, { storyboardId: undefined })] }, issue: 'CHILD_CARD_UNKNOWN' },
+  { name: 'malformed child result', children: { total: 1, rows: [child(88, { resultList: [null] })] }, issue: 'UNREADABLE_CHILD' },
+  { name: 'unknown child status', children: { total: 1, rows: [child(88, { taskStatus: '' })] }, issue: 'CHILD_STATUS_UNKNOWN' },
+  { name: 'empty nonfinal child page', children: { total: 1, rows: [] }, issue: 'INCOMPLETE_CHILD_PAGE' },
+  ...['not a URL', 'http://media.example/a.mp4', 'https://user:pass@media.example/a.mp4', 'https://media.example/a\\b.mp4']
+    .map(video_url => ({ name: `unsafe media ${video_url}`, children: { total: 1,
+      rows: [child(88, { resultList: [{ tosVideoUrl: video_url }] })] }, issue: 'UNREADABLE_MEDIA_URL' })),
+]
+
+it.each(invalidHistory)('retains uncertainty for $name without generating replacement media', async (row) => {
+  const { client, calls } = fixture((path) => {
+    if (path === '/aigc/storyboard/2165139') return row.card
+    if (path.includes('/byStoryboard/')) return row.history
+    if (path.includes('/task/list?')) return row.project
+    if (path.endsWith('/task/77')) return row.detail
+    if (path.includes('/sub/list?')) return row.children
+    return undefined
+  })
+  const result = await readVideoSources(client, args, defaults)
+  expect(result.complete).toBe(false)
+  expect(result.issues).toContain(row.issue)
+  expect(calls.every(call => call.method === 'GET' || call.path.includes('/task/sub/list?'))).toBe(true)
+})
+
+it.each([new Error('opaque transport failure'), new DOMException('caller cancelled', 'AbortError')])(
+  'keeps unexpected read failure or cancellation distinct from no sources: %s', async (failure) => {
+    const { client } = fixture()
+    vi.spyOn(client, 'request').mockRejectedValue(failure)
+    if (failure.name === 'AbortError') await expect(readVideoSources(client, args, defaults)).rejects.toBe(failure)
+    else expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'unknown', issues: ['READ_FAILED'] })
+  })
+
+it.each([{ script_id: 0, storyboard_id: 2165139 }, { script_id: 5542, storyboard_id: -1 }])(
+  'rejects invalid lookup identity before any request: %j', async (input) => {
+    const { client, calls } = fixture()
+    await expect(readVideoSources(client, input, defaults)).rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(calls).toEqual([])
+  })
 
 describe('card-bound existing source discovery', () => {
   it('returns a verified old-model source without any generation or write', async () => {
@@ -116,7 +203,7 @@ describe('card-bound existing source discovery', () => {
       : path.includes('/task/list?') ? { total: 1, rows: [task(77, { storyboardId: 2165140 })] }
         : path.includes('/sub/list?') ? { total: 1, rows: [result] } : undefined)
     expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'unknown', complete: false,
-      sources: [], issues: expect.arrayContaining(['HISTORY_TASK_MISMATCH']) })
+      sources: [], issues: expect.arrayContaining(['HISTORY_TASK_MISMATCH']) as string[] })
   })
   it('recovers complete coverage from a verified project inventory after unreadable linked history', async () => {
     const { client } = fixture(path => path.includes('/byStoryboard/') ? null
@@ -128,7 +215,7 @@ describe('card-bound existing source discovery', () => {
     const { client } = fixture(path => path.endsWith('/task/77') ? task(77, { taskStatus: 'running' })
       : path.includes('/sub/list?') ? { total: 0, rows: [] } : undefined)
     expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'pending', complete: true,
-      sources: [], tasks: [{ task_id: 77, status: 'running' }], next: expect.stringContaining('继续查询原 task_id') })
+      sources: [], tasks: [{ task_id: 77, status: 'running' }], next: expect.stringContaining('继续查询原 task_id') as string })
   })
   it('keeps waiting for an independently running child even when the parent reports success', async () => {
     const { client } = fixture(path => path.includes('/sub/list?')
@@ -143,7 +230,7 @@ describe('card-bound existing source discovery', () => {
   it('stops a repeated child page without exhausting every configured page', async () => {
     const { client, calls } = fixture(path => path.includes('/sub/list?') ? { total: 2, rows: [child()] } : undefined)
     expect(await readVideoSources(client, args, { ...defaults, pageSize: 1 })).toMatchObject({ status: 'available', complete: false,
-      issues: expect.arrayContaining(['CHILD_IDENTITY_MISMATCH', 'CHILD_SCAN_INCOMPLETE']) })
+      issues: expect.arrayContaining(['CHILD_IDENTITY_MISMATCH', 'CHILD_SCAN_INCOMPLETE']) as string[] })
     expect(calls.filter(call => call.path.includes('/sub/list?'))).toHaveLength(2)
   })
   it('reports unknown after an unreadable lookup instead of declaring absence', async () => {
@@ -154,17 +241,17 @@ describe('card-bound existing source discovery', () => {
     const { client } = fixture(path => path.includes('/byStoryboard/') ? { total: 2, rows: [] }
       : path.includes('/task/list?') ? [task(76, { storyboardId: 2165140 })] : undefined)
     expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'unknown', complete: false,
-      sources: [], issues: expect.arrayContaining(['TASK_SCAN_INCOMPLETE']) })
+      sources: [], issues: expect.arrayContaining(['TASK_SCAN_INCOMPLETE']) as string[] })
   })
   it('does not treat a bare child page as the complete task result history', async () => {
     const { client } = fixture(path => path.includes('/sub/list?') ? [child()] : undefined)
     expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'unknown', complete: false,
-      sources: [], issues: expect.arrayContaining(['CHILD_SCAN_INCOMPLETE']) })
+      sources: [], issues: expect.arrayContaining(['CHILD_SCAN_INCOMPLETE']) as string[] })
   })
   it('only reports none_found after an explicit complete empty original-card history', async () => {
     const { client } = fixture(path => path.includes('/byStoryboard/') ? [] : undefined)
     expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'none_found', complete: true,
-      next: expect.stringContaining('不是新生成授权') })
+      next: expect.stringContaining('不是新生成授权') as string })
   })
   it.each([
     ['card', { id: 2165139, scriptId: 9 }],
@@ -195,7 +282,7 @@ describe('card-bound existing source discovery', () => {
     const { client } = fixture(path => path.includes('/byStoryboard/') ? null
       : path.includes('/task/list?') ? { total: 2, rows: [task()] } : undefined)
     expect(await readVideoSources(client, args, { ...defaults, pageSize: 1 })).toMatchObject({ status: 'available', complete: false,
-      issues: expect.arrayContaining(['TASK_IDENTITY_MISMATCH', 'TASK_SCAN_INCOMPLETE']) })
+      issues: expect.arrayContaining(['TASK_IDENTITY_MISMATCH', 'TASK_SCAN_INCOMPLETE']) as string[] })
   })
   it('propagates cancellation before issuing a read', async () => {
     const { client, calls } = fixture()
@@ -250,7 +337,7 @@ describe('task page coverage', () => {
     const ledger = new JubianLedger({ root: '/unused-video-page-fixture' })
     expect(await videoMethod(client, ledger, { method: 'tasks', script_id: 5542, page_num: 1, page_size: 50 }))
       .toMatchObject({ tasks: { total: 26, returned: 1, page_num: 1, page_size: 50, complete: false,
-        has_more: true, next_page: 2, total_verified: true }, guidance: expect.stringContaining('仅是本页') })
+        has_more: true, next_page: 2, total_verified: true }, guidance: expect.stringContaining('仅是本页') as string })
     expect(calls[0]?.path).toContain('taskType=1&pageNum=1&pageSize=50')
   })
   it('keeps a next page when the provider may have clamped a later page below the requested size', async () => {
@@ -288,4 +375,55 @@ it.each([0, -1, 1001, 1.5])('rejects invalid source bounds before querying: %s',
 
 it.each([0, 2047, 1000001, 2048.5])('rejects invalid complete-result character bounds: %s', (value) => {
   expect(() => resolveVideoSourceOptions({ videoSourceMaxResultChars: value })).toThrow()
+})
+
+it('accepts card aliases, list aliases and repeated matching ownership hints', async () => {
+  const { client } = fixture(path => path === '/aigc/storyboard/2165139' ? { storyboardId: '2165139', scriptId: '5542' }
+    : path.includes('/byStoryboard/') ? { total: 3, list: [task(), task()] }
+      : path.includes('/task/list?') ? { total: 1, list: [task(77, { storyboardId: undefined })] }
+        : path.includes('/sub/list?') ? { total: 1, list: [child()] } : undefined)
+  expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'available', complete: true })
+})
+
+it('stops hydrating task details at the configured limit', async () => {
+  const { client, calls } = fixture(path => path.includes('/byStoryboard/') ? [task(), task(78)] : undefined)
+  const result = await readVideoSources(client, args, { ...defaults, taskLimit: 1 })
+  expect(result.issues).toContain('TASK_LIMIT')
+  expect(calls.some(call => call.path.endsWith('/task/78'))).toBe(false)
+})
+
+it('propagates cancellation that arrives during a failed read', async () => {
+  const { client } = fixture()
+  const controller = new AbortController()
+  const reason = new Error('cancelled while reading')
+  vi.spyOn(client, 'request').mockImplementation(async () => { controller.abort(reason); throw new Error('read failure') })
+  await expect(readVideoSources(client, args, defaults, controller.signal)).rejects.toBe(reason)
+})
+
+it('keeps a linked task when an incomplete project inventory did not reach it', async () => {
+  const { client } = fixture(path => path.includes('/byStoryboard/') ? { total: 2, rows: [task()] }
+    : path.includes('/task/list?') ? { total: 1, rows: [] } : undefined)
+  expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'available', complete: false })
+})
+
+it.each(['rows', 'list'])('reads a singleton envelope with its own %s page', async (key) => {
+  const { client } = fixture(path => path.includes('/byStoryboard/') ? [{ total: 1, [key]: [task()] }] : undefined)
+  expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'available', complete: true })
+})
+
+it('supports the child identity alias and default source options through the dispatcher', async () => {
+  const { client } = fixture(path => path.includes('/sub/list?') ? { total: 1,
+    rows: [child(88, { id: undefined, subTaskId: 88 })] } : undefined)
+  const ledger = new JubianLedger({ root: '/unused-video-defaults-fixture' })
+  expect(await videoMethod(client, ledger, { method: 'sources', ...args }))
+    .toMatchObject({ sources: { status: 'available', sources: [{ subtask_id: 88 }] } })
+})
+
+it('passes task-list cancellation to the read transport', async () => {
+  const { client } = fixture(path => path.includes('/task/list?') ? { total: 0, rows: [] } : undefined)
+  const read = vi.spyOn(client, 'request')
+  const signal = new AbortController().signal
+  const ledger = new JubianLedger({ root: '/unused-video-signal-fixture' })
+  await videoMethod(client, ledger, { method: 'tasks', script_id: 5542 }, { signal })
+  expect(read).toHaveBeenCalledWith(expect.objectContaining({ signal }))
 })

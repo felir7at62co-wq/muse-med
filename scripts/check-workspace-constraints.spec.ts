@@ -325,7 +325,7 @@ describe('package payload constraints', () => {
   it('rejects undeclared reference pictures without widening skill publication', () => {
     const dir = 'packages/drama/skills'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
-    for (const file of ['skills/anime-3d-assets/references/images/other.png', 'skills/tweet-drama-core/references/images/target-quality.png']) {
+    for (const file of ['skills/anime-3d-assets/references/images/other.png', 'skills/tweet-drama-core/references/images/target-quality.png', 'skills/tweet-drama-core/scripts/windows/aa-draft.ps1']) {
       expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, file] } }))
         .toContainEqual(expect.stringContaining('resource package file must be a declared skill resource'))
     }
@@ -535,5 +535,15 @@ it('requires the standalone shortcut protocol and rejects unrelated runtime file
   ]) {
     expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files } }))
       .toEqual([expect.stringContaining('package.json files must be')])
+  }
+})
+
+it('requires tool discovery attribution files without publishing other license extras', () => {
+  const dir = 'packages/core/tool-discovery'
+  const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
+  expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+  for (const excluded of ['NOTICE', 'LICENSE-Codex']) {
+    expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: manifest.files!.filter(file => file !== excluded) } }))
+      .toContainEqual(expect.stringContaining('package.json files must be'))
   }
 })

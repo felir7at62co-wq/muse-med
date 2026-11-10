@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import Llm, { createUserMessage, IMAGE_OFFLOAD_REQUIRED_CODE, type StreamChunk } from '@deepseek-ai/dsh-llm'
-import Sessions, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import Sessions, { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
@@ -16,8 +16,10 @@ import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import { LocalBashExecutor } from '@deepseek-ai/dsh-bash-local'
+import { PwshLocalExecutor } from '@deepseek-ai/dsh-pwsh-local'
 import * as BashEnv from '@deepseek-ai/dsh-shell-env'
 import * as ToolBash from '@deepseek-ai/dsh-tool-bash'
+import * as ToolPwsh from '@deepseek-ai/dsh-tool-pwsh'
 import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
@@ -27,7 +29,7 @@ import { installReviewState, VideoReviewId, reviewsOf, saveReview } from '../../
 import { bindReviewEvents } from '../../../packages/perception/tool-video-inspect/src/review-events.ts'
 import { ManuscriptVideoEvidence, manuscriptDeclaredOutputs, manuscriptEpisodeNumber, manuscriptEvidenceFrames,
   manuscriptSourceWindows } from '../src/manuscript-video-evidence.ts'
-import { manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCandidates } from '../src/manuscript-video-reads.ts'
+import { installManuscriptVideoReads, manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCandidates } from '../src/manuscript-video-reads.ts'
 import { manuscriptScenes } from '../src/manuscript-scenes.ts'
 import { readVideoSourceTimeline, type VideoSourceTimeline } from '@deepseek-ai/dsh-tool-video-inspect'
 import * as ImageOffload from '@deepseek-ai/dsh-compaction-image-offload'
@@ -671,13 +673,20 @@ it('invalidates stale visual source evidence without preventing an ordinary fina
 })
 
 it('discovers a real shell-written six-episode output list from the original user declaration without a bind instruction', async () => {
-  const command = "mkdir -p output\nfor episode in 04 05 08 09 12 13; do printf '第%s集\\n%s-1 家 日 内\\n甲：你好。\\n' \"$episode\" \"$episode\" > \"output/EP$episode.md\"; done"
-  const f = await fixture([toolCallResponse('write-shell', 'bash', { command, description: '保存本次六集正文' }), textResponse('已完成。')],
+  const command = process.platform === 'win32'
+    ? 'New-Item -ItemType Directory -Path output -Force | Out-Null\nforeach ($episode in @("04", "05", "08", "09", "12", "13")) { [IO.File]::WriteAllText((Join-Path (Get-Location) "output/EP$episode.md"), "第${episode}集`n${episode}-1 家 日 内`n甲：你好。`n") }'
+    : "mkdir -p output\nfor episode in 04 05 08 09 12 13; do printf '第%s集\\n%s-1 家 日 内\\n甲：你好。\\n' \"$episode\" \"$episode\" > \"output/EP$episode.md\"; done"
+  const f = await fixture([toolCallResponse('write-shell', process.platform === 'win32' ? 'pwsh' : 'bash', { command, description: '保存本次六集正文' }), textResponse('已完成。')],
     { videoEvidenceMaxScenes: 1 })
   await f.ctx.plugin(LocalSubprocessRuntime)
   await f.ctx.plugin(BashEnv, { dshHome: join(f.root, '.state') })
-  await f.ctx.plugin(LocalBashExecutor, { cwd: f.root, timeoutMs: 10_000 })
-  await f.ctx.plugin(ToolBash)
+  if (process.platform === 'win32') {
+    await f.ctx.plugin(PwshLocalExecutor, { cwd: f.root, timeoutMs: 10_000 })
+    await f.ctx.plugin(ToolPwsh)
+  } else {
+    await f.ctx.plugin(LocalBashExecutor, { cwd: f.root, timeoutMs: 10_000 })
+    await f.ctx.plugin(ToolBash)
+  }
   for (const episode of ['4', '5', '8', '9', '12', '13']) await f.addReview(`第${episode}集`)
   const request = '保留原文件，分别保存为output/EP04.md、EP05.md、EP08.md、EP09.md、EP12.md、EP13.md，再提供一份合并Markdown稿。'
     + '已有视频和转写可直接使用，本次不重新下载、不提交转写或媒体生成。完成后给我文件和简要说明。'
@@ -1207,13 +1216,25 @@ it('keeps multiple same-episode read sources ambiguous without selecting the ear
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('照常交付')
 })
 
-it.each(['partial', 'truncated'])('does not treat a %s native read as a complete baseline', async (kind) => {
-  const f = await fixture([toolCallResponse('read-window', 'read', { file_path: 'source.md', ...kind === 'partial' ? { limit: 2 } : {} }),
+it('replays reads instead of reusing checkpoints from before column pagination support', async () => {
+  const ctx = new Context()
+  try {
+    await ctx.plugin(SessionProjections)
+    installManuscriptVideoReads(ctx, () => true, { maxTextChars: 1000, maxDocuments: 10, maxLedgerBytes: 1000 })
+    const row = { ver: 2, seq: SessionSeq(50), val: { cwd: 'fixture', pending: [], reads: [], textReads: [], omittedTextReads: 0 } }
+    expect(ctx.sessionProjections.restoreFloor({ manuscriptVideoReads: row })).toBe(0)
+    expect(ctx.sessionProjections.restoreFloor({ manuscriptVideoReads: { ...row, ver: 3 } })).toBe(50)
+  } finally { await ctx.fiber.dispose() }
+})
+
+it.each(['partial', 'truncated', 'continued'])('does not treat a %s native read as a complete baseline', async (kind) => {
+  const args = { file_path: 'source.md', ...kind === 'partial' ? { limit: 2 } : kind === 'continued' ? { column: 2 } : {} }
+  const f = await fixture([toolCallResponse('read-window', 'read', args),
     toolCallResponse('write-new', 'write', { file_path: 'draft.md', content: '第4集\n4-1 家 日 内\n甲：当前稿。' }), textResponse('正常交付。')])
   await writeFile(join(f.root, 'source.md'), `第4集\n4-1 家 日 内\n甲：${kind === 'truncated' ? '长'.repeat(12_000) : '原句'}。\n`)
   await f.run('精修后保存为draft.md。')
   const report = f.evidence()[0]?.scenes[0]?.read_source_revision
-  expect(report?.status).toBe(kind)
+  expect(report?.status).toBe(kind === 'continued' ? 'truncated' : kind)
   expect(report?.hunks).toEqual([])
   expect(manuscriptTextReadSnapshots(f.ctx, f.agent.session)?.reads[0]?.text).toBeUndefined()
   expect(JSON.stringify(f.agent.session.deriveMessages().at(-1))).toContain('正常交付')

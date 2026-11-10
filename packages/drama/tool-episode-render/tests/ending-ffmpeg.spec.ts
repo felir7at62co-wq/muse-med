@@ -1,31 +1,33 @@
-/** Real offline evidence that explicit stretching spans the complete ending window. */
+/** Real offline evidence that stretching spans the ending window, with one CPU per FFmpeg process. */
 import { execFile, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
+import { COVERAGE_TEST_TIMEOUT_ENV, parseCoverageTestTimeout } from '../../../../scripts/coverage-partitions.ts'
 import { buildEndingClip, requireEndingEffectFits } from '../src/ending.ts'
 
 const ffmpeg = process.env.MUSE_FFMPEG_EXECUTABLE || process.env.FFMPEG_PATH || 'ffmpeg'
 const ffprobe = process.env.FFPROBE_PATH || (isAbsolute(ffmpeg)
   ? join(dirname(ffmpeg), process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe') : 'ffprobe')
 const available = spawnSync(ffmpeg, ['-version'], { windowsHide: true, stdio: 'ignore', timeout: 10_000 }).status === 0
+const caseBudget = parseCoverageTestTimeout(process.env[COVERAGE_TEST_TIMEOUT_ENV]) ?? 60_000
 const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup() })
 
-it.skipIf(!available)('stretches all source motion across two seconds without a repeated or black-padded second half', async () => {
+it.skipIf(!available)('stretches all source motion across two seconds without a repeated or black-padded second half', async ({ signal: testSignal }) => {
   const project = await mkdtemp(join(tmpdir(), 'dsh-ending-fit-'))
   const active = new Map<ChildProcess, Promise<void>>()
   let disposed = false
-  const cleanup = async () => {
-    if (disposed) return
+  let disposal: Promise<void> | undefined
+  const cleanup = () => disposal ??= (async () => {
     disposed = true
     const remaining = [...active]
     for (const [child] of remaining) child.kill()
     await Promise.all(remaining.map(([, closed]) => closed))
     await rm(project, { recursive: true, force: true })
-  }
+  })()
   cleanups.push(cleanup)
   const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/KEY|SECRET|TOKEN|PASSWORD/iu.test(key)))
   const run = async (command: string, args: readonly string[]) => await new Promise<{
@@ -36,19 +38,22 @@ it.skipIf(!available)('stretches all source motion across two seconds without a 
     signal: string | null
   }>((resolve) => {
     if (disposed) throw new Error('Ending fixture already disposed')
-    const child = execFile(command, [...args], { windowsHide: true, encoding: 'utf8', env: environment,
-      timeout: 30_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
+    const argv = command === ffmpeg ? ['-cpucount', '1', ...args] : [...args]
+    const child = execFile(command, argv, { windowsHide: true, encoding: 'utf8', env: environment,
+      signal: testSignal, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
       resolve({ code: error === null ? 0 : typeof error.code === 'number' ? error.code : 127, stdout, stderr,
-        interrupted: error?.killed ?? false, signal: error?.signal ?? null })
+        interrupted: error?.killed ?? child.killed, signal: error?.signal ?? null })
     })
     const closed = new Promise<void>((done) => { child.once('close', () => { active.delete(child); done() }) })
     active.set(child, closed)
+  }).then((result) => {
+    expect(result.interrupted, `${command} interrupted: ${result.stderr}`).toBe(false)
+    expect(result.signal, `${command} signalled: ${result.stderr}`).toBeNull()
+    return result
   })
   const toolkit = { ffmpeg, ffprobe, channel: { run } }
   const command = async (args: string[]) => {
     const result = await run(ffmpeg, args)
-    expect(result.interrupted, result.stderr).toBe(false)
-    expect(result.signal, result.stderr).toBeNull()
     expect(result.code, result.stderr).toBe(0)
     return result
   }
@@ -62,8 +67,6 @@ it.skipIf(!available)('stretches all source motion across two seconds without a 
     await buildEndingClip(toolkit, base, source, output, 'libx264', ['-preset', 'ultrafast'],
       { width: 64, height: 64, fps: 24 }, timing)
     const probed = await run(ffprobe, ['-v', 'error', '-show_entries', 'stream=duration,nb_frames', '-of', 'json', output])
-    expect(probed.interrupted, probed.stderr).toBe(false)
-    expect(probed.signal, probed.stderr).toBeNull()
     expect(probed.code, probed.stderr).toBe(0)
     expect(JSON.parse(probed.stdout)).toMatchObject({ streams: [{ duration: '2.000000', nb_frames: '48' }] })
     const means: number[] = []
@@ -82,5 +85,5 @@ it.skipIf(!available)('stretches all source motion across two seconds without a 
   } finally {
     await cleanup()
   }
-// This case performs a real optical-flow render; every child has its own 30 s deadline.
-}, 60_000)
+// The case budget also cancels and joins any unfinished media child.
+}, caseBudget)

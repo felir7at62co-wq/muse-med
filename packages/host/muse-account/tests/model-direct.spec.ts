@@ -235,11 +235,14 @@ it('does not acquire for a stale login or a previously cancelled request', async
   await expect(drain(streamWithModelLease(options, 'glm-test', controller.signal, finished))).rejects.toMatchObject({ code: 'ABORTED' })
 })
 
-it('releases without dispatch when login changes while admission is pending', async () => {
+it.each(['changed', 'removed'])('releases without dispatch when login is %s during admission', async (kind) => {
   const calls: string[] = []
   const fetcher: typeof fetch = async (_url, init) => {
     calls.push(String(init?.method))
-    if (init?.method === 'POST') await writeMuseSession(sessionFile, { baseUrl, username: 'next', cookie: '__Host-muse=new-login' })
+    if (init?.method === 'POST') {
+      if (kind === 'removed') await rm(sessionFile)
+      else await writeMuseSession(sessionFile, { baseUrl, username: 'next', cookie: '__Host-muse=new-login' })
+    }
     return Response.json(lease())
   }
   await expect(drain(streamWithModelLease({ baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }, 'glm-test',
@@ -291,6 +294,25 @@ it.each(['ok', 'rejected', 'login'])('checks %s session liveness and settles the
   }])
   expect(supplierSignal?.aborted).toBe(true)
   expect(calls).toEqual(kind === 'login' ? ['POST', 'DELETE'] : ['POST', 'GET', 'DELETE'])
+})
+
+it('preserves caller cancellation when the outstanding access check rejects after cancellation', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  const controller = new AbortController()
+  const entered = Promise.withResolvers<null>()
+  const fetcher: typeof fetch = async (_url, init) => {
+    if (init?.method === 'GET') { controller.abort(); throw new Error('cancelled check') }
+    return Response.json(init?.method === 'POST' ? lease() : {})
+  }
+  const result = drain(streamWithModelLease({ baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher }, 'glm-test', controller.signal,
+    async function* (_access, signal) {
+      entered.resolve(null)
+      await new Promise<void>((resolve) => { signal.addEventListener('abort', () => { resolve() }, { once: true }) })
+      yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'Caller cancelled' } } }
+    }))
+  await entered.promise
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(await result).toMatchObject([{ type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED' } } }])
 })
 
 it.each(['http', 'transport', 'supplier throw'])(

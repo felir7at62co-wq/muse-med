@@ -281,8 +281,13 @@ describe('runDramaBgm', () => {
     expect(verified.intended_use).toBe('commercial')
   })
 
-  it('publishes a verified WAV and JSON report only after the complete batch succeeds', async () => {
+  it.each([false, true])('publishes a verified WAV and report after composition; explicit music=%s', async (explicit) => {
     const files = await fixture()
+    if (explicit) {
+      const document = JSON.parse(await readFile(files.plan, 'utf8')) as { episodes: Record<string, unknown>[] }
+      Object.assign(document.episodes[0]!, { music_decision: 'music', decision_reason: '所选剧情需要完整配乐' })
+      await writeFile(files.plan, JSON.stringify(document))
+    }
     const report = await runDramaBgm({
       method: 'compose', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan,
     }, settings(processChannel()))
@@ -459,6 +464,24 @@ describe('runDramaBgm', () => {
     await writeFile(join(files.project, 'editing', '06.json'), kind === 'json' ? '{' : '{"episodes":[{}]}')
     await expect(runDramaBgm({ method: 'compose', project: files.project, episode: 5, timeline: files.timeline, plan: files.plan },
       settings(processChannel()))).rejects.toThrow(kind === 'json' ? '不是可读的 JSON' : '不是合法的 BGM 计划')
+    await expect(stat(files.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.each([
+    [{ episode: 1, segments: [] }, 'episodes[0].episode'],
+    [{ episode: '05', segments: [] }, 'episodes[0].body_duration_seconds'],
+    [{ episode: '05', body_duration_seconds: 58.508,
+      segments: [{ source: 'music.mp3', start_seconds: 0, end_seconds: 58.508 }] }, 'segments[0].track'],
+  ])('locates malformed plan fields and gives a recoverable example: %j', async (episode, field) => {
+    const files = await fixture()
+    await writeFile(files.plan, JSON.stringify({ episodes: [episode] }))
+    const run = vi.fn()
+    const operation = runDramaBgm({ method: 'compose', project: files.project, episode: 5,
+      timeline: files.timeline, plan: files.plan }, settings({ run }))
+    await expect(operation).rejects.toThrow(field)
+    await expect(operation).rejects.toThrow('body_duration_seconds')
+    await expect(operation).rejects.toThrow('不改写剧本')
+    expect(run).not.toHaveBeenCalled()
     await expect(stat(files.output)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 

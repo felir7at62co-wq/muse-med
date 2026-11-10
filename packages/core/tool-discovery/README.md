@@ -112,6 +112,8 @@ A session projection derives loading and preferences from successful search and 
 <details>
 <summary>Implementation internals — click to expand</summary>
 
+The package includes Apache-2.0-derived guidance alongside MIT code and publishes both `NOTICE` and `LICENSE-Codex`. The package license gate requires these nonempty attribution files for this package.
+
 The MIT-licensed index independently implements standard BM25 in TypeScript. Chinese word segmentation and identifier normalization support local metadata lookup without an additional language-model request. Search reads the calling agent's authorized registry and reuses an index while that catalog is unchanged. The session projection retains loaded names rather than executable definitions, so current registration and authorization remain authoritative.
 
 | File | Responsibility |

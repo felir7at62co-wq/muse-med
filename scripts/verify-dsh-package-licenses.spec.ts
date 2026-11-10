@@ -28,6 +28,44 @@ function createWorkspace(): string {
 }
 
 describe('DSH package license gate', () => {
+  it('accepts tool-discovery combined licensing only with its published attribution files', () => {
+    const root = createWorkspace()
+    const directory = 'packages/core/tool-discovery'
+    const manifest = { name: '@deepseek-ai/dsh-tool-discovery', license: 'MIT AND Apache-2.0', files: ['NOTICE', 'LICENSE-Codex'] }
+    writeManifest(root, `${directory}/package.json`, manifest)
+    writeFileSync(join(root, directory, 'NOTICE'), 'OpenAI Codex attribution\n')
+    writeFileSync(join(root, directory, 'LICENSE-Codex'), 'Apache License, Version 2.0\n')
+    expect(inspectDshPackageLicenses(root)).toEqual({ packageCount: 2, failures: [] })
+    for (const resource of manifest.files) {
+      writeManifest(root, `${directory}/package.json`, { ...manifest, files: manifest.files.filter(file => file !== resource) })
+      expect(inspectDshPackageLicenses(root).failures).toContainEqual(expect.stringContaining(`non-empty ${resource}`))
+      writeManifest(root, `${directory}/package.json`, manifest)
+      writeFileSync(join(root, directory, resource), '')
+      expect(inspectDshPackageLicenses(root).failures).toContainEqual(expect.stringContaining(`non-empty ${resource}`))
+      rmSync(join(root, directory, resource))
+      expect(inspectDshPackageLicenses(root).failures).toContainEqual(expect.stringContaining(`non-empty ${resource}`))
+      mkdirSync(join(root, directory, resource))
+      expect(inspectDshPackageLicenses(root).failures).toContainEqual(expect.stringContaining(`non-empty ${resource}`))
+      rmSync(join(root, directory, resource), { recursive: true })
+      writeFileSync(join(root, directory, resource), 'Restored attribution resource\n')
+    }
+  })
+
+  it('rejects the attribution license expression for another name, directory or expression', () => {
+    const root = createWorkspace()
+    const file = 'packages/core/tool-discovery/package.json'
+    for (const manifest of [
+      { name: '@deepseek-ai/dsh-tool-discovery', license: 'Apache-2.0' },
+      { name: '@deepseek-ai/dsh-tool-discovery', license: 'MIT OR Apache-2.0' },
+      { name: '@deepseek-ai/dsh-other', license: 'MIT AND Apache-2.0' },
+    ]) {
+      writeManifest(root, file, manifest)
+      expect(inspectDshPackageLicenses(root).failures).toEqual([expect.stringContaining('must declare "license": "MIT"')])
+    }
+    rmSync(join(root, 'packages/core/tool-discovery'), { recursive: true })
+    writeManifest(root, 'packages/core/other/package.json', { name: '@deepseek-ai/dsh-tool-discovery', license: 'MIT AND Apache-2.0' })
+    expect(inspectDshPackageLicenses(root).failures).toEqual([expect.stringContaining('must declare "license": "MIT"')])
+  })
   it('checks root, unhyphenated CLI, and dsh-prefixed package names while ignoring other families', () => {
     const root = createWorkspace()
     writeManifest(root, 'apps/cli/package.json', { name: '@deepseek-ai/dsh', license: 'MIT' })
@@ -73,5 +111,21 @@ describe('DSH package license gate', () => {
     })
     expect(inspectDshPackageLicenses(root).failures)
       .toContainEqual(expect.stringContaining('packages/drama/other/package.json'))
+  })
+})
+
+
+describe('Codex-derived tool discovery notices', () => {
+  it.each([
+    ['packages/core/other', '@deepseek-ai/dsh-tool-discovery', 'MIT AND Apache-2.0', ['NOTICE', 'LICENSE-Codex']],
+    ['packages/core/tool-discovery', '@deepseek-ai/dsh-other', 'MIT AND Apache-2.0', ['NOTICE', 'LICENSE-Codex']],
+    ['packages/core/tool-discovery', '@deepseek-ai/dsh-tool-discovery', 'MIT OR Apache-2.0', ['NOTICE', 'LICENSE-Codex']],
+    ['packages/core/tool-discovery', '@deepseek-ai/dsh-tool-discovery', 'MIT AND Apache-2.0', ['NOTICE']],
+  ])('rejects a changed package identity, license or omitted published notice', (directory, name, license, files) => {
+    const root = createWorkspace()
+    writeManifest(root, `${directory}/package.json`, { name, license, files })
+    writeFileSync(join(root, directory, 'NOTICE'), 'notice\n')
+    writeFileSync(join(root, directory, 'LICENSE-Codex'), 'license\n')
+    expect(inspectDshPackageLicenses(root).failures).toHaveLength(1)
   })
 })

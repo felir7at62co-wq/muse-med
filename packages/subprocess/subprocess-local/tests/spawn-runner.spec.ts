@@ -991,3 +991,12 @@ describe('Windows Job runner protocol owner', () => {
     expect(noSelection.exitCode).toBe(127)
   })
 })
+
+/** An IPC host must supply disconnect while it reports an active channel. */
+it('rejects a connected failure-reporting host without disconnect', async () => {
+  const host = new FakeRunnerHost()
+  Object.defineProperty(host, 'disconnect', { value: undefined })
+  await expect(reportSpawnRunnerFailure(WINDOWS_RUNNER_SELECTION, new Error('early'), hostArgument(host)))
+    .rejects.toThrow('connected IPC has no disconnect method')
+  expect(host.exitCode).toBe(127)
+})

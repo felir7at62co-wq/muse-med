@@ -15,7 +15,7 @@ import Persistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { defineTool } from '@deepseek-ai/dsh-tools'
 import { PtcRuntime } from '@deepseek-ai/dsh-ptc-runtime'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import LocalSpill from '@deepseek-ai/dsh-spill-local'
 import * as SpillPolicy from '@deepseek-ai/dsh-spill-policy'
 import { z } from 'zod'
@@ -101,6 +101,99 @@ async function shown(ctx: Context, agent: Agent) {
 }
 
 let searchOrdinal = 0
+
+it.each([
+  [{ id: '', title: 'Empty', description: '', tools: [] }],
+  [{ id: 'same', title: 'A', description: '', tools: [] }, { id: 'same', title: 'B', description: '', tools: [] }],
+  [{ id: 'bad', title: 'Invalid wildcard', description: '', tools: ['a*b*'] }],
+].map(capabilities => ({ capabilities })))('rejects an unusable capability definition before exposing discovery: %j', async ({ capabilities }) => {
+  const root = await mkdtemp(join(tmpdir(), 'discovery-invalid-'))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
+  await expect(fixture(root, { capabilities })).rejects.toThrow()
+})
+
+it.each(['not-json', '{}'])('ignores an older successful receipt that cannot be reconstructed: %s', async (receiptText) => {
+  const root = await mkdtemp(join(tmpdir(), 'discovery-invalid-receipt-'))
+  const f = await fixture(root)
+  try {
+    const agent = await f.create('invalid-receipt')
+    agent.ctx.tools.register(defineTool({ name: 'tool_search', description: 'An older discovery implementation.', parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      execute: async () => receiptText }))
+    f.responses.push(toolCallResponse('old-discovery', 'tool_search', {}), textResponse('Retained.'))
+    await send(agent)
+    expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })
+    expect(agent.session.snapshotEvents().some(event => event.type === 'tool/result' && !event.data.message.isError)).toBe(true)
+  } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+})
+
+it('presents calls and refuses sessionless or contradictory context edits', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'discovery-call-validation-'))
+  const f = await fixture(root)
+  try {
+    const tool = f.ctx.tools.get('tool_search')!
+    expect(tool.presentCall?.({ query: 'video' })).toMatchObject({ rawInput: 'video' })
+    expect(tool.presentCall?.({ capability: 'video' })).toMatchObject({ rawInput: 'video' })
+    expect(tool.presentCall?.({})).toMatchObject({ rawInput: '' })
+    expect(f.ctx.tools.get('tool_context')?.presentCall?.({ operation: 'status' })).toMatchObject({ rawInput: 'status' })
+    for (const name of ['tool_context', 'tool_search']) {
+      const response = await f.ctx.tools.execute({ name, arguments: name === 'tool_search' ? {} : { operation: 'status' },
+        callId: ToolCallId(`no-session-${name}`), signal: new AbortController().signal })
+      expect(response.isError).toBe(true)
+      expect(JSON.stringify(response.content)).toContain('requires an agent session')
+    }
+    const agent = await f.create('discovery-invalid-context')
+    for (const [operation, tools] of [['status', ['video_inspect']], ['pin', [' ']]] as const) {
+      expect((await manage(f, agent, operation, [...tools]))?.isError).toBe(true)
+    }
+    expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })
+  } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+})
+
+it('bounds oversized category and tool identities while keeping valid entries available', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'discovery-small-receipt-'))
+  const f = await fixture(root, { maxResultChars: 256, maxDescriptionChars: 2048, capabilities: [
+    { id: 'oversized'.repeat(90), title: 'Oversized', description: 'long'.repeat(800), tools: ['wide*'] },
+    { id: 'short', title: 'Short', description: 'long'.repeat(800), tools: ['video_*'] },
+  ] })
+  try {
+    const agent = await f.create('discovery-small-receipt')
+    const wide = `wide${'x'.repeat(500)}`
+    f.ctx.tools.register(defineTool({ name: wide, description: 'wide receipt source'.repeat(300), parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, execute: async () => '' }))
+    const directory = await discover(f, agent, {})
+    expect(directory.text.length).toBeLessThanOrEqual(256)
+    expect(JSON.parse(directory.text)).toMatchObject({ omitted_capabilities: 1 })
+    expect(directory.value.capabilities.some(row => row.id === 'short')).toBe(true)
+    const dropped = await discover(f, agent, { query: wide })
+    expect(dropped.text.length).toBeLessThanOrEqual(256)
+    expect(dropped.value.loaded).toEqual([])
+    expect(dropped.value.matched).toBeGreaterThan(0)
+    expect(JSON.parse(dropped.text)).toMatchObject({ omitted: dropped.value.matched })
+    f.ctx.tools.register(defineTool({ name: 'short_tool', description: 'escaped\\\"'.repeat(300), parameters: {},
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, execute: async () => '' }))
+    const cropped = await discover(f, agent, { query: 'short_tool' })
+    expect(cropped.text.length).toBeLessThanOrEqual(256)
+    expect(cropped.value.loaded[0]?.name).toBe('short_tool')
+    expect(cropped.value.loaded[0]?.description).toBe('')
+  } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+})
+
+it('attaches discovery to an existing agent and detaches when that agent is disposed', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'discovery-existing-agent-'))
+  const f = await fixture(root)
+  try {
+    const original = [...f.ctx.loader.entries()].find(row => row.options.id === 'discovery')
+    if (!original?.fiber) throw new Error('Missing original discovery plugin')
+    await original.fiber.dispose()
+    const handle = await f.ctx.agents.create({ sessionId: SessionId('existing-discovery-agent'), meta: { cwd: root },
+      agentOptions: { provider: 'mock', model: 'mock' } })
+    await f.ctx.plugin(Discovery, { alwaysLoad: ['base_read'] })
+    expect(await shown(f.ctx, handle.agent)).toEqual(['base_read', 'tool_context', 'tool_search'])
+    await handle.dispose()
+    expect(f.ctx.agents.list()).toEqual([])
+  } finally { await f.dispose(); await rm(root, { recursive: true, force: true }) }
+})
 
 /** Search through the normal model/tool loop, creating authoritative call and result records. */
 async function search(f: Awaited<ReturnType<typeof fixture>>, agent: Agent, query: string) {
@@ -669,6 +762,11 @@ describe('Loader-composed tool discovery', () => {
       if (!(runtime instanceof AssemblyRuntime)) throw new Error('Missing test runtime')
       let operation = 'pin'
       runtime.behavior = async (request) => {
+        if (operation === 'release') {
+          const inspect = request.bindings[0]?.functions.video_inspect
+          if (!inspect) throw new Error('Loaded video tool is absent from the PTC context')
+          await inspect({})
+        }
         const edit = request.bindings[0]?.functions.tool_context
         if (!edit) throw new Error('Missing context binding')
         return { logs: [], value: await edit({ operation, tools: ['video_inspect'] }) }
@@ -681,6 +779,7 @@ describe('Loader-composed tool discovery', () => {
       f.responses.push(toolCallResponse('context-release-ptc', 'run_code', { description: 'Release video tool.', code: 'fixture' }), textResponse('Released.'))
       await send(agent)
       expect(f.ctx.toolDiscovery.state(agent)).toEqual({ loaded: [], pinned: [] })
+      expect(agent.session.snapshotEvents().some(event => event.type === 'tool/ptc-dispatch' && event.data.name === 'video_inspect')).toBe(true)
       const assembly = await f.ctx.systemPrompt.assemble({ agent, scope: agent })
       expect(assembly.tools.map(tool => tool.name)).not.toContain('video_inspect')
       expect(assembly.sections.find(section => section.name === 'tools:sdk')?.text).not.toContain('video_inspect')

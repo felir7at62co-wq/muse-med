@@ -95,9 +95,10 @@ export async function* streamWithModelLease(
   let checking = Promise.resolve()
   let done = false
   let accessFailure: LlmError | undefined
+  const deadlineFailure = (): LlmError => new LlmError('Muse model request reached its access deadline', 'MODEL_REQUEST_DEADLINE')
   const interruption = (): LlmError | undefined => signal.aborted ? undefined
     : accessFailure ?? (deadline.aborted
-      ? new LlmError('Muse model request reached its access deadline', 'MODEL_REQUEST_DEADLINE') : undefined)
+      ? deadlineFailure() : undefined)
   const check = (): void => {
     timer = setTimeout(() => {
       checking = (async () => {
@@ -125,9 +126,9 @@ export async function* streamWithModelLease(
     const current = await readMuseSession(options.sessionFile, options.baseUrl)
     if (current?.revision !== options.revision) throw new LlmError('Muse login changed', 'MISSING_CREDENTIAL')
     try { combined.throwIfAborted() }
-    catch (error) {
+    catch (_error) {
       if (signal.aborted) throw interruptedAccess(signal)
-      throw interruption() ?? error
+      throw deadlineFailure()
     }
     check()
     for await (const chunk of stream({ baseURL: lease.baseURL, apiKey: lease.apiKey }, combined)) {
