@@ -87,6 +87,26 @@ it('limits product documents to update status and a native confirmation action',
   expect(electron.ipcRenderer.off).toHaveBeenCalledWith(DESKTOP_IPC.updatesPresentation, handler)
 })
 
+it('exposes only the local DNS preference through the trusted product bridge', async () => {
+  vi.stubGlobal('location', new URL('dsh-app://app/index.html'))
+  electron.ipcRenderer.invoke.mockResolvedValue({ saved: true, active: false })
+  await import('../src/preload-app.ts')
+  const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshDesktop')?.[1] as DshDesktopProductApi
+  await expect(api.systemDns.status()).resolves.toEqual({ saved: true, active: false })
+  await expect(api.systemDns.set(true)).resolves.toEqual({ saved: true, active: false })
+  expect(electron.ipcRenderer.invoke.mock.calls).toEqual([[DESKTOP_IPC.systemDnsStatus], [DESKTOP_IPC.systemDnsSet, true]])
+})
+
+it('preserves unknown and confirmed failed DNS save outcomes across the preload bridge', async () => {
+  vi.stubGlobal('location', new URL('dsh-app://app/'))
+  electron.ipcRenderer.invoke.mockResolvedValueOnce({ unknown: true })
+    .mockResolvedValueOnce({ saved: false, active: false, saveFailed: true })
+  await import('../src/preload-app.ts')
+  const api = electron.contextBridge.exposeInMainWorld.mock.calls.find(([name]) => name === 'dshDesktop')?.[1] as DshDesktopProductApi
+  await expect(api.systemDns.set(true)).resolves.toEqual({ unknown: true })
+  await expect(api.systemDns.set(true)).resolves.toEqual({ saved: false, active: false, saveFailed: true })
+})
+
 it.each(['dsh-app://shell/plugin-manager.html', 'dsh-app://other/index.html', 'https://shell/startup.html', 'http://example.com/'])('exposes only the carrier marker to %s', async (url) => {
   vi.stubGlobal('location', new URL(url))
   await import('../src/preload-app.ts')

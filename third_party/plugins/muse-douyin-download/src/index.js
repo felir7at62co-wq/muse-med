@@ -2,6 +2,7 @@
 import { downloadCommand, resolveConfig, runDownloader, runtimeUnavailable } from './runner.js';
 import { dataProperties, projectDataResult, resolveDataArgs } from './data.js';
 import { DouyinTasks } from './tasks.js';
+import { withNetworkGuidance } from './network-guidance.js';
 
 export { downloadCommand, resolveConfig, runDownloader, runtimeUnavailable } from './runner.js';
 export { projectDataResult, resolveDataArgs } from './data.js';
@@ -67,7 +68,7 @@ export function apply(ctx, config = {}) {
       else if (options.background) result = { status: 'blocked', code: 'DESKTOP_BACKGROUND_UNAVAILABLE', message: 'Background browser download requires the matching Desktop Host capability; resume after updating the Host' };
       else result = { status: 'blocked', code: 'DESKTOP_HOST_REQUIRED', message: 'This plugin requires the matching MUSE Desktop browser download bridge for authorized playback.' };
     }
-    return result;
+    return withNetworkGuidance(result);
   };
   const tasks = new DouyinTasks(ctx, settings, { acquireVideo });
   ctx.effect(() => async () => { lifetime.abort(new Error('Douyin plugin unloaded')); await tasks.dispose(); await Promise.allSettled([...running]); }, 'douyin: settle downloads on unload');

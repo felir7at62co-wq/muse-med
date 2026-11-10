@@ -101,6 +101,8 @@ pnpm --dir third_party/plugins/muse-douyin-download run package -- --out /tmp/mu
 
 The active provider exposes three tools with logged JSON results. Background acceptance reports queued rather than downloaded; task inspection distinguishes completed, source/user waits and interruptions. Jobs progress is observable without periodic prompt injection, and final reports preserve partial receipts and source failures. Page-data output retains its independent field precision and missing reasons.
 
+For `PRIVATE_MEDIA_ADDRESS`, the result retains the block and suggests the opt-in [Desktop DNS compatibility setting](../../../apps/desktop/README.md#local-desktop-settings) as a possible proxy troubleshooting step.
+
 <a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
 

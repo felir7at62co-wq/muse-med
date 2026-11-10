@@ -585,11 +585,16 @@ On first launch, including after an upgrade, Desktop creates this document if it
 {
   "updates": {
     "allowTestAuthPopupWindow": false
+  },
+  "network": {
+    "useSystemResolver": false
   }
 }
 ```
 
-Existing documents are never overwritten; an omitted `updates` object or field resolves to `false`. Set the field to `true` to permit test authentication dialogs, then fully quit and restart the application. Set it back to `false` and restart to suppress them again. Creation, read, or validation failures use the default `false` without blocking startup. Desktop attempts to warn through the Electron console with the file path; unavailable logging does not block startup. Correct the file and restart to apply an explicit setting. Unknown fields are preserved. Installation updates retain this user-data file; Windows uninstallation removes it under the [uninstall rules](#windows-uninstall-rules).
+Existing documents are not rewritten at startup; omitted fields resolve to `false`. Set `updates.allowTestAuthPopupWindow` to `true` to permit test authentication dialogs, then fully quit and restart the application. Set it back to `false` and restart to suppress them again. Creation, read, or validation failures use the default `false` without blocking startup. Desktop attempts to warn through the Electron console with the file path; unavailable logging does not block startup. Correct the file and restart to apply an explicit setting. Unknown fields are preserved. Installation updates retain this user-data file; Windows uninstallation removes it under the [uninstall rules](#windows-uninstall-rules).
+
+For networks where a proxy returns fake IP addresses, Muse Desktop offers an opt-in system DNS compatibility setting under Settings → General. It stores `network.useSystemResolver` atomically and takes effect after Muse fully exits and restarts. This makes the whole Muse Electron process prefer the system resolver, preserves system proxy settings, and leaves the download's private and reserved address checks in place. DNS over HTTPS and other network settings can still affect the result. Disable it and restart to restore Electron's default resolver. An unreadable or invalid settings document cannot be overwritten from the UI. When a failed save cannot be read back, the UI reports an unknown state and prevents further edits until a retry reads the setting.
 
 <a id="mandatory-update-policy"></a>
 

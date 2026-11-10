@@ -61,7 +61,7 @@ import { desktopClientCommitHash, desktopClientMetadata, desktopClientVersion, d
 import { readDesktopLoginShellEnvironment, resolveDesktopLoginShellConfig } from './login-shell-environment.ts'
 import { DesktopMandatoryUpdateWindow } from './mandatory-update-window.ts'
 import { DesktopPolicyTestAuth } from './policy-test-auth.ts'
-import { readDesktopSettings } from './settings.ts'
+import { configureDesktopHostResolver, readDesktopSettings, readDesktopSystemDns, setDesktopSystemDnsStatus } from './settings.ts'
 import { readDesktopLocaleCache, writeDesktopLocaleCache } from './locale-cache.ts'
 import { DesktopUpdateDialog, type UpdateDialogOptions } from './update-dialog.ts'
 import { readDesktopRuntime } from './runtime-tree.ts'
@@ -435,6 +435,7 @@ function createWindow(preload: string, show = false, primary = false): BrowserWi
 
 async function main(): Promise<void> {
   const desktopSettings = readDesktopSettings(app.getPath('userData'))
+  configureDesktopHostResolver(desktopSettings, (options) => { app.configureHostResolver(options) })
   void pruneCrashReports(app.getPath('logs'))
   const journalDirectory = process.env.DSH_DESKTOP_UPDATE_JOURNAL_DIR
   const updateJournal = journalDirectory === undefined ? undefined : new DesktopUpdateJournal(journalDirectory, desktopProductVersion(app))
@@ -1082,6 +1083,15 @@ async function main(): Promise<void> {
   ipcMain.handle(DESKTOP_IPC.deviceInfo, (event) => {
     assertProductSender(event)
     return readDeviceInfo()
+  })
+  ipcMain.handle(DESKTOP_IPC.systemDnsStatus, (event) => {
+    assertProductSender(event)
+    return readDesktopSystemDns(app.getPath('userData')).then(saved => ({ saved, active: desktopSettings.network.useSystemResolver }))
+  })
+  ipcMain.handle(DESKTOP_IPC.systemDnsSet, (event, enabled: unknown) => {
+    assertProductSender(event)
+    if (typeof enabled !== 'boolean') throw new TypeError('system DNS preference must be a boolean')
+    return setDesktopSystemDnsStatus(app.getPath('userData'), desktopSettings.network.useSystemResolver, enabled)
   })
   ipcMain.handle(DESKTOP_IPC.onboardingApiKey, async (event) => {
     assertProductSender(event)

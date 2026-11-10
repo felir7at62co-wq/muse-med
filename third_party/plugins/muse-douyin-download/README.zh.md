@@ -101,6 +101,8 @@ pnpm --dir third_party/plugins/muse-douyin-download run package -- --out /tmp/mu
 
 启用的提供器暴露三个工具并记录 JSON 结果。后台接收报告 queued，而不是 downloaded；任务查询区分完成、来源/用户等待与中断。Jobs 进度可观察但不周期性注入提示，最终报告保留部分收据和来源失败。页面数据输出保留独立的字段精度与缺失原因。
 
+遇到 `PRIVATE_MEDIA_ADDRESS` 时，结果保留阻止状态，并提示可将[桌面 DNS 兼容选项](../../../apps/desktop/README.zh.md#local-desktop-settings)作为代理问题的排查方式。
+
 <a id="known-limitations-and-deferred-work"></a>
 ## 已知限制与暂缓工作
 

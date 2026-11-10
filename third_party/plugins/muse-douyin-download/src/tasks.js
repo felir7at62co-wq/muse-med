@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isAbsolute, join, relative } from 'node:path';
 import { TaskStore, activeRuns, digest, taskError } from './task-store.js';
 import { nativeEvidence, receiptFields, stableReceipt } from './receipt.js';
+import { withNetworkGuidance } from './network-guidance.js';
 
 const INSIDE = (root, file) => { const path = relative(root, file); return path === '' || path !== '..' && !path.startsWith('../') && !path.startsWith('..\\') && !isAbsolute(path); };
 const idOf = source => /^https:\/\/www\.douyin\.com\/video\/(\d{10,25})$/.exec(source ?? '')?.[1] ?? null;
@@ -38,7 +39,7 @@ function blocked(result) {
   const raw = typeof result?.message === 'string' ? result.message : '';
   const code = typeof result?.code === 'string' && /^[A-Z0-9_]{1,80}$/.test(result.code) ? result.code
     : /LOGIN_OR_VERIFICATION_REQUIRED|ACCESS_RESTRICTED/.exec(raw)?.[0] ?? 'SOURCE_UNAVAILABLE';
-  return { status: 'blocked', code, message: raw && raw.length <= 2048 && !/https?:\/\/|cookie|bearer|token=|signature/i.test(raw) ? raw : 'The selected official source requires attention before downloading can continue' };
+  return withNetworkGuidance({ status: 'blocked', code, message: raw && raw.length <= 2048 && !/https?:\/\/|cookie|bearer|token=|signature/i.test(raw) ? raw : 'The selected official source requires attention before downloading can continue' });
 }
 
 /** One scoped controller; its private registry and leases cooperate with other controllers and processes. */

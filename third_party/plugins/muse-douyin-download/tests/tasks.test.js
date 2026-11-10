@@ -23,6 +23,22 @@ const nativeEvidence = id => ({ responseStatus: 200, mediaHost: 'v3-fixture.douy
     documentEpoch: 1, sourceField: 'video.play_addr', durationMs: 1000, width: 16, height: 16 } });
 
 describe('persistent Douyin tasks with owned Jobs', { timeout: 90000 }, () => {
+  test('keeps a reserved media address blocked and suggests the opt-in resolver only as a proxy troubleshooting step', async t => {
+    const f = await taskHarness(t, { acquireVideo: () => ({ status: 'blocked', code: 'PRIVATE_MEDIA_ADDRESS' }) });
+    const result = await f.download(args(VIDEO_ONE));
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.code, 'PRIVATE_MEDIA_ADDRESS');
+    assert.match(result.message, /system DNS.*Settings.*General/i);
+    assert.match(result.message, /proxy/i);
+    assert.match(result.message, /restart/i);
+  });
+  test('does not suggest DNS changes for an unrelated media failure', async t => {
+    const f = await taskHarness(t, { acquireVideo: () => ({ status: 'blocked', code: 'PLAYER_PROBE_UNAVAILABLE' }) });
+    const result = await f.download(args(VIDEO_ONE));
+    assert.equal(result.status, 'blocked');
+    assert.equal(result.code, 'PLAYER_PROBE_UNAVAILABLE');
+    assert.doesNotMatch(result.message, /system DNS/i);
+  });
   test('default wait preserves native identity and publishes a private durable receipt distinct from its real job', async t => {
     const nativeTaskId = '77000000-0000-4000-8000-000000000001';
     const f = await taskHarness(t, { acquireVideo: (agent, url) => mediaReceipt(agent, url, { authentication: 'muse-browser', taskId: nativeTaskId, targetVideoId: selectedVideo(url) }) });

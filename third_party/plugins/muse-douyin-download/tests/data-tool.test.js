@@ -134,6 +134,19 @@ test('the new bridge retains existing verified internal-browser download fallbac
   } finally { await scope.dispose(); }
 });
 
+test('data collection with a blocked media address reports DNS compatibility as optional troubleshooting', async () => {
+  const scope = install({ version: 4, async data() { return snapshot(); },
+    async download() { return { status: 'blocked', code: 'PRIVATE_MEDIA_ADDRESS' }; } },
+  { status: 'blocked', message: 'ACCESS_RESTRICTED' });
+  try {
+    const result = await scope.tool.execute({ url, download: true }, {});
+    assert.equal(result.status, 'partial');
+    assert.equal(result.download.status, 'blocked');
+    assert.equal(result.download.code, 'PRIVATE_MEDIA_ADDRESS');
+    assert.match(result.download.message, /proxy.*system DNS.*Settings.*General.*restart/i);
+  } finally { await scope.dispose(); }
+});
+
 test('available data and blocked media retain independent outcomes', async () => {
   const scope = install({ version: 4, async data() { return snapshot(); } }, receipt, { pythonExecutable: null, ffprobeExecutable: null, ffmpegExecutable: null });
   try {
