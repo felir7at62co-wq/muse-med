@@ -35,6 +35,8 @@ const config: ManuscriptContinuityConfig = { maxFileBytes: 65536, maxTextChars: 
   maxDocuments: 8, maxMaterialChars: 40000, continuityMaxRequests: 3,
   continuityMaxOutputTokens: 4096, continuityTimeoutMs: 120000, continuityMaxFindings: 8,
   continuityMaxCorrections: 1, continuityMaxEpisodeChecks: 12,
+  videoEvidenceWindowSeconds: 8, videoEvidenceMaxScenes: 4, videoEvidenceMaxFrames: 4,
+  videoEvidenceMaxBytes: 256 * 1024, videoEvidenceMaxTranscriptBytes: 2 * 1024 * 1024,
   repeatMinChars: 32, repeatMaxSeedPairs: 50000, repeatMaxCandidates: 12, repeatMaxOutputChars: 20000 }
 const text = '第1集\n1-1 门口 日 外\n▲甲尚未进门。\n第2集\n2-1 主卧 日 内\n▲甲已经拆开旧床。'
 

@@ -1,0 +1,64 @@
+{
+  "model": {
+    "provider": "manuscript-video-source-fixture",
+    "model": "selected-visual-model"
+  },
+  "parentRequests": 9,
+  "childRequests": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "originalImagesReachedChild": true,
+  "savedAsrRowsAndTimesReachedChild": true,
+  "priorObservationNotSuppliedAsSource": true,
+  "decodedOrTranscribed": false,
+  "semanticModelQualityVerified": false,
+  "results": [
+    {
+      "case": "complete",
+      "status": "consistent",
+      "reason": "reviewed"
+    },
+    {
+      "case": "missing-frame",
+      "status": "unknown",
+      "reason": "invalid_evidence"
+    },
+    {
+      "case": "missing-speech",
+      "status": "unknown",
+      "reason": "invalid_evidence"
+    },
+    {
+      "case": "forged-draft-quote",
+      "status": "unknown",
+      "reason": "invalid_evidence"
+    },
+    {
+      "case": "forged-frame-id",
+      "status": "unknown",
+      "reason": "invalid_evidence"
+    },
+    {
+      "case": "changed-video",
+      "status": "unknown",
+      "reason": "source_changed"
+    },
+    {
+      "case": "changed-asr",
+      "status": "unknown",
+      "reason": "source_changed"
+    },
+    {
+      "case": "changed-image",
+      "status": "unknown",
+      "reason": "source_changed"
+    }
+  ]
+}
