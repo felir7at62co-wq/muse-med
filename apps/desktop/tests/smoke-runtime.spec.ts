@@ -165,13 +165,13 @@ function fixture(packaged = false) {
     tools = { schemas: vi.fn((key?: { preset: string }) => {
       if (key === undefined) return []
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
-      return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write', 'todo_update'].includes(name)), ...editingCapabilityNames]
+      return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write', 'todo_update'].includes(name)), ...editingCapabilityNames, ...accountMcpNames]
         : key.preset === 'minimal' ? [shell]
-          : key.preset === 'short-drama' ? ['read', 'skill', shell, 'present', ...editingCapabilityNames, ...accountMcpNames]
-            : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
-              'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...accountMcpNames]
-              : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...accountMcpNames]
-                : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name }))
+          : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'run_code', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
+            'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...accountMcpNames]
+            : key.preset === 'standard' ? ['read', 'skill', shell, 'present', ...standardCapabilityNames, ...accountMcpNames]
+              : ['read', 'skill', shell, 'subagent', 'audio_transcribe', ...(key.preset === 'ptc' ? ['run_code'] : ['workflow'])]).map(name => ({ name,
+        ...(editingModelInput.tools[name] === undefined ? {} : { description: editingModelInput.tools[name] }) }))
     }) }
     systemPrompt = { assemble: vi.fn(async (context: { agent: { preset: string }; scope: { preset: string } }) => ({
       sections: context.scope.preset === 'short-drama'
@@ -589,6 +589,49 @@ it.each(['missing', 'without Word', 'without export'])('rejects editing delivery
   })
   await expect(f.apply(f.ctx)).rejects.toThrow('editing Word delivery guidance is missing')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('accepts on-demand tool presentation while checking registered descriptions', async () => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    if (context.scope.preset === 'short-drama') result.tools = [{ name: 'tool_search', description: 'Discover tools' }]
+    return result
+  })
+  await f.apply(f.ctx)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+})
+
+it('rejects absent model tools without a discovery entry', async () => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    if (context.scope.preset === 'short-drama') result.tools = []
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('editing tool missing without discovery')
+})
+
+it.each(['missing', 'changed'])('rejects %s registered tools behind discovery', async (kind) => {
+  const f = fixture()
+  const target = 'mcp__muse-account__muse_account_status'
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation((key) => {
+    const result = schemas(key)
+    if (key?.preset !== 'short-drama') return result
+    return kind === 'missing' ? result.filter(tool => tool.name !== target)
+      : result.map(tool => tool.name === target ? { ...tool, description: 'Generic read.' } : tool)
+  })
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    const result = await assemble(context)
+    if (context.scope.preset === 'short-drama') result.tools = [{ name: 'tool_search', description: 'Discover tools' }]
+    return result
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow(kind === 'missing' ? 'missing product tool ' + target
+    : 'editing registered tool description changed: ' + target)
 })
 
 it.each(Object.keys(editingModelInput.tools))('rejects a changed model-visible description for %s', async (name) => {

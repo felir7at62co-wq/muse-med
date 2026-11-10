@@ -66,7 +66,8 @@ export function apply(ctx) {
       }))
     }
     for (const handle of handles) {
-    const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
+    const registeredTools = ctx.tools.schemas(handle.agent)
+    const names = new Set(registeredTools.map(tool => tool.name))
     const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
     const required = id === 'short-drama' ? ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
       'jubian_media', 'jubian_watch', 'bgm_match', 'ffmpeg_probe', 'ffmpeg_encode', 'skill', 'hindsight_memory', 'ask_user_question', 'todo_write', 'todo_update',
@@ -98,7 +99,17 @@ export function apply(ctx) {
         throw new Error('desktop runtime: editing Word delivery guidance is missing')
       }
       for (const [name, description] of Object.entries(editingModelInput.tools)) {
-        if (assembly.tools.find(tool => tool.name === name)?.description !== description) {
+        const registered = registeredTools.find(tool => tool.name === name)
+        if (registered === undefined) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id)
+        if (registered.description !== description) {
+          throw new Error('desktop runtime: editing registered tool description changed: ' + name)
+        }
+        const presented = assembly.tools.find(tool => tool.name === name)
+        if (presented === undefined) {
+          if (!assembly.tools.some(tool => tool.name === 'tool_search')) {
+            throw new Error('desktop runtime: editing tool missing without discovery: ' + name)
+          }
+        } else if (presented.description !== description) {
           throw new Error('desktop runtime: editing model tool description changed: ' + name)
         }
       }
