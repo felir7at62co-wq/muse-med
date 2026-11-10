@@ -48,6 +48,52 @@ class InventoryTests(unittest.TestCase):
         self.assertFalse(any(row['eligible'] for row in rows))
         self.assertEqual(next(row for row in rows if Path(row['path']).name=='r1')['reason'],'retained-version-dependency')
 
+    def test_recent_nonrollback_release_protects_transitive_older_dependencies(self):
+        ages = {'r0': 120, 'r1': 100, 'r2': 90, 'r3': 13, 'r4': 2, 'r5': 1, 'r6': 200}
+        for name, days in ages.items(): self.release(name, days)
+        (self.releases/'r3'/'dependency').symlink_to(self.releases/'r1')
+        (self.releases/'r1'/'dependency').symlink_to(self.releases/'r0')
+        for name, days in ages.items(): os.utime(self.releases/name, (self.now - days*86400,)*2)
+        rows = {Path(row['path']).name: row for row in plan(self.snapshot([
+            {'kind': 'effective-systemd', 'owner': 'service', 'path': str(self.releases/'r2')}]), self.policy, self.now)}
+        self.assertTrue(rows['r2']['reason'].startswith('referenced:'))
+        self.assertEqual(rows['r4']['reason'], 'rollback-reserve')
+        self.assertEqual(rows['r5']['reason'], 'rollback-reserve')
+        self.assertEqual(rows['r3']['reason'], 'release-retention-period')
+        self.assertEqual(rows['r1']['reason'], 'retained-version-dependency')
+        self.assertEqual(rows['r0']['reason'], 'retained-version-dependency')
+        self.assertTrue(rows['r6']['eligible'])
+
+    def test_release_retention_boundary_does_not_create_an_extra_root(self):
+        self.now = 1800000000
+        for name, days in [('r0', 120), ('r1', 14), ('r2', 90), ('r3', 2), ('r4', 1)]: self.release(name, days)
+        (self.releases/'r1'/'dependency').symlink_to(self.releases/'r0')
+        os.utime(self.releases/'r1', (self.now - 14*86400,)*2)
+        rows = {Path(row['path']).name: row for row in plan(self.snapshot([
+            {'kind': 'effective-systemd', 'owner': 'service', 'path': str(self.releases/'r2')}]), self.policy, self.now)}
+        self.assertTrue(rows['r1']['eligible'])
+        self.assertTrue(rows['r0']['eligible'])
+        self.assertEqual(rows['r3']['reason'], 'rollback-reserve')
+        self.assertEqual(rows['r4']['reason'], 'rollback-reserve')
+
+    def test_recent_release_protects_dependency_in_another_group(self):
+        self.now = 1800000000
+        for name, days in [('r1', 13), ('r2', 90), ('r3', 2), ('r4', 1)]: self.release(name, days)
+        assets = self.root/'assets'/'releases'; assets.mkdir(parents=True)
+        for name, days in [('a1', 100), ('a2', 80), ('a3', 70), ('a4', 60)]:
+            path = assets/name; path.mkdir(); (path/'index.html').write_text(name)
+            os.utime(path, (self.now - days*86400,)*2)
+        self.policy['release_groups'].append({'name': 'assets', 'root': str(assets), 'pattern': 'a[0-9]+', 'required_files': ['index.html']})
+        policy_file = self.root/'cross-group-policy.json'
+        policy_file.write_text(json.dumps(self.policy))
+        self.assertEqual(load(policy_file), self.policy)
+        (self.releases/'r1'/'dependency').symlink_to(assets/'a1')
+        os.utime(self.releases/'r1', (self.now - 13*86400,)*2)
+        refs = [{'kind': 'effective-systemd', 'owner': 'service', 'path': str(self.releases/'r2')}]
+        rows = {Path(row['path']).name: row for row in plan(self.snapshot(refs), self.policy, self.now)}
+        self.assertEqual(rows['r1']['reason'], 'release-retention-period')
+        self.assertEqual(rows['a1']['reason'], 'retained-version-dependency')
+
     def test_self_receipts_do_not_pin_every_historical_release(self):
         for i in range(1,5):
             p=self.release('r'+str(i),50-i)

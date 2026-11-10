@@ -12,6 +12,7 @@ import stat
 import uuid
 
 from configuration import Failure, document
+from projection import MAX_MANIFEST_FILES, safe_files
 
 
 @dataclass(frozen=True)
@@ -198,13 +199,24 @@ class Retention:
                 if not refs:
                     reason = 'unmanaged_reference'
                     break
+                raw = row.get('files')
+                if not isinstance(raw, list) or not raw or len(raw) > MAX_MANIFEST_FILES:
+                    reason = 'manifest_unknown'
+                    break
+                manifest = safe_files(raw)
+                if len(manifest) != len(raw):
+                    reason = 'manifest_unknown'
+                    break
+                upstream = {entry['name']: entry for entry in manifest}
                 for job in refs:
                     if job['state'] not in ('cloud_saved', 'partial', 'failed'):
                         reason = 'unreconciled_download'
                         break
                     files = json.loads(job['files'])
-                    if not files:
-                        # Failed/orphaned data cannot be attributed safely from an empty manifest.
+                    if (not isinstance(files, list) or len(files) != len(manifest)
+                            or any(not isinstance(entry, dict) or entry.get('name') not in upstream
+                                   or entry != upstream[entry['name']] for entry in files)
+                            or len({entry['name'] for entry in files}) != len(manifest)):
                         reason = 'manifest_unknown'
                         break
                     for file in files:

@@ -45,6 +45,7 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(result['moved'],0);self.assertEqual(result['deleted'],0)
         self.assertEqual((self.f.releases/'r1'/'index.html').read_text(),'r1')
         self.assertEqual(self.engine.db.execute('SELECT COUNT(*) FROM quarantine').fetchone()[0],0)
+        self.assertFalse((self.f.releases/'.muse-retention-quarantine').exists())
 
     def test_24_hour_gate_rejects_short_gapped_error_changed_and_clock_regression(self):
         with self.assertRaises(ValueError):self.engine.review()
@@ -134,6 +135,21 @@ class EngineTests(unittest.TestCase):
         self.refs.append({'kind':'process-command','owner':'123','path':candidate['path']})
         with self.assertRaises(ValueError):self.engine.move(candidate)
         self.assertTrue(Path(candidate['path']).exists())
+
+    def test_new_recent_release_dependency_blocks_previously_selected_candidate(self):
+        self.refs.append({'kind':'effective-systemd','owner':'unit','path':str(self.f.releases/'r2')})
+        self.history();self.enable()
+        _,rows=self.engine.observe()
+        candidate=next(row for row in rows if row['path']==str(self.f.releases/'r1'))
+        self.assertTrue(candidate['eligible'])
+        recent=self.f.release('r5',13)
+        self.f.release('r6',2);self.f.release('r7',1)
+        (recent/'dependency').symlink_to(self.f.releases/'r1')
+        os.utime(recent,(self.now-13*86400,)*2)
+        with self.assertRaisesRegex(ValueError,'candidate-changed-or-protected'):
+            self.engine.move(candidate)
+        self.assertEqual((self.f.releases/'r1'/'index.html').read_text(),'r1')
+        self.assertEqual(self.engine.db.execute('SELECT COUNT(*) FROM quarantine').fetchone()[0],0)
 
     def test_open_rotated_log_waits_then_quarantines_and_purges_only_after_the_extra_day(self):
         log=self.f.logs/'access.log.20.gz';log.write_text('archive')

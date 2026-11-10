@@ -82,6 +82,9 @@ def plan(snapshot, policy, now):
                 break
             protected[row['path']] = 'rollback-reserve'
             keep -= 1
+    for row in known.values():
+        if row['path'] not in protected and now - row['identity']['mtime_ns'] / 1e9 < policy['release_days'] * 86400:
+            protected[row['path']] = 'release-retention-period'
     changed = True
     while changed:
         changed = False

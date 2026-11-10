@@ -37,7 +37,7 @@ class RetentionTests(unittest.IsolatedAsyncioTestCase):
         self.sha = hashlib.sha256(self.data).hexdigest()
         self.file = {'name': 'video.mp4', 'sha256': self.sha, 'bytes': len(self.data), 'kind': 'video'}
         self.inventory = [{'id': self.download_id, 'directory': 'douyin/user/post', 'state': 'done',
-            'pinned': False, 'on_disk': True, 'bytes_total': len(self.data), 'created_at': datetime.fromtimestamp(self.now - 8 * 86400, timezone.utc).isoformat(), 'files': [self.file]}]
+            'pinned': False, 'on_disk': True, 'bytes_total': len(self.data), 'created_at': datetime.fromtimestamp(self.now - 8 * 86400, timezone.utc).isoformat(), 'files': [{**self.file, 'state': 'done'}]}]
         self.media = self.root / 'video.mp4'
         self.media.write_bytes(self.data)
         self.calls = []
@@ -130,6 +130,62 @@ class RetentionTests(unittest.IsolatedAsyncioTestCase):
         self.ledger.create('c', 'download_media', {'request_id': 'uncertain'})
         self.assertEqual(self.retention.plan(self.inventory, self.now)[0]['reason'], 'unreconciled_download')
 
+    async def test_incomplete_upstream_members_protect_the_whole_directory(self):
+        original = {**self.file, 'state': 'done'}
+        incomplete = [
+            [{**original, 'name': 'cover[1].jpg', 'kind': 'image'}],
+            [{**original, 'name': 'cover.jpg', 'kind': 'image', 'sha256': None}],
+            [{**original, 'name': 'cover.jpg', 'kind': 'image', 'state': 'failed'}],
+            [{**original, 'name': 'cover.jpg', 'kind': 'unsupported'}],
+            [original],
+            [None],
+            [{**original, 'name': f'{i}.mp4'} for i in range(128)],
+        ]
+        for extra in incomplete:
+            with self.subTest(extra=extra[:1], count=len(extra)):
+                self.inventory[0]['files'] = [original, *extra]
+                decision = self.retention.plan(self.inventory, self.now)[0]
+                self.assertFalse(decision['eligible'])
+                self.assertEqual(decision['reason'], 'manifest_unknown')
+        for missing in ([], None, {}):
+            self.inventory[0]['files'] = missing
+            self.assertEqual(self.retention.plan(self.inventory, self.now)[0]['reason'], 'manifest_unknown')
+
+    async def test_complete_manifest_must_match_every_owner_fact_independent_of_order(self):
+        other = {'name': 'cover.jpg', 'sha256': 'b' * 64, 'bytes': 12, 'kind': 'image'}
+        files = [self.file, other]
+        self.ledger.update(self.job, 'cloud_saved', download=self.download_id, files=files)
+        self.ledger.db.execute('UPDATE jobs SET updated_at=created_at WHERE job_id=?', (self.job['job_id'],))
+        self.inventory[0]['files'] = [{**other, 'state': 'done', 'export_name': 'ignored'},
+                                      {**self.file, 'state': 'done', 'sha256': self.sha.upper()}]
+        self.assertTrue(self.retention.plan(self.inventory, self.now)[0]['eligible'])
+        for patch in ({'sha256': 'c' * 64}, {'bytes': 13}, {'kind': 'video'}, {'name': 'changed.jpg'}):
+            with self.subTest(patch=patch):
+                self.inventory[0]['files'][0] = {**other, 'state': 'done', **patch}
+                self.assertEqual(self.retention.plan(self.inventory, self.now)[0]['reason'], 'manifest_unknown')
+        self.inventory[0]['files'][0] = {**other, 'state': 'done'}
+        second = self.add_job('b', 'second', self.download_id)
+        self.assertEqual(self.retention.plan(self.inventory, self.now)[0]['reason'], 'manifest_unknown')
+        self.ledger.update(second, 'cloud_saved', download=self.download_id, files=files)
+        self.ledger.db.execute('UPDATE jobs SET updated_at=created_at WHERE job_id=?', (second['job_id'],))
+        self.assertTrue(self.retention.plan(self.inventory, self.now)[0]['eligible'])
+        self.ledger.update(second, 'cloud_saved', download=self.download_id, files=[self.file, self.file])
+        self.assertEqual(self.retention.plan(self.inventory, self.now)[0]['reason'], 'manifest_unknown')
+
+    async def test_incomplete_shared_row_protects_the_physical_directory(self):
+        other_id = str(uuid.uuid4())
+        self.add_job('b', 'other-download', other_id)
+        sibling = {**self.inventory[0], 'id': other_id,
+                   'files': [{**self.file, 'state': 'done'}, {**self.file, 'name': 'bad.jpg', 'state': 'failed'}]}
+        self.assertEqual(self.retention.plan(self.inventory + [sibling], self.now)[0]['reason'], 'manifest_unknown')
+
+    async def test_complete_manifest_at_limit_is_eligible_after_all_deadlines(self):
+        files = [{**self.file, 'name': f'{i}.mp4'} for i in range(128)]
+        self.ledger.update(self.job, 'cloud_saved', download=self.download_id, files=files)
+        self.ledger.db.execute('UPDATE jobs SET updated_at=created_at WHERE job_id=?', (self.job['job_id'],))
+        self.inventory[0]['files'] = [{**file, 'state': 'done'} for file in files]
+        self.assertTrue(self.retention.plan(self.inventory, self.now)[0]['eligible'])
+
     async def test_short_gapped_failed_changed_and_clock_regression_previews_cannot_enable(self):
         with self.assertRaises(ValueError):
             self.retention.review()
@@ -174,6 +230,22 @@ class RetentionTests(unittest.IsolatedAsyncioTestCase):
         self.before_inventory = pin_on_second_inventory
         result = await self.retention.sweep()
         self.assertIn('error', result)
+        self.assertFalse(any(method == 'DELETE' for method, _ in self.calls))
+        self.assertTrue(self.media.exists())
+
+    async def test_recheck_rejects_unrepresented_member_before_fence_or_delete(self):
+        self.history()
+        self.enable()
+        calls = 0
+        def change_on_second_inventory():
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                self.inventory[0]['files'].append({**self.file, 'name': 'new.jpg', 'kind': 'image', 'state': 'failed'})
+        self.before_inventory = change_on_second_inventory
+        result = await self.retention.sweep()
+        self.assertIn('error', result)
+        self.assertEqual(self.ledger.db.execute('SELECT COUNT(*) FROM media_deletions').fetchone()[0], 0)
         self.assertFalse(any(method == 'DELETE' for method, _ in self.calls))
         self.assertTrue(self.media.exists())
 
