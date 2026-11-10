@@ -61,7 +61,7 @@ export function apply(ctx, config = {}) {
     if (result.status === 'downloaded') return result;
     signal.throwIfAborted();
     if (result.status === 'blocked' && !publicOnly
-      && /PUBLIC_SHARE_MEDIA_UNAVAILABLE|PUBLIC_SHARE_REQUEST_FAILED|PUBLIC_MEDIA_DOWNLOAD_FAILED|LOGIN_OR_VERIFICATION_REQUIRED|ACCESS_RESTRICTED|^Share link resolution failed;/.test(result.message || '')) {
+      && /PUBLIC_SHARE_MEDIA_UNAVAILABLE|^PUBLIC_SHARE_DATA_INVALID(?::|$)|PUBLIC_SHARE_REQUEST_FAILED|PUBLIC_MEDIA_DOWNLOAD_FAILED|LOGIN_OR_VERIFICATION_REQUIRED|ACCESS_RESTRICTED|^Share link resolution failed;/.test(result.message || '')) {
       const browser = ctx.get('douyinBrowser');
       if (browser?.version === 4 && (!options.background || browser.supportsBackgroundDownload === true)) result = await track(browser.download(agent, url, signal, settings.maxDownloadBytes, settings.nativeTimeoutMs, ...(options.background ? [{ background: true }] : [])));
       else if (options.background) result = { status: 'blocked', code: 'DESKTOP_BACKGROUND_UNAVAILABLE', message: 'Background browser download requires the matching Desktop Host capability; resume after updating the Host' };

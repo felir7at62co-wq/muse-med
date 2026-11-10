@@ -26,7 +26,7 @@ Active profiles gain selected-work page data, verified downloads and persistent 
 
 The [owned bundle](../owned-downloads.json) includes [its profile patch](cordis.patch.yml). Adding the archive to a profile inserts this provider; the profile must supply `agents`, `tools`, `subprocess`, `jobs`, a scoped Jobs controller and `sandboxPolicy`. Browser playback additionally needs the matching Desktop transport. Installation alone does not provide that transport.
 
-`douyin_download` accepts a selected official HTTPS video/share `url`, or a checked `urls` list, and writes verified media into the initiating session's `source/media/douyin/` directory. Public requests always ignore saved browser settings. `publicOnly:true` disables the internal-browser fallback. No browser profile, Cookie file, remembered account or arbitrary output directory is accepted by the tool.
+`douyin_download` accepts a selected official HTTPS video/share `url`, or a checked `urls` list, and writes verified media into the initiating session's `source/media/douyin/` directory. Public requests always ignore saved browser settings. `publicOnly:true` disables the internal-browser fallback. Unsupported public share data can use the same authorized browser fallback as unavailable public media. No browser profile, Cookie file, remembered account or arbitrary output directory is accepted by the tool.
 
 ### Persistent downloads
 

@@ -26,7 +26,7 @@ kind: "package-bundle"
 
 [自有配置层](../owned-downloads.json)包含[配置补丁](cordis.patch.yml)。向配置添加归档包会插入此提供器；配置须提供 `agents`、`tools`、`subprocess`、`jobs`、所属作用域的 Jobs 控制器和 `sandboxPolicy`。浏览器播放还需要配套 Desktop 传输，单独安装插件不会提供该传输。
 
-`douyin_download` 接受已选择的官方 HTTPS 视频/分享 `url`，或已核对的 `urls` 列表，验证后保存到发起会话的 `source/media/douyin/`。公开请求始终忽略保存的浏览器设置；`publicOnly:true` 禁用内置浏览器回退。工具不接受浏览器配置、Cookie 文件、记住账号或任意输出目录。
+`douyin_download` 接受已选择的官方 HTTPS 视频/分享 `url`，或已核对的 `urls` 列表，验证后保存到发起会话的 `source/media/douyin/`。公开请求始终忽略保存的浏览器设置；`publicOnly:true` 禁用内置浏览器回退。公开分享数据不受支持时，可与公开媒体不可用一样使用授权浏览器回退。工具不接受浏览器配置、Cookie 文件、记住账号或任意输出目录。
 
 ### 持久下载任务
 
