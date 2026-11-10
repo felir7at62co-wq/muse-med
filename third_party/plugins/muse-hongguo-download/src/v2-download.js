@@ -1,7 +1,7 @@
 /** Publish independently verified v2 engine files with a separate, resumable v2 journal. */
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { lstat, mkdir, mkdtemp, open, readFile, realpath, rename, rm } from 'node:fs/promises';
+import { link, lstat, mkdir, mkdtemp, open, readFile, realpath, rm, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -19,6 +19,7 @@ const messages = {
   download_in_progress: '同一红果 v2 下载正在执行，请等待原任务',
   unsafe_path: '红果 v2 文件路径包含链接、越界或已被替换',
   output_exists: '红果 v2 目标文件已存在且没有匹配的有效收据，未覆盖文件',
+  v2_cleanup_pending: '红果 v2 已保存已验证视频，但临时链接未清理；请检查输出目录权限后按原参数续传',
   invalid_media: '红果 v2 文件未通过完整 MP4 和解码验证',
   missing_media_runtime: '缺少红果 v2 文件完整解码验证运行时',
   media_size: '红果 v2 文件大小无效或超过配置限制',
@@ -214,8 +215,9 @@ export class V2DownloadClient {
     const sourceInfo = await regularFile(paths.outputDir, source);
     if (sourceInfo.size < 1 || sourceInfo.size > this.config.maxEpisodeBytes) fail('media_size');
     await absent(target);
-    const part = `${target}.part`;
-    let copied = false;
+    const privateDir = await mkdtemp(join(dirname(target), '.muse-v2-'));
+    const part = join(privateDir, 'episode.part');
+    let copied = false, published = false;
     try {
       await copyOwned(source, part, sourceInfo, active); copied = true;
       await validateMp4(part);
@@ -230,10 +232,20 @@ export class V2DownloadClient {
       if (facts.bytes !== beforeDecode.bytes || facts.sha256 !== beforeDecode.sha256) fail('invalid_media');
       if (!sameFile(sourceInfo, await regularFile(paths.outputDir, source))) fail('invalid_media');
       await directory(dirname(target)); await absent(target); active.throwIfAborted();
-      await rename(part, target); copied = false;
+      try { await link(part, target); }
+      catch (error) { if (error.code === 'EEXIST') fail('output_exists'); throw error; }
+      published = true;
+      let cleanupPendingPath = null;
+      try { await rm(part); await rmdir(privateDir); } catch (_error) { cleanupPendingPath = privateDir; }
       return { ...facts, durationSeconds: validation.durationSeconds, sourceBytes: null, sourceSha256: null,
-        encryptedSource: null, origin: 'engine-output', format: 'mp4', validationLevel: 'ffprobe-full-decode-sha256', fullDecodeChecked: true };
-    } finally { if (copied) await rm(part, { force: true }); }
+        encryptedSource: null, origin: 'engine-output', format: 'mp4', validationLevel: 'ffprobe-full-decode-sha256', fullDecodeChecked: true,
+        cleanupPendingPath };
+    } finally {
+      if (!published) {
+        if (copied) await rm(part, { force: true });
+        await rmdir(privateDir);
+      }
+    }
   }
 
   /**
@@ -245,7 +257,7 @@ export class V2DownloadClient {
    * @returns {Promise<object>} Independently verified v2 receipt, or failure with retained progress.
    */
   download(options, signal, _workspace, _filePolicy) {
-    let progress = null;
+    let progress = null, cleanupPendingPath = null;
     return this.run(signal, async active => {
       try {
         return await this.withSession(active, async (session, paths) => {
@@ -276,7 +288,8 @@ export class V2DownloadClient {
               let reused = 0, downloaded = 0;
               progress = () => ({ path: targetDir, checkpoint, retainedEpisodeCount: state.completed.length, reusedEpisodeCount: reused,
                 newlyDownloadedEpisodeCount: downloaded, remainingEpisodeCount: plans.reduce((sum, plan) => sum + plan.selected.length, 0) - state.completed.length,
-                discoveryTruncated: false, sourceIdentity: session.sourceIdentity });
+                discoveryTruncated: false, sourceIdentity: session.sourceIdentity,
+                ...(cleanupPendingPath === null ? {} : { cleanupPendingPath }) });
               const save = async (committed = false) => {
                 await checkRoot(); if (!committed) active.throwIfAborted();
                 const text = JSON.stringify(state, null, 2) + '\n';
@@ -312,10 +325,12 @@ export class V2DownloadClient {
                 for (const episode of missing) {
                   active.throwIfAborted(); await checkRoot();
                   const target = join(finalFolder, filename(episode.index));
-                  const facts = await this.publishFile(join(folder, filename(episode.index)), target, paths, active);
+                  const { cleanupPendingPath: pendingPath, ...facts } = await this.publishFile(join(folder, filename(episode.index)), target, paths, active);
                   state.completed.push({ seriesId: catalog.seriesId, index: episode.index,
                     episode: { index: episode.index, title: episode.title, path: target, ...facts } });
-                  downloaded++; await save(true); active.throwIfAborted();
+                  downloaded++; await save(true);
+                  if (pendingPath !== null) { cleanupPendingPath = pendingPath; fail('v2_cleanup_pending'); }
+                  active.throwIfAborted();
                 }
               }
               const items = catalogs.map(catalog => {

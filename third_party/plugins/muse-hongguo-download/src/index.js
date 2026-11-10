@@ -14,7 +14,7 @@ const schema = { type: 'object', additionalProperties: true, properties: { ok: {
   sourceMode: { type: 'string' }, code: { type: 'string' }, message: { type: 'string' }, upstreamCode: { type: 'integer' },
   sourceStage: { type: 'string', enum: ['catalog', 'video_model', 'source_api'] }, retryable: { type: 'boolean' },
   httpStatus: { type: 'integer' }, responseBytes: { type: 'integer' },
-  checkpoint: { type: 'string' }, retainedEpisodeCount: { type: 'integer' }, reusedEpisodeCount: { type: 'integer' },
+  checkpoint: { type: 'string' }, cleanupPendingPath: { type: 'string' }, retainedEpisodeCount: { type: 'integer' }, reusedEpisodeCount: { type: 'integer' },
   remainingEpisodeCount: { type: 'integer' }, newlyDownloadedEpisodeCount: { type: 'integer' },
   discoveryTruncated: { type: 'boolean' }, resume: { type: 'object', additionalProperties: true },
   items: { type: 'array', items: { type: 'object', additionalProperties: true } } }, required: ['ok'] };

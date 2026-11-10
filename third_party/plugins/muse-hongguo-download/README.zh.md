@@ -67,7 +67,7 @@ Muse Desktop 内置本地 Java 17、CPython 3.11、PyCryptodome、签名素材�
 
 Desktop 预设接收 `MUSE_HONGGUO_V2_RUNTIME_DIR` 和 `MUSE_HONGGUO_V2_STATE_DIR`。Desktop 也可读取产品目录中的私有 `hongguo-v2/active-runtime.json`，内容为 `version: 1`、`runtimeDir` 和 `stateDir`，两个目录均须为绝对路径。环境配置优先。没有指针时沿用已有后端，明确选择的安装无效时直接报错。
 
-V2 进度与 v1 分开保存，并记录已验证的运行时标识。最终 MP4 均通过现有容器、FFprobe、完整 FFmpeg 解码和 SHA256 检查。`origin: engine-output` 表示原始传输信息未知（`null`），最终文件大小和哈希仍是真实验证结果。部分选集可以成功，但 `complete` 为 `false`。失败后保留已有验证文件和 v2 进度，供相同请求续传。原源码、设备、队列和 v1 收据均保留。参见[收据迁移说明](../../../docs/upgrade-guide/v0.2.2-rc.1/hongguo-v2-receipts/guide.zh.md)。
+V2 进度与 v1 分开保存，并记录已验证的运行时标识。最终 MP4 均通过现有容器、FFprobe、完整 FFmpeg 解码和 SHA256 检查。发布使用同一文件系统内的私有暂存目录，不会替换已有目标，并要求文件系统支持硬链接；不支持时该集不会发布。若发布后清理失败且进度已保存，调用会通过 `cleanupPendingPath` 报告保留的暂存目录。相同请求续传时会复用已验证的集，保留该目录供人工检查和清理。`origin: engine-output` 表示原始传输信息未知（`null`），最终文件大小和哈希仍是真实验证结果。部分选集可以成功，但 `complete` 为 `false`。失败后保留已有验证文件和 v2 进度，供相同请求续传。原源码、设备、队列和 v1 收据均保留。参见[收据迁移说明](../../../docs/upgrade-guide/v0.2.2-rc.1/hongguo-v2-receipts/guide.zh.md)。
 
 ## 开发验证
 

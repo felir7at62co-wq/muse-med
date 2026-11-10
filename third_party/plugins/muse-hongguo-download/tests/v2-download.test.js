@@ -1,6 +1,8 @@
 /** Fake v2 sessions retain the real MP4, filesystem, hashing and journal implementation. */
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { createHash } from 'node:crypto';
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -80,6 +82,88 @@ async function cleanSession(f) {
     await assert.rejects(lstat(session.paths.runDir), { code: 'ENOENT' });
   }
 }
+
+test('preserves a file created by another writer immediately before publication', async t => {
+  const f = await fixture(t), sourceDir = join(f.root, 'source'), userDir = join(f.root, 'user');
+  await mkdir(sourceDir); await mkdir(userDir);
+  const source = join(sourceDir, 'source.mp4'), target = join(userDir, 'S01E001.mp4');
+  await writeFile(source, mp4);
+  const originalRename = fs.promises.rename, originalLink = fs.promises.link;
+  let injected = false;
+  const race = async (from, to, action) => {
+    if (to === target && !injected) { injected = true; await writeFile(target, 'user file', { flag: 'wx' }); }
+    return action(from, to);
+  };
+  fs.promises.rename = (from, to) => race(from, to, originalRename);
+  fs.promises.link = (from, to) => race(from, to, originalLink);
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(f.client.publishFile(source, target, { outputDir: sourceDir, runDir: f.root }, new AbortController().signal),
+      error => error.code === 'output_exists');
+    assert.equal(injected, true);
+    assert.equal(await readFile(target, 'utf8'), 'user file');
+    assert.deepEqual(await readdir(userDir), ['S01E001.mp4']);
+  } finally {
+    fs.promises.rename = originalRename; fs.promises.link = originalLink; syncBuiltinESMExports();
+  }
+});
+
+test('fails without publishing when the output filesystem cannot create a hard link', async t => {
+  const f = await fixture(t), sourceDir = join(f.root, 'source'), userDir = join(f.root, 'user');
+  await mkdir(sourceDir); await mkdir(userDir);
+  const source = join(sourceDir, 'source.mp4'), target = join(userDir, 'S01E001.mp4');
+  await writeFile(source, mp4);
+  const originalLink = fs.promises.link;
+  fs.promises.link = async () => { throw Object.assign(new Error('unsupported link'), { code: 'EPERM' }); };
+  syncBuiltinESMExports();
+  try {
+    await assert.rejects(f.client.publishFile(source, target, { outputDir: sourceDir, runDir: f.root }, new AbortController().signal),
+      error => error.code === 'EPERM');
+    await assert.rejects(lstat(target), { code: 'ENOENT' });
+    assert.deepEqual(await readdir(userDir), []);
+  } finally { fs.promises.link = originalLink; syncBuiltinESMExports(); }
+});
+
+test('records a published episode before reporting incomplete temporary-link cleanup, then resumes without downloading it again', async t => {
+  const f = await fixture(t), originalRm = fs.promises.rm;
+  let injected = false;
+  fs.promises.rm = async (path, options) => {
+    if (String(path).endsWith('.part') && !injected) {
+      injected = true;
+      throw Object.assign(new Error('temporary cleanup failed'), { code: 'EACCES' });
+    }
+    return originalRm(path, options);
+  };
+  syncBuiltinESMExports();
+  let first;
+  try { first = await f.client.download(f.options([1])); }
+  finally { fs.promises.rm = originalRm; syncBuiltinESMExports(); }
+  assert.equal(injected, true);
+  assert.equal(first.ok, false); assert.equal(first.code, 'v2_cleanup_pending');
+  assert.equal(first.retainedEpisodeCount, 1);
+  const checkpoint = JSON.parse(await readFile(first.checkpoint, 'utf8'));
+  const target = checkpoint.completed[0].episode.path;
+  assert.deepEqual(await readFile(target), mp4);
+  const pending = join(first.cleanupPendingPath, 'episode.part');
+  assert.deepEqual(await readFile(pending), mp4);
+  await fs.promises.rm(pending);
+  await writeFile(pending, 'unrelated user file');
+  const resumed = await f.client.download(f.options([1]));
+  assert.equal(resumed.ok, true); assert.equal(resumed.reusedEpisodeCount, 1);
+  assert.equal(f.jobs.length, 1);
+  assert.deepEqual(await readFile(target), mp4);
+  assert.equal(await readFile(pending, 'utf8'), 'unrelated user file');
+});
+
+test('keeps a pre-existing public partial file while publishing an episode', async t => {
+  const f = await fixture(t), sourceDir = join(f.root, 'source'), userDir = join(f.root, 'user');
+  await mkdir(sourceDir); await mkdir(userDir);
+  const source = join(sourceDir, 'source.mp4'), target = join(userDir, 'S01E001.mp4');
+  await writeFile(source, mp4); await writeFile(`${target}.part`, 'older partial');
+  await f.client.publishFile(source, target, { outputDir: sourceDir, runDir: f.root }, new AbortController().signal);
+  assert.deepEqual(await readFile(target), mp4);
+  assert.equal(await readFile(`${target}.part`, 'utf8'), 'older partial');
+});
 
 test('catalog information neither creates user output nor claims verified media', async t => {
   const f = await fixture(t), result = await f.client.info({ seriesIds: ['101'], mode: 'legacy' });

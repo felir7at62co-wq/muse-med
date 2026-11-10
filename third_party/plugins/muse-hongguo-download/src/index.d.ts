@@ -38,7 +38,7 @@ export interface DownloadFailure {
   safeReason?: string; freeUsed?: number; freeLimit?: number;
   upstreamCode?: number; sourceStage?: 'catalog' | 'video_model' | 'source_api'; retryable?: false;
   httpStatus?: number; responseBytes?: number;
-  path?: string; checkpoint?: string; retainedEpisodeCount?: number; reusedEpisodeCount?: number;
+  path?: string; checkpoint?: string; cleanupPendingPath?: string; retainedEpisodeCount?: number; reusedEpisodeCount?: number;
   remainingEpisodeCount?: number; discoveryTruncated?: boolean; resume?: DownloadOptions;
 }
 export interface DownloadResult {
