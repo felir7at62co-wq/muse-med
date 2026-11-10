@@ -5,5 +5,5 @@
 - Transcript: same mounted instance
 - Composer draft: preserved
 - Background job: running
-- text: Video bubble and timeline Enable the Muse bubble, shot timeline and video collection animation. Turn off to restore the original interface immediately.
+- text: Video bubble and timeline Enable the Muse bubble and shot timelines in chat video cards. Turn off to restore the original interface immediately.
 - switch "Video bubble and timeline"
