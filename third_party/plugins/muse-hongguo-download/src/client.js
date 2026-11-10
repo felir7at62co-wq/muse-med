@@ -176,6 +176,24 @@ export class HongguoDownloadClient {
     });
   }
 
+  /** Inspect the selected v2 installation without refreshing authorization or obtaining media. */
+  health(args = {}, signal) {
+    return this.run(signal, async active => {
+      if (!record(args) || Object.keys(args).some(key => key !== 'seriesIds')) throw new DownloadError('invalid_arguments', '健康检查仅接受可选 seriesIds');
+      const ids = args.seriesIds;
+      if (ids !== undefined) {
+        if (!Array.isArray(ids) || !ids.length || ids.length > this.config.maxSeries || new Set(ids).size !== ids.length) throw new DownloadError('invalid_arguments', '健康检查 seriesIds 必须是不重复的非空剧目 ID 列表');
+        try { ids.forEach(seriesId); } catch (error) { throw new DownloadError('invalid_arguments', '健康检查剧目 ID 必须是十进制字符串'); }
+      }
+      if (!this.v2) return { ok: false, sourceBackend: 'v1', code: 'health_not_supported', message: '此健康检查用于已配置的红果 v2 后端；当前仍使用 v1' };
+      return this.v2.health({ seriesIds: ids ?? [] }, active);
+    }).then(value => {
+      const result = { ...value, authorization: 'not_checked', mediaAvailability: 'not_tested', verifiedDownload: false };
+      delete result.complete;
+      return result;
+    });
+  }
+
   async mediaOptions(catalog, batch, mode, signal) {
     if (mode === 'legacy') return this.source.videoUrls(batch.map(episode => episode.vid), signal);
     if (mode === 'manifest') return new Map(batch.map(episode => [episode.vid, { url: episode.url, expectedBytes: episode.expectedBytes, sha256: episode.sha256 }]));

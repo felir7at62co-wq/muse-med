@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-hongguo-v2-health
+profile: headless
+composition: muse-hongguo-v2-health
+recording: authored
+writerOutput: true
+header:
+  class: muse-hongguo-v2-health
+  pin: true
+workspace:
+  final: true
