@@ -6,16 +6,26 @@ import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from '
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-tool-present'
 import type {} from '@deepseek-ai/dsh-tools'
-import { findShortDramaProject } from '@deepseek-ai/dsh-tool-episode-render'
+import { createContentReviewVerifier, findShortDramaProject, installContentListeningState, parseSrtDocument,
+  verifyDraftSubtitleFont, verifyEpisodeContentReview,
+  type ContentReviewVerifier } from '@deepseek-ai/dsh-tool-episode-render'
+import type {} from '@deepseek-ai/dsh-agent'
 import { z } from 'zod'
 
 const hash = z.string().regex(/^[a-f0-9]{64}$/u)
 const absolute = z.string().refine(isAbsolute)
 const candidate = z.object({ version: z.literal(1), status: z.literal('candidate'), episode: z.string().regex(/^\d{2,}$/u),
   video: absolute, draft: absolute, sha256: hash, working_output: absolute,
-  render_source_sha256: hash, draft_source_sha256: hash })
+  render_source_sha256: hash, draft_source_sha256: hash,
+  draft_font: z.object({ snapshot_path: absolute, snapshot_sha256: hash }).optional(),
+  content_review: z.object({ path: absolute, sha256: hash,
+    files: z.array(z.object({ path: absolute, sha256: hash })).min(1) }) })
 const fileDigest = z.object({ path: absolute, sha256: hash.nullable() })
 const videoDigest = z.object({ shot: z.number().int().positive(), sha256: hash })
+const preparedTimeline = z.object({ delivery: z.object({
+  width: z.number().int().positive(), height: z.number().int().positive(), fps: z.number().positive(),
+}), clips: z.array(z.object({ shot: z.number().int().positive(),
+  start_us: z.number().int().nonnegative(), duration_us: z.number().int().positive() })).min(1) })
 const PRODUCT_FONT = 'Zhuque Fangsong (technical preview)'
 const productVisual = z.object({ schema_version: z.literal(1), reference_width: z.literal(480), reference_height: z.literal(854),
   font_size_px: z.literal(46), outline_px: z.literal(1.25), center_y_ratio: z.literal(0.736747073), max_width_ratio: z.literal(0.9),
@@ -27,7 +37,7 @@ const visualVerification = z.object({ version: z.literal(1), subtitle_sha256: ha
   visual: z.unknown().optional(),
   checks: z.array(z.object({ id: z.string(), ok: z.boolean() })) })
 const renderRecord = z.object({ version: z.literal(1), episode: z.string(),
-  output: z.object({ path: absolute, sha256: hash }),
+  output: z.object({ path: absolute, sha256: hash, duration_seconds: z.number().positive() }),
   delivery_inputs: z.object({ timeline_sha256: hash, subtitle_sha256: hash, master_audio_sha256: hash,
     source_qa_sha256: hash.optional(), subtitle_visual_verification: visualVerification.optional(),
     videos: z.array(videoDigest).min(1) }),
@@ -91,7 +101,7 @@ async function boundJson(path: string, expected: string, signal: AbortSignal): P
   return JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/u, ''))
 }
 
-async function checkProductEvidence(source: z.infer<typeof renderRecord>, signal: AbortSignal): Promise<void> {
+async function checkProductEvidence(source: z.infer<typeof renderRecord>, signal: AbortSignal): Promise<z.infer<typeof preparedTimeline>> {
   const render = source.delivery_inputs, visual = render.subtitle_visual_verification
   if (render.source_qa_sha256 === undefined || !source.inputs.includes(render.source_qa_sha256)) {
     throw Error('short_drama_delivery_evidence: 正式短剧缺少当前选源检查证据。请按当前 Muse 配置重新 prepare、render 和 stage_delivery；旧候选或关闭项目检查不能代替。')
@@ -99,13 +109,12 @@ async function checkProductEvidence(source: z.infer<typeof renderRecord>, signal
   const timelineFile = source.input_files.find(file => file.sha256 === render.timeline_sha256
     && extname(file.path).toLowerCase() === '.json')
   if (timelineFile === undefined) throw Error('short_drama_delivery_evidence: 缺少已绑定的实际时间线，请重新 prepare 和渲染归档。')
-  const timeline = z.object({ delivery: z.object({
-    width: z.number().int().positive(), height: z.number().int().positive(), fps: z.number().positive(),
-  }), clips: z.array(z.object({ shot: z.number().int().positive(),
-    start_us: z.number().int().nonnegative(), duration_us: z.number().int().positive() })).min(1) })
-    .parse(await boundJson(timelineFile.path, render.timeline_sha256, signal))
+  const timeline = preparedTimeline.parse(await boundJson(timelineFile.path, render.timeline_sha256, signal))
+  if (render.videos.map(video => video.shot).join(',') !== timeline.clips.map(clip => clip.shot).join(',')) {
+    throw Error('short_drama_delivery_evidence: 渲染选源与已绑定时间线的镜头数量或顺序不符。')
+  }
   const portrait = timeline.delivery.height > timeline.delivery.width
-  if (visual === undefined && !portrait) return
+  if (visual === undefined && !portrait) return timeline
   if (visual === undefined || (portrait && visual.requested_font !== PRODUCT_FONT) || visual.subtitle_sha256 !== render.subtitle_sha256
     || visual.delivery === undefined || visual.delivery.width !== timeline.delivery.width
     || visual.delivery.height !== timeline.delivery.height
@@ -122,7 +131,7 @@ async function checkProductEvidence(source: z.infer<typeof renderRecord>, signal
     .parse(await boundJson(visual.report_path, visual.report_sha256, signal))
   if (report.delivery_size.width !== timeline.delivery.width || report.delivery_size.height !== timeline.delivery.height
     || report.requested_font !== visual.requested_font) throw Error('short_drama_delivery_evidence: 字幕实测画布或字体与本集时间线及渲染记录不符。')
-  if (!portrait) return
+  if (!portrait) return timeline
   const knownFace = (name: string) => name.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '') === 'zhuquefangsongregular'
   if (report.entries.some(entry => entry.selected_fonts.some(name => !knownFace(name))
     || entry.fontselect_trace.some((line) => {
@@ -131,6 +140,7 @@ async function checkProductEvidence(source: z.infer<typeof renderRecord>, signal
     }))) {
     throw Error('short_drama_delivery_font: 正式字幕未实测采用产品朱雀字族，请修复实际字体后重新渲染归档。')
   }
+  return timeline
 }
 
 /** Identify only conventional final outputs of a project with a short-drama binding. */
@@ -150,9 +160,14 @@ async function formalProject(file: string): Promise<string | undefined> {
  * @param files - Absolute paths about to be presented or sent.
  * @param signal - The initiating operation's cancellation.
  * @param registered - Native episode outputs observed by this scoped Host plugin.
+ * @param contentVerifier - Actual current-Session observations and user listening answers.
+ * @param fontsDir - Managed font bundle used to verify the original draft independently of OS fonts.
+ * @returns Modified draft statuses without revoking unchanged, verified MP4s; undefined when none changed.
  */
 export async function validateShortDramaDelivery(files: readonly string[], signal: AbortSignal,
-  registered: ReadonlyMap<string, string> = new Map()): Promise<void> {
+  registered: ReadonlyMap<string, string> = new Map(), contentVerifier?: ContentReviewVerifier,
+  fontsDir = process.env.MUSE_FONTS_DIR): Promise<readonly { episode: string; draft: string; status: 'modified_unverified' }[] | undefined> {
+  const modifiedDrafts: { episode: string; draft: string; status: 'modified_unverified' }[] = []
   for (const file of files) {
     if (!VIDEO.has(extname(file).toLowerCase())) continue
     const selected = resolve(file)
@@ -176,21 +191,28 @@ export async function validateShortDramaDelivery(files: readonly string[], signa
     }
     const sourcePath = `${receipt.working_output}.source-record.json`
     const source = renderRecord.parse(await boundJson(sourcePath, receipt.render_source_sha256, signal))
-    await checkProductEvidence(source, signal)
+    const timeline = await checkProductEvidence(source, signal)
     if (source.episode !== receipt.episode || !samePath(source.output.path, receipt.working_output)
-      || source.output.sha256 !== receipt.sha256 || await digest(selected, signal) !== receipt.sha256
-      || await digest(receipt.working_output, signal) !== receipt.sha256) throw Error('short_drama_delivery_changed: 成片与本集渲染回执不符。')
-    for (const input of source.input_files) {
-      if (input.sha256 === null ? !await absent(input.path) : await digest(input.path, signal) !== input.sha256) {
-        throw Error(`short_drama_delivery_changed: 成片输入已变化，需重新 prepare、render 和生成同集草稿：${input.path}`)
-      }
-    }
+      || source.output.sha256 !== receipt.sha256) throw Error('short_drama_delivery_changed: 成片与本集渲染回执不符。')
     const render = source.delivery_inputs
+    const clipDurations = new Map(timeline.clips.map(clip => [clip.shot, clip.duration_us]))
+    if (!inside(project, receipt.content_review.path)) throw Error('short_drama_delivery_content: 内容审查越出当前项目。')
+    await boundJson(receipt.content_review.path, receipt.content_review.sha256, signal)
+    const content = await verifyEpisodeContentReview({ project, episode: receipt.episode, output: receipt.working_output,
+      outputSha256: receipt.sha256, duration: source.output.duration_seconds,
+      sources: render.videos.map(row => ({ ...row, duration: Number(clipDurations.get(row.shot)) / 1_000_000 })),
+      cuts: timeline.clips.slice(1).map(clip => clip.start_us / 1_000_000),
+      path: receipt.content_review.path, ...(contentVerifier === undefined ? {} : { verifier: contentVerifier }) })
+    if (content.sha256 !== receipt.content_review.sha256
+      || JSON.stringify(content.files) !== JSON.stringify(receipt.content_review.files)) {
+      throw Error('short_drama_delivery_content: 内容审查或实际观察文件与归档时不同。')
+    }
     const inputs = new Set(source.input_files.flatMap(input => input.sha256 === null ? [] : [input.sha256]))
     if ([render.timeline_sha256, render.subtitle_sha256, render.master_audio_sha256, ...render.videos.map(row => row.sha256)]
       .some(value => !inputs.has(value))) throw Error('short_drama_delivery_unstaged: 渲染回执未完整绑定本集输入。')
     const draftSourcePath = resolve(receipt.draft, 'muse-episode-source.json')
-    const draft = draftRecord.parse(await boundJson(draftSourcePath, receipt.draft_source_sha256, signal))
+    const rawDraft = await boundJson(draftSourcePath, receipt.draft_source_sha256, signal)
+    const draft = draftRecord.parse(rawDraft)
     if (draft.episode !== receipt.episode || draft.timeline_sha256 !== render.timeline_sha256
       || draft.subtitle_sha256 !== render.subtitle_sha256 || JSON.stringify(draft.videos) !== JSON.stringify(render.videos)
       || (draft.audio_mode === 'independent' && draft.master_audio_sha256 !== render.master_audio_sha256)) {
@@ -200,27 +222,82 @@ export async function validateShortDramaDelivery(files: readonly string[], signa
     if (!['draft_content.json', 'draft_meta_info.json'].every(name => nativeNames.has(name))) throw Error('short_drama_delivery_unstaged: 草稿缺少原生文件记录。')
     // stage_delivery checked native draft bytes at pairing; later editor changes do not rewrite the MP4.
     for (const row of draft.materials) {
-      if (!inside(project, row.path) || !inside(root, await realpath(row.path)) || await digest(row.path, signal) !== row.sha256) {
+      if (!inside(project, row.path) || !inside(root, await realpath(row.path))) {
         throw Error('short_drama_delivery_changed: 草稿引用素材已变化或越出项目。')
+      }
+    }
+    let fontFiles: readonly z.infer<typeof fileDigest>[] = []
+    if (timeline.delivery.height > timeline.delivery.width) {
+      const snapshot = receipt.draft_font, native = draft.files.find(row => row.path === 'draft_content.json')
+      const subtitle = source.input_files.find(row => row.sha256 === render.subtitle_sha256 && extname(row.path).toLowerCase() === '.srt')
+      if (fontsDir === undefined || snapshot === undefined || native?.sha256 !== snapshot.snapshot_sha256
+        || !samePath(snapshot.snapshot_path, resolve(receipt.draft, 'muse-original-draft-content.json')) || subtitle === undefined) {
+        throw Error('short_drama_delivery_font: 缺少初始草稿字体快照或随包字体目录，请重新生成并归档本集草稿。')
+      }
+      const subtitleBytes = await readFile(subtitle.path)
+      if (createHash('sha256').update(subtitleBytes).digest('hex') !== render.subtitle_sha256) {
+        throw Error('short_drama_delivery_changed: 字幕输入已变化，请重新 prepare、render 和生成同集草稿。')
+      }
+      fontFiles = await verifyDraftSubtitleFont({ draft: receipt.draft, source: rawDraft, fontsDir,
+        expectedFamily: PRODUCT_FONT, contentPath: snapshot.snapshot_path,
+        subtitleCount: parseSrtDocument(subtitleBytes.toString('utf8'), subtitle.path).length,
+        read: async (path) => {
+          signal.throwIfAborted()
+          const info = await lstat(path)
+          if (!info.isFile() || info.isSymbolicLink() || info.size > 64 * 1024 * 1024) {
+            throw Error('short_drama_delivery_font: 字体证据必须是64MiB以内的本地普通文件。')
+          }
+          return await readFile(path)
+        } })
+      const nativePath = resolve(receipt.draft, 'draft_content.json')
+      if (!await optionalFile(nativePath) || await digest(nativePath, signal) !== snapshot.snapshot_sha256) {
+        modifiedDrafts.push({ episode: receipt.episode, draft: receipt.draft, status: 'modified_unverified' })
+      }
+    }
+    // Check mutable media after the asynchronous content review, once per canonical path.
+    // Retained draft materials commonly also appear in input_files; hashing both is redundant.
+    const finalFiles = new Map<string, z.infer<typeof fileDigest>>()
+    for (const input of [{ path: selected, sha256: receipt.sha256 },
+      { path: receipt.working_output, sha256: receipt.sha256 }, ...source.input_files, ...draft.materials, ...fontFiles]) {
+      const key = pathKey(input.path), previous = finalFiles.get(key)
+      if (previous !== undefined && previous.sha256 !== input.sha256) {
+        throw Error(`short_drama_delivery_changed: 同一文件的交付摘要不一致：${input.path}`)
+      }
+      finalFiles.set(key, input)
+    }
+    for (const input of finalFiles.values()) {
+      if (input.sha256 === null ? !await absent(input.path) : await digest(input.path, signal) !== input.sha256) {
+        throw Error(`short_drama_delivery_changed: 成片或输入已变化，需重新 prepare、render 和生成同集草稿：${input.path}`)
       }
     }
     if (await digest(receiptPath, signal) !== receiptSha
       || await digest(sourcePath, signal) !== receipt.render_source_sha256
       || await digest(draftSourcePath, signal) !== receipt.draft_source_sha256) throw Error('short_drama_delivery_changed: 核对期间交付回执已变化。')
   }
+  return modifiedDrafts.length > 0 ? modifiedDrafts : undefined
 }
 
 /** Install episode-only checks at declared deliveries and before IM attachment registration/upload. */
 export function installShortDramaDelivery(ctx: Context): void {
   const registered = new Map<string, string>()
+  let contentContext: Context | undefined
+  ctx.inject(['tools', 'fs', 'sandboxPolicy', 'sessionProjections', 'agents'], (scope) => {
+    installContentListeningState(scope)
+    contentContext = scope
+    scope.effect(() => () => { contentContext = undefined })
+  })
+  const verifier = (signal: AbortSignal, session = ctx.get('agents')?.currentInitiator()?.session): ContentReviewVerifier => async (binding) => {
+    if (contentContext === undefined) throw Error('short_drama_delivery_content: 缺少真实内容观察核验服务。')
+    await createContentReviewVerifier(contentContext, session, signal)(binding)
+  }
   ctx.effect(() => () => { registered.clear() })
-  ctx.on('deliverables/validate', (files, signal) => validateShortDramaDelivery(files, signal, registered))
+  ctx.on('deliverables/validate', async (files, signal) => { await validateShortDramaDelivery(files, signal, registered, verifier(signal)) })
   ctx.on('tools/execute', async (exec, next) => {
     if (['dsh_im_return_file', 'send_file'].includes(exec.name)) {
       const args = z.object({ path: z.string() }).safeParse(exec.arguments)
       if (args.success) {
         const path = resolve(exec.agent?.session.header.cwd ?? process.cwd(), args.data.path)
-        await validateShortDramaDelivery([path], exec.signal, registered)
+        await validateShortDramaDelivery([path], exec.signal, registered, verifier(exec.signal, exec.agent?.session))
       }
     }
     const result = await next()

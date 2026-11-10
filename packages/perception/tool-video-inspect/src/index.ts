@@ -22,7 +22,8 @@ export { videoReviewSummaries, readVideoSourceTimeline, type VideoReviewSummary,
   type VideoSourceTimelineReadOptions, type VideoSourceTimelineContent } from './review-source.ts'
 export { buildVideoSourceTimeline, type VideoSourceTimeline, type VideoTimelineSelection } from './review-timeline.ts'
 export { VideoReviewId, hasReviewUncertainty } from './review-state.ts'
-export { verifyVideoSourceQaEvidence, type VideoSourceQaEvidenceBinding } from './source-qa-evidence.ts'
+export { verifyVideoObservationEvidence, verifyVideoSourceQaEvidence,
+  type VideoObservationEvidenceBinding, type VideoSourceQaEvidenceBinding } from './source-qa-evidence.ts'
 export { normalizeOcrText } from './ocr.ts'
 export type { VideoTranscriptReadReceipt, VideoTranscriptCandidates, VideoTranscriptCandidateDiagnostic,
   VideoTranscriptResolution } from './review-transcript.ts'

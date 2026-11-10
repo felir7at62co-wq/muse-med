@@ -4118,7 +4118,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-episode-render`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-episode-render/src/index.ts:87`](../packages/drama/tool-episode-render/src/index.ts)
+- `source`: [`packages/drama/tool-episode-render/src/index.ts:93`](../packages/drama/tool-episode-render/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -4794,7 +4794,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-video-inspect`
 
 - `inject`: `tools` · `fs` · `subprocess` · `attachments` · `sandboxPolicy`
-- `source`: [`packages/perception/tool-video-inspect/src/index.ts:37`](../packages/perception/tool-video-inspect/src/index.ts)
+- `source`: [`packages/perception/tool-video-inspect/src/index.ts:38`](../packages/perception/tool-video-inspect/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-resolved media executables and inspection bounds. */

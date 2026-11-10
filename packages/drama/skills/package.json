@@ -69,6 +69,7 @@
     "skills/tweet-drama-draft-build/scripts/draft_generator.py",
     "skills/tweet-drama-draft-build/scripts/generate_draft_request.py",
     "skills/tweet-drama-draft-build/scripts/draft_inputs.py",
+    "skills/tweet-drama-draft-build/scripts/draft_fonts.py",
     "skills/tweet-drama-draft-build/scripts/jianying_draft.py",
     "skills/tweet-drama-draft-build/scripts/windows_aa_draft.py",
     "skills/tweet-drama-draft-build/scripts/windows/aa-draft.ps1",

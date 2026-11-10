@@ -91,9 +91,14 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
       } else await f.ctx.plugin(Draft, config)
       const response = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
         callId: ToolCallId('native-draft-runtime'), signal: f.signal })
-      expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
-      expect(response.value).toMatchObject({ success: true, drafts_created: 1, editor_open_verified: false,
-        library: { name: 'pyJianYingDraft' } })
+      if (projectStyle && styleCase === 'project') {
+        expect(response.isError, JSON.stringify(response.content)).toBe(true)
+        expect(JSON.stringify(response.content)).toContain('字体')
+      } else {
+        expect(response.isError, JSON.stringify(response.content)).not.toBe(true)
+        expect(response.value).toMatchObject({ success: true, drafts_created: 1, editor_open_verified: false,
+          library: { name: 'pyJianYingDraft' } })
+      }
       const content = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')) as {
         duration: number
         tracks: {
@@ -136,10 +141,10 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
           subtitle_font: { requested: string | null; status: string; resolved: string }
         }
         if (styleCase === 'project') {
-          expect(review.subtitle_font).toEqual(expect.objectContaining({ requested: '山海经', status: 'fallback', resolved: '剪映系统默认字体' }))
-          expect(JSON.stringify(response.value)).toContain('回退剪映系统默认字体')
+          expect(review.subtitle_font).toEqual(expect.objectContaining({ requested: '山海经', status: 'backendUnsupported', resolved: null }))
+          expect(JSON.stringify(response.content)).toContain('字体')
         } else {
-          expect(review.subtitle_font).toEqual(expect.objectContaining({ requested: null, status: 'default' }))
+          expect(review.subtitle_font).toEqual(expect.objectContaining({ requested: null, status: 'notRequested' }))
         }
       }
       const saved = await readFile(join(f.input.drafts_dir, 'native-host-95', 'draft_content.json'), 'utf8')
@@ -153,9 +158,14 @@ it.runIf(Boolean(mediaPython && mediaFfmpeg)).each([
       const mixedRequestBytes = await readFile(f.input.request_file)
       const mixed = await f.ctx.tools.execute({ name: 'jianying_draft', arguments: f.input,
         callId: ToolCallId('native-draft-review-mix'), signal: f.signal })
-      expect(mixed.isError, JSON.stringify(mixed.content)).not.toBe(true)
-      expect(mixed.value).toMatchObject({ success: true })
-      expect(JSON.stringify(mixed.value)).toContain('dialogue_music_mix')
+      if (projectStyle && styleCase === 'project') {
+        expect(mixed.isError, JSON.stringify(mixed.content)).toBe(true)
+        expect(JSON.stringify(mixed.content)).toContain('字体')
+      } else {
+        expect(mixed.isError, JSON.stringify(mixed.content)).not.toBe(true)
+        expect(mixed.value).toMatchObject({ success: true })
+        expect(JSON.stringify(mixed.value)).toContain('dialogue_music_mix')
+      }
       const mixContent = JSON.parse(await readFile(join(f.input.drafts_dir, 'native-mix-95', 'draft_content.json'), 'utf8')) as {
         tracks: { type: string }[]
       }
@@ -338,20 +348,42 @@ it('runs the draft bridge directly with managed argv and removes its tool on dis
 it('forwards forced product visual to the managed editor backend without altering the request', async () => {
   const f = await fixture()
   const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  const fontResult = fakePython.replace("success:true,error:''", "success:true,error:'',subtitle_font:{requested:'Zhuque Fangsong (technical preview)',required:true,status:'verified',delivery_ready:true,binding_verified:true}")
   const spy = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation(spec => spawn({ ...spec,
-    argv: [process.execPath, '-e', fakePython, f.input.request_file, f.input.drafts_dir] }))
+    argv: [process.execPath, '-e', fontResult, f.input.request_file, f.input.drafts_dir] }))
   const visual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
     font_size_px: 48, outline_px: 2, center_y_ratio: 0.736747073, max_width_ratio: 0.9,
     font_family: 'Zhuque Fangsong (technical preview)' }
   try {
     const before = await readFile(f.input.request_file, 'utf8')
     await Draft.generateJianyingDraft(f.ctx.subprocess, f.input,
-      { ...f.config, enforceSubtitleVisual: true, defaultSubtitleVisual: visual })
+      { ...f.config, enforceSubtitleVisual: true, defaultSubtitleVisual: visual,
+        fontsDir: join(f.root, 'bundled-fonts'), subtitleFontFamily: visual.font_family })
     expect(spy.mock.calls[0]![0].env).toMatchObject({ MUSE_FORCE_SUBTITLE_VISUAL: '1',
-      MUSE_DEFAULT_SUBTITLE_VISUAL: JSON.stringify(visual) })
+      MUSE_DEFAULT_SUBTITLE_VISUAL: JSON.stringify(visual), MUSE_FONTS_DIR: join(f.root, 'bundled-fonts'),
+      MUSE_SUBTITLE_FONT_FAMILY: visual.font_family })
     expect(await readFile(f.input.request_file, 'utf8')).toBe(before)
     await expect(Draft.generateJianyingDraft(f.ctx.subprocess, f.input,
       { ...f.config, enforceSubtitleVisual: true })).rejects.toThrow('requires the product visual')
+  } finally {
+    spy.mockRestore()
+    await f.dispose()
+  }
+})
+
+it.each(['missing', 'unverified'] as const)('rejects a successful save with %s required font evidence', async (kind) => {
+  const f = await fixture()
+  const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  const fontResult = kind === 'missing' ? fakePython : fakePython.replace("success:true,error:''",
+    "success:true,error:'',subtitle_font:{requested:'Zhuque Fangsong',required:true,status:'backendUnsupported',delivery_ready:false,binding_verified:false}")
+  const spy = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation(spec => spawn({ ...spec,
+    argv: [process.execPath, '-e', fontResult, f.input.request_file, f.input.drafts_dir] }))
+  try {
+    await expect(Draft.generateJianyingDraft(f.ctx.subprocess, f.input, { ...f.config, enforceSubtitleVisual: true,
+      defaultSubtitleVisual: { schema_version: 1, reference_width: 480, reference_height: 854,
+        font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.736747073, max_width_ratio: 0.9 } }))
+      .rejects.toThrow('subtitle font was not verified')
+    expect(await readFile(join(f.input.drafts_dir, 'candidate-95', 'draft_content.json'), 'utf8')).toBe('{}\n')
   } finally {
     spy.mockRestore()
     await f.dispose()

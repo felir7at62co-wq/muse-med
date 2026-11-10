@@ -49,8 +49,14 @@ import { fitSubtitleCues } from './subtitle-fit.ts'
 import { formatSrtDocument, normalizeSubtitleDisplay, readSubtitleCues, subtitleDisplayWarnings } from './subtitles.ts'
 import { StaleSubtitleClockError, subtitleClockPath, writeDerivedSubtitleClock } from './subtitle-clock.ts'
 import type { SourceQaVerifier } from './source-qa.ts'
+import { createContentReviewVerifier, type ContentReviewVerifier } from './content-review.ts'
+import { installContentListeningState } from './content-listening.ts'
 
 export { findShortDramaProject, isShortDramaProject } from './delivery-policy.ts'
+export { createContentReviewVerifier, verifyEpisodeContentReview, type ContentReviewVerifier } from './content-review.ts'
+export { installContentListeningState } from './content-listening.ts'
+export { verifyDraftSubtitleFont } from './draft-font.ts'
+export { parseSrtDocument } from './subtitles.ts'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'tool-episode-render'
@@ -663,6 +669,7 @@ async function prepareWithSubtitleRepair(call: PrepareCall, toolkit: MediaToolki
  * @param args - The dispatched arguments.
  * @param settings - The resolved binaries, gains, and encoder preference.
  * @param sourceQaVerifier - Optional Host-only current-Session issuance check for strict source adoption.
+ * @param contentReviewVerifier - Optional Host-only observation and listening-answer validation for delivery.
  * @returns The canonical result; `ok` is false when a delivery check failed.
  * @throws {Error} When an argument is missing, an input is unusable, or a media command fails.
  */
@@ -670,6 +677,7 @@ export async function runDramaRender(
   args: DramaRenderArguments,
   settings: RenderSettings,
   sourceQaVerifier?: SourceQaVerifier,
+  contentReviewVerifier?: ContentReviewVerifier,
 ): Promise<DramaRenderReport> {
   const call = resolveCall(args)
   const toolkit = createMediaToolkit({ ffmpeg: settings.ffmpeg, ffprobe: settings.ffprobe, channel: settings.channel })
@@ -791,6 +799,7 @@ export async function runDramaRender(
   return call.method === 'stage_delivery'
     ? await stageEpisodeDelivery({ ...verification,
       ...(sourceQaVerifier === undefined ? {} : { sourceQaVerifier }),
+      ...(contentReviewVerifier === undefined ? {} : { contentReviewVerifier }),
       ...(call.transcriptsPath === undefined ? {} : { transcriptsPath: call.transcriptsPath }),
       ...(call.decisionsPath === undefined ? {} : { decisionsPath: call.decisionsPath }),
     }, call.draft)
@@ -1099,6 +1108,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const settings = resolveSettings(config)
   let sourceQaContext: Context | undefined
   ctx.inject(['tools', 'fs', 'sandboxPolicy', 'sessionProjections'], (scope) => {
+    installContentListeningState(scope)
     sourceQaContext = scope
     scope.effect(() => () => {
       sourceQaContext = undefined
@@ -1217,6 +1227,10 @@ export function apply(ctx: Context, config: Config = {}): void {
         const scope = sourceQaContext
         if (scope === undefined) throw Error('SOURCE_QA_HOST_UNAVAILABLE: 当前会话缺少源片复验服务，请恢复文件、沙箱策略和会话审看服务后重试。')
         return verifyVideoSourceQaEvidence(scope, session, binding, exec.signal)
+      }, async (binding) => {
+        const scope = sourceQaContext
+        if (scope === undefined) throw Error('CONTENT_REVIEW_HOST: 缺少实际观察记录服务。')
+        await createContentReviewVerifier(scope, session, exec.signal)(binding)
       })
       return coverage === undefined ? report : { ...report, speech_coverage: toolSpeechCoverage(coverage) }
     },
