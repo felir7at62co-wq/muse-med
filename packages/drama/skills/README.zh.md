@@ -32,7 +32,7 @@ kind: "package-reference"
 
 动作有争议时，巡检技能的`video_review_evidence.py`在新本地目录生成带现有音轨的连续区间、每页最多六帧的拼图，以及源文件和证据哈希。它依赖Pillow与本地FFmpeg/FFprobe，保留现有文件，不发起网络请求，媒体审核始终为待验。见其[输入输出规则](skills/tweet-drama-project-inspect/references/io-contract.md#motion-evidence-extraction)。
 
-[通用视频质量流程](skills/tweet-drama-core/references/production-quality.md)覆盖各项目的表演时间、场景与跨包连续性、实际准备提示词、基于证据的音画审核及局部返工。镜头脚本可用[编译器表演字段](../tool-shot-script/README.zh.md#script-and-timing)声明同步或串行的动作、发声与反应预算。未审核实际结果时，这些检查和指令不能证明生成音画质量。
+[通用视频质量流程](skills/tweet-drama-core/references/production-quality.md)覆盖表演时间、跨包连续性、实际准备提示词、摄影与表演复核及局部返工。镜头脚本可用[编译器表演字段](../tool-shot-script/README.zh.md#script-and-timing)声明同步或串行预算。自然眼睛与肤色、特写视线、情绪依据、景别、空镜及时间口径均对照实际提交和采用原片检查；有依据的剧情特效、长镜头与固定镜头可以保留。指导文字与文本预检不等于专用画面检测，未审核实际结果时不能证明媒体质量。
 
 [项目检查技能](skills/tweet-drama-project-inspect/SKILL.md)提供只读本地巡检`inspect_evidence.py <project>`。它核对收据源文件哈希和原始转写输出，给出复用候选，并提示明确宣称可交付却仍承认未听校的矛盾。可选`--episodes 1-7`按数量限制递归发现路径候选，保留集号歧义和部分扫描状态；未发现候选不代表从未制作。JSON输出是审核依据，不代表媒体通过、提供方实时健康或新增收费门禁；它不改项目文件，也不发起网络请求。
 
