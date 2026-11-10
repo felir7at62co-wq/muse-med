@@ -1,4 +1,5 @@
 /** Session-local screenplay delivery declarations, verified file versions and bounded reminders. */
+import { createHash } from 'node:crypto'
 import { resolve } from 'node:path'
 import { FiberState, type Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -11,11 +12,13 @@ import type {} from '@deepseek-ai/dsh-tool-executor-ptc/types'
 import type {} from '@deepseek-ai/dsh-tool-executor-ptc'
 import { z } from 'zod'
 import { continuityFilesUnchanged, manuscriptReviewNotesUnchanged, CONTINUITY_REVIEW_PRESET } from './manuscript-continuity.ts'
-import { isManuscript, readManuscript, type DocumentLimits } from './manuscript-document.ts'
+import { isManuscript, readManuscript, type DocumentLimits, type ManuscriptDocument } from './manuscript-document.ts'
 import { manuscriptDeliveryIntent, manuscriptTaskRequest, ManuscriptTaskContextLimitError,
   type ManuscriptTaskRequest } from './manuscript-task-intent.ts'
 import type {} from './manuscript-revisions.ts'
 import type { ManuscriptNoteLimits } from './manuscript-notes.ts'
+import { videoSourceInputsSchema, videoSourceManifestSchema, type VideoSourceManifest }
+  from './manuscript-video-source-review.ts'
 
 export { manuscriptDeliveryIntent } from './manuscript-task-intent.ts'
 
@@ -24,6 +27,12 @@ export interface ManuscriptDeliveryConfig extends DocumentLimits, ManuscriptNote
   maxDocuments: number
   continuityDeliveryChecks: boolean
   continuityMaxDeliveryCorrections: number
+}
+
+/** Optional source reader; absent verification preserves text delivery and refuses reviewed video delivery. */
+export interface ManuscriptDeliveryOptions {
+  /** Re-read the exact source, ASR and cached image versions for this Session; false denies reviewed delivery. */
+  verifyVideoSource?: (session: Session, manifest: VideoSourceManifest, signal: AbortSignal) => Promise<boolean>
 }
 
 const rangeSchema = z.object({ start: z.number().int().positive(), end: z.number().int().positive() })
@@ -44,28 +53,43 @@ const reviewSchema = z.object({ state: z.literal('continuity'), status: z.enum([
   unknowns: z.array(z.string()), file_verification: z.enum(['verified', 'changed', 'unavailable']),
   notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional(), episode_plan: episodePlanSchema.optional(),
   repetition_review: z.literal(true).optional() })
+const sourceReviewSchema = z.object({ state: z.literal('video_source_review'), status: z.enum(['consistent', 'issues', 'unknown']),
+  reason: z.string(), target: identitySchema, documents: z.array(documentSchema), findings: z.array(z.never()),
+  unknowns: z.array(z.string()), file_verification: z.enum(['verified', 'changed', 'unavailable']),
+  source_verification: z.enum(['verified', 'changed', 'unavailable']), source_manifest: videoSourceManifestSchema.optional(),
+  notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional() })
+const sourceBindingSchema = z.object({ source_manifest: videoSourceManifestSchema, dependencies: z.array(documentSchema),
+  notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional() })
 const fileSchema = z.object({ path: z.string(), file_sha256: z.string(), aliases: z.array(z.string()),
   label: z.string(), review_scope: scopeSchema.nullable(), dependencies: z.array(documentSchema),
-  notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional() })
+  notes_sha256: z.string().regex(/^[a-f0-9]{64}$/u).optional(), source_reviews: z.array(sourceBindingSchema).optional() })
 const declarationSchema = z.object({ state: z.literal('delivery'), mode: z.enum(['reviewed', 'draft']), advisory: z.literal(true),
-  task_id: z.string(), files: z.array(fileSchema), note: z.string().optional() })
-const metadataFactSchema = z.object({ manuscript_delivery_fact: z.union([reviewSchema, declarationSchema.omit({ note: true })]) })
+  task_id: z.string(), files: z.array(fileSchema), note: z.string().optional(), source_mode: z.literal('video').optional() })
+const factSchema = z.union([reviewSchema, sourceReviewSchema, declarationSchema.omit({ note: true })])
+const metadataFactSchema = z.object({ manuscript_delivery_fact: factSchema })
 const metadataJsonSchema = z.json()
 /** Exact selected text ranges displayed beside a reviewed file; null means explicit draft. */
 export type ManuscriptDeliveryScope = z.infer<typeof scopeSchema>
 /** Host-verified declaration; the caller must still successfully invoke present. */
 export type ManuscriptDeliveryResult = z.infer<typeof declarationSchema>
 type Review = z.infer<typeof reviewSchema>
+type SourceReview = z.infer<typeof sourceReviewSchema>
+const sourceRecordSchema = z.object({ review: sourceReviewSchema, inputs: videoSourceInputsSchema.optional() })
+type SourceRecord = z.infer<typeof sourceRecordSchema>
+type SourceBinding = z.infer<typeof sourceBindingSchema>
 type DeliveryFile = z.infer<typeof fileSchema>
 type Range = z.infer<typeof rangeSchema>
 const blockSchema = identitySchema.extend({ ranges: z.array(rangeSchema), repetition: z.boolean() })
 type ReviewBlock = z.infer<typeof blockSchema>
 const rowSchema = z.object({ path: z.string(), sha: z.string(), review: reviewSchema.nullable(),
-  unresolved: z.array(blockSchema), unresolved_overflow: z.boolean(), declaration: declarationSchema.nullable(), presented: z.boolean() })
+  unresolved: z.array(blockSchema), unresolved_overflow: z.boolean(),
+  source_reviews: z.array(sourceRecordSchema), source_overflow: z.boolean(),
+  declaration: declarationSchema.nullable(), presented: z.boolean() })
 type Row = z.infer<typeof rowSchema>
 const callSchema = z.object({ id: z.string(), turn: z.number(), name: z.string(), args: z.string() })
 const receiptSchema = z.object({ call_id: z.string(), task_id: z.string(), files: z.array(fileSchema), mode: z.enum(['reviewed', 'draft']) })
 const stateSchema = z.object({ task_id: z.string(), writing: z.boolean(), file_request: z.boolean(), cwd: z.string(),
+  source_required: z.boolean(),
   turn: z.number(), corrections: z.number(), fingerprint: z.string(), overflow: z.boolean(),
   rows: z.array(rowSchema), outputs: z.array(z.string()), calls: z.array(callSchema),
   packets: z.array(receiptSchema.extend({ turn: z.number() })), presented: z.array(z.object({ turn: z.number(), id: z.string() })) })
@@ -96,7 +120,7 @@ function parseBlocks<T>(content: readonly ContentBlock[], schema: z.ZodType<T>):
  * @returns Parsed versions, ranges and judgment flags; freeform draft notes never become verification facts.
  */
 export function manuscriptDeliveryMetadata(value: string): z.infer<typeof metadataJsonSchema> | null {
-  const parsed = z.union([reviewSchema, declarationSchema.omit({ note: true })]).safeParse(json(value))
+  const parsed = factSchema.safeParse(json(value))
   return parsed.success ? metadataJsonSchema.parse({ manuscript_delivery_fact: parsed.data }) : null
 }
 
@@ -121,6 +145,77 @@ function mergeRanges(ranges: Range[]): Range[] {
 }
 function sameIdentity(a: z.infer<typeof identitySchema>, b: z.infer<typeof identitySchema>): boolean {
   return a.path === b.path && a.file_sha256 === b.file_sha256 && a.text_sha256 === b.text_sha256
+}
+
+type SourceScope = { review_id: string; seconds: Range; draft: Range; frames: string[] } & (
+  { kind: 'source'; path: string; version: string } | { kind: 'selector' })
+
+function sourceScopes(record: SourceRecord): SourceScope[] {
+  return record.review.source_manifest?.sources.map(source => ({ kind: 'source' as const, path: source.path,
+    version: source.source_version, review_id: source.review_id,
+    seconds: { start: source.start_seconds, end: source.end_seconds }, draft: source.draft_lines,
+    frames: source.frames.map(frame => frame.frame_id) }))
+    ?? record.inputs?.map(input => ({ kind: 'selector' as const, review_id: input.review_id,
+      seconds: { start: input.start_seconds, end: input.end_seconds }, draft: input.draft_lines, frames: input.frame_ids })) ?? []
+}
+
+function sourcePassing(review: SourceReview): review is SourceReview & { source_manifest: VideoSourceManifest } {
+  return review.status === 'consistent' && review.reason === 'reviewed' && review.file_verification === 'verified'
+    && review.source_verification === 'verified' && review.unknowns.length === 0
+    && review.source_manifest !== undefined && review.source_manifest.sources.length > 0
+    && review.source_manifest.unmapped_lines.length === 0
+}
+
+function rangeCovered(range: Range, inputs: readonly Range[], adjacent: number): boolean {
+  const merged: Range[] = []
+  for (const input of inputs.toSorted((a, b) => a.start - b.start)) {
+    const last = merged.at(-1)
+    if (last !== undefined && input.start <= last.end + adjacent) last.end = Math.max(last.end, input.end)
+    else merged.push({ ...input })
+  }
+  return merged.some(input => input.start <= range.start && input.end >= range.end)
+}
+
+function sourceCoveredBy(passing: readonly SourceRecord[], previous: SourceRecord): boolean {
+  const target = previous.review.documents.find(document => sameIdentity(document, previous.review.target))
+  const relevant = passing.filter(record => sourcePassing(record.review) && sameIdentity(record.review.target, previous.review.target))
+  const draftRanges = relevant.flatMap(record => record.review.documents
+    .filter(document => sameIdentity(document, record.review.target)).flatMap(document => document.coverage.read_ranges))
+  if (target === undefined || !target.coverage.read_ranges.every(range => rangeCovered(range, draftRanges, 1))) return false
+  const previousScopes = sourceScopes(previous), nextScopes = relevant.flatMap(sourceScopes)
+  if (previousScopes.length === 0) return false
+  return previousScopes.every((old) => {
+    const matches = nextScopes.filter(scope => old.kind === 'source'
+      ? scope.kind === 'source' && scope.path === old.path : scope.review_id === old.review_id)
+    const coversScope = (scopes: readonly SourceScope[]): boolean => rangeCovered(old.seconds, scopes.map(scope => scope.seconds), 0)
+      && rangeCovered(old.draft, scopes.map(scope => scope.draft), 1)
+    if (old.kind === 'selector') return coversScope(matches)
+    const versions = new Set(matches.flatMap(scope => scope.kind === 'source' ? [scope.version] : []))
+    return [...versions].some((version) => {
+      const scopes = matches.filter(scope => scope.kind === 'source' && scope.version === version)
+      return coversScope(scopes)
+        && (version !== old.version || old.frames.every(frame => scopes.some(scope => scope.frames.includes(frame))))
+    })
+  })
+}
+
+function rememberSourceReview(state: DeliveryState, review: SourceReview, inputs: SourceRecord['inputs'], max: number): DeliveryState {
+  const previous = state.rows.find(row => row.path === review.target.path)
+  const same = previous?.sha === review.target.file_sha256
+  const incoming: SourceRecord = { review, ...inputs === undefined ? {} : { inputs } }
+  const old = same ? previous.source_reviews : []
+  const signature = (record: SourceRecord): string => JSON.stringify([sourceScopes(record), record.review.documents
+    .find(document => sameIdentity(document, record.review.target))?.coverage.read_ranges])
+  const retained = sourcePassing(review) ? old.filter((record, index) =>
+    !sourceCoveredBy(sourcePassing(record.review) ? [incoming]
+      : [...old.slice(index + 1).filter(later => sourcePassing(later.review)), incoming], record))
+    : old.filter(record => signature(record) !== signature(incoming))
+  const records = [...retained, incoming]
+  return upsert(state, { path: review.target.path, sha: review.target.file_sha256,
+    review: same ? previous.review : null, unresolved: same ? previous.unresolved : [],
+    unresolved_overflow: same && previous.unresolved_overflow,
+    source_reviews: records.slice(0, max), source_overflow: same && previous.source_overflow || records.length > max,
+    declaration: same ? previous.declaration : null, presented: false }, max)
 }
 function blocksOf(review: Review): ReviewBlock[] {
   return review.documents.map((document) => {
@@ -172,6 +267,8 @@ function rememberReview(state: DeliveryState, review: Review, max: number): Deli
   const unresolvedOverflow = previous?.sha === review.target.file_sha256 && previous.unresolved_overflow || unresolved.length > max
   return upsert(state, { path: review.target.path, sha: review.target.file_sha256, review,
     unresolved: unresolved.slice(0, max), unresolved_overflow: unresolvedOverflow,
+    source_reviews: previous?.sha === review.target.file_sha256 ? previous.source_reviews : [],
+    source_overflow: previous?.sha === review.target.file_sha256 && previous.source_overflow,
     declaration: previous?.declaration ?? null, presented: false }, max)
 }
 function joinPresented(state: DeliveryState): DeliveryState {
@@ -190,9 +287,9 @@ function joinPresented(state: DeliveryState): DeliveryState {
  * @returns Host-only projection definition; no client or Session event vocabulary is added.
  */
 function manuscriptDeliveryProjection(maxDocuments: number): ProjectionDefinition<'muse.manuscript-delivery', DeliveryState> {
-  return { key: 'muse.manuscript-delivery', stateVersion: 8, stateSchema,
+  return { key: 'muse.manuscript-delivery', stateVersion: 9, stateSchema,
     init: header => ({ task_id: '', writing: false, file_request: false, cwd: header.cwd ?? '', turn: 0, corrections: 0,
-      fingerprint: '', overflow: false, rows: [], outputs: [], calls: [], packets: [], presented: [] }),
+      source_required: false, fingerprint: '', overflow: false, rows: [], outputs: [], calls: [], packets: [], presented: [] }),
     apply(state, event) { return foldDelivery(state, event, maxDocuments) } }
 }
 function foldDelivery(state: DeliveryState, event: SessionEvent, max: number): DeliveryState {
@@ -207,7 +304,7 @@ function foldDelivery(state: DeliveryState, event: SessionEvent, max: number): D
     const intent = manuscriptDeliveryIntent(textOf(event.data.content))
     if (intent.continuation && state.writing) return intent.file && !state.file_request ? { ...state, file_request: true } : state
     return { ...state, task_id: String(event.seq), writing: intent.writing, file_request: intent.writing && intent.file,
-      corrections: 0, fingerprint: '', overflow: false, rows: [], outputs: [], calls: [], packets: [], presented: [] }
+      source_required: false, corrections: 0, fingerprint: '', overflow: false, rows: [], outputs: [], calls: [], packets: [], presented: [] }
   }
   if (event.type === 'turn/start') return { ...state, turn: event.data.turn,
     corrections: 0, fingerprint: '', calls: [], packets: [], presented: [] }
@@ -216,8 +313,14 @@ function foldDelivery(state: DeliveryState, event: SessionEvent, max: number): D
     : event.type === 'tool/ptc-dispatch-start'
       ? { id: event.data.subCallId, turn: state.turn, name: event.data.name, args: JSON.stringify(event.data.arguments) } : undefined
   if (start !== undefined) {
-    if (!['manuscript_revision', 'present', 'write', 'edit', 'screenplay_export_docx'].includes(start.name)) return state
-    return { ...state, calls: [...state.calls.filter(call => call.id !== start.id || call.turn !== start.turn), start].slice(-max * 4),
+    if (!['manuscript_revision', 'present', 'write', 'edit', 'screenplay_export_docx', 'skill'].includes(start.name)) return state
+    const args = start.name === 'manuscript_revision'
+      ? z.object({ action: z.string(), source_mode: z.literal('video').optional() }).safeParse(json(start.args)) : undefined
+    const sourceRequired = args?.success && (args.data.action === 'source_fidelity'
+      || args.data.action === 'delivery' && args.data.source_mode === 'video')
+    const calls = [...state.calls.filter(call => call.id !== start.id || call.turn !== start.turn), start]
+    return { ...state, source_required: state.source_required || sourceRequired === true,
+      overflow: state.overflow || calls.length > max * 4, calls: calls.slice(-max * 4),
       packets: state.packets.filter(packet => packet.call_id !== start.id || packet.turn !== start.turn),
       presented: state.presented.filter(item => item.id !== start.id || item.turn !== start.turn) }
   }
@@ -237,6 +340,10 @@ function foldDelivery(state: DeliveryState, event: SessionEvent, max: number): D
   if (call === undefined) return state
   let next = { ...state, calls: state.calls.filter(item => item !== call) }
   if (result.error) return next
+  if (call.name === 'skill') {
+    const args = z.object({ name: z.literal('video-to-screenplay') }).safeParse(json(call.args))
+    return args.success ? { ...next, source_required: true } : next
+  }
   if (call.name === 'manuscript_revision') {
     const args = z.object({ action: z.string() }).safeParse(json(call.args))
     if (!args.success) return next
@@ -246,16 +353,24 @@ function foldDelivery(state: DeliveryState, event: SessionEvent, max: number): D
       const review = fact?.state === 'continuity' ? fact : parseBlocks(result.content, reviewSchema)
       return review === undefined ? next : rememberReview(next, review, max)
     }
+    if (args.data.action === 'source_fidelity') {
+      const review = fact?.state === 'video_source_review' ? fact : parseBlocks(result.content, sourceReviewSchema)
+      if (review === undefined) return next
+      const sources = z.object({ video_sources: videoSourceInputsSchema }).safeParse(json(call.args))
+      return rememberSourceReview(next, review, sources.success ? sources.data.video_sources : review.source_manifest?.inputs, max)
+    }
     if (args.data.action === 'delivery') {
       const declaration = fact?.state === 'delivery' ? fact : parseBlocks(result.content, declarationSchema)
       if (declaration === undefined || declaration.task_id !== state.task_id) return next
       for (const file of declaration.files) {
         const old = next.rows.find(row => row.path === file.path)
-        next = upsert(next, { path: file.path, sha: file.file_sha256, review: old?.review ?? null,
+        next = upsert(next, { path: file.path, sha: file.file_sha256, review: old?.sha === file.file_sha256 ? old.review : null,
           unresolved: old?.sha === file.file_sha256 ? old.unresolved : [],
-          unresolved_overflow: old?.sha === file.file_sha256 ? old.unresolved_overflow : false, declaration, presented: false }, max)
+          unresolved_overflow: old?.sha === file.file_sha256 ? old.unresolved_overflow : false,
+          source_reviews: old?.sha === file.file_sha256 ? old.source_reviews : [],
+          source_overflow: old?.sha === file.file_sha256 && old.source_overflow, declaration, presented: false }, max)
       }
-      return next
+      return declaration.source_mode === 'video' ? { ...next, source_required: true } : next
     }
   }
   if (call.name === 'present') {
@@ -293,6 +408,27 @@ function labelOf(review: Review): string {
   const ranges = target.coverage.read_ranges.map(range => range.start === range.end ? String(range.start) : `${range.start}–${range.end}`).join('、')
   return `已复核正文第${ranges}行${review.repetition_review === true ? '重复情节' : ''}（仅此范围）`
 }
+
+function sourceLabel(bindings: readonly SourceBinding[]): string {
+  const scopes = bindings.flatMap(binding => binding.source_manifest.sources.map(source =>
+    `${source.path} ${source.start_seconds}–${source.end_seconds}秒内${source.frames.length}个原帧及保存ASR→正文第${source.draft_lines.start}–${source.draft_lines.end}行`))
+  return `；来源仅核对抽样范围：${scopes.join('；')}（未校听原音，未核验全片）`
+}
+
+function sourceCoverageProblem(bindings: readonly SourceBinding[], scope: ManuscriptDeliveryScope | null,
+  document: ManuscriptDocument): Error | undefined {
+  const textHash = createHash('sha256').update(document.text).digest('hex')
+  if (scope === null || bindings.some(binding => binding.source_manifest.target.path !== document.path
+    || binding.source_manifest.target.file_sha256 !== document.sha256 || binding.source_manifest.target.text_sha256 !== textHash)) {
+    return failure('MANUSCRIPT_DELIVERY_SOURCE_REQUIRED', '来源核对没有绑定当前最终稿路径及正文版本，请重新核对。')
+  }
+  const mapped = bindings.flatMap(binding => binding.source_manifest.mapped_ranges)
+  const missing = document.text.split(/\r\n|\r|\n/u).flatMap((text, index) => text.trim().length > 0
+    && scope.coverage.read_ranges.some(range => range.start <= index + 1 && range.end >= index + 1)
+    && !mapped.some(range => range.start <= index + 1 && range.end >= index + 1) ? [index + 1] : [])
+  return missing.length === 0 ? undefined : failure('MANUSCRIPT_DELIVERY_SOURCE_REQUIRED',
+    `已审正文仍有非空行缺少来源对应：${missing.join('、')}。请补充来源核对，或缩小正文审校范围后以局部范围交付。`)
+}
 function failure(code: string, reason: string): Error {
   return Object.assign(new Error(`${code}: ${reason}`), { code })
 }
@@ -311,12 +447,14 @@ export class ManuscriptDelivery {
   private commits = new Map<Session, Map<string, PendingCommit>>()
   private pending = new WeakMap<ToolExecution, {
     files: DeliveryFile[]
+    reviewedFiles: string[]
     mode: 'reviewed' | 'draft'
     task: string
     lease: ActiveOperation
   }>()
   constructor(private readonly config: ManuscriptDeliveryConfig, private readonly handle: ProjectionHandle<DeliveryState>,
-    private readonly reportReadFailure: (path: string, error: unknown) => void) {}
+    private readonly reportReadFailure: (path: string, error: unknown) => void,
+    private readonly options: ManuscriptDeliveryOptions = {}) {}
 
   /** Attach the composite effect after all hooks are installed.
    * @param cleanup - Effect disposer that drains operations before releasing hooks and projection.
@@ -377,8 +515,10 @@ export class ManuscriptDelivery {
    */
   pendingCommit(execution: ToolExecution, result: Readonly<ToolExecutionResult>): void {
     if (!this.accepting || execution.parent === undefined || execution.agent === undefined || result.isError) return
-    const action = z.object({ action: z.enum(['continuity', 'cross_episode', 'repetitions', 'delivery']) }).safeParse(execution.arguments)
+    const action = z.object({ action: z.enum(['continuity', 'cross_episode', 'repetitions', 'source_fidelity', 'delivery']) }).safeParse(execution.arguments)
+    const sourceSkill = execution.name === 'skill' && z.object({ name: z.literal('video-to-screenplay') }).safeParse(execution.arguments).success
     if (!(execution.name === 'manuscript_revision' && action.success)
+      && !sourceSkill
       && !(execution.name === 'present' && this.pending.has(execution))) return
     let session = this.commits.get(execution.agent.session)
     if (session === undefined) { session = new Map(); this.commits.set(execution.agent.session, session) }
@@ -415,16 +555,37 @@ export class ManuscriptDelivery {
     return failure('MANUSCRIPT_DELIVERY_BASELINE_REQUIRED', '本轮是修订已有剧本。只审最终稿不足以交付为已复核；请用 continuity 同时明确所选原稿 current 和不同路径的最终稿 candidate，核对原要求及改动后再声明。也可明确标为草稿。')
   }
 
+  private sourceProblem(row: Row | undefined, required: boolean, overflow: boolean): Error | undefined {
+    if (!required) return undefined
+    if (overflow || row?.source_overflow || row === undefined || row.source_reviews.length === 0
+      || row.source_reviews.some(record => !sourcePassing(record.review))) {
+      return failure('MANUSCRIPT_DELIVERY_SOURCE_REQUIRED', '视频转剧本缺少有效来源核对，或仍有来源遗漏、未知项及超限记录；请对照同一原片重新核对。记录超限时在新任务分批重新核对，或明确交付草稿。')
+    }
+    return undefined
+  }
+
+  private async sourceBindingsUnchanged(bindings: readonly SourceBinding[], agent: Agent, signal: AbortSignal): Promise<boolean> {
+    const verify = this.options.verifyVideoSource
+    if (verify === undefined || bindings.length === 0) return false
+    for (const binding of bindings) {
+      if (!await continuityFilesUnchanged(binding.dependencies, this.config, signal)
+        || !await manuscriptReviewNotesUnchanged({ notes_sha256: binding.notes_sha256, documents: binding.dependencies },
+          agent, this.config, signal) || !await verify(agent.session, binding.source_manifest, signal)) return false
+    }
+    return true
+  }
+
   /** Bind an explicit final output version and its honest reviewed range or draft label.
    * @param candidatePaths - Explicit final file paths, relative to the owning Session workspace.
    * @param mode - Reviewed revisions require a consistent comparison of selected original and final files; draft is explicitly unreviewed.
    * @param note - Required nonblank explanation for draft delivery, separate from the mandatory label.
    * @param agent - Owning Session; no other Session's receipts are consulted.
    * @param signal - Caller cancellation.
+   * @param sourceMode - Video requires independent source review in addition to text review; absence preserves any known task requirement.
    * @returns File hashes and exact descriptions required by present; this does not present a file.
    */
   declare(candidatePaths: readonly string[], mode: 'reviewed' | 'draft', note: string | undefined,
-    agent: Agent, signal: AbortSignal): Promise<ManuscriptDeliveryResult> {
+    agent: Agent, signal: AbortSignal, sourceMode?: 'video'): Promise<ManuscriptDeliveryResult> {
     return this.operate(signal, async (checkSignal) => {
       await this.awaitCommitted(agent, checkSignal)
       const cwd = agent.session.header.cwd
@@ -432,14 +593,16 @@ export class ManuscriptDelivery {
       if (candidatePaths.length === 0 || candidatePaths.length > this.config.maxDocuments) throw failure('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED', '请按文稿数量限制分批交付。')
       if (mode === 'draft' && (note === undefined || note.trim().length === 0)) throw failure('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED', '草稿交付必须说明尚未核实的范围或待解决问题。')
       const state = this.handle.stateOf(agent.session), files: DeliveryFile[] = []
+      const sourceRequired = state.source_required || sourceMode === 'video'
       for (const path of candidatePaths) {
         const current = await readManuscript(path, cwd, this.config, checkSignal)
         if (files.some(file => file.path === current.path)) throw failure('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED', '同一规范路径不能重复声明。')
         const row = state.rows.find(item => item.path === current.path)
         const review = row?.sha === current.sha256 ? row.review : null
-        let label = '草稿：当前版本未完成语义复核'
+        let label = sourceRequired ? '草稿：当前版本尚未完成来源与语义复核' : '草稿：当前版本未完成语义复核'
         let reviewScope: ManuscriptDeliveryScope | null = null
         let dependencies: DeliveryFile['dependencies'] = []
+        let sourceBindings: SourceBinding[] | undefined
         if (mode === 'reviewed') {
           if (row === undefined || review === null || review.status !== 'consistent' || review.reason !== 'reviewed'
             || review.file_verification !== 'verified' || review.findings.length > 0 || review.unknowns.length > 0
@@ -455,16 +618,33 @@ export class ManuscriptDelivery {
           label = labelOf(review)
           reviewScope = { selection: target.selection, coverage: target.coverage }
           dependencies = review.documents
+          const sourceProblem = this.sourceProblem(row, sourceRequired, state.overflow)
+          if (sourceProblem !== undefined) throw sourceProblem
+          if (sourceRequired) {
+            const bindings: SourceBinding[] = row.source_reviews.flatMap(record => sourcePassing(record.review) ? [{
+              source_manifest: record.review.source_manifest, dependencies: record.review.documents,
+              ...record.review.notes_sha256 === undefined ? {} : { notes_sha256: record.review.notes_sha256 },
+            }] : [])
+            const coverageProblem = sourceCoverageProblem(bindings, reviewScope, current)
+            if (coverageProblem !== undefined) throw coverageProblem
+            if (!await this.sourceBindingsUnchanged(bindings, agent, checkSignal)) {
+              throw failure('MANUSCRIPT_DELIVERY_SOURCE_STALE', '来源视频、保存ASR、缓存原帧、稿件或批注已变化，或来源读取器不可用；请重新核对或明确交付草稿。')
+            }
+            sourceBindings = bindings
+            label += sourceLabel(bindings)
+          }
         }
         files.push({ path: current.path, file_sha256: current.sha256, aliases: [resolve(cwd, path)],
           label, review_scope: reviewScope, dependencies,
+          ...sourceBindings === undefined ? {} : { source_reviews: sourceBindings },
           ...(mode === 'reviewed' && review?.notes_sha256 !== undefined ? { notes_sha256: review.notes_sha256 } : {}) })
       }
       const activePaths = new Set([...state.rows.filter(row => !row.presented).map(row => row.path), ...files.map(file => file.path)])
       if (activePaths.size > this.config.maxDocuments) throw failure('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED', '当前待交付路径超过文稿数量限制，请先交付已声明批次，再处理下一批。')
       checkSignal.throwIfAborted()
       if (state.task_id !== this.handle.stateOf(agent.session).task_id) throw failure('MANUSCRIPT_DELIVERY_REVIEW_REQUIRED', '用户任务已变化，请在当前任务中重新声明。')
-      return { state: 'delivery', advisory: true, mode, task_id: state.task_id, files, ...(note === undefined ? {} : { note }) }
+      return { state: 'delivery', advisory: true, mode, task_id: state.task_id, files,
+        ...sourceRequired ? { source_mode: 'video' as const } : {}, ...(note === undefined ? {} : { note }) }
     })
   }
 
@@ -481,18 +661,18 @@ export class ManuscriptDelivery {
     if (!args.success) return undefined
     return this.operate(execution.signal, async (signal) => {
       await this.awaitCommitted(agent, signal)
-      const state = this.handle.stateOf(agent.session), files: DeliveryFile[] = []
+      const state = this.handle.stateOf(agent.session), files: DeliveryFile[] = [], reviewedFiles: string[] = []
       let mode: 'draft' | 'reviewed' = 'reviewed'
       for (const file of args.data.files) {
         if (!isManuscript(file.path)) continue
         const lexical = resolve(cwd, file.path)
         const declared = state.rows.some(row => row.declaration?.files
           .some(item => item.path === lexical || item.aliases.includes(lexical)))
-        if (!state.writing && !declared && state.rows.every(row => row.declaration === null)) continue
+        if (!state.writing && !state.source_required && !declared && state.rows.every(row => row.declaration === null)) continue
         const current = await readManuscript(file.path, cwd, this.config, signal)
         const row = state.rows.find(item => item.path === current.path)
         const hasDeclaration = declared || row?.declaration !== undefined && row.declaration !== null
-        if (!hasDeclaration && (!state.writing || !hasManuscriptDeliveryStructure(current.text))) continue
+        if (!hasDeclaration && (!(state.writing || state.source_required) || !hasManuscriptDeliveryStructure(current.text))) continue
         const declaration = row?.declaration, bound = declaration?.files.find(item => item.path === current.path)
         if (bound === undefined || declaration === null || declaration === undefined || row === undefined) {
           return denial(failure('MANUSCRIPT_DELIVERY_REQUIRED', '请先通过 manuscript_revision delivery 声明已复核范围或草稿，再交付此剧本文件。'))
@@ -507,6 +687,17 @@ export class ManuscriptDelivery {
         if (declaration.mode === 'reviewed') {
           const basisProblem = this.reviewBasisProblem(row.review, agent)
           if (basisProblem !== undefined) return denial(basisProblem)
+          const sourceRequired = state.source_required || declaration.source_mode === 'video' || bound.source_reviews !== undefined
+          const sourceProblem = this.sourceProblem(row.sha === current.sha256 ? row : undefined, sourceRequired, state.overflow)
+          if (sourceProblem !== undefined) return denial(sourceProblem)
+          if (sourceRequired) {
+            const coverageProblem = sourceCoverageProblem(bound.source_reviews ?? [], bound.review_scope, current)
+            if (coverageProblem !== undefined) return denial(coverageProblem)
+          }
+          if (sourceRequired && !await this.sourceBindingsUnchanged(bound.source_reviews ?? [], agent, signal)) {
+            return denial(failure('MANUSCRIPT_DELIVERY_SOURCE_STALE', '来源视频、保存ASR、缓存原帧或来源审校依赖已变化；请重新核对后声明交付，或明确交付草稿。'))
+          }
+          reviewedFiles.push(current.path)
         }
         if (file.description !== bound.label) return denial(failure('MANUSCRIPT_DELIVERY_LABEL_REQUIRED', `present.description 必须逐字使用服务返回的标签：${bound.label}`))
         if (declaration.mode === 'draft') mode = 'draft'
@@ -519,7 +710,7 @@ export class ManuscriptDelivery {
         const done = new Promise<void>((resolveDone) => { finish = resolveDone })
         const lease = { controller, done, finish }
         this.active.add(lease)
-        this.pending.set(execution, { files, mode, task: state.task_id, lease })
+        this.pending.set(execution, { files, reviewedFiles, mode, task: state.task_id, lease })
       }
       return undefined
     })
@@ -533,17 +724,32 @@ export class ManuscriptDelivery {
     const pending = this.pending.get(execution)
     if (pending === undefined) return Promise.resolve(undefined)
     return this.operate(execution.signal, async (signal) => {
-      if (execution.agent === undefined || this.handle.stateOf(execution.agent.session).task_id !== pending.task) {
+      if (execution.agent === undefined) throw failure('MANUSCRIPT_DELIVERY_STALE', '交付缺少所属会话。')
+      await this.awaitCommitted(execution.agent, signal)
+      const state = this.handle.stateOf(execution.agent.session)
+      if (state.task_id !== pending.task) {
         throw failure('MANUSCRIPT_DELIVERY_STALE', '交付期间用户任务已变化。')
       }
       if (!await continuityFilesUnchanged(pending.files, this.config, signal)) throw failure('MANUSCRIPT_DELIVERY_STALE', '交付期间文件字节已变化。')
       for (const file of pending.files) if (!await continuityFilesUnchanged(file.dependencies, this.config, signal)) {
         throw failure('MANUSCRIPT_DELIVERY_STALE', '交付期间审校材料已变化。')
       }
-      if (pending.mode === 'reviewed') for (const file of pending.files) {
+      for (const file of pending.files.filter(file => pending.reviewedFiles.includes(file.path))) {
         if (!await manuscriptReviewNotesUnchanged({ notes_sha256: file.notes_sha256, documents: file.dependencies },
           execution.agent, this.config, signal)) {
           throw failure('MANUSCRIPT_DELIVERY_STALE', '交付期间批注或修改要求已变化，请重新核对。')
+        }
+        const sourceRequired = state.source_required || file.source_reviews !== undefined
+        const row = state.rows.find(row => row.path === file.path && row.sha === file.file_sha256)
+        const sourceProblem = this.sourceProblem(row, sourceRequired, state.overflow)
+        if (sourceProblem !== undefined) throw sourceProblem
+        if (sourceRequired) {
+          const current = await readManuscript(file.path, state.cwd, this.config, signal)
+          const coverageProblem = sourceCoverageProblem(file.source_reviews ?? [], file.review_scope, current)
+          if (coverageProblem !== undefined) throw coverageProblem
+        }
+        if (sourceRequired && !await this.sourceBindingsUnchanged(file.source_reviews ?? [], execution.agent, signal)) {
+          throw failure('MANUSCRIPT_DELIVERY_SOURCE_STALE', '交付期间来源视频、保存ASR、缓存原帧或来源审校依赖已变化，请重新核对。')
         }
       }
       return JSON.stringify({ manuscript_delivery_receipt: {
@@ -626,9 +832,11 @@ export class ManuscriptDelivery {
 /** Install one effect-owned private projection and async policy hooks.
  * @param ctx - Host context declaring tools and sessionProjections services.
  * @param config - Bounded delivery checks and correction policy.
+ * @param options - Optional source freshness callback; without it, reviewed video delivery fails while text delivery is unchanged.
  * @returns Service whose disposer drains in-flight checks before releasing callbacks and recovery state.
  */
-export async function createManuscriptDelivery(ctx: Context, config: ManuscriptDeliveryConfig): Promise<ManuscriptDelivery> {
+export async function createManuscriptDelivery(ctx: Context, config: ManuscriptDeliveryConfig,
+  options: ManuscriptDeliveryOptions = {}): Promise<ManuscriptDelivery> {
   let handle: ProjectionHandle<DeliveryState> | undefined
   const projectionOwner = await ctx.plugin(Object.assign(async (owner: Context) => {
     handle = await owner.sessionProjections.register(manuscriptDeliveryProjection(config.maxDocuments))
@@ -644,7 +852,7 @@ export async function createManuscriptDelivery(ctx: Context, config: ManuscriptD
     logger.warn('Manuscript delivery output could not be verified', { path,
       error_type: error instanceof Error ? error.constructor.name : 'NonError',
       error_code: typeof code === 'string' && /^[A-Z_]{1,40}$/u.test(code) ? code : null })
-  })
+  }, options)
   const pre = ctx.on('tools/pre-execute', async (execution, next) => {
     const decision = await next()
     if (decision.kind !== 'allow') return decision

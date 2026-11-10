@@ -1,0 +1,87 @@
+{
+  "actualParentExecutor": "run_code",
+  "actualReviewerExecutor": "structured_output",
+  "reviewerRequests": [
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+  ],
+  "compactFacts": {
+    "source": 3,
+    "text": 4,
+    "delivery": 5
+  },
+  "recoveredAfterHmr": true,
+  "receiptContainsOriginalSourceManifest": true,
+  "descriptions": [
+    "已复核本文件全部提取正文（仅当前版本）；来源仅核对抽样范围：source.mp4 0–6秒内2个原帧及保存ASR→正文第1–6行（未校听原音，未核验全片）",
+    "已复核本文件全部提取正文（仅当前版本）；来源仅核对抽样范围：source.mp4 0–6秒内2个原帧及保存ASR→正文第1–6行（未校听原音，未核验全片）",
+    "已复核本文件全部提取正文（仅当前版本）；来源仅核对抽样范围：source.mp4 0–6秒内2个原帧及保存ASR→正文第1–6行（未校听原音，未核验全片）"
+  ],
+  "successfulPresentPrograms": [
+    "binding-program-1",
+    "binding-program-2",
+    "binding-program-8"
+  ],
+  "successfulReceiptPrograms": [
+    "binding-program-1",
+    "binding-program-2",
+    "binding-program-8"
+  ],
+  "rejectedPresentPrograms": [
+    "binding-program-6",
+    "binding-program-7"
+  ],
+  "mutationPoints": [
+    "before-declare",
+    "before-dispatch",
+    "during-dispatch"
+  ],
+  "semanticModelQualityVerified": false,
+  "results": [
+    {
+      "call": "binding-program-1",
+      "case": "review-and-present",
+      "error": null
+    },
+    {
+      "call": "binding-program-2",
+      "case": "recover-compact-facts",
+      "error": null
+    },
+    {
+      "call": "binding-program-3",
+      "case": "text-cannot-clear-source",
+      "error": "MANUSCRIPT_DELIVERY_SOURCE_REQUIRED"
+    },
+    {
+      "call": "binding-program-4",
+      "case": "source-cannot-clear-text",
+      "error": "MANUSCRIPT_DELIVERY_REVIEW_REQUIRED"
+    },
+    {
+      "call": "binding-program-5",
+      "case": "changed-before-declare",
+      "error": "MANUSCRIPT_DELIVERY_SOURCE_STALE"
+    },
+    {
+      "call": "binding-program-6",
+      "case": "changed-before-dispatch",
+      "error": "MANUSCRIPT_DELIVERY_SOURCE_STALE"
+    },
+    {
+      "call": "binding-program-7",
+      "case": "changed-during-dispatch",
+      "error": "MANUSCRIPT_DELIVERY_SOURCE_STALE"
+    },
+    {
+      "call": "binding-program-8",
+      "case": "final-current-source",
+      "error": null
+    }
+  ]
+}

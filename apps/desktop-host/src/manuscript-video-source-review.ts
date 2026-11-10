@@ -1,5 +1,6 @@
 /** Explicit saved-video samples and ASR comparisons, separate from manuscript-only continuity. */
 import { createHash } from 'node:crypto'
+import { isDeepStrictEqual } from 'node:util'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -199,7 +200,7 @@ export async function videoSourceReviewUnchanged(ctx: Context, session: Session,
   limits: VideoSourceLimits, signal: AbortSignal): Promise<boolean> {
   try {
     const current = await readSources(ctx, session, manifest.inputs, limits, signal)
-    return JSON.stringify(current.sources) === JSON.stringify(manifest.sources)
+    return isDeepStrictEqual(current.sources, manifest.sources)
   } catch (error) { signal.throwIfAborted(); void error; return false }
 }
 
