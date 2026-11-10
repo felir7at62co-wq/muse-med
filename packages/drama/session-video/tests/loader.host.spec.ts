@@ -157,6 +157,29 @@ it('binds a re-downloaded provider URL to new content after its cache entry is e
   expect((await f.ctx.sessionVideo.detect(f.session.id, oldLocal.id, oldLocal.version!, f.signal)).state).toBe('failed')
 })
 
+it('recovers a provider source when its cached attachment alias is removed', async () => {
+  const f = await fixture()
+  const url = 'https://101.aigc.jubianai.net/deleted-attachment.mp4'
+  f.tool('jubian_video', { method: 'subtasks', task_id: 7 }, { subtasks: { rows: [
+    { parent_task_id: 7, status: 'succeeded', video_url: url },
+  ] } })
+  const fetch = vi.fn(async () => new Response(readFileSync(f.file)))
+  vi.stubGlobal('fetch', fetch)
+  const initial = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect((await f.ctx.sessionVideo.detect(f.session.id, initial.id, initial.version!, f.signal)).state).toBe('ready')
+  const local = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(local.path).not.toBeNull()
+  rmSync(local.path!)
+  const missing = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(missing).toMatchObject({ status: 'remote-only', version: initial.version, playbackUrl: url })
+  const result = await f.ctx.sessionVideo.detect(f.session.id, missing.id, missing.version!, f.signal)
+  const restored = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(result.state).toBe('ready')
+  expect(restored.status).toBe('local')
+  expect(result.sourceVersion).toBe(restored.version)
+  expect(fetch).toHaveBeenCalledTimes(2)
+})
+
 it('reports executable failure and source mutation without caching invented cut ranges', async () => {
   const f = await fixture()
   f.user('@three-shots.mp4')

@@ -265,7 +265,10 @@ export default class SessionVideo extends TypertRemoteService {
     try {
       const target = await this.ctx.fs.resolve(path, { cwd: session.header.cwd ?? this.ctx.sandboxPolicy.workspaceRoot, signal })
       const info = await this.ctx.fs.stat(target, signal)
-      if (info?.type !== 'file') return { source: { ...source, status: 'missing', issue: 'Recorded video file is missing' }, target: null, fileVersion: null }
+      if (info?.type !== 'file') {
+        if (downloadedIdentity !== null) return { source, target: null, fileVersion: null }
+        return { source: { ...source, status: 'missing', issue: 'Recorded video file is missing' }, target: null, fileVersion: null }
+      }
       if (info.size === undefined || info.size > this.config.maxSourceBytes) return { source: { ...source, status: 'unsupported', issue: 'Recorded video exceeds the configured byte limit' }, target: null, fileVersion: null }
       const version = downloadedIdentity === null ? info.version : `${downloadedIdentity}:${info.version}`
       const query = new URLSearchParams({ sessionId: session.id, sourceId: id, version })
