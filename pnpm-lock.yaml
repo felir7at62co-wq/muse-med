@@ -941,6 +941,9 @@ importers:
       koffi:
         specifier: 3.1.1
         version: 3.1.1
+      playwright:
+        specifier: ^1.61.1
+        version: 1.61.1
       pnpm:
         specifier: 11.28.5
         version: 11.28.5

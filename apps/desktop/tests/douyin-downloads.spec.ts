@@ -985,6 +985,426 @@ it('returns a login/verification code before preparing a background grant and ne
   expect(guest.downloadURL).not.toHaveBeenCalled()
 })
 
+it('rechecks a preparing background guest after a same-URL document reload', async () => {
+  const { lease } = background()
+  const first = Promise.withResolvers<boolean>(), next = Promise.withResolvers<boolean>()
+  lease.needsUserAction.mockImplementationOnce(() => first.promise).mockImplementation(() => next.promise)
+  const replied = vi.fn()
+  const operation = controller.request(owner as never, request).then((result) => { replied(result); return result })
+  try {
+    await vi.advanceTimersByTimeAsync(100)
+    guest.emit('did-start-navigation', {}, page, false, true)
+    first.resolve(false)
+    await vi.advanceTimersByTimeAsync(200)
+    expect(replied).not.toHaveBeenCalled()
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+    next.resolve(true)
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await operation).code).toBe('LOGIN_OR_VERIFICATION_REQUIRED')
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+  } finally {
+    first.resolve(false); next.resolve(true)
+    await controller.request(owner as never, { ...request, action: 'release' })
+  }
+})
+
+it('invalidates an already clear preparing probe on a same-URL reload', async () => {
+  const { lease } = background()
+  const next = Promise.withResolvers<boolean>()
+  lease.needsUserAction.mockResolvedValueOnce(false).mockImplementation(() => next.promise)
+  const replied = vi.fn()
+  const operation = controller.request(owner as never, request).then((result) => { replied(result); return result })
+  try {
+    await vi.advanceTimersByTimeAsync(100)
+    guest.emit('did-start-navigation', {}, page, false, true)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(replied).not.toHaveBeenCalled()
+    next.resolve(true)
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await operation).code).toBe('LOGIN_OR_VERIFICATION_REQUIRED')
+  } finally {
+    next.resolve(true)
+    await controller.request(owner as never, { ...request, action: 'release' })
+  }
+})
+
+it('ignores a rejected preparing probe from an earlier same-URL document', async () => {
+  const { lease } = background()
+  const first = Promise.withResolvers<boolean>(), next = Promise.withResolvers<boolean>()
+  lease.needsUserAction.mockImplementationOnce(() => first.promise).mockImplementation(() => next.promise)
+  const operation = controller.request(owner as never, request)
+  try {
+    await vi.advanceTimersByTimeAsync(100)
+    guest.emit('did-start-navigation', {}, page, false, true)
+    first.reject(new Error('obsolete document'))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(controller.isActive).toBe(true)
+    next.resolve(false)
+    await vi.advanceTimersByTimeAsync(200)
+    expect((await operation).code).toBe('PREPARED')
+  } finally {
+    first.resolve(false); next.resolve(false)
+    await controller.request(owner as never, { ...request, action: 'release' })
+  }
+})
+
+it.each(['release', 'dispose'] as const)('reports preparing %s promptly during a same-URL reload and settles the stale probe', async (action) => {
+  const { lease } = background()
+  const probe = Promise.withResolvers<boolean>()
+  lease.needsUserAction.mockImplementation(() => probe.promise)
+  const operation = controller.request(owner as never, request)
+  await vi.advanceTimersByTimeAsync(100)
+  guest.emit('did-start-navigation', {}, page, false, true)
+  const settled = vi.fn()
+  const closing = (action === 'release' ? controller.request(owner as never, { ...request, action: 'release' })
+    : controller.dispose()).then(settled)
+  try {
+    expect((await operation).code).toBe(action === 'release' ? 'CANCELLED' : 'HOST_DISCONNECTED')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(settled).not.toHaveBeenCalled()
+    probe.resolve(false)
+    await closing
+    expect(settled).toHaveBeenCalledOnce()
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+    expect(guest.listenerCount('did-start-navigation')).toBe(0)
+  } finally { probe.resolve(false); await closing }
+})
+
+it('stops a background download when a login dialog appears after preparation', async () => {
+  const { lease } = background()
+  await prepared()
+  lease.needsUserAction.mockResolvedValue(true)
+  const operation = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  await vi.advanceTimersByTimeAsync(100)
+  expect((await operation).code).toBe('LOGIN_OR_VERIFICATION_REQUIRED')
+  expect(lease.close).toHaveBeenCalledOnce()
+  expect(guest.downloadURL).not.toHaveBeenCalled()
+})
+
+it('waits for a slow login probe before transferring an observed background video', async () => {
+  const { lease } = background()
+  await prepared()
+  const probe = Promise.withResolvers<boolean>()
+  lease.needsUserAction.mockImplementation(() => probe.promise)
+  const operation = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  try {
+    await vi.advanceTimersByTimeAsync(100)
+    controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'media', url: media,
+      responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+    probe.resolve(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect((await operation).code).toBe('LOGIN_OR_VERIFICATION_REQUIRED')
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+  } finally {
+    probe.resolve(true)
+    await controller.request(owner as never, { ...request, action: 'release' })
+  }
+})
+
+it('continues an owned background transfer after a clear probe and a Session switch', async () => {
+  const { lease } = background()
+  await prepared()
+  const probe = Promise.withResolvers<boolean>()
+  lease.needsUserAction.mockImplementation(() => probe.promise)
+  const operation = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  try {
+    await vi.advanceTimersByTimeAsync(100)
+    controller.activeSession(owner as never, 'session-b')
+    controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'media', url: media,
+      responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+    probe.resolve(false)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(media)
+  } finally {
+    probe.resolve(false)
+    await controller.request(owner as never, { ...request, action: 'release' })
+  }
+  expect((await operation).code).toBe('CANCELLED')
+})
+
+it('rechecks user action after player association and before a background transfer', async () => {
+  const { lease } = background()
+  await prepared()
+  const finalProbe = Promise.withResolvers<boolean>()
+  lease.needsUserAction.mockResolvedValueOnce(false).mockImplementation(() => finalProbe.promise)
+  const operation = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  try {
+    controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'media', url: media,
+      responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(guest.executeJavaScript).toHaveBeenCalledWith(DOUYIN_PLAYER_PROBE)
+    expect(lease.needsUserAction).toHaveBeenCalledTimes(3)
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+    finalProbe.resolve(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect((await operation).code).toBe('LOGIN_OR_VERIFICATION_REQUIRED')
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+  } finally {
+    finalProbe.resolve(true)
+    await controller.request(owner as never, { ...request, action: 'release' })
+  }
+})
+
+it('waits for user action before transferring provider-associated background media', async () => {
+  const { lease } = background()
+  const debug = fixtureDebugger()
+  Object.assign(guest, { debugger: debug })
+  guest.executeJavaScript.mockResolvedValue({ duration: 34.41, sourceSupported: true, protected: false })
+  guest.reload.mockImplementation(() => {
+    guest.emit('did-start-navigation', {}, page, false, true)
+    debug.emit('message', {}, 'Page.frameNavigated', { frame: { id: 'main', loaderId: 'loader' } })
+  })
+  await prepared()
+  const probe = Promise.withResolvers<boolean>()
+  lease.needsUserAction.mockImplementation(() => probe.promise)
+  const operation = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  try {
+    await vi.advanceTimersByTimeAsync(100)
+    await fixtureResponse(debug)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+    probe.resolve(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect((await operation).code).toBe('LOGIN_OR_VERIFICATION_REQUIRED')
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+  } finally {
+    probe.resolve(true)
+    await controller.request(owner as never, { ...request, action: 'release' })
+  }
+})
+
+it.each(['player-metadata', 'provider-detail'] as const)(
+  'stages %s background media after a clear login probe', async (association) => {
+    const { lease } = background()
+    const debug = fixtureDebugger()
+    Object.assign(guest, { debugger: debug })
+    guest.executeJavaScript.mockResolvedValue(association === 'player-metadata'
+      ? playerMetadata() : { duration: 34.41, sourceSupported: true, protected: false })
+    guest.reload.mockImplementation(() => {
+      guest.emit('did-start-navigation', {}, page, false, true)
+      debug.emit('message', {}, 'Page.frameNavigated', { frame: { id: 'main', loaderId: 'loader' } })
+    })
+    await prepared()
+    const probe = Promise.withResolvers<boolean>()
+    lease.needsUserAction.mockImplementation(() => probe.promise)
+    const operation = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+    try {
+      await vi.advanceTimersByTimeAsync(100)
+      if (association === 'provider-detail') await fixtureResponse(debug)
+      await vi.advanceTimersByTimeAsync(0)
+      expect(guest.downloadURL).not.toHaveBeenCalled()
+      probe.resolve(false)
+      await vi.advanceTimersByTimeAsync(100)
+      const selected = association === 'player-metadata' ? media : fixtureMedia
+      expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(selected)
+      const item = new Item()
+      item.url = selected
+      item.chain = [selected]
+      expect(controller.accept(item as never, guest as never)).toBe(true)
+      controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'other', url: selected,
+        responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+      item.complete()
+      expect(await operation).toMatchObject({ code: 'STAGED', evidence: { association: `${association}-verified` } })
+    } finally {
+      probe.resolve(false)
+      await controller.request(owner as never, { ...request, action: 'release' })
+    }
+  },
+)
+
+it('rechecks user action before transferring player-metadata background media', async () => {
+  const { lease } = background()
+  const debug = fixtureDebugger()
+  Object.assign(guest, { debugger: debug })
+  guest.executeJavaScript.mockResolvedValue(playerMetadata())
+  guest.reload.mockImplementation(() => {
+    guest.emit('did-start-navigation', {}, page, false, true)
+    debug.emit('message', {}, 'Page.frameNavigated', { frame: { id: 'main', loaderId: 'loader' } })
+  })
+  await prepared()
+  const finalProbe = Promise.withResolvers<boolean>()
+  lease.needsUserAction.mockResolvedValueOnce(false).mockImplementation(() => finalProbe.promise)
+  const operation = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  try {
+    await vi.advanceTimersByTimeAsync(100)
+    expect(guest.executeJavaScript).toHaveBeenCalledWith(DOUYIN_PLAYER_PROBE)
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+    finalProbe.resolve(true)
+    await vi.advanceTimersByTimeAsync(0)
+    expect((await operation).code).toBe('LOGIN_OR_VERIFICATION_REQUIRED')
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+  } finally {
+    finalProbe.resolve(true)
+    await controller.request(owner as never, { ...request, action: 'release' })
+  }
+})
+
+it('does not use a login probe from an earlier document after navigation', async () => {
+  const { lease } = background()
+  await prepared()
+  const first = Promise.withResolvers<boolean>(), next = Promise.withResolvers<boolean>()
+  lease.needsUserAction.mockImplementationOnce(() => first.promise).mockImplementation(() => next.promise)
+  const operation = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  try {
+    await vi.advanceTimersByTimeAsync(100)
+    controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'media', url: media,
+      responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+    guest.emit('did-start-navigation', {}, page, false, true)
+    first.resolve(false)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+    next.resolve(true)
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await operation).code).toBe('LOGIN_OR_VERIFICATION_REQUIRED')
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+  } finally {
+    first.resolve(false); next.resolve(true)
+    await controller.request(owner as never, { ...request, action: 'release' })
+  }
+})
+
+it('ignores a late probe rejection from a replaced document', async () => {
+  const { lease } = background()
+  await prepared()
+  const first = Promise.withResolvers<boolean>(), next = Promise.withResolvers<boolean>()
+  lease.needsUserAction.mockImplementationOnce(() => first.promise).mockImplementation(() => next.promise)
+  const operation = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  try {
+    await vi.advanceTimersByTimeAsync(100)
+    controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'media', url: media,
+      responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+    guest.emit('did-start-navigation', {}, page, false, true)
+    first.reject(new Error('obsolete document'))
+    await vi.advanceTimersByTimeAsync(100)
+    expect(controller.isActive).toBe(true)
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+    next.resolve(false)
+    controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'media', url: media,
+      responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+    await vi.advanceTimersByTimeAsync(100)
+    expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(media)
+  } finally {
+    first.resolve(false); next.resolve(false)
+    await controller.request(owner as never, { ...request, action: 'release' })
+  }
+  expect((await operation).code).toBe('CANCELLED')
+})
+
+it.each(['release', 'dispose'] as const)('settles a slow observing probe before %s completes', async (action) => {
+  const { lease } = background()
+  await prepared()
+  const probe = Promise.withResolvers<boolean>()
+  lease.needsUserAction.mockImplementation(() => probe.promise)
+  const operation = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  await vi.advanceTimersByTimeAsync(100)
+  controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'media', url: media,
+    responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+  await vi.advanceTimersByTimeAsync(0)
+  const settled = vi.fn()
+  const closing = (action === 'release' ? controller.request(owner as never, { ...request, action: 'release' })
+    : controller.dispose()).then(settled)
+  try {
+    expect((await operation).code).toBe(action === 'release' ? 'CANCELLED' : 'HOST_DISCONNECTED')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(settled).not.toHaveBeenCalled()
+    probe.resolve(false)
+    await closing
+    expect(settled).toHaveBeenCalledOnce()
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+  } finally { probe.resolve(false); await closing }
+})
+
+it('ignores a pending login probe when the background task owner is destroyed', async () => {
+  const { lease } = background()
+  await prepared()
+  const probe = Promise.withResolvers<boolean>()
+  lease.needsUserAction.mockImplementation(() => probe.promise)
+  const operation = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  try {
+    await vi.advanceTimersByTimeAsync(100)
+    controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'media', url: media,
+      responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+    owner.isDestroyed = () => true
+    await vi.advanceTimersByTimeAsync(100)
+    expect((await operation).code).toBe('OWNER_LOST')
+    probe.resolve(false)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+  } finally {
+    probe.resolve(false)
+    await controller.dispose()
+  }
+})
+
+it.each(['player-metadata', 'provider-detail'] as const)('does not revoke a newer task when old %s DNS returns private', async (association) => {
+  const { lease, reserve } = background()
+  const dns = Promise.withResolvers<readonly string[]>()
+  const resolveHost = vi.fn(() => dns.promise)
+  controller = new DesktopDouyinDownloads(open, resolveHost, reserve)
+  controller.activeSession(owner as never, 'session-a')
+  const debug = fixtureDebugger()
+  Object.assign(guest, { debugger: debug })
+  guest.executeJavaScript.mockResolvedValue(association === 'player-metadata'
+    ? playerMetadata() : { duration: 34.41, sourceSupported: true, protected: false })
+  guest.reload.mockImplementation(() => {
+    guest.emit('did-start-navigation', {}, page, false, true)
+    debug.emit('message', {}, 'Page.frameNavigated', { frame: { id: 'main', loaderId: 'loader' } })
+  })
+  await prepared()
+  const first = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  await vi.advanceTimersByTimeAsync(100)
+  if (association === 'provider-detail') {
+    await fixtureResponse(debug)
+    await vi.advanceTimersByTimeAsync(0)
+  }
+  expect(resolveHost).toHaveBeenCalledOnce()
+  const closing = controller.request(owner as never, { ...request, action: 'release' })
+  expect((await first).code).toBe('CANCELLED')
+  const secondRequest = { ...request, taskId: randomUUID() as never, requestId: randomUUID() }
+  lease.taskId = secondRequest.taskId
+  lease.prepareRequestId = secondRequest.requestId
+  const second = controller.request(owner as never, secondRequest)
+  try {
+    await vi.advanceTimersByTimeAsync(200)
+    expect((await second).code).toBe('PREPARED')
+    dns.resolve(['127.0.0.1'])
+    await vi.advanceTimersByTimeAsync(0)
+    await closing
+    expect(controller.isActive).toBe(true)
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+  } finally {
+    dns.resolve(['127.0.0.1'])
+    await closing
+    await controller.request(owner as never, { ...secondRequest, action: 'release' })
+  }
+})
+
+it('reports a failed background login probe without starting the transfer', async () => {
+  const { lease } = background()
+  await prepared()
+  const probe = Promise.withResolvers<boolean>()
+  lease.needsUserAction.mockImplementation(() => probe.promise)
+  const operation = controller.request(owner as never, { ...request, action: 'download', targetVideoId: id })
+  try {
+    await vi.advanceTimersByTimeAsync(100)
+    controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'media', url: media,
+      responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+    probe.reject(new Error('private browser failure'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect((await operation).code).toBe('BROWSER_PROBE_UNAVAILABLE')
+    expect(guest.downloadURL).not.toHaveBeenCalled()
+  } finally {
+    probe.resolve(false)
+    await controller.request(owner as never, { ...request, action: 'release' })
+  }
+})
+
 it('joins background guest destruction and an in-flight probe before returning cancellation', async () => {
   const { lease } = background()
   const probe = Promise.withResolvers<boolean>(), destroyed = Promise.withResolvers<undefined>()
