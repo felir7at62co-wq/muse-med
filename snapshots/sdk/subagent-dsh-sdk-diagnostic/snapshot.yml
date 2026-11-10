@@ -6,3 +6,6 @@ recording: live
 header:
   class: sdk-dsh-sdk-diagnostic
   pin: true
+replay:
+  override: true
+writerOutput: true

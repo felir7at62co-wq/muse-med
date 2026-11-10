@@ -317,11 +317,13 @@ async function refusingRepositoryProxy(): Promise<{ requests: string[]; proxyUrl
   return { requests, proxyUrl: `http://127.0.0.1:${String(address.port)}` }
 }
 
-/** Pinned pnpm reads fetch/store policy from YAML and network destinations from npmrc. */
-function configureRepositoryTransport(dir: string, proxyUrl: string): void {
+/** Own pnpm's child store environment, YAML fetch policy and npmrc network destinations. */
+function configureRepositoryTransport(dir: string, proxyUrl: string, env: Record<string, string>): void {
+  const store = join(dir, 'store')
+  env.PNPM_CONFIG_STORE_DIR = store
   writeFileSync(join(dir, '.npmrc'), `https-proxy=${proxyUrl}\nproxy=${proxyUrl}\nno-proxy=\n`)
   const workspace = join(dir, 'pnpm-workspace.yaml')
-  writeFileSync(workspace, `${readFileSync(workspace, 'utf8').trimEnd()}\nstoreDir: ${JSON.stringify(join(dir, 'store'))}\nfetchRetries: 0\nfetchTimeout: 5000\n`)
+  writeFileSync(workspace, `${readFileSync(workspace, 'utf8').trimEnd()}\nstoreDir: ${JSON.stringify(store)}\nfetchRetries: 0\nfetchTimeout: 5000\n`)
 }
 
 it.each(['github:acme/connected', 'https://github.com/acme/connected.git', 'git+ssh://git@github.com/acme/connected.git'])(
@@ -351,7 +353,7 @@ it.each(['github:acme/connected', 'https://github.com/acme/connected.git', 'git+
     const manifest = readProfileManifest('test', dir)
     delete manifest.dependencies
     writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
-    configureRepositoryTransport(dir, proxyUrl)
+    configureRepositoryTransport(dir, proxyUrl, env)
     const result = await manager.installBundle(spec, { enabled: false })
     expect(result.error).toBeUndefined()
     expect(result).toMatchObject({ changed: true, bundle: name, packageResult: { exitCode: 0 } })
@@ -373,7 +375,7 @@ it('routes an explicit hosted archive through the configured proxy and cancels r
   const { requests, proxyUrl } = await refusingRepositoryProxy()
   env.GIT_CONFIG_GLOBAL = join(dir, 'git.config')
   writeFileSync(env.GIT_CONFIG_GLOBAL, `[url "${proxyUrl}/"]\n insteadOf = https://github.com/\n insteadOf = ssh://git@github.com/\n insteadOf = git@github.com:\n[http]\n proxy =\n`)
-  configureRepositoryTransport(dir, proxyUrl)
+  configureRepositoryTransport(dir, proxyUrl, env)
   const manifest = readFileSync(join(dir, 'package.json'), 'utf8')
   const archive = `https://codeload.github.com/acme/connected/tar.gz/${'a'.repeat(40)}`
   const cancellation = new AbortController()

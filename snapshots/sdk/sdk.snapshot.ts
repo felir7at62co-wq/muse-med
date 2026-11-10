@@ -1694,8 +1694,8 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
           const fresh = freshIdentities[index]
           if (fresh === undefined) throw new Error(`no fresh identity log ${index}`)
           if (existing === undefined) throw new Error(`no fixture for persisted log ${index}`)
-          return scrubSessionSnapshot(tokenizeSessionFixtureCwd(
-            stabilizeRefreshLog(fresh, existing, replacements, actualContext),
+          return scrubSessionSnapshot(stabilizeRefreshLog(
+            tokenizeSessionFixtureCwd(fresh), existing, replacements, actualContext,
           ))
         })
         expectedContents = redactSessionSnapshotIds(stabilizeFixtureMessageIds(reconcileCatalogCreationTimes(refreshed, 'preserve-headers'), expectedContents))

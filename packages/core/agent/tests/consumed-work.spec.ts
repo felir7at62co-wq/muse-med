@@ -179,3 +179,35 @@ it('accounts for a durable claim rejected after an explicit discard', () => {
   session.append('turn/end', { turn: 1, reason: { kind: 'blocked' } })
   expect(foldConsumedWork(session.snapshotEvents()).end?.data.turn).toBe(1)
 })
+
+it('does not attribute a durable claim from an owned mid-turn suffix to another turn', () => {
+  const session = Session.create(SessionId('durable-claim-suffix')), pending = message('pending')
+  session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [], nextTurn: [pending.id] })
+  session.append('agent/inbox/claim-filtered', { turn: 1, step: 1, discarded: [pending.id] })
+  session.append('user/message', pending, { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
+  expect(foldConsumedWork(session.snapshotEvents())).toEqual({ droppedUnrun: false })
+})
+
+it.each([true, false])('accounts only for a committed durable message when committed=%s', (committed) => {
+  const session = Session.create(SessionId('durable-claim-message')), pending = message('pending')
+  const notice = createUserMessage({ content: [{ type: 'text', text: 'Model route changed' }],
+    source: { kind: 'model-selection', form: 'notice', summary: 'Model route changed' } })
+  session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [pending] })
+  session.append('turn/start', { turn: 1 })
+  session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [pending.id], nextTurn: [] })
+  session.append('user/message', notice, { surfaceOp: 'append' })
+  session.append('agent/inbox/claim-filtered', { turn: 1, step: 1, discarded: [notice.id] })
+  if (committed) session.append('user/message', pending, { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'before step', code: 'UNKNOWN' } } })
+  expect(foldConsumedWork(session.snapshotEvents()).end?.data.turn).toBe(committed ? 1 : undefined)
+})
+
+it.each(['user', 'parent'] as const)('accounts for pending durable input cancelled by %s', (kind) => {
+  const session = Session.create(SessionId('durable-claim-aborted')), pending = message('pending')
+  session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [pending] })
+  session.append('turn/start', { turn: 1 })
+  session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [], nextTurn: [pending.id] })
+  session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind } } })
+  expect(foldConsumedWork(session.snapshotEvents()).end?.data.turn).toBe(kind === 'user' ? 1 : undefined)
+})

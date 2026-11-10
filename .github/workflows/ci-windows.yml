@@ -180,6 +180,9 @@ jobs:
       # suites (webworker-packer image-loadable, webworker-runtime
       # transform-corpus, client ui-trajectory client-bundle) self-skip on
       # unbuilt checkouts.
+      - name: Prepare media test executables
+        shell: pwsh
+        run: pnpm exec tsx scripts/prepare-ci-ffmpeg.ts
       - name: Run Windows coverage
         shell: pwsh
         run: pnpm run check:ci:coverage

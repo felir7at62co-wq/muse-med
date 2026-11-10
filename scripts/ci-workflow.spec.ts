@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import * as yaml from 'js-yaml'
 import { describe, expect, it } from 'vitest'
@@ -1885,6 +1886,57 @@ function workflowJob(workflow: Record<string, unknown>, job: string): Record<str
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
+
+describe('Recovery decoder coverage preparation', () => {
+  function preparation(file: string, jobName: string, coverageName: string): Record<string, unknown> & { run: string } {
+    const job = workflowJob(loadWorkflow(file), jobName)
+    if (!Array.isArray(job.steps)) throw new TypeError('coverage job must define steps')
+    const steps = job.steps.filter(isRecord)
+    const media = steps.findIndex(step => step.name === 'Prepare media test executables')
+    const coverage = steps.findIndex(step => step.name === coverageName)
+    expect(media).toBeGreaterThanOrEqual(0)
+    expect(coverage).toBeGreaterThan(media)
+    const step = steps[media]
+    if (step === undefined || typeof step.run !== 'string') throw new TypeError('media preparation must run a command')
+    return { ...step, run: step.run }
+  }
+
+  it('uses the locked Windows preparation before coverage without extra secrets', () => {
+    const step = preparation('.github/workflows/ci-windows.yml', 'windows-coverage', 'Run Windows coverage')
+    expect(step).toEqual({ name: 'Prepare media test executables', shell: 'pwsh', run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts' })
+    expect(JSON.stringify(step)).not.toContain('secrets.')
+  })
+
+  it.each(['valid', 'missing', 'directory', 'version-failure', 'prepare-failure'] as const)(
+    'publishes only a qualified installed Linux decoder: %s', (mode) => {
+      const step = preparation('.github/workflows/ci.yml', 'node-24-coverage', 'Run exhaustive coverage')
+      const fixtureRoot = mkdtempSync(join(tmpdir(), 'ci-recovery-decoder-'))
+      try {
+        const environmentFile = join(fixtureRoot, 'github-env')
+        writeFileSync(environmentFile, 'ORIGINAL_ENV=retained\n')
+        writeFileSync(join(fixtureRoot, 'ffmpeg'), '#!/bin/sh\nprintf \'%s\\n\' "$*" >> decoder-calls\nexit '
+          + (mode === 'version-failure' ? '9' : '0') + '\n', { mode: 0o700 })
+        const discovery = mode === 'missing' ? 'return 1;'
+          : mode === 'directory' ? 'printf \'%s\\n\' "$PWD";' : 'printf \'%s/ffmpeg\\n\' "$PWD";'
+        const prelude = 'sudo() { return ' + (mode === 'prepare-failure' ? '9' : '0') + '; }\ncommand() { ' + discovery + ' }\n'
+        const bash = process.platform === 'win32'
+          ? join(process.env.ProgramFiles ?? 'C:/Program Files', 'Git', 'bin', 'bash.exe') : 'bash'
+        const result = spawnSync(bash, ['-eu', '-c', prelude + step.run], { cwd: fixtureRoot,
+          env: { ...process.env, GITHUB_ENV: 'github-env' }, encoding: 'utf8', timeout: 10_000, windowsHide: true })
+        expect(result.error).toBeUndefined()
+        const published = readFileSync(environmentFile, 'utf8')
+        if (mode === 'valid') {
+          expect(result.status, result.stderr).toBe(0)
+          expect(published).toMatch(/^ORIGINAL_ENV=retained\nMUSE_RECOVERY_TEST_FFMPEG=\/[^\n]+\/ffmpeg\n$/)
+          expect(readFileSync(join(fixtureRoot, 'decoder-calls'), 'utf8')).toBe('-version\n')
+        } else {
+          expect(result.status).not.toBe(0)
+          expect(published).toBe('ORIGINAL_ENV=retained\n')
+        }
+      } finally { rmSync(fixtureRoot, { recursive: true, force: true }) }
+    },
+  )
+})
 
 describe('Policy workflow shells', () => {
   it.each(['pr-check-on-head-branch.yml', 'pr-check-after-approve.yml', 'pr-check-on-base-branch.yml'])(
