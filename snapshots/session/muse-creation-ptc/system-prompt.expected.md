@@ -373,7 +373,7 @@ interface ToolArgsMap {
     /** 默认false；true跳过短期内存缓存重新读取公开网页 */
     refresh?: boolean;
   };
-  /** 当用户说找红果短剧、按剧名找剧时，先在红果官方公开关键词网页搜索，拿到seriesId后可调用hongguo_detail查更多数据，超出热播榜范围。当前只获得首屏最多10条，可能含语义推荐；sourceReportedTotal不代表已获取数量。不登录、不下载视频。 */
+  /** 当用户说找红果短剧、按剧名找剧时，先读取红果官网当前公开关键词搜索接口，拿到seriesId后可调用hongguo_detail查更多数据，超出热播榜范围。仅读取已验证的首屏最多10条，可能含语义推荐；sourceReportedTotal不代表已获取数量，空壳、受限和错误响应不当作零结果。不登录、不下载视频。 */
   hongguo_search: {
     /** 关键词，1–100字符 */
     query: string;
@@ -1674,6 +1674,7 @@ interface ToolOutputMap {
     httpStatus?: number;
     responseBytes?: number;
     checkpoint?: string;
+    cleanupPendingPath?: string;
     retainedEpisodeCount?: number;
     reusedEpisodeCount?: number;
     remainingEpisodeCount?: number;
@@ -1694,6 +1695,7 @@ interface ToolOutputMap {
     httpStatus?: number;
     responseBytes?: number;
     checkpoint?: string;
+    cleanupPendingPath?: string;
     retainedEpisodeCount?: number;
     reusedEpisodeCount?: number;
     remainingEpisodeCount?: number;
