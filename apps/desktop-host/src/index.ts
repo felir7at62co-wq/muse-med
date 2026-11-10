@@ -229,6 +229,8 @@ async function main(): Promise<void> {
     ...(forceDraftSubtitleVisual && productSubtitleVisual !== undefined ? { jianyingDraft: {
       enforceSubtitleVisual: true,
       defaultSubtitleVisual: JSON.parse(productSubtitleVisual) as NonNullable<NonNullable<desktopOffice.Config['jianyingDraft']>['defaultSubtitleVisual']>,
+      ...(process.env.MUSE_FONTS_DIR === undefined ? {} : { fontsDir: process.env.MUSE_FONTS_DIR }),
+      ...(process.env.MUSE_SUBTITLE_FONT_FAMILY === undefined ? {} : { subtitleFontFamily: process.env.MUSE_SUBTITLE_FONT_FAMILY }),
     } } : {}),
   })
   installPlatformSessionPublisher(ctx, (session) => {

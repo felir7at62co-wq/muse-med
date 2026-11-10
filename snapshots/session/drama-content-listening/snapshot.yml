@@ -1,0 +1,9 @@
+version: 1
+scenario: drama-content-listening
+profile: headless
+composition: drama-content-listening
+recording: authored
+writerOutput: true
+header:
+  class: drama-content-listening
+  pin: true
