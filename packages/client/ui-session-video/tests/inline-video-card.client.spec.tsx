@@ -40,13 +40,18 @@ beforeEach(() => {
   actions = { inventory: vi.fn(), analysis: vi.fn(), detectionFailed: vi.fn(), retryFailed: vi.fn(), toggle: vi.fn(),
     select: vi.fn(), openSource: vi.fn(), collect: vi.fn(), observe: vi.fn(), refreshInventory: vi.fn() }
   notifyVisibility = []
-  vi.stubGlobal('IntersectionObserver', class {
+  vi.stubGlobal('IntersectionObserver', class implements IntersectionObserver {
+    readonly root = null
+    readonly rootMargin = '0px'
+    readonly thresholds = [0]
     constructor(callback: IntersectionObserverCallback) {
       notifyVisibility.push((visible) => {
-        callback([{ isIntersecting: visible } as IntersectionObserverEntry], this as IntersectionObserver)
+        callback([{ isIntersecting: visible } as IntersectionObserverEntry], this)
       })
     }
     observe() {}
+    unobserve() {}
+    takeRecords(): IntersectionObserverEntry[] { return [] }
     disconnect() {}
   })
   vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(loadVideo)
@@ -58,11 +63,11 @@ it('keeps each original source and source selection independent', () => {
   const view = render(<><InlineVideoCard {...props(first)} /><InlineVideoCard {...props(second)} /></>)
   const cards = view.container.querySelectorAll('[data-muse-inline-video]')
   expect(cards).toHaveLength(2)
-  expect(within(cards[0]).getByLabelText('first').getAttribute('src')).toBe('/video/first')
-  expect(within(cards[1]).getByLabelText('second').getAttribute('src')).toBe('/video/second')
-  fireEvent.change(within(cards[1]).getByLabelText(en.library), { target: { value: first.id } })
-  expect(within(cards[0]).getByLabelText('first').getAttribute('src')).toBe('/video/first')
-  expect(within(cards[1]).getByLabelText('first').getAttribute('src')).toBe('/video/first')
+  expect(within(cards[0]!).getByLabelText('first').getAttribute('src')).toBe('/video/first')
+  expect(within(cards[1]!).getByLabelText('second').getAttribute('src')).toBe('/video/second')
+  fireEvent.change(within(cards[1]!).getByLabelText(en.library), { target: { value: first.id } })
+  expect(within(cards[0]!).getByLabelText('first').getAttribute('src')).toBe('/video/first')
+  expect(within(cards[1]!).getByLabelText('first').getAttribute('src')).toBe('/video/first')
 })
 
 it('retains the authorized delivery URL and native controls when the matched source cannot resolve a playback URL', () => {
@@ -84,11 +89,11 @@ it('keeps the original authorized player while the source inventory is unresolve
 it('does not request observation until visible and releases it when hidden or unmounted', () => {
   const view = render(<InlineVideoCard {...props(first)} />)
   expect(actions.observe).not.toHaveBeenCalled()
-  act(() => { notifyVisibility[0](true) })
+  act(() => { notifyVisibility[0]!(true) })
   expect(actions.observe).toHaveBeenLastCalledWith(first.id, 1)
-  act(() => { notifyVisibility[0](false) })
+  act(() => { notifyVisibility[0]!(false) })
   expect(actions.observe).toHaveBeenLastCalledWith(first.id, -1)
-  act(() => { notifyVisibility[0](true) })
+  act(() => { notifyVisibility[0]!(true) })
   view.unmount()
   expect(actions.observe).toHaveBeenLastCalledWith(first.id, -1)
 })

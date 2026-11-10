@@ -21,11 +21,10 @@ beforeEach(() => {
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks() })
 function props(): VideoPlayerProps {
-  return { source: { id: brandString<SessionVideoSourceId>('first'), label: 'Actual source', origin: 'generated', path: '/work/a.mp4', eventSeq: 4,
-    presentedIndex: null, callId: null, status: 'local', version: 'v1', playbackUrl: '/api/session-video?id=first', remoteUrl: null, issue: null },
-  analysis: undefined, shots: [], offset: 0, duration: 0, pixelsPerSecond: 48, zoom: 1, onZoom: vi.fn(),
-  selectedShot: null, seekRequest: null,
-  onSeek: vi.fn(), onSelectShot: vi.fn(), t: makeTranslate(en) }
+  return { source: { id: brandString<SessionVideoSourceId>('first'), label: 'Actual source', playbackUrl: '/api/session-video?id=first' },
+    analysis: undefined, shots: [], offset: 0, duration: 0, pixelsPerSecond: 48, zoom: 1, onZoom: vi.fn(),
+    selectedShot: null, seekRequest: null,
+    onSeek: vi.fn(), onSelectShot: vi.fn(), t: makeTranslate(en) }
 }
 it('places compact playback controls after the real media, and releases its resource on unmount', () => {
   const view = render(<VideoPlayer {...props()} />)
