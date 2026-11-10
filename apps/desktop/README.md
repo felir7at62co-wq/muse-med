@@ -6,6 +6,8 @@ English | [中文](README.zh.md)
 
 Desktop runs the Harness workspace in a native application. This reference covers application behavior, development and integration; the packaging, Windows signing and publication guides own build and release operations.
 
+Desktop also accepts a private optional Hongguo v2 installation under its product home. The [plugin instructions](../../third_party/plugins/muse-hongguo-download/README.md#v2-local-runtime) describe the installation pointer and explicit environment settings; selecting v2 keeps existing v1 resources and receipts intact.
+
 ## Table of Contents
 
 - [Application overview](#application-overview)

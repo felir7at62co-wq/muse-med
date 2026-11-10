@@ -33,6 +33,8 @@ it('bundles one original-source runtime configuration under the standalone patch
   expect(patch[0]?.insert).toHaveLength(1)
   const row = patch[0]?.insert[0]
   expect(row?.config?.javaExecutable).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_JAVA_PATH || ''" })
+  expect(row?.config?.legacyBackend).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_V2_RUNTIME_DIR ? 'v2' : 'v1'" })
+  expect(row?.config?.v2StateDir).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_V2_STATE_DIR || ''" })
   expect(row?.config?.bootstrapDevices).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'" })
   expect(Object.keys(row ?? {}).sort()).toEqual(['config', 'id', 'name'])
 })
@@ -64,6 +66,8 @@ it('registers local analysis and download tools in creative scopes and leaves mi
         } else {
           expect(hongguo?.name, preset).toBe('muse-hongguo-download')
           expect(hongguo?.config?.sourceMode, preset).toBe('legacy')
+          expect(hongguo?.config?.legacyBackend, preset).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_V2_RUNTIME_DIR ? 'v2' : 'v1'" })
+          expect(hongguo?.config?.v2RuntimeDir, preset).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_V2_RUNTIME_DIR || ''" })
           expect(hongguo?.config?.signTokenEnv, preset).toBe('MUSE_HONGGUO_SIGN_TOKEN')
           expect(hongguo?.config?.javaExecutable, preset).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_JAVA_PATH || ''" })
           expect(hongguo?.config?.bootstrapDevices, preset).toEqual({ __jsExpr: "process.env.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'" })

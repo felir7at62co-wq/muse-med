@@ -57,11 +57,15 @@ Encrypted tracks use the supplied offline modules through [python/decrypt.py](py
 
 The bundled patch reads the source, Java and Python paths from `MUSE_HONGGUO_LEGACY_APP_DIR`, `MUSE_HONGGUO_JAVA_PATH` and `MUSE_HONGGUO_PYTHON_PATH`; `MUSE_HONGGUO_BOOTSTRAP_DEVICES=1` enables the original generator for a generic source installation. Desktop supplies these entries. Media paths use `DSH_FFMPEG_PATH` / `DSH_FFPROBE_PATH`, with `FFMPEG_PATH` / `FFPROBE_PATH` as alternatives. The standalone tarball includes both Python bridges but excludes Java, original bytecode, saved device configuration and tokens. Desktop distributes its independently locked runtime; [SOURCE.json](SOURCE.json) records the source fingerprints and owning lock.
 
-## Internal v2 transport
+## V2 local runtime
 
 [`V2EngineClient`](src/v2-engine.js) provides internal NDJSON communication with a caller-specified process. Callers supply its arguments, environment, working directory and limits. It validates protocol-2 startup, associates replies with requests, and owns cancellation and process/pipe cleanup. Errors contain fixed diagnostics rather than raw engine messages; an unconfirmed shutdown fails explicitly.
 
-The download tools do not select this module as a backend. It makes no device or license decisions, so callers must preserve the original authorization checks. Transport tests use fake subprocesses; they establish neither v2 runtime compatibility nor successful media downloads.
+Set `legacyBackend: v2` with absolute `v2RuntimeDir` and `v2StateDir` to use the original 2.0.0 engine and its normal license service. The [preparation tool](native/host/README.md) compiles the local hosts and extracts only hash-pinned original components from the supplied installer. Windows uses the x64 .NET runtime directly; Apple Silicon uses that runtime through Rosetta. Java and the media executables remain local. The original server decides whether a series is allowed; a refusal stops the request.
+
+Desktop presets accept `MUSE_HONGGUO_V2_RUNTIME_DIR` and `MUSE_HONGGUO_V2_STATE_DIR`. Desktop can also read a private `hongguo-v2/active-runtime.json` under its product home containing `version: 1`, `runtimeDir`, and `stateDir`; both directories must be absolute. Environment settings take precedence. A missing pointer leaves the existing backend selected; an invalid selected installation fails explicitly.
+
+The v2 journal is separate from v1 and records the verified runtime identity. Each final MP4 passes the existing container, FFprobe, full FFmpeg decode, and SHA256 checks. `origin: engine-output` means original-transfer fields are unknown (`null`); final bytes and hashes remain authoritative. A partial episode selection may succeed with `complete: false`. Failed calls retain already verified files and the v2 journal for an identical retry. The original source, devices, queues and v1 receipts are preserved. See the [receipt migration guide](../../../docs/upgrade-guide/v0.2.2-rc.1/hongguo-v2-receipts/guide.md).
 
 ## Validation
 

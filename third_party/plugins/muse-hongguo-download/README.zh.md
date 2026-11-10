@@ -57,11 +57,17 @@ Muse Desktop 内置本地 Java 17、CPython 3.11、PyCryptodome、签名素材�
 
 内置 patch 从 `MUSE_HONGGUO_LEGACY_APP_DIR`、`MUSE_HONGGUO_JAVA_PATH` 和 `MUSE_HONGGUO_PYTHON_PATH` 读取源码、Java 和 Python 路径；`MUSE_HONGGUO_BOOTSTRAP_DEVICES=1` 为通用源码安装启用原设备生成器。Desktop 提供这些配置。媒体路径读取 `DSH_FFMPEG_PATH` / `DSH_FFPROBE_PATH`，也可用 `FFMPEG_PATH` / `FFPROBE_PATH`。独立 tarball 包含两个 Python 桥接脚本，不含 Java、原字节码、已保存的设备配置和令牌。Desktop 分发独立锁定的运行时；[SOURCE.json](SOURCE.json) 记录源码指纹及所属锁定文件。
 
-## 内部 v2 通信
+<a id="v2-local-runtime"></a>
+
+## V2 本地运行时
 
 [`V2EngineClient`](src/v2-engine.js) 为调用方指定的进程提供内部 NDJSON 通信。调用方提供进程参数、环境变量、工作目录及各项限制。它校验协议 2 启动握手，将响应与请求对应，并负责取消及进程、管道的清理。错误使用固定诊断，不包含引擎原始消息；无法确认进程退出时明确失败。
 
-下载工具没有选择此模块作为后端。它不决定设备或许可状态，调用方必须保留原有授权检查。通信测试使用模拟子进程，不能证明 v2 运行时兼容或媒体下载成功。
+设置 `legacyBackend: v2`，并提供绝对路径 `v2RuntimeDir` 和 `v2StateDir`，即可使用原版 2.0.0 引擎及正常许可服务。[准备工具](native/host/README.zh.md)编译本地宿主，从用户提供的安装包中提取已锁定哈希的原组件。Windows 直接运行 x64 .NET，Apple Silicon 通过 Rosetta 运行该运行时；Java 和媒体程序仍在本机执行。是否允许下载某部剧由原服务决定，拒绝时停止请求。
+
+Desktop 预设接收 `MUSE_HONGGUO_V2_RUNTIME_DIR` 和 `MUSE_HONGGUO_V2_STATE_DIR`。Desktop 也可读取产品目录中的私有 `hongguo-v2/active-runtime.json`，内容为 `version: 1`、`runtimeDir` 和 `stateDir`，两个目录均须为绝对路径。环境配置优先。没有指针时沿用已有后端，明确选择的安装无效时直接报错。
+
+V2 进度与 v1 分开保存，并记录已验证的运行时标识。最终 MP4 均通过现有容器、FFprobe、完整 FFmpeg 解码和 SHA256 检查。`origin: engine-output` 表示原始传输信息未知（`null`），最终文件大小和哈希仍是真实验证结果。部分选集可以成功，但 `complete` 为 `false`。失败后保留已有验证文件和 v2 进度，供相同请求续传。原源码、设备、队列和 v1 收据均保留。参见[收据迁移说明](../../../docs/upgrade-guide/v0.2.2-rc.1/hongguo-v2-receipts/guide.zh.md)。
 
 ## 开发验证
 
