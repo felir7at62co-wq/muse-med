@@ -1,0 +1,19 @@
+- id: agent-default-model
+  config:
+    provider: hongguo-v2-cleanup-fixture
+    model: v2-download-test-model
+- id: llm-deepseek
+  disabled: true
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-result-pruner
+  disabled: true
+- id: tool-web
+  disabled: true
+- id: subprocess
+  disabled: true
+- insert:
+    - id: hongguo-v2-cleanup-fixture
+      name: ./download-fixture.mjs

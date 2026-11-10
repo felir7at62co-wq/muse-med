@@ -188,8 +188,13 @@ it.skipIf(!enabled).each(['legacy', 'valid-master', 'wrong-master', 'publication
       '-t', '1', '-shortest', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-c:a', 'aac', original])
     await writeFile(join(project, 'project_config.json'), JSON.stringify({ jubian_script_id: 1,
       project_bible: { visual_medium: 'animation_3d', delivery: { width: 1440, height: 2560, fps: 60, require_source_review: true } } }))
+    const sessionCache = join(f.data.root, '.muse', 'source-qa')
+    await mkdir(sessionCache, { recursive: true })
     const owner = await createEpisodeSourceAuthorityFixture({ root: f.data.root, project,
-      inputs: [{ mediaPath: selected, durationSeconds: 1 }, { mediaPath: original, durationSeconds: 1 }] })
+      inputs: [{ mediaPath: selected, durationSeconds: 1, ocrPath: join(sessionCache, 'selected-ocr.json'),
+        inspectionPath: join(sessionCache, 'selected-review.json') },
+      { mediaPath: original, durationSeconds: 1, ocrPath: join(sessionCache, 'original-ocr.json'),
+        inspectionPath: join(sessionCache, 'original-review.json') }] })
     const [selectedReview, originalReview] = owner.reviews
     if (selectedReview === undefined || originalReview === undefined) throw new Error('Two real source reviews are required')
     const declaration = (binding: typeof selectedReview.binding) => ({ media_path: binding.mediaPath, media_sha256: binding.mediaSha256,
@@ -313,10 +318,21 @@ it.skipIf(!enabled).each(['legacy', 'valid-master', 'wrong-master', 'publication
     }
     expect(final.state, JSON.stringify(final)).toBe('completed')
     expect(final.output).toBeDefined()
-    if (final.output === undefined || final.execution === undefined) throw Error('Strict episode did not publish a recorded output')
+    if (final.output === undefined || final.execution === undefined || final.attempt === null) throw Error('Strict episode did not publish a recorded output')
     const descriptorPath = join(project, '.muse', 'episode-delivery', final.attempt, final.execution, 'stage', 'descriptor.json')
-    expect(JSON.parse(await readFile(descriptorPath, 'utf8'))).toMatchObject({ version: 4,
+    const captured = JSON.parse(await readFile(descriptorPath, 'utf8')) as {
+      sourceClaim: { files: { originalPath: string; stagedPath: string; sha256: string }[] } }
+    expect(captured).toMatchObject({ version: 4,
       sourceClaim: { sessionId: owner.agent.id }, sourceEvidence: { sessions: [{ sessionId: owner.agent.id }] } })
+    for (const { binding } of owner.reviews) {
+      for (const [path, hash] of [[binding.ocrPath, binding.ocrSha256], [binding.inspectionPath, binding.inspectionSha256]]) {
+        const staged = captured.sourceClaim.files.find(file => file.originalPath === path)
+        expect(staged).toBeDefined()
+        if (staged === undefined) throw Error('Session cache evidence was not staged')
+        expect(sha(await readFile(staged.stagedPath))).toBe(hash)
+        expect(staged.sha256).toBe(hash)
+      }
+    }
     const pcm = join(f.root, 'strict-output.pcm')
     await execute(ffmpeg, ['-nostdin', '-hide_banner', '-v', 'error', '-i', join(project, final.output.path),
       '-map', '0:a:0', '-ac', '1', '-ar', '8000', '-f', 's16le', pcm])

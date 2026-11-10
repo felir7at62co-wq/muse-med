@@ -128,7 +128,7 @@ it('sets independent subtitle archive rules through the Loader and retains exist
     subtitle: { font_size_px: 40 }, audio: { bgm_gain: 0.24 },
   } }))
   const execute = async (args: object) => {
-    const result = await ctx.tools.execute({ name: 'drama_project', callId: ToolCallId('subtitle-archive'),
+    const result = await executeModelToolFixture(ctx, { name: 'drama_project', callId: ToolCallId('subtitle-archive'),
       arguments: { project_dir: home, ...args }, signal: new AbortController().signal })
     expect(result.isError).toBe(false)
     const content = result.content[0]

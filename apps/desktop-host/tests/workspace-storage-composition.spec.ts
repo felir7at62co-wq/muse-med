@@ -24,9 +24,9 @@ describe('Desktop Workspace successor routing', () => {
       .toMatchObject({ insert: [{ config: { sourceBackend: expression } }] })
   })
 
-  it.each([[], [{ id: 'storage-domain', config: {} }],
-    [{ id: 'storage-domain', config: { backend: 'muse-workspace-owned' } }],
-    [{ id: 'storage-domain', config: { backend: 'json', routes: 'invalid' } }]])('refuses a missing or invalid original route', (entries) => {
+  it.each([{ entries: [] }, { entries: [{ id: 'storage-domain', config: {} }] },
+    { entries: [{ id: 'storage-domain', config: { backend: 'muse-workspace-owned' } }] },
+    { entries: [{ id: 'storage-domain', config: { backend: 'json', routes: 'invalid' } }] }])('refuses a missing or invalid original route', ({ entries }) => {
     expect(() => workspaceStorageLayer(entries, '/muse')).toThrow()
   })
 })

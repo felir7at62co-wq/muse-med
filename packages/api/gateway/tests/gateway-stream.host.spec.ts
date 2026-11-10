@@ -637,7 +637,7 @@ describe('Typert Remote streams', () => {
     await ctx.serial('connection/update-pause')
     startup.commit()
     expect(await acceptsSocket(ctx)).toBe(false)
-    await expect(ctx.typertGateway.stream({ namespace: 'feed', method: 'sync', args: { label: 'paused' } }))
+    await expect(ctx.typertGateway.stream({ peer: ownerPeer(ctx), namespace: 'feed', method: 'sync', args: { label: 'paused' } }))
       .rejects.toThrow('Remote stream admission is paused')
 
     await ctx.serial('connection/update-resume')

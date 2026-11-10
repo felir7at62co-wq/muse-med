@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-hongguo-v2-cleanup-pending
+profile: headless
+composition: muse-hongguo-v2-cleanup-pending
+recording: authored
+writerOutput: true
+header:
+  class: muse-hongguo-v2-cleanup-pending
+  pin: true
+workspace:
+  final: true

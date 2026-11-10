@@ -30,7 +30,7 @@ it.each(['content', 'value'] as const)('records only the true body after post-ex
   session.append('tool/call', { turn: 1, step: 1, callId, name: 'video_ocr', arguments: '{}' })
   const result = await executeToolFixture(ctx, { signal: new AbortController().signal, callId, name: 'video_ocr', arguments: {} })
   expect(result.isError).toBe(false)
-  session.append('tool/result', { turn: 1, step: 1, meta: result.meta,
+  session.append('tool/result', { turn: 1, step: 1, ...(result.meta === undefined ? {} : { meta: result.meta }),
     message: createToolResultMessage({ callId, content: result.content, isError: result.isError }) }, { surfaceOp: 'append' })
   expect(sourceQaStateOf(read, session).ocr).toEqual({ 'A-ocr.json': { path: 'A.mp4', source_version: 'A', sha256: 'a'.repeat(64) } })
   const restored = Session.create(session.id, session.snapshotEvents(), session.header)

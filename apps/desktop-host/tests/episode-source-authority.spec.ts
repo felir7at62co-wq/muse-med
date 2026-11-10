@@ -54,6 +54,34 @@ it('holds real native ownership and verifies committed source evidence from the 
   expect(h.agent.model.current()?.model).toBe('changed')
 })
 
+it('adopts actual Session evidence in its workspace cache for a nested project', async () => {
+  const h = await fixture()
+  const cache = join(h.root, '.muse', 'video-ocr')
+  await mkdir(cache, { recursive: true })
+  const { binding } = await h.recordReview({ mediaPath: h.binding.mediaPath,
+    ocrPath: join(cache, 'ocr.json'), inspectionPath: join(cache, 'review.json') })
+  const authority = await h.factory(h.agent.id, h.project, new AbortController().signal)
+  try {
+    await expect(authority.verify(binding, new AbortController().signal)).resolves.toBeUndefined()
+    await expect(authority.verify({ ...binding, sessionId: 'another-session' }, new AbortController().signal))
+      .rejects.toThrow('SOURCE_QA_SESSION')
+    expect(authority.binding.workspacePath).toBe(h.root)
+    expect(authority.binding.workingDirectory).toBe(h.root)
+  } finally { authority.release() }
+})
+
+it('refuses signed OCR and observation artifacts outside the original workspace', async () => {
+  const h = await fixture()
+  const outside = await realpath(await mkdtemp(join(tmpdir(), 'muse-source-cache-outside-')))
+  onTestFinished(() => rm(outside, { recursive: true, force: true }))
+  const { binding } = await h.recordReview({ mediaPath: h.binding.mediaPath,
+    ocrPath: join(outside, 'ocr.json'), inspectionPath: join(outside, 'review.json') })
+  const authority = await h.factory(h.agent.id, h.project, new AbortController().signal)
+  try {
+    await expect(authority.verify(binding, new AbortController().signal)).rejects.toThrow('SOURCE_QA_PROJECT')
+  } finally { authority.release() }
+})
+
 it('uses an expected binding without recapturing a newer model selection', async () => {
   const h = await fixture(), first = await h.factory(h.agent.id, h.project, new AbortController().signal)
   const expected = first.binding

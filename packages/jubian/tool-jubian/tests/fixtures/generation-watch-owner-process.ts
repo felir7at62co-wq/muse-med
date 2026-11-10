@@ -11,8 +11,8 @@ const [root, mode, payload] = process.argv.slice(2)
 if (root === undefined || mode === undefined || payload === undefined) throw new Error('Missing test process arguments')
 const store = new GenerationWatchStore(root)
 process.send?.({ kind: 'ready' })
-process.once('message', () => { void runWorker() })
-async function runWorker(): Promise<void> {
+process.once('message', () => { void runWorker(root, mode, payload) })
+async function runWorker(root: string, mode: string, payload: string): Promise<void> {
   try {
     if (mode.startsWith('ledger-')) {
       const run = JSON.parse(payload) as GenerationWatchRun

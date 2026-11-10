@@ -8,6 +8,7 @@
     "rewriteRelativeImportExtensions": false
   },
   "include": [
+    "snapshots/session/working-budget-oracle.ts",
     "apps/web/tests/muse-skill-market.e2e.ts",
     "apps/web/tests/jubian-episode-delivery.e2e.ts",
     "apps/web/tests/jubian-video-recovery.e2e.ts",

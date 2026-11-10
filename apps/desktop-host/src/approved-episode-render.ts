@@ -163,10 +163,13 @@ export class ConfiguredEpisodeRenderer implements ApprovedEpisodeRenderer {
       })
     if (review === undefined) return undefined
     if (clockInputs === undefined) throw new Error('Strict source review requires captured prepared episode inputs')
+    const sessionArtifacts = new Set(review.bindings.flatMap(binding => [binding.ocrPath, binding.inspectionPath]))
     const sources = new Map<string, { path: string; sha256: string; bytes: number }>()
     for (const evidence of review.files) {
       const canonical = await realpath(evidence.path)
-      if (canonical !== evidence.path || !insideEpisodeRoot(input.projectDir, canonical)) throw new Error('Source evidence must be a canonical project file')
+      if (canonical !== evidence.path || (!insideEpisodeRoot(input.projectDir, canonical) && !sessionArtifacts.has(canonical))) {
+        throw new Error('Source evidence must be a canonical project file or verified Session artifact')
+      }
       const fact = await inspectEpisodeFile(canonical, signal)
       if (fact.sha256 !== evidence.sha256) throw new Error('Source review evidence changed during capture')
       sources.set(fact.path, fact)

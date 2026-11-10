@@ -10,7 +10,7 @@ import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentModel, modelSelectionProjectionDefinition, type Agent } from '@deepseek-ai/dsh-agent'
 import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
@@ -75,8 +75,10 @@ it('uses late Host services for registered strict rendering and releases them wi
 
     const id = SessionId('test-source-session')
     const session = Session.create(id, [], { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd: root, isSeeded: false })
+    const models = await ctx.sessionProjections.register(modelSelectionProjectionDefinition)
     let scope: Scope
     const agent: Agent = { id, options: {}, session, inbox: unsupportedInbox(), status: 'idle',
+      model: new AgentModel(() => models.stateOf(session), session, {}),
       get ctx() { return scope.ctx }, send() {}, followup() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
       steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }), runMaintenance: task => task(signal) }
     await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) }, { inject: ['tools'] }))

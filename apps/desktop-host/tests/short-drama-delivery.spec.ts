@@ -8,9 +8,10 @@ import { afterEach, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { AgentModel, modelSelectionProjectionDefinition, type Agent } from '@deepseek-ai/dsh-agent'
 import { unsupportedInbox } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { turnBoundaryProjectionDefinition } from '@deepseek-ai/dsh-agent-loop'
+import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { createScope, type Scope } from '@deepseek-ai/dsh-scope'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
@@ -18,6 +19,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools, { defineTool } from '@deepseek-ai/dsh-tools'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
+import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
 import * as Present from '@deepseek-ai/dsh-tool-present'
 import * as EditingPolicy from '../src/editing-policy.ts'
 import { validateShortDramaDelivery } from '../src/short-drama-delivery.ts'
@@ -225,9 +227,10 @@ async function formalHost(f: Awaited<ReturnType<typeof fixture>>) {
   const ctx = new Context(); cleanups.push(() => ctx.fiber.dispose())
   ctx.baseUrl = pathToFileURL(f.root).href + '/'
   await ctx.plugin(Loader); await ctx.plugin(SystemPrompt); await ctx.plugin(Tools); await ctx.plugin(AgentRegistry)
+  await ctx.plugin(NativeToolExecutor)
   ctx.loader.builtins.include = Include
   await ctx.plugin(LocalFileSystem, { cwd: f.root }); await ctx.plugin(SessionProjections)
-  ctx.sessionProjections.register(turnBoundaryProjectionDefinition)
+  await ctx.plugin(WorkingDirectory, { defaultDirectory: f.root })
   await ctx.plugin(Present, { maxFiles: 2 })
   ctx.loader.builtins['test-editing-policy'] = EditingPolicy
   const config = join(f.root, 'cordis.yml')
@@ -238,8 +241,10 @@ async function formalHost(f: Awaited<ReturnType<typeof fixture>>) {
   if (policy === undefined) throw Error('Loader did not activate the shipped editing policy')
   const id = SessionId(`episode-delivery-${++serial}`)
   const session = Session.create(id, [], { version: SESSION_FORMAT_VERSION, id, createdAt: 0, cwd: f.root, isSeeded: false })
+  const models = await ctx.sessionProjections.register(modelSelectionProjectionDefinition)
   let scope: Scope
   const owner: Agent = { id, options: {}, session, inbox: unsupportedInbox(), status: 'idle',
+    model: new AgentModel(() => models.stateOf(session), session, {}),
     get ctx() { return scope.ctx }, send() {}, followup() {}, inject() {}, cancel() {}, whenIdle: () => Promise.resolve(),
     steer: () => ({ outcome: Promise.resolve({ status: 'rejected' as const }) }),
     runMaintenance: task => task(signal) }
@@ -249,7 +254,7 @@ async function formalHost(f: Awaited<ReturnType<typeof fixture>>) {
   for (const name of ['send_file', 'dsh_im_return_file']) ctx.tools.register(defineTool({ name, description: name,
     parameters: { path: { type: 'string', required: true } }, output: { schema: { type: 'string' },
       render: (_args, value) => [{ type: 'text', text: value }] }, execute: async (args) => { sent.push(args.path); return 'queued' } }))
-  const execute = (name: string, path: string) => ctx.tools.execute({ name, callId: ToolCallId(`delivery-${++serial}`),
+  const execute = (name: string, path: string) => executeModelToolFixture(ctx, { name, callId: ToolCallId(`delivery-${++serial}`),
     arguments: name === 'present' ? { files: [{ path }] } : { path }, agent: owner, signal })
   return { ctx, owner, execute, sent, policy }
 }
@@ -275,7 +280,7 @@ it('registers relative native output paths from the actual episode report and Se
     parameters: { project: { type: 'string', required: true }, method: { type: 'string', required: true } },
     output: { schema: { type: 'object', additionalProperties: true }, render: () => [{ type: 'text', text: 'native result' }] },
     execute: async () => ({ ok: true, project: relative(f.root, f.project), output: relative(f.project, output) }) }))
-  const rendered = await h.ctx.tools.execute({ name: 'drama_render', callId: ToolCallId(`register-${++serial}`),
+  const rendered = await executeModelToolFixture(h.ctx, { name: 'drama_render', callId: ToolCallId(`register-${++serial}`),
     arguments: { method: 'render', project: relative(f.root, f.project) }, agent: h.owner, signal })
   expect(rendered.isError).toBe(false)
   const delivery = await h.execute('present', relative(f.root, output))

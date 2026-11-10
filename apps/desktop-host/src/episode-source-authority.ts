@@ -178,8 +178,9 @@ export async function createEpisodeSourceAuthorityResolver(ctx: Context): Promis
           if (evidence.sessionId !== sessionId) throw new Error('SOURCE_QA_SESSION: evidence belongs to another Session')
           for (const file of [evidence.mediaPath, evidence.ocrPath, evidence.inspectionPath]) {
             const target = await ctx.fs.resolve(file, { cwd: projectPath, signal: verifying })
-            if (!ctx.fs.contains(project, target) || (await ctx.fs.stat(target, verifying))?.type !== 'file') {
-              throw new Error('SOURCE_QA_PROJECT: source evidence is outside the bound project')
+            if (!ctx.fs.contains(file === evidence.mediaPath ? project : workspace, target)
+              || !ctx.fs.contains(sandbox, target) || (await ctx.fs.stat(target, verifying))?.type !== 'file') {
+              throw new Error('SOURCE_QA_PROJECT: source or Session evidence is outside its original authorized root')
             }
           }
           await verifySourceQa(agent.session, evidence, verifying)

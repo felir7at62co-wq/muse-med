@@ -1,5 +1,6 @@
 /** Pure issuance folds prove restoration and reject unrelated, failed or unbound tool output. */
 import { Context } from '@deepseek-ai/cordis'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import Sessions, { Session, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import Projections from '@deepseek-ai/dsh-session-projection'
 import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -16,7 +17,7 @@ async function fixture() {
   const readSourceQa = await installSourceQaState(ctx)
   const session = ctx.sessions.create(SessionId('source-qa-projection'))
   let counter = 0
-  const result = (name: string, value: object, isError = false) => {
+  const result = (name: string, value: Record<string, JsonValue>, isError = false) => {
     const id = ToolCallId(`call-${++counter}`)
     session.append('tool/call', { turn: 1, step: 1, callId: id, name, arguments: '{}' })
     session.append('tool/result', { turn: 1, step: 1, meta: { [TOOL_BODY_META_KEY]: value }, message: createToolResultMessage({ callId: id,

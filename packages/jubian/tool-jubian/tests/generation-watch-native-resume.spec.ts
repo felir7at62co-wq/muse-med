@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import Llm, { createUserMessage } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId, type SessionEvent, type SessionEventMap, type SessionEventType, type SurfaceEventType, type SurfaceIntent } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
@@ -30,8 +30,8 @@ async function nativeHost(root: string, durableInboxClaims = false) {
   ], builtins: {
     prompt: SystemPrompt, tools: Tools, executor: NativeExecutor, llm: Llm, sessions: SessionStore, projections: SessionProjections,
     agents: AgentRegistry, loop: AgentLoop, persistence: JsonlSessionPersistence,
-    controller: { inject: ['llm', 'sessions', 'sessionProjections', 'agents'], apply: (scope: Context) => {
-      createSessionTestController(scope, { cwd: root, defaultModelSelection: () => ({ provider: 'mock', model: 'other-model' }) })
+    controller: { inject: ['llm', 'sessions', 'sessionProjections', 'agents'], apply: async (scope: Context) => {
+      await createSessionTestController(scope, { cwd: root, defaultModelSelection: () => ({ provider: 'mock', model: 'other-model' }) })
     } },
   } })
   for (const entry of ctx.loader.entries()) await entry.fiber?.await()
@@ -144,8 +144,10 @@ it('rejects a queued notice at model-request admission after the session model c
         && event.data.inserted.some(message => message.id === notice.id))).toBe(true)
       expect(events.some(event => event.type === 'user/message' && event.data.id === notice.id)).toBe(false)
       expect(events.some(event => event.type === 'turn/end' && event.data.reason.kind === 'error')).toBe(true)
-      const resumeIfRestored = async () => agent.model.current().provider === selection.provider
-        && agent.model.current().model === selection.model
+      const resumeIfRestored = async () => {
+        const current = agent.model.current()
+        return current?.provider === selection.provider && current.model === selection.model
+      }
       for (let i = 0; i < 3; i++) {
         expect(await deliverGenerationWatchNotice(ctx, id, notice, undefined, undefined, undefined, verifier, projection, resumeIfRestored)).toBe('pending')
       }
@@ -208,7 +210,10 @@ it('recovers a guarded notice after durable Session restart without duplicate en
     const found = await restored.ctx.sessionController.resolveAgent(id)
     if ('error' in found) throw found.error
     const agent = found.agent
-    const allowed = async () => agent.model.current().provider === selection.provider && agent.model.current().model === selection.model
+    const allowed = async () => {
+      const current = agent.model.current()
+      return current?.provider === selection.provider && current.model === selection.model
+    }
     expect(await deliverGenerationWatchNotice(restored.ctx, id, notice, undefined, undefined, undefined, verifier, restored.projection, allowed)).toBe('pending')
     expect(nextAdapter.requests).toHaveLength(0)
     expect(agent.session.snapshotEvents().filter(event => event.type === 'agent/inbox/spliced'
@@ -426,7 +431,7 @@ it('explicitly drops filtered items from a protected actual AgentLoop batch', as
     await agent.whenIdle()
     const events = agent.session.snapshotEvents()
     expect(events.some(event => event.type === 'agent/inbox/claim-filtered' && event.data.discarded.includes(b.id))).toBe(true)
-    expect(events.filter(event => event.type === 'user/message' && [a.id, b.id, c.id].includes(event.data.id)).map(event => event.data.id)).toEqual([a.id, c.id])
+    expect(events.flatMap(event => event.type === 'user/message' && [a.id, b.id, c.id].includes(event.data.id) ? [event.data.id] : [])).toEqual([a.id, c.id])
     expect(agent.inbox.nextStep).toHaveLength(0)
     expect(agent.inbox.nextTurn).toHaveLength(0)
   } finally {
@@ -452,15 +457,16 @@ it('restores only uncommitted inputs after a protected AgentLoop batch partly ap
     agent.inbox.append('next-step', a)
     agent.inbox.append('next-step', b)
     const append = agent.session.append.bind(agent.session)
-    const interceptor = vi.spyOn(agent.session, 'append').mockImplementation((type, data, options) => {
-      if (type === 'user/message' && data.id === b.id) throw new Error('Injected partial write failure')
-      return append(type, data, options)
-    })
+    agent.session.append = <T extends SessionEventType>(type: T, data: SessionEventMap[T],
+      ...options: T extends SurfaceEventType ? [opts: SurfaceIntent<T>] : []): SessionEvent<T> => {
+      if (type === 'user/message' && 'id' in data && data.id === b.id) throw new Error('Injected partial write failure')
+      return append(type, data, ...options)
+    }
     agent.followup(c)
     release.resolve(undefined)
     await hold
     await agent.whenIdle()
-    interceptor.mockRestore()
+    agent.session.append = append
     expect(adapter.requests).toHaveLength(0)
     expect(agent.session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.id === a.id)).toHaveLength(1)
     expect(agent.inbox.nextStep.map(message => message.id)).toEqual([b.id])

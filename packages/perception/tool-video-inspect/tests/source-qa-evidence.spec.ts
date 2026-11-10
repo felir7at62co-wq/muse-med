@@ -4,6 +4,7 @@ import { appendFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/pro
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -44,7 +45,7 @@ async function fixture(options: { ocr?: boolean; report?: boolean } = {}) {
       image: { attachmentId: 'fixture-frame', mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
       observation: { visible: '测试画面中的人物站在门口', change: '人物转头', uncertainty: '' } }] }
   saveReview(readReviews, session, review)
-  const issue = (name: string, value: object) => {
+  const issue = (name: string, value: Record<string, JsonValue>) => {
     const callId = ToolCallId(randomUUID())
     session.append('tool/call', { turn: 1, step: 1, callId, name, arguments: '{}' })
     session.append('tool/result', { turn: 1, step: 1, meta: { [TOOL_BODY_META_KEY]: value }, message: createToolResultMessage({ callId,
@@ -164,7 +165,7 @@ it('does not authorize inherited OCR or observations after a child issues its ow
   saveReview(await installReviewState(f.ctx), child, ownReview)
   await writeFile(f.binding.inspectionPath, reviewEvidenceJson(ownReview))
   const ownReportSha = digest(await readFile(f.binding.inspectionPath))
-  const ownResult = (name: string, value: object): void => {
+  const ownResult = (name: string, value: Record<string, JsonValue>): void => {
     const id = ToolCallId(randomUUID())
     child.append('tool/call', { turn: 1, step: 1, callId: id, name, arguments: '{}' })
     child.append('tool/result', { turn: 1, step: 1, meta: { [TOOL_BODY_META_KEY]: value }, message: createToolResultMessage({ callId: id,

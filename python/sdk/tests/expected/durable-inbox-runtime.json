@@ -1,0 +1,35 @@
+{
+  "sessionId": "sdk-durable-inbox-primary",
+  "queryReceipt": { "kind": "prompt", "messageId": "{{humanMessage}}" },
+  "humanEnqueueReceipts": 1,
+  "originalHuman": {
+    "content": [{ "type": "text", "text": "Keep this original SDK input and reply once." }],
+    "source": { "kind": "user" },
+    "role": "user",
+    "id": "{{humanMessage}}"
+  },
+  "claims": [
+    {
+      "type": "agent/inbox/claim",
+      "data": { "turn": 1, "step": 1, "nextStep": ["{{filteredMessage}}"], "nextTurn": ["{{humanMessage}}"] }
+    },
+    {
+      "type": "agent/inbox/claim-filtered",
+      "data": { "turn": 1, "step": 1, "discarded": ["{{filteredMessage}}"] }
+    },
+    { "type": "agent/inbox/claim-settled", "data": { "turn": 1, "step": 1 } }
+  ],
+  "admittedUserMessages": [
+    {
+      "content": [{ "type": "text", "text": "Keep this original SDK input and reply once." }],
+      "source": { "kind": "user" },
+      "role": "user",
+      "id": "{{humanMessage}}"
+    }
+  ],
+  "modelRequest": { "provider": "sdk-claim-replay", "model": "claim-model", "maxTokens": 1000 },
+  "finalResponse": "SDK_DURABLE_CLAIM_OK",
+  "finishReason": "completed",
+  "turnEnd": { "turn": 1, "reason": { "kind": "completed" } },
+  "proof": { "sessionId": "sdk-durable-inbox-primary", "humanMessageId": "{{humanMessage}}", "filteredMessageId": "{{filteredMessage}}", "requests": 1, "humanWasModelInput": true, "filteredWasModelInput": false }
+}
