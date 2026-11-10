@@ -31,7 +31,10 @@ function VideoShelfContents(props: PropsRuntime<'conversation.content.overlay'> 
   const present = useCurtainPresence(open, curtain)
   const selected = useStore(state => state.selected)
   const analyses = useStore(state => state.analyses)
+  const observed = useStore(state => state.observed)
+  const detectErrors = useStore(state => state.detectErrors)
   const inventoryIssue = useStore(state => state.issue)
+  const inventoryRevision = useStore(state => state.inventoryRevision)
   const draftLength = useInput(state => state.draft.length)
   const draftRev = useInput(state => state.draftRev)
   const running = useSession(state => state.running)
@@ -50,11 +53,13 @@ function VideoShelfContents(props: PropsRuntime<'conversation.content.overlay'> 
       if (!controller.signal.aborted) { actions.inventory(value); setLoadError(false) }
     }).catch((_error: unknown) => { if (!controller.signal.aborted) setLoadError(true) })
     return () => { controller.abort() }
-  }, [sessionId, tail, running, reload, listVideos, actions])
+  }, [sessionId, tail, running, reload, inventoryRevision, listVideos, actions])
   const candidate = [...sources].sort((a, b) => Number(b.id === selected) - Number(a.id === selected))
-    .find(item => item.version !== null && item.playbackUrl !== null && analyses[item.id]?.sourceVersion !== item.version)
+    .find(item => (open || observed[item.id] !== undefined) && item.version !== null && item.playbackUrl !== null
+      && analyses[item.id]?.sourceVersion !== item.version && detectErrors[item.id] !== item.version)
   useEffect(() => {
-    if (!open || candidate === undefined || candidate.version === null) { setDetecting(false); return }
+    if (candidate === undefined || candidate.version === null) { setDetecting(false); return }
+    const version = candidate.version
     const controller = new AbortController()
     setDetecting(true); setDetectError(false)
     void detectShots(sessionId, candidate.id, candidate.version, controller.signal).then(async (value) => {
@@ -70,7 +75,12 @@ function VideoShelfContents(props: PropsRuntime<'conversation.content.overlay'> 
       }
       controller.signal.throwIfAborted()
       actions.analysis(value)
-    }).catch((_error: unknown) => { if (!controller.signal.aborted) { setDetectError(true); setDetecting(false) } })
+    }).catch((_error: unknown) => {
+      if (!controller.signal.aborted) {
+        actions.detectionFailed(candidate.id, version)
+        setDetectError(true); setDetecting(false)
+      }
+    })
     return () => { controller.abort() }
   }, [open, candidate, sessionId, reload, detectShots, listVideos, actions])
   const source = sources.find(value => value.id === selected) ?? sources[0]

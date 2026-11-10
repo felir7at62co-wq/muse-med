@@ -105,3 +105,7 @@
   border-bottom-right-radius: var(--dsw-radius-sm);
   background: var(--dsw-alias-chat-user-bg);
 }
+.inlineHeading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; }
+.inlineHeading select { display: block; min-width: 0; max-width: 65%; border: 0; padding: 0; font: inherit; font-size: 12px; color: var(--dsw-alias-label-secondary); background: transparent; text-overflow: ellipsis; }
+.inlineHeading button { color: var(--dsw-alias-label-secondary); }
+.inlineContents { padding: 0 10px 9px; }

@@ -4,10 +4,11 @@ export const NS = 'sessionVideo'
 /** Simplified Chinese source dictionary. */
 export const zh = {
   settingTitle: '视频气泡与轨道',
-  settingDescription: '启用 Muse 气泡、镜头轨道和视频收纳动效；关闭后立即恢复原有界面',
+  settingDescription: '启用 Muse 气泡及聊天视频卡片的镜头轨道；关闭后立即恢复原有界面',
   settingError: '设置未能生效，请重试',
   brand: 'Muse', library: '会话视频', empty: '这个会话还没有视频', loading: '正在读取视频…',
-  unavailable: '视频暂时无法播放', retry: '重试', play: '播放', pause: '暂停',
+  unavailable: '视频暂时无法播放', originalVideo: '返回原视频', retry: '重试', play: '播放', pause: '暂停',
+  bindVideo: '切换到可编辑视频（从头开始）', unboundVideo: '切换视频后可查看和修改镜头', awaitBoundVideo: '等待可编辑的视频版本',
   zoomControls: '视频轨道缩放', zoomIn: '放大视频轨道', zoomOut: '缩小视频轨道', zoomValue: '轨道缩放 {percent}%',
   timeline: '视频镜头轨道', playhead: '播放位置', detecting: '正在识别镜头…',
   detectionFailed: '无法识别镜头，可重试', redo: '重做这个镜头',
@@ -21,10 +22,11 @@ export type VideoKey = keyof typeof zh
 /** English fallback dictionary. */
 export const en: Record<VideoKey, string> = {
   settingTitle: 'Video bubble and timeline',
-  settingDescription: 'Enable the Muse bubble, shot timeline and video collection animation. Turn off to restore the original interface immediately.',
+  settingDescription: 'Enable the Muse bubble and shot timelines in chat video cards. Turn off to restore the original interface immediately.',
   settingError: 'The setting could not be applied. Please retry.',
   brand: 'Muse', library: 'Conversation videos', empty: 'No videos in this conversation yet', loading: 'Loading video…',
-  unavailable: 'Video is unavailable', retry: 'Retry', play: 'Play', pause: 'Pause',
+  unavailable: 'Video is unavailable', originalVideo: 'Return to original video', retry: 'Retry', play: 'Play', pause: 'Pause',
+  bindVideo: 'Switch to editable video (restart)', unboundVideo: 'Switch the video to inspect and modify shots', awaitBoundVideo: 'Waiting for an editable video version',
   zoomControls: 'Timeline zoom', zoomIn: 'Zoom in timeline', zoomOut: 'Zoom out timeline', zoomValue: 'Timeline zoom {percent}%',
   timeline: 'Video shots', playhead: 'Playback position', detecting: 'Detecting shots…',
   detectionFailed: 'Shot detection failed. You can retry.', redo: 'Regenerate this shot',
