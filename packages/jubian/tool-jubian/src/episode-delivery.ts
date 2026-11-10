@@ -145,6 +145,10 @@ export type EpisodeRenderResult =
 export interface ApprovedEpisodeRendererCapture {
   readonly identity: ApprovedEpisodeRendererIdentity
   readonly runtimeInputs: readonly ApprovedEpisodeRuntimeInput[]
+  /** Recheck renderer-owned capture facts before acquiring the final source writer queue.
+   * @param signal - Source-owner cancellation and the provider lifetime.
+   */
+  revalidate?(signal: AbortSignal): Promise<void>
   /** Provider retirement notifies the coordinator; it must journal cancellation before aborting admitted render work. */
   readonly signal: AbortSignal
   /**
@@ -154,6 +158,14 @@ export interface ApprovedEpisodeRendererCapture {
    * @returns Verified candidate plus drain, reconciliation, retry refusal or an unknown fence.
    */
   render(input: ApprovedEpisodeRenderInput, signal: AbortSignal): Promise<EpisodeRenderResult>
+  /**
+   * Hold renderer-owned Session and source-review guards through final publication.
+   * The provider verifies its captured evidence before calling the bounded publisher.
+   * @param signal - Source-owner cancellation while obtaining the guards.
+   * @param publish - Prepared publication under the actual source-owner commit.
+   * @returns The publisher's result after every renderer guard has been released.
+   */
+  withPublication?<T>(signal: AbortSignal, publish: (signal: AbortSignal) => Promise<T>): Promise<T>
 }
 
 /** Renderer Definition; the Host supplies the provider and the episode service consumes it. */

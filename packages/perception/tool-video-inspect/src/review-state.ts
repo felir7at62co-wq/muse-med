@@ -102,6 +102,15 @@ export function reviewsOf(readReviews: VideoReviewReader, session: Session): Vid
   return readReviews(session)
 }
 
+/** Serialize the complete observation artifact without mutable follow-up intent.
+ * @param review - Current Host-owned source revision and observation state.
+ * @returns Exact UTF-8 JSON text used by the saved observation report.
+ */
+export function reviewEvidenceJson(review: VideoReview): string {
+  const { follow_up: _followUp, ...evidence } = review
+  return JSON.stringify(evidence, null, 2) + '\n'
+}
+
 /**
  * Commit changed evidence and explicit follow-up intent; omitted intent retains the saved value.
  * @param readReviews - Ready observation reader supplying the previous state.

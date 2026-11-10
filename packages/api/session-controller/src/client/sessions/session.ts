@@ -1,7 +1,7 @@
 // Sessions remain resident after creation so their open Remote sources keep running off-screen.
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { InboxState, InboxTarget } from '@deepseek-ai/dsh-agent/types'
+import type { InboxState, InboxTarget, InboxWireState } from '@deepseek-ai/dsh-agent/types'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
@@ -138,8 +138,10 @@ export class Session implements SessionFace {
     /** Latest received Inbox position; null means removed from that queue. */
     receipt?: {
       readonly target: InboxTarget
+      readonly messageId: MessageId
       readonly seq: number
       readonly index: number | null
+      readonly claim?: { readonly turn: number; readonly step: number }
       readonly attachments: readonly (ImageAttachmentRef | FileAttachmentRef)[]
     }
     /** Durable admission may precede the Inbox projection acknowledging its claim. */
@@ -150,6 +152,12 @@ export class Session implements SessionFace {
     readonly onRetire?: ((retirement: PendingSubmissionRetirement) => void) | undefined
     retiring: boolean
   }>()
+  private activeInboxClaim: {
+    readonly turn: number
+    readonly step: number
+    nextStep: readonly MessageId[]
+    nextTurn: readonly MessageId[]
+  } | undefined
   /** Owns the addressed page/follow lifecycle while this Session is open. */
   private events: SessionEventStream | undefined
 
@@ -717,9 +725,13 @@ export class Session implements SessionFace {
         }
       }
     }
+    if (projections !== undefined) this.activeInboxClaim = undefined
     for (const entry of visible) this.observeSubmissionEvent(entry.event)
     if (projections !== undefined) {
-      const inbox = projections.values.inbox as InboxState | undefined
+      const inbox = projections.values.inbox as (InboxState & Pick<InboxWireState, 'activeClaim'>) | undefined
+      if ((visible.at(-1)?.event.seq ?? -1) <= projections.asOfSeq) {
+        this.activeInboxClaim = inbox?.activeClaim === undefined ? undefined : { ...inbox.activeClaim }
+      }
       for (const target of ['next-turn', 'next-step'] as const) {
         this.observeSubmissionInsertions(target, inbox?.[target] ?? [], 0, projections.asOfSeq)
       }
@@ -785,6 +797,65 @@ export class Session implements SessionFace {
 
   /** Observe durable acceptance even when insertion and claim share one projection notification. */
   private observeSubmissionEvent(event: SessionEventLike): void {
+    if (event.type === 'agent/inbox/claim') {
+      const { turn, step, nextStep, nextTurn } = event.data
+      this.activeInboxClaim = { turn, step, nextStep, nextTurn }
+      for (const settlement of this.submissionSettlements.values()) {
+        const receipt = settlement.receipt
+        if (receipt === undefined || receipt.seq >= event.seq) continue
+        const ids = receipt.target === 'next-step' ? nextStep : nextTurn
+        if (ids.includes(receipt.messageId)) settlement.receipt = { ...receipt, seq: event.seq, index: null, claim: { turn, step } }
+        else if (receipt.index !== null) settlement.receipt = {
+          ...receipt, seq: event.seq, index: receipt.index >= ids.length ? receipt.index - ids.length : null,
+        }
+      }
+      return
+    }
+    if (event.type === 'agent/inbox/claim-filtered') {
+      const { turn, step, discarded } = event.data
+      const claim = this.activeInboxClaim
+      if (claim?.turn === turn && claim.step === step) {
+        claim.nextStep = claim.nextStep.filter(id => !discarded.includes(id))
+        claim.nextTurn = claim.nextTurn.filter(id => !discarded.includes(id))
+      }
+      for (const [requestId, settlement] of this.submissionSettlements) {
+        if (settlement.receipt !== undefined && discarded.includes(settlement.receipt.messageId)) this.retireFailedSubmission(requestId)
+      }
+      return
+    }
+    if (event.type === 'agent/inbox/claim-settled') {
+      if (this.activeInboxClaim?.turn === event.data.turn && this.activeInboxClaim.step === event.data.step) {
+        this.activeInboxClaim = undefined
+      }
+      return
+    }
+    if (event.type === 'user/message' && this.activeInboxClaim !== undefined) {
+      const claim = this.activeInboxClaim
+      claim.nextStep = claim.nextStep.filter(id => id !== event.data.id)
+      claim.nextTurn = claim.nextTurn.filter(id => id !== event.data.id)
+    }
+    if (event.type === 'turn/end' && this.activeInboxClaim?.turn === event.data.turn) {
+      const claim = this.activeInboxClaim
+      const dropped = event.data.reason.kind === 'forked'
+        || event.data.reason.kind === 'aborted' && event.data.reason.reason.kind === 'user'
+      for (const [requestId, settlement] of this.submissionSettlements) {
+        const receipt = settlement.receipt
+        if (receipt === undefined || receipt.seq >= event.seq) continue
+        const remaining = receipt.target === 'next-step' ? claim.nextStep : claim.nextTurn
+        if (receipt.claim?.turn === claim.turn && receipt.claim.step === claim.step) {
+          const index = remaining.indexOf(receipt.messageId)
+          if (index < 0) continue
+          if (dropped) this.retireFailedSubmission(requestId)
+          else {
+            const { claim: _claim, ...pending } = receipt
+            settlement.receipt = { ...pending, seq: event.seq, index }
+          }
+        } else if (!dropped && receipt.index !== null) {
+          settlement.receipt = { ...receipt, seq: event.seq, index: receipt.index + remaining.length }
+        }
+      }
+      this.activeInboxClaim = undefined
+    }
     if (this.submissionSettlements.size === 0) return
     if (event.type === 'agent/inbox/spliced') {
       const { target, start, removedCount = 0, inserted, outcome } = event.data
@@ -809,7 +880,7 @@ export class Session implements SessionFace {
     if (event.type === 'request/context' || event.type === 'turn/end') {
       for (const [requestId, settlement] of this.submissionSettlements) {
         if (settlement.admitted === undefined && settlement.receipt?.index === null
-          && settlement.receipt.seq < event.seq) this.retireFailedSubmission(requestId)
+          && settlement.receipt.claim === undefined && settlement.receipt.seq < event.seq) this.retireFailedSubmission(requestId)
       }
       return
     }
@@ -825,7 +896,7 @@ export class Session implements SessionFace {
       // Either proof accepts a prompt; an Inbox row can reach the Client before the prompt receipt. Later splices
       // move the recorded position, so a canceled splice that removes the row retires its echo, queued ones
       // included; a queued echo otherwise leaves once the queue dock renders its row or its message is admitted.
-      settlement.receipt = { target, seq, index: start + index, attachments: attachmentRefsIn(message.content) }
+      settlement.receipt = { target, messageId: message.id, seq, index: start + index, attachments: attachmentRefsIn(message.content) }
       this.acceptPrompt(source.rpcId)
     }
   }

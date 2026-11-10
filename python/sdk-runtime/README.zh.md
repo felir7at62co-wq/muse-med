@@ -56,7 +56,7 @@ Office 操作技能通过 profile 的 shell 命令调用配置的 Node 和 Kit C
 
 ## 打包后的 profile 解析
 
-`dsh` 在显式指定的主目录下初始化随附 profile、组合其 bundle patch，并从可执行程序的虚拟文件系统加载内置插件。运行时解析使用内存中的 generation，不创建磁盘符号链接或代理包。fallback 导入使用记录的声明包路径，包括可执行程序虚拟文件系统内的路径，因此内置配置项与外部插件 peer 共享内置的 Cordis／模块实例。原生共享库与 Windows ConPTY addon 会同其他原生 addon 一起打包；ripgrep 与 macOS PTY helper 仍是可执行伴随程序。
+`dsh` 在显式指定的主目录下初始化随附 profile、组合其 bundle patch，并从可执行程序的虚拟文件系统加载内置插件。运行时解析使用内存中的 generation，不创建磁盘符号链接或代理包。fallback 导入使用记录的声明包路径，包括可执行程序虚拟文件系统内的路径，因此内置配置项与外部插件 peer 共享内置的 Cordis／模块实例。原生共享库与 Windows ConPTY addon 会同其他原生 addon 一起打包；ripgrep 与 macOS PTY helper 仍是可执行伴随程序。在 Windows 上，运行时解析内嵌原生 addon 的路径时独立于工作目录所在的盘符。
 
 同一个虚拟文件在不同 Windows 盘符下使用同一个模块 URL。URL 查询参数和片段保留其含义；虚拟 `/snapshot` 树以外的文件 URL（包括网络共享）保留解析器返回的结果。
 

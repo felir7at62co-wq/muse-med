@@ -1,7 +1,7 @@
 /** `verify`: the delivery verdict, the two detection passes, and the subtitle bounds. */
 
 import { readFile, rm } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, dirname, join, sep } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { fileSha256 } from '../src/cache.ts'
 import { sourceRecordPathFor } from '../src/source-record.ts'
@@ -164,11 +164,30 @@ describe('decodeChecks', () => {
     expect(check?.detail).toContain('（Invalid NAL unit size）')
   })
   it('passes a file that decodes at every sampled position', async () => {
-    const [check] = await decodeChecks(toolkit([decodeHandler(2)]), 'out.mp4', 116.733332)
+    const [check] = await decodeChecks(toolkit([decodeHandler(2), () => ({})]), 'out.mp4', 116.733332)
     expect(check?.id).toBe('decode_probe')
     expect(check?.ok).toBe(true)
-    expect(check?.detail).toBe('首 0.050s 解出 2 帧；中 58.367s 解出 2 帧；尾 116.633s 解出 2 帧')
+    expect(check?.detail).toBe('首 0.050s 解出 2 帧；中 58.367s 解出 2 帧；尾 116.633s 解出 2 帧；全片音画解码通过')
     expect(check?.fix).toBe('')
+  })
+
+  it('rejects corrupt AAC even when every sampled picture decodes', async () => {
+    const [check] = await decodeChecks(toolkit([
+      decodeHandler(),
+      call => call.args.includes('-xerror') && call.args.includes('0:a:0')
+        ? { code: 1, stderr: '[aac] Number of scalefactor bands in group exceeds limit\n' }
+        : undefined,
+    ]), 'out.mp4', 102.842)
+    expect(check?.ok).toBe(false)
+    expect(check?.detail).toContain('Number of scalefactor bands')
+  })
+
+  it('rejects a silent nonzero full decoder exit even when sampled pictures decode', async () => {
+    const [check] = await decodeChecks(toolkit([decodeHandler(),
+      call => call.args.includes('-xerror') ? { code: 1, stderr: '' } : undefined,
+    ]), 'out.mp4', 102.842)
+    expect(check?.ok).toBe(false)
+    expect(check?.detail).toContain('退出码 1')
   })
 
   it('fails a file whose container describes more picture than it decodes', async () => {
@@ -376,9 +395,51 @@ describe('verifyEpisode', () => {
       project: files.project, episode: '02', output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
     })
     const check = report.checks.find(item => item.id === 'output_source_record')
-    expect(check?.ok).toBe(false)
+    expect(check).toMatchObject({ ok: false, severity: 'warning' })
+    expect(report.ok).toBe(true)
     expect(check?.detail).toContain('没有来源清单')
     expect(report.warnings.join(' ')).toContain('无法证明当前文件就是当初检查过的那个')
+  })
+
+  it.each(['episode', 'path'] as const)('rejects a receipt for a different %s even when the output bytes match', async (field) => {
+    const files = await delivered()
+    const receipt = sourceRecordPathFor(files.output)
+    const stored = JSON.parse(await readFile(receipt, 'utf8')) as { episode: string; output: { path: string; sha256: string } }
+    if (field === 'episode') stored.episode = '03'
+    else stored.output.path = join(files.project, 'export', 'different-output.mp4')
+    await writePlaceholder(receipt, JSON.stringify(stored))
+    const report = await verifyEpisode({
+      toolkit: toolkit([probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }),
+        decodeHandler(), () => ({})]),
+      settings: resolveSettings({ fontsDir: '' }), project: files.project, episode: '02',
+      output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
+    })
+    expect(report.ok).toBe(false)
+    const check = report.checks.find(item => item.id === 'output_source_record')
+    expect(check).toMatchObject({ ok: false, severity: 'failure' })
+    expect(check?.detail).toContain(field === 'episode' ? '集号' : '输出路径')
+    expect(await fileSha256(files.output)).toBe(stored.output.sha256)
+  })
+
+  it.each(['legacy', 'relative', 'episode-less', 'normalized'] as const)('preserves %s path compatibility when the bytes match', async (variant) => {
+    const files = await delivered()
+    const receipt = sourceRecordPathFor(files.output)
+    const stored = JSON.parse(await readFile(receipt, 'utf8')) as { episode: string; output: { path?: string } }
+    if (variant === 'legacy') delete stored.output.path
+    else if (variant === 'relative') stored.output.path = 'export/02.mp4'
+    else if (variant === 'episode-less') stored.episode = ''
+    else stored.output.path = `${dirname(files.output)}${sep}.${sep}${basename(files.output)}`
+    await writePlaceholder(receipt, JSON.stringify(stored))
+    const report = await verifyEpisode({
+      toolkit: toolkit([probeHandler({ [files.output]: { durationSeconds: 116.733332, video: {}, audio: {} } }),
+        decodeHandler(), () => ({})]),
+      settings: resolveSettings({ fontsDir: '' }), project: files.project, episode: '02',
+      output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
+    })
+    expect(report.ok).toBe(true)
+    expect(report.checks.find(item => item.id === 'output_source_record')).toMatchObject({
+      ok: variant === 'normalized', severity: variant === 'normalized' ? 'failure' : 'warning',
+    })
   })
 
   it('fails a delivery whose bytes changed after its record was written', async () => {
@@ -424,6 +485,32 @@ describe('verifyEpisode', () => {
     expect(report.not_checked).toContain('output_source_mapping')
     expect(report.written).toEqual([])
     expect(await readFile(files.output, 'utf8')).toBe('delivered')
+  })
+
+  it.each([
+    { start: 0, duration: 114.083332, ok: false, label: 'audio lost before body end' },
+    { start: 0.250, duration: 116.483332, ok: false, label: 'audio shifted late with the same end' },
+    { start: 0, duration: 116.733332 - 1024 / 48_000, ok: true, label: 'one AAC frame shorter' },
+    { start: 0, duration: 114.733332, ok: true, label: 'intentional silent ending' },
+  ])('checks actual stream times for $label', async ({ start, duration, ok }) => {
+    const files = await delivered()
+    const report = await verifyEpisode({
+      toolkit: toolkit([
+        probeHandler({
+          [files.output]: {
+            durationSeconds: 116.733332, sizeBytes: 400_000_000, bitRateBps: 27_000_000,
+            video: { startSeconds: 0, durationSeconds: 116.733332 },
+            audio: { startSeconds: start, durationSeconds: duration },
+          },
+        }),
+        decodeHandler(),
+        () => ({}),
+      ]),
+      settings: resolveSettings({}),
+      project: files.project, episode: '02', output: files.output, timelinePath: files.timeline, subtitleSrt: files.subtitle,
+    })
+    expect(report.checks.find(check => check.id === 'av_stream_clock')).toMatchObject({ ok, severity: 'failure' })
+    expect(report.ok).toBe(ok)
   })
 
   it('reports every check and passes a delivery that meets the specification', async () => {
@@ -481,9 +568,12 @@ describe('verifyEpisode', () => {
       toolkit: toolkit([
         probeHandler({ [files.output]: { durationSeconds: 100, sizeBytes: 1, bitRateBps: 1_000_000, video: { width: 1080, height: 1920, fps: 30 }, audio: { codec: 'mp3', sampleRate: 44100 } } }),
         decodeHandler(),
-        call => (call.args.some(argument => argument.startsWith('blackdetect'))
+        call => call.args.some(argument => argument.startsWith('blackdetect'))
           ? { stderr: blackLog(10, 12, 2) }
-          : { stderr: '[silencedetect @ 0x1] silence_start: 0\n[silencedetect @ 0x1] silence_end: 5 | silence_duration: 5\n' }),
+          : undefined,
+        call => call.args.some(argument => argument.startsWith('silencedetect'))
+          ? { stderr: '[silencedetect @ 0x1] silence_start: 0\n[silencedetect @ 0x1] silence_end: 5 | silence_duration: 5\n' }
+          : {},
       ]),
       settings: resolveSettings({}),
       project: files.project,

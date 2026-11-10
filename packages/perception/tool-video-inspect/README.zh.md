@@ -22,9 +22,13 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用此包
 
-Muse 启用 `requireCompleteReview`。该部署中的 `video_inspect` 使用 `scan`、`next`、`revisit`、`observe`、`events`、`status`、`metadata`、`timeline`、`compare`、`close` 和 `reopen`，模型不能指定取样数量或扫描范围。`scan` 分块扫描整集：切镜评分检查全部解码缩略帧，另一条低帧率 RGB 通道检测累计画面变化并补充连续性观察点。每个检测切点按解码帧序号保留变化发生的那一帧，并保留前后画面，避免时间码取整后抽到相邻帧。分析滤镜在输出元数据或 RGB 字节前按分段时间限制筛选，保留边界帧以衔接切镜，排除解码预读的后续帧。全部候选进入该集清单；超过预算时报错，不截取部分候选冒充完整结果。检测灵敏度、扫描频率、资源预算和批大小由产品配置管理。图像预算拒绝需要卸载尚未查看的画面输入时，后续批次缩小到剩余待查看帧数，最少一张；仅卸载已查看或无关历史图片时，批大小保持不变。现有卸载机制继续恢复请求；被卸载而未呈现的图片不计为已查看。这些是画面变化候选，不是语义主体识别。
+短剧部署启用 `requireCompleteReview`。该部署中的 `video_inspect` 使用 `scan`、`next`、`revisit`、`observe`、`events`、`status`、`metadata`、`timeline`、`compare`、`close` 和 `reopen`，模型不能指定取样数量或扫描范围。`scan` 分块扫描整集：切镜评分检查全部解码缩略帧，另一条低帧率 RGB 通道检测累计画面变化并补充连续性观察点。每个检测切点按解码帧序号保留变化发生的那一帧，并保留前后画面，避免时间码取整后抽到相邻帧。分析滤镜在输出元数据或 RGB 字节前按分段时间限制筛选，保留边界帧以衔接切镜，排除解码预读的后续帧。全部候选进入该集清单；超过预算时报错，不截取部分候选冒充完整结果。检测灵敏度、扫描频率、资源预算和批大小由产品配置管理。图像预算拒绝需要卸载尚未查看的画面输入时，后续批次缩小到剩余待查看帧数，最少一张；仅卸载已查看或无关历史图片时，批大小保持不变。现有卸载机制继续恢复请求；被卸载而未呈现的图片不计为已查看。这些是画面变化候选，不是语义主体识别。
 
-`next` 将首批未记录画面作为真实图片返回。每张图片抽取完成后，先保存附件引用再处理下一张；后续抽取失败时复用已保存的图片。每张图片的具名附件须进入成功的图像模型请求，并由 `observe` 记录具体可见内容和变化，才算完成。可选 `uncertainty` 仅记录需要前后画面帮助澄清的具体疑点；省略时按空字符串保存。一般画面说明放在 `visible` 或 `change`。有实际疑点的记录会补入一轮邻近画面；`无。`、`无疑点`、`无新增疑点`、`none`、`n/a` 等完整空标记不触发补帧，原记录文字保留。导出的 `hasReviewUncertainty` 让 Host 选图复用同一判定；附带具体疑点的描述仍属不确定性，`无新增信息` 不属于空标记。仍无法确认的内容保留为未知，不猜测。全部完成后在 `.muse/video-observations` 写出带版本的完整 JSON 报告，并返回 `observation_report`，供上下文压缩后的写稿阶段检索早期观察。状态响应最多列一批；`total`、`recorded`、`pending` 和 `frames_not_shown` 对应完整清单。增量 `video/review` 会话事件让进度在重载或上下文压缩后恢复；源文件变化后须重扫。未完成的扫描和观察保留为对应视频来源的证据缺口，不限制会话中的 `screenplay_export_docx`、`present` 或其他文件交付。导出或展示文件不完成观察记录，也不批准创作质量。视频检查和证据读取仍校验所选视频的当前来源版本。
+完整审看模式的 `scan.timestamps_seconds` 最多补充 256 个有限来源时刻，且 `0 <= t < duration`。它补足常规全片计划；已扫描的当前版本保留旧帧 ID 和观察，只追加缺失时点；原请求时间或可用的实际解码时间任一匹配即复用旧帧。新帧仍须正常送入图片模型并 `observe`，总数继续受 `reviewMaxFrames` 限制。可按实际 OCR 帧时间或处理区间前后补看缺口，不能把传入时间当作已经看过。 在分叉 Session 中，`scan` 默认保留继承的进度；使用 `scan` 并设置 `fresh_scan: true` 可在当前 Session 开始新审看。严格采用来源要求当前 Session 自行扫描、观察和 OCR。
+
+创作模式保留 `requireCompleteReview=false` 的旧 `video_inspect` 采样和可信收据，另启用 `sourceReviewCompanion=true`，增加 `video_source_review`。伴随工具使用完整 scan／next／observe／status 流程和相同持久来源核对记录，不限制旧宫格工具。`requireCompleteReview=true` 的短剧模式仍使用完整 `video_inspect` 名称。调用当前部署实际提供的完整入口，无需更换对话。
+
+`next` 将首批未记录画面作为真实图片返回。每张图片抽取完成后，先保存附件引用再处理下一张；后续抽取失败时复用已保存的图片。每张图片的具名附件须进入成功的图像模型请求，并由 `observe` 记录具体可见内容和变化，才算完成。可选 `uncertainty` 仅记录需要前后画面帮助澄清的具体疑点；省略时按空字符串保存。一般画面说明放在 `visible` 或 `change`。有实际疑点的记录会补入一轮邻近画面；`无。`、`无疑点`、`无新增疑点`、`none`、`n/a` 等完整空标记不触发补帧，原记录文字保留。导出的 `hasReviewUncertainty` 让 Host 选图复用同一判定；附带具体疑点的描述仍属不确定性，`无新增信息` 不属于空标记。仍无法确认的内容保留为未知，不猜测。全部完成后在 `.muse/video-observations` 写出带版本的完整 JSON 报告，并返回 `observation_report`、`observation_report_sha256`、`observation_session_id` 与 `review_id`，供上下文压缩后的写稿阶段检索早期观察。状态响应最多列一批；`total`、`recorded`、`pending` 和 `frames_not_shown` 对应完整清单。增量 `video/review` 会话事件让进度在重载或上下文压缩后恢复；源文件变化后须重扫。未完成的扫描和观察保留为对应视频来源的证据缺口，不限制会话中的 `screenplay_export_docx`、`present` 或其他文件交付。导出或展示文件不完成观察记录，也不批准创作质量。视频检查和证据读取仍校验所选视频的当前来源版本。
 
 `close` 结束一份已保存视频审看记录的跟进；Agent 判断任务已经结束时可自行调用，无需再次询问用户。临时中断、报错或切换话题不会关闭审看。提供已保存的 `review_id` 或对应 `file_path`；同时提供时，两者经文件系统提供方解析后的身份必须相同。路径保留提供方的符号链接和上级目录遍历语义，词法归一化后同名的相邻文件属于不同来源。可选 `reason` 记录关闭原因。关闭保留扫描、图片附件、实际呈现状态及观察；`pending` 和 `complete` 继续报告真实证据覆盖，`follow_up.status` 变为 `closed`，`next` 变为 `closed`。关闭不批准视频质量，也不取消运行中的作业或子代理。重复切换到当前状态不会改变已有进度。仅提供 `review_id` 的 `close` 和 `status` 只读保存状态，不解析或打开视频、ASR 或图片，源文件缺失时也可使用。同时提供 `file_path` 时，仍会解析该路径以选择或核对保存来源，但这些操作不读取媒体字节。`reopen` 核对当前视频版本后恢复已有进度；来源不可用或发生变化时明确失败并保持关闭，变化后的来源需要重新扫描。关闭记录仍可显式读取证据和处理画面，这些操作不会静默恢复跟进。没有 `follow_up` 的旧记录仍为活跃状态。
 
@@ -52,7 +56,9 @@ Muse 启用 `requireCompleteReview`。该部署中的 `video_inspect` 使用 `sc
 
 视频流和容器都明确从零开始且视频流时长有效、大于零时，OCR 按视频流时长规划抽帧；其他情况使用容器时长。这避免音轨稍长时在视频终点请求不存在的画面。普通视频检查元数据、宫格和 ASR 范围校验仍使用容器时长；请求区间内真正失败的采样仍表示覆盖不完整。
 
-`video_ocr` 对请求的视频区间抽样，每批把数量和大小受限的 JPEG 交给一个已配置的本地 OCR bridge 进程，并在工作区创建原始 JSON 证据和带时间码的合并 TXT。每批抽帧先限制滤镜输出，再记录时间戳，诊断仅对应本批实际编码的画面。原始证据保留每行文字、可用的词框、源时间码、扫描范围和保守分类。长时间、位置稳定且完全相同的文字可以标记为 `persistent_text_candidate`，这只表示视觉重复，不表示该文字不是剧情。两类文字都保留为内容候选并计入 `segment_count`，绝不静默删除；同一时间的多行文字保留 OCR 阅读顺序。
+`video_ocr` 对请求的视频区间抽样，每批把数量和大小受限的 JPEG 交给一个已配置的本地 OCR bridge 进程，并在工作区创建原始 JSON 证据和带时间码的合并 TXT。每批先探测源片显示时间戳，选择每个请求时刻实际显示的画面；同一帧覆盖多个采样时复用该帧。探测会读到晚于本批最后采样的画面或真实文件末尾，以处理重排序帧；真正不可用或无法核实的采样仍计为失败覆盖。非零或未知时间轴起点的视频会被拒绝，因为完整审看尚无法核实相同时间基准；请保留原片并审看零起点副本。原始 JSON 记录 `evidence_algorithm: decoded-pts-spatial-v2`；严格来源审核遇到缺少该字段的旧文件时要求重新扫描。相同文字仅在连续采样且位置重叠时合并。原始证据保留每行文字、可用的词框、源时间码、扫描范围和保守分类。长时间、位置稳定且完全相同的文字可以标记为 `persistent_text_candidate`，这只表示视觉重复，不表示该文字不是剧情。两类文字都保留为内容候选并计入 `segment_count`，绝不静默删除；同一时间的多行文字保留 OCR 阅读顺序。
+
+成功结果包含 `raw_json_sha256`，即工具实际写入并回读的完整原始文件 SHA-256。Host 来源核对可将该摘要绑定到 Session 中真实成功的工具结果；修改文件或复制 JSON 不会产生新的工具签发记录。非 JSON 工具文本、失败或不匹配的嵌套结果不签发来源证据。缺少该绑定的旧结果需要实际重跑 OCR。
 
 ```json
 {"file_path":"source/episode-01.mp4","start_seconds":0,"end_seconds":120,"frame_interval_seconds":0.5,"language":"zh-Hans-CN","raw_json_path":"transcript/raw/episode-01-ocr.json","merged_text_path":"transcript/raw/episode-01-ocr.txt"}
@@ -80,6 +86,8 @@ Muse 启用 `requireCompleteReview`。该部署中的 `video_inspect` 使用 `sc
 选择 `rapidocr` 时，随包 `scripts/ocr_bridge.py` 在 CPU 识别前核对 RapidOCR 3.10.0、ONNX Runtime 1.23.2 及三个模型的 SHA-256。解释器以隔离的 UTF-8 模式读写 JSON，不受 Windows 代码页影响。模型随固定 wheel 提供，通过明确路径加载，识别时不下载。该模型没有逐词位置，返回行框及空的词数组，不编造词框。输入输出限制、取消、源版本检查和文件发布与 Windows 引擎共用。
 
 画面先进入规范化附件存储，再作为图片块返回。清单在当前工作区创建，不覆盖已有文件，之后回读核对。源文件版本发生变化时中止发布。原视频保持不变；结果不包含远程媒体链接或账号凭证。清单与附件各有唯一的存储所有者，因此不发布 invariant 配套模块。
+
+`createVideoSourceQaVerifier(ctx)` 为严格来源采用流程准备只读 Host 核验函数，调用方先独立核对媒体 SHA-256 与 OCR 内容。它要求真实发起 Session、成功且绑定摘要的 OCR 结果，以及当前已完整扫描、实际看图、逐帧记录且无疑点的持久视频观察，准确报告字节与真实返回路径必须一致。每份证据最多读取 64 MiB，并核文件系统版本；不会启动 OCR、抽帧或付费任务。同一 Session 恢复后，在工具主体签发记录存在时可复用原持久证据；缺少该记录的旧结果须重新扫描和 OCR。另一 Session 需自行实际本地审看与 OCR。这不使用旧采样收据，不改变已归档交付收据，也不认证剧情质量。
 
 Host 消费方先在插件启动时等待 `createVideoReviewReader(ctx)`，并在自身生命周期内保留该领域读取函数。将它传给 `videoReviewSummaries(reader, session)`，以及 `readVideoSourceTimeline(ctx, session, id, options, signal, reader)` 的最后一个参数。读取函数保有私有投影句柄，其他注册卸载后仍有效。Host 消费方可用 `videoReviewSummaries` 读取当前已记录的视频身份与显式 ASR 引用，再以明确的来源区间和字节／图片预算调用 `readVideoSourceTimeline`。请求的已记录 `frameIds` 从附件缓存读取，以真实图片块与时间线一同返回；省略 ID 时仅返回文字。该读取校验视频版本与缓存图片，不可用的可选 ASR 返回诊断，不另选来源、不抽帧、不修改观察进度。缓存缺失、源版本变化、无效帧选择和完整结果超限仅使本次证据读取失败，不新增交付条件。消费方须将返回块接入普通有日志的上下文或工具结果路径。`buildVideoSourceTimeline` 对已读取材料提供同一纯归组逻辑。
 

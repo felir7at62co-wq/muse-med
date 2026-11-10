@@ -4,12 +4,12 @@ import { interpolate } from '@deepseek-ai/cordis-plugin-loader'
 import { createHash, randomUUID } from 'node:crypto'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
 import { lstat, mkdir, readdir, realpath, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, join, relative } from 'node:path'
+import { basename, dirname, extname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { resolveSettings, stagedEpisodeEndingAssets } from '@deepseek-ai/dsh-tool-episode-render'
+import { resolveSettings, stagedEpisodeEndingAssets, preparedSubtitleClockInputs, captureEpisodeSourceReview } from '@deepseek-ai/dsh-tool-episode-render'
 import type { Config as RendererConfig } from '@deepseek-ai/dsh-tool-episode-render'
 import { executionIdentitySchema, readEpisodeRecord } from '@deepseek-ai/dsh-tool-jubian/episode-delivery'
 import type { ApprovedEpisodeCaptureInput, ApprovedEpisodeRenderer, ApprovedEpisodeRendererCapture, ApprovedEpisodeRenderInput,
@@ -19,8 +19,11 @@ import type { CapturedDesktopCarrier, SourceDshFixture } from './episode-guardia
 import { createGuardianJournal, guardianParsers } from './episode-guardian-journal.ts'
 import { captureEpisodeDirectory, inspectEpisodeFile, stageEpisodeFile } from './episode-render-inputs.ts'
 import type { EpisodeFileFact } from './episode-render-inputs.ts'
+import type { EpisodeSourceAuthorityFactory, EpisodeSourceQaAuthority } from './episode-source-authority-types.ts'
+import { createEpisodeSourceAuthorityResolver } from './episode-source-authority.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import { episodeCandidateSchema, episodeConfigurationSchema, episodeDescriptorSchema, episodeFactsHash,
-  insideEpisodeRoot, parseEpisodeRendererConfig, readEpisodeDescriptor } from './episode-render-descriptor.ts'
+  insideEpisodeRoot, parseEpisodeRendererConfig, readEpisodeDescriptor, readEpisodeDescriptorV3, episodeClockInputsSchema, episodeDescriptorV3Schema, episodeSourceEvidenceSchema, episodeDescriptorV4Schema, readEpisodeDescriptorV4 } from './episode-render-descriptor.ts'
 
 /** Provider resource limits, independently validated by the standalone worker. */
 export interface EpisodeRendererLimits {
@@ -46,6 +49,8 @@ export interface EpisodeRendererOptions {
   readonly resolveExecutable: (command: string) => Promise<string>
   /** Reject replacement of the actual preset declaration used at provider activation. */
   readonly verifyConfiguration: () => Promise<void>
+  /** Live Host-owned Session and workspace verifier for strict source review. */
+  readonly sourceAuthority?: EpisodeSourceAuthorityFactory
 }
 
 /** Configured media owner whose lifetime is independent of each admission request. */
@@ -82,6 +87,8 @@ export class ConfiguredEpisodeRenderer implements ApprovedEpisodeRenderer {
       const active = AbortSignal.any([signal, lifetime]); active.throwIfAborted()
       await this.options.verifyConfiguration()
       if (await realpath(captured.projectDir) !== captured.projectDir) throw new Error('Episode project must be canonical')
+      const clockInputs = await capturePreparedInputs(captured, config, active)
+      const sourceEvidence = await this.captureSourceEvidence(captured, config, clockInputs, active)
       for (const file of [...captured.inputHashes, ...this.code]) await exactFile(file, active)
       const resolved = resolveSettings(config)
       const [ffmpeg, ffprobe, fontsDir] = await Promise.all([
@@ -108,17 +115,121 @@ export class ConfiguredEpisodeRenderer implements ApprovedEpisodeRenderer {
       const configuration = episodeConfigurationSchema.parse({ projectDir: captured.projectDir, episode: captured.episode,
         digest: captured.digest, config: normalized, runtimeInputs,
         projectInputs: captured.inputHashes.map(({ path, sha256, bytes }) => ({ path, sha256, bytes })) })
-      const identity = { generation, configurationSha256: episodeFactsHash(configuration), codeSha256: episodeFactsHash(runtimeInputs.filter(file => file.owner === 'renderer')) }
+      const identity = { generation, configurationSha256: episodeFactsHash(sourceEvidence !== undefined
+        ? { configuration, clockInputs, sourceEvidence } : clockInputs === undefined ? configuration : { configuration, clockInputs }),
+      codeSha256: episodeFactsHash(runtimeInputs.filter(file => file.owner === 'renderer')) }
       active.throwIfAborted()
       return { identity, runtimeInputs, signal: lifetime,
+        revalidate: validationSignal => this.own(async () => {
+          const active = AbortSignal.any([validationSignal, lifetime]); active.throwIfAborted()
+          await this.options.verifyConfiguration()
+          const current = await capturePreparedInputs(captured, config, active)
+          if (episodeFactsHash(current ?? null) !== episodeFactsHash(clockInputs ?? null)) {
+            throw new Error('字幕来源时钟或绑定素材发生变化，请重新核对。')
+          }
+          for (const file of [...captured.inputHashes, ...runtimeInputs]) await exactFile(file, active)
+        }),
+        ...(sourceEvidence === undefined ? {} : { withPublication: <T>(
+          publicationSignal: AbortSignal, publish: (signal: AbortSignal) => Promise<T>) => this.own(async () =>
+          await this.withSourcePublication(captured, config, clockInputs, sourceEvidence,
+            AbortSignal.any([publicationSignal, lifetime]), publish)) }),
         render: (execution, request) => this.own(async () => await this.renderCaptured(captured, configuration, identity,
-          endings, execution, request)) }
+          endings, execution, request, clockInputs, sourceEvidence)) }
+
     })
+  }
+
+  private async captureSourceEvidence(input: ApprovedEpisodeCaptureInput, config: RendererConfig,
+    clockInputs: z.infer<typeof episodeClockInputsSchema> | undefined, signal: AbortSignal,
+    held?: ReadonlyMap<string, EpisodeSourceQaAuthority>): Promise<z.infer<typeof episodeSourceEvidenceSchema> | undefined> {
+    const sessions = new Map<string, EpisodeSourceQaAuthority['binding']>()
+    const review = await captureEpisodeSourceReview(input.projectDir, String(input.episode).padStart(2, '0'), input.timelinePath,
+      resolveSettings(config), async (binding) => {
+        const factory = this.options.sourceAuthority
+        if (factory === undefined) throw new Error('Strict source review requires the original native Session authority')
+        const existing = held?.get(binding.sessionId)
+        const authority = existing ?? await factory(SessionId(binding.sessionId), input.projectDir, signal)
+        try {
+          if (authority.sessionId !== binding.sessionId) throw new Error('Source review Session does not match its authority')
+          authority.assertCurrent()
+          await authority.verify(binding, AbortSignal.any([signal, authority.signal]))
+          authority.assertCurrent()
+          const prior = sessions.get(binding.sessionId)
+          if (prior !== undefined && episodeFactsHash(prior) !== episodeFactsHash(authority.binding)) {
+            throw new Error('Source review Session binding changed during capture')
+          }
+          sessions.set(binding.sessionId, authority.binding)
+        } finally { if (existing === undefined) authority.release() }
+      })
+    if (review === undefined) return undefined
+    if (clockInputs === undefined) throw new Error('Strict source review requires captured prepared episode inputs')
+    const sources = new Map<string, { path: string; sha256: string; bytes: number }>()
+    for (const evidence of review.files) {
+      const canonical = await realpath(evidence.path)
+      if (canonical !== evidence.path || !insideEpisodeRoot(input.projectDir, canonical)) throw new Error('Source evidence must be a canonical project file')
+      const fact = await inspectEpisodeFile(canonical, signal)
+      if (fact.sha256 !== evidence.sha256) throw new Error('Source review evidence changed during capture')
+      sources.set(fact.path, fact)
+    }
+    for (const fact of [clockInputs.manifest, ...(clockInputs.clock === undefined ? [] : [clockInputs.clock]),
+      ...(clockInputs.master === undefined ? [] : [clockInputs.master]), ...clockInputs.shots.map(shot => shot.audio)]) {
+      const prior = sources.get(fact.path)
+      if (prior !== undefined && (prior.sha256 !== fact.sha256 || prior.bytes !== fact.bytes)) throw new Error('Source evidence has conflicting bytes')
+      sources.set(fact.path, fact)
+    }
+    const directory = join(input.projectDir, 'reviews')
+    const entries = (await readdir(directory)).sort()
+    const reviewPattern = new RegExp(`^ep${String(input.episode).padStart(2, '0')}-p\\d{2,}\\.json$`, 'u')
+    for (const name of entries.filter(value => reviewPattern.test(value))) {
+      const original = join(directory, name)
+      if (await realpath(original) !== original) throw new Error('Source review record must be canonical')
+      const fact = await inspectEpisodeFile(original, signal)
+      const prior = sources.get(fact.path)
+      if (prior !== undefined && (prior.sha256 !== fact.sha256 || prior.bytes !== fact.bytes)) throw new Error('Source review changed during capture')
+      sources.set(fact.path, fact)
+    }
+    return episodeSourceEvidenceSchema.parse({ sessions: [...sessions.values()].sort((a, b) => a.sessionId.localeCompare(b.sessionId)),
+      sourceQaSha256: review.sourceQaSha256, selectedPaths: review.selectedPaths,
+      files: [...sources.values()].sort((a, b) => a.path.localeCompare(b.path)),
+      directories: [{ originalPath: directory, entries }], bindings: review.bindings })
+  }
+
+  private async withSourcePublication<T>(input: ApprovedEpisodeCaptureInput, config: RendererConfig,
+    clockInputs: z.infer<typeof episodeClockInputsSchema> | undefined, evidence: z.infer<typeof episodeSourceEvidenceSchema>,
+    signal: AbortSignal, publish: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    const factory = this.options.sourceAuthority
+    if (factory === undefined) throw new Error('Strict source review requires the original native Session authority')
+    const held = new Map<string, EpisodeSourceQaAuthority>()
+    try {
+      for (const binding of evidence.sessions) {
+        const authority = await factory(binding.sessionId, input.projectDir, signal, binding)
+        held.set(binding.sessionId, authority)
+      }
+      const run = async (index: number, active: AbortSignal): Promise<T> => {
+        const binding = evidence.sessions[index]
+        if (binding !== undefined) {
+          const authority = held.get(binding.sessionId)
+          if (authority === undefined) throw new Error('Source review authority disappeared')
+          return await authority.withPublication(next => run(index + 1, AbortSignal.any([active, next])))
+        }
+        const currentClock = await capturePreparedInputs(input, config, active)
+        if (episodeFactsHash(currentClock ?? null) !== episodeFactsHash(clockInputs ?? null)) {
+          throw new Error('字幕来源时钟或绑定素材发生变化，请重新核对。')
+        }
+        for (const file of input.inputHashes) await exactFile(file, active)
+        const current = await this.captureSourceEvidence(input, config, clockInputs, active, held)
+        if (episodeFactsHash(current ?? null) !== episodeFactsHash(evidence)) throw new Error('Strict source evidence changed before publication')
+        return await publish(active)
+      }
+      return await run(0, signal)
+    } finally { for (const authority of [...held.values()].reverse()) authority.release() }
   }
 
   private async renderCaptured(capture: ApprovedEpisodeCaptureInput,
     configuration: z.infer<typeof episodeConfigurationSchema>, renderer: ApprovedEpisodeRendererCapture['identity'],
-    endings: readonly EpisodeFileFact[], input: ApprovedEpisodeRenderInput, signal: AbortSignal): Promise<EpisodeRenderResult> {
+    endings: readonly EpisodeFileFact[], input: ApprovedEpisodeRenderInput, signal: AbortSignal,
+    clockInputs: z.infer<typeof episodeClockInputsSchema> | undefined,
+    sourceEvidence: z.infer<typeof episodeSourceEvidenceSchema> | undefined): Promise<EpisodeRenderResult> {
     signal.throwIfAborted()
     if (this.closing) throw new Error('Episode renderer provider is closing before execution')
     if (input.identity.configurationSha256 !== renderer.configurationSha256 || !insideEpisodeRoot(input.job.attemptRoot, input.stageRoot)
@@ -126,6 +237,8 @@ export class ConfiguredEpisodeRenderer implements ApprovedEpisodeRenderer {
     if (input.sources.length === 0 || input.sources.some((source, index) => source.shot !== index + 1)
       || new Set(input.sources.map(source => source.idempotencyKey)).size !== input.sources.length) throw new Error('Episode sources must retain contiguous approved shot order')
     await this.options.verifyConfiguration()
+    const currentClock = await capturePreparedInputs(capture, configuration.config, signal)
+    if (episodeFactsHash(currentClock ?? null) !== episodeFactsHash(clockInputs ?? null)) throw new Error('字幕来源时钟或绑定素材发生变化，请重新核对。')
     for (const file of [...capture.inputHashes, ...configuration.runtimeInputs, ...input.sources]) await exactFile(file, signal)
     const logicalRoot = join(input.job.attemptRoot, 'inputs')
     await mkdir(logicalRoot, { recursive: true, mode: 0o700 })
@@ -140,7 +253,32 @@ export class ConfiguredEpisodeRenderer implements ApprovedEpisodeRenderer {
       return { source: file, relative: join('__runtime', 'fonts', relative(fontsDir, file.path)) }
     })
     const endingRows = endings.map(file => ({ source: file, relative: join('__runtime', 'ending', basename(file.path)) }))
-    const rows = [...selected, ...sources, ...fonts, ...endingRows]
+    if (clockInputs !== undefined && (clockInputs.shots.length !== input.sources.length
+      || clockInputs.shots.some((shot, index) => shot.shot !== input.sources[index]?.shot
+        || shot.video.sha256 !== input.sources[index].sha256 || shot.video.bytes !== input.sources[index].bytes))) {
+      throw new Error('字幕来源视频与已批准的视频不一致，请重新核对。')
+    }
+    const clockRows = clockInputs === undefined ? [] : [
+      ...(clockInputs.clock === undefined ? [] : [{ source: clockInputs.clock,
+        relative: `${inputRelativePath('subtitle', capture.subtitlePath, capture.projectDir)}.clock.json` }]),
+      { source: clockInputs.manifest, relative: join('editing', `${episode}-sources.json`) },
+      ...(clockInputs.master === undefined ? [] : [{ source: clockInputs.master, relative: join('audio', `${episode}.wav`) }]),
+      ...clockInputs.shots.map(shot => ({ source: shot.audio, relative: join('__clock', `audio-${shot.shot}${extname(shot.audio.path)}`) })),
+    ]
+    const extraSourceRows = sourceEvidence === undefined ? [] : sourceEvidence.files.flatMap((file, index) => {
+      const videoIndex = sourceEvidence.selectedPaths.indexOf(file.path)
+      if (videoIndex >= 0) {
+        const approved = input.sources[videoIndex]
+        if (approved === undefined || approved.sha256 !== file.sha256 || approved.bytes !== file.bytes) {
+          throw new Error('Reviewed source differs from approved video')
+        }
+        return []
+      }
+      if (clockInputs !== undefined && (file.path === clockInputs.manifest.path || file.path === clockInputs.clock?.path
+        || file.path === clockInputs.master?.path || clockInputs.shots.some(shot => shot.audio.path === file.path))) return []
+      return [{ source: file, relative: join('__source-qa', `${index}${extname(file.path)}`) }]
+    })
+    const rows = [...selected, ...sources, ...fonts, ...endingRows, ...clockRows, ...extraSourceRows]
     if (new Set(rows.map(row => row.relative)).size !== rows.length) throw new Error('Episode stage inputs have colliding paths')
     const locked: { relative: string; file: EpisodeFileFact }[] = []
     for (const row of rows) {
@@ -169,7 +307,7 @@ export class ConfiguredEpisodeRenderer implements ApprovedEpisodeRenderer {
     if (endingRows.length !== 0 && (endingAudio === undefined || endingEffect === undefined)) {
       throw new Error('Captured episode ending requires both audio and effect')
     }
-    const descriptor = episodeDescriptorSchema.parse({ version: 1, kind: 'approved-episode-render', identity: input.identity,
+    const descriptorBase = { kind: 'approved-episode-render', identity: input.identity,
       execution: input.execution, renderer, originalProject: capture.projectDir,
       attemptRoot: input.job.attemptRoot, stageRoot: input.stageRoot,
       configuration, config: stagedConfig, stagedFiles: staged,
@@ -180,7 +318,54 @@ export class ConfiguredEpisodeRenderer implements ApprovedEpisodeRenderer {
       ...(capture.bgmPath === undefined ? {} : { bgmPath: byOriginal(capture.bgmPath) }),
       ...(endingAudio === undefined || endingEffect === undefined ? {} : { endingAudio: join(input.stageRoot, endingAudio.relative),
         endingEffect: join(input.stageRoot, endingEffect.relative) }),
-      candidatePath, candidateFactsPath: join(input.stageRoot, 'candidate-facts.json'), lastShot: input.sources.length, retry: input.retry })
+      candidatePath, candidateFactsPath: join(input.stageRoot, 'candidate-facts.json'), lastShot: input.sources.length, retry: input.retry }
+    const clockStage = clockInputs === undefined ? undefined : {
+      ...(clockInputs.clock === undefined ? {} : { clockPath: `${byOriginal(capture.subtitlePath)}.clock.json` }),
+      manifestPath: join(input.stageRoot, 'editing', `${episode}-sources.json`),
+      ...(clockInputs.master === undefined ? {} : { masterPath: join(input.stageRoot, 'audio', `${episode}.wav`) }),
+      audio: clockInputs.shots.map(shot => ({ shot: shot.shot, originalPath: shot.audio.path,
+        stagedPath: join(input.stageRoot, '__clock', `audio-${shot.shot}${extname(shot.audio.path)}`) })),
+    }
+    let sourceClaim: z.infer<typeof episodeDescriptorV4Schema>['sourceClaim'] | undefined
+    if (sourceEvidence !== undefined) {
+      if (clockInputs === undefined || clockStage === undefined) throw new Error('Strict source inputs are missing')
+      const first = sourceEvidence.sessions[0]
+      if (first === undefined) throw new Error('Strict source has no Session authority')
+      const qaFiles = sourceEvidence.files.map((file) => {
+        const selectedIndex = sourceEvidence.selectedPaths.indexOf(file.path)
+        const audioIndex = clockInputs.shots.findIndex(shot => shot.audio.path === file.path)
+        const extra = extraSourceRows.find(row => row.source.path === file.path)
+        const stagedPath = selectedIndex >= 0 ? join(input.stageRoot, sources[selectedIndex]?.relative ?? '')
+          : file.path === clockInputs.manifest.path ? clockStage.manifestPath
+            : file.path === clockInputs.clock?.path ? clockStage.clockPath
+              : file.path === clockInputs.master?.path ? clockStage.masterPath
+                : audioIndex >= 0 ? clockStage.audio[audioIndex]?.stagedPath
+                  : extra === undefined ? undefined : join(input.stageRoot, extra.relative)
+        if (stagedPath === undefined || stagedPath === input.stageRoot) throw new Error('Source evidence has no private stage mapping')
+        const roles: z.infer<typeof episodeDescriptorV4Schema>['sourceClaim']['files'][number]['roles'] = []
+        if (selectedIndex >= 0) roles.push('selected-video')
+        if (audioIndex >= 0 || sourceEvidence.bindings.some(binding => binding.mediaPath === file.path && selectedIndex < 0)) roles.push('source-audio')
+        if (file.path === clockInputs.manifest.path) roles.push('source-manifest')
+        if (file.path === clockInputs.clock?.path) roles.push('subtitle-clock')
+        if (file.path === clockInputs.master?.path) roles.push('master-audio')
+        if (sourceEvidence.bindings.some(binding => binding.ocrPath === file.path)) roles.push('ocr')
+        if (sourceEvidence.bindings.some(binding => binding.inspectionPath === file.path)) roles.push('inspection')
+        if (file.path.startsWith(join(capture.projectDir, 'reviews') + sep)) roles.push('review-record')
+        if (file.path === join(capture.projectDir, 'episode_packages', episode, 'package.json')) roles.push('package-record')
+        if (roles.length === 0) roles.push('review-evidence')
+        return { originalPath: file.path, stagedPath, sha256: file.sha256, bytes: file.bytes, roles }
+      })
+      sourceClaim = { identity: input.identity, execution: input.execution, sessionId: first.sessionId,
+        workspaceRoot: first.workspacePath, workspaceId: first.workspaceId,
+        subtitleClock: clockInputs.clock === undefined ? 'absent' : 'present', files: qaFiles,
+        directories: sourceEvidence.directories, bindings: sourceEvidence.bindings.map(binding => ({
+          mediaOriginalPath: binding.mediaPath, ocrOriginalPath: binding.ocrPath,
+          inspectionOriginalPath: binding.inspectionPath, reviewId: binding.reviewId })) }
+    }
+    const descriptor = sourceEvidence !== undefined && sourceClaim !== undefined && clockInputs !== undefined && clockStage !== undefined
+      ? episodeDescriptorV4Schema.parse({ ...descriptorBase, version: 4, clockInputs, clockStage, sourceEvidence, sourceClaim })
+      : clockInputs === undefined ? episodeDescriptorSchema.parse({ ...descriptorBase, version: 1 })
+        : episodeDescriptorV3Schema.parse({ ...descriptorBase, version: 3, clockInputs, clockStage })
     const bytes = Buffer.from(JSON.stringify(descriptor) + '\n')
     if (bytes.length > this.options.limits.descriptorBytes) throw new Error('Episode descriptor exceeds its configured byte budget')
     await writeFile(descriptorPath, bytes, { flag: 'wx', mode: 0o600 })
@@ -221,8 +406,11 @@ export class ConfiguredEpisodeRenderer implements ApprovedEpisodeRenderer {
     const completed = result.proof
     const admitted = await input.job.readExecution(completed.identity.execution)
     if (admitted === undefined) throw new Error('Completed episode execution has no admitted descriptor')
-    const completedDescriptor = await readEpisodeDescriptor(admitted.descriptorPath, completed.identity.descriptorSha256,
-      this.options.limits.descriptorBytes)
+    const completedDescriptor = sourceEvidence !== undefined
+      ? await readEpisodeDescriptorV4(admitted.descriptorPath, completed.identity.descriptorSha256, this.options.limits.descriptorBytes)
+      : clockInputs === undefined
+        ? await readEpisodeDescriptor(admitted.descriptorPath, completed.identity.descriptorSha256, this.options.limits.descriptorBytes)
+        : await readEpisodeDescriptorV3(admitted.descriptorPath, completed.identity.descriptorSha256, this.options.limits.descriptorBytes)
     if (completedDescriptor.candidatePath !== admitted.candidatePath
       || completedDescriptor.identity.attempt !== input.identity.attempt) throw new Error('Completed episode candidate was retargeted')
     const value = await readEpisodeRecord(completedDescriptor.candidateFactsPath, this.options.limits.journalBytes)
@@ -248,6 +436,56 @@ export class ConfiguredEpisodeRenderer implements ApprovedEpisodeRenderer {
         : new Promise<void>((resolve) => { child.once('close', () => { resolve() }) })))
     })()
   }
+}
+
+async function capturePreparedInputs(input: ApprovedEpisodeCaptureInput, config: RendererConfig,
+  signal: AbortSignal): Promise<z.infer<typeof episodeClockInputsSchema> | undefined> {
+  signal.throwIfAborted()
+  const path = `${input.subtitlePath}.clock.json`
+  let hasClock = true
+  try { await lstat(path) }
+  catch (error) {
+    signal.throwIfAborted()
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    hasClock = false
+  }
+  if (!hasClock) {
+    const manifest = join(input.projectDir, 'editing', `${String(input.episode).padStart(2, '0')}-sources.json`)
+    try { await lstat(manifest) }
+    catch (error) {
+      signal.throwIfAborted()
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+      throw error
+    }
+  }
+  const info = await preparedSubtitleClockInputs(input.projectDir, String(input.episode).padStart(2, '0'),
+    input.timelinePath, input.subtitlePath, config.enforceSubtitleVisual, signal)
+  const capture = async (file: string): Promise<EpisodeFileFact> => {
+    signal.throwIfAborted()
+    const canonical = await realpath(file)
+    if (canonical !== file || !insideEpisodeRoot(input.projectDir, canonical)) throw new Error('字幕来源文件必须是当前项目内的规范路径。')
+    return await inspectEpisodeFile(canonical, signal)
+  }
+  const [clock, manifest, master] = await Promise.all([
+    hasClock ? capture(info.clockPath) : undefined, capture(info.manifestPath),
+    info.masterPath === undefined ? undefined : capture(info.masterPath),
+  ])
+  if (info.clockPresent !== hasClock || manifest.sha256 !== info.manifestSha256 || manifest.bytes !== info.manifestBytes) {
+    throw new Error('字幕来源清单在读取时发生变化，请重新核对。')
+  }
+  const shots = await Promise.all(info.shots.map(async ({ shot, video, audio }) => ({ shot,
+    video: await capture(video), audio: await capture(audio) })))
+  // Read and validate the same evidence a second time after the stable file facts were captured.
+  const verified = await preparedSubtitleClockInputs(input.projectDir, String(input.episode).padStart(2, '0'),
+    input.timelinePath, input.subtitlePath, config.enforceSubtitleVisual, signal)
+  if (episodeFactsHash(verified) !== episodeFactsHash(info)) throw new Error('字幕来源清单或素材在读取时发生变化，请重新核对。')
+  const capturedFiles = [...(clock === undefined ? [] : [clock]), manifest, ...(master === undefined ? [] : [master]),
+    ...shots.flatMap(shot => [shot.video, shot.audio])]
+  for (const file of capturedFiles) {
+    await exactFile(file, signal)
+  }
+  return episodeClockInputsSchema.parse({ ...(clock === undefined ? {} : { clock }), manifest,
+    ...(master === undefined ? {} : { master }), shots })
 }
 
 async function exactFile(file: EpisodeFileFact, signal: AbortSignal): Promise<void> {
@@ -351,6 +589,16 @@ export function apply(ctx: Context, config: z.infer<typeof Config>): Promise<voi
   const activation = new AbortController()
   let provider: ConfiguredEpisodeRenderer | undefined
   let preparation = Promise.resolve()
+  let sourceAuthority: EpisodeSourceAuthorityFactory | undefined
+  ctx.inject(['sessionController', 'agents', 'sessions', 'generationWorkspaceAuthority', 'workingDirectory',
+    'fs', 'sandboxPolicy', 'sessionProjections', 'tools'], async (scope) => {
+    const factory = await createEpisodeSourceAuthorityResolver(scope)
+    scope.fiber.assertActive()
+    scope.effect(() => {
+      sourceAuthority = factory
+      return () => { if (sourceAuthority === factory) sourceAuthority = undefined }
+    }, 'episode.sourceAuthorityBinding')
+  })
   ctx.effect(() => async () => {
     activation.abort(new Error('provider-disposed'))
     await preparation.catch((_activationFailed: unknown) => { /* The returned setup promise reports activation failure. */ })
@@ -368,6 +616,10 @@ export function apply(ctx: Context, config: z.infer<typeof Config>): Promise<voi
       codeFiles: [fileURLToPath(import.meta.url), fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-tool-episode-render')),
         fileURLToPath(import.meta.resolve('@deepseek-ai/dsh-tool-jubian/episode-delivery')), worker],
       endingAssetRoot: config.endingAssetRoot, limits, resolveExecutable: command => ctx.subprocess.resolveExecutable(command),
+      sourceAuthority: async (sessionId, projectDir, signal, expected) => {
+        if (sourceAuthority === undefined) throw new Error('SOURCE_QA_HOST_UNAVAILABLE: source authority is not mounted')
+        return await sourceAuthority(sessionId, projectDir, signal, expected)
+      },
       verifyConfiguration: async () => {
         const current = await selectedRendererConfig(ctx, config.presetId)
         if (current.document !== selected.document || episodeFactsHash(current.config) !== episodeFactsHash(selected.config)) {

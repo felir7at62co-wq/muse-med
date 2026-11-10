@@ -81,6 +81,34 @@ capture(input: ApprovedEpisodeCaptureInput, signal: AbortSignal): Promise<Approv
 
 Source: [`packages/jubian/tool-jubian/src/episode-delivery.ts`](../../packages/jubian/tool-jubian/src/episode-delivery.ts)
 
+<a id="ctxgenerationworkspaceauthority--generationworkspaceauthority"></a>
+
+### `ctx.generationWorkspaceAuthority` — `GenerationWorkspaceAuthority`
+
+Workspace owner capability supplied only by a process with exclusive durable ownership.
+
+```ts cordis-catalog
+/**
+ * Capture exact non-archived ownership, or return undefined for an unowned Session.
+ * @param sessionId - Native Session whose owner is requested.
+ * @param signal - Cancellation during capture.
+ * @returns the original membership evidence when unambiguous.
+ */
+capture(sessionId: SessionId, signal: AbortSignal): Promise<GenerationWorkspaceIdentity | undefined>
+
+/**
+ * Keep an unchanged membership until the caller releases it.
+ * @param identity - Previously captured durable membership.
+ * @param signal - Owner cancellation releases the lease.
+ * @returns a lease whose assertions cover this authority's current durable state.
+ */
+acquire(identity: GenerationWorkspaceIdentity, signal: AbortSignal): Promise<GenerationWorkspaceLease>
+```
+
+Types: [SessionId](core.md)
+
+Source: [`packages/jubian/tool-jubian/src/generation-binding.ts`](../../packages/jubian/tool-jubian/src/generation-binding.ts)
+
 <a id="ctxjubianepisodedelivery--jubianepisodedelivery"></a>
 
 ### `ctx.jubianEpisodeDelivery` — `JubianEpisodeDelivery`

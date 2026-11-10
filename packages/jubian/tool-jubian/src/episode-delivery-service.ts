@@ -641,7 +641,7 @@ export class JubianEpisodeDelivery extends TypertRemoteService {
         lease.assertActive()
         dispatched = true
         const result = await prepared.capture.render({ identity: intent.identity, execution, retry, job, stageRoot, sources }, lease.signal)
-        await this.finishResult(intent, root, base, result, lease, prepared.plan, cancellationReason)
+        await this.finishResult(intent, root, base, result, lease, prepared.plan, prepared.capture, cancellationReason)
       }, beforeCancel, prepared.admission)
     } catch (error) {
       const previous = await this.previousDrain(intent, root)
@@ -659,7 +659,7 @@ export class JubianEpisodeDelivery extends TypertRemoteService {
   private async finishResult(intent: Intent, root: string,
     base: { version: 1; attempt: EpisodeAttemptId; digest: Sha256; execution: EpisodeExecutionId },
     result: EpisodeRenderResult, lease: import('./types.ts').ApprovedVideoSourceLease, plan: ApprovedEpisodePlan,
-    cancellationReason: EpisodeCancellationReason | undefined): Promise<void> {
+    capture: ApprovedEpisodeRendererCapture, cancellationReason: EpisodeCancellationReason | undefined): Promise<void> {
     if (result.kind === 'unknown') {
       runningExecutionSchema.parse(result.previous); this.unknown.add(intent.identity.attempt)
       await this.writeState(root, { ...base, state: 'unknown', problem: result.diagnostic }); return
@@ -683,10 +683,15 @@ export class JubianEpisodeDelivery extends TypertRemoteService {
       throw new Error('Candidate disagrees with guardian drain proof')
     }
     const publish = await this.preparePublication(intent, root, proof.identity.execution, candidate, lease.signal)
-    const output = await lease.commit(async (signal) => {
+    await capture.revalidate?.(lease.signal)
+    const commit = async (rendererSignal: AbortSignal) => lease.commit(async (sourceSignal) => {
+      const signal = AbortSignal.any([rendererSignal, sourceSignal])
       await assertApprovedEpisodePlan(plan, signal)
+      signal.throwIfAborted()
       return publish(signal)
     })
+    const output = capture.withPublication === undefined ? await commit(lease.signal)
+      : await capture.withPublication(lease.signal, commit)
     await this.writeState(root, { ...actualBase, state: 'completed', output })
   }
 

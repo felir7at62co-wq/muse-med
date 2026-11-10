@@ -28,6 +28,9 @@
         providers:
           - id: deepseek-official
 
+    - id: headless-title-fence
+      name: './tests/fixtures/headless-title-fence.ts'
+
     # Hold the parent's second step until the manager notice enters its inbox.
     - id: settlement-fence
       name: './tests/fixtures/subagent-settlement-fence.ts'

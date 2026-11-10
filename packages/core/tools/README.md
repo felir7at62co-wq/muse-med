@@ -134,6 +134,8 @@ The registry holds typed `ToolDefinition`s in scoped layers and projects them on
 
 Each typed invocation materializes and freezes parsed arguments, assigns an opaque correlation token, and runs policy and dispatch. A pre-execute denial may attach `ToolErrorInfo` beside its model-facing reason; the native and PTC durable projections preserve the structured name, code, and optional user-facing reason without adding that detail to model content. Cancellation is cooperative and quiescent: every tool body receives the caller-owned `exec.signal` and must observe it; cancellation before body invocation is `ABORTED_BEFORE_DISPATCH`, after invocation it replaces only a successful outcome with `ABORTED`. Denials, wrapper failures, tool failures, post-policy failures, and timeout-owned `TOOL_TIMEOUT` remain more specific. Unknown and throwing tools become structured errors (`UNKNOWN_TOOL`), so a call fails without ending the turn.
 
+`presentationMeta` may return `undefined` to omit metadata for a particular result. A tool declaring `preserveBodyMeta: true` retains its original object-valued metadata under `TOOL_BODY_META_KEY` when the same registered body runs once and the final result succeeds. Failed, cancelled, replaced-body or repeated-body calls do not issue that evidence; the reserved key cannot be supplied by the tool. The final presentation metadata remains separate and may reflect post-execute policy replacements. The metadata is durable in native and PTC tool results and relies on trusted same-process tool registration and Session storage.
+
 ### PTC mode
 
 The [PTC executor](../tool-executor-ptc/README.md) owns program transport, SDK generation, nested dispatch, and image context.

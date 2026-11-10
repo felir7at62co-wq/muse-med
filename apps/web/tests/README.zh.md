@@ -22,9 +22,13 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 
 只有根会话的记录会话 owner 可以通过 [`writerOutput`](../../../packages/test-support/session-snapshot/README.zh.md) 保留规范 replay 输入。scaffold 将被驱动的根会话与单独的当前 writer 输出比较基准比较，并检查其精确清单；Web 的此选项会拒绝规范子会话角色。refresh 可以在清理阶段收集根会话比较基准之前检查清单；replay 始终要求该文件存在。
 
+构建产物的 jsdom 用例共用 `installAssembledBootEnv`，提供不匹配的媒体查询，并在每项测试后恢复浏览器全局对象；真实媒体查询行为由浏览器用例验证。
+
 ## 完成状态观察
 
 桌面引导通过[只读账号观察器](fixtures/plugins/fixture-onboarding-account/client.js)等待余额结果发布。暂扣返回充值页后的响应，将请求到达、导航按钮启用与失败结果到达账号订阅区分开；夹具在其 Client 插件停止时释放该订阅。
+
+引导重载检查先等待目标步骤保存到 Host。队列快照在同一次观察中确认标题、条目数量、收起状态与待提交消息，再捕获稳定布局。
 
 依赖状态的用例使用 Workspace、接纳、附件和模型流屏障，区分可见中间状态与已完成操作。模型选择器的持久化断言等待默认设置保存完成，不以菜单关闭作为完成信号。文件卡片的几何断言等待精确的渲染高度，不以 Host Turn 完成或先前观察到可见作为完成信号。详情关闭等待框架过渡结束；归档验证为 seed Session 设置显式标题，并跨重载跟踪该身份。[CI 测试可靠性工作流](../../../.agents/skills/dsh-ci-test-reliability/SKILL.md#synchronize-on-state)负责这些同步规则。
 

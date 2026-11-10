@@ -66,6 +66,7 @@ describe('DSH package license gate', () => {
       expect(inspectDshPackageLicenses(root).failures).toContainEqual(expect.stringContaining(`non-empty ${resource}`))
       rmSync(join(root, directory, resource), { recursive: true })
       writeDiscoveryFiles(root, directory)
+      expect(inspectDshPackageLicenses(root)).toEqual({ packageCount: 2, failures: [] })
     }
   })
 

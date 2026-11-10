@@ -34,7 +34,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { JUBIAN_TOKEN_REF, configuredJubianClient, JubianLedger, readProjectBudget, updateProjectBudget, workspacePipelineToken } from '@deepseek-ai/dsh-jubian'
 import { museVoiceCoordinator } from './voice-coordination.ts'
 import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
-import { validateProjectBinding } from './native.ts'
+import { assertNewNativeDispatchAllowed, resolveGenerateMethod, resolvePreviewPath, validateProjectBinding } from './native.ts'
 import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from './methods.ts'
 import type { ImageMethodOptions, MethodArgs } from './methods.ts'
 import { findMethod } from './find.ts'
@@ -69,6 +69,12 @@ import type {
   CharacterReferenceQaUploadRequest,
 } from './character-reference-qa-bridge.ts'
 import { resolveWatchConfig, watchArgs, watchJob } from './watch.ts'
+import { GenerationWatchRuntime } from './generation-watch.ts'
+import { GenerationWatchStore } from './generation-watch-store.ts'
+import { captureGenerationSessionBinding } from './generation-binding.ts'
+import type { GenerationSessionBinding } from './generation-binding.ts'
+import { registerGenerationWatchDelivery } from './generation-watch-delivery.ts'
+import { createNativeGenerationDelivery } from './generation-watch-native-delivery.ts'
 import { resolveVideoSourceOptions } from './video-sources.ts'
 import { mountVideoRecovery, resolveVideoRecovery, type VideoRecoveryConfig } from './video-recovery-config.ts'
 export { JubianVideoRecovery, ApprovedSourceCancelled, ApprovedSourceCancellationError } from './video-recovery-service.ts'
@@ -126,6 +132,10 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
   watchPollIntervalMs?: number
   /** Watch deadline in milliseconds; integer 1..86400000, default 1800000. */
   watchTimeoutMs?: number
+  /** Keep native video submissions under Host observation across session idle and Host restart. */
+  generationWatch?: boolean
+  /** Private directory holding unfinished generation watches and completion notices. */
+  generationWatchRoot?: string
   /** Pool claim watcher interval in milliseconds; integer 1000..60000, default 5000. */
   claimPollIntervalMs?: number
   /** Maximum authorized claim window in milliseconds; integer 1000..86400000, default 7200000. */
@@ -383,8 +393,9 @@ const VIDEO_SOURCES_SCHEMA = {
 } as const
 
 /** Existing storyboard results retain the original key when serializer changes require reconciliation. */
-const STORYBOARD_OUTPUT = {
+const storyboardOutput = (generationBindings: WeakMap<object, GenerationSessionBinding>) => ({
   schema: { type: 'object', additionalProperties: true, properties: {
+    verified_free: { type: 'boolean', enum: [true], description: '本次仅免费去字幕请求已核实零价，或原 key 已有已核实的零价凭据；完成状态须另行回读。' },
     existing_video_sources: VIDEO_SOURCES_SCHEMA,
     original_idempotency_key: { type: 'string',
       description: '旧提示词格式或素材顺序已有记录时返回一个已知旧 key；outcome 属于旧 key，不代表本次精确格式已生成。保留原 preview 只读对账，不能用新 key 再付费。' },
@@ -405,7 +416,27 @@ const STORYBOARD_OUTPUT = {
       } },
   } },
   render: OUTPUT.render,
-} as const
+  preserveBodyMeta: true,
+  presentationMeta: (args: unknown, value: Record<string, unknown>) => {
+    if (typeof value.generation_watch_id !== 'string') return undefined
+    const binding = args !== null && typeof args === 'object' ? generationBindings.get(args) : undefined
+    if (binding === undefined) return undefined
+    const { reasoningEffort } = binding.model
+    const bindingMetadata = { ...binding, model: { provider: binding.model.provider, model: binding.model.model,
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }) } }
+    const input = args as MethodArgs
+    if (input.method === 'submit_video_batch' && input.video_previews !== undefined) {
+      return { generationWatchId: value.generation_watch_id, binding: bindingMetadata, submission: { method: input.method,
+        video_previews: input.video_previews.map(item => ({ preview_path: item.preview_path, idempotency_key: item.idempotency_key })) } }
+    }
+    if ((input.method === 'submit_video' || input.method === 'generate')
+      && typeof input.preview_path === 'string' && typeof input.idempotency_key === 'string') {
+      return { generationWatchId: value.generation_watch_id, binding: bindingMetadata, submission: { method: input.method,
+        preview_path: input.preview_path, idempotency_key: input.idempotency_key } }
+    }
+    return undefined
+  },
+} as const)
 
 /** Video methods keep their existing result fields; subtask reads expose the paged rows to PTC callers. */
 const VIDEO_OUTPUT = {
@@ -555,6 +586,7 @@ function characterReferenceAuthorityFor(
  * @param config - Optional ledger location, origin, timeout and image-route values.
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
+  const generationBindings = new WeakMap<object, GenerationSessionBinding>()
   const episodeUi = EpisodeUiConfig.parse({ episodePollIntervalMs: config.episodePollIntervalMs })
   if (config.sessionVideoSelection !== undefined && typeof config.sessionVideoSelection !== 'boolean') {
     throw new Error('sessionVideoSelection must be a boolean')
@@ -686,6 +718,28 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     clientForProject: directory => configuredJubianClient(storedCredential, config, directory),
     intervalMs: watchConfig.watchPollIntervalMs })
   if (recovery.settings) await ctx.plugin(JubianEpisodeDelivery, episodeDelivery).await()
+  let generationWatch: GenerationWatchRuntime | undefined
+  if (config.generationWatch !== undefined && typeof config.generationWatch !== 'boolean') {
+    throw new TypeError('generationWatch must be a boolean')
+  }
+  if (config.generationWatch) ctx.inject(['agents', 'agentLoop', 'tools', 'sessionProjections', 'sessionController', 'sessions', 'sessionPersistence'], async (scope) => {
+    const projection = await registerGenerationWatchDelivery(scope)
+    const deliver = createNativeGenerationDelivery(scope, projection)
+    scope.effect(() => {
+      const watch = new GenerationWatchRuntime({ ...watchConfig, client, ledger,
+        store: new GenerationWatchStore(config.generationWatchRoot ?? join(home, 'jubian', 'generation-watches')),
+        deliver,
+        withoutInitiator: operation => scope.agents.withoutInitiator(operation),
+        warn: (message, error) => { scope.logger.warn(message, error) },
+      })
+      generationWatch = watch
+      watch.start()
+      return async () => {
+        generationWatch = undefined
+        await watch.close()
+      }
+    })
+  })
   const voiceCoordinator = museVoiceCoordinator(ctx, async () => {
     const stored = await storedCredential()
     return stored.trim() || config.workspaceSecrets === false ? stored : await workspacePipelineToken(process.cwd())
@@ -1039,6 +1093,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       + '不需要也不应该由调用方画框。model_id 没有默认值，'
       + '省略会在发任何请求之前报 INVALID_ARGUMENT，不会静默替你挑一个模型。'
       + '实时目录唯一匹配火山 ark-erase-video-subtitle-pro / AI_MEDIA_KIT / 67 / 0 元/条时，按 0.00 CNY 记账且不占项目额度，仍按原 key 防重；其他零价不推断为免费。'
+      + '只允许免费时须传 only_if_verified_free=true，省略估算字段；本次核价不通过就不提交。'
       + '它与转高清一样是异步的，提交后不要干等——先做别的，之后用 subtasks 回读判断。' + WRITE_NOTE,
     parameters: {
       method: { type: 'string', required: true,
@@ -1059,6 +1114,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       model_id: ARGS.model_id, task_name: ARGS.task_name,
       platform_id: { type: 'string', description: '去字幕可选：task_type=10 目录的精确 platformId。' },
       erase_mode: { type: 'string', enum: ['automatic', 'region'], description: '新列出的去字幕模型须显式选自动或区域擦除；已知模型省略时沿用原路由。' },
+      only_if_verified_free: { type: 'boolean', description: '仅用于去字幕。为 true 时禁止估算，提交前必须核实本次实时目录精确匹配已知免费路线；无证明时不发送，即使项目仍有预算。' },
       episode: ARGS.episode, package_number: ARGS.package_number,
       video_width: ARGS.video_width, video_height: ARGS.video_height, subtitle_box: ARGS.subtitle_box,
       storyboards: { type: 'array', description: 'create_batch 必填：仅已有视频卡不足或用户明确要求新增时使用；先写好并检查全部包的提示词与 body，再一次传入整批。每项独立 key、body 或 body_path；默认最多 1000 项，并发 4 项提交，无需等待逐项完成。字段见 body。',
@@ -1109,7 +1165,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       video_previews: ARGS.video_previews,
       ...VIDEO_ESTIMATE_ARGS,
     },
-    output: STORYBOARD_OUTPUT,
+    output: storyboardOutput(generationBindings),
     execute: async (args, exec) => {
       requireArguments('jubian_storyboard', args)
       if (config.sessionVideoSelection && ['prepare_video', 'generate', 'submit_video', 'submit_video_batch'].includes(args.method)) {
@@ -1121,11 +1177,56 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       const agent = exec.agent
       const service = config.sessionVideoSelection ? ctx.get('jubianVideoSelection') : undefined
       const assertVideoModel = agent && service ? (model: Record<string, unknown>) =>{  service.assertCurrent(agent, model) } : undefined
-      return await guarded('jubian_storyboard', input => storyboardMethod(client, ledger, input, {
-        naming, videoBatch, storyboardBatch, deletionTaskScan, videoSources, signal: exec.signal,
-        ...(promptRiskReview ? { promptRiskReview } : {}),
-        ...(assertVideoModel ? { assertVideoModel } : {}),
-      }))(args)
+      return await guarded('jubian_storyboard', async (input) => {
+        let dispatchSignal = exec.signal
+        const dispatch = async (beforeVideoSend?: (key: string) => Promise<void>) => {
+          const result = await storyboardMethod(client, ledger, input, {
+            naming, videoBatch, storyboardBatch, deletionTaskScan, videoSources, signal: dispatchSignal,
+            ...(beforeVideoSend === undefined ? {} : { beforeVideoSend }),
+            ...(promptRiskReview ? { promptRiskReview } : {}),
+            ...(assertVideoModel ? { assertVideoModel } : {}),
+          })
+          // Only this Host's successful watch enrollment may issue these identities.
+          const { generation_watch_id: _watchId, generation_watch_group_exchange_id: _groupId, ...safe } = result
+          return safe
+        }
+        if (!config.generationWatch || !agent) return await dispatch()
+        const method = input.method === 'generate' ? await resolveGenerateMethod(ledger, input) : input.method
+        if (method !== 'submit_video' && method !== 'submit_video_batch') return await dispatch()
+        const watch = generationWatch
+        const sessionController = ctx.get('sessionController')
+        if (!watch || !sessionController) throw new Error('Generation watch requires the Host Session controller and persistence')
+        const owner = await sessionController.resolveAgent(agent.session.id)
+        if ('error' in owner) throw new Error('Submit paid video from the ordinary owning Muse session so it can resume after restart.')
+        exec.signal.throwIfAborted()
+        const packs = method === 'submit_video_batch'
+          ? need(input.video_previews, 'video_previews').map(item => ({
+            previewPath: resolve(item.preview_path), key: requireKey(item.idempotency_key) }))
+          : [{ previewPath: await resolvePreviewPath(input), key: requireKey(input.idempotency_key) }]
+        if (packs.length === 0 || packs.length > videoBatch.maxItems) return await dispatch()
+        const captured = await captureGenerationSessionBinding(ctx, agent, exec.signal)
+        if (captured === undefined) throw new Error('Video submission requires the original native Session, model and owned Workspace')
+        try {
+          dispatchSignal = AbortSignal.any([exec.signal, captured.lease.signal])
+          captured.lease.assertCurrent()
+          await assertNewNativeDispatchAllowed(ledger, packs)
+          captured.lease.assertCurrent()
+          const enrollment = await watch.enroll(agent.session.id, packs, undefined, captured.binding)
+          captured.lease.assertCurrent()
+          const submit = (beforeSend: (key: string) => Promise<void>) => dispatch(async (key) => {
+            captured.lease.assertCurrent()
+            await beforeSend(key)
+            captured.lease.assertCurrent()
+          })
+          const report = enrollment.initial ? await watch.executeDispatch(enrollment.id, submit) : await dispatch(() =>
+            Promise.reject(new Error('The original video dispatch is already owned; reconcile its original key instead of submitting again')))
+          captured.lease.assertCurrent()
+          const result = { ...report, generation_watch_id: enrollment.id,
+            ...(enrollment.groupExchangeId === undefined ? {} : { generation_watch_group_exchange_id: enrollment.groupExchangeId }) }
+          if (enrollment.initial) generationBindings.set(args, captured.binding)
+          return result
+        } finally { captured.lease.release() }
+      })(args)
     },
   }))
 
@@ -1267,8 +1368,12 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       media_url: { ...ARGS.media_url, required: true },
       media_kind: { ...ARGS.media_kind, required: true },
       output_path: { ...ARGS.output_path, required: true },
+      resume: { type: 'boolean', description: '续跑时设 true：同一 URL 的本地下载回执与字节通过核对后复用；旧文件缺证或已变化时另存候选。' },
     },
-    output: OUTPUT,
-    execute: guarded('jubian_media', args => mediaMethod(args)),
+    output: { ...OUTPUT, schema: { type: 'object', additionalProperties: true, properties: {
+      download_receipt_path: { type: 'string', description: '续跑下载回执的本地路径，包含精确源 URL 的 SHA-256 和保存文件的身份，不保存源 URL。' },
+      source_sha256: { type: 'string', description: '续跑下载所用完整源 URL 的 SHA-256（64 位十六进制），供匹配回执。' },
+    } } },
+    execute: (args, exec) => guarded('jubian_media', input => mediaMethod(input, exec.signal))(args),
   }))
 }

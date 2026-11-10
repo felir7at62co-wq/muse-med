@@ -28,6 +28,9 @@
         providers:
           - id: deepseek-official
 
+    - id: headless-title-fence
+      name: './tests/fixtures/headless-title-fence.ts'
+
 - id: session-log-deepseek
   config:
     enabled: false

@@ -90,7 +90,8 @@ it('registers, binds, detaches and deletes audio through the original card and i
     expect(board).toMatchObject({ id: 1745324, episodeId: 13, isGenerate: 0, storyboardMaterialList: [image, {
       materialType: 'audio', materialKey: 'zhou-voice', materialUrl: url, audioDuration: 2, fileName: '周海生声线',
     }] })
-    expect(JSON.parse(String(board.modelConfig))).toMatchObject({ duration: 8, modelId: 'doubao-seedance-2-5-260628' })
+    expect(JSON.parse(String(board.modelConfig))).toMatchObject({ duration: 8, modelId: 'doubao-seedance-2-5-260628',
+      materialList: [image, { materialName: '周海生声线', audioDuration: 2 }] })
     const blocked = await invoke('jubian_asset', { method: 'audio_delete_apply', script_id: 2708, project_dir: root, asset_id: 7 })
     expect(blocked.isError).toBe(true)
     expect(blocked.content).toMatchSnapshot('unreviewed audio deletion')

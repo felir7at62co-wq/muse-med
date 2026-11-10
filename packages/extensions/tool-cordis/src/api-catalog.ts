@@ -1752,6 +1752,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'generationWorkspaceAuthority',
+    summary: 'Workspace owner capability supplied only by a process with exclusive durable ownership.',
+    description: 'Workspace owner capability supplied only by a process with exclusive durable ownership.',
+    methods: [
+      {
+        signature: 'capture(sessionId: SessionId, signal: AbortSignal): Promise<GenerationWorkspaceIdentity | undefined>',
+        description: 'Capture exact non-archived ownership, or return undefined for an unowned Session.',
+        parameters: [{ name: 'sessionId', description: 'Native Session whose owner is requested.' }, { name: 'signal', description: 'Cancellation during capture.' }],
+        returns: 'the original membership evidence when unambiguous.',
+      },
+      {
+        signature: 'acquire(identity: GenerationWorkspaceIdentity, signal: AbortSignal): Promise<GenerationWorkspaceLease>',
+        description: 'Keep an unchanged membership until the caller releases it.',
+        parameters: [{ name: 'identity', description: 'Previously captured durable membership.' }, { name: 'signal', description: 'Owner cancellation releases the lease.' }],
+        returns: 'a lease whose assertions cover this authority\'s current durable state.',
+      },
+    ],
+  },
+  {
     key: 'goals',
     summary: 'Goal service (`ctx.goals`) backed exclusively by the owning session log.',
     description: 'Goal service (`ctx.goals`) backed exclusively by the owning session log.',
@@ -5102,6 +5121,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'the canonical absolute directory, committed before fulfillment. A notice failure is warned; the next request still receives the committed directory.',
         throws: ['when the requested path is not an existing directory.'],
       },
+      {
+        signature: 'guard(agent: Agent, expected: string, signal: AbortSignal): Promise<WorkingDirectoryGuard>',
+        description: 'Hold a same-process directory choice until cancellation or release. This guard does not authenticate the Agent, freeze the model, protect workspace membership, lock the filesystem or serialize other processes. Consumers must provide those separately.',
+        parameters: [{ name: 'agent', description: 'Existing Agent whose effective directory must remain selected.' }, { name: 'expected', description: 'Exact effective directory previously selected by the owner.' }, { name: 'signal', description: 'Owner lifetime; cancellation rejects a queued acquisition or releases a held guard.' }],
+        returns: 'The directory and cancellation signal while the guard is held.',
+      },
     ],
   },
   {
@@ -6351,7 +6376,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ApprovedEpisodeRendererCapture',
-    declaration: 'export interface ApprovedEpisodeRendererCapture {\n    readonly identity: ApprovedEpisodeRendererIdentity;\n    readonly runtimeInputs: readonly ApprovedEpisodeRuntimeInput[];\n    readonly signal: AbortSignal;\n    render(input: ApprovedEpisodeRenderInput, signal: AbortSignal): Promise<EpisodeRenderResult>;\n}',
+    declaration: 'export interface ApprovedEpisodeRendererCapture {\n    readonly identity: ApprovedEpisodeRendererIdentity;\n    readonly runtimeInputs: readonly ApprovedEpisodeRuntimeInput[];\n    revalidate?(signal: AbortSignal): Promise<void>;\n    readonly signal: AbortSignal;\n    render(input: ApprovedEpisodeRenderInput, signal: AbortSignal): Promise<EpisodeRenderResult>;\n    withPublication?<T>(signal: AbortSignal, publish: (signal: AbortSignal) => Promise<T>): Promise<T>;\n}',
   },
   {
     name: 'ApprovedEpisodeRendererIdentity',
@@ -7568,6 +7593,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'GenerateOptions',
     declaration: 'export interface GenerateOptions<Purpose extends string = LlmRequestPurpose> {\n    onPayload?: (payload: unknown, route: {\n        provider: string;\n        model: string;\n    }, images?: readonly {\n        attachmentId: string;\n        variantId: string;\n        sha256: string;\n        bytes: number;\n        width: number;\n        height: number;\n        representation: \'base64\';\n    }[]) => unknown;\n    requireImageInput?: boolean;\n    provider: string;\n    model: string;\n    reasoningEffort?: ReasoningEffortId;\n    messages: RequestMessage[];\n    system?: string;\n    tools?: ToolSchema[];\n    toolHistory?: ToolHistory;\n    temperature?: number;\n    maxTokens?: number;\n    stop?: string[];\n    signal?: AbortSignal;\n    sessionId?: Branded<\'SessionId\'>;\n    purpose?: Purpose;\n    responseFormat?: {\n        readonly type: \'json_object\';\n    };\n}',
+  },
+  {
+    name: 'GenerationWorkspaceIdentity',
+    declaration: 'export type GenerationWorkspaceIdentity = z.infer<typeof generationWorkspaceIdentitySchema>;',
+  },
+  {
+    name: 'GenerationWorkspaceLease',
+    declaration: 'export interface GenerationWorkspaceLease {\n    readonly signal: AbortSignal;\n    assertCurrent(): void;\n    release(): void;\n}',
   },
   {
     name: 'GenericCallView',
@@ -10803,7 +10836,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ToolOutputDefinition',
-    declaration: 'export interface ToolOutputDefinition {\n    readonly schema: JsonSchemaNode;\n    render(args: unknown, value: JsonValue): ContentBlock[];\n    presentationMeta?(args: unknown, value: JsonValue): JsonValue;\n}',
+    declaration: 'export interface ToolOutputDefinition {\n    readonly schema: JsonSchemaNode;\n    render(args: unknown, value: JsonValue): ContentBlock[];\n    presentationMeta?(args: unknown, value: JsonValue): JsonValue | undefined;\n    readonly preserveBodyMeta?: true;\n}',
   },
   {
     name: 'ToolPromptSection',
@@ -11328,6 +11361,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WorkflowStopReason',
     declaration: 'export type WorkflowStopReason = \'completed\' | \'cancelled\' | \'error\';',
+  },
+  {
+    name: 'WorkingDirectoryGuard',
+    declaration: 'export interface WorkingDirectoryGuard {\n    readonly directory: string;\n    readonly signal: AbortSignal;\n    release(): void;\n}',
   },
   {
     name: 'Workspace',

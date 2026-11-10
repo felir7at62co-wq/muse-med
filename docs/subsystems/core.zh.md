@@ -122,6 +122,13 @@ interface Agent {
   send(message: UserMessage, target: InboxTarget, wakeup: boolean): void
 
   /**
+   * Wake the driver for an identified message already in the durable inbox.
+   * @param messageId - the pending message to resume.
+   * @returns whether the message was still pending when checked.
+   */
+  wakePending?(messageId: MessageId): boolean
+
+  /**
    * Queue an ordinary follow-up turn and wake the driver. The item becomes the
    * sole ordinary message of its own turn.
    * @param message - identified prompt content and the source that supplied it.
@@ -223,6 +230,18 @@ interface AgentOptions {
 `AgentLoop` 在 `ctx.sessionProjections` 上注册 `modelSelection`，并通过每个 `agent.model` 实例提供选择操作。`model/selection` 记录完整选择，但不进入模型历史。匹配的请求头会清除 `pending`，最近请求仍保留为 `lastUsed`。适配器默认的推理强度会被省略，使后续请求重新解析默认值。只有尚未记录选择或请求时，`next` 才为 null，此时由 `AgentOptions` 提供路由。[Agent 模型 API](../../packages/core/agent/README.zh.md)说明选择优先级与恢复策略。
 
 ```ts type-equiv
+/** A cancellable same-process hold on one complete model selection. */
+interface ModelSelectionGuard {
+  /** Aborted when the owner cancels, releases, or a direct mutation is detected. */
+  readonly signal: AbortSignal
+  /** Verify that this guard is held and the current selection still matches. */
+  assertCurrent(): void
+  /** Release the hold. Repeated release is harmless. */
+  release(): void
+}
+```
+
+```ts type-equiv
 /** Agent-owned access to the model choice for future steps. */
 interface Model {
   /**
@@ -243,6 +262,17 @@ interface Model {
    */
   select(selection: Readonly<ModelSelection>): void
 
+  /**
+   * Hold the current selection until release or owner cancellation.
+   * A provider without this capability cannot participate in guarded continuation.
+   * Direct Session/options mutation is detected by `assertCurrent` or `current`;
+   * consumers must revalidate after awaited preparation and before side effects.
+   * This hold grants no Session, workspace, filesystem or provider authorization.
+   * @param expected - Exact provider, model and explicit effort required by the owner.
+   * @param signal - Owner lifetime; cancellation releases the hold.
+   * @returns the held selection check and cancellation signal.
+   */
+  guard?(expected: Readonly<ModelSelection>, signal: AbortSignal): ModelSelectionGuard
 }
 ```
 

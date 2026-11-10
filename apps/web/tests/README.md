@@ -22,9 +22,13 @@ Same-day message goldens use the shared `WEB_FIXTURE_TIME`: seeded transcripts p
 
 Root-only recorded-session owners can preserve canonical replay inputs with [`writerOutput`](../../../packages/test-support/session-snapshot/README.md). The scaffold compares the driven root against a separate current-writer oracle and checks its exact inventory; it rejects child canonical roles for this Web option. Refresh may check the inventory before teardown harvests the root oracle; replay always requires it.
 
+Built-bundle jsdom cases share `installAssembledBootEnv`, which supplies non-matching media queries and restores browser globals after each test; real media-query behavior belongs to browser cases.
+
 ## Completion observations
 
 Desktop onboarding waits for the published balance result through a [read-only account observer](fixtures/plugins/fixture-onboarding-account/client.js). A held post-return response separates request arrival and enabled navigation from the failed result reaching the account subscription; the fixture disposes that subscription when its Client plugin stops.
+
+Onboarding reload checks wait for the requested step to be saved on the Host. Queue snapshots observe the header, item count, collapsed state and pending submissions together before capturing the settled layout.
 
 State-sensitive cases use Workspace, admission, attachment, and model-stream barriers to separate visible intermediate states from completed operations. Model-picker persistence assertions wait for the saved default, independently of menu closure. File-card geometry assertions wait for the exact rendered height, separately from Host turn completion and an earlier visibility observation. Details close waits for frame transitions; archive verification assigns an explicit title to the seeded Session and follows that identity across reload. The [CI test reliability workflow](../../../.agents/skills/dsh-ci-test-reliability/SKILL.md#synchronize-on-state) owns these synchronization rules.
 

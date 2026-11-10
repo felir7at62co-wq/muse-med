@@ -149,7 +149,7 @@ def transcribe(video: Path, work: Path, model) -> list:
     return chars
 
 
-def align(line: str, chars: list, floor_index: int) -> tuple:
+def align(line: str, chars: list, floor_index: int, *, measured_only: bool = False) -> tuple:
     """Find the span best matching one line, searching forward from a floor.
 
     The candidate window is scored with difflib, whose match blocks carry an index
@@ -166,6 +166,7 @@ def align(line: str, chars: list, floor_index: int) -> tuple:
     haystack = "".join(item[0] for item in chars)
     window = len(target) * WINDOW_FACTOR + WINDOW_PAD
     best = (0.0, 0.0, 0.0, floor_index)
+    best_start = floor_index
     start = floor_index
     while start < len(haystack):
         candidate = haystack[start:min(len(haystack), start + window)]
@@ -178,16 +179,24 @@ def align(line: str, chars: list, floor_index: int) -> tuple:
             last_index = min(len(chars) - 1, start + last.b + last.size - 1)
             if last_index >= first_index:
                 best = (chars[first_index][1], chars[last_index][2], score, last_index + 1)
+                best_start = first_index
         start += max(1, len(target) // SEARCH_STEP_FACTOR)
+    if measured_only and best[2] > 0:
+        first, last = chars[best_start], chars[best[3] - 1]
+        # Multi-character word tokens carry only their whole-word times.
+        # Interior estimates can aid comparison, but cannot anchor a cue.
+        if (len(first) > 4 and not math.isclose(first[1], first[3], rel_tol=0, abs_tol=1e-9)
+                or len(last) > 4 and not math.isclose(last[2], last[4], rel_tol=0, abs_tol=1e-9)):
+            return 0.0, 0.0, 0.0, floor_index
     return best
 
 
-def anchor(lines: list, chars: list) -> list:
+def anchor(lines: list, chars: list, *, measured_only: bool = False) -> list:
     """Match every line forward in order, keeping only the spans that earn their score."""
     anchors: list = [None] * len(lines)
     cursor = 0
     for index, line in enumerate(lines):
-        start, end, score, cursor_next = align(line, chars, cursor)
+        start, end, score, cursor_next = align(line, chars, cursor, measured_only=measured_only)
         if end > start and score >= acceptance_score(line):
             anchors[index] = (round(start, 3), round(end, 3))
             cursor = max(cursor, cursor_next)
@@ -573,17 +582,13 @@ def corrected_cloud_words(segments: list, correction: dict, source_sha256: str,
                        "listening_verified": False, "corrections": applied}
 
 
-def cloud_alignment_source(video: Path, receipt_path: Path, allow_empty: bool = False,
-                           correction: dict | None = None) -> tuple:
-    """Read source-bound timed words and optional explicit correction evidence."""
+def _read_cloud_alignment(video: Path, receipt_path: Path, allow_empty: bool = False,
+                          correction: dict | None = None) -> tuple:
+    """Read timed words, optional correction evidence, and the verified source digest."""
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     if receipt.get("status") not in ("complete", "silent") or Path(receipt.get("source", "")).resolve() != video.resolve():
         raise SystemExit("云转写收据未完成或不属于当前镜头。")
-    digest = hashlib.sha256()
-    with video.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    source_sha256 = digest.hexdigest()
+    source_sha256 = sha256_of(video)
     if receipt.get("sourceSha256") != source_sha256:
         raise SystemExit("镜头内容已变化或旧收据缺少源文件摘要，请对当前视频重新转写。")
     stem, version = receipt.get("stem"), receipt.get("version")
@@ -596,7 +601,7 @@ def cloud_alignment_source(video: Path, receipt_path: Path, allow_empty: bool = 
             raise SystemExit("无发声收据没有可纠正的字词，不能用纠错记录添加台词。")
         if not allow_empty:
             raise SystemExit("云转写判定无发声，但剧本含台词，请人工核听。")
-        return [], None
+        return [], None, source_sha256
     transcript = receipt_path.parent.parent / "raw" / f"{stem}-v{version}.json"
     transcript_bytes = transcript.read_bytes()
     segments = json.loads(transcript_bytes.decode("utf-8"))
@@ -626,12 +631,19 @@ def cloud_alignment_source(video: Path, receipt_path: Path, allow_empty: bool = 
                               start, end))
     if not chars and not allow_empty:
         raise SystemExit("云转写没有可对齐的文字。")
+    return chars, evidence, source_sha256 if chars else None
+
+
+def cloud_alignment_source(video: Path, receipt_path: Path, allow_empty: bool = False,
+                           correction: dict | None = None) -> tuple:
+    """Read source-bound timed words and optional explicit correction evidence."""
+    chars, evidence, _ = _read_cloud_alignment(video, receipt_path, allow_empty, correction)
     return chars, evidence
 
 
 def cloud_characters(video: Path, receipt_path: Path, allow_empty: bool = False) -> list:
     """Read original timed words from a receipt bound to the selected video."""
-    return cloud_alignment_source(video, receipt_path, allow_empty)[0]
+    return _read_cloud_alignment(video, receipt_path, allow_empty)[0]
 
 
 def main() -> None:
@@ -729,11 +741,8 @@ def main() -> None:
             continue
         if cloud_receipts is not None:
             try:
-                if shot in corrections:
-                    chars, correction_evidence = cloud_alignment_source(
-                        video, cloud_receipts[shot], allow_empty=not lines, correction=corrections[shot])
-                else:
-                    chars = cloud_characters(video, cloud_receipts[shot], allow_empty=not lines)
+                chars, correction_evidence, source_sha256 = _read_cloud_alignment(
+                    video, cloud_receipts[shot], allow_empty=not lines, correction=corrections.get(shot))
             except SystemExit as error:
                 message = str(error)
                 print(f"提示：镜头 {shot} 收据尚不能提供同源时间：{message}")
@@ -741,12 +750,15 @@ def main() -> None:
                 strategies.append("missing_evidence")
                 continue
         else:
+            source_sha256 = sha256_of(video)
             with tempfile.TemporaryDirectory(prefix="align-") as work:
                 chars = transcribe(video, Path(work), model)
+            if sha256_of(video) != source_sha256:
+                raise SystemExit(f"镜头 {shot} 在离线识别期间变化，请对当前成片重新转写。")
         duration = probe_seconds(video)
         if any(item[2] > duration + 0.25 for item in chars):
             raise SystemExit(f"镜头 {shot} 的字词时间超过视频时长。")
-        anchors = anchor(lines, chars)
+        anchors = anchor(lines, chars, measured_only=True)
         cues, strategy = place(lines, anchors, duration)
         extras = unmapped_speech(lines, anchors, chars)
         substitutions = []
@@ -776,6 +788,8 @@ def main() -> None:
             for item in substitutions:
                 print(f"    镜头 {shot} 第 {item['line']} 条 {item['start']:.3f}–{item['end']:.3f}s："
                       f"剧本「{item['script']}」，转写「{item['recognized']}」，保留台词与原时间，待核听。")
+        if source_sha256 is not None and strategy in (ALL_ALIGNED, "no_lines") and shot not in missing:
+            result["source_sha256"] = source_sha256
         if correction_evidence is not None:
             result["correction_evidence"] = correction_evidence
         placed.append(result)

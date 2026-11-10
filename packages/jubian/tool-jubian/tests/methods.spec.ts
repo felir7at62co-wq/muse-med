@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -65,6 +66,12 @@ beforeEach(async () => {
   } }))
 })
 afterEach(async () => { await rm(root, { recursive: true, force: true }) })
+
+it('rejects an absent material inventory instead of inferring an empty page', async () => {
+  const { client } = stubClient(() => null)
+  await expect(assetMethod(client, ledger, { method: 'materials', script_id: 2708 }))
+    .rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+})
 
 /** A provider stub for the paid image path, with a scripted sequence of asset statuses. */
 function imageProvider(catalogue: unknown = IMAGE_CATALOGUE, statuses: (string | null)[] = ['Active']) {
@@ -1320,6 +1327,24 @@ describe('jubian_video', () => {
     expect(calls.some(call => call.path.includes('confirm'))).toBe(false)
   })
 
+  it('reports a failed active candidate alongside an older selected image', async () => {
+    const candidate = { ...GENERATED_IMAGE[0]!, resultStatus: 'Failed', resultMsg: 'insufficient credits' }
+    const { client, calls } = stubClient((request) => {
+      if (request.path.includes('getSelectList')) return IMAGE_CATALOGUE
+      if (request.path.includes('getGeneratedImageByAssetId')) return [
+        { ...GENERATED_IMAGE[0]!, id: 899, isUsed: 1 }, candidate,
+      ]
+      if (request.method === 'GET') return { id: 83749, hsAssetStatus: null }
+      return 83749
+    })
+    const result = await videoMethod(client, ledger, { method: 'image_generate', script_id: 2708,
+      asset_name: 'lead', asset_type: 1, prompt: 'ready', idempotency_key: 'failed-candidate-before-parent' },
+    imageDeps({ timeoutMs: 100, pollMs: 100 }))
+    expect(result).toMatchObject({ outcome: 'accepted', parent_asset_id: 83749,
+      asset_status: 'failed', generation_status: 'failed', material_id: null, image_url: null })
+    expect(calls.map(call => call.method)).toEqual(['GET', 'POST', 'GET', 'GET'])
+  })
+
   it.each(['wrong-parent', 'inactive', 'ambiguous'])
   ('does not report a generated candidate with %s identity or state as ready', async (state) => {
     const candidate = { ...GENERATED_IMAGE[0]!,
@@ -1894,6 +1919,52 @@ describe('required arguments', () => {
 })
 
 describe('jubian_media', () => {
+  it('passes caller cancellation to an in-flight non-resumable download', async () => {
+    const controller = new AbortController()
+    const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      expect(init?.signal?.aborted).toBe(false)
+      controller.abort(new Error('caller cancelled download'))
+      expect(init?.signal?.aborted).toBe(true)
+      throw new Error('cancelled in-flight transfer')
+    })
+    try {
+      await expect(mediaMethod({ method: 'download', media_kind: 'video',
+        media_url: 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture.mp4', output_path: join(root, 'fresh.mp4') }, controller.signal))
+        .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+      expect(transport).toHaveBeenCalledTimes(1)
+    } finally { transport.mockRestore() }
+  })
+
+  it('reuses a receipt after restart and preserves a same-length file that has changed', async () => {
+    const original = Buffer.from('000000106674797069736f6d00000000', 'hex')
+    const changed = Buffer.from('000000106674797069736f6d00000001', 'hex')
+    const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(original))
+    try {
+      const target = join(root, 'pack.mp4')
+      const args = { method: 'download', media_kind: 'video', resume: true,
+        media_url: 'https://jubian-aigc.tos-cn-beijing.volces.com/verified-pack.mp4?signature=fixture', output_path: target } as const
+      const first = await mediaMethod(args)
+      const sourceHash = createHash('sha256').update(args.media_url).digest('hex')
+      const receiptPath = `${target}.jubian-video-${sourceHash.slice(0, 16)}.json`
+      expect(first).toMatchObject({ path: target, reused: false, download_receipt_path: receiptPath, source_sha256: sourceHash })
+      const receipt = await readFile(receiptPath, 'utf8')
+      expect(receipt).not.toContain('signature=fixture')
+      expect(JSON.parse(receipt)).toMatchObject({ source_sha256: sourceHash, path: target, sha256: first.sha256 })
+      expect(await mediaMethod(args)).toMatchObject({ path: target, reused: true, sha256: first.sha256,
+        download_receipt_path: receiptPath, source_sha256: sourceHash })
+      expect(transport).toHaveBeenCalledTimes(1)
+
+      await writeFile(target, changed)
+      const replacement = await mediaMethod(args)
+      expect(replacement).toMatchObject({ reused: false, sha256: first.sha256, download_receipt_path: receiptPath })
+      expect(replacement.path).not.toBe(target)
+      expect(typeof replacement.path).toBe('string')
+      expect(await readFile(String(replacement.path))).toEqual(original)
+      expect(await readFile(target)).toEqual(changed)
+      expect(await mediaMethod(args)).toMatchObject({ path: replacement.path, reused: true, download_receipt_path: receiptPath })
+      expect(transport).toHaveBeenCalledTimes(2)
+    } finally { transport.mockRestore() }
+  })
   it.each([
     ['cover.jpg', 'cover.png', '89504e470d0a1a0a', 'image', 'image/png'],
     ['cover', 'cover.png', '89504e470d0a1a0a', 'image', 'image/png'],
@@ -1932,6 +2003,13 @@ describe('jubian_media', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+})
+
+it('rejects the free-erasure flag on a different storyboard operation before reading or writing', async () => {
+  const { client, calls } = stubClient(() => { throw new Error('Invalid operation must not reach provider') })
+  await expect(storyboardMethod(client, ledger, { method: 'get', storyboard_id: 1,
+    only_if_verified_free: true })).rejects.toThrow('only_if_verified_free must be a boolean for erase_subtitle')
+  expect(calls).toEqual([])
 })
 
 
@@ -2153,8 +2231,6 @@ it.each([
     body: { scriptId: 2708, ...overrides }, idempotency_key: 'malformed-refs' })).rejects.toThrow()
   expect(calls).toEqual([])
 })
-
-
 it('dispatches original-key recovery with its signal and retains unknown when ownership is absent', async () => {
   const { client, calls } = stubClient(() => { throw new Error('No provider request is allowed') })
   const signal = new AbortController().signal

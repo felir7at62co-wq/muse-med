@@ -2,7 +2,7 @@
  * @module @deepseek-ai/dsh-agent/model-selection
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { Model, AgentOptions, PreStepDecision } from './runtime-types.ts'
+import type { Model, ModelSelectionGuard, AgentOptions, PreStepDecision } from './runtime-types.ts'
 import type { ModelSelection } from './types.ts'
 import { boundContextSummary, createUserMessage, type ContextFormed } from '@deepseek-ai/dsh-llm'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm/brand'
@@ -96,6 +96,8 @@ export const modelSelectionProjectionDefinition: Required<ProjectionDefinition<'
  * @param options - live route fallback until a selection or request is recorded.
  */
 export class AgentModel implements Model {
+  private held: { expected: Readonly<ModelSelection>; guard: ModelSelectionGuard } | undefined
+
   constructor(
     private readonly readState: () => ModelSelectionProjectionState,
     private readonly session: Session,
@@ -103,6 +105,11 @@ export class AgentModel implements Model {
   ) {}
 
   current(): Readonly<ModelSelection> | undefined {
+    this.held?.guard.assertCurrent()
+    return this.unguardedCurrent()
+  }
+
+  private unguardedCurrent(): Readonly<ModelSelection> | undefined {
     const recorded = this.recordedSelection()
     if (recorded !== null) return { ...recorded }
     const { provider, model, reasoningEffort } = this.options
@@ -110,8 +117,42 @@ export class AgentModel implements Model {
   }
 
   select(selection: Readonly<ModelSelection>): void {
+    this.held?.guard.assertCurrent()
+    if (this.held !== undefined && !sameModelSelection(this.held.expected, selection)) {
+      throw new Error('guarded model selection cannot change')
+    }
     if (sameModelSelection(this.recordedSelection(), selection)) return
     this.session.append('model/selection', toSelection(selection.provider, selection.model, selection.reasoningEffort))
+  }
+
+  guard(expected: Readonly<ModelSelection>, signal: AbortSignal): ModelSelectionGuard {
+    signal.throwIfAborted()
+    if (this.held !== undefined) throw new Error('guarded model selection already held')
+    const chosen = toSelection(expected.provider, expected.model, expected.reasoningEffort)
+    if (!sameModelSelection(this.unguardedCurrent() ?? null, chosen)) {
+      throw new Error('guarded model selection does not match')
+    }
+    const controller = new AbortController()
+    const release = () => {
+      if (controller.signal.aborted) return
+      signal.removeEventListener('abort', release)
+      if (this.held?.guard === guard) this.held = undefined
+      controller.abort(new Error('guarded model selection released'))
+    }
+    const guard: ModelSelectionGuard = {
+      signal: controller.signal,
+      release,
+      assertCurrent: () => {
+        controller.signal.throwIfAborted()
+        if (!sameModelSelection(this.unguardedCurrent() ?? null, chosen)) {
+          release()
+          throw new Error('guarded model changed')
+        }
+      },
+    }
+    this.held = { expected: chosen, guard }
+    signal.addEventListener('abort', release, { once: true })
+    return guard
   }
 
   private recordedSelection(): ModelSelection | null {

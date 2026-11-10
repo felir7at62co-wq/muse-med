@@ -8,6 +8,11 @@
     "src"
   ],
   "references": [
+    { "path": "../../packages/session/working-directory" },
+    { "path": "../../packages/storage/storage-domain" },
+    { "path": "../../packages/storage/storage-json" },
+    { "path": "../../packages/storage/storage" },
+    { "path": "../../packages/api/session-controller/tsconfig.host.json" },
     { "path": "../../packages/drama/session-video" },
     { "path": "../../packages/client/ui-session-video/tsconfig.host.json" },
     {
@@ -114,6 +119,9 @@
     },
     {
       "path": "../../packages/drama/tool-shot-script"
+    },
+    {
+      "path": "../../packages/drama/tool-episode-render"
     },
     {
       "path": "../../packages/deliverables/tool-present"

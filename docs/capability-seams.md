@@ -20,10 +20,11 @@ flowchart LR
   svc_agentNotes["ctx.agentNotes<br/>Configured Agent Notes editor"]
   pkg_api_remotes["api-remotes"]
   pkg_client_ui_agent_notes["client-ui-agent-notes"]
+  svc_generationWorkspaceAuthority["ctx.generationWorkspaceAuthority<br/>Original generation workspace membership"]
+  pkg_desktop_host["desktop-host"]
   svc_jubianVideoSelection["ctx.jubianVideoSelection<br/>Conversation video generation settings"]
   svc_jubianVideoRecovery["ctx.jubianVideoRecovery<br/>Original-key video recovery and review"]
   svc_approvedEpisodeRenderer["ctx.approvedEpisodeRenderer<br/>Approved episode renderer"]
-  pkg_desktop_host["desktop-host"]
   svc_jubianEpisodeDelivery["ctx.jubianEpisodeDelivery<br/>Approved episode admission and publication"]
   svc_jubianImage["ctx.jubianImage<br/>Jubian account image routes"]
   pkg_drama_settings["drama-settings"]
@@ -399,6 +400,7 @@ flowchart LR
   pkg_deepseek_account_platform --> svc_deepseekAccount
   pkg_deepseek_llm_api_extensions --> svc_deepseekLlmApiExtensions
   pkg_desktop_host --> svc_approvedEpisodeRenderer
+  pkg_desktop_host --> svc_generationWorkspaceAuthority
   pkg_dsh_bridge --> svc_museDesktopBridge
   pkg_experimental_agent_team --> svc_agentTeams
   pkg_experimental_api_speech_to_text --> svc_speechController
@@ -515,6 +517,7 @@ flowchart LR
   pkg_tool_character_reference --> svc_characterReferenceAuthority
   pkg_tool_discovery --> svc_toolDiscovery
   pkg_tool_jubian --> svc_approvedEpisodeRenderer
+  pkg_tool_jubian --> svc_generationWorkspaceAuthority
   pkg_tool_jubian --> svc_jubianEpisodeDelivery
   pkg_tool_jubian --> svc_jubianImage
   pkg_tool_jubian --> svc_jubianToken
@@ -589,6 +592,8 @@ flowchart LR
   svc_forge --> pkg_experimental_forge_session
   svc_forgeSession --> pkg_experimental_client_ui_forge
   svc_fs --> pkg_tool_fs
+  svc_generationWorkspaceAuthority --> pkg_desktop_host
+  svc_generationWorkspaceAuthority --> pkg_tool_jubian
   svc_headlessStartup --> pkg_headless
   svc_hmr --> pkg_app_boot
   svc_jobs --> pkg_api_job_controller
@@ -731,6 +736,7 @@ flowchart LR
 | `ctx.characterLibraryObjectStore` | `seam` | [`character-library`](../packages/drama/character-library) | [`character-library-tos`](../packages/drama/character-library-tos) | [`character-library`](../packages/drama/character-library) | - | Lists objects, reads metadata and retrieves bounded image bytes from fixed historical prefixes through Host-owned credentials. |
 | `ctx.characterReferenceAuthority` | `service` | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Re-reads the current project, registered character and Catalog image digest for managed reference use; it does not grant image rights. |
 | `ctx.agentNotes` | `core` | [`api-agent-notes`](../packages/api/agent-notes) | - | [`api-remotes`](../packages/api/remotes), `client-ui-agent-notes` | - | Lists and edits existing notes under the configured root with filesystem version checks; the browser receives note contents through Typert Remote. |
+| `ctx.generationWorkspaceAuthority` | `seam` | [`tool-jubian`](../packages/jubian/tool-jubian) | `desktop-host` | [`tool-jubian`](../packages/jubian/tool-jubian), `desktop-host` | - | Holds exclusive durable Workspace membership for the original native Session through submission, automatic continuation or strict source-QA publication; missing or changed ownership refuses admission. |
 | `ctx.jubianVideoSelection` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Records user-selected video specifications, appends context and checks new submissions against the conversation choice. |
 | `ctx.jubianVideoRecovery` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Reconciles recorded video submissions with provider reads, checks captured media and publishes explicitly approved MP4 bytes without a new generation. |
 | `ctx.approvedEpisodeRenderer` | `seam` | [`tool-jubian`](../packages/jubian/tool-jubian) | `desktop-host` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Desktop Host captures renderer configuration and manages media processes; the episode service consumes approved inputs without new video generation. |

@@ -1,0 +1,19 @@
+{
+  "events": [
+    {
+      "type": "agent/inbox/claim",
+      "data": { "turn": 1, "step": 1, "nextStep": ["steered"], "nextTurn": ["queued"] }
+    },
+    {
+      "type": "agent/inbox/claim-filtered",
+      "data": { "turn": 1, "step": 1, "discarded": ["steered"] }
+    },
+    {
+      "type": "agent/inbox/claim-settled",
+      "data": { "turn": 1, "step": 1 }
+    }
+  ],
+  "enqueueReceipts": 1,
+  "finalResponse": "original reply",
+  "finishReason": "completed"
+}

@@ -3,14 +3,15 @@ import { createServer } from 'node:http'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { storyboardEditMethod } from '../src/storyboard-edit.ts'
 import { JubianClient, JubianError, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { stableSha256, submissionSemantics } from '@deepseek-ai/dsh-jubian-api'
 import type { NativeVideoPreview } from '@deepseek-ai/dsh-jubian-api'
 import { bodyHash } from '../src/write.ts'
-import { positiveInteger, prepareVideoMethod, recoverVideoSubmission, resolveVideoBatchOptions, selectAssetsMethod,
+import { assertNewNativeDispatchAllowed, positiveInteger, prepareVideoMethod, reconcileRecordedVideo, recoverVideoSubmission,
+  resolveVideoBatchOptions, selectAssetsMethod,
   submitVideoBatchMethod, submitVideoMethod, validateProjectBinding } from '../src/native.ts'
 
 const URL_LEAD = 'https://jubian-aigc.tos-cn-beijing.volces.com/prod/lead.jpg'
@@ -72,6 +73,7 @@ interface FakeProvider {
   onTaskList?: () => void | Promise<void>
   onTaskRead?: (path: string) => void | Promise<void>
   taskPage?: (page: number) => unknown
+  subtaskPage?: (taskId: string, page: number) => unknown
   subjectPage?: (page: number) => unknown
   rawSubjectPage?: (page: number) => unknown
   rawTaskPage?: (page: number) => unknown
@@ -134,7 +136,13 @@ function transportFor(provider: FakeProvider): typeof fetch {
     }
     if (path.startsWith('/admin/aigc/video/task/sub/list')) {
       await provider.onTaskRead?.(path)
-      return answer({ total: 1, rows: provider.subtasks[String(body?.aigcVideoTaskId)] ?? [] })
+      const taskId = String(body?.aigcVideoTaskId)
+      const query = new URL(`https://example.test${path}`).searchParams
+      const page = Number(query.get('pageNum') ?? 1)
+      const size = Number(query.get('pageSize') ?? 100)
+      if (provider.subtaskPage) return answer(provider.subtaskPage(taskId, page))
+      const rows = provider.subtasks[taskId] ?? []
+      return answer({ total: rows.length, rows: rows.slice((page - 1) * size, page * size) })
     }
     if (path.startsWith('/admin/aigc/video/task/') && method === 'GET') {
       await provider.onTaskRead?.(path)
@@ -479,6 +487,25 @@ describe('uploaded voice references', () => {
     '角色：张三，李四\n张三：今晚别走。',
     '出镜人物：张三（工人）/ Mary Jane\nMary Jane：Hello.',
     '人物：无双；李四\n无双：今晚别走。',
+    '镜头11：近景，陆沉舟背对另一人开口，声音不高：陆沉舟：小乔。\n镜头13：近景，语速平缓地说完这句长句：陆沉舟：你还记得入职那天写下的目标吗？',
+    '镜头16：特写，陆沉舟微微侧过半边脸。\n镜头17：近景，他保持侧脸，问出最后一句：陆沉舟：还想走吗？',
+    '镜头17：近景，陆沉舟：还想走吗？',
+    '人物：张三、李四\n分镜2：近景，李四：今晚别走。',
+    '说话人：Mary Jane\nShot 2: Close-up, Mary Jane: Hello.',
+    '镜头十七：近景，陆沉舟（OS）：还想走吗？',
+    '镜头17：陆沉舟：屏幕显示：稍后再试。',
+    '镜头17：旁白：雨停了。',
+    '镜头17：台词：陆沉舟：今晚别走。',
+    '场景：院子；台词：陆沉舟：今晚别走。',
+    '人物：张三\n镜头1：场景：客厅 台词：张三：快走！',
+    '镜头1：核心场景：客厅 旁白：雨停了。',
+    '镜头1：场景名称：客厅 dialogue: Run!',
+    '人物：张三\n镜头1：画面文字：禁止通行 台词：张三：快走！',
+    '人物：张三\n镜头1：字幕：禁止通行 台词：张三：快走！',
+    '镜头1：屏幕显示：禁止通行 旁白：雨停了。',
+    '镜头1：场景：客厅 画面文字：禁止通行 旁白：雨停了。',
+    '镜头17：画面文字：陆沉舟：无声；近景，陆沉舟：还想走吗？',
+    '镜头17：画面文字：台词：无声；台词：陆沉舟：还想走吗？',
   ])('flags this spoken prompt without a voice reference: %s', async (speech) => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}\n${speech}` }) } }
@@ -510,6 +537,30 @@ describe('uploaded voice references', () => {
     '人物：张三\n张三：无对白',
     '对白：暂无台词',
     '场景：张三\n张三：今晚别走。',
+    '镜头17：场景名称：陆沉舟：雨夜街头',
+    '镜头17：负面提示： 台词：陆沉舟：还想走吗？',
+    '镜头17：负向提示： 陆沉舟：还想走吗？',
+    '镜头17：负面提示：动作自然；台词：陆沉舟：还想走吗？',
+    'Shot 2: negative prompt: dialogue: Hello.',
+    '镜头17：画面文字：“陆沉舟：还想走吗？”；人物不发声',
+    '镜头17：画面文字：陆沉舟：还想走吗？',
+    '镜头17：屏幕显示： 陆沉舟：还想走吗？',
+    '镜头17：字幕： 台词：陆沉舟：还想走吗？',
+    '镜头17：画面文字：禁止通行',
+    '镜头17：画面文字：“禁止通行 台词：陆沉舟：还想走吗？”',
+    '镜头17：字幕：禁止通行 负面提示：台词：陆沉舟：还想走吗？',
+    '镜头17：字幕：禁止通行 台词：无',
+    '镜头17：场景：客厅 字幕：台词：陆沉舟：还想走吗？',
+    '镜头17：场景：客厅 负面提示：台词：陆沉舟：还想走吗？',
+    '镜头17：场景：客厅 台词：无',
+    '镜头17：近景，陆沉舟：无对白',
+    '镜头17：近景，陆沉舟：无；另一人点头',
+    '镜头17：近景，不要 陆沉舟：还想走吗？',
+    '镜头17：拿起印着“请联系 陆沉舟：还想走吗？”的纸条，人物不发声',
+    '镜头17：拿起印着“ 台词：还想走吗？”的纸条，人物不发声',
+    '人物：张三\n镜头17：近景，李四：今晚别走。',
+    '@[ ](lead)\n镜头17：近景，人物转身',
+    '@[场景](lead)\n镜头17：场景：雨夜街头',
   ])('does not treat a non-speech prompt as dialogue: %s', async (description) => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}\n${description}` }) } }
@@ -696,6 +747,21 @@ describe('prepare_video', () => {
     expect(await prepareVideoMethod(clientFor(provider), ledger,
       { storyboard_id: 916953, project_dir: await project() })).toMatchObject({ status: 'prepared' })
   })
+
+  it('accepts string material identities without changing their parent bindings', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {},
+      subjectPage: () => ({ total: SUBJECT_ROWS.length, rows: SUBJECT_ROWS.map(row => ({ ...row, id: String(row.id) })) }) }
+    expect(await prepareVideoMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, project_dir: await project() })).toMatchObject({ status: 'prepared' })
+  })
+
+  it('rejects an invalid subject total before preparing a generation', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {},
+      subjectPage: () => ({ total: 'invalid', rows: SUBJECT_ROWS }) }
+    await expect(prepareVideoMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, project_dir: await project() })).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+    expect(provider.calls.every(call => call.method === 'GET')).toBe(true)
+  })
   it('requires explicit reselection after marker labels change even when their keys stay the same', async () => {
     const provider: FakeProvider = { calls: [], storyboard: structuredClone(STORYBOARD), tasks: [], subtasks: {} }
     const directory = await project()
@@ -783,6 +849,7 @@ describe('prepare_video', () => {
     expect(putCalls(provider)).toHaveLength(1)
     expect(putCalls(provider)[0]!.body!.isGenerate).toBe(0)
   })
+
 
   it.each([
     { label: 'conflicting image group order', prompt: '@[苏晚](guest) @[陆沉舟](lead) @[苏晚](guest)' },
@@ -905,6 +972,25 @@ describe('submit_video', () => {
     else await submitVideoBatchMethod(clientFor(provider), ledger, { items: [args] })
     expect(observed).toHaveLength(1)
     expect(putCalls(provider)).toHaveLength(1)
+  })
+
+  it.each(['single', 'batch'] as const)('awaits the watch fence before the %s paid transport', async (mode) => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const beforeSend = vi.fn(async (key: string) => {
+      expect(key).toBe(idempotencyKey)
+      expect(putCalls(provider)).toHaveLength(0)
+      throw new Error('WATCH_FENCE_UNAVAILABLE')
+    })
+    const args = { preview_path: previewPath, idempotency_key: idempotencyKey }
+    if (mode === 'single') await expect(submitVideoMethod(clientFor(provider), ledger, args, undefined, false, undefined, beforeSend))
+      .rejects.toThrow('WATCH_FENCE_UNAVAILABLE')
+    else await submitVideoBatchMethod(clientFor(provider), ledger, { items: [args] }, resolveVideoBatchOptions(), undefined, beforeSend)
+    expect(beforeSend).toHaveBeenCalledOnce()
+    expect(putCalls(provider)).toHaveLength(0)
+    expect((await ledger.find(idempotencyKey))?.outcome).toBe('unknown')
+    await submitVideoMethod(clientFor(provider), ledger, args)
+    expect(putCalls(provider)).toHaveLength(0)
   })
 
   it('does not rebuild or charge when an original recovery intent disappears between ledger reads', async () => {
@@ -1083,6 +1169,176 @@ describe('submit_video', () => {
     return { directory, previewPath: String(preview.preview_path),
       idempotencyKey: String(preview.idempotencyKey) }
   }
+
+  it('checks an unlinked canonical preview without dispatching and then honors its manual hold', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 1 },
+      tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const packs = [{ previewPath: await realpath(file.previewPath), key: file.idempotencyKey }]
+    await expect(assertNewNativeDispatchAllowed(ledger, packs)).resolves.toBeUndefined()
+    await writeFile(join(file.directory, 'pipeline_state.json'), JSON.stringify({ episodes: { '1': {
+      video_tasks: { status: 'blocked', status_source: 'manual', metadata: { script_id: 2708, provider_episode_id: 130221 } },
+    } } }))
+    await expect(assertNewNativeDispatchAllowed(ledger, packs)).rejects.toThrow('EPISODE_PAID_HOLD')
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each(['single', 'batch'] as const)('honors a matching manual hold on a new %s submission', async (kind) => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 1 }, tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const args = { preview_path: file.previewPath, idempotency_key: file.idempotencyKey }
+    const setStage = (episode: string, providerEpisodeId: number = 130221) => writeFile(join(file.directory, 'pipeline_state.json'),
+      JSON.stringify({ episodes: { [episode]: { video_tasks: { status: 'blocked', status_source: 'manual',
+        metadata: { script_id: 2708, provider_episode_id: providerEpisodeId } } } } }))
+    const submit = () => kind === 'single' ? submitVideoMethod(clientFor(provider), ledger, args)
+      : submitVideoBatchMethod(clientFor(provider), ledger, { items: [args] })
+
+    await setStage('01')
+    await expect(submit()).rejects.toThrow('EPISODE_PAID_HOLD')
+    await setStage('02')
+    await expect(submit()).rejects.toThrow('EPISODE_PAID_HOLD')
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+
+    await setStage('02', 130222)
+    provider.onTaskList = () => setStage('01')
+    await expect(submit()).rejects.toThrow('EPISODE_PAID_HOLD')
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
+    delete provider.onTaskList
+
+    await setStage('02', 130222)
+    await submit()
+    expect(putCalls(provider)).toHaveLength(1)
+    await setStage('01')
+    await expect(submit()).resolves.toBeDefined()
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(await ledger.records()).toHaveLength(1)
+  })
+
+  it.each([true, false])('refuses unverifiable manual hold state before a new submission, malformed=%s', async (malformed) => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeCount: 1 }, tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const state = { episodes: { '01': { video_tasks: { status: 'blocked', status_source: 'manual',
+      metadata: { script_id: 2708, provider_episode_id: 130221 } } } } }
+    await writeFile(join(file.directory, 'pipeline_state.json'), malformed ? '{' : JSON.stringify(state))
+    await expect(submitVideoMethod(clientFor(provider), ledger, { preview_path: file.previewPath,
+      idempotency_key: file.idempotencyKey })).rejects.toThrow(malformed ? 'EPISODE_STATE_UNREADABLE' : 'EPISODE_PAID_HOLD')
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each([null, [], { episodes: null }, { episodes: [] }])
+  ('refuses malformed persisted hold records %j before a new dispatch', async (state) => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const path = join(file.directory, 'pipeline_state.json')
+    const packs = [{ previewPath: file.previewPath, key: file.idempotencyKey }]
+    await writeFile(path, JSON.stringify(state))
+    await expect(assertNewNativeDispatchAllowed(ledger, packs)).rejects.toThrow('EPISODE_STATE_UNREADABLE')
+    await writeFile(path, JSON.stringify({ episodes: {} }))
+    await expect(assertNewNativeDispatchAllowed(ledger, packs)).resolves.toBeUndefined()
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('refuses a hold path that is a directory without admitting a paid intent', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    await mkdir(join(file.directory, 'pipeline_state.json'))
+    await expect(assertNewNativeDispatchAllowed(ledger,
+      [{ previewPath: file.previewPath, key: file.idempotencyKey }])).rejects.toThrow('EPISODE_STATE_UNREADABLE')
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it('keeps an already-recorded watch read-only while a manual hold blocks fresh dispatch', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 1 },
+      tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const { payload } = JSON.parse(await readFile(file.previewPath, 'utf8')) as NativeVideoPreview
+    await ledger.begin({ idempotencyKey: file.idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit',
+      requestSha256: bodyHash(payload) })
+    const records = await ledger.records()
+    await writeFile(join(file.directory, 'pipeline_state.json'), JSON.stringify({ episodes: { '1': {
+      video_tasks: { status: 'blocked', status_source: 'manual', metadata: { script_id: 2708, provider_episode_id: 130221 } },
+    } } }))
+    await expect(assertNewNativeDispatchAllowed(ledger,
+      [{ previewPath: file.previewPath, key: file.idempotencyKey }])).resolves.toBeUndefined()
+    expect(provider.calls).toEqual([])
+    await expect(reconcileRecordedVideo(clientFor(provider), ledger,
+      { preview_path: file.previewPath, idempotency_key: file.idempotencyKey }))
+      .resolves.toMatchObject({ replayed: true, status: 'reconcile_required' })
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual(records)
+  })
+
+  it.each([
+    null,
+    { video_tasks: { status: 'completed' } },
+    { video_tasks: { status: 'blocked', status_source: 'auto', metadata: { script_id: 2708 } } },
+    { video_tasks: { status: 'blocked', status_source: 'manual', metadata: { script_id: 2709 } } },
+  ])('does not interpret an unrelated stage %j as an operator hold', async (stage) => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 1 },
+      tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    await writeFile(join(file.directory, 'pipeline_state.json'), JSON.stringify({ episodes: { '1': stage } }))
+    await expect(assertNewNativeDispatchAllowed(ledger,
+      [{ previewPath: file.previewPath, key: file.idempotencyKey }])).resolves.toBeUndefined()
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each(['130221', Number.MAX_SAFE_INTEGER + 1, 0, 1.5])
+  ('refuses a matching episode-count hold with unverifiable provider ID %j', async (providerEpisodeId) => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 1 },
+      tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const path = join(file.directory, 'pipeline_state.json')
+    const state = (id: string | number) => ({ episodes: { '1': { video_tasks: { status: 'blocked', status_source: 'manual',
+      metadata: { script_id: 2708, provider_episode_id: id } } } } })
+    const packs = [{ previewPath: file.previewPath, key: file.idempotencyKey }]
+    await writeFile(path, JSON.stringify(state(providerEpisodeId)))
+    await expect(assertNewNativeDispatchAllowed(ledger, packs)).rejects.toThrow('EPISODE_PAID_HOLD')
+    await writeFile(path, JSON.stringify(state(130222)))
+    await expect(assertNewNativeDispatchAllowed(ledger, packs)).resolves.toBeUndefined()
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
+  it.each(['single', 'batch'] as const)('checks the physical project hold through a linked video_tasks directory for %s', async (kind) => {
+    const provider: FakeProvider = { calls: [], storyboard: { ...STORYBOARD, episodeId: 130221, episodeCount: 50 },
+      tasks: [], subtasks: {} }
+    const file = await prepared(provider)
+    const hold = JSON.stringify({ episodes: {
+      '50': { video_tasks: { status: 'blocked', status_source: 'manual',
+        metadata: { script_id: 2708, provider_episode_id: 130221 } } },
+    } })
+    const state = join(file.directory, 'pipeline_state.json')
+    await writeFile(state, hold)
+    const alias = await project(2708, 'alias')
+    const linkedTasks = join(alias, 'video_tasks')
+    await symlink(join(file.directory, 'video_tasks'), linkedTasks, process.platform === 'win32' ? 'junction' : 'dir')
+    const args = { preview_path: join(linkedTasks, basename(file.previewPath)), idempotency_key: file.idempotencyKey }
+
+    const submit = () => kind === 'single' ? submitVideoMethod(clientFor(provider), ledger, args)
+      : submitVideoBatchMethod(clientFor(provider), ledger, { items: [args] })
+    const watch = () => assertNewNativeDispatchAllowed(ledger, [{ previewPath: args.preview_path, key: file.idempotencyKey }])
+    await expect(submit()).rejects.toThrow('EPISODE_PAID_HOLD')
+    await expect(watch()).rejects.toThrow('EPISODE_PAID_HOLD')
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+
+    await writeFile(state, '{}')
+    await expect(watch()).resolves.toBeUndefined()
+    await expect(submit()).resolves.toBeDefined()
+    expect(putCalls(provider)).toHaveLength(1)
+    await writeFile(state, hold)
+    await expect(submit()).resolves.toBeDefined()
+    expect(putCalls(provider)).toHaveLength(1)
+    expect(await ledger.records()).toHaveLength(1)
+  })
 
   it.each(['single', 'batch'])('refuses a changed conversation model before a new %s reservation', async (kind) => {
     const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
@@ -1394,6 +1650,135 @@ describe('submit_video', () => {
       idempotency_key: idempotencyKey })
     expect(putCalls(second)).toHaveLength(0)
     expect(replayed).toMatchObject({ replayed: true, status: 'submitted', task_id: '335343' })
+  })
+
+  it('recovers an original intent after restart without writing or admitting a fresh intent', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const item = { preview_path: previewPath, idempotency_key: idempotencyKey }
+    provider.calls.length = 0
+    await expect(reconcileRecordedVideo(clientFor(provider), ledger, item)).resolves.toBeUndefined()
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toEqual([])
+
+    provider.onPut = () => { throw new Error('connection reset') }
+    await submitVideoMethod(clientFor(provider), ledger, item)
+    const reopened = new JubianLedger({ root: join(root, 'ledger') })
+    provider.calls.length = 0
+    await expect(reconcileRecordedVideo(clientFor(provider), reopened, item)).resolves.toMatchObject({
+      replayed: true, outcome: 'unknown', status: 'reconcile_required', task_id: null,
+    })
+    provider.tasks.push({ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 })
+    provider.subtasks['335343'] = [savedChild(provider)]
+    await expect(reconcileRecordedVideo(clientFor(provider), reopened, item)).resolves.toMatchObject({
+      replayed: true, outcome: 'unknown', status: 'submitted', task_id: '335343',
+    })
+    expect(putCalls(provider)).toEqual([])
+    expect(await reopened.records()).toHaveLength(1)
+  })
+
+  it('reads remaining child pages before claiming the original video task', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const item = { preview_path: previewPath, idempotency_key: idempotencyKey }
+    const { payload } = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    await ledger.begin({ idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit',
+      requestSha256: bodyHash(payload) })
+    provider.tasks.push({ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 })
+    const matching = childOf(payload)
+    const additional = childOf(payload, { id: 972950 })
+    const replay = () => submitVideoMethod(clientFor(provider), ledger, item)
+    provider.subtaskPage = (_, page) => ({ total: 2, rows: [page === 1 ? matching : additional] })
+    await expect(replay()).resolves.toMatchObject({
+      replayed: true, status: 'reconcile_conflict', task_id: null,
+    })
+    expect(provider.calls.some(call => call.path.includes('/task/sub/list?pageNum=2'))).toBe(true)
+
+    provider.subtaskPage = () => ({ total: 2, rows: [matching] })
+    await expect(replay()).rejects.toThrow('unique child IDs')
+    provider.subtaskPage = (_, page) => page === 1 ? { total: 2, rows: [matching] } : { total: 3, rows: [additional] }
+    await expect(replay()).rejects.toThrow('total changed')
+
+    provider.subtaskPage = () => [matching]
+    await expect(replay()).resolves.toMatchObject({
+      replayed: true, status: 'submitted', task_id: '335343',
+    })
+    expect(putCalls(provider)).toEqual([])
+  })
+
+  it('forwards cancellation to every reconciliation read and rejects an already-aborted read', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const item = { preview_path: previewPath, idempotency_key: idempotencyKey }
+    const { payload } = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    await ledger.begin({ idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit',
+      requestSha256: bodyHash(payload) })
+    provider.tasks = [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 }]
+    provider.subtasks['335343'] = [childOf(payload)]
+    const transport = vi.fn(transportFor(provider))
+    const client = new JubianClient({ credential: async () => 'token', fetch: transport })
+    const controller = new AbortController()
+    await expect(reconcileRecordedVideo(client, ledger, item, controller.signal))
+      .resolves.toMatchObject({ replayed: true, status: 'submitted', task_id: '335343' })
+    expect(transport.mock.calls).toHaveLength(3)
+    expect(transport.mock.calls.every(([, init]) => init?.signal instanceof AbortSignal)).toBe(true)
+    controller.abort()
+    await expect(reconcileRecordedVideo(client, ledger, item, controller.signal)).rejects.toMatchObject({ name: 'AbortError' })
+    expect(transport.mock.calls).toHaveLength(3)
+    expect(putCalls(provider)).toEqual([])
+  })
+
+  it.each(['singleton', 'null', 'list', 'id-alias'] as const)
+  ('reconciles a %s child envelope without another submission', async (shape) => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const { payload } = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    await ledger.begin({ idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit', requestSha256: bodyHash(payload) })
+    provider.tasks = [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 }]
+    const child = childOf(payload)
+    provider.subtaskPage = () => shape === 'singleton' ? child : shape === 'null' ? null
+      : shape === 'list' ? { list: [child], hasMore: false }
+        : { rows: [{ ...child, id: null, subTaskId: '972949' }], hasMore: false }
+    const result = await reconcileRecordedVideo(clientFor(provider), ledger,
+      { preview_path: previewPath, idempotency_key: idempotencyKey })
+    expect(result?.status).toBe(shape === 'null' ? 'reconcile_conflict' : 'submitted')
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toHaveLength(1)
+  })
+
+  it.each([
+    { label: 'total-only', page: { total: 1 }, error: 'expected envelope' },
+    { label: 'hasMore-only', page: { hasMore: false }, error: 'expected envelope' },
+    { label: 'non-scalar child ID', page: { rows: [{ id: {} }], hasMore: false }, error: 'unique child IDs' },
+    { label: 'blank child ID', page: { rows: [{ id: '  ' }], hasMore: false }, error: 'unique child IDs' },
+    { label: 'premature end', page: { total: 2, rows: [{ id: 1 }], hasMore: false }, error: 'do not match their total' },
+    { label: 'empty total page', page: { total: 2, rows: [], hasMore: true }, error: 'do not match their total' },
+    { label: 'empty continuing page', page: { rows: [], hasMore: true }, error: 'empty before the last page' },
+  ])('refuses $label subtask evidence without writing another intent', async ({ page, error }) => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const { payload } = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    await ledger.begin({ idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit', requestSha256: bodyHash(payload) })
+    provider.tasks = [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 }]
+    provider.subtaskPage = () => page
+    await expect(reconcileRecordedVideo(clientFor(provider), ledger,
+      { preview_path: previewPath, idempotency_key: idempotencyKey })).rejects.toThrow(error)
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toHaveLength(1)
+  })
+
+  it('stops subtask reconciliation after the provider keeps promising more pages', async () => {
+    const provider: FakeProvider = { calls: [], storyboard: STORYBOARD, tasks: [], subtasks: {} }
+    const { previewPath, idempotencyKey } = await prepared(provider)
+    const { payload } = JSON.parse(await readFile(previewPath, 'utf8')) as NativeVideoPreview
+    await ledger.begin({ idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit', requestSha256: bodyHash(payload) })
+    provider.tasks = [{ id: 335343, scriptId: 2708, storyboardId: 916953, taskType: 1 }]
+    provider.subtaskPage = (_, page) => ({ rows: [{ id: page }], hasMore: true })
+    await expect(reconcileRecordedVideo(clientFor(provider), ledger,
+      { preview_path: previewPath, idempotency_key: idempotencyKey })).rejects.toThrow('page limit')
+    expect(provider.calls.filter(call => call.path.includes('/task/sub/list?'))).toHaveLength(20)
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toHaveLength(1)
   })
 
   it('does not expose an unexpected local exception in the submission result', async () => {
@@ -1890,6 +2275,33 @@ describe('submit_video_batch', () => {
     expect(replay.results.map(item => item.replayed)).toEqual([true, true])
   })
 
+  it('keeps distinct storyboards with a shared parent task unresolved on submission and replay', async () => {
+    const { provider, items } = await batch(3)
+    const sharedId = 335343
+    const independentId = 335345
+    provider.onPut = (payload) => {
+      const storyboardId = Number(payload.id)
+      const taskId = storyboardId === 916955 ? independentId : sharedId
+      if (!provider.tasks.some(task => task.id === taskId)) {
+        provider.tasks.push({ id: taskId, scriptId: 2708, taskType: 1 })
+      }
+      const children = provider.subtasks[String(taskId)] ??= []
+      children.push(childOf(payload, { id: storyboardId + 200000, aigcVideoTaskId: taskId, storyboardId }))
+    }
+    const verdicts = [
+      { status: 'reconcile_required', task_id: null, ambiguous_task_id: String(sharedId), outcome: 'accepted' },
+      { status: 'reconcile_required', task_id: null, ambiguous_task_id: String(sharedId), outcome: 'accepted' },
+      { status: 'submitted', task_id: String(independentId), outcome: 'accepted' },
+    ]
+    const first = await submitVideoBatchMethod(clientFor(provider), ledger, { items })
+    expect(first).toMatchObject({ submitted: 1, reconcile_required: 2, results: verdicts })
+    expect(putCalls(provider)).toHaveLength(3)
+
+    const replay = await submitVideoBatchMethod(clientFor(provider), ledger, { items })
+    expect(replay).toMatchObject({ submitted: 1, reconcile_required: 2, results: verdicts })
+    expect(putCalls(provider)).toHaveLength(3)
+  })
+
   it('keeps one unknown result on its original key and never resends the batch', async () => {
     const { provider, items } = await batch()
     provider.onPut = (payload) => {
@@ -2316,6 +2728,28 @@ it('quarantines multiple known old-format keys without claiming a new exact-form
     idempotency_key: preview.idempotencyKey }] })).rejects.toThrow('recorded original key')
   expect(putCalls(provider)).toEqual([])
   expect(await ledger.records()).toEqual(recorded)
+})
+
+it('reconciles a previously trimmed multiline prompt without submitting its preserved-whitespace version again', async () => {
+  const prompt = `  ${PROMPT}\r\n【镜头1】\r\n陆沉舟说：“明天徐耀会来。”  `
+  const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+    modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) } }
+  const client = clientFor(provider)
+  const preview = await prepareVideoMethod(client, ledger, { storyboard_id: 916953, project_dir: await project() })
+  const payload = preview.payload as Record<string, unknown>
+  const config = JSON.parse(String(payload.modelConfig)) as Record<string, unknown>
+  const originalPayload = { ...payload, modelConfig: JSON.stringify({ ...config, prompt: prompt.trim() }) }
+  const originalKey = stableSha256(submissionSemantics(originalPayload))
+  expect(originalKey).not.toBe(preview.idempotencyKey)
+  await ledger.begin({ idempotencyKey: originalKey, method: 'storyboard_native_submit', scriptId: 2708,
+    requestSha256: bodyHash(originalPayload), quotedAmount: '1.00', quoteUnit: 'CNY' })
+  expect(await submitVideoMethod(client, ledger, { preview_path: String(preview.preview_path),
+    idempotency_key: String(preview.idempotencyKey) })).toMatchObject({
+    status: 'reconcile_conflict', put_sent: false, original_idempotency_key: originalKey,
+  })
+  expect(putCalls(provider)).toEqual([])
+  expect(await ledger.records()).toHaveLength(1)
+
 })
 
 it.each([false, true])('retains old-key reconciliation when a normalized preview reads reordered child=%s', async (reordered) => {

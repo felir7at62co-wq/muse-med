@@ -133,6 +133,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   sessionProjectionCache: 'session-projection.md',
   sessionProjections: 'session-projection.md',
   workingDirectory: 'working-directory.md',
+  generationWorkspaceAuthority: 'settings.md',
   worktrees: 'worktrees.md',
   forge: 'forge.md',
   forgePanel: 'forge.md',
@@ -324,6 +325,7 @@ export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
  * appear on more than one page.
  */
 export const LINK_MAP: Readonly<Record<string, string>> = {
+  WorkingDirectoryGuard: 'working-directory.md',
   Principal: 'typert.md',
   PrincipalMap: 'typert.md',
   RemoteAccessResource: 'typert.md',
@@ -1016,6 +1018,8 @@ export const FOUNDATION_TYPE_NAMES: ReadonlySet<string> = new Set([
 
 /** Project types deliberately documented outside the subsystems catalog. */
 export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
+  GenerationWorkspaceIdentity: 'original generation membership fields are owned by packages/jubian/tool-jubian/README.md and src/generation-binding.ts',
+  GenerationWorkspaceLease: 'generation owner lease lifetimes are owned by packages/jubian/tool-jubian/README.md and src/generation-binding.ts',
   MuseMarketDefaults: 'Skill publication defaults are owned by packages/host/muse-market/README.md and src/types.ts',
   MuseMarketDefaultInput: 'Skill publication default changes are owned by packages/host/muse-market/README.md and src/types.ts',
   MuseMarketBindingRequest: 'Session Skill selection queries are owned by packages/host/muse-market/README.md and src/types.ts',

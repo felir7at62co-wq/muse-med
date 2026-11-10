@@ -118,6 +118,13 @@ interface Agent {
   send(message: UserMessage, target: InboxTarget, wakeup: boolean): void
 
   /**
+   * Wake the driver for an identified message already in the durable inbox.
+   * @param messageId - the pending message to resume.
+   * @returns whether the message was still pending when checked.
+   */
+  wakePending?(messageId: MessageId): boolean
+
+  /**
    * Queue an ordinary follow-up turn and wake the driver. The item becomes the
    * sole ordinary message of its own turn.
    * @param message - identified prompt content and the source that supplied it.
@@ -219,6 +226,18 @@ Step preparation requires `provider` and `model` before prompt assembly. The dep
 `AgentLoop` registers `modelSelection` on `ctx.sessionProjections` and exposes selection operations through each `agent.model` instance. `model/selection` records a complete choice without entering model history. A matching request header clears `pending`; the latest request remains `lastUsed`. Adapter-defaulted effort is omitted so later requests resolve the default again. `next` is null only before either a choice or a request is recorded; in that case `AgentOptions` supplies the route. The [Agent model API](../../packages/core/agent/README.md) describes selection precedence and resume policy.
 
 ```ts type-equiv
+/** A cancellable same-process hold on one complete model selection. */
+interface ModelSelectionGuard {
+  /** Aborted when the owner cancels, releases, or a direct mutation is detected. */
+  readonly signal: AbortSignal
+  /** Verify that this guard is held and the current selection still matches. */
+  assertCurrent(): void
+  /** Release the hold. Repeated release is harmless. */
+  release(): void
+}
+```
+
+```ts type-equiv
 /** Agent-owned access to the model choice for future steps. */
 interface Model {
   /**
@@ -239,6 +258,17 @@ interface Model {
    */
   select(selection: Readonly<ModelSelection>): void
 
+  /**
+   * Hold the current selection until release or owner cancellation.
+   * A provider without this capability cannot participate in guarded continuation.
+   * Direct Session/options mutation is detected by `assertCurrent` or `current`;
+   * consumers must revalidate after awaited preparation and before side effects.
+   * This hold grants no Session, workspace, filesystem or provider authorization.
+   * @param expected - Exact provider, model and explicit effort required by the owner.
+   * @param signal - Owner lifetime; cancellation releases the hold.
+   * @returns the held selection check and cancellation signal.
+   */
+  guard?(expected: Readonly<ModelSelection>, signal: AbortSignal): ModelSelectionGuard
 }
 ```
 

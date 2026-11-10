@@ -32,7 +32,7 @@ export async function apply(ctx) {
         let code = 0
         try {
         if (command === 'project-delivery-fixture-ffprobe') {
-          assert.ok(['source.mp4', 'candidate.mp4'].includes(basename(args.at(-1))))
+          assert.ok(['source.mp4', 'shot_001.mp4', 'candidate.mp4'].includes(basename(args.at(-1))))
           writeSync(options.stdio[1], JSON.stringify({
             streams: [
               { codec_type: 'video', codec_name: 'h264', width: 480, height: 854,

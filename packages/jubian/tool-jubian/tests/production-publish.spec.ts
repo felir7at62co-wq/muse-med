@@ -36,7 +36,7 @@ async function fixture() {
     if (args.method === 'create') return { data: { id: 11 } }
     if (args.method === 'edit_preview' || args.method === 'audio_preview') {
       const prompt = args.method === 'audio_preview' ? args.prompt : args.changes?.prompt
-      state.card.modelConfig = JSON.stringify({ ...model, prompt })
+      state.card.modelConfig = JSON.stringify({ ...model, prompt, materialList: state.card.storyboardMaterialList })
       return { preview_path: 'frozen-preview', fingerprint: 'frozen-fingerprint' }
     }
     return { status: 'applied', verified_readback: true }
@@ -115,16 +115,52 @@ it('returns unresolved voice IDs and refuses final selector or image identity mi
   expect(await f.publish()).toMatchObject({ status: 'readback_mismatch' })
 })
 
-it('preserves existing audio markers during text editing and explicitly removes unselected audio afterward', async () => {
+const savedAudio = [{ materialType: 'audio', materialKey: 'voice_401', materialUrl: 'https://cdn.example.test/voice.wav',
+  fileName: '苏晚', sortOrder: 1, audioDuration: 2 }, { materialType: 'audio', materialKey: 'old_voice',
+  materialUrl: 'https://cdn.example.test/v.wav', materialName: '旧声音', sortOrder: 2, audioDuration: 3 }]
+const matchingVoice = { asset_id: 401, kind: 'voice' as const, name: '苏晚', url: 'https://cdn.example.test/voice.wav',
+  material_id: null, usable: true, duration_seconds: 2 }
+
+it('preserves an explicitly absent optional audio name across an exact publication readback', async () => {
   const f = await fixture()
-  const audio = { materialType: 'audio', materialKey: 'old_voice', materialUrl: 'https://cdn.example.test/v.wav', materialName: '旧声音' }
-  f.state.card.storyboardMaterialList = [audio]
+  f.state.card.storyboardMaterialList = [{ ...savedAudio[0], materialName: null }]
   f.input.expected_snapshot_sha256 = (await productionCard(f.client, 11)).sha256
   expect(await f.publish()).toMatchObject({ status: 'saved' })
+  expect(f.state.card.storyboardMaterialList[0]?.materialName).toBeNull()
+})
+
+it.each([
+  { name: 'omitted', voices: [], unbound: [] },
+  { name: 'unresolved', voices: [{ ...matchingVoice, asset_id: 402, usable: false }], unbound: [402] },
+  { name: 'partial with another candidate', voices: [matchingVoice, { ...matchingVoice, asset_id: 402 }], unbound: [402] },
+])('keeps every existing audio row and marker when a plan voice is $name', async ({ voices, unbound }) => {
+  const f = await fixture()
+  f.state.card.storyboardMaterialList = structuredClone(savedAudio)
+  f.input.voices = voices
+  f.input.expected_snapshot_sha256 = (await productionCard(f.client, 11)).sha256
+  expect(await f.publish()).toMatchObject({ status: 'saved', unbound_voice_ids: unbound })
   const edit = commands.run.mock.calls.find(call => call[2].method === 'edit_preview')?.[2]
-  expect(edit?.changes).toMatchObject({ prompt: '正文\n声音参考：@[旧声音](old_voice)' })
-  const replacement = commands.run.mock.calls.find(call => call[2].method === 'audio_preview')?.[2]
-  expect(replacement?.audio_references).toEqual([])
+  expect(edit?.changes).toMatchObject({ prompt: '正文\n声音参考：@[苏晚](voice_401)、@[旧声音](old_voice)' })
+  expect(commands.run.mock.calls.map(call => call[2].method)).toEqual(['edit_preview', 'edit_apply', 'select_assets'])
+  expect(f.state.card.storyboardMaterialList).toEqual(savedAudio)
+})
+
+it.each(['edit', 'model selection'] as const)('rejects lost audio in the %s readback', async (step) => {
+  const f = await fixture()
+  f.state.card.storyboardMaterialList = structuredClone(savedAudio)
+  f.input.expected_snapshot_sha256 = (await productionCard(f.client, 11)).sha256
+  const original = commands.run.getMockImplementation()!
+  commands.run.mockImplementation(async (client, ledger, args) => {
+    const result = await original(client, ledger, args)
+    if (step === 'edit' && args.method === 'edit_apply') f.state.card.storyboardMaterialList = []
+    if (step === 'model selection' && args.method === 'select_assets') {
+      f.state.card.modelConfig = JSON.stringify({ ...JSON.parse(f.state.card.modelConfig), materialList: [] })
+    }
+    return result
+  })
+  expect(await f.publish()).toMatchObject({ status: 'readback_mismatch' })
+  expect(commands.run.mock.calls.map(call => call[2].method)).toEqual(step === 'edit'
+    ? ['edit_preview', 'edit_apply'] : ['edit_preview', 'edit_apply', 'select_assets'])
 })
 
 it('hashes a readable legacy card with an absent episode field without inventing its identity', async () => {

@@ -22,10 +22,11 @@ flowchart LR
   svc_agentNotes["ctx.agentNotes<br/>Configured Agent Notes editor"]
   pkg_api_remotes["api-remotes"]
   pkg_client_ui_agent_notes["client-ui-agent-notes"]
+  svc_generationWorkspaceAuthority["ctx.generationWorkspaceAuthority<br/>Original generation workspace membership"]
+  pkg_desktop_host["desktop-host"]
   svc_jubianVideoSelection["ctx.jubianVideoSelection<br/>Conversation video generation settings"]
   svc_jubianVideoRecovery["ctx.jubianVideoRecovery<br/>Original-key video recovery and review"]
   svc_approvedEpisodeRenderer["ctx.approvedEpisodeRenderer<br/>Approved episode renderer"]
-  pkg_desktop_host["desktop-host"]
   svc_jubianEpisodeDelivery["ctx.jubianEpisodeDelivery<br/>Approved episode admission and publication"]
   svc_jubianImage["ctx.jubianImage<br/>Jubian account image routes"]
   pkg_drama_settings["drama-settings"]
@@ -401,6 +402,7 @@ flowchart LR
   pkg_deepseek_account_platform --> svc_deepseekAccount
   pkg_deepseek_llm_api_extensions --> svc_deepseekLlmApiExtensions
   pkg_desktop_host --> svc_approvedEpisodeRenderer
+  pkg_desktop_host --> svc_generationWorkspaceAuthority
   pkg_dsh_bridge --> svc_museDesktopBridge
   pkg_experimental_agent_team --> svc_agentTeams
   pkg_experimental_api_speech_to_text --> svc_speechController
@@ -517,6 +519,7 @@ flowchart LR
   pkg_tool_character_reference --> svc_characterReferenceAuthority
   pkg_tool_discovery --> svc_toolDiscovery
   pkg_tool_jubian --> svc_approvedEpisodeRenderer
+  pkg_tool_jubian --> svc_generationWorkspaceAuthority
   pkg_tool_jubian --> svc_jubianEpisodeDelivery
   pkg_tool_jubian --> svc_jubianImage
   pkg_tool_jubian --> svc_jubianToken
@@ -591,6 +594,8 @@ flowchart LR
   svc_forge --> pkg_experimental_forge_session
   svc_forgeSession --> pkg_experimental_client_ui_forge
   svc_fs --> pkg_tool_fs
+  svc_generationWorkspaceAuthority --> pkg_desktop_host
+  svc_generationWorkspaceAuthority --> pkg_tool_jubian
   svc_headlessStartup --> pkg_headless
   svc_hmr --> pkg_app_boot
   svc_jobs --> pkg_api_job_controller
@@ -733,6 +738,7 @@ flowchart LR
 | `ctx.characterLibraryObjectStore` | `seam` | [`character-library`](../packages/drama/character-library) | [`character-library-tos`](../packages/drama/character-library-tos) | [`character-library`](../packages/drama/character-library) | - | 通过 Host 管理的凭据，列出固定历史前缀下的对象、读取 metadata，并获取有界图片字节。 |
 | `ctx.characterReferenceAuthority` | `service` | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | 为托管参考图使用重新读取当前项目、登记角色和 Catalog 图片摘要；不授予图片使用权。 |
 | `ctx.agentNotes` | `core` | [`api-agent-notes`](../packages/api/agent-notes) | - | [`api-remotes`](../packages/api/remotes), `client-ui-agent-notes` | - | 在配置根目录内列出和编辑已有笔记，使用文件系统版本检查；浏览器通过 Typert Remote 接收笔记内容。 |
+| `ctx.generationWorkspaceAuthority` | `seam` | [`tool-jubian`](../packages/jubian/tool-jubian) | `desktop-host` | [`tool-jubian`](../packages/jubian/tool-jubian), `desktop-host` | - | 在原生 Session 的提交、自动续聊或严格来源复验发布期间，持有独占的持久工作区成员关系；所有权缺失或变化时拒绝受理。 |
 | `ctx.jubianVideoSelection` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | 记录用户选择的视频规格，追加上下文，并按会话选择校验新的生成提交。 |
 | `ctx.jubianVideoRecovery` | `core` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | [`tool-jubian`](../packages/jubian/tool-jubian) | - | 通过提供方只读查询核对原始视频提交，检查捕获媒体，并交付明确批准的 MP4 原字节，不会发起新的生成。 |
 | `ctx.approvedEpisodeRenderer` | `seam` | [`tool-jubian`](../packages/jubian/tool-jubian) | `desktop-host` | [`tool-jubian`](../packages/jubian/tool-jubian) | - | Desktop Host 捕获渲染配置并管理媒体进程；整集服务消费已批准输入，不发起新的视频生成。 |

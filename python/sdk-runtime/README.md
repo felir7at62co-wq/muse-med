@@ -56,7 +56,7 @@ Unsupported platforms and missing executables or sidecars raise `FileNotFoundErr
 
 ## Packaged profile resolution
 
-`dsh` initializes shipped profiles under the explicit home, composes their bundle patches, and loads bundled plugins from the executable's virtual filesystem. Runtime resolution uses an in-memory generation instead of disk symlinks or proxy packages. Fallback imports use recorded declaring-package paths, including paths inside the executable's virtual filesystem, so built-in rows and external plugin peers share the bundled Cordis/module instance. Native shared libraries and Windows ConPTY addons are packaged with native addons, while ripgrep and the macOS PTY helper remain executable sidecars.
+`dsh` initializes shipped profiles under the explicit home, composes their bundle patches, and loads bundled plugins from the executable's virtual filesystem. Runtime resolution uses an in-memory generation instead of disk symlinks or proxy packages. Fallback imports use recorded declaring-package paths, including paths inside the executable's virtual filesystem, so built-in rows and external plugin peers share the bundled Cordis/module instance. Native shared libraries and Windows ConPTY addons are packaged with native addons, while ripgrep and the macOS PTY helper remain executable sidecars. On Windows, the runtime resolves embedded native addon paths independently of the working directory's drive.
 
 The same virtual file uses one module URL across Windows drives. URL queries and fragments retain their meaning; file URLs outside the virtual `/snapshot` tree, including network shares, keep their resolver result.
 

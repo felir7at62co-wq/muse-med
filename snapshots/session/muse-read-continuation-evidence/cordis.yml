@@ -1,3 +1,13 @@
+# Native read metadata does not depend on a platform confinement backend.
+- id: sandbox
+  config:
+    runnerCommand:
+      - bash
+      - -c
+      - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+      - passthrough-runner
+    runnerFailureSignatures:
+      - 'passthrough-runner: profile rejected'
 - id: llm-deepseek
   disabled: true
 - id: agent-instructions

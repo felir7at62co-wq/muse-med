@@ -69,7 +69,15 @@ vi.mock('electron', () => ({
     setAppLogsPath: vi.fn(),
     getPreferredSystemLanguages: () => ['en-US'],
     on: (name: string, callback: (...args: unknown[]) => void) => { state.appListeners.set(name, callback) },
-    once: (name: string, callback: (...args: unknown[]) => void) => { state.appListeners.set(name, callback) },
+    once: (name: string, callback: (...args: unknown[]) => void) => {
+      const previous = state.appListeners.get(name)
+      state.appListeners.set(name, (...args) => {
+        if (previous === undefined) state.appListeners.delete(name)
+        else state.appListeners.set(name, previous)
+        previous?.(...args)
+        callback(...args)
+      })
+    },
     quit: state.quit,
     exit: vi.fn(),
   },

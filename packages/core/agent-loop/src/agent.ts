@@ -19,7 +19,7 @@ import type {
   RequestErrorAction,
 } from '@deepseek-ai/dsh-agent'
 import { AgentModel, agentEvents, assembleContextFor } from '@deepseek-ai/dsh-agent'
-import type { GenerateOptions, LlmCallConfig, Message, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmCallConfig, Message, MessageId, PreparedLlmCall } from '@deepseek-ai/dsh-llm'
 import {
   LlmError,
   createAssistantMessage,
@@ -176,6 +176,13 @@ export class ReactLoopAgent implements Agent {
     if (wakeup) this.wakeDriver(wakingAfterAbort)
   }
 
+  wakePending(messageId: MessageId): boolean {
+    if (!this.inbox.nextTurn.some(message => message.id === messageId)
+      && !this.inbox.nextStep.some(message => message.id === messageId)) return false
+    this.wakeDriver(this.phase.kind !== 'idle' && this.phase.abort.signal.aborted)
+    return true
+  }
+
   followup(input: UserMessage): void {
     this.send(input, 'next-turn', true)
   }
@@ -284,7 +291,8 @@ export class ReactLoopAgent implements Agent {
     /* v8 ignore next -- private callers establish the running phase before proposing a step */
     if (this.phase.kind !== 'running') throw new Error(`agent "${this.id}": pre-step outside running phase`)
     const signal = this.phase.abort.signal
-    const claimed = this.inbox.claim(target, position.turn)
+    const durableClaim = this.loopCtx.agentLoop.config.durableInboxClaims === true
+    const claimed = durableClaim ? this.inbox.claimDurably(target, position.turn, position.step) : this.inbox.claim(target, position.turn)
     const selection = this.model.current()
     if (selection === undefined) {
       throw new Error(`agent "${this.id}" has no provider/model: set AgentOptions.provider and AgentOptions.model or record a model selection`)
@@ -306,9 +314,11 @@ export class ReactLoopAgent implements Agent {
       )
       signal.throwIfAborted()
       if (decision.kind === 'reject') {
+        if (durableClaim) this.inbox.filterClaim(position.turn, position.step, [])
         toolSet.dispose()
         return decision
       }
+      if (durableClaim) this.inbox.filterClaim(position.turn, position.step, decision.messages)
       return { ...decision, assembly, selection, toolSet }
     } catch (error: unknown) {
       toolSet.dispose()
@@ -481,6 +491,7 @@ export class ReactLoopAgent implements Agent {
       if (context !== undefined && !contextAdmitted) {
         this.session.append('user/message', context, { surfaceOp: 'append' })
       }
+      if (firstAttempt && this.loopCtx.agentLoop.config.durableInboxClaims === true) this.inbox.settleClaim(turn, step)
       firstAttempt = false
       const request = this.buildRequest(config, preparedCall, assembly.tools, { turn, step }, startsRequestSeries, signal)
       const live = new AssistantStreamAttempt(

@@ -556,12 +556,27 @@ describe('tool-jubian registration', () => {
 
 it.each([
   { sessionVideoSelection: 'yes' },
+  { generationWatch: 'yes' },
   { defaultVideoModel: { modelId: 'm', platformId: 'p', resolution: '480p' } },
   { sessionVideoSelection: true, defaultVideoModel: null },
   { sessionVideoSelection: true, defaultVideoModel: { modelId: '', platformId: 'p', resolution: '480p' } },
   { imageAllowedStandardIds: [] }, { imageAllowedStandardIds: [1, 1] }, { imageAllowedStandardIds: [0] },
 ])('rejects malformed deployment selections before registering tools: %j', async (raw) => {
   await expect(mount({ config: JSON.parse(JSON.stringify(raw)) as Partial<Config> })).rejects.toThrow()
+})
+
+it('keeps reads and preparation outside paid-watch enrollment and refuses submission without a Host controller', async () => {
+  const executor = vi.spyOn(Methods, 'storyboardMethod').mockResolvedValue({ status: 'prepared' })
+  onTestFinished(() => { executor.mockRestore() })
+  const { registered } = await mount({ config: { generationWatch: true } })
+  const board = registered.find(tool => tool.name === 'jubian_storyboard')!
+  const signal = new AbortController().signal, agent = {}
+  await expect(board.execute({ method: 'get', storyboard_id: 1 }, { agent, signal })).resolves.toMatchObject({ status: 'prepared' })
+  await expect(board.execute({ method: 'generate', storyboard_id: 1 }, { agent, signal })).resolves.toMatchObject({ status: 'prepared' })
+  expect(executor).toHaveBeenCalledTimes(2)
+  await expect(board.execute({ method: 'submit_video', preview_path: '/unused/preview.json', idempotency_key: 'original' }, { agent, signal }))
+    .rejects.toThrow('Generation watch requires the Host Session controller and persistence')
+  expect(executor).toHaveBeenCalledTimes(2)
 })
 it('requires a conversation and an active video-selection service at registered tool entry points', async () => {
   const tools = (await mount({ config: { sessionVideoSelection: true } })).registered

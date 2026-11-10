@@ -1,5 +1,26 @@
-# With 1,800 tokens of headroom, a 1,000-token output reservation lowers the
-# trigger from 6,822 to 5,822, between the history and its condensed replacement.
+# Use the recorded POSIX tool schema and runner on every replay host.
+- id: sandbox
+  config:
+    runnerCommand:
+      - bash
+      - -c
+      - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+      - passthrough-runner
+    runnerFailureSignatures:
+      - 'passthrough-runner: profile rejected'
+- id: bash-sandbox
+  disabled: false
+- id: pwsh-sandbox
+  disabled: true
+- id: tool-bash
+  disabled: false
+- id: tool-pwsh
+  disabled: true
+
+
+# A 9,210-token model with 1,800 headroom tokens triggers at 7,368 without
+# output reservation and at 6,410 with 1,000 output tokens, so only the
+# reserved request compacts the history and preserves the newest tool pair.
 
 
 - id: agent-instructions
@@ -32,7 +53,7 @@
             name: DeepSeek
             models:
               - id: deepseek-v4-flash
-                contextWindow: 8622
+                contextWindow: 9210
                 defaultMaxTokens: 1000
     - id: compaction-working-directory
       name: '../../../packages/test-support/session-snapshot/tests/fixtures/compaction-working-directory.ts'

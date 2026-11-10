@@ -59,6 +59,8 @@ kind: "package-reference"
 
 同步序列化失败会恢复已打开 `single` 单元先前的内存状态，允许在同一句柄上重试。I/O 失败可能发生在文件替换之后，因此写入被拒绝并不能证明磁盘数据或版本戳保持不变。必须停止使用并关闭后端及其领域，然后重新打开以加载已存状态，再决定是否重试。混合记录与降级行为参阅[领域版本](../../../docs/subsystems/storage.zh.md#domain-versioning)。
 
+`jsonUnitSourcePath(backend, descriptor)` 解析活跃 JSON 后端中已声明 `single` 单元的配置位置。`readJsonUnitSource` 读取并校验磁盘上的完整文档，拒绝读取期间的替换或原位修改，仅在文件不存在时返回 undefined 内容。这两个显式迁移辅助函数不读取已打开单元的内存缓存，并拒绝已关闭、非 JSON 和 `per-record` 来源；它们不锁定写入方，也不修改来源数据。
+
 -----
 
 <a id="understand-the-implementation"></a>

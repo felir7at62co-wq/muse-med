@@ -10,6 +10,8 @@ A Session's active directory is owned by [`dsh-working-directory`](../../package
 
 Changes are local to one Session. Relative filesystem operations, newly started processes, instruction discovery, skills, and file completion use the active directory. Existing terminals and persistent shells retain their own directories. Sandbox writable roots and project membership remain anchored to the original project.
 
+`guard(agent, expected, signal)` holds an exact logged directory in this process and returns a `WorkingDirectoryGuard` with the selected `directory`, a cancellation `signal` and an idempotent `release()`. A guarded Session cannot select another directory or recover a missing directory. Cancellation, Session changes and owner disposal release the guard. It does not freeze filesystem contents, models or Workspace membership, or coordinate another process; consumers must hold those owners separately.
+
 ## Model context
 
 The initial value and subsequent current values reach the model as required user-context snapshots, even when optional runtime context is disabled. Each committed change attempts to queue a notice through the ordinary Agent inbox; cancellation or disposal can discard notices before request admission. The directory event survives, and the next admitted request receives the current value. Directory context never enters the system prompt. [`working_directory`](../../packages/session/tool-working-directory/README.md) exposes one optional `cd` argument.
@@ -56,6 +58,17 @@ ensure(agent: Agent, signal?: AbortSignal): Promise<string>
  * @throws when the requested path is not an existing directory.
  */
 set(agent: Agent, path: string, signal?: AbortSignal): Promise<string>
+
+/**
+ * Hold a same-process directory choice until cancellation or release.
+ * This guard does not authenticate the Agent, freeze the model, protect workspace membership,
+ * lock the filesystem or serialize other processes. Consumers must provide those separately.
+ * @param agent - Existing Agent whose effective directory must remain selected.
+ * @param expected - Exact effective directory previously selected by the owner.
+ * @param signal - Owner lifetime; cancellation rejects a queued acquisition or releases a held guard.
+ * @returns The directory and cancellation signal while the guard is held.
+ */
+guard(agent: Agent, expected: string, signal: AbortSignal): Promise<WorkingDirectoryGuard>
 ```
 
 Types: [Agent](core.md) · [Session](session.md)

@@ -179,19 +179,17 @@ describe('subtitleBurnFilter', () => {
   it('doubles the frame for libass and escapes both paths', () => {
     expect(subtitleBurnFilter('C:\\proj\\exports\\display.ass', 'C:\\Windows\\Fonts'))
       .toBe("scale=2880:5120:flags=lanczos,ass='C\\:/proj/exports/display.ass':fontsdir='C\\:/Windows/Fonts',"
-        + 'scale=1440:2560:flags=lanczos,tpad=stop_mode=clone:stop_duration=0.016666667,fps=60,setpts=N/(60*TB)')
+        + 'scale=1440:2560:flags=lanczos,tpad=stop_mode=clone:stop_duration=0.016666667,fps=60')
   })
 
   it('regularizes the frame rate after the burn, never before it', () => {
     const filter = subtitleBurnFilter('/tmp/display.ass', '/tmp/fonts')
     const burn = filter.indexOf('ass=')
-    // The burn works on the source's own time base: a rate change placed before it
-    // does not survive the encode, so both rate filters belong after the burn and
-    // the timestamp rewrite belongs after the rate filter.
+    // Keep the concat timestamps even if a body/ending color change rebuilds the graph.
     expect(burn).toBeGreaterThan(-1)
     expect(filter.indexOf(`fps=${String(DELIVERY_FPS)}`)).toBeGreaterThan(burn)
-    expect(filter.indexOf(`setpts=N/(${String(DELIVERY_FPS)}*TB)`)).toBeGreaterThan(filter.indexOf(`fps=${String(DELIVERY_FPS)}`))
-    expect(filter.endsWith(`fps=${String(DELIVERY_FPS)},setpts=N/(${String(DELIVERY_FPS)}*TB)`)).toBe(true)
+    expect(filter).not.toContain('setpts=')
+    expect(filter.endsWith(`fps=${String(DELIVERY_FPS)}`)).toBe(true)
   })
 })
 

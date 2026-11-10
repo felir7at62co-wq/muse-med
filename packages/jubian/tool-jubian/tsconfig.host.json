@@ -15,6 +15,7 @@
     "src/image.ts",
     "src/image-continuity.ts",
     "src/methods.ts",
+    "src/media-download.ts",
     "src/upscale-price.ts",
     "src/subtitle-price.ts",
     "src/model-settings.ts",
@@ -22,6 +23,7 @@
     "src/storyboard-delete.ts",
     "src/storyboard-delete-tasks.ts",
     "src/storyboard-audio.ts",
+    "src/audio-readback.ts",
     "src/audio-asset-read.ts",
     "src/audio-asset-register.ts",
     "src/voice-slot.ts",
@@ -43,6 +45,12 @@
     "src/types.ts",
     "src/write.ts",
     "src/watch.ts",
+    "src/generation-watch.ts",
+    "src/generation-binding.ts",
+    "src/generation-watch-native-delivery.ts",
+    "src/generation-watch-store.ts",
+    "src/generation-watch-attestor.ts",
+    "src/generation-watch-delivery.ts",
     "src/video-session.ts",
     "src/video-session-types.ts",
     "src/video-sources.ts",
@@ -60,8 +68,13 @@
     "src/episode-ui-config.ts"
   ],
   "references": [
+    { "path": "../../core/agent-loop" },
+    { "path": "../../workspace/workspace" },
     {
       "path": "../../host/webserver"
+    },
+    {
+      "path": "../../api/session-controller/tsconfig.host.json"
     },
     {
       "path": "../../host/muse-account/tsconfig.host.json"

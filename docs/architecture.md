@@ -2,25 +2,25 @@
 
 English | [中文](architecture.zh.md)
 
-Read this before changing anything under `packages/`. It assumes you know Cordis; if you do not, start with the [primer](cordis-primer.md) or the [tutorial](cordis-tutorial/index.md).
+Read before changing `packages/`; start with the [primer](cordis-primer.md) or [tutorial](cordis-tutorial/index.md) if Cordis is unfamiliar.
 
 ## Cordis
 
-[Cordis](cordis-primer.md) is the framework under dsh: plugins contribute services, typed events, and reversible effects to a shared context. Every part of the product is a plugin, including the model adapter, the tool registry, the session log, and the agent loop itself, so each is replaceable from configuration.
+[Cordis](cordis-primer.md) plugins contribute services, typed events, and reversible effects to a shared context. Model adapters, tools, Session logs, and the agent loop are plugins replaceable through configuration.
 
-There is no privileged core to patch: you extend dsh by mounting a plugin beside the others, and registrations are effects that unwind when their plugin unloads.
+Extend dsh by mounting plugins, without a privileged core patch. Registrations unwind when their plugin unloads.
 
 ## Profiles and bundles
 
 A running `dsh` is a plugin tree composed at boot from ordered layers.
 
-A **profile** is a named composition stored in the Harness home. It lists the bundles it stacks, holds any out-of-tree plugins it installs, and keeps the user's own `cordis.patch.yml`. `web`, `headless`, `sdk`, `sdk-minimal`, and `acp` ship as templates.
+A **profile**, stored in the Harness home, lists its bundles, holds installed out-of-tree plugins, and keeps the user's `cordis.patch.yml`. Templates include `web`, `headless`, `sdk`, `sdk-minimal`, and `acp`.
 
-A **bundle** is a distribution format for Cordis config rows and the code they mount, so whatever it inserts stays patchable by the layers above it.
+A **bundle** distributes Cordis rows and their code; later layers can patch them.
 
-Each declares itself in its own `package.json` under a `dsh` field: `dsh.profile` lists a profile's bundles, and `dsh.bundle` points at a bundle's patch file.
+Their `package.json` fields declare `dsh.profile` bundle lists and `dsh.bundle` patch paths.
 
-[`dsh-base`](../packages/bundle/base/README.md) is the shared first layer of the `web`, `headless`, `sdk`, and `acp` profiles: model adapters, tools, persistence, sandbox and approval policy, settings, credentials, telemetry. [`dsh-web-app`](../packages/bundle/web-app/README.md) adds the browser application, [`dsh-headless`](../packages/bundle/headless/README.md) adds a one-shot runner with no server, [`dsh-sdk-app`](../packages/bundle/sdk-app/README.md) adds the SDK JSON-RPC server, and [`dsh-acp-app`](../packages/bundle/acp-app/README.md) adds the automation-only ACP server. [`dsh-sdk-minimal`](../packages/bundle/sdk-minimal/README.md) is the deliberate exception: one bundle owns its complete explicit SDK tree and does not apply `dsh-base`.
+[`dsh-base`](../packages/bundle/base/README.md) provides model adapters, tools, persistence, sandbox and approval policy, settings, credentials, and telemetry for `web`, `headless`, `sdk`, and `acp`. Their next layers provide the [browser application](../packages/bundle/web-app/README.md), [one-shot runner without a server](../packages/bundle/headless/README.md), [SDK JSON-RPC server](../packages/bundle/sdk-app/README.md), and [automation-only ACP server](../packages/bundle/acp-app/README.md), respectively. [`dsh-sdk-minimal`](../packages/bundle/sdk-minimal/README.md) instead owns its complete SDK tree without `dsh-base`.
 
 Layers apply to an empty entry list: the profile's ordered bundles, its `cordis.patch.yml`, the home patch, then `--patch` overlays. A patch targets a row by id and replaces its whole config, or inserts new rows. A `preset` patch applies these operations inside that declaration’s `config.plugins`, with the same layer precedence.
 
@@ -40,15 +40,15 @@ Composition mechanics are in [app-boot](../packages/boot/app-boot/README.md#prof
 
 ## Application launch
 
-Supported Node applications launch through named `dsh` profiles. The shipped profiles are `web`, `headless`, `sdk`, `sdk-minimal`, and `acp`, selected with `dsh --profile <name>` or `dsh <name>`. `plugin` names the management command; a profile with that name requires `--profile plugin`. The TypeScript SDK resolves its same-version `dsh` dependency and selects `sdk`; custom plugin composition remains a profile plus ordered patch files, not another executable or inline application tree. `sdk-minimal` is a repository-owned standalone bundle behind the same launcher, not a caller-supplied Cordis tree.
+Node applications launch through the shipped profiles with `dsh --profile <name>` or `dsh <name>`. Since `plugin` names the management command, a profile with that name requires `--profile plugin`. The TypeScript SDK selects `sdk` from its same-version `dsh` dependency. Custom composition uses profiles and ordered patches, not another executable or inline application tree. The same launcher runs the repository-owned `sdk-minimal` bundle, not a caller-supplied Cordis tree.
 
 Vendored CLIs, build-only and test-only executables, direct in-process plugin mounting, and the private browser WebWorker preview are not Harness application launchers. [`verify-application-entrypoints`](../scripts/verify-application-entrypoints.ts) keeps every package bin, executable source, root demo, and the root `start:web` and `dev:web` scripts in an explicit class and rejects a Node application path that bypasses `dsh`.
 
-The Python SDK follows the same application architecture. Its runtime wheel packages the normal `dsh` CLI as `deepseek-harness-sdk-runtime-<platform>-<arch>`, and the client launches `dsh --profile sdk` with an explicit Harness home by default. The minimal example selects the shipped `sdk-minimal` profile. Python exposes profile selection and ordered patch files rather than a complete Cordis tree; persistent external plugins are installed through `dsh plugin`. The removed private direct-config carrier has no compatibility bin or fallback parser.
+The Python runtime wheel packages `dsh` as `deepseek-harness-sdk-runtime-<platform>-<arch>`. Its client defaults to `dsh --profile sdk` with an explicit Harness home; the minimal example selects `sdk-minimal`. Python exposes profiles and ordered patches rather than a complete Cordis tree; `dsh plugin` installs persistent external plugins. The removed private direct-config carrier has no compatibility bin or fallback parser.
 
 ## Desktop application
 
-The [Electron desktop application](../apps/desktop/README.md) ships its exact dsh production runtime in signed resources and owns the reserved `$DSH_HOME/profiles/desktop`. Shared helpers initialize profile files, reconcile bundles, and resolve installation and bundle dependencies without replacing pnpm-owned packages. Desktop and npm CLI share product data but keep packages, activation, and lockfiles separate. Desktop’s bundled CLI manages its initialized plugins.
+The [Electron application](../apps/desktop/README.md) ships its exact dsh production runtime in signed resources and owns the reserved `$DSH_HOME/profiles/desktop`. Shared helpers initialize profiles and reconcile bundles and dependencies without replacing pnpm-owned packages. Desktop and npm CLI share product data, but separate packages, activation, and lockfiles. The bundled CLI manages Desktop plugins.
 
 Electron starts the private Desktop Host in Electron Node mode. The Host invokes the shared CLI profile runner and complete Web application. The window immediately loads packaged Web assets and waits for boot injections before activating client plugins in the same document. Web owns RPC and streams; the desktop carrier connects the local page to the authenticated Host. Node IPC carries boot injections, readiness, fatal errors, and shutdown. Desktop listens on an OS-assigned port by default; profile configuration can override it. Shell-owned UI runs plugin transactions through bundled pnpm with normal user and profile configuration.
 
@@ -107,7 +107,7 @@ turn/end
 
 Factory setup follows SessionStore entry and `session/created`, preceding `agent/created`; closing events commit before removal.
 
-One inbox feeds the driver; injected context waits for a waking message. AgentLoop’s durable `inbox` projection exposes pending input without live Agents.
+One inbox feeds the driver. Injected context waits for a waking message. AgentLoop’s durable `inbox` projection exposes pending input without live Agents. After restoring an Agent, a delivery plugin can use `wakePending(messageId)` to wake the driver for an already queued message without appending it again.
 
 Before assembly, the loop snapshots Session model selection in `AssembleContext.modelSelection` and `agent/pre-step.modelSelection`; retries retain it; omitted reasoning effort uses adapter defaults. `agent/pre-step` listeners accept, rewrite, or reject claimed messages; a rejected or empty first claim closes a durable turn without a step. An enter decision may set `startsRequestSeries`: the loop logs a fresh `request/header` (reason `series`, or `change` with `startsSeries: true` when the envelope also changed). Wrapping listeners preserve that declaration with `{ ...decision, messages }`. After assembly and `step/start`, the deprecated `agent/request` hook adjusts controls without changing the provider, model, or effort selection, and `prepareCall()` binds the adapter before the system prompt and accepted users are committed; cancellation during either async phase commits neither. Prepared call capabilities govern prompt admission, not preceding `request/context`. Each attempt refreshes registered runtime facts, reconciles the bound prompt, admits users once, and restores removed runtime context, logs header/context as needed, and freezes the request before streaming the bound call. Retries do not repeat assembly or `agent/pre-step`. Surface replacements and image-offload decisions after attachment start a new request series, including during the first resumed pre-step; unchanged resume continues the series. The system prompt travels as `system/message` history: empty text clears it, capable routes append updates, and other routes consolidate it at the first system node. [Agent-loop](../packages/core/agent-loop/README.md#understand-the-implementation) owns prompt admission and replacement details.
 

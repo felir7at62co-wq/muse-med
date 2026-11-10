@@ -150,6 +150,15 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Lists and edits existing notes under the configured root with filesystem version checks; the browser receives note contents through Typert Remote.',
   },
   {
+    key: 'generationWorkspaceAuthority',
+    pkg: 'tool-jubian',
+    title: 'Original generation workspace membership',
+    mode: 'seam',
+    implementations: ['desktop-host'],
+    consumers: ['tool-jubian', 'desktop-host'],
+    note: 'Holds exclusive durable Workspace membership for the original native Session through submission, automatic continuation or strict source-QA publication; missing or changed ownership refuses admission.',
+  },
+  {
     key: 'jubianVideoSelection',
     pkg: 'tool-jubian',
     title: 'Conversation video generation settings',

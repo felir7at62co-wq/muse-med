@@ -50,6 +50,16 @@ export interface CancelOptions {
   keepInbox?: boolean | undefined
 }
 
+/** A cancellable same-process hold on one complete model selection. */
+export interface ModelSelectionGuard {
+  /** Aborted when the owner cancels, releases, or a direct mutation is detected. */
+  readonly signal: AbortSignal
+  /** Verify that this guard is held and the current selection still matches. */
+  assertCurrent(): void
+  /** Release the hold. Repeated release is harmless. */
+  release(): void
+}
+
 /** Agent-owned access to the model choice for future steps. */
 export interface Model {
   /**
@@ -69,6 +79,18 @@ export interface Model {
    * @param selection - complete provider, model, and optional explicit effort.
    */
   select(selection: Readonly<ModelSelection>): void
+
+  /**
+   * Hold the current selection until release or owner cancellation.
+   * A provider without this capability cannot participate in guarded continuation.
+   * Direct Session/options mutation is detected by `assertCurrent` or `current`;
+   * consumers must revalidate after awaited preparation and before side effects.
+   * This hold grants no Session, workspace, filesystem or provider authorization.
+   * @param expected - Exact provider, model and explicit effort required by the owner.
+   * @param signal - Owner lifetime; cancellation releases the hold.
+   * @returns the held selection check and cancellation signal.
+   */
+  guard?(expected: Readonly<ModelSelection>, signal: AbortSignal): ModelSelectionGuard
 }
 
 /** Agent-owned access to pending work; concrete storage belongs to the driver. */
@@ -242,6 +264,13 @@ declare module './types.ts' {
    * @param wakeup - whether delivery may wake the driver.
    */
     send(message: UserMessage, target: InboxTarget, wakeup: boolean): void
+
+    /**
+   * Wake the driver for an identified message already in the durable inbox.
+   * @param messageId - the pending message to resume.
+   * @returns whether the message was still pending when checked.
+   */
+    wakePending?(messageId: MessageId): boolean
 
     /**
    * Queue an ordinary follow-up turn and wake the driver. The item becomes the

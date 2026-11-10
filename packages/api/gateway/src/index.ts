@@ -523,10 +523,11 @@ export class TypertGatewayService extends Service implements TypertGateway {
       const wrapped: AsyncIterableIterator<unknown> = {
         [Symbol.asyncIterator]: () => wrapped,
         next: () => run(() => iterator.next()),
-        return: () => run(async () => await iterator.return?.() ?? { done: true, value: undefined }),
+        return: () => run(async () => iterator.return ? iterator.return() : { done: true, value: undefined }),
         throw: (error?: unknown) => run(async () => {
-          if (iterator.throw === undefined) throw error
-          return iterator.throw(error)
+          if (iterator.throw) return iterator.throw(error)
+          await iterator.return?.()
+          throw error
         }),
       }
       return wrapped
@@ -540,7 +541,7 @@ export class TypertGatewayService extends Service implements TypertGateway {
    * `control` belongs to the logical stream: a rejected uplink item aborts it
    * with the Remote failure as the reason so the carrier delivers that failure.
    */
-  private async openStream(request: InvokeRemoteRequest, control: AbortController): Promise<AsyncIterable<unknown>> {
+  private async openStream(request: InvokeRemoteRequest, control: AbortController): Promise<AsyncGenerator> {
     const prepared = await this.prepareInvocation(request, control)
     if (prepared.descriptor.mode === undefined) {
       await prepared.invocation.close()

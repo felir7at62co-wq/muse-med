@@ -13,20 +13,53 @@
  * @module @deepseek-ai/dsh-tool-episode-render/prepare
  */
 
-import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { isAbsolute, resolve } from 'node:path'
+import { createHash } from 'node:crypto'
+import { copyFile, lstat, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { verifySelectedSourceReviews } from './approved-sources.ts'
 import { fileSha256 } from './cache.ts'
 import { assertVideoHashesAllowed, assertVideosAllowed } from './video.ts'
-import { createMediaToolkit, firstStreamOfType, probeMedia, runFfmpeg } from './ffmpeg.ts'
-import { episodePaths, pathExists, shotFileName } from './paths.ts'
+import { createMediaToolkit, firstStreamOfType, frameRateOf, probeMedia, runFfmpeg } from './ffmpeg.ts'
+import { episodePaths, pathExists, shotFileName, type EpisodePaths } from './paths.ts'
 import { subtitleReviewWarnings, subtitleTextWarnings, readSubtitleCues } from './subtitles.ts'
 import { deliveryPolicyFor, readProjectDelivery, resolveDeliveryPolicy } from './delivery-policy.ts'
 import { appendClips, formatTimelineDocument, readTimeline } from './timeline.ts'
 import { ENDING_AUDIO_ASSET, ENDING_EFFECT_ASSET, type ShippedEndingAsset } from './delivery.ts'
-import type { RenderSettings, DeliverySubtitleVisual, EndingEffectFit, MediaToolkit, ShotSource, SubtitleCue, Timeline, TimelineClip } from './types.ts'
+import { subtitleClockPath, verifySubtitleClock } from './subtitle-clock.ts'
+import type { RenderSettings, DeliverySubtitleVisual, EndingEffectFit, MediaToolkit, ProbedMedia, ProbedStream, ShotSource, SubtitleCue, Timeline, TimelineClip } from './types.ts'
 
 /** Microseconds in one second. */
 const MICROSECONDS_PER_SECOND = 1_000_000
+
+/**
+ * Prefer the whole-frame picture length when the muxed audio extends a proven delivery-rate source by at most one frame.
+ * @param media - Container and stream metadata for the selected video file.
+ * @param video - Its first video stream.
+ * @param fps - Delivery frame rate shared by subtitle placement and rendering.
+ * @returns Picture frames, or undefined when the container clock must be retained.
+ */
+export function pictureClockFrames(media: ProbedMedia, video: ProbedStream, fps: number): number | undefined {
+  const { durationSeconds, frameCount } = video
+  if (video.startSeconds !== 0 || durationSeconds === undefined || frameCount === undefined
+    || !Number.isSafeInteger(frameCount) || frameCount <= 0
+    || video.avgFrameRate !== video.rFrameRate || frameRateOf(video) !== fps
+    || media.streams.filter(stream => stream.codecType === 'video').length !== 1) return undefined
+  const picture = frameCount / fps
+  const excess = media.durationSeconds - durationSeconds
+  if (Math.abs(durationSeconds - picture) > 1 / MICROSECONDS_PER_SECOND
+    || excess < 0 || excess > 1 / fps) return undefined
+  return frameCount
+}
+
+/**
+ * Serialize an absolute cut using the same nearest-even tie rule as Jianying's frame planner.
+ * @param timeUs - Exact cut time in microseconds.
+ * @returns The integer microsecond boundary.
+ */
+function roundPictureBoundary(timeUs: number): number {
+  const nearest = Math.round(timeUs)
+  return nearest - timeUs === 0.5 && nearest % 2 !== 0 ? nearest - 1 : nearest
+}
 
 /** Everything one `prepare` call needs. */
 export interface PrepareInput {
@@ -135,6 +168,7 @@ export function parseShotManifest(document: unknown, path: string): ShotSource[]
  * @param toolkit - The binaries and channel to use.
  * @param project - Absolute project root.
  * @param rows - The manifest rows, in shot order.
+ * @param deliveryFps - The episode's selected output frame rate.
  * @returns One resolved shot per row.
  * @throws {Error} When a source cannot be probed, has no video stream, has no audio and none was declared, or reports no duration.
  */
@@ -142,8 +176,12 @@ export async function resolveShots(
   toolkit: MediaToolkit,
   project: string,
   rows: readonly ShotSource[],
+  deliveryFps: number,
 ): Promise<ResolvedShot[]> {
   const resolved: ResolvedShot[] = []
+  let frames = 0
+  let fallbackUs = 0
+  let startUs = 0
   for (const row of rows) {
     const video = resolveAgainst(project, row.video)
     const declaredAudio = resolveAgainst(project, row.audio)
@@ -155,7 +193,8 @@ export async function resolveShots(
         + '请确认该文件存在且可解码（通常是 media/<集>/pN-clean.mp4），修正清单后重试。',
       { cause: error })
     }
-    if (firstStreamOfType(media, 'video') === undefined) {
+    const picture = firstStreamOfType(media, 'video')
+    if (picture === undefined) {
       throw new Error(`镜头 ${String(row.shot)} 的成片没有视频流：${video}。`
         + '请把 video 指向该镜真正的成片文件后重试。')
     }
@@ -165,12 +204,17 @@ export async function resolveShots(
       throw new Error(`镜头 ${String(row.shot)} 的成片没有音轨：${video}。`
         + '请在清单里为该镜显式指定 audio（例如该镜自己的 provider 视频），否则整集原声会缺这一段。')
     }
-    const durationUs = Math.round(media.durationSeconds * MICROSECONDS_PER_SECOND)
+    const pictureFrames = pictureClockFrames(media, picture, deliveryFps)
+    if (pictureFrames === undefined) fallbackUs += Math.round(media.durationSeconds * MICROSECONDS_PER_SECOND)
+    else frames += pictureFrames
+    const endUs = roundPictureBoundary(fallbackUs + frames * MICROSECONDS_PER_SECOND / deliveryFps)
+    const durationUs = endUs - startUs
     if (durationUs <= 0) {
       throw new Error(`镜头 ${String(row.shot)} 的成片时长为 0：${video}。`
         + '请重新导出该镜的成片；空文件不能进入渲染。')
     }
     resolved.push({ source: row, video, audio, durationUs })
+    startUs = endUs
   }
   return resolved
 }
@@ -267,18 +311,27 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
     await readJsonDocument(input.shotsPath, '成片清单'),
     input.shotsPath,
   )
+  const reviewed = await verifySelectedSourceReviews(paths, rows)
+  const byShot = new Map(reviewed.map(row => [row.shot, row]))
+  const recheckReviews = async () => {
+    if (JSON.stringify(await verifySelectedSourceReviews(paths, rows)) !== JSON.stringify(reviewed)) {
+      throw new Error(`EP${input.episode} 准备期间已审核选源变化，请重新核对画面与原声。`)
+    }
+  }
   await assertVideosAllowed(input.project, rows.flatMap(row => [
     resolveAgainst(input.project, row.video), resolveAgainst(input.project, row.audio),
   ]))
-  const shots = await resolveShots(input.toolkit, input.project, rows)
+  const shots = await resolveShots(input.toolkit, input.project, rows, delivery.fps)
   const endingEffectFit = priorFit ?? input.defaultEndingEffectFit
   const timeline = { ...appendClips(shots.map(shot => shot.durationUs)), delivery,
     ...(endingEffectFit === undefined ? {} : { endingEffectFit }) }
+  const subtitleClock = await verifySubtitleClock(input.subtitleSrt, input.episode, () => shots)
   const packagePath = resolve(input.project, 'episode_packages', input.episode, 'package.json')
   const packageHash = rows.some(row => row.package !== undefined) && await pathExists(packagePath)
     ? await fileSha256(packagePath) : undefined
 
   await assertVideosAllowed(input.project, shots.flatMap(shot => [shot.video, shot.audio]))
+  await recheckReviews()
   const written: string[] = []
   await rm(paths.sources, { force: true })
   const selected = []
@@ -287,11 +340,16 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
     const target = resolve(paths.videoDir, shotFileName(shot.source.shot))
     await copyFile(shot.video, target)
     const sha256 = await fileSha256(target)
+    const review = byShot.get(shot.source.shot)
+    if (review !== undefined && review.videoSha256 !== sha256) {
+      throw new Error(`镜头 ${shot.source.shot} 复制期间已审核画面变化，请重新核对。`)
+    }
     await assertVideoHashesAllowed(input.project, [sha256])
     written.push(target)
     selected.push({
       ...shot.source, video: shot.video, audio: shot.audio, sha256,
       ...(shot.source.package === undefined || packageHash === undefined ? {} : { package_sha256: packageHash }),
+      ...(review === undefined ? {} : { audio_sha256: review.audioSha256, review_sha256: review.reviewSha256 }),
     })
   }
 
@@ -301,17 +359,30 @@ export async function prepareEpisode(input: PrepareInput): Promise<PreparedEpiso
 
   await mkdir(resolve(input.project, 'audio'), { recursive: true })
   await buildMaster(input.toolkit, shots.map(shot => shot.audio), timeline.clips, paths.masterAudio)
+  const masterAudioSha256 = reviewed.length > 0 || subtitleClock !== undefined
+    || timeline.delivery.subtitle?.require_speech_coverage === true
+    ? await fileSha256(paths.masterAudio) : undefined
   written.push(paths.masterAudio)
 
   const cues = await readSubtitleCues(input.subtitleSrt)
   await copyFile(input.subtitleSrt, paths.subtitle)
   written.push(paths.subtitle)
+  if (subtitleClock !== undefined) {
+    await writeFile(subtitleClockPath(paths.subtitle), subtitleClock, 'utf8')
+    written.push(subtitleClockPath(paths.subtitle))
+  } else await rm(subtitleClockPath(paths.subtitle), { force: true })
   if (subtitleWarnings.length) {
     await writeFile(`${paths.subtitle}.review.txt`, subtitleWarnings.join('\n'), 'utf8')
     written.push(`${paths.subtitle}.review.txt`)
   }
   await assertVideoHashesAllowed(input.project, selected.map(shot => shot.sha256))
-  await writeFile(paths.sources, `${JSON.stringify({ shots: selected }, null, 2)}\n`, 'utf8')
+  await recheckReviews()
+  await writeFile(paths.sources, `${JSON.stringify({ shots: selected,
+    ...(masterAudioSha256 === undefined ? {} : {
+      master_audio_sha256: masterAudioSha256,
+      timeline_clips: timeline.clips.map(clip => ({ shot: clip.shot, start_us: clip.startUs, duration_us: clip.durationUs })),
+    }),
+  }, null, 2)}\n`, 'utf8')
   written.push(paths.sources)
 
   return {
@@ -338,18 +409,145 @@ export async function stagedEpisodeEndingAssets(
 }
 
 /**
- * Build the original-audio master from already verified staged episode videos.
- * @param input - Private project, two-digit episode and immutable timeline path.
+ * Build the original-audio master from verified staged inputs.
+ * @param input - Private project, two-digit episode, immutable timeline and optional staged shot-audio paths.
  * @param settings - Captured executables, subtitle policy and guardian media channel.
  * @returns When the complete WAV has been written through the owned channel.
  */
 export async function prepareStagedEpisodeAudio(
-  input: { readonly project: string; readonly episode: string; readonly timelinePath: string },
+  input: { readonly project: string
+    readonly episode: string
+    readonly timelinePath: string
+    readonly audioPaths?: readonly string[]
+    readonly proofOutputPath?: string },
   settings: Pick<RenderSettings, 'ffmpeg' | 'ffprobe' | 'channel' | 'enforceSubtitleVisual'>,
 ): Promise<void> {
   const paths = episodePaths(input.project, input.episode)
   const { clips } = await readTimeline(input.timelinePath, settings.enforceSubtitleVisual)
   await mkdir(resolve(input.project, 'audio'), { recursive: true })
-  await buildMaster(createMediaToolkit(settings), clips.map(clip => resolve(paths.videoDir, shotFileName(clip.shot))),
-    clips, paths.masterAudio)
+  const audioPaths = input.audioPaths ?? clips.map(clip => resolve(paths.videoDir, shotFileName(clip.shot)))
+  if (audioPaths.length !== clips.length) throw new Error('原声音轨数量与时间线不一致。')
+  let target = paths.masterAudio
+  if (input.proofOutputPath !== undefined) {
+    target = resolve(input.proofOutputPath)
+    const within = relative(input.project, target)
+    if (!within || isAbsolute(within) || within === '..' || within.startsWith('..' + sep)) {
+      throw new Error('音轨核验输出必须在私有项目内。')
+    }
+    await mkdir(dirname(target), { recursive: true })
+    if (await realpath(dirname(target)) !== dirname(target)) throw new Error('音轨核验输出目录不是规范路径。')
+    try { await lstat(target); throw new Error('音轨核验输出已存在。') }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
+  }
+  await buildMaster(createMediaToolkit(settings), audioPaths, clips, target)
+}
+
+/**
+ * Check a generated SRT against the prepared pictures, selected audio and actual render timeline.
+ * @param srt - Subtitle selected for rendering.
+ * @param paths - Prepared files for the episode being rendered.
+ * @param timeline - The full timeline supplied to render, including shots beyond a preview.
+ * @param stagedAudio - Map an original audio reference to a verified private copy, when rendering a private stage.
+ * @param signal - Optional owning operation cancellation.
+ * @param manifestDocument - Optional parsed manifest from the same captured bytes as the caller.
+ */
+export async function verifyPreparedSubtitleClock(srt: string, paths: EpisodePaths, timeline: Timeline,
+  stagedAudio?: (sourceAudio: string) => string, signal?: AbortSignal, manifestDocument?: object): Promise<void> {
+  const requireMaster = timeline.delivery?.subtitle?.require_speech_coverage === true
+  const readSources = async () => {
+    const source = manifestDocument ?? await readJsonDocument(paths.sources, '已准备分包清单')
+    const rows = parseShotManifest(source, paths.sources)
+    const prepared = source as { master_audio_sha256?: unknown; timeline_clips?: unknown }
+    if (requireMaster || prepared.master_audio_sha256 !== undefined || prepared.timeline_clips !== undefined) {
+      const expected = prepared.master_audio_sha256
+      if (typeof expected !== 'string' || !/^[0-9a-f]{64}$/u.test(expected)
+        || !await pathExists(paths.masterAudio) || await fileSha256(paths.masterAudio, signal) !== expected) {
+        throw new Error(`EP${paths.episode} 整集原声与准备记录不一致，请用当前选源重新 prepare。`)
+      }
+    }
+    const clock = prepared.timeline_clips
+    if (requireMaster && (!Array.isArray(clock) || clock.length !== timeline.clips.length
+      || timeline.clips.some((clip, index) => {
+        const row = clock[index] as { shot?: unknown; start_us?: unknown; duration_us?: unknown } | null
+        return row?.shot !== clip.shot || row.start_us !== clip.startUs || row.duration_us !== clip.durationUs
+      }))) {
+      throw new Error(`EP${paths.episode} 整集原声的准备切点与当前时间线不一致，请重新 prepare。`)
+    }
+    return rows
+  }
+  const strictSources = requireMaster ? await readSources() : undefined
+  await verifySubtitleClock(srt, paths.episode, async () => {
+    const rows = strictSources ?? await readSources()
+    const stale = () => new Error('生成字幕与当前集的准备清单或时间线不一致。请核对素材后重跑 drama_render subtitles 和 prepare。')
+    if (rows.length !== timeline.clips.length) throw stale()
+    let startUs = 0
+    return timeline.clips.map((clip, index) => {
+      const source = rows[index]
+      if (source?.shot !== clip.shot || clip.startUs !== startUs) throw stale()
+      startUs += clip.durationUs
+      const video = resolve(paths.videoDir, shotFileName(clip.shot))
+      const audio = source.audio === source.video ? video : stagedAudio?.(source.audio) ?? resolveAgainst(paths.project, source.audio)
+      return { source, video, audio, durationUs: clip.durationUs }
+    })
+  }, signal)
+}
+
+/** Files that establish the prepared source audio and optional generated subtitle clock. */
+export interface PreparedSubtitleClockInputs {
+  readonly clockPath: string
+  readonly manifestPath: string
+  readonly manifestSha256: string
+  readonly manifestBytes: number
+  readonly clockPresent: boolean
+  readonly masterPath?: string
+  readonly shots: readonly { readonly shot: number; readonly video: string; readonly audio: string }[]
+}
+
+/**
+ * Read and verify the prepared episode's source inputs and any generated subtitle clock.
+ * @param project - Original project directory.
+ * @param episode - Two-digit episode identifier.
+ * @param timelinePath - Captured timeline selected for this render.
+ * @param subtitlePath - Captured subtitle.
+ * @param enforceSubtitleVisual - Resolve the timeline with the renderer's configuration.
+ * @param signal - Optional owning operation cancellation.
+ * @returns Exact paths required to carry the verified clock into a private stage.
+ */
+export async function preparedSubtitleClockInputs(project: string, episode: string, timelinePath: string,
+  subtitlePath: string, enforceSubtitleVisual: boolean | undefined, signal?: AbortSignal): Promise<PreparedSubtitleClockInputs> {
+  signal?.throwIfAborted()
+  const paths = episodePaths(project, episode), timeline = await readTimeline(timelinePath, enforceSubtitleVisual)
+  const bytes = await readFile(paths.sources, { signal })
+  let document: unknown
+  try {
+    const text = bytes.toString('utf8')
+    document = JSON.parse(text.startsWith('\ufeff') ? text.slice(1) : text)
+  } catch (error) {
+    throw new Error(`${paths.sources}: 已准备分包清单不是合法 JSON。`, { cause: error })
+  }
+  const rows = parseShotManifest(document, paths.sources)
+  if (document === null || typeof document !== 'object') throw new Error('字幕来源清单无效')
+  const prepared = document as { master_audio_sha256?: unknown; timeline_clips?: unknown }
+  const clock = prepared.timeline_clips
+  const hasSubtitleClock = await pathExists(subtitleClockPath(subtitlePath))
+  const hasPreparedMetadata = prepared.master_audio_sha256 !== undefined || clock !== undefined
+  if (rows.length !== timeline.clips.length || timeline.clips.some((clip, index) => rows[index]?.shot !== clip.shot)) {
+    throw new Error('字幕来源清单与当前时间线不一致。')
+  }
+  if (hasSubtitleClock || hasPreparedMetadata || timeline.delivery?.subtitle?.require_speech_coverage === true) {
+    if (typeof prepared.master_audio_sha256 !== 'string' || !/^[0-9a-f]{64}$/u.test(prepared.master_audio_sha256)
+      || await fileSha256(paths.masterAudio, signal) !== prepared.master_audio_sha256 || !Array.isArray(clock)
+      || clock.length !== timeline.clips.length || timeline.clips.some((clip, index) => {
+      const row = clock[index] as { shot?: unknown; start_us?: unknown; duration_us?: unknown } | undefined
+      return row?.shot !== clip.shot || row.start_us !== clip.startUs || row.duration_us !== clip.durationUs
+    })) throw new Error('生成字幕缺少与当前音轨及时间线一致的准备记录。')
+  }
+  await verifyPreparedSubtitleClock(subtitlePath, paths, timeline, undefined, signal, document)
+  const shots = rows.map((row) => {
+    const video = resolve(paths.videoDir, shotFileName(row.shot))
+    return { shot: row.shot, video, audio: row.audio === row.video ? video : resolveAgainst(project, row.audio) }
+  })
+  return { clockPath: subtitleClockPath(subtitlePath), manifestPath: paths.sources,
+    manifestSha256: createHash('sha256').update(bytes).digest('hex'), manifestBytes: bytes.length, clockPresent: hasSubtitleClock,
+    ...(hasPreparedMetadata ? { masterPath: paths.masterAudio } : {}), shots }
 }

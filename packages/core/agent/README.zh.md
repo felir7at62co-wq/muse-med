@@ -55,7 +55,7 @@ await handle.dispose()   // stops the loop, unregisters, removes the session, un
 
 ### 驱动 agent 的对话
 
-句柄的方法把带标识的 user 角色消息路由进 agent 的收件箱。`followup()` 排队一条普通的下一个轮次提示词并唤醒驱动器；`steer()` 提交下一步输入并唤醒它；`inject()` 添加面向模型的上下文但不唤醒驱动器，因此它落在下一个被接纳的步骤中。`cancel(cause)` 中止当前活动，并在未设置 `keepInbox` 时清除待处理工作；`whenIdle()` 会在整个 agent 达到完全停稳后完成。
+句柄的方法把带标识的 user 角色消息路由进 agent 的收件箱。`followup()` 排队一条普通的下一个轮次提示词并唤醒驱动器；`steer()` 提交下一步输入并唤醒它；`inject()` 添加面向模型的上下文但不唤醒驱动器，因此它落在下一个被接纳的步骤中。重启后，只要同一条消息仍在队列中，送达方就可调用 `wakePending(messageId)` 唤醒驱动器来处理它。`cancel(cause)` 中止当前活动，并在未设置 `keepInbox` 时清除待处理工作；`whenIdle()` 会在整个 agent 达到完全停稳后完成。
 
 ```text
 handle.agent.followup({
@@ -106,6 +106,8 @@ await handle.agent.whenIdle()
 ### 持久模型选择
 
 `Model` 和 `modelSelection` 投影类型在本包定义。默认驱动器与 inbox 一起创建每个 `AgentModel` 并拥有投影注册。每个实例绑定 Session、实时选项和投影读取器，不维护选择的第二份副本。循环在步骤准备前捕获独立选择，并在重试间保留它。
+
+支持 `Model.guard` 的驱动器可保持一项完整的提供方、模型和显式推理强度选择，直到释放或所有者取消。保持期间，`AgentModel` 拒绝通过 `select()` 切换至不同选择。直接修改 options 或 Session 时，下一次 `current()` 或 `assertCurrent()` 会检测变动、取消保护信号并保留新选择；调用方须在异步准备后和副作用前重新检查。这项保持仅在进程内有效，不授予 Session、工作区、文件系统或提供方权限。未提供该可选能力的驱动器不能执行受保护续聊。
 
 ### 源码地图
 

@@ -8,10 +8,13 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import wave
 from urllib.parse import urlsplit
 
+# Embedded Windows Python does not put the script directory on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from extract_voice_reference import digest, extract
 
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)

@@ -26,6 +26,7 @@ it('prepares the original mixed-audio card and rejects invalid audio before any 
     ratio: '9:16', resolution: '480p', genNum: 1,
     prompt: '@[周海生](zhou)走到门口，声音参照@[周海生声音](zhou-voice)', materialList: [image, audio] }
   const calls: string[] = []
+  let cardHistoryAvailable = true
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url, init) => {
     const target = new URL(url instanceof Request ? url.url : url.toString())
     calls.push(`${init?.method} ${target.pathname}`)
@@ -45,6 +46,7 @@ it('prepares the original mixed-audio card and rejects invalid audio before any 
       id: 11, modelId: model.modelId, platformId: model.platformId, genTypes: [{ id: 7, type: 3 }],
       videoStandards: [{ id: 91, ratio: model.ratio, resolution: model.resolution, genNum: 1 }],
     }]
+    else if (target.pathname === '/prod-api/aigc/storyboard/byStoryboard/1745324' && cardHistoryAvailable) data = { total: 0, rows: [] }
     else throw new Error(`Unexpected audio fixture request ${target.pathname}`)
     return new Response(JSON.stringify({ code: 200, data }))
   })
@@ -72,8 +74,19 @@ it('prepares the original mixed-audio card and rejects invalid audio before any 
       signal: new AbortController().signal })
     if (prepared.isError) throw new Error(JSON.stringify(prepared.content))
     expect(prepared.value).toMatchObject({ status: 'prepared', storyboardId: 1745324,
+      existing_video_sources: { status: 'none_found', complete: true },
       audio_references: [{ material_key: 'zhou-voice', material_url: audio.materialUrl,
         duration_seconds: null, duration_basis: 'unavailable', duration_verified: false }] })
+    expect(calls).toEqual(['GET /prod-api/aigc/storyboard/1745324', 'GET /prod-api/aigc/asset/142',
+      'GET /prod-api/aigc/material/list', 'GET /prod-api/model/charge/getSelectList',
+      'GET /prod-api/aigc/storyboard/1745324', 'GET /prod-api/aigc/storyboard/byStoryboard/1745324'])
+    cardHistoryAvailable = false
+    calls.length = 0
+    const unavailable = await executeModelToolFixture(ctx, { callId: ToolCallId('history-unavailable'), name: 'jubian_storyboard',
+      arguments: { method: 'prepare_video', storyboard_id: 1745324, project_dir: root },
+      signal: new AbortController().signal })
+    expect(unavailable.isError).toBe(false)
+    expect(unavailable.value).toMatchObject({ existing_video_sources: { status: 'unknown', complete: false } })
     expect(calls).toEqual(['GET /prod-api/aigc/storyboard/1745324', 'GET /prod-api/aigc/asset/142',
       'GET /prod-api/aigc/material/list', 'GET /prod-api/model/charge/getSelectList',
       'GET /prod-api/aigc/storyboard/1745324', 'GET /prod-api/aigc/storyboard/byStoryboard/1745324',

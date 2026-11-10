@@ -5,7 +5,7 @@
   "createdAt": "2026-09-29T11:40:41.000Z",
   "scriptId": 2708,
   "storyboardId": 916953,
-  "idempotencyKey": "288ed0692ef76a8be3272ca778312540c7886228e2b6cf6dbc85d5b189a90f84",
+  "idempotencyKey": "fe0ccc6b5497f9296856bf826769c0212d3f04a79ee951de94b17168bf04c31e",
   "estimatedSubmissions": 1,
   "assetSummary": {
     "count": 1,
@@ -25,7 +25,7 @@
     "episodeId": 9,
     "isGenerate": 1,
     "storyboardName": "Offline horizontal test",
-    "modelConfig": "{\"standardId\":61,\"modelId\":\"doubao-seedance-2-5-260628\",\"platformId\":\"FANG_ZHOU\",\"genType\":3,\"modelGenerationTypeId\":71,\"videoStandardId\":337,\"duration\":10,\"ratio\":\"16:9\",\"resolution\":\"480p\",\"genNum\":1,\"prompt\":\"@[Existing CG actor](lead)\\n人物：张三、李四\\n李四：雨停了。\",\"materialList\":[{\"assetId\":\"asset-existing\",\"materialAssetId\":11,\"fileName\":\"Existing CG actor\",\"materialKey\":\"lead\",\"materialType\":\"image\",\"materialUrl\":\"https://jubian-aigc.tos-cn-beijing.volces.com/fixture/existing.png\",\"sortOrder\":1,\"official\":true,\"asset_status\":\"confirmed\"}],\"backupModelList\":[]}",
+    "modelConfig": "{\"standardId\":61,\"modelId\":\"doubao-seedance-2-5-260628\",\"platformId\":\"FANG_ZHOU\",\"genType\":3,\"modelGenerationTypeId\":71,\"videoStandardId\":337,\"duration\":10,\"ratio\":\"16:9\",\"resolution\":\"480p\",\"genNum\":1,\"prompt\":\"@[Existing CG actor](lead)\\n人物：张三、李四\\n镜头17：近景，李四保持侧脸，问出最后一句：李四：还想走吗？\",\"materialList\":[{\"assetId\":\"asset-existing\",\"materialAssetId\":11,\"fileName\":\"Existing CG actor\",\"materialKey\":\"lead\",\"materialType\":\"image\",\"materialUrl\":\"https://jubian-aigc.tos-cn-beijing.volces.com/fixture/existing.png\",\"sortOrder\":1,\"official\":true,\"asset_status\":\"confirmed\"}],\"backupModelList\":[]}",
     "storyboardMaterialList": [
       {
         "assetId": "asset-existing",

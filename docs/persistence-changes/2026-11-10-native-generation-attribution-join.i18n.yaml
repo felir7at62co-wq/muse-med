@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-11-10-native-generation-attribution-join.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/persistence-changes/2026-11-10-native-generation-attribution-join.md
+/:
+  en: 3d5a424ae7d7e46b
+  zh: c22a8e4a62d8cc1a
+/2026-11-10-native-generation-attribution-join:
+  en: c760182b7d3a89fc
+  zh: 0eb666bf49307df5
+/2026-11-10-native-generation-attribution-join/summary:
+  en: 02fa7695a3103b9a
+  zh: 1750f96967d742ee
+/2026-11-10-native-generation-attribution-join/table-of-contents:
+  en: 6cf314a069ceb451
+  zh: 9adff678e9ecab3b
+/2026-11-10-native-generation-attribution-join/declaration:
+  en: 6907136f28e48c90
+  zh: 02f8298485f3d8e7
+/2026-11-10-native-generation-attribution-join/compatibility:
+  en: 00ee609c7f31470b
+  zh: 26a80991aa6cc7a6
+/2026-11-10-native-generation-attribution-join/verification:
+  en: 511cb11e252f604e
+  zh: 1f418e07d24047f0
+/2026-11-10-native-generation-attribution-join/dev-note:
+  en: b75c8458928b72b9
+  zh: 003ba4e17b4b5269

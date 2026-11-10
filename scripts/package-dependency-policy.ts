@@ -84,7 +84,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'describePayload', 'readProjectBudget', 'updateProjectBudget',
   ],
   '@deepseek-ai/dsh-jubian-api': [
-    'FAILED_STATUSES', 'MEDIA_LIMITS', 'MODEL_TASK_TYPES', 'SUCCESS_STATUSES', 'VIDEO_TASK_TYPES',
+    'AUTOMATIC_ERASE_MODEL', 'FAILED_STATUSES', 'MEDIA_LIMITS', 'MODEL_TASK_TYPES', 'SUCCESS_STATUSES', 'VIDEO_TASK_TYPES',
     'alignedReferenceSize', 'assertImageReferenceConsistency', 'buildImageRequest', 'buildNativeVideoPreview', 'buildReferenceObjectKey',
     'buildSubjectSelection', 'buildSubtitleEraseRequest', 'buildVideoUpscaleRequest', 'childrenOf',
     'classifyExistingNativeMatches', 'classifyNewNativeCandidates', 'downloadMedia', 'encodeVoiceSlot', 'extractAppScriptUrl',
@@ -100,7 +100,7 @@ const PEER_REQUIRED_HOST_EXPORTS = {
     'verifySubjectSelection', 'wireText', 'withGenerationDisabled',
     'VIDEO_UPSCALE_MODEL', 'SUBTITLE_ERASE_MODELS',
   ],
-  '@deepseek-ai/dsh-llm': ['createUserMessage'],
+  '@deepseek-ai/dsh-llm': ['MessageId', 'createUserMessage', 'freezeMessage'],
   // Profile settings must match the installed Node provider's configuration schema.
   '@deepseek-ai/dsh-ptc-runtime-node/configuration': ['resolvePersistentExecution'],
   // CUA checks UserQuestionError and preserves AttachmentError from image admission.

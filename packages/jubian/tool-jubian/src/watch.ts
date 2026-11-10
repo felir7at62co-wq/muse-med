@@ -76,21 +76,26 @@ function currentOutput(row: VideoSubtask, raw: Record<string, unknown>, stage: W
   })
 }
 
+/** A terminal observation of an exact provider task and its current outputs. */
+export type WatchObservation =
+  | { status: 'failed'; detail: string }
+  | { status: 'succeeded'; outputs: (Pick<VideoSubtask, 'subtask_id' | 'first_result_id' | 'parent_result_id' | 'resolution'> & { video_url: string })[] }
+
 /**
- * Read one existing task and its complete child pages without submitting another operation.
- * @param client - Credential-aware provider read transport.
- * @param args - Existing operation identity and expected processing stage.
- * @param signal - Cancellation forwarded to every provider read.
- * @returns Verified completion, terminal failure, or undefined while results remain incomplete or unverified.
+ * Read a task and its complete child list without modifying provider state.
+ * @param client - Credential-aware provider transport.
+ * @param args - The accepted task and expected operation stage.
+ * @param signal - Cancellation for provider reads.
+ * @returns Verified terminal evidence, or undefined while the result is unresolved.
  */
-export async function observe(client: JubianClient, args: WatchArgs, signal: AbortSignal): Promise<JobOutcome | undefined> {
+export async function observeWatchTask(client: JubianClient, args: WatchArgs, signal: AbortSignal): Promise<WatchObservation | undefined> {
   const response = await client.request({ method: 'GET', path: `/admin/aigc/video/task/${args.task_id}`, signal })
   const task = readTaskPage(response.data)
   if (task.task_id !== args.task_id || task.task_type === null || VIDEO_TASK_TYPES[task.task_type] !== args.stage) return
   const status = terminalOutcome(task.status ?? '')
   if (status === 'failed') return { status: 'failed', detail: `provider operation ${task.status}` }
   if (status !== 'succeeded') return
-  const rows: VideoSubtask[] = []
+  const rows: (VideoSubtask & { video_url: string })[] = []
   const seen = new Set<number>()
   let total: number | undefined
   for (let pageNum = 1; ; pageNum++) {
@@ -112,18 +117,35 @@ export async function observe(client: JubianClient, args: WatchArgs, signal: Abo
       if (terminalOutcome(row.status ?? '') === 'failed') {
         return { status: 'failed', detail: `provider child ${row.subtask_id} ${row.status}` }
       }
-      if (terminalOutcome(row.status ?? '') !== 'succeeded'
+      if (!row.video_url || terminalOutcome(row.status ?? '') !== 'succeeded'
         || !currentOutput(row, listed[index] as Record<string, unknown>, args.stage)) return
-      rows.push(row)
+      rows.push({ ...row, video_url: row.video_url })
     }
     if (rows.length === total) break
   }
+  return { status: 'succeeded', outputs: rows.map(row => ({ subtask_id: row.subtask_id,
+    video_url: row.video_url, first_result_id: row.first_result_id, parent_result_id: row.parent_result_id,
+    resolution: row.resolution })) }
+}
+
+function watchOutcome(args: WatchArgs, observation: WatchObservation): JobOutcome {
+  if (observation.status === 'failed') return observation
   return { status: 'completed', detail: `${args.stage} operation verified; review required`, result: JSON.stringify({
-    ...args, status: 'succeeded', outputs: rows.map(row => ({ subtask_id: row.subtask_id,
-      video_url: row.video_url, first_result_id: row.first_result_id, parent_result_id: row.parent_result_id,
-      resolution: row.resolution })),
+    ...args, ...observation,
     next: 'Review every output with frame/audio inspection and verify delivery resolution. Provider completion is not visual QA; subtitle removal still needs visual review. Do not repeat paid operations automatically.',
   }, null, 2) }
+}
+
+/**
+ * Read one existing task without submitting another operation.
+ * @param client - Credential-aware provider read transport.
+ * @param args - Existing operation identity and expected processing stage.
+ * @param signal - Cancellation forwarded to every provider read.
+ * @returns Verified completion, terminal failure, or undefined while results remain unverified.
+ */
+export async function observe(client: JubianClient, args: WatchArgs, signal: AbortSignal): Promise<JobOutcome | undefined> {
+  const observation = await observeWatchTask(client, args, signal)
+  return observation === undefined ? undefined : watchOutcome(args, observation)
 }
 
 /**
@@ -142,9 +164,9 @@ export function watchJob(client: JubianClient, args: WatchArgs, config: WatchCon
       for (;;) {
         controller.signal.throwIfAborted()
         try {
-          const outcome = await observe(client, args, controller.signal)
+          const observation = await observeWatchTask(client, args, controller.signal)
           controller.signal.throwIfAborted()
-          if (outcome) return outcome
+          if (observation) return watchOutcome(args, observation)
         } catch (error) {
           controller.signal.throwIfAborted()
           // Missing provider identity is unverified, never successful completion.

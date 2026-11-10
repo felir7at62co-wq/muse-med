@@ -42,6 +42,10 @@ export interface SubtitleLayoutEntry {
   readonly fits_available_width: boolean | null
   /** Exact libass fontselect messages; names are not inferred from requested fonts. */
   readonly fontselect_trace: readonly string[]
+  /** Selected PostScript names actually reported by libass. */
+  readonly selected_fonts: readonly string[]
+  /** Whether all reported face names match the requested family or its known regular face. */
+  readonly font_status: 'matched' | 'unverified'
   /** Wide measurement evidence and separate actual-delivery ASS/PNG, with shared process logs. */
   readonly files: {
     readonly ass: string
@@ -95,6 +99,7 @@ function inkBounds(stderr: string): SubtitleInkBounds | null {
   return { left, right, top, bottom, width, height }
 }
 
+/** Normalize family and PostScript spelling without guessing the identity of unknown aliases. */
 function fontNameKey(name: string): string {
   return name.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
 }
@@ -214,6 +219,10 @@ export async function measureSubtitleLayout(input: {
       await save(files.stderr, stderr, written)
       await save(`${stem}.exit.json`, `${JSON.stringify({ exit_code: code })}\n`, written)
       const traces = stderr.split(/\r?\n/u).filter(line => line.includes('fontselect:'))
+      const faces = traces.map(line => /\s->\s.+,\s*\d+,\s*([^,]+)$/u.exec(line)?.[1]?.trim())
+      const selectedFonts = [...new Set(faces.filter((face): face is string => face !== undefined && face !== ''))]
+      const fontMatched = code === 0 && faces.length > 0
+        && faces.every(face => face !== undefined && selectedFaceMatches(base.requested_font, face))
       const bounds = code === 0 ? inkBounds(stderr) : null
       if (code !== 0) local.push(`字幕字形探针失败（退出码 ${String(code)}），保留完整日志 ${files.stderr}；当前字幕不改写。`)
       else if (bounds === null) local.push(`字幕字形探针未取得白字边界：${files.stderr}；宽度尚未验证。`)
@@ -230,11 +239,14 @@ export async function measureSubtitleLayout(input: {
       if (fits === false) local.push(`字幕“${text}”白字实测宽 ${String(bounds?.width)}px，加描边估计 ${String(estimated)}px，`
         + `超过项目可用宽 ${String(available)}px；请按实际字词时间选择语义切点，保留当前文本与时间。`)
       if (traces.length === 0) local.push(`libass 未报告字体选择记录，实际字体尚未确认：${files.stderr}。`)
+      else if (!fontMatched) local.push(`实际字体尚未确认，项目请求“${base.requested_font}”，`
+        + `libass 报告 ${selectedFonts.join('、') || '无可读字形名称'}。请核对字体目录和替代字形：${files.stderr}。`)
       if (/[\r\n]/u.test(text)) local.push('字幕原文包含换行；该探针不自动合并或切分字幕。')
       entries.push({ text, cues: cues.map(cue => ({ index: cue.index, start_seconds: cue.startSeconds, end_seconds: cue.endSeconds })),
         status: bounds === null ? 'not_measured' : clipped ? 'clipped' : 'measured',
         ink_bounds: bounds, outline_allowance_px: outline, width_with_outline_estimate_px: estimated,
-        available_width_px: available, fits_available_width: fits, fontselect_trace: traces, files, warnings: local })
+        available_width_px: available, fits_available_width: fits, fontselect_trace: traces,
+        selected_fonts: selectedFonts, font_status: fontMatched ? 'matched' : 'unverified', files, warnings: local })
       warnings.push(...local)
     }
     const reportPath = join(folder, 'report.json')

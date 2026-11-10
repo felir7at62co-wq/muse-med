@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { z as zod } from 'zod'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-tool-executor-ptc'
@@ -55,7 +55,7 @@ export interface Config {
 }
 
 /** Loader-validated discovery settings. */
-export const Config: z<Config> = z.object({
+export const Config: z<Config, Required<Config>> = z.object({
   alwaysLoad: z.array(z.string()).required(),
   excludeFromSearch: z.array(z.string()).default([]),
   maxResults: z.natural().min(1).max(32).default(8),
@@ -84,14 +84,14 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 }
 
 /** Parse a successful tool receipt without retaining descriptions or parameters. */
-function resultValue(content: readonly { type: string; text?: string }[]): unknown {
-  const text = content.filter(block => block.type === 'text').map(block => block.text ?? '').join('')
+function resultValue(content: readonly ContentBlock[]): unknown {
+  const text = content.filter(block => block.type === 'text').map(block => block.text).join('')
   try { return JSON.parse(text) }
   catch (_error) { return undefined }
 }
 
 /** Apply names recorded in a successful search or context-management result. */
-function learn(state: DiscoveryState, content: readonly { type: string; text?: string }[], context = false): DiscoveryState {
+function learn(state: DiscoveryState, content: readonly ContentBlock[], context = false): DiscoveryState {
   const value = resultValue(content)
   if (context) {
     const parsed = contextReceipt.safeParse(value)
@@ -164,19 +164,19 @@ function boundedResult(
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
   const settings = Config(config)
-  const searchExclusions = new Set(settings.excludeFromSearch ?? [])
+  const searchExclusions = new Set(settings.excludeFromSearch)
   for (const name of searchExclusions) {
     if (!name.trim() || name !== name.trim() || name.includes('*') || !settings.alwaysLoad.includes(name)) {
       throw new Error(`excludeFromSearch entries must be exact tool names in alwaysLoad: ${JSON.stringify(name)}`)
     }
   }
-  const maxResults = settings.maxResults ?? 8
-  const maxDescriptionChars = settings.maxDescriptionChars ?? 320
-  const ranking = { k1: settings.k1 ?? 1.2, b: settings.b ?? 0.75 }
-  const keywords = settings.keywords ?? {}
-  const capabilities = settings.capabilities ?? []
-  const maxResultChars = settings.maxResultChars ?? 6000
-  const maxDirectoryChars = settings.maxDirectoryChars ?? 2000
+  const maxResults = settings.maxResults
+  const maxDescriptionChars = settings.maxDescriptionChars
+  const ranking = { k1: settings.k1, b: settings.b }
+  const keywords = settings.keywords
+  const capabilities = settings.capabilities
+  const maxResultChars = settings.maxResultChars
+  const maxDirectoryChars = settings.maxDirectoryChars
   const capabilityIds = new Set<string>()
   for (const capability of capabilities) {
     if (!capability.id.trim() || capability.id === UNCATEGORIZED_CAPABILITY || capabilityIds.has(capability.id)) throw new Error('Capability ids must be nonempty, unique, and not the reserved uncategorized id')
@@ -275,11 +275,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         && indexFor(tools).explicitNames(query).some(tool => !availableNames.has(tool))
       const globalFallback = Boolean(query && knownCapability && (matches.length === 0 || explicitOutside))
       if (globalFallback) matches = indexFor(tools).search(query, tools.length)
-      const loaded = matches.slice(offset, offset + limit).flatMap((match) => {
-        const tool = tools.find(item => item.name === match.name)
-        return tool ? [{ name: tool.name, description: Array.from(tool.description).slice(0, maxDescriptionChars).join(''),
-          capabilities: capabilityMemberships(tool.name, groups) }] : []
-      })
+      const loaded = matches.slice(offset, offset + limit).flatMap(match => tools.filter(tool => tool.name === match.name)
+        .map(tool => ({ name: tool.name, description: Array.from(tool.description).slice(0, maxDescriptionChars).join(''),
+          capabilities: capabilityMemberships(tool.name, groups) })))
       return Promise.resolve(boundedResult(loaded, [], matches.length, maxResultChars,
         knownCapability && !globalFallback ? 'capability' : 'global', globalFallback, offset))
     },

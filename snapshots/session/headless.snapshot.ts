@@ -1,7 +1,10 @@
 /** Recorded-session replay through the shipped headless `dsh` profile. */
 
+import { assertWorkingBudgetExpectations, deriveShadowedBudgetExpectations, deriveWorkingBudgetExpectations } from './working-budget-oracle.ts'
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
+import { capabilityOcrRecords, expectedCapabilityOcrHash } from './muse-video-novel-ocr-capability/evidence.ts'
+import { assertVideoObservationReportArtifacts, normalizeVideoObservationReportHashes } from '../../packages/perception/tool-video-inspect/tests/snapshot-reports.ts'
 import { chmod, cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
@@ -292,7 +295,11 @@ async function writeSessionFixtures(
       : log.content, ctx.cwd)
     return scrubSessionSnapshot(prepareSessionSnapshotFixtureForComparison(stable))
   })
-  const output = redactSessionSnapshotIds(stabilizeFixtureMessageIds(fresh, prior))
+  const redacted = redactSessionSnapshotIds(stabilizeFixtureMessageIds(fresh, prior))
+  const output = videoObservationOwners.has(scenario.name) ? normalizeVideoObservationReportHashes(redacted)
+    : scenario.name === 'muse-video-novel-ocr-capability'
+      ? redacted.map(log => capabilityOcrRecords(log, '0'.repeat(64), false).map(row => JSON.stringify(row)).join('\n') + '\n')
+      : redacted
   await Promise.all(output.map((content, index) => writeFile(join(scenario.dir, names[index] as string), content)))
   return output
 }
@@ -867,6 +874,11 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
     })
     await copyFile(join(museLegacySkills, 'video-review.skill.txt'), join(cwd, '.dsh/skills/video-review/SKILL.md'))
   },
+  async 'muse-current-delivery-review'(cwd) {
+    await workspaceSetups['muse-creation-skills']!(cwd)
+    await copyFile(join(repoRoot, 'apps/desktop-host/skills/video-review/SKILL.md'),
+      join(cwd, '.dsh/skills/video-review/SKILL.md'))
+  },
   async 'muse-audio-transcribe-skill-legacy'(cwd) {
     await workspaceSetups['muse-editing-skill']!(cwd)
     await copyFile(join(repoRoot, 'snapshots/session/muse-audio-transcribe-skill/audio-transcribe.skill.txt'), join(cwd, '.dsh/skills/audio-transcribe/SKILL.md'))
@@ -1097,6 +1109,75 @@ function sessionReferenceSpillExpected(actual: readonly JsonObject[], expectedLo
   expect(expectedReference.capturedFormatVersion, 'recorded reference-source generation').toBe(recordedVersion)
   expectedReference.capturedFormatVersion = SESSION_FORMAT_VERSION
   return expected
+}
+
+const videoObservationOwners = new Set(['muse-video-observation', 'muse-video-review-lifecycle'])
+
+// These owners derive exact request and compaction-span prices from expected inputs at the replay cwd.
+const workspaceSensitiveBudgetScenarios = new Set([
+  'compaction-summary-failure-recovery',
+  'muse-creation-parse-recovery',
+  'muse-creation-ptc',
+  'muse-creation-review-guidance',
+  'muse-creation-source-id-recovery',
+  'muse-creation-stage-diagnostics',
+  'muse-creation-tool-argument-recovery',
+  'muse-editing-tool-catalog',
+  'muse-resident-view',
+  'muse-script-refinement',
+  'muse-short-drama-draft-ending',
+  'muse-small-window-compaction',
+  'muse-time-context',
+  'muse-working-budget-stop',
+])
+
+function verifyResidentUiReplay(events: ReturnType<typeof parseSessionLog>, tool: 'ask_user' | 'show_view'): void {
+  const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data.name] : [])
+  expect(calls, 'resident UI replay tool calls remain intact').toEqual([tool])
+  const hostOnlyCatalog = events.some(event => event.type === 'user/message'
+    && event.data.source.kind === 'skill-catalog'
+    && event.data.source.entries.some(entry => entry.name === 'diagnose-windows-sandbox-acl'))
+  expect(hostOnlyCatalog, 'resident UI replay keeps a platform-neutral skill catalog').toBe(false)
+}
+
+async function workspaceBudgetExpected(
+  scenario: HeadlessScenario, actual: readonly JsonObject[], expected: JsonObject[], expectedLog: string, cwd: string,
+): Promise<JsonObject[]> {
+  if (actual.length !== expected.length) return expected
+  const pin = pinOf(scenario)
+  const promptOwner = scenarioByName.get(pin.manifest.header.systemPromptSource ?? pin.name)
+  const schemaOwner = scenarioByName.get(pin.manifest.header.toolSchemasSource ?? pin.name)
+  if (promptOwner === undefined || schemaOwner === undefined) throw new Error(`${scenario.name}: missing budget sidecar owner`)
+  const [prompt, schemaText] = await Promise.all([
+    readFile(join(promptOwner.dir, 'system-prompt.expected.md'), 'utf8'),
+    readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'),
+  ])
+  const schemas = parseToolSchemasSnapshot(schemaText)
+  const input = { log: expectedLog, prompt, schemas: [schemas.initial, ...schemas.changes], cwd }
+  const counts = deriveWorkingBudgetExpectations(input)
+  const shadowed = deriveShadowedBudgetExpectations(input)
+  const measured = new Map<number, unknown>()
+  for (const [index, row] of actual.entries()) {
+    const data = row.data as JsonObject | undefined
+    if (row.type === 'request/context' && data?.workingContextTokens !== undefined) measured.set(index, data.workingContextTokens)
+  }
+  assertWorkingBudgetExpectations(measured, counts)
+  const measuredShadowed = new Map<number, unknown>()
+  for (const [index, row] of actual.entries()) {
+    if (row.type === 'compaction/summary' || row.type === 'compaction/prune') {
+      measuredShadowed.set(index, (row.data as JsonObject).shadowedTokenCount)
+    }
+  }
+  assertWorkingBudgetExpectations(measuredShadowed, shadowed)
+  return expected.map((row, index) => {
+    const derived = counts.get(index)
+    const replaced = shadowed.get(index)
+    if (derived === undefined && replaced === undefined) return row
+    return { ...row, data: { ...row.data as JsonObject,
+      ...derived === undefined ? {} : { workingContextTokens: derived },
+      ...replaced === undefined ? {} : { shadowedTokenCount: replaced },
+    } }
+  })
 }
 
 /** Require successful verification and the complete canonical event before refresh can write a fixture. */
@@ -1507,6 +1588,58 @@ describe('headless recorded-session snapshots', () => {
       '{{cwd}}/source/media/company/..\\outside.mp4']) {
       expect(() => expandCompanyMediaExpectedReceipt(JSON.stringify({ ...document, path: invalid }), cwd, 'video (1).mp4')).toThrow()
     }
+  })
+
+  it.each([
+    ['muse-resident-question', 'ask_user'],
+    ['muse-resident-view', 'show_view'],
+  ] as const)('%s rejects dropped tool calls and an unexpected host-only catalog', async (owner, tool) => {
+    const log = await readFile(join(snapshotsRoot, owner, 'writer.expected.jsonl'), 'utf8')
+    const events = parseSessionLog(log)
+    expect(() => verifyResidentUiReplay(events, tool)).not.toThrow()
+    const droppedCall = events.filter(event => event.type !== 'tool/call')
+    expect(() => verifyResidentUiReplay(droppedCall, tool)).toThrow('tool calls remain intact')
+    const changedCall = log.replaceAll(`"name":"${tool}"`, '"name":"bash"')
+    expect(() => verifyResidentUiReplay(parseSessionLog(changedCall), tool)).toThrow('tool calls remain intact')
+    const unexpectedCatalog = {
+      type: 'user/message',
+      surfaceOp: 'append',
+      data: {
+        content: [{ type: 'text', text: 'Unexpected host-only skill' }],
+        role: 'user',
+        id: 'unexpected-catalog',
+        source: { kind: 'skill-catalog', form: 'catalog', entries: [
+          { name: 'diagnose-windows-sandbox-acl', description: 'Unexpected host-only skill' },
+        ] },
+      },
+    }
+    expect(() => verifyResidentUiReplay(parseSessionLog(log + JSON.stringify(unexpectedCatalog) + '\n'), tool))
+      .toThrow('platform-neutral skill catalog')
+  })
+
+  it('preserves exact expected-input working estimates and all other context fields', async () => {
+    const scenario = scenarioByName.get('muse-creation-source-id-recovery')
+    if (scenario === undefined) throw new Error('Missing recorded budget owner')
+    const log = await readFile(join(scenario.dir, 'writer.expected.jsonl'), 'utf8')
+    const expected = records(log)
+    const index = expected.findIndex(row => row.type === 'request/context'
+      && typeof (row.data as JsonObject).workingContextTokens === 'number')
+    const data = expected[index]?.data as JsonObject
+    const estimate = data.workingContextTokens
+    const limit = data.workingTokenLimit
+    if (typeof estimate !== 'number' || typeof limit !== 'number') throw new Error('Missing recorded working estimate')
+    const cwd = '/' + 'x'.repeat(75)
+    const changed = (value: unknown) => expected.map((row, offset) => offset === index ? { ...row, data: value } : row)
+    const compare = (actual: JsonObject[]) => workspaceBudgetExpected(scenario, actual, expected, log, cwd)
+    await expect(compare(changed({ ...data, workingContextTokens: estimate + 5 }))).rejects.toThrow(/exact working context estimate/)
+    expect(await compare(expected)).toEqual(expected)
+    expect(expected).toEqual(records(log))
+    await expect(compare(changed({ ...data, workingContextTokens: limit }))).rejects.toThrow(/exact working context estimate/)
+    await expect(compare(changed({ ...data, workingContextTokens: limit + 1 }))).rejects.toThrow(/exact working context estimate/)
+    expect(await compare([])).toEqual(expected)
+    await expect(compare(changed({}))).rejects.toThrow(/must report/)
+    const changedLimit = changed({ ...data, workingTokenLimit: limit + 1 })
+    expect(changedLimit).not.toEqual(await compare(changedLimit))
   })
 
   it('subtitle overlay workspace expected expands only declared path fields', async () => {
@@ -1991,6 +2124,7 @@ describe('headless recorded-session snapshots', () => {
       let expectedWorkspaceRoot: string | undefined
       let preparedExpectedWorkspace: WorkspaceSnapshotEntry[] | undefined
       let visualSpeechHash: string | undefined
+      let capabilityOcrHash: string | undefined
       const spillRoot = await mkdtemp(join(tmpdir(), 'acp-snap-spill-'))
       const fixturePath = join(scenario.dir, fixtureFiles[0] ?? sessionFixtureName(0, SESSION_FORMAT_VERSION))
       const locatorRoot = snapshotSpillRoot(fixturePath)
@@ -2104,6 +2238,33 @@ describe('headless recorded-session snapshots', () => {
               expect(final.data.message.content).toEqual([{ type: 'text', text: `OBSERVED ${evidenceText}` }])
               expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
             }
+            if (videoObservationOwners.has(scenario.name)) await assertVideoObservationReportArtifacts(actualLogs.map(log => log.content))
+            if (scenario.name === 'muse-video-novel-ocr-capability') {
+              const expectedHash = await expectedCapabilityOcrHash(cwd)
+              capabilityOcrHash = expectedHash
+              capabilityOcrRecords(actualLogs[0]!.content, expectedHash, true)
+              const tampered = capabilityOcrRecords(actualLogs[0]!.content, '0'.repeat(64), false)
+                .map(row => JSON.stringify(row)).join('\n')
+              expect(() => capabilityOcrRecords(tampered, expectedHash, true))
+                .toThrow('OCR digest differs from independently constructed report bytes')
+              const original = actualLogs[0]!.content
+              for (const target of ['report', 'metadata', 'body-metadata']) {
+                const changed = original.split('\n').filter(Boolean).map(line => {
+                  const row = JSON.parse(line)
+                  if (row.type !== 'tool/result' || row.data?.message?.toolCallId !== 'call_ocr') return line
+                  if (target === 'report') {
+                    const block = row.data.message.content[0]
+                    const report = JSON.parse(block.text)
+                    report.raw_json_sha256 = '0'.repeat(64)
+                    block.text = JSON.stringify(report)
+                  } else if (target === 'metadata') row.data.meta.rawJsonSha256 = '0'.repeat(64)
+                  else row.data.meta.__dsh_tool_body_meta_v1.rawJsonSha256 = '0'.repeat(64)
+                  return JSON.stringify(row)
+                }).join('\n')
+                expect(() => capabilityOcrRecords(changed, expectedHash, true))
+                  .toThrow('OCR result and metadata identity or digest mismatch')
+              }
+            }
             if (scenario.name === 'drama-subtitle-visual-review') {
               const expectedHash = await expectedVisualSpeechHash(cwd, scenario.dir)
               visualSpeechHash = expectedHash
@@ -2132,6 +2293,9 @@ describe('headless recorded-session snapshots', () => {
               const saved = await readFile(join(cwd, '.dsh/profiles/headless/cordis.patch.yml'), 'utf8')
               expect(saved).toContain('id: demo')
               expect(saved).toContain('disabled: false')
+            }
+            if (scenario.name === 'muse-resident-question' || scenario.name === 'muse-resident-view') {
+              verifyResidentUiReplay(parseSessionLog(actualLogs[0]!.content), scenario.name === 'muse-resident-question' ? 'ask_user' : 'show_view')
             }
             if (scenario.name === 'muse-resident-question') {
               const events = parseSessionLog(actualLogs[0]!.content)
@@ -2579,7 +2743,7 @@ describe('headless recorded-session snapshots', () => {
                 timeline: 'editing/24-timeline.json', plan: 'episodes/segments/24.json' })
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
               expect(results.map(message => message.toolCallId)).toEqual(calls.map(call => call.callId))
-              expect(results.every(message => message.isError === false)).toBe(true)
+              expect(results.every(message => message.isError === false), JSON.stringify(results.filter(message => message.isError))).toBe(true)
               const bibleBlock = results[0]?.content.find(block => block.type === 'text')
               const renderBlock = results[1]?.content.find(block => block.type === 'text')
               if (bibleBlock?.type !== 'text' || renderBlock?.type !== 'text') throw new Error('Missing real project/render Skill content')
@@ -2612,6 +2776,22 @@ describe('headless recorded-session snapshots', () => {
               expect(existsSync(join(cwd, 'audio'))).toBe(false)
               expect(existsSync(join(cwd, 'music'))).toBe(false)
               expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
+            }
+            if (scenario.name === 'muse-storyboard-voice-identity') {
+              const events = parseSessionLog(actualLogs[0]!.content)
+              const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(results).toHaveLength(2)
+              for (const [index, message] of results.entries()) {
+                expect(message.isError).toBe(true)
+                const block = message.content[0]
+                if (block?.type !== 'text') throw new Error('Missing voice identity refusal')
+                expect(block.text).toContain(index === 0 ? 'Project voice configuration project_bible' : 'Shared character voice requires')
+                expect(block.text).not.toContain('expected envelope')
+              }
+              const evidence = JSON.parse(await readFile(join(cwd, '_probe/voice-identity-fixture.json'), 'utf8'))
+              expect(evidence).toMatchObject({ simulated: true, writes: 0 })
+              expect(evidence.requests).toHaveLength(3)
+              expect(evidence.requests.every((row: JsonObject) => row.method === 'GET')).toBe(true)
             }
             if (scenario.name === 'muse-voice-periods') {
               const events = parseSessionLog(actualLogs[0]!.content)
@@ -2806,8 +2986,9 @@ describe('headless recorded-session snapshots', () => {
       if (outputLog === undefined) throw new Error(`${scenario.name}: CLI projection has no primary session`)
       expect(result.stdout).toBe(`${finalTextFromSession(outputLog)}\n`)
       expect(result.stderr).toBe(stderrFromSession(outputLog))
-      const actualSnapshots = normalizeSessionSnapshots(actualLogs.map(log => log.content), actualContext, { nativeWriterOutput: true })
-      const expectedSnapshots = normalizeSessionSnapshots(expected, contextOf(expected), { nativeWriterOutput: true })
+      const normalizeOutput = (logs: string[]) => videoObservationOwners.has(scenario.name) ? normalizeVideoObservationReportHashes(logs) : logs
+      const actualSnapshots = normalizeOutput(normalizeSessionSnapshots(actualLogs.map(log => log.content), actualContext, { nativeWriterOutput: true }))
+      const expectedSnapshots = normalizeOutput(normalizeSessionSnapshots(expected, contextOf(expected), { nativeWriterOutput: true }))
       for (const [index, actual] of actualSnapshots.entries()) {
         const actualRecords = records(actual)
         let expectedRecords: object[] = scenario.name === 'session-reference-spill' && index === 0
@@ -2820,6 +3001,13 @@ describe('headless recorded-session snapshots', () => {
         if (scenario.name === 'drama-subtitle-visual-review' && index === 0) {
           if (visualSpeechHash === undefined) throw new Error('Visual speech inputs were not checked')
           expectedRecords = visualSpeechRecords(expectedSnapshots[index] as string, visualSpeechHash, false)
+        }
+        if (scenario.name === 'muse-video-novel-ocr-capability' && index === 0) {
+          if (capabilityOcrHash === undefined) throw new Error('OCR capability report bytes were not checked')
+          expectedRecords = capabilityOcrRecords(expectedSnapshots[index] as string, capabilityOcrHash, false)
+        }
+        if (index === 0 && workspaceSensitiveBudgetScenarios.has(scenario.name)) {
+          expectedRecords = await workspaceBudgetExpected(scenario, actualRecords, expectedRecords as JsonObject[], expected[index] as string, actualContext.cwd)
         }
         expect(actualRecords, `${scenario.name}: session ${index}`).toEqual(expectedRecords)
       }

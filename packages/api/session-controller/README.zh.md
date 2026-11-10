@@ -62,7 +62,7 @@ Client 适配器提供 `SessionEventStream`，即绑定到一个普通 Session �
 Session 对象还承载本地提交回显：`session.beginSubmission` 在调用方序列化与发送提示词之前登记一条回显，Host 接收该提示词后，Session 才把它公开在 `SessionSnapshot.pendingSubmissions` 中；`prompt` 的回执和带有该请求 id 的 `inbox` 行都能表明已接收，以先到者为准。因此会话 UI 从接收起显示消息，直到它的持久条目渲染出来，Chat 和 QueueDock 也从对应的 Inbox 行到达起就把它排除。新会话从空白进入 engaging 也发生在这次接收时。回显按顺序存放图片预览与持久文件引用。Session 根据当前运行状态与请求的投递模式推导其 `transcript`、`queued` 或 `steering` 位置，并保留该位置直到展示接管。提示词的 `requestId` 是关联标识：Host 把它回显为 durable user source 的 `rpcId`，`inbox` 投影中的待处理消息也保留同一 source。排队回显在队列接受后延迟一个动画帧退休；Chat 回显遵循下述入档规则。尚未入档的回显在带标识的提示词失败或被放弃时立即退休。销毁时保留已观察到的入档结果，其余未结算提交按 failed 退休。接收时触发一次 `onAccept`，与公开回显处于同一次更新，让发送方与回显同时结算输入框。每次退休恰好触发一次 `onRetire`；observed 退休还会携带有序的持久附件引用，让发送方释放或移交已发送的附件。回显只存在于 Client 内存；刷新与重连只从持久事件重建会话。
 
 
-正常在线时，transcript 与 steering 回显在 Inbox 接受与领取期间留在 Chat，直到持久消息到达。本地 Chat 消息入档后，其身份保留到 Inbox 水位覆盖 next-turn 或 next-step 领取序号：Chat 已显示真实 Node，而 Chat 与 QueueDock 排除匹配的旧 Inbox 行。其他排队消息照常显示。新的 follow 基线会将已有接收回执的回显按 observed 撤去，使用已接受的附件引用完成结算；尚未确认接收的提交继续保留。待处理或已入档的消息随后由 Host 数据呈现。在领取与入档之间重连时，气泡可能短暂消失；撤去回显只确认接收，不代表执行或失败。
+正常在线时，transcript 与 steering 回显在 Inbox 接受与领取期间留在 Chat，直到持久消息到达。持久领取保留消息身份及原队列目标：过滤、用户取消或 fork 结束只会将尚未入档的已领取回显标为失败，中断结束则将它们恢复到后来待处理输入之前。队列取消因此在领取和恢复后按消息身份跟踪，不会复用原来的位置。本地 Chat 消息入档后，其身份保留到 Inbox 水位覆盖 next-turn 或 next-step 领取序号：Chat 已显示真实 Node，而 Chat 与 QueueDock 排除匹配的旧 Inbox 行。其他排队消息照常显示。新的 follow 基线会将已有接收回执的回显按 observed 撤去，使用已接受的附件引用完成结算；尚未确认接收的提交继续保留。待处理或已入档的消息随后由 Host 数据呈现。在领取与入档之间重连时，气泡可能短暂消失；撤去回显只确认接收，不代表执行或失败。
 
 面向用户调用的 `skills/list` 元数据包含胜出提供方可选的指令文件 `path`。输入框可据此预览文件，无需加载每个 skill 的正文或激活冷态 Agent。
 

@@ -134,6 +134,8 @@ Agent 步骤的并发上限使用 [agent-loop 配置](../agent-loop/README.zh.md
 
 每次类型化调用都会实体化并冻结解析后的参数、分配不透明关联 token，再运行策略与分发。pre-execute 拒绝可以在模型可见原因旁附带 `ToolErrorInfo`；原生与 PTC 持久投影会保留结构化名称、代码与可选用户可见原因，但不会把该详情加入模型内容。取消采用协作式并等待完全停稳：每个工具主体都收到调用方拥有的 `exec.signal` 且必须观测它；调用主体前的取消为 `ABORTED_BEFORE_DISPATCH`，调用主体后的取消只能把成功结果替换为 `ABORTED`。拒绝、包装层失败、工具失败、后置策略失败与超时产生的 `TOOL_TIMEOUT` 仍保留更具体的结果。未知工具与抛出异常的工具都会变成结构化错误（`UNKNOWN_TOOL`），因此调用会失败而不会结束轮次。
 
+`presentationMeta` 可返回 `undefined`，省略该次结果的元数据。工具声明 `preserveBodyMeta: true` 时，若同一注册主体恰好执行一次且最终结果成功，其原始对象元数据会保存在 `TOOL_BODY_META_KEY` 下。失败、取消、主体被替换或重复执行的调用不签发该证据；工具不能自行提供保留键。最终展示元数据另行保留，可以反映 post-execute 策略的替换。该元数据随原生和 PTC 工具结果持久化，依赖可信的同进程工具注册与 Session 存储。
+
 ### PTC mode
 
 [PTC 执行器](../tool-executor-ptc/README.zh.md) 负责程序传输、SDK 生成、嵌套分发和图片上下文。

@@ -2712,3 +2712,27 @@ it.each([
     await ctx.fiber.dispose()
   }
 })
+
+it('persists the actual nested body metadata across policy and log content replacement', async () => {
+  const { ctx, runtime } = await setup({ mode: 'ptc' })
+  try {
+    ctx.tools.register(defineTool({ name: 'evidence_fixture', description: 'Fixture evidence.', parameters: {},
+      output: { schema: { type: 'string' }, preserveBodyMeta: true,
+        render: (_args, value) => [{ type: 'text', text: value }], presentationMeta: (_args, value) => ({ content: value }) },
+      execute: async () => 'actual-body',
+    }))
+    ctx.on('tools/post-execute', async (exec, _result, next) => exec.name === 'evidence_fixture'
+      ? { kind: 'accept', value: 'replacement-value' } : next())
+    ctx.on('tools/ptc-dispatch-log', async () => [{ type: 'text', text: 'replacement-log' }])
+    const session = Session.create(SessionId('ptc-body-evidence'))
+    const agent = { ctx, session } as Agent
+    runtime.behavior = async request => ({ logs: [], value: await request.bindings[0]!.functions.evidence_fixture!({}) })
+    const result = await runCode(ctx, 'return await tools.evidence_fixture({})', { agent })
+    expect(result.isError).toBe(false)
+    const event = session.snapshotEvents().find(item => item.type === 'tool/ptc-dispatch')
+    expect(event?.data.content).toEqual([{ type: 'text', text: 'replacement-log' }])
+    expect(event?.data.meta).toEqual({ content: 'replacement-value', __dsh_tool_body_meta_v1: { content: 'actual-body' } })
+    const restored = Session.create(session.id, session.snapshotEvents(), session.header)
+    expect(restored.snapshotEvents().find(item => item.type === 'tool/ptc-dispatch')?.data.meta).toEqual(event?.data.meta)
+  } finally { await ctx.fiber.dispose() }
+})

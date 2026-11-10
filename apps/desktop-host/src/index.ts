@@ -31,6 +31,8 @@ import { installOperationDiagnostics } from './operation-diagnostics.ts'
 import { desktopDownloadEnvironment } from './download-runtime.ts'
 import { installDesktopDouyinBrowser } from './douyin-browser.ts'
 import { DESKTOP_HOST_PROTOCOL_VERSION, DESKTOP_HOST_SHUTDOWN_GRACE_MS } from './host-protocol.ts'
+import { workspaceStorageLayer } from './workspace-storage-composition.ts'
+import { generationLoopLayer } from './generation-loop-composition.ts'
 
 const DESKTOP_PATCH = fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url))
 
@@ -71,7 +73,10 @@ async function desktopComposition(
     profile.patches,
     loadOverlayPatches('muse-med', DESKTOP_PATCH),
   ]
-  const configuredSkillFilesystem = composeEntries(layers.slice(0, -1)).find(row => row.id === 'skill-filesystem')
+  const inheritedEntries = composeEntries(layers.slice(0, -1))
+  const configuredSkillFilesystem = inheritedEntries.find(row => row.id === 'skill-filesystem')
+  layers.push(workspaceStorageLayer(inheritedEntries, dshHomePath('storages')))
+  layers.push(generationLoopLayer(composeEntries(layers)))
   const rows = new Map(composeEntries(layers).flatMap(row => typeof row.id === 'string' ? [[row.id, row] as const] : []))
   if (rows.get('agent-preset-registry') === undefined) {
     throw new Error('muse-med: profile has no agent-preset-registry row')
@@ -121,7 +126,7 @@ async function desktopComposition(
   }])
   // Resolve bridge Config only after the setup service installs its startup hook.
   layers.push(feishuGateLayer([...rows.values()]))
-  return { profile, patches: layers.slice(profile.layers.length + 1).flat(), moduleOverrides: { ...bundledBridgeModules(runtimeDir), 'ds-bot': fileURLToPath(new URL('./retired-bot.js', import.meta.url)), 'muse-bot': fileURLToPath(new URL('./retired-bot.js', import.meta.url)) } }
+  return { profile, patches: layers.slice(profile.layers.length + 1).flat(), moduleOverrides: { ...bundledBridgeModules(runtimeDir), 'muse-workspace-owned-storage': fileURLToPath(new URL('./workspace-owned-storage.js', import.meta.url)), 'ds-bot': fileURLToPath(new URL('./retired-bot.js', import.meta.url)), 'muse-bot': fileURLToPath(new URL('./retired-bot.js', import.meta.url)) } }
 }
 
 async function main(): Promise<void> {

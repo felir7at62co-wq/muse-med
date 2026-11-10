@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DEFAULT_DELIVERY, audioMixFilter, deliveryScaleFilter, subtitleBurnFilter } from '../src/delivery.ts'
-import { assertBodyOnlyAnimation, deliveryPolicyFor, parseTimelineDelivery, readProjectDelivery, resolveDeliveryPolicy } from '../src/delivery-policy.ts'
+import { assertBodyOnlyAnimation, deliveryPolicyFor, findShortDramaProject, isShortDramaProject, parseTimelineDelivery, readProjectDelivery, resolveDeliveryPolicy } from '../src/delivery-policy.ts'
 import { buildAssDocument } from '../src/subtitles.ts'
 import { appendClips, formatTimelineDocument, parseTimelineDocument } from '../src/timeline.ts'
 
@@ -19,10 +19,42 @@ async function project(bible?: unknown): Promise<string> {
 const animation = { width: 1920, height: 1080, fps: 30, visual_medium: 'animation_3d' } as const
 const fonts = { subtitleFontFamily: 'SimHei', watermarkFontFamily: 'Microsoft YaHei' }
 
+it('finds the nearest marked ancestor without treating unmarked or malformed child metadata as a scope reset', async () => {
+  const root = await project(), child = join(root, '第26集'), leaf = join(child, 'draft')
+  await mkdir(leaf, { recursive: true })
+  await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933 }))
+  await writeFile(join(child, 'project_config.json'), '{broken')
+  expect(await findShortDramaProject(leaf)).toBe(root)
+  await writeFile(join(child, 'project_config.json'), JSON.stringify({ project_bible: { schema_version: 1 } }))
+  expect(await findShortDramaProject(leaf)).toBe(child)
+})
+
+it('leaves unmarked directories and directory-shaped configuration paths outside short-drama scope', async () => {
+  const root = await project()
+  await mkdir(join(root, 'project_config.json'))
+  expect(await findShortDramaProject(root)).toBeUndefined()
+})
+
+it.each([
+  null, [], 'project', {}, { jubian_script_id: 0 }, { jubian_script_id: 1.5 }, { jubian_script_id: '5933' },
+  { project_bible: null }, { project_bible: [] }, { project_bible: { delivery: {} } }, { project_bible: { schema_version: 2 } },
+])('does not infer a short-drama project without a recognized marker: %j', (config) => {
+  expect(isShortDramaProject(config)).toBe(false)
+})
+
+it.each([
+  { jubian_script_id: 5933 }, { project_bible: { schema_version: 1 } },
+  { jubian_script_id: 5933, project_bible: { delivery: {} } },
+  { jubian_script_id: 'legacy', project_bible: { schema_version: 1 } },
+])('recognizes a short-drama project independently of legacy delivery settings: %j', (config) => {
+  expect(isShortDramaProject(config)).toBe(true)
+})
+
 describe('delivery metadata', () => {
   it('round trips only explicit project subtitle and audio fields into the timeline', async () => {
-    const delivery = { ...animation, subtitle: { font_family: 'Noto Sans CJK SC', font_size_px: 30, margin_bottom_px: 18 },
-      audio: { master_gain: 1, bgm_gain: 0 } }
+    const delivery = { ...animation, subtitle: { font_family: 'Noto Sans CJK SC', font_size_px: 30, margin_bottom_px: 18,
+      require_no_punctuation: true, require_speech_coverage: true },
+    audio: { master_gain: 1, bgm_gain: 0, require_music_decision: true } }
     const selected = await readProjectDelivery(await project({ visual_medium: 'animation_3d', delivery }))
     expect(selected).toEqual(delivery)
     const text = formatTimelineDocument({ ...appendClips([1_000_000]), delivery: selected })
@@ -31,6 +63,7 @@ describe('delivery metadata', () => {
       .toEqual({ ...DEFAULT_DELIVERY, subtitle: {}, audio: {} })
   })
   it.each([
+    { require_source_review: 'true' },
     { subtitle: null }, { subtitle: [] }, { subtitle: 'large' }, { audio: null }, { audio: [] },
     { subtitle: { font_family: null } }, { subtitle: { font_family: ' ' } },
     { subtitle: { font_family: 'font,injected' } }, { subtitle: { font_family: 'font\nStyle: forged' } },
@@ -39,10 +72,23 @@ describe('delivery metadata', () => {
     { subtitle: { font_size_px: Infinity } }, { subtitle: { font_size_px: NaN } },
     { subtitle: { margin_bottom_px: null } }, { subtitle: { margin_bottom_px: -1 } },
     { subtitle: { margin_bottom_px: 1081 } }, { subtitle: { margin_bottom_px: Infinity } },
+    { subtitle: { require_no_punctuation: 'true' } }, { subtitle: { require_no_punctuation: null } },
+    { subtitle: { require_speech_coverage: 'true' } }, { subtitle: { require_speech_coverage: null } },
     { audio: { master_gain: null } }, { audio: { master_gain: '1' } }, { audio: { master_gain: -1 } },
     { audio: { master_gain: 8.1 } }, { audio: { bgm_gain: Infinity } }, { audio: { bgm_gain: null } },
+    { audio: { require_music_decision: 'true' } }, { audio: { require_music_decision: null } },
   ])('rejects malformed explicit style or gain values %j', (sections) => {
     expect(() => parseTimelineDelivery({ ...animation, ...sections }, 'timeline.delivery')).toThrow('timeline.delivery')
+  })
+  it('retains speech-validation requirements while replacing obsolete portrait typography', async () => {
+    const portrait = { width: 480, height: 854, fps: 24 }
+    const visual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
+      font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.64, max_width_ratio: 0.9 }
+    const path = await project({ delivery: portrait })
+    const policy = await resolveDeliveryPolicy(path, { ...portrait,
+      subtitle: { font_size_px: 90, require_speech_coverage: true } }, visual, true)
+    expect(policy.delivery.subtitle).toEqual({ require_speech_coverage: true })
+    expect(policy.delivery.subtitle_visual).toEqual(visual)
   })
   it('does not add new fields or change old timeline bytes when no override is configured', async () => {
     const delivery = await readProjectDelivery(await project({ delivery: { width: 480, height: 854, fps: 24 } }))
@@ -118,6 +164,13 @@ describe('delivery metadata', () => {
     const path = await project()
     await writeFile(join(path, 'project_config.json'), JSON.stringify({ project_name: 'Legacy project' }))
     expect(await readProjectDelivery(path)).toEqual(DEFAULT_DELIVERY)
+    const visual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
+      font_size_px: 48, outline_px: 2, center_y_ratio: 0.74, max_width_ratio: 0.9 }
+    expect(await readProjectDelivery(path, visual)).toEqual({ ...DEFAULT_DELIVERY, subtitle_visual: visual })
+  })
+
+  it('requires a deployment subtitle visual before enforcing it', async () => {
+    await expect(readProjectDelivery(await project(), undefined, true)).rejects.toThrow('产品字幕视觉配置缺失')
   })
   it('reports unreadable project configuration instead of treating it as missing', async () => {
     const path = await project()
@@ -145,11 +198,13 @@ describe('medium delivery resolution', () => {
   })
   it('inherits missing sections independently without merging fields into a saved section', async () => {
     const path = await project({ visual_medium: 'animation_3d', delivery: {
-      subtitle: { font_family: 'Changed font', font_size_px: 80 }, audio: { master_gain: 0, bgm_gain: 0.5 } } })
-    expect((await resolveDeliveryPolicy(path, { ...animation, subtitle: { font_size_px: 30 } })).delivery)
-      .toEqual({ ...animation, subtitle: { font_size_px: 30 }, audio: { master_gain: 0, bgm_gain: 0.5 } })
+      subtitle: { font_family: 'Changed font', font_size_px: 80, require_no_punctuation: true },
+      audio: { master_gain: 0, bgm_gain: 0.5 } } })
+    const savedSubtitle = { font_size_px: 30, require_no_punctuation: false }
+    expect((await resolveDeliveryPolicy(path, { ...animation, subtitle: savedSubtitle })).delivery)
+      .toEqual({ ...animation, subtitle: savedSubtitle, audio: { master_gain: 0, bgm_gain: 0.5 } })
     expect((await resolveDeliveryPolicy(path, { ...animation, audio: {} })).delivery)
-      .toEqual({ ...animation, audio: {}, subtitle: { font_family: 'Changed font', font_size_px: 80 } })
+      .toEqual({ ...animation, audio: {}, subtitle: { font_family: 'Changed font', font_size_px: 80, require_no_punctuation: true } })
     expect((await resolveDeliveryPolicy(path, { ...animation, subtitle: {}, audio: {} })).delivery)
       .toEqual({ ...animation, subtitle: {}, audio: {} })
   })
@@ -217,6 +272,6 @@ describe('medium delivery resolution', () => {
   it('carries snapshot canvas and rate into scale and burn filters', () => {
     expect(deliveryScaleFilter('yuv420p', animation)).toContain('crop=1920:1080,tpad=stop_mode=clone:stop_duration=0.033333333,fps=30')
     expect(subtitleBurnFilter('display.ass', 'fonts', animation)).toContain('scale=3840:2160')
-    expect(subtitleBurnFilter('display.ass', 'fonts', animation)).toContain('fps=30,setpts=N/(30*TB)')
+    expect(subtitleBurnFilter('display.ass', 'fonts', animation).endsWith('fps=30')).toBe(true)
   })
 })

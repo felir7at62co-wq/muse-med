@@ -73,6 +73,13 @@ class DraftStyleResolutionTests(unittest.TestCase):
         self.assertEqual(resolved['watermark'], {'font_size_ui': 7})
         self.assertIsNone(resolved['subtitle']['font_family'])
 
+    def test_subtitle_only_snapshot_inherits_default_project_watermark(self):
+        timeline = {'delivery': {'draft_style': {'subtitle': {'font_size_ui': 13}}}}
+        resolved = self.inputs.draft_style(timeline, self.project)
+        self.assertEqual(resolved['watermark'], {'font_size_ui': 7})
+        self.assertEqual(resolved['subtitle']['font_size_ui'], 13)
+        self.assertIsNone(resolved['subtitle']['font_family'])
+
     def test_explicit_custom_watermark_sizes_are_retained(self):
         for size in (6, 8):
             with self.subTest(size=size):

@@ -394,3 +394,41 @@ it('releases after supplier failure and after the consumer stops early', async (
   for await (const _chunk of streamWithModelLease(options, 'glm-test', new AbortController().signal, finished)) break
   expect(calls).toEqual(['POST', 'DELETE', 'POST', 'DELETE'])
 })
+
+
+it('joins an aborted in-flight access check before releasing its lease', async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  const entered = Promise.withResolvers<null>()
+  const checkEntered = Promise.withResolvers<null>()
+  const releaseCheck = Promise.withResolvers<null>()
+  const controller = new AbortController()
+  const calls: string[] = []
+  const fetcher: typeof fetch = async (_url, init) => {
+    calls.push(String(init?.method))
+    if (init?.method === 'GET') {
+      checkEntered.resolve(null)
+      await releaseCheck.promise
+      throw new Error('cancelled check')
+    }
+    return Response.json(lease())
+  }
+  const result = drain(streamWithModelLease({ baseUrl, sessionFile, revision, requestTimeoutMs: 1000, fetcher },
+    'glm-test', controller.signal, async function* (_access, signal) {
+      entered.resolve(null)
+      await new Promise<void>((resolve) => { signal.addEventListener('abort', () => { resolve() }, { once: true }) })
+      yield { type: 'finish', reason: { kind: 'aborted', failure: { code: 'ABORTED', message: 'cancelled' } } }
+    }))
+  try {
+    await entered.promise
+    await vi.advanceTimersByTimeAsync(1000)
+    await checkEntered.promise
+    controller.abort()
+    releaseCheck.resolve(null)
+    expect(await result).toMatchObject([{ type: 'finish', reason: { kind: 'aborted' } }])
+    expect(calls).toEqual(['POST', 'GET', 'DELETE'])
+  } finally {
+    controller.abort()
+    releaseCheck.resolve(null)
+    await Promise.allSettled([result])
+  }
+})

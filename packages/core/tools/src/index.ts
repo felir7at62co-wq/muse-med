@@ -133,7 +133,8 @@ export class ToolsService extends Service {
     const output = (definition as Partial<ToolDefinition>).output
     if (output === undefined || typeof output !== 'object'
       || typeof output.render !== 'function'
-      || (output.presentationMeta !== undefined && typeof output.presentationMeta !== 'function')) {
+      || (output.presentationMeta !== undefined && typeof output.presentationMeta !== 'function')
+      || (output.preserveBodyMeta === true && output.presentationMeta === undefined)) {
       throw new TypeError(`tool "${name}" must declare output { schema, render, presentationMeta? }`)
     }
     assertSupportedJsonSchema(output.schema)

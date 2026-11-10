@@ -22,6 +22,7 @@ import { apply, inject } from '@deepseek-ai/dsh-client-ui-sidebar/client'
 usePinnedBrowserLanguages('zh-CN')
 
 beforeEach(() => {
+  vi.stubGlobal('matchMedia', () => ({ matches: false }))
   vi.stubEnv('DSH_CLIENT_COMMIT_HASH', 'abc1234')
   vi.stubEnv('DSH_CLIENT_GIT_DIRTY', 'true')
   vi.stubEnv('DSH_CLIENT_VERSION', '1.2.3-rc.4')
@@ -36,6 +37,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals()
   cleanup()
+  vi.unstubAllGlobals()
   vi.unstubAllEnvs()
 })
 

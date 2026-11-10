@@ -3,8 +3,8 @@
  * @module @deepseek-ai/dsh-tool-episode-render/delivery-policy
  */
 
-import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { lstat, readFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
 import { DEFAULT_DELIVERY, ENDING_SECONDS, FONT_FAMILY_PATTERN, subtitleRenderStyle } from './delivery.ts'
 import { parseSubtitleVisual } from './subtitle-visual.ts'
 import { activeSubtitleVisual } from './subtitle-visual.ts'
@@ -16,6 +16,46 @@ function object(value: unknown, path: string): Record<string, unknown> {
     throw new Error(`${path} 必须是对象。请修正项目配置或重新运行 prepare。`)
   }
   return value as Record<string, unknown>
+}
+
+/** Identify project metadata that requires formal short-drama delivery evidence.
+ * @param value - Parsed project_config.json; at least one recognized marker must be present.
+ * @returns Whether a positive Jubian binding or version-one project bible identifies the project.
+ */
+export function isShortDramaProject(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const row = value as Record<string, unknown>
+  const bound = typeof row.jubian_script_id === 'number' && Number.isSafeInteger(row.jubian_script_id)
+    && row.jubian_script_id > 0
+  const bible = typeof row.project_bible === 'object' && row.project_bible !== null
+    && !Array.isArray(row.project_bible) && 'schema_version' in row.project_bible && row.project_bible.schema_version === 1
+  return bound || bible
+}
+
+/** Find the nearest short-drama project containing a working directory.
+ * @param directory - Project or episode directory; its ancestors are checked up to the filesystem root.
+ * @returns The nearest directory with recognized project metadata, or undefined for an unmarked workspace.
+ * Invalid JSON does not establish scope; filesystem errors other than absence still reject the lookup.
+ */
+export async function findShortDramaProject(directory: string): Promise<string | undefined> {
+  let current = resolve(directory)
+  while (true) {
+    const path = resolve(current, 'project_config.json')
+    let text: string | undefined
+    try { if ((await lstat(path)).isFile()) text = await readFile(path, 'utf8') }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    if (text !== undefined) {
+      let config: unknown
+      try { config = JSON.parse(text.replace(/^\uFEFF/u, '')) }
+      catch (_error) { config = undefined }
+      if (isShortDramaProject(config)) return current
+    }
+    const parent = dirname(current)
+    if (parent === current) return undefined
+    current = parent
+  }
 }
 
 /**
@@ -54,27 +94,41 @@ function bounded(value: unknown, path: string, minimum: number, maximum: number,
   return value
 }
 
-/** Parse only explicitly selected subtitle fields, preserving an explicit empty section. */
-function subtitle(value: unknown, path: string, height: number): DeliverySubtitle {
+/** Preserve explicit empty overrides, except obsolete style-only sections under product enforcement. */
+function subtitle(value: unknown, path: string, height: number, ignoreStyle = false): DeliverySubtitle | undefined {
+  if (ignoreStyle && (typeof value !== 'object' || value === null || Array.isArray(value))) return undefined
   const row = object(value, path)
-  if (Object.hasOwn(row, 'font_family') && (typeof row.font_family !== 'string' || !FONT_FAMILY_PATTERN.test(row.font_family))) {
+  if (!ignoreStyle && Object.hasOwn(row, 'font_family') && (typeof row.font_family !== 'string' || !FONT_FAMILY_PATTERN.test(row.font_family))) {
     throw new Error(`${path}.font_family 必须是非空 ASS 字体名，不能包含逗号或换行；字体须已安装或在 fontsDir 中提供。`)
   }
-  return {
-    ...(Object.hasOwn(row, 'font_family') ? { font_family: row.font_family as string } : {}),
-    ...(Object.hasOwn(row, 'font_size_px')
-      ? { font_size_px: bounded(row.font_size_px, `${path}.font_size_px`, 0, Number.MAX_SAFE_INTEGER, true) } : {}),
-    ...(Object.hasOwn(row, 'margin_bottom_px')
-      ? { margin_bottom_px: bounded(row.margin_bottom_px, `${path}.margin_bottom_px`, 0, height) } : {}),
+  if (Object.hasOwn(row, 'require_no_punctuation') && typeof row.require_no_punctuation !== 'boolean') {
+    throw new Error(`${path}.require_no_punctuation 必须是布尔值。`)
   }
+  if (Object.hasOwn(row, 'require_speech_coverage') && typeof row.require_speech_coverage !== 'boolean') {
+    throw new Error(`${path}.require_speech_coverage 必须是布尔值。`)
+  }
+  const selected: DeliverySubtitle = {
+    ...(!ignoreStyle && Object.hasOwn(row, 'font_family') ? { font_family: row.font_family as string } : {}),
+    ...(!ignoreStyle && Object.hasOwn(row, 'font_size_px')
+      ? { font_size_px: bounded(row.font_size_px, `${path}.font_size_px`, 0, Number.MAX_SAFE_INTEGER, true) } : {}),
+    ...(!ignoreStyle && Object.hasOwn(row, 'margin_bottom_px')
+      ? { margin_bottom_px: bounded(row.margin_bottom_px, `${path}.margin_bottom_px`, 0, height) } : {}),
+    ...(typeof row.require_no_punctuation === 'boolean' ? { require_no_punctuation: row.require_no_punctuation } : {}),
+    ...(typeof row.require_speech_coverage === 'boolean' ? { require_speech_coverage: row.require_speech_coverage } : {}),
+  }
+  return ignoreStyle && Object.keys(selected).length === 0 ? undefined : selected
 }
 
 /** Parse explicit linear gains without treating zero as an omitted value. */
 function audio(value: unknown, path: string): DeliveryAudio {
   const row = object(value, path)
+  if (Object.hasOwn(row, 'require_music_decision') && typeof row.require_music_decision !== 'boolean') {
+    throw new Error(`${path}.require_music_decision 必须是布尔值。`)
+  }
   return {
     ...(Object.hasOwn(row, 'master_gain') ? { master_gain: bounded(row.master_gain, `${path}.master_gain`, 0, 8) } : {}),
     ...(Object.hasOwn(row, 'bgm_gain') ? { bgm_gain: bounded(row.bgm_gain, `${path}.bgm_gain`, 0, 8) } : {}),
+    ...(typeof row.require_music_decision === 'boolean' ? { require_music_decision: row.require_music_decision } : {}),
   }
 }
 
@@ -138,10 +192,16 @@ export function parseTimelineDelivery(
   const fps = positive(row.fps, `${path}.fps`)
   if (width % 2 !== 0 || height % 2 !== 0) throw new Error(`${path} 的 width 和 height 必须是偶数（H.264 yuv420p）。`)
   if (fps > 240) throw new Error(`${path}.fps 不得超过 240。`)
+  if (Object.hasOwn(row, 'require_source_review') && typeof row.require_source_review !== 'boolean') {
+    throw new Error(`${path}.require_source_review 必须是布尔值。`)
+  }
+  const selectedSubtitle = Object.hasOwn(row, 'subtitle')
+    ? subtitle(row.subtitle, `${path}.subtitle`, height, ignoreSubtitleStyles) : undefined
   const delivery: TimelineDelivery = {
     ...(Object.hasOwn(row, 'visual_medium') ? { visual_medium: medium(row.visual_medium, `${path}.visual_medium`) } : {}),
     width, height, fps,
-    ...(!ignoreSubtitleStyles && Object.hasOwn(row, 'subtitle') ? { subtitle: subtitle(row.subtitle, `${path}.subtitle`, height) } : {}),
+    ...(typeof row.require_source_review === 'boolean' ? { require_source_review: row.require_source_review } : {}),
+    ...(selectedSubtitle === undefined ? {} : { subtitle: selectedSubtitle }),
     ...(!ignoreSubtitleStyles && Object.hasOwn(row, 'subtitle_visual')
       ? { subtitle_visual: parseSubtitleVisual(row.subtitle_visual, `${path}.subtitle_visual`) } : {}),
     ...(Object.hasOwn(row, 'audio') ? { audio: audio(row.audio, `${path}.audio`) } : {}),
@@ -187,19 +247,21 @@ export async function readProjectDelivery(
   }
   const enforced = enforcePortraitSubtitleVisual(enforceSubtitleVisual, selectedGeometry)
   const visual = enforceSubtitleVisual && !enforced ? undefined : defaultVisual
-  return parseTimelineDelivery({
+  const delivery = parseTimelineDelivery({
     ...DEFAULT_DELIVERY,
     ...(Object.hasOwn(geometry, 'width') ? { width: geometry.width } : {}),
     ...(Object.hasOwn(geometry, 'height') ? { height: geometry.height } : {}),
     ...(Object.hasOwn(geometry, 'fps') ? { fps: geometry.fps } : {}),
-    ...(!enforced && Object.hasOwn(geometry, 'subtitle') ? { subtitle: geometry.subtitle } : {}),
+    ...(Object.hasOwn(geometry, 'require_source_review') ? { require_source_review: geometry.require_source_review } : {}),
+    ...(Object.hasOwn(geometry, 'subtitle') ? { subtitle: geometry.subtitle } : {}),
     ...(!enforced && Object.hasOwn(geometry, 'subtitle_visual') ? { subtitle_visual: geometry.subtitle_visual } : {}),
     ...((enforced || (!Object.hasOwn(geometry, 'subtitle_visual') && !Object.hasOwn(geometry, 'subtitle'))) && visual !== undefined
       ? { subtitle_visual: visual } : {}),
     ...(Object.hasOwn(geometry, 'audio') ? { audio: geometry.audio } : {}),
     ...(Object.hasOwn(geometry, 'draft_style') ? { draft_style: geometry.draft_style } : {}),
     ...(Object.hasOwn(bible, 'visual_medium') ? { visual_medium: bible.visual_medium } : {}),
-  }, `${path}.project_bible.delivery`, false, enforced)
+  }, `${path}.project_bible.delivery`, enforced, enforced)
+  return enforced && visual !== undefined ? { ...delivery, subtitle_visual: visual } : delivery
 }
 
 /**
@@ -249,6 +311,8 @@ export async function resolveDeliveryPolicy(
   const selected: TimelineDelivery = {
     ...(snapshot ?? DEFAULT_DELIVERY),
     ...(visualMedium === undefined ? {} : { visual_medium: visualMedium }),
+    ...(snapshot?.require_source_review !== undefined || current.require_source_review === undefined
+      ? {} : { require_source_review: current.require_source_review }),
     ...(snapshot?.subtitle !== undefined || current.subtitle === undefined ? {} : { subtitle: current.subtitle }),
     ...(snapshot?.subtitle_visual !== undefined || current.subtitle_visual === undefined
       ? {} : { subtitle_visual: current.subtitle_visual }),
@@ -260,7 +324,10 @@ export async function resolveDeliveryPolicy(
     && fallback !== undefined ? { ...selected, subtitle_visual: fallback } : selected
   if (enforced && defaultVisual !== undefined) {
     const { subtitle: _oldSubtitle, subtitle_visual: _oldVisual, ...rest } = selected
-    delivery = { ...rest, subtitle_visual: defaultVisual }
+    const selectedSubtitle = _oldSubtitle === undefined ? undefined
+      : subtitle(_oldSubtitle, 'delivery.subtitle', selected.height, true)
+    delivery = { ...rest, subtitle_visual: defaultVisual,
+      ...(selectedSubtitle === undefined ? {} : { subtitle: selectedSubtitle }) }
   }
   // A legacy timeline may retain different geometry from the current project.
   // Validate the inherited margin against the frame that will actually be rendered.

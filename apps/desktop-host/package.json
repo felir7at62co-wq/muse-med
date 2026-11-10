@@ -30,7 +30,14 @@
     "lib/computer-input-worker.js",
     "lib/delegation-policy.js",
     "lib/approved-episode-render.js",
-    "lib/episode-render-worker.js"
+    "lib/episode-render-worker.js",
+    "lib/workspace-owned-storage.js",
+    "lib/workspace-owner-lease.js",
+    "lib/workspace-storage-composition.js",
+    "lib/workspace-handoff.js",
+    "lib/workspace-process-snapshot.js",
+    "lib/generation-loop-composition.js",
+    "lib/episode-source-authority.js"
   ],
   "dependencies": {
     "koffi": "3.1.1",
@@ -111,9 +118,14 @@
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
     "@deepseek-ai/dsh-muse-video-ui": "workspace:*",
     "@deepseek-ai/dsh-muse-market": "workspace:*",
-    "@deepseek-ai/dsh-client-ui-muse-market": "workspace:*"
+    "@deepseek-ai/dsh-client-ui-muse-market": "workspace:*",
+    "@deepseek-ai/dsh-storage": "workspace:*",
+    "@deepseek-ai/dsh-storage-json": "workspace:*",
+    "@deepseek-ai/dsh-storage-domain": "workspace:*",
+    "@deepseek-ai/node-addon-system": "workspace:~"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-api-session-controller": "workspace:*",
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
     "@deepseek-ai/cordis-plugin-include": "workspace:~",
     "@deepseek-ai/dsh-skill": "workspace:*",
@@ -129,8 +141,6 @@
     "@deepseek-ai/dsh-user-approval": "workspace:*",
     "@deepseek-ai/dsh-user-questions": "workspace:*",
     "@deepseek-ai/dsh-tool-testkit": "workspace:*",
-    "@deepseek-ai/dsh-storage": "workspace:*",
-    "@deepseek-ai/dsh-storage-domain": "workspace:*",
     "@deepseek-ai/dsh-credentials-local": "workspace:*",
     "@deepseek-ai/dsh-agent-loop": "workspace:*",
     "@deepseek-ai/dsh-subagent-spawn-in-process": "workspace:*",

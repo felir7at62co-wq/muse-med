@@ -183,6 +183,11 @@
     },
     {
       "doc": "docs/subsystems/core.md",
+      "symbol": "ModelSelectionGuard",
+      "source": "packages/core/agent/src/runtime-types.ts"
+    },
+    {
+      "doc": "docs/subsystems/core.md",
       "symbol": "InboxTarget",
       "source": "packages/core/agent/src/types.ts"
     },

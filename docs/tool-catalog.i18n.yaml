@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: 64c3ca19076e994b
-  zh: f2eeca24a0caa419
+  en: 95cdb70b5661556c
+  zh: 1ea02b60dd7323af
 /tool-schema-catalog/deepseek-ai-dsh-muse-account:
   en: 08c09d3279885ad6
   zh: 08c09d3279885ad6
@@ -99,8 +99,8 @@
   en: 67a6d4d454045139
   zh: e15d31807da6c24b
 /tool-schema-catalog/deepseek-ai-dsh-tool-video-inspect/video-ocr:
-  en: f0ae854217892617
-  zh: 5e7b52c27f9e548d
+  en: 2c0f1b261cd81ada
+  zh: cdc2288ade6cacb0
 /tool-schema-catalog/deepseek-ai-dsh-tool-executor-ptc:
   en: 8c8643ef46fd075f
   zh: 8c8643ef46fd075f
@@ -426,8 +426,8 @@
   en: ef79792a93ef7942
   zh: ef79792a93ef7942
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-storyboard:
-  en: a3323f63e6ec6ea1
-  zh: a3323f63e6ec6ea1
+  en: 64e8b702207099cb
+  zh: 64e8b702207099cb
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-video:
   en: e929c08ab9e97fc6
   zh: e929c08ab9e97fc6
@@ -474,8 +474,8 @@
   en: cd8c46a68524b061
   zh: cd8c46a68524b061
 /tool-schema-catalog/deepseek-ai-dsh-tool-episode-render/drama-render:
-  en: d8e0b11d84c687cd
-  zh: d8e0b11d84c687cd
+  en: bde437bc2d1593d0
+  zh: bde437bc2d1593d0
 /tool-schema-catalog/deepseek-ai-dsh-tool-episode-render/drama-video:
   en: f3cfd64d19bee2a4
   zh: 1a0f26e0183dc10b

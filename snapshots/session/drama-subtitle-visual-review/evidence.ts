@@ -9,10 +9,13 @@ const digest = (bytes: string | Uint8Array): string => createHash('sha256').upda
  * Compute the expected digest using the fixed scenario files and this run's actual project path.
  * @param cwd - Atomically allocated workspace.
  * @param scenarioDir - Owner containing the independently authored input files.
- * @returns The one expected source/SRT/recognition digest for this run.
+ * @returns The expected source/SRT/recognition and frame-rate digest for this run.
  */
 export async function expectedVisualSpeechHash(cwd: string, scenarioDir: string): Promise<string> {
   const project = await realpath(cwd)
+  const config = JSON.parse(await readFile(join(scenarioDir, 'workspace/project_config.json'), 'utf8')) as {
+    project_bible: { delivery: { fps: number } }
+  }
   const files: [string, string][] = []
   for (const [actual, seed] of [
     ['editing/01.srt', 'source.srt'], ['receipts.json', 'receipts.json'], ['source.mp4', 'source.mp4'],
@@ -22,7 +25,7 @@ export async function expectedVisualSpeechHash(cwd: string, scenarioDir: string)
     files.push([join(project, actual), digest(await readFile(join(scenarioDir, 'workspace', seed)))])
   }
   return digest(JSON.stringify({ files, clips: [{ shot: 1, startUs: 0, durationUs: 5_000_000 }],
-    sources: [[1, join(project, 'source.mp4')]] }))
+    sources: [[1, join(project, 'source.mp4')]], fps: config.project_bible.delivery.fps }))
 }
 
 /**

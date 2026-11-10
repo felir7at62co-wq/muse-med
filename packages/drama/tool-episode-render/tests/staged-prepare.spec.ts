@@ -34,6 +34,16 @@ it('assembles the original-audio master from staged shot videos on the authored 
   ])
 })
 
+it('uses the captured per-shot audio and rejects an incomplete audio inventory', async () => {
+  const input = await fixture(), channel = stubChannel([() => ({})])
+  const audioPaths = [join(input.project, 'stage', 'one.wav'), join(input.project, 'stage', 'two.wav')]
+  const settings = { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }
+  await prepareStagedEpisodeAudio({ ...input, audioPaths }, settings)
+  expect(channel.calls[0]?.args.slice(3, 7)).toEqual(['-i', audioPaths[0], '-i', audioPaths[1]])
+  await expect(prepareStagedEpisodeAudio({ ...input, audioPaths: [audioPaths[0]!] }, settings)).rejects.toThrow('音轨数量')
+  expect(channel.calls).toHaveLength(1)
+})
+
 it('propagates native audio failures instead of claiming a complete master', async () => {
   const input = await fixture(), channel = stubChannel([() => ({ code: 1, stderr: 'controlled unavailable audio' })])
   await expect(prepareStagedEpisodeAudio(input, { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel })).rejects.toThrow()

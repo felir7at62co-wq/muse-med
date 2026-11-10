@@ -251,6 +251,8 @@ function applyLauncherIdentities(
 
 /** Agent-loop plugin configuration. */
 export interface Config {
+  /** Opt into durable step claims for controlled testing and compatible consumers. */
+  durableInboxClaims?: boolean
   /**
    * Maximum parallel-safe calls in flight per agent step. `1` is serial;
    * omission defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
@@ -292,8 +294,9 @@ export class AgentLoop extends Service implements AgentFactory {
   static inject = ['agents', 'sessions', 'llm', 'tools', 'systemPrompt', 'sessionProjections']
 
   /** Runtime schema for declarative agents. */
-  static Config: z<{ agents?: Config['agents']; maxParallelToolCalls?: number }, Config> = z.object({
+  static Config: z<{ agents?: Config['agents']; maxParallelToolCalls?: number; durableInboxClaims?: boolean }, Config> = z.object({
     maxParallelToolCalls: z.number().step(1).min(1).default(DEFAULT_MAX_PARALLEL_TOOL_CALLS).volatile(),
+    durableInboxClaims: z.boolean().default(false),
     agents: z.array(z.object({
       id: z.string().required(),
       sessionId: z.string().min(1),
@@ -304,7 +307,7 @@ export class AgentLoop extends Service implements AgentFactory {
       cwd: z.string(),
       resumeSessionId: z.string(),
     })).default([]),
-  }) as z<{ agents?: Config['agents']; maxParallelToolCalls?: number }, Config>
+  }) as z<{ agents?: Config['agents']; maxParallelToolCalls?: number; durableInboxClaims?: boolean }, Config>
 
   /** Validated configuration owned by the agent-loop service. */
   readonly config: Config
@@ -322,6 +325,7 @@ export class AgentLoop extends Service implements AgentFactory {
     this.config = {
       agents: applyLauncherIdentities(config.agents, ctx.get(CONFIGURED_AGENT_IDENTITIES_KEY)),
       maxParallelToolCalls: config.maxParallelToolCalls,
+      durableInboxClaims: config.durableInboxClaims ?? false,
     }
     validateConfiguredAgents(this.config.agents)
     this.ownership = new FactoryOwnership(ctx.fiber)
@@ -539,7 +543,7 @@ export class AgentLoop extends Service implements AgentFactory {
         if (machine === undefined) await machineReady.promise
         /* v8 ignore next -- setup failure untracks this disposer before resolving without a machine. */
         if (machine !== undefined) {
-          machine.cancel({ kind: 'disposed' }, { keepInbox: !ready })
+          machine.cancel({ kind: 'disposed' }, { keepInbox: !ready || this.config.durableInboxClaims === true })
           await machine.whenIdle()
         }
       } catch (error: unknown) {

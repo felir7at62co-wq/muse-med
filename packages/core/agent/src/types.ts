@@ -4,7 +4,7 @@
  * @module @deepseek-ai/dsh-agent/types
  */
 
-import type { ReasoningEffortId } from '@deepseek-ai/dsh-llm/brand'
+import type { MessageId, ReasoningEffortId } from '@deepseek-ai/dsh-llm/brand'
 import type { UserMessage } from '@deepseek-ai/dsh-llm/types'
 // Type-only: the Workspace registry's archive-admission family map this registry merges `turn` into.
 import type {} from '@deepseek-ai/dsh-workspace/types'
@@ -43,6 +43,13 @@ export type InboxTarget = 'next-turn' | 'next-step'
 export interface InboxState {
   readonly 'next-turn': readonly UserMessage[]
   readonly 'next-step': readonly UserMessage[]
+  /** Input claimed by a durable step and not yet committed or explicitly discarded. */
+  readonly claim?: {
+    readonly turn: number
+    readonly step: number
+    readonly nextStep: readonly UserMessage[]
+    readonly nextTurn: readonly UserMessage[]
+  } | undefined
 }
 
 /**
@@ -54,6 +61,13 @@ export interface InboxState {
 export interface InboxWireState {
   readonly 'next-turn': readonly JsonValue[]
   readonly 'next-step': readonly JsonValue[]
+  /** Uncommitted claimed identities needed to restore queue positions across reconnects. */
+  readonly activeClaim?: {
+    readonly turn: number
+    readonly step: number
+    readonly nextStep: readonly MessageId[]
+    readonly nextTurn: readonly MessageId[]
+  }
 }
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
@@ -114,6 +128,12 @@ declare module '@deepseek-ai/dsh-session/types' {
       inserted: UserMessage[]
       outcome?: 'canceled'
     }
+    /** Atomic durable claim of a step's pending messages. */
+    'agent/inbox/claim': { turn: number; step: number; nextStep: MessageId[]; nextTurn: MessageId[] }
+    /** Claimed identities intentionally excluded by step admission. */
+    'agent/inbox/claim-filtered': { turn: number; step: number; discarded: MessageId[] }
+    /** Confirm that every retained message of this claim has been committed. */
+    'agent/inbox/claim-settled': { turn: number; step: number }
     /**
      * Complete model selection that applies from the next model step until a
      * later selection. Log-only: it never enters derived model history.

@@ -53,6 +53,22 @@ export interface Config {
   defaultDirectory?: string
 }
 
+/** Same-process guard for a Session's effective directory; it grants no filesystem or workspace access. */
+export interface WorkingDirectoryGuard {
+  /** Directory selected when the guard was acquired. */
+  readonly directory: string
+  /** Aborts on release, owner cancellation, Session change, or service disposal. */
+  readonly signal: AbortSignal
+  /** Release this guard and abort its signal. */
+  release(): void
+}
+
+interface ActiveDirectoryGuard {
+  readonly agent: Agent
+  readonly directory: string
+  release(): void
+}
+
 /** One owner for each Session's effective directory and its model-visible changes. */
 export class WorkingDirectoryService extends Service {
   static inject = ['fs', 'sessionProjections', 'systemPrompt']
@@ -66,6 +82,7 @@ export class WorkingDirectoryService extends Service {
   private readonly pending = new WeakMap<Session, Promise<void>>()
   private readonly operations = new Set<Promise<unknown>>()
   private readonly lifecycle = new AbortController()
+  private readonly guards = new Map<Session, ActiveDirectoryGuard>()
 
   private workingDirectoryProjectionHandle!: ProjectionHandle<string | null>
 
@@ -108,7 +125,17 @@ export class WorkingDirectoryService extends Service {
       }
       return assembly
     }, { prepend: true })
+    ctx.on('session/event', (session, event) => {
+      const guard = this.guards.get(session)
+      if (guard !== undefined && event.type === 'working-directory/change' && event.data.cwd !== guard.directory) guard.release()
+    })
+    ctx.on('session/disposed', (session) => { this.guards.get(session)?.release() })
+    ctx.on('agent/disposed', ({ agent }) => {
+      const guard = this.guards.get(agent.session)
+      if (guard?.agent === agent) guard.release()
+    })
     ctx.effect(() => async () => {
+      for (const guard of this.guards.values()) guard.release()
       this.lifecycle.abort(new Error('working-directory service disposed'))
       await Promise.allSettled(this.operations)
     })
@@ -134,16 +161,22 @@ export class WorkingDirectoryService extends Service {
   ensure(agent: Agent, signal?: AbortSignal): Promise<string> {
     return this.serialize(agent, signal, async (control) => {
       const current = this.get(agent.session)
+      const guard = this.guards.get(agent.session)
+      if (guard !== undefined && guard.directory !== current) { guard.release(); throw new Error('working-directory: guarded directory changed') }
       const target = await this.ctx.fs.resolve(current, { signal: control })
       const info = await this.ctx.fs.stat(target, control)
       control.throwIfAborted()
       agent.ctx.fiber.assertActive()
+      if (guard !== undefined && (this.guards.get(agent.session) !== guard || this.get(agent.session) !== current)) {
+        guard.release(); throw new Error('working-directory: guarded directory changed')
+      }
       if (info?.type === 'directory') {
         if (this.workingDirectoryProjectionHandle.stateOf(agent.session) === null) {
           agent.session.append('working-directory/change', { cwd: current })
         }
         return current
       }
+      if (guard !== undefined) { guard.release(); throw new Error('working-directory: guarded directory unavailable') }
       const original = agent.session.header.cwd ?? this.defaultDirectory
       const restored = await this.directory(original, original, control)
       this.commit(agent, restored, true, control)
@@ -162,10 +195,69 @@ export class WorkingDirectoryService extends Service {
    */
   set(agent: Agent, path: string, signal?: AbortSignal): Promise<string> {
     return this.serialize(agent, signal, async (control) => {
+      if (this.guards.has(agent.session)) throw new Error('working-directory: guarded directory cannot change')
       if (path.length === 0) throw new Error('working-directory: cd must not be empty')
       const directory = await this.directory(path, this.get(agent.session), control)
       this.commit(agent, directory, false, control)
       return directory
+    })
+  }
+
+  /**
+   * Hold a same-process directory choice until cancellation or release.
+   * This guard does not authenticate the Agent, freeze the model, protect workspace membership,
+   * lock the filesystem or serialize other processes. Consumers must provide those separately.
+   * @param agent - Existing Agent whose effective directory must remain selected.
+   * @param expected - Exact effective directory previously selected by the owner.
+   * @param signal - Owner lifetime; cancellation rejects a queued acquisition or releases a held guard.
+   * @returns The directory and cancellation signal while the guard is held.
+   */
+  guard(agent: Agent, expected: string, signal: AbortSignal): Promise<WorkingDirectoryGuard> {
+    const operation = this.serialize(agent, signal, async (control) => {
+      if (this.guards.has(agent.session)) throw new Error('working-directory: guarded directory already held')
+      const current = this.get(agent.session)
+      if (current !== expected || this.workingDirectoryProjectionHandle.stateOf(agent.session) === null) {
+        throw new Error('working-directory: guarded directory does not match')
+      }
+      const target = await this.ctx.fs.resolve(current, { signal: control })
+      const info = await this.ctx.fs.stat(target, control)
+      control.throwIfAborted()
+      agent.ctx.fiber.assertActive()
+      if (info?.type !== 'directory' || this.get(agent.session) !== current) {
+        throw new Error('working-directory: guarded directory unavailable or changed')
+      }
+      const controller = new AbortController()
+      let released = false
+      const release = () => {
+        if (released) return
+        released = true
+        signal.removeEventListener('abort', release)
+        if (this.guards.get(agent.session) === state) this.guards.delete(agent.session)
+        controller.abort(new Error('working-directory: guard released'))
+        void detachOwner()
+      }
+      const state: ActiveDirectoryGuard = { agent, directory: current, release }
+      const detachOwner = agent.ctx.effect(() => release, 'working-directory.guard')
+      this.guards.set(agent.session, state)
+      signal.addEventListener('abort', release, { once: true })
+      if (signal.aborted) release()
+      return { directory: current, signal: controller.signal, release }
+    })
+    const lifetime = AbortSignal.any([signal, this.lifecycle.signal])
+    return new Promise((resolve, reject) => {
+      const cancelled = () => {
+        lifetime.removeEventListener('abort', cancelled)
+        reject(lifetime.reason instanceof Error ? lifetime.reason : new Error('working-directory: guard cancelled', { cause: lifetime.reason }))
+      }
+      lifetime.addEventListener('abort', cancelled, { once: true })
+      void operation.then((guard) => {
+        lifetime.removeEventListener('abort', cancelled)
+        resolve(guard)
+      }, (error: unknown) => {
+        lifetime.removeEventListener('abort', cancelled)
+        reject(error instanceof Error ? error : new Error('working-directory: guard failed', { cause: error }))
+      })
+      if (lifetime.aborted) cancelled()
     })
   }
 

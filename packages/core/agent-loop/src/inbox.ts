@@ -20,6 +20,8 @@ import { z } from 'zod'
 export const inboxProjectionSchema = z.object({
   'next-turn': z.array(z.custom<UserMessage>()).readonly(),
   'next-step': z.array(z.custom<UserMessage>()).readonly(),
+  claim: z.object({ turn: z.number().int().nonnegative(), step: z.number().int().positive(),
+    nextStep: z.array(z.custom<UserMessage>()).readonly(), nextTurn: z.array(z.custom<UserMessage>()).readonly() }).optional(),
 }).readonly()
 
 /** Standard fold that reconstructs pending input and rejects invalid durable splice history. */
@@ -28,6 +30,48 @@ export const inboxProjectionDefinition = {
   stateSchema: inboxProjectionSchema,
   init: (): InboxState => ({ 'next-turn': [], 'next-step': [] }),
   apply(state: InboxState, event) {
+    if (event.type === 'agent/inbox/claim') {
+      if (state.claim !== undefined) throw new Error('a durable inbox claim is already active')
+      const { turn, step, nextStep, nextTurn } = event.data
+      const steps = state['next-step'].slice(0, nextStep.length)
+      const turns = state['next-turn'].slice(0, nextTurn.length)
+      if (steps.some((message, i) => message.id !== nextStep[i]) || steps.length !== nextStep.length
+        || turns.some((message, i) => message.id !== nextTurn[i]) || turns.length !== nextTurn.length) {
+        throw new Error('durable inbox claim does not match pending messages')
+      }
+      return { 'next-step': state['next-step'].slice(nextStep.length), 'next-turn': state['next-turn'].slice(nextTurn.length),
+        claim: { turn, step, nextStep: steps, nextTurn: turns } }
+    }
+    if (event.type === 'agent/inbox/claim-filtered') {
+      const claim = state.claim
+      if (claim === undefined || claim.turn !== event.data.turn || claim.step !== event.data.step) throw new Error('unknown durable inbox claim')
+      const ids = new Set(event.data.discarded)
+      if (ids.size !== event.data.discarded.length
+        || [...ids].some(id => ![...claim.nextStep, ...claim.nextTurn].some(message => message.id === id))) {
+        throw new Error('invalid durable inbox claim discard')
+      }
+      return { ...state, claim: { ...claim, nextStep: claim.nextStep.filter(message => !ids.has(message.id)),
+        nextTurn: claim.nextTurn.filter(message => !ids.has(message.id)) } }
+    }
+    if (event.type === 'agent/inbox/claim-settled') {
+      const claim = state.claim
+      if (claim === undefined || claim.turn !== event.data.turn || claim.step !== event.data.step
+        || claim.nextStep.length !== 0 || claim.nextTurn.length !== 0) throw new Error('durable inbox claim is not settled')
+      const { claim: _claim, ...pending } = state
+      return pending
+    }
+    if (event.type === 'user/message' && state.claim !== undefined) {
+      const claim = state.claim
+      return { ...state, claim: { ...claim, nextStep: claim.nextStep.filter(message => message.id !== event.data.id),
+        nextTurn: claim.nextTurn.filter(message => message.id !== event.data.id) } }
+    }
+    if (event.type === 'turn/end' && state.claim?.turn === event.data.turn) {
+      const { claim, ...pending } = state
+      const dropped = event.data.reason.kind === 'forked'
+        || (event.data.reason.kind === 'aborted' && event.data.reason.reason.kind === 'user')
+      return dropped ? pending : { ...pending, 'next-step': [...claim.nextStep, ...pending['next-step']],
+        'next-turn': [...claim.nextTurn, ...pending['next-turn']] }
+    }
     if (event.type !== 'agent/inbox/spliced') return state
     const splice = event.data
     try {
@@ -41,26 +85,32 @@ export const inboxProjectionDefinition = {
       const next = inbox.toSpliced(splice.start, removedCount, ...splice.inserted)
       const ids = new Set<string>()
       for (const message of splice.target === 'next-turn'
-        ? [...next, ...state['next-step']]
-        : [...state['next-turn'], ...next]) {
+        ? [...next, ...state['next-step'], ...state.claim?.nextStep ?? [], ...state.claim?.nextTurn ?? []]
+        : [...state['next-turn'], ...next, ...state.claim?.nextStep ?? [], ...state.claim?.nextTurn ?? []]) {
         if (ids.has(message.id)) throw new Error(`message "${message.id}" is already pending`)
         ids.add(message.id)
       }
       return splice.target === 'next-turn'
-        ? { 'next-turn': next, 'next-step': state['next-step'] }
-        : { 'next-turn': state['next-turn'], 'next-step': next }
+        ? { ...state, 'next-turn': next }
+        : { ...state, 'next-step': next }
     } catch (error: unknown) {
       throw new Error(`invalid persisted inbox splice at session seq ${event.seq}`, { cause: error })
     }
   },
   wire: {
-    // The wire value is the fold state itself: every pending message already
-    // round-trips the session log as lossless JSON. Only the static type
-    // narrows to the JSON-safe projection table entry.
-    viewSchema: inboxProjectionSchema as unknown as z.ZodType<InboxWireState>,
-    view: (state: InboxState) => state as unknown as InboxWireState,
+    // Pending messages round-trip the session log as lossless JSON. Claims expose
+    // only the identities and positions needed to follow later queue restoration.
+    viewSchema: z.object({ 'next-turn': z.array(z.custom<UserMessage>()),
+      'next-step': z.array(z.custom<UserMessage>()),
+      activeClaim: z.object({ turn: z.number().int().nonnegative(), step: z.number().int().positive(),
+        nextStep: z.array(z.custom<MessageId>()).readonly(), nextTurn: z.array(z.custom<MessageId>()).readonly() }).optional(),
+    }) as unknown as z.ZodType<InboxWireState>,
+    view: (state: InboxState) => ({ 'next-turn': state['next-turn'], 'next-step': state['next-step'],
+      ...state.claim === undefined ? {} : { activeClaim: { turn: state.claim.turn, step: state.claim.step,
+        nextStep: state.claim.nextStep.map(message => message.id), nextTurn: state.claim.nextTurn.map(message => message.id) } },
+    }) as unknown as InboxWireState,
   },
-  stateVersion: 1,
+  stateVersion: 2,
 } satisfies ProjectionDefinition<'inbox', InboxState>
 
 /**
@@ -110,6 +160,32 @@ export class ReactLoopInbox implements InboxContract {
     if (target === 'next-turn') claimed.push(...this.mutate('next-turn', 0, 1, [], false))
     for (const message of claimed) this.dispatch.emit('agent/inbox/claimed', { message, turn })
     return claimed
+  }
+
+  /** Claim an entire step with one replayable durable event. */
+  claimDurably(target: InboxTarget, turn: number, step: number): UserMessage[] {
+    const steps = [...this.nextStep]
+    const turns = target === 'next-turn' ? this.nextTurn.slice(0, 1) : []
+    if (steps.length === 0 && turns.length === 0) return []
+    this.session.append('agent/inbox/claim', { turn, step,
+      nextStep: steps.map(message => message.id), nextTurn: turns.map(message => message.id) })
+    const claimed = [...steps, ...turns]
+    for (const message of claimed) this.dispatch.emit('agent/inbox/claimed', { message, turn })
+    return claimed
+  }
+
+  /** Record identities intentionally removed by a pre-step decision. */
+  filterClaim(turn: number, step: number, kept: readonly UserMessage[]): void {
+    const claim = this.readState().claim
+    if (claim === undefined) return
+    const selected = new Set(kept.map(message => message.id))
+    const discarded = [...claim.nextStep, ...claim.nextTurn].filter(message => !selected.has(message.id)).map(message => message.id)
+    if (discarded.length > 0) this.session.append('agent/inbox/claim-filtered', { turn, step, discarded })
+  }
+
+  /** Close a fully accepted durable step claim. */
+  settleClaim(turn: number, step: number): void {
+    if (this.readState().claim !== undefined) this.session.append('agent/inbox/claim-settled', { turn, step })
   }
 
   /**
@@ -206,8 +282,8 @@ export class ReactLoopInbox implements InboxContract {
     const candidate = inbox.toSpliced(actualStart, actualDeleteCount, ...inserted)
     const ids = new Set<string>()
     for (const message of target === 'next-turn'
-      ? [...candidate, ...state['next-step']]
-      : [...state['next-turn'], ...candidate]) {
+      ? [...candidate, ...state['next-step'], ...state.claim?.nextStep ?? [], ...state.claim?.nextTurn ?? []]
+      : [...state['next-turn'], ...candidate, ...state.claim?.nextStep ?? [], ...state.claim?.nextTurn ?? []]) {
       if (ids.has(message.id)) throw new Error(`message "${message.id}" is already pending`)
       ids.add(message.id)
     }

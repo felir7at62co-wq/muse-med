@@ -82,6 +82,38 @@ async function reconstructPersistedInbox(
 }
 
 describe('ReactLoopInbox', () => {
+  it('projects claimed identities across reconnects without exposing claimed content', async () => {
+    const { ctx, session, inbox } = await inboxAgent('inbox-wire-claim')
+    const steered = createUserMessage({ content: [{ type: 'text', text: 'private steering text' }], source: { kind: 'user' } })
+    const queued = createUserMessage({ content: [{ type: 'text', text: 'private queued text' }], source: { kind: 'user' } })
+    inbox.append('next-step', steered)
+    inbox.append('next-turn', queued)
+    session.append('turn/start', { turn: 1 })
+    inbox.claimDurably('next-turn', 1, 1)
+    expect(ctx.sessionProjections.snapshot(session).values.inbox).toEqual({
+      'next-turn': [], 'next-step': [],
+      activeClaim: { turn: 1, step: 1, nextStep: [steered.id], nextTurn: [queued.id] },
+    })
+    session.append('user/message', steered, { surfaceOp: 'append' })
+    inbox.filterClaim(1, 1, [])
+    inbox.settleClaim(1, 1)
+    expect(ctx.sessionProjections.snapshot(session).values.inbox).toEqual({ 'next-turn': [], 'next-step': [] })
+  })
+
+  it('does not restore an active claim into a fork or remove it from the parent', async () => {
+    const { ctx, session, inbox } = await inboxAgent('inbox-claimed-parent')
+    const message = createUserMessage({ content: [{ type: 'text', text: 'parent input' }], source: { kind: 'user' } })
+    inbox.append('next-turn', message)
+    session.append('turn/start', { turn: 1 })
+    inbox.claimDurably('next-turn', 1, 1)
+    const child = ctx.sessions.fork(session, undefined, SessionId('inbox-claimed-child'))
+    expect(ctx.sessionProjections.snapshot(child).values.inbox).toEqual({ 'next-turn': [], 'next-step': [] })
+    expect(ctx.sessionProjections.snapshot(session).values.inbox).toEqual({
+      'next-turn': [], 'next-step': [],
+      activeClaim: { turn: 1, step: 1, nextStep: [], nextTurn: [message.id] },
+    })
+  })
+
   it('retains inbox reads after the shared registration is released', async () => {
     const ctx = new Context()
     onTestFinished(() => ctx.fiber.dispose())

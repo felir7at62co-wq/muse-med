@@ -190,6 +190,36 @@
                   "max_effective_chars_per_shot": {
                     "type": "integer"
                   },
+                  "require_source_review": {
+                    "type": "boolean",
+                    "description": "Require approved content review of all current package sources before staging."
+                  },
+                  "audio": {
+                    "type": "object",
+                    "description": "Optional music archive requirement. Existing mix gains are preserved.",
+                    "additionalProperties": false,
+                    "properties": {
+                      "require_music_decision": {
+                        "type": "boolean",
+                        "description": "Require a recorded music decision and verify the actual composer bed before staging."
+                      }
+                    }
+                  },
+                  "subtitle": {
+                    "type": "object",
+                    "description": "Optional archive requirements. Updates preserve omitted rules and the existing subtitle typography.",
+                    "additionalProperties": false,
+                    "properties": {
+                      "require_no_punctuation": {
+                        "type": "boolean",
+                        "description": "Refuse punctuation in the bound burned SRT before staging delivery."
+                      },
+                      "require_speech_coverage": {
+                        "type": "boolean",
+                        "description": "Require complete same-source word timing and resolve speech/subtitle findings before staging delivery."
+                      }
+                    }
+                  },
                   "subtitle_visual": {
                     "type": "object",
                     "description": "Optional shared reference-raster subtitle intent. Replaces this whole section; {} restores legacy per-engine styling. Approve real MP4/editor previews, not these nominal numbers.",

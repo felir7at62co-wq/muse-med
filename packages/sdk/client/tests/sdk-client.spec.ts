@@ -82,6 +82,24 @@ describe('DeepSeekHarness', () => {
     expect(result.events.filter(event => event.type === 'video/review').map(event => event.data)).toEqual([expected])
   })
 
+  it('preserves durable inbox claims without treating them as a second enqueue receipt', async () => {
+    const events = [
+      { type: 'agent/inbox/claim', data: { turn: 1, step: 1, nextStep: ['steered'], nextTurn: ['queued'] } },
+      { type: 'agent/inbox/claim-filtered', data: { turn: 1, step: 1, discarded: ['steered'] } },
+      { type: 'agent/inbox/claim-settled', data: { turn: 1, step: 1 } },
+    ]
+    const result = await harnessWith({ FAKE_SESSION_EVENTS: JSON.stringify(events), FAKE_TEXT: 'original reply' })
+      .run('Keep the original input receipt.')
+    const expected: unknown = JSON.parse(await readFile(new URL('./expected/durable-inbox-claims.json', import.meta.url), 'utf8'))
+    expect({
+      events: result.events.filter(event => event.type.startsWith('agent/inbox/claim'))
+        .map(event => ({ type: event.type, data: event.data })),
+      enqueueReceipts: result.events.filter(event => event.type === 'agent/inbox/spliced').length,
+      finalResponse: result.finalResponse,
+      finishReason: result.finishReason,
+    }).toEqual(expected)
+  })
+
   it('queues literal slash text and images through the low-level prompt method', async () => {
     const harness = harnessWith()
     await harness.start()

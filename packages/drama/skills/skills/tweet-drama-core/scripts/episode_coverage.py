@@ -13,11 +13,14 @@ import hashlib
 import json
 import os
 import re
+import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Embedded Windows Python does not put the script directory on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from episode_scope import is_episode_id, read_episode_manifest, resolve_episode_scope
 
 
@@ -54,6 +57,10 @@ QUOTED_IMPACT = re.compile("|".join(
 PHYSICAL_IMPACT = re.compile(r"砸|撞|敲|劈|摔|断裂|分成两段|落地|碰|砍")
 HUMAN_SOUND_CUE = re.compile(r"配音|变声|人声|口技|张口|开口|吼|嚷|呼唤|低语|耳语|自语")
 SILENT_IDIOM = re.compile(r"二话不说|不由分说")
+MARKED_SILENCE = re.compile(
+    r"(?:[△▲]\s*|(?:动作|画面)[：:]\s*)"
+    r'''([^：:，,。.!！?？；;（）()“”‘’"'「」『』]+?)(?:依然|仍然)?没有说话[。.]?'''
+)
 # A whole physical-handling sentence may contain a speech character in its object.
 # Do not remove substrings: another clause can still describe spoken content.
 WRITTEN_OBJECT_ACTION = re.compile(
@@ -457,6 +464,9 @@ def _source_non_speech_kind(lines: list[str], index: int, characters: set[str]) 
     visual = _visual_non_speech_kind(lines, index, characters)
     if visual is not None:
         return visual
+    silence = MARKED_SILENCE.fullmatch(lines[index].strip())
+    if silence is not None and silence.group(1) in characters:
+        return "action"
     speaker = _direction_speaker(lines[index], characters)
     if speaker is None:
         return None

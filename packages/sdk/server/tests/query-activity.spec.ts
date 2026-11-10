@@ -37,10 +37,10 @@ class GatedModel extends MockAdapter {
   }
 }
 
-async function setup(model = new MockAdapter([]), goal = false) {
+async function setup(model = new MockAdapter([]), goal = false, durableInboxClaims = false) {
   const ctx = new Context()
   await mountAgentLoopTestDependencies(ctx, { workingDirectory: true })
-  const loop = await ctx.plugin(AgentLoop, { agents: [] })
+  const loop = await ctx.plugin(AgentLoop, { agents: [], durableInboxClaims })
   await ctx.plugin(CommandRuntime)
   let goals: { dispose(): Promise<void> } | undefined
   if (goal) {
@@ -89,6 +89,72 @@ describe('SDK query activity completion', () => {
     expect(await h.completed).toMatchObject({ finalResponse: 'the plan', finishReason: 'completed' })
     expect(h.notices.at(-1)?.method).toBe('session.query.completed')
     expect(h.notices.at(-2)).toMatchObject({ method: 'session.status', params: { status: 'idle' } })
+  })
+
+  describe('durable inbox claims', () => {
+    it('keeps command completion pending until the claimed input produces its reply', async () => {
+      const model = new GatedModel([textResponse('durable plan')])
+      const h = await setup(model, false, true)
+      const message = createUserMessage({ content: [{ type: 'text', text: 'plan the task' }], source: { kind: 'user' } })
+      h.register(({ agent }) => {
+        agent.steer(message)
+        return { kind: 'success', text: 'mode enabled' }
+      })
+      await h.run('/plan task')
+      await model.entered.promise
+      expect(h.notices.filter(item => item.method === 'session.query.completed')).toEqual([])
+      model.release.resolve(undefined)
+      expect(await h.completed).toMatchObject({ finalResponse: 'durable plan', finishReason: 'completed' })
+      const events = h.ctx.agents.get(h.sessionId)!.session.snapshotEvents()
+      expect(events.flatMap(event => event.type === 'agent/inbox/claim' ? event.data.nextStep : [])).toEqual([message.id])
+      expect(events.filter(event => event.type === 'agent/inbox/claim-settled')).toHaveLength(1)
+      expect(events.flatMap(event => event.type === 'user/message' && event.data.source.kind === 'user' ? [event.data.id] : []))
+        .toEqual([message.id])
+      for (const event of events.filter(item => item.type.startsWith('agent/inbox/claim'))) {
+        expect(h.notices).toContainEqual({ method: 'session.event', params: { sessionId: h.sessionId, event } })
+      }
+    })
+
+    it('reports a failed claim without losing its original input and lets that input resume once', async () => {
+      const h = await setup(new MockAdapter([textResponse('recovered plan')]), false, true)
+      const message = createUserMessage({ content: [{ type: 'text', text: 'recover the task' }], source: { kind: 'user' } })
+      const stop = h.ctx.on('agent/pre-step', () => { throw new Error('request preparation failed') })
+      h.register(({ agent }) => {
+        agent.steer(message)
+        return { kind: 'success' }
+      })
+      await h.run('/plan task')
+      expect(await h.completed).toMatchObject({ finalResponse: '', finishReason: 'error' })
+      const agent = h.ctx.agents.get(h.sessionId)!
+      expect(agent.inbox.nextStep.map(item => item.id)).toEqual([message.id])
+      expect(h.model.requests).toHaveLength(0)
+      stop()
+      if (agent.wakePending === undefined) throw new Error('The default loop must support waking retained input')
+      expect(agent.wakePending(message.id)).toBe(true)
+      await agent.whenIdle()
+      expect(agent.session.snapshotEvents().flatMap(event => event.type === 'user/message' && event.data.source.kind === 'user' ? [event.data.id] : []))
+        .toEqual([message.id])
+      expect(h.model.requests).toHaveLength(1)
+      expect(h.notices.filter(item => item.method === 'session.query.completed')).toHaveLength(1)
+    })
+
+    it('reports a rejected claim as blocked without sending it to the model', async () => {
+      const h = await setup(new MockAdapter([]), false, true)
+      h.ctx.on('agent/pre-step', () => Promise.resolve({ kind: 'reject' as const }))
+      const message = createUserMessage({ content: [{ type: 'text', text: 'rejected task' }], source: { kind: 'user' } })
+      h.register(({ agent }) => {
+        agent.steer(message)
+        return { kind: 'success' }
+      })
+      await h.run('/plan task')
+      expect(await h.completed).toMatchObject({ finalResponse: '', finishReason: 'blocked' })
+      const agent = h.ctx.agents.get(h.sessionId)!
+      expect(agent.inbox.nextStep).toEqual([])
+      expect(agent.inbox.nextTurn).toEqual([])
+      expect(agent.session.snapshotEvents().filter(event => event.type === 'agent/inbox/claim-filtered'))
+        .toMatchObject([{ data: { discarded: [message.id] } }])
+      expect(h.model.requests).toHaveLength(0)
+    })
   })
 
   it('waits for plan input submitted while a paused goal is still cancelling', async () => {

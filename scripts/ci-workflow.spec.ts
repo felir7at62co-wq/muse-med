@@ -15,6 +15,68 @@ const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
 
 describe('CI workflow', () => {
+  it('builds unsigned Muse installers on native runners without publication credentials', () => {
+    const workflow = loadWorkflow('.github/workflows/muse-desktop.yml')
+    expect(workflow.on).toEqual({ workflow_dispatch: { inputs: {
+      target: {
+        description: 'Installer platform', type: 'choice', required: true, default: 'all',
+        options: ['all', 'win-x64', 'mac-arm64'],
+      },
+      upload_draft_release: {
+        description: 'Copy both verified installers into existing exact-commit drafts; requires target all',
+        type: 'boolean', default: false,
+      },
+      export_candidate_to_tos: {
+        description: 'Export an encrypted Windows candidate with a short-lived object-scoped upload secret',
+        type: 'boolean', default: false,
+      },
+      verify_hongguo_live: {
+        description: 'Require complete Hongguo downloads from the genuine installed application', type: 'boolean', default: false,
+      },
+      hongguo_series_ids: {
+        description: 'Comma-separated series IDs for opt-in installed download acceptance', type: 'string',
+        default: '7687998333729639449,7691176265872591896',
+      },
+      verify_fanqie_live: {
+        description: 'Require a complete Fanqie novel download from the genuinely installed application', type: 'boolean', default: false,
+      },
+      fanqie_book_id: {
+        description: 'Official free Fanqie book ID for installed download acceptance', type: 'string', default: '7654065336026663998',
+      },
+    } },
+    pull_request: { types: ['opened', 'synchronize', 'reopened', 'ready_for_review'] } })
+    expect(workflow.permissions).toEqual({ contents: 'read' })
+    const job = workflowJob(workflow, 'build')
+    expect(job.if).toBe("github.repository == 'felir7at62co-wq/muse-med' && (github.event_name == 'workflow_dispatch' || !github.event.pull_request.draft)")
+    if (!isRecord(job.strategy) || !isRecord(job.strategy.matrix)) throw new TypeError('Installer matrix is required')
+    expect(job.strategy['fail-fast']).toBe(false)
+    const platforms = [
+      { target: 'win-x64', runner: 'windows-2025', shell: 'pwsh' },
+      { target: 'mac-arm64', runner: 'macos-15', shell: 'bash' },
+    ]
+    for (const target of ['all', 'win-x64', 'mac-arm64']) {
+      expect(evaluateRunsOn(job.strategy.matrix.include, { inputs: { target }, fromJSON: JSON.parse }))
+        .toEqual(target === 'all' ? platforms : platforms.filter(platform => platform.target === target))
+    }
+    if (!Array.isArray(job.steps)) throw new TypeError('Muse packaging must define steps')
+    const steps = job.steps.filter(isRecord)
+    expect(steps).toContainEqual(expect.objectContaining({
+      run: 'pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned',
+    }))
+    const modelCheck = steps.find(step => step.name === 'Check model relay behavior')
+    const packagingCheck = steps.find(step => step.name === 'Check packaging behavior')
+    expect(modelCheck?.run).toBe('node --test services/muse-accounts/desktop-models.test.mjs services/muse-accounts/model-relay.test.mjs services/muse-accounts/global-models.test.mjs services/muse-accounts/selected-models.test.mjs services/muse-accounts/prepare-selected-models.test.mjs')
+    expect(packagingCheck?.run).toMatch(/^pnpm exec vitest run /)
+    expect(modelCheck).not.toHaveProperty('continue-on-error')
+    expect(packagingCheck).not.toHaveProperty('continue-on-error')
+    const installerUi = steps.find(step => step.name === 'Check native Windows install and automatic update UI')
+    expect(installerUi).toMatchObject({ if: "matrix.target == 'win-x64'", run: 'pnpm --dir apps/desktop run test:installer' })
+    expect(installerUi).not.toHaveProperty('continue-on-error')
+    const gatewayInstall = steps.findIndex(step => step.run === 'npm ci --prefix services/muse-accounts --ignore-scripts')
+    expect(gatewayInstall).toBeGreaterThanOrEqual(0)
+    expect(steps.indexOf(modelCheck ?? {})).toBeGreaterThan(gatewayInstall)
+  })
+
   it('keeps at most eleven worker jobs active across PR workflows while Python runtime targets follow the SDK suite', () => {
     const ci = loadWorkflow('.github/workflows/ci.yml')
     const ciWindows = loadWorkflow('.github/workflows/ci-windows.yml')

@@ -158,3 +158,24 @@ describe('foldConsumedWork', () => {
     })
   })
 })
+
+it('does not count an uncommitted durable claim restored after an error', () => {
+  const session = Session.create(SessionId('durable-claim-restored'))
+  const pending = message('pending')
+  session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [pending] })
+  session.append('turn/start', { turn: 1 })
+  session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [], nextTurn: [pending.id] })
+  session.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'failed', code: 'UNKNOWN' } } })
+  expect(foldConsumedWork(session.snapshotEvents())).toEqual({ droppedUnrun: false })
+})
+
+it('accounts for a durable claim rejected after an explicit discard', () => {
+  const session = Session.create(SessionId('durable-claim-discarded'))
+  const pending = message('pending')
+  session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [pending] })
+  session.append('turn/start', { turn: 1 })
+  session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [], nextTurn: [pending.id] })
+  session.append('agent/inbox/claim-filtered', { turn: 1, step: 1, discarded: [pending.id] })
+  session.append('turn/end', { turn: 1, reason: { kind: 'blocked' } })
+  expect(foldConsumedWork(session.snapshotEvents()).end?.data.turn).toBe(1)
+})

@@ -1254,3 +1254,43 @@ for line in sys.stdin:
                          env={"VIDEO_REVIEW_PAYLOAD": str(expected_path)}) as harness:
         result = harness.run("Observe every detected frame.")
     assert [event["data"] for event in result.events if event["type"] == "video/review"] == [expected]
+
+
+def test_preserves_durable_inbox_claims_without_replacing_the_input_receipt(tmp_path: Path) -> None:
+    events = [
+        {"type": "agent/inbox/claim", "data": {"turn": 1, "step": 1, "nextStep": ["steered"], "nextTurn": ["queued"]}},
+        {"type": "agent/inbox/claim-filtered", "data": {"turn": 1, "step": 1, "discarded": ["steered"]}},
+        {"type": "agent/inbox/claim-settled", "data": {"turn": 1, "step": 1}},
+    ]
+    script = tmp_path / "durable_claim_runtime.py"
+    script.write_text("""
+import json, sys
+for line in sys.stdin:
+    message = json.loads(line)
+    method = message.get("method")
+    if method == "initialize":
+        print(json.dumps({"jsonrpc":"2.0","id":message["id"],"result":{"serverInfo":{"name":"durable-claim-fixture"}}}),flush=True)
+    elif method == "session/query":
+        session = message["params"]["sessionId"]
+        def event(kind, data):
+            print(json.dumps({"jsonrpc":"2.0","method":"session.event","params":{"sessionId":session,"event":{"type":kind,"data":data}}}),flush=True)
+        event("agent/inbox/spliced", {"target":"next-turn","start":0,"inserted":[{"id":"accepted"}]})
+        print(json.dumps({"jsonrpc":"2.0","id":message["id"],"result":{"kind":"prompt","messageId":"accepted"}}),flush=True)
+        for item in EVENTS:
+            event(item["type"], item["data"])
+        event("assistant/message", {"message":{"content":[{"type":"text","text":"original reply"}]}})
+        event("turn/end", {"turn":1,"reason":{"kind":"completed"}})
+        print(json.dumps({"jsonrpc":"2.0","method":"session.status","params":{"sessionId":session,"status":"idle"}}),flush=True)
+    elif method == "shutdown":
+        print(json.dumps({"jsonrpc":"2.0","id":message["id"],"result":{}}),flush=True)
+        break
+""".replace("EVENTS", repr(events)))
+    with DeepSeekHarness(cwd=str(tmp_path), _launch_args=(sys.executable, str(script))) as harness:
+        result = harness.run("Keep the original input receipt.")
+    expected = json.loads((Path(__file__).with_name("expected") / "durable-inbox-claims.json").read_text())
+    assert {
+        "events": [event for event in result.events if event["type"].startswith("agent/inbox/claim")],
+        "enqueueReceipts": len([event for event in result.events if event["type"] == "agent/inbox/spliced"]),
+        "finalResponse": result.final_response,
+        "finishReason": result.finish_reason,
+    } == expected

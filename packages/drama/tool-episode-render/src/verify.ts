@@ -12,12 +12,12 @@
  * @module @deepseek-ai/dsh-tool-episode-render/verify
  */
 
-import { resolve } from 'node:path'
+import { isAbsolute, relative, resolve } from 'node:path'
 import { fileSha256 } from './cache.ts'
 import { episodePaths, pathExists, shotFileName } from './paths.ts'
 import { readVideoBans } from './video.ts'
 import { DEFAULT_DELIVERY, deliveryRenderSettings, MIN_BITRATE_BPS } from './delivery.ts'
-import { mediaFactsOf, probeMedia } from './ffmpeg.ts'
+import { firstStreamOfType, frameRateOf, mediaFactsOf, probeMedia } from './ffmpeg.ts'
 import { buildReport, NO_TAIL_FRAME, type ReportInput } from './report.ts'
 import { sourceRecordPathFor, readSourceRecord } from './source-record.ts'
 import { readSubtitleCues } from './subtitles.ts'
@@ -28,6 +28,7 @@ import type {
   DramaRenderReport,
   MediaFacts,
   MediaToolkit,
+  ProbedMedia,
   RenderCheck,
   RenderSettings,
   TimelineDelivery,
@@ -154,6 +155,35 @@ export function deliveryChecks(
       `总码率低于 ${(MIN_BITRATE_BPS / 1_000_000).toFixed(1)} Mbps 说明素材或编码参数被降档。`
       + '请确认源片段本身不是低码率转码件，并重跑 render（必要时加 force=true 重编所有片段）。'),
   ]
+}
+
+/**
+ * Check real stream boundaries separately from the outer MP4 duration. A legacy
+ * silent ending may omit audio after the exact body boundary.
+ * @param media - Stream metadata for the finished MP4.
+ * @param bodyEndSeconds - The body boundary relative to the first picture.
+ * @returns No verdict when the container did not report usable stream times.
+ */
+export function avStreamClockChecks(media: ProbedMedia, bodyEndSeconds: number): RenderCheck[] {
+  const video = firstStreamOfType(media, 'video')
+  const audio = firstStreamOfType(media, 'audio')
+  const fps = frameRateOf(video)
+  if (video?.startSeconds === undefined || video.durationSeconds === undefined
+    || audio?.startSeconds === undefined || audio.durationSeconds === undefined
+    || fps <= 0 || video.durationSeconds <= 0 || audio.durationSeconds <= 0) return []
+
+  // AAC-LC delivery uses 1024 samples per audio frame. Include ffprobe's
+  // rounding when subtracting the two reported stream boundaries.
+  const tolerance = Math.max(1 / fps, 1024 / 48_000) + 0.000002
+  const startDelta = audio.startSeconds - video.startSeconds
+  const relativeAudioEnd = startDelta + audio.durationSeconds
+  const endDelta = relativeAudioEnd - video.durationSeconds
+  const bodyOnly = endDelta < 0 && Math.abs(relativeAudioEnd - bodyEndSeconds) <= tolerance
+  const ok = Math.abs(startDelta) <= tolerance && (Math.abs(endDelta) <= tolerance || bodyOnly)
+  return [verdict('av_stream_clock', 'failure', ok,
+    `音频相对画面起点 ${startDelta.toFixed(6)}s，末端差 ${endDelta.toFixed(6)}s`
+    + (bodyOnly ? '，音轨止于正文边界' : ''),
+    '请对照本集时间线检查原声起点、截断位置与最终混音后重渲染。容器总时长和解码成功不能证明两条流覆盖相同区间。')]
 }
 
 /**
@@ -314,11 +344,12 @@ export async function decodeAt(toolkit: MediaToolkit, file: string, point: Decod
  *
  * The container's duration, frame rate, and bitrate all survived the render that
  * lost two thirds of its frames, so none of them is evidence that the picture is
- * there. Decoding three positions is.
+ * there. Sample three positions for a truncated picture, then decode both
+ * delivery streams in full to catch errors between those positions.
  * @param toolkit - The binaries and channel to use.
  * @param file - Absolute path of the delivered file.
  * @param durationSeconds - The delivered file's probed duration.
- * @returns The decode check, failed when any position yields no frame.
+ * @returns The decode check, failed on an empty sample or any decoding error.
  */
 export async function decodeChecks(
   toolkit: MediaToolkit,
@@ -328,16 +359,24 @@ export async function decodeChecks(
   const probes: DecodeProbe[] = []
   for (const point of decodeProbePoints(durationSeconds)) probes.push(await decodeAt(toolkit, file, point))
   const missing = probes.filter(probe => probe.frames < 1)
-  const detail = probes
+  const sampleDetail = probes
     .map(probe => `${probe.label} ${probe.seconds.toFixed(3)}s 解出 ${String(probe.frames)} 帧`
       + (probe.error === '' ? '' : `（${probe.error}）`))
     .join('；')
-  return [
-    verdict('decode_probe', 'failure', missing.length === 0, detail,
+  if (missing.length > 0) {
+    return [verdict('decode_probe', 'failure', false, sampleDetail,
       '按时间抽帧解不出画面：成片在自己的时长范围内就断了（容器时长/帧率/码率此时仍然正常）。'
       + '这通常来自手写滤镜链把 fps 放在 subtitles 之前，字幕滤镜会把时间基准锚回源帧率。'
-      + '请重跑 render（必要时加 force=true 清缓存），并确认烧录链最后按交付帧率使用 fps 与 setpts。'),
-  ]
+      + '请重跑 render（必要时加 force=true 清缓存），并确认烧录链最后按交付帧率使用 fps 与 setpts。')]
+  }
+  const full = await toolkit.channel.run(toolkit.ffmpeg, [
+    '-v', 'error', '-xerror', '-i', file, '-map', '0:v:0', '-map', '0:a:0', '-f', 'null', '-',
+  ])
+  const diagnostic = full.stderr.trim().slice(0, 400)
+  const valid = full.code === 0 && diagnostic === ''
+  const fullDetail = valid ? '全片音画解码通过' : `全片音画解码失败（${diagnostic || `退出码 ${full.code}`}）`
+  return [verdict('decode_probe', 'failure', valid, `${sampleDetail}；${fullDetail}`,
+    '请检查对应分包的编码、声道与采样率，统一参数后重新拼接或渲染，再验证交付文件。')]
 }
 
 /**
@@ -395,9 +434,7 @@ async function videoBanChecks(input: VerifyInput, shots: readonly number[]): Pro
 /**
  * Check the delivery against the record of what was rendered and checked.
  *
- * The point is that a review belongs to the bytes it was run on. A file replaced at
- * the same path still passes every technical check here, so without this comparison
- * an older verdict would silently stand in for a file nobody looked at.
+ * A render receipt binds its episode, output location, and reviewed file bytes.
  * @param input - The resolved verify call.
  * @returns The source record verdict for this delivery.
  * @throws {Error} When the sidecar exists but cannot be read as a record.
@@ -412,6 +449,23 @@ async function sourceRecordCheck(input: VerifyInput): Promise<RenderCheck> {
       + '再对此文件跑 verify；在那之前不要把这份成片的检查结论当作对当前文件生效。')
   }
   const current = await fileSha256(input.output)
+  const recordedEpisode = typeof recorded.episode === 'string' && recorded.episode.length > 0 ? recorded.episode : undefined
+  const recordedPath = typeof recorded.output.path === 'string' && isAbsolute(recorded.output.path) ? recorded.output.path : undefined
+  const mismatches: string[] = []
+  if (recordedEpisode !== undefined && recordedEpisode !== input.episode) {
+    mismatches.push(`集号 ${recordedEpisode} 与当前 ${input.episode} 不符`)
+  }
+  if (recordedPath !== undefined && relative(recordedPath, input.output) !== '') {
+    mismatches.push(`输出路径 ${recordedPath} 与当前 ${input.output} 不符`)
+  }
+  if (mismatches.length > 0) {
+    return verdict('output_source_record', 'failure', false, `来源清单的${mismatches.join('，')}`,
+      '请为当前集和当前输出路径核对原始渲染记录。续跑需要与当前集及输出一致的记录。')
+  }
+  if (current === recorded.output.sha256 && (recordedEpisode === undefined || recordedPath === undefined)) {
+    return verdict('output_source_record', 'warning', false, '来源清单缺少有效集号或绝对输出路径。',
+      '可以继续查看技术检查结果。自动续跑复用需要为当前集和输出重新生成来源清单。')
+  }
   return verdict('output_source_record', 'failure', current === recorded.output.sha256,
     `清单记录 ${recorded.rendered_at} 渲染的 sha256=${recorded.output.sha256.slice(0, 16)}…，`
     + `当前文件 sha256=${current.slice(0, 16)}…`,
@@ -463,6 +517,7 @@ export async function verifyEpisode(input: VerifyInput): Promise<DramaRenderRepo
   const checks: RenderCheck[] = [
     ...(layout === undefined ? [] : subtitleVisualChecks(layout.report)),
     ...deliveryChecks(media, expectedDurationSeconds, policy.delivery),
+    ...avStreamClockChecks(probed, timeline.bodyEndSeconds),
     ...await decodeChecks(input.toolkit, input.output, media.durationSeconds),
     ...await videoBanChecks(input, timeline.clips.map(clip => clip.shot)),
     verdict('black_frames', 'failure', longestSeconds(black) < BLACK_FAILURE_SECONDS,

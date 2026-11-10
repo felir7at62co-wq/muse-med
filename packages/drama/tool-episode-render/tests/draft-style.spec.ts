@@ -28,13 +28,14 @@ it('round trips explicit editor units without adding formal subtitle settings', 
   expect(delivery).not.toHaveProperty('subtitle')
 })
 
-it('preserves saved subtitle sections and retains the project watermark for a non-empty saved style', async () => {
+it('keeps saved subtitle units while inheriting an omitted watermark and respecting explicit resets', async () => {
   const root = await project(style)
   expect((await resolveDeliveryPolicy(root, DEFAULT_DELIVERY)).delivery).toMatchObject({ draft_style: style })
   for (const [saved, expected] of [
     [{}, {}],
-    [{ subtitle: {} }, { subtitle: {}, watermark: { font_size_ui: 7 } }],
-    [{ subtitle: { font_size_ui: 12 } }, { subtitle: { font_size_ui: 12 }, watermark: { font_size_ui: 7 } }],
+    [{ subtitle: {} }, { subtitle: {}, watermark: style.watermark }],
+    [{ subtitle: { font_size_ui: 12 } }, { subtitle: { font_size_ui: 12 }, watermark: style.watermark }],
+    [{ subtitle: {}, watermark: {} }, { subtitle: {}, watermark: {} }],
   ]) {
     const snapshot = parseTimelineDelivery({ ...DEFAULT_DELIVERY, draft_style: saved }, 'timeline')
     const policy = await resolveDeliveryPolicy(root, snapshot)

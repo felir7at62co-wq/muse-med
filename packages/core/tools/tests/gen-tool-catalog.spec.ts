@@ -42,7 +42,7 @@ describe('gen-tool-catalog collectToolCatalog', () => {
       'read_image', 'read_mcp_resource', 'run_code', 'schedule_create', 'schedule_edit',
       'schedule_list', 'schedule_view', 'screenplay_project', 'send_message', 'send_message',
       'session_event_read', 'session_event_search', 'session_event_trace', 'session_search', 'session_trace',
-      'skill', 'spawn_teammate', 'stagehand_act', 'stagehand_extract', 'stagehand_navigate',
+      'skill', 'skill_catalog', 'spawn_teammate', 'stagehand_act', 'stagehand_extract', 'stagehand_navigate',
       'stagehand_observe', 'stagehand_screenshot', 'stagehand_tabs', 'str_replace_editor', 'subagent',
       'subagent_oar', 'team_task_create', 'team_task_get', 'team_task_list', 'team_task_update',
       'terminal_close', 'terminal_list', 'terminal_open', 'terminal_read', 'terminal_send',

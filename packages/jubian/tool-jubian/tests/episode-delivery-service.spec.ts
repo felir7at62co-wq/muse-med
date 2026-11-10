@@ -10,7 +10,7 @@ import * as atomic from '@deepseek-ai/dsh-atomic-write'
 import * as library from '../src/episode-delivery.ts'
 import * as Recovery from '../src/video-recovery.ts'
 import { VideoMediaDrainError } from '../src/video-media-check.ts'
-import type { EpisodeRenderResult, ApprovedEpisodeRenderInput } from '../src/episode-delivery.ts'
+import type { EpisodeRenderResult, ApprovedEpisodeRenderInput, ApprovedEpisodeRendererCapture } from '../src/episode-delivery.ts'
 import { z } from 'zod'
 import { JubianEpisodeDelivery, resolveEpisodeDelivery } from '../src/episode-delivery-service.ts'
 import { createEpisodeDeliveryFixture } from './fixtures/episode-delivery.ts'
@@ -34,6 +34,77 @@ function observeRenderer(f: Awaited<ReturnType<typeof createEpisodeDeliveryFixtu
 }
 
 describe('approved episode service', () => {
+  it('refuses publication when the captured renderer input revalidation fails', async () => {
+    const f = await createEpisodeDeliveryFixture()
+    const capture = f.provider.capture.bind(f.provider)
+    const revalidate = vi.fn(async () => { throw new Error('Captured subtitle clock changed') })
+    vi.spyOn(f.provider, 'capture').mockImplementation(async (input, signal) => ({
+      ...await capture(input, signal), revalidate,
+    }))
+    const input = await selection(f)
+    await f.service.admitEpisode(input)
+    f.renderer.release()
+    await vi.waitFor(async () => {
+      const status = await f.service.episodeStatus(input)
+      expect(status.state).toBe('unknown')
+      expect(status.problem).toContain('Captured subtitle clock changed')
+    })
+    expect(revalidate).toHaveBeenCalledOnce()
+    const output = join(f.project, 'exports', `Muse-episode-01-${input.digest}.mp4`)
+    await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(f.fetch).not.toHaveBeenCalled()
+  })
+  it('keeps the renderer publication scope held through the actual source-owner publish', async () => {
+    const f = await createEpisodeDeliveryFixture()
+    const capture = f.provider.capture.bind(f.provider)
+    let active = false, released = false, scopes = 0
+    const withPublication: NonNullable<ApprovedEpisodeRendererCapture['withPublication']> = async (signal, publish) => {
+      signal.throwIfAborted(); scopes++; active = true
+      try { return await publish(signal) } finally { active = false; released = true }
+    }
+    vi.spyOn(f.provider, 'capture').mockImplementation(async (input, signal) => ({
+      ...await capture(input, signal), withPublication,
+    }))
+    const input = await selection(f), output = join(f.project, 'exports', `Muse-episode-01-${input.digest}.mp4`)
+    const actual = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+    let observed = false
+    const linked = vi.spyOn(Files, 'link').mockImplementation(async (...args: Parameters<typeof actual.link>) => {
+      if (args[1] === output) { expect(active).toBe(true); observed = true }
+      return actual.link(...args)
+    })
+    try {
+      await f.service.admitEpisode(input); f.renderer.release()
+      await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('completed') })
+      expect(observed).toBe(true); expect(scopes).toBe(1); expect(released).toBe(true)
+      expect(await readFile(output, 'utf8')).toBe('full episode fixture bytes')
+      expect(f.fetch).not.toHaveBeenCalled()
+    } finally { linked.mockRestore() }
+  })
+
+  it.each(['refused', 'cancelled'] as const)('retains the candidate when renderer publication is %s', async (failure) => {
+    const f = await createEpisodeDeliveryFixture(), capture = f.provider.capture.bind(f.provider)
+    let released = false
+    const withPublication: NonNullable<ApprovedEpisodeRendererCapture['withPublication']> = async (_signal, publish) => {
+      try {
+        if (failure === 'refused') throw new Error('Source-review owner is unavailable')
+        const cancelled = new AbortController(); cancelled.abort(new Error('Source-review owner revoked'))
+        return await publish(cancelled.signal)
+      } finally { released = true }
+    }
+    vi.spyOn(f.provider, 'capture').mockImplementation(async (input, signal) => ({
+      ...await capture(input, signal), withPublication,
+    }))
+    const input = await selection(f)
+    await f.service.admitEpisode(input); f.renderer.release()
+    await vi.waitFor(async () => {
+      const status = await f.service.episodeStatus(input)
+      expect(status.state).toBe('unknown'); expect(status.problem).toContain(failure === 'refused' ? 'unavailable' : 'revoked')
+    })
+    expect(released).toBe(true); expect(f.renderer.encodes).toBe(1)
+    await expect(stat(join(f.project, 'exports', `Muse-episode-01-${input.digest}.mp4`))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(f.fetch).not.toHaveBeenCalled()
+  })
+
   it('keeps targeted status available across an atomic state publication', async () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f)
     const admitted = await f.service.admitEpisode(input)

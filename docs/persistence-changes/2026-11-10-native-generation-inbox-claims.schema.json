@@ -1,0 +1,28 @@
+{
+  "formatVersion": 2,
+  "roots": [
+    {"key":"event:agent/inbox/claim","kind":"event","event":"agent/inbox/claim","surface":false,"digest":"a0e0ccee6eafb5768d3d70a18b770f2e46f0cb433b5166071794f45b7f2aa226"},
+    {"key":"event:agent/inbox/claim-filtered","kind":"event","event":"agent/inbox/claim-filtered","surface":false,"digest":"5693a3ce83271b322c4f9b90578ea06aebc3188348df9aea477831e0b3057d23"},
+    {"key":"event:agent/inbox/claim-settled","kind":"event","event":"agent/inbox/claim-settled","surface":false,"digest":"dd3cf0360eea7a8a61f65b2f6a39b392e388753520aa8692e3f1269397fd4a6b"},
+    {"key":"event:jubian/generation-notice-parked","kind":"event","event":"jubian/generation-notice-parked","surface":false,"digest":"982bd7ddda1aaac568bb802815acdb1a2321eedf020858982a4667226dd0bd52"}
+  ],
+  "types": [],
+  "nodes": {
+    "0657d3ca5ac4e7bf": {"kind":"primitive","type":"number"},
+    "06a687902af4c403": {"kind":"object","properties":[{"name":"discarded","type":"93c33d9687613293","optional":false},{"name":"step","type":"0657d3ca5ac4e7bf","optional":false},{"name":"turn","type":"0657d3ca5ac4e7bf","optional":false}],"indices":[]},
+    "4cd48f3e5108bd6e": {"kind":"primitive","type":"string"},
+    "522f6cc106cd4559": {"kind":"literal","value":"jubian/generation-notice-parked"},
+    "5693a3ce83271b32": {"kind":"object","properties":[{"name":"data","type":"06a687902af4c403","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"6d726a723853bb4f","optional":false}],"indices":[]},
+    "6d726a723853bb4f": {"kind":"literal","value":"agent/inbox/claim-filtered"},
+    "748bffa67195fcc8": {"kind":"object","properties":[{"name":"nextStep","type":"93c33d9687613293","optional":false},{"name":"nextTurn","type":"93c33d9687613293","optional":false},{"name":"step","type":"0657d3ca5ac4e7bf","optional":false},{"name":"turn","type":"0657d3ca5ac4e7bf","optional":false}],"indices":[]},
+    "93c33d9687613293": {"kind":"array","element":"4cd48f3e5108bd6e"},
+    "982bd7ddda1aaac5": {"kind":"object","properties":[{"name":"data","type":"eb73b0e0e79fa212","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"522f6cc106cd4559","optional":false}],"indices":[]},
+    "a04e134182c65892": {"kind":"literal","value":"agent/inbox/claim"},
+    "a0e0ccee6eafb576": {"kind":"object","properties":[{"name":"data","type":"748bffa67195fcc8","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"a04e134182c65892","optional":false}],"indices":[]},
+    "d327cb91792a4a54": {"kind":"literal","value":"agent/inbox/claim-settled"},
+    "dacf3d5f3e4ff619": {"kind":"literal","value":true},
+    "dd3cf0360eea7a8a": {"kind":"object","properties":[{"name":"data","type":"ef11a3b7fa2033ae","optional":false},{"name":"ignorable","type":"dacf3d5f3e4ff619","optional":true},{"name":"seq","type":"0657d3ca5ac4e7bf","optional":false},{"name":"time","type":"0657d3ca5ac4e7bf","optional":false},{"name":"type","type":"d327cb91792a4a54","optional":false}],"indices":[]},
+    "eb73b0e0e79fa212": {"kind":"object","properties":[{"name":"id","type":"4cd48f3e5108bd6e","optional":false}],"indices":[]},
+    "ef11a3b7fa2033ae": {"kind":"object","properties":[{"name":"step","type":"0657d3ca5ac4e7bf","optional":false},{"name":"turn","type":"0657d3ca5ac4e7bf","optional":false}],"indices":[]}
+  }
+}

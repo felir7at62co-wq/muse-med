@@ -133,6 +133,8 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
   const f = await fixture()
   try {
     expect(f.raw).toContain('trustedEvidence: true')
+    expect(f.raw).toContain('sourceReviewCompanion: true')
+    expect(f.raw).not.toContain('requireCompleteReview: true')
     expect(f.raw).not.toContain('本模式由你独立完成模型判断，不启动其他模型会话或团队，不使用委派、工作流模型编排、持续循环代理或借终端、HTTP、插件绕过模式限制。')
     expect(f.raw).not.toContain('先加载 muse-creation')
     expect(f.raw).not.toContain('tools.skill({name: "muse-creation"})')
@@ -193,6 +195,7 @@ it('mounts a PTC-only creation persona and a complete creative tool union withou
     expect(text).toContain('tools.skill')
     expect(text).not.toContain('再加载 muse-creation')
     expect(CreationPolicy.CREATION_TOOL_NAMES).toContain('video_ocr')
+    expect(CreationPolicy.CREATION_TOOL_NAMES).toContain('video_source_review')
     expect(text).toContain('按8个有效字/秒计算预算')
     expect(text).toContain('配速指视频包内部的对白、动作、停顿与切镜快慢')
     expect(text).toContain('单集目标、最低集长或汇总差额不授权重新分配视频包时长')

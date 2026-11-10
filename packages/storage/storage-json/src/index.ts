@@ -6,13 +6,15 @@
  * @module @deepseek-ai/dsh-storage-json
  */
 
-import { mkdir } from 'node:fs/promises'
+import { mkdir, open, realpath, stat } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { StorageError, UNIT_NAME_RE, storageBackendServiceKey } from '@deepseek-ai/dsh-storage'
 import type { KvFacet, KvUnit, KvUnitDescriptor, StorageBackend } from '@deepseek-ai/dsh-storage'
 import { openSingleUnit } from './single-unit.ts'
 import { openPerRecordUnit } from './per-record-unit.ts'
+import { parse } from './format.ts'
 
 /** Cordis plugin name. */
 export const name = 'storage-json'
@@ -43,7 +45,7 @@ export class JsonStorageBackend implements StorageBackend {
   private readonly opening = new Map<string, Promise<KvUnit>>()
   private closed = false
 
-  constructor(private readonly root: string) {}
+  constructor(private readonly root: string) { sourceRoots.set(this, root) }
 
   readonly kv: KvFacet = {
     // The body up to the first await runs synchronously, so the opening-slot
@@ -82,6 +84,7 @@ export class JsonStorageBackend implements StorageBackend {
   async close(): Promise<void> {
     if (!this.closed) {
       this.closed = true
+      sourceRoots.delete(this)
     }
     await Promise.allSettled([...this.opening.values()])
     for (const unit of [...this.open.values()]) {
@@ -116,4 +119,64 @@ export function apply(ctx: Context, config: Config) {
     }
   })
   ctx.provide(storageBackendServiceKey('json'), backend)
+}
+
+
+const sourceRoots = new WeakMap<StorageBackend, string>()
+
+/** Complete on-disk single-unit snapshot for an explicitly selected migration source. */
+export interface JsonUnitSource {
+  /** Canonical configured unit file, independent of an opened unit's cache. */
+  readonly path: string
+  /** Undefined only when the canonical unit file does not exist. */
+  readonly text: string | undefined
+}
+
+/**
+ * Resolve the real JSON backend's single-unit source without reading its memory cache.
+ * @param backend - The registered source backend instance.
+ * @param descriptor - Exact single-layout domain identity to migrate.
+ * @returns the canonical root's unit path; an absent root retains its absolute spelling.
+ */
+export async function jsonUnitSourcePath(backend: StorageBackend, descriptor: KvUnitDescriptor): Promise<string> {
+  validateDescriptor(descriptor)
+  const root = sourceRoots.get(backend)
+  if (root === undefined) throw new Error('migration source is not a live JSON storage backend')
+  if (descriptor.layout === 'per-record') throw new Error('migration source must use the complete single-unit layout')
+  let canonical: string
+  try { canonical = await realpath(root) }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    canonical = resolve(root)
+  }
+  return join(canonical, `${descriptor.name}.json`)
+}
+
+/**
+ * Read one stable whole-unit document from the selected JSON backend.
+ * @param backend - Registered source backend whose original path remains authoritative.
+ * @param descriptor - Exact unit name, version and complete table declaration.
+ * @returns source path and complete bytes; a concurrent replacement or malformed document rejects.
+ */
+export async function readJsonUnitSource(backend: StorageBackend, descriptor: KvUnitDescriptor): Promise<JsonUnitSource> {
+  const path = await jsonUnitSourcePath(backend, descriptor)
+  let handle
+  try { handle = await open(path, 'r') }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    return { path, text: undefined }
+  }
+  try {
+    const before = await handle.stat({ bigint: true })
+    const text = await handle.readFile('utf8')
+    const after = await handle.stat({ bigint: true })
+    const current = await stat(path, { bigint: true })
+    if (before.dev !== current.dev || before.ino !== current.ino || before.size !== after.size
+      || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs) {
+      throw new Error('JSON unit changed while reading its migration source')
+    }
+    parse(text, descriptor)
+    if (!sourceRoots.has(backend)) throw new Error('migration source JSON backend closed while reading')
+    return { path, text }
+  } finally { await handle.close() }
 }

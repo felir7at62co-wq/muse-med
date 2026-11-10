@@ -2,7 +2,8 @@
 
 import { readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fileSha256 } from '../src/cache.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { episodePaths, episodeNumberOf, pathExists, shotFileName } from '../src/paths.ts'
 import {
@@ -11,13 +12,28 @@ import {
   parseShotManifest,
   prepareEpisode,
   resolveShots,
+  verifyPreparedSubtitleClock,
 } from '../src/prepare.ts'
+import { writeSubtitleClock } from '../src/subtitle-clock.ts'
+import { readTimeline } from '../src/timeline.ts'
 import type { SubtitleCue } from '../src/types.ts'
 import { cleanup, probeHandler, sizeOf, srtDocument, stubChannel, tempProject, writePlaceholder, type StubHandler } from './harness.ts'
 
 const temporary: string[] = []
+const copying = vi.hoisted(() => ({ target: '' }))
+vi.mock('node:fs/promises', async (load) => {
+  const actual = await load<typeof import('node:fs/promises')>()
+  return { ...actual, copyFile: async (...args: Parameters<typeof actual.copyFile>) => {
+    if (args[1] === copying.target) {
+      copying.target = ''
+      await actual.writeFile(args[0], 'replacement picture during copy')
+    }
+    await actual.copyFile(...args)
+  } }
+})
 
 afterEach(async () => {
+  copying.target = ''
   await Promise.all(temporary.splice(0).map(async (dir) => { await cleanup(dir) }))
 })
 
@@ -91,6 +107,7 @@ describe('resolveShots', () => {
       toolkit([probeHandler({ [join(project, 'media/02/p1-clean.mp4')]: { durationSeconds: 5.05, video: {}, audio: {} } })]),
       project,
       [{ shot: 1, video: 'media/02/p1-clean.mp4', audio: 'media/02/p1-clean.mp4' }],
+      24,
     )
     expect(shots).toEqual([{
       source: { shot: 1, video: 'media/02/p1-clean.mp4', audio: 'media/02/p1-clean.mp4' },
@@ -105,34 +122,72 @@ describe('resolveShots', () => {
       toolkit([probeHandler({ [join(project, 'media/02/p1.mp4')]: { durationSeconds: 5, video: {}, audio: false } })]),
       project,
       [{ shot: 1, video: 'media/02/p1.mp4', audio: join(project, 'media/02/p1.wav') }],
+      24,
     )
     expect(shots[0]?.audio).toBe(join(project, 'media/02/p1.wav'))
   })
 
+  it.each([
+    { fps: 24, container: 6.08, start: 0, frames: 145, expected: 6_041_667 },
+    { fps: 60, container: 6.08, start: 0, frames: 145, expected: 6_080_000 },
+    { fps: 24, container: 6.08, start: 0.1, frames: 145, expected: 6_080_000 },
+    { fps: 24, container: 6.08, start: 0, frames: 144, expected: 6_080_000 },
+    { fps: 24, container: 6.3, start: 0, frames: 145, expected: 6_300_000 },
+  ])('uses whole picture frames only for a proven short mux tail ($fps fps, $container s, start $start, $frames frames)',
+    async ({ fps, container, start, frames, expected }) => {
+      const video = 'p1.mp4'
+      const shots = await resolveShots(toolkit([probeHandler({ [join(project, video)]: {
+        durationSeconds: container,
+        video: { fps: 24, startSeconds: start, durationSeconds: 6.041667, frameCount: frames },
+        audio: {},
+      } })]), project, [{ shot: 1, video, audio: video }], fps)
+      expect(shots[0]?.durationUs).toBe(expected)
+    })
+
+  it('rounds each absolute cut once so a Jianying boundary does not advance to the next frame', async () => {
+    const video = 'p1.mp4'
+    const shots = await resolveShots(toolkit([probeHandler({ [join(project, video)]: {
+      durationSeconds: 6.08,
+      video: { fps: 24, startSeconds: 0, durationSeconds: 6.041667, frameCount: 145 },
+      audio: {},
+    } })]), project, [{ shot: 1, video, audio: video }, { shot: 2, video, audio: video }], 24)
+    expect(shots.map(shot => shot.durationUs)).toEqual([6_041_667, 6_041_666])
+  })
+
+  it('uses the draft frame planner tie rule when a boundary is exactly between microseconds', async () => {
+    const video = 'p1.mp4'
+    const shots = await resolveShots(toolkit([probeHandler({ [join(project, video)]: {
+      durationSeconds: 0.04,
+      video: { fps: 128, startSeconds: 0, durationSeconds: 0.039063, frameCount: 5 },
+      audio: {},
+    } })]), project, [{ shot: 1, video, audio: video }], 128)
+    expect(shots[0]?.durationUs).toBe(39_062)
+  })
+
   it('fails loud when the source is missing', async () => {
     await expect(resolveShots(toolkit([probeHandler({})]), project,
-      [{ shot: 3, video: 'media/02/p3.mp4', audio: 'media/02/p3.mp4' }]))
+      [{ shot: 3, video: 'media/02/p3.mp4', audio: 'media/02/p3.mp4' }], 24))
       .rejects.toThrow('镜头 3 的成片无法探测')
   })
 
   it('fails loud when the source has no picture', async () => {
     await expect(resolveShots(
       toolkit([probeHandler({ [join(project, 'media/02/p1.mp4')]: { video: undefined, audio: {} } })]), project,
-      [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }]))
+      [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }], 24))
       .rejects.toThrow('没有视频流')
   })
 
   it('fails loud when the picture has no sound and none was declared', async () => {
     await expect(resolveShots(
       toolkit([probeHandler({ [join(project, 'media/02/p1.mp4')]: { video: {}, audio: false } })]), project,
-      [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }]))
+      [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }], 24))
       .rejects.toThrow('没有音轨')
   })
 
   it('fails loud when the source reports no duration', async () => {
     await expect(resolveShots(
       toolkit([probeHandler({ [join(project, 'media/02/p1.mp4')]: { durationSeconds: 0, video: {}, audio: {} } })]), project,
-      [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }]))
+      [{ shot: 1, video: 'media/02/p1.mp4', audio: 'media/02/p1.mp4' }], 24))
       .rejects.toThrow('时长为 0')
   })
 })
@@ -164,6 +219,90 @@ describe('cueOverrunWarnings', () => {
 })
 
 describe('prepareEpisode', () => {
+  it.each(['review changed', 'picture changed during copy'] as const)
+  ('rejects an approved source changed while preparing: %s', async (defect) => {
+    const project = await tempProject()
+    temporary.push(project)
+    const paths = episodePaths(project, '41')
+    const video = join(project, 'selected.mp4'), audio = join(project, 'selected.wav')
+    const packagePath = join(project, 'episode_packages', '41', 'package.json')
+    const reviewPath = join(project, 'reviews', 'ep41-p01.json')
+    const shotsPath = join(project, 'shots.json'), subtitle = join(project, 'source.srt')
+    await Promise.all([writePlaceholder(video, 'approved picture'), writePlaceholder(audio, 'approved audio'),
+      writePlaceholder(packagePath, JSON.stringify({ episode: '41', video_tasks: [{ shots: [1] }] })),
+      writePlaceholder(shotsPath, JSON.stringify({ shots: [{ shot: 1, package: 1, video, audio }] })),
+      writePlaceholder(subtitle, ''), writePlaceholder(paths.timeline, 'prior timeline')])
+    const review = { episode: '41', package: 1, package_sha256: await fileSha256(packagePath), status: 'approved',
+      subtitle_cleanup: 'clean', video_path: video, video_sha256: await fileSha256(video),
+      audio_path: audio, audio_sha256: await fileSha256(audio) }
+    await writePlaceholder(reviewPath, JSON.stringify(review))
+    const probe = probeHandler({ [video]: { durationSeconds: 1, video: {}, audio: {} } })
+    const channel = stubChannel([(call) => {
+      const result = probe(call)
+      return result === undefined ? undefined : { ...result, after: async () => {
+        if (defect === 'review changed') await writeFile(reviewPath, JSON.stringify({ ...review, note: 'updated review' }))
+      } }
+    }])
+    if (defect === 'picture changed during copy') copying.target = join(paths.videoDir, 'shot_001.mp4')
+    await expect(prepareEpisode({ project, episode: '41', shotsPath, subtitleSrt: subtitle,
+      toolkit: createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }) }))
+      .rejects.toThrow(defect === 'review changed' ? '审核选源变化' : '复制期间已审核画面变化')
+    expect(await readFile(paths.timeline, 'utf8')).toBe('prior timeline')
+    expect(await pathExists(paths.sources)).toBe(false)
+    expect(channel.calls.every(call => call.command === 'ffprobe')).toBe(true)
+  })
+  it.each(['wrong picture', 'wrong audio', 'wrong episode', 'omitted package',
+    'approved original audio', 'legacy picture review preview'] as const)
+  ('checks the current approved package before preparing equal-duration sources: %s', async (defect) => {
+    const project = await tempProject()
+    temporary.push(project)
+    const paths = episodePaths(project, '41')
+    const packagePath = join(project, 'episode_packages', '41', 'package.json')
+    const clean = join(project, 'ep41-clean.mp4')
+    const audio = join(project, 'ep41-original.mp4')
+    const foreign = join(project, 'ep40-same-length.mp4')
+    const shotsPath = join(project, 'shots.json')
+    await Promise.all([
+      writePlaceholder(packagePath, JSON.stringify({ episode: defect === 'wrong episode' ? '40' : '41', video_tasks: [{ shots: [1] }] })),
+      writePlaceholder(clean, 'approved picture'),
+      writePlaceholder(audio, 'approved original audio'),
+      writePlaceholder(foreign, 'foreign picture'),
+      writePlaceholder(paths.subtitle, ''),
+      writePlaceholder(paths.timeline, 'previous timeline'),
+    ])
+    const audioHash = await fileSha256(audio)
+    await writePlaceholder(join(project, 'reviews', 'ep41-p01.json'), JSON.stringify({
+      episode: '41', package: 1, package_sha256: await fileSha256(packagePath), status: 'approved',
+      subtitle_cleanup: 'clean', video_path: clean, video_sha256: await fileSha256(clean),
+      ...(defect === 'legacy picture review preview' ? {} : { audio_path: audio, audio_sha256: audioHash }),
+    }))
+    const video = defect === 'wrong picture' ? foreign : clean
+    await writePlaceholder(shotsPath, JSON.stringify({ shots: [{ shot: 1,
+      package: defect === 'omitted package' ? undefined : 1, video, audio: defect === 'wrong audio' ? foreign : audio }] }))
+    const media = { durationSeconds: 5.056, video: {}, audio: false } as const
+    const channel = stubChannel([probeHandler({ [clean]: media, [foreign]: media }), call => ({
+      after: async () => { await writeFile(call.args.at(-1)!, 'generated master', 'utf8') },
+    })])
+    const input = { toolkit: createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }),
+      project, episode: '41', shotsPath, subtitleSrt: join(project, 'source.srt') }
+    await writePlaceholder(input.subtitleSrt, '')
+    if (defect === 'approved original audio' || defect === 'legacy picture review preview') {
+      const result = await prepareEpisode(input)
+      expect(result.timeline.clips[0]?.durationUs).toBe(5_056_000)
+      expect(JSON.parse(await readFile(paths.sources, 'utf8'))).toMatchObject({
+        master_audio_sha256: await fileSha256(paths.masterAudio),
+        timeline_clips: [{ shot: 1, start_us: 0, duration_us: 5_056_000 }],
+        shots: [{ package: 1, video: clean, audio }],
+      })
+      const saved = JSON.parse(await readFile(paths.sources, 'utf8')) as { shots: { audio_sha256?: string }[] }
+      expect(saved.shots[0]?.audio_sha256).toBe(defect === 'approved original audio' ? audioHash : undefined)
+    } else {
+      await expect(prepareEpisode(input)).rejects.toThrow(/画面路径|原声音频|集号|编译分包/)
+      expect(channel.calls).toEqual([])
+      expect(await readFile(paths.timeline, 'utf8')).toBe('previous timeline')
+    }
+  })
+
   it('rejects a copied banned selection before probing or changing the prepared layout, and unban restores preparation', async () => {
     const project = await tempProject()
     temporary.push(project)
@@ -360,6 +499,35 @@ describe('prepareEpisode', () => {
       shotsPath,
       subtitleSrt: join(project, 'absent.srt'),
     })).rejects.toThrow('Invalid argument')
+  })
+})
+
+describe('prepared subtitle source clock', () => {
+  it.each(['matching external audio', 'missing shot', 'wrong shot', 'noncontiguous cut'] as const)
+  ('checks generated subtitle sources before trusting their clock: %s', async (defect) => {
+    const project = await tempProject()
+    temporary.push(project)
+    const paths = episodePaths(project, '02')
+    const original = join(project, 'source.mp4'), audio = join(project, 'source.wav')
+    const video = join(paths.videoDir, 'shot_001.mp4')
+    const text = srtDocument([{ start: '00:00:00,100', end: '00:00:00,500', text: '台词' }])
+    await Promise.all([writePlaceholder(original, 'picture'), writePlaceholder(video, 'picture'),
+      writePlaceholder(audio, 'separate audio'), writePlaceholder(paths.subtitle, text),
+      writePlaceholder(paths.timeline, '{"clips":[{"shot":1,"start_us":0,"duration_us":1000000}],"body_end":1}')])
+    const source = { shot: 1, video: original, audio }
+    await writeSubtitleClock(paths.subtitle, text, '02', [{ source, video: original, audio, durationUs: 1_000_000 }])
+    const timeline = await readTimeline(paths.timeline)
+    await writePlaceholder(paths.sources, JSON.stringify({ shots: [source] }))
+    if (defect === 'missing shot') {
+      const withExtra = { ...timeline, clips: [...timeline.clips, { shot: 2, startUs: 1_000_000, durationUs: 1_000_000 }] }
+      await expect(verifyPreparedSubtitleClock(paths.subtitle, paths, withExtra)).rejects.toThrow('准备清单或时间线')
+    } else if (defect === 'wrong shot') {
+      const reordered = { ...timeline, clips: [{ shot: 2, startUs: 0, durationUs: 1_000_000 }] }
+      await expect(verifyPreparedSubtitleClock(paths.subtitle, paths, reordered)).rejects.toThrow('准备清单或时间线')
+    } else if (defect === 'noncontiguous cut') {
+      const shifted = { ...timeline, clips: [{ shot: 1, startUs: 1, durationUs: 1_000_000 }] }
+      await expect(verifyPreparedSubtitleClock(paths.subtitle, paths, shifted)).rejects.toThrow('准备清单或时间线')
+    } else await expect(verifyPreparedSubtitleClock(paths.subtitle, paths, timeline)).resolves.toBeUndefined()
   })
 })
 

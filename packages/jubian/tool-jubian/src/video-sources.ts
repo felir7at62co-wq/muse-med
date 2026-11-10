@@ -75,9 +75,8 @@ function identity(value: unknown): number | null {
   const candidate = typeof value === 'string' && /^[1-9][0-9]*$/.test(value) ? Number(value) : value
   return typeof candidate === 'number' && Number.isSafeInteger(candidate) && candidate > 0 ? candidate : null
 }
-function owned(row: Row, scriptId: number, storyboardId?: number): boolean {
+function owned(row: Row, scriptId: number): boolean {
   return identity(row.scriptId) === scriptId
-    && (storyboardId === undefined || identity(row.storyboardId) === storyboardId)
 }
 function list(response: JubianResponse, allowUnpaged: boolean): { rows: Row[]; total: number | null; unpaged: boolean } {
   if (Array.isArray(response.data)) return { rows: response.data.map(record),
@@ -263,10 +262,10 @@ export async function readVideoSources(client: JubianClient, args: { script_id: 
         }
         if (childOwner === null && !parentHasCard) { issue('CHILD_CARD_UNKNOWN'); continue }
         parentMatched = true
-        let parsed: ReturnType<typeof readSubtaskPage>['rows'][number] | undefined
-        try { parsed = readSubtaskPage({ total: 1, rows: [child] }).rows[0] }
+        let parsed: ReturnType<typeof readSubtaskPage>['rows'][number]
+        // The page reader maps each supplied row or throws; this input has exactly one row.
+        try { parsed = readSubtaskPage({ total: 1, rows: [child] }).rows[0] as ReturnType<typeof readSubtaskPage>['rows'][number] }
         catch (_error) { issue('UNREADABLE_CHILD'); continue }
-        if (parsed === undefined) { issue('UNREADABLE_CHILD'); continue }
         const status = parsed.status?.trim().toLowerCase() ?? ''
         if (!status) issue('CHILD_STATUS_UNKNOWN')
         else if (!(SUCCESS_STATUSES as readonly string[]).includes(status)

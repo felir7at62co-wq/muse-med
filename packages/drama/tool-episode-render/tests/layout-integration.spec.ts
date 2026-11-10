@@ -86,8 +86,11 @@ async function invoke(tool: ToolDefinition, args: Record<string, string | number
 
 function externalStub(output: string, layoutCode = 0, layoutStderr?: string) {
   return stubChannel([
-    probeHandler({ [output]: { durationSeconds: 1, sizeBytes: 1_000_000, bitRateBps: 8_000_000,
-      video: { width: 320, height: 180, fps: 12 }, audio: {} } }),
+    probeHandler({
+      [join(output, '..', '..', 'video', '01', 'shot_001.mp4')]: { durationSeconds: 1, video: { fps: 12 } },
+      [output]: { durationSeconds: 1, sizeBytes: 1_000_000, bitRateBps: 8_000_000,
+        video: { width: 320, height: 180, fps: 12 }, audio: {} },
+    }),
     call => call.args.some(argument => argument.includes('bbox=min_val=1')) ? {
       code: layoutCode, stderr: layoutCode === 0
         ? layoutStderr ?? 'fontselect: (Arial, 400, 0) -> ArialMT, 0, ArialMT\n[Parsed_bbox] x1:200 x2:599 y1:50 y2:79 w:400 h:30'
@@ -127,6 +130,20 @@ it('runs standalone layout through Loader, returns a closed compact schema and p
   const entry = [...input.ctx.loader.entries()].find(item => item.options.name === '@deepseek-ai/dsh-tool-episode-render')
   await entry?.fiber?.dispose()
   expect(input.ctx.tools.get('drama_render')).toBeUndefined()
+})
+
+it('measures normalized display text without rewriting the authored subtitle', async () => {
+  const input = await fixture(visual, { normalizeSubtitleText: true }), external = externalStub(input.output)
+  const factory = vi.spyOn(Media, 'createMediaToolkit').mockReturnValue({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: external.channel })
+  onTestFinished(() => { factory.mockRestore() })
+  const subtitle = join(input.root, 'editing', '01.srt')
+  const authored = '1\n00:00:00,000 --> 00:00:00,400\n你好，\n世界！\n'
+  await writeFile(subtitle, authored)
+  const result = await invoke(input.tool, { method: 'subtitle_layout', project: input.root, episode: 1,
+    timeline: 'editing/01-timeline.json', subtitle_srt: 'editing/01.srt' })
+  const saved = JSON.parse(await readFile(result.subtitle_layout?.report_path ?? '', 'utf8')) as SubtitleLayoutReport
+  expect(saved.entries.map(entry => entry.text)).toEqual(['你好 世界'])
+  expect(await readFile(subtitle, 'utf8')).toBe(authored)
 })
 
 it('returns repair checks before encoding when layout fails and preserves the existing output', async () => {
@@ -173,7 +190,11 @@ it('returns repair checks before encoding when layout fails and preserves the ex
     ]
   `)
   expect(result.failures.join('\n')).toContain('缺真词证据')
-  expect(external.calls.every(call => call.args.some(argument => argument.includes('bbox=min_val=1')))).toBe(true)
+  expect(external.calls.filter(call => call.command === 'ffprobe').map(call => call.args.at(-1)))
+    .toEqual([join(input.root, 'video', '01', 'shot_001.mp4')])
+  expect(external.calls.some(call => call.command === 'ffmpeg')).toBe(true)
+  expect(external.calls.every(call => call.command === 'ffprobe'
+    || (call.command === 'ffmpeg' && call.args.some(argument => argument.includes('bbox=min_val=1'))))).toBe(true)
   expect(await readFile(result.subtitle_layout!.stderr_paths[0]!, 'utf8')).toBe('layout-only decoder failure\nfull native diagnostics')
   expect(result.written).toContain(result.subtitle_layout!.report_path)
   expect(await readFile(result.log_path, 'utf8')).toContain('subtitle_layout=')
@@ -190,10 +211,12 @@ it('returns pending repair when layout has no saved report without encoding the 
   onTestFinished(() => { measurement.mockRestore(); factory.mockRestore() })
   const result = await invoke(input.tool, { method: 'render', project: input.root, episode: 1,
     timeline: 'editing/01-timeline.json', subtitle_srt: 'editing/01.srt', last_shot: 1, bgm: 'bed.wav', output: input.output })
-  expect(result).toMatchObject({ ok: false, output: '', subtitle_layout: { status: 'not_measured', report_path: '' } })
+  expect(result).toMatchObject({ ok: false, output: '', encoded_shots: [], reused_shots: [],
+    subtitle_layout: { status: 'not_measured', report_path: '' } })
   expect(result.warnings.join('\n')).toContain('证据目录不可写')
   expect(await readFile(result.log_path, 'utf8')).toContain('subtitle_layout=(not saved) status=not_measured')
-  expect(external.calls).toEqual([])
+  expect(external.calls.map(call => ({ command: call.command, file: call.args.at(-1) })))
+    .toEqual([{ command: 'ffprobe', file: join(input.root, 'video', '01', 'shot_001.mp4') }])
   expect(existsSync(input.output)).toBe(false)
 })
 
@@ -208,11 +231,15 @@ it.each([
   const authored = await readFile(join(input.root, 'editing', '01.srt'))
   const result = await invoke(input.tool, { method: 'render', project: input.root, episode: 1,
     timeline: 'editing/01-timeline.json', subtitle_srt: 'editing/01.srt', last_shot: 1, bgm: 'bed.wav', output: input.output })
-  expect(result).toMatchObject({ ok: false, output: '', encoded_shots: [] })
+  expect(result).toMatchObject({ ok: false, output: '', encoded_shots: [], reused_shots: [] })
   expect(result.checks.find(check => check.id === id)).toMatchObject({ ok: false, severity: 'failure' })
   expect(existsSync(input.output)).toBe(false)
   expect(await readFile(join(input.root, 'editing', '01.srt'))).toEqual(authored)
-  expect(external.calls.every(call => call.args.some(argument => argument.includes('bbox=min_val=1')))).toBe(true)
+  expect(external.calls.filter(call => call.command === 'ffprobe').map(call => call.args.at(-1)))
+    .toEqual([join(input.root, 'video', '01', 'shot_001.mp4')])
+  expect(external.calls.some(call => call.command === 'ffmpeg')).toBe(true)
+  expect(external.calls.every(call => call.command === 'ffprobe'
+    || (call.command === 'ffmpeg' && call.args.some(argument => argument.includes('bbox=min_val=1'))))).toBe(true)
 })
 
 it.each(['你好\n世界', String.raw`你好\N世界`, '你好，世界！'])('rejects an unnormalized visual display %j before encoding', async (text) => {
@@ -223,9 +250,13 @@ it.each(['你好\n世界', String.raw`你好\N世界`, '你好，世界！'])('r
   await writeFile(join(input.root, 'editing', '01.srt'), `1\n00:00:00,125 --> 00:00:00,875\n${text}\n`)
   const result = await invoke(input.tool, { method: 'render', project: input.root, episode: 1,
     timeline: 'editing/01-timeline.json', subtitle_srt: 'editing/01.srt', last_shot: 1, bgm: 'bed.wav', output: input.output })
-  expect(result).toMatchObject({ ok: false, output: '', encoded_shots: [] })
+  expect(result).toMatchObject({ ok: false, output: '', encoded_shots: [], reused_shots: [] })
   expect(result.checks.find(check => check.id === 'subtitle_display_text')).toMatchObject({ ok: false, severity: 'failure' })
-  expect(external.calls.every(call => call.args.some(argument => argument.includes('bbox=min_val=1')))).toBe(true)
+  expect(external.calls.filter(call => call.command === 'ffprobe').map(call => call.args.at(-1)))
+    .toEqual([join(input.root, 'video', '01', 'shot_001.mp4')])
+  expect(external.calls.some(call => call.command === 'ffmpeg')).toBe(true)
+  expect(external.calls.every(call => call.command === 'ffprobe'
+    || (call.command === 'ffmpeg' && call.args.some(argument => argument.includes('bbox=min_val=1'))))).toBe(true)
 })
 
 it('renders normalized single-line dialogue with the bundled Zhuque face through Loader', async () => {
@@ -338,7 +369,11 @@ it('retains a resolved overlay in a failed visual preflight without encoding its
     timeline: 'editing/01-timeline.json', subtitle_srt: 'editing/01.srt', subtitle_plan: plan,
     last_shot: 1, bgm: 'bed.wav', output: input.output })
   expect(result).toMatchObject({ ok: false, output: '', encoded_shots: [], subtitle_overlay: { plan_path: plan } })
-  expect(external.calls.every(call => call.args.some(argument => argument.includes('bbox=min_val=1')))).toBe(true)
+  expect(external.calls.filter(call => call.command === 'ffprobe').map(call => call.args.at(-1)))
+    .toEqual([join(input.root, 'video', '01', 'shot_001.mp4')])
+  expect(external.calls.some(call => call.command === 'ffmpeg')).toBe(true)
+  expect(external.calls.every(call => call.command === 'ffprobe'
+    || (call.command === 'ffmpeg' && call.args.some(argument => argument.includes('bbox=min_val=1'))))).toBe(true)
 })
 
 it.skipIf(!nativeAvailable)('refuses a real fallback font before body encoding and preserves its previous output', async () => {

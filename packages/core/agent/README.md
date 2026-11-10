@@ -55,7 +55,7 @@ For scoped switch notices, call `installModelSelection(agentCtx)` from `dsh-agen
 
 ### Drive an agent's conversation
 
-The handle's methods route identified user-role messages into the agent's inbox. `followup()` queues an ordinary next-turn prompt and wakes the driver; `steer()` submits next-step input and wakes it; `inject()` adds model-facing context without waking the driver, so it lands in the next admitted step. `cancel(cause)` aborts the active activity and, unless `keepInbox` is set, clears pending work; `whenIdle()` resolves after the whole agent reaches quiescence.
+The handle's methods route identified user-role messages into the agent's inbox. `followup()` queues an ordinary next-turn prompt and wakes the driver; `steer()` submits next-step input and wakes it; `inject()` adds model-facing context without waking the driver, so it lands in the next admitted step. After a restart, a delivery owner can use `wakePending(messageId)` to wake the driver for that same message while it remains queued. `cancel(cause)` aborts the active activity and, unless `keepInbox` is set, clears pending work; `whenIdle()` resolves after the whole agent reaches quiescence.
 
 ```text
 handle.agent.followup({
@@ -106,6 +106,8 @@ The package is built on one separation: the public `Agent` surface and registry 
 ### Durable model selection
 
 `Model` and the `modelSelection` projection types live here. The default driver creates each `AgentModel` and owns projection registration alongside its inbox. Each instance binds the Session, live options, and a projection reader; it holds no second copy of the choice. The loop captures a detached selection before step preparation and retains it across retries.
+
+`Model.guard`, when supported, holds one complete provider/model/explicit-effort choice until release or owner cancellation. `AgentModel` rejects a different `select()` while held. The guard detects direct options or Session changes when `current()` or `assertCurrent()` next runs, cancels its signal and preserves the changed choice; consumers recheck after awaited preparation and before side effects. The hold is process-local and grants no Session, workspace, filesystem or provider authorization. A driver without the optional capability cannot perform guarded continuation.
 
 ### Source map
 

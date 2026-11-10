@@ -30,9 +30,19 @@ description: Use when 剧变生成视频需要 SeedVR2 转高清，或 3D 动画
 
 输出最终 MP4、同名 SRT、渲染日志和可编辑草稿。渲染前用 ffprobe 校验每段真实时长；渲染后检查总时长、音视频流、黑帧、静音、**首/中/尾各抽一帧真实解码**和字幕 cue 越界。**元数据不算证据**：容器里的时长、帧率、码率在一份大量丢帧的成片上照样正常，`drama_render verify` 的 `decode_probe` 与 `render_episode.py` 的 `assert_decodes_throughout` 都会在首、中、尾各解一帧，任何一处解不出画面就判失败。编码失败时保留中间文件，只重跑失败集。
 
+现有生成字幕的切点失效时，若已取得当前各镜声音的同源对齐，向 `drama_render prepare` 一起传 `lines`、`alignment` 和原 `subtitle_srt`。每镜对齐须带当前声音的 `source_sha256`。工具最多重建一次，保留原字幕及回执，文字和顺序一致且新时钟复验通过后才使用。没有同源证据或需要改词时保持待核，避免猜整体偏移。
+
 ## 源画面文字与字幕叠加
 
-准备整集渲染前，先对实际选用的视频用 `video_ocr` 免费本地抽样，读取 `scan_status`、覆盖区间与带源时间码的文字；疑似对白烧字用 `video_inspect` 抽帧查看大图，和已对齐 SRT 比对。OCR 失败、覆盖不足或噪声不等于无字，不自动转付费去字幕、转写或重生成；保留候选并列出需要复看的时间点，普通识别疑点只提示，不要求提示清零。
+完整审看入口优先使用当前会话提供的 `video_source_review`，否则使用已启用完整模式的 `video_inspect`；下文的 `scan`、`next`、`observe` 和补采时间均作用于这个完整入口。普通creation会话保留原 `video_inspect` 的抽样及视频转剧本能力，不能把旧抽样结果当作完整源复验，也无需另开会话或让用户切换预设。
+
+准备整集渲染前，对实际选用的视频运行 `video_ocr`，读取完整原始结果、源版本、摘要、`scan_status`、覆盖区间及带源时间码的文字。启用 `require_source_review` 的正式制作要求覆盖全源且采样间隔不大于0.5秒，失败、漏扫或只扫局部不能声明无残字。疑似对白烧字用完整模式 `video_inspect` 实看并和已对齐SRT比对；招牌、物件文字和合规水印不自动视作对白，也不能按“持续文字”一概豁免。OCR失败或噪声不等于存在应收费清理的对白，不因检测失败直接购买去字幕、转写或重生成。未启用完整源复验时，普通识别疑点只提示，不要求提示清零；启用后的覆盖和来源证据缺失仍须按完整复验要求处理，不能以忽略提示代替。
+
+确认源分包烧录了应清理的对白字时，先按源任务及结果身份查找已通过复核的去字幕输出。有适配结果就复用。没有结果时按本集本包原任务调用 `jubian_storyboard method=erase_subtitle`，传 `only_if_verified_free=true`、`task_id`、火山模型 `ark-erase-video-subtitle-pro`、`platform_id=AI_MEDIA_KIT`、真实 `video_width/video_height` 和该源固定的 `idempotency_key`。省略手填估价与坐标。该请求在同一次提交读取任务类型 10 目录并核实免费条件。免费路线确认不可用、已终态失败，或成功结果经实看不合格时，直接按既有项目预算调用羽点 `erase_subtitle`。使用 `model_id=quzimuToB`、`platform_id=YU_DIAN`、同一原分包与另一个该源固定的羽点 key，省略免费限定、手填估价与坐标，让提交读取羽点实时目录并按正常账本预留。已受理、仍在运行、提交结果未知时按原任务 ID 或原 key 对账，确认终态前不换通道或重提。
+
+受理后保存 `accepted_task_id` 与原 key，用 `jubian_watch stage=erase_subtitle` 及 `job_output` 等待该操作，续跑用已记录 ID 查原任务，缺 ID 时按原 key 和源任务结果对账。只采用该操作的成功输出。用 `jubian_media download resume=true` 保存到本集独立路径，保留返回的 `download_receipt_path` 与 `source_sha256`，不要把签名下载 URL 写进审核记录。复查原问题时间的残字、整张画面的损伤、动作和音画。发现画面损坏时不批准该结果。通过后以清理片作为画面、原分包作为独立原声；对应审核设 `subtitle_cleanup=clean` 并记录 `subtitle_erasure: {stage:"erase_subtitle",source_task_id,operation_task_id,result_id,output_url_sha256,download_receipt_path}`，其中 result_id 用当前成功输出的子结果 ID，output_url_sha256 用下载工具返回的 source_sha256。原片也用 `download resume=true` 下载，按实际采用记录 `original_download_receipt_path`。确认原片无须去字时记录 `not_required`，选片须对应原片下载回执。
+
+火山和羽点两条正式路线都确认不可用、终态失败或结果质量不合格时，才考虑对原分包做本地局部去字幕。保留原片，另存候选并保留原片独立音轨。记录各正式路线的结果及原因、受影响的镜内秒段、处理前后的独立抽帧。连续复看字幕区、人物和周围纹理，同时对照尺寸、时长和原声。仍有残字、涂抹痕、人物损伤或错位时保持待核。通过复核的本地结果按 `subtitle_cleanup=clean` 及 `subtitle_erasure: {stage:"local_erase",free:{status,reason},yudian:{status,reason},intervals:[{start_seconds,end_seconds}],original_review_frame}` 归档。两路的 status 均须为 `unavailable`、`failed` 或 `rejected_quality`，处理后抽帧写在 `review_frames`，原分包下载回执继续写在 `original_download_receipt_path`。
 
 明确保留已有对白字时，写项目内 `subtitle_plan`：`schema_version: 1`，`decisions` 每项包含 `shot`、当前源文件 `source_sha256`、镜头内 `start_seconds/end_seconds`、实际画面 `text`、`action: "retain_embedded"`、`reason`，可选 `evidence_paths` 指向真实 OCR 或抽帧文件。区间是镜头内时间，不是整集时间；只有整条 cue 被已确认的同文区间覆盖才跳过后加字幕，局部重叠与文字不符保留提醒，不猜词级切点。计划是调用方决定，不是 OCR 检查或人工验收凭证。
 
@@ -49,6 +59,12 @@ description: Use when 剧变生成视频需要 SeedVR2 转高清，或 3D 动画
 ## 审核证据绑定
 
 使用当前渲染工具前读取 schema 和 prepare 输出。prepare 的 `shots[]` 每行在有显式 package 映射且 `episode_packages/NN/package.json` 存在时记录 `package_sha256`（不是顶层字段）。审核记录的 `package_sha256`、该选源行的值与当前 package 文件字节 SHA256 必须一致；`video_sha256` 独立匹配实际选用视频，并保留内容、字幕清理及抽帧证据。审核者须对照当前 package 检查实际视频，不能机械复制新哈希来批准旧视频。package 任何字节变化（含格式化、同镜头数重编译）都保守要求重新核验证据；缺证据保持 review，不标 completed。
+
+选用去字幕后的画面并保留原片声音时，审核记录同时保存所选画面的 `video_path`、`video_sha256` 和独立原声的 `audio_path`、`audio_sha256`，再在 `prepare` 的分包来源中显式填入两条路径。剪映草稿应使用 `prepare` 生成的同一份独立主音轨。无审核记录可先做工作预览，另用原声但缺来源审核时停止归档。技术复验仍需配合内容听看。
+
+启用 `delivery.require_source_review` 的新整剧，在正式归档前逐包保留实际选片的 `review_frames`，并在 `content_review` 记录人物身份、服装、场景、道具、动作和对白、可见损伤、镜头衔接、角色声线和说话人、音画同步、敏感画面。分别对应 `identity`、`wardrobe`、`scene`、`prop`、`action_and_dialogue`、`visible_artifacts`、`continuity`、`voice_and_speaker`、`av_sync`、`sensitive_content`，已逐项通过才写 `pass`。原片烧录对白已确认无残留才写 `embedded_subtitles: "absent"`。跨包衔接、人物口型和敏感动作区间看连续画面与原声，仅抽一帧或任务成功不够。发现可定位的缺陷只修受影响片段，回看切点和字幕后再归档。
+
+严格制作的 `source_qa` 绑定实际选片及原片哈希、完整OCR文件与摘要、同会话完整审看报告的路径、摘要和身份。按 `drama_render` 当前说明填写来源审核，不能用自写JSON、假抽帧或一句“已检查”代替工具执行。先 `video_inspect scan`，再按 `next` 实际查看图片并 `observe`；OCR文字时段或去字幕处理区间缺图时，用 `scan.timestamps_seconds` 免费补采，再完成新增帧的查看和观察。合法场景字逐OCR时段登记判定、理由与已观察帧；处理片同时保留原片及各处理区间的前后观察，检查残字、人物和纹理。缺证据时自动补齐这些免费步骤后重试，费用和范围仍沿用既有授权；无需再次询问用户是否继续。工具不可用则记录具体缺口并推进独立工作，不伪造通过。换片、换包或证据变化后重新核验，旧回执不能沿用。
 
 ## 媒介与交付策略
 
@@ -93,6 +109,8 @@ SD2.5（Seedance 2.5）默认使用通过内容审核的原片合成，不自动
 渲染前先按[完整显示字幕文字核对](../tweet-drama-draft-build/references/cloud-subtitles.md#final-display-text-review)，将实际选用的完整显示 SRT 与已核对原稿的台词计划比较。文字相符只说明它与给定计划一致，不证明原稿来源、核听或全片时序通过；有未核差异时保留候选并标明待核。最终交付前沿[字词与最终字幕双向核查](../tweet-drama-draft-build/SKILL.md#字幕交付样式)使用 `speech_coverage`：对所有同源识别字词逐项比最终完整显示 SRT，检查有声无字及有字无对应发声候选，尤其一两个字与剧本外额外发声。核听后补字或记录不加理由，MP4 和草稿复用同一最终文本与时间。识别匹配、SRT 合规及保存成功均不等于实际听看通过；普通发现给 Agent 处理，不新增用户逐项审批或付费调用。
 
 ## 配乐试听与反馈
+
+新一轮整剧启用 `delivery.audio.require_music_decision`。剪辑完成后、正式渲染前，制作 Bot 对照已选画面和对白显式发现并调用 `bgm_match.story`，按本集需要选曲或说明留白，不能把曲库没返回结果当作已决定留白。选择用曲时保存带 `music_decision: "music"`、`decision_reason` 和曲目片段的本集计划，使用 `drama_bgm compose` 返回的实际 WAV 和合成回执，正式渲染传 `bgm_plan`、`bgm` 和 `bgm_generation`。每段新选曲记录曲库 `track_id` 与 `source_sha256`。沿用认可曲目使用 `selection_origin: "approved_reuse"`、`source_sha256`、逐段理由和对应回执。有剧情依据决定保留原声时用 `music_decision: "none"`、非空 `decision_reason`、`segments: []` 与显式 `mix_profile.mode: "no_bgm"`，渲染传 `bgm_plan`，省略音乐床和合成回执。
 
 选曲前先 `drama_project action=read` 读取项目既有 `project_bible.bgm_feedback`，只在本项目相近语境使用明确反馈；同曲有后续明确改口时，以追加的新决定为准。按正文情绪分段选曲，并将曲库的情绪测量作为候选依据，实际音频和混音仍需试听。
 

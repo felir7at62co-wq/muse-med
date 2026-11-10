@@ -298,7 +298,7 @@ export class JubianLedger {
 
   /**
    * Persist the intent line, or replay the record an earlier call already wrote.
-   * Claims are serialized across instances sharing a resolved root in this runtime, not across processes.
+   * Claims are serialized across instances and local Host processes sharing this root.
    * @param input - Key, method and request identity.
    * @returns Whether this call replayed an existing record, and the record itself.
    */
@@ -326,7 +326,7 @@ export class JubianLedger {
   /**
    * Reserve a whole priced batch before any request leaves this process.
    * The callback checks the aggregate budget inside the same root-wide queue.
-   * Existing keys or a rejected callback append no intents; cross-process claims remain unsupported.
+   * Existing keys or a rejected callback append no intents; local Host processes share the writer lock.
    * @param idempotencyKeys - Distinct keys in input order.
    * @param prepare - Returns one priced intent per key after aggregate authorization.
    * @returns Newly reserved records in input order.

@@ -10,7 +10,7 @@ import { z } from 'zod'
 import { Config as ProviderConfig } from '../src/approved-episode-render.ts'
 import { Config as WorkerConfig } from '../src/episode-render-worker.ts'
 import { episodeConfigurationSchema, episodeDescriptorSchema, episodeFactsHash, insideEpisodeRoot,
-  parseEpisodeRendererConfig, readEpisodeDescriptor } from '../src/episode-render-descriptor.ts'
+  parseEpisodeRendererConfig, readEpisodeDescriptor, readEpisodeDescriptorV2 } from '../src/episode-render-descriptor.ts'
 
 const hash = (bytes: Buffer | string): Sha256 => brandString<Sha256>(createHash('sha256').update(bytes).digest('hex'))
 const object = (value: unknown): Record<string, unknown> => z.record(z.string(), z.unknown()).parse(value)
@@ -70,6 +70,63 @@ it('accepts exact bytes at their budget with distinct original and current rende
   expect(parsed.projectFiles).toHaveLength(1)
   expect(parsed.stagedSources).toHaveLength(1)
   expect(await readFile(f.path)).toEqual(f.saved.bytes)
+})
+
+async function sourceClaimFixture() {
+  const f = await fixture(), files = f.descriptor.stagedFiles
+  const original = (index: number, roles: string[]) => {
+    const file = files[index]
+    if (file === undefined) throw new Error('missing fixture file')
+    return { originalPath: index === 4 ? join(f.project, 'reviews', 'ep01-p01.json') : join(f.project, `source-${index}`),
+      stagedPath: file.path, sha256: file.sha256, bytes: file.bytes, roles }
+  }
+  const filesForClaim = [
+    original(0, ['ocr', 'inspection']), original(1, ['selected-video', 'source-audio']),
+    original(2, ['source-manifest']), original(3, ['master-audio']), original(4, ['review-record', 'package-record']),
+  ]
+  const claim = { identity: f.descriptor.identity, execution: f.descriptor.execution, sessionId: 'original-session',
+    workspaceRoot: f.project, subtitleClock: 'absent', files: filesForClaim,
+    directories: [{ originalPath: join(f.project, 'reviews'), entries: ['ep01-p01.json'] }],
+    bindings: [{ mediaOriginalPath: filesForClaim[1]!.originalPath, ocrOriginalPath: filesForClaim[0]!.originalPath,
+      inspectionOriginalPath: filesForClaim[0]!.originalPath, reviewId: 'review' }] }
+  const descriptor = { ...f.descriptor, version: 2, sourceClaim: claim }
+  return { ...f, claim, descriptor }
+}
+
+it('decodes matching v2 claims but leaves the production v1 reader closed to v2', async () => {
+  const f = await sourceClaimFixture(), saved = await f.write(f.descriptor)
+  const result = await readEpisodeDescriptorV2(f.path, saved.sha256, saved.bytes.length)
+  expect(result.sourceClaim.sessionId).toBe('original-session')
+  await expect(readEpisodeDescriptor(f.path, saved.sha256, saved.bytes.length)).rejects.toThrow()
+  await expect(readEpisodeDescriptorV2(f.path, f.saved.sha256, saved.bytes.length)).rejects.toThrow('descriptor bytes changed')
+})
+
+it('treats a syntactically valid Session claim as data rather than authenticating it', async () => {
+  const f = await sourceClaimFixture(), saved = await f.write({ ...f.descriptor,
+    sourceClaim: { ...f.claim, sessionId: 'untrusted-session' } })
+  expect((await readEpisodeDescriptorV2(f.path, saved.sha256, saved.bytes.length)).sourceClaim.sessionId).toBe('untrusted-session')
+  await expect(readEpisodeDescriptor(f.path, saved.sha256, saved.bytes.length)).rejects.toThrow()
+})
+
+it('rejects missing, misbound and ambiguous v2 source claims', async () => {
+  const f = await sourceClaimFixture(), first = f.claim.files[0]!
+  const examples = [
+    { ...f.descriptor, sourceClaim: undefined },
+    { ...f.descriptor, sourceClaim: { ...f.claim, sessionId: '' } },
+    { ...f.descriptor, sourceClaim: { ...f.claim, execution: randomUUID() } },
+    { ...f.descriptor, sourceClaim: { ...f.claim, identity: { ...f.claim.identity, projectSha256: hash('other project') } } },
+    { ...f.descriptor, sourceClaim: { ...f.claim, files: [first, { ...first }, ...f.claim.files.slice(1)] } },
+    { ...f.descriptor, sourceClaim: { ...f.claim, files: [{ ...first, stagedPath: join(f.root, 'outside') }, ...f.claim.files.slice(1)] } },
+    { ...f.descriptor, sourceClaim: { ...f.claim, files: [{ ...first, sha256: hash('changed') }, ...f.claim.files.slice(1)] } },
+    { ...f.descriptor, sourceClaim: { ...f.claim, files: f.claim.files.slice(0, 4) } },
+    { ...f.descriptor, sourceClaim: { ...f.claim, subtitleClock: 'present' } },
+    { ...f.descriptor, sourceClaim: { ...f.claim, files: [{ ...first, roles: ['ocr', 'ocr'] }, ...f.claim.files.slice(1)] } },
+    { ...f.descriptor, sourceClaim: { ...f.claim, extra: true } },
+  ]
+  for (const example of examples) {
+    const saved = await f.write(example)
+    await expect(readEpisodeDescriptorV2(f.path, saved.sha256, saved.bytes.length)).rejects.toThrow()
+  }
 })
 
 it('checks raw bytes before attempting to decode malformed JSON', async () => {

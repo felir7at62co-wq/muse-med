@@ -10,6 +10,8 @@ import type { ToolCallView, ToolResultView } from './presentation.ts'
 
 /** Reserved model-facing program transport name. */
 export const RUN_CODE_NAME = 'run_code'
+/** Executor-owned metadata key for an opted-in tool's actual successful body projection. */
+export const TOOL_BODY_META_KEY = '__dsh_tool_body_meta_v1'
 declare const toolExecutionTokenBrand: unique symbol
 
 /** Tool-owned canonical output contract used after the body returns a JSON value. */
@@ -18,8 +20,10 @@ export interface ToolOutputDefinition {
   readonly schema: JsonSchemaNode
   /** Pure projection from validated arguments and value to Native/model content. */
   render(args: unknown, value: JsonValue): ContentBlock[]
-  /** Pure replayable presentation projection for native and nested calls. */
-  presentationMeta?(args: unknown, value: JsonValue): JsonValue
+  /** Pure replayable presentation projection for native and nested calls; undefined omits metadata. */
+  presentationMeta?(args: unknown, value: JsonValue): JsonValue | undefined
+  /** Preserve the body's metadata separately from policy replacements on successful calls. */
+  readonly preserveBodyMeta?: true
 }
 
 /** A registered tool: its schema plus the execution function. */

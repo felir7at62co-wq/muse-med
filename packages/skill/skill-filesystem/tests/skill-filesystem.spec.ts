@@ -875,6 +875,34 @@ describe('FileSystemSkillProvider', () => {
     expect(await ctx.skills.snapshot()).toMatchObject({ skills: [{ name: 'healthy-skill' }], complete: false })
   })
 
+  it('rejects an in-flight root listing failure after provider disposal', async () => {
+    const root = await tempDir('skill-list-dispose')
+    const listingStarted = Promise.withResolvers<undefined>()
+    const listing = Promise.withResolvers<FsDirEntry[]>()
+    const ctx = new Context()
+    await ctx.plugin(class extends TestFileSystem {
+      override listDir(): Promise<FsDirEntry[]> {
+        listingStarted.resolve(undefined)
+        return listing.promise
+      }
+    })
+    const provider = new SkillFileSystem.FileSystemSkillProvider(ctx, {
+      signal: new AbortController().signal, invalidate() {},
+    }, { includeDefaultRoots: false, customSkillDirs: [root], watch: false })
+    onTestFinished(async () => {
+      listing.resolve([])
+      await provider.dispose()
+      await ctx.fiber.dispose()
+    })
+
+    const failure = new Error('Skill root disappeared during disposal')
+    const discovery = expect(provider.list({})).rejects.toBe(failure)
+    await listingStarted.promise
+    await provider.dispose()
+    listing.reject(failure)
+    await discovery
+  })
+
   it.each(['cancelled during root resolution', new Error('cancelled during root resolution')])(
     'contains cancellation raised before the discovery wait subscribes (%s)',
     async (reason) => {

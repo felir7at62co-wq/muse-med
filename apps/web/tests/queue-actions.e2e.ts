@@ -81,7 +81,9 @@ describe('web e2e: queue row actions', () => {
     await expect.poll(() => row.getByRole('button', { name: 'Remove queued message' }).isEnabled()).toBe(true)
   }
 
-  it.skipIf(MODE === 'record').each(['button', 'keyboard'] as const)('edits and removes exact occurrences and preserves Queue across %s stop', async (method) => {
+  it.skipIf(MODE === 'record').each([
+    { method: 'button', durable: false }, { method: 'keyboard', durable: false }, { method: 'button', durable: true },
+  ] as const)('edits and removes exact occurrences and preserves Queue across $method stop (durable=$durable)', async ({ method, durable }) => {
     overrideDir = await mkdtemp(join(tmpdir(), 'dsh-web-queue-actions-'))
     const readyFile = join(overrideDir, '.hang-ready')
     const overridePath = join(overrideDir, 'replay.override.json')
@@ -96,7 +98,10 @@ describe('web e2e: queue row actions', () => {
     await writeFile(overridePath, JSON.stringify(replay))
 
     const sessionEvents: SessionEvent[] = []
-    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, replayOverride: overridePath, compareReplaySession: false })
+    const overlayPath = join(overrideDir, 'durable-overlay.yml')
+    if (durable) await writeFile(overlayPath, '- id: agent-loop\n  config:\n    agents: []\n    durableInboxClaims: true\n')
+    scaffold = await launchWebScaffold({ replayFixture: FIXTURE, replayOverride: overridePath, compareReplaySession: false,
+      ...(durable ? { extraOverlayPath: overlayPath } : {}) })
     scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
@@ -111,6 +116,7 @@ describe('web e2e: queue row actions', () => {
     await input.fill(ACTIVE_PROMPT)
     await input.press('Enter')
     await expect.poll(() => existsSync(readyFile), { timeout: 15_000 }).toBe(true)
+    await page.locator('[data-chat-running][data-phase="responding"]').waitFor({ timeout: 10_000 })
 
     const admitted = page.waitForResponse('**/api/session/prompt')
     const received = Promise.withResolvers<undefined>()
@@ -320,6 +326,13 @@ describe('web e2e: queue row actions', () => {
     expect(sessionEvents.flatMap(event => event.type === 'user/message' && event.data.source.kind === 'user'
       ? event.data.content.flatMap(block => block.type === 'text' ? [block.text] : [])
       : [])).toEqual([ACTIVE_PROMPT, EDITED_CONTENT, TAIL, WAKE])
+    if (durable) {
+      const admittedIds = sessionEvents.flatMap(event => event.type === 'user/message' && event.data.source.kind === 'user'
+        ? [event.data.id] : [])
+      const claimedIds = sessionEvents.flatMap(event => event.type === 'agent/inbox/claim'
+        ? [...event.data.nextStep, ...event.data.nextTurn] : [])
+      expect(claimedIds).toEqual(admittedIds)
+    }
     await expect.poll(() => page.locator('[data-queue-dock]').count()).toBe(0)
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
@@ -348,6 +361,7 @@ describe('web e2e: queue row actions', () => {
     await input.fill('/goal Keep the composer context panels aligned')
     await input.press('Enter')
     await expect.poll(() => existsSync(readyFile), { timeout: 15_000 }).toBe(true)
+    await page.locator('[data-chat-running][data-phase="responding"]').waitFor({ timeout: 10_000 })
     await page.locator('[data-goal-bar]').waitFor({ timeout: 10_000 })
 
     const sessions = scaffold.ctx.sessions.list()
@@ -360,17 +374,30 @@ describe('web e2e: queue row actions', () => {
     })
     await page.locator('[data-testid="todo-panel"]').waitFor({ timeout: 10_000 })
 
-    for (const text of ['Layout queue first', 'Layout queue second']) {
+    const queuedTexts = ['Layout queue first', 'Layout queue second']
+    for (const text of queuedTexts) {
       await page.locator('[data-composer-input][contenteditable="true"]').first().waitFor({ timeout: 10_000 })
       await input.fill(text)
       await input.press('Enter')
-      // The composer keeps a sent message, still editable, until the Host accepts it.
+      // The composer keeps the submitted message read-only until the Host accepts it.
       await expect.poll(() => input.textContent(), { timeout: 10_000 }).toBe('')
     }
+    const activeAgent = scaffold.ctx.agents.get(sessions[0]!.id)
+    await expect.poll(() => activeAgent?.inbox.nextTurn.map(message =>
+      message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join(''),
+    )).toEqual(queuedTexts)
     const queueHeader = page.getByRole('button', { name: '2 queued messages' })
-    await expect.poll(() => queueHeader.getAttribute('aria-expanded'), { timeout: 10_000 })
-      .toBe('false')
-    await expect.poll(() => queueHeader.getByRole('status').count(), { timeout: 10_000 }).toBe(0)
+    // Count and sending state must belong to the same rendered queue.
+    await expect.poll(() => page.locator('[data-queue-dock]').evaluate((dock) => {
+      const headers = dock.querySelectorAll('button[aria-controls]')
+      const header = headers[0]
+      return {
+        headerCount: headers.length,
+        headerText: header?.textContent?.trim() ?? null,
+        expanded: header?.getAttribute('aria-expanded') ?? null,
+        sending: dock.querySelectorAll('[role="status"]').length,
+      }
+    }), { timeout: 10_000 }).toEqual({ headerCount: 1, headerText: '2 queued messages', expanded: 'false', sending: 0 })
 
     const layoutSnapshot = await captureStableAria(
       page,

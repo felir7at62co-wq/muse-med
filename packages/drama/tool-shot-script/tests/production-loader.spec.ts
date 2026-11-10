@@ -344,6 +344,30 @@ it('reuses the adopted shared voice for both appearances and binds real audio wi
   const raw = f.cards.values().next().value!
   expect(raw.storyboardMaterialList).toContainEqual(expect.objectContaining({ materialType: 'audio',
     materialKey: 'voice_401', materialUrl: 'https://cdn.example.test/voice.wav', audioDuration: 2 }))
+  const beforeReplay = f.calls.length
+  expect(await f.call({ method: 'apply', plan_path: report.plan_path })).toMatchObject({
+    saved: 1, results: [{ status: 'already_saved' }],
+  })
+  expect(f.calls.slice(beforeReplay).every(call => call.method === 'GET')).toBe(true)
+  const existingAudio = (raw.storyboardMaterialList as Record<string, unknown>[]).filter(row => row.materialType === 'audio')
+  const refresh = await f.call({ method: 'update', plan_path: report.plan_path, choices: [1, 2].map(shot => ({
+    shot, kind: 'voice', name: '苏晚', asset_id: null,
+  })) })
+  const before = f.calls.length
+  const reapplied = await f.call({ method: 'apply', plan_path: refresh.plan_path })
+  expect(reapplied, JSON.stringify(reapplied)).toMatchObject({ saved: 1, paid_requests: 0 })
+  const current = f.cards.get(10000)!
+  const config = JSON.parse(String(current.modelConfig)) as { prompt: string; materialList: Record<string, unknown>[] }
+  expect(config.prompt).toContain('(voice_401)')
+  expect(config.materialList.filter(row => row.materialType === 'audio')).toEqual(existingAudio)
+  expect((current.storyboardMaterialList as Record<string, unknown>[]).filter(row => row.materialType === 'audio')).toEqual(existingAudio)
+  const writes = f.calls.slice(before).filter(call => call.method === 'PUT')
+  expect(writes).toHaveLength(1)
+  for (const write of writes) {
+    const sent = JSON.parse(String(write.body?.modelConfig)) as { materialList: Record<string, unknown>[] }
+    expect(sent.materialList.filter(row => row.materialType === 'audio')).toEqual(existingAudio)
+    expect((write.body?.storyboardMaterialList as Record<string, unknown>[]).filter(row => row.materialType === 'audio')).toEqual(existingAudio)
+  }
   expect(f.calls.some(call => call.method === 'POST' && /asset|video/u.test(call.path))).toBe(false)
 })
 

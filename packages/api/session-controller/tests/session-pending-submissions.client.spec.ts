@@ -733,3 +733,159 @@ describe('disposal', () => {
     expect(session.getSnapshot().pendingSubmissions).toEqual([])
   })
 })
+
+describe('durable claims', () => {
+  for (const reopen of ['open', 'resync'] as const) {
+    it(`restores a claim outside the ${reopen} window before canceling later input`, async ({ mock, start }) => {
+      const session = await sessionBench(mock, start, SID)
+      if (reopen === 'resync') await session.open()
+      const held = createUserMessage({ content: [{ type: 'text', text: 'held before this page' }], source: { kind: 'user' } })
+      const visible: SessionEvent = {
+        type: 'user/message', seq: SessionSeq(10), time: 11, surfaceOp: 'append',
+        data: createUserMessage({ content: [{ type: 'text', text: 'already admitted' }], source: { kind: 'user' } }),
+      }
+      const replacement = {
+        ...historyValue([visible], true),
+        projections: { asOfSeq: 10, values: { inbox: { 'next-turn': [], 'next-step': [],
+          activeClaim: { turn: 1, step: 1, nextStep: [held.id], nextTurn: [] } } } },
+      }
+      mock.stream(FOLLOW, followScript({ ok: true, value: replacement }))
+      if (reopen === 'resync') await session.resync()
+      else await session.open()
+      session.handleRunning(true)
+      const onRetire = vi.fn()
+      const later = await submitAccepted(session, { mode: 'steer', text: 'later', attachments: [], onRetire })
+      await pushEvent(mock, { type: 'agent/inbox/spliced', seq: SessionSeq(11), time: 12,
+        data: { target: 'next-step', start: 0, inserted: [queuedItem(later.requestId)] } })
+      await pushEvent(mock, { type: 'turn/end', seq: SessionSeq(12), time: 13,
+        data: { turn: 1, reason: { kind: 'interrupted' } } })
+      await pushEvent(mock, { type: 'agent/inbox/spliced', seq: SessionSeq(13), time: 14,
+        data: { target: 'next-step', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } })
+      expect(onRetire).not.toHaveBeenCalled()
+      expect(session.getSnapshot().pendingSubmissions.map(item => item.requestId)).toEqual([later.requestId])
+      await pushEvent(mock, { type: 'agent/inbox/spliced', seq: SessionSeq(14), time: 15,
+        data: { target: 'next-step', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } })
+      expect(onRetire).toHaveBeenCalledExactlyOnceWith({ reason: 'failed' })
+    })
+  }
+
+  it('does not cancel an in-flight echo when a later queued message is canceled at the same index', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    await session.open()
+    session.handleRunning(true)
+    const firstRetired = vi.fn(), laterRetired = vi.fn()
+    const first = await submitAccepted(session, { mode: 'steer', text: 'claimed', attachments: [], onRetire: firstRetired })
+    const initial = queuedItem(first.requestId)
+    await pushEvent(mock, { type: 'agent/inbox/spliced', seq: SessionSeq(0), time: 1,
+      data: { target: 'next-step', start: 0, inserted: [initial] } })
+    await pushEvent(mock, ev.turnStart(SessionSeq(1), 1))
+    await pushEvent(mock, { type: 'agent/inbox/claim', seq: SessionSeq(2), time: 3,
+      data: { turn: 1, step: 1, nextStep: [initial.id], nextTurn: [] } })
+    const later = await submitAccepted(session, { mode: 'steer', text: 'later', attachments: [], onRetire: laterRetired })
+    await pushEvent(mock, { type: 'agent/inbox/spliced', seq: SessionSeq(3), time: 4,
+      data: { target: 'next-step', start: 0, inserted: [queuedItem(later.requestId)] } })
+    await pushEvent(mock, { type: 'agent/inbox/spliced', seq: SessionSeq(4), time: 5,
+      data: { target: 'next-step', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } })
+    expect(firstRetired).not.toHaveBeenCalled()
+    expect(laterRetired).toHaveBeenCalledExactlyOnceWith({ reason: 'failed' })
+    expect(session.getSnapshot().pendingSubmissions.map(item => item.text)).toEqual(['claimed'])
+    await pushEvent(mock, { type: 'agent/inbox/claim-filtered', seq: SessionSeq(5), time: 6,
+      data: { turn: 1, step: 1, discarded: [initial.id] } })
+    expect(firstRetired).toHaveBeenCalledExactlyOnceWith({ reason: 'failed' })
+  })
+
+  it('restores uncommitted claims ahead of later input before applying a following cancellation', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    await session.open()
+    session.handleRunning(true)
+    const firstRetired = vi.fn(), laterRetired = vi.fn()
+    const first = await submitAccepted(session, { mode: 'steer', text: 'restored', attachments: [], onRetire: firstRetired })
+    const initial = queuedItem(first.requestId)
+    await pushEvent(mock, { type: 'agent/inbox/spliced', seq: SessionSeq(0), time: 1,
+      data: { target: 'next-step', start: 0, inserted: [initial] } })
+    await pushEvent(mock, ev.turnStart(SessionSeq(1), 1))
+    await pushEvent(mock, { type: 'agent/inbox/claim', seq: SessionSeq(2), time: 3,
+      data: { turn: 1, step: 1, nextStep: [initial.id], nextTurn: [] } })
+    const later = await submitAccepted(session, { mode: 'steer', text: 'later', attachments: [], onRetire: laterRetired })
+    await pushEvent(mock, { type: 'agent/inbox/spliced', seq: SessionSeq(3), time: 4,
+      data: { target: 'next-step', start: 0, inserted: [queuedItem(later.requestId)] } })
+    await pushEvent(mock, { type: 'turn/end', seq: SessionSeq(4), time: 5,
+      data: { turn: 1, reason: { kind: 'interrupted' } } })
+    expect(firstRetired).not.toHaveBeenCalled()
+    await pushEvent(mock, { type: 'agent/inbox/spliced', seq: SessionSeq(5), time: 6,
+      data: { target: 'next-step', start: 1, removedCount: 1, inserted: [], outcome: 'canceled' } })
+    expect(laterRetired).toHaveBeenCalledExactlyOnceWith({ reason: 'failed' })
+    expect(firstRetired).not.toHaveBeenCalled()
+    expect(session.getSnapshot().pendingSubmissions.map(item => item.text)).toEqual(['restored'])
+  })
+
+  it('restores only the unadmitted original destination while preserving a consumed receipt', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    await session.open()
+    session.handleRunning(true)
+    const admittedRetired = vi.fn(), pendingRetired = vi.fn()
+    const admitted = await submitAccepted(session, { mode: 'steer', text: 'admitted', attachments: [], onRetire: admittedRetired })
+    const pending = await submitAccepted(session, { mode: 'steer', text: 'pending next turn', attachments: [], onRetire: pendingRetired })
+    const first = queuedItem(admitted.requestId), second = queuedItem(pending.requestId)
+    await pushEvent(mock, { type: 'agent/inbox/spliced', seq: SessionSeq(0), time: 1,
+      data: { target: 'next-step', start: 0, inserted: [first] } })
+    await pushEvent(mock, { type: 'agent/inbox/spliced', seq: SessionSeq(1), time: 2,
+      data: { target: 'next-turn', start: 0, inserted: [second] } })
+    await pushEvent(mock, ev.turnStart(SessionSeq(2), 1))
+    await pushEvent(mock, { type: 'agent/inbox/claim', seq: SessionSeq(3), time: 4,
+      data: { turn: 1, step: 1, nextStep: [first.id], nextTurn: [second.id] } })
+    await pushEvent(mock, { type: 'user/message', seq: SessionSeq(4), time: 5, surfaceOp: 'append', data: first })
+    session.projections.apply('inbox', { 'next-turn': [], 'next-step': [] }, SessionSeq(4))
+    await settleFrames()
+    expect(admittedRetired).toHaveBeenCalledExactlyOnceWith({ reason: 'observed', attachments: [] })
+    await pushEvent(mock, { type: 'turn/end', seq: SessionSeq(5), time: 6,
+      data: { turn: 1, reason: { kind: 'interrupted' } } })
+    expect(pendingRetired).not.toHaveBeenCalled()
+    await pushEvent(mock, { type: 'agent/inbox/spliced', seq: SessionSeq(6), time: 7,
+      data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [], outcome: 'canceled' } })
+    expect(pendingRetired).toHaveBeenCalledExactlyOnceWith({ reason: 'failed' })
+    expect(admittedRetired).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps a settled admitted receipt observed after the owning turn ends', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    await session.open()
+    session.handleRunning(true)
+    const onRetire = vi.fn()
+    const handle = await submitAccepted(session, { mode: 'steer', text: 'admitted', attachments: [], onRetire })
+    const message = queuedItem(handle.requestId)
+    await pushEvent(mock, { type: 'agent/inbox/spliced', seq: SessionSeq(0), time: 1,
+      data: { target: 'next-step', start: 0, inserted: [message] } })
+    await pushEvent(mock, ev.turnStart(SessionSeq(1), 1))
+    await pushEvent(mock, { type: 'agent/inbox/claim', seq: SessionSeq(2), time: 3,
+      data: { turn: 1, step: 1, nextStep: [message.id], nextTurn: [] } })
+    await pushEvent(mock, { type: 'user/message', seq: SessionSeq(3), time: 4, surfaceOp: 'append', data: message })
+    await pushEvent(mock, { type: 'agent/inbox/claim-settled', seq: SessionSeq(4), time: 5,
+      data: { turn: 1, step: 1 } })
+    await pushEvent(mock, { type: 'turn/end', seq: SessionSeq(5), time: 6,
+      data: { turn: 1, reason: { kind: 'completed' } } })
+    expect(onRetire).not.toHaveBeenCalled()
+    session.projections.apply('inbox', { 'next-turn': [], 'next-step': [] }, SessionSeq(5))
+    await settleFrames()
+    expect(onRetire).toHaveBeenCalledExactlyOnceWith({ reason: 'observed', attachments: [] })
+  })
+
+  for (const reason of [{ kind: 'aborted', reason: { kind: 'user' } }, { kind: 'forked' }] as const) {
+    it(`retires a dropped in-flight echo at ${reason.kind}`, async ({ mock, start }) => {
+      const session = await sessionBench(mock, start, SID)
+      await session.open()
+      session.handleRunning(true)
+      const onRetire = vi.fn()
+      const handle = await submitAccepted(session, { mode: 'steer', text: 'dropped', attachments: [], onRetire })
+      const message = queuedItem(handle.requestId)
+      await pushEvent(mock, { type: 'agent/inbox/spliced', seq: SessionSeq(0), time: 1,
+        data: { target: 'next-step', start: 0, inserted: [message] } })
+      await pushEvent(mock, ev.turnStart(SessionSeq(1), 1))
+      await pushEvent(mock, { type: 'agent/inbox/claim', seq: SessionSeq(2), time: 3,
+        data: { turn: 1, step: 1, nextStep: [message.id], nextTurn: [] } })
+      await pushEvent(mock, { type: 'turn/end', seq: SessionSeq(3), time: 4, data: { turn: 1, reason } })
+      expect(onRetire).toHaveBeenCalledExactlyOnceWith({ reason: 'failed' })
+      expect(session.getSnapshot().pendingSubmissions).toEqual([])
+    })
+  }
+})

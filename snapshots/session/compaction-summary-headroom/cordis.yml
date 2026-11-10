@@ -1,3 +1,22 @@
+# Use the recorded POSIX tool schema and runner on every replay host.
+- id: sandbox
+  config:
+    runnerCommand:
+      - bash
+      - -c
+      - while [ "$1" != "--" ]; do shift; done; shift; exec "$@"
+      - passthrough-runner
+    runnerFailureSignatures:
+      - 'passthrough-runner: profile rejected'
+- id: bash-sandbox
+  disabled: false
+- id: pwsh-sandbox
+  disabled: true
+- id: tool-bash
+  disabled: false
+- id: tool-pwsh
+  disabled: true
+
 # Proactive compaction with a bounded message budget.
 
 - id: agent-instructions

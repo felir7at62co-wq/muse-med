@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
-import { selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
+import { compactSurfaceRegion, selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import { frameSummary } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import { pressureSelectionKey, selectPressureRange } from '@deepseek-ai/dsh-compaction-basic/src/pressure.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
@@ -1182,6 +1182,32 @@ describe('optional model-free tool-result pruning', () => {
 })
 
 describe('compaction region transaction', () => {
+  it.each(['current-turn', null] as const)('preserves a rejected start cause for owner %s without writing a summary', async (owner) => {
+    const ctx = createContext()
+    const session = conversation(2)
+    if (owner === null) session.append('turn/end', { turn: 3, reason: { kind: 'completed' } })
+    const [start, end] = session.surface.nodes
+    if (start === undefined || end === undefined) throw new Error('missing compaction fixture span')
+    const rejected = { code: 'LOG_REJECTED' }
+    const append = vi.spyOn(session, 'append').mockImplementationOnce(() => { throw rejected })
+    const summarize = vi.fn(async () => { throw new Error('summarization must not start') })
+    const before = session.snapshotEvents()
+    try {
+      const operation = compactSurfaceRegion({ meter: ctx.tokenMeter, summarize, recover: () => false },
+        session, start, end, agent(session, MODEL), { owner, stability: 'whole-surface' })
+      if (owner === null) await expect(operation).rejects.toBe(rejected)
+      else await expect(operation).rejects.toMatchObject({
+        name: 'Error', message: 'compaction transaction could not be committed', cause: rejected,
+      })
+      expect(append).toHaveBeenCalledOnce()
+      expect(summarize).not.toHaveBeenCalled()
+      expect(session.snapshotEvents()).toEqual(before)
+    } finally {
+      append.mockRestore()
+      await ctx.fiber.dispose()
+    }
+  })
+
   it('lands a framed, replayable checkpoint with exact source seqs and token price', async () => {
     const compact = service()
     compact.rawOutput = [

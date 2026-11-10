@@ -14,6 +14,10 @@
   "main": "lib/index.js",
   "types": "lib/types/index.d.ts",
   "exports": {
+    "./generation-binding": {
+      "types": "./lib/types/generation-binding.d.ts",
+      "default": "./lib/types/generation-binding.js"
+    },
     ".": {
       "types": "./lib/types/index.d.ts",
       "default": "./lib/index.js"
@@ -90,7 +94,8 @@
     "@deepseek-ai/dsh-atomic-write": "workspace:*",
     "@deepseek-ai/dsh-typert-protocol": "workspace:*",
     "zod": "^4.4.3",
-    "@deepseek-ai/dsh-brand": "workspace:*"
+    "@deepseek-ai/dsh-brand": "workspace:*",
+    "@deepseek-ai/dsh-workspace": "workspace:*"
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-muse-account": "workspace:*",
@@ -115,6 +120,7 @@
     "@deepseek-ai/dsh-jobs-local": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-projection": "workspace:*",
+    "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:*",
     "@deepseek-ai/dsh-tool-jobs": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/cordis-plugin-include": "workspace:~",
@@ -158,6 +164,9 @@
     "@deepseek-ai/dsh-client-ui-layout": "workspace:*",
     "@deepseek-ai/dsh-credentials-local": "workspace:*",
     "@deepseek-ai/dsh-host-webserver": "workspace:*",
-    "@deepseek-ai/dsh-typert-registry": "workspace:*"
+    "@deepseek-ai/dsh-typert-registry": "workspace:*",
+    "@deepseek-ai/dsh-storage": "workspace:*",
+    "@deepseek-ai/dsh-storage-domain": "workspace:*",
+    "@deepseek-ai/dsh-storage-json": "workspace:*"
   }
 }

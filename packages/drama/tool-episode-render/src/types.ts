@@ -11,7 +11,7 @@ import type { SpeechCoverageReport } from './speech-coverage.ts'
 
 /** The operation one `drama_render` call runs. */
 export type DramaRenderMethod = 'prepare' | 'render' | 'verify' | 'subtitles' | 'audio_preview' | 'subtitle_overlay'
-  | 'speech_coverage' | 'subtitle_layout'
+  | 'speech_coverage' | 'subtitle_layout' | 'stage_delivery'
 
 /** How the effect source occupies the existing ending window. */
 export type EndingEffectFit = 'source_once' | 'stretch_to_window'
@@ -52,6 +52,10 @@ export interface DeliverySubtitle {
   readonly font_size_px?: number
   /** Bottom margin in final output pixels, converted to integer ASS margin units. */
   readonly margin_bottom_px?: number
+  /** Opt in to rejecting punctuation in displayed subtitles at delivery staging. */
+  readonly require_no_punctuation?: boolean
+  /** Require current same-source word coverage for the complete displayed SRT at staging. */
+  readonly require_speech_coverage?: boolean
 }
 
 /** One project-owned visual intent, in a reference raster, independently adapted to each renderer. */
@@ -80,6 +84,8 @@ export interface DeliveryAudio {
   readonly master_gain?: number
   /** Pure music bed gain, from 0 through 8. */
   readonly bgm_gain?: number
+  /** Require a current justified music decision and matching rendered music inputs before staging. */
+  readonly require_music_decision?: boolean
 }
 
 /** Editable-draft typography in editor UI units, independent of ASS pixel settings. */
@@ -106,6 +112,8 @@ export interface DeliveryDraftStyle {
 export interface TimelineDelivery {
   /** Explicit medium, omitted for legacy projects that have not selected one. */
   readonly visual_medium?: VisualMedium
+  /** Require current content and selected media evidence before publishing a candidate. */
+  readonly require_source_review?: boolean
   /** Delivered pixel width. */
   readonly width: number
   /** Delivered pixel height. */
@@ -252,6 +260,12 @@ export interface ProbedStream {
   readonly avgFrameRate?: string
   /** The stream's nominal frame rate, used when no average is reported. */
   readonly rFrameRate?: string
+  /** Stream start reported by ffprobe, in seconds. */
+  readonly startSeconds?: number
+  /** Stream duration reported by ffprobe, in seconds. */
+  readonly durationSeconds?: number
+  /** Number of stored frames when the container reports it. */
+  readonly frameCount?: number
   /** Audio sample rate in hertz; audio streams only. */
   readonly sampleRate?: number
   /** Audio channel count; audio streams only. */
@@ -512,6 +526,15 @@ export interface SubtitleLayoutSummary {
  * Explicit audio profiles add optional `audio_mix` evidence.
  */
 export interface DramaRenderReport {
+  /** A technically verified episode package awaiting content review. */
+  readonly delivery_package?: {
+    readonly status: 'candidate'
+    readonly video: string
+    readonly draft: string
+    readonly sha256: string
+    readonly reused: boolean
+    readonly receipt: string
+  }
   /** Advisory real-glyph evidence; omitted from legacy renders without an active visual profile. */
   readonly subtitle_layout?: SubtitleLayoutSummary
   /** Word-timed ASR comparison candidates; never a listening or silence verdict. */

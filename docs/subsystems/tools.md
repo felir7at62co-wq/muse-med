@@ -17,8 +17,10 @@ interface ToolOutputDefinition {
   readonly schema: JsonSchemaNode
   /** Pure projection from validated arguments and value to Native/model content. */
   render(args: unknown, value: JsonValue): ContentBlock[]
-  /** Pure replayable presentation projection for native and nested calls. */
-  presentationMeta?(args: unknown, value: JsonValue): JsonValue
+  /** Pure replayable presentation projection for native and nested calls; undefined omits metadata. */
+  presentationMeta?(args: unknown, value: JsonValue): JsonValue | undefined
+  /** Preserve the body's metadata separately from policy replacements on successful calls. */
+  readonly preserveBodyMeta?: true
 }
 ```
 

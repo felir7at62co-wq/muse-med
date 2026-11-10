@@ -396,6 +396,51 @@ class AaDraftTests(unittest.TestCase):
         self.assertEqual(verification['watermark_font_size'], {'status': 'not_applicable'})
         self.assertEqual(verification['warnings'], [])
 
+    def test_native_request_records_only_a_verified_local_episode_receipt(self):
+        for problem in (None, 'missing-meta', 'external-reference'):
+            with self.subTest(problem=problem):
+                prefix = f'AA-{problem}-EP'
+                request = {**self.request, 'name_prefix': prefix}
+
+                def run(arguments):
+                    plan = json.loads(Path(arguments[arguments.index('-PlanPath') + 1]).read_text(encoding='utf-8'))
+                    output = Path(plan['draft_path'])
+                    output.mkdir()
+                    materials = [{'id': f'body-{row["shot"]}', 'path': row['path']} for row in plan['videos']]
+                    if problem == 'external-reference':
+                        materials[0]['path'] = str(self.sources[0])
+                    content = {'tracks': [{'type': 'video', 'segments': [
+                        {'material_id': row['id']} for row in materials]}], 'materials': {'videos': materials}}
+                    (output / 'draft_content.json').write_text(json.dumps(content), encoding='utf-8')
+                    if problem != 'missing-meta':
+                        (output / 'draft_meta_info.json').write_text('{"draft_id":"aa-fixture"}', encoding='utf-8')
+                    result, _ = self.saved(plan)
+                    result.update(draft_id='aa-fixture', path=str(output), runtime={})
+                    receipt = Path(arguments[arguments.index('-ResultPath') + 1])
+                    receipt.write_text(json.dumps(result), encoding='utf-8')
+                    return SimpleNamespace(returncode=0, stderr='')
+
+                with patch.dict(aa.os.environ, {'MUSE_JIANYING_POWERSHELL': sys.executable}), \
+                        patch.object(aa, 'native_run', side_effect=run):
+                    result = aa.generate_request(request, str(self.drafts))
+                self.assertTrue(result['success'])
+                draft = result['drafts'][0]
+                if problem is not None:
+                    self.assertNotIn('episode_source_path', draft)
+                    self.assertIn('无法核对本集的交付凭据', '\n'.join(result['warnings']))
+                    continue
+                receipt_path = Path(draft['episode_source_path'])
+                self.assertEqual(receipt_path.resolve(), (self.drafts / (prefix + '02') / 'muse-episode-source.json').resolve())
+                receipt = json.loads(receipt_path.read_text(encoding='utf-8'))
+                self.assertEqual((receipt['version'], receipt['episode'], receipt['audio_mode']), (1, '02', 'embedded'))
+                self.assertNotIn('master_audio_sha256', receipt)
+                self.assertEqual(receipt['timeline_sha256'], aa.file_hash(self.timeline))
+                self.assertEqual(receipt['subtitle_sha256'], aa.file_hash(self.srt))
+                self.assertEqual(receipt['videos'], [
+                    {'shot': shot, 'sha256': aa.file_hash(source)} for shot, source in enumerate(self.sources, 1)])
+                self.assertEqual({row['path'] for row in receipt['files']}, {'draft_content.json', 'draft_meta_info.json'})
+                self.assertTrue(all(row['sha256'] == aa.file_hash(Path(row['path'])) for row in receipt['materials']))
+
     def test_rejects_independent_audio_and_existing_draft_before_native_commands(self):
         for change in [{'audio': str(self.sources[0])}, {'audio_mode': 'independent'}]:
             with self.subTest(change=change), self.assertRaisesRegex(ValueError, 'requires audio_mode=embedded'):

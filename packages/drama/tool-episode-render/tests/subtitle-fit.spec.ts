@@ -104,11 +104,22 @@ describe('source-bound subtitle width fitting', () => {
     expect(result.warnings).toHaveLength(1)
   })
 
+  it.each([false, true])('preserves intentional spaces with the probe ignoring spaces=%s', async (ignoreSpaces) => {
+    const spaced = { ...cue, text: '今天 我们 一起 去 做饭' }
+    const result = await fitSubtitleCues([spaced], evidence(), async text => fits(ignoreSpaces ? text.replaceAll(' ', '') : text))
+    expect(result.warnings).toEqual([])
+    expect(result.cues.map(item => item.text)).toEqual(ignoreSpaces
+      ? ['今天 我们', '一起 去', '做饭'] : ['今天', '我们', '一起 去', '做饭'])
+  })
+
   it('does not invent boundaries when words overlap, are missing, or a width probe fails', async () => {
     const input = evidence()
     const overlapping = { ...input, words: input.words.map((word, i) => i === 1 ? { ...word, start_seconds: 0.4 } : word) }
     const incomplete = { ...input, matches: input.matches.slice(0, -1) }
-    for (const [coverage, probe] of [[overlapping, fits], [incomplete, fits], [input, async () => null]] as const) {
+    const unmatched = { ...input, words: input.words.slice(1) }
+    for (const [coverage, probe] of [
+      [overlapping, fits], [incomplete, fits], [unmatched, fits], [input, async () => null],
+    ] as const) {
       const result = await fitSubtitleCues([cue], coverage, probe)
       expect(result.cues).toEqual([cue])
       expect(result.warnings).toHaveLength(1)
@@ -173,5 +184,44 @@ describe('source-bound subtitle width fitting', () => {
     const result = await fitSubtitleCues([cue], evidence(), async text => Array.from(text).length <= 1)
     expect(result.cues).toEqual([cue])
     expect(result.warnings).toHaveLength(1)
+  })
+
+  it.each([
+    ['punctuation', { ...cue, text: '今天，我们一起去做饭' }],
+    ['compatibility whitespace', { ...cue, text: '今天　我们一起去做饭' }],
+    ['compatibility Han character', { ...cue, text: '\uF900天我们一起去做饭' }],
+  ])('keeps %s when the cue is not plain normalized Han text', async (_name, candidate) => {
+    const result = await fitSubtitleCues([candidate], evidence(), fits)
+    expect(result.cues).toEqual([candidate])
+    expect(result.warnings).toHaveLength(1)
+  })
+
+  it.each([
+    ['unrecognized word id', (report: SpeechCoverageReport) => ({ ...report,
+      matches: [{ ...report.matches[0]!, word_id: 'missing' }, ...report.matches.slice(1)] })],
+    ['duplicate word id', (report: SpeechCoverageReport) => ({ ...report,
+      matches: [report.matches[0]!, report.matches[0]!, ...report.matches.slice(1)] })],
+    ['word shared with another cue', (report: SpeechCoverageReport) => ({ ...report,
+      matches: [...report.matches, { ...report.matches[0]!, cue_index: 2 }] })],
+    ['mismatched match text', (report: SpeechCoverageReport) => ({ ...report,
+      matches: [{ ...report.matches[0]!, text: '别的' }, ...report.matches.slice(1)] })],
+    ['non-Han word', (report: SpeechCoverageReport) => ({ ...report,
+      words: [{ ...report.words[0]!, text: 'today' }, ...report.words.slice(1)],
+      matches: [{ ...report.matches[0]!, text: 'today' }, ...report.matches.slice(1)] })],
+    ['only one matched word', (report: SpeechCoverageReport) => ({ ...report, matches: report.matches.slice(0, 1) })],
+    ['zero-duration word', (report: SpeechCoverageReport) => ({ ...report,
+      words: [{ ...report.words[0]!, end_seconds: report.words[0]!.start_seconds }, ...report.words.slice(1)] })],
+    ['word outside cue time', (report: SpeechCoverageReport) => ({ ...report,
+      words: [...report.words.slice(0, -1), { ...report.words.at(-1)!, end_seconds: 4.5 }] })],
+  ] as const)('keeps the cue when evidence has %s', async (_name, change) => {
+    const result = await fitSubtitleCues([cue], change(evidence()), fits)
+    expect(result.cues).toEqual([cue])
+    expect(result.warnings).toHaveLength(1)
+  })
+
+  it('keeps the original cue when a candidate width cannot be measured', async () => {
+    const result = await fitSubtitleCues([cue], evidence(), async text => text === cue.text ? false : null)
+    expect(result.cues).toEqual([cue])
+    expect(result.warnings).toContain('第 1 条字幕无法依据完整词界测量切分；保留原文字和时码供核对。')
   })
 })

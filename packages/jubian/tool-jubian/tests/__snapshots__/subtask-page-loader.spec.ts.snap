@@ -341,3 +341,103 @@ exports[`logs the actual succeeded child page and its download guidance into the
   },
 ]
 `;
+
+exports[`logs unfiltered legacy task discovery and the narrower empty type-filter scope > default project list and explicit empty filter 1`] = `
+[
+  {
+    "content": [
+      {
+        "text": "{
+  "task": {
+    "task_id": 749810,
+    "task_type": null,
+    "status": "succeeded",
+    "first_result_id": null,
+    "parent_result_id": null,
+    "real_cost": null,
+    "estimated_cost": null,
+    "discount_cost": null,
+    "script_id": 5933,
+    "episode_id": 130172,
+    "episode_count": null,
+    "task_name": "EP01-P3"
+  }
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+  {
+    "content": [
+      {
+        "text": "{
+  "tasks": {
+    "total": 1,
+    "rows": [
+      {
+        "task_id": 749810,
+        "task_type": null,
+        "status": "succeeded",
+        "first_result_id": null,
+        "parent_result_id": null,
+        "real_cost": null,
+        "estimated_cost": null,
+        "discount_cost": null,
+        "script_id": 5933,
+        "episode_id": 130172,
+        "episode_count": null,
+        "task_name": "EP01-P3"
+      }
+    ],
+    "queried_at": "2026-11-06T06:00:00.000Z",
+    "page_num": 1,
+    "page_size": 20,
+    "returned": 1,
+    "total_verified": true,
+    "complete": true,
+    "has_more": false,
+    "next_page": null,
+    "scope": {
+      "script_id": 5933,
+      "task_type": null
+    },
+    "project_complete": true
+  },
+  "guidance": "tasks.rows 仅是本页；scope.task_type=null 表示没有按任务类型筛选。total_verified 和 complete 仅说明 scope 范围内的提供方列表；按类型筛选时 project_complete 恒为 false，该类型为空不能说明项目没有任务。未读完所有页前，不能把未找到某集或某卡当作从未生成。提取现有视频请用 sources(script_id,storyboard_id) 查询原卡来源；已有任务继续按原 task_id 回读。"
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+  {
+    "content": [
+      {
+        "text": "{
+  "tasks": {
+    "total": 0,
+    "rows": [],
+    "queried_at": "2026-11-06T06:00:00.000Z",
+    "page_num": 1,
+    "page_size": 20,
+    "returned": 0,
+    "total_verified": true,
+    "complete": true,
+    "has_more": false,
+    "next_page": null,
+    "scope": {
+      "script_id": 5933,
+      "task_type": 1
+    },
+    "project_complete": false
+  },
+  "guidance": "tasks.rows 仅是本页；scope.task_type=null 表示没有按任务类型筛选。total_verified 和 complete 仅说明 scope 范围内的提供方列表；按类型筛选时 project_complete 恒为 false，该类型为空不能说明项目没有任务。未读完所有页前，不能把未找到某集或某卡当作从未生成。提取现有视频请用 sources(script_id,storyboard_id) 查询原卡来源；已有任务继续按原 task_id 回读。"
+}",
+        "type": "text",
+      },
+    ],
+    "isError": false,
+  },
+]
+`;

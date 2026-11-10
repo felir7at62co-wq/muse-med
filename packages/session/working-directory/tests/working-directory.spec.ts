@@ -357,3 +357,159 @@ describe('Session working directories', () => {
     expect(f.ctx.tools.schemas().some(tool => tool.name === 'working_directory')).toBe(false)
   })
 })
+
+describe('Session directory guard', () => {
+  it('keeps the selected directory through reentrant ensure and refuses user changes until released', async () => {
+    await using f = await fixture()
+    await mkdir(join(f.root, 'other'))
+    const owner = new AbortController()
+    const guard = await f.ctx.workingDirectory.guard(f.agent, f.root, owner.signal)
+    expect(guard.directory).toBe(f.root)
+    expect(guard.signal.aborted).toBe(false)
+    await expect(f.ctx.workingDirectory.ensure(f.agent, guard.signal)).resolves.toBe(f.root)
+    await expect(f.ctx.workingDirectory.set(f.agent, 'other')).rejects.toThrow('working-directory: guarded')
+    expect(f.ctx.workingDirectory.get(f.agent.session)).toBe(f.root)
+    guard.release()
+    expect(guard.signal.aborted).toBe(true)
+    await expect(f.ctx.workingDirectory.set(f.agent, 'other')).resolves.toBe(join(f.root, 'other'))
+  })
+
+  it('revokes on cancellation, prevents overlapping guards, and rejects a mismatched directory', async () => {
+    await using f = await fixture()
+    const owner = new AbortController()
+    await expect(f.ctx.workingDirectory.guard(f.agent, join(f.root, 'other'), owner.signal)).rejects.toThrow('does not match')
+    const guard = await f.ctx.workingDirectory.guard(f.agent, f.root, owner.signal)
+    await expect(f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)).rejects.toThrow('already held')
+    owner.abort()
+    expect(guard.signal.aborted).toBe(true)
+    const next = await f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)
+    next.release()
+  })
+
+  it('revokes rather than restoring a missing directory and releases when its service stops', async () => {
+    await using f = await fixture()
+    const child = join(f.root, 'child')
+    await mkdir(child)
+    await f.ctx.workingDirectory.set(f.agent, child)
+    const guard = await f.ctx.workingDirectory.guard(f.agent, child, new AbortController().signal)
+    await rm(child, { recursive: true })
+    await expect(f.ctx.workingDirectory.ensure(f.agent)).rejects.toThrow('guarded directory unavailable')
+    expect(guard.signal.aborted).toBe(true)
+    expect(f.ctx.workingDirectory.get(f.agent.session)).toBe(child)
+    await f.ctx.workingDirectory.ensure(f.agent)
+    const next = await f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)
+    await f.directoryFiber.dispose()
+    expect(next.signal.aborted).toBe(true)
+  })
+
+  it('rejects a queued guard immediately on cancellation without acquiring it later', async () => {
+    await using f = await fixture()
+    const child = join(f.root, 'child')
+    await mkdir(child)
+    const entered = Promise.withResolvers<undefined>(), continueStat = Promise.withResolvers<undefined>()
+    const original = f.ctx.fs.stat.bind(f.ctx.fs)
+    const stat = vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+      entered.resolve(undefined)
+      await continueStat.promise
+      return await original(...args)
+    })
+    const owner = new AbortController()
+    try {
+      const changing = f.ctx.workingDirectory.set(f.agent, child)
+      await entered.promise
+      const guarded = f.ctx.workingDirectory.guard(f.agent, f.root, owner.signal)
+      const settled = guarded.then(() => 'acquired', () => 'rejected')
+      owner.abort(new Error('guard owner cancelled'))
+      const result = await Promise.race([settled, setImmediate('pending')])
+      expect(result).toBe('rejected')
+      continueStat.resolve(undefined)
+      await expect(changing).resolves.toBe(child)
+      await expect(f.ctx.workingDirectory.set(f.agent, f.root)).resolves.toBe(f.root)
+      const next = await f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)
+      next.release()
+    } finally { continueStat.resolve(undefined); stat.mockRestore() }
+  })
+
+  it('rejects an in-flight guard immediately on cancellation and leaves no guard behind', async () => {
+    await using f = await fixture()
+    const entered = Promise.withResolvers<undefined>(), continueStat = Promise.withResolvers<undefined>()
+    const original = f.ctx.fs.stat.bind(f.ctx.fs)
+    const stat = vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+      entered.resolve(undefined)
+      await continueStat.promise
+      return await original(...args)
+    })
+    const owner = new AbortController()
+    try {
+      const guarded = f.ctx.workingDirectory.guard(f.agent, f.root, owner.signal)
+      const settled = guarded.then(() => 'acquired', () => 'rejected')
+      await entered.promise
+      owner.abort(new Error('guard owner cancelled'))
+      expect(await Promise.race([settled, setImmediate('pending')])).toBe('rejected')
+      continueStat.resolve(undefined)
+      await f.ctx.workingDirectory.ensure(f.agent)
+      const next = await f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)
+      next.release()
+    } finally { continueStat.resolve(undefined); stat.mockRestore() }
+  })
+
+  it('does not guard a stale directory when an earlier set commits first', async () => {
+    await using f = await fixture()
+    const child = join(f.root, 'child')
+    await mkdir(child)
+    const entered = Promise.withResolvers<undefined>(), continueStat = Promise.withResolvers<undefined>()
+    const original = f.ctx.fs.stat.bind(f.ctx.fs)
+    const stat = vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+      entered.resolve(undefined)
+      await continueStat.promise
+      return await original(...args)
+    })
+    try {
+      const changing = f.ctx.workingDirectory.set(f.agent, child)
+      await entered.promise
+      const guarded = f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)
+      const rejected = expect(guarded).rejects.toThrow('does not match')
+      continueStat.resolve(undefined)
+      await expect(changing).resolves.toBe(child)
+      await rejected
+    } finally { continueStat.resolve(undefined); stat.mockRestore() }
+  })
+
+  it('rejects an in-flight ensure when a committed Session event revokes its guard', async () => {
+    await using f = await fixture()
+    const guard = await f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)
+    const entered = Promise.withResolvers<undefined>(), continueStat = Promise.withResolvers<undefined>()
+    const original = f.ctx.fs.stat.bind(f.ctx.fs)
+    const stat = vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+      entered.resolve(undefined)
+      await continueStat.promise
+      return await original(...args)
+    })
+    try {
+      const pending = f.ctx.workingDirectory.ensure(f.agent)
+      const rejected = expect(pending).rejects.toThrow('guarded directory changed')
+      await entered.promise
+      f.agent.session.append('working-directory/change', { cwd: join(f.root, 'other') })
+      expect(guard.signal.aborted).toBe(true)
+      continueStat.resolve(undefined)
+      await rejected
+    } finally { continueStat.resolve(undefined); stat.mockRestore() }
+  })
+
+  it('revokes the guard when its owning Agent is disposed', async () => {
+    await using f = await fixture()
+    const guard = await f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)
+    await f.agent.ctx.fiber.dispose()
+    expect(guard.signal.aborted).toBe(true)
+  })
+
+  it('revokes when the owner ends or a direct Session event changes the directory', async () => {
+    await using f = await fixture()
+    const owner = new AbortController()
+    const guard = await f.ctx.workingDirectory.guard(f.agent, f.root, owner.signal)
+    f.agent.session.append('working-directory/change', { cwd: join(f.root, 'other') })
+    expect(guard.signal.aborted).toBe(true)
+    owner.abort()
+    guard.release()
+  })
+})

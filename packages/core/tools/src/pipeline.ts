@@ -7,7 +7,7 @@ import { HarnessError } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { assertNever, deepFreeze, snapshotJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
-import { TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH, ToolNotFoundError, ToolOutputError } from './contracts.ts'
+import { TOOL_ABORTED, TOOL_ABORTED_BEFORE_DISPATCH, TOOL_BODY_META_KEY, ToolNotFoundError, ToolOutputError } from './contracts.ts'
 import { validateJsonSchemaValue } from './json-schema.ts'
 import type { ToolsService } from './index.ts'
 import type { ResolvedToolSet, ToolDefinition, ToolExecutionInput, ToolExecutionMode, ToolExecution, ToolRunContext, ToolExecutionResult, ToolExecutionSuccess, ToolErrorInfo, ToolExecutionToken, PreToolDecision, PostToolDecision } from './contracts.ts'
@@ -79,6 +79,9 @@ export class ToolExecutionPipeline {
     const tool = this.get(name, scope, toolSet)
     return tool !== undefined && this.source.reject?.(name, nested) === undefined ? tool : undefined
   }
+
+  /** Original tool-body projections retained until the corresponding final result settles. */
+  private readonly bodyMetadata = new WeakMap<ToolRunContext, { tool: ToolDefinition; calls: number; meta?: JsonValue }>()
 
   /** Context deferred by a running tool body, keyed by its scheduler-owned execution. */
   private deferredContexts = new WeakMap<ToolRunContext, UserMessage[]>()
@@ -156,6 +159,7 @@ export class ToolExecutionPipeline {
       }
       const execution: MutableToolRunContext = { ...base, arguments: deepFreeze(detached) }
       this.deferredContexts.set(execution, deferredContexts)
+      if (!rejected && visible?.output.preserveBodyMeta === true) this.bodyMetadata.set(execution, { tool: visible, calls: 0 })
       this.contentFinalizers.set(execution, finalizerFor())
       if (!rejected) this.contentProjectors.set(execution, capturedProjector)
       this.cancellationStates.set(execution, {
@@ -272,8 +276,13 @@ export class ToolExecutionPipeline {
       const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined, exec.toolSet)
       if (!tool) throw new ToolNotFoundError(exec.name)
       state.bodyInvoked = true
+      const body = this.bodyMetadata.get(exec)
+      if (body !== undefined) { body.calls += 1; delete body.meta }
       const returned = await tool.execute(exec.arguments, exec)
       const result = this.createSuccessResult(exec, tool, returned)
+      if (!isAborted(signal) && body?.tool === tool && body.calls === 1
+        && result.meta !== null && typeof result.meta === 'object' && !Array.isArray(result.meta)
+        && !Object.hasOwn(result.meta, TOOL_BODY_META_KEY)) body.meta = result.meta
       return isAborted(signal)
         ? toolAbortedResult(result)
         : result
@@ -383,6 +392,16 @@ export class ToolExecutionPipeline {
       finalResult = this.materializeFinalResult(this.applyFinalContent(exec, materializedResult))
     } catch (error: unknown) {
       finalResult = this.materializeFinalResult(toolErrorResult(error))
+    }
+    const body = this.bodyMetadata.get(exec)
+    this.bodyMetadata.delete(exec)
+    if (body !== undefined && !finalResult.isError && finalResult.meta !== null
+      && typeof finalResult.meta === 'object' && !Array.isArray(finalResult.meta)) {
+      const { [TOOL_BODY_META_KEY]: _untrusted, ...meta } = finalResult.meta
+      finalResult = this.materializeFinalResult({ ...finalResult,
+        meta: { ...meta, ...(body.meta === undefined ? {} : { [TOOL_BODY_META_KEY]: body.meta }) } })
+    } else if (body?.meta !== undefined && !finalResult.isError && finalResult.meta === undefined) {
+      finalResult = this.materializeFinalResult({ ...finalResult, meta: { [TOOL_BODY_META_KEY]: body.meta } })
     }
     this.notifyResult(exec, finalResult)
     return finalResult
@@ -548,13 +567,13 @@ export class ToolExecutionPipeline {
     const content = snapshotProjection(tool.name, 'render', rendered)
     let meta: JsonValue | undefined
     if (tool.output.presentationMeta !== undefined) {
-      let projected: JsonValue
+      let projected: JsonValue | undefined
       try {
         projected = tool.output.presentationMeta(exec.arguments, value)
       } catch (error: unknown) {
         throw projectionError(tool.name, 'presentationMeta', error)
       }
-      meta = snapshotProjection(tool.name, 'presentationMeta', projected)
+      if (projected !== undefined) meta = snapshotProjection(tool.name, 'presentationMeta', projected)
     }
     const concludesTurn = this.concludingExecutions.has(exec)
     return this.markCanonical(exec, this.materializeFinalResult({

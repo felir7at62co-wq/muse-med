@@ -118,6 +118,8 @@ export interface Config {
 ```ts config-catalog
 /** Agent-loop plugin configuration. */
 export interface Config {
+  /** Opt into durable step claims for controlled testing and compatible consumers. */
+  durableInboxClaims?: boolean
   /**
    * Maximum parallel-safe calls in flight per agent step. `1` is serial;
    * omission defaults to {@link DEFAULT_MAX_PARALLEL_TOOL_CALLS}.
@@ -4094,7 +4096,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-storage-json`
 
 - `inject`: `storage`
-- `source`: [`packages/storage/storage-json/src/index.ts:28`](../packages/storage/storage-json/src/index.ts)
+- `source`: [`packages/storage/storage-json/src/index.ts:30`](../packages/storage/storage-json/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -4736,7 +4738,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-episode-render`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-episode-render/src/index.ts:84`](../packages/drama/tool-episode-render/src/index.ts)
+- `source`: [`packages/drama/tool-episode-render/src/index.ts:96`](../packages/drama/tool-episode-render/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -4953,7 +4955,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:89`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:95`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
@@ -4997,6 +4999,10 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
   watchPollIntervalMs?: number
   /** Watch deadline in milliseconds; integer 1..86400000, default 1800000. */
   watchTimeoutMs?: number
+  /** Keep native video submissions under Host observation across session idle and Host restart. */
+  generationWatch?: boolean
+  /** Private directory holding unfinished generation watches and completion notices. */
+  generationWatchRoot?: string
   /** Pool claim watcher interval in milliseconds; integer 1000..60000, default 5000. */
   claimPollIntervalMs?: number
   /** Maximum authorized claim window in milliseconds; integer 1000..86400000, default 7200000. */
@@ -5479,13 +5485,15 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-video-inspect`
 
 - `inject`: `tools` · `fs` · `subprocess` · `attachments` · `sandboxPolicy`
-- `source`: [`packages/perception/tool-video-inspect/src/index.ts:36`](../packages/perception/tool-video-inspect/src/index.ts)
+- `source`: [`packages/perception/tool-video-inspect/src/index.ts:38`](../packages/perception/tool-video-inspect/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-resolved media executables and inspection bounds. */
 export interface Config {
   /** Use complete-episode detection and durable per-frame observations. */
   requireCompleteReview: boolean
+  /** Keep legacy sampling and additionally expose video_source_review for complete source checks. */
+  sourceReviewCompanion: boolean
   /** Maximum images per observation batch. */
   reviewBatchFrames: number
   /** Thumbnail rate for cumulative appearance changes. */

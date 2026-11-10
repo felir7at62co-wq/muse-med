@@ -43,7 +43,7 @@ async function fixture() {
   const input: ApprovedEpisodeCaptureInput = { projectDir: root, episode: 1, planPath: join(root, 'editing', '01-episode-delivery.json'),
     timelinePath: join(root, 'editing', '01-timeline.json'), subtitlePath: join(root, 'editing', '01.srt'), mixProfilePath: join(root, 'editing', 'mix.json'),
     inputHashes, digest: episodeFactsHash(inputHashes) }
-  let declarationChanged = false
+  let declarationChanged = false, blocked: Promise<void> | undefined
   const create = async () => {
     const provider = await createConfiguredEpisodeRenderer({ rendererConfig: { ffmpegPath: ffmpeg, ffprobePath: ffprobe,
       fontsDir: join(root, 'fonts'), subtitleFontFamily: 'Captured', watermarkFontFamily: 'Captured', maxBgmVolume: 1,
@@ -54,10 +54,11 @@ async function fixture() {
       cli: fileURLToPath(new URL('../../cli/src/bin.ts', import.meta.url)), tsxEsm: import.meta.resolve('tsx/esm'),
       tsconfig: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)), subprocessEntry: index, workerEntry: index },
     codeFiles: [index], endingAssetRoot: root, limits, resolveExecutable: async command => command,
-    verifyConfiguration: async () => { if (declarationChanged) throw new Error('captured declaration changed') } }, signal)
+    verifyConfiguration: async () => { if (blocked !== undefined) await blocked; if (declarationChanged) throw new Error('captured declaration changed') } }, signal)
     providers.push(provider); return provider
   }
-  return { root, sibling, font, ffmpeg, input, signal, create, changeDeclaration: () => { declarationChanged = true } }
+  return { root, sibling, font, ffmpeg, input, signal, create, changeDeclaration: () => { declarationChanged = true },
+    blockDeclaration: (pending: Promise<void>) => { blocked = pending } }
 }
 
 it('captures sibling code modules, actual media and fonts while retaining deployment policy', async () => {
@@ -101,4 +102,24 @@ it('retires existing captures and refuses new captures synchronously when its pr
   expect(captured.signal.aborted).toBe(true)
   await expect(provider.capture(f.input, f.signal)).rejects.toThrow('closing')
   await disposal
+})
+
+
+it('cancels and awaits a pending captured revalidation when the renderer unloads', async () => {
+  const f = await fixture(), provider = await f.create(), captured = await provider.capture(f.input, f.signal)
+  if (captured.revalidate === undefined) throw new Error('Capture must revalidate')
+  const gate = Promise.withResolvers<undefined>()
+  f.blockDeclaration(gate.promise)
+  const pending = captured.revalidate(f.signal)
+  // Attach the rejection handler before disposal synchronously aborts the owner.
+  const rejected = expect(pending).rejects.toThrow()
+  await Promise.resolve()
+  let disposed = false
+  const closing = provider.dispose().then(() => { disposed = true })
+  await Promise.resolve()
+  expect(disposed).toBe(false)
+  gate.resolve(undefined)
+  await rejected
+  await closing
+  expect(disposed).toBe(true)
 })

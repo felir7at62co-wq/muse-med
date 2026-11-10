@@ -1,17 +1,19 @@
 /** Standalone named-profile renderer with captured inputs and guardian-owned media. */
 import type { Context } from '@deepseek-ai/cordis'
-import { join } from 'node:path'
-import { readFile, realpath, writeFile } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+import { lstat, readFile, realpath, writeFile } from 'node:fs/promises'
 import { z } from 'zod'
 import { createEpisodeDeliveryJob, executionIdentitySchema, readEpisodeRecord } from '@deepseek-ai/dsh-tool-jubian/episode-delivery'
 import type { ExecutionIdentity } from '@deepseek-ai/dsh-tool-jubian/episode-delivery'
-import { runDramaRender, resolveSettings, prepareStagedEpisodeAudio } from '@deepseek-ai/dsh-tool-episode-render'
+import { runDramaRender, resolveSettings, prepareStagedEpisodeAudio, createSourceQaStagedAccess } from '@deepseek-ai/dsh-tool-episode-render'
+import type { SourceQaEvidenceBinding } from '@deepseek-ai/dsh-tool-episode-render'
 import { installEpisodeGuardian } from './episode-render-worker-core.ts'
 import type { CapturedEpisodeExecution, GuardianWorkerConfig } from './episode-render-worker-core.ts'
 import { createGuardianJournal } from './episode-guardian-journal.ts'
 import { inspectEpisodeFile, captureEpisodeDirectory } from './episode-render-inputs.ts'
-import { episodeCandidateSchema, episodePrivateFontFacts, readEpisodeDescriptor, insideEpisodeRoot } from './episode-render-descriptor.ts'
-import type { EpisodeRenderDescriptor } from './episode-render-descriptor.ts'
+import { episodeCandidateSchema, episodePrivateFontFacts, readEpisodeDescriptor, readEpisodeDescriptorV3, readEpisodeDescriptorV4, episodeFactsHash, insideEpisodeRoot } from './episode-render-descriptor.ts'
+import { verifyEpisodeSourceClaimFiles } from './episode-render-source-files.ts'
+import type { EpisodeRenderDescriptor, EpisodeRenderDescriptorV3, EpisodeRenderDescriptorV4 } from './episode-render-descriptor.ts'
 
 /** Private standalone worker plugin. */
 export const name = 'desktop-episode-render-worker'
@@ -28,9 +30,18 @@ export const Config = z.strictObject({
   diagnosticBytes: z.number().int().positive(),
 })
 
-async function verifyFiles(descriptor: EpisodeRenderDescriptor, runtimeEntries: number, signal: AbortSignal): Promise<void> {
+async function verifyFiles(
+  descriptor: EpisodeRenderDescriptor | EpisodeRenderDescriptorV3 | EpisodeRenderDescriptorV4, runtimeEntries: number,
+  signal: AbortSignal): Promise<void> {
   const settings = resolveSettings(descriptor.config)
+  if (descriptor.version === 4) await verifyEpisodeSourceClaimFiles(descriptor, 'stage', signal)
   const staged = new Map(descriptor.stagedFiles.map(file => [file.path, file]))
+  if (descriptor.version !== 1 && descriptor.clockInputs.clock === undefined) {
+    let exists = true
+    try { await lstat(`${descriptor.subtitlePath}.clock.json`) }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') exists = false; else throw error }
+    if (exists) throw new Error('Episode private stage unexpectedly contains a subtitle clock')
+  }
   const required = [descriptor.timelinePath, descriptor.subtitlePath, descriptor.mixProfilePath, descriptor.bgmPath,
     descriptor.endingAudio, descriptor.endingEffect].filter((file): file is string => file !== undefined)
   if (new Set(descriptor.stagedFiles.map(file => file.path)).size !== descriptor.stagedFiles.length
@@ -38,9 +49,17 @@ async function verifyFiles(descriptor: EpisodeRenderDescriptor, runtimeEntries: 
   if (await realpath(descriptor.stageRoot) !== descriptor.stageRoot || await realpath(descriptor.attemptRoot) !== descriptor.attemptRoot) {
     throw new Error('Episode execution roots changed')
   }
-  for (const file of [...descriptor.stagedFiles, ...descriptor.configuration.runtimeInputs.filter(file => file.owner !== 'font')]) {
-    const actual = await inspectEpisodeFile(file.path, signal)
-    if (actual.sha256 !== file.sha256 || actual.bytes !== file.bytes) throw new Error('Episode staged or runtime file changed')
+  for (const file of [...descriptor.stagedFiles.map(fact => ({ fact, role: 'staged' })),
+    ...descriptor.configuration.runtimeInputs.filter(fact => fact.owner !== 'font').map(fact => ({ fact, role: fact.owner }))]) {
+    let actual: Awaited<ReturnType<typeof inspectEpisodeFile>>
+    const path = JSON.stringify(file.fact.path.slice(0, 512))
+    try { actual = await inspectEpisodeFile(file.fact.path, signal) }
+    catch (error) {
+      signal.throwIfAborted()
+      throw new Error(`Episode staged or runtime file changed: ${file.role} ${path} identity/read check failed`, { cause: error })
+    }
+    const differences = [actual.sha256 !== file.fact.sha256 && 'sha256', actual.bytes !== file.fact.bytes && 'bytes'].filter(Boolean)
+    if (differences.length > 0) throw new Error(`Episode staged or runtime file changed: ${file.role} ${path} ${differences.join('/')} mismatch`)
   }
   if (!insideEpisodeRoot(descriptor.stageRoot, settings.fontsDir)) throw new Error('Episode fonts must use the captured private directory')
   const fonts = await captureEpisodeDirectory(settings.fontsDir, runtimeEntries, signal)
@@ -56,13 +75,39 @@ async function verifyFiles(descriptor: EpisodeRenderDescriptor, runtimeEntries: 
   }
 }
 
+/** Compare audio stream format and losslessly decoded PCM, independent of WAV metadata. */
+async function assertMasterMatchesSelectedAudio(master: string, rebuilt: string, stage: string,
+  channel: import('@deepseek-ai/dsh-tool-episode-render').ProcessChannel, settings: ReturnType<typeof resolveSettings>,
+  signal: AbortSignal): Promise<void> {
+  const probe = async (path: string) => {
+    const result = await channel.run(settings.ffprobe, ['-v', 'error', '-select_streams', 'a:0', '-show_entries',
+      'stream=sample_rate,channels,channel_layout', '-of', 'json', path])
+    if (result.code !== 0) throw new Error('Unable to inspect the original audio master: ' + result.stderr)
+    return z.object({ streams: z.array(z.object({ sample_rate: z.string().min(1), channels: z.number().int().positive(),
+      channel_layout: z.string().optional() })).length(1) }).parse(JSON.parse(result.stdout)).streams[0]
+  }
+  const [actual, expected] = await Promise.all([probe(master), probe(rebuilt)])
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error('整集原声与已核验原音轨的音频格式不符。')
+  const decode = async (source: string, output: string) => {
+    const result = await channel.run(settings.ffmpeg, ['-nostdin', '-hide_banner', '-v', 'error', '-n', '-i', source,
+      '-map', '0:a:0', '-c:a', 'pcm_s16le', '-f', 's16le', output])
+    if (result.code !== 0) throw new Error('Unable to decode the audio master: ' + result.stderr)
+    return await inspectEpisodeFile(output, signal)
+  }
+  const [left, right] = await Promise.all([decode(master, join(stage, '__source-qa-master.pcm')),
+    decode(rebuilt, join(stage, '__source-qa-rebuilt.pcm'))])
+  if (left.sha256 !== right.sha256 || left.bytes !== right.bytes) {
+    throw new Error('整集原声与已核验的原音轨及时间线不符，请重新 prepare。')
+  }
+}
+
 /**
  * Mount only in the fresh empty worker profile prepared by the trusted Host.
  * @param ctx - Normal dsh scope with subprocess and launcher facts.
  * @param config - Validated descriptor reference and deployment limits.
  */
 export function apply(ctx: Context, config: GuardianWorkerConfig & { readonly runtimeEntries: number }): void {
-  let descriptor: EpisodeRenderDescriptor | undefined
+  let descriptor: EpisodeRenderDescriptor | EpisodeRenderDescriptorV3 | EpisodeRenderDescriptorV4 | undefined
   let identity: ExecutionIdentity | undefined
   let job: Awaited<ReturnType<typeof createEpisodeDeliveryJob>> | undefined
   installEpisodeGuardian(ctx, config, () => ({
@@ -75,7 +120,13 @@ export function apply(ctx: Context, config: GuardianWorkerConfig & { readonly ru
       const packageValue: unknown = JSON.parse(await readFile(join(profile.dir, 'package.json'), 'utf8'))
       packageManifest.parse(packageValue)
       if (limits.descriptorSha256 !== request.identity.descriptorSha256) throw new Error('Episode launcher and request descriptor hashes differ')
-      descriptor = await readEpisodeDescriptor(limits.descriptorPath, request.identity.descriptorSha256, limits.descriptorBytes)
+      try { descriptor = await readEpisodeDescriptor(limits.descriptorPath, request.identity.descriptorSha256, limits.descriptorBytes) }
+      catch (_notV1: unknown) {
+        try { descriptor = await readEpisodeDescriptorV3(limits.descriptorPath, request.identity.descriptorSha256, limits.descriptorBytes) }
+        catch (_notV3: unknown) {
+          descriptor = await readEpisodeDescriptorV4(limits.descriptorPath, request.identity.descriptorSha256, limits.descriptorBytes)
+        }
+      }
       identity = executionIdentitySchema.parse({ ...descriptor.identity, execution: descriptor.execution,
         descriptorSha256: request.identity.descriptorSha256 })
       for (const key of ['attempt', 'execution', 'rendererGeneration', 'configurationSha256', 'planSha256', 'projectSha256', 'descriptorSha256'] as const) {
@@ -126,13 +177,46 @@ export function apply(ctx: Context, config: GuardianWorkerConfig & { readonly ru
       await verifyFiles(captured, config.runtimeEntries, signal)
       const settings = { ...resolveSettings(captured.config), channel }
       const episode = String(captured.configuration.episode).padStart(2, '0')
-      await prepareStagedEpisodeAudio({ project: captured.stageRoot, episode, timelinePath: captured.timelinePath }, settings)
+      if (captured.version === 1 || captured.clockInputs.master === undefined) {
+        const audioPaths = captured.version !== 1 ? captured.clockStage.audio.map(row => row.stagedPath) : undefined
+        await prepareStagedEpisodeAudio({ project: captured.stageRoot, episode, timelinePath: captured.timelinePath,
+          ...(audioPaths === undefined ? {} : { audioPaths }) }, settings)
+      }
+      if (captured.version === 4 && captured.clockInputs.master !== undefined) {
+        const proofOutputPath = join(captured.stageRoot, '__source-qa-master-proof.wav')
+        await prepareStagedEpisodeAudio({ project: captured.stageRoot, episode, timelinePath: captured.timelinePath,
+          audioPaths: captured.clockStage.audio.map(row => row.stagedPath), proofOutputPath }, settings)
+        if (captured.clockStage.masterPath === undefined) throw new Error('Episode staged audio master is missing')
+        await assertMasterMatchesSelectedAudio(captured.clockStage.masterPath, proofOutputPath, captured.stageRoot,
+          channel, settings, signal)
+      }
+      const stagedAudio = captured.version !== 1 ? (sourceAudio: string): string => {
+        const original = resolve(captured.originalProject, sourceAudio)
+        const matches = captured.clockStage.audio.filter(row => row.originalPath === original)
+        const first = matches[0]
+        if (first === undefined) throw new Error('字幕音轨缺少已捕获的暂存对应文件。')
+        return first.stagedPath
+      } : undefined
+      const sourceQaStage = captured.version !== 4 ? undefined : createSourceQaStagedAccess(captured.originalProject,
+        captured.stageRoot, captured.sourceClaim.files.map(({ originalPath, stagedPath, sha256, bytes, aliases }) => ({
+          originalPath, stagedPath, sha256, bytes, ...(aliases === undefined ? {} : { aliases }),
+        })), signal, captured.sourceClaim.directories)
+      const sourceQaVerifier = captured.version !== 4 ? undefined : async (binding: SourceQaEvidenceBinding) => {
+        const count = captured.sourceEvidence.bindings.filter(expected => episodeFactsHash(expected) === episodeFactsHash(binding)).length
+        if (count !== 1 || sourceQaStage === undefined) throw new Error('Source review was not verified by the captured Host')
+        const hashes = await Promise.all([sourceQaStage.hash(binding.mediaPath), sourceQaStage.hash(binding.ocrPath),
+          sourceQaStage.hash(binding.inspectionPath)])
+        if (hashes[0] !== binding.mediaSha256 || hashes[1] !== binding.ocrSha256 || hashes[2] !== binding.inspectionSha256) {
+          throw new Error('Private source review evidence changed')
+        }
+      }
       const report = await runDramaRender({ method: 'render', project: captured.stageRoot, episode: captured.configuration.episode,
         timeline: captured.timelinePath, subtitleSrt: captured.subtitlePath, mixProfile: captured.mixProfilePath,
         lastShot: captured.lastShot, output: captured.candidatePath, force: false,
         ...(captured.bgmPath === undefined ? {} : { bgm: captured.bgmPath }),
         ...(captured.endingAudio === undefined ? {} : { endingAudio: captured.endingAudio }),
-        ...(captured.endingEffect === undefined ? {} : { endingEffect: captured.endingEffect }) }, settings)
+        ...(captured.endingEffect === undefined ? {} : { endingEffect: captured.endingEffect }) },
+      settings, sourceQaVerifier, stagedAudio, sourceQaStage, captured.version === 4 ? captured.sourceEvidence.sourceQaSha256 : undefined)
       if (!report.ok || report.media.video_codec === '' || report.media.audio_codec === '') {
         throw new Error('Episode renderer checks failed: ' + report.failures.join('; '))
       }
