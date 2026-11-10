@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { connectDesktopWelcome } from '../../desktop/src/welcome-backend.ts'
-import { chromium, type Browser, type Page } from 'playwright'
+import { chromium, type Browser, type Page, type Request } from 'playwright'
 import { afterEach, beforeEach, describe, expect, it, onTestFailed } from 'vitest'
 import { credentialKey, credentialRef } from '@deepseek-ai/dsh-credentials'
 import type {} from '@deepseek-ai/dsh-settings'
@@ -402,8 +402,43 @@ describe.skipIf(MODE === 'record')('web e2e: App-only desktop onboarding', () =>
     await snapshot('purpose-en-dark')
     await page.getByRole('button', { name: 'Back', exact: true }).click()
     await page.getByRole('button', { name: 'Continue', exact: true }).waitFor()
-    await page.getByRole('button', { name: 'Back', exact: true }).click()
-    await page.getByRole('button', { name: 'Get started', exact: true }).waitFor()
+    const isWelcomeWrite = (request: Request) => {
+      if (!request.url().endsWith('/api/settings/mutate')) return false
+      const body = request.postDataJSON() as {
+        payload: { args: { ns: string; ops: { op: string; path: string[]; value?: unknown }[] } }
+      }
+      return body.payload.args.ns === NS && body.payload.args.ops.some(op =>
+        op.op === 'set' && op.path.length === 1 && op.path[0] === 'step' && op.value === 'welcome')
+    }
+    const welcomeHeld = Promise.withResolvers<null>()
+    const releaseWelcome = Promise.withResolvers<null>()
+    // Welcome can be visible before its queued Host write completes.
+    await page.route('**/api/settings/mutate', async (route) => {
+      if (isWelcomeWrite(route.request())) {
+        welcomeHeld.resolve(null)
+        await releaseWelcome.promise
+      }
+      await route.continue()
+    })
+    try {
+      const [saved] = await Promise.all([
+        page.waitForResponse(response => isWelcomeWrite(response.request())),
+        (async () => {
+          try {
+            await page.getByRole('button', { name: 'Back', exact: true }).click()
+            await welcomeHeld.promise
+            await page.getByRole('button', { name: 'Get started', exact: true }).waitFor()
+            expect(scaffold.ctx.settings.describe().find(row => row.ns === NS)?.value).toMatchObject({ step: 'credit' })
+          } finally { releaseWelcome.resolve(null) }
+        })(),
+      ])
+      await saved.finished()
+      expect(await saved.json()).toMatchObject({ result: { ok: true } })
+      expect(scaffold.ctx.settings.describe().find(row => row.ns === NS)?.value).toMatchObject({ step: 'welcome' })
+    } finally {
+      releaseWelcome.resolve(null)
+      await page.unrouteAll({ behavior: 'wait' })
+    }
     expect(scaffold.ctx.settings.describe().find(row => row.ns === NS)?.value).not.toHaveProperty('creditFunded')
     bonusBalance = '0'
     const recheck = page.waitForResponse('**/api/account/getBalance')
