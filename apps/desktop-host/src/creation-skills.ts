@@ -37,6 +37,7 @@ export const CREATION_SKILL_NAMES: readonly string[] = [
   'tweet-drama-shot-asset-match',
   'tweet-drama-voice-continuity',
   'video-review',
+  'video-to-screenplay',
   'visualize',
   'wechat-shortdrama-harvest',
 ]

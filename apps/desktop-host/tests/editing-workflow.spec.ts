@@ -11,7 +11,7 @@ it('keeps supported creative and media skills discoverable without retired workf
     await ctx.plugin(Files, { includeDefaultRoots: false, bundledSkillDir: fileURLToPath(new URL('../skills/', import.meta.url)), watch: false })
     const names = (await ctx.skills.list()).map(skill => skill.name)
     for (const name of ['audio-transcribe', 'screenplay-format', 'novel-to-script', 'muse-dialogue-polish',
-      'muse-script-doctor', 'muse-episode-design', 'video-review']) {
+      'muse-script-doctor', 'muse-episode-design', 'video-review', 'video-to-screenplay']) {
       expect(names).toContain(name)
       expect(await ctx.skills.get(name)).toBeDefined()
     }

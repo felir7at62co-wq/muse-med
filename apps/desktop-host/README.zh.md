@@ -152,7 +152,7 @@ Muse 忙碌时，Enter 和发送按钮默认插话，Cmd/Ctrl+Enter 将消息排
 
 文字稿件默认交付 Word（.docx），用户指定其他格式时按其要求。Agent 保留 Markdown 源稿，加载 office-docx，优先用 screenplay_export_docx 转换分场剧本并交付检查后的 Word，不重复转写或重写正文。视频制作要求仅用于视频工作；剧本交付遵循上文的审校或草稿登记，只有任务采用受管项目时才执行对应项目验收。
 
-默认 Skill 目录包含[剧本精修](skills/muse-script-doctor/SKILL.md)和[小说改编](skills/novel-to-script/SKILL.md)，以及对白、分集设计、剧本格式指导和对应参考资源。Muse 在短剧与创造会话中发现这些技能简介，按任务需要加载具体指导。这些写作技能不改变系统人设，也不增加审批要求。`tweet-drama-script-convert` 仍只负责文档转文本，与小说改编分别使用。
+默认 Skill 目录包含[剧本精修](skills/muse-script-doctor/SKILL.md)、[小说改编](skills/novel-to-script/SKILL.md)和[视频转剧本](skills/video-to-screenplay/SKILL.md)，以及对白、分集设计、剧本格式指导和对应参考资源。Muse 在短剧与创造会话中发现这些技能简介，按任务需要加载具体指导。这些写作技能不改变系统人设，也不增加审批要求。视频方法区分忠实来源整理与授权改编，保留场景与来源对应，并使用已有工具取得语音文字、查看画面和交付保存后的文件。ASR 不代表独立试听，文字审校和 Word 导出不认证原片忠实度。`tweet-drama-script-convert` 仍只负责文档转文本，与小说改编分别使用。
 
 ## 创作模式
 

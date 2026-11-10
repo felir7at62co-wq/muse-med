@@ -297,7 +297,7 @@ it('serves approved resources and user skills from an isolated Host-forwarded re
     expect(loaded?.content).not.toContain('Unapproved scoped instructions')
     expect(loaded?.content).not.toContain('当前创作模式的执行限制')
     expect(loaded?.content).toContain('音视频语音转写')
-    for (const name of ['audio-transcribe', 'muse-script-doctor', 'novel-to-script', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format']) {
+    for (const name of ['audio-transcribe', 'video-to-screenplay', 'muse-script-doctor', 'novel-to-script', 'muse-dialogue-polish', 'muse-episode-design', 'screenplay-format']) {
       expect(CreationSkills.CREATION_SKILL_NAMES).toContain(name)
       expect(names).toContain(name)
       const specialized = await skills.get(name, { scope: f.agent })
