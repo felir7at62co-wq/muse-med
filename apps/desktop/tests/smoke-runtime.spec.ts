@@ -321,6 +321,106 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
+it.each([
+  { call: 0, index: 0, phase: 'assemble-initial' },
+  { call: 1, index: 0, phase: 'assemble-loaded' },
+  { call: 2, index: 0, phase: 'assemble-released' },
+  { call: 3, index: 1, phase: 'assemble-initial' },
+])('reports preset, instance $index and $phase with the original foreign-realm stack', async ({ call, index, phase }) => {
+  const f = fixture()
+  const failure = runInNewContext("new Error('foreign assembly failure')") as Error
+  failure.stack = 'Error: foreign assembly failure\n    at foreign-owner.mjs:41:7'
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  let calls = 0
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    if (calls++ === call) throw failure
+    return assemble(context)
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('preset=short-drama index=' + String(index) + ' phase=' + phase)
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(report).toContain(failure.stack)
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('reports a second-instance creation failure and disposes the first instance', async () => {
+  const f = fixture()
+  const failure = new Error('second instance could not mount')
+  const create = f.ctx.agents.create.getMockImplementation()!
+  f.ctx.agents.create.mockImplementationOnce(create).mockRejectedValueOnce(failure)
+  await expect(f.apply(f.ctx)).rejects.toThrow('preset=short-drama index=1 phase=create')
+  expect(readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')).toContain(failure.stack)
+  expect(f.dispose).toHaveBeenCalledTimes(1)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('awaits every reverse-order disposal and reports all cleanup failures', async () => {
+  const f = fixture()
+  const firstEntered = Promise.withResolvers<undefined>()
+  const firstRelease = Promise.withResolvers<undefined>()
+  const secondEntered = Promise.withResolvers<undefined>()
+  const secondRelease = Promise.withResolvers<undefined>()
+  const order: number[] = []
+  const failures = [new Error('cleanup instance zero'), new Error('cleanup instance one')]
+  const create = f.ctx.agents.create.getMockImplementation()!
+  let created = 0
+  f.ctx.agents.create.mockImplementation(async (options) => {
+    const index = created++
+    const handle = await create(options)
+    return { ...handle, dispose: vi.fn(async (): Promise<void> => {
+      order.push(index)
+      if (index === 1) {
+        firstEntered.resolve(undefined)
+        await firstRelease.promise
+      } else {
+        secondEntered.resolve(undefined)
+        await secondRelease.promise
+      }
+      throw failures[index]
+    }) }
+  })
+  const run = f.apply(f.ctx)
+  const rejected = expect(run).rejects.toThrow('preset checks or cleanup failed')
+  await firstEntered.promise
+  expect(order).toEqual([1])
+  expect(existsSync(join(f.home, '.desktop-product-smoke-error'))).toBe(false)
+  firstRelease.resolve(undefined)
+  await secondEntered.promise
+  expect(order).toEqual([1, 0])
+  expect(existsSync(join(f.home, '.desktop-product-smoke-error'))).toBe(false)
+  secondRelease.resolve(undefined)
+  await rejected
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(report).toContain('preset=short-drama index=1 phase=dispose')
+  expect(report).toContain('preset=short-drama index=0 phase=dispose')
+  for (const failure of failures) expect(report).toContain(failure.stack)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('retains the primary failure before both disposal failures', async () => {
+  const f = fixture()
+  const primary = new Error('primary assembly failure')
+  const lastCleanup = new Error('last instance cleanup failure')
+  const firstCleanup = new Error('first instance cleanup failure')
+  f.ctx.systemPrompt.assemble.mockRejectedValueOnce(primary)
+  f.dispose.mockRejectedValueOnce(lastCleanup).mockRejectedValueOnce(firstCleanup)
+  await expect(f.apply(f.ctx)).rejects.toThrow('preset checks or cleanup failed')
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  for (const failure of [primary, lastCleanup, firstCleanup]) expect(report).toContain(failure.stack)
+  const primaryPosition = report.indexOf('preset=short-drama index=0 phase=assemble-initial')
+  const lastCleanupPosition = report.indexOf('preset=short-drama index=1 phase=dispose')
+  const firstCleanupPosition = report.indexOf('preset=short-drama index=0 phase=dispose')
+  expect(primaryPosition).toBeGreaterThanOrEqual(0)
+  expect(lastCleanupPosition).toBeGreaterThan(primaryPosition)
+  expect(firstCleanupPosition).toBeGreaterThan(lastCleanupPosition)
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
 it('accepts product skills loaded from the installed ASAR unpack directory', async () => {
   const f = fixture(true)
   await f.apply(f.ctx)

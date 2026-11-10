@@ -71,6 +71,7 @@ export function prepareDesktopSmokeSkills(home: string): DesktopSmokeSkillLayout
  * @returns ESM plugin source checking current product tools, technical skills, retired resources,
  * native skill locations, the private reviewer registration, and completed Agent disposal.
  * Historical editing resolves to short-drama; only user presets are mounted here.
+ * Preset failures retain their instance, phase and original stack; every created Agent's disposal is awaited before failures are reported.
  */
 export function desktopSmokePluginSource(root: string, home: string): string {
   return `
@@ -89,6 +90,12 @@ export function apply(ctx) {
   const editingModelInput = ${JSON.stringify(editingModelInput)}
   const creationSkillNames = new Set(${JSON.stringify(CREATION_SKILL_NAMES)})
   const creationUserSources = new Set(['custom', 'user-muse', 'user-dsh', 'user-agents', 'project-muse', 'project-dsh', 'project-agents'])
+  const failureText = error => error && error.stack ? error.stack : String(error)
+  const withContext = (error, preset, index, phase) => {
+    const failure = new Error('desktop runtime: preset=' + preset + ' index=' + index + ' phase=' + phase, { cause: error })
+    failure.stack += '\\nCaused by: ' + failureText(error)
+    return failure
+  }
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
   const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
@@ -103,21 +110,27 @@ export function apply(ctx) {
   }
   const inventory = await ctx.agentPresets.compositionInventory()
   for (const id of ids) {
+  const handles = []
+  const failures = []
+  let index = -1
+  let phase = 'resolve'
+  try {
   const preset = await ctx.agentPresets.resolve(id)
   const expected = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'presets', id, 'agent.cordis.yml')
   const composition = inventory.find(row => row.id === id)
   if (preset.broken !== undefined || !existsSync(expected) || composition === undefined || composition.rows.length === 0) {
     throw new Error('desktop runtime: preset is broken or missing from the product package: ' + id + '; ' + (preset.broken ?? 'composition absent'))
   }
-  const handles = []
-  try {
-    for (let index = 0; index < 2; index++) {
+    for (index = 0; index < 2; index++) {
+      phase = 'create'
       handles.push(await ctx.agents.create({
         sessionId: 'desktop-product-smoke-' + id + '-' + index, meta: { cwd, agentPreset: id },
         setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, id) },
       }))
     }
-    for (const handle of handles) {
+    for (const [handleIndex, handle] of handles.entries()) {
+    index = handleIndex
+    phase = 'tools'
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
     const retiredTools = ['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user']
     for (const name of retiredTools) if (names.has(name)) throw new Error('desktop runtime: archived Bot tool remains active: ' + name + ' in ' + id)
@@ -138,6 +151,7 @@ export function apply(ctx) {
           'tool_search', 'tool_context']
           : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
+    phase = 'assemble-initial'
     const modelInput = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
     const modelNames = modelInput.tools.map(tool => tool.name)
     if (['ptc', 'creation', 'cordis'].includes(id)) {
@@ -182,6 +196,7 @@ export function apply(ctx) {
         throw new Error('desktop runtime: source tools must remain deferred before discovery')
       }
       const manage = async operation => {
+        phase = 'tool-context-' + operation
         const callId = ToolCallId(handle.agent.id + ':desktop-smoke-' + operation)
         const args = { operation, tools: deferredTools }
         const batch = await ctx.tools.execute({
@@ -196,6 +211,7 @@ export function apply(ctx) {
         if (result.isError) throw new Error('desktop runtime: tool_context ' + operation + ' failed')
       }
       await manage('load')
+      phase = 'assemble-loaded'
       const loaded = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
       for (const [name, description] of Object.entries(editingModelInput.tools)) {
         if (loaded.tools.find(tool => tool.name === name)?.description !== description) {
@@ -203,6 +219,7 @@ export function apply(ctx) {
         }
       }
       await manage('release')
+      phase = 'assemble-released'
       const released = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
       if (JSON.stringify(released.tools.map(tool => tool.name).sort()) !== JSON.stringify(initialNames)
         || deferredTools.some(name => ctx.toolDiscovery.state(handle.agent).loaded.includes(name))) {
@@ -217,6 +234,7 @@ export function apply(ctx) {
     }
     const skillRegistry = id === 'creation' ? ctx.agentPresets.serviceFor(handle.agent, 'skills') : ctx.skills
     if (skillRegistry === undefined) throw new Error('desktop runtime: creation skill registry is not isolated')
+    phase = 'skills-list'
     const skills = await skillRegistry.list({ scope: handle.agent, cwd })
     if (id === 'creation') {
       for (const name of ['office-docx', 'office-xlsx', 'office-pptx']) {
@@ -250,6 +268,7 @@ export function apply(ctx) {
           || realpathSync.native(skill.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: missing shared Muse skill ' + name)
         }
+        phase = 'skills-get:' + name
         const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd })
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(loaded.path)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
@@ -293,6 +312,7 @@ export function apply(ctx) {
         throw new Error('desktop runtime: custom or project skill selection differs in ' + id + ': ' + expected.name
           + '; actual=' + (skill?.path ?? 'missing') + '; expected=' + expected.path)
       }
+      phase = 'skills-get:' + expected.name
       const loaded = await skillRegistry.get(expected.name, { scope: handle.agent, cwd })
       if (!loaded?.path || !loaded.content?.trim() || realpathSync.native(loaded.path) !== realpathSync.native(expected.path)) {
         throw new Error('desktop runtime: custom or project skill could not load in ' + id + ': ' + expected.name)
@@ -320,6 +340,7 @@ export function apply(ctx) {
       }
       if (name === 'shot-script-creator-16-9-3d' || name === 'shot-script-creator-9-16') {
         const expected = join(bundled, name, 'SKILL.md')
+        phase = 'skills-get:' + name
         const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd })
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(expected) || !existsSync(loaded.path)
           || realpathSync.native(skill.path) !== realpathSync.native(expected)
@@ -329,8 +350,20 @@ export function apply(ctx) {
       }
     }
     }
+  } catch (error) {
+    failures.push(withContext(error, id, index, phase))
   } finally {
-    for (const handle of handles.reverse()) await handle.dispose()
+    for (index = handles.length - 1; index >= 0; index--) {
+      try { await handles[index].dispose() } catch (error) {
+        failures.push(withContext(error, id, index, 'dispose'))
+      }
+    }
+  }
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) {
+    const failure = new AggregateError(failures, 'desktop runtime: preset checks or cleanup failed')
+    failure.stack += '\\n' + failures.map(failureText).join('\\n')
+    throw failure
   }
   }
   writeFileSync(join(home, '.desktop-product-smoke-complete'), 'ok\\n', { flag: 'wx' })
