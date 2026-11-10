@@ -66,7 +66,7 @@ export function apply(ctx, config = {}) {
   ctx.effect(() => () => client.dispose(), 'hongguo: abort requests and clear memory cache');
   const definitions = [
     { name: 'hongguo_search', title: '搜索红果短剧', method: 'search',
-      description: '当用户说找红果短剧、按剧名找剧时，先在红果官方公开关键词网页搜索，拿到seriesId后可调用hongguo_detail查更多数据，超出热播榜范围。当前只获得首屏最多10条，可能含语义推荐；sourceReportedTotal不代表已获取数量。不登录、不下载视频。',
+      description: '当用户说找红果短剧、按剧名找剧时，先读取红果官网当前公开关键词搜索接口，拿到seriesId后可调用hongguo_detail查更多数据，超出热播榜范围。仅读取已验证的首屏最多10条，可能含语义推荐；sourceReportedTotal不代表已获取数量，空壳、受限和错误响应不当作零结果。不登录、不下载视频。',
       properties: { query: { type: 'string', description: '关键词，1–100字符' }, ...paging, ...common }, required: ['query'] },
     { name: 'hongguo_rankings', title: '读取红果热播榜', method: 'rankings',
       description: '遍历所选红果官方热播榜公开分页（默认四榜各最多5页），按seriesId去重。收藏/点赞/热度分开；保留每页来源、采集时间、各项指标、缺失原因和冲突。coverage.complete只代表榜单分页；coverage.metrics分别统计已抓取观察值的指标完整性，不代表全片库。',

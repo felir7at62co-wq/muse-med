@@ -1,0 +1,22 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write third_party/plugins/muse-hongguo-download/native/host/README.md
+/local-hongguo-v2-runtime:
+  en: 02c8888c3fdf1892
+  zh: 3f755d65dc4e07e5
+/local-hongguo-v2-runtime/summary:
+  en: 43e700b6158ee927
+  zh: 76fb5cbee653db69
+/local-hongguo-v2-runtime/contents:
+  en: 206ae4e7d4805e5a
+  zh: b9951e75df097ebf
+/local-hongguo-v2-runtime/prepare:
+  en: 8d2b934123374334
+  zh: 29d3054721e1d644
+/local-hongguo-v2-runtime/platforms-and-private-state:
+  en: 0fd0e6eb1802dc0c
+  zh: dc39b049080b93ed
+/local-hongguo-v2-runtime/host-and-validation:
+  en: 967baa712bc96111
+  zh: fd8b98bf80bdb69c

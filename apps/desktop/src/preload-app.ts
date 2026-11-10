@@ -3,7 +3,7 @@ import type { FileSaveResult } from '@deepseek-ai/dsh-client-ui-file-actions/typ
 
 import type { DesktopShortcutInput, ShortcutConfigSnapshot, ShortcutSaveResult } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { DESKTOP_IPC, SCHEME, type DshDesktopProductApi, type DesktopUpdatePresentation } from './ipc.ts'
+import { DESKTOP_IPC, SCHEME, type DshDesktopProductApi, type DesktopSystemDnsSetResult, type DesktopUpdatePresentation } from './ipc.ts'
 import { PLATFORM_IPC } from './platform-ipc.ts'
 import { markDocumentPlatform, syncWindowFullscreen } from './preload-platform.ts'
 import { syncNativeTheme } from './preload-theme.ts'
@@ -35,6 +35,10 @@ function createProductApi(): DshDesktopProductApi {
       }) },
     },
     deviceInfo: () => ipcRenderer.invoke(DESKTOP_IPC.deviceInfo) as Promise<string>,
+    systemDns: {
+      status: () => ipcRenderer.invoke(DESKTOP_IPC.systemDnsStatus) as Promise<{ saved: boolean; active: boolean }>,
+      set: enabled => ipcRenderer.invoke(DESKTOP_IPC.systemDnsSet, enabled) as Promise<DesktopSystemDnsSetResult>,
+    },
     keyboard: {
       closeWindow: revision => ipcRenderer.invoke(DESKTOP_IPC.shortcutsCloseWindow, revision) as Promise<void>,
       subscribe: (listener) => {

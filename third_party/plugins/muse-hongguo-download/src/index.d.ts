@@ -8,6 +8,9 @@ import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess';
 
 /** Deployment fields never store signing credentials. */
 export interface HongguoDownloadConfig {
+  legacyBackend?: 'v1' | 'v2'; v2RuntimeDir?: string; v2StateDir?: string; v2Quality?: '1080p' | '720p' | '540p' | '480p' | '360p';
+  v2PollIntervalMs?: number; v2RequestTimeoutMs?: number; v2StartupTimeoutMs?: number; v2ShutdownTimeoutMs?: number;
+  v2MaxLineBytes?: number; v2MaxPendingRequests?: number; v2MaxEpisodesPerJob?: number; v2EpisodesAtOnce?: number; v2ConnectionsPerFile?: number;
   sourceMode?: 'legacy' | 'manifest' | 'public'; legacyAppDir?: string; signServer?: string;
   signTokenEnv?: string; catalogPath?: string; outputRoot?: string; mediaHosts?: string[]; mediaPorts?: number[];
   pythonExecutable?: string; ffmpegExecutable?: string; ffprobeExecutable?: string;
@@ -27,25 +30,26 @@ export interface DownloadOptions {
 }
 export interface DownloadedEpisode {
   index: number; title: string; path: string; durationSeconds: number | null; bytes: number; sha256: string;
-  sourceBytes: number; sourceSha256: string; encryptedSource: boolean;
+  sourceBytes: number | null; sourceSha256: string | null; encryptedSource: boolean | null; origin?: 'engine-output';
   format: 'mp4'; validationLevel: 'ffprobe-full-decode-sha256'; fullDecodeChecked: true;
 }
 export interface DownloadFailure {
-  ok: false; complete: false; code: string; message: string;
+  ok: false; complete: false; code: string; message: string; sourceBackend?: 'v2';
+  safeReason?: string; freeUsed?: number; freeLimit?: number;
   upstreamCode?: number; sourceStage?: 'catalog' | 'video_model' | 'source_api'; retryable?: false;
   httpStatus?: number; responseBytes?: number;
   path?: string; checkpoint?: string; retainedEpisodeCount?: number; reusedEpisodeCount?: number;
   remainingEpisodeCount?: number; discoveryTruncated?: boolean; resume?: DownloadOptions;
 }
 export interface DownloadResult {
-  ok: true; sourceMode: 'legacy' | 'manifest' | 'public'; complete: boolean; path: string; validatedBytes: number;
+  ok: true; sourceBackend?: 'v2'; sourceMode: 'legacy' | 'manifest' | 'public'; complete: boolean; path: string; validatedBytes: number;
   checkpoint: string; retainedEpisodeCount: number; reusedEpisodeCount: number; remainingEpisodeCount: number;
   newlyDownloadedEpisodeCount: number; discoveryTruncated: boolean; sourceIdentity: string | null;
   validationLevel: 'ffprobe-full-decode-sha256'; fullDecodeChecked: true; note: string;
   items: { seriesId: string; title: string; source: string; episodeCount: number; downloadedEpisodeCount: number; complete: boolean; path: string; episodes: DownloadedEpisode[] }[];
 }
 export interface DownloadInfo {
-  ok: true; sourceMode: 'legacy' | 'manifest' | 'public'; verifiedDownload: false; note: string;
+  ok: true; sourceBackend?: 'v2'; sourceMode: 'legacy' | 'manifest' | 'public'; verifiedDownload: false; note: string;
   items: { seriesId: string; title: string; source: string; episodeCount: number; accessibleEpisodeCount: number | null;
     completeCatalog: boolean; downloaded: false; mediaUrlsVerified: false; fullSeriesAvailable: false | null }[];
 }

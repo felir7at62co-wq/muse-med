@@ -5,6 +5,7 @@ import { app, BrowserWindow, type WebContents, type WebPreferences } from 'elect
 import type { DesktopBrowserLeaseId, DouyinDesktopRequest, DouyinTaskId } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 import type { DouyinGuest } from './douyin-downloads.ts'
 import { douyinStorageNavigation } from './douyin-storage.ts'
+import { DOUYIN_USER_ACTION_PROBE } from './douyin-user-action.ts'
 
 /** A private task reservation never enters the Renderer-facing Sidebar lease roster. */
 export interface DouyinTaskGuest extends DouyinGuest {
@@ -26,15 +27,6 @@ export function isolatedBrowserPreferences(partition: string): WebPreferences {
     contextIsolation: true, sandbox: true, webSecurity: true, allowRunningInsecureContent: false,
     webviewTag: false, plugins: false, navigateOnDragDrop: false, disableDialogs: true, devTools: !app.isPackaged }
 }
-
-// Only rendered dialogs and explicit challenge containers count; ordinary page login links do not.
-const USER_ACTION_PROBE = `(() => {
-  const visible = element => { const box=element.getBoundingClientRect(); const style=getComputedStyle(element);
-    return box.width>0&&box.height>0&&style.visibility!=='hidden'&&style.display!=='none'; };
-  const selectors=['[data-e2e="login-modal"]','[data-e2e="login-dialog"]','#captcha_container','.captcha_verify_container',
-    '[role="dialog"][class*="login"]','[role="dialog"][class*="verify"]','[role="dialog"][class*="captcha"]'];
-  return selectors.some(selector=>Array.from(document.querySelectorAll(selector)).some(visible));
-})()`
 
 /** Creates hidden windows only for authenticated Host requests admitted by the native download controller. */
 export class DesktopDouyinTaskGuests {
@@ -111,7 +103,7 @@ export class DesktopDouyinTaskGuests {
         if (guest.isDestroyed() || guest.isLoadingMainFrame()) return false
         const url = new URL(guest.getURL())
         if (/\/(?:passport|login|verify|captcha)(?:\/|$)/.test(url.pathname)) return true
-        const value: unknown = await guest.executeJavaScript(USER_ACTION_PROBE)
+        const value: unknown = await guest.executeJavaScript(DOUYIN_USER_ACTION_PROBE)
         return value === true
       } }
   }

@@ -27,6 +27,7 @@
     "apps/desktop/src/douyin-provider.ts",
     "apps/desktop/src/douyin-storage.ts",
     "apps/desktop/src/douyin-task-guests.ts",
+    "apps/desktop/src/douyin-user-action.ts",
     "apps/desktop/src/ipc.ts",
     "apps/desktop/src/ipc-types.ts",
     "apps/desktop/src/update-overlay.ts",

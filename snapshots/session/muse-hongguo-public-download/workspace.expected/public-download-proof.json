@@ -1,0 +1,20 @@
+{
+  "infoResolvesMedia": false,
+  "declaredEpisodes": 3,
+  "accessibleEpisodes": 1,
+  "downloadedEpisodes": [
+    1
+  ],
+  "complete": false,
+  "bytes": 84,
+  "sha256": "833e2cf751c5b16d5a976dd646faac0cbc25be0192a93cd60a2407239757d5fc",
+  "sourceLookupPosts": 2,
+  "mediaTransfers": 1,
+  "unopenedEpisodeLookup": false,
+  "unopenedCode": "public_preview_only",
+  "businessFailureCode": "platform_error",
+  "businessFailureDelivered": false,
+  "temporaryUrlsLogged": false,
+  "codecValidation": "controlled-external-verdict",
+  "actualMp4ContainerAndHashChecked": true
+}

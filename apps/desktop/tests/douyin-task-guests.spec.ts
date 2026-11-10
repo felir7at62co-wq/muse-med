@@ -4,6 +4,8 @@ import { randomUUID } from 'node:crypto'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Script } from 'node:vm'
+import { JSDOM } from 'jsdom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { BrowserWindowConstructorOptions } from 'electron'
 import type { DouyinDesktopRequest } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
@@ -16,7 +18,7 @@ const electron = await vi.hoisted(async () => {
     url = 'about:blank'
     destroyed = false
     readonly setWindowOpenHandler = vi.fn((handler: (details: { url: string }) => { action: string }) => handler)
-    readonly executeJavaScript = vi.fn(async (): Promise<unknown> => false)
+    readonly executeJavaScript = vi.fn(async (_source: string): Promise<unknown> => false)
     readonly downloadURL = vi.fn()
     readonly send = vi.fn()
     isDestroyed() { return this.destroyed }
@@ -119,4 +121,38 @@ it('closes before a queued initial navigation when the owning task is cancelled 
   await lease.close()
   expect(lease.guest.getURL()).toBe('about:blank')
   expect(lease.guest.isDestroyed()).toBe(true)
+})
+
+it.each([
+  ['visible phone sign-in', '<div class="douyin_login_new_class"><input type="tel"></div>', true],
+  ['visible QR sign-in', '<div class="douyin_login_new_class"><img aria-label="二维码"></div>', true],
+  ['visible QR alt text', '<div class="douyin_login_new_class"><img alt="二维码"></div>', true],
+  ['hidden login container', '<div class="douyin_login_new_class" style="display:none"><input type="tel"><img aria-label="二维码"></div>', false],
+  ['transparent login container', '<div class="douyin_login_new_class" style="opacity:0"><input type="tel"></div>', false],
+  ['transparent login ancestor', '<div style="opacity:0"><div class="douyin_login_new_class"><input type="tel"></div></div>', false],
+  ['hidden input in visible container', '<div class="douyin_login_new_class"><input type="tel" style="display:none"></div>', false],
+  ['transparent QR in visible container', '<div class="douyin_login_new_class"><img aria-label="二维码" style="opacity:0"></div>', false],
+  ['unrelated content in similarly named container', '<div class="douyin_login_new_class"><button>登录</button><img alt="logo"></div>', false],
+  ['ordinary login button', '<header><button>登录</button></header>', false],
+  ['existing dialog', '<div role="dialog" class="login-dialog"></div>', true],
+  ['existing challenge', '<div id="captcha_container"></div>', true],
+] as const)('detects user action from the guest DOM: %s', async (_label, html, expected) => {
+  const manager = new DesktopDouyinTaskGuests(() => 'persist:fixture', () => true, vi.fn())
+  const lease = manager.open(owner() as never, request())
+  const window = electron.Window.windows.at(-1)
+  if (window === undefined) throw new Error('Missing Main-owned task window')
+  const dom = new JSDOM(html, { url: page })
+  dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
+    x: 0, y: 0, top: 0, right: 10, bottom: 10, left: 0, width: 10, height: 10, toJSON: () => ({}),
+  })
+  window.webContents.executeJavaScript.mockImplementation(async (source): Promise<unknown> => new Script(source).runInNewContext({
+    window: dom.window, document: dom.window.document, getComputedStyle: dom.window.getComputedStyle,
+  }))
+  try {
+    await vi.advanceTimersByTimeAsync(0)
+    expect(await lease.needsUserAction()).toBe(expected)
+  } finally {
+    dom.window.close()
+    await lease.close()
+  }
 })

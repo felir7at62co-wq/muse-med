@@ -99,6 +99,16 @@ describe('ui-settings-general apply', () => {
     expect(inject).toEqual(['slots', 'locale', 'connection', 'remote', 'remote.settings', 'configForms', 'shortcuts', 'modules', 'remoteAccess'])
   })
 
+  it('registers the system DNS control only for a Muse Desktop bridge', async ({ mock, start }) => {
+    const status = vi.fn().mockResolvedValue({ saved: false, active: false })
+    vi.stubGlobal('dshDesktop', { protocolVersion: 1, productName: 'muse-med', systemDns: { status, set: vi.fn() } })
+    onTestFinished(() => { vi.unstubAllGlobals() })
+    const { c } = await client(mock, start)
+    expect(c.ctx.slots.entries('settings.general.item').filter(row => row.options.id === 'system-dns')).toHaveLength(1)
+    expect(c.ctx.slots.entries('shell.overlay').filter(row => row.options.id === 'system-dns-toast')).toHaveLength(1)
+    expect(status).toHaveBeenCalledExactlyOnceWith()
+  }, COLD_BOOT_TIMEOUT_MS)
+
   it('fills the five seats of the shell it declares, with the locale-following General label', async ({ mock, start }) => {
     const { c } = await client(mock, start)
     expect(c.ctx.locale.getSnapshot().active).toBe('zh')
@@ -110,6 +120,7 @@ describe('ui-settings-general apply', () => {
     expect(c.ctx.slots.spec('settings.general.item')).toEqual({ kind: 'list', scope: 'root' })
     // The shared developer-tool control belongs to General; onboarding remains feature-owned.
     expect(c.ctx.slots.entries('settings.general.item').filter(row => row.locale === NS).map(row => row.options.id)).toEqual(['developer-tools', 'current-version'])
+    expect(c.ctx.slots.entries('settings.general.item').find(row => row.options.id === 'system-dns')).toBeUndefined()
     expect(c.ctx.slots.entries('settings.onboarding').filter(row => row.locale === NS)).toEqual([])
     const developer = developerToolsRowOf(c)
     expect(developer.hooks.developerTools).toBe(c.ctx.configForms.developerTools.enabled)

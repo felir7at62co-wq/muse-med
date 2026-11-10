@@ -57,6 +57,18 @@ Muse Desktop 内置本地 Java 17、CPython 3.11、PyCryptodome、签名素材�
 
 内置 patch 从 `MUSE_HONGGUO_LEGACY_APP_DIR`、`MUSE_HONGGUO_JAVA_PATH` 和 `MUSE_HONGGUO_PYTHON_PATH` 读取源码、Java 和 Python 路径；`MUSE_HONGGUO_BOOTSTRAP_DEVICES=1` 为通用源码安装启用原设备生成器。Desktop 提供这些配置。媒体路径读取 `DSH_FFMPEG_PATH` / `DSH_FFPROBE_PATH`，也可用 `FFMPEG_PATH` / `FFPROBE_PATH`。独立 tarball 包含两个 Python 桥接脚本，不含 Java、原字节码、已保存的设备配置和令牌。Desktop 分发独立锁定的运行时；[SOURCE.json](SOURCE.json) 记录源码指纹及所属锁定文件。
 
+<a id="v2-local-runtime"></a>
+
+## V2 本地运行时
+
+[`V2EngineClient`](src/v2-engine.js) 为调用方指定的进程提供内部 NDJSON 通信。调用方提供进程参数、环境变量、工作目录及各项限制。它校验协议 2 启动握手，将响应与请求对应，并负责取消及进程、管道的清理。错误使用固定诊断，不包含引擎原始消息；无法确认进程退出时明确失败。
+
+设置 `legacyBackend: v2`，并提供绝对路径 `v2RuntimeDir` 和 `v2StateDir`，即可使用原版 2.0.0 引擎及正常许可服务。[准备工具](native/host/README.zh.md)编译本地宿主，从用户提供的安装包中提取已锁定哈希的原组件。Windows 直接运行 x64 .NET，Apple Silicon 通过 Rosetta 运行该运行时；Java 和媒体程序仍在本机执行。是否允许下载某部剧由原服务决定，拒绝时停止请求。
+
+Desktop 预设接收 `MUSE_HONGGUO_V2_RUNTIME_DIR` 和 `MUSE_HONGGUO_V2_STATE_DIR`。Desktop 也可读取产品目录中的私有 `hongguo-v2/active-runtime.json`，内容为 `version: 1`、`runtimeDir` 和 `stateDir`，两个目录均须为绝对路径。环境配置优先。没有指针时沿用已有后端，明确选择的安装无效时直接报错。
+
+V2 进度与 v1 分开保存，并记录已验证的运行时标识。最终 MP4 均通过现有容器、FFprobe、完整 FFmpeg 解码和 SHA256 检查。`origin: engine-output` 表示原始传输信息未知（`null`），最终文件大小和哈希仍是真实验证结果。部分选集可以成功，但 `complete` 为 `false`。失败后保留已有验证文件和 v2 进度，供相同请求续传。原源码、设备、队列和 v1 收据均保留。参见[收据迁移说明](../../../docs/upgrade-guide/v0.2.2-rc.1/hongguo-v2-receipts/guide.zh.md)。
+
 ## 开发验证
 
 在此插件目录运行 `npm test` 和 `npm run check`。运行 `python3.11 -I -B -m unittest discover -s tests -p 'test_*.py'` 检查桥接；这些测试创建独立字节码样本，不加载用户原模块，也不发送平台请求。`node scripts/pack.mjs --out /绝对输出目录` 打包当前版本。原源验收必须下载至少两部完整声明列表，并对每个请求集完整解码。在此工作区配置前述原源和运行时环境变量，将至少两个真实 ID 以逗号分隔设为 `MUSE_HONGGUO_LIVE_IDS`，再运行 `npm run test:live`；它使用真实受管子进程服务并写出 `live-evidence.json`。已保留的私有设备与新初始化的私有设备须分别验证：旧设备成功不代表新安装可用。初始化只创建本地字段，不验证平台是否接受。公开试看及授权目录测试必须与真实原源多部全集验收分别记录。
@@ -64,6 +76,8 @@ Muse Desktop 内置本地 Java 17、CPython 3.11、PyCryptodome、签名素材�
 ## 目录与原源失败
 
 `hongguo_download_info` 不查询视频模型，也不下载文件。`completeCatalog` 核对声明总集数与列表；`mediaUrlsVerified` 保持 false，`fullSeriesAvailable` 为 null，只有公开试看明确排除部分集时为 false。`accessibleEpisodeCount` 为公开播放器声明的开放集数，其他模式为 null。只有成功的 `hongguo_download` 收据才能验证请求集已下载并完整解码。
+
+显式选择 `sourceMode: 'public'` 时，受保护播放器页面可以提供集目录而不内嵌媒体地址。只有下载解析才将已开放请求集的精确 `item_id` 提交给官网 `/api/video/protected/fallback-play-info?aid=8662` 接口，不携带 Cookie、设备字段或私有签名。超过 `accessibleEpisodeCount` 的请求在媒体查询和传输前停止。业务错误、缺失地址及无效响应明确失败；上游原文与临时地址保持私密。仅有 fallback 地址不能证明分辨率或解码成功，声明列表还有其他集时，已下载试看仍为部分完成。这项公开播放器兼容不证明默认 `legacy` 原源或其全集可用。
 
 原源响应共同校验 `code`、`Code` 与 `BaseResp.StatusCode`，不能用一个零掩盖另一个非零错误码。失败只公开数字 `upstreamCode`、`sourceStage`（`catalog`、`video_model` 或 `source_api`）及 `retryable: false`。原始消息、设备值、签名响应和媒体地址保持私密。连接失败、来源响应截断、HTTP 429 和 HTTP 5xx 在原设备上按配置次数有限重试。首次即为空或再次为空、授权错误和未知业务错误立即停止，不重试或轮换设备。已正确解析过媒体模型后，空正文可在同一设备等待 `emptySourceCooldownMs` 后恢复一次，计入重试预算；可取消的等待期间保留本轮已下载文件，再次为空则结束调用并保留已验证集。可取消的排队结束后，单次媒体请求超时返回 `source_timeout`。明确的风控或限流消息沿用配置的有限重试次数；耗尽后不得立即重新提交。平台报错不能证明某剧不存在，不得将其误报为媒体地址缺失或立即重复已耗尽重试的下载。
 

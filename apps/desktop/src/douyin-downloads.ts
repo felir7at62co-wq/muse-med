@@ -52,9 +52,11 @@ interface Task {
   backgroundGuest?: DouyinTaskGuest
   readonly prepareRequestId: string
   readonly pending: Set<Promise<unknown>>
-  checkingUserAction?: boolean
+  userActionProbe?: Promise<boolean>
   userActionChecked?: boolean
   userActionDocument?: string
+  userActionEpoch: number
+  userActionNavigation?: (event: Electron.Event, url: string, inPlace: boolean, mainFrame: boolean) => void
   target?: string
   response?: { url: string; status: number } | undefined
   observedResponses?: Map<string, number>
@@ -78,6 +80,7 @@ interface Task {
 
 /** Preparation and media identification each have a separate deadline before native transfer. */
 const ASSOCIATION_MS = 120_000
+const DOWNLOAD_OPTIONS = { headers: { Referer: 'https://www.douyin.com/' } }
 
 /**
  * @param player - Private guest probe result.
@@ -194,6 +197,7 @@ export class DesktopDouyinDownloads {
           phase: 'preparing',
           prepareRequestId: request.requestId,
           pending: new Set(),
+          userActionEpoch: 0,
           timer: setTimeout(() => {
             if (this.task === task) void this.revoke('EXPIRED')
           }, ASSOCIATION_MS),
@@ -214,6 +218,13 @@ export class DesktopDouyinDownloads {
             }
             task.backgroundGuest = lease
             task.lease = lease
+            task.userActionNavigation = (_event, _url, inPlace, mainFrame) => {
+              if (this.task === task && mainFrame && !inPlace) {
+                task.userActionEpoch++
+                task.userActionChecked = false
+              }
+            }
+            lease.guest.on('did-start-navigation', task.userActionNavigation)
           } else this.open(owner, request.sessionId, request.url)
         } catch (_error) {
           void this.revoke('UI_UNAVAILABLE')
@@ -298,16 +309,8 @@ export class DesktopDouyinDownloads {
     const userActionDocument = task.backgroundGuest?.guest.getURL()
     if (task.phase === 'preparing' && task.userActionDocument !== userActionDocument) task.userActionChecked = false
     if (task.backgroundGuest !== undefined && (task.phase === 'observing' || (task.phase === 'preparing' && !task.userActionChecked))
-      && !task.checkingUserAction && !task.backgroundGuest.guest.isLoadingMainFrame()) {
-      task.checkingUserAction = true
-      this.observe(task, task.backgroundGuest.needsUserAction().then((required) => {
-        if (this.task === task && userActionDocument !== undefined
-          && task.backgroundGuest?.guest.getURL() === userActionDocument) {
-          if (required) void this.revoke('LOGIN_OR_VERIFICATION_REQUIRED')
-          else { task.userActionChecked = true; task.userActionDocument = userActionDocument }
-        }
-      }).finally(() => { task.checkingUserAction = false }), 'BROWSER_PROBE_UNAVAILABLE')
-    }
+      && task.userActionProbe === undefined && !task.checking && !task.backgroundGuest.guest.isLoadingMainFrame())
+      this.observe(task, this.checkUserAction(task), 'BROWSER_PROBE_UNAVAILABLE')
     if (task.phase === 'preparing') {
       if (task.backgroundGuest !== undefined && !task.userActionChecked) return
       // Only the new guest opened for this request may be associated by attach().
@@ -407,6 +410,39 @@ export class DesktopDouyinDownloads {
     return this.task === task && task.phase === phase
   }
 
+  private ownsSelection(task: Task, epoch: number | undefined): boolean {
+    const lease = task.lease
+    return this.isCurrent(task, 'observing') && task.documentEpoch === epoch && !task.owner.isDestroyed()
+      && this.ownerSessionMatches(task) && lease !== undefined && !lease.guest.isDestroyed()
+      && task.target !== undefined && targetVideoId(lease.guest.getURL()) === task.target
+  }
+
+  private checkUserAction(task: Task): Promise<boolean> {
+    const background = task.backgroundGuest
+    if (background === undefined) return Promise.resolve(true)
+    if (task.userActionProbe !== undefined) return task.userActionProbe
+    const guest = background.guest
+    if (guest.isDestroyed() || guest.isLoadingMainFrame()) return Promise.resolve(false)
+    const document = guest.getURL(), epoch = task.documentEpoch, actionEpoch = task.userActionEpoch, phase = task.phase
+    const current = (): boolean => this.task === task && task.phase === phase && task.documentEpoch === epoch
+      && task.userActionEpoch === actionEpoch
+      && !guest.isDestroyed() && !guest.isLoadingMainFrame() && guest.getURL() === document
+    const probe = background.needsUserAction().then((required) => {
+      if (!current()) return false
+      if (required) { void this.revoke('LOGIN_OR_VERIFICATION_REQUIRED'); return false }
+      task.userActionChecked = true
+      task.userActionDocument = document
+      return true
+    }, (_error: unknown) => {
+      if (current()) void this.revoke('BROWSER_PROBE_UNAVAILABLE')
+      return false
+    })
+    task.userActionProbe = probe
+    const clear = (): void => { if (task.userActionProbe === probe) delete task.userActionProbe }
+    void probe.then(clear, clear)
+    return probe
+  }
+
   private beginTransfer(task: Task): void {
     clearTimeout(task.timer)
     task.phase = 'downloading'
@@ -422,10 +458,9 @@ export class DesktopDouyinDownloads {
     const epoch = task.documentEpoch
     let failureCode = 'UNSUPPORTED_MEDIA_ASSOCIATION'
     try {
+      if (task.backgroundGuest !== undefined && !(await this.checkUserAction(task))) return
       const player: unknown = await task.lease.guest.executeJavaScript(DOUYIN_PLAYER_PROBE)
-      if (!this.isCurrent(task, 'observing') || task.documentEpoch !== epoch || task.owner.isDestroyed()
-        || !this.ownerSessionMatches(task) || task.lease.guest.isDestroyed()
-        || targetVideoId(task.lease.guest.getURL()) !== task.target) return
+      if (!this.ownsSelection(task, epoch)) return
       if (typeof player !== 'object' || player === null) return
       const facts = player as Record<string, unknown>
       if ('unsupported' in facts) {
@@ -439,13 +474,14 @@ export class DesktopDouyinDownloads {
         const metadata = playerMetadata(facts, task.target, task.lease.guest.getURL())
         if (metadata === undefined || typeof facts.src !== 'string') return
         failureCode = 'MEDIA_DNS_UNAVAILABLE'
-        if (!(await this.publicHost(facts.src, task.lease.guest))) {
+        const publicAddress = await this.publicHost(facts.src, task.lease.guest)
+        if (!this.ownsSelection(task, epoch) || task.target !== metadata.targetVideoId) return
+        if (!publicAddress) {
           void this.revoke('PRIVATE_MEDIA_ADDRESS')
           return
         }
-        if (!this.isCurrent(task, 'observing') || task.documentEpoch !== 1 || task.owner.isDestroyed()
-          || !this.ownerSessionMatches(task) || task.lease.guest.isDestroyed()
-          || targetVideoId(task.lease.guest.getURL()) !== metadata.targetVideoId) return
+        if (task.backgroundGuest !== undefined && !(await this.checkUserAction(task))) return
+        if (!this.ownsSelection(task, epoch) || task.target !== metadata.targetVideoId) return
         failureCode = 'MEDIA_STAGING_UNAVAILABLE'
         task.directory = stagingDirectory(task.request.cwd, task.request.taskId)
         task.playerMetadata = metadata
@@ -454,21 +490,23 @@ export class DesktopDouyinDownloads {
         this.beginTransfer(task)
         task.providerResponses?.close()
         failureCode = 'NATIVE_DOWNLOAD_UNAVAILABLE'
-        task.lease.guest.downloadURL(facts.src)
+        task.lease.guest.downloadURL(facts.src, DOWNLOAD_OPTIONS)
         return
       }
       if (facts.association !== undefined || facts.id !== task.target || typeof facts.src !== 'string') return
       const status = task.observedResponses?.get(facts.src)
       if (status === undefined) return
+      if (task.backgroundGuest !== undefined && !(await this.checkUserAction(task))) return
+      if (!this.ownsSelection(task, epoch)) return
       task.response = { url: facts.src, status }
       task.directory = stagingDirectory(task.request.cwd, task.request.taskId)
       task.selectedURL = facts.src
       task.association = 'player-exact'
       this.beginTransfer(task)
       task.providerResponses?.close()
-      task.lease.guest.downloadURL(facts.src)
+      task.lease.guest.downloadURL(facts.src, DOWNLOAD_OPTIONS)
     } catch (_error) {
-      if (this.task === task) void this.revoke(failureCode)
+      if (this.ownsSelection(task, epoch) || this.isCurrent(task, 'downloading')) void this.revoke(failureCode)
     } finally {
       task.checking = false
     }
@@ -482,13 +520,9 @@ export class DesktopDouyinDownloads {
       epoch = task.documentEpoch
     let failureCode = 'PLAYER_PROBE_UNAVAILABLE'
     try {
+      if (task.backgroundGuest !== undefined && !(await this.checkUserAction(task))) return
       const player: unknown = await task.lease.guest.executeJavaScript(PROVIDER_PLAYER_PROBE)
-      if (
-        !this.isCurrent(task, 'observing') ||
-        task.documentEpoch !== epoch ||
-        source.documentEpoch !== epoch ||
-        targetVideoId(task.lease.guest.getURL()) !== source.targetVideoId
-      )
+      if (!this.ownsSelection(task, epoch) || source.documentEpoch !== epoch || task.target !== source.targetVideoId)
         return
       if (typeof player !== 'object' || player === null) return
       const facts = player as Record<string, unknown>
@@ -506,18 +540,14 @@ export class DesktopDouyinDownloads {
       const url = typeof facts.src === 'string' && source.urls.includes(facts.src) ? facts.src : source.urls[0]
       if (url === undefined) return
       failureCode = 'MEDIA_DNS_UNAVAILABLE'
-      if (!(await this.publicHost(url, task.lease.guest))) {
+      const publicAddress = await this.publicHost(url, task.lease.guest)
+      if (!this.ownsSelection(task, epoch) || task.target !== source.targetVideoId) return
+      if (!publicAddress) {
         void this.revoke('PRIVATE_MEDIA_ADDRESS')
         return
       }
-      if (
-        !this.isCurrent(task, 'observing') ||
-        task.documentEpoch !== epoch ||
-        !this.ownerSessionMatches(task) ||
-        task.lease.guest.isDestroyed() ||
-        targetVideoId(task.lease.guest.getURL()) !== source.targetVideoId
-      )
-        return
+      if (task.backgroundGuest !== undefined && !(await this.checkUserAction(task))) return
+      if (!this.ownsSelection(task, epoch) || task.target !== source.targetVideoId) return
       failureCode = 'MEDIA_STAGING_UNAVAILABLE'
       task.directory = stagingDirectory(task.request.cwd, task.request.taskId)
       task.selectedURL = url
@@ -525,9 +555,9 @@ export class DesktopDouyinDownloads {
       this.beginTransfer(task)
       task.providerResponses?.close()
       failureCode = 'NATIVE_DOWNLOAD_UNAVAILABLE'
-      task.lease.guest.downloadURL(url)
+      task.lease.guest.downloadURL(url, DOWNLOAD_OPTIONS)
     } catch (_error) {
-      if (this.task === task) void this.revoke(failureCode)
+      if (this.ownsSelection(task, epoch) || this.isCurrent(task, 'downloading')) void this.revoke(failureCode)
     } finally {
       task.checking = false
     }
@@ -724,6 +754,8 @@ export class DesktopDouyinDownloads {
     task.providerResponses?.close()
     if (task.navigation !== undefined && !task.lease?.guest.isDestroyed())
       task.lease?.guest.removeListener('did-start-navigation', task.navigation)
+    if (task.userActionNavigation !== undefined && !task.backgroundGuest?.guest.isDestroyed())
+      task.backgroundGuest?.guest.removeListener('did-start-navigation', task.userActionNavigation)
     const reply = task.reply
     task.reply = undefined
     reply?.({ type: 'douyin-browser-result', requestId: task.request.requestId, code })

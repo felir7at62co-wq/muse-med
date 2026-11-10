@@ -156,6 +156,96 @@ test('foreground fallback forwards independent bounds and preserves verified nat
   assert.equal(value.status, 'downloaded');
 });
 
+test('unsupported public share data falls back to the selected work in the foreground', async t => {
+  const nativeId = 'a1234567-1234-1234-1234-123456789abc';
+  let calls = 0;
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: The official share page returned unsupported video data.' }), browser: {
+    version: 4, async download(agent, url, signal, bytes, timeout, options) {
+      calls++;
+      assert.equal(url, input.url); assert.equal(signal.aborted, false);
+      assert.equal(bytes, settings.maxDownloadBytes); assert.equal(timeout, settings.nativeTimeoutMs); assert.equal(options, undefined);
+      return mediaReceipt(agent, url, { taskId: nativeId, targetVideoId: url.split('/').at(-1) });
+    },
+  } });
+  const value = await h.execute({ url: input.url });
+  assert.equal(calls, 1);
+  assert.equal(value.status, 'downloaded');
+  assert.equal(value.taskId, nativeId);
+  assert.equal(value.downloadTask.state, 'completed');
+});
+
+test('unsupported public share data uses the owned background browser and retains its verified receipt', async t => {
+  const nativeId = 'a1234567-1234-1234-1234-123456789abc';
+  let calls = 0;
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: unsupported video data' }), browser: {
+    version: 4, supportsBackgroundDownload: true, async download(agent, url, signal, bytes, timeout, options) {
+      calls++;
+      assert.equal(url, input.url); assert.equal(signal.aborted, false);
+      assert.equal(bytes, settings.maxDownloadBytes); assert.equal(timeout, settings.nativeTimeoutMs); assert.deepEqual(options, { background: true });
+      return mediaReceipt(agent, url, { taskId: nativeId, targetVideoId: url.split('/').at(-1) });
+    },
+  } });
+  const accepted = await h.execute({ url: input.url, mode: 'background' });
+  assert.equal(accepted.status, 'queued');
+  await h.ctx.jobs.wait(accepted.downloadTask.jobId, 30000, h.owner.agent.id);
+  const value = await h.ctx.agents.withInitiator(h.owner.agent, () => h.tools.get('douyin_download_task').execute({ action: 'status', taskId: accepted.downloadTask.id }, {}));
+  assert.equal(calls, 1);
+  assert.equal(value.downloadTask.state, 'completed');
+  assert.equal(value.task.items[0].result.taskId, nativeId);
+  assert.equal(value.task.items[0].result.full_decode_verified, true);
+});
+
+test('public-only does not use a browser when the share data is unsupported', async t => {
+  let calls = 0;
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: unsupported video data' }), browser: {
+    version: 4, download() { calls++; throw new Error('public-only cannot open the browser'); },
+  } });
+  const value = await h.execute(input);
+  assert.equal(value.status, 'blocked');
+  assert.equal(value.downloadTask.state, 'waiting_source');
+  assert.equal(calls, 0);
+});
+
+test('unsupported public share data reports the missing Desktop Host', async t => {
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: unsupported video data' }) });
+  const value = await h.execute({ url: input.url });
+  assert.equal(value.status, 'blocked');
+  assert.equal(value.code, 'DESKTOP_HOST_REQUIRED');
+});
+
+test('unsupported public share data preserves browser login requirements', async t => {
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: unsupported video data' }), browser: {
+    version: 4, download: async () => ({ status: 'blocked', code: 'LOGIN_OR_VERIFICATION_REQUIRED' }),
+  } });
+  const value = await h.execute({ url: input.url });
+  assert.equal(value.status, 'blocked');
+  assert.equal(value.code, 'LOGIN_OR_VERIFICATION_REQUIRED');
+  assert.equal(value.downloadTask.state, 'waiting_user');
+});
+
+test('local media and filesystem failures do not open a browser', async t => {
+  for (const message of ['The video exceeded the configured download size limit.', 'The downloaded file did not pass the video readability check.', 'The output directory is unavailable.', 'The output filename contains PUBLIC_SHARE_DATA_INVALID.']) {
+    let calls = 0;
+    const h = await registered(t, { result: () => ({ status: 'blocked', message }), browser: {
+      version: 4, download() { calls++; throw new Error('local failures cannot open the browser'); },
+    } });
+    const value = await h.execute({ url: input.url });
+    assert.equal(value.status, 'blocked');
+    assert.equal(calls, 0);
+  }
+});
+
+test('unsupported share data cannot certify a browser result for a different work', async t => {
+  const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: unsupported video data' }), browser: {
+    version: 4, async download(agent, url) {
+      return mediaReceipt(agent, url, { targetVideoId: '7100000000000000001' });
+    },
+  } });
+  const value = await h.execute({ url: input.url });
+  assert.notEqual(value.status, 'downloaded');
+  assert.notEqual(value.downloadTask.state, 'completed');
+});
+
 for (const version of [1, 2, 3]) test(`browser acquisition version ${version} stays blocked`, async t => {
   let nativeCalls = 0;
   const h = await registered(t, { result: () => ({ status: 'blocked', message: 'ACCESS_RESTRICTED' }), browser: { version, download() { nativeCalls++; throw new Error('must not run'); } } });

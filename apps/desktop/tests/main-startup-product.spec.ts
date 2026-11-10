@@ -311,6 +311,7 @@ const hongguo = vi.hoisted(() => ({
   prepare: vi.fn<typeof import('../src/hongguo-runtime.ts').prepareDesktopHongguoEnvironment>(),
 }))
 vi.mock('../src/hongguo-runtime.ts', () => ({ prepareDesktopHongguoEnvironment: hongguo.prepare }))
+vi.mock('../src/hongguo-v2-environment.ts', () => ({ prepareDesktopHongguoV2Environment: vi.fn(async () => ({})) }))
 vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/login-shell-environment.ts')>(),
   readDesktopLoginShellEnvironment: async (environment: NodeJS.ProcessEnv) => ({ environment, failures: [] }),

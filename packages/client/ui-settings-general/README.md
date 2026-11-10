@@ -53,6 +53,8 @@ The Coding Tools switch controls the shared `ui-settings.enabled` preference des
 
 The General section holds the built-in Coding Tools and Current version rows alongside rows registered into `settings.general.item` by feature packages. Each registrant owns its row copy and behavior. The Appearance row, for example, lives in ui-theme.
 
+Muse Desktop exposes a system DNS compatibility row when its native bridge is available. The row shows a verified saved value after a failed write, reports an unknown outcome until it can retry the read, and indicates when a restart is required. [Desktop settings](../../../apps/desktop/README.md#local-desktop-settings) define the resolver behavior and persistence.
+
 ### Opening the configuration file
 
 On a loopback browser, the shell renders **Open configuration file** only when the Host confirms that a provider-owned local document can be prepared. The action opens that document in the native text editor (bypassing the browser file association on macOS). Remote browsers never register this native-open action, including on configured public deployments; their preferences persist through the Host settings service.

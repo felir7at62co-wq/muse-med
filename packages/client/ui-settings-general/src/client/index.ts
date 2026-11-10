@@ -40,6 +40,8 @@ import { CloseLabel, HeaderContent, TriggerContent } from './chrome.tsx'
 import { GeneralSection } from './GeneralSection.tsx'
 import { CurrentVersionRow } from './CurrentVersionRow.tsx'
 import { DeveloperToolsRow, type DeveloperToolsRowInjected } from './DeveloperToolsRow.tsx'
+import { SystemDnsRow, SystemDnsToast, type SystemDnsInjected } from './SystemDnsRow.tsx'
+import { SystemDnsSource, type SystemDnsBridge } from './system-dns-source.ts'
 import { SettingsDocumentAction } from './SettingsDocumentAction.tsx'
 import type { SettingsDocumentActionInjected } from './SettingsDocumentAction.tsx'
 import { SettingsDocumentStore } from './settings-document-store.ts'
@@ -101,7 +103,28 @@ export function apply(ctx: ClientContext): void {
   }, CurrentVersionRow))
   ctx.effect(() => ctx.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'ui-settings-general: dictionaries')
   const connection = ctx.get('connection') as ConnectionHandle
-  const carrier = (globalThis as typeof globalThis & { dshDesktop?: { protocolVersion: number; updates?: DesktopUpdateBridge } }).dshDesktop
+  const carrier = (globalThis as typeof globalThis & { dshDesktop?: {
+    protocolVersion: number
+    productName?: string
+    updates?: DesktopUpdateBridge
+    systemDns?: SystemDnsBridge
+  } }).dshDesktop
+  if (carrier?.protocolVersion === 1 && carrier.productName === 'muse-med' && carrier.systemDns !== undefined) {
+    const source = new SystemDnsSource(carrier.systemDns)
+    const face = (): SystemDnsInjected => ({
+      hooks: { systemDns: source.store },
+      setEnabled: enabled => source.set(enabled),
+      reload: () => source.load(),
+      dismiss: () => { source.dismiss() },
+    })
+    ctx.effect(() => () => { source.dispose() }, 'ui-settings-general: system DNS carrier')
+    ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+      name: 'settings.general.item', id: 'system-dns', order: 17, locale: NS, inject: face,
+    }, SystemDnsRow))
+    ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+      name: 'shell.overlay', id: 'system-dns-toast', locale: NS, inject: face,
+    }, SystemDnsToast))
+  }
   const desktopUpdate = new DesktopUpdateSource(carrier?.protocolVersion === 1 ? carrier.updates : undefined)
   ctx.effect(() => () => { desktopUpdate.dispose() }, 'ui-settings-general: desktop update carrier')
   ctx.slots.inject('sidebar.toggle.badge', () => ctx.slots.register({

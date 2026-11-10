@@ -54,6 +54,8 @@ export const DESKTOP_IPC = {
   fileDragStart: 'dsh-desktop:file-drag-start',
   fileDragRelease: 'dsh-desktop:file-drag-release',
   deviceInfo: 'dsh-desktop:device-info',
+  systemDnsStatus: 'dsh-desktop:system-dns-status',
+  systemDnsSet: 'dsh-desktop:system-dns-set',
   localeBootstrap: 'dsh-desktop:locale-bootstrap',
   localeChanged: 'dsh-desktop:locale-changed',
   updatesStatus: 'dsh-desktop:updates-status',
@@ -101,6 +103,12 @@ export interface DesktopUpdatePresentation {
   readonly failure?: DesktopUpdateFailureKind
 }
 
+/** DNS preference saved for the next launch and the value active in this process. */
+export interface DesktopSystemDnsPreference { readonly saved: boolean; readonly active: boolean }
+
+/** A failed write can be verified against disk or remain unknown. */
+export type DesktopSystemDnsSetResult = DesktopSystemDnsPreference & { readonly saveFailed?: true } | { readonly unknown: true }
+
 /** Product documents cannot supply update versions, package URLs, or installation authorization. */
 export interface DshDesktopProductApi {
   readonly fileActions: DesktopFileActions
@@ -111,6 +119,11 @@ export interface DshDesktopProductApi {
   readonly fileDrag: DesktopFileDrag
   readonly keyboard: DesktopKeyboardApi
   readonly shortcuts: DesktopShortcutsApi
+  /** Device-local DNS preference; saved changes take effect after restarting Desktop. */
+  readonly systemDns: {
+    status(): Promise<DesktopSystemDnsPreference>
+    set(enabled: boolean): Promise<DesktopSystemDnsSetResult>
+  }
   /**
    * Local machine description for the feedback questionnaire.
    * @returns `name=value` fields separated by `; `, with no hostname, user name, or serial number.

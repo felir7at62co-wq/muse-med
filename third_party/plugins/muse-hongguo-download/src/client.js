@@ -7,12 +7,13 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { resolveConfig } from './config.js';
 import { DownloadError, safeError } from './errors.js';
 import { checkedUrl, officialRequest } from './network.js';
-import { ORIGIN, parsePlayer, seriesId, episodeNumber } from './parser.js';
+import { ORIGIN, parsePlayer, parsePublicPlayback, seriesId, episodeNumber } from './parser.js';
 import { responseBytes, SourceCatalog } from './source.js';
 import { ManifestCatalog } from './manifest.js';
 import { validateMp4 } from './media.js';
 import { createDeviceBootstrap, createMediaProcessor } from './runtime.js';
 import { LocalSigner } from './signer.js';
+import { V2DownloadClient } from './v2-download.js';
 import { transferMedia } from './transfer.js';
 import { DownloadCheckpoint, discoverReceipts, reusableSeries, verifiedEpisode } from './checkpoint.js';
 
@@ -110,6 +111,7 @@ export class HongguoDownloadClient {
     this.signer = !dependencies.source && !this.config.signServer ? new LocalSigner(dependencies.subprocess, this.config) : null;
     this.source = dependencies.source ?? new SourceCatalog(this.config, { request: this.request, sign: dependencies.sign, signer: this.signer, bootstrap: this.bootstrap });
     this.processMedia = dependencies.processMedia ?? (dependencies.subprocess ? createMediaProcessor(dependencies.subprocess, this.config) : null);
+    this.v2 = this.config.legacyBackend === 'v2' ? new V2DownloadClient(this.config, { subprocess: dependencies.subprocess, processMedia: this.processMedia }) : null;
     this.manifest = new ManifestCatalog(this.config);
     this.lifetime = new AbortController();
     this.pending = new Set();
@@ -119,6 +121,7 @@ export class HongguoDownloadClient {
   async dispose() {
     this.lifetime.abort();
     await Promise.allSettled([...this.pending]);
+    await this.v2?.dispose();
     await this.signer?.dispose();
     await this.bootstrap?.dispose();
   }
@@ -137,11 +140,12 @@ export class HongguoDownloadClient {
     return work;
   }
 
-  async player(id, episode, signal) {
+  async player(id, episode, signal, options) {
     const active = AbortSignal.any([signal, AbortSignal.timeout(this.config.requestTimeoutMs)]);
-    const response = await this.request(`${ORIGIN}/player/${id}${episode === 1 ? '' : `/${episode}`}`, 'page', active);
+    const suffix = episode === 1 ? '' : `/${encodeURIComponent(options?.itemId ?? episode)}`;
+    const response = await this.request(`${ORIGIN}/player/${id}${suffix}`, 'page', active);
     const html = (await responseBytes(response, this.config.maxResponseBytes, active)).toString('utf8');
-    try { return parsePlayer(html, id, episode); }
+    try { return parsePlayer(html, id, episode, options); }
     catch (error) { throw new DownloadError('invalid_player', '官网没有返回请求集的有效播放器数据'); }
   }
 
@@ -149,7 +153,7 @@ export class HongguoDownloadClient {
     const active = AbortSignal.any([signal, AbortSignal.timeout(this.config.requestTimeoutMs)]);
     if (mode === 'legacy') return this.source.episodes(id, active);
     if (mode === 'manifest') return this.manifest.episodes(id);
-    const { info, vids } = await this.player(id, 1, active);
+    const { info, vids } = await this.player(id, 1, active, { metadataOnly: true });
     return { seriesId: id, title: info.title, episodeCount: info.episodeCount, source: 'official-public-player',
       accessibleEpisodeCount: info.accessibleEpisodeCount, episodes: vids.map((vid, position) => ({ index: position + 1, vid, title: `第 ${position + 1} 集`, durationSeconds: null })) };
   }
@@ -158,6 +162,7 @@ export class HongguoDownloadClient {
   info(args, signal) {
     return this.run(signal, async active => {
       const options = argumentsFor(args, this.config, false), items = [];
+      if (options.mode === 'legacy' && this.v2) return this.v2.info(options, active);
       for (const id of options.seriesIds) {
         const catalog = await this.catalog(id, options.mode, active);
         items.push({ seriesId: id, title: catalog.title, source: catalog.source, episodeCount: catalog.episodeCount,
@@ -176,12 +181,35 @@ export class HongguoDownloadClient {
     if (mode === 'manifest') return new Map(batch.map(episode => [episode.vid, { url: episode.url, expectedBytes: episode.expectedBytes, sha256: episode.sha256 }]));
     const result = new Map();
     for (const episode of batch) {
-      const player = await this.player(catalog.seriesId, episode.index, signal);
-      if (!player.mediaUrl) throw new DownloadError('public_preview_only', '官网没有开放请求集；试看不算全剧下载');
+      const player = await this.player(catalog.seriesId, episode.index, signal, { itemId: episode.vid });
+      if (player.info.episodeCount !== catalog.episodeCount || player.vids[episode.index - 1] !== episode.vid) {
+        throw new DownloadError('invalid_player', '官网目录或播放集在下载前已变化，请重新读取目录；没有下载其他集');
+      }
+      if (!player.info.publicPlaybackAvailable) throw new DownloadError('public_preview_only', '官网没有开放请求集；试看不算全剧下载');
+      const url = player.publicFallback ? await this.publicPlayback(player.publicFallback.itemId, signal) : player.mediaUrl;
+      if (!url) throw new DownloadError('public_preview_only', '官网没有开放请求集；试看不算全剧下载');
+      checkedUrl(url, 'media', this.config.mediaHosts, this.config.mediaPorts);
       episode.durationSeconds = player.info.durationSeconds;
-      result.set(episode.vid, { url: player.mediaUrl, expectedBytes: null, sha256: null, headers: { referer: `${ORIGIN}/` } });
+      result.set(episode.vid, { url, expectedBytes: null, sha256: null, headers: { referer: `${ORIGIN}/` } });
     }
     return result;
+  }
+
+  /** Resolve only a directory-matched open episode through the ordinary anonymous compatibility endpoint. */
+  async publicPlayback(itemId, signal) {
+    const active = AbortSignal.any([signal, AbortSignal.timeout(this.config.requestTimeoutMs)]);
+    const body = Buffer.from(JSON.stringify({ item_id: itemId }));
+    const response = await this.request(`${ORIGIN}/api/video/protected/fallback-play-info?aid=8662`, 'page', active,
+      { method: 'POST', body, headers: { 'content-type': 'application/json', 'content-length': body.length,
+        accept: 'application/json', 'x-xs-from-web': '1' } });
+    const httpStatus = response.statusCode;
+    const bytes = await responseBytes(response, this.config.maxResponseBytes, active);
+    const details = { sourceStage: 'video_model', retryable: false, httpStatus, responseBytes: bytes.length };
+    if (bytes.length === 0) throw new DownloadError('empty_source_response', '官网兼容播放返回空正文；未确认媒体可用，请勿立即重复请求', details);
+    let value;
+    try { value = JSON.parse(bytes.toString('utf8')); }
+    catch (error) { if (active.aborted) throw error; throw new DownloadError('platform_json', '官网兼容播放返回无效 JSON；没有取得媒体地址', details); }
+    return parsePublicPlayback(value, itemId);
   }
 
   async saveEpisode(media, path, signal, workspace, refresh) {
@@ -242,6 +270,10 @@ export class HongguoDownloadClient {
     return this.run(signal, async active => {
       const options = argumentsFor(args, this.config, true), plans = [];
       const output = await outputDirectory(workspace ?? this.config.outputRoot, options.outputDir, filePolicy);
+      if (options.mode === 'legacy' && this.v2) {
+        await output.create(); active.throwIfAborted();
+        return this.v2.download({ ...options, outputDir: output.path }, active, workspace ?? this.config.outputRoot, filePolicy);
+      }
       const manifestCatalogs = options.mode === 'manifest' ? await this.manifest.load() : null;
       const sourceIdentity = manifestCatalogs ? createHash('sha256').update(JSON.stringify(manifestCatalogs)).digest('hex') : null;
       const checkpoint = new DownloadCheckpoint(output.path, { ...options, sourceIdentity }, this.config);

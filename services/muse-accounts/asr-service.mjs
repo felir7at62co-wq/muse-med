@@ -67,7 +67,7 @@ export function createAsrService(options){
  if(!Number.isSafeInteger(queryBackoffMaxMs)||queryBackoffMaxMs<pollIntervalMs||queryBackoffMaxMs>86400000||!Number.isSafeInteger(queryBlockedRetryMs)||queryBlockedRetryMs<queryBackoffMaxMs||queryBlockedRetryMs>86400000)throw Error('Invalid ASR query retry configuration');
  if(pool.resources.every(row=>row.serviceVersion==='flash')&&(maxDurationSeconds>7200||maxAudioBytes>100_000_000))throw Error('Invalid ASR provider configuration');
  const jobs=join(root,'jobs'),audio=join(root,'audio'),active=new Map(),waiting=[],workers=new Map(),sweeps=new Set(),expiring=new Map();
- const accountTails=new Map(),fileTails=new Map(),rateTails=new Map(),nextRequestAt=new Map(),queryGroupCooldownUntil=new Map(),queryAppCooldownUntil=new Map(),shutdown=new AbortController();let reservationTail=Promise.resolve(),lastAccount,started=autoStart;
+ const accountTails=new Map(),fileTails=new Map(),rateTails=new Map(),nextRequestAt=new Map(),queryGroupCooldownUntil=new Map(),queryAppCooldownUntil=new Map(),shutdown=new AbortController(),ledger=new Map();let reservationTail=Promise.resolve(),lastAccount,started=autoStart,ledgerReady=false;
  const queueFullSinceStart=new Map(['occupied_total','waiting_capacity'].map(category=>[category,{category,count:0,lastSeenAt:null}])),startedAt=now();
  let workerFailure,closing=false;
  const jobKey=job=>job.account+'\0'+job.id;
@@ -104,10 +104,16 @@ export function createAsrService(options){
   const prior=fileTails.get(target)??Promise.resolve(),pending=prior.then(operation),tail=pending.then(()=>{},()=>{});fileTails.set(target,tail);
   try{return await pending;}finally{if(fileTails.get(target)===tail)fileTails.delete(target);}
  }
- async function readTarget(target){return await fileOperation(target,async()=>{try{return JSON.parse(await readFile(target,'utf8'));}catch(error){if(error.code==='ENOENT')return null;throw error;}});}
+ function ledgerRow(job){
+  const {account,id,day,duration,status,poolId,appId,quotaGroup,serviceVersion,resourceId,providerKind,purpose,submittedAtMs,reservedAtMs,objectStagedAt,cleanupPending,retentionExpired}=job;
+  return {account,id,day,duration,status,poolId,appId,quotaGroup,serviceVersion,resourceId,providerKind,purpose,submittedAtMs,reservedAtMs,objectStagedAt,cleanupPending,retentionExpired};
+ }
+ async function readTarget(target){return await fileOperation(target,async()=>{try{const job=JSON.parse(await readFile(target,'utf8'));if(ledgerReady){if(job)ledger.set(target,ledgerRow(job));else ledger.delete(target);}return job;}catch(error){if(error.code==='ENOENT'){if(ledgerReady)ledger.delete(target);return null;}throw error;}});}
  async function read(account,key){return await readTarget(path(account,key));}
- async function save(account,key,job){const target=path(account,key),body=JSON.stringify(job)+'\n';await fileOperation(target,async()=>{const staged=target+'.'+randomUUID()+'.tmp';try{await writeFile(staged,body,{mode:0o600});await rename(staged,target);}finally{await rm(staged,{force:true});}});}
- async function entries(){const result=[];for(const name of await readdir(jobs)){if(name.endsWith('.json')){const job=await readTarget(join(jobs,name));if(job)result.push(job);}}return result;}
+ async function save(account,key,job){const target=path(account,key),body=JSON.stringify(job)+'\n';await fileOperation(target,async()=>{const staged=target+'.'+randomUUID()+'.tmp';try{await writeFile(staged,body,{mode:0o600});await rename(staged,target);if(ledgerReady)ledger.set(target,ledgerRow(JSON.parse(body)));}finally{await rm(staged,{force:true});}});}
+ async function scanEntries(){const result=[];for(const name of await readdir(jobs)){if(name.endsWith('.json')){const target=join(jobs,name),job=await readTarget(target);if(job)result.push({target,job});}}return result;}
+ // Rows are replaced after a durable write; consumers may only change the returned array.
+ function entries(){return [...ledger.values()];}
  async function reserve(job,existing){
   const prior=reservationTail;
   const pending=(async()=>{
@@ -323,22 +329,25 @@ export function createAsrService(options){
   }
  }
  function dispatch(){
-  const pending=reservationTail.then(async()=>{if(!closing)await dispatchReady(await entries());});
+  const pending=reservationTail.then(async()=>{if(!closing&&waiting.length)await dispatchReady(entries());});
   reservationTail=pending.catch(error=>{workerFailure=error;});
   return pending;
  }
  const initialized=(async()=>{
   await mkdir(jobs,{recursive:true,mode:0o700});await mkdir(audio,{recursive:true,mode:0o700});
-  const persisted=await entries();
+  const scanned=await scanEntries(),persisted=scanned.map(row=>row.job);
   const legacyJobs=persisted.filter(job=>job.poolId===undefined&&job.appId===undefined&&job.quotaGroup===undefined);
+  const legacySet=new Set(legacyJobs);
   const legacyResource=resources.get(pool.defaultPoolId);
   if(legacyJobs.length&&(!pool.legacyAppId||pool.legacyAppId!==legacyResource.appId))throw Error('Legacy ASR application must match the retained default resource');
   for(const job of persisted){
    resourceOf(job);if(job.providerKind!=='flash'&&(job.storageKind??'tos')!==storageKind)throw Error('ASR receipt storage provider has changed');
    if(job.queryRetry!==undefined){if(!Number.isSafeInteger(job.queryRetry?.count)||job.queryRetry.count<1||job.queryRetry.count>32||!Number.isSafeInteger(job.queryRetry?.nextAttemptAtMs)||job.queryRetry.nextAttemptAtMs<0)throw Error('Invalid ASR query retry receipt');rememberQueryCooldown(job);}
   }
+  for(const {target,job} of scanned)ledger.set(target,ledgerRow(job));
+  ledgerReady=true;
   for(const job of persisted){
-   if(legacyJobs.includes(job)||job.serviceVersion===undefined||job.resourceId===undefined){const resource=resourceOf(job);Object.assign(job,{poolId:resource.poolId,appId:resource.appId,quotaGroup:resource.quotaGroup,serviceVersion:resource.serviceVersion,resourceId:resource.resourceId});await save(job.account,job.id,job);}
+   if(legacySet.has(job)||job.serviceVersion===undefined||job.resourceId===undefined){const resource=resourceOf(job);Object.assign(job,{poolId:resource.poolId,appId:resource.appId,quotaGroup:resource.quotaGroup,serviceVersion:resource.serviceVersion,resourceId:resource.resourceId});await save(job.account,job.id,job);}
   }
   for(const job of persisted){
    if(job.status==='queued'&&job.submittedAtMs!==undefined){job.status='uncertain';await save(job.account,job.id,job);}
@@ -448,11 +457,16 @@ export function createAsrService(options){
    if(closing)return;
    const pending=(async()=>{
     await initialized;
+    const seen=new Set();
     for(const name of await readdir(jobs).catch(error=>error.code==='ENOENT'?[]:Promise.reject(error))){
      if(!name.endsWith('.json'))continue;
-     const job=await readTarget(join(jobs,name));if(!job)continue;
-     await expire(job);
+     const target=join(jobs,name);seen.add(target);
+     const job=await readTarget(target);if(!job)continue;
+     const expired=Number.isFinite(job.objectStagedAt)&&now()-job.objectStagedAt>=retentionSeconds*1000;
+     if(job.cleanupPending||expired&&(!job.retentionExpired&&!['complete','silent','failed'].includes(job.status)
+      ||job.status==='queued'&&job.submittedAtMs===undefined&&waiting.some(entry=>jobKey(entry)===jobKey(job))))await expire(job);
     }
+    for(const target of ledger.keys())if(!seen.has(target))await readTarget(target);
    })();
    sweeps.add(pending);try{await pending;}finally{sweeps.delete(pending);}
   },

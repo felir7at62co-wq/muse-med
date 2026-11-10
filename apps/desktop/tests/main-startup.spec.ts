@@ -189,6 +189,7 @@ const harness = await vi.hoisted(async () => {
     setName: vi.fn(),
     setPath: vi.fn(),
     commandLine: { hasSwitch: () => true },
+    configureHostResolver: vi.fn(),
     whenReady: () => Promise.resolve(),
     getLocale: (): string => 'en-US',
     getPreferredSystemLanguages: () => ['en-US'],
@@ -492,6 +493,32 @@ afterEach(async () => {
 afterAll(() => { rmSync(harness.app.getAppPath(), { recursive: true, force: true }) })
 
 describe('desktop main startup', () => {
+  it.each([false, true])('applies the saved system resolver opt-in at startup: %s', async (enabled) => {
+    const directory = join(harness.app.getPath('userData'), 'desktop')
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(join(directory, 'settings.json'), JSON.stringify({ network: { useSystemResolver: enabled } }))
+    await readyForUpdate()
+    if (enabled) expect(harness.app.configureHostResolver).toHaveBeenCalledExactlyOnceWith({ enableBuiltInResolver: false })
+    else expect(harness.app.configureHostResolver).not.toHaveBeenCalled()
+  })
+
+  it('limits DNS setting changes to the owned product frame and applies them on next launch', async () => {
+    await readyForUpdate()
+    const sender = harness.windows[0]!.webContents
+    const status = harness.handlers.get(DESKTOP_IPC.systemDnsStatus)!
+    const set = harness.handlers.get(DESKTOP_IPC.systemDnsSet)!
+    const owned = { sender, senderFrame: sender.mainFrame }
+    const unowned = { sender: {}, senderFrame: sender.mainFrame }
+    expect(() => status(unowned)).toThrow('unowned renderer')
+    expect(() => set(unowned, true)).toThrow('unowned renderer')
+    expect(() => set(owned, 'true')).toThrow()
+    expect(await status(owned)).toEqual({ saved: false, active: false })
+    expect(await set(owned, true)).toEqual({ saved: true, active: false })
+    expect(await status(owned)).toEqual({ saved: true, active: false })
+    expect(harness.app.configureHostResolver).not.toHaveBeenCalled()
+    expect(await set(owned, false)).toEqual({ saved: false, active: false })
+  })
+
   it.each([true, false])('selects the package manager before Host startup (packaged=%s)', async (packaged) => {
     harness.app.isPackaged = packaged
     await readyForUpdate()
@@ -514,6 +541,7 @@ describe('desktop main startup', () => {
     writeFileSync(path, raw)
     await readyForUpdate()
     expect(harness.hosts).toHaveLength(1)
+    expect(harness.app.configureHostResolver).not.toHaveBeenCalled()
     expect(testAuth.login).not.toHaveBeenCalled()
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining(path), expect.any(Error))
     expect(harness.dialog.showMessageBox).not.toHaveBeenCalledWith(expect.objectContaining({ title: en.startupFailed }))

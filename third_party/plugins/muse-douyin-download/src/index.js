@@ -2,6 +2,7 @@
 import { downloadCommand, resolveConfig, runDownloader, runtimeUnavailable } from './runner.js';
 import { dataProperties, projectDataResult, resolveDataArgs } from './data.js';
 import { DouyinTasks } from './tasks.js';
+import { withNetworkGuidance } from './network-guidance.js';
 
 export { downloadCommand, resolveConfig, runDownloader, runtimeUnavailable } from './runner.js';
 export { projectDataResult, resolveDataArgs } from './data.js';
@@ -61,13 +62,13 @@ export function apply(ctx, config = {}) {
     if (result.status === 'downloaded') return result;
     signal.throwIfAborted();
     if (result.status === 'blocked' && !publicOnly
-      && /PUBLIC_SHARE_MEDIA_UNAVAILABLE|PUBLIC_SHARE_REQUEST_FAILED|PUBLIC_MEDIA_DOWNLOAD_FAILED|LOGIN_OR_VERIFICATION_REQUIRED|ACCESS_RESTRICTED|^Share link resolution failed;/.test(result.message || '')) {
+      && /PUBLIC_SHARE_MEDIA_UNAVAILABLE|^PUBLIC_SHARE_DATA_INVALID(?::|$)|PUBLIC_SHARE_REQUEST_FAILED|PUBLIC_MEDIA_DOWNLOAD_FAILED|LOGIN_OR_VERIFICATION_REQUIRED|ACCESS_RESTRICTED|^Share link resolution failed;/.test(result.message || '')) {
       const browser = ctx.get('douyinBrowser');
       if (browser?.version === 4 && (!options.background || browser.supportsBackgroundDownload === true)) result = await track(browser.download(agent, url, signal, settings.maxDownloadBytes, settings.nativeTimeoutMs, ...(options.background ? [{ background: true }] : [])));
       else if (options.background) result = { status: 'blocked', code: 'DESKTOP_BACKGROUND_UNAVAILABLE', message: 'Background browser download requires the matching Desktop Host capability; resume after updating the Host' };
       else result = { status: 'blocked', code: 'DESKTOP_HOST_REQUIRED', message: 'This plugin requires the matching MUSE Desktop browser download bridge for authorized playback.' };
     }
-    return result;
+    return withNetworkGuidance(result);
   };
   const tasks = new DouyinTasks(ctx, settings, { acquireVideo });
   ctx.effect(() => async () => { lifetime.abort(new Error('Douyin plugin unloaded')); await tasks.dispose(); await Promise.allSettled([...running]); }, 'douyin: settle downloads on unload');

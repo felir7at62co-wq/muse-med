@@ -1,8 +1,9 @@
 # 数据源与接口参考
 
-## 官方公开网页（2026-10-02 验证）
+## 官方公开来源
 
 - https://hongguoduanju.com/search/%E4%BA%8C%E5%AB%81
+- https://hongguoduanju.com/api/search/result?query=%E4%BA%8C%E5%AB%81
 - https://hongguoduanju.com/detail?series_id=7687919221593885758
 - https://hongguoduanju.com/rank/hot-drama
 - https://hongguoduanju.com/rank/hot-real-drama
@@ -10,7 +11,7 @@
 - https://hongguoduanju.com/rank/hot-comic-drama
 - https://hongguoduanju.com/robots.txt
 
-插件独立实现 JSON 提取，不执行网页脚本：`_ROUTER_DATA.loaderData` 和 `mergeLoaderData` 的 JSON 属性。搜索首屏只选 `doc_type === 23` 的剧集；详情仅使用请求 ID 的 `seriesDetail` 和 `seriesSocialInfo`，不误用推荐列表，不输出用户评论、网络请求内部字段或视频资源。
+关键词搜索读取官网当前公开 JSON 首屏接口；只使用 `query` 参数，不复制或生成浏览器签名、Cookie 或 Token。详情与榜单独立提取网页的 `_ROUTER_DATA.loaderData` 和 `mergeLoaderData` JSON 属性，不执行网页脚本。搜索首屏只选 `doc_type === 23` 的剧集；详情仅使用请求 ID 的 `seriesDetail` 和 `seriesSocialInfo`，不误用推荐列表，不输出用户评论、网络请求内部字段或视频资源。
 
 公开详情 `series_favorite_count`、`series_like_count` 与 `hot_score_data` 是不同指标。官方详情显示格式化会缩写万级数字；源整数是否经过上游处理仍未证明。榜单更新日期原文保留，不补造缺失年份。
 
