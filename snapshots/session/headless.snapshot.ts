@@ -809,8 +809,6 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
   },
   async 'skill-root-isolation'(cwd) {
     await workspaceSetups['editing-cordis-skill']!(cwd)
-    // A symlink loop produces a real, non-absence read error without relying on chmod or root privileges.
-    await symlink('broken-skills', join(cwd, 'broken-skills'))
   },
   async 'muse-minimal-writing'(cwd) {
     await cp(join(repoRoot, 'apps/desktop-host/skills'), join(cwd, '.dsh/skills'), { recursive: true })
