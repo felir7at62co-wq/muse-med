@@ -28,6 +28,24 @@ export function fakeApproval(outcome = 'allowed-once') {
   }
 }
 
+// Keep native selection stubs alongside the receipt units installed by the Bot.
+export function fakeSessionProjections(readState) {
+  const definitions = new Map()
+  return {
+    register(definition) {
+      definitions.set(definition.key, definition)
+      return () => { definitions.delete(definition.key) }
+    },
+    stateOf(session, key) {
+      const definition = definitions.get(key)
+      if (definition === undefined) return readState(session, key)
+      let state = definition.init(session.header, session.inheritedEventCount)
+      for (const event of session.snapshotEvents?.() ?? []) state = definition.apply(state, event)
+      return state
+    },
+  }
+}
+
 // A stand-in for the plugin context that records what apply() registers, in order,
 // without starting any service.
 export function fakeContext({ services = {} } = {}) {

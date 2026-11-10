@@ -41,7 +41,7 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 
 提取声线或复用成片前，用 `jubian_video sources` 提供精确 `script_id` 与原 `storyboard_id` 查询已有媒体。它只读核对卡片、任务及子结果身份，在配置范围内翻页读取历史，返回成功视频 URL 和原任务／结果 ID，不要求与当前模型或分辨率一致。原卡已关联的任务即使未出现在完整项目列表中，也会继续核对；两份历史不一致时，查询覆盖标记为不完整。 同一任务的卡片归属冲突时也标记覆盖不完整，来源卡片只能由独立任务详情及子结果证据确认。`available` 表示存在已核实媒体，`pending` 表示原任务或子任务仍在运行，`none_found` 表示完整查询后未找到成功媒体，`unknown` 保留查询不完整或无法读取的状态。这些结论不授权生成，也不证明实际说话人或视频内容合格。
 
-`tasks` 与 `subtasks` 实际传递 `page_num`、`page_size`，并返回查询时间、返回数量、`complete`、`has_more` 与 `next_page`。`complete` 只描述本次响应；读到末页不代表前页已查。部分查询未返回某条记录，不证明该卡从未生成。`prepare_video` 同时返回提示性 `existing_video_sources`，这些观测不写进冻结预览，也不改变生成指纹。历史查询失败时，准备仍可完成，来源覆盖标记为未知。
+`tasks` 与 `subtasks` 实际传递 `page_num`、`page_size`，并返回查询时间、返回数量、`complete`、`has_more` 与 `next_page`。`tasks` 默认查询全部任务类型；显式正整数 `task_type` 才筛选提供方列表。`scope` 记录项目和筛选条件，`total_verified` / `complete` 仅适用于该范围。按类型筛选时 `project_complete` 恒为 false，空筛选结果不代表项目为空。`complete` 只描述本次响应；读到末页不代表前页已查，即使提供方列表完整也不证明提供方保留了全部历史。部分查询未返回某条记录，不证明该卡从未生成。来源查询的项目回退同样先读取全部任务类型，再核对卡片归属。`prepare_video` 返回提示性 `existing_video_sources`，这些观测不写进冻结预览，也不改变生成指纹。历史查询失败时，准备仍可完成，来源覆盖标记为未知。
 
 来源查询使用 `videoSourcePageSize`（100）、`videoSourcePageLimit`（20）、`videoSourceTaskLimit`（50）、`videoSourceResultLimit`（20），四项范围均为 1–100；`videoSourceMaxResultChars` 默认将完整结果限制为 12000 个 JSON 字符，范围 2048–1000000。达到限制时保留能容纳的已核实记录，删除整行而不截断 URL，并明确覆盖不完整。来源查询或缺少声线样本不会发起付费请求。新用户消息不再自动追加提取或复用提示；历史提示仍作为已保存的普通上下文保留。
 
@@ -260,6 +260,8 @@ inherited process environment (read-only, highest)
 
 ### 后台观察操作
 
+未加载生产者时，生成通知仍是普通用户上下文：读取方保留来源元数据、正文及消息身份。生产者用该身份防止重复投递。可选的群聊元数据不授权接收者。团队核对执行者已持久化的群聊分工后，另行建立回传记录；通知投递以回执、通知及执行者 Session ID 查找该记录，并重新核对当前成员。证据缺失时要求复核，不依据通知中的元数据路由。
+
 启用 `generationWatch` 后，`submit_video`、`submit_video_batch` 和 `generate` 的原生提交阶段会在发出请求前用原 preview key 保存检查点。工具结果包含 `generation_watch_id`。Host 自动观察这些任务，重启后使用同一观察目录和账本恢复未完检查点。回执缺失时按原 key 只读对账。
 
 每个分包得到已核实的终态或达到观察期限后，Host 保存结果并通知原会话。重启后，Host 唤醒原队列中的通知，避免重复入队。续跑轮次中断时，Host 尝试恢复一次。轮次失败、受阻或取消时需要复核。Host 记录 `reviewRequired`，并在会话中保留轮次结束原因。观察成功只确认提供方任务及其子结果，确认本集所有应有分包后再下载、检查和合成。失败或未核实的分包保留原 key 供后续排查。
@@ -349,11 +351,11 @@ GET /aigc/assetFolder/tree?assetScopeType=2&rootCategoryType=1|2|3
 
 主体素材和视频任务列表可读取仅含一条记录的顶层数组，视频模型目录也支持同样格式。素材身份、分页完整性和生成安全校验仍然生效。
 
-`jubian_asset register asset_type=4` 登记已上传声线。`audio_list`、`audio_get` 读取真实项目音频身份与 URL，不猜时长。登记通过完整列表对照项目、名称、URL；结果不唯一时不猜 ID。同 key 对账不再次登记。`jubian_storyboard audio_preview` 接受原卡 ID、项目绑定、完整提示词与最终有序 `audio_references`；`[]` 移除全部音频。可选 `audio_asset_id` 核对项目、类别与 URL，不编造提供方材质 ID。`audio_apply` 要求同一原卡 ID、已检查指纹与 key；发送一次 `isGenerate=0` PUT，保留图片、模型、时长、集数，再核对真实回读。未知写入只沿用原 key 对账。改动后重新 `prepare_video`。
+`jubian_asset register asset_type=4` 登记已上传声线。`audio_list`、`audio_get` 读取真实项目音频身份与 URL，不猜时长。登记通过完整列表对照项目、名称、URL；结果不唯一时不猜 ID。同 key 对账不再次登记。`jubian_storyboard audio_preview` 接受原卡 ID、项目绑定、完整提示词与最终有序 `audio_references`；`[]` 移除全部音频。可选 `audio_asset_id` 核对项目、类别与 URL，不编造提供方材质 ID。`audio_apply` 要求同一原卡 ID、已检查指纹与 key；发送一次 `isGenerate=0` PUT，保留图片、模型、时长、集数，再核对真实回读。分镜音频行缺失 `materialName` 或 `audioDuration` 时，仅当 `modelConfig.materialList` 中同 key、同 URL 的唯一音频行保留完全一致的请求值才接受；有值但矛盾、两处都缺少证据以及图片变化仍判不一致。制作方案发布的最终音频回读也遵循同一规则。未知写入只沿用原 key 对账。改动后重新 `prepare_video`。
 
 卡片正文中的音频标记若尚未进入选择列表，保留名称与 key，提供已核对的同项目音频资产 ID，即可补回绑定。旧模型配置已有对应音频行时，也可清除失配标记。任一保存列表中仍属于图片的 key 按图片处理。
 
-角色感知引用同时提供 `character_id`，分期声线还须提供 `voice_period_id`。其精确资产 ID 和 URL 必须匹配当前项目角色及人生时期；儿童声线不能替代成年声线，更换服装保留声线时期。已删除资产不能绑定；分期引用还须有提供方明确有效的证据（delFlag=0 且没有矛盾的删除字段）。分期引用的有效状态未知时不保存该卡，其他独立工作可继续。冻结预览保存选定声音配置，并在新保存前复验。提供方材质行不接收本地身份字段。仅 URL 引用保留已有兼容性，但不验证说话人身份。
+角色感知引用同时提供 `character_id`，分期声线还须提供 `voice_period_id`。其精确资产 ID 和 URL 必须匹配当前项目角色及人生时期；儿童声线不能替代成年声线，更换服装保留声线时期。已删除资产不能绑定；分期引用还须有提供方明确有效的证据（delFlag=0 且没有矛盾的删除字段）。分期引用的有效状态未知时不保存该卡，其他独立工作可继续。冻结预览保存选定声音配置，并在新保存前复验。制作方案发布会把共享人物和时期 ID 转交同一核验器，不会代为采纳或认可声线。提供方材质行不接收本地身份字段。带 `audio_asset_id` 且解析到共享槽的引用，以及匹配已采纳分期配置的引用，必须显式提供本地身份字段，不能通过省略字段选择旧式检查。项目圣经尚未采纳声线时会报告本地配置错误与所需修正。未分期旧引用和无关的仅 URL 音频保留已有兼容性，但不验证说话人身份。没有资产 ID、也不匹配本地已采纳配置的 URL 无法证明远端共享身份。
 
 共享声线登记同时提供 character_id 与 voice_period_id。规范音频名称后缀保留精确项目／人物／人生时期，普通名称不能认领声线。完整库存先复用已有候选。首次创建带共享身份的音频需要仅供 Host 使用的 Muse 账号协调器：认领槽、持久化开始状态，再用原账本 key 提交一次。忙碌、不可用或已经提交的状态不会另发 POST。完成时核对真实音频资产，再向协作者发布，客户端还会独立回读资产。coordination_state 与 exclusive_registration 表示协调状态，atomic_registration=false 保留供应商限制。旧客户端和剧变网页不参与协调，重复条目仍如实报告且不自动删除。已提交认领不会到期后放行新创建，未知结果沿原 key 对账。采用录音仍需核对实际说话人与时期。迁移或清理前，用[共享用途查询](../../drama/tool-drama-assets/README.zh.md#shared-project-uses)定位当前绑定。
 
@@ -365,7 +367,7 @@ voice_reference_pending 与协调等待不同，reason_code 为 asset-missing、
 
 统一角色声音时，加载[声线参考技能](../../drama/skills/skills/tweet-drama-voice-continuity/SKILL.md)。`jubian_asset upload_audio` 接受 `audio_path`，测量实际 16 位 PCM WAV 样本，在上传前拒绝超过 15 秒的文件，返回 `materialUrl`、`audioDuration`、SHA-256 和 `duration_verified: true`。它不创建资产或生成任务。`select_assets` 更新图片选源时保留已有上传音频；音频有独立组内顺序，无需图片父资产 ID。原生准备冻结这些参考，分别报告已保存时长与字节验证状态；未知远端时长保持未核实。提交的音频必须在子结果有序 `audioMaterials[].audioUrl` 中回读一致，才能认领任务。参考错误时修复并保存原分镜。
 
-`prepare_video` 另返回 `voice_continuity_review`：提示词含明确对白但没有音频参考时为 `dialogue_without_voice_reference`，有参考时为 `voice_reference_present_unverified`。它识别有标签的对白和旁白、引用或声明的说话人台词、明确人物列表中的角色台词，以及角色名下的引号台词；负面要求和空台词占位不算发声。未识别的发声仍须人工核对。这是免费预检提示，不会自动生成、绑定或改写台词。跨包角色先听核第一包的实际发声并建立认可参考，再生成后续包；即使已绑定，仍须听核角色与音色，不能把素材存在视作音色一致。
+`prepare_video` 另返回 `voice_continuity_review`：提示词含明确对白但没有音频参考时为 `dialogue_without_voice_reference`，有参考时为 `voice_reference_present_unverified`。它识别有标签的对白和旁白、引用或声明的说话人台词、明确人物列表中的角色台词，以及角色名下的引号台词。具名角色的台词也可位于带编号的镜头描述内部；有标签的台词字段可以在同一行的非空场景或画面文字值之后用空格分隔。嵌套的场景、画面文字和负面字段、引号内的道具文字及空台词占位不算发声。未识别的发声仍须人工核对。这是免费预检提示，不会自动生成、绑定或改写台词，也不批准提交或证明实际录音合格。跨包角色先听核第一包的实际发声并建立认可参考，再生成后续包；即使已绑定，仍须听核角色与音色，不能把素材存在视作音色一致。
 
 主体视频由提供方从一次 `isGenerate=1` 的分镜 `PUT` 创建；直接的建任务 `POST` 不会保留主体身份。生产证据把这条差异钉死了：任务 `335343` 来自分镜 `PUT`，七项身份全部保留并成功；`335470` 来自 direct `POST /admin/aigc/video/task/create`，丢失 `assetId`/`materialName` 并失败。因此本包不支持那条路径，也没有任何方法调用它。
 

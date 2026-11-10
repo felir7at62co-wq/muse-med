@@ -7,18 +7,18 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { JubianLedger } from '@deepseek-ai/dsh-jubian'
 import Llm, { createUserMessage, freezeMessage, LlmError, MessageId, ToolCallId, type UserMessage } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { createSessionTestController } from '../../../api/session-controller/tests/test-remote.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 import JsonlSessionPersistence from '../../../session/session-persistence-jsonl/src/index.ts'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
 import { GenerationWatchStore } from '../src/generation-watch-store.ts'
-import { createGenerationWatchNotice } from '../src/generation-watch-delivery.ts'
+import { createGenerationWatchNotice, deliverGenerationWatchNotice } from '../src/generation-watch-delivery.ts'
 import * as Jubian from '../src/index.ts'
 import { bodyHash } from '../src/write.ts'
 
@@ -31,6 +31,56 @@ const video = 'https://cdn.invalid/episode-43-pack-1.mp4'
 const board = { id: 1, scriptId: 2708, isGenerate: 1, storyboardName: 'EP43-P1',
   modelConfig: JSON.stringify(model), storyboardMaterialList: [{ assetId: 'asset-lead', materialAssetId: 81285,
     fileName: 'Lead', materialKey: 'lead', materialType: 'image', materialUrl: image, sortOrder: 1 }] }
+
+it('preserves an actual generation notice and its model history with the producer absent', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'generation-notice-attribution-'))
+  const id = SessionId('generation-notice-attribution')
+  const contexts: Context[] = []
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+    throw new Error('Attribution readback must not call a provider')
+  })
+  try {
+    const host = await watchHost(root)
+    contexts.push(host)
+    host.llm.registerAdapter(['mock'], new MockAdapter([textResponse('Use the recorded result.')]))
+    const agent = await host.agentLoop.create(id, selection, { cwd: root })
+    const notice = createGenerationWatchNotice('The existing provider task finished; continue local verification.')
+    const groupOrigin = { roomId: 'saved-room', workerBotId: 'worker', requesterBotId: 'requester',
+      requesterSessionId: 'saved-requester', exchangeId: 'fe7826ac-de22-4d82-99e1-d97b7859dbb4' }
+    const prepareGenerationWatchDelivery = vi.fn(async () => {})
+    host.provide('museTeam', { prepareGenerationWatchDelivery })
+    await deliverGenerationWatchNotice(host, id, notice, undefined, groupOrigin)
+    expect(prepareGenerationWatchDelivery).toHaveBeenCalledExactlyOnceWith({ workerSessionId: id,
+      origin: groupOrigin, receiptId: notice.id, noticeId: notice.id, text: notice.text })
+    await agent.whenIdle()
+    expect(await host.sessions.flush(agent.session)).toBe(true)
+    const before = agent.session.deriveMessages()
+    const original = agent.session.snapshotEvents().find(event => event.type === 'user/message')
+    expect(original?.data).toMatchObject({ id: notice.id,
+      source: { kind: 'jubian-generation-watch', form: 'notice', summary: '剧变视频生成结果已核对',
+        groupOrigin, groupReceiptId: notice.id },
+      content: [{ type: 'text', text: notice.text }] })
+    await host.fiber.dispose()
+    contexts.pop()
+
+    const reader = new Context()
+    contexts.push(reader)
+    await reader.plugin(JsonlSessionPersistence, { root: join(root, 'sessions'), compression: 'none' })
+    expect(reader.get('jubian')).toBeUndefined()
+    const handle = await reader.sessionPersistence.open(id, 'read')
+    try {
+      const { events } = await handle.read()
+      const restored = Session.create(id, events, handle.header)
+      expect(events.find(event => event.type === 'user/message')).toEqual(original)
+      expect(restored.deriveMessages()).toEqual(before)
+    } finally { await handle.close() }
+    expect(fetch).not.toHaveBeenCalled()
+  } finally {
+    for (const context of contexts.reverse()) await context.fiber.dispose()
+    fetch.mockRestore()
+    await rm(root, { recursive: true, force: true })
+  }
+}, 20_000)
 
 async function watchHost(root: string, generationWatch = true): Promise<Context> {
   const { ctx } = await configurationFixture({ hmr: false, rows: [
@@ -169,8 +219,10 @@ it('records a failed continuation for review without scheduling another turn', a
     await store.create({ id, sessionId, createdAt: 0, deadlineAt: 1,
       packs: [{ key: 'f'.repeat(64), previewPath: join(root, 'preview.json'),
         outcome: { status: 'unverified', detail: 'No provider requests are necessary.' } }], notice })
-    await vi.waitFor(async () => expect(await store.load(id)).toMatchObject({ reviewRequired: true,
-      notice: { id: notice.id, deliveredAt: expect.any(Number) } }), { timeout: 3000 })
+    await vi.waitFor(async () => {
+      expect(await store.load(id)).toMatchObject({ reviewRequired: true,
+        notice: { id: notice.id, deliveredAt: expect.any(Number) as number } })
+    }, { timeout: 3000 })
     expect((await store.load(id))?.recoveryNotice).toBeUndefined()
     expect(await store.listActive()).toEqual([])
     expect(adapter.requests).toHaveLength(1)
@@ -195,7 +247,8 @@ it('wakes recovery after a persisted download when the continuation turn was int
   const bytes = Buffer.from('000000106674797069736f6d00000000', 'hex')
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     requests += 1
-    if (String(input) !== url || init?.method !== 'GET') throw new Error('Unexpected request while recovering a verified download')
+    const requestedUrl = input instanceof Request ? input.url : input.toString()
+    if (requestedUrl !== url || init?.method !== 'GET') throw new Error('Unexpected request while recovering a verified download')
     return new Response(Uint8Array.from(bytes))
   })
   try {
@@ -206,7 +259,7 @@ it('wakes recovery after a persisted download when the continuation turn was int
     const agent = await first.agentLoop.create(sessionId, selection, { cwd: root })
     agent.followup(freezeMessage<UserMessage>({ id: MessageId(notice.id), role: 'user',
       content: [{ type: 'text', text: notice.text }], source: { kind: 'jubian-generation-watch', form: 'notice', summary: 'Verified' } }))
-    await vi.waitFor(() => expect(before.requests).toHaveLength(2))
+    await vi.waitFor(() => { expect(before.requests).toHaveLength(2) })
     expect((await readFile(output)).equals(bytes)).toBe(true)
     expect(requests).toBe(1)
     expect(await first.sessions.flush(agent.session)).toBe(true)
@@ -253,7 +306,7 @@ it('wakes recovery after a persisted download when the continuation turn was int
       const results = replayed.filter(event => event.type === 'tool/result')
       expect(results).toHaveLength(2)
       const reused = results[1]?.data.message.content.find(block => block.type === 'text')
-      expect(reused?.type === 'text' && JSON.parse(reused.text).reused).toBe(true)
+      expect(reused?.type === 'text' && (JSON.parse(reused.text) as { reused?: unknown }).reused).toBe(true)
       expect(replayed.filter(event => event.type === 'turn/end' && event.data.reason.kind === 'interrupted')).toHaveLength(1)
       expect(replayed.filter(event => event.type === 'turn/end' && event.data.reason.kind === 'completed')).toHaveLength(1)
     } finally { await handle.close() }

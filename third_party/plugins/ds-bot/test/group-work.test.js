@@ -27,11 +27,12 @@ const seed = (room = {}, extraRooms = {}) => ({
   revision: 0,
 })
 
-async function start(t, room, services, extraRooms, { loadTeam = true, initialState, pendingMessages = {} } = {}) {
+async function start(t, room, services, extraRooms, { loadTeam = true, initialState, initialEvents = {}, pendingMessages = {} } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-work-'))
   writeFileSync(join(home, 'state.json'), JSON.stringify(initialState ?? seed(room, extraRooms)))
   const ctx = legacyContext({ services })
   const agents = new Map()
+  const logs = new Map(Object.entries(initialEvents).map(([id, events]) => [id, [...events]]))
   const agentOf = (sessionId) => {
     if (!agents.has(sessionId)) {
       const calls = []
@@ -59,7 +60,9 @@ async function start(t, room, services, extraRooms, { loadTeam = true, initialSt
   Object.assign(ctx, {
     llm: { listProviders: () => [], listModels: async () => [], resolveModelInfo: async () => ({}) },
     workspaceRegistry: { get: () => undefined, resolveByPath: async () => undefined, create: async path => ({ id: 'w1', path }), archiveSession: async () => {}, archivedSessionIds: [] },
-    sessionController: { create: async () => ({ sessionId: 's1' }), resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }), selectModel: async () => {} },
+    sessionController: { create: async () => ({ sessionId: 's1' }), resolveAgent: async sessionId => ({ agent: agentOf(sessionId) }), selectModel: async () => {},
+      inspectionLogs: logs,
+      async inspect(sessionId) { return { events: this.inspectionLogs.get(sessionId) ?? [] } } },
     sessionTitle: { rename: async () => {} },
     sessions: { flush: async () => true },
   })
@@ -75,6 +78,8 @@ async function start(t, room, services, extraRooms, { loadTeam = true, initialSt
   const turns = new Map()
   const emit = (id, type, data) => {
     const event = { type, seq: ++seq, data }
+    if (!logs.has(id)) logs.set(id, [])
+    logs.get(id).push(event)
     services?.sessionProjections?.emit?.({ id }, event)
     for (const listener of ctx.listeners.get('session/event') ?? []) {
       if (listener.length >= 2) listener({ id }, event)
@@ -205,6 +210,11 @@ const generationNotice = (groupOrigin, id = randomUUID()) => ({
   source: { kind: 'jubian-generation-watch', form: 'notice', groupOrigin },
 })
 
+const assignmentEvent = origin => ({ type: 'user/message', data: {
+  source: { kind: 'bot', form: 'relay', role: 'room', roomId: origin.roomId,
+    askedBy: origin.requesterBotId, exchangeId: origin.exchangeId },
+} })
+
 for (const surface of ['native', 'ptc']) {
 test(`an idle generation watch wakes the original group requester once: ${surface}`, async (t) => {
   const host = await start(t)
@@ -228,6 +238,8 @@ test(`an idle generation watch wakes the original group requester once: ${surfac
   assert.equal(host.museTeam.captureGenerationWatchOrigin('gb'), undefined)
 
   const notice = generationNotice(origin)
+  await host.museTeam.prepareGenerationWatchDelivery({ workerSessionId: 'gb', origin, receiptId: notice.id,
+    noticeId: notice.id, text: text(notice) })
   host.agentOf('gb').followup({ ...notice, source: { ...notice.source, groupReceiptId: notice.id } })
   host.begin('gb')
   host.finish('gb', '本集已经生成。@Chief')
@@ -275,13 +287,15 @@ test('a submitted watch is quiet when the original round already moved on', asyn
 })
 
 test('a saved generation watch still wakes the original group requester after a cold start', async (t) => {
-  const host = await start(t, {}, undefined, {}, { loadTeam: false })
   const origin = { roomId: 'r1', workerBotId: 'b', requesterBotId: 'c', requesterSessionId: 'gc', exchangeId: randomUUID() }
+  const host = await start(t, {}, undefined, {}, { loadTeam: false, initialEvents: { gb: [assignmentEvent(origin)] } })
   assert.equal(host.museTeam.validateGenerationWatchOrigin('gb', origin), undefined)
   await host.museTeam.prepareGenerationWatchDelivery()
   assert.deepEqual(host.museTeam.validateGenerationWatchOrigin('gb', origin), origin)
   assert.equal(host.museTeam.captureGenerationWatchOrigin('gb'), undefined)
   const notice = generationNotice(origin)
+  await host.museTeam.prepareGenerationWatchDelivery({ workerSessionId: 'gb', origin, receiptId: notice.id,
+    noticeId: notice.id, text: text(notice) })
   host.agentOf('gb').followup(notice)
   host.begin('gb')
   host.finish('gb', '[PASS]')
@@ -305,6 +319,60 @@ test('a generation watch with a replaced requester Session never falls back to a
   assert.deepEqual(host.agentOf('r1').calls, [])
   assert.deepEqual(host.agentOf('ga').calls, [])
   assert.deepEqual(host.agentOf('new-gc').calls, [])
+})
+
+test('an unrecorded generation assignment cannot create a group handoff from source metadata', async (t) => {
+  const host = await start(t)
+  const origin = { roomId: 'r1', workerBotId: 'b', requesterBotId: 'c', requesterSessionId: 'gc', exchangeId: randomUUID() }
+  const notice = generationNotice(origin)
+  await assert.rejects(host.museTeam.prepareGenerationWatchDelivery({ workerSessionId: 'gb', origin,
+    receiptId: notice.id, noticeId: notice.id, text: text(notice) }), /original persisted group assignment was not found/)
+  host.agentOf('gb').followup(notice)
+  host.begin('gb')
+  host.finish('gb', '本集已经生成。@Chief')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(host.agentOf('r1').calls, [])
+  assert.deepEqual(host.agentOf('gc').calls, [])
+  assert.deepEqual(host.agentOf('ga').calls, [])
+  assert.equal(JSON.parse(readFileSync(join(host.home, 'state.json'), 'utf8')).generationWatchOutbox?.[notice.id], undefined)
+})
+
+test('a saved handoff controls the requester even when notice attribution names another member', async (t) => {
+  const origin = { roomId: 'r1', workerBotId: 'b', requesterBotId: 'c', requesterSessionId: 'gc', exchangeId: randomUUID() }
+  const host = await start(t, {}, undefined, {}, { initialEvents: { gb: [assignmentEvent(origin)] } })
+  const notice = generationNotice(origin)
+  await host.museTeam.prepareGenerationWatchDelivery({ workerSessionId: 'gb', origin,
+    receiptId: notice.id, noticeId: notice.id, text: text(notice) })
+  const forged = { ...origin, requesterBotId: 'a', requesterSessionId: 'ga' }
+  await assert.rejects(host.museTeam.prepareGenerationWatchDelivery({ workerSessionId: 'gb', origin: forged,
+    receiptId: notice.id, noticeId: notice.id, text: text(notice) }), /cannot change its original group assignment/)
+  host.agentOf('gb').followup({ ...notice, source: { ...notice.source, groupOrigin: forged } })
+  host.begin('gb')
+  host.finish('gb', '[PASS]')
+  await settle(() => host.agentOf('r1').calls.length === 1)
+  const round = host.round('saved-requester', host.takePost())
+  await settle(() => host.agentOf('gc').calls.length === 1)
+  assert.match(text(host.begin('gc')), /Writer: 已核对 剧变视频成片/)
+  host.finish('gc', '[PASS]')
+  await settle(() => round() !== undefined)
+  assert.deepEqual(host.agentOf('ga').calls, [])
+})
+
+test('an unrelated worker notice cannot claim an existing group handoff', async (t) => {
+  const origin = { roomId: 'r1', workerBotId: 'b', requesterBotId: 'c', requesterSessionId: 'gc', exchangeId: randomUUID() }
+  const host = await start(t, {}, undefined, {}, { initialEvents: { gb: [assignmentEvent(origin)] } })
+  const notice = generationNotice(origin)
+  await host.museTeam.prepareGenerationWatchDelivery({ workerSessionId: 'gb', origin,
+    receiptId: notice.id, noticeId: notice.id, text: text(notice) })
+  host.agentOf('ga').followup(notice)
+  host.begin('ga')
+  host.finish('ga', '[PASS]')
+  host.agentOf('gb').followup({ ...notice, id: randomUUID(), source: { ...notice.source, groupReceiptId: notice.id } })
+  host.begin('gb')
+  host.finish('gb', '[PASS]')
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(host.agentOf('r1').calls, [])
+  assert.deepEqual(host.agentOf('gc').calls, [])
 })
 
 const generationProjections = (workerNotices, claimed = [], requesterClaimed = []) => {
@@ -332,8 +400,8 @@ const restartStages = [
 for (const { label, groupClaimed, requesterQueued, requesterClaimed, parked } of restartStages) {
   test(`generation watch outbox after restart ${label}`, async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout'] })
-    const first = await start(t)
     const origin = { roomId: 'r1', workerBotId: 'b', requesterBotId: 'c', requesterSessionId: 'gc', exchangeId: randomUUID() }
+    const first = await start(t, {}, undefined, {}, { initialEvents: { gb: [assignmentEvent(origin)] } })
     const notice = generationNotice(origin)
     const receiptId = randomUUID()
     const request = { workerSessionId: 'gb', origin, receiptId, noticeId: notice.id, text: text(notice) }

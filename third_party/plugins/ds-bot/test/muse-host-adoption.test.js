@@ -8,7 +8,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { createRuntime } from '../index.js'
 import { install as installTeam } from '../src/host/muse-team.js'
 import { TEAM_TOOLS } from '../src/host/constants.js'
-import { fakeContext } from './fake-ctx.js'
+import { fakeContext, fakeSessionProjections } from './fake-ctx.js'
 
 const MODEL = { provider: 'muse', model: 'native-choice', reasoningEffort: 'high' }
 
@@ -33,7 +33,7 @@ function start(t, { plain = false, legacyAuto = false, config = {} } = {}) {
   const ctx = fakeContext({ services: {
     agentDefaultModel: defaults,
     agentPresets: { list: async () => [{ id: 'short-drama' }, { id: 'standard' }] },
-    sessionProjections: { stateOf: (session, key) => key === 'modelSelection' ? projections.get(session.id) : key === 'agentPreset' ? 'standard' : undefined },
+    sessionProjections: fakeSessionProjections((session, key) => key === 'modelSelection' ? projections.get(session.id) : key === 'agentPreset' ? 'standard' : undefined),
     goals: { get: agent => agent.goal },
   } })
   ctx.tools.schemas = () => [...TEAM_TOOLS, 'ask_user_question', 'read', 'create_goal', 'update_goal', 'get_goal'].map(name => ({ name }))

@@ -1,15 +1,18 @@
 /** `render`: the encode pipeline, its cache, its log, and the delivery verdict it returns. */
 
-import { copyFile, mkdir, readFile, readdir, rm } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, realpath, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDramaRender } from '../src/index.ts'
-import { readSourceRecord, sourceRecordPathFor } from '../src/source-record.ts'
+import { readSourceRecord, sourceRecordPathFor, writeSourceRecord } from '../src/source-record.ts'
 import { fileSha256 } from '../src/cache.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { episodePaths, shotFileName } from '../src/paths.ts'
 import { renderEpisode, type RenderInput } from '../src/render.ts'
 import { writeSubtitleClock } from '../src/subtitle-clock.ts'
+import { verifySelectedSourceReviews } from '../src/approved-sources.ts'
+import { sourceQaFixture } from './source-qa-fixture.ts'
+import type { SourceQaVerifier } from '../src/source-qa.ts'
 import type { RenderSettings } from '../src/types.ts'
 import {
   cleanup,
@@ -28,20 +31,44 @@ import {
 } from './harness.ts'
 
 const temporary: string[] = []
-const publication = vi.hoisted(() => ({ target: '' }))
+const publication = vi.hoisted(() => ({ target: '', rollbackTarget: '', rollback: '', cleanupFailure: false,
+  replaceRead: '', reads: 0 }))
 vi.mock('node:fs/promises', async (original) => {
   const actual = await original<typeof import('node:fs/promises')>()
   return { ...actual, link: async (...args: Parameters<typeof actual.link>) => {
     if (String(args[1]) === publication.target) {
+      if (publication.rollbackTarget) {
+        await actual.unlink(publication.rollbackTarget)
+        if (publication.rollback === 'replacement') await actual.writeFile(publication.rollbackTarget, 'another publisher owns this output')
+      }
       await actual.writeFile(args[1], 'concurrent publication', { flag: 'wx' })
       throw Object.assign(new Error('publication already exists'), { code: 'EEXIST' })
     }
     await actual.link(...args)
+  }, rm: async (...args: Parameters<typeof actual.rm>) => {
+    if (publication.cleanupFailure && String(args[0]).endsWith('concat.txt')) {
+      throw Object.assign(new Error('Cache cleanup denied'), { code: 'EACCES' })
+    }
+    await actual.rm(...args)
+  } }
+})
+vi.mock('node:fs', async (original) => {
+  const actual = await original<typeof import('node:fs')>()
+  return { ...actual, createReadStream: (...args: Parameters<typeof actual.createReadStream>) => {
+    if (String(args[0]) === publication.replaceRead && ++publication.reads === 1) {
+      actual.writeFileSync(publication.replaceRead, 'review replaced after validation')
+    }
+    return actual.createReadStream(...args)
   } }
 })
 
 afterEach(async () => {
   publication.target = ''
+  publication.rollbackTarget = ''
+  publication.rollback = ''
+  publication.cleanupFailure = false
+  publication.replaceRead = ''
+  publication.reads = 0
   await Promise.all(temporary.splice(0).map(async (dir) => { await cleanup(dir) }))
 })
 
@@ -98,6 +125,54 @@ async function preparedProject(): Promise<Prepared> {
   return { project, paths, timeline, subtitle, bgm, endingAudio, endingEffect, output: join(project, 'export', 'ep02.mp4') }
 }
 
+/** Filesystem acceptance cases replace only the independent Host authority, whose real Session owner has separate tests. */
+async function reviewedProject() {
+  const prepared = await preparedProject()
+  await writePlaceholder(join(prepared.project, 'project_config.json'), JSON.stringify({
+    project_bible: { visual_medium: 'photorealistic', delivery: { require_source_review: true } },
+  }))
+  const packagePath = join(prepared.project, 'episode_packages', '02', 'package.json')
+  await writePlaceholder(packagePath, JSON.stringify({ episode: '02', video_tasks: [{ shots: [1] }, { shots: [2] }] }))
+  const rows = []
+  const artifacts: string[] = []
+  for (const shot of [1, 2]) {
+    const video = join(prepared.project, 'selected', `source-${shot}.mp4`)
+    await mkdir(dirname(video), { recursive: true })
+    await copyFile(join(prepared.paths.videoDir, shotFileName(shot)), video)
+    const sha = await fileSha256(video), frame = join(prepared.project, `review-frame-${shot}.png`)
+    const download = join(prepared.project, `download-${shot}.json`)
+    await writePlaceholder(frame, 'recorded frame fixture')
+    await writePlaceholder(download, JSON.stringify({ version: 1, kind: 'video', media_type: 'video/mp4',
+      path: video, sha256: `sha256:${sha}`, source_sha256: 'a'.repeat(64) }))
+    const qa = await sourceQaFixture(prepared.project, video, `shot-${shot}`)
+    artifacts.push(qa.declaration.ocr.path, qa.declaration.inspection.path)
+    await writePlaceholder(join(prepared.project, 'reviews', `ep02-p${String(shot).padStart(2, '0')}.json`), JSON.stringify({
+      episode: '02', package: shot, status: 'approved', subtitle_cleanup: 'not_required',
+      package_sha256: await fileSha256(packagePath), video_path: video, video_sha256: sha,
+      audio_path: video, audio_sha256: sha, original_download_receipt_path: download, review_frames: [frame],
+      source_qa: { version: 1, selected: qa.declaration },
+      content_review: { identity: 'pass', wardrobe: 'pass', scene: 'pass', prop: 'pass', action_and_dialogue: 'pass',
+        visible_artifacts: 'pass', continuity: 'pass', voice_and_speaker: 'pass', av_sync: 'pass',
+        embedded_subtitles: 'absent', sensitive_content: 'pass' },
+    }))
+    rows.push({ shot, package: shot, video, audio: video })
+  }
+  const verifier = vi.fn<SourceQaVerifier>(async (binding) => {
+    expect(await fileSha256(binding.mediaPath)).toBe(binding.mediaSha256)
+    expect(await fileSha256(binding.ocrPath)).toBe(binding.ocrSha256)
+    expect(await fileSha256(binding.inspectionPath)).toBe(binding.inspectionSha256)
+  })
+  const reviews = await verifySelectedSourceReviews(prepared.paths, rows, true, true, verifier)
+  const manifest = { shots: rows.map((row) => {
+    const approved = reviews.find(review => review.shot === row.shot)
+    if (approved === undefined) throw Error('Fixture source review did not complete')
+    return { ...row, sha256: approved.videoSha256, review_sha256: approved.reviewSha256, audio_sha256: approved.audioSha256 }
+  }) }
+  await writePlaceholder(prepared.paths.sources, JSON.stringify(manifest))
+  verifier.mockClear()
+  return { ...prepared, verifier, manifest, artifacts }
+}
+
 /**
  * Build the channel a full render talks to.
  * @param prepared - The project the render reads and writes.
@@ -114,6 +189,7 @@ function renderChannel(prepared: Prepared, options: {
   deliveredHasStreams?: boolean
   resume?: boolean
   sourceProbe?: ProbeSpec
+  layout?: boolean
 } = {}): ReturnType<typeof stubChannel> {
   const queued = [...(options.imageHashes ?? ['tail'])]
   const deliveredProbe = {
@@ -124,6 +200,10 @@ function renderChannel(prepared: Prepared, options: {
     audio: options.deliveredHasStreams === false ? false as const : {},
   }
   const handlers: StubHandler[] = [
+    ...(options.layout === true ? [(call => call.args.some(argument => argument.includes('bbox=min_val=1')) ? {
+      stderr: 'fontselect: (SimHei, 400, 0) -> SimHei, 0, SimHei\n[Parsed_bbox] x1:1000 x2:1199 y1:1200 y2:1239 w:200 h:40',
+      after: async () => { for (const path of call.args.filter(argument => argument.endsWith('.png'))) await writePlaceholder(path, 'glyph probe image') },
+    } : undefined) satisfies StubHandler] : []),
     ...(options.resume === true ? [
       ((call) => {
         const path = call.args.at(-1) ?? ''
@@ -201,6 +281,240 @@ async function render(
 }
 
 describe('renderEpisode', () => {
+  it('refuses partial-episode resume before probing or encoding any source', async () => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared)
+    await expect(render(prepared, channel, false, undefined, { resume: true, lastShot: 1 }))
+      .rejects.toThrow('resume 只支持完整单集时间线')
+    expect(channel.calls).toEqual([])
+  })
+
+  it('refuses an empty master before starting media work', async () => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared)
+    await writePlaceholder(prepared.paths.masterAudio, '')
+    await expect(render(prepared, channel)).rejects.toThrow('整集原声 master是空文件')
+    expect(channel.calls).toEqual([])
+  })
+
+  it('does not infer a picture-frame count from an absent video stream', async () => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared, { sourceProbe: { video: undefined } })
+    const result = await render(prepared, channel)
+    expect(result.encoded_shots).toEqual([1, 2])
+    expect(result.ok).toBe(true)
+  })
+
+  it('retains a missing music-decision diagnostic while binding the actual fallback music gain', async () => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared, { resume: true })
+    await writePlaceholder(join(prepared.project, 'project_config.json'), JSON.stringify({
+      project_bible: { delivery: { audio: { require_music_decision: true } } },
+    }))
+    const result = await render(prepared, channel, false, undefined, { resume: true })
+    expect((await readSourceRecord(sourceRecordPathFor(result.output)))?.delivery_inputs?.music)
+      .toEqual({ mode: 'music', gain: settings.bgmVolume, bed_path: prepared.bgm })
+    expect(result.bgm_plan.path).toBe('')
+  })
+
+  it.each(['no_bgm', 'legacy'] as const)('reuses a normalized overlay and current %s audio profile without re-encoding', async (mode) => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared, { resume: true })
+    const mixProfile = join(prepared.project, 'mix.json'), subtitlePlan = join(prepared.project, 'overlay.json')
+    await writePlaceholder(mixProfile, JSON.stringify({ schema_version: 1, mode, analysis_window_ms: 100 }))
+    await writePlaceholder(subtitlePlan, JSON.stringify({ schema_version: 1, decisions: [] }))
+    await writePlaceholder(prepared.paths.sources, '{"shots":[]}')
+    await writePlaceholder(join(prepared.project, 'project_config.json'), JSON.stringify({
+      project_bible: { delivery: { subtitle: { require_speech_coverage: true } } },
+    }))
+    const first = await render(prepared, channel, false, undefined, { resume: true, mixProfile, subtitlePlan,
+      settings: { ...settings, normalizeSubtitleText: true } })
+    const checkpoint = channel.calls.length
+    const next = await render(prepared, channel, false, undefined, { resume: true, mixProfile, subtitlePlan,
+      settings: { ...settings, normalizeSubtitleText: true } })
+    expect(next.output).toBe(first.output)
+    expect(next.audio_mix).toMatchObject({ mode, music_audio: mode === 'no_bgm' ? '' : prepared.bgm,
+      music_stem: mode === 'no_bgm' ? '' : first.audio_mix?.music_stem })
+    expect(next.subtitle_overlay?.plan_path).toBe(subtitlePlan)
+    expect(next.written).toContain(next.subtitle_overlay?.resolved_srt)
+    expect(channel.calls.slice(checkpoint).some(call => call.args.includes('-c:v'))).toBe(false)
+  })
+
+  it('keeps generated subtitle source-clock evidence with a normalized resume display', async () => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared, { resume: true })
+    const clips = [5_050_000, 109_683_332].map((durationUs, index) => {
+      const shot = index + 1, video = join(prepared.paths.videoDir, shotFileName(shot))
+      return { source: { shot, video, audio: video }, video, audio: video, durationUs }
+    })
+    await writePlaceholder(prepared.paths.sources, JSON.stringify({ shots: clips.map(clip => clip.source) }))
+    await writeSubtitleClock(prepared.subtitle, await readFile(prepared.subtitle, 'utf8'), '02', clips)
+    const result = await render(prepared, channel, false, undefined,
+      { resume: true, settings: { ...settings, normalizeSubtitleText: true } })
+    expect(result.written.filter(path => path.endsWith('.clock.json'))).toHaveLength(1)
+    const record = await readSourceRecord(sourceRecordPathFor(result.output))
+    expect(record?.delivery_inputs?.subtitle_sha256).toBe(await fileSha256(result.render_preview!.subtitle.path))
+  })
+
+  it.each(['owned', 'missing', 'replacement'] as const)('rolls back only owned links when the published output is %s', async (rollback) => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared, { resume: true })
+    publication.target = sourceRecordPathFor(prepared.output)
+    publication.rollbackTarget = rollback === 'owned' ? '' : prepared.output
+    publication.rollback = rollback
+    await expect(render(prepared, channel, false, undefined, { resume: true })).rejects.toMatchObject({ code: 'EEXIST' })
+    expect(await readFile(publication.target, 'utf8')).toBe('concurrent publication')
+    if (rollback === 'replacement') expect(await readFile(prepared.output, 'utf8')).toBe('another publisher owns this output')
+    else await expect(readFile(prepared.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('returns the published resume candidate with a diagnostic if only intermediate cleanup fails', async () => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared, { resume: true })
+    publication.cleanupFailure = true
+    const result = await render(prepared, channel, false, undefined, { resume: true })
+    expect(result.ok).toBe(true)
+    expect(result.warnings.join('\n')).toContain('部分中间文件保留')
+    expect(await readSourceRecord(sourceRecordPathFor(result.output))).toMatchObject({ episode: '02' })
+  })
+
+  it('resumes a body-only animation without reading or binding ending assets', async () => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared, { resume: true, durationSeconds: 114.733332 })
+    await writePlaceholder(join(prepared.project, 'project_config.json'), JSON.stringify({
+      project_bible: { visual_medium: 'animation_3d' },
+    }))
+    const result = await render(prepared, channel, false, undefined, { resume: true })
+    expect(result.ok).toBe(true)
+    const record = await readSourceRecord(sourceRecordPathFor(result.output))
+    expect(record?.input_files?.some(file => [prepared.endingAudio, prepared.endingEffect].includes(file.path))).toBe(false)
+    expect(channel.calls.some(call => call.args.includes('-sseof'))).toBe(false)
+  })
+
+  it('keeps overlay and glyph evidence when an overwide normalized subtitle stops encoding', async () => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared, { layout: true })
+    const timeline = JSON.parse(await readFile(prepared.timeline, 'utf8')) as Record<string, unknown>
+    timeline.delivery = { width: 1440, height: 2560, fps: 60, subtitle_visual: {
+      schema_version: 1, reference_width: 1080, reference_height: 1920, font_size_px: 40,
+      outline_px: 2, center_y_ratio: 0.64, max_width_ratio: 0.1, font_family: 'SimHei',
+    } }
+    await writePlaceholder(prepared.timeline, JSON.stringify(timeline))
+    const subtitlePlan = join(prepared.project, 'overlay.json')
+    await writePlaceholder(subtitlePlan, '{"schema_version":1,"decisions":[]}')
+    const result = await render(prepared, channel, false, undefined,
+      { subtitlePlan, settings: { ...settings, normalizeSubtitleText: true } })
+    expect(result.ok).toBe(false)
+    expect(result.encoded_shots).toEqual([])
+    expect(result.written).toContain(result.subtitle_overlay?.resolved_srt)
+    expect(result.written).toContain(result.subtitle_layout?.report_path)
+    await expect(readFile(prepared.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('binds all current source-review artifacts and independently reuses a strict candidate', async () => {
+    const prepared = await reviewedProject(), channel = renderChannel(prepared, { resume: true })
+    const result = await render(prepared, channel, false, undefined, { resume: true, sourceQaVerifier: prepared.verifier })
+    expect(prepared.verifier).toHaveBeenCalledTimes(2)
+    const record = await readSourceRecord(sourceRecordPathFor(result.output))
+    expect(record?.delivery_inputs?.source_qa_sha256).toMatch(/^[a-f0-9]{64}$/u)
+    for (const path of prepared.artifacts) {
+      expect(record?.input_files).toContainEqual({ path: await realpath(path), sha256: await fileSha256(path) })
+    }
+    const checkpoint = channel.calls.length
+    const next = await render(prepared, channel, false, undefined, { resume: true, sourceQaVerifier: prepared.verifier })
+    expect(next.output).toBe(result.output)
+    expect(prepared.verifier).toHaveBeenCalledTimes(4)
+    expect(channel.calls.slice(checkpoint).some(call => call.args.includes('-c:v'))).toBe(false)
+  })
+
+  it.each(['count', 'video', 'review', 'audio', 'timeline'] as const)('rejects a changed %s identity in the prepared strict manifest', async (kind) => {
+    const prepared = await reviewedProject(), channel = renderChannel(prepared)
+    const first = prepared.manifest.shots[0]
+    if (first === undefined) throw Error('Missing first fixture source')
+    if (kind === 'count') await writePlaceholder(prepared.timeline, timelineJson([{ shot: 1, startUs: 0, durationUs: 5_050_000 }], 5.05))
+    if (kind === 'video') first.sha256 = '0'.repeat(64)
+    if (kind === 'review') first.review_sha256 = '0'.repeat(64)
+    if (kind === 'audio') first.audio_sha256 = '0'.repeat(64)
+    if (kind === 'timeline') await writePlaceholder(prepared.timeline, timelineJson([
+      { shot: 1, startUs: 0, durationUs: 5_050_000 }, { shot: 1, startUs: 5_050_000, durationUs: 109_683_332 },
+    ], 114.733332))
+    await writePlaceholder(prepared.paths.sources, JSON.stringify(prepared.manifest))
+    await expect(render(prepared, channel, false, undefined, { sourceQaVerifier: prepared.verifier,
+      ...(kind === 'count' ? { lastShot: 1 } : {}) }))
+      .rejects.toThrow('选源或审核已变化')
+    expect(channel.calls).toEqual([])
+  })
+
+  it('rejects a replaced prepared picture even when original source review remains current', async () => {
+    const prepared = await reviewedProject(), channel = renderChannel(prepared)
+    await writePlaceholder(join(prepared.paths.videoDir, 'shot_001.mp4'), 'unreviewed copied picture')
+    await expect(render(prepared, channel, false, undefined, { sourceQaVerifier: prepared.verifier }))
+      .rejects.toThrow('镜头副本与已审看源片字节不符')
+    expect(channel.calls).toEqual([])
+  })
+
+  it('refuses an accepted review replaced before its resume input snapshot is captured', async () => {
+    const prepared = await reviewedProject(), channel = renderChannel(prepared, { resume: true })
+    publication.replaceRead = join(prepared.project, 'reviews', 'ep02-p01.json')
+    await expect(render(prepared, channel, false, undefined, { resume: true, sourceQaVerifier: prepared.verifier }))
+      .rejects.toThrow('源片复验后文件发生变化')
+    expect(publication.reads).toBe(1)
+    expect(channel.calls.every(call => call.command === 'ffprobe')).toBe(true)
+  })
+
+  it('refuses retaining burned dialogue in a strict source-reviewed delivery before encoding', async () => {
+    const prepared = await reviewedProject(), channel = renderChannel(prepared)
+    const subtitlePlan = join(prepared.project, 'retain.json')
+    await writePlaceholder(subtitlePlan, JSON.stringify({ schema_version: 1, decisions: [{ shot: 1,
+      source_sha256: await fileSha256(join(prepared.paths.videoDir, 'shot_001.mp4')), start_seconds: 1, end_seconds: 4,
+      text: '台词', action: 'retain_embedded', reason: 'Caller claimed old burned dialogue' }] }))
+    await expect(render(prepared, channel, false, undefined, { subtitlePlan, sourceQaVerifier: prepared.verifier }))
+      .rejects.toThrow('不能沿用retain_embedded对白')
+    expect(channel.calls.every(call => call.command === 'ffprobe')).toBe(true)
+  })
+
+  it('refuses changed source-review evidence during the final mux without publishing new media', async () => {
+    const prepared = await reviewedProject(), base = renderChannel(prepared)
+    const channel = { calls: base.calls, channel: { run: async (command: string, args: readonly string[]) => {
+      const result = await base.channel.run(command, args)
+      if (args.includes('-c:a') && args.includes('aac')) await writePlaceholder(prepared.artifacts[0] ?? '', 'changed OCR evidence')
+      return result
+    } } }
+    await expect(render(prepared, channel, false, undefined, { sourceQaVerifier: prepared.verifier }))
+      .rejects.toThrow('渲染期间源片复验文件已变化')
+    await expect(readFile(prepared.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+  it('records measured product subtitle checks and preserves a prior candidate missing that proof', async () => {
+    const p = await preparedProject()
+    const timeline = JSON.parse(await readFile(p.timeline, 'utf8')) as { delivery: {
+      width: number
+      height: number
+      fps: number
+      subtitle_visual?: unknown
+    } }
+    timeline.delivery = { width: 1440, height: 2560, fps: 60 }
+    timeline.delivery.subtitle_visual = { schema_version: 1, reference_width: 1080, reference_height: 1920,
+      font_size_px: 40, outline_px: 2, center_y_ratio: 0.75, max_width_ratio: 0.9, font_family: 'SimHei' }
+    await writePlaceholder(p.timeline, JSON.stringify(timeline))
+    const channel = renderChannel(p, { resume: true, layout: true })
+    const first = await render(p, channel, false, undefined, { resume: true })
+    const path = sourceRecordPathFor(first.output)
+    const record = (await readSourceRecord(path))!
+    const verification = record.delivery_inputs!.subtitle_visual_verification!
+    expect(verification).toMatchObject({ version: 1, subtitle_sha256: record.delivery_inputs!.subtitle_sha256,
+      requested_font: 'SimHei', delivery: { width: 1440, height: 2560, fps: 60 }, visual: timeline.delivery.subtitle_visual, checks: [
+        { id: 'subtitle_display_text', ok: true }, { id: 'subtitle_display_width', ok: true }, { id: 'subtitle_display_font', ok: true },
+      ] })
+    expect(record.input_files).toContainEqual({ path: verification.report_path, sha256: await fileSha256(verification.report_path) })
+    const { subtitle_visual_verification: _verification, ...legacy } = record.delivery_inputs!
+    await writeSourceRecord(path, { ...record, delivery_inputs: legacy })
+    const next = await render(p, channel, false, undefined, { resume: true })
+    expect(next.output).not.toBe(first.output)
+    expect((await readSourceRecord(path))?.delivery_inputs?.subtitle_visual_verification).toBeUndefined()
+  })
+  it('requires current source QA before media processing on a strict formal render', async () => {
+    const p = await preparedProject()
+    await writePlaceholder(join(p.project, 'project_config.json'), JSON.stringify({
+      project_bible: { visual_medium: 'photorealistic', delivery: { require_source_review: true } },
+    }))
+    await writePlaceholder(p.paths.sources, JSON.stringify({ shots: [
+      { shot: 1, package: 1, video: join(p.paths.videoDir, 'shot_001.mp4') },
+      { shot: 2, package: 2, video: join(p.paths.videoDir, 'shot_002.mp4') },
+    ] }))
+    const channel = stubChannel([])
+    await expect(render(p, channel)).rejects.toThrow(/缺少本集选源审核/u)
+    expect(channel.calls).toHaveLength(0)
+  })
   it('blocks a legacy AAC-duration cut that would duplicate a decoded source frame', async () => {
     const prepared = await preparedProject()
     const channel = renderChannel(prepared, { sourceProbe: {
@@ -640,9 +954,9 @@ describe('renderEpisode', () => {
     const escapedAss = join(prepared.paths.cacheDir, 'display.ass').split('\\').join('/').replace(/:/g, '\\:')
     expect(burnFilter).toContain(`ass='${escapedAss}'`)
     expect(burnFilter).toContain("fontsdir='C\\:/Windows/Fonts'")
-    // The burn chain ends on the rate filters, so nothing after the subtitles can
+    // The burn chain ends on the rate filter, so nothing after the subtitles can
     // anchor the picture back to the source frame rate.
-    expect(burnFilter.endsWith('scale=1440:2560:flags=lanczos,tpad=stop_mode=clone:stop_duration=0.016666667,fps=60,setpts=N/(60*TB)')).toBe(true)
+    expect(burnFilter.endsWith('scale=1440:2560:flags=lanczos,tpad=stop_mode=clone:stop_duration=0.016666667,fps=60')).toBe(true)
     expect(await readFile(join(prepared.paths.cacheDir, 'display.ass'), 'utf8')).toContain('内容由AI生成')
 
     const mux = channel.calls.find(call => call.args.includes('+faststart'))

@@ -7,6 +7,7 @@ import { apply } from '../index.js'
 import { dshHomeOf } from '../src/host/folders.js'
 import { escapeRegExp } from '../src/host/text.js'
 import { legacyContext, legacyConfig } from './legacy-ctx.js'
+import { fakeSessionProjections } from './fake-ctx.js'
 
 // A Main Bot and a Bot, with the Bot in the group Ops through its group Session 'gb'.
 const TEAM = {
@@ -844,9 +845,9 @@ test('an automatic Session Bot carries the pending native model and effort into 
   const team = onModel('deepseek/flash')
   Object.assign(team.bots.b, { autoSessionBot: true, modelSource: 'bot' })
   const pending = new Map([['b', { provider: 'deepseek', model: 'v4-pro', reasoningEffort: 'low' }]])
-  const env = await start({ llm: MODELS, team, services: { sessionProjections: {
-    stateOf: (session, key) => key === 'modelSelection' ? { pending: pending.get(session.id) ?? null } : undefined,
-  } } })
+  const env = await start({ llm: MODELS, team, services: { sessionProjections: fakeSessionProjections(
+    (session, key) => key === 'modelSelection' ? { pending: pending.get(session.id) ?? null } : undefined,
+  ) } })
   t.after(env.stop)
   env.ctx.sessions.get = id => env.agentOf(id).session
   const selected = []

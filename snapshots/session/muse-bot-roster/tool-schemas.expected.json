@@ -39,7 +39,7 @@
           },
           "effort": {
             "type": "string",
-            "description": "Thinking level for the model, as list_models shows it. Only when the user names one."
+            "description": "Thinking level for the model, as list_bot_models shows it. Only when the user names one."
           },
           "work_dir": {
             "type": "string",

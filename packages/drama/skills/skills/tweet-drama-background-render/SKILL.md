@@ -34,7 +34,9 @@ description: Use when 剧变生成视频需要 SeedVR2 转高清，或 3D 动画
 
 ## 源画面文字与字幕叠加
 
-准备整集渲染前，先对实际选用的视频用 `video_ocr` 免费本地抽样，读取 `scan_status`、覆盖区间与带源时间码的文字；疑似对白烧字用 `video_inspect` 抽帧查看大图，和已对齐 SRT 比对。OCR 失败、覆盖不足或噪声不等于无字，不自动转付费去字幕、转写或重生成；保留候选并列出需要复看的时间点，普通识别疑点只提示，不要求提示清零。
+完整审看入口优先使用当前会话提供的 `video_source_review`，否则使用已启用完整模式的 `video_inspect`；下文的 `scan`、`next`、`observe` 和补采时间均作用于这个完整入口。普通creation会话保留原 `video_inspect` 的抽样及视频转剧本能力，不能把旧抽样结果当作完整源复验，也无需另开会话或让用户切换预设。
+
+准备整集渲染前，对实际选用的视频运行 `video_ocr`，读取完整原始结果、源版本、摘要、`scan_status`、覆盖区间及带源时间码的文字。启用 `require_source_review` 的正式制作要求覆盖全源且采样间隔不大于0.5秒，失败、漏扫或只扫局部不能声明无残字。疑似对白烧字用完整模式 `video_inspect` 实看并和已对齐SRT比对；招牌、物件文字和合规水印不自动视作对白，也不能按“持续文字”一概豁免。OCR失败或噪声不等于存在应收费清理的对白，不因检测失败直接购买去字幕、转写或重生成。
 
 确认源分包烧录了应清理的对白字时，先按源任务及结果身份查找已通过复核的去字幕输出。有适配结果就复用。没有结果时按本集本包原任务调用 `jubian_storyboard method=erase_subtitle`，传 `only_if_verified_free=true`、`task_id`、火山模型 `ark-erase-video-subtitle-pro`、`platform_id=AI_MEDIA_KIT`、真实 `video_width/video_height` 和该源固定的 `idempotency_key`。省略手填估价与坐标。该请求在同一次提交读取任务类型 10 目录并核实免费条件。免费路线确认不可用、已终态失败，或成功结果经实看不合格时，直接按既有项目预算调用羽点 `erase_subtitle`。使用 `model_id=quzimuToB`、`platform_id=YU_DIAN`、同一原分包与另一个该源固定的羽点 key，省略免费限定、手填估价与坐标，让提交读取羽点实时目录并按正常账本预留。已受理、仍在运行、提交结果未知时按原任务 ID 或原 key 对账，确认终态前不换通道或重提。
 
@@ -61,6 +63,8 @@ description: Use when 剧变生成视频需要 SeedVR2 转高清，或 3D 动画
 选用去字幕后的画面并保留原片声音时，审核记录同时保存所选画面的 `video_path`、`video_sha256` 和独立原声的 `audio_path`、`audio_sha256`，再在 `prepare` 的分包来源中显式填入两条路径。剪映草稿应使用 `prepare` 生成的同一份独立主音轨。无审核记录可先做工作预览，另用原声但缺来源审核时停止归档。技术复验仍需配合内容听看。
 
 启用 `delivery.require_source_review` 的新整剧，在正式归档前逐包保留实际选片的 `review_frames`，并在 `content_review` 记录人物身份、服装、场景、道具、动作和对白、可见损伤、镜头衔接、角色声线和说话人、音画同步、敏感画面。分别对应 `identity`、`wardrobe`、`scene`、`prop`、`action_and_dialogue`、`visible_artifacts`、`continuity`、`voice_and_speaker`、`av_sync`、`sensitive_content`，已逐项通过才写 `pass`。原片烧录对白已确认无残留才写 `embedded_subtitles: "absent"`。跨包衔接、人物口型和敏感动作区间看连续画面与原声，仅抽一帧或任务成功不够。发现可定位的缺陷只修受影响片段，回看切点和字幕后再归档。
+
+严格制作的 `source_qa` 绑定实际选片及原片哈希、完整OCR文件与摘要、同会话完整审看报告的路径、摘要和身份。按 `drama_render` 当前说明填写来源审核，不能用自写JSON、假抽帧或一句“已检查”代替工具执行。先 `video_inspect scan`，再按 `next` 实际查看图片并 `observe`；OCR文字时段或去字幕处理区间缺图时，用 `scan.timestamps_seconds` 免费补采，再完成新增帧的查看和观察。合法场景字逐OCR时段登记判定、理由与已观察帧；处理片同时保留原片及各处理区间的前后观察，检查残字、人物和纹理。缺证据时自动补齐这些免费步骤后重试，费用和范围仍沿用既有授权；无需再次询问用户是否继续。工具不可用则记录具体缺口并推进独立工作，不伪造通过。换片、换包或证据变化后重新核验，旧回执不能沿用。
 
 ## 媒介与交付策略
 

@@ -67,6 +67,8 @@
     "@deepseek-ai/dsh-sandbox-local": "workspace:*",
     "@deepseek-ai/dsh-session-projection": "workspace:*",
     "@deepseek-ai/dsh-tool-present": "workspace:*",
-    "@deepseek-ai/dsh-compaction-image-offload": "workspace:*"
+    "@deepseek-ai/dsh-compaction-image-offload": "workspace:*",
+    "@deepseek-ai/cordis-plugin-loader": "workspace:~",
+    "@deepseek-ai/cordis-plugin-include": "workspace:~"
   }
 }

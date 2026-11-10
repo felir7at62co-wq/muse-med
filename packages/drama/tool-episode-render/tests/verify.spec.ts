@@ -182,6 +182,14 @@ describe('decodeChecks', () => {
     expect(check?.detail).toContain('Number of scalefactor bands')
   })
 
+  it('rejects a silent nonzero full decoder exit even when sampled pictures decode', async () => {
+    const [check] = await decodeChecks(toolkit([decodeHandler(),
+      call => call.args.includes('-xerror') ? { code: 1, stderr: '' } : undefined,
+    ]), 'out.mp4', 102.842)
+    expect(check?.ok).toBe(false)
+    expect(check?.detail).toContain('退出码 1')
+  })
+
   it('fails a file whose container describes more picture than it decodes', async () => {
     // The reported failure: duration, frame rate, and bitrate all read normal, and a
     // seek past the real end exits 0 with nothing decoded.
@@ -413,11 +421,13 @@ describe('verifyEpisode', () => {
     expect(await fileSha256(files.output)).toBe(stored.output.sha256)
   })
 
-  it.each(['legacy', 'normalized'] as const)('preserves %s path compatibility when the bytes match', async (variant) => {
+  it.each(['legacy', 'relative', 'episode-less', 'normalized'] as const)('preserves %s path compatibility when the bytes match', async (variant) => {
     const files = await delivered()
     const receipt = sourceRecordPathFor(files.output)
     const stored = JSON.parse(await readFile(receipt, 'utf8')) as { episode: string; output: { path?: string } }
     if (variant === 'legacy') delete stored.output.path
+    else if (variant === 'relative') stored.output.path = 'export/02.mp4'
+    else if (variant === 'episode-less') stored.episode = ''
     else stored.output.path = `${dirname(files.output)}${sep}.${sep}${basename(files.output)}`
     await writePlaceholder(receipt, JSON.stringify(stored))
     const report = await verifyEpisode({

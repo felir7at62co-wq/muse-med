@@ -1,20 +1,66 @@
-import { mkdir, readdir, readFile, realpath, unlink } from 'node:fs/promises'
-import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { mkdir, readdir, readFile, realpath, rename, symlink, unlink } from 'node:fs/promises'
+import { dirname, join, sep } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fileSha256 } from '../src/cache.ts'
 import { createMediaToolkit } from '../src/ffmpeg.ts'
 import { resolveCall, resolveSettings } from '../src/index.ts'
 import { episodePaths } from '../src/paths.ts'
-import { buildSourceRecord, sourceRecordPathFor, writeSourceRecord, type DeliveryRenderInputs } from '../src/source-record.ts'
+import { buildSourceRecord, readSourceRecord, sourceRecordPathFor, writeSourceRecord, type DeliveryRenderInputs } from '../src/source-record.ts'
+import { verifySelectedSourceReviews } from '../src/approved-sources.ts'
+import { summarizeSourceQa } from '../src/source-qa.ts'
 import { reviewSpeechCoverage } from '../src/speech-coverage.ts'
 import { stageEpisodeDelivery } from '../src/stage-delivery.ts'
 import { readTimeline } from '../src/timeline.ts'
 import { runDramaVideo } from '../src/video.ts'
 import { cleanup, decodeHandler, probeHandler, srtDocument, stubChannel, tempProject, timelineJson, writePlaceholder } from './harness.ts'
+import { sourceQaFixture, verifiedSourceQaFixture } from './source-qa-fixture.ts'
 
 const temporary: string[] = []
 
+const storage = vi.hoisted(() => ({
+  beforeStat: undefined as ((path: string) => Promise<void>) | undefined,
+  beforeRead: undefined as ((path: string) => Promise<void>) | undefined,
+  afterRead: undefined as ((path: string) => Promise<void>) | undefined,
+  afterCopy: undefined as ((source: string, target: string) => Promise<void>) | undefined,
+  beforeLink: undefined as ((source: string, target: string) => Promise<void>) | undefined,
+  afterMkdir: undefined as ((path: string) => Promise<void>) | undefined,
+  realpathAlias: undefined as ((path: string, canonical: string) => string) | undefined,
+}))
+vi.mock('node:fs/promises', async (original) => {
+  const fs = await original<typeof import('node:fs/promises')>()
+  return { ...fs,
+    realpath: async (path: string) => {
+      const canonical = await fs.realpath(path)
+      return storage.realpathAlias?.(path, canonical) ?? canonical
+    },
+    lstat: async (...args: Parameters<typeof fs.lstat>) => {
+      await storage.beforeStat?.(String(args[0]))
+      return await fs.lstat(...args)
+    },
+    readFile: async (path: string, options?: Parameters<typeof fs.readFile>[1]) => {
+      await storage.beforeRead?.(path)
+      const bytes = await fs.readFile(path, options ?? null)
+      await storage.afterRead?.(path)
+      return bytes
+    },
+    copyFile: async (...args: Parameters<typeof fs.copyFile>) => {
+      await fs.copyFile(...args)
+      await storage.afterCopy?.(String(args[0]), String(args[1]))
+    },
+    link: async (...args: Parameters<typeof fs.link>) => {
+      await storage.beforeLink?.(String(args[0]), String(args[1]))
+      await fs.link(...args)
+    },
+    mkdir: async (...args: Parameters<typeof fs.mkdir>) => {
+      const result = await fs.mkdir(...args)
+      await storage.afterMkdir?.(String(args[0]))
+      return result
+    },
+  }
+})
+
 afterEach(async () => {
+  for (const key of Object.keys(storage) as (keyof typeof storage)[]) storage[key] = undefined
   await Promise.all(temporary.splice(0).map(async (directory) => { await cleanup(directory) }))
 })
 
@@ -26,9 +72,11 @@ async function fixture(clips = [{ shot: 1, startUs: 0, durationUs: 5_000_000 }],
     display?: 'external' | 'overlay' | 'unknown'
     missingStreamClock?: boolean
     cues?: Parameters<typeof srtDocument>[0]
-  } = { explicitVisual: false, text: '台词' }, musicKind?: string) {
-  const project = await realpath(await tempProject())
-  temporary.push(project)
+  } = { explicitVisual: false, text: '台词' }, musicKind?: string, nestedProject = false) {
+  const projectRoot = await realpath(await tempProject())
+  temporary.push(projectRoot)
+  const project = nestedProject ? join(projectRoot, '第26集') : projectRoot
+  await mkdir(project, { recursive: true })
   const episode = '26'
   const paths = episodePaths(project, episode)
   const shots = clips.map(clip => join(paths.videoDir, `shot_${String(clip.shot).padStart(3, '0')}.mp4`))
@@ -82,7 +130,7 @@ async function fixture(clips = [{ shot: 1, startUs: 0, durationUs: 5_000_000 }],
     const plan = join(project, 'bgm-plan.json'), bed = join(project, 'bgm.wav'), generation = join(project, 'bgm.generation.json')
     const none = ['justified no_bgm', 'missing plan', 'blank reason', 'mode conflicts'].includes(musicKind)
     const sourceSha = '1'.repeat(64)
-    const identity = musicKind === 'missing track provenance' ? {} : musicKind === 'catalog music'
+    const identity = musicKind === 'missing track identity' ? {} : musicKind === 'catalog music'
       ? { source_sha256: sourceSha, track_id: `sha256:${sourceSha}` } : musicKind === 'nonmatching catalog id'
         ? { source_sha256: sourceSha, track_id: `sha256:${'2'.repeat(64)}` }
         : { source_sha256: sourceSha, selection_origin: 'approved_reuse', reason: '沿用已认可的本剧主题曲' }
@@ -145,10 +193,190 @@ async function fixture(clips = [{ shot: 1, startUs: 0, durationUs: 5_000_000 }],
     toolkit, settings: resolveSettings({}), project, episode,
     output: paths.output, timelinePath: paths.timeline, subtitleSrt: paths.subtitle,
   }
-  return { project, paths, shot: shots[0]!, input, draft, draftSourcePath, source, upload, video, receipt, sha256 }
+  return { projectRoot, project, paths, shot: shots[0]!, input, draft, draftSourcePath, source, upload, video, receipt, sha256 }
+}
+
+type Fixture = Awaited<ReturnType<typeof fixture>>
+
+async function changeJson(path: string, change: (value: Record<string, unknown>) => void) {
+  const value = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
+  change(value)
+  await writePlaceholder(path, JSON.stringify(value))
+}
+
+async function changeRender(f: Fixture, change: (value: Record<string, unknown>) => void) {
+  await changeJson(sourceRecordPathFor(f.paths.output), change)
+}
+
+async function legacyDelivery(f: Fixture, disabled: boolean) {
+  const delivery = { width: 1440, height: 2560, fps: 60,
+    ...(disabled ? { require_source_review: false, subtitle: { require_speech_coverage: false } } : {}) }
+  await changeJson(f.paths.timeline, (row) => { row.delivery = delivery })
+  const timelineSha = await fileSha256(f.paths.timeline)
+  await changeRender(f, (row) => {
+    ;(row.delivery_inputs as Record<string, unknown>).timeline_sha256 = timelineSha
+    const files = row.input_files as { path: string; sha256: string }[]
+    files.find(file => file.path === f.paths.timeline)!.sha256 = timelineSha
+  })
+  f.source.timeline_sha256 = timelineSha
+  f.source.materials.find(file => file.path === f.paths.timeline)!.sha256 = timelineSha
+  await writePlaceholder(f.draftSourcePath, JSON.stringify({ ...f.source, material_scope: 'episode' }))
+  return delivery
+}
+
+async function expectNoDelivery(f: Fixture) {
+  expect(await readdir(f.project)).not.toContain('01_可交付视频')
+  expect(await readdir(f.project)).not.toContain('成片与草稿回执.json')
+  expect(await fileSha256(f.paths.output)).toBe(f.sha256)
+}
+
+async function reviewedFixture(strict = false, separate = false) {
+  const f = await fixture(undefined, { explicitVisual: false, text: '现在做饭', requireSpeechCoverage: strict })
+  const packagePath = join(f.project, 'episode_packages', '26', 'package.json')
+  const reviewPath = join(f.project, 'reviews', 'ep26-p01.json')
+  const frame = join(f.project, 'review.png'), download = join(f.project, 'download.json')
+  const audio = separate ? join(f.project, 'original-audio.wav') : f.shot
+  if (separate) await writePlaceholder(audio, 'reviewed independent audio')
+  const audioSha = await fileSha256(audio), sha = f.source.videos[0]!.sha256
+  const qa = await sourceQaFixture(f.project, f.shot)
+  await Promise.all([
+    writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({
+      project_bible: { delivery: { require_source_review: true } },
+    })),
+    writePlaceholder(frame, 'review frame'),
+    writePlaceholder(packagePath, JSON.stringify({ episode: '26', video_tasks: [{ shots: [1] }] })),
+    writePlaceholder(download, JSON.stringify({ version: 1, kind: 'video', media_type: 'video/mp4',
+      path: f.shot, sha256: `sha256:${sha}`, source_sha256: 'b'.repeat(64) })),
+  ])
+  await writePlaceholder(reviewPath, JSON.stringify({ episode: '26', package: 1, status: 'approved',
+    subtitle_cleanup: 'not_required', video_path: f.shot, video_sha256: sha,
+    audio_path: audio, audio_sha256: audioSha,
+    package_sha256: await fileSha256(packagePath), original_download_receipt_path: download, review_frames: [frame],
+    source_qa: { version: 1, selected: qa.declaration },
+    content_review: { identity: 'pass', wardrobe: 'pass', scene: 'pass', prop: 'pass', action_and_dialogue: 'pass',
+      visible_artifacts: 'pass', continuity: 'pass', voice_and_speaker: 'pass', av_sync: 'pass',
+      sensitive_content: 'pass', embedded_subtitles: 'absent' },
+  }))
+  const rows = [{ shot: 1, package: 1, video: f.shot, audio }]
+  await writePlaceholder(f.paths.sources, JSON.stringify({ shots: [{ ...rows[0], sha256: sha, audio_sha256: audioSha,
+    review_sha256: await fileSha256(reviewPath) }], master_audio_sha256: f.source.master_audio_sha256,
+  timeline_clips: [{ shot: 1, start_us: 0, duration_us: 5_000_000 }] }))
+  const verified = summarizeSourceQa(await verifySelectedSourceReviews(f.paths, rows, true, true, verifiedSourceQaFixture))
+  await changeRender(f, (record) => {
+    ;(record.delivery_inputs as Record<string, unknown>).source_qa_sha256 = verified.sha256
+    const files = record.input_files as Record<string, unknown>[]
+    record.input_files = [...files.filter(file => file.path !== f.paths.sources), ...verified.files]
+  })
+  const record = (await readSourceRecord(sourceRecordPathFor(f.paths.output)))!
+  await writeSourceRecord(sourceRecordPathFor(f.paths.output), { ...record,
+    input_files: [...record.input_files!, { path: f.paths.sources, sha256: await fileSha256(f.paths.sources) }] })
+  await writePlaceholder(f.draftSourcePath, JSON.stringify({ ...f.source, material_scope: 'episode' }))
+  const transcriptsPath = join(f.project, 'coverage.json'), receipt = 'transcript/jobs/reviewed-v1.json'
+  await writePlaceholder(transcriptsPath, JSON.stringify({ shots: [{ shot: 1, receipt }], display: { embedded: false,
+    subtitle_sha256: f.source.subtitle_sha256, video_sha256: [sha] } }))
+  await writePlaceholder(join(f.project, receipt), JSON.stringify({ status: 'complete', stem: 'reviewed', version: 1,
+    source: audio, sourceSha256: audioSha }))
+  await writePlaceholder(join(f.project, 'transcript/raw/reviewed-v1.json'), JSON.stringify([
+    { start: 1, end: 2, words: [{ text: '现在做饭', start: 1, end: 2 }] },
+  ]))
+  return { ...f, audio, audioSha, reviewPath, qa, verified,
+    input: { ...f.input, sourceQaVerifier: verifiedSourceQaFixture, transcriptsPath } }
 }
 
 describe('stageEpisodeDelivery', () => {
+  it.each([false, true])('recognizes the parent short-drama project when staging an episode subdirectory (local config: %s)', async (localConfig) => {
+    const f = await fixture(undefined, undefined, undefined, true)
+    await writePlaceholder(join(f.projectRoot, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933 }))
+    if (localConfig) await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({
+      project_bible: { delivery: { width: 1440, height: 2560, fps: 60, require_source_review: false,
+        subtitle: { require_speech_coverage: false } } },
+    }))
+    const call = resolveCall({ method: 'stage_delivery', project: f.project, episode: 26, output: f.input.output,
+      timeline: f.input.timelinePath, subtitleSrt: f.input.subtitleSrt, draft: f.draft })
+    expect(call.project).toBe(f.project)
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/实测起止时间/u)
+    await expectNoDelivery(f)
+  })
+
+  it('rejects an unreviewed bound legacy render before creating a delivery directory', async () => {
+    const f = await fixture()
+    await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933,
+      project_bible: { schema_version: 1, delivery: { width: 1440, height: 2560, fps: 60 } } }))
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/实测起止时间/u)
+    await expectNoDelivery(f)
+  })
+
+  it('propagates unreadable project identity during the final staging policy check', async () => {
+    const f = await fixture()
+    const config = join(f.project, 'project_config.json')
+    await writePlaceholder(config, JSON.stringify({ jubian_script_id: 5933 }))
+    let reads = 0
+    storage.beforeRead = async (path) => {
+      if (path === config && ++reads === 3) {
+        throw Object.assign(new Error('project identity unavailable'), { code: 'EACCES' })
+      }
+    }
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('project identity unavailable')
+    expect(reads).toBe(3)
+    await expectNoDelivery(f)
+  })
+
+  it.each([
+    { marker: { jubian_script_id: 5933 }, disabled: false },
+    { marker: { jubian_script_id: 5933 }, disabled: true },
+    { marker: {}, disabled: false },
+    { marker: {}, disabled: true },
+  ])('requires current short-drama source evidence with legacy requirements: %j', async ({ marker, disabled }) => {
+    const f = await fixture(undefined, { explicitVisual: false, text: '现在做饭', requireSpeechCoverage: true })
+    const delivery = await legacyDelivery(f, disabled)
+    await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({ ...marker,
+      project_bible: { ...(Object.keys(marker).length ? {} : { schema_version: 1 }), delivery } }))
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/缺少本集选源审核/u)
+    await expectNoDelivery(f)
+  })
+
+  it.each([false, true])('publishes reviewed short-drama evidence despite legacy disabled requirements: %s', async (disabled) => {
+    const f = await reviewedFixture(true, true)
+    const delivery = await legacyDelivery(f, disabled)
+    await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933,
+      project_bible: { delivery } }))
+    const before = await fileSha256(f.audio)
+    const result = await stageEpisodeDelivery(f.input, f.draft)
+    expect(result).toMatchObject({ ok: true, delivery_package: { status: 'candidate', video: f.video } })
+    const receipt: unknown = JSON.parse(await readFile(f.receipt, 'utf8'))
+    expect(receipt).toMatchObject({ source_qa_sha256: f.verified.sha256 })
+    expect(receipt).toHaveProperty('speech_evidence_sha256', expect.stringMatching(/^[0-9a-f]{64}$/u))
+    expect(await fileSha256(f.audio)).toBe(before)
+  })
+
+  it.each(['missing transcripts', 'missing stream clock', 'stale source review'] as const)(
+    'refuses legacy short-drama delivery with %s', async (fault) => {
+      const f = await reviewedFixture(true)
+      const delivery = await legacyDelivery(f, true)
+      await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933,
+        project_bible: { delivery } }))
+      if (fault === 'stale source review') await changeJson(f.reviewPath, (row) => { row.video_sha256 = '0'.repeat(64) })
+      const input = fault === 'missing stream clock' ? { ...f.input, toolkit: createMediaToolkit({
+        ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: stubChannel([
+          probeHandler({ [f.paths.output]: { durationSeconds: 7,
+            video: {} } }), decodeHandler(), () => ({}),
+        ]).channel,
+      }) } : f.input
+      const { transcriptsPath: _transcriptsPath, ...withoutTranscripts } = input
+      const attempt = stageEpisodeDelivery(fault === 'missing transcripts' ? withoutTranscripts : input, f.draft)
+      await expect(attempt).rejects.toThrow(fault === 'missing transcripts' ? /缺少 speech_transcripts/u
+        : fault === 'missing stream clock' ? /实测起止时间/u : /输入已变化|字节与已审核/u)
+      await expectNoDelivery(f)
+    },
+  )
+
+  it('retains unbound generic-editing compatibility when review requirements are disabled', async () => {
+    const f = await fixture()
+    const delivery = await legacyDelivery(f, true)
+    await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({ project_bible: { delivery } }))
+    expect((await stageEpisodeDelivery(f.input, f.draft)).delivery_package?.status).toBe('candidate')
+  })
+
   it('refuses an unreviewed episode when the project requires source review', async () => {
     const f = await fixture()
     await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({
@@ -165,6 +393,7 @@ describe('stageEpisodeDelivery', () => {
     const frame = join(f.project, 'review.png')
     const download = join(f.project, 'download.json')
     const sha = f.source.videos[0]!.sha256
+    const qa = await sourceQaFixture(f.project, f.shot)
     await Promise.all([
       writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({
         project_bible: { delivery: { require_source_review: true } },
@@ -177,6 +406,7 @@ describe('stageEpisodeDelivery', () => {
     await writePlaceholder(reviewPath, JSON.stringify({ episode: '26', package: 1, status: 'approved',
       subtitle_cleanup: 'not_required', video_path: f.shot, video_sha256: sha,
       package_sha256: await fileSha256(packagePath), original_download_receipt_path: download, review_frames: [frame],
+      source_qa: { version: 1, selected: qa.declaration },
       content_review: { identity: 'pass', wardrobe: 'pass', scene: 'pass', prop: 'pass', action_and_dialogue: 'pass',
         visible_artifacts: 'pass', continuity: 'pass', voice_and_speaker: 'pass', av_sync: 'pass',
         sensitive_content: 'pass', embedded_subtitles: 'absent' },
@@ -184,9 +414,17 @@ describe('stageEpisodeDelivery', () => {
     await writePlaceholder(f.paths.sources, JSON.stringify({ shots: [{ shot: 1, package: 1, video: f.shot, audio: f.shot,
       sha256: sha, audio_sha256: sha, review_sha256: await fileSha256(reviewPath) }],
     master_audio_sha256: f.source.master_audio_sha256, timeline_clips: [{ shot: 1, start_us: 0, duration_us: 5_000_000 }] }))
-    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/保留同集素材/u)
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/真实OCR执行/u)
+    const verifiedQa = summarizeSourceQa(await verifySelectedSourceReviews(f.paths,
+      [{ shot: 1, package: 1, video: f.shot, audio: f.shot }], true, true, verifiedSourceQaFixture))
+    const recordPath = sourceRecordPathFor(f.paths.output)
+    const record = (await readSourceRecord(recordPath))!
+    await writeSourceRecord(recordPath, { ...record, delivery_inputs: { ...record.delivery_inputs!, source_qa_sha256: verifiedQa.sha256 },
+      input_files: [...record.input_files!, ...verifiedQa.files] })
+    const input = { ...f.input, sourceQaVerifier: verifiedSourceQaFixture }
+    await expect(stageEpisodeDelivery(input, f.draft)).rejects.toThrow(/保留同集素材/u)
     await writePlaceholder(f.draftSourcePath, JSON.stringify({ ...f.source, material_scope: 'episode' }))
-    expect((await stageEpisodeDelivery(f.input, f.draft)).delivery_package?.status).toBe('candidate')
+    expect((await stageEpisodeDelivery(input, f.draft)).delivery_package?.status).toBe('candidate')
   })
 
   it.each([
@@ -196,7 +434,7 @@ describe('stageEpisodeDelivery', () => {
     { kind: 'mode conflicts', error: /混音模式不符/u }, { kind: 'missing generation', error: /bgm_generation/u },
     { kind: 'different bed', error: /实际采用的 BGM 字节/u }, { kind: 'muted music', error: /非零实际混音增益/u },
     { kind: 'different source cut', error: /选用区间/u },
-    { kind: 'missing track provenance', error: /每段配乐须有曲库 track_id/u },
+    { kind: 'missing track identity', error: /每段配乐须有曲库 track_id/u },
     { kind: 'nonmatching catalog id', error: /每段配乐须有曲库 track_id/u },
   ])('enforces the rendered music decision when opted in: $kind', async ({ kind, error, decision }) => {
     const f = await fixture(undefined, undefined, kind)
@@ -209,11 +447,12 @@ describe('stageEpisodeDelivery', () => {
       expect(await fileSha256(f.input.output)).toBe(f.sha256)
     } else {
       expect((await attempt).delivery_package?.status).toBe('candidate')
-      const receipt = JSON.parse(await readFile(f.receipt, 'utf8'))
+      const receipt = JSON.parse(await readFile(f.receipt, 'utf8')) as { music_decision?: unknown }
       if (decision === undefined) expect(receipt).not.toHaveProperty('music_decision')
-      else expect(receipt.music_decision).toMatchObject({ decision, plan_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) })
+      else expect(receipt.music_decision).toMatchObject({ decision, plan_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) as string })
       if (decision === 'music') expect(receipt.music_decision).toMatchObject({ mix_gain: 0.2,
-        bed_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u), generation_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+        bed_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) as string,
+        generation_sha256: expect.stringMatching(/^[0-9a-f]{64}$/u) as string,
       })
     }
   })
@@ -370,13 +609,13 @@ describe('stageEpisodeDelivery', () => {
     { kind: 'missing display declaration', error: /完整显示字幕声明/u },
     { kind: 'missing word evidence', error: /完整词级证据/u },
     { kind: 'wrong selected audio evidence', error: /完整词级证据/u },
-    { kind: 'renderer overlay', error: /保留原片字幕/u }, { kind: 'legacy unknown provenance', error: /未记录字幕来源/u },
+    { kind: 'renderer overlay', error: /保留原片字幕/u }, { kind: 'legacy unknown subtitle source', error: /未记录字幕来源/u },
     { kind: 'changed source manifest', error: /已变化/u },
     { kind: 'old draft without track verification', error: /独立原声与字幕轨道核查/u },
     { kind: 'missing stream clock', error: /实测起止时间/u },
   ])('enforces fresh word coverage before staging: $kind', async ({ kind, error }) => {
     const f = await fixture(undefined, { explicitVisual: false, text: '现在做饭', requireSpeechCoverage: true,
-      display: kind === 'renderer overlay' ? 'overlay' : kind === 'legacy unknown provenance' ? 'unknown' : 'external',
+      display: kind === 'renderer overlay' ? 'overlay' : kind === 'legacy unknown subtitle source' ? 'unknown' : 'external',
       missingStreamClock: kind === 'missing stream clock',
     })
     const transcriptsPath = join(f.project, 'coverage.json')
@@ -495,5 +734,364 @@ describe('stageEpisodeDelivery', () => {
     expect(report).toMatchObject({ method: 'stage_delivery', ok: false, written: [] })
     expect(report.delivery_package).toBeUndefined()
     expect(await readdir(f.project)).not.toContain('01_可交付视频')
+  })
+
+  it.each(['short episode', 'missing draft', 'non-mp4 work', 'outside timeline', 'upload as work'] as const)
+  ('refuses a misplaced working input before media checks: %s', async (kind) => {
+    const f = await fixture()
+    const input = { ...f.input,
+      ...(kind === 'short episode' ? { episode: '1' } : {}),
+      ...(kind === 'non-mp4 work' ? { output: f.paths.output + '.mov' } : {}),
+      ...(kind === 'outside timeline' ? { timelinePath: join(dirname(f.project), 'another-project.json') } : {}),
+      ...(kind === 'upload as work' ? { output: f.video } : {}),
+    }
+    await expect(stageEpisodeDelivery(input, kind === 'missing draft' ? join(f.draft, 'absent') : f.draft))
+      .rejects.toThrow(/请指定本集|项目内的工作成片/u)
+    await expectNoDelivery(f)
+  })
+
+  it('accepts a regular draft when realpath changes its short-name spelling', async () => {
+    const f = await fixture()
+    storage.realpathAlias = (path, canonical) => path === f.draft
+      ? canonical.replace(f.project, join(dirname(f.project), 'DRAMA~1')) : canonical
+    const report = await stageEpisodeDelivery(f.input, f.draft)
+    expect(report.ok).toBe(true)
+    expect(await readFile(f.video, 'utf8')).toBe('verified render bytes')
+    expect(await readFile(join(f.draft, 'draft_content.json'), 'utf8')).toBe('{}')
+  })
+
+  it.each(['entry', 'trailing separator'] as const)
+  ('refuses a linked draft directory and preserves the real draft: %s', async (kind) => {
+    const f = await fixture(), link = join(dirname(f.draft), 'linked-draft')
+    await symlink(f.draft, link, 'junction')
+    try { await expect(stageEpisodeDelivery(f.input, link + (kind === 'entry' ? '' : sep))).rejects.toThrow('不接受通过链接') }
+    finally { await unlink(link) }
+    expect(await readFile(join(f.draft, 'draft_content.json'), 'utf8')).toBe('{}')
+    await expectNoDelivery(f)
+  })
+
+  it('refuses a regular draft reached through a linked ancestor', async () => {
+    const f = await fixture(), link = join(f.project, 'linked-ancestor')
+    await symlink(f.project, link, 'junction')
+    try {
+      await expect(stageEpisodeDelivery(f.input, join(link, '02_剪映草稿', '第26集')))
+        .rejects.toThrow('不接受通过链接')
+    } finally { await unlink(link) }
+    expect(await readFile(join(f.draft, 'draft_content.json'), 'utf8')).toBe('{}')
+    await expectNoDelivery(f)
+  })
+
+  it('refuses a linked path component before parent-directory traversal', async () => {
+    const f = await fixture(), target = join(f.project, 'container'), link = join(f.project, 'linked-container')
+    await mkdir(target)
+    await symlink(target, link, 'junction')
+    const draft = `${link}${sep}..${sep}02_剪映草稿${sep}第26集`
+    try { await expect(stageEpisodeDelivery(f.input, draft)).rejects.toThrow('不接受通过链接') }
+    finally { await unlink(link) }
+    expect(await readFile(join(f.draft, 'draft_content.json'), 'utf8')).toBe('{}')
+    await expectNoDelivery(f)
+  })
+
+  it('propagates storage access errors instead of treating an unreadable source record as absent', async () => {
+    const f = await fixture(), source = sourceRecordPathFor(f.paths.output)
+    storage.beforeStat = async (path) => {
+      if (path === source) throw Object.assign(new Error('storage access denied'), { code: 'EACCES' })
+    }
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toMatchObject({ code: 'EACCES' })
+    await expectNoDelivery(f)
+  })
+
+  it.each(['missing binding', 'invalid input digest', 'no selected videos', 'invalid output digest'] as const)
+  ('rejects incomplete renderer wire records: %s', async (kind) => {
+    const f = await fixture()
+    await changeRender(f, (row) => {
+      if (kind === 'missing binding') delete row.delivery_inputs
+      if (kind === 'invalid input digest') row.inputs = ['not-sha256']
+      if (kind === 'no selected videos') (row.delivery_inputs as Record<string, unknown>).videos = []
+      if (kind === 'invalid output digest') (row.output as Record<string, unknown>).sha256 = 'not-sha256'
+    })
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('完整的单集续跑来源回执')
+    await expectNoDelivery(f)
+  })
+
+  it('does not promote a legacy verification warning to a proved source record', async () => {
+    const f = await fixture()
+    await changeRender(f, (row) => { row.episode = '' })
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('无法证明当前文件与本集来源回执一致')
+    await expectNoDelivery(f)
+  })
+
+  it('rejects a selected-video record which does not cover the verified timeline', async () => {
+    const f = await fixture()
+    await changeRender(f, (row) => { (row.delivery_inputs as Record<string, unknown>).videos = [{ shot: 2, sha256: f.sha256 }] })
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('覆盖完整时间线选片')
+    await expectNoDelivery(f)
+  })
+
+  it.each(['relative path', 'invalid digest', 'missing required path', 'changed input'] as const)
+  ('refuses stale or malformed render-input manifests: %s', async (kind) => {
+    const f = await fixture()
+    await changeRender(f, (row) => {
+      const files = row.input_files as Record<string, unknown>[]
+      if (kind === 'relative path') files[0]!.path = 'editing/26-timeline.json'
+      if (kind === 'invalid digest') files[0]!.sha256 = 'not-sha256'
+      if (kind === 'missing required path') files.splice(0, 1)
+      if (kind === 'changed input') files[0]!.sha256 = '0'.repeat(64)
+    })
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/输入路径或摘要无效|输入已变化|未记录当前时间线/u)
+    await expectNoDelivery(f)
+  })
+
+  it('allows an explicitly absent optional render input without inventing a file', async () => {
+    const f = await fixture(), missing = join(f.project, 'optional.json')
+    await changeRender(f, (row) => { (row.input_files as Record<string, unknown>[]).push({ path: missing, sha256: null }) })
+    expect((await stageEpisodeDelivery(f.input, f.draft)).delivery_package?.status).toBe('candidate')
+    await expect(readFile(missing)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it.each(['missing file lists', 'relative material', 'escaped draft file', 'missing native name', 'wrong master', 'legacy embedded'] as const)
+  ('checks editable-draft retained files and sound: %s', async (kind) => {
+    const f = await fixture()
+    await changeJson(f.draftSourcePath, (source) => {
+      if (kind === 'missing file lists') delete source.files
+      if (kind === 'relative material') source.materials = [{ path: 'relative.mp4', sha256: f.sha256 }]
+      if (kind === 'escaped draft file') source.files = [{ path: '../../escape.json', sha256: f.sha256 }]
+      if (kind === 'missing native name') source.files = (source.files as Record<string, unknown>[]).slice(1)
+      if (kind === 'wrong master') source.master_audio_sha256 = '0'.repeat(64)
+      if (kind === 'legacy embedded') { source.audio_mode = 'embedded'; delete source.master_audio_sha256 }
+    })
+    const attempt = stageEpisodeDelivery(f.input, f.draft)
+    if (kind === 'legacy embedded') expect((await attempt).delivery_package?.status).toBe('candidate')
+    else {
+      await expect(attempt).rejects.toThrow(/来源回执缺少|路径或摘要无效|文件越界|缺少原生草稿|原声版本不符/u)
+      await expectNoDelivery(f)
+    }
+  })
+
+  it.each(['changed video digest', 'wrong number of shots', 'missing master', 'unknown review'] as const)
+  ('refuses a prepared manifest which disagrees with the render: %s', async (kind) => {
+    const f = await fixture()
+    await changeJson(f.paths.sources, (source) => {
+      const rows = source.shots as Record<string, unknown>[]
+      if (kind === 'changed video digest') rows[0]!.sha256 = '0'.repeat(64)
+      if (kind === 'wrong number of shots') rows.push({ ...rows[0], shot: 2 })
+      if (kind === 'missing master') {
+        source.timeline_clips = [{ shot: 1, start_us: 0, duration_us: 5_000_000 }]
+        source.master_audio_sha256 = '0'.repeat(64)
+      }
+      if (kind === 'unknown review') rows[0]!.review_sha256 = '0'.repeat(64)
+      if (kind === 'unknown review') {
+        source.timeline_clips = [{ shot: 1, start_us: 0, duration_us: 5_000_000 }]
+        source.master_audio_sha256 = f.source.master_audio_sha256
+      }
+    })
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/选源与工作成片不符|整集原声与工作成片不符|审核版本与工作成片不符/u)
+    await expectNoDelivery(f)
+  })
+
+  it.each(['conflicting receipt', 'receipt directory', 'upload file'] as const)
+  ('preserves an existing conflicting publication destination: %s', async (kind) => {
+    const f = await fixture()
+    if (kind === 'receipt directory') await mkdir(f.receipt)
+    if (kind === 'conflicting receipt') await writePlaceholder(f.receipt, 'earlier delivery')
+    if (kind === 'upload file') await writePlaceholder(f.upload, 'occupied destination')
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/回执已存在|交付位置不是文件夹/u)
+    if (kind === 'conflicting receipt') expect(await readFile(f.receipt, 'utf8')).toBe('earlier delivery')
+    if (kind === 'upload file') expect(await readFile(f.upload, 'utf8')).toBe('occupied destination')
+    expect(await fileSha256(f.paths.output)).toBe(f.sha256)
+  })
+
+  it('requires each working input to remain an ordinary file before verification', async () => {
+    const f = await fixture()
+    await rename(f.paths.subtitle, f.paths.subtitle + '.saved')
+    await mkdir(f.paths.subtitle)
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('需要可读取的工作文件')
+    await expectNoDelivery(f)
+  })
+
+  it('refuses a directory masquerading as a render receipt', async () => {
+    const f = await fixture(), record = sourceRecordPathFor(f.paths.output)
+    await unlink(record)
+    await mkdir(record)
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('归档需要可读取的普通文件')
+    await expectNoDelivery(f)
+  })
+
+  it.each(['missing music', 'oversized composer receipt'] as const)
+  ('does not archive incomplete strict music inputs: %s', async (kind) => {
+    const f = await fixture(undefined, undefined, 'catalog music')
+    if (kind === 'missing music') await changeRender(f, (row) => { delete (row.delivery_inputs as Record<string, unknown>).music })
+    else {
+      const generation = join(f.project, 'bgm.generation.json')
+      await writePlaceholder(generation, ' '.repeat(2_097_153))
+      const digest = await fileSha256(generation)
+      await changeRender(f, (row) => {
+        const files = row.input_files as Record<string, unknown>[]
+        files.find(file => file.path === generation)!.sha256 = digest
+      })
+    }
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/缺少严格配乐来源|不能超过 2 MiB/u)
+    await expectNoDelivery(f)
+  })
+
+  it('rejects a timeline changed after its bound digest was captured', async () => {
+    const f = await fixture()
+    let reads = 0
+    storage.beforeRead = async (path) => {
+      if (path === f.paths.timeline && ++reads === 2) {
+        storage.beforeRead = undefined
+        await writePlaceholder(path, (await readFile(path, 'utf8')) + '\n')
+      }
+    }
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('归档期间工作成片记录的输入已变化')
+    await expectNoDelivery(f)
+  })
+
+  it('enforces a single-line policy enabled while the earlier media check is running', async () => {
+    const f = await fixture(undefined, { explicitVisual: false, text: '第一行\n第二行' })
+    const channel = f.input.toolkit.channel
+    let changed = false
+    const toolkit = { ...f.input.toolkit, channel: { async run(command: string, args: readonly string[]) {
+      const result = await channel.run(command, args)
+      if (!changed) {
+        changed = true
+        await writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({ project_bible: { delivery: {
+          subtitle_visual: { schema_version: 1, reference_width: 1080, reference_height: 1920,
+            font_size_px: 40, outline_px: 2, center_y_ratio: 0.75, max_width_ratio: 0.9 },
+        } } }))
+      }
+      return result
+    } } }
+    await expect(stageEpisodeDelivery({ ...f.input, toolkit }, f.draft)).rejects.toThrow('条字幕含有强制换行')
+    await expectNoDelivery(f)
+  })
+
+  it('ignores blank display cues during strict cut-boundary checks', async () => {
+    const f = await fixture(undefined, { explicitVisual: false, text: '', requireNoPunctuation: true })
+    expect((await stageEpisodeDelivery(f.input, f.draft)).delivery_package?.status).toBe('candidate')
+  })
+
+  it.each(['draft receipt', 'prepared sources', 'render receipt'] as const)
+  ('detects a changed %s during archive validation', async (kind) => {
+    const f = await fixture()
+    const path = kind === 'draft receipt' ? f.draftSourcePath : kind === 'prepared sources' ? f.paths.sources
+      : sourceRecordPathFor(f.paths.output)
+    let reads = 0
+    storage.afterRead = async (current) => {
+      if (current !== path || ++reads !== (kind === 'render receipt' ? 2 : 1)) return
+      storage.afterRead = undefined
+      await writePlaceholder(path, (await readFile(path, 'utf8')) + '\n')
+    }
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/归档期间.*已变化/u)
+    await expectNoDelivery(f)
+  })
+
+  it.each(['wrong source QA summary', 'unbound OCR file', 'foreign episode material', 'independent strict audio'] as const)
+  ('checks content-reviewed evidence at the archive boundary: %s', async (kind) => {
+    const f = await reviewedFixture(kind === 'independent strict audio', kind === 'independent strict audio')
+    let draft = f.draft
+    if (kind === 'wrong source QA summary') await changeRender(f, (row) => {
+      ;(row.delivery_inputs as Record<string, unknown>).source_qa_sha256 = '0'.repeat(64)
+    })
+    if (kind === 'unbound OCR file') await changeRender(f, (row) => {
+      row.input_files = (row.input_files as Record<string, unknown>[]).filter(file => file.path !== f.verified.files[1]?.path)
+    })
+    if (kind === 'foreign episode material') {
+      draft = join(f.project, '第26集', '02_剪映草稿', '第26集')
+      await mkdir(dirname(draft), { recursive: true })
+      await rename(f.draft, draft)
+    }
+    const attempt = stageEpisodeDelivery(f.input, draft)
+    if (kind === 'independent strict audio') {
+      expect((await attempt).delivery_package?.status).toBe('candidate')
+      expect(JSON.parse(await readFile(f.receipt, 'utf8'))).toHaveProperty('speech_evidence_sha256')
+    } else {
+      await expect(attempt).rejects.toThrow(/OCR或审看版本不同|缺少当前OCR|素材不在本集目录/u)
+      await expectNoDelivery(f)
+    }
+  })
+
+  it('requires strict speech maps to stay within the project and rejects a non-object display map', async () => {
+    const f = await reviewedFixture(true)
+    await expect(stageEpisodeDelivery({ ...f.input, transcriptsPath: join(dirname(f.project), 'outside.json') }, f.draft))
+      .rejects.toThrow('speech_transcripts 必须位于当前项目内')
+    await writePlaceholder(f.input.transcriptsPath, 'null')
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('完整显示字幕声明')
+    await expectNoDelivery(f)
+  })
+
+  it('requires the strict render to retain its actual prepared-source manifest digest', async () => {
+    const f = await reviewedFixture(true)
+    await changeRender(f, (row) => {
+      row.input_files = (row.input_files as Record<string, unknown>[]).filter(file => file.path !== f.paths.sources)
+    })
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('绑定已准备的音画来源')
+    await expectNoDelivery(f)
+  })
+
+  it('refuses a transcription mapping replaced by an equivalent but newly hashed document during comparison', async () => {
+    const f = await reviewedFixture(true)
+    storage.afterRead = async (path) => {
+      if (path !== f.input.transcriptsPath) return
+      storage.afterRead = undefined
+      await writePlaceholder(path, (await readFile(path, 'utf8')) + '\n')
+    }
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('完整词级证据')
+    await expectNoDelivery(f)
+  })
+
+  it.each(['draft receipt', 'selected sources', 'render receipt', 'staged video'] as const)
+  ('detects a changed %s between verification and publication', async (kind) => {
+    const f = await fixture()
+    storage.afterCopy = async (_source, staged) => {
+      storage.afterCopy = undefined
+      const path = kind === 'draft receipt' ? f.draftSourcePath : kind === 'selected sources' ? f.paths.sources
+        : kind === 'render receipt' ? sourceRecordPathFor(f.paths.output) : staged
+      await writePlaceholder(path, (await readFile(path, 'utf8')) + '\n')
+    }
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/归档期间.*已变化/u)
+    await expectNoDelivery(f)
+    expect((await readdir(f.project)).filter(name => name.startsWith('.delivery-stage-'))).toEqual([])
+  })
+
+  it('rechecks the working output before reusing an earlier identical published delivery', async () => {
+    const f = await fixture()
+    await stageEpisodeDelivery(f.input, f.draft)
+    storage.afterRead = async (path) => {
+      if (path !== f.receipt) return
+      storage.afterRead = undefined
+      await writePlaceholder(f.paths.output, 'changed after technical verification')
+    }
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('归档期间工作成片已变化')
+    expect(await fileSha256(f.video)).toBe(f.sha256)
+  })
+
+  it('does not overwrite another writer which populates the upload directory during staging', async () => {
+    const f = await fixture(), foreign = join(f.upload, 'coworker.mp4')
+    storage.afterMkdir = async (path) => {
+      if (path !== f.upload) return
+      storage.afterMkdir = undefined
+      await writePlaceholder(foreign, 'coworker delivery')
+    }
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('归档期间交付文件夹已变化')
+    expect(await readFile(foreign, 'utf8')).toBe('coworker delivery')
+    expect(await readdir(f.upload)).toEqual(['coworker.mp4'])
+    expect((await readdir(f.project)).filter(name => name.startsWith('.delivery-stage-'))).toEqual([])
+    expect(await readdir(f.project)).not.toContain('成片与草稿回执.json')
+  })
+
+  it('keeps a committed receipt after a final link failure and resumes without a second receipt', async () => {
+    const f = await fixture()
+    storage.beforeLink = async (_source, target) => {
+      if (target === f.video) throw Object.assign(new Error('storage temporarily unavailable'), { code: 'EIO' })
+    }
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toMatchObject({ code: 'EIO' })
+    expect(await readdir(f.upload)).toEqual([])
+    const committed = await readFile(f.receipt)
+    expect((await readdir(f.project)).filter(name => name.startsWith('.delivery-stage-'))).toEqual([])
+    storage.beforeLink = undefined
+    expect((await stageEpisodeDelivery(f.input, f.draft)).written).toEqual([f.video])
+    expect(await readFile(f.receipt)).toEqual(committed)
+    expect(await fileSha256(f.video)).toBe(f.sha256)
   })
 })

@@ -402,7 +402,21 @@ describe.skipIf(MODE === 'record')('web e2e: App-only desktop onboarding', () =>
     await snapshot('purpose-en-dark')
     await page.getByRole('button', { name: 'Back', exact: true }).click()
     await page.getByRole('button', { name: 'Continue', exact: true }).waitFor()
-    await page.getByRole('button', { name: 'Back', exact: true }).click()
+    // Navigation previews before the queued Host write completes.
+    const [welcomeSaved] = await Promise.all([
+      page.waitForResponse((response) => {
+        if (!response.url().endsWith('/api/settings/mutate')) return false
+        const request = response.request().postDataJSON() as {
+          payload: { args: { ns: string; ops: { op: string; path: string[]; value?: unknown }[] } }
+        }
+        return request.payload.args.ns === NS && request.payload.args.ops.some(op =>
+          op.op === 'set' && op.path[0] === 'step' && op.value === 'welcome')
+      }),
+      page.getByRole('button', { name: 'Back', exact: true }).click(),
+    ])
+    await welcomeSaved.finished()
+    expect(await welcomeSaved.json()).toMatchObject({ result: { ok: true } })
+    expect(scaffold.ctx.settings.describe().find(row => row.ns === NS)?.value).toMatchObject({ step: 'welcome' })
     await page.getByRole('button', { name: 'Get started', exact: true }).waitFor()
     expect(scaffold.ctx.settings.describe().find(row => row.ns === NS)?.value).not.toHaveProperty('creditFunded')
     bonusBalance = '0'

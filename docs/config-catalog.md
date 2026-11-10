@@ -4118,7 +4118,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-episode-render`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-episode-render/src/index.ts:81`](../packages/drama/tool-episode-render/src/index.ts)
+- `source`: [`packages/drama/tool-episode-render/src/index.ts:87`](../packages/drama/tool-episode-render/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -4794,13 +4794,15 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-video-inspect`
 
 - `inject`: `tools` · `fs` · `subprocess` · `attachments` · `sandboxPolicy`
-- `source`: [`packages/perception/tool-video-inspect/src/index.ts:35`](../packages/perception/tool-video-inspect/src/index.ts)
+- `source`: [`packages/perception/tool-video-inspect/src/index.ts:37`](../packages/perception/tool-video-inspect/src/index.ts)
 
 ```ts config-catalog
 /** Deployment-resolved media executables and inspection bounds. */
 export interface Config {
   /** Use complete-episode detection and durable per-frame observations. */
   requireCompleteReview: boolean
+  /** Keep legacy sampling and additionally expose video_source_review for complete source checks. */
+  sourceReviewCompanion: boolean
   /** Maximum images per observation batch. */
   reviewBatchFrames: number
   /** Thumbnail rate for cumulative appearance changes. */

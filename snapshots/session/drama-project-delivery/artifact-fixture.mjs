@@ -71,7 +71,7 @@ export async function verifyDeliveryArtifacts({ cwd, report, sourceHashes, comma
     + '[a0][a1]amix=inputs=2:duration=longest:normalize=0,atrim=0:5.000000,alimiter=limit=0.95:level=false[a]')
   const burned = commands.filter(command => command.args.some(arg => arg.includes("ass='")))
   assert.equal(burned.length, 1)
-  assert.ok(burned[0].args.some(arg => arg.includes('display.ass') && arg.endsWith('fps=24,setpts=N/(24*TB)')))
+  assert.ok(burned[0].args.some(arg => arg.includes('display.ass') && arg.endsWith('fps=24') && !arg.includes('setpts=')))
   assert.equal(await readFile(join(cwd, 'exports/candidate.mp4'), 'utf8'), 'fixture encoded media\n')
 }
 

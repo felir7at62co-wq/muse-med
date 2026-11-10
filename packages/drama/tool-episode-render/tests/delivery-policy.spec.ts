@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DEFAULT_DELIVERY, audioMixFilter, deliveryScaleFilter, subtitleBurnFilter } from '../src/delivery.ts'
-import { assertBodyOnlyAnimation, deliveryPolicyFor, parseTimelineDelivery, readProjectDelivery, resolveDeliveryPolicy } from '../src/delivery-policy.ts'
+import { assertBodyOnlyAnimation, deliveryPolicyFor, findShortDramaProject, isShortDramaProject, parseTimelineDelivery, readProjectDelivery, resolveDeliveryPolicy } from '../src/delivery-policy.ts'
 import { buildAssDocument } from '../src/subtitles.ts'
 import { appendClips, formatTimelineDocument, parseTimelineDocument } from '../src/timeline.ts'
 
@@ -19,11 +19,42 @@ async function project(bible?: unknown): Promise<string> {
 const animation = { width: 1920, height: 1080, fps: 30, visual_medium: 'animation_3d' } as const
 const fonts = { subtitleFontFamily: 'SimHei', watermarkFontFamily: 'Microsoft YaHei' }
 
+it('finds the nearest marked ancestor without treating unmarked or malformed child metadata as a scope reset', async () => {
+  const root = await project(), child = join(root, '第26集'), leaf = join(child, 'draft')
+  await mkdir(leaf, { recursive: true })
+  await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933 }))
+  await writeFile(join(child, 'project_config.json'), '{broken')
+  expect(await findShortDramaProject(leaf)).toBe(root)
+  await writeFile(join(child, 'project_config.json'), JSON.stringify({ project_bible: { schema_version: 1 } }))
+  expect(await findShortDramaProject(leaf)).toBe(child)
+})
+
+it('leaves unmarked directories and directory-shaped configuration paths outside short-drama scope', async () => {
+  const root = await project()
+  await mkdir(join(root, 'project_config.json'))
+  expect(await findShortDramaProject(root)).toBeUndefined()
+})
+
+it.each([
+  null, [], 'project', {}, { jubian_script_id: 0 }, { jubian_script_id: 1.5 }, { jubian_script_id: '5933' },
+  { project_bible: null }, { project_bible: [] }, { project_bible: { delivery: {} } }, { project_bible: { schema_version: 2 } },
+])('does not infer a short-drama project without a recognized marker: %j', (config) => {
+  expect(isShortDramaProject(config)).toBe(false)
+})
+
+it.each([
+  { jubian_script_id: 5933 }, { project_bible: { schema_version: 1 } },
+  { jubian_script_id: 5933, project_bible: { delivery: {} } },
+  { jubian_script_id: 'legacy', project_bible: { schema_version: 1 } },
+])('recognizes a short-drama project independently of legacy delivery settings: %j', (config) => {
+  expect(isShortDramaProject(config)).toBe(true)
+})
+
 describe('delivery metadata', () => {
   it('round trips only explicit project subtitle and audio fields into the timeline', async () => {
     const delivery = { ...animation, subtitle: { font_family: 'Noto Sans CJK SC', font_size_px: 30, margin_bottom_px: 18,
       require_no_punctuation: true, require_speech_coverage: true },
-      audio: { master_gain: 1, bgm_gain: 0, require_music_decision: true } }
+    audio: { master_gain: 1, bgm_gain: 0, require_music_decision: true } }
     const selected = await readProjectDelivery(await project({ visual_medium: 'animation_3d', delivery }))
     expect(selected).toEqual(delivery)
     const text = formatTimelineDocument({ ...appendClips([1_000_000]), delivery: selected })
@@ -32,6 +63,7 @@ describe('delivery metadata', () => {
       .toEqual({ ...DEFAULT_DELIVERY, subtitle: {}, audio: {} })
   })
   it.each([
+    { require_source_review: 'true' },
     { subtitle: null }, { subtitle: [] }, { subtitle: 'large' }, { audio: null }, { audio: [] },
     { subtitle: { font_family: null } }, { subtitle: { font_family: ' ' } },
     { subtitle: { font_family: 'font,injected' } }, { subtitle: { font_family: 'font\nStyle: forged' } },
@@ -47,6 +79,16 @@ describe('delivery metadata', () => {
     { audio: { require_music_decision: 'true' } }, { audio: { require_music_decision: null } },
   ])('rejects malformed explicit style or gain values %j', (sections) => {
     expect(() => parseTimelineDelivery({ ...animation, ...sections }, 'timeline.delivery')).toThrow('timeline.delivery')
+  })
+  it('retains speech-validation requirements while replacing obsolete portrait typography', async () => {
+    const portrait = { width: 480, height: 854, fps: 24 }
+    const visual = { schema_version: 1 as const, reference_width: 480, reference_height: 854,
+      font_size_px: 46, outline_px: 1.25, center_y_ratio: 0.64, max_width_ratio: 0.9 }
+    const path = await project({ delivery: portrait })
+    const policy = await resolveDeliveryPolicy(path, { ...portrait,
+      subtitle: { font_size_px: 90, require_speech_coverage: true } }, visual, true)
+    expect(policy.delivery.subtitle).toEqual({ require_speech_coverage: true })
+    expect(policy.delivery.subtitle_visual).toEqual(visual)
   })
   it('does not add new fields or change old timeline bytes when no override is configured', async () => {
     const delivery = await readProjectDelivery(await project({ delivery: { width: 480, height: 854, fps: 24 } }))
@@ -230,6 +272,6 @@ describe('medium delivery resolution', () => {
   it('carries snapshot canvas and rate into scale and burn filters', () => {
     expect(deliveryScaleFilter('yuv420p', animation)).toContain('crop=1920:1080,tpad=stop_mode=clone:stop_duration=0.033333333,fps=30')
     expect(subtitleBurnFilter('display.ass', 'fonts', animation)).toContain('scale=3840:2160')
-    expect(subtitleBurnFilter('display.ass', 'fonts', animation)).toContain('fps=30,setpts=N/(30*TB)')
+    expect(subtitleBurnFilter('display.ass', 'fonts', animation).endsWith('fps=30')).toBe(true)
   })
 })

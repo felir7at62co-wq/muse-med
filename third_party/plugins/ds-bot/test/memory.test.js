@@ -10,6 +10,7 @@ import {
 } from '../src/host/memory.js'
 import { latestMemoryChange, summaryBlocks } from '../src/client/text.js'
 import { legacyContext, legacyConfig } from './legacy-ctx.js'
+import { fakeSessionProjections } from './fake-ctx.js'
 import { resolveMuseConfig } from '../src/host/muse-config.js'
 
 test('entries carry their metadata at the end of the line, as Agent Memory Repo writes it', () => {
@@ -125,7 +126,7 @@ const ownChat = [
 function start({ home = mkdtempSync(join(tmpdir(), 'ds-bot-memory-')), replies = [], config = {}, history = {}, reasoning = { efforts: [{ id: 'off' }, { id: 'high' }] }, models = ['v4'], defaultModel, requireSession = false, useMuseReviewDefault = false, nativeSelection } = {}) {
   if (!existsSync(join(home, 'state.json'))) writeFileSync(join(home, 'state.json'), JSON.stringify(TEAM))
   const services = defaultModel === undefined ? {} : { agentDefaultModel: { currentSelection: () => ({ provider: 'deepseek', model: defaultModel }) } }
-  if (nativeSelection !== undefined) services.sessionProjections = { stateOf: () => ({ pending: nativeSelection }) }
+  if (nativeSelection !== undefined) services.sessionProjections = fakeSessionProjections((_session, key) => key === 'modelSelection' ? { pending: nativeSelection } : undefined)
   const ctx = legacyContext({ services })
   const requests = []
   Object.assign(ctx, {

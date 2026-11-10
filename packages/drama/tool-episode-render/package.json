@@ -34,6 +34,7 @@
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*",
+    "@deepseek-ai/dsh-tool-video-inspect": "workspace:*",
     "@deepseek-ai/dsh-bgm-license-info": "workspace:*"
   },
   "devDependencies": {
@@ -43,6 +44,7 @@
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
     "@deepseek-ai/dsh-tools": "workspace:*",
+    "@deepseek-ai/dsh-tool-video-inspect": "workspace:*",
     "@deepseek-ai/dsh-bgm-license-info": "workspace:*"
   }
 }

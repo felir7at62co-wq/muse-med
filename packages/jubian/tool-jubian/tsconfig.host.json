@@ -23,6 +23,7 @@
     "src/storyboard-delete.ts",
     "src/storyboard-delete-tasks.ts",
     "src/storyboard-audio.ts",
+    "src/audio-readback.ts",
     "src/audio-asset-read.ts",
     "src/audio-asset-register.ts",
     "src/voice-slot.ts",

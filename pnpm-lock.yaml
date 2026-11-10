@@ -234,6 +234,9 @@ importers:
       '@deepseek-ai/dsh-mcp-client':
         specifier: workspace:*
         version: link:packages/mcp/mcp-client
+      '@deepseek-ai/dsh-perception-bgm':
+        specifier: workspace:*
+        version: link:packages/perception/perception-bgm
       '@deepseek-ai/dsh-pwsh-local':
         specifier: workspace:*
         version: link:packages/shell/pwsh-local
@@ -8215,6 +8218,9 @@ importers:
       '@deepseek-ai/dsh-system-prompt':
         specifier: workspace:*
         version: link:../../core/system-prompt
+      '@deepseek-ai/dsh-tool-video-inspect':
+        specifier: workspace:*
+        version: link:../../perception/tool-video-inspect
       '@deepseek-ai/dsh-tools':
         specifier: workspace:*
         version: link:../../core/tools
@@ -11800,6 +11806,12 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@deepseek-ai/cordis-plugin-include':
+        specifier: workspace:~
+        version: link:../../../vendor/include
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: workspace:~
+        version: link:../../../vendor/loader
       '@deepseek-ai/cordis':
         specifier: workspace:~
         version: link:../../../vendor/cordis

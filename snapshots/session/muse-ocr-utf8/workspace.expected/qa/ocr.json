@@ -1,5 +1,6 @@
 {
   "schema_version": 1,
+  "evidence_algorithm": "decoded-pts-spatial-v2",
   "path": "fixture.mp4",
   "source_version": "fixture-video-version",
   "duration_seconds": 1,

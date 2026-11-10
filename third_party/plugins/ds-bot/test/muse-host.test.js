@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { setImmediate } from 'node:timers/promises'
 import { test } from 'node:test'
 import { createRuntime, resolveMuseConfig } from '../index.js'
-import { fakeContext } from './fake-ctx.js'
+import { fakeContext, fakeSessionProjections } from './fake-ctx.js'
 
 const MODEL = { provider: 'muse', model: 'glm-flashx', reasoningEffort: 'high' }
 const team = () => ({
@@ -294,7 +294,7 @@ test('a missing source folder does not create a new Session or detach its native
   const missing = mkdtempSync(join(tmpdir(), 'muse-bot-missing-source-'))
   rmSync(missing, { recursive: true })
   const goal = { id: 'native-goal', phase: 'active', revision: 1 }
-  const { ctx, rt, agentOf, created } = start(t, { services: { goals: { get: () => goal }, sessionProjections: { stateOf: () => ({}) } } })
+  const { ctx, rt, agentOf, created } = start(t, { services: { goals: { get: () => goal }, sessionProjections: fakeSessionProjections(() => ({})) } })
   await rt.load()
   const agent = agentOf('chief')
   agent.session.header.cwd = missing
@@ -327,7 +327,7 @@ test('restored folder settings cannot automatically move a live native goal into
   const goal = { id: 'native-goal', phase: 'paused', revision: 2 }
   const initial = team()
   initial.bots.chief.workDir = changed
-  const { ctx, rt, agentOf, created } = start(t, { initial, services: { goals: { get: () => goal }, sessionProjections: { stateOf: () => ({}) } } })
+  const { ctx, rt, agentOf, created } = start(t, { initial, services: { goals: { get: () => goal }, sessionProjections: fakeSessionProjections(() => ({})) } })
   await rt.load()
   const agent = agentOf('chief')
   agent.session.header.cwd = current

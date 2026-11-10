@@ -277,14 +277,15 @@ describe('dsh family version coherence', () => {
 })
 
 describe('package payload constraints', () => {
-  it('requires only the Codex attribution files beside the tool discovery runtime', () => {
+  it('requires both licenses and Codex attribution beside the tool discovery runtime', () => {
     const dir = 'packages/core/tool-discovery'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
-    const canonical = ['lib/index.js', 'NOTICE', 'LICENSE-Codex', 'lib/types/**/*.d.ts']
+    const canonical = ['lib/index.js', 'LICENSE', 'NOTICE', 'LICENSE-Codex', 'lib/types/**/*.d.ts']
     expect(manifest.files).toEqual(canonical)
     expect(expectedDshPackageFiles(manifest)).toEqual(canonical)
     expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
     for (const files of [
+      canonical.filter(file => file !== 'LICENSE'),
       canonical.filter(file => file !== 'NOTICE'),
       canonical.filter(file => file !== 'LICENSE-Codex'),
       ['lib/index.js', 'NOTICE', 'LICENSE-*', 'lib/types/**/*.d.ts'],

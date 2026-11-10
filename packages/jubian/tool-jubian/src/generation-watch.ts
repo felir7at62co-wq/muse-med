@@ -131,7 +131,7 @@ export class GenerationWatchRuntime {
   }
 
   private activeRuns(): Promise<GenerationWatchRun[]> {
-    return this.options.store.listActive((id, error) => this.options.warn(`Generation watch ${id} cannot be read`, error))
+    return this.options.store.listActive((id, error) => { this.options.warn(`Generation watch ${id} cannot be read`, error) })
   }
 
   /**
@@ -180,7 +180,8 @@ export class GenerationWatchRuntime {
       this.advancing.add(run.id)
       try { await this.advance(run) }
       catch (error) {
-        if (!this.controller.signal.aborted) this.options.warn(`Generation watch ${run.id} remains pending`, error)
+        const { signal } = this.controller
+        if (!signal.aborted) this.options.warn(`Generation watch ${run.id} remains pending`, error)
       } finally { this.advancing.delete(run.id) }
     }
   }
@@ -239,7 +240,7 @@ export class GenerationWatchRuntime {
     }
     for (const pack of packs) {
       if (pack.taskId === undefined) continue
-      if ((counts.get(pack.taskId) ?? 0) > 1) {
+      if (counts.get(pack.taskId) !== 1) {
         pack.outcome = { status: 'unverified', detail: 'The same provider task was matched to multiple frozen packs.' }
         continue
       }

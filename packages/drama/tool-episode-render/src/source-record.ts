@@ -17,7 +17,7 @@
 
 import { readFile } from 'node:fs/promises'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
-import type { RenderCheck } from './types.ts'
+import type { DeliverySubtitleVisual, RenderCheck } from './types.ts'
 
 /** Format version; only 1 is read. */
 export const SOURCE_RECORD_VERSION = 1
@@ -48,6 +48,19 @@ export interface SourceRecordCheck {
 export interface DeliveryRenderInputs {
   readonly timeline_sha256: string
   readonly subtitle_sha256: string
+  /** Actual OCR, observed picture versions and source-content decisions checked for this render. */
+  readonly source_qa_sha256?: string
+  /** Actual final-display text, glyph-width and selected-face checks run before encoding. */
+  readonly subtitle_visual_verification?: {
+    readonly version: 1
+    readonly subtitle_sha256: string
+    readonly report_path: string
+    readonly report_sha256: string
+    readonly requested_font: string
+    readonly delivery: { readonly width: number; readonly height: number; readonly fps: number }
+    readonly visual: DeliverySubtitleVisual
+    readonly checks: readonly { readonly id: string; readonly ok: true }[]
+  }
   /** Whether this strict-coverage render processed a retained-subtitle overlay plan. */
   readonly subtitle_display?: 'external' | 'overlay'
   /** Actual render music inputs and gain for projects requiring a music decision. */

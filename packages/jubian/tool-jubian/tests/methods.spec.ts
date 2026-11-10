@@ -1042,7 +1042,7 @@ describe('jubian_video', () => {
     const { client, calls } = stubClient(request => request.path.includes('/list') ? { rows: [] } : { id: 42 })
     await videoMethod(client, ledger, { method: 'task', task_id: 42 })
     await videoMethod(client, ledger, { method: 'tasks', script_id: 2708, page_num: 2 })
-    expect(calls[1]?.path).toContain('taskType=1&pageNum=2')
+    expect(calls[1]?.path).toBe('https://web.jubianai.net/prod-api/admin/aigc/video/task/list?scriptId=2708&pageNum=2&pageSize=20')
     expect(await videoMethod(client, ledger, { method: 'unresolved', script_id: 2708 }))
       .toMatchObject({ unresolved: [] })
     await ledger.begin({ idempotencyKey: 'pending-native', method: 'storyboard_native_submit',
@@ -1918,6 +1918,22 @@ describe('required arguments', () => {
 })
 
 describe('jubian_media', () => {
+  it('passes caller cancellation to an in-flight non-resumable download', async () => {
+    const controller = new AbortController()
+    const transport = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      expect(init?.signal?.aborted).toBe(false)
+      controller.abort(new Error('caller cancelled download'))
+      expect(init?.signal?.aborted).toBe(true)
+      throw new Error('cancelled in-flight transfer')
+    })
+    try {
+      await expect(mediaMethod({ method: 'download', media_kind: 'video',
+        media_url: 'https://jubian-aigc.tos-cn-beijing.volces.com/fixture.mp4', output_path: join(root, 'fresh.mp4') }, controller.signal))
+        .rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+      expect(transport).toHaveBeenCalledTimes(1)
+    } finally { transport.mockRestore() }
+  })
+
   it('reuses a receipt after restart and preserves a same-length file that has changed', async () => {
     const original = Buffer.from('000000106674797069736f6d00000000', 'hex')
     const changed = Buffer.from('000000106674797069736f6d00000001', 'hex')
@@ -1986,6 +2002,13 @@ describe('jubian_media', () => {
       await rm(root, { recursive: true, force: true })
     }
   })
+})
+
+it('rejects the free-erasure flag on a different storyboard operation before reading or writing', async () => {
+  const { client, calls } = stubClient(() => { throw new Error('Invalid operation must not reach provider') })
+  await expect(storyboardMethod(client, ledger, { method: 'get', storyboard_id: 1,
+    only_if_verified_free: true })).rejects.toThrow('only_if_verified_free must be a boolean for erase_subtitle')
+  expect(calls).toEqual([])
 })
 
 

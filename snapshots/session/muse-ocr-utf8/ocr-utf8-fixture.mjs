@@ -64,8 +64,11 @@ export function apply(ctx) {
       switch (spec.argv[0]) {
         case 'ffprobe':
           assert.equal(basename(spec.argv.at(-1)), 'fixture.mp4')
-          bytes = Buffer.from(JSON.stringify({ format: { duration: '1' },
-            streams: [{ codec_type: 'video', codec_name: 'h264', width: 640, height: 360 }] }))
+          bytes = Buffer.from(JSON.stringify(spec.argv.includes('-read_intervals')
+            ? { format: { start_time: '0' }, streams: [{ start_time: '0' }],
+              frames: [{ best_effort_timestamp: 0, best_effort_timestamp_time: '0', duration_time: '1' }] }
+            : { format: { duration: '1' },
+              streams: [{ codec_type: 'video', codec_name: 'h264', width: 640, height: 360 }] }))
           break
         case 'ffmpeg':
           assert.equal(spec.argv[spec.argv.indexOf('-frames:v') + 1], '1')
@@ -109,8 +112,8 @@ export function apply(ctx) {
   })
   ctx.on('llm/stream', async function* (options, next) {
     if (commands.length) {
-      assert.deepEqual(commands.map(argv => argv[0]), ['ffprobe', 'ffmpeg', 'ocr-fixture-python'])
-      assert.deepEqual(commands[2].slice(1, 5), ['-I', '-B', '-X', 'utf8'], 'The real OCR call requires Python UTF-8 mode')
+      assert.deepEqual(commands.map(argv => argv[0]), ['ffprobe', 'ffprobe', 'ffmpeg', 'ocr-fixture-python'])
+      assert.deepEqual(commands[3].slice(1, 5), ['-I', '-B', '-X', 'utf8'], 'The real OCR call requires Python UTF-8 mode')
       assert.equal(running.size, 0, 'Every external media process reaches awaited exit')
       const result = options.messages.flatMap(message => message.content)
         .find(block => block.type === 'text' && block.text.includes('"preview_segments"'))

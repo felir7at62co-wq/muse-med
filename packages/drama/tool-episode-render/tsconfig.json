@@ -9,6 +9,9 @@
   ],
   "references": [
     {
+      "path": "../../perception/tool-video-inspect"
+    },
+    {
       "path": "../../util/atomic-write"
     },
     {

@@ -45,6 +45,21 @@ function includesText(value: string): unknown {
 }
 
 describe('card-bound existing source discovery', () => {
+  it('finds a legacy task in the unfiltered project fallback when the generation filter would omit it', async () => {
+    const legacy = task(749810, { taskType: undefined })
+    const { client, calls } = fixture(path => path.includes('/byStoryboard/') ? { total: 1, rows: [] }
+      : path.includes('/task/list?') ? { total: path.includes('taskType=') ? 0 : 1,
+        rows: path.includes('taskType=') ? [] : [legacy] }
+        : path.endsWith('/task/749810') ? legacy
+          : path.includes('/sub/list?') ? { total: 1, rows: [child(1305331, { aigcVideoTaskId: 749810 })] }
+            : undefined)
+    expect(await readVideoSources(client, args, defaults)).toMatchObject({ status: 'available', complete: true,
+      sources: [{ task_id: 749810, subtask_id: 1305331 }], coverage: { history: 'project', tasks_checked: 1 } })
+    expect(calls.find(call => call.path.includes('/task/list?'))?.path)
+      .toBe('/admin/aigc/video/task/list?scriptId=5542&pageNum=1&pageSize=100&orderByColumn=createTime&orderBy=desc')
+    expect(calls.every(call => call.method === 'GET' || call.path.includes('/task/sub/list?'))).toBe(true)
+  })
+
   it('returns a verified old-model source without any generation or write', async () => {
     const { client, calls } = fixture()
     expect(await readVideoSources(client, args, defaults)).toMatchObject({ ...args, status: 'available', complete: true,
@@ -255,13 +270,40 @@ describe('card-bound existing source discovery', () => {
 })
 
 describe('task page coverage', () => {
+  it('keeps a directly readable legacy task in the default list and marks an empty explicit filter as partial project coverage', async () => {
+    const legacy = task(749810, { taskType: undefined })
+    const { client, calls } = fixture(path => path.endsWith('/task/749810') ? legacy
+      : path.includes('/task/list?') ? { total: path.includes('taskType=1') ? 0 : 1,
+        rows: path.includes('taskType=1') ? [] : [legacy] } : undefined)
+    const ledger = new JubianLedger({ root: '/unused-video-page-fixture' })
+    const direct = await videoMethod(client, ledger, { method: 'task', task_id: 749810 })
+    const all = await videoMethod(client, ledger, { method: 'tasks', script_id: 5542 })
+    expect(all).toMatchObject({ tasks: { rows: [direct.task], total: 1, complete: true, total_verified: true,
+      scope: { script_id: 5542, task_type: null }, project_complete: true } })
+    const filtered = await videoMethod(client, ledger, { method: 'tasks', script_id: 5542, task_type: 1 })
+    expect(filtered).toMatchObject({ tasks: { rows: [], total: 0, complete: true, total_verified: true,
+      scope: { script_id: 5542, task_type: 1 }, project_complete: false } })
+    expect(filtered.guidance).toContain('该类型为空不能说明项目没有任务')
+    expect(calls.map(call => call.path)).toEqual(['/admin/aigc/video/task/749810',
+      '/admin/aigc/video/task/list?scriptId=5542&pageNum=1&pageSize=20',
+      '/admin/aigc/video/task/list?scriptId=5542&taskType=1&pageNum=1&pageSize=20'])
+  })
+
+  it.each([0, -1, 1.5, NaN, Infinity])('refuses invalid task type %s before any provider read', async (taskType) => {
+    const { client, calls } = fixture()
+    const ledger = new JubianLedger({ root: '/unused-video-page-fixture' })
+    await expect(videoMethod(client, ledger, { method: 'tasks', script_id: 5542, task_type: taskType }))
+      .rejects.toMatchObject({ code: 'INVALID_ARGUMENT' })
+    expect(calls).toEqual([])
+  })
+
   it('sends page_size and explicitly reports a partial project page', async () => {
     const { client, calls } = fixture(path => path.includes('/task/list?') ? { total: 26, rows: [task()] } : undefined)
     const ledger = new JubianLedger({ root: '/unused-video-page-fixture' })
     expect(await videoMethod(client, ledger, { method: 'tasks', script_id: 5542, page_num: 1, page_size: 50 }))
       .toMatchObject({ tasks: { total: 26, returned: 1, page_num: 1, page_size: 50, complete: false,
         has_more: true, next_page: 2, total_verified: true }, guidance: includesText('仅是本页') })
-    expect(calls[0]?.path).toContain('taskType=1&pageNum=1&pageSize=50')
+    expect(calls[0]?.path).toBe('/admin/aigc/video/task/list?scriptId=5542&pageNum=1&pageSize=50')
   })
   it('keeps a next page when the provider may have clamped a later page below the requested size', async () => {
     const { client } = fixture(path => path.includes('/task/list?')

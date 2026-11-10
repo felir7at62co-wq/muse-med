@@ -156,11 +156,11 @@ function shiftedCueCandidates(words: readonly SpeechCoverageWord[], cues: readon
     const anchors = printedIndexes.filter(index => heardByPrinted.has(index))
     const firstAnchor = anchors[0]
     if (firstAnchor === undefined || anchors.length < 2 || anchors.length === length) continue
-    const start = heardByPrinted.get(firstAnchor)! - (firstAnchor - printedIndexes[0]!)
+    const start = (heardByPrinted.get(firstAnchor) as number) - (firstAnchor - (cursor - length))
     if (start < 0 || start + length > heard.length) continue
     const heardIndexes = printedIndexes.map((_, index) => start + index)
     if (heardIndexes.some((heardIndex, offset) => {
-      const printedIndex = printedIndexes[offset]!
+      const printedIndex = cursor - length + offset
       const knownPrinted = printedByHeard.get(heardIndex)
       const knownHeard = heardByPrinted.get(printedIndex)
       return heard[heardIndex]?.text !== printed[printedIndex]?.text
@@ -169,14 +169,14 @@ function shiftedCueCandidates(words: readonly SpeechCoverageWord[], cues: readon
     })) continue
     const end = start + length
     if (heard[start - 1]?.owner === heard[start]?.owner || heard[end]?.owner === heard[end - 1]?.owner) continue
-    const spans = [...new Set(heardIndexes.map(index => heard[index]!.owner))].map(owner => words[owner]!)
+    const spans = [...new Set(heard.slice(start, end).map(char => char.owner))].map(owner => words[owner] as SpeechCoverageWord)
     if (spans.every(word => overlaps(word, cue)) || spans.some((word, index) => {
       const previous = spans[index - 1]
       return word.clip_index !== spans[0]?.clip_index || (previous !== undefined
         && (!overlaps(previous, cue) || !overlaps(word, cue)) && word.start_seconds - previous.end_seconds > 0.3)
     })) continue
     candidates.push({ heard: heardIndexes, printed: printedIndexes, finding: {
-      kind: 'timing_mismatch', text: cue.text, start_seconds: Math.min(cue.startSeconds, spans[0]!.start_seconds),
+      kind: 'timing_mismatch', text: cue.text, start_seconds: Math.min(cue.startSeconds, (spans[0] as SpeechCoverageWord).start_seconds),
       end_seconds: Math.max(cue.endSeconds, ...spans.map(word => word.end_seconds)),
       word_ids: spans.map(word => word.id), cue_indexes: [cue.index],
     } })

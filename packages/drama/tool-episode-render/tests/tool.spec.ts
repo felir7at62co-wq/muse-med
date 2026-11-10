@@ -10,6 +10,8 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { apply, Config, inject, name, resolveCall, resolveSettings, runDramaRender } from '../src/index.ts'
 import * as Audio from '../src/audio.ts'
 import * as Speech from '../src/speech-coverage.ts'
+import * as Staging from '../src/stage-delivery.ts'
+import * as VideoInspection from '@deepseek-ai/dsh-tool-video-inspect'
 import { episodePaths } from '../src/paths.ts'
 import { verifyPreparedSubtitleClock } from '../src/prepare.ts'
 import { writeSubtitleClock } from '../src/subtitle-clock.ts'
@@ -143,6 +145,70 @@ function callChannel(project: string): ReturnType<typeof stubChannel> {
   ]
   return stubChannel(handlers)
 }
+
+it('rejects listening decisions without their transcript mapping and draft arguments on non-staging calls', () => {
+  expect(() => resolveCall({ method: 'stage_delivery', project: '.', episode: 2, speechDecisions: 'decisions.json' }))
+    .toThrow(/speech_decisions 需要同时提供 speech_transcripts/u)
+  expect(() => resolveCall({ method: 'verify', project: '.', episode: 2, draft: 'draft' }))
+    .toThrow(/draft 仅用于 stage_delivery/u)
+})
+
+it.each([false, true])('carries optional listening artifacts into the real staging entry without accepting an invalid draft: %s', async (speech) => {
+  const files = await preparedProject()
+  const arguments_ = { method: 'stage_delivery' as const, project: files.project, episode: 2,
+    timeline: files.timeline, subtitleSrt: files.subtitle, output: files.output, draft: 'wrong-draft',
+    ...(speech ? { speechTranscripts: 'receipts.json', speechDecisions: 'decisions.json' } : {}) }
+  const call = resolveCall(arguments_)
+  expect(call).toMatchObject({ method: 'stage_delivery', draft: join(files.project, 'wrong-draft') })
+  if (speech) expect(call).toMatchObject({ transcriptsPath: join(files.project, 'receipts.json'), decisionsPath: join(files.project, 'decisions.json') })
+  else expect(call).not.toHaveProperty('decisionsPath')
+  await expect(runDramaRender(arguments_, settingsWith(callChannel(files.project).channel),
+    speech ? async () => {} : undefined)).rejects.toThrow(/02_剪映草稿/u)
+})
+
+it('uses the available Host proof scope and refuses to reuse it after its providers are disposed', async () => {
+  const ctx = new Context(), registered: ToolDefinition[] = []
+  // These services activate the registration scope; the independently tested verifier owns their methods.
+  ctx.provide('tools', { register: (definition: ToolDefinition) => { registered.push(definition); return () => {} } } as never)
+  const binding = { mediaPath: 'source', mediaSha256: 'a'.repeat(64), ocrPath: 'ocr', ocrSha256: 'b'.repeat(64),
+    inspectionPath: 'inspection', inspectionSha256: 'c'.repeat(64), sessionId: 'source-session', reviewId: 'review' }
+  const verify = vi.spyOn(VideoInspection, 'verifyVideoSourceQaEvidence').mockResolvedValue(undefined)
+  const stage = vi.spyOn(Staging, 'stageEpisodeDelivery').mockImplementation(async (input) => {
+    if (input.sourceQaVerifier === undefined) throw Error('Missing render proof consumer')
+    await input.sourceQaVerifier(binding)
+    throw Error('Host proof delegation completed')
+  })
+  try {
+    apply(ctx)
+    const tool = registered.find(item => item.name === 'drama_render')
+    if (tool === undefined) throw Error('Renderer registration missing')
+    const args = { method: 'stage_delivery', project: '.', episode: 2, timeline: 'timeline.json',
+      subtitle_srt: 'final.srt', output: 'candidate.mp4', draft: '02_剪映草稿/draft' }
+    await expect(tool.execute(args, runContext())).rejects.toThrow('SOURCE_QA_HOST_UNAVAILABLE')
+    const providers = await ctx.plugin({ name: 'source-qa-proof-providers', apply(scope: Context) {
+      scope.provide('fs', {} as never)
+      scope.provide('sandboxPolicy', {} as never)
+      scope.provide('sessionProjections', {} as never)
+    } })
+    await expect(tool.execute(args, runContext())).rejects.toThrow('Host proof delegation completed')
+    expect(verify).toHaveBeenCalledExactlyOnceWith(expect.anything(), undefined, binding, expect.any(AbortSignal))
+    await providers.dispose()
+    await expect(tool.execute(args, runContext())).rejects.toThrow('SOURCE_QA_HOST_UNAVAILABLE')
+    expect(verify).toHaveBeenCalledTimes(1)
+    const replacement = await ctx.plugin({ name: 'replacement-proof-providers', apply(scope: Context) {
+      scope.provide('fs', {} as never)
+      scope.provide('sandboxPolicy', {} as never)
+      scope.provide('sessionProjections', {} as never)
+    } })
+    await expect(tool.execute(args, runContext())).rejects.toThrow('Host proof delegation completed')
+    expect(verify).toHaveBeenCalledTimes(2)
+    await replacement.dispose()
+    await expect(tool.execute(args, runContext())).rejects.toThrow('SOURCE_QA_HOST_UNAVAILABLE')
+  } finally {
+    stage.mockRestore(); verify.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})
 
 it('keeps strict source policies and the generated subtitle clock when product typography normalizes display text', async () => {
   const prepared = await preparedProject(), channel = callChannel(prepared.project)

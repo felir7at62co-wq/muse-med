@@ -1,14 +1,18 @@
 /** Real media and actual model dispatches for complete-episode observation. */
-import { mkdtemp, realpath, rm, writeFile, appendFile, copyFile, mkdir, readdir, readFile } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, writeFile, appendFile, copyFile, mkdir, readdir, readFile, symlink, unlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { createHash } from 'node:crypto'
+import { pathToFileURL } from 'node:url'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Include from '@deepseek-ai/cordis-plugin-include'
+import { basename, join, relative } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import NodeRuntime from '@deepseek-ai/dsh-ptc-runtime-node'
 import LocalSandbox from '@deepseek-ai/dsh-sandbox-local'
-import { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import { Session, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import { LlmAdapter, ToolCallId, createAssistantMessage, createUserMessage, type GenerateOptions, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -44,22 +48,61 @@ class Model extends LlmAdapter {
     yield { type: 'finish', reason: { kind: 'tool-calls' } }
   }
 }
-const fixtures: { ctx: Context; root: string }[] = []
+const fixtures: { ctx: Context; root: string; keep?: boolean; beforeDispose?: () => void }[] = []
 afterEach(async () => {
   vi.restoreAllMocks()
-  for (const { ctx, root } of fixtures.splice(0)) { await ctx.fiber.dispose(); await rm(root, { recursive: true, force: true }) }
+  for (const { ctx, root, keep, beforeDispose } of fixtures.splice(0)) {
+    beforeDispose?.()
+    await ctx.fiber.dispose()
+    if (!keep) await rm(root, { recursive: true, force: true })
+  }
 })
-async function fixture(options: { ptc?: boolean; offload?: boolean; cutSeconds?: number; config?: Partial<Video.Config> } = {}) {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'dsh-complete-video-'))), ctx = new Context()
-  fixtures.push({ ctx, root })
+async function fixture(options: {
+  ptc?: boolean
+  offload?: boolean
+  cutSeconds?: number
+  loader?: boolean
+  companion?: boolean
+  artifactRoot?: string
+  keep?: boolean
+  beforeDispose?: () => void
+  config?: Partial<Video.Config>
+} = {}) {
+  const root = await realpath(await mkdtemp(join(options.artifactRoot ?? tmpdir(), 'dsh-complete-video-'))), ctx = new Context()
+  fixtures.push({ ctx, root,
+    ...(options.keep === undefined ? {} : { keep: options.keep }),
+    ...(options.beforeDispose === undefined ? {} : { beforeDispose: options.beforeDispose }) })
   await mountAgentLoopTestDependencies(ctx, { tools: { mode: options.ptc ? 'ptc' : 'native' } })
   await ctx.plugin(LocalFileSystem, { cwd: root }); await ctx.plugin(LocalSubprocessRuntime)
   await ctx.plugin(LocalAttachmentStore, { dshHome: join(root, '.state') })
   ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'danger-full-access', workspaceRoot: root }) } as never)
   if (options.ptc) { await ctx.plugin(LocalSandbox); await ctx.plugin(NodeRuntime).await() }
   if (options.offload) await ctx.plugin(ImageOffload).await()
-  const config = Video.Config({ requireCompleteReview: true, reviewBatchFrames: 2, reviewChunkSeconds: 2, ...options.config })
-  const plugin = ctx.plugin(Video, config); await plugin.await()
+  const config = Video.Config({ requireCompleteReview: true, reviewBatchFrames: 2, reviewChunkSeconds: 2,
+    ...(options.companion ? { requireCompleteReview: false, sourceReviewCompanion: true, trustedEvidence: true } : {}), ...options.config })
+  const load = async () => {
+    const configuration = join(root, 'cordis.yml')
+    await writeFile(configuration, `- name: '@deepseek-ai/dsh-tool-video-inspect'\n  config: ${JSON.stringify(config)}\n`)
+    ctx.baseUrl = pathToFileURL(root).href + '/'
+    await ctx.plugin(Loader)
+    ctx.loader.builtins.include = Include
+    ctx.loader.internal = {
+      version: 'v2', loadCache: new Map(),
+      register() { throw Error('Unexpected Loader hooks') }, getOrCreateModuleJob() { throw Error('Unexpected Loader job') },
+      resolveSync() { throw Error('Unexpected Loader resolution') }, load() { throw Error('Unexpected Loader load') },
+      async import(specifier: string) {
+        if (specifier === '@deepseek-ai/dsh-tool-video-inspect') return Video
+        throw Error(`Unexpected Loader module: ${specifier}`)
+      },
+    }
+    await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(configuration).href } })
+    await ctx.loader.await()
+    for (const entry of ctx.loader.entries()) await entry.fiber?.await()
+    const fiber = [...ctx.loader.entries()].find(entry => entry.fiber !== undefined)?.fiber
+    if (fiber === undefined || ctx.tools.get('video_inspect') === undefined) throw Error('Missing Loader-owned video inspector')
+    return fiber
+  }
+  const plugin = options.loader ? await load() : ctx.plugin(Video, config); await plugin.await()
   await ctx.plugin(Present, { maxFiles: 8 })
   const manuscript = join(root, 'episode-80.md')
   await writeFile(manuscript, '# 第80集\n▲红色背景切换为蓝色背景。\n')
@@ -76,7 +119,8 @@ async function fixture(options: { ptc?: boolean; offload?: boolean; cutSeconds?:
   const handle = await ctx.agents.create({ sessionId: SessionId(`episode-${fixtures.length}`),
     agentOptions: { provider: 'synthetic', model: 'vision' }, meta: { cwd: root } })
   const agent = handle.agent
-  const call = (method: string, extra = {}) => ({ name: 'video_inspect', args: { file_path: input, method, episode: '第80集', ...extra } })
+  const reviewTool = options.companion ? 'video_source_review' : 'video_inspect'
+  const call = (method: string, extra = {}) => ({ name: reviewTool, args: { file_path: input, method, episode: '第80集', ...extra } })
   const run = async (...plans: Plan[]) => {
     adapter.plans = plans
     agent.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Observe this complete original episode.' }] }))
@@ -87,7 +131,7 @@ async function fixture(options: { ptc?: boolean; offload?: boolean; cutSeconds?:
     .map(frame => ({ frame_id: frame.id, visible: `画面为完整的${frame.time < cutSeconds ? '红色' : '蓝色'}背景，没有可见人物和道具。`,
       change: '根据实际合成画面对照颜色变化。', uncertainty: '' })) })
   const results = () => agent.session.snapshotEvents().flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-  return { ctx, root, config, manuscript, handle, input, plugin, agent, adapter, run, call, review, record, results }
+  return { ctx, root, config, manuscript, handle, input, plugin, agent, adapter, run, call, review, record, results, reviewTool }
 }
 
 function reportPath(h: Awaited<ReturnType<typeof fixture>>): string {
@@ -95,6 +139,210 @@ function reportPath(h: Awaited<ReturnType<typeof fixture>>): string {
   if (block.type !== 'text') throw Error('Missing report')
   return z.object({ observation_report: z.string() }).parse(JSON.parse(block.text)).observation_report
 }
+
+type RoutedCall = { name: string; args: object }
+function toolRoute(ptc: boolean, call: RoutedCall): RoutedCall {
+  return ptc ? { name: 'run_code', args: { description: 'Inspect this actual local source without external providers.',
+    code: `await tools.${call.name}(${JSON.stringify(call.args)});` } } : call
+}
+function actualContent(h: Awaited<ReturnType<typeof fixture>>, ptc: boolean, name: string) {
+  return ptc ? h.agent.session.snapshotEvents().flatMap(event =>
+    event.type === 'tool/ptc-dispatch' && event.data.name === name && !event.data.isError ? [event.data.content] : []).at(-1)!
+    : h.results().at(-1)!.content
+}
+async function finishReview(h: Awaited<ReturnType<typeof fixture>>, ptc = false): Promise<void> {
+  const record = () => toolRoute(ptc, h.record())
+  await h.run(toolRoute(ptc, h.call('scan')), record, undefined)
+  for (let batch = 0; pendingReview(h.review()) > 0 && batch < 20; batch++) await h.run(toolRoute(ptc, h.call('next')), record, undefined)
+  expect(pendingReview(h.review())).toBe(0)
+}
+
+it('supplements a complete scan with bounded source times while preserving prior frame identities and observations', async () => {
+  const h = await fixture()
+  await finishReview(h)
+  const prior = structuredClone(h.review()), count = prior.frames.length
+  await h.run(h.call('scan', { timestamps_seconds: [0.705] }), undefined)
+  expect(h.review().id).toBe(prior.id)
+  expect(h.review().frames.slice(0, count)).toEqual(prior.frames)
+  expect(h.review().frames.slice(count)).toMatchObject([{ id: `F${String(count + 1).padStart(5, '0')}`,
+    time: 0.705, reasons: ['requested_time'] }])
+  expect(h.review().frames[count]?.observation).toBeUndefined()
+  expect(pendingReview(h.review())).toBe(1)
+  await h.run(h.record, undefined)
+  expect(pendingReview(h.review())).toBe(0)
+  const completed = structuredClone(h.review().frames)
+  await h.run(h.call('scan', { timestamps_seconds: [0.705] }), undefined)
+  expect(h.review().frames).toEqual(completed)
+  await h.run(h.call('scan', { timestamps_seconds: [h.review().frames[count]!.decoded_time!] }), undefined)
+  expect(h.review().frames).toEqual(completed)
+  const beforeInvalid = structuredClone(h.review())
+  await h.run(h.call('scan', { timestamps_seconds: [h.review().duration] }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(true)
+  expect(h.review()).toEqual(beforeInvalid)
+  await h.run(h.call('scan', { timestamps_seconds: Array.from({ length: 257 }, () => 0.1) }), undefined)
+  expect(h.results().at(-1)?.isError).toBe(true)
+  expect(h.review()).toEqual(beforeInvalid)
+}, 30_000)
+
+// Each case starts real media runners and, when selected, an actual PTC worker.
+it.each([{ ptc: false, companion: false }, { ptc: true, companion: false }, { ptc: true, companion: true }])(
+  'binds actual OCR hashes and completed reports to a real Loader Session (%j)', async ({ ptc, companion }) => {
+    const h = await fixture({ loader: true, ptc, companion, config: { ocrEngine: 'rapidocr', ocrPythonPath: process.execPath,
+      ocrFrameIntervalSeconds: 1, ocrBatchFrames: 4 } })
+    if (companion) {
+      expect(h.ctx.tools.get('video_contact_sheet')).toBeDefined()
+      await h.run(toolRoute(ptc, { name: 'video_inspect', args: { file_path: h.input, method: 'metadata' } }), undefined)
+      const manifestPath = join(h.root, 'legacy-sample.json')
+      await h.run(toolRoute(ptc, { name: 'video_inspect', args: { file_path: h.input, method: 'sample',
+        frame_count: 1, end_seconds: 3, manifest_path: manifestPath } }), undefined)
+      expect(h.results().at(-1)?.isError).not.toBe(true)
+      await expect(Video.resolveTrustedVideoEvidence(h.ctx, h.agent.session, JSON.parse(await readFile(manifestPath, 'utf8')),
+        new AbortController().signal)).resolves.toMatchObject({ manifest_path: manifestPath })
+    }
+    await finishReview(h, ptc)
+    const observationText = actualContent(h, ptc, h.reviewTool).find(block => block.type === 'text')!
+    if (observationText.type !== 'text') throw Error('Missing observation output')
+    const observed = JSON.parse(observationText.text) as { observation_report: string
+      observation_report_sha256: string
+      observation_session_id: string }
+    const inspectionPath = observed.observation_report, originalRun = Media.runMedia
+    expect(observed.observation_session_id).toBe(h.agent.session.id)
+    expect(observed.observation_report_sha256).toBe(createHash('sha256').update(await readFile(inspectionPath)).digest('hex'))
+    vi.spyOn(Media, 'runMedia').mockImplementation(async (...args) => {
+      if (!args[1].some(value => value.endsWith('ocr_bridge.py'))) return originalRun(...args)
+      const input = JSON.parse(args[4].stdin ?? '{}') as { frames: { id: string; timestamp_seconds: number }[] }
+      return { bytes: Buffer.from(JSON.stringify({ ok: true, language_used: 'zh-Hans-CN',
+        frames: input.frames.map(frame => ({ ...frame, image_width: 96, image_height: 64, lines: [] })) })), diagnostic: '' }
+    })
+    await h.run(toolRoute(ptc, { name: 'video_ocr', args: { file_path: h.input,
+      raw_json_path: 'ocr.json', merged_text_path: 'ocr.txt' } }), undefined)
+    expect(h.results().at(-1)?.isError, JSON.stringify(h.results().at(-1))).toBe(false)
+    const digest = async (file: string) => createHash('sha256').update(await readFile(file)).digest('hex')
+    const ocrPath = join(h.root, 'ocr.json')
+    const binding: Video.VideoSourceQaEvidenceBinding = { mediaPath: h.input, mediaSha256: await digest(h.input),
+      ocrPath, ocrSha256: await digest(ocrPath), inspectionPath, inspectionSha256: await digest(inspectionPath),
+      sessionId: observed.observation_session_id, reviewId: h.review().id }
+    const verify = (value = binding) => Video.verifyVideoSourceQaEvidence(h.ctx, h.agent.session, value, new AbortController().signal)
+    await expect(verify()).resolves.toBeUndefined()
+    if (process.platform === 'win32') {
+      await expect(verify({ ...binding, mediaPath: binding.mediaPath.toUpperCase(), ocrPath: binding.ocrPath.toUpperCase(),
+        inspectionPath: binding.inspectionPath.toUpperCase() })).resolves.toBeUndefined()
+      const alias = h.root + '-alias'
+      await symlink(h.root, alias, 'junction')
+      try {
+        await expect(verify({ ...binding, mediaPath: join(alias, basename(binding.mediaPath)),
+          ocrPath: join(alias, relative(h.root, binding.ocrPath)),
+          inspectionPath: join(alias, relative(h.root, binding.inspectionPath)) })).resolves.toBeUndefined()
+      } finally { await unlink(alias) }
+    }
+    const copy = join(h.root, 'different-file-same-bytes.mp4')
+    await copyFile(h.input, copy)
+    await expect(verify({ ...binding, mediaPath: copy })).rejects.toThrow('SOURCE_QA_REVIEW')
+    const restored = Session.create(h.agent.session.id, h.agent.session.snapshotEvents(), h.agent.session.header)
+    await expect(Video.verifyVideoSourceQaEvidence(h.ctx, restored, binding, new AbortController().signal)).resolves.toBeUndefined()
+    const anotherId = SessionId('different-session'), foreign = Session.create(anotherId, h.agent.session.snapshotEvents(),
+      { ...h.agent.session.header, id: anotherId })
+    await expect(Video.verifyVideoSourceQaEvidence(h.ctx, foreign, { ...binding, sessionId: anotherId },
+      new AbortController().signal)).rejects.toThrow('SOURCE_QA_REVIEW')
+    await expect(verify({ ...binding, sessionId: 'another-session' })).rejects.toThrow('SOURCE_QA_SESSION')
+    const copied = join(h.root, 'copied-observations.json')
+    await copyFile(inspectionPath, copied)
+    await expect(verify({ ...binding, inspectionPath: copied })).rejects.toThrow('SOURCE_QA_REVIEW')
+    const originalOcr = await readFile(ocrPath)
+    await appendFile(ocrPath, ' ')
+    await expect(verify({ ...binding, ocrSha256: await digest(ocrPath) })).rejects.toThrow('SOURCE_QA_OCR')
+    await writeFile(ocrPath, originalOcr)
+    await expect(verify()).resolves.toBeUndefined()
+    await appendFile(h.input, 'changed source')
+    await expect(verify()).rejects.toThrow('SOURCE_QA_CHANGED')
+  }, 60_000)
+
+// Real FFmpeg, isolated Python and ONNX model initialization share this case-owned budget.
+it.runIf(Boolean(process.env.DSH_SOURCE_QA_OCR_PYTHON)).each([false, true])(
+  'runs complete CPU OCR and durable model-image review through the real source resolver (PTC %s)', async (ptc) => {
+    const artifactRoot = process.env.DSH_SOURCE_QA_ARTIFACT_DIR
+    const h = await fixture({ loader: true, ptc, ...(artifactRoot === undefined ? {} : { artifactRoot, keep: true }),
+      config: { ocrEngine: 'rapidocr', ocrPythonPath: process.env.DSH_SOURCE_QA_OCR_PYTHON! } })
+    await finishReview(h, ptc)
+    const inspectionBlock = actualContent(h, ptc, 'video_inspect').find(block => block.type === 'text')!
+    if (inspectionBlock.type !== 'text') throw Error('Missing complete video tool output')
+    const inspection = JSON.parse(inspectionBlock.text) as { observation_report: string
+      observation_report_sha256: string
+      observation_session_id: string
+      review_id: string }
+    await h.run(toolRoute(ptc, { name: 'video_ocr', args: { file_path: h.input, raw_json_path: 'actual-cpu-ocr.json',
+      merged_text_path: 'actual-cpu-ocr.txt' } }), undefined)
+    const result = h.results().at(-1)!
+    expect(result.isError, JSON.stringify(result)).not.toBe(true)
+    const ocrBlock = actualContent(h, ptc, 'video_ocr').find(block => block.type === 'text')!
+    if (ocrBlock.type !== 'text') throw Error('Missing real OCR output')
+    const ocr = JSON.parse(ocrBlock.text) as { raw_json_path: string; raw_json_sha256: string }
+    expect(ocr).toMatchObject({ scan_status: 'complete', interval: { start_seconds: 0, end_seconds: 3 },
+      coverage: { planned_frame_count: 6, processed_frame_count: 6, failed_frame_count: 0, frame_interval_seconds: 0.5,
+        unscanned_ranges: [], failed_timestamps_seconds: [] } })
+    const binding: Video.VideoSourceQaEvidenceBinding = { mediaPath: h.input,
+      mediaSha256: createHash('sha256').update(await readFile(h.input)).digest('hex'),
+      ocrPath: ocr.raw_json_path, ocrSha256: ocr.raw_json_sha256, inspectionPath: inspection.observation_report,
+      inspectionSha256: inspection.observation_report_sha256, sessionId: inspection.observation_session_id, reviewId: inspection.review_id }
+    await expect(Video.verifyVideoSourceQaEvidence(h.ctx, h.agent.session, binding, new AbortController().signal)).resolves.toBeUndefined()
+    const restored = Session.create(h.agent.session.id, h.agent.session.snapshotEvents(), h.agent.session.header)
+    await expect(Video.verifyVideoSourceQaEvidence(h.ctx, restored, binding, new AbortController().signal)).resolves.toBeUndefined()
+    if (artifactRoot !== undefined) {
+      await writeFile(join(h.root, 'source-qa-binding.json'), JSON.stringify(binding, null, 2) + '\n')
+      await writeFile(join(h.root, 'actual-session-evidence.json'), JSON.stringify({ header: h.agent.session.header,
+        events: h.agent.session.snapshotEvents() }, null, 2) + '\n')
+      console.info(`SOURCE_QA_REAL_ARTIFACTS=${h.root}`)
+    }
+  }, 120_000)
+
+it('requests a later independent PTC call while a real successful OCR result awaits durable dispatch logging', async () => {
+  const release = Promise.withResolvers<undefined>()
+  const h = await fixture({ ptc: true, loader: true, beforeDispose: () => { release.resolve(undefined) },
+    config: { ocrEngine: 'rapidocr', ocrPythonPath: process.execPath, ocrFrameIntervalSeconds: 1 } })
+  await finishReview(h, true)
+  const block = actualContent(h, true, h.reviewTool).find(value => value.type === 'text')!
+  if (block.type !== 'text') throw Error('Missing actual observation result')
+  const report = JSON.parse(block.text) as { observation_report: string
+    observation_report_sha256: string
+    observation_session_id: string
+    review_id: string }
+  const original = Media.runMedia, ocrPath = join(h.root, 'pending-ocr.json')
+  vi.spyOn(Media, 'runMedia').mockImplementation(async (...args) => {
+    if (!args[1].some(value => value.endsWith('ocr_bridge.py'))) return original(...args)
+    const input = JSON.parse(args[4].stdin ?? '{}') as { frames: { id: string; timestamp_seconds: number }[] }
+    return { bytes: Buffer.from(JSON.stringify({ ok: true, language_used: 'zh-Hans-CN',
+      frames: input.frames.map(frame => ({ ...frame, image_width: 96, image_height: 64, lines: [] })) })), diagnostic: '' }
+  })
+  h.ctx.on('tools/ptc-dispatch-log', async (dispatch, next) => {
+    if (dispatch.name === 'video_ocr' && !dispatch.isError) await release.promise
+    return next()
+  })
+  const mediaSha256 = createHash('sha256').update(await readFile(h.input)).digest('hex')
+  let pendingReason = ''
+  h.ctx.tools.register(defineTool({ name: 'fixture_source_check', description: 'Read actual source evidence in this fixture.',
+    parameters: { ocr_sha256: { type: 'string', required: true } },
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+    execute: async (args, exec) => {
+      try {
+        await Video.verifyVideoSourceQaEvidence(h.ctx, exec.agent?.session, { mediaPath: h.input, mediaSha256,
+          ocrPath, ocrSha256: args.ocr_sha256, inspectionPath: report.observation_report,
+          inspectionSha256: report.observation_report_sha256, sessionId: report.observation_session_id,
+          reviewId: report.review_id }, exec.signal)
+        return 'accepted'
+      } catch (error) { pendingReason = error instanceof Error ? error.message : String(error); throw error }
+      finally { release.resolve(undefined) }
+    },
+  }))
+  const ocrArgs = { file_path: h.input, raw_json_path: ocrPath, merged_text_path: join(h.root, 'pending-ocr.txt') }
+  await h.run({ name: 'run_code', args: { description: 'Observe a delayed committed OCR result in this real PTC run.',
+    code: `const ocr = await tools.video_ocr(${JSON.stringify(ocrArgs)});`
+    + 'await tools.fixture_source_check({ocr_sha256:ocr.raw_json_sha256});' } }, undefined)
+  expect(pendingReason).toContain('SOURCE_QA_TOOL_PENDING')
+  const sha = createHash('sha256').update(await readFile(ocrPath)).digest('hex')
+  await h.run({ name: 'run_code', args: { description: 'Continue in a new PTC call after the earlier result commits.',
+    code: `await tools.fixture_source_check({ocr_sha256:${JSON.stringify(sha)}});` } }, undefined)
+  expect(h.results().at(-1)?.isError, JSON.stringify(h.results().at(-1))).not.toBe(true)
+}, 60_000)
 
 it('rejects unknown review identities and observed frames whose original cache reference is absent', async () => {
   const h = await fixture()
@@ -1819,4 +2067,43 @@ it('requires saved review identity and current source when reopening and preserv
   await h.run(h.call('reopen'), undefined)
   expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SOURCE_CHANGED')
   expect(h.review()).toEqual(reopened)
+})
+
+it('rejects supplemental timestamps for non-scan methods before changing saved observations', async () => {
+  const h = await fixture()
+  await h.run(h.call('status', { timestamps_seconds: [0.5] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('补看时间仅用于scan')
+  expect(reviewsOf(h.ctx, h.agent.session)).toEqual({})
+})
+
+it('rejects an out-of-duration initial supplemental timestamp before creating a review', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan', { timestamps_seconds: [3] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('补看时间必须小于真实视频时长')
+  expect(reviewsOf(h.ctx, h.agent.session)).toEqual({})
+})
+
+it('sorts multiple supplemental timestamps and preserves the source review when its frame bound is exceeded', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), undefined)
+  const before = h.review()
+  await h.plugin.dispose()
+  await h.ctx.plugin(Video, Video.Config({ requireCompleteReview: true, reviewBatchFrames: 2,
+    reviewChunkSeconds: 2, reviewMaxFrames: before.frames.length })).await()
+  await h.run(h.call('scan', { timestamps_seconds: [2.34567, 0.12345] }), undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_SCAN_LIMIT')
+  expect(h.review()).toEqual(before)
+})
+
+it('keeps legacy report-path presentation separate from missing source-issuance hashes', async () => {
+  const h = await fixture()
+  await h.run(h.call('metadata'), undefined)
+  const block = h.results().at(-1)?.content.find(block => block.type === 'text')
+  if (block?.type !== 'text') throw Error('Missing actual metadata output')
+  const value = JSON.parse(block.text) as Record<string, unknown>
+  const legacy = JSON.stringify({ ...value, path: h.input, source_version: 'legacy-source', observation_report: 'legacy-report.json' })
+  const meta = h.ctx.tools.get('video_inspect')?.output.presentationMeta?.({}, legacy)
+  expect(meta).toMatchObject({ videoReviewEvidence: { observationReport: 'legacy-report.json' } })
+  expect(meta).toHaveProperty('videoReviewEvidence')
+  expect((meta as { videoReviewEvidence: object }).videoReviewEvidence).not.toHaveProperty('sha256')
 })

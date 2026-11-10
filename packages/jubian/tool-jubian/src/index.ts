@@ -358,8 +358,9 @@ const OUTPUT = {
 const VIDEO_PAGE_FIELDS = {
   queried_at: { type: 'string', required: true },
   page_num: { type: 'integer', required: true }, page_size: { type: 'integer', required: true },
-  returned: { type: 'integer', required: true }, total_verified: { type: 'boolean', required: true },
-  complete: { type: 'boolean', required: true, description: '仅本次响应覆盖全部结果时为 true；末页不代表已读过前页。' },
+  returned: { type: 'integer', required: true },
+  total_verified: { type: 'boolean', required: true, description: '提供方返回有效数值 total；不是独立核验全部历史。' },
+  complete: { type: 'boolean', required: true, description: '仅本次响应覆盖相应查询范围全部结果时为 true；末页不代表已读过前页。' },
   has_more: { required: true, oneOf: [{ type: 'boolean' }, { type: 'null' }] },
   next_page: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
 } as const
@@ -411,6 +412,13 @@ const VIDEO_OUTPUT = {
     sources: VIDEO_SOURCES_SCHEMA,
     tasks: { type: 'object', additionalProperties: true, properties: {
       ...VIDEO_PAGE_FIELDS,
+      scope: { type: 'object', additionalProperties: false, required: true,
+        description: '本次总数与完整性对应的查询范围；task_type=null 表示不按类型筛选。', properties: {
+          script_id: { type: 'integer', required: true },
+          task_type: { required: true, oneOf: [{ type: 'integer' }, { type: 'null' }] },
+        } },
+      project_complete: { type: 'boolean', required: true,
+        description: '仅本次未按任务类型筛选且完整读到提供方项目列表时为 true；不保证提供方保留全部历史。' },
       total: { type: 'number', required: true },
       rows: { type: 'array', required: true, items: { type: 'object', additionalProperties: true } },
     } },
@@ -678,7 +686,7 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         deliver: (sessionId, notice, signal, groupOrigin, groupReceiptId) =>
           deliverGenerationWatchNotice(scope, sessionId, notice, signal, groupOrigin, groupReceiptId),
         withoutInitiator: operation => scope.agents.withoutInitiator(operation),
-        warn: (message, error) => scope.logger.warn(message, error),
+        warn: (message, error) => { scope.logger.warn(message, error) },
       })
       generationWatch = watch
       watch.start()
@@ -1132,13 +1140,14 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
         if (!watch || !sessionController) throw new Error('Generation watch requires the Host Session controller and persistence')
         const owner = await sessionController.resolveAgent(agent.session.id)
         if ('error' in owner) throw new Error('Submit paid video from the ordinary owning Muse session so it can resume after restart.')
-        exec.signal?.throwIfAborted()
+        exec.signal.throwIfAborted()
         const packs = method === 'submit_video_batch'
-          ? (input.video_previews ?? []).map(item => ({ previewPath: resolve(item.preview_path), key: requireKey(item.idempotency_key) }))
+          ? need(input.video_previews, 'video_previews').map(item => ({
+            previewPath: resolve(item.preview_path), key: requireKey(item.idempotency_key) }))
           : [{ previewPath: await resolvePreviewPath(input), key: requireKey(input.idempotency_key) }]
         if (packs.length === 0 || packs.length > videoBatch.maxItems) return await dispatch()
         await assertNewNativeDispatchAllowed(ledger, packs)
-        const team: { captureGenerationWatchOrigin?: (sessionId: string) => unknown } | undefined = ctx.get('museTeam')
+        const team = ctx.get('museTeam') as { captureGenerationWatchOrigin?: (sessionId: string) => unknown } | undefined
         const groupOrigin = team?.captureGenerationWatchOrigin?.(agent.session.id)
         const enrollment = await watch.enroll(agent.session.id, packs,
           groupOrigin === undefined ? undefined : generationWatchGroupOrigin.parse(groupOrigin))
@@ -1159,6 +1168,8 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     description: '剧变（Jubian）视频任务查询与图片生成。task/tasks/subtasks/sources 只读'
       + '。提取或复用已有视频时，先 sources(script_id,storyboard_id) 查询原卡已生成来源；返回原任务、成片、运行状态与查询完整性，不要求与当前模型配置一致。'
       + '任务分页只说明本页状态，complete=false 或 unknown 不能推断没有成片；缺声线不等于授权重新生成。'
+      + 'tasks 默认不按任务类型筛选；显式 task_type 只查该类型，total_verified/complete 仅对应返回的 scope，'
+      + '筛选结果为空不能推断项目没有任务。project_complete 仅表示本次读全未按类型筛选的提供方列表。'
       + '（subtasks 用 POST 承载查询体，仍然只读）。subtasks 返回分页对象：用 result.subtasks.rows 读取数组，'
       + 'result.subtasks.total 读取总数；不要直接对 result.subtasks 取 length 或按数组遍历。'
       + '费用报告分列提交估算、账本占账与任务行 real_cost；本地 settled/reserved 按报价或估算占账，不是供应商账单。'
@@ -1200,13 +1211,14 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     parameters: {
       method: { type: 'string', required: true,
         enum: ['task', 'tasks', 'subtasks', 'sources', 'unresolved', 'image_generate', 'image_generate_batch', 'upscale', 'retry'],
-        description: 'task=单个任务（含 cost 观测）；tasks=项目任务分页（带查询完整性与下一页）；'
+        description: 'task=单个任务（含 cost 观测）；tasks=默认全部类型的项目任务分页（带查询范围、完整性与下一页）；'
           + 'sources=按 script_id 与 storyboard_id 只读查询已有成片来源，供下载、提取和复用；不生成；'
           + 'subtasks=分页对象 subtasks，数组在 subtasks.rows（每项含 status、parent_task_id、video_url、字幕框、阶段、分辨率与 needs_upscale）；'
           + 'unresolved=只读本地账本，列出没有确定结果的写入（进程重启后先做这一步，按返回的 next 逐笔对账，不要换 key 重发）；'
           + 'image_generate=生成一张图片（计费）；image_generate_batch=校验后有界并发生成多张图片（逐项计费）；'
           + 'upscale=转高清（计费、异步）；retry=重试终止失败且未计费的任务。' },
       task_id: ARGS.task_id, script_id: ARGS.script_id, storyboard_id: ARGS.storyboard_id,
+      task_type: { type: 'integer', description: '仅 tasks 可选：按提供方正整数任务类型筛选，如 1=生成、10=去字幕、20=转高清；省略查询全部类型。' },
       page_num: ARGS.page_num, page_size: ARGS.page_size,
       delivery_resolution: ARGS.delivery_resolution,
       asset_name: ARGS.asset_name, asset_type: ARGS.asset_type, prompt: ARGS.prompt,

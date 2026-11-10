@@ -96,7 +96,8 @@ type RenderResumeCandidate = { output: string; verified?: undefined }
  * @param emitsStem - Whether a matching music stem is required.
  * @returns A reusable artifact or the earliest unoccupied candidate path.
  */
-export async function findRenderResumeCandidate(input: VerifyInput, request: RenderResumeRequest,
+export async function findRenderResumeCandidate(input: VerifyInput & { requireSubtitleVisualVerification?: boolean },
+  request: RenderResumeRequest,
   emitsStem: boolean): Promise<RenderResumeCandidate> {
   const outputPath = parse(input.output)
   await assertRenderResumeDirectory(input.project, outputPath.dir)
@@ -121,6 +122,9 @@ export async function findRenderResumeCandidate(input: VerifyInput, request: Ren
       const record = await readSourceRecord(receipt)
       if (record?.request_sha256 !== request.sha256 || record.episode !== input.episode) continue
       if (record.delivery_inputs == null || !Array.isArray(record.input_files)) continue
+      const visual: unknown = record.delivery_inputs.subtitle_visual_verification?.visual
+      if (input.requireSubtitleVisualVerification && (record.delivery_inputs.subtitle_visual_verification?.delivery === undefined
+        || visual === undefined)) continue
       if (emitsStem) {
         await requireProjectAudioFile(input.project, stem)
         if (await fileSha256(stem) !== record.music_stem_sha256) continue

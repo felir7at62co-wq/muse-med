@@ -2,12 +2,12 @@
 
 import { createHash } from 'node:crypto'
 import { copyFile, link, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, rmdir, writeFile } from 'node:fs/promises'
-import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, format, isAbsolute, parse, relative, resolve, sep } from 'node:path'
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import { hasSeparateAudio, verifySelectedSourceReviews } from './approved-sources.ts'
 import { checkMusicDecision } from './bgm.ts'
 import { fileSha256 } from './cache.ts'
-import { resolveDeliveryPolicy } from './delivery-policy.ts'
+import { findShortDramaProject, resolveDeliveryPolicy } from './delivery-policy.ts'
 import { episodePaths, shotFileName } from './paths.ts'
 import { parseShotManifest } from './prepare.ts'
 import { readSourceRecord, sourceRecordPathFor, type DeliveryRenderInputs } from './source-record.ts'
@@ -17,6 +17,7 @@ import { parseSrtDocument } from './subtitles.ts'
 import { parseTimelineDocument } from './timeline.ts'
 import type { DramaRenderReport, TimelineClip } from './types.ts'
 import { verifyEpisode, type VerifyInput } from './verify.ts'
+import { summarizeSourceQa, type SourceQaVerifier } from './source-qa.ts'
 import { assertVideoHashesAllowed } from './video.ts'
 
 const DRAFTS = '02_剪映草稿'
@@ -29,6 +30,7 @@ const CANDIDATE_WARNING = '已归档技术检查通过的候选，画面、对�
 interface StageDeliveryInput extends VerifyInput {
   readonly transcriptsPath?: string
   readonly decisionsPath?: string
+  readonly sourceQaVerifier?: SourceQaVerifier
 }
 
 const digest = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
@@ -48,11 +50,18 @@ function inside(root: string, path: string): boolean {
 
 async function localEntry(path: string) {
   try {
-    const info = await lstat(path)
-    if (info.isSymbolicLink() || relative(path, await realpath(path)) !== '') {
-      throw new Error(`交付归档不接受通过链接访问的文件或目录：${path}`)
+    // A trailing separator can make lstat follow a directory link; keep every raw parent component.
+    let current = format(parse(path))
+    const info = await lstat(current)
+    let entry = info
+    // Realpath can expand Windows short names without traversing a link.
+    for (;;) {
+      if (entry.isSymbolicLink()) throw new Error(`交付归档不接受通过链接访问的文件或目录：${path}`)
+      const parent = dirname(current)
+      if (parent === current) return info
+      current = parent
+      entry = await lstat(current)
     }
-    return info
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     return undefined
@@ -78,7 +87,8 @@ async function readBoundText(path: string, expected: string): Promise<string> {
 /** Use the renderer's exact consumed inputs when checking the episode's music decision. */
 async function checkBoundMusicDecision(input: VerifyInput, music: DeliveryRenderInputs['music'], bodyEnd: number,
   checked: ReadonlyMap<string, string | null>) {
-  if (!object(music) || (music.mode !== 'music' && music.mode !== 'none') || typeof music.gain !== 'number') {
+  const mode: unknown = music?.mode
+  if (!object(music) || (mode !== 'music' && mode !== 'none') || typeof music.gain !== 'number') {
     throw new Error('工作成片缺少严格配乐来源，请以当前配乐决定重新执行 resume=true 渲染。')
   }
   const bound = (path: string | undefined, label: string) => {
@@ -190,7 +200,7 @@ async function checkDraft(project: string, episode: string, draft: string, rende
 }
 
 async function checkPreparedSources(project: string, episode: string, render: DeliveryRenderInputs,
-  clips: DramaRenderReport['clips'], requireSpeech: boolean, requireSourceReview: boolean) {
+  clips: DramaRenderReport['clips'], requireSpeech: boolean, requireSourceReview: boolean, sourceQaVerifier?: SourceQaVerifier) {
   const paths = episodePaths(project, episode)
   const sourceSha = await localDigest(paths.sources)
   const source: unknown = JSON.parse((await readFile(paths.sources, 'utf8')).replace(/^\uFEFF/u, ''))
@@ -200,7 +210,11 @@ async function checkPreparedSources(project: string, episode: string, render: De
       || !render.videos.some(video => video.shot === item.shot && video.sha256 === item.sha256))) {
     throw new Error('已准备的选源与工作成片不符，请重新 prepare 和渲染。')
   }
-  const reviews = await verifySelectedSourceReviews(paths, rows, true, requireSourceReview)
+  const reviews = await verifySelectedSourceReviews(paths, rows, true, requireSourceReview, sourceQaVerifier)
+  const sourceQa = requireSourceReview ? summarizeSourceQa(reviews) : undefined
+  if (sourceQa !== undefined && render.source_qa_sha256 !== sourceQa.sha256) {
+    throw new Error('当前源片复验与工作成片绑定的OCR或审看版本不同，请重新正式渲染。')
+  }
   const approved = new Map(reviews.map(row => [row.shot, row]))
   const previouslyReviewed = source.shots.some(item => object(item) && item.review_sha256 !== undefined)
   if (requireSpeech || reviews.length > 0 || previouslyReviewed
@@ -218,18 +232,18 @@ async function checkPreparedSources(project: string, episode: string, render: De
     }
   }
   if (reviews.length > 0 || previouslyReviewed) {
-    if (source.shots.some(item => {
-      if (!object(item) || typeof item.shot !== 'number') return true
-      const row = approved.get(item.shot)
-      return row === undefined || row.videoSha256 !== item.sha256 || row.audioSha256 !== item.audio_sha256
-        || row.reviewSha256 !== item.review_sha256
+    if (source.shots.some((item) => {
+      const stored = item as { shot: number; sha256?: unknown; audio_sha256?: unknown; review_sha256?: unknown }
+      const row = approved.get(stored.shot)
+      return row === undefined || row.videoSha256 !== stored.sha256 || row.audioSha256 !== stored.audio_sha256
+        || row.reviewSha256 !== stored.review_sha256
     })) {
       throw new Error('已准备的画面、原声或审核版本与工作成片不符，请重新 prepare 和渲染。')
     }
   }
   if (sourceSha !== await localDigest(paths.sources)) throw new Error('归档期间已准备选源已变化。')
-  return { sourceSha, rows, approved, separateAudio: rows.some(row => hasSeparateAudio(project, row)),
-    reviewedAudioHashes: reviews.flatMap(row => row.audioSha256 === undefined ? [] : [row.audioSha256]) }
+  return { sourceSha, rows, approved, sourceQa, separateAudio: rows.some(row => hasSeparateAudio(project, row)),
+    reviewedAudioHashes: reviews.map(row => row.audioSha256).filter(sha => sha !== undefined) }
 }
 
 /** Compare against current source-bound word evidence before publishing a strict candidate. */
@@ -272,6 +286,9 @@ async function checkBoundSpeechCoverage(input: StageDeliveryInput, render: Deliv
 
 /**
  * Stage a technically verified candidate without changing the working render or the draft.
+ * Input and publication paths must not traverse symbolic links or junctions.
+ * Short-drama project markers require current source, speech and draft-track evidence even when
+ * the project or saved timeline omits or disables the corresponding optional checks.
  * @param input - The working MP4 and its effective timeline and subtitle inputs.
  * @param draft - The saved native draft directory in this episode's draft folder.
  * @returns The verification report and, if staged, the exact candidate paths.
@@ -342,16 +359,21 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
     const timelineText = await readBoundText(timelinePath, render.timeline_sha256)
     const timeline = parseTimelineDocument(JSON.parse(timelineText.replace(/^\uFEFF/u, '')), timelinePath)
     const policy = await resolveDeliveryPolicy(project, timeline.delivery)
+    const shortDrama = await findShortDramaProject(project) !== undefined
     const musicDecision = policy.delivery.audio?.require_music_decision === true
       ? await checkBoundMusicDecision(input, render.music, timeline.bodyEndSeconds, checked) : undefined
-    const requireSpeech = policy.delivery.subtitle?.require_speech_coverage === true
-    const requireSourceReview = policy.delivery.require_source_review === true
+    const requireSpeech = shortDrama || policy.delivery.subtitle?.require_speech_coverage === true
+    const requireSourceReview = shortDrama || policy.delivery.require_source_review === true
     if (requireSpeech && !verified.checks.some(check => check.id === 'av_stream_clock' && check.ok)) {
       throw new Error('严格归档缺少成片音视频流的实测起止时间。请从当前已核对的原声与时间线重新渲染后复验。')
     }
     await checkBoundSubtitleRules(input, render, activeSubtitleVisual(policy.delivery) !== undefined,
       policy.delivery.subtitle?.require_no_punctuation === true, requireSpeech ? timeline.clips : undefined)
-    const prepared = await checkPreparedSources(project, episode, render, verified.clips, requireSpeech, requireSourceReview)
+    const prepared = await checkPreparedSources(project, episode, render, verified.clips,
+      requireSpeech, requireSourceReview, input.sourceQaVerifier)
+    if (prepared.sourceQa?.files.some(file => checked.get(file.path) !== file.sha256)) {
+      throw new Error('正式成片缺少当前OCR及审看文件的来源绑定，请以 resume=true 重新渲染。')
+    }
     if (requireSpeech && checked.get(paths.sources) !== prepared.sourceSha) {
       throw new Error('严格声文检查需要工作成片绑定已准备的音画来源。请重新 prepare 并以 resume=true 渲染。')
     }
@@ -361,6 +383,7 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
     const sha256 = record.output.sha256
     const body = `${JSON.stringify({ version: 1, status: 'candidate', episode, video, draft, sha256,
       working_output: output, render_source_sha256: sourceSha, draft_source_sha256: draftSha,
+      ...(prepared.sourceQa === undefined ? {} : { source_qa_sha256: prepared.sourceQa.sha256 }),
       ...(musicDecision === undefined ? {} : { music_decision: musicDecision }),
       ...(speechEvidence === undefined ? {} : { speech_evidence_sha256: speechEvidence }) }, null, 2)}\n`
     const present = await localEntry(receipt)
@@ -381,7 +404,7 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
         ...prepared.reviewedAudioHashes])
       const recheckSelection = async () => {
         if (prepared.sourceSha !== (await checkPreparedSources(project, episode, render, verified.clips,
-          requireSpeech, requireSourceReview)).sourceSha
+          requireSpeech, requireSourceReview, input.sourceQaVerifier)).sourceSha
           || draftSha !== await localDigest(resolve(draft, DRAFT_SOURCE))
           || sourceSha !== await localDigest(sourcePath)) {
           throw new Error('归档期间选源、成片或草稿回执已变化。')

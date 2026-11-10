@@ -605,7 +605,7 @@ async function assertProjectNoEpisodePaidHold(projectRoot: string, preview: Nati
   }
 }
 
-/** Detect explicit spoken lines without treating scene fields or negative instructions as speech. */
+/** Detect explicit speech, including named lines inside shots, while excluding visual and negative fields. */
 function hasPromptSpeech(prompt: string): boolean {
   const names = new Set<string>()
   // Each pattern requires capture group 1, so every match supplies its label.
@@ -630,12 +630,38 @@ function hasPromptSpeech(prompt: string): boolean {
   for (const raw of prompt.split(/\r?\n/u)) {
     const line = raw.trim()
     if (/^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)\s*[：:]/iu.test(line)) continue
-    const speech = /(?:^|[\s；;])(?:台词|对白|旁白|解说|画外音|画外声|心声|VO|OS|dialogue)\s*[：:]\s*([^；;]+)/iu.exec(line)
-    if (speech?.[1] !== undefined) {
+    const ignored = [...line.matchAll(
+      /(?:^|[\s：:，,；;])(场景|场景名称|核心场景|字幕|画面文字|屏幕文字|屏幕显示|文字内容|负面提示|负向提示|negative prompt|negative|禁止|规则)\s*[：:]/giu,
+    )]
+    const quotes = [...line.matchAll(/“[^”]*”|「[^」]*」|『[^』]*』|"[^"]*"/gu)]
+    const outsideQuote = (index: number): boolean => !quotes.some(quote => index > quote.index
+      && index < quote.index + quote[0].length)
+    const speechAt = (index: number, labeled = false): boolean => outsideQuote(index) && !ignored.some((field) => {
+      if (field.index > index || !outsideQuote(field.index)) return false
+      if (/^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)$/iu.test(String(field[1]))) return true
+      if ([...line.slice(field.index, index + 1).matchAll(/[；;]/gu)]
+        .some(separator => outsideQuote(field.index + separator.index))) return false
+      if (labeled && /\s/u.test(line[index] ?? '')
+        && line.slice(field.index + field[0].length, index).trim() !== '') return false
+      return true
+    })
+    for (const speech of line.matchAll(/(?:^|[\s；;：:])(?:台词|对白|旁白|解说|画外音|画外声|心声|VO|OS|dialogue)\s*[：:]\s*([^；;]+)/giu)) {
+      if (speech[1] === undefined || !speechAt(speech.index, true)) continue
       const before = line.slice(0, speech.index).trim()
       const content = speech[1].trim().replace(/^[^：:]{1,30}[：:]\s*/u, '').trim()
       if (!/(?:不要|不得|禁止|避免|不写|无|没有)\s*$/u.test(before)
         && content !== '' && !emptySpeech.test(content)) return true
+    }
+    if (/^(?:镜头|分镜|shot)\s*[\d一二三四五六七八九十百零〇]+\s*[：:]/iu.test(line)) {
+      for (const name of names) {
+        if (name === '') continue
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
+        for (const inline of line.matchAll(new RegExp(`(?:^|[\\s：:，,；;])${escaped}(?:[（(]\\s*(?:画外音|VO|OS)\\s*[）)])?\\s*[：:]\\s*([^；;]+)`, 'giu'))) {
+          if (inline[1] !== undefined && speechAt(inline.index)
+            && !/(?:不要|不得|禁止|避免|不写|无|没有)\s*$/u.test(line.slice(0, inline.index).trim())
+            && !emptySpeech.test(inline[1].trim())) return true
+        }
+      }
     }
     const named = /^([^：:]{1,30})\s*[：:]\s*(.+)$/u.exec(line)
     if (named?.[1] === undefined || named[2] === undefined) continue
@@ -1232,13 +1258,13 @@ Promise<VideoBatchReport> {
     const item = items[index] as FrozenBatchItem
     assertRecordedVideo(entry, item.preview)
   })
-  if (recorded.some(entry => entry !== undefined)) {
-    if (recorded.some(entry => entry === undefined)) {
+  const existing = recorded.filter(entry => entry !== undefined)
+  if (existing.length > 0) {
+    if (existing.length !== items.length) {
       throw new JubianError('CONTRACT_CHANGED', 'A partially recorded batch needs read-only per-key reconciliation')
     }
-    const results = await Promise.all(items.map((item, index) => limitedRead(async () => {
-      const entry = recorded[index]
-      if (entry === undefined) return fail()
+    const results = await Promise.all(existing.map((entry, index) => limitedRead(async () => {
+      const item = items[index] as FrozenBatchItem
       const result = await reconcileNativePreview(client, entry, item.preview, item.preview_path)
       const identity = { storyboard_id: item.preview.storyboardId }
       return result.status === 'submitted' ? { ...result, ...identity } : { ...result, ...identity,

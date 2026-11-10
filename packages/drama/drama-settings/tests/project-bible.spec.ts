@@ -19,6 +19,27 @@ async function bench() {
   ], builtins: { prompt: SystemPrompt, tools: Tools, drama: { Config: DramaSettingsSchema, apply } } })
 }
 
+it.each([
+  { delivery: { require_source_review: 'yes' }, message: 'delivery.require_source_review must be a boolean' },
+  { delivery: { audio: { require_music_decision: 'yes' } }, message: 'delivery.audio.require_music_decision must be a boolean' },
+])('refuses non-boolean archive requirements without writing project files: $message', async ({ delivery, message }) => {
+  const { ctx, home } = await bench()
+  await expect(previewProjectBible(ctx.settings, home, { delivery }, 'Invalid archive requirement')).rejects.toThrow(message)
+  await expect(readFile(join(home, 'project_config.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('initializes separate subtitle and music archive requirements in an unconfigured project', async () => {
+  const { ctx, home } = await bench()
+  const changes = { delivery: { require_source_review: true, audio: { require_music_decision: true },
+    subtitle: { require_no_punctuation: true, require_speech_coverage: true } } }
+  const reason = 'Approved initial archive requirements'
+  const preview = await previewProjectBible(ctx.settings, home, changes, reason)
+  await updateProjectBible(ctx.settings, home, changes, reason, preview.expected_revision, preview.preview_fingerprint)
+  expect((await readProjectBible(ctx.settings, home)).config).toMatchObject({ project_bible: { delivery: {
+    ...changes.delivery, width: 1440, height: 2560, fps: 60, min_bitrate_mbps: 4.6,
+  } } })
+})
+
 it('persists a complete reference visual intent through the Loader and replaces it with an explicit reset', async () => {
   const { ctx, home } = await bench()
   const subtitle_visual = { schema_version: 1, reference_width: 480, reference_height: 854, font_size_px: 42,
