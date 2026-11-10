@@ -261,6 +261,25 @@ export class V2Session {
   }
 
   /**
+   * Inspect verified startup facts and the original SDK's unrefreshed local status.
+   * @param {AbortSignal} [signal] Aborting closes the session; omission uses configured startup and request deadlines.
+   * @returns {Promise<object>} Whitelisted local facts; no server authorization or media test is performed.
+   */
+  async health(signal) {
+    await this.start(signal);
+    return this.operation(async () => {
+      const status = await this.broker.request('local_status', {}, this.stop.signal);
+      if (!object(status) || !['Checking', 'Licensed', 'Grace', 'Unlicensed'].includes(status.mode)
+        || !token(status.reason)) throw fail('v2_protocol');
+      const hello = this.engine.hello;
+      if (typeof hello.engineVersion !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(hello.engineVersion)) throw fail('v2_protocol');
+      return { sourceIdentity: this.sourceIdentity,
+        engine: { engineVersion: hello.engineVersion, protocol: hello.protocol, build: hello.build },
+        localLicenseStatus: { mode: status.mode, reason: status.reason, refreshed: false } };
+    }, signal);
+  }
+
+  /**
    * Read the exact declared episode list without checking or consuming a series license.
    * @param {string} id Exact series ID.
    * @param {AbortSignal} [signal] Aborting closes the session; omission uses the request deadline.

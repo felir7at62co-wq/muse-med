@@ -181,11 +181,11 @@ export class V2DownloadClient {
     }
   }
 
-  run(signal, operation) {
+  run(signal, operation, failureFields = { complete: false }) {
     const active = AbortSignal.any([this.lifetime.signal, ...(signal ? [signal] : []), AbortSignal.timeout(this.config.callTimeoutMs)]);
     const work = (async () => {
       try { active.throwIfAborted(); return await operation(active); }
-      catch (error) { return { ok: false, complete: false, sourceBackend: 'v2', ...safeFailure(error, active) }; }
+      catch (error) { return { ok: false, ...failureFields, sourceBackend: 'v2', ...safeFailure(error, active) }; }
     })();
     this.pending.add(work); void work.then(() => this.pending.delete(work));
     return work;
@@ -208,6 +208,37 @@ export class V2DownloadClient {
       return { ok: true, sourceMode: 'legacy', sourceBackend: 'v2', sourceIdentity: session.sourceIdentity, items,
         verifiedDownload: false, note: 'v2 目录完整不代表媒体可下载；只有真实文件通过完整解码后才验证下载。' };
     }));
+  }
+
+  /**
+   * Check local startup and optional catalogs without refreshing authorization or resolving media.
+   * @param {object} [options] Validated optional seriesIds; omission checks only the local runtime.
+   * @param {AbortSignal} [signal] Optional caller cancellation; omission retains the configured call deadline.
+   * @returns {Promise<object>} Health facts after confirmed shutdown, or fixed safe failure with untested scopes retained.
+   */
+  async health(options = {}, signal) {
+    const seriesIds = options.seriesIds ?? [];
+    const scope = seriesIds.length ? 'catalog' : 'local';
+    const limits = { scope, authorization: 'not_checked', mediaAvailability: 'not_tested', verifiedDownload: false };
+    const result = await this.run(signal, async active => {
+      const facts = await this.withSession(active, async session => {
+        const local = await session.health(active), items = [];
+        for (const id of seriesIds) {
+          const catalog = catalogFor(await session.catalog(id, active), id);
+          items.push({ seriesId: id, title: catalog.title, episodeCount: catalog.episodeCount,
+            completeCatalog: true, mediaUrlsVerified: false, fullSeriesAvailable: null });
+        }
+        return { sourceIdentity: session.sourceIdentity, engine: local.engine,
+          localLicenseStatus: local.localLicenseStatus, items };
+      });
+      return { ok: true, sourceBackend: 'v2', ...limits, ...facts,
+        checks: { runtimeIntegrity: 'passed', physicalDevice: 'matched', engineHandshake: 'passed',
+          licenseBrokerHandshake: 'passed', localLicenseStatus: 'read',
+          catalog: seriesIds.length ? 'passed' : 'not_requested', shutdown: 'confirmed' } };
+    }, limits);
+    if (!result.ok && result.code === 'cancelled') return { ...result, message: '红果 v2 健康检查已取消或超过时限' };
+    if (!result.ok && result.code === 'operation_failed') return { ...result, message: '红果 v2 健康检查失败，请检查本机运行配置' };
+    return result;
   }
 
   async publishFile(source, target, paths, active) {

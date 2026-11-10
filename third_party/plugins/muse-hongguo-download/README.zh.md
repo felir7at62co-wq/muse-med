@@ -69,6 +69,14 @@ Desktop 预设接收 `MUSE_HONGGUO_V2_RUNTIME_DIR` 和 `MUSE_HONGGUO_V2_STATE_DI
 
 V2 进度与 v1 分开保存，并记录已验证的运行时标识。最终 MP4 均通过现有容器、FFprobe、完整 FFmpeg 解码和 SHA256 检查。`origin: engine-output` 表示原始传输信息未知（`null`），最终文件大小和哈希仍是真实验证结果。部分选集可以成功，但 `complete` 为 `false`。失败后保留已有验证文件和 v2 进度，供相同请求续传。原源码、设备、队列和 v1 收据均保留。参见[收据迁移说明](../../../docs/upgrade-guide/v0.2.2-rc.1/hongguo-v2-receipts/guide.zh.md)。
 
+<a id="health-check"></a>
+
+### 健康检查
+
+只有 v2 作用域注册 `hongguo_download_health`。传入 `{}` 可检查本地运行资源、物理设备绑定、引擎与许可桥接进程握手，以及未刷新的本地许可状态。默认不请求网络、不刷新授权、不申请剧目许可，也不下载媒体；无需发起会话或可写工作区。可选的 `seriesIds`，如 `{"seriesIds":["7702763145030290457"]}`，只增加目录查询，不消耗剧目下载额度，也不解析媒体。提供列表时须使用 `maxSeries` 范围内不重复的十进制字符串 ID；空列表和未知参数明确拒绝。
+
+健康检查成功只表示实际执行的检查项通过。成功和失败结果均保留 `authorization: 'not_checked'`、`mediaAvailability: 'not_tested'`、`verifiedDownload: false`，不返回 `complete`，也不能据此认定 `fullSeriesAvailable: true`。未刷新的本地许可状态不代表服务器当前已授权，目录有效也不代表已验证下载；只有成功的下载收据能确认独立验证过的文件。
+
 ## 开发验证
 
 在此插件目录运行 `npm test` 和 `npm run check`。运行 `python3.11 -I -B -m unittest discover -s tests -p 'test_*.py'` 检查桥接；这些测试创建独立字节码样本，不加载用户原模块，也不发送平台请求。`node scripts/pack.mjs --out /绝对输出目录` 打包当前版本。原源验收必须下载至少两部完整声明列表，并对每个请求集完整解码。在此工作区配置前述原源和运行时环境变量，将至少两个真实 ID 以逗号分隔设为 `MUSE_HONGGUO_LIVE_IDS`，再运行 `npm run test:live`；它使用真实受管子进程服务并写出 `live-evidence.json`。已保留的私有设备与新初始化的私有设备须分别验证：旧设备成功不代表新安装可用。初始化只创建本地字段，不验证平台是否接受。公开试看及授权目录测试必须与真实原源多部全集验收分别记录。
