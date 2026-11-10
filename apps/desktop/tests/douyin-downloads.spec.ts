@@ -12,6 +12,7 @@ import { fixtureDebugger, fixtureResponse, fixtureMedia, fixtureBody } from './d
 const id = '7692443246022167851'
 const page = `https://www.douyin.com/video/${id}`
 const media = 'https://v3.douyinvod.com/video.mp4?secret=transient'
+const downloadOptions = { headers: { Referer: 'https://www.douyin.com/' } }
 let root: string
 let controller: DesktopDouyinDownloads
 let owner: ReturnType<typeof web>
@@ -122,7 +123,7 @@ async function transfer() {
     responseHeaders: { 'content-type': ['video/mp4'] },
   } as never)
   await vi.advanceTimersByTimeAsync(100)
-  expect(guest.downloadURL).toHaveBeenCalledWith(media)
+  expect(guest.downloadURL).toHaveBeenCalledWith(media, downloadOptions)
   return { result }
 }
 
@@ -132,7 +133,7 @@ it('uses an observed player MP4 fetched through XHR when the visible source and 
   controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'xhr', url: media,
     responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
   await vi.advanceTimersByTimeAsync(100)
-  expect(guest.downloadURL).toHaveBeenCalledWith(media)
+  expect(guest.downloadURL).toHaveBeenCalledWith(media, downloadOptions)
   await controller.request(owner as never, { ...request, action: 'release' })
   expect((await result).code).toBe('CANCELLED')
 })
@@ -149,7 +150,7 @@ it('keeps the successful player response when another video responds during a pl
   resolvePlayer({ id, src: media })
   await vi.advanceTimersByTimeAsync(0)
   expect(guest.downloadURL).toHaveBeenCalledOnce()
-  expect(guest.downloadURL).toHaveBeenCalledWith(media)
+  expect(guest.downloadURL).toHaveBeenCalledWith(media, downloadOptions)
   await controller.request(owner as never, { ...request, action: 'release' })
   expect((await result).code).toBe('CANCELLED')
 })
@@ -496,7 +497,7 @@ async function associatedTransfer(association: 'player-exact' | 'provider-detail
 
 it('stages plain native media from exact public player metadata without a prior detail or MP4 response', async () => {
   const { result } = await metadataTransfer()
-  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(media)
+  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(media, downloadOptions)
   const item = new Item()
   expect(controller.accept(item as never, guest as never)).toBe(true)
   controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'other', url: media,
@@ -595,7 +596,7 @@ it('waits for exact provider evidence after an observed MP4 encounters a blob pl
   expect(guest.downloadURL).not.toHaveBeenCalled()
   await fixtureResponse(debug)
   await vi.advanceTimersByTimeAsync(0)
-  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(fixtureMedia)
+  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(fixtureMedia, downloadOptions)
   const item = new Item()
   item.url = fixtureMedia
   item.chain = [fixtureMedia]
@@ -638,7 +639,7 @@ it('retains a blob player while the exact provider observer is still starting', 
     expect(guest.reload).toHaveBeenCalledOnce()
     await fixtureResponse(debug)
     await vi.advanceTimersByTimeAsync(0)
-    expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(fixtureMedia)
+    expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(fixtureMedia, downloadOptions)
     await controller.request(owner as never, { ...request, action: 'release' })
     expect((await result).code).toBe('CANCELLED')
   } finally {
@@ -686,7 +687,7 @@ it('stages only native MP4 completion with provider evidence and never claims cu
   const { result, debug } = await providerTransfer()
   await fixtureResponse(debug)
   await vi.advanceTimersByTimeAsync(100)
-  expect(guest.downloadURL).toHaveBeenCalledWith(fixtureMedia)
+  expect(guest.downloadURL).toHaveBeenCalledWith(fixtureMedia, downloadOptions)
   const item = new Item()
   item.url = fixtureMedia
   item.chain = [fixtureMedia]
@@ -756,7 +757,7 @@ it('retains provider facts until main-document loading finishes before probing p
   expect(guest.downloadURL).not.toHaveBeenCalled()
   guest.isLoadingMainFrame = () => false
   await vi.advanceTimersByTimeAsync(100)
-  expect(guest.downloadURL).toHaveBeenCalledWith(fixtureMedia)
+  expect(guest.downloadURL).toHaveBeenCalledWith(fixtureMedia, downloadOptions)
 })
 it('uses the leased browser network resolver for media and redirect address checks', async () => {
   controller = new DesktopDouyinDownloads(open)
@@ -765,7 +766,7 @@ it('uses the leased browser network resolver for media and redirect address chec
   await fixtureResponse(debug)
   await vi.advanceTimersByTimeAsync(100)
   expect(guest.session.resolveHost).toHaveBeenCalledWith('v3.douyinvod.com')
-  expect(guest.downloadURL).toHaveBeenCalledWith(fixtureMedia)
+  expect(guest.downloadURL).toHaveBeenCalledWith(fixtureMedia, downloadOptions)
   guest.session.resolveHost.mockResolvedValue({ endpoints: [{ address: '127.0.0.1', family: 'ipv4' }] })
   expect(await controller.blocksRequest('https://v4.douyinvod.com/redirect.mp4', guest.id)).toBe(true)
   expect(guest.session.resolveHost).toHaveBeenLastCalledWith('v4.douyinvod.com')
@@ -830,7 +831,7 @@ it('uses the playing verified alternative when the first provider address return
   })
   await fixtureResponse(debug)
   await vi.advanceTimersByTimeAsync(100)
-  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(backup)
+  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(backup, downloadOptions)
   const item = new Item()
   item.url = backup
   item.chain = [backup]
@@ -849,8 +850,8 @@ it.each([
   guest.executeJavaScript.mockResolvedValue({ duration: 34.41, sourceSupported: true, protected: false, src: unlisted })
   await fixtureResponse(debug)
   await vi.advanceTimersByTimeAsync(100)
-  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(fixtureMedia)
-  expect(guest.downloadURL).not.toHaveBeenCalledWith(unlisted)
+  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(fixtureMedia, downloadOptions)
+  expect(guest.downloadURL.mock.calls.map(([url]) => url)).not.toContain(unlisted)
   const item = new Item()
   item.url = unlisted
   item.chain = [unlisted]
@@ -912,7 +913,7 @@ it('joins native cancellation before removing the selected provider download', a
   } finally { item.close(); await releasing }
   expect(released).toBe(true)
   expect(existsSync(item.path)).toBe(false)
-  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(fixtureMedia)
+  expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(fixtureMedia, downloadOptions)
 })
 
 function background() {
@@ -1118,7 +1119,7 @@ it('continues an owned background transfer after a clear probe and a Session swi
     expect(guest.downloadURL).not.toHaveBeenCalled()
     probe.resolve(false)
     await vi.advanceTimersByTimeAsync(0)
-    expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(media)
+    expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(media, downloadOptions)
   } finally {
     probe.resolve(false)
     await controller.request(owner as never, { ...request, action: 'release' })
@@ -1200,7 +1201,7 @@ it.each(['player-metadata', 'provider-detail'] as const)(
       probe.resolve(false)
       await vi.advanceTimersByTimeAsync(100)
       const selected = association === 'player-metadata' ? media : fixtureMedia
-      expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(selected)
+      expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(selected, downloadOptions)
       const item = new Item()
       item.url = selected
       item.chain = [selected]
@@ -1286,7 +1287,7 @@ it('ignores a late probe rejection from a replaced document', async () => {
     controller.response({ webContentsId: guest.id, statusCode: 206, resourceType: 'media', url: media,
       responseHeaders: { 'Content-Type': ['video/mp4'] } } as never)
     await vi.advanceTimersByTimeAsync(100)
-    expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(media)
+    expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(media, downloadOptions)
   } finally {
     first.resolve(false); next.resolve(false)
     await controller.request(owner as never, { ...request, action: 'release' })

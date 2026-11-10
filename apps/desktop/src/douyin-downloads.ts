@@ -80,6 +80,7 @@ interface Task {
 
 /** Preparation and media identification each have a separate deadline before native transfer. */
 const ASSOCIATION_MS = 120_000
+const DOWNLOAD_OPTIONS = { headers: { Referer: 'https://www.douyin.com/' } }
 
 /**
  * @param player - Private guest probe result.
@@ -489,7 +490,7 @@ export class DesktopDouyinDownloads {
         this.beginTransfer(task)
         task.providerResponses?.close()
         failureCode = 'NATIVE_DOWNLOAD_UNAVAILABLE'
-        task.lease.guest.downloadURL(facts.src)
+        task.lease.guest.downloadURL(facts.src, DOWNLOAD_OPTIONS)
         return
       }
       if (facts.association !== undefined || facts.id !== task.target || typeof facts.src !== 'string') return
@@ -503,7 +504,7 @@ export class DesktopDouyinDownloads {
       task.association = 'player-exact'
       this.beginTransfer(task)
       task.providerResponses?.close()
-      task.lease.guest.downloadURL(facts.src)
+      task.lease.guest.downloadURL(facts.src, DOWNLOAD_OPTIONS)
     } catch (_error) {
       if (this.ownsSelection(task, epoch) || this.isCurrent(task, 'downloading')) void this.revoke(failureCode)
     } finally {
@@ -554,7 +555,7 @@ export class DesktopDouyinDownloads {
       this.beginTransfer(task)
       task.providerResponses?.close()
       failureCode = 'NATIVE_DOWNLOAD_UNAVAILABLE'
-      task.lease.guest.downloadURL(url)
+      task.lease.guest.downloadURL(url, DOWNLOAD_OPTIONS)
     } catch (_error) {
       if (this.ownsSelection(task, epoch) || this.isCurrent(task, 'downloading')) void this.revoke(failureCode)
     } finally {
