@@ -188,7 +188,7 @@ it('uses the available Host proof scope and refuses to reuse it after its provid
     const providers = await ctx.plugin({ name: 'source-qa-proof-providers', apply(scope: Context) {
       scope.provide('fs', {} as never)
       scope.provide('sandboxPolicy', {} as never)
-      scope.provide('sessionProjections', {} as never)
+      scope.provide('sessionProjections', { register: () => () => {} } as never)
     } })
     await expect(tool.execute(args, runContext())).rejects.toThrow('Host proof delegation completed')
     expect(verify).toHaveBeenCalledExactlyOnceWith(expect.anything(), undefined, binding, expect.any(AbortSignal))
@@ -198,12 +198,50 @@ it('uses the available Host proof scope and refuses to reuse it after its provid
     const replacement = await ctx.plugin({ name: 'replacement-proof-providers', apply(scope: Context) {
       scope.provide('fs', {} as never)
       scope.provide('sandboxPolicy', {} as never)
-      scope.provide('sessionProjections', {} as never)
+      scope.provide('sessionProjections', { register: () => () => {} } as never)
     } })
     await expect(tool.execute(args, runContext())).rejects.toThrow('Host proof delegation completed')
     expect(verify).toHaveBeenCalledTimes(2)
     await replacement.dispose()
     await expect(tool.execute(args, runContext())).rejects.toThrow('SOURCE_QA_HOST_UNAVAILABLE')
+  } finally {
+    stage.mockRestore(); verify.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})
+
+it('delegates content review only while its Host proof providers are active', async () => {
+  const ctx = new Context(), registered: ToolDefinition[] = []
+  ctx.provide('tools', { register: (definition: ToolDefinition) => { registered.push(definition); return () => {} } } as never)
+  const binding = { kind: 'video' as const, mediaPath: 'source', mediaSha256: 'a'.repeat(64),
+    inspectionPath: 'inspection', inspectionSha256: 'b'.repeat(64), sessionId: 'source-session', reviewId: 'review' }
+  const verify = vi.spyOn(VideoInspection, 'verifyVideoObservationEvidence').mockResolvedValue(undefined)
+  const stage = vi.spyOn(Staging, 'stageEpisodeDelivery').mockImplementation(async (input) => {
+    if (input.contentReviewVerifier === undefined) throw Error('Missing content review consumer')
+    await input.contentReviewVerifier(binding)
+    throw Error('Content review delegation completed')
+  })
+  try {
+    apply(ctx)
+    const tool = registered.find(item => item.name === 'drama_render')
+    if (tool === undefined) throw Error('Renderer registration missing')
+    const args = { method: 'stage_delivery', project: '.', episode: 2, timeline: 'timeline.json',
+      subtitle_srt: 'final.srt', output: 'candidate.mp4', draft: '02_剪映草稿/draft' }
+    const execution = runContext()
+    await expect(tool.execute(args, execution)).rejects.toThrow('CONTENT_REVIEW_HOST')
+    expect(verify).not.toHaveBeenCalled()
+    const register = vi.fn(() => () => {})
+    const providers = await ctx.plugin({ name: 'content-review-proof-providers', apply(scope: Context) {
+      scope.provide('fs', {} as never)
+      scope.provide('sandboxPolicy', {} as never)
+      scope.provide('sessionProjections', { register } as never)
+    } })
+    expect(register).toHaveBeenCalledWith(expect.objectContaining({ key: 'contentListening', stateVersion: 1 }))
+    await expect(tool.execute(args, execution)).rejects.toThrow('Content review delegation completed')
+    expect(verify).toHaveBeenCalledExactlyOnceWith(expect.anything(), undefined, binding, execution.signal)
+    await providers.dispose()
+    await expect(tool.execute(args, execution)).rejects.toThrow('CONTENT_REVIEW_HOST')
+    expect(verify).toHaveBeenCalledTimes(1)
   } finally {
     stage.mockRestore(); verify.mockRestore()
     await ctx.fiber.dispose()
