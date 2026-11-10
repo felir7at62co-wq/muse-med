@@ -145,7 +145,7 @@ it.each([
   dom.window.HTMLElement.prototype.getBoundingClientRect = () => ({
     x: 0, y: 0, top: 0, right: 10, bottom: 10, left: 0, width: 10, height: 10, toJSON: () => ({}),
   })
-  window.webContents.executeJavaScript.mockImplementation(async source => new Script(source).runInNewContext({
+  window.webContents.executeJavaScript.mockImplementation(async (source): Promise<unknown> => new Script(source).runInNewContext({
     window: dom.window, document: dom.window.document, getComputedStyle: dom.window.getComputedStyle,
   }))
   try {

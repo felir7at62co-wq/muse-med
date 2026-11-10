@@ -851,7 +851,6 @@ it.each([
   await fixtureResponse(debug)
   await vi.advanceTimersByTimeAsync(100)
   expect(guest.downloadURL).toHaveBeenCalledExactlyOnceWith(fixtureMedia, downloadOptions)
-  expect(guest.downloadURL.mock.calls.map(([url]) => url)).not.toContain(unlisted)
   const item = new Item()
   item.url = unlisted
   item.chain = [unlisted]

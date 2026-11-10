@@ -475,13 +475,13 @@ export class DesktopDouyinDownloads {
         if (metadata === undefined || typeof facts.src !== 'string') return
         failureCode = 'MEDIA_DNS_UNAVAILABLE'
         const publicAddress = await this.publicHost(facts.src, task.lease.guest)
-        if (!this.ownsSelection(task, epoch) || epoch !== 1 || task.target !== metadata.targetVideoId) return
+        if (!this.ownsSelection(task, epoch) || task.target !== metadata.targetVideoId) return
         if (!publicAddress) {
           void this.revoke('PRIVATE_MEDIA_ADDRESS')
           return
         }
         if (task.backgroundGuest !== undefined && !(await this.checkUserAction(task))) return
-        if (!this.ownsSelection(task, epoch) || epoch !== 1 || task.target !== metadata.targetVideoId) return
+        if (!this.ownsSelection(task, epoch) || task.target !== metadata.targetVideoId) return
         failureCode = 'MEDIA_STAGING_UNAVAILABLE'
         task.directory = stagingDirectory(task.request.cwd, task.request.taskId)
         task.playerMetadata = metadata
