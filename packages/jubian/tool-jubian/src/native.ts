@@ -605,7 +605,7 @@ async function assertProjectNoEpisodePaidHold(projectRoot: string, preview: Nati
   }
 }
 
-/** Detect explicit speech, including named lines inside shots, while excluding visual and negative fields. */
+/** Detect speech and off-screen thoughts, including speaker directions, outside action, visual and negative fields. */
 function hasPromptSpeech(prompt: string): boolean {
   const names = new Set<string>()
   // Each pattern requires capture group 1, so every match supplies its label.
@@ -627,21 +627,26 @@ function hasPromptSpeech(prompt: string): boolean {
     '人物', '角色', '角色名', '出镜人物', '说话人', '主体', '主体状态追踪', '道具', '关键道具',
     '风格', '声音', '音效', '配乐', '字幕', '发声类型', '语音类型', '负面提示', '负向提示', '禁止', '规则', '提示词'])
   const emptySpeech = /^(?:无(?:对白|台词|旁白|语音|声音)?|没有(?:台词|对白|旁白)?|暂无(?:台词|对白|旁白)?|不说话|不发声|none|null)[。.!！]?$/iu
+  const silentDirection = /(?:不说话|不发声|无(?:对白|台词|旁白|语音)|没有(?:对白|台词|旁白|语音))/u
   for (const raw of prompt.split(/\r?\n/u)) {
     const line = raw.trim()
     if (/^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)\s*[：:]/iu.test(line)) continue
     const ignored = [...line.matchAll(
-      /(?:^|[\s：:，,；;])(场景|场景名称|核心场景|字幕|画面文字|屏幕文字|屏幕显示|文字内容|负面提示|负向提示|negative prompt|negative|禁止|规则)\s*[：:]/giu,
+      /(?:^|[\s：:，,；;。！？.!?])(场景|场景名称|核心场景|动作|人物动作|动作状态|主体状态追踪|字幕|画面文字|屏幕文字|屏幕显示|文字内容|负面提示|负向提示|negative prompt|negative|禁止|规则)\s*[：:]/giu,
     )]
     const quotes = [...line.matchAll(/“[^”]*”|「[^」]*」|『[^』]*』|"[^"]*"/gu)]
     const outsideQuote = (index: number): boolean => !quotes.some(quote => index > quote.index
       && index < quote.index + quote[0].length)
-    const speechAt = (index: number): boolean => outsideQuote(index) && !ignored.some(field => field.index <= index
-      && outsideQuote(field.index) && (/^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)$/iu.test(String(field[1]))
-        || ![...line.slice(field.index, index + 1).matchAll(/[；;]/gu)]
-          .some(separator => outsideQuote(field.index + separator.index))))
-    for (const speech of line.matchAll(/(?:^|[\s；;：:])(?:台词|对白|旁白|解说|画外音|画外声|心声|VO|OS|dialogue)\s*[：:]\s*([^；;]+)/giu)) {
-      if (speech[1] === undefined || !speechAt(speech.index)) continue
+    const speechAt = (index: number, explicitField = false): boolean => outsideQuote(index) && !ignored.some((field) => {
+      if (field.index > index || !outsideQuote(field.index)) return false
+      if (/^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)$/iu.test(String(field[1]))) return true
+      const action = /^(?:动作|人物动作|动作状态|主体状态追踪)$/u.test(String(field[1]))
+      if (action && explicitField) return false
+      return ![...line.slice(field.index, index + 1).matchAll(action ? /[；;。！？.!?]/gu : /[；;]/gu)]
+        .some(separator => outsideQuote(field.index + separator.index))
+    })
+    for (const speech of line.matchAll(/(?:^|[\s，,；;：:。！？.!?])(?:台词|对白|旁白|解说|画外音|画外声|心声|VO|OS|dialogue)\s*[：:]\s*([^；;]+)/giu)) {
+      if (speech[1] === undefined || !speechAt(speech.index, true)) continue
       const before = line.slice(0, speech.index).trim()
       const content = speech[1].trim().replace(/^[^：:]{1,30}[：:]\s*/u, '').trim()
       if (!/(?:不要|不得|禁止|避免|不写|无|没有)\s*$/u.test(before)
@@ -651,18 +656,20 @@ function hasPromptSpeech(prompt: string): boolean {
       for (const name of names) {
         if (name === '') continue
         const escaped = name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
-        for (const inline of line.matchAll(new RegExp(`(?:^|[\\s：:，,；;])${escaped}(?:[（(]\\s*(?:画外音|VO|OS)\\s*[）)])?\\s*[：:]\\s*([^；;]+)`, 'giu'))) {
-          if (inline[1] !== undefined && speechAt(inline.index)
+        for (const inline of line.matchAll(new RegExp(`(?:^|[\\s：:，,；;。！？.!?])${escaped}\\s*(?:[（(]([^（）()\\r\\n]*)[）)])?\\s*[：:]\\s*([^；;]+)`, 'giu'))) {
+          if (inline[2] !== undefined && !silentDirection.test(inline[1] ?? '') && speechAt(inline.index)
             && !/(?:不要|不得|禁止|避免|不写|无|没有)\s*$/u.test(line.slice(0, inline.index).trim())
-            && !emptySpeech.test(inline[1].trim())) return true
+            && !emptySpeech.test(inline[2].trim())) return true
         }
       }
     }
     const named = /^([^：:]{1,30})\s*[：:]\s*(.+)$/u.exec(line)
     if (named?.[1] === undefined || named[2] === undefined) continue
-    const speaker = named[1].trim().replace(/[（(]\s*(?:画外音|VO|OS)\s*[）)]\s*$/iu, '')
+    const direction = /[（(]([^（）()\r\n]*)[）)]\s*$/u.exec(named[1])
+    const speaker = named[1].trim().replace(/\s*[（(][^（）()\r\n]*[）)]\s*$/u, '')
     const content = named[2].trim()
-    if (!fields.has(speaker) && !/^(?:无(?:对白|台词|旁白|语音|声音|人物|角色)?$|没有|不要|禁止|避免|不得)/u.test(speaker)
+    if (!silentDirection.test(direction?.[1] ?? '')
+      && !fields.has(speaker) && !/^(?:无(?:对白|台词|旁白|语音|声音|人物|角色)?$|没有|不要|禁止|避免|不得)/u.test(speaker)
       && !emptySpeech.test(content)
       && (names.has(speaker) || (/^[\p{L}\p{N}·]{1,30}$/u.test(speaker) && /^[“"「『]/u.test(content)))) return true
   }
