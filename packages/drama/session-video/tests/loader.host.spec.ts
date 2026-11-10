@@ -1,7 +1,7 @@
 /** Real Loader, local filesystem, attachment storage and FFmpeg over synthetic media only. */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, mkdtempSync, readFileSync, renameSync, rmSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -24,11 +24,14 @@ const roots: string[] = []
 const contexts: Context[] = []
 const readReleases: (() => void)[] = []
 afterEach(async () => {
-  for (const release of readReleases.splice(0)) release()
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-  await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  const errors: unknown[] = []
+  for (const release of readReleases.splice(0)) { try { release() } catch (error) { errors.push(error) } }
+  try { vi.restoreAllMocks() } catch (error) { errors.push(error) }
+  try { vi.unstubAllGlobals() } catch (error) { errors.push(error) }
+  const disposed = await Promise.allSettled(contexts.splice(0).map(async (ctx) => { await ctx.fiber.dispose() }))
+  for (const result of disposed) if (result.status === 'rejected') errors.push(result.reason)
+  for (const root of roots.splice(0)) { try { rmSync(root, { recursive: true, force: true }) } catch (error) { errors.push(error) } }
+  if (errors.length) throw new AggregateError(errors, 'Session video fixture cleanup failed')
 })
 
 async function fixture(overrides: Partial<Config> = {}) {
@@ -76,6 +79,7 @@ async function localPlayback(overrides: Partial<Config> = {}) {
 /** Hold the return of a real read so cancellation and disposal have an observable boundary. */
 function holdPlaybackRead(ctx: Context) {
   const entered = Promise.withResolvers<AbortSignal>(), gate = Promise.withResolvers<undefined>()
+  const settled = Promise.withResolvers<undefined>()
   const release = () => { gate.resolve(undefined) }
   readReleases.push(release)
   const read = ctx.fs.readByteRange.bind(ctx.fs)
@@ -88,8 +92,9 @@ function holdPlaybackRead(ctx: Context) {
       await gate.promise
       return bytes
     } catch (error) { entered.reject(error); throw error }
+    finally { settled.resolve(undefined) }
   })
-  return { entered: entered.promise, release }
+  return { entered: entered.promise, release, settled: settled.promise }
 }
 
 it('detects three shot intervals through the real Loader and preserves original bytes', async () => {
@@ -347,4 +352,125 @@ it('aborts playback and waits for its real pending read before completing plugin
     expect(f.routes.size).toBe(0)
     expect(createHash('sha256').update(readFileSync(f.file)).digest('hex')).toBe(createHash('sha256').update(before).digest('hex'))
   } finally { held.release(); await disposal; await outcome }
+})
+
+it('refuses already aborted GET and HEAD playback before reading source bytes', async () => {
+  const f = await localPlayback(), before = readFileSync(f.file)
+  const read = vi.spyOn(f.ctx.fs, 'readByteRange'), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  const caller = new AbortController(); caller.abort(new Error('Playback request already cancelled'))
+  for (const method of ['GET', 'HEAD']) {
+    const response = await f.route.fetch(new Request(f.url, { method, signal: caller.signal }))
+    expect(response.status).toBe(499)
+    expect(await response.text()).toBe(method === 'HEAD' ? '' : 'Playback request already cancelled')
+  }
+  expect(read).not.toHaveBeenCalled(); expect(spawn).not.toHaveBeenCalled()
+  const next = await f.route.fetch(new Request(f.url))
+  expect(next.status).toBe(200)
+  expect(Buffer.from(await next.arrayBuffer())).toEqual(before)
+})
+
+it('propagates caller abort during playback and releases its slot after the owned read settles', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1 }), before = readFileSync(f.file)
+  const held = holdPlaybackRead(f.ctx), caller = new AbortController(), reason = new Error('Caller stopped playback')
+  const response = await f.route.fetch(new Request(f.url, { signal: caller.signal }))
+  const outcome = response.arrayBuffer().then(bytes => ({ bytes }), (error: unknown) => ({ error }))
+  try {
+    const signal = await held.entered
+    caller.abort(reason)
+    expect(signal.reason).toBe(reason)
+    const read = await outcome
+    if (!('error' in read)) throw Error('Playback completed after caller cancellation')
+    expect(read.error).toBe(reason)
+    expect((await f.route.fetch(new Request(f.url))).status).toBe(429)
+    held.release(); await held.settled
+    const next = await f.route.fetch(new Request(f.url))
+    expect(next.status).toBe(200)
+    expect(Buffer.from(await next.arrayBuffer())).toEqual(before)
+  } finally { caller.abort(reason); held.release(); await held.settled; await outcome }
+})
+
+it('propagates a real missing-file read and recovers through the current source URL', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1 }), before = readFileSync(f.file), retained = f.file + '.retained'
+  let moved = false, observed: unknown
+  const restore = () => { if (moved) { renameSync(retained, f.file); moved = false } }
+  readReleases.push(restore)
+  const read = f.ctx.fs.readByteRange.bind(f.ctx.fs)
+  vi.spyOn(f.ctx.fs, 'readByteRange').mockImplementationOnce(async (...args) => {
+    renameSync(f.file, retained); moved = true
+    try { return await read(...args) } catch (error) { observed = error; throw error }
+  })
+  const response = await f.route.fetch(new Request(f.url))
+  const outcome = response.arrayBuffer().then(bytes => ({ bytes }), (error: unknown) => ({ error }))
+  try {
+    const result = await outcome
+    if (!('error' in result)) throw Error('Playback accepted a missing source')
+    expect(moved).toBe(true); expect(readFileSync(retained)).toEqual(before)
+    expect(observed).toMatchObject({ code: 'FS_NOT_FOUND' }); expect(result.error).toBe(observed)
+    restore()
+    const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]
+    if (!source?.playbackUrl) throw Error('Restored source has no current playback URL')
+    const next = await f.route.fetch(new Request(new URL(source.playbackUrl, f.url)))
+    expect(next.status).toBe(200)
+    expect(Buffer.from(await next.arrayBuffer())).toEqual(before)
+  } finally { restore(); await outcome }
+})
+
+it('refuses an actual zero-byte read after source truncation and restores playback from the current fingerprint', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1 }), before = readFileSync(f.file)
+  let truncated = false, observedLength: number | undefined
+  const restore = () => { if (truncated) { writeFileSync(f.file, before); truncated = false } }
+  readReleases.push(restore)
+  const read = f.ctx.fs.readByteRange.bind(f.ctx.fs)
+  vi.spyOn(f.ctx.fs, 'readByteRange').mockImplementationOnce(async (...args) => {
+    truncateSync(f.file, 0); truncated = true
+    const bytes = await read(...args)
+    observedLength = bytes.length
+    return bytes
+  })
+  const response = await f.route.fetch(new Request(f.url))
+  const outcome = response.arrayBuffer().then(bytes => ({ bytes }), (error: unknown) => ({ error }))
+  try {
+    const result = await outcome
+    if (!('error' in result)) throw Error('Playback accepted an empty source read')
+    expect(truncated).toBe(true); expect(readFileSync(f.file).length).toBe(0); expect(observedLength).toBe(0)
+    expect(String(result.error)).toContain('changed during playback')
+    restore()
+    const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]
+    if (!source?.playbackUrl) throw Error('Restored video has no current playback URL')
+    const next = await f.route.fetch(new Request(new URL(source.playbackUrl, f.url)))
+    expect(next.status).toBe(200)
+    expect(Buffer.from(await next.arrayBuffer())).toEqual(before)
+  } finally { restore(); await outcome }
+})
+
+it('refuses real probed duration and pixel limits before starting cut detection', async () => {
+  for (const limits of [{ maxDurationSeconds: 1 }, { maxSourcePixels: 1 }]) {
+    const f = await localPlayback(limits), before = readFileSync(f.file), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+    if (!f.source.version) throw Error('Expected source version before detection')
+    const result = await f.ctx.sessionVideo.detect(f.session.id, f.source.id, f.source.version, f.signal)
+    expect(result).toMatchObject({ state: 'failed', shots: [], issue: 'Video duration or dimensions exceed the configured detection limit' })
+    expect(spawn).toHaveBeenCalledOnce()
+    expect(spawn.mock.calls[0]?.[0].argv[0]).toMatch(/(?:^|[/\\])ffprobe(?:\.exe)?$/iu)
+    expect(readFileSync(f.file)).toEqual(before)
+  }
+})
+
+it('evicts an old analysis at the configured cache bound and reanalyzes its unchanged real source', async () => {
+  const f = await fixture({ maxCachedAnalyses: 1 }), before = readFileSync(f.file), second = join(f.root, 'second.mp4')
+  copyFileSync(f.file, second)
+  f.user('@three-shots.mp4 @second.mp4')
+  const sources = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources
+  const a = sources[0], b = sources[1]
+  if (!a?.version || !b?.version) throw Error('Expected two versioned real sources')
+  const spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  const initial = await f.ctx.sessionVideo.detect(f.session.id, a.id, a.version, f.signal)
+  expect(initial.state).toBe('ready')
+  expect(initial.shots.map(shot => [shot.startSeconds, shot.endSeconds])).toEqual([[0, 1], [1, 2], [2, 3]])
+  expect(await f.ctx.sessionVideo.detect(f.session.id, a.id, a.version, f.signal)).toEqual(initial)
+  expect(spawn).toHaveBeenCalledTimes(2)
+  expect((await f.ctx.sessionVideo.detect(f.session.id, b.id, b.version, f.signal)).state).toBe('ready')
+  expect(spawn).toHaveBeenCalledTimes(4)
+  expect(await f.ctx.sessionVideo.detect(f.session.id, a.id, a.version, f.signal)).toEqual(initial)
+  expect(spawn).toHaveBeenCalledTimes(6)
+  expect(readFileSync(f.file)).toEqual(before); expect(readFileSync(second)).toEqual(before)
 })
