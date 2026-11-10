@@ -39,17 +39,17 @@ export class SystemDnsSource {
 
   /** Reload the accepted preference after a failed initial read. */
   async load(): Promise<void> {
-    if (!this.live || this.store.getSnapshot().busy) return
+    if (!this.isLive() || this.store.getSnapshot().busy) return
     this.store.set({ ...this.store.getSnapshot(), loading: true, loadFailed: false })
     try {
       const preference = await this.bridge.status()
-      if (this.live) {
+      if (this.isLive()) {
         const state = this.store.getSnapshot()
         this.store.set({ ...state, preference, loading: false, unknown: false,
           notice: state.notice === 'unknown' ? null : state.notice })
       }
     } catch (_error) {
-      if (this.live) this.store.set({ ...this.store.getSnapshot(), loading: false, loadFailed: true })
+      if (this.isLive()) this.store.set({ ...this.store.getSnapshot(), loading: false, loadFailed: true })
     }
   }
 
@@ -59,26 +59,29 @@ export class SystemDnsSource {
    */
   async set(enabled: boolean): Promise<void> {
     const state = this.store.getSnapshot()
-    if (!this.live || state.loading || state.busy || state.preference === undefined) return
+    if (!this.isLive() || state.loading || state.busy || state.preference === undefined) return
     this.store.set({ ...state, busy: true })
     try {
       const result = await this.bridge.set(enabled)
-      if (!this.live) return
+      if (!this.isLive()) return
       if ('unknown' in result) this.notice('unknown')
       else this.notice(result.saveFailed === true ? 'failed' : 'saved', { saved: result.saved, active: result.active })
     } catch (_error) {
-      if (this.live) this.notice('unknown')
+      this.notice('unknown')
     }
   }
 
   private notice(notice: 'saved' | 'failed' | 'unknown', preference?: SystemDnsPreference): void {
+    if (!this.isLive()) return
     const state = this.store.getSnapshot()
     this.store.set({ ...state, preference, busy: false, notice, unknown: notice === 'unknown',
       noticeSequence: state.noticeSequence + 1 })
   }
 
+  private isLive(): boolean { return this.live }
+
   /** Dismiss the latest transient save result. */
-  dismiss(): void { if (this.live) this.store.set({ ...this.store.getSnapshot(), notice: null }) }
+  dismiss(): void { if (this.isLive()) this.store.set({ ...this.store.getSnapshot(), notice: null }) }
 
   /** Ignore pending bridge responses. */
   dispose(): void { this.live = false }
