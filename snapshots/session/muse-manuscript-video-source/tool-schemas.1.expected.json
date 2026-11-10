@@ -1,0 +1,273 @@
+{
+  "initial": [
+    {
+      "name": "structured_output",
+      "description": "Report your final structured result. Call this exactly once, when your answer is complete; the arguments must match this tool's parameter schema exactly.",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "findings",
+          "unknowns",
+          "source_checks"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "consistent",
+              "issues",
+              "unknown"
+            ]
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {}
+            },
+            "description": "Always an empty array; source issues belong in source_checks."
+          },
+          "unknowns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "source_checks": {
+            "type": "array",
+            "description": "Exactly one check per source mapping, every selected frame and every in-range ASR segment exactly once. Context-only segments are not scheduled coverage.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "mapping",
+                "status",
+                "explanation",
+                "frame_checks",
+                "speech_checks"
+              ],
+              "properties": {
+                "mapping": {
+                  "type": "integer",
+                  "enum": [
+                    1
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "consistent",
+                    "issues",
+                    "unknown"
+                  ]
+                },
+                "explanation": {
+                  "type": "string"
+                },
+                "frame_checks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "id",
+                      "disposition",
+                      "explanation",
+                      "draft_evidence"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "description": "Exact frame_id for frame_checks or segment_id for speech_checks in this mapping."
+                      },
+                      "disposition": {
+                        "type": "string",
+                        "enum": [
+                          "matched",
+                          "mismatch",
+                          "omitted",
+                          "authorized_change",
+                          "unknown"
+                        ]
+                      },
+                      "explanation": {
+                        "type": "string"
+                      },
+                      "draft_evidence": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "role",
+                            "path",
+                            "file_sha256",
+                            "text_sha256",
+                            "line",
+                            "quote"
+                          ],
+                          "properties": {
+                            "role": {
+                              "type": "string",
+                              "enum": [
+                                "current"
+                              ]
+                            },
+                            "path": {
+                              "type": "string",
+                              "enum": [
+                                "{{cwd}}/current.md"
+                              ]
+                            },
+                            "file_sha256": {
+                              "type": "string",
+                              "enum": [
+                                "4084008460ad65a952ec555149bcf03ffc6eb41374c50d6a0f387374bf317a53"
+                              ]
+                            },
+                            "text_sha256": {
+                              "type": "string",
+                              "enum": [
+                                "4084008460ad65a952ec555149bcf03ffc6eb41374c50d6a0f387374bf317a53"
+                              ]
+                            },
+                            "line": {
+                              "type": "integer"
+                            },
+                            "quote": {
+                              "type": "string"
+                            },
+                            "column": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      },
+                      "authorization": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "message_id",
+                          "quote"
+                        ],
+                        "properties": {
+                          "message_id": {
+                            "type": "string"
+                          },
+                          "quote": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "speech_checks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "id",
+                      "disposition",
+                      "explanation",
+                      "draft_evidence"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string",
+                        "description": "Exact frame_id for frame_checks or segment_id for speech_checks in this mapping."
+                      },
+                      "disposition": {
+                        "type": "string",
+                        "enum": [
+                          "matched",
+                          "mismatch",
+                          "omitted",
+                          "authorized_change",
+                          "unknown"
+                        ]
+                      },
+                      "explanation": {
+                        "type": "string"
+                      },
+                      "draft_evidence": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "role",
+                            "path",
+                            "file_sha256",
+                            "text_sha256",
+                            "line",
+                            "quote"
+                          ],
+                          "properties": {
+                            "role": {
+                              "type": "string",
+                              "enum": [
+                                "current"
+                              ]
+                            },
+                            "path": {
+                              "type": "string",
+                              "enum": [
+                                "{{cwd}}/current.md"
+                              ]
+                            },
+                            "file_sha256": {
+                              "type": "string",
+                              "enum": [
+                                "4084008460ad65a952ec555149bcf03ffc6eb41374c50d6a0f387374bf317a53"
+                              ]
+                            },
+                            "text_sha256": {
+                              "type": "string",
+                              "enum": [
+                                "4084008460ad65a952ec555149bcf03ffc6eb41374c50d6a0f387374bf317a53"
+                              ]
+                            },
+                            "line": {
+                              "type": "integer"
+                            },
+                            "quote": {
+                              "type": "string"
+                            },
+                            "column": {
+                              "type": "integer"
+                            }
+                          }
+                        }
+                      },
+                      "authorization": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "message_id",
+                          "quote"
+                        ],
+                        "properties": {
+                          "message_id": {
+                            "type": "string"
+                          },
+                          "quote": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "changes": []
+}
