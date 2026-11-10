@@ -1,13 +1,14 @@
 // @vitest-environment jsdom
 /** Provider cache eviction must trigger a new download before exposing cuts. */
 import { cleanup, render, waitFor } from '@testing-library/react'
-import type { ComponentProps } from 'react'
+import { useSyncExternalStore, type ComponentProps } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionVideoAnalysis, SessionVideoSource, SessionVideoSourceId } from '@deepseek-ai/dsh-session-video'
 import { VideoShelf } from '../src/client/VideoShelf.tsx'
-import type { VideoState } from '../src/client/store.ts'
+import { createVideoStore, type VideoState } from '../src/client/store.ts'
 import { en } from '../src/client/locales.ts'
 
 type Props = ComponentProps<typeof VideoShelf>
@@ -58,4 +59,29 @@ it('marks a refresh failure for retry instead of repeatedly downloading', async 
   render(<VideoShelf {...props} />)
   await waitFor(() => { expect(actions.detectionFailed).toHaveBeenCalledWith(id, 'url:v1') })
   expect(props.detectShots).toHaveBeenCalledOnce()
+})
+
+it('re-downloads after an old error and eviction with the real Session store', async () => {
+  const store = createVideoStore().create('session')
+  const inventory = (source: SessionVideoSource) => ({ sessionId: SessionId('session'), sources: [source], complete: true, issues: [] })
+  store.actions.inventory(inventory(remote))
+  store.actions.detectionFailed(id, 'url:v1')
+  store.actions.inventory(inventory(local))
+  store.actions.inventory(inventory(remote))
+  store.actions.observe(id, 1)
+  const listVideos = vi.fn().mockResolvedValueOnce(inventory(remote)).mockResolvedValue(inventory(local))
+  const detectShots = vi.fn().mockResolvedValue(analysis('file:v2'))
+  const useStore: Props['useStore'] = selector => selector(useSyncExternalStore(store.store.subscribe, store.store.getSnapshot))
+  const props = { activeView: 'chat', sessionId: 'session', useStore, actions: store.actions,
+    useSession: (selector: (value: { running: boolean }) => unknown) => selector({ running: false }),
+    useChat: (selector: (value: { order: string[] }) => unknown) => selector({ order: [] }),
+    useInput: (selector: (value: { draft: string; draftRev: number }) => unknown) => selector({ draft: '', draftRev: 1 }),
+    inputActions: {}, listVideos, detectShots, pixelsPerSecond: 48, t: makeTranslate(en) } as Props
+  render(<VideoShelf {...props} />)
+  await waitFor(() => {
+    expect(store.store.getSnapshot().sources[0]?.version).toBe('file:v2')
+    expect(store.store.getSnapshot().analyses[id]?.sourceVersion).toBe('file:v2')
+  })
+  expect(detectShots).toHaveBeenCalledOnce()
+  expect(store.store.getSnapshot().detectErrors[id]).toBeUndefined()
 })

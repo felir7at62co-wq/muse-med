@@ -39,10 +39,21 @@ export function createVideoStore(): EngineStoreHandle<VideoState, VideoActions> 
       inventory: (draft, value: SessionVideoInventory) => {
         draft.sources = value.sources
         draft.issue = value.issues.join('；') || null
+        draft.detectErrors = Object.fromEntries(Object.entries(draft.detectErrors).filter(([id, version]) =>
+          value.sources.some(source => source.id === id && source.version === version)))
+        draft.analyses = Object.fromEntries(Object.entries(draft.analyses).filter(([id, analysis]) =>
+          value.sources.some(source => source.id === id && source.version === analysis.sourceVersion)))
         if (!value.sources.some(source => source.id === draft.selected)) draft.selected = value.sources[0]?.id ?? null
       },
-      analysis: (draft, value: SessionVideoAnalysis) => { draft.analyses = { ...draft.analyses, [value.sourceId]: value } },
-      detectionFailed: (draft, id: string, version: string) => { draft.detectErrors = { ...draft.detectErrors, [id]: version } },
+      analysis: (draft, value: SessionVideoAnalysis) => {
+        if (!draft.sources.some(source => source.id === value.sourceId && source.version === value.sourceVersion)) return
+        draft.analyses = { ...draft.analyses, [value.sourceId]: value }
+      },
+      detectionFailed: (draft, id: string, version: string) => {
+        if (draft.sources.some(source => source.id === id && source.version === version)) {
+          draft.detectErrors = { ...draft.detectErrors, [id]: version }
+        }
+      },
       retryFailed: (draft) => {
         draft.analyses = Object.fromEntries(Object.entries(draft.analyses).filter(([, analysis]) => analysis.state === 'ready'))
         draft.detectErrors = {}
