@@ -12,7 +12,7 @@
 - id: agent-preset-registry
   config:
     default: short-drama
-    selectablePresets: [short-drama]
+    selectablePresets: [short-drama, main-session]
 
 - id: sandbox-policy
   config:
@@ -59,9 +59,9 @@
 - id: ui-settings-agent-notes
   disabled: true
 
-# Product navigation offers tasks, skills, MCP and schedules without mode or plugin management.
+# The preset chooser offers Main Session alongside the normal short-drama preset.
 - id: ui-agent-preset
-  disabled: true
+  disabled: false
 
 - id: entry-customization
   disabled: true
@@ -230,7 +230,7 @@
     - id: tool-discovery
       name: '@deepseek-ai/dsh-tool-discovery'
       config:
-        alwaysLoad: [read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, show_view, visualize, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect]
+        alwaysLoad: [coordinator_sessions, coordinator_read, coordinator_dispatch, coordinator_tasks, coordinator_stop, coordinator_report, read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, show_view, visualize, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect]
         excludeFromSearch: [ask_user_question, show_view, visualize]
         maxResults: 8
         maxDescriptionChars: 320

@@ -199,6 +199,7 @@ flowchart TD
     pkg_client_ui_schedule["client-ui-schedule"]
     pkg_client_ui_secret_mask["client-ui-secret-mask"]
     pkg_client_ui_session["client-ui-session"]
+    pkg_client_ui_session_coordinator["client-ui-session-coordinator"]
     pkg_client_ui_session_video["client-ui-session-video"]
     pkg_client_ui_settings["client-ui-settings"]
     pkg_client_ui_settings_account["client-ui-settings-account"]
@@ -438,6 +439,7 @@ flowchart TD
   subgraph group_session["packages/session"]
     pkg_message_quotes["message-quotes"]
     pkg_session_checkpoint_policy["session-checkpoint-policy"]
+    pkg_session_coordinator["session-coordinator"]
     pkg_session_format["session-format"]
     pkg_session_format_catalog["session-format-catalog"]
     pkg_session_format_v0_to_v1["session-format-v0-to-v1"]
@@ -1602,6 +1604,19 @@ flowchart TD
   pkg_sdk_client --> pkg_llm
   pkg_sdk_client --> pkg_sdk_protocol
   pkg_sdk_client --> pkg_session
+  pkg_session_coordinator --> pkg_agent
+  pkg_session_coordinator --> pkg_api_session_controller
+  pkg_session_coordinator --> pkg_api_workspace_controller
+  pkg_session_coordinator --> pkg_jobs
+  pkg_session_coordinator --> pkg_llm
+  pkg_session_coordinator --> pkg_scope
+  pkg_session_coordinator --> pkg_session
+  pkg_session_coordinator --> pkg_session_query
+  pkg_session_coordinator --> pkg_storage_domain
+  pkg_session_coordinator --> pkg_system_prompt
+  pkg_session_coordinator --> pkg_tools
+  pkg_session_coordinator --> pkg_typert_protocol
+  pkg_session_coordinator --> pkg_workspace
   pkg_client_test_runtime --> pkg_api_gateway
   pkg_client_test_runtime --> pkg_api_session_controller
   pkg_client_test_runtime --> pkg_api_workspace_controller
@@ -1730,6 +1745,7 @@ flowchart TD
 | [`client-ui-schedule`](../packages/client/ui-schedule) | `client` | — |
 | [`client-ui-secret-mask`](../packages/client/ui-secret-mask) | `client` | — |
 | [`client-ui-session`](../packages/client/ui-session) | `client` | — |
+| [`client-ui-session-coordinator`](../packages/client/ui-session-coordinator) | `client` | — |
 | [`client-ui-session-video`](../packages/client/ui-session-video) | `client` | — |
 | [`client-ui-settings`](../packages/client/ui-settings) | `client` | — |
 | [`client-ui-settings-account`](../packages/client/ui-settings-account) | `client` | — |
@@ -2054,6 +2070,7 @@ flowchart TD
 | [`experimental-tool-agent-team`](../packages/experimental/tool-agent-team) | `experimental` | [`agent`](../packages/core/agent), [`experimental-agent-team`](../packages/experimental/agent-team), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`schedule`](../packages/schedule/schedule) | `schedule` | [`agent`](../packages/core/agent), [`api-session-controller`](../packages/api/session-controller), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-persistence`](../packages/session/session-persistence), [`session-projection`](../packages/session/session-projection), [`storage-domain`](../packages/storage/storage-domain), [`subagent`](../packages/subagent/subagent), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol), [`util-time`](../packages/util/time), [`workspace`](../packages/workspace/workspace) |
 | [`sdk-client`](../packages/sdk/client) | `sdk` | [`llm`](../packages/llm/llm), [`sdk-protocol`](../packages/sdk/protocol), [`session`](../packages/core/session) |
+| [`session-coordinator`](../packages/session/session-coordinator) | `session` | [`agent`](../packages/core/agent), [`api-session-controller`](../packages/api/session-controller), [`api-workspace-controller`](../packages/api/workspace-controller), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-query`](../packages/session-query/session-query), [`storage-domain`](../packages/storage/storage-domain), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol), [`workspace`](../packages/workspace/workspace) |
 | [`client-test-runtime`](../packages/test-support/client-runtime) | `test-support` | [`api-gateway`](../packages/api/gateway), [`api-session-controller`](../packages/api/session-controller), [`api-workspace-controller`](../packages/api/workspace-controller), [`attachment`](../packages/attachment/attachment), [`client-connection`](../packages/client/connection), [`client-hmr`](../packages/client/hmr), [`client-modules`](../packages/client/modules), [`client-store`](../packages/client/store), [`client-ui-chat`](../packages/client/ui-chat), [`client-ui-context-menu`](../packages/client/ui-context-menu), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-renderer`](../packages/client/ui-renderer), [`client-ui-session`](../packages/client/ui-session), [`client-ui-settings`](../packages/client/ui-settings), [`client-ui-slots`](../packages/client/ui-slots), [`client-web`](../packages/client/web), [`remote-mock`](../packages/test-support/remote-mock), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`typert-protocol`](../packages/typert/protocol) |
 | [`subagent-dsh-sdk`](../packages/subagent/subagent-dsh-sdk) | `subagent` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`sdk-client`](../packages/sdk/client), [`session`](../packages/core/session), [`subagent`](../packages/subagent/subagent), [`subprocess`](../packages/subprocess/subprocess) |
 | [`tool-schedule`](../packages/schedule/tool-schedule) | `schedule` | [`llm`](../packages/llm/llm), [`schedule`](../packages/schedule/schedule), [`subagent`](../packages/subagent/subagent), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |

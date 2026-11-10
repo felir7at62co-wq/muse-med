@@ -8,6 +8,7 @@
     "rewriteRelativeImportExtensions": false
   },
   "include": [
+    "apps/web/tests/muse-session-coordinator.e2e.ts",
     "apps/web/tests/muse-skill-market.e2e.ts",
     "apps/web/tests/jubian-episode-delivery.e2e.ts",
     "apps/web/tests/jubian-video-recovery.e2e.ts",
@@ -1108,6 +1109,7 @@
     {
       "path": "./packages/experimental/agent-team"
     },
+    { "path": "./packages/session/session-coordinator" },
     {
       "path": "./packages/experimental/agent-team-profile"
     },

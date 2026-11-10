@@ -357,6 +357,8 @@ export function SidebarRoot({
         {(!darwinDesktop || desktopRail) && toggle}
       </div>
 
+      {canStartSession && renderSlot('sidebar.session.entry', { wide })}
+
       {/* The label fades before the hover/focus shortcut, including on translucent backgrounds. */}
       {canStartSession && (
         <Tooltip label={t('session.new.label')} shortcutKeys={newShortcut?.keys} delayMs={500} side={captionTooltipSide} disabled={wide}>

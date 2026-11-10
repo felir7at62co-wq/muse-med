@@ -7,7 +7,7 @@
 - id: agent-preset-registry
   config:
     default: short-drama
-    selectablePresets: [short-drama]
+    selectablePresets: [short-drama, main-session]
 
 - id: ui-conversation
   config:
@@ -68,3 +68,17 @@
       name: '@deepseek-ai/dsh-client-ui-session-video'
       config:
         pixelsPerSecond: 48
+
+# Routing role and task directory are independently removable plugin contributions.
+- insert:
+    - id: muse-session-coordinator
+      name: '@deepseek-ai/dsh-session-coordinator'
+      config:
+        mainPreset: main-session
+        workerPreset: short-drama
+        searchLimit: 30
+        readChars: 24000
+    - id: muse-coordination-worker
+      name: '@deepseek-ai/dsh-session-coordinator/worker'
+    - id: ui-muse-session-coordinator
+      name: '@deepseek-ai/dsh-client-ui-session-coordinator'

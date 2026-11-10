@@ -16,6 +16,8 @@ import type { ProductEventMap } from '@deepseek-ai/dsh-client-product-analytics/
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
+    /** Optional navigation entries between the brand row and New Session. */
+    'sidebar.session.entry': { kind: 'list'; scope: 'root'; owner: SidebarSessionEntryOwnerProps }
     /** Non-interactive notification inside the collapsed sidebar expand button. */
     'sidebar.toggle.badge': { kind: 'single'; scope: 'root'; owner: Record<never, never> }
     /**
@@ -55,6 +57,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      */
     'sidebar.footer.action': { kind: 'list'; scope: 'root'; owner: SidebarFooterActionOwnerProps }
   }
+}
+
+/** Column presentation supplied to an optional entry above New Session. */
+export interface SidebarSessionEntryOwnerProps {
+  /** Whether the sidebar renders a full row instead of its compact rail. */
+  readonly wide: boolean
 }
 
 /** Geometry supplied to the sidebar brand-mark occupant. */
@@ -189,6 +197,7 @@ export type SidebarRootComponentProps =
     | 'sidebar.brand.mark'
     | 'sidebar.brand.name'
     | 'sidebar.toggle.badge'
+    | 'sidebar.session.entry'
     | 'sidebar.panellist'
     | 'sidebar.panellist.actions'
     | 'sidebar.workspaces'

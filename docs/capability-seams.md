@@ -7,6 +7,9 @@ A service can be a core spine service, a swappable capability seam, a bundle/com
 
 ```mermaid
 flowchart LR
+  pkg_session_coordinator["session-coordinator"]
+  svc_sessionCoordinator["ctx.sessionCoordinator<br/>Ordinary-session task coordination"]
+  pkg_client_ui_session_coordinator["client-ui-session-coordinator"]
   pkg_tool_discovery["tool-discovery"]
   svc_toolDiscovery["ctx.toolDiscovery<br/>Per-agent tool discovery and residency"]
   pkg_character_library["character-library"]
@@ -469,6 +472,7 @@ flowchart LR
   pkg_sandbox_windows_acl --> svc_skills
   pkg_schedule --> svc_schedule
   pkg_session --> svc_sessions
+  pkg_session_coordinator --> svc_sessionCoordinator
   pkg_session_log_deepseek --> svc_deepseekLlmApiExtensions
   pkg_session_log_deepseek --> svc_sessionLogDeepSeek
   pkg_session_persistence --> svc_sessionPersistence
@@ -632,6 +636,8 @@ flowchart LR
   svc_sandboxPolicy --> pkg_bash_sandbox
   svc_sandboxPolicy --> pkg_fs_sandbox
   svc_sandboxPolicy --> pkg_terminal_bash
+  svc_sessionCoordinator --> pkg_client_ui_session_coordinator
+  svc_sessionCoordinator --> pkg_session_coordinator
   svc_sessionPersistence --> pkg_agent_loop
   svc_sessionPersistence --> pkg_hooks_claude_code
   svc_sessionPersistence --> pkg_hooks_codex
@@ -726,6 +732,7 @@ flowchart LR
 
 | ctx key | Role | Owner | Implementations | Direct consumers | Companion plugins | Note |
 | --- | --- | --- | --- | --- | --- | --- |
+| `ctx.sessionCoordinator` | `core` | [`session-coordinator`](../packages/session/session-coordinator) | - | [`session-coordinator`](../packages/session/session-coordinator), [`client-ui-session-coordinator`](../packages/client/ui-session-coordinator) | - | Routing-only Main Sessions assign independent durable tasks to ordinary workers; native receipts and explicit reports distinguish delivery, completion and confirmed stopping. |
 | `ctx.toolDiscovery` | `core` | [`tool-discovery`](../packages/core/tool-discovery) | - | [`tool-discovery`](../packages/core/tool-discovery) | - | Selects authorized tool definitions and records session loading; optional Bot adapters own durable preferred names. |
 | `ctx.characterLibrary` | `core` | [`character-library`](../packages/drama/character-library) | - | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | Validates historical metadata and bounded images for character-reference search; recommendations grant no publication, binding or generation permission. |
 | `ctx.characterLibraryObjectStore` | `seam` | [`character-library`](../packages/drama/character-library) | [`character-library-tos`](../packages/drama/character-library-tos) | [`character-library`](../packages/drama/character-library) | - | Lists objects, reads metadata and retrieves bounded image bytes from fixed historical prefixes through Host-owned credentials. |

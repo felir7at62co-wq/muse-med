@@ -9,6 +9,9 @@
 
 ```mermaid
 flowchart LR
+  pkg_session_coordinator["session-coordinator"]
+  svc_sessionCoordinator["ctx.sessionCoordinator<br/>Ordinary-session task coordination"]
+  pkg_client_ui_session_coordinator["client-ui-session-coordinator"]
   pkg_tool_discovery["tool-discovery"]
   svc_toolDiscovery["ctx.toolDiscovery<br/>Per-agent tool discovery and residency"]
   pkg_character_library["character-library"]
@@ -471,6 +474,7 @@ flowchart LR
   pkg_sandbox_windows_acl --> svc_skills
   pkg_schedule --> svc_schedule
   pkg_session --> svc_sessions
+  pkg_session_coordinator --> svc_sessionCoordinator
   pkg_session_log_deepseek --> svc_deepseekLlmApiExtensions
   pkg_session_log_deepseek --> svc_sessionLogDeepSeek
   pkg_session_persistence --> svc_sessionPersistence
@@ -634,6 +638,8 @@ flowchart LR
   svc_sandboxPolicy --> pkg_bash_sandbox
   svc_sandboxPolicy --> pkg_fs_sandbox
   svc_sandboxPolicy --> pkg_terminal_bash
+  svc_sessionCoordinator --> pkg_client_ui_session_coordinator
+  svc_sessionCoordinator --> pkg_session_coordinator
   svc_sessionPersistence --> pkg_agent_loop
   svc_sessionPersistence --> pkg_hooks_claude_code
   svc_sessionPersistence --> pkg_hooks_codex
@@ -728,6 +734,7 @@ flowchart LR
 
 | ctx 键 | 角色 | 所属包 | 实现 | 直接消费方 | 配套插件 | 说明 |
 | --- | --- | --- | --- | --- | --- | --- |
+| `ctx.sessionCoordinator` | `core` | [`session-coordinator`](../packages/session/session-coordinator) | - | [`session-coordinator`](../packages/session/session-coordinator), [`client-ui-session-coordinator`](../packages/client/ui-session-coordinator) | - | 主会话只做调度，将独立任务交给普通执行会话；通过原生回执和明确汇报区分送达、完成与确认停止。 |
 | `ctx.toolDiscovery` | `core` | [`tool-discovery`](../packages/core/tool-discovery) | - | [`tool-discovery`](../packages/core/tool-discovery) | - | 选择已授权工具定义并记录会话加载，Bot 适配器可保存常驻名称。 |
 | `ctx.characterLibrary` | `core` | [`character-library`](../packages/drama/character-library) | - | [`tool-character-reference`](../packages/drama/tool-character-reference) | - | 校验历史 metadata 与有界图片，供人物参考检索使用；推荐结果不授予发布、绑定或生成权限。 |
 | `ctx.characterLibraryObjectStore` | `seam` | [`character-library`](../packages/drama/character-library) | [`character-library-tos`](../packages/drama/character-library-tos) | [`character-library`](../packages/drama/character-library) | - | 通过 Host 管理的凭据，列出固定历史前缀下的对象、读取 metadata，并获取有界图片字节。 |

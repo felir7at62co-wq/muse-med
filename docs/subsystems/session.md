@@ -4,6 +4,8 @@ English | [中文](session.zh.md)
 
 The in-memory, event-sourced model of [dsh-session](../../packages/core/session). A `Session` is an **append-only log** of typed `SessionEvent`s — the single source of truth for an agent's whole interaction history. The LLM message history is *derived* from the log, never stored separately; replay is re-derivation from the same events. How the log is made **durable** (the persistence seam, backends, crash recovery) is the sibling concern on [persistence.md](persistence.md).
 
+The optional [Session coordinator](../../packages/session/session-coordinator/README.md) binds independent tasks to ordinary execution Sessions. Its owner-only directory, routing role and durable delivery receipts do not change the Session loop or ordinary conversation history.
+
 Source: [`packages/core/session/src/types.ts`](../../packages/core/session/src/types.ts)
 
 ## `SessionEventMap` — the event vocabulary
@@ -1069,6 +1071,99 @@ workspaceDesktop(): { name: string; available: boolean; fileManager: 'finder' | 
 Types: [ModelSelection](core.md) · [SessionId](core.md) · [SessionSearchRequest](session-query.md)
 
 Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/session-controller/src/index.ts)
+
+<a id="ctxsessioncoordinator--sessioncoordinator"></a>
+
+### `ctx.sessionCoordinator` — `SessionCoordinator`
+
+Task router whose durable writes precede Session creation and message delivery.
+
+```ts cordis-catalog
+/**
+ * Open the profile's durable Main Session from its dedicated navigation entry.
+ * @returns the retained routing Session, initially created in the native default Workspace.
+ */
+@Remote openMain(): Promise<SessionId>
+
+/**
+ * Assert the exact live caller holds the configured routing role.
+ * @param agent - Actual tool subject, never an argument-supplied identity.
+ */
+async requireMain(agent: Agent): Promise<void>
+
+/**
+ * Search the local profile owner's ordinary Sessions without activating them.
+ * @param main - Exact routing Agent.
+ * @param query - Literal title or content text; empty lists recent Sessions.
+ * @returns bounded candidates with titles, excerpts, workspace, busy and archive facts.
+ */
+async search(main: Agent, query: string): Promise<string>
+
+/**
+ * Read exact recent input and response excerpts before choosing full history pages.
+ * @param main - Actual routing Agent.
+ * @param sessionId - Local profile-owner Session.
+ * @returns latest input and response with event positions and explicit truncation flags.
+ */
+async summary(main: Agent, sessionId: SessionId): Promise<string>
+
+/**
+ * Read a bounded, cursor-addressed history page for routing and source retrieval.
+ * @param main - Exact routing Agent.
+ * @param sessionId - Ordinary Session in the same local owner profile.
+ * @param fromSeq - Inclusive raw-event position, zero for the first page.
+ * @returns JSON events and an explicit next position; no history is activated.
+ */
+async read(main: Agent, sessionId: SessionId, fromSeq: number): Promise<string>
+
+/**
+ * Record and deliver one new goal or an explicit revision, reusing an identical key.
+ * @param main - Exact routing Agent.
+ * @param request - Agent-selected existing or fresh ordinary worker and original requirements.
+ * @returns authoritative task; acceptance is not execution completion.
+ */
+async dispatch(main: Agent, request: DispatchRequest): Promise<CoordinationTask>
+
+/**
+ * List the local owner's task records without activating their Agents. This Remote surface requires global owner access.
+ * @param sessionId - Main Session whose assignments to read.
+ * @returns current and previous revisions, including exact worker and artifact references.
+ */
+@Remote list(sessionId: SessionId): CoordinationTask[]
+
+/**
+ * Observe complete owner-only task snapshots; no model polling or wake loop.
+ * @param sessionId - Main Session selecting the task directory.
+ * @param signal - Client cancellation; plugin unload also closes the stream.
+ * @returns initial and changed task sets.
+ */
+@Remote({ mode: 'stream' }) async *watch(sessionId: SessionId, signal: AbortSignal): AsyncIterable<CoordinationTask[]>
+
+/**
+ * Request one task's cancellation, retaining stopping until its Agent and jobs settle.
+ * This owner-only Remote operation never cancels an unrelated worker assignment.
+ * @param sessionId - Owning Main Session.
+ * @param taskId - Exact owned goal.
+ * @param revision - Assignment revision shown to the user.
+ * @returns durable stopping or stopped receipt.
+ */
+@Remote stop(sessionId: SessionId, taskId: CoordinationTaskId, revision: number): Promise<CoordinationTask>
+
+/**
+ * Accept a report only from the exact worker that consumed this revision's input.
+ * @param worker - Actual live reporting tool subject.
+ * @param taskId - Goal named in its assignment.
+ * @param revision - Consumed revision.
+ * @param outcome - Explicit business result, not inferred from idle.
+ * @param summary - Worker account supported by its native tool log.
+ * @returns task in finishing state; completion is published after quiescence.
+ */
+report(worker: Agent, taskId: CoordinationTaskId, revision: number, outcome: WorkerReport['outcome'], summary: string): Promise<CoordinationTask>
+```
+
+Types: [Agent](core.md) · [SessionId](core.md)
+
+Source: [`packages/session/session-coordinator/src/index.ts`](../../packages/session/session-coordinator/src/index.ts)
 
 <a id="ctxsessionlogdeepseek--sessionlogdeepseekservice"></a>
 

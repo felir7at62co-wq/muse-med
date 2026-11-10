@@ -108,6 +108,8 @@ Host 从内置桥接包的 remote 导出解析 `muse-desktop-bridge`，并将原
 
 Desktop Host 挂载一个共享的[工具发现服务](../../packages/core/tool-discovery/README.zh.md)。新会话使用 `short-drama`，保留原生提问、文件交付、后台 Jobs、子代理和网页工具。已有 `bot-coordinator` 会话通过保留的通用组合恢复；该预设不出现在新建会话选项中，也不恢复 Bot 团队。其他已注册工具仍可通过能力分组搜索。加载与固定工具保持会话作用域。工具选择改变后续声明，历史定义和结果仍取决于模型适配器的历史与缓存处理。
 
+点击“新会话”上方的 Muse 小蜘蛛入口可打开 默认工作间中固定的主会话，也可在空白会话的预设菜单选择“主会话”。它自主搜索已有会话、阅读历史并决定复用或新建执行会话；具体工作由普通执行会话完成。主会话的任务卡展示执行状态、文件回执与执行会话入口，并支持停止指定任务；完成回执仍等待用户验收。默认新会话继续使用短剧预设。调度机制见 [Session 协调插件](../../packages/session/session-coordinator/README.zh.md)。
+
 产品目录覆盖项目设定、画面总览、原生剪映草稿、草稿根目录、稿件对比、Office 交付和已连接的知识来源。中文别名覆盖常见制作需求，无需常驻所有工具 schema。已授权但未配置分类的延迟工具进入运行时的未分类组。离线测试对照已发布预设声明与实际注册 schema；已连接的 MCP 工具、用户覆盖配置和动态注册工具仍以实际运行时为准。
 
 专业项目、稿件、制作、交付、模型目录和资产工具在当前预设已注册时保持可发现；`video_inspect` 保持常驻。原有权限与操作行为不变，展示不会把建议性检查改为强制流程，也不会授权生成。
@@ -180,7 +182,7 @@ Muse 忙碌时，Enter 和发送按钮默认插话，Cmd/Ctrl+Enter 将消息排
 
 ## 压缩默认值
 
-Host 默认值和 `standard`、`ptc`、`cordis`、`short-drama`、`creation`、`bot-coordinator` 预设对所有模型使用统一自适应压缩策略：475,000-token 工作预算、`0.45` 触发比例、16,384-token 余量与摘要上限、65,536-token 近期尾部。窗口较小时自动下调余量、准入上限、摘要输出和保留尾部，以适应模型容量。模型物理窗口、正常对话输出上限和路由保持不变；个人策略可以覆盖这些设置。`minimal` 不挂载自动压缩。
+Host 默认值和 `standard`、`ptc`、`cordis`、`short-drama`、`main-session`、`creation`、`bot-coordinator` 预设对所有模型使用统一自适应压缩策略：475,000-token 工作预算、`0.45` 触发比例、16,384-token 余量与摘要上限、65,536-token 近期尾部。窗口较小时自动下调余量、准入上限、摘要输出和保留尾部，以适应模型容量。模型物理窗口、正常对话输出上限和路由保持不变；个人策略可以覆盖这些设置。`minimal` 不挂载自动压缩。
 
 每个创作预设拥有隔离的压缩后端，因此策略同时位于各预设的 `agent.cordis.yml` 和 Host 默认覆盖文件。个人预设可按[压缩配置](../../packages/compaction/compaction-basic/README.zh.md#tuning-when-condensation-starts)设置自己的 `modelPolicies`。后端将固定请求成本计入预算，并在相关输入改变前跳过未改变的失败选区或单独检查点的重复摘要。最终工作预算恢复要求持久化 flush 成功；profile 兼容与回退参见[迁移指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-working-context-budget/guide.zh.md)。
 

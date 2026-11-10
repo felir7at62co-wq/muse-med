@@ -1,0 +1,25 @@
+- id: agent-preset-registry
+  config:
+    default: standard
+    selectablePresets: [main-session, standard]
+- insert:
+    - id: muse-session-coordinator
+      name: '@deepseek-ai/dsh-session-coordinator'
+      config:
+        mainPreset: main-session
+        workerPreset: standard
+        searchLimit: 30
+        readChars: 24000
+    - id: muse-coordination-worker
+      name: '@deepseek-ai/dsh-session-coordinator/worker'
+    - id: ui-muse-session-coordinator
+      name: '@deepseek-ai/dsh-client-ui-session-coordinator'
+    - id: preset-main-session
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: main-session
+        name: Main Session
+        description: Route work to ordinary execution sessions.
+        plugins:
+          - id: main-session-role
+            name: '@deepseek-ai/dsh-session-coordinator/main'

@@ -24,6 +24,13 @@ session 组让对话持久保存，恢复已发布的日志格式，并使已提
 
 本组分为四个家族：持久存储（持久化 seam、后端、检查点策略）、投影、标题与遥测。每个包 README 负责各自的约定与配置。
 
+<a id="coordination"></a>
+### 会话协调
+
+| 包 | 职责 | ctx 键 |
+|---|---|---|
+| [`session-coordinator/`](session-coordinator/README.zh.md) | 只负责调度的主会话、普通执行会话的持久任务及所有者任务控制 | `ctx.sessionCoordinator` |
+
 ### 持久化
 
 | 包 | 职责 | ctx key |

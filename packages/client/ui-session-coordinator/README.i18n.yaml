@@ -1,0 +1,40 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/client/ui-session-coordinator/README.md
+/:
+  en: 34131e5070515f5d
+  zh: 34131e5070515f5d
+/deepseek-ai-dsh-client-ui-session-coordinator:
+  en: ce17b8a3f41a5f11
+  zh: c3f5d2b81f75f05a
+/deepseek-ai-dsh-client-ui-session-coordinator/summary:
+  en: 80cc5befb1154a57
+  zh: de6af237885e0c7d
+/deepseek-ai-dsh-client-ui-session-coordinator/table-of-contents:
+  en: 915fd82850e37f7d
+  zh: 222a0e8591d31fe3
+/deepseek-ai-dsh-client-ui-session-coordinator/use-this-package:
+  en: ccca7ec5684df303
+  zh: fe1ef08f07bf47f1
+/deepseek-ai-dsh-client-ui-session-coordinator/model-experience:
+  en: 215e7ba838619b7b
+  zh: a311da3843709f90
+/deepseek-ai-dsh-client-ui-session-coordinator/model-experience/visible-tasks:
+  en: 12002e6d336e7a19
+  zh: e0c1a43c3f6cb922
+/deepseek-ai-dsh-client-ui-session-coordinator/model-experience/visible-tasks/what-the-model-sees:
+  en: cdd496fdcd2a3f26
+  zh: e64b2dae68cf8ded
+/deepseek-ai-dsh-client-ui-session-coordinator/model-experience/visible-tasks/token-effect:
+  en: bdc3bae6fa1d3924
+  zh: 7081adae6f10db1e
+/deepseek-ai-dsh-client-ui-session-coordinator/model-experience/visible-tasks/kv-cache-effect:
+  en: b353060fd2505fdd
+  zh: d73ed603923457b8
+/deepseek-ai-dsh-client-ui-session-coordinator/known-limitations-and-deferred-work:
+  en: 0881f38ce5b634e7
+  zh: 12256cd0d724daea
+/deepseek-ai-dsh-client-ui-session-coordinator/known-limitations-and-deferred-work/dev-note:
+  en: 92920a99bda9de52
+  zh: 482e9d1e570e124a

@@ -3532,6 +3532,29 @@ export interface JsonRpcConfig {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-sdk-jsonrpc-server -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-session-coordinator -->
+<a id="deepseek-aidsh-session-coordinator"></a>
+
+## `@deepseek-ai/dsh-session-coordinator`
+
+- `inject`: `agents` · `sessions` · `sessionQuery` · `sessionController` · `workspaceController` · `storageDomain` · `workspaceRegistry` · `jobs` · `typert`
+- `source`: [`packages/session/session-coordinator/src/index.ts:33`](../packages/session/session-coordinator/src/index.ts)
+
+```ts config-catalog
+/** Deployment choices for the optional coordination plugin. */
+export interface Config {
+  /** Routing-only preset id. Defaults to `main-session`. */
+  readonly mainPreset?: string
+  /** Preset used only for newly created workers. Defaults to `short-drama`. */
+  readonly workerPreset?: string
+  /** Maximum returned Session search rows. Defaults to 30. */
+  readonly searchLimit?: number
+  /** Maximum characters returned by one history read. Defaults to 24000. */
+  readonly readChars?: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-coordinator -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-session-log-deepseek -->
 <a id="deepseek-aidsh-session-log-deepseek"></a>
 
@@ -6073,6 +6096,7 @@ export interface Config {
 | `@deepseek-ai/dsh-client-ui-schedule` | — | [`packages/client/ui-schedule/src/index.ts`](../packages/client/ui-schedule/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-secret-mask` | — | [`packages/client/ui-secret-mask/src/index.ts`](../packages/client/ui-secret-mask/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-session` | — | [`packages/client/ui-session/src/index.ts`](../packages/client/ui-session/src/index.ts) |
+| `@deepseek-ai/dsh-client-ui-session-coordinator` | — | [`packages/client/ui-session-coordinator/src/index.ts`](../packages/client/ui-session-coordinator/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings` | — | [`packages/client/ui-settings/src/index.ts`](../packages/client/ui-settings/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-agent-loop` | — | [`packages/client/ui-settings-agent-loop/src/index.ts`](../packages/client/ui-settings-agent-loop/src/index.ts) |
 | `@deepseek-ai/dsh-client-ui-settings-agent-notes` | — | [`packages/client/ui-settings-agent-notes/src/index.ts`](../packages/client/ui-settings-agent-notes/src/index.ts) |

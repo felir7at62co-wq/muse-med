@@ -3401,6 +3401,72 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'sessionCoordinator',
+    summary: 'Task router whose durable writes precede Session creation and message delivery.',
+    description: 'Task router whose durable writes precede Session creation and message delivery.',
+    methods: [
+      {
+        signature: '@Remote openMain(): Promise<SessionId>',
+        description: 'Open the profile\'s durable Main Session from its dedicated navigation entry.',
+        parameters: [],
+        returns: 'the retained routing Session, initially created in the native default Workspace.',
+      },
+      {
+        signature: 'async requireMain(agent: Agent): Promise<void>',
+        description: 'Assert the exact live caller holds the configured routing role.',
+        parameters: [{ name: 'agent', description: 'Actual tool subject, never an argument-supplied identity.' }],
+      },
+      {
+        signature: 'async search(main: Agent, query: string): Promise<string>',
+        description: 'Search the local profile owner\'s ordinary Sessions without activating them.',
+        parameters: [{ name: 'main', description: 'Exact routing Agent.' }, { name: 'query', description: 'Literal title or content text; empty lists recent Sessions.' }],
+        returns: 'bounded candidates with titles, excerpts, workspace, busy and archive facts.',
+      },
+      {
+        signature: 'async summary(main: Agent, sessionId: SessionId): Promise<string>',
+        description: 'Read exact recent input and response excerpts before choosing full history pages.',
+        parameters: [{ name: 'main', description: 'Actual routing Agent.' }, { name: 'sessionId', description: 'Local profile-owner Session.' }],
+        returns: 'latest input and response with event positions and explicit truncation flags.',
+      },
+      {
+        signature: 'async read(main: Agent, sessionId: SessionId, fromSeq: number): Promise<string>',
+        description: 'Read a bounded, cursor-addressed history page for routing and source retrieval.',
+        parameters: [{ name: 'main', description: 'Exact routing Agent.' }, { name: 'sessionId', description: 'Ordinary Session in the same local owner profile.' }, { name: 'fromSeq', description: 'Inclusive raw-event position, zero for the first page.' }],
+        returns: 'JSON events and an explicit next position; no history is activated.',
+      },
+      {
+        signature: 'async dispatch(main: Agent, request: DispatchRequest): Promise<CoordinationTask>',
+        description: 'Record and deliver one new goal or an explicit revision, reusing an identical key.',
+        parameters: [{ name: 'main', description: 'Exact routing Agent.' }, { name: 'request', description: 'Agent-selected existing or fresh ordinary worker and original requirements.' }],
+        returns: 'authoritative task; acceptance is not execution completion.',
+      },
+      {
+        signature: '@Remote list(sessionId: SessionId): CoordinationTask[]',
+        description: 'List the local owner\'s task records without activating their Agents. This Remote surface requires global owner access.',
+        parameters: [{ name: 'sessionId', description: 'Main Session whose assignments to read.' }],
+        returns: 'current and previous revisions, including exact worker and artifact references.',
+      },
+      {
+        signature: '@Remote({ mode: \'stream\' }) async *watch(sessionId: SessionId, signal: AbortSignal): AsyncIterable<CoordinationTask[]>',
+        description: 'Observe complete owner-only task snapshots; no model polling or wake loop.',
+        parameters: [{ name: 'sessionId', description: 'Main Session selecting the task directory.' }, { name: 'signal', description: 'Client cancellation; plugin unload also closes the stream.' }],
+        returns: 'initial and changed task sets.',
+      },
+      {
+        signature: '@Remote stop(sessionId: SessionId, taskId: CoordinationTaskId, revision: number): Promise<CoordinationTask>',
+        description: 'Request one task\'s cancellation, retaining stopping until its Agent and jobs settle. This owner-only Remote operation never cancels an unrelated worker assignment.',
+        parameters: [{ name: 'sessionId', description: 'Owning Main Session.' }, { name: 'taskId', description: 'Exact owned goal.' }, { name: 'revision', description: 'Assignment revision shown to the user.' }],
+        returns: 'durable stopping or stopped receipt.',
+      },
+      {
+        signature: 'report(worker: Agent, taskId: CoordinationTaskId, revision: number, outcome: WorkerReport[\'outcome\'], summary: string): Promise<CoordinationTask>',
+        description: 'Accept a report only from the exact worker that consumed this revision\'s input.',
+        parameters: [{ name: 'worker', description: 'Actual live reporting tool subject.' }, { name: 'taskId', description: 'Goal named in its assignment.' }, { name: 'revision', description: 'Consumed revision.' }, { name: 'outcome', description: 'Explicit business result, not inferred from idle.' }, { name: 'summary', description: 'Worker account supported by its native tool log.' }],
+        returns: 'task in finishing state; completion is published after quiescence.',
+      },
+    ],
+  },
+  {
     key: 'sessionFeedback',
     summary: 'Host Remote through which a product surface records a Session-level remark.',
     description: 'Host Remote through which a product surface records a Session-level remark.',
@@ -6438,6 +6504,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface AssembledSection {\n    name: string;\n    text: string;\n    interpolate?: boolean;\n}',
   },
   {
+    name: 'Assignment',
+    declaration: 'export interface Assignment {\n    readonly revision: number;\n    readonly key: string;\n    readonly requestHash: string;\n    readonly instructions: string;\n    readonly reason: string;\n    readonly sourceSeq: number;\n    readonly messageId: MessageId;\n    readonly briefId: MessageId;\n    readonly forwardedIds: readonly MessageId[];\n    readonly sessionId: SessionId;\n    readonly createSession: boolean;\n    readonly cwd: string;\n    readonly sourceCwd: string | null;\n    readonly videoKey: string | null;\n    readonly status: AssignmentStatus;\n    readonly report: WorkerReport | null;\n    readonly issue: string | null;\n    readonly noticeId: MessageId;\n    readonly notifiedStatus: AssignmentStatus | null;\n}',
+  },
+  {
+    name: 'AssignmentStatus',
+    declaration: 'export type AssignmentStatus = \'dispatching\' | \'accepted\' | \'running\' | \'finishing\' | \'needs-report\' | \'interrupted\' | \'stopping\' | \'stopped\' | \'completed\' | \'blocked\' | \'needs-input\' | \'failed\';',
+  },
+  {
     name: 'AssistantMessage',
     declaration: 'export interface AssistantMessage extends MessageBase {\n    readonly role: \'assistant\';\n    readonly source: ModelMessageSource;\n}',
   },
@@ -6904,6 +6978,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ContinuableCreateSpec',
     declaration: 'export interface ContinuableCreateSpec {\n    readonly seed?: readonly SessionEvent[];\n}',
+  },
+  {
+    name: 'CoordinationTask',
+    declaration: 'export interface CoordinationTask {\n    readonly id: CoordinationTaskId;\n    readonly owner: SessionId;\n    readonly title: string;\n    readonly createdAt: number;\n    readonly attempts: readonly Assignment[];\n}',
+  },
+  {
+    name: 'CoordinationTaskId',
+    declaration: 'export type CoordinationTaskId = Branded<\'CoordinationTaskId\'>;',
   },
   {
     name: 'CordisDynamicPackageId',
@@ -11276,6 +11358,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'WeeklyScheduleRecord',
     declaration: 'export interface WeeklyScheduleRecord {\n    readonly id: ScheduleId;\n    readonly kind: \'weekly\';\n    readonly title: string;\n    readonly prompt: string;\n    readonly time: string;\n    readonly timeZone: string;\n    readonly weekdays: number[];\n    readonly scheduledAt: string;\n}',
+  },
+  {
+    name: 'WorkerReport',
+    declaration: 'export interface WorkerReport {\n    readonly outcome: \'completed\' | \'blocked\' | \'needs-input\' | \'failed\';\n    readonly summary: string;\n    readonly files: readonly {\n        readonly path: string;\n        readonly description?: string | undefined;\n    }[];\n    readonly throughSeq: number;\n}',
   },
   {
     name: 'WorkflowAgentEndInfo',

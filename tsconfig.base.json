@@ -28,6 +28,10 @@
     // not declaration path aliases, keep each package/vendor source compiled
     // under its own tsconfig boundary.
     "paths": {
+      "@deepseek-ai/dsh-session-coordinator": ["./packages/session/session-coordinator/src"],
+      "@deepseek-ai/dsh-session-coordinator/*": ["./packages/session/session-coordinator/src/*"],
+      "@deepseek-ai/dsh-client-ui-session-coordinator": ["./packages/client/ui-session-coordinator/src"],
+      "@deepseek-ai/dsh-client-ui-session-coordinator/*": ["./packages/client/ui-session-coordinator/src/*"],
       "@deepseek-ai/dsh-muse-market/activation": ["./packages/host/muse-market/src/activation.ts"],
       "@deepseek-ai/dsh-muse-market/cloud": ["./packages/host/muse-market/src/cloud.ts"],
       "@deepseek-ai/dsh-muse-market/types": ["./packages/host/muse-market/src/types.ts"],

@@ -108,6 +108,14 @@ const GROUP_ORDER = [
 
 const SERVICE_ROLES: ServiceRole[] = [
   {
+    key: 'sessionCoordinator',
+    pkg: 'session-coordinator',
+    title: 'Ordinary-session task coordination',
+    mode: 'core',
+    consumers: ['session-coordinator', 'client-ui-session-coordinator'],
+    note: 'Routing-only Main Sessions assign independent durable tasks to ordinary workers; native receipts and explicit reports distinguish delivery, completion and confirmed stopping.',
+  },
+  {
     key: 'toolDiscovery',
     pkg: 'tool-discovery',
     title: 'Per-agent tool discovery and residency',

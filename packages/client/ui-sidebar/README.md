@@ -43,6 +43,8 @@ Plugins add an icon component to the root-scoped `sidebar.panellist` list with a
 
 While the root-scoped `sidebar.panellist.actions` list has registrations, a **More** button styled as a panel row follows the rows inside the navigation landmark; the collapsed rail shows its label as a tooltip. It opens a menu whose rows are that list's registrations. Each receives `entries` (customizable panels in registration order with `id`, `label`, `pinned`, and `active`; Plugins is never listed), `onOpen(id)`, which selects the panel, `onPinnedChange(id, pinned)`, and `onDismiss()`, which closes the menu. The sidebar keeps one in-memory list of unpinned panel ids shared by every Session; Plugins always shows. The default More menu only offers plugin browsing and creation, without panel rows or pin controls. Pin callbacks remain available to other registrations, but choices reset when the plugin reloads and legacy localStorage values are ignored. Unpinning hides only the row; the main panel, its registration, and the current selection stay unchanged. Unregistered panel ids remain in the in-memory list until the plugin reloads.
 
+Optional navigation entries use the list slot `sidebar.session.entry` above New Session. The shell supplies `wide`; each plugin owns its label, action and permission check. With no registration, the native layout stays unchanged.
+
 ### Collapse behavior
 
 The sidebar and conversation-header toggles show the effective shortcut from the command catalog in their hover and keyboard-focus tooltips and `aria-keyshortcuts`. An unbound command shows only the action label.

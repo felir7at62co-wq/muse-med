@@ -22,7 +22,13 @@ The session group keeps conversations durable, restores released log formats, an
 <a id="packages"></a>
 ## Packages
 
-The group splits into four families: durable storage (persistence seam, backends, checkpoint policy), projections, titles, and telemetry. Each package README owns its contract and configuration.
+The group includes coordination plus four data families: durable storage (persistence seam, backends, checkpoint policy), projections, titles, and telemetry. Each package README owns its contract and configuration.
+
+### Coordination
+
+| Package | Role | ctx key |
+|---|---|---|
+| [`session-coordinator/`](session-coordinator/README.md) | Routing-only Main Sessions, durable ordinary-worker assignments and owner-only task controls | `ctx.sessionCoordinator` |
 
 ### Persistence
 

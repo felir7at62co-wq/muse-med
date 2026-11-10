@@ -1,0 +1,69 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "lib/types"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../../vendor/cordis"
+    },
+    {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../../packages/util/brand"
+    },
+    {
+      "path": "../../../packages/core/agent"
+    },
+    {
+      "path": "../../../packages/core/session"
+    },
+    {
+      "path": "../../../packages/core/tools"
+    },
+    {
+      "path": "../../../packages/core/system-prompt"
+    },
+    {
+      "path": "../../../packages/llm/llm"
+    },
+    {
+      "path": "../../../packages/session-query/session-query"
+    },
+    {
+      "path": "../../../packages/storage/storage-domain"
+    },
+    {
+      "path": "../../../packages/api/session-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../../../packages/workspace/workspace"
+    },
+    {
+      "path": "../../../packages/jobs/jobs"
+    },
+    {
+      "path": "../../../packages/typert/protocol"
+    },
+    {
+      "path": "../../../packages/jubian/tool-jubian/tsconfig.host.json"
+    },
+    {
+      "path": "../../../packages/deliverables/tool-present"
+    },
+    {
+      "path": "../../preset/agent-preset-registry"
+    },
+    {
+      "path": "../../core/scope"
+    },
+    {
+      "path": "../../api/workspace-controller/tsconfig.host.json"
+    }
+  ]
+}

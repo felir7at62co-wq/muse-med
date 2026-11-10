@@ -39,6 +39,7 @@ kind: "package-group"
 | [`ui-renderer/`](ui-renderer/README.zh.md) | 将 slot 数据绑定到 React，并挂载组装完成的应用 | `ctx.uiRenderer` |
 | [`ui-slots/`](ui-slots/README.zh.md) | 定义类型化扩展 Slots 与可复用 Component Factory | — |
 | [`ui-session/`](ui-session/README.zh.md) | 把会话控制器状态适配为标准 Slot source 与钩子 | — |
+| [`ui-session-coordinator/`](ui-session-coordinator/README.zh.md) | 主会话任务卡、执行会话导航和原生交付文件打开 | — |
 | [`ui-theme/`](ui-theme/README.zh.md) | 应用所选颜色主题 | — |
 | [`ui-primitives/`](ui-primitives/README.zh.md) | 提供共享 React 控件、图标与内容渲染器 | — |
 | [`ui-attachment/`](ui-attachment/README.zh.md) | 注册输入框与消息图片的附件呈现 | — |
