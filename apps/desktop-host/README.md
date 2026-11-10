@@ -115,7 +115,7 @@ The Desktop Host mounts one shared [tool discovery service](../../packages/core/
 
 The product directory includes project settings, image overviews, native Jianying drafts, draft-root lookup, manuscript comparisons, Office delivery and connected knowledge sources. Chinese aliases cover common production requests without retaining every tool schema. Authorized deferred tools outside configured groups appear under the runtime's uncategorized group. Keyless tests compare shipped preset declarations with registered schemas; connected MCP tools, user overlays and dynamic registrations still depend on the active runtime.
 
-Specialized project, manuscript, production, delivery, model-catalog and asset tools remain discoverable when registered in the current preset; `video_inspect` stays resident. Their original permissions and operation effects still apply. Visibility does not make optional reviews mandatory or authorize generation.
+Specialized project, manuscript, production, delivery, model-catalog and asset tools remain discoverable when registered in the current preset; `video_inspect` stays resident. Skill-directory search belongs to knowledge, and video-review reports belong to production; both support Chinese search while remaining deferred. Their original permissions and operation effects still apply. Visibility does not make optional reviews mandatory or authorize generation.
 
 ## Short-drama identity
 

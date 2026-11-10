@@ -36,6 +36,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { access, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { setTimeout as wait } from 'node:timers/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
@@ -146,7 +147,7 @@ export function cardStore(ctx: Context, exec: CardExec): CardStore {
 
 /** Reject another session's store, including aliases through workspace symlinks. */
 async function addressesStore(root: string, workspace: string | undefined, path: string): Promise<boolean> {
-  const expanded = path === '~' || path.startsWith('~/') ? join(homedir(), path.slice(1)) : path
+  const expanded = expandHome(path)
   if (!isAbsolute(expanded) && (workspace === undefined || !isAbsolute(workspace))) return false
   const target = resolve(workspace ?? root, expanded)
   if (target === root || inside(root, target)) return true
@@ -179,8 +180,8 @@ async function assertSessionPath(root: string, segment: string, path: string): P
  */
 export async function workspacePath(root: string | undefined, path: string): Promise<string | undefined> {
   if (root === undefined || !isAbsolute(root)) return undefined
-  const tilde = path === '~' || path.startsWith('~/')
-  const expanded = tilde ? join(homedir(), path.slice(1)) : path
+  const expanded = expandHome(path)
+  const tilde = expanded !== path
   const base = resolve(root)
   const target = resolve(base, expanded)
   if (!inside(base, target) || !target.endsWith('.html')) return undefined
@@ -248,7 +249,7 @@ export function sessionSegment(id: string): string {
  * @returns the absolute store path, or undefined when it is not a store file.
  */
 export async function ownedPath(root: string, path: string): Promise<string | undefined> {
-  const expanded = path === '~' || path.startsWith('~/') ? join(homedir(), path.slice(1)) : path
+  const expanded = expandHome(path)
   if (!isAbsolute(expanded)) return undefined
   const target = resolve(expanded)
   if (!inside(root, target) || !target.endsWith('.html')) return undefined
@@ -464,16 +465,35 @@ export async function writeFileAtomic(path: string, content: string | Uint8Array
   // second rename would find it already moved. With distinct temps both
   // renames land, and identical bytes make the last one a no-op.
   const temp = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
+  let created = false
   try {
     signal?.throwIfAborted()
     await writeFile(temp, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+    created = true
     signal?.throwIfAborted()
-    await rename(temp, path)
+    for (let retries = 0;; retries++) {
+      signal?.throwIfAborted()
+      try {
+        await rename(temp, path)
+        break
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException | null)?.code
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(code ?? '') || retries >= 8) throw error
+        signal?.throwIfAborted()
+        await wait(Math.min(20 * 2 ** retries, 200), undefined, { signal })
+      }
+    }
   } catch (error) {
     // EEXIST means the name was taken and the file is not ours to remove.
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') await rm(temp, { force: true }).catch(() => {})
+    if (created || (error as NodeJS.ErrnoException).code !== 'EEXIST') await rm(temp, { force: true }).catch(() => {})
     throw error
   }
+}
+
+/** Expand the same home forms as the local fs backend, retaining backslashes as literal characters on POSIX. */
+function expandHome(path: string): string {
+  return path === '~' || path.startsWith('~/') || (process.platform === 'win32' && path.startsWith('~\\'))
+    ? join(homedir(), path.slice(2)) : path
 }
 
 /**
@@ -484,7 +504,7 @@ export async function writeFileAtomic(path: string, content: string | Uint8Array
  */
 function displayOf(path: string): string {
   const home = homedir()
-  return path.startsWith(`${home}${sep}`) ? `~${path.slice(home.length)}` : path
+  return path.startsWith(`${home}${sep}`) ? `~/${relative(home, path).split(sep).join('/')}` : path
 }
 
 /**

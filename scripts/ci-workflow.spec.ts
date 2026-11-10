@@ -425,6 +425,33 @@ describe('CI workflow', () => {
     }
   })
 
+  it.each(['node-24-lint', 'windows-build', 'windows-coverage', 'windows-native-tests'] as const)(
+    'keeps standard hosted defaults available to forks for %s without overriding explicit failover', (name) => {
+      const windows = name.startsWith('windows-')
+      const workflow = loadWorkflow(`.github/workflows/${windows ? 'ci-windows' : 'ci'}.yml`)
+      const selector = workflowJob(workflow, name)['runs-on']
+      const variable = windows ? 'DSH_CI_FAILOVER_WINDOWS' : 'DSH_CI_FAILOVER_LINUX'
+      const enterprise = windows ? 'dsh-windows-2025-16core' : 'dsh-ubuntu-24-04-16core'
+      const standard = windows ? 'windows-2025' : 'ubuntu-24.04'
+      const blacksmith = windows
+        ? `blacksmith-${name === 'windows-native-tests' ? 2 : 16}vcpu-windows-2025`
+        : 'blacksmith-8vcpu-ubuntu-2404'
+      const pool = windows ? ['self-hosted', 'dsh-win-ci', 'windows'] : ['self-hosted', 'linux', 'x64', 'vm-backup']
+      for (const repository of ['deepseek-harness/deepseek-harness', 'felir7at62co-wq/muse-med', 'example/fork']) {
+        const hosted = repository === 'deepseek-harness/deepseek-harness' ? enterprise : standard
+        for (const login of ['maintainer', 'dependabot[bot]']) {
+          for (const mode of ['', 'hosted', 'unexpected', 'selfhosted', 'blacksmith']) {
+            const expected = mode === 'blacksmith' ? blacksmith : mode === 'selfhosted' && login !== 'dependabot[bot]' ? pool : hosted
+            expect(evaluateRunsOn(selector, {
+              vars: { [variable]: mode }, fromJSON: JSON.parse,
+              github: { repository, event: { pull_request: { user: { login } } } },
+            }), `${name} ${repository} ${login} ${mode}`).toEqual(expected)
+          }
+        }
+      }
+    },
+  )
+
   it('keeps split native Windows PR jobs with failover in their own workflow, plus a master-only standby', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     const windowsWorkflow = loadWorkflow('.github/workflows/ci-windows.yml')

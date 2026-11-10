@@ -2,7 +2,7 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runLoaderSmoke, LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
+import { runLoaderSmoke, LOADER_SMOKE_TEST_TIMEOUT_MS, resolveExampleMode } from '@deepseek-ai/dsh-loader-smoke'
 import { expect, it } from 'vitest'
 import { z } from 'zod'
 
@@ -14,7 +14,7 @@ const promptSchema = z.object({ type: z.literal('user/message'), data: z.object(
     z.object({ type: z.literal('image'), attachment: z.object({ attachmentId: z.string() }) })])),
 }) })
 
-it.each(['src', 'lib'] as const)('carries cached originals to real reviewers in %s and rejects incomplete, invented or changed source evidence', async (mode) => {
+it.each([resolveExampleMode()])('carries cached originals to real reviewers in %s and rejects incomplete, invented or changed source evidence', async (mode) => {
   const patch = fileURLToPath(new URL('./fixtures/manuscript-video-source/cordis.yml', import.meta.url))
   const { stderr } = await runLoaderSmoke({
     label: `manuscript video source ${mode}`, tempDirPrefix: 'manuscript-video-source-',

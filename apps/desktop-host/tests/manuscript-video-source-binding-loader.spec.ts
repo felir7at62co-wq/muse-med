@@ -2,13 +2,13 @@
 import { readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { runLoaderSmoke, LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
+import { runLoaderSmoke, LOADER_SMOKE_TEST_TIMEOUT_MS, resolveExampleMode } from '@deepseek-ai/dsh-loader-smoke'
 import { expect, it } from 'vitest'
 import { z } from 'zod'
 
 const task = '请依据这段视频新写一集短剧并交付Markdown文件；仅对实际抽样画面和保存ASR声明来源范围。'
 
-it.each(['src', 'lib'] as const)('binds sampled sources to real PTC delivery in %s and rejects stale declarations and dispatches', async (mode) => {
+it.each([resolveExampleMode()])('binds sampled sources to real PTC delivery in %s and rejects stale declarations and dispatches', async (mode) => {
   const patch = fileURLToPath(new URL('./fixtures/manuscript-video-source-binding/cordis.yml', import.meta.url))
   const { stderr } = await runLoaderSmoke({
     label: `manuscript video source binding ${mode}`, tempDirPrefix: 'manuscript-video-binding-',

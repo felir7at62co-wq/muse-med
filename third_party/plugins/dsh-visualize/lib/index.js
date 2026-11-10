@@ -4,6 +4,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { access, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { setTimeout } from "node:timers/promises";
 import { lookup } from "node:dns";
 import { request } from "node:http";
 import { request as request$1 } from "node:https";
@@ -486,7 +487,7 @@ function cardStore(ctx, exec) {
 }
 /** Reject another session's store, including aliases through workspace symlinks. */
 async function addressesStore(root, workspace, path) {
-	const expanded = path === "~" || path.startsWith("~/") ? join(homedir(), path.slice(1)) : path;
+	const expanded = expandHome(path);
 	if (!isAbsolute(expanded) && (workspace === void 0 || !isAbsolute(workspace))) return false;
 	const target = resolve(workspace ?? root, expanded);
 	if (target === root || inside(root, target)) return true;
@@ -512,8 +513,8 @@ async function assertSessionPath(root, segment, path) {
 */
 async function workspacePath(root, path) {
 	if (root === void 0 || !isAbsolute(root)) return void 0;
-	const tilde = path === "~" || path.startsWith("~/");
-	const expanded = tilde ? join(homedir(), path.slice(1)) : path;
+	const expanded = expandHome(path);
+	const tilde = expanded !== path;
 	const base = resolve(root);
 	const target = resolve(base, expanded);
 	if (!inside(base, target) || !target.endsWith(".html")) return void 0;
@@ -570,7 +571,7 @@ function sessionSegment(id) {
 * @returns the absolute store path, or undefined when it is not a store file.
 */
 async function ownedPath(root, path) {
-	const expanded = path === "~" || path.startsWith("~/") ? join(homedir(), path.slice(1)) : path;
+	const expanded = expandHome(path);
 	if (!isAbsolute(expanded)) return void 0;
 	const target = resolve(expanded);
 	if (!inside(root, target) || !target.endsWith(".html")) return void 0;
@@ -775,6 +776,7 @@ async function writeFileAtomic(path, content, signal) {
 		mode: 448
 	});
 	const temp = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+	let created = false;
 	try {
 		signal?.throwIfAborted();
 		await writeFile(temp, content, {
@@ -782,12 +784,32 @@ async function writeFileAtomic(path, content, signal) {
 			mode: 384,
 			flag: "wx"
 		});
+		created = true;
 		signal?.throwIfAborted();
-		await rename(temp, path);
+		for (let retries = 0;; retries++) {
+			signal?.throwIfAborted();
+			try {
+				await rename(temp, path);
+				break;
+			} catch (error) {
+				const code = error?.code;
+				if (process.platform !== "win32" || ![
+					"EPERM",
+					"EACCES",
+					"EBUSY"
+				].includes(code ?? "") || retries >= 8) throw error;
+				signal?.throwIfAborted();
+				await setTimeout(Math.min(20 * 2 ** retries, 200), void 0, { signal });
+			}
+		}
 	} catch (error) {
-		if (error.code !== "EEXIST") await rm(temp, { force: true }).catch(() => {});
+		if (created || error.code !== "EEXIST") await rm(temp, { force: true }).catch(() => {});
 		throw error;
 	}
+}
+/** Expand the same home forms as the local fs backend, retaining backslashes as literal characters on POSIX. */
+function expandHome(path) {
+	return path === "~" || path.startsWith("~/") || process.platform === "win32" && path.startsWith("~\\") ? join(homedir(), path.slice(2)) : path;
 }
 /**
 * Shorten an absolute store path for display: the OS home becomes `~`, which
@@ -797,7 +819,7 @@ async function writeFileAtomic(path, content, signal) {
 */
 function displayOf(path) {
 	const home = homedir();
-	return path.startsWith(`${home}${sep}`) ? `~${path.slice(home.length)}` : path;
+	return path.startsWith(`${home}${sep}`) ? `~/${relative(home, path).split(sep).join("/")}` : path;
 }
 /**
 * Workspace files through the composed fs seam and the session-level sandbox

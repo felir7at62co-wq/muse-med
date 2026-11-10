@@ -3,7 +3,12 @@ import assert from 'node:assert/strict'
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { SkillsViewerGateway } from '../../../third_party/plugins/dsh-skill-mcp-panel/src/index.ts'
+import { importSnapshotModule } from '../muse-fixture-import.mjs'
+
+const { SkillsViewerGateway } = await importSnapshotModule(
+  new URL('../../../third_party/plugins/dsh-skill-mcp-panel/src/index.ts', import.meta.url),
+  new URL('../../../.artifacts/mcp-panel-snapshot-artifact/package/lib/index.js', import.meta.url),
+)
 
 const enabledName = 'snapshot-restored-skill'
 const disabledName = 'snapshot-disabled-skill'

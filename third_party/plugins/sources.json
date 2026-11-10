@@ -209,7 +209,7 @@
         },
         "lib/index.js": {
           "upstreamSha256": "00e961e047026887116be5b5097af4a933c023385700f787c50fbea00ca3a3d7",
-          "sha256": "dee5e8134b4148e3ee55651ddaa9e46e745b8035aa5d24ace2fd5c32c84059a4"
+          "sha256": "bd2445af65d3a3c8510cbc80e59e5fffabcc30ebc9d5e081a2f105ab7d80085a"
         },
         "package.json": {
           "upstreamSha256": "8a174bf1598bd301666b358a517c0e000f7be615c16b64067b919b9572bdccb9",
@@ -249,11 +249,15 @@
         },
         "src/storage.ts": {
           "upstreamSha256": "4f3ff4878ca81a7f4c87e97a4ce8bd0ba6e96b008f3b19d21f4d9e82612e1e18",
-          "sha256": "930444fbffc3f26cc3e9bb7ce2dff5a00a6ceea6df5652e02031240fcc0ad7a5"
+          "sha256": "cfaadad552173435cbe4094bbee5485ff9d67797593f384510de2fed91694307"
         },
         "src/tool.ts": {
           "upstreamSha256": "403dfd8dab2fd4b724b0938e0dd77bcfc00190afde15b94114ff4720484319f4",
           "sha256": "7ad7a74eca4e07f2aa740fa5f3b0052e9348dcd2335112dea9a3ab9efe05671f"
+        },
+        "tests/card-images.spec.ts": {
+          "upstreamSha256": "bd04d320a71f8cbb2d2e60a7549f328f5af432e6b524082f658c538e75ef915e",
+          "sha256": "8a6591d11499b04830af822f94e9559cefecd4b65a3480bc67ba9a78f3f497bc"
         },
         "tests/frame-height.spec.tsx": {
           "upstreamSha256": null,
@@ -273,11 +277,11 @@
         },
         "tests/storage-commit.spec.ts": {
           "upstreamSha256": null,
-          "sha256": "8557d023dc4b329319502925e8a73b909b42b60f2839117d54a7a9e4db534203"
+          "sha256": "9c086531b345a0509e94f206ef76f47e7a4c81cd213790706d0c7c575632c6da"
         },
         "tests/storage.spec.ts": {
           "upstreamSha256": "a56c830a0b9adfbc6944f0b2c8c4468ccebece02dfef8103d979b83d9e0e365e",
-          "sha256": "c273778eef2e260c866a718657dc1196e97b7df6e6656be53d4551919fe40b8b"
+          "sha256": "c94654c11385432e85131ab6735691d3af3a211460d11739fe3c5c2940cf85b6"
         },
         "tests/turn-cards.spec.tsx": {
           "upstreamSha256": "e7e359b505b17cab121843fbe9979e0a39fc9e7c12e5c013a8646eaf989f1ef0",

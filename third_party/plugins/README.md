@@ -8,6 +8,10 @@ These retained source snapshots record Muse community-plugin dependencies. [sour
 
 Entries with `desktop: false` in the source inventory and archived `ds-bot` source are omitted from default builds. `dsh-plugin-subscriptions` supplies the active subscription bundle; the old Codex pin and source remain for explicit recovery builds. Desktop packaging independently selects its package closure and does not copy every available tarball. `--only dsh-plugin-subscriptions` selects the current subscription artifact; `--only dsh-codex-subscription` selects the archived compatibility path.
 
+The unknown-assertion gate uses the [file-origin lock](../../scripts/retained-plugin-origins.json), not directory exemptions, for reviewed upstream files. Immutable files must match their pinned content hash. Maintained files also require their declared hashes and exact original text; only assertion operators and types mapped one-to-one through unchanged lines retain upstream ownership. New or changed assertion lines, unlisted files, and owned adapters remain checked. The five original-text fixtures retain the pinned Visualize [BSD-3-Clause license](dsh-visualize/LICENSE); pin updates require review of the source hashes and originals together. Source, pin, lock, original-text and license paths are checked component by component; ancestor symlinks and junctions, non-files and paths outside the canonical repository are rejected even when their content hashes match.
+
+The older Feishu and IM source exclusions remain separate from this file-origin mechanism.
+
 ## Build
 
 Use an installed checkout with the current Host and Client packages already built. From the repository root:

@@ -27,6 +27,8 @@ Review the current conversation's recorded videos in a compact spider control an
 
 The independent [Muse video bundle](../../bundle/muse-video-ui/README.md) installs this presentation and its media service together.
 
+Video controls, status messages and shot-modification drafts follow the application's active language. Complete dictionaries are registered for Chinese, English, Japanese, Spanish, French, German, Russian and Portuguese.
+
 This package owns the optional Muse conversation presentation. In **Settings → General → Video bubble and timeline**, turn it on or off without restarting or reloading the page. The accepted switch persists in the profile through the native configuration forms. Disabling removes the spider, timeline, inline replacement players, collection layers, spacer and user-bubble enhancements, restores native navigation and delivered-video playback, and pauses and releases preview media. Transcript identity, input drafts, attachments, recorded files and running Agent jobs remain owned by Muse. Re-enabling creates a fresh presentation scope without duplicate controls. The settings row remains available while the package is installed.
 
 The Muse Desktop composition mounts this UI and the [Session video service](../../drama/session-video/README.md). Ordinary Web profiles do not activate either package by default. A custom composition retains the canonical `ui-session-video` entry id for its live settings and needs both rows plus the native Chat, Deliverables, locale, renderer and Remote services.

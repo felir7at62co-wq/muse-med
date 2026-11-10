@@ -1,9 +1,43 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { expect, it } from 'vitest'
-import { assertEmbeddedPluginSourceIntegrity } from './retained-plugin-sources.ts'
+import { assertEmbeddedPluginSourceIntegrity, createRegularRepositorySourceReader, readRetainedPluginOrigins } from './retained-plugin-sources.ts'
+
+it('keeps source reads inside the canonical repository and rejects non-files and escaping paths', () => {
+  const root = mkdtempSync(join(tmpdir(), 'retained-reader-'))
+  try {
+    mkdirSync(join(root, 'regular'))
+    writeFileSync(join(root, 'regular/source.ts'), 'export {}\n')
+    const read = createRegularRepositorySourceReader(root)
+    expect(read('regular/source.ts')?.toString()).toBe('export {}\n')
+    expect(read('missing/source.ts')).toBeUndefined()
+    expect(() => read('regular')).toThrow(/regular file/u)
+    for (const path of ['../outside.ts', '/absolute.ts', 'C:/outside.ts', 'regular\\source.ts', './regular/source.ts']) {
+      expect(() => read(path)).toThrow(/Invalid repository source path/u)
+    }
+    expect(() => createRegularRepositorySourceReader(join(root, 'regular/source.ts'))).toThrow(/regular directory/u)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+it('qualifies the complete reviewed 32 immutable and 5 maintained real upstream files', () => {
+  const origins = readRetainedPluginOrigins(resolve(import.meta.dirname, '..'))
+  expect(origins.size).toBe(37)
+  expect([...origins.values()].filter(origin => origin.kind === 'exact')).toHaveLength(32)
+  expect([...origins.values()].filter(origin => origin.kind === 'maintained')).toHaveLength(5)
+  const storage = origins.get('third_party/plugins/dsh-visualize/tests/storage.spec.ts')
+  expect(storage?.kind).toBe('maintained')
+  if (storage?.kind !== 'maintained') throw new Error('Reviewed storage source must retain its original text')
+  expect(storage.originalLine(55)).toBe(49)
+  expect(storage.originalLine(303)).toBe(195)
+  expect(storage.originalLine(35)).toBeUndefined()
+  const images = origins.get('third_party/plugins/dsh-visualize/tests/card-images.spec.ts')
+  if (images?.kind !== 'maintained') throw new Error('Reviewed image source must retain its original text')
+  expect(images.originalLine(59)).toBe(53)
+})
 
 it('rejects changed, missing, extra and escaping embedded sources', () => {
   const root = mkdtempSync(join(tmpdir(), 'muse-embedded-source-'))

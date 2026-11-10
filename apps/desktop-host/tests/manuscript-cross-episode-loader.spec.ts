@@ -3,9 +3,9 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
-import { runLoaderSmoke, LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
+import { runLoaderSmoke, LOADER_SMOKE_TEST_TIMEOUT_MS, resolveExampleMode } from '@deepseek-ai/dsh-loader-smoke'
 
-it.each(['src', 'lib'] as const)('reviews every scheduled episode pair and rejects missing coverage through %s', async (mode) => {
+it.each([resolveExampleMode()])('reviews every scheduled episode pair and rejects missing coverage through %s', async (mode) => {
   const patch = fileURLToPath(new URL('./fixtures/manuscript-cross-episode/cordis.yml', import.meta.url))
   const result = await runLoaderSmoke({ label: 'manuscript cross-episode', tempDirPrefix: 'manuscript-cross-episode-loader-',
     binScript: fileURLToPath(new URL('../../cli/src/bin.ts', import.meta.url)), configPath: patch,

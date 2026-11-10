@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { readPtcFixtureResult } from '../ptc-fixture-result.mjs'
 import { importSnapshotModule, importSnapshotPackage } from '../../../../../snapshots/session/muse-fixture-import.mjs'
 import { evidence, DRAFT, SOURCE, ASR, SELECTION, ROWS } from './evidence.mjs'
 
@@ -228,7 +229,7 @@ export async function apply(ctx) {
         assert.equal(result.toolCallId, `binding-program-${index + 1}`)
         const text = result.content.filter(block => block.type === 'text').map(block => block.text).join('')
         assert.equal(result.isError, false, `${planned.kind}: ${text}`)
-        const value = JSON.parse(text)
+        const value = readPtcFixtureResult(result)
         if (planned.error) { assert.equal(value.blocked, true); assert.equal(value.error, planned.error) }
         else {
           assert.equal(value.label, LABEL)

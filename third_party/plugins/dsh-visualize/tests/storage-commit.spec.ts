@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { visualizeTool } from '../src/tool.ts'
 import { writeFileAtomic } from '../src/storage.ts'
@@ -8,6 +8,9 @@ import { writeFileAtomic } from '../src/storage.ts'
 const hooks = vi.hoisted(() => ({
   afterRename: undefined as ((path: string) => void) | undefined,
   afterWrite: undefined as ((path: string) => void) | undefined,
+  afterRenameFailure: undefined as (() => void) | undefined,
+  renameFailures: [] as (string | undefined)[],
+  renameAttempts: 0,
 }))
 
 vi.mock('node:fs/promises', async (original) => {
@@ -19,6 +22,12 @@ vi.mock('node:fs/promises', async (original) => {
       if (typeof args[0] === 'string') hooks.afterWrite?.(args[0])
     },
     async rename(...args: Parameters<typeof fs.rename>) {
+      hooks.renameAttempts++
+      if (hooks.renameFailures.length > 0) {
+        const code = hooks.renameFailures.shift()
+        hooks.afterRenameFailure?.()
+        throw code === undefined ? new Error('rename failed without an error code') : Object.assign(new Error(`rename failed: ${code}`), { code })
+      }
       await fs.rename(...args)
       if (typeof args[1] === 'string') hooks.afterRename?.(args[1])
     },
@@ -27,12 +36,22 @@ vi.mock('node:fs/promises', async (original) => {
 
 let home: string
 
+/** Convert only independent disk checks; persisted receipts retain the model-facing path. */
+function diskPath(path: string): string {
+  return path.startsWith('~/') || (process.platform === 'win32' && path.startsWith('~\\'))
+    ? join(homedir(), path.slice(2)) : path
+}
+
 beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), 'viz-commit-'))
 })
 afterEach(async () => {
   hooks.afterRename = undefined
   hooks.afterWrite = undefined
+  hooks.afterRenameFailure = undefined
+  hooks.renameFailures = []
+  hooks.renameAttempts = 0
+  vi.restoreAllMocks()
   await rm(home, { recursive: true, force: true })
 })
 
@@ -73,26 +92,26 @@ describe('visualization save receipts', () => {
     const created = await create()
     const cancel = new AbortController()
     hooks.afterRename = path => {
-      if (path === created.path) cancel.abort()
+      if (path === diskPath(created.path)) cancel.abort()
     }
     await expect(patch(created.path, cancel.signal)).rejects.toMatchObject({
       message: expect.stringContaining('Visualization save is incomplete'),
       receipt: { state: 'partial', path: created.path, fragment: 'saved', imageManifest: 'unchanged', reason: 'cancelled' },
     })
-    expect(await readFile(created.path, 'utf8')).toBe('<p>new</p>')
-    expect(await readdir(join(home, 'visualize', 'sessions', 'sess-commit'))).toEqual([created.path.split('/').at(-1)])
+    expect(await readFile(diskPath(created.path), 'utf8')).toBe('<p>new</p>')
+    expect(await readdir(join(home, 'visualize', 'sessions', 'sess-commit'))).toEqual([basename(created.path)])
   })
 
   it('retains a recoverable saved fragment and reports a failed second manifest commit', async () => {
     const { create, patch, tool, execution } = setup()
     const created = await create()
-    const manifest = created.path.replace(/\.html$/u, '.images.json')
+    const manifest = diskPath(created.path).replace(/\.html$/u, '.images.json')
     await mkdir(manifest)
     const fragment = '<p>new</p><img data-viz-src="https://example.com/plot.png">'
     await expect(patch(created.path, new AbortController().signal, fragment)).rejects.toMatchObject({
       receipt: { state: 'partial', path: created.path, fragment: 'saved', imageManifest: 'unconfirmed', reason: 'write-failed' },
     })
-    expect(await readFile(created.path, 'utf8')).toBe(fragment)
+    expect(await readFile(diskPath(created.path), 'utf8')).toBe(fragment)
     expect((await readdir(join(home, 'visualize', 'sessions', 'sess-commit'))).some(name => name.endsWith('.tmp'))).toBe(false)
     // The returned path addresses the saved fragment; recovery patches that state.
     await rm(manifest, { recursive: true })
@@ -105,7 +124,7 @@ describe('visualization save receipts', () => {
   it('reports both saved files when cancellation arrives after the manifest commit', async () => {
     const { create, patch } = setup()
     const created = await create()
-    const manifest = created.path.replace(/\.html$/u, '.images.json')
+    const manifest = diskPath(created.path).replace(/\.html$/u, '.images.json')
     const cancel = new AbortController()
     hooks.afterRename = path => {
       if (path === manifest) cancel.abort()
@@ -114,7 +133,69 @@ describe('visualization save receipts', () => {
     await expect(patch(created.path, cancel.signal, fragment)).rejects.toMatchObject({
       receipt: { state: 'partial', path: created.path, fragment: 'saved', imageManifest: 'saved', reason: 'cancelled' },
     })
-    expect(await readFile(created.path, 'utf8')).toBe(fragment)
+    expect(await readFile(diskPath(created.path), 'utf8')).toBe(fragment)
     expect(await readFile(manifest, 'utf8')).toContain('https://example.com/plot.png')
+  })
+})
+
+describe('atomic replacement under Windows contention', () => {
+  it('retries only the bounded transient rename errors and leaves a complete replacement', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const path = join(home, 'card.html')
+    await writeFile(path, 'old')
+    hooks.renameFailures = ['EPERM', 'EACCES', 'EBUSY']
+    await writeFileAtomic(path, 'new')
+    expect(hooks.renameAttempts).toBe(4)
+    expect(await readFile(path, 'utf8')).toBe('new')
+    expect(await readdir(home)).toEqual(['card.html'])
+  })
+
+  it('stops after eight retries and retains the previous file without a temporary sibling', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const path = join(home, 'card.html')
+    await writeFile(path, 'old')
+    hooks.renameFailures = Array.from({ length: 9 }, () => 'EPERM')
+    await expect(writeFileAtomic(path, 'new')).rejects.toMatchObject({ code: 'EPERM' })
+    expect(hooks.renameAttempts).toBe(9)
+    expect(await readFile(path, 'utf8')).toBe('old')
+    expect(await readdir(home)).toEqual(['card.html'])
+  })
+
+  it('cancels a transient replacement before another attempt and cleans its private temp', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const path = join(home, 'card.html')
+    await writeFile(path, 'old')
+    const cancel = new AbortController()
+    const reason = new Error('cancelled replacement')
+    hooks.renameFailures = ['EPERM']
+    hooks.afterRenameFailure = () => { cancel.abort(reason) }
+    await expect(writeFileAtomic(path, 'new', cancel.signal)).rejects.toBe(reason)
+    expect(hooks.renameAttempts).toBe(1)
+    expect(await readFile(path, 'utf8')).toBe('old')
+    expect(await readdir(home)).toEqual(['card.html'])
+  })
+
+  it.each(['ENOSPC', 'EEXIST', undefined])('preserves an unrecognized rename error %s without retrying', async (code) => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const path = join(home, 'card.html')
+    await writeFile(path, 'old')
+    hooks.renameFailures = [code]
+    const operation = expect(writeFileAtomic(path, 'new')).rejects
+    if (code === undefined) await operation.toThrow('rename failed without an error code')
+    else await operation.toMatchObject({ code })
+    expect(hooks.renameAttempts).toBe(1)
+    expect(await readFile(path, 'utf8')).toBe('old')
+    expect(await readdir(home)).toEqual(['card.html'])
+  })
+
+  it('does not retry a POSIX permission failure', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
+    const path = join(home, 'card.html')
+    await writeFile(path, 'old')
+    hooks.renameFailures = ['EPERM']
+    await expect(writeFileAtomic(path, 'new')).rejects.toMatchObject({ code: 'EPERM' })
+    expect(hooks.renameAttempts).toBe(1)
+    expect(await readFile(path, 'utf8')).toBe('old')
+    expect(await readdir(home)).toEqual(['card.html'])
   })
 })

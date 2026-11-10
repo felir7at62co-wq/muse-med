@@ -5,8 +5,16 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { McpManagerGateway } from '../../../third_party/plugins/dsh-skill-mcp-panel/src/mcp/gateway.ts'
-import { oauthFile } from '../../../third_party/plugins/dsh-skill-mcp-panel/src/oauth.ts'
+import { importSnapshotModule } from '../muse-fixture-import.mjs'
+
+const { McpManagerGateway } = await importSnapshotModule(
+  new URL('../../../third_party/plugins/dsh-skill-mcp-panel/src/mcp/gateway.ts', import.meta.url),
+  new URL('../../../.artifacts/mcp-panel-snapshot-artifact/package/lib/mcp/gateway.js', import.meta.url),
+)
+const { oauthFile } = await importSnapshotModule(
+  new URL('../../../third_party/plugins/dsh-skill-mcp-panel/src/oauth.ts', import.meta.url),
+  new URL('../../../.artifacts/mcp-panel-snapshot-artifact/package/lib/oauth.js', import.meta.url),
+)
 
 /** Loader plugin name. */
 export const name = 'snapshot-mcp-oauth-recovery'

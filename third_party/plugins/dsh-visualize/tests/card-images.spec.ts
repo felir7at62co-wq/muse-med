@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
@@ -17,6 +17,12 @@ const FIGURE = Uint8Array.from([...PNG, ...new Uint8Array(200 * 1024).fill(7)])
 
 let home: string
 let workspace: string
+
+/** Expand a reported home path for independent disk checks; tool calls retain its display form. */
+function diskPath(path: string): string {
+  return path.startsWith('~/') || (process.platform === 'win32' && path.startsWith('~\\'))
+    ? join(homedir(), path.slice(2)) : path
+}
 
 beforeEach(async () => {
   home = await realpath(await mkdtemp(join(tmpdir(), 'viz-home-')))
@@ -89,7 +95,7 @@ describe('visualize with data-viz-src images', () => {
 
     // The fragment the model wrote is what the card stores and replays.
     expect(value.fragment).toBe(FRAGMENT)
-    expect(await readFile(value.path, 'utf8')).toBe(FRAGMENT)
+    expect(await readFile(diskPath(value.path), 'utf8')).toBe(FRAGMENT)
     expect(value.images!.map(i => [i.src, i.type, i.bytes])).toEqual([
       ['./figs/loss.png', 'image/png', FIGURE.byteLength],
       ['https://example.com/a.png', 'image/png', PNG.byteLength],
@@ -151,7 +157,7 @@ describe('visualize with data-viz-src images', () => {
     }
     const tool = visualizeTool(host(), 100_000, 'whale', { delivery: () => true, fetchUrl })
     const created = await tool.execute({ fragment: '<div id="lab"><h3>Loss</h3></div>', title: 'Lab' }, exec) as Value
-    const manifest = created.path.replace(/\.html$/u, '.images.json')
+    const manifest = diskPath(created.path).replace(/\.html$/u, '.images.json')
     const patch = { action: 'update', path: created.path, title: 'Lab', old_str: '<h3>Loss</h3>', new_str: '<img data-viz-src="https://example.com/a.png"><h3>Loss</h3>' }
 
     const cancel = new AbortController()
@@ -159,7 +165,7 @@ describe('visualize with data-viz-src images', () => {
     await fetching
     cancel.abort()
     await expect(call).rejects.toThrow()
-    expect(await readFile(created.path, 'utf8')).toBe('<div id="lab"><h3>Loss</h3></div>')
+    expect(await readFile(diskPath(created.path), 'utf8')).toBe('<div id="lab"><h3>Loss</h3></div>')
     await expect(stat(manifest)).rejects.toThrow()
 
     // The same patch, retried, still finds its old_str.
@@ -174,7 +180,7 @@ describe('visualize with data-viz-src images', () => {
     const { run, text } = setup(false)
     const value = await run({ fragment: FRAGMENT, title: 'Lab' })
     expect(value.images).toBeUndefined()
-    expect(await readFile(value.path, 'utf8')).toBe(FRAGMENT)
+    expect(await readFile(diskPath(value.path), 'utf8')).toBe(FRAGMENT)
     expect(text(value)).toContain('3 images could not be embedded')
     expect(text(value)).toContain('needs dsh 0.1.7 or later')
   })

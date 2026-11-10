@@ -3,7 +3,12 @@ import assert from 'node:assert/strict'
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { PANEL_MANIFEST, SkillsViewerGateway } from '../../../third_party/plugins/dsh-skill-mcp-panel/src/index.ts'
+import { importSnapshotModule } from '../muse-fixture-import.mjs'
+
+const { PANEL_MANIFEST, SkillsViewerGateway } = await importSnapshotModule(
+  new URL('../../../third_party/plugins/dsh-skill-mcp-panel/src/index.ts', import.meta.url),
+  new URL('../../../.artifacts/mcp-panel-snapshot-artifact/package/lib/index.js', import.meta.url),
+)
 
 const conflictName = 'snapshot-conflict-skill'
 const movableName = 'snapshot-movable-skill'

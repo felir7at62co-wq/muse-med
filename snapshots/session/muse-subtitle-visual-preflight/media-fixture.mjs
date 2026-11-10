@@ -102,8 +102,12 @@ export async function apply(ctx) {
     if (completed === 0) {
       assert.deepEqual(actual, { ok: false, failedChecks: ['subtitle_display_font'], encodedShots: [] })
       assert.equal(report.output, '')
-      assert.ok(calls.length > 0)
-      assert.ok(calls.every(call => call.args.some(arg => arg.includes('bbox=min_val=1'))))
+      const probes = calls.filter(call => call.command === 'visual-preflight-ffprobe')
+      const layout = calls.filter(call => call.command === 'visual-preflight-ffmpeg')
+      assert.ok(probes.length > 0)
+      assert.ok(layout.length > 0, 'font refusal must still perform a real bbox layout probe')
+      assert.equal(calls.length, probes.length + layout.length)
+      assert.ok(layout.every(call => call.args.some(arg => arg.includes('bbox=min_val=1'))))
     } else {
       assert.equal(completed, 1)
       assert.deepEqual(actual, { ok: true, failedChecks: [], encodedShots: [1] })

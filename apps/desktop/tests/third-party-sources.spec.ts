@@ -28,9 +28,10 @@ it('retains pinned community source and licenses without tracking installed runt
     archiveSha256?: string
     license: string
     desktop?: boolean
+    localModifications?: { files: Record<string, { sha256: string }> }
   }>
   expect(Object.keys(pins).sort()).toEqual([
-    'ds-bot', 'dsh-bridge', 'dsh-codex-subscription', 'dsh-feishu', 'dsh-ffmpeg', 'dsh-im', 'dsh-plugin-subscriptions', 'dsh-skill-mcp-panel', 'dshmarket', 'muse-hongguo-search',
+    'deep-view', 'ds-bot', 'dsh-bridge', 'dsh-codex-subscription', 'dsh-feishu', 'dsh-ffmpeg', 'dsh-im', 'dsh-plugin-subscriptions', 'dsh-skill-mcp-panel', 'dsh-visualize', 'dshmarket', 'muse-hongguo-search',
   ])
   expect(pins['dsh-codex-subscription']?.desktop).toBe(false)
   expect(pins['dsh-plugin-subscriptions']?.desktop).not.toBe(false)
@@ -57,7 +58,15 @@ it('retains pinned community source and licenses without tracking installed runt
       cwd: repository,
       encoding: 'utf8',
     }), directory).toBe('')
-    if (directory !== 'dsh-bridge' && directory !== 'dsh-im') expect(await readdir(sourceDir), directory).not.toContain('lib')
+    if (directory === 'dsh-visualize') {
+      const entries = ['client.js', 'index.d.ts', 'index.js']
+      expect((await readdir(join(sourceDir, 'lib'))).sort()).toEqual(entries)
+      for (const entry of entries) {
+        const expected = pin.localModifications?.files[`lib/${entry}`]?.sha256
+        expect(expected, entry).toMatch(/^[a-f0-9]{64}$/)
+        expect(createHash('sha256').update(await readFile(join(sourceDir, 'lib', entry))).digest('hex'), entry).toBe(expected)
+      }
+    } else if (directory !== 'dsh-bridge' && directory !== 'dsh-im') expect(await readdir(sourceDir), directory).not.toContain('lib')
     expect(await readdir(sourceDir), directory).not.toContain('.git')
   }
   expect((await readFile(join(root, 'dsh-codex-subscription', 'THIRD_PARTY_NOTICES.md'), 'utf8')))

@@ -10,7 +10,7 @@ import { promisify } from 'node:util'
 import { createWindowsTokenSigner, installWindowsNsisBootstrapSigner, scrubWindowsSigningEnvironment } from './windows-sign.mjs'
 import { loadDesktopPackageEnvironment } from './desktop-package-environment.mjs'
 import { createPackagingRun } from './packaging-run.mjs'
-import { assertInstallerNegativeControl, assertVisualCppPrerequisiteReceipt, createInstallerTestPagesSource, createInstallerTestSource } from './windows-installer-test-fixture.mjs'
+import { assertInstallerNegativeControl, assertVisualCppPrerequisiteReceipt, prepareInstallerTestFixtures } from './windows-installer-test-fixture.mjs'
 
 if (process.platform !== 'win32' || process.arch !== 'x64') {
   throw new Error('Installer UI checks require an interactive Windows x64 desktop')
@@ -144,10 +144,7 @@ SectionEnd
     const strings = join(languageOutput, 'strings.nsh')
     await writeFile(strings, renderInstallerStrings([locale]), 'utf8')
     const include = join(languageOutput, 'include.nsh')
-    const fixture = join(languageOutput, 'installer.nsh')
-    const pages = join(languageOutput, 'pages.nsh')
-    await writeFile(fixture, fixtureSource)
-    await writeFile(pages, fixturePages)
+    const { fixture, pages } = await prepareInstallerTestFixtures(appRoot, languageOutput)
     await writeFile(include, `!define INSTALLER_BUILD_DIR "${join(output, 'ui')}"\n!define INSTALLER_STRINGS_FILE "${strings}"\n!define INSTALLER_TEST_PAGES_FILE "${pages}"\n!define INSTALLER_TEST_TRACE_DIR "${languageOutput}"\n!include "${fixture}"\n`)
     await build({ projectDir: appRoot, prepackaged: payload, targets: Platform.WINDOWS.createTarget(['nsis'], Arch.x64), publish: 'never',
       config: { ...config, productName, extraMetadata: { ...config.extraMetadata, name: packageName },

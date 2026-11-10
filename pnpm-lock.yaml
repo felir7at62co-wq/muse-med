@@ -42,6 +42,9 @@ importers:
       '@deepseek-ai/dsh-agent':
         specifier: workspace:*
         version: link:packages/core/agent
+      '@deepseek-ai/dsh-app-boot':
+        specifier: workspace:*
+        version: link:packages/boot/app-boot
       '@deepseek-ai/dsh-atomic-write':
         specifier: workspace:*
         version: link:packages/util/atomic-write
@@ -141,6 +144,9 @@ importers:
       '@deepseek-ai/dsh-perception-bgm':
         specifier: workspace:*
         version: link:packages/perception/perception-bgm
+      '@deepseek-ai/dsh-plugin-manager':
+        specifier: workspace:*
+        version: link:packages/boot/plugin-manager
       '@deepseek-ai/dsh-pwsh-local':
         specifier: workspace:*
         version: link:packages/shell/pwsh-local
@@ -16287,6 +16293,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-llm-replay':
+        specifier: workspace:*
+        version: link:../../test-support/llm-replay
       '@deepseek-ai/dsh-sdk-protocol':
         specifier: workspace:*
         version: link:../protocol
