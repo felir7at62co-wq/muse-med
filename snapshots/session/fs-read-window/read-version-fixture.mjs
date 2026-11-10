@@ -4,7 +4,7 @@ import { basename } from 'node:path'
 import { importSnapshotModule } from '../muse-fixture-import.mjs'
 const reads = await importSnapshotModule(
   new URL('../../../apps/desktop-host/src/manuscript-video-reads.ts', import.meta.url),
-  new URL('../../../apps/desktop-host/lib/manuscript-video-reads.js', import.meta.url),
+  new URL('../../../apps/desktop-host/lib/types/manuscript-video-reads.js', import.meta.url),
 )
 export const name = 'read-version-fixture'
 export const inject = ['fs', 'sessionProjections']
