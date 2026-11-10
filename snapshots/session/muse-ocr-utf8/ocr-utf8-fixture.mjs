@@ -73,7 +73,7 @@ export function apply(ctx) {
         case 'ffmpeg':
           assert.equal(spec.argv[spec.argv.indexOf('-frames:v') + 1], '1')
           bytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9])
-          diagnostic = '[showinfo] pts_time:0'
+          diagnostic = '[showinfo] pts:0 pts_time:0'
           // Entropy is deterministic only between the frame-output and bridge-input boundaries.
           frameEntropy = true
           break

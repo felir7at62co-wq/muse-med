@@ -1,6 +1,6 @@
 /** `render`: the encode pipeline, its cache, its log, and the delivery verdict it returns. */
 
-import { copyFile, cp, mkdir, readFile, readdir, realpath, rename, rm } from 'node:fs/promises'
+import { copyFile, cp, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, relative } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDramaRender, captureEpisodeSourceReview } from '../src/index.ts'
@@ -499,10 +499,18 @@ describe('renderEpisode', () => {
 
   it('rejects a replaced prepared picture even when original source review remains current', async () => {
     const prepared = await reviewedProject(), channel = renderChannel(prepared)
-    await writePlaceholder(join(prepared.paths.videoDir, 'shot_001.mp4'), 'unreviewed copied picture')
+    const picture = join(prepared.paths.videoDir, 'shot_001.mp4'), original = await readFile(picture)
+    const captured = await captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, prepared.verifier)
+    if (captured === undefined) throw Error('Strict source review was not captured')
+    await writePlaceholder(picture, 'unreviewed copied picture')
+    for (const file of captured.files) expect(await fileSha256(file.path)).toBe(file.sha256)
+    await expect(captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, prepared.verifier))
+      .rejects.toThrow('镜头副本与已审看源片字节不符')
     await expect(render(prepared, channel, false, undefined, { sourceQaVerifier: prepared.verifier }))
       .rejects.toThrow('镜头副本与已审看源片字节不符')
     expect(channel.calls).toEqual([])
+    await writeFile(picture, original)
+    expect(await captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, prepared.verifier)).toEqual(captured)
   })
 
   it('refuses a review replaced during source evidence verification before rendering', async () => {

@@ -211,7 +211,7 @@ function fixture(packaged = false) {
     effect(acquire: () => () => void) { return acquire() }
     agentPresets = {
       defaultId: 'short-drama',
-      list: vi.fn(async () => ids.map(id => ({ id }))),
+      list: vi.fn(async () => [...ids, 'muse-manuscript-continuity-reviewer'].map(id => ({ id }))),
       resolve: vi.fn(async (id: string) => ({ id: id === 'editing' ? 'short-drama' : id })),
       compositionInventory: vi.fn(async () => ids.map(id => ({ id, isDefault: id === 'short-drama', rows: [{ id: 'persona' }] }))),
       mount,
@@ -653,7 +653,7 @@ it('refuses a roster with additional presets before creating an agent', async ()
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
 })
 
-it.each(['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation'])
+it.each(['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation', 'muse-manuscript-continuity-reviewer'])
 ('refuses a roster missing product preset %s before creating an agent', async (missing) => {
   const f = fixture()
   f.ctx.agentPresets.list.mockResolvedValue((await f.ctx.agentPresets.list()).filter(preset => preset.id !== missing))
