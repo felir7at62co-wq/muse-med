@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import test from 'node:test'
+import { registerHooks } from 'node:module'
 import { boot, initProfile, readProfilePatches } from '@deepseek-ai/dsh-app-boot'
 import ConfigEditor from '@deepseek-ai/dsh-config-editor'
 import Settings from '@deepseek-ai/dsh-settings'
@@ -21,6 +22,8 @@ test('loads the subscription account settings and authenticated RPC through the 
   const routes = new Map()
   let ctx
   let requests = 0
+  let runtimeLookups = 0
+  const runtimeHooks = []
   const originalFetch = globalThis.fetch
   globalThis.fetch = () => { requests++; throw new Error('Unexpected external request') }
   try {
@@ -57,6 +60,15 @@ test('loads the subscription account settings and authenticated RPC through the 
           attachments: AttachmentLocal, llm: Llm, web: Web, tools: Tools, prompt: SystemPrompt })
       }, undefined, { 'dsh-codex-subscription': pathToFileURL(join(process.cwd(), 'lib/index.js')).href })
       await ctx.loader.await()
+      // Host fallback resolution must not reintroduce the optional peer into this absent-runtime fixture.
+      runtimeHooks.push(registerHooks({ resolve(specifier, context, nextResolve) {
+        if (specifier === '@deepseek-ai/dsh-subagent-codex' || specifier.startsWith('@deepseek-ai/dsh-subagent-codex/')) {
+          runtimeLookups++
+          throw Object.assign(new Error('Optional subagent runtime is absent in this fixture'), { code: 'MODULE_NOT_FOUND' })
+        }
+        return nextResolve(specifier, context)
+      } }))
+
       const entry = [...ctx.loader.entries()].find(row => row.options.id === 'codex-subscription')
       assert.ok(entry?.fiber)
       assert.ok(ctx.settings.describe().find(row => row.ns === 'codex-subscription'))
@@ -75,6 +87,7 @@ test('loads the subscription account settings and authenticated RPC through the 
     assert.equal((await rpc('status')).value.authenticated, false)
     const preferences = await rpc('preferences/status')
     assert.equal(preferences.ok, true)
+    assert.equal(preferences.value.subagentRuntimeInstalled, false)
     await ctx.settings.update('codex-subscription', { speedMode: 'fast', quickQuotaMode: 'percent' })
     assert.match(readFileSync(profile.patchPath, 'utf8'), /speedMode: fast/)
     await ctx.fiber.dispose()
@@ -85,10 +98,14 @@ test('loads the subscription account settings and authenticated RPC through the 
     assert.equal(restored.value.speedMode, 'fast')
     assert.equal(restored.value.quickQuotaMode, 'percent')
     assert.equal(restored.value.subagentRuntimeInstalled, false)
+    assert.ok(runtimeLookups > 0, 'the Host resolves optional runtime availability through the isolated fixture')
     assert.equal(requests, 0)
   } finally {
-    await ctx?.fiber.dispose()
-    globalThis.fetch = originalFetch
-    rmSync(home, { recursive: true, force: true })
+    try { await ctx?.fiber.dispose() }
+    finally {
+      for (const hook of runtimeHooks.reverse()) hook.deregister()
+      globalThis.fetch = originalFetch
+      rmSync(home, { recursive: true, force: true })
+    }
   }
 })
