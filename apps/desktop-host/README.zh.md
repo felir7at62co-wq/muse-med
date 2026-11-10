@@ -40,7 +40,9 @@ Desktop 默认组合包在用户配置补丁之前注册[短剧设置](../../pac
 <a id="compaction-defaults"></a>
 短剧交付按项目明确类型和已准备画布执行；选择方式与旧项目行为见[项目圣经](../../packages/drama/drama-settings/README.zh.md)。
 
-编辑与创作策略在 `present`、`send_file`、`dsh_im_return_file` 交付前检查原生工具已登记的单集输出，以及已绑定短剧项目的 `exports`、`export`、`final`、`01_可交付视频` 位置中的视频。交付须有当前 `stage_delivery` 候选及已绑定的源片复验证据，渲染、字幕、时间线、选源与原草稿配对证据须一致。依据已绑定时间线判为竖屏的成片还须有产品字幕配置及实际朱雀字族测量；横屏和方形保留原字体规则。视频输入变化后需重建并重新归档。后续编辑原生草稿不使 MP4 失效，也不证明编辑草稿仍与其一致。状态保持 `candidate`，不证明内容或剪映显示已验收；普通文件和原始视频包附件保持原行为。任意 shell 复制与 Markdown 链接不受这些检查约束；项目 JSON 回执用于一致性核对，并非防篡改签名。创作模式保留原 `video_inspect` 抽样，新增 `video_source_review` 完成源片观察。见[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/short-drama-file-delivery/guide.zh.md)。
+编辑与创作策略在 `present`、`send_file`、`dsh_im_return_file` 交付前检查原生工具已登记的单集输出，以及已绑定短剧项目的 `exports`、`export`、`final`、`01_可交付视频` 位置中的视频。交付须有当前 `stage_delivery` 候选及已绑定的源片复验证据，渲染、字幕、时间线、选源与原草稿配对证据须一致。依据已绑定时间线判为竖屏的成片还须有产品字幕配置及实际朱雀字族测量；横屏和方形保留原字体规则。视频输入变化后需重建并重新归档。后续编辑原生草稿不使 MP4 失效，也不证明编辑草稿仍与其一致。状态保持 `candidate`，不保证内容质量或剪映显示；普通文件和原始视频包附件保持原行为。任意 shell 复制与 Markdown 链接不受这些检查约束；项目 JSON 回执用于一致性核对，并非防篡改签名。创作模式保留原 `video_inspect` 抽样，新增 `video_source_review` 完成源片观察。见[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/short-drama-file-delivery/guide.zh.md)。
+
+最终交付还会对照实际发起会话，复核归档时的[单集内容证据](../../packages/drama/tool-episode-render/README.zh.md)。物理逻辑与连续性判断需要当前分包及成片的实际观察记录；试听需要对该确切成片提问后的真实回答。缺失、过期或仍有疑点的证据阻止交付。这些检查不会自动提问、保证感知判断质量或停止其他无关工作。
 
 Muse 内置 Codex 订阅插件，并在设置中提供 ChatGPT 登录入口。独立订阅登录使用官方 Codex OAuth 提供方；Muse 账号登录不授予此权限。凭据保留在本地 Host 凭据服务中，浏览器账号响应不包含令牌。仅在连接账号时列出订阅模型。升级会恢复内置组合包，不替换已保存的订阅设置或凭据。此订阅接入不包含或启用可选 Codex CLI 子代理提供方。产品覆盖继续停用 Agent 笔记设置页及其 Host API；工程笔记文件与用户配置的 MCP 连接仍可使用。
 
@@ -204,6 +206,8 @@ Muse 建议型 Word 导出固定本次实际 Markdown 输入，通过内置 Pyth
 `jianying_draft` 通过受管子进程调用内置生成器，输入为有大小限制的单集 JSON 请求和已有剪映草稿根目录。Windows 请求指定 `audio_mode: "embedded"` 时选择随包 aa剪映适配器，保留视频原声，BGM 独立；仅 `9:16` 添加片尾，`16:9` 在正文结束。未声明模式或显式使用 `"independent"` 时沿用 pyJianYingDraft，Mac 的 embedded 请求明确报错。Windows 适配器探测已安装 CLI，不用 FFmpeg 渲染替代原生草稿创建。可选 `windowsPowerShellPath`、`windowsCliPath`、`windowsHostPath`、`ffmpegPath` 和 `ffprobePath` 配置已有部署可执行文件。`windowsLandscapeSubtitleSize` 和 `windowsLandscapeSubtitleY` 可覆盖 Windows 16:9 默认字号 7 与剪映界面 Y -879。完成、失败和取消均等待进程退出。启动失败未返回 JSON 时保留受限长度的进程诊断。字幕、配乐和轨道质量疑点通过 `warnings` 与逐稿 `review_path` 返回；技术失败仍拒绝。保存回读不代表原生编辑器打开、播放或声音已验收。
 
 原生草稿配置 `maxBgmGain` 默认 8（接受 0–8），Muse office 组合选择 1，通过托管子进程设置 `DSH_BGM_MAX_GAIN` 对项目/时间线的实际 BGM 增益封顶。原生草稿的 `ffmpegPath`、`ffprobePath` 将解析后的媒体工具路径传入托管 Python 环境。原声增益独立。独立 Python 生成器在缺少该设置时保留旧上限 8。增益上限 1 只能保留音乐床已有的源曲衰减，不能认证任意导入音频。 创作预设的 BGM 合成与成片渲染直接绑定 Host 已解析的 `DSH_FFMPEG_PATH`、`DSH_FFPROBE_PATH`，自带媒体工具无需加入系统 PATH。
+
+`fontsDir` 与 `subtitleFontFamily` 将产品内置字体资源和所选字族传给草稿后端。强制产品输出要求保存后的字体证据；文件保存成功而缺少该证据，不算草稿生成成功。请求字体缺失或后端不支持时保留待修候选的路径与审查详情，不静默交付系统字体替代品。使用内置字体无需用户在操作系统中安装该字体，但编辑器版本兼容性仍须原生验证。
 
 原生工具挂载期间，其常驻系统指导也传入续做会话：重新读取当前草稿技能，使用原生请求文件入口，不沿用历史绝对开发路径或 `DraftGenerator` Shell 方案。独立对白导入成功后才静音源视频，已有草稿不会自动迁移。这是 Agent 指导，不是 Shell 拦截、新增审批，也不能证明自主运行的模型始终遵循。
 

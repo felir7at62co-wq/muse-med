@@ -474,6 +474,23 @@ it('names a local subject verification failure without exposing asset URLs', asy
 })
 
 describe('uploaded voice references', () => {
+  it.each([false, true])('reviews the EP50 off-screen thoughts with voice reference %s', async (hasAudio) => {
+    const sample = await readFile(new URL('./fixtures/ep50-voiceover.txt', import.meta.url), 'utf8')
+    const prompt = hasAudio ? sample : sample.replace(/本段乔麦的心声与台词声音参考为[^。]+。/u, '')
+    const audio = { materialType: 'audio', materialUrl: 'https://media.example/voice.wav',
+      materialKey: 'voice-lead', fileName: '乔麦声线', sortOrder: 1, audioDuration: 2 }
+    const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
+      storyboardMaterialList: hasAudio ? [...MATERIALS, audio] : MATERIALS,
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt }) } }
+    const result = await prepareVideoMethod(clientFor(provider), ledger,
+      { storyboard_id: 916953, project_dir: await project() })
+    expect(result.voice_continuity_review).toMatchObject({
+      status: hasAudio ? 'voice_reference_present_unverified' : 'dialogue_without_voice_reference',
+    })
+    expect(putCalls(provider)).toEqual([])
+    expect(await ledger.records()).toEqual([])
+  })
+
   it.each([
     '台词 ：陆沉舟：今晚别走。',
     '旁白：雨停了。',
@@ -506,6 +523,16 @@ describe('uploaded voice references', () => {
     '镜头1：场景：客厅 画面文字：禁止通行 旁白：雨停了。',
     '镜头17：画面文字：陆沉舟：无声；近景，陆沉舟：还想走吗？',
     '镜头17：画面文字：台词：无声；台词：陆沉舟：还想走吗？',
+    '人物：乔麦\n乔麦（在心里感慨）：所有人先前都戴着面具。',
+    '人物：乔麦\n镜头5：她嘴唇不动，不对口型。乔麦：所有人先前都戴着面具。',
+    '人物：乔麦\n镜头5：她低下头！乔麦（认真，带着笑意）：裴总。',
+    '人物：乔麦\n镜头5：她望着窗外？乔麦（OS）：听好了。',
+    '说话人：Mary Jane\nShot 2: She turns away.Mary Jane (smiling): Hello.',
+    '镜头5：嘴唇不动。OS：我想留下。',
+    '人物：乔麦\n镜头5：动作：她转身。台词：乔麦：听好了。',
+    '人物：乔麦\n镜头5：动作：她转身；台词：乔麦：听好了。',
+    '人物：乔麦\n镜头5：动作：她转身，台词：乔麦：听好了。',
+    '人物：乔麦\n镜头5：动作：她转身。乔麦（认真）：听好了。',
   ])('flags this spoken prompt without a voice reference: %s', async (speech) => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}\n${speech}` }) } }
@@ -561,6 +588,16 @@ describe('uploaded voice references', () => {
     '人物：张三\n镜头17：近景，李四：今晚别走。',
     '@[ ](lead)\n镜头17：近景，人物转身',
     '@[场景](lead)\n镜头17：场景：雨夜街头',
+    '人物：乔麦\n乔麦（不发声）：听好了。',
+    '人物：乔麦\n镜头5：乔麦（无对白）：听好了。',
+    '人物：乔麦\n镜头5：动作：乔麦（擦嘴）：抬起手。',
+    '人物：乔麦\n镜头5：人物动作：乔麦（擦嘴）：抬起手。',
+    '人物：乔麦\n镜头5：画面文字：乔麦（在心里感慨）：听好了。',
+    '人物：乔麦\n镜头5：近景。不要 乔麦（认真）：听好了。',
+    '人物：乔麦\n镜头5：负面提示：心声：听好了。',
+    '人物：乔麦\n镜头5：拿起印着“乔麦（在心里感慨）：听好了。”的纸条，人物不发声。',
+    '人物：乔麦\n镜头5：动作：她转身，画面文字：台词：乔麦：听好了。',
+    '人物：乔麦\n镜头5：动作：她转身。负面提示：台词：乔麦：听好了。',
   ])('does not treat a non-speech prompt as dialogue: %s', async (description) => {
     const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, prompt: `${PROMPT}\n${description}` }) } }
@@ -2019,25 +2056,30 @@ describe('submit_video_batch', () => {
       idempotency_key: String(preview.idempotencyKey) })) }
   }
 
-  it('never treats an initially recorded batch key as a fresh paid request after it disappears', async () => {
-    const { provider, items } = await batch()
-    for (const item of items) {
-      const preview = JSON.parse(await readFile(item.preview_path, 'utf8')) as NativeVideoPreview
-      await ledger.begin({ idempotencyKey: item.idempotency_key, method: 'storyboard_native_submit', scriptId: 2708,
-        requestSha256: bodyHash(preview.payload), beforeTaskIds: [], videoPreviewPath: item.preview_path })
-    }
-    const originalFind = ledger.find.bind(ledger)
-    let reads = 0
-    const find = vi.spyOn(ledger, 'find').mockImplementation(async (key) => {
-      reads++
-      return reads <= items.length ? originalFind(key) : undefined
-    })
-    try {
-      await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items })).rejects.toThrow('No recorded video submission')
-    } finally { find.mockRestore() }
-    expect(provider.calls).toEqual([])
-    expect(await ledger.records()).toHaveLength(items.length)
-  })
+  it.each(['disappears', 'changes identity'] as const)(
+    'does not reconcile or resend an initially recorded batch key after it %s', async (change) => {
+      const { provider, items } = await batch()
+      for (const item of items) {
+        const preview = JSON.parse(await readFile(item.preview_path, 'utf8')) as NativeVideoPreview
+        await ledger.begin({ idempotencyKey: item.idempotency_key, method: 'storyboard_native_submit', scriptId: 2708,
+          requestSha256: bodyHash(preview.payload), beforeTaskIds: [], videoPreviewPath: item.preview_path })
+      }
+      const originalFind = ledger.find.bind(ledger)
+      let reads = 0
+      const find = vi.spyOn(ledger, 'find').mockImplementation(async (key) => {
+        reads++
+        const entry = await originalFind(key)
+        return reads <= items.length ? entry : change === 'disappears'
+          ? undefined : { ...entry!, record_id: 'replaced-record' }
+      })
+      try {
+        await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items })).rejects.toThrow(
+          change === 'disappears' ? 'No recorded video submission' : 'Recorded video submission identity changed')
+      } finally { find.mockRestore() }
+      expect(provider.calls).toEqual([])
+      expect(await ledger.records()).toHaveLength(items.length)
+    },
+  )
 
   it('refuses a linked batch preview before creating a reservation', async () => {
     const { provider, items } = await batch(1)

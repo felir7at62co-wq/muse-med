@@ -2780,17 +2780,30 @@ describe('headless recorded-session snapshots', () => {
             if (scenario.name === 'muse-storyboard-voice-identity') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results).toHaveLength(2)
-              for (const [index, message] of results.entries()) {
+              expect(results).toHaveLength(4)
+              for (const [index, message] of results.slice(0, 2).entries()) {
                 expect(message.isError).toBe(true)
                 const block = message.content[0]
                 if (block?.type !== 'text') throw new Error('Missing voice identity refusal')
                 expect(block.text).toContain(index === 0 ? 'Project voice configuration project_bible' : 'Shared character voice requires')
                 expect(block.text).not.toContain('expected envelope')
               }
+              const statuses = results.slice(2).map(message => {
+                expect(message.isError).toBe(false)
+                const block = message.content.find(item => item.type === 'text')
+                if (block?.type !== 'text') throw new Error('Missing voiceover preparation result')
+                const result = JSON.parse(block.text)
+                expect(result).toMatchObject({ status: 'prepared', content_duration_ms: 25000 })
+                return result.voice_continuity_review.status
+              })
+              expect(statuses).toEqual(['voice_reference_present_unverified', 'dialogue_without_voice_reference'])
               const evidence = JSON.parse(await readFile(join(cwd, '_probe/voice-identity-fixture.json'), 'utf8'))
               expect(evidence).toMatchObject({ simulated: true, writes: 0 })
-              expect(evidence.requests).toHaveLength(3)
+              expect(evidence.requests.slice(0, 3)).toEqual([
+                { method: 'GET', path: '/prod-api/aigc/storyboard/901' },
+                { method: 'GET', path: '/prod-api/aigc/storyboard/901' },
+                { method: 'GET', path: '/prod-api/aigc/asset/77' },
+              ])
               expect(evidence.requests.every((row: JsonObject) => row.method === 'GET')).toBe(true)
             }
             if (scenario.name === 'muse-voice-periods') {
