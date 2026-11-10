@@ -27,6 +27,7 @@
     "tests/jubian-episode-delivery.e2e.ts",
     "tests/jubian-video-recovery.e2e.ts",
     "tests/session-video.e2e.ts",
+    "tests/session-video-inline.e2e.ts",
     "tests/muse-visualize.e2e.ts",
     "tests/muse-session-views.e2e.ts",
     "tests/yunying-acceptance.e2e.ts",
