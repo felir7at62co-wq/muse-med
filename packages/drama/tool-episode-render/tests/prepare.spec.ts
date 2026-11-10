@@ -531,7 +531,7 @@ describe('prepared subtitle source clock', () => {
     } else await expect(verifyPreparedSubtitleClock(paths.subtitle, paths, timeline)).resolves.toBeUndefined()
   })
 
-  async function preparedClockProject() {
+  async function preparedClockProject(generatedClock = true) {
     const project = await tempProject()
     temporary.push(project)
     const paths = episodePaths(project, '02'), sourceSubtitle = join(project, 'source.srt')
@@ -556,11 +556,13 @@ describe('prepared subtitle source clock', () => {
       await writeFile(call.args.at(-1)!, 'prepared original master audio', 'utf8')
     } })])
     const toolkit = createMediaToolkit({ ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel })
-    const shots = await resolveShots(toolkit, project, parseShotManifest(manifest, shotsPath), 60)
-    await writeSubtitleClock(sourceSubtitle, text, '02', shots)
+    if (generatedClock) {
+      const shots = await resolveShots(toolkit, project, parseShotManifest(manifest, shotsPath), 60)
+      await writeSubtitleClock(sourceSubtitle, text, '02', shots)
+    }
     const prepared = await prepareEpisode({ toolkit, project, episode: '02', shotsPath, subtitleSrt: sourceSubtitle })
     const files = [...new Set([firstVideo, secondVideo, secondAudio, sourceSubtitle, shotsPath,
-      subtitleClockPath(sourceSubtitle), ...prepared.written])]
+      ...(generatedClock ? [subtitleClockPath(sourceSubtitle)] : []), ...prepared.written])]
     return { project, paths, secondAudio, files, channel }
   }
 
@@ -611,6 +613,72 @@ describe('prepared subtitle source clock', () => {
     const callsBefore = [...channel.calls]
     await expect(preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined))
       .rejects.toThrow(change === 'old subtitle' ? '生成字幕与当前集、分包素材或切点不一致' : '生成字幕缺少与当前音轨及时间线一致的准备记录')
+    for (const file of before) expect(await readFile(file.path)).toEqual(file.bytes)
+    expect(channel.calls).toEqual(callsBefore)
+    await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('captures a BOM-prefixed prepared manifest using its actual saved byte identity', async () => {
+    const { project, paths, files, channel } = await preparedClockProject()
+    const original = await readFile(paths.sources), bom = Buffer.from([0xef, 0xbb, 0xbf])
+    await writeFile(paths.sources, Buffer.concat([bom, original]))
+    const before = await Promise.all(files.map(async path => ({ path, bytes: await readFile(path) })))
+    const callsBefore = [...channel.calls]
+    const captured = await preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined)
+    expect(captured).toMatchObject({ clockPresent: true, masterPath: paths.masterAudio,
+      manifestBytes: original.length + bom.length, manifestSha256: await fileSha256(paths.sources) })
+    expect((await readFile(paths.sources)).subarray(0, 3)).toEqual(bom)
+    for (const file of before) expect(await readFile(file.path)).toEqual(file.bytes)
+    expect(channel.calls).toEqual(callsBefore)
+    await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('rejects truncated prepared-manifest JSON without rewriting its evidence', async () => {
+    const { project, paths, files, channel } = await preparedClockProject()
+    await writeFile(paths.sources, '{"shots":[', 'utf8')
+    const before = await Promise.all(files.map(async path => ({ path, bytes: await readFile(path) })))
+    const callsBefore = [...channel.calls]
+    const capture = preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined)
+    await expect(capture).rejects.toThrow('已准备分包清单不是合法 JSON')
+    const cause = await capture.then(() => undefined, (error: unknown) => error instanceof Error ? error.cause : undefined)
+    expect(cause).toBeInstanceOf(SyntaxError)
+    for (const file of before) expect(await readFile(file.path)).toEqual(file.bytes)
+    expect(channel.calls).toEqual(callsBefore)
+    await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('captures a legacy manual subtitle without requiring generated clock metadata', async () => {
+    const { project, paths, files, secondAudio, channel } = await preparedClockProject(false)
+    expect(await pathExists(subtitleClockPath(paths.subtitle))).toBe(false)
+    expect(JSON.parse(await readFile(paths.sources, 'utf8'))).not.toHaveProperty('master_audio_sha256')
+    expect(JSON.parse(await readFile(paths.sources, 'utf8'))).not.toHaveProperty('timeline_clips')
+    const before = await Promise.all(files.map(async path => ({ path, bytes: await readFile(path) })))
+    const callsBefore = [...channel.calls]
+    const captured = await preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined)
+    expect(captured).toEqual({ clockPath: subtitleClockPath(paths.subtitle), manifestPath: paths.sources,
+      manifestBytes: (await readFile(paths.sources)).length, manifestSha256: await fileSha256(paths.sources), clockPresent: false,
+      shots: [
+        { shot: 1, video: join(paths.videoDir, 'shot_001.mp4'), audio: join(paths.videoDir, 'shot_001.mp4') },
+        { shot: 2, video: join(paths.videoDir, 'shot_002.mp4'), audio: secondAudio },
+      ],
+    })
+    expect(captured).not.toHaveProperty('masterPath')
+    for (const file of before) expect(await readFile(file.path)).toEqual(file.bytes)
+    expect(channel.calls).toEqual(callsBefore)
+    await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('rejects a generated subtitle whose clock remains but prepared metadata is missing', async () => {
+    const { project, paths, files, channel } = await preparedClockProject()
+    expect(await pathExists(subtitleClockPath(paths.subtitle))).toBe(true)
+    const manifest = JSON.parse(await readFile(paths.sources, 'utf8')) as { master_audio_sha256?: string; timeline_clips?: object[] }
+    delete manifest.master_audio_sha256
+    delete manifest.timeline_clips
+    await writeFile(paths.sources, JSON.stringify(manifest), 'utf8')
+    const before = await Promise.all(files.map(async path => ({ path, bytes: await readFile(path) })))
+    const callsBefore = [...channel.calls]
+    await expect(preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined))
+      .rejects.toThrow('生成字幕缺少与当前音轨及时间线一致的准备记录')
     for (const file of before) expect(await readFile(file.path)).toEqual(file.bytes)
     expect(channel.calls).toEqual(callsBefore)
     await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
