@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-hongguo-public-download
+profile: headless
+composition: muse-hongguo-public-download
+recording: authored
+writerOutput: true
+header:
+  class: muse-hongguo-public-download
+  pin: true
+workspace:
+  final: true

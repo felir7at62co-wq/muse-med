@@ -65,6 +65,8 @@ Muse Desktop 内置本地 Java 17、CPython 3.11、PyCryptodome、签名素材�
 
 `hongguo_download_info` 不查询视频模型，也不下载文件。`completeCatalog` 核对声明总集数与列表；`mediaUrlsVerified` 保持 false，`fullSeriesAvailable` 为 null，只有公开试看明确排除部分集时为 false。`accessibleEpisodeCount` 为公开播放器声明的开放集数，其他模式为 null。只有成功的 `hongguo_download` 收据才能验证请求集已下载并完整解码。
 
+显式选择 `sourceMode: 'public'` 时，受保护播放器页面可以提供集目录而不内嵌媒体地址。只有下载解析才将已开放请求集的精确 `item_id` 提交给官网 `/api/video/protected/fallback-play-info?aid=8662` 接口，不携带 Cookie、设备字段或私有签名。超过 `accessibleEpisodeCount` 的请求在媒体查询和传输前停止。业务错误、缺失地址及无效响应明确失败；上游原文与临时地址保持私密。仅有 fallback 地址不能证明分辨率或解码成功，声明列表还有其他集时，已下载试看仍为部分完成。这项公开播放器兼容不证明默认 `legacy` 原源或其全集可用。
+
 原源响应共同校验 `code`、`Code` 与 `BaseResp.StatusCode`，不能用一个零掩盖另一个非零错误码。失败只公开数字 `upstreamCode`、`sourceStage`（`catalog`、`video_model` 或 `source_api`）及 `retryable: false`。原始消息、设备值、签名响应和媒体地址保持私密。连接失败、来源响应截断、HTTP 429 和 HTTP 5xx 在原设备上按配置次数有限重试。首次即为空或再次为空、授权错误和未知业务错误立即停止，不重试或轮换设备。已正确解析过媒体模型后，空正文可在同一设备等待 `emptySourceCooldownMs` 后恢复一次，计入重试预算；可取消的等待期间保留本轮已下载文件，再次为空则结束调用并保留已验证集。可取消的排队结束后，单次媒体请求超时返回 `source_timeout`。明确的风控或限流消息沿用配置的有限重试次数；耗尽后不得立即重新提交。平台报错不能证明某剧不存在，不得将其误报为媒体地址缺失或立即重复已耗尽重试的下载。
 
 HTTP 200 正文为空时返回 `empty_source_response`；非空正文解析失败时返回 `platform_json`。两者保留 `sourceStage`、`httpStatus`、`responseBytes` 和 `retryable: false`，不公开响应原文。最终报告空正文失败时应停止重复下载，保留私有设备配置以供诊断。恢复等待不是电脑降温，也不能据此确认提供方限流。空响应不能证明平台整体停服，也不能作为自动重建设备或改用试看的依据。手动恢复本机配置后，新客户端才会读取恢复的文件；已有客户端在释放前仍保留缓存配置。
