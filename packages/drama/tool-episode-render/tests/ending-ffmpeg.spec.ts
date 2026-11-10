@@ -1,4 +1,4 @@
-/** Real offline evidence that explicit stretching spans the complete ending window. */
+/** Real offline evidence that stretching spans the ending window, with one CPU per FFmpeg process. */
 import { execFile, spawnSync } from 'node:child_process'
 import type { ChildProcess } from 'node:child_process'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -36,7 +36,8 @@ it.skipIf(!available)('stretches all source motion across two seconds without a 
     signal: string | null
   }>((resolve) => {
     if (disposed) throw new Error('Ending fixture already disposed')
-    const child = execFile(command, [...args], { windowsHide: true, encoding: 'utf8', env: environment,
+    const argv = command === ffmpeg ? ['-cpucount', '1', ...args] : [...args]
+    const child = execFile(command, argv, { windowsHide: true, encoding: 'utf8', env: environment,
       timeout: 30_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
       resolve({ code: error === null ? 0 : typeof error.code === 'number' ? error.code : 127, stdout, stderr,
         interrupted: error?.killed ?? false, signal: error?.signal ?? null })
