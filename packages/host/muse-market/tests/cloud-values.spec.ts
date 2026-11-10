@@ -20,7 +20,7 @@ describe('portable cloud JSON readers', () => {
     { ...manifest, kind: 'bot' },
   ])('rejects extra fields and retired payloads in a cloud manifest', (value) => {
     expect(() => parseMarketPublication({ ...publication, manifest: value }, limits))
-      .toThrowError('invalid-response')
+      .toThrow('invalid-response')
   })
 
   it('enforces the UTF-8 byte budget for Chinese and supplementary characters', () => {
@@ -28,7 +28,7 @@ describe('portable cloud JSON readers', () => {
     const encoded = new TextEncoder().encode(JSON.stringify(value)).byteLength
     expect(encoded).toBeGreaterThan(JSON.stringify(value).length)
     expect(() => parseMarketPublication({ ...publication, manifest: value }, { ...limits, recordBytes: encoded - 1 }))
-      .toThrowError('invalid-response')
+      .toThrow('invalid-response')
     expect(parseMarketPublication({ ...publication, manifest: value }, { ...limits, recordBytes: encoded }).manifest)
       .toEqual(value)
   })
@@ -36,11 +36,11 @@ describe('portable cloud JSON readers', () => {
   it('requires the authenticated account when reconstructing upload authority', () => {
     const identity = { accountId: 'd'.repeat(16), publishers: [{ id: 'b'.repeat(32), title: 'Writing team' }], admin: false }
     expect(parseMarketIdentity(identity)).toEqual(identity)
-    expect(() => parseMarketIdentity({ publishers: identity.publishers, admin: false })).toThrowError('invalid-response')
-    expect(() => parseMarketIdentity({ ...identity, accountId: 'd'.repeat(32) })).toThrowError('invalid-response')
-    expect(() => parseMarketIdentity({ ...identity, cookie: 'private' })).toThrowError('invalid-response')
+    expect(() => parseMarketIdentity({ publishers: identity.publishers, admin: false })).toThrow('invalid-response')
+    expect(() => parseMarketIdentity({ ...identity, accountId: 'd'.repeat(32) })).toThrow('invalid-response')
+    expect(() => parseMarketIdentity({ ...identity, cookie: 'private' })).toThrow('invalid-response')
     expect(() => parseMarketIdentity({ ...identity, publishers: [...identity.publishers, ...identity.publishers] }))
-      .toThrowError('invalid-response')
+      .toThrow('invalid-response')
   })
 
   it('keeps local digest, publication, account and original attempt identities separate', () => {
@@ -48,9 +48,9 @@ describe('portable cloud JSON readers', () => {
     expect(parseMarketPublisherId('b'.repeat(32))).toBe('b'.repeat(32))
     expect(parseMarketAccountId('d'.repeat(16))).toBe('d'.repeat(16))
     expect(parseMarketUploadRequestId('original_attempt-1')).toBe('original_attempt-1')
-    expect(() => parseMarketPublicationId('c'.repeat(64))).toThrowError('invalid-publication')
-    expect(() => parseMarketPublisherId('d'.repeat(16))).toThrowError('invalid-publisher')
-    expect(() => parseMarketAccountId('a'.repeat(32))).toThrowError('invalid-account')
-    expect(() => parseMarketUploadRequestId('attempt/key')).toThrowError('invalid-request-id')
+    expect(() => parseMarketPublicationId('c'.repeat(64))).toThrow('invalid-publication')
+    expect(() => parseMarketPublisherId('d'.repeat(16))).toThrow('invalid-publisher')
+    expect(() => parseMarketAccountId('a'.repeat(32))).toThrow('invalid-account')
+    expect(() => parseMarketUploadRequestId('attempt/key')).toThrow('invalid-request-id')
   })
 })
