@@ -43,6 +43,7 @@ beforeEach(() => {
   vi.stubGlobal('IntersectionObserver', class implements IntersectionObserver {
     readonly root = null
     readonly rootMargin = '0px'
+    readonly scrollMargin = '0px'
     readonly thresholds = [0]
     constructor(callback: IntersectionObserverCallback) {
       notifyVisibility.push((visible) => {
@@ -61,7 +62,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 it('keeps each original source and source selection independent', () => {
   const view = render(<><InlineVideoCard {...props(first)} /><InlineVideoCard {...props(second)} /></>)
-  const cards = view.container.querySelectorAll('[data-muse-inline-video]')
+  const cards = view.container.querySelectorAll<HTMLElement>('[data-muse-inline-video]')
   expect(cards).toHaveLength(2)
   expect(within(cards[0]!).getByLabelText('first').getAttribute('src')).toBe('/video/first')
   expect(within(cards[1]!).getByLabelText('second').getAttribute('src')).toBe('/video/second')
