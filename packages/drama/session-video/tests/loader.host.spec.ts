@@ -1,5 +1,6 @@
 /** Real Loader, local filesystem, attachment storage and FFmpeg over synthetic media only. */
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,7 +22,9 @@ import { sourceStateSchema } from '../src/sources.ts'
 
 const roots: string[] = []
 const contexts: Context[] = []
+const readReleases: (() => void)[] = []
 afterEach(async () => {
+  for (const release of readReleases.splice(0)) release()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
@@ -59,6 +62,34 @@ async function fixture(overrides: Partial<Config> = {}) {
     session.append('tool/result', { turn: 1, step: 1, message: createToolResultMessage({ callId, content: [{ type: 'text', text: JSON.stringify(value) }], isError: false }) }, { surfaceOp: 'append' })
   }
   return { root, file, ctx, session, signal, user, tool, routes }
+}
+
+async function localPlayback(overrides: Partial<Config> = {}) {
+  const f = await fixture(overrides)
+  f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]
+  const route = f.routes.get('/api/session-video')
+  if (!route || !source?.playbackUrl) throw Error('Expected a recorded local playback route')
+  return { ...f, source, route, url: new URL(source.playbackUrl, 'http://localhost/') }
+}
+
+/** Hold the return of a real read so cancellation and disposal have an observable boundary. */
+function holdPlaybackRead(ctx: Context) {
+  const entered = Promise.withResolvers<AbortSignal>(), gate = Promise.withResolvers<undefined>()
+  const release = () => { gate.resolve(undefined) }
+  readReleases.push(release)
+  const read = ctx.fs.readByteRange.bind(ctx.fs)
+  void entered.promise.catch(() => {})
+  vi.spyOn(ctx.fs, 'readByteRange').mockImplementationOnce(async (...args) => {
+    try {
+      const bytes = await read(...args), signal = args[2]
+      if (!signal) throw Error('Playback read has no owning cancellation signal')
+      entered.resolve(signal)
+      await gate.promise
+      return bytes
+    } catch (error) { entered.reject(error); throw error }
+  })
+  return { entered: entered.promise, release }
 }
 
 it('detects three shot intervals through the real Loader and preserves original bytes', async () => {
@@ -131,7 +162,7 @@ it('reports executable failure and source mutation without caching invented cut 
   resolve.mockRestore()
   const original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
   vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
-    if (String(spec.argv[0]).endsWith('ffmpeg')) appendFileSync(f.file, 'fixture-version-change')
+    if (/(?:^|[/\\])ffmpeg(?:\.exe)?$/iu.test(spec.argv[0] ?? '')) appendFileSync(f.file, 'fixture-version-change')
     return original(spec)
   })
   const changed = await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)
@@ -169,7 +200,7 @@ it('cancels and joins a running process before another detection uses the slot',
   let child: ReturnType<Context['subprocess']['spawn']> | undefined
   const original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
   const spawn = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
-    if (String(spec.argv[0]).endsWith('ffmpeg')) {
+    if (/(?:^|[/\\])ffmpeg(?:\.exe)?$/iu.test(spec.argv[0] ?? '')) {
       child = original({ ...spec, argv: [process.execPath, '-e', 'setInterval(() => {}, 1000)'] })
       started.resolve(undefined)
       return child
@@ -198,4 +229,122 @@ it('replays persisted source checkpoints when deployment inventory limits change
   const state = sourceStateSchema.parse(restored.checkpoint.sessionVideoSources?.val)
   expect(state.sources).toHaveLength(1)
   expect(state.complete).toBe(false)
+})
+
+it('binds playback to its conversation and exact current file version', async () => {
+  const f = await localPlayback(), before = readFileSync(f.file)
+  const read = vi.spyOn(f.ctx.fs, 'readByteRange'), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  const foreign = f.ctx.sessions.create(SessionId('other-conversation'), { meta: { cwd: f.root } })
+  const foreignUrl = new URL(f.url); foreignUrl.searchParams.set('sessionId', foreign.id)
+  expect((await f.route.fetch(new Request(foreignUrl))).status).toBe(404)
+  expect(read).not.toHaveBeenCalled()
+  appendFileSync(f.file, 'real-source-version-change')
+  expect((await f.route.fetch(new Request(f.url))).status).toBe(409)
+  expect(read).not.toHaveBeenCalled()
+  const latest = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]
+  expect(latest?.version).not.toBe(f.source.version)
+  if (!latest?.playbackUrl) throw Error('Expected refreshed local playback URL')
+  const response = await f.route.fetch(new Request(new URL(latest.playbackUrl, f.url)))
+  expect(response.status).toBe(200)
+  expect(Buffer.from(await response.arrayBuffer())).toEqual(Buffer.concat([before, Buffer.from('real-source-version-change')]))
+  expect(spawn).not.toHaveBeenCalled()
+})
+
+it('returns exact full, open and suffix byte ranges while HEAD performs no byte read', async () => {
+  const f = await localPlayback({ playbackChunkBytes: 127 }), bytes = readFileSync(f.file)
+  const read = vi.spyOn(f.ctx.fs, 'readByteRange')
+  for (const range of [undefined, 'bytes=16-', 'bytes=-16', `bytes=0-${bytes.length + 100}`]) {
+    const start = range === 'bytes=16-' ? 16 : range === 'bytes=-16' ? bytes.length - 16 : 0
+    const response = await f.route.fetch(new Request(f.url, { headers: range ? { range } : {} }))
+    expect(response.status).toBe(range ? 206 : 200)
+    expect(response.headers.get('content-length')).toBe(String(bytes.length - start))
+    expect(response.headers.get('content-range')).toBe(range ? `bytes ${start}-${bytes.length - 1}/${bytes.length}` : null)
+    expect(response.headers.get('content-type')).toBe('video/mp4')
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes.subarray(start))
+    const readsBeforeHead = read.mock.calls.length
+    const head = await f.route.fetch(new Request(f.url, { method: 'HEAD', headers: range ? { range } : {} }))
+    expect(head.status).toBe(response.status)
+    expect([...head.headers]).toEqual([...response.headers])
+    expect((await head.arrayBuffer()).byteLength).toBe(0)
+    expect(read).toHaveBeenCalledTimes(readsBeforeHead)
+  }
+  expect(readFileSync(f.file)).toEqual(bytes)
+})
+
+it('rejects ambiguous source coordinates and invalid byte ranges without opening a stream', async () => {
+  const f = await localPlayback(), bytes = readFileSync(f.file), read = vi.spyOn(f.ctx.fs, 'readByteRange')
+  const duplicated = new URL(f.url); duplicated.searchParams.append('sourceId', f.source.id)
+  expect((await f.route.fetch(new Request(duplicated))).status).toBe(400)
+  for (const range of ['bytes=-', 'bytes=3-2', `bytes=${bytes.length}-`, 'bytes=0-1,2-3', 'bytes=9007199254740992-']) {
+    const response = await f.route.fetch(new Request(f.url, { headers: { range } }))
+    expect(response.status).toBe(416)
+    expect(response.headers.get('content-range')).toBe(`bytes */${bytes.length}`)
+  }
+  expect(read).not.toHaveBeenCalled()
+  expect(readFileSync(f.file)).toEqual(bytes)
+})
+
+it('keeps a cancelled playback slot owned until its real pending read returns', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1, playbackChunkBytes: 64 }), before = readFileSync(f.file)
+  const held = holdPlaybackRead(f.ctx), response = await f.route.fetch(new Request(f.url))
+  if (!response.body) throw Error('Expected a playback body')
+  const signal = await held.entered, reader = response.body.getReader()
+  let cancelled = false
+  const cancellation = reader.cancel().then(() => { cancelled = true })
+  try {
+    expect(signal.aborted).toBe(true)
+    expect((await f.route.fetch(new Request(f.url))).status).toBe(429)
+    expect(cancelled).toBe(false)
+    held.release()
+    await cancellation
+    const next = await f.route.fetch(new Request(f.url))
+    expect(next.status).toBe(200)
+    expect(Buffer.from(await next.arrayBuffer())).toEqual(before)
+    expect(createHash('sha256').update(readFileSync(f.file)).digest('hex')).toBe(createHash('sha256').update(before).digest('hex'))
+  } finally { held.release(); await cancellation }
+})
+
+it('rejects a real source change between the byte read and its final version check', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1 }), before = readFileSync(f.file)
+  const held = holdPlaybackRead(f.ctx), response = await f.route.fetch(new Request(f.url))
+  await held.entered
+  const outcome = response.arrayBuffer().then(bytes => ({ bytes }), (error: unknown) => ({ error }))
+  try {
+    appendFileSync(f.file, 'changed-after-read')
+    held.release()
+    const read = await outcome
+    if (!('error' in read)) throw Error('Playback accepted source bytes changed during its read')
+    expect(String(read.error)).toContain('changed during playback')
+    expect((await f.route.fetch(new Request(f.url))).status).toBe(409)
+    const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]
+    if (!source?.playbackUrl) throw Error('Expected current source URL after rejected playback')
+    const current = await f.route.fetch(new Request(new URL(source.playbackUrl, f.url)))
+    expect(current.status).toBe(200)
+    expect(Buffer.from(await current.arrayBuffer())).toEqual(Buffer.concat([before, Buffer.from('changed-after-read')]))
+  } finally { held.release(); await outcome }
+})
+
+it('aborts playback and waits for its real pending read before completing plugin unload', async () => {
+  const f = await localPlayback(), before = readFileSync(f.file)
+  const held = holdPlaybackRead(f.ctx), response = await f.route.fetch(new Request(f.url))
+  if (!response.body) throw Error('Expected a playback body')
+  const outcome = response.body.getReader().read().then(value => ({ value }), (error: unknown) => ({ error }))
+  const signal = await held.entered, aborted = Promise.withResolvers<undefined>()
+  signal.addEventListener('abort', () => { aborted.resolve(undefined) }, { once: true })
+  const fiber = [...f.ctx.loader.entries()].find(entry => entry.options.id === 'video')?.fiber
+  if (!fiber) throw Error('Expected the real video plugin fiber')
+  let unloaded = false
+  const disposal = fiber.dispose().then(() => { unloaded = true })
+  try {
+    await aborted.promise
+    expect(unloaded).toBe(false)
+    held.release()
+    await disposal
+    const read = await outcome
+    if (!('error' in read)) throw Error('Playback returned data after plugin unload')
+    expect(String(read.error)).toContain('Session video plugin stopped')
+    expect(f.routes.size).toBe(0)
+    expect(createHash('sha256').update(readFileSync(f.file)).digest('hex')).toBe(createHash('sha256').update(before).digest('hex'))
+  } finally { held.release(); await disposal; await outcome }
 })
