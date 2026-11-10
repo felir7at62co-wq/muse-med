@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { chromium, type Browser, type Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import { createMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { createMessage, createToolResultMessage, createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId, SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
 import type {} from '@deepseek-ai/dsh-tool-present'
@@ -155,6 +155,140 @@ describe('web e2e: full inline conversation video cards', () => {
     await bubble.click()
     await page.locator('[data-muse-video-shelf]').getByRole('combobox', { name: 'Conversation videos' }).waitFor()
     await bubble.click()
+    expect(consoleWatch.pageErrors).toEqual([])
+  }, 180000)
+})
+
+const GENERATED_A = 'first-generated-three-shots.mp4'
+const GENERATED_B = 'second-generated-three-shots.mp4'
+const GENERATED_SESSION_A = 'session-inline-generated-a'
+const GENERATED_SESSION_B = 'session-inline-generated-b'
+const GENERATED_TITLE_A = 'Generated video alpha'
+const GENERATED_TITLE_B = 'Generated video beta'
+
+function generatedFixture(title: string, file: string): string {
+  const session = Session.create(SessionId('session-inline-generated-fixture'))
+  session.append('turn/start', { turn: 1 })
+  const user = session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [
+    { type: 'text', text: 'Review the generated video in this conversation.' },
+  ] }), { surfaceOp: 'append' })
+  session.append('session/title', { title, messageSeqs: [user.seq], source: { kind: 'fallback' } })
+  session.append('step/start', { turn: 1, step: 1 })
+  const callId = ToolCallId('recorded-generated-video')
+  const args = JSON.stringify({ media_kind: 'video' })
+  session.append('assistant/message', { stream: [], turn: 1, step: 1, message: createMessage({ role: 'assistant',
+    content: [{ type: 'tool-call', id: callId, name: 'jubian_media', arguments: args }],
+    source: { kind: 'model', provider: 'fixture', model: 'fixture' } }) }, { surfaceOp: 'append' })
+  session.append('tool/call', { turn: 1, step: 1, callId, name: 'jubian_media', arguments: args })
+  session.append('tool/result', { turn: 1, step: 1, message: createToolResultMessage({ callId, isError: false, content: [
+    { type: 'text', text: JSON.stringify({ path: file }) },
+  ] }) }, { surfaceOp: 'append' })
+  session.append('step/end', { turn: 1, step: 1 })
+  session.append('step/start', { turn: 1, step: 2 })
+  session.append('assistant/message', { stream: [], turn: 1, step: 2, message: createMessage({ role: 'assistant',
+    content: [{ type: 'text', text: `The generated video for ${title} is ready.` }],
+    source: { kind: 'model', provider: 'fixture', model: 'fixture' } }) }, { surfaceOp: 'append' })
+  session.append('step/end', { turn: 1, step: 2 })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  return [JSON.stringify({ type: 'session', version: SESSION_FORMAT_VERSION, id: '{{sessionId}}', createdAt: 0,
+    cwd: '{{cwd}}', isSeeded: false, delegationDepth: 0 }), ...session.snapshotEvents().map(event => JSON.stringify(event)), ''].join('\n')
+}
+
+describe('web e2e: generated inline videos stay in their own conversations', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let consoleWatch: ReturnType<typeof watchConsole>
+
+  beforeAll(async () => {
+    scaffold = await launchWebScaffold({
+      extraOverlayPath: [fileURLToPath(new URL('./pin-browse-picker.overlay.yml', import.meta.url)), OVERLAY],
+      profile: { hmr: false, packages: [
+        { dir: fileURLToPath(new URL('../../../packages/drama/session-video', import.meta.url)) },
+        { dir: fileURLToPath(new URL('../../../packages/client/ui-session-video', import.meta.url)) },
+        { dir: fileURLToPath(new URL('../../../packages/bundle/muse-video-ui', import.meta.url)), enabled: true },
+      ] },
+    })
+    makeVideo(join(scaffold.workspaceCwd, GENERATED_A), ['black', 'white', 'black'])
+    makeVideo(join(scaffold.workspaceCwd, GENERATED_B), ['red', 'blue', 'red'])
+    await seedSession(scaffold, generatedFixture(GENERATED_TITLE_A, GENERATED_A), GENERATED_SESSION_A)
+    await seedSession(scaffold, generatedFixture(GENERATED_TITLE_B, GENERATED_B), GENERATED_SESSION_B)
+    browser = await chromium.launch()
+    page = await newEnglishPage(browser)
+    consoleWatch = watchConsole(page)
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30000 })
+    await page.getByRole('treeitem').first().click({ timeout: 15000 })
+  }, 180000)
+
+  afterAll(async () => {
+    try { await browser?.close() } finally { await scaffold?.close() }
+  })
+
+  it('shows recorded generated sources inline and does not carry videos, shots, or drafts across Sessions', async () => {
+    onTestFailed(() => saveFailureShot(page, 'session-video-inline-generated-isolation'))
+    const openSession = async (id: string, title: string) => {
+      const row = page.locator(`[data-row-key="session:${id}"]`)
+      await row.click({ timeout: 15000 })
+      await page.getByText(`The generated video for ${title} is ready.`, { exact: true }).waitFor({ timeout: 15000 })
+    }
+    const openCard = async (label: string, otherLabel: string) => {
+      const cards = page.locator('[data-muse-inline-video]')
+      await expect.poll(() => cards.count(), { timeout: 30000 }).toBe(1)
+      const card = cards.first()
+      await card.scrollIntoViewIfNeeded()
+      const sources = card.getByRole('combobox', { name: 'Conversation videos' })
+      await sources.waitFor({ timeout: 30000 })
+      await expect.poll(() => sources.locator('option:checked').textContent()).toBe(label)
+      expect(await sources.locator('option').allTextContents()).toEqual([label])
+      expect(await sources.locator('option').allTextContents()).not.toContain(otherLabel)
+      const video = card.locator('video[data-muse-shelf-video]')
+      await expect.poll(() => video.evaluate(element => (element as HTMLVideoElement).readyState),
+        { timeout: 30000 }).toBeGreaterThanOrEqual(1)
+      const playback = await video.getAttribute('src')
+      expect(playback).toContain('api/session-video?')
+      const shots = card.getByRole('button', { name: /^Shot \d+ ·/u })
+      await expect.poll(() => shots.count(), { timeout: 60000 }).toBe(3)
+      return { card, video, shots, playback }
+    }
+
+    await openSession(GENERATED_SESSION_A, GENERATED_TITLE_A)
+    const first = await openCard(GENERATED_A, GENERATED_B)
+    await first.video.evaluate(async (element) => { await (element as HTMLVideoElement).play() })
+    await expect.poll(() => first.video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeGreaterThan(0)
+    await first.video.evaluate((element) => { (element as HTMLVideoElement).pause() })
+    await first.shots.nth(1).focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => first.video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(1)
+    const input = page.locator('[data-composer-input][contenteditable="true"]').last()
+    await input.fill('Keep alpha draft.')
+    await first.card.getByRole('button', { name: 'Regenerate this shot', exact: true }).click()
+    await expect.poll(() => input.innerText()).toContain(`Regenerate this shot: ${GENERATED_A}`)
+
+    await openSession(GENERATED_SESSION_B, GENERATED_TITLE_B)
+    const second = await openCard(GENERATED_B, GENERATED_A)
+    expect(second.playback).not.toBe(first.playback)
+    expect(await input.innerText()).not.toContain('Keep alpha draft.')
+    expect(await input.innerText()).not.toContain(GENERATED_A)
+    await second.shots.nth(1).focus()
+    await page.keyboard.press('Enter')
+    await expect.poll(() => second.video.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeCloseTo(1)
+    await input.fill('Keep beta draft.')
+    await second.card.getByRole('button', { name: 'Regenerate this shot', exact: true }).click()
+    await expect.poll(() => input.innerText()).toContain(`Regenerate this shot: ${GENERATED_B}`)
+    expect(await input.innerText()).toContain('original range: 1.000–2.000 seconds')
+    expect(await input.innerText()).not.toContain(GENERATED_A)
+
+    await openSession(GENERATED_SESSION_A, GENERATED_TITLE_A)
+    await openCard(GENERATED_A, GENERATED_B)
+    await expect.poll(() => input.innerText()).toContain('Keep alpha draft.')
+    expect(await input.innerText()).toContain(GENERATED_A)
+    expect(await input.innerText()).not.toContain(GENERATED_B)
+    for (const id of [GENERATED_SESSION_A, GENERATED_SESSION_B]) {
+      const session = await scaffold.ctx.sessionQuery.readSession(SessionId(id))
+      expect(session.events.filter(event => event.type === 'user/message')).toHaveLength(1)
+      expect(session.events.filter(event => event.type === 'request/header')).toHaveLength(0)
+    }
     expect(consoleWatch.pageErrors).toEqual([])
   }, 180000)
 })
