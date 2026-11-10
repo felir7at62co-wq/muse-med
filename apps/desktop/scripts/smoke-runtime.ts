@@ -21,11 +21,12 @@ const editingModelInput = JSON.parse(readFileSync(new URL('../tests/expected/edi
 
 /** Generate the private startup plugin that mounts the complete product preset through Host services.
  * @param root - Prepared product package root.
- * @param home - Disposable smoke home and workspace.
+ * @param home - Disposable smoke home.
+ * @param workspace - Independent project directory for Agent skill discovery.
  * @returns ESM plugin source checking current product tools, technical skills, retired resources,
  * native skill locations, and completed Agent disposal. Historical editing resolves to short-drama.
  */
-export function desktopSmokePluginSource(root: string, home: string): string {
+export function desktopSmokePluginSource(root: string, home: string, workspace: string): string {
   return `
 import { Context } from '@deepseek-ai/cordis'
 import { existsSync, realpathSync, writeFileSync } from 'node:fs'
@@ -36,6 +37,7 @@ export function apply(ctx) {
   if (!(ctx instanceof Context)) throw new Error('desktop runtime: external plugin loaded another Cordis instance')
   const root = ${JSON.stringify(root)}
   const home = ${JSON.stringify(home)}
+  const workspace = ${JSON.stringify(workspace)}
   const editingModelInput = ${JSON.stringify(editingModelInput)}
   const creationSkillNames = new Set(${JSON.stringify(CREATION_SKILL_NAMES)})
   try {
@@ -61,7 +63,7 @@ export function apply(ctx) {
   try {
     for (let index = 0; index < 2; index++) {
       handles.push(await ctx.agents.create({
-        sessionId: 'desktop-product-smoke-' + id + '-' + index, meta: { cwd: home, agentPreset: id },
+        sessionId: 'desktop-product-smoke-' + id + '-' + index, meta: { cwd: workspace, agentPreset: id },
         setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, id) },
       }))
     }
@@ -122,14 +124,14 @@ export function apply(ctx) {
     }
     const skillRegistry = id === 'creation' ? ctx.agentPresets.serviceFor(handle.agent, 'skills') : ctx.skills
     if (skillRegistry === undefined) throw new Error('desktop runtime: creation skill registry is not isolated')
-    const skills = await skillRegistry.list({ scope: handle.agent, cwd: home })
+    const skills = await skillRegistry.list({ scope: handle.agent, cwd: workspace })
     if (id === 'creation') {
       for (const name of ['office-docx', 'office-xlsx', 'office-pptx']) {
         if (!skills.some(skill => skill.name === name && skill.invocation.modelInvocable)) {
           throw new Error('desktop runtime: missing creation skill ' + name)
         }
       }
-      if (skills.some(skill => !creationSkillNames.has(skill.name))) {
+      if (skills.some(skill => !creationSkillNames.has(skill.name) && skill.name !== 'desktop-user-skill')) {
         throw new Error('desktop runtime: creation skill registry exposes unreviewed skills')
       }
     }
@@ -156,7 +158,7 @@ export function apply(ctx) {
           || realpathSync.native(skill.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: missing shared Muse skill ' + name)
         }
-        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: home })
+        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: workspace })
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(loaded.path)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: shared skill did not load from the packaged Host: ' + name)
@@ -193,8 +195,8 @@ export function apply(ctx) {
       }
     }
     const custom = skills.find(skill => skill.name === 'desktop-user-skill')
-    if (id !== 'creation' && (!custom || realpathSync.native(custom.path) !== realpathSync.native(join(home, 'skills/desktop-user-skill/SKILL.md'))
-      || skills.some(skill => skill.name === 'desktop-legacy-only'))) {
+    if (!custom || realpathSync.native(custom.path) !== realpathSync.native(join(home, 'skills/desktop-user-skill/SKILL.md'))
+      || skills.some(skill => skill.name === 'desktop-legacy-only')) {
       throw new Error('desktop runtime: product custom skills missing or legacy skills discovered in ' + id
         + '; custom=' + (custom?.path ?? 'missing') + '; expected=' + join(home, 'skills/desktop-user-skill/SKILL.md')
         + '; legacy=' + skills.some(skill => skill.name === 'desktop-legacy-only'))
@@ -218,7 +220,7 @@ export function apply(ctx) {
       }
       if (name === 'shot-script-creator-16-9-3d' || name === 'shot-script-creator-9-16') {
         const expected = join(bundled, name, 'SKILL.md')
-        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: home })
+        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd: workspace })
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(expected) || !existsSync(loaded.path)
           || realpathSync.native(skill.path) !== realpathSync.native(expected)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
@@ -255,7 +257,9 @@ export function apply(ctx) {
 export async function smokeDesktopRuntime(
   root: string, node: string, runtime: DesktopRuntimeDescriptor, environment: NodeJS.ProcessEnv, resourcesRuntime: string,
 ): Promise<void> {
-  const home = mkdtempSync(join(tmpdir(), 'dsh-desktop-smoke-'))
+  const temporaryRoot = mkdtempSync(join(tmpdir(), 'dsh-desktop-smoke-'))
+  const home = join(temporaryRoot, 'home')
+  const workspace = join(temporaryRoot, 'workspace')
   const profile = join(home, 'profiles', 'desktop')
   const host = new DesktopHostProcess(node, root, profile, undefined, {
     ...environment, MUSE_HOME: home, DSH_HOME: home, HOME: home, USERPROFILE: home,
@@ -264,6 +268,7 @@ export async function smokeDesktopRuntime(
   { pnpm: join(resourcesRuntime, 'pnpm', 'bin', 'pnpm.mjs'), nodeBin: join(resourcesRuntime, 'bin') })
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
+    mkdirSync(workspace, { recursive: true })
     createPluginProfile(profile)
     for (const [directory, name] of [
       ['skills', 'desktop-user-skill'], ['.agents/skills', 'desktop-user-skill'],
@@ -344,7 +349,7 @@ export function apply(ctx) {
       name: productPluginName, version: '1.0.0', type: 'module', exports: './index.js',
       peerDependencies: { '@deepseek-ai/cordis': cordis.version }, dsh: { bundle: { patch: './bundle.yml' } },
     }))
-    writeFileSync(join(productPlugin, 'index.js'), desktopSmokePluginSource(root, home))
+    writeFileSync(join(productPlugin, 'index.js'), desktopSmokePluginSource(root, home, workspace))
     writeFileSync(join(productPlugin, 'bundle.yml'), '- insert:\n    - id: desktop-runtime-product-smoke-plugin\n      name: desktop-runtime-product-smoke-plugin\n')
     const manifest = JSON.parse(readFileSync(join(profile, 'package.json'), 'utf8')) as {
       dependencies: Record<string, string>
@@ -408,7 +413,7 @@ export function apply(ctx) {
   } finally {
     clearTimeout(timer)
     await host.stop()
-    rmSync(home, { recursive: true, force: true })
+    rmSync(temporaryRoot, { recursive: true, force: true })
   }
 }
 

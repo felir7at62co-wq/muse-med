@@ -59,7 +59,9 @@ function fixture(packaged = false) {
   const root = packaged ? join(temporaryRoot, 'resources', 'app.asar', 'dsh') : temporaryRoot
   const unpacked = (path: string) => path.replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
   const home = join(temporaryRoot, 'home')
+  const workspace = join(temporaryRoot, 'workspace')
   mkdirSync(home)
+  mkdirSync(workspace)
   const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'bot-coordinator', 'creation']
   const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
   for (const id of ids) {
@@ -123,7 +125,7 @@ function fixture(packaged = false) {
     writeFileSync(path, '# fixture')
     skills.push({ name, path, invocation: { modelInvocable: true } })
   }
-  const creationSkills = skills.filter(skill => skill.name !== 'desktop-user-skill')
+  const creationSkills = skills.map(skill => ({ ...skill }))
   const agent = { preset: 'short-drama' }
   const agentCtx = {}
   const dispose = vi.fn(async () => {})
@@ -158,7 +160,7 @@ function fixture(packaged = false) {
       serviceFor: vi.fn((agent: { preset: string }, name: string) => agent.preset === 'creation' && name === 'skills'
         ? { list: vi.fn(async () => creationSkills), get: vi.fn(async (name: string) => loadSkill(creationSkills, name)) } : undefined),
     }
-    agents = { create: vi.fn(async (options: { setup: (context: object) => Promise<void>; meta: { agentPreset: string } }) => {
+    agents = { create: vi.fn(async (options: { setup: (context: object) => Promise<void>; meta: { agentPreset: string; cwd: string } }) => {
       await options.setup(agentCtx)
       return { agent: options.meta.agentPreset === 'short-drama' ? agent : { preset: options.meta.agentPreset }, dispose }
     }) }
@@ -193,7 +195,7 @@ function fixture(packaged = false) {
     }
   }
   // Execute exactly the emitted plugin body; fixture services never impersonate a real prepared-runtime smoke.
-  const source = desktopSmokePluginSource(root, home)
+  const source = desktopSmokePluginSource(root, home, workspace)
   expect(source).toMatch(/export const inject = \[[^\]]*'credentials'/u)
   const body = source.replace(/^import .*$/gmu, '').replace(/^export /gmu, '')
   const register = runInNewContext(`${body}\napply`, {
@@ -209,7 +211,7 @@ function fixture(packaged = false) {
   }
   const apply = async (ctx: TestContext) => { register(ctx); await request() }
   return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names,
-    accountMcpNames, editingCapabilityNames, skills, creationSkills, cordisSkill, skillRoot, home, root }
+    accountMcpNames, editingCapabilityNames, skills, creationSkills, cordisSkill, skillRoot, home, workspace, root }
 }
 
 it('defers preset checks until the Host-ready caller requests them', async () => {
@@ -233,11 +235,12 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'short-drama')
   expect(f.ctx.tools.schemas).toHaveBeenCalledWith(f.agent)
   expect(f.ctx.systemPrompt.assemble).toHaveBeenCalledWith({ agent: { preset: 'short-drama' }, scope: { preset: 'short-drama' } })
-  expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.home })
+  expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.workspace })
   expect(f.ctx.agentPresets.serviceFor).toHaveBeenCalledWith({ preset: 'creation' }, 'skills')
-  expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.home })
+  expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.workspace })
   expect(f.dispose).toHaveBeenCalledTimes(14)
   expect(f.ctx.agents.create).toHaveBeenCalledTimes(14)
+  expect(f.ctx.agents.create.mock.calls.every(([options]) => options.meta.cwd === f.workspace)).toBe(true)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
@@ -386,10 +389,24 @@ it.each(['office-docx', 'office-xlsx', 'office-pptx'])('rejects creation without
   await expect(f.apply(f.ctx)).rejects.toThrow('missing creation skill ' + name)
 })
 
-it.each(['desktop-user-skill', 'editing-cordis-compositions', 'unreviewed-runtime-skill'])('rejects creation exposing %s', async (name) => {
+it.each(['editing-cordis-compositions', 'unreviewed-runtime-skill', 'desktop-legacy-only'])('rejects creation exposing %s', async (name) => {
   const f = fixture()
   f.creationSkills.push({ name, path: '', invocation: { modelInvocable: true } })
   await expect(f.apply(f.ctx)).rejects.toThrow('creation skill registry exposes unreviewed skills')
+})
+
+it.each(['missing', 'shadow'])('rejects a %s user-configured skill in creation', async (kind) => {
+  const f = fixture()
+  const custom = f.creationSkills.find(skill => skill.name === 'desktop-user-skill')!
+  if (kind === 'missing') f.creationSkills.splice(f.creationSkills.indexOf(custom), 1)
+  else {
+    const path = join(f.home, '.agents/skills/desktop-user-skill/SKILL.md')
+    mkdirSync(dirname(path), { recursive: true })
+    writeFileSync(path, '# legacy')
+    custom.path = path
+  }
+  await expect(f.apply(f.ctx)).rejects.toThrow('product custom skills missing or legacy skills discovered in creation')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
 it('rejects transcription in the minimal preset', async () => {
@@ -737,7 +754,7 @@ it('loads the transcription and shot-writing skills through the scoped registry'
   await f.apply(f.ctx)
   for (const name of ['audio-transcribe',
     'shot-script-creator-16-9-3d', 'shot-script-creator-9-16']) {
-    expect(f.ctx.skills.get).toHaveBeenCalledWith(name, { scope: f.agent, cwd: f.home })
+    expect(f.ctx.skills.get).toHaveBeenCalledWith(name, { scope: f.agent, cwd: f.workspace })
   }
   for (const name of ['editing', 'transcript-to-novel', 'transcript-to-script', 'media-link-import']) {
     const directory = join(f.root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name)
