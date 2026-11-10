@@ -269,14 +269,55 @@ it.each(['removed', 'foreign identity'] as const)('observes a receipt %s between
   } finally { spy.mockRestore() }
 })
 
-it('propagates a completed-output lstat error without treating it as a missing file', async () => {
+it('retains the native missing-versus-loop contract for a completed-output directory link', async () => {
   const f = await completed(), exports = join(f.project, 'exports'), retained = exports + '.retained'
-  await rename(exports, retained); await symlink('exports', exports)
+  const { lstat: lstatNative } = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+  let moved = false, linked = false, pending: Promise<void> | undefined
+  const cleanup = (): Promise<void> => pending ??= (async () => {
+    const errors: unknown[] = []
+    try { if (linked) await unlink(exports) } catch (error) { errors.push(error) }
+    try { if (moved) await rename(retained, exports) } catch (error) { errors.push(error) }
+    if (errors.length) throw new AggregateError(errors, 'Completed-output link cleanup failed')
+  })()
+  onTestFinished(cleanup)
+  let primary: { error: unknown } | undefined
   try {
-    await expect(f.service.episodeStatus(f.input)).rejects.toMatchObject({ code: 'ELOOP' })
+    await rename(exports, retained); moved = true
+    await symlink('exports', exports); linked = true
+    const expected = process.platform === 'win32' ? 'ENOENT' : 'ELOOP'
+    await expect(lstatNative(f.outputPath)).rejects.toMatchObject({ code: expected })
+    if (process.platform === 'win32') {
+      expect(await f.service.episodeStatus(f.input)).toMatchObject({ state: 'completed', attempt: f.status.attempt, canResume: true })
+    } else await expect(f.service.episodeStatus(f.input)).rejects.toMatchObject({ code: 'ELOOP' })
     expect(await readFile(join(retained, f.outputPath.slice(exports.length + 1)))).toEqual(f.outputBytes)
     expect(f.renderer.calls).toBe(1); expect(f.renderer.encodes).toBe(1)
-  } finally { await unlink(exports); await rename(retained, exports) }
+  } catch (error) { primary = { error }; throw error }
+  finally {
+    try { await cleanup() } catch (error) {
+      if (primary) throw new AggregateError([primary.error, error], 'Completed-output observation and cleanup failed')
+      throw error
+    }
+  }
+  await f.preserved()
+})
+
+it('propagates an exact completed-output inspection denial and recovers after restoration', async () => {
+  const f = await completed(), ledger = await f.ledger.records()
+  const denied = Object.assign(new Error('Completed output inspection denied'), { code: 'EACCES' })
+  const native = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
+  let injected = false
+  const spy = vi.spyOn(files, 'lstat').mockImplementation(async (...args) => {
+    if (args[0] === f.outputPath && !injected) { injected = true; throw denied }
+    return native.lstat(...args)
+  })
+  onTestFinished(() => { spy.mockRestore() })
+  try {
+    await expect(f.service.episodeStatus(f.input)).rejects.toBe(denied)
+    expect(injected).toBe(true)
+  } finally { spy.mockRestore() }
+  expect(await f.service.episodeStatus(f.input)).toMatchObject({ state: 'completed', attempt: f.status.attempt, canResume: false })
+  expect(await f.ledger.records()).toEqual(ledger)
+  expect(await readFile(join(f.root, 'intent.json'))).toEqual(f.intent)
   await f.preserved()
 })
 
