@@ -107,6 +107,17 @@ it('passes the numbered product version to the frontend build and packing stages
   }
 })
 
+it('runs a native pnpm lifecycle executable directly throughout packaging', async () => {
+  const { run } = supervisor()
+  vi.stubEnv('npm_execpath', '/installed/pnpm/pnpm')
+  await packageTarget(parseDesktopPackageInvocation(['win-x64', '--prepare-only'], 'win32', 'x64'), environment, run)
+  expect(run.run).toHaveBeenCalled()
+  for (const call of run.run.mock.calls) {
+    expect(call[1]).toBe('/installed/pnpm/pnpm')
+    expect(call[2][0]).not.toBe('/installed/pnpm/pnpm')
+  }
+})
+
 it.each(['preflight:windows-signing', 'run build:official', 'run sign:primary-runtime', 'run prepare:dsh --defer-runtime-smoke', 'run sign:primary-runtime --dsh',
   'exec tsx scripts/smoke-packaged-runtime.ts',
   'exec electron-builder --config electron-builder.config.mjs --win --x64 --publish never'])

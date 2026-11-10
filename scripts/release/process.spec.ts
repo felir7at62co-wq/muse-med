@@ -42,6 +42,20 @@ describe('release process helpers', () => {
     if (command !== 'pnpm') expect(args[0]).toMatch(/pnpm/u)
     expect(capture(command, [...args, '--version'])).toMatch(/^\d+\.\d+\.\d+/u)
   })
+
+  it('resolves the workspace JavaScript launcher when no lifecycle entry is supplied', () => {
+    const original = process.env.npm_execpath
+    try {
+      delete process.env.npm_execpath
+      const [command, ...args] = pnpmCommand()
+      expect(command).toBe(process.execPath)
+      expect(args[0]).toMatch(/pnpm\.[cm]?js$/u)
+      expect(capture(command, [...args, '--version'])).toMatch(/^\d+\.\d+\.\d+/u)
+    } finally {
+      if (original === undefined) delete process.env.npm_execpath
+      else process.env.npm_execpath = original
+    }
+  })
 })
 
 describe('release tarball readers', () => {

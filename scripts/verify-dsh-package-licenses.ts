@@ -1,9 +1,9 @@
 /**
- * Enforce the MIT license declaration for repository-owned DSH npm packages.
+ * Enforce DSH license declarations and the exact tool-discovery attribution exception.
  * @module scripts/verify-dsh-package-licenses
  */
 
-import { globSync, readFileSync } from 'node:fs'
+import { existsSync, globSync, lstatSync, readFileSync } from 'node:fs'
 import { dirname, resolve, sep } from 'node:path'
 import { isDramaSkillsResourcePackage } from './drama-skills-resource-package.ts'
 
@@ -14,7 +14,7 @@ const DSH_PACKAGE_NAME = /^@deepseek-ai\/dsh(?:-|$)/
 export interface DshPackageLicenseReport {
   /** Number of DSH package manifests checked. */
   packageCount: number
-  /** Repository-relative diagnostics for non-MIT declarations. */
+  /** Repository-relative diagnostics for disallowed declarations or missing attribution. */
   failures: string[]
 }
 
@@ -65,10 +65,22 @@ export function inspectDshPackageLicenses(root: string): DshPackageLicenseReport
     if (typeof name !== 'string' || !DSH_PACKAGE_NAME.test(name)) continue
 
     packageCount++
+    const normalizedFile = file.split(sep).join('/')
+    const adaptedToolGuidance = normalizedFile === 'packages/core/tool-discovery/package.json'
+      && name === '@deepseek-ai/dsh-tool-discovery' && manifest.license === 'MIT AND Apache-2.0'
+    if (adaptedToolGuidance) {
+      for (const resource of ['NOTICE', 'LICENSE-Codex']) {
+        const path = resolve(root, dirname(file), resource)
+        if (!isStringArray(manifest.files) || !manifest.files.includes(resource)
+          || !existsSync(path) || !lstatSync(path).isFile() || lstatSync(path).size === 0) {
+          failures.push(`${normalizedFile}: ${name} must publish existing non-empty ${resource} for its Apache-2.0 guidance.`)
+        }
+      }
+      continue
+    }
     const privateResource = isDramaSkillsResourcePackage(dirname(file).split(sep).join('/'), name)
       && manifest.private === true && manifest.license === 'UNLICENSED'
     if (manifest.license !== 'MIT' && !privateResource) {
-      const normalizedFile = file.split(sep).join('/')
       failures.push(
         `${normalizedFile}: ${name} must declare "license": "MIT"; found ${printable(manifest.license)}.`,
       )

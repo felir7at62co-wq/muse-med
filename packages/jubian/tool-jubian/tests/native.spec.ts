@@ -2241,7 +2241,7 @@ describe('bare singleton list responses through the client', () => {
 
   it.each(['subject', 'task'])('rejects contradictory hasMore on %s inventory pages', async (kind) => {
     const subject = SUBJECT_ROWS[0], task = { id: 9, scriptId: 2708, storyboardId: 999999 }
-    for (const contradict of [{ total: 1, hasMore: true, rows: [kind === 'subject' ? subject : task] },
+    for (const contradict of [{ total: 'invalid', rows: [] }, { total: 1, hasMore: true, rows: [kind === 'subject' ? subject : task] },
       { hasMore: true, rows: [] }, { total: 2, hasMore: false, rows: [kind === 'subject' ? subject : task] }]) {
       const provider: FakeProvider = { calls: [], storyboard: board, tasks: [], subtasks: {},
         subjectPage: () => kind === 'subject' ? contradict : { total: 1, rows: [subject] },
@@ -2312,14 +2312,15 @@ describe('bare singleton list responses through the client', () => {
 })
 
 describe('unused subject history in actual preparation and selection', () => {
-  it.each([null, 81285])('prepares numeric parent %s from current subject with unused history', async (parentId) => {
+  it.each([null, 81285, '81285'])('prepares numeric parent %s from current subject with unused history', async (parentId) => {
     for (const flag of [0, ' 0 ']) {
       for (const oldFirst of [true, false]) {
         const old = { ...SUBJECT_ROWS[0], id: 99, isUsed: flag, hsAssetId: 'asset-old', assetUrl: 'https://example.test/old.jpg' }
         const rows = oldFirst ? [old, ...SUBJECT_ROWS] : [...SUBJECT_ROWS, old]
         const provider: FakeProvider = { calls: [], tasks: [], subtasks: {}, storyboard: { ...STORYBOARD,
           storyboardMaterialList: [{ ...MATERIALS[0], materialAssetId: parentId }, MATERIALS[1]] },
-        subjectPage: () => ({ total: rows.length, rows }) }
+        subjectPage: () => ({ total: rows.length, rows: typeof parentId === 'string'
+          ? rows.map(row => ({ ...row, id: String(row.id) })) : rows }) }
         const result = await prepareVideoMethod(clientFor(provider), ledger, { storyboard_id: 916953, project_dir: await project(2708, `project-${String(flag)}-${String(oldFirst)}`) })
         expect(result).toMatchObject({ status: 'prepared', assetSummary: { orderedAssets: [{ assetId: 'asset-lead', materialAssetId: 81285, imageUrl: URL_LEAD }, { assetId: 'asset-guest', materialAssetId: 83670 }] } })
         expect(provider.calls.every(call => call.method === 'GET')).toBe(true)

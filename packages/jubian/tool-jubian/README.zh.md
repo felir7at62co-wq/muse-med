@@ -41,6 +41,8 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 
 提取声线或复用成片前，用 `jubian_video sources` 提供精确 `script_id` 与原 `storyboard_id` 查询已有媒体。它只读核对卡片、任务及子结果身份，在配置范围内翻页读取历史，返回成功视频 URL 和原任务／结果 ID，不要求与当前模型或分辨率一致。原卡已关联的任务即使未出现在完整项目列表中，也会继续核对；两份历史不一致时，查询覆盖标记为不完整。 同一任务的卡片归属冲突时也标记覆盖不完整，来源卡片只能由独立任务详情及子结果证据确认。`available` 表示存在已核实媒体，`pending` 表示原任务或子任务仍在运行，`none_found` 表示完整查询后未找到成功媒体，`unknown` 保留查询不完整或无法读取的状态。这些结论不授权生成，也不证明实际说话人或视频内容合格。
 
+关联历史记录缺少有效任务身份时，即使项目列表已完整读取，查询覆盖仍标记为不完整。
+
 `tasks` 与 `subtasks` 实际传递 `page_num`、`page_size`，并返回查询时间、返回数量、`complete`、`has_more` 与 `next_page`。`complete` 只描述本次响应；读到末页不代表前页已查。部分查询未返回某条记录，不证明该卡从未生成。`prepare_video` 同时返回提示性 `existing_video_sources`，这些观测不写进冻结预览，也不改变生成指纹。历史查询失败时，准备仍可完成，来源覆盖标记为未知。
 
 来源查询使用 `videoSourcePageSize`（100）、`videoSourcePageLimit`（20）、`videoSourceTaskLimit`（50）、`videoSourceResultLimit`（20），四项范围均为 1–100；`videoSourceMaxResultChars` 默认将完整结果限制为 12000 个 JSON 字符，范围 2048–1000000。达到限制时保留能容纳的已核实记录，删除整行而不截断 URL，并明确覆盖不完整。来源查询或缺少声线样本不会发起付费请求。新用户消息不再自动追加提取或复用提示；历史提示仍作为已保存的普通上下文保留。

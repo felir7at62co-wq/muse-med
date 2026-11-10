@@ -30,7 +30,7 @@ describe('material list through the Jubian HTTP client', () => {
       const ledger = new JubianLedger({ root })
       const read = async () => await assetMethod(client, ledger, { method: 'materials', script_id: 2708 })
       expect(await read()).toMatchObject({ materials: { total: 1, total_source: 'page_count', rows: [{ material_id: 3, asset_id: 5 }] },
-        guidance: expect.stringContaining('不能作为全部素材总数') })
+        guidance: expect.stringContaining('不能作为全部素材总数') as string })
       body = [ROW, { ...ROW, id: 4 }]
       expect(await read()).toMatchObject({ materials: { total: 2, total_source: 'page_count', rows: [{ material_id: 3 }, { material_id: 4 }] } })
       body = []
@@ -43,13 +43,15 @@ describe('material list through the Jubian HTTP client', () => {
       await expect(read()).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
       body = [{ ...ROW, rows: 'invalid' }]
       await expect(read()).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
+      body = { code: 200, data: null }
+      await expect(read()).rejects.toMatchObject({ code: 'CONTRACT_CHANGED' })
       body = { code: 403, msg: 'synthetic refusal' }
       await expect(read()).rejects.toMatchObject({ code: 'PERMISSION_DENIED' })
-      expect(seen).toHaveLength(8)
+      expect(seen).toHaveLength(9)
       expect(seen.every(value => value.startsWith('GET /aigc/material/list?'))).toBe(true)
       expect(await ledger.records()).toEqual([])
     } finally {
-      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+      await new Promise<void>((resolve, reject) => server.close((error) => { if (error) reject(error); else resolve() }))
       await rm(root, { recursive: true, force: true })
     }
   })

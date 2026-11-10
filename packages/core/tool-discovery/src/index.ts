@@ -3,7 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { z as zod } from 'zod'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ToolSchema } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ToolSchema } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-session-projection'
 import { ToolSearchIndex } from './search.ts'
@@ -80,14 +80,14 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
 }
 
 /** Parse a successful tool receipt without retaining descriptions or parameters. */
-function resultValue(content: readonly { type: string; text?: string }[]): unknown {
-  const text = content.filter(block => block.type === 'text').map(block => block.text ?? '').join('')
+function resultValue(content: readonly ContentBlock[]): unknown {
+  const text = content.filter(block => block.type === 'text').map(block => block.text).join('')
   try { return JSON.parse(text) }
   catch (_error) { return undefined }
 }
 
 /** Apply names recorded in a successful search or context-management result. */
-function learn(state: DiscoveryState, content: readonly { type: string; text?: string }[], context = false): DiscoveryState {
+function learn(state: DiscoveryState, content: readonly ContentBlock[], context = false): DiscoveryState {
   const value = resultValue(content)
   if (context) {
     const parsed = contextReceipt.safeParse(value)
@@ -144,14 +144,14 @@ function boundedResult(loaded: LoadedTool[], capabilities: CapabilitySummary[], 
  * @param config - Constant core tools, search bounds and indexing metadata.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  const settings = Config(config)
-  const maxResults = settings.maxResults ?? 8
-  const maxDescriptionChars = settings.maxDescriptionChars ?? 320
-  const ranking = { k1: settings.k1 ?? 1.2, b: settings.b ?? 0.75 }
-  const keywords = settings.keywords ?? {}
-  const capabilities = settings.capabilities ?? []
-  const maxResultChars = settings.maxResultChars ?? 6000
-  const maxDirectoryChars = settings.maxDirectoryChars ?? 2000
+  const settings = Config(config) as Required<Config>
+  const maxResults = settings.maxResults
+  const maxDescriptionChars = settings.maxDescriptionChars
+  const ranking = { k1: settings.k1, b: settings.b }
+  const keywords = settings.keywords
+  const capabilities = settings.capabilities
+  const maxResultChars = settings.maxResultChars
+  const maxDirectoryChars = settings.maxDirectoryChars
   const capabilityIds = new Set<string>()
   for (const capability of capabilities) {
     if (!capability.id.trim() || capabilityIds.has(capability.id)) throw new Error('Capability ids must be nonempty and unique')
@@ -185,8 +185,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     },
   })
   const runtime = new ToolDiscoveryRuntime(ctx, (agent) => {
-    const state = ctx.sessionProjections.stateOf(agent.session, 'toolDiscovery')
-    return { loaded: state?.loaded ?? [], pinned: state?.pinned ?? [] }
+    const state = ctx.sessionProjections.stateOf(agent.session, 'toolDiscovery') as DiscoveryState
+    return { loaded: state.loaded, pinned: state.pinned }
   }, core)
   let cached: { fingerprint: string; index: ToolSearchIndex } | undefined
   const indexFor = (tools: ToolSchema[]): ToolSearchIndex => {
@@ -237,10 +237,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       }
       const matches = query ? indexFor(available).search(query, available.length)
         : available.map(tool => ({ name: tool.name, score: 0 }))
-      const loaded = matches.slice(0, limit).flatMap((match) => {
-        const tool = tools.find(item => item.name === match.name)
-        return tool ? [{ name: tool.name, description: Array.from(tool.description).slice(0, maxDescriptionChars).join(''),
-          capabilities: capabilityMemberships(tool.name, capabilities) }] : []
+      const loaded = matches.slice(0, limit).map((match) => {
+        const tool = tools.find(item => item.name === match.name) as ToolSchema
+        return { name: tool.name, description: Array.from(tool.description).slice(0, maxDescriptionChars).join(''),
+          capabilities: capabilityMemberships(tool.name, capabilities) }
       })
       return Promise.resolve(boundedResult(loaded, [], matches.length, maxResultChars))
     },

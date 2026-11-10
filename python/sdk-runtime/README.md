@@ -48,6 +48,8 @@ External profile management uses `dsh plugin --profile <name> ...`. That command
 
 ## Build and distribution
 
+Dependency staging retains transitive runtime packages, optional native assets and Office sidecars. Direct workspace dependencies share one instance; conflicting transitive versions stay nested under their consumers. Missing required installed dependencies fail the build.
+
 Production deployment permits unused workspace patches for packages outside the runtime closure; patches for included packages must still apply successfully. This exception is confined to the deploy command; repository installation still rejects unused patches.
 
 From the repository root, `pnpm exec tsx scripts/build-exe-for-python-sdk.ts` verifies the closure, builds packages, deploys a symlink-free tree, packages the selected target, and syncs the executable and sidecars into this module. `scripts/build-python-release.py` stages release-shaped wheels at the root repository version and pins `deepseek-harness-sdk` to the exact runtime version.

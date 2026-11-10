@@ -767,7 +767,7 @@ function holdImmediateChecks(): { readonly checks: (() => void)[]; readonly rest
   const schedule = globalThis.setImmediate
   const checks: (() => void)[] = []
   const immediate = vi.spyOn(globalThis, 'setImmediate').mockImplementation((callback, ...args) => {
-    checks.push(() => { callback(...args) })
+    checks.push(() => { Reflect.apply(callback, undefined, args) })
     return schedule(() => {})
   })
   return { checks, restore: () => { immediate.mockRestore() } }
