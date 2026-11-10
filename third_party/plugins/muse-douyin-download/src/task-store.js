@@ -1,9 +1,10 @@
 /** Private Host-owned download state with cooperative cross-process locking and atomic revision-checked writes. */
-import { mkdir, open, readFile, rename, unlink, lstat, realpath } from 'node:fs/promises';
+import { mkdir, open, readFile, rename, unlink, lstat, realpath, link } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { nativeEvidence, receiptFields } from './receipt.js';
+import { tryReclaimLock } from './registry-lock.js';
 
 /** One module instance identifies this Host's private leases; it is never a public job ID. */
 export const hostInstance = randomUUID();
@@ -16,6 +17,31 @@ export const taskError = (code, message) => Object.assign(new Error(message), { 
 const encode = value => JSON.stringify(value, null, 2) + '\n';
 const alive = pid => { try { process.kill(pid, 0); return true; } catch (error) { return error.code !== 'ESRCH'; } };
 const absent = error => error.code === 'ENOENT';
+const uuid = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/;
+
+/** @param value Persisted owner metadata. @param recovery Whether the tagged recovery record is required. @returns Whether every known ownership field is complete. */
+function completeOwner(value, recovery = false) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const fields = recovery ? ['format', 'pid', 'token', 'hostInstance'] : ['pid', 'token', 'hostInstance'];
+  return Number.isInteger(value.pid) && value.pid > 0 && value.pid <= 0x7fffffff
+    && typeof value.token === 'string' && uuid.test(value.token)
+    && typeof value.hostInstance === 'string' && uuid.test(value.hostInstance)
+    && (!recovery || value.format === 'muse-douyin-reclaim.v2')
+    && Object.keys(value).length === fields.length && Object.keys(value).every(key => fields.includes(key));
+}
+
+/** @param file Exclusive destination. @param record Complete private owner metadata. @returns Publication after writing the complete record, without an empty ownership window. */
+async function publishOwner(file, record) {
+  const temporary = `${file}-${randomUUID()}.tmp`;
+  const handle = await open(temporary, 'wx', 0o600);
+  try {
+    try { await handle.writeFile(encode(record)); await handle.sync(); } finally { await handle.close(); }
+    await link(temporary, file);
+  } finally {
+    try { await unlink(temporary); }
+    catch (_error) { /* A private temporary alias cannot arbitrate ownership; retaining it must not discard a published lock's release handle. */ }
+  }
+}
 
 /** One private registry shared by scoped plugin instances; no source media URLs or credentials belong here. */
 export class TaskStore {
@@ -107,12 +133,11 @@ export class TaskStore {
     while (true) {
       signal?.throwIfAborted();
       try {
-        const handle = await open(file, 'wx', 0o600);
-        try { await handle.writeFile(encode({ pid: process.pid, hostInstance, token })); }
-        finally { await handle.close(); }
+        await publishOwner(file, { pid: process.pid, hostInstance, token });
         return async () => {
           const current = JSON.parse((await this.readBounded(file, 4096)).toString('utf8'));
-          if (current.token !== token) throw taskError('DOUYIN_TASK_STALE', 'Task registry lock ownership changed');
+          if (!completeOwner(current) || current.pid !== process.pid || current.hostInstance !== hostInstance
+            || current.token !== token) throw taskError('DOUYIN_TASK_STALE', 'Task registry lock ownership changed');
           await unlink(file);
         };
       } catch (error) {
@@ -120,19 +145,38 @@ export class TaskStore {
         let current;
         try { current = JSON.parse((await this.readBounded(file, 4096)).toString('utf8')); }
         catch (readError) { if (absent(readError)) continue; }
-        if (current && Number.isInteger(current.pid) && !alive(current.pid)) {
+        if (completeOwner(current) && !alive(current.pid)) {
           const reclaim = join(this.directory, '.registry.reclaim');
-          let guard;
-          try { guard = await open(reclaim, 'wx', 0o600); }
-          catch (claimError) { if (claimError.code !== 'EEXIST') throw claimError; }
-          if (guard) {
+          const releaseKernel = await tryReclaimLock(this.directory);
+          if (releaseKernel) {
+            let ownedGuard = false;
             try {
-              let latest;
-              try { latest = JSON.parse((await this.readBounded(file, 4096)).toString('utf8')); }
-              catch (readError) { if (!absent(readError)) throw readError; }
-              if (latest?.token === current.token && !alive(latest.pid)) await unlink(file);
-            } finally { await guard.close(); await unlink(reclaim); }
-            continue;
+              let previous;
+              try { previous = JSON.parse((await this.readBounded(reclaim, 4096)).toString('utf8')); }
+              catch (readError) { if (!absent(readError) && !(readError instanceof SyntaxError)) throw readError; }
+              if (completeOwner(previous, true) && !alive(previous.pid)) await unlink(reclaim);
+              try {
+                await publishOwner(reclaim, { format: 'muse-douyin-reclaim.v2', pid: process.pid, hostInstance, token });
+                ownedGuard = true;
+              } catch (claimError) { if (claimError.code !== 'EEXIST') throw claimError; }
+              if (ownedGuard) {
+                let latest;
+                try { latest = JSON.parse((await this.readBounded(file, 4096)).toString('utf8')); }
+                catch (readError) { if (!absent(readError)) throw readError; }
+                if (completeOwner(latest) && latest.pid === current.pid && latest.hostInstance === current.hostInstance
+                  && latest.token === current.token && !alive(latest.pid)) await unlink(file);
+              }
+            } finally {
+              try {
+                if (ownedGuard) {
+                  const guard = JSON.parse((await this.readBounded(reclaim, 4096)).toString('utf8'));
+                  if (!completeOwner(guard, true) || guard.pid !== process.pid || guard.hostInstance !== hostInstance
+                    || guard.token !== token) throw taskError('DOUYIN_TASK_STALE', 'Registry reclaim ownership changed');
+                  await unlink(reclaim);
+                }
+              } finally { await releaseKernel(); }
+            }
+            if (ownedGuard) continue;
           }
         }
         if (Date.now() >= until) throw taskError('DOUYIN_TASK_LOCKED', 'Another Host may own the download registry; no live lock was reclaimed');

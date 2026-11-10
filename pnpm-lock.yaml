@@ -204,6 +204,9 @@ importers:
       '@deepseek-ai/dsh-working-directory':
         specifier: workspace:*
         version: link:packages/session/working-directory
+      '@deepseek-ai/node-addon-system':
+        specifier: workspace:~
+        version: link:native/system/packages/entry
       '@modelcontextprotocol/sdk':
         specifier: 1.31.0
         version: 1.31.0(supports-color@9.4.0)(zod@4.4.3)
@@ -291,6 +294,9 @@ importers:
       jsdom:
         specifier: 29.1.1
         version: 29.1.1(@noble/hashes@2.4.0)
+      koffi:
+        specifier: 3.1.1
+        version: 3.1.1
       lefthook:
         specifier: ^2.1.12
         version: 2.1.12

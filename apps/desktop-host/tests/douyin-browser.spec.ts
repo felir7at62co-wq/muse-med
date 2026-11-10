@@ -3,7 +3,9 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import { expect, it, vi } from 'vitest'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import type { DouyinDesktopRequest } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
-import { realpathSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { EventEmitter } from 'node:events'
 import { installDesktopDouyinBrowser } from '../src/douyin-browser.ts'
 
@@ -179,3 +181,40 @@ it.each(['late-result', 'expiry', 'caller-cancel', 'owner-dispose', 'owner-scope
     }
   },
 )
+
+
+it('refuses a changed canonical task workspace before any native IPC', async () => {
+  const ctx = new Context()
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'douyin-bound-workspace-')))
+  const original = join(root, 'project-a'), replacement = join(root, 'project-b'), selected = join(root, 'selected')
+  const connected = Object.getOwnPropertyDescriptor(process, 'connected'), send = Object.getOwnPropertyDescriptor(process, 'send')
+  const requests: DouyinDesktopRequest[] = []
+  try {
+    mkdirSync(original); mkdirSync(replacement)
+    symlinkSync(original, selected, process.platform === 'win32' ? 'junction' : 'dir')
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create(SessionId('bound-native-workspace'), { meta: { cwd: selected } })
+    Object.defineProperty(process, 'connected', { value: true, configurable: true })
+    Object.defineProperty(process, 'send', { configurable: true,
+      value: (request: DouyinDesktopRequest, callback: (error: Error | null) => void) => {
+        requests.push(request)
+        queueMicrotask(() => { EventEmitter.prototype.emit.call(process, 'message', {
+          type: 'douyin-browser-result', requestId: request.requestId, code: 'RELEASED',
+        }) })
+        callback(null)
+      },
+    })
+    installDesktopDouyinBrowser(ctx)
+    unlinkSync(selected); symlinkSync(replacement, selected, process.platform === 'win32' ? 'junction' : 'dir')
+    const options = { background: true as const, expectedCwd: original }
+    const result = await ctx.douyinBrowser.download({ id: session.id, session, ctx } as never,
+      'https://www.douyin.com/video/7692443246022167851', new AbortController().signal, 1024, 300_000, options)
+    expect(result).toMatchObject({ status: 'blocked', code: 'WORKSPACE_CHANGED' })
+    expect(requests).toEqual([])
+  } finally {
+    await ctx.fiber.dispose()
+    if (connected) Object.defineProperty(process, 'connected', connected); else Reflect.deleteProperty(process, 'connected')
+    if (send) Object.defineProperty(process, 'send', send); else Reflect.deleteProperty(process, 'send')
+    rmSync(root, { recursive: true, force: true })
+  }
+})

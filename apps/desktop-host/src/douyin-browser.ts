@@ -18,6 +18,8 @@ interface BrowserAcquisition {
   readonly version: 4
   /** A background request never falls back to a Renderer-owned Sidebar guest. */
   readonly supportsBackgroundDownload: true
+  /** Bound native requests reject a changed accepted directory before any IPC. */
+  readonly supportsExpectedCwd: true
   /** Observe normal-page data with the initiating Agent's cancellation and workspace lifetime. */
   readonly data: DouyinDataMethod
   /**
@@ -26,11 +28,12 @@ interface BrowserAcquisition {
    * @param signal - tool lifetime.
    * @param maxDownloadBytes - validated tool deployment's per-video file bound.
    * @param nativeTimeoutMs - resolved transfer and independent verification budgets.
-   * @param options - Internal opt-in to an isolated Main-owned background guest.
+   * @param options - Internal background guest selection and accepted canonical workspace;
+   * absent workspace binding uses the current Session directory.
    * @returns verified receipt or explicit failure.
    */
   download(agent: Agent, url: string, signal: AbortSignal, maxDownloadBytes: number, nativeTimeoutMs: number,
-    options?: { readonly background: true }): Promise<object>
+    options?: { readonly background?: true; readonly expectedCwd?: string }): Promise<object>
 }
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -135,7 +138,7 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
     'douyin: settle transport on Host shutdown',
   )
   const acquire = async (agent: Agent, url: string, callerSignal: AbortSignal,
-    maxDownloadBytes: number, nativeTimeoutMs: number, options: { readonly background: true } | undefined,
+    maxDownloadBytes: number, nativeTimeoutMs: number, options: { readonly background?: true; readonly expectedCwd?: string } | undefined,
     ownerSignal: AbortSignal): Promise<object> => {
     const taskLifetime = new AbortController()
     const signal = AbortSignal.any([callerSignal, ownerSignal, lifetime.signal, taskLifetime.signal])
@@ -148,6 +151,8 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
     } catch {
       return { status: 'blocked', code: 'WORKSPACE_UNAVAILABLE' }
     }
+    if (options?.expectedCwd !== undefined && cwd !== options.expectedCwd)
+      return { status: 'blocked', code: 'WORKSPACE_CHANGED' }
     let page: URL
     try {
       page = new URL(url)
@@ -217,6 +222,7 @@ export function installDesktopDouyinBrowser(ctx: Context): void {
       ctx.provide('douyinBrowser', {
         version: 4,
         supportsBackgroundDownload: true,
+        supportsExpectedCwd: true,
         data,
         download(agent, url, callerSignal, maxDownloadBytes, nativeTimeoutMs, options) {
           const owner = new AbortController()

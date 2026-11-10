@@ -216,7 +216,7 @@ export class DouyinTasks {
       await this.update(task.id, task.ownerSessionId, current => { current.state = 'interrupted'; current.jobId = null; });
       throw taskError('DOUYIN_TASK_INVALID', 'Download plugin is unloading; accepted task remains interrupted');
     }
-    await this.caller(agent, true);
+    await this.readTask(task.id, await this.caller(agent, true));
     const lease = await this.store.acquireLease(task.id), controller = new AbortController();
     if (this.closing) {
       await this.store.removeLease(task.id, lease);
@@ -305,8 +305,8 @@ export class DouyinTasks {
     run.latestTask = await this.update(task.id, task.ownerSessionId, current => { current.state = 'running'; current.jobId = run.jobId; delete current.error; });
     for (const original of task.items) {
       signal.throwIfAborted();
-      await this.caller(agent, true);
-      const current = await this.readTask(task.id, { ownerSessionId: task.ownerSessionId, cwd: task.cwd }), item = current.items[original.index - 1];
+      const owner = await this.caller(agent, true);
+      const current = await this.readTask(task.id, owner), item = current.items[original.index - 1];
       if (item.state === 'completed') { await this.verify(current, item, item.result, signal); continue; }
       const duplicate = item.videoId === null ? null : current.items.find(other => other.index !== item.index && other.state === 'completed' && other.videoId === item.videoId);
       if (duplicate) {
@@ -330,7 +330,7 @@ export class DouyinTasks {
       job.updateProgress(`${current.items.filter(item => item.state === 'completed').length}/${task.items.length} verified; video ${item.index}`);
       await this.update(task.id, task.ownerSessionId, current => { current.items[item.index - 1].state = 'running'; });
       let result;
-      try { result = await this.acquireVideo(agent, item.url, task.selection.publicOnly, signal, { background }); }
+      try { result = await this.acquireVideo(agent, item.url, task.selection.publicOnly, signal, { background, cwd: task.cwd }); }
       catch (error) { signal.throwIfAborted(); result = blocked({ code: error.code }); }
       if (result?.status === 'downloaded') {
         const receipt = await this.verify(current, item, result, undefined);

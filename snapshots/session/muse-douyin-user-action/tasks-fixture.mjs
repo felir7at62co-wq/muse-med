@@ -74,6 +74,7 @@ export async function apply(ctx) {
   }
   class BrowserTransport extends Service {
     version = 4
+    supportsExpectedCwd = true
     supportsBackgroundDownload = true
     constructor(scope) { super(scope, 'douyinBrowser') }
     async download(agent, url, signal, maxBytes, nativeTimeoutMs, options) {
@@ -83,6 +84,7 @@ export async function apply(ctx) {
       assert.equal(maxBytes, 512 * 1024 ** 2)
       assert.equal(nativeTimeoutMs, 1800000)
       assert.equal(options?.background, true)
+      assert.equal(options.expectedCwd, agent.session.header.cwd)
       nativeCalls.push(url)
       const dom = new JSDOM('<div class="douyin_login_new_class"><img aria-label="二维码"></div>')
       try {

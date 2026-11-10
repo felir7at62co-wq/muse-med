@@ -5,6 +5,7 @@ import { apply, validateArgs } from '../src/index.js';
 import { downloadCommand, resolveConfig, runDownloader } from '../src/runner.js';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { mkdir, readdir, symlink, unlink } from 'node:fs/promises';
 import { taskHarness } from './task-harness.js';
 import { mediaReceipt } from './task-fixtures.js';
 
@@ -92,7 +93,7 @@ async function registered(t, options = {}) {
   apply(context, h.settings);
   t.after(async () => { for (const close of cleanups.reverse()) await close(); });
   return { ...h, tools, processCalls, cleanups,
-    execute(args, exec = {}) { return h.ctx.agents.withInitiator(h.owner.agent, () => tools.get('douyin_download').execute(args, { callId: 'entry-call', ...exec })); },
+    execute(args, exec = {}, agent = h.owner.agent) { return h.ctx.agents.withInitiator(agent, () => tools.get('douyin_download').execute(args, { callId: 'entry-call', ...exec })); },
   };
 }
 
@@ -146,8 +147,8 @@ test('unload waits for public subprocess completion before publishing interrupte
 test('foreground fallback forwards independent bounds and preserves verified native task identity', async t => {
   const nativeId = 'a1234567-1234-1234-1234-123456789abc';
   const h = await registered(t, { result: () => ({ status: 'blocked', message: 'ACCESS_RESTRICTED' }), browser: {
-    version: 4, async download(agent, url, signal, bytes, timeout, options) {
-      assert.equal(signal.aborted, false); assert.equal(bytes, settings.maxDownloadBytes); assert.equal(timeout, settings.nativeTimeoutMs); assert.equal(options, undefined);
+    version: 4, supportsExpectedCwd: true, async download(agent, url, signal, bytes, timeout, options) {
+      assert.equal(signal.aborted, false); assert.equal(bytes, settings.maxDownloadBytes); assert.equal(timeout, settings.nativeTimeoutMs); assert.deepEqual(options, { expectedCwd: h.workspace });
       return mediaReceipt(agent, url, { taskId: nativeId, targetVideoId: url.split('/').at(-1) });
     },
   } });
@@ -160,10 +161,10 @@ test('unsupported public share data falls back to the selected work in the foreg
   const nativeId = 'a1234567-1234-1234-1234-123456789abc';
   let calls = 0;
   const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: The official share page returned unsupported video data.' }), browser: {
-    version: 4, async download(agent, url, signal, bytes, timeout, options) {
+    version: 4, supportsExpectedCwd: true, async download(agent, url, signal, bytes, timeout, options) {
       calls++;
       assert.equal(url, input.url); assert.equal(signal.aborted, false);
-      assert.equal(bytes, settings.maxDownloadBytes); assert.equal(timeout, settings.nativeTimeoutMs); assert.equal(options, undefined);
+      assert.equal(bytes, settings.maxDownloadBytes); assert.equal(timeout, settings.nativeTimeoutMs); assert.deepEqual(options, { expectedCwd: h.workspace });
       return mediaReceipt(agent, url, { taskId: nativeId, targetVideoId: url.split('/').at(-1) });
     },
   } });
@@ -178,10 +179,10 @@ test('unsupported public share data uses the owned background browser and retain
   const nativeId = 'a1234567-1234-1234-1234-123456789abc';
   let calls = 0;
   const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: unsupported video data' }), browser: {
-    version: 4, supportsBackgroundDownload: true, async download(agent, url, signal, bytes, timeout, options) {
+    version: 4, supportsBackgroundDownload: true, supportsExpectedCwd: true, async download(agent, url, signal, bytes, timeout, options) {
       calls++;
       assert.equal(url, input.url); assert.equal(signal.aborted, false);
-      assert.equal(bytes, settings.maxDownloadBytes); assert.equal(timeout, settings.nativeTimeoutMs); assert.deepEqual(options, { background: true });
+      assert.equal(bytes, settings.maxDownloadBytes); assert.equal(timeout, settings.nativeTimeoutMs); assert.deepEqual(options, { background: true, expectedCwd: h.workspace });
       return mediaReceipt(agent, url, { taskId: nativeId, targetVideoId: url.split('/').at(-1) });
     },
   } });
@@ -215,7 +216,7 @@ test('unsupported public share data reports the missing Desktop Host', async t =
 
 test('unsupported public share data preserves browser login requirements', async t => {
   const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: unsupported video data' }), browser: {
-    version: 4, download: async () => ({ status: 'blocked', code: 'LOGIN_OR_VERIFICATION_REQUIRED' }),
+    version: 4, supportsExpectedCwd: true, download: async () => ({ status: 'blocked', code: 'LOGIN_OR_VERIFICATION_REQUIRED' }),
   } });
   const value = await h.execute({ url: input.url });
   assert.equal(value.status, 'blocked');
@@ -237,7 +238,7 @@ test('local media and filesystem failures do not open a browser', async t => {
 
 test('unsupported share data cannot certify a browser result for a different work', async t => {
   const h = await registered(t, { result: () => ({ status: 'blocked', message: 'PUBLIC_SHARE_DATA_INVALID: unsupported video data' }), browser: {
-    version: 4, async download(agent, url) {
+    version: 4, supportsExpectedCwd: true, async download(agent, url) {
       return mediaReceipt(agent, url, { targetVideoId: '7100000000000000001' });
     },
   } });
@@ -267,4 +268,53 @@ test('native and registry deployment bounds fail before registration', () => {
   for (const nativeTimeoutMs of [999, 7200001, 1000.5, NaN, Infinity, '1800000', null]) assert.throws(() => resolveConfig({ nativeTimeoutMs }), /nativeTimeoutMs/);
   assert.throws(() => resolveConfig({ taskMaxTasks: 0 }), /taskMaxTasks/);
   assert.throws(() => resolveConfig({ timeoutMs: 7200000, nativeTimeoutMs: 7200000, maxVideos: 100 }), /timer range/);
+});
+
+
+test('public acquisition uses the accepted canonical output even if the Session link changes while its process runs', async t => {
+  let original, replacement, selected;
+  const calls = [];
+  const h = await registered(t, { subprocess: { spawn(spec) {
+    calls.push(spec);
+    let result;
+    return { done: (async () => {
+      assert.equal(spec.cwd, original);
+      assert.equal(spec.argv[spec.argv.indexOf('--project') + 1], original);
+      await unlink(selected); await symlink(replacement, selected, process.platform === 'win32' ? 'junction' : 'dir');
+      const url = spec.argv[spec.argv.indexOf('--url') + 1];
+      result = await mediaReceipt({ session: { header: { cwd: spec.cwd } } }, url);
+      return { exitCode: 0, signal: null };
+    })(), collected: { stdout: { readFrom: () => ({ text: JSON.stringify(result) }) } } };
+  } } });
+  original = join(h.workspace, 'original'); replacement = join(h.workspace, 'replacement'); selected = join(h.workspace, 'selected');
+  await mkdir(original); await mkdir(replacement); await symlink(original, selected, process.platform === 'win32' ? 'junction' : 'dir');
+  const owner = await h.makeAgent('public-bound-workspace', selected);
+  const result = await h.execute(input, {}, owner.agent);
+  assert.equal(result.status, 'downloaded');
+  assert.equal(result.downloadTask.state, 'completed');
+  assert.equal(result.path, join(original, 'source/media/douyin', input.url.split('/').at(-1) + '.mp4'));
+  assert.equal(calls.length, 1);
+  assert.deepEqual(await readdir(replacement), []);
+});
+
+for (const supportsExpectedCwd of [undefined, false]) test(`rejects a legacy v4 browser with workspace capability ${String(supportsExpectedCwd)} before retargeted native output`, async t => {
+  let original, replacement, selected, nativeCalls = 0;
+  const h = await registered(t, { result: async () => {
+    await unlink(selected); await symlink(replacement, selected, process.platform === 'win32' ? 'junction' : 'dir');
+    return { status: 'blocked', message: 'PUBLIC_SHARE_MEDIA_UNAVAILABLE' };
+  }, browser: {
+    version: 4, supportsBackgroundDownload: true,
+    ...(supportsExpectedCwd === undefined ? {} : { supportsExpectedCwd }),
+    async download(agent, url) { nativeCalls++; return mediaReceipt(agent, url); },
+  } });
+  original = join(h.workspace, 'original'); replacement = join(h.workspace, 'replacement'); selected = join(h.workspace, 'selected');
+  await mkdir(original); await mkdir(replacement);
+  await symlink(original, selected, process.platform === 'win32' ? 'junction' : 'dir');
+  const owner = await h.makeAgent('legacy-native-bound-workspace', selected);
+  const result = await h.execute({ url: input.url }, {}, owner.agent);
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.code, 'DESKTOP_WORKSPACE_BINDING_UNAVAILABLE');
+  assert.equal(nativeCalls, 0);
+  assert.deepEqual(await readdir(original), []);
+  assert.deepEqual(await readdir(replacement), []);
 });

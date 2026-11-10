@@ -28,6 +28,7 @@ kind: "package-bundle"
 
 `douyin_download` 接受已选择的官方 HTTPS 视频/分享 `url`，或已核对的 `urls` 列表，验证后保存到发起会话的 `source/media/douyin/`。公开请求始终忽略保存的浏览器设置；`publicOnly:true` 禁用内置浏览器回退。公开分享数据不受支持时，可与公开媒体不可用一样使用授权浏览器回退。工具不接受浏览器配置、Cookie 文件、记住账号或任意输出目录。
 
+<a id="persistent-downloads"></a>
 ### 持久下载任务
 
 `mode:wait` 为默认值，保留已有单条或批量状态/收据字段，并增加 `downloadTask:{id,state,jobId}`。`mode:background` 在任务接收后返回 `status:queued` 和持久任务收据，不代表媒体已完成。持久 ID 由真实所属 Session 和已记录的工具调用计算，同一调用重试不启动第二个执行器。原生 `result.taskId` 保持浏览器 UUID，不被持久 `downloadTask.id` 替换。每次显式续跑产生新的进程内 `jobId`。
@@ -38,13 +39,17 @@ kind: "package-bundle"
 
 续跑会逐项检查已完成文件、SHA-256、大小、来源收据和视频身份后才跳过。已完成收据发生变化时停止续跑，不猜测成功。已知视频 ID 可复用同一规范化工作目录中重新独立验证的文件，不返回外部 Session 的任务元数据。重复选择保留输入顺序，并通过 `reused`、`reusedSelections`、`uniqueVideos` 说明，避免将已满足选择冒称独立视频。未解析短链的视频身份未知，不能预先去重；解析后每项目标 ID 不得改变。
 
-注册表位于 `settingsHome/plugin-data/muse-douyin-download/tasks/v1/registry.json`，格式版本为 1，保存 owner/调用接收身份、规范化目标目录、官方选择、逐项状态和验证收据。私有文件使用独占租约、有界读取、版本检查、私有临时文件和原子发布。初始化会把已死亡执行器的任务标为中断，不重放下载，也不抢占存活或无法确认归属的 Host 租约。旧注册表实例的 Jobs ID 会清空。缺少 `settingsHome` 时明确失败，不使用临时存储；缺少媒体可执行文件时保留原有运行环境阻塞结果，不建立任务。
+任务保留接收所选链接时的规范工作目录。每项获取前重新核对当前 Session 目录；目标变化时返回 `DOUYIN_TASK_FORBIDDEN`。公开获取使用该规范目录作为输出目录和进程 cwd。原生回退在 IPC 前核对预期目录，不一致时返回 `WORKSPACE_CHANGED`；暂存、验证和发布始终使用已捕获的目录。
+
+注册表位于 `settingsHome/plugin-data/muse-douyin-download/tasks/v1/registry.json`，格式版本为 1，保存 owner/调用接收身份、规范化目标目录、官方选择、逐项状态和验证收据。私有文件使用独占租约、有界读取、版本检查、私有临时文件和原子发布。注册表持有者记录完整写入后，再通过独占硬链接发布。回收死亡持有者时使用保留在磁盘的内核锁文件和带持有者信息的恢复记录；进程退出会自动释放内核锁。回收要求正整数有效 PID、UUID token 和 Host 身份，且只含已知归属字段。初始化会把已死亡执行器的任务标为中断，不重放下载，也不抢占存活或无法确认归属的 Host 租约。旧注册表实例的 Jobs ID 会清空。缺少 `settingsHome` 时明确失败，不使用临时存储；缺少媒体可执行文件时保留原有运行环境阻塞结果，不建立任务。
 
 媒体验证成功但注册表写入失败时，等待结果返回 `partial`/`interrupted`、`verifiedButUnrecordedReceipts`、登记错误和最终状态是否写入。后台 Jobs 返回相同的具体文件证据。这些收据不会变为持久完成项。进程在媒体发布与项目登记之间崩溃时可能留下未登记文件，须人工核对，绝不根据文件名认证成功。
 
+旧匿名恢复 guard、不完整或含未知字段的旧锁仍返回 `DOUYIN_TASK_LOCKED`：文件年龄和超时都不能证明其持有者已退出。保留这些文件，在显式迁移前由操作者核对持有者。注册表恢复要求本地文件系统支持硬链接；macOS/Linux 还需匹配的系统 addon，Windows 则需 Koffi。
+
 ### 运行环境与配置
 
-随包集成的页面数据与内置浏览器获取功能依赖 Desktop Host 协议 8 和 `douyinBrowser.version === 4`。版本 2 和 3 在页面数据或下载 IPC 前被拒绝。版本 4 的下载方法要求显式传入第五个 `nativeTimeoutMs` 参数；应用与插件必须配套更新。单独安装插件不会增加浏览器下载接口。Desktop 自动选择经过验证的随包 Python，保留显式媒体程序设置，并从随包媒体目录或普通 PATH 查找已有 ffmpeg/ffprobe；不安装依赖或修改 PATH。Mac 安装包包含对应架构的媒体程序，运行时查找不会安装依赖。打包后的 Python 脚本及提取器归档位于 ASAR 外，使内置解释器可以读取。 后台播放还要求 `supportsBackgroundDownload:true`，内部第六参数为 `{background:true}`；旧桥不会把后台任务静默降级为前台播放。
+随包集成的页面数据与内置浏览器获取功能依赖 Desktop Host 协议 9 和 `douyinBrowser.version === 4`。版本 2 和 3 在页面数据或下载 IPC 前被拒绝。版本 4 的下载方法要求显式传入第五个 `nativeTimeoutMs` 参数；应用与插件必须配套更新。单独安装插件不会增加浏览器下载接口。Desktop 自动选择经过验证的随包 Python，保留显式媒体程序设置，并从随包媒体目录或普通 PATH 查找已有 ffmpeg/ffprobe；不安装依赖或修改 PATH。Mac 安装包包含对应架构的媒体程序，运行时查找不会安装依赖。打包后的 Python 脚本及提取器归档位于 ASAR 外，使内置解释器可以读取。 后台播放还要求 `supportsBackgroundDownload:true`，内部第六参数选择 `{background:true}`，并通过 `expectedCwd` 携带接收时的规范目录；持久任务的原生下载还要求 `supportsExpectedCwd:true`；版本 4 的桥缺少此能力时，在原生 I/O 前返回 `DESKTOP_WORKSPACE_BINDING_UNAVAILABLE`。公开获取成功不要求此能力。旧桥不会把后台任务静默降级为前台播放。
 
 公开执行器需要 `agents`、`tools`、`subprocess`、`jobs` 和 `sandboxPolicy`；浏览器回退还需要宿主下载接口。部署配置保留 `pythonExecutable`、`ffprobeExecutable`、`ffmpegExecutable`、`settingsHome`、`requestTimeoutMs`、`timeoutMs`、`nativeTimeoutMs`、`maxDownloadBytes`、`graceMs`、`maxVideos`、`dataTimeoutMs`、`maxComments`。执行器默认 120 秒、512 MiB、20 条链接；页面数据默认每条链接 30 秒、每页 20 条评论。`requestTimeoutMs` 还用于在外层传输截止前等待页面结果送达。`maxDownloadBytes`（1 字节到 8 GiB）同时用于公开下载、内置浏览器传输和本地文件验证。内置浏览器最多一个任务。准备阶段单独限时 120 秒；`nativeTimeoutMs` 默认 30 分钟（整数 1 秒到 2 小时），用于选定媒体后的原生传输，之后完整本地验证重新获得等长的独立预算。媒体关联另有 120 秒截止。宿主下载 IPC 预算包含这段关联时间、原生预算及额外 10 秒结果送达时间。此配置独立于公开 Python 的 `timeoutMs`；工具截止涵盖两条下载路径、验证及传输清理。组合批次截止超过 Node 计时器范围时配置会被拒绝，请降低 `maxVideos` 或预算。缺少验证程序时返回 blocked。
 

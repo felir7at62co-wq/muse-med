@@ -8,7 +8,8 @@ import type {} from '@deepseek-ai/dsh-sandbox-policy';
 export class DouyinTasks {
   /** @param ctx Real agent registry, jobs and sandbox policy. @param settings Complete deployment settings. @param dependencies Existing verified acquisition and optional clock. */
   constructor(ctx: Context, settings: Required<DouyinConfig>, dependencies: {
-    acquireVideo(agent: Agent, url: string, publicOnly: boolean, signal: AbortSignal, transport: { background: boolean }): Promise<object>;
+    /** Acquisition stays in transport.cwd, the accepted canonical workspace, without replacing the live Agent. */
+    acquireVideo(agent: Agent, url: string, publicOnly: boolean, signal: AbortSignal, transport: { background: boolean; cwd: string }): Promise<object>;
     now?: () => number;
   });
   /** @returns Private registry initialization; persisted business work never replays automatically. */

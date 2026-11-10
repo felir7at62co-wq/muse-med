@@ -2,6 +2,7 @@
 import { downloadCommand, resolveConfig, runDownloader, runtimeUnavailable } from './runner.js';
 import { dataProperties, projectDataResult, resolveDataArgs } from './data.js';
 import { DouyinTasks } from './tasks.js';
+import { realpath } from 'node:fs/promises';
 import { withNetworkGuidance } from './network-guidance.js';
 
 export { downloadCommand, resolveConfig, runDownloader, runtimeUnavailable } from './runner.js';
@@ -57,14 +58,24 @@ export function apply(ctx, config = {}) {
     signal.throwIfAborted();
     const unavailable = runtimeUnavailable(settings);
     if (unavailable) return unavailable;
-    const workspace = agent.session.header.cwd;
+    const workspace = options.cwd ?? agent.session.header.cwd;
+    if (options.cwd !== undefined && await realpath(agent.session.header.cwd) !== options.cwd) {
+      throw Object.assign(new Error('Download task workspace differs from the current Session'), { code: 'DOUYIN_TASK_FORBIDDEN' });
+    }
     let result = await track(runDownloader(ctx.subprocess, settings, downloadCommand(settings, { url, publicOnly: true }, workspace), workspace, signal));
     if (result.status === 'downloaded') return result;
     signal.throwIfAborted();
     if (result.status === 'blocked' && !publicOnly
       && /PUBLIC_SHARE_MEDIA_UNAVAILABLE|^PUBLIC_SHARE_DATA_INVALID(?::|$)|PUBLIC_SHARE_REQUEST_FAILED|PUBLIC_MEDIA_DOWNLOAD_FAILED|LOGIN_OR_VERIFICATION_REQUIRED|ACCESS_RESTRICTED|^Share link resolution failed;/.test(result.message || '')) {
       const browser = ctx.get('douyinBrowser');
-      if (browser?.version === 4 && (!options.background || browser.supportsBackgroundDownload === true)) result = await track(browser.download(agent, url, signal, settings.maxDownloadBytes, settings.nativeTimeoutMs, ...(options.background ? [{ background: true }] : [])));
+      if (browser?.version === 4 && (!options.background || browser.supportsBackgroundDownload === true)) {
+        if (options.cwd !== undefined && browser.supportsExpectedCwd !== true) {
+          result = { status: 'blocked', code: 'DESKTOP_WORKSPACE_BINDING_UNAVAILABLE', message: 'Persistent browser downloads require a Host that verifies the accepted workspace; update the Host before resuming' };
+        } else {
+          const transport = { ...(options.background ? { background: true } : {}), ...(options.cwd !== undefined ? { expectedCwd: options.cwd } : {}) };
+          result = await track(browser.download(agent, url, signal, settings.maxDownloadBytes, settings.nativeTimeoutMs, ...(Object.keys(transport).length ? [transport] : [])));
+        }
+      }
       else if (options.background) result = { status: 'blocked', code: 'DESKTOP_BACKGROUND_UNAVAILABLE', message: 'Background browser download requires the matching Desktop Host capability; resume after updating the Host' };
       else result = { status: 'blocked', code: 'DESKTOP_HOST_REQUIRED', message: 'This plugin requires the matching MUSE Desktop browser download bridge for authorized playback.' };
     }

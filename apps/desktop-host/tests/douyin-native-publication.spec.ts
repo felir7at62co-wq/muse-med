@@ -27,12 +27,14 @@ const playerEvidence = { responseStatus: 206, mediaHost: 'v3.douyinvod.com', med
 /** Verification dependency fixture; these tests exercise actual filesystem publication, not codecs or platform downloads. */
 class FileVerification extends SubprocessRuntime {
   readonly commands: string[][] = []
+  readonly workspaces: string[] = []
   constructor(ctx: Context, private readonly config: { decode?: (spec: SubprocessSpawnSpec) => Promise<void> } = {}) { super(ctx) }
   override async resolveExecutable(command: string): Promise<string> { return command }
   override async terminalEnvironment() { return { platform: 'posix' as const } }
   override async spawnTerminal(): Promise<SubprocessTerminalHandle> { throw new Error('No terminal in file verification fixture') }
   override spawn(spec: SubprocessSpawnSpec): SubprocessHandle {
     this.commands.push([...spec.argv])
+    this.workspaces.push(spec.cwd)
     const text = spec.argv.includes('-show_entries') ? JSON.stringify({ format: { duration: '34.41' }, streams: [{ codec_type: 'video', width: 3840, height: 2160 }] }) : ''
     return { stdin: undefined, stdout: undefined, stderr: undefined, control: undefined,
       collected: { stdout: { readFrom: () => ({ text, nextOffset: Buffer.byteLength(text), lossy: false }) } },
@@ -201,3 +203,59 @@ it.each(['publish', 'publish-player-metadata', 'player-duration-mismatch', 'play
     }
   },
 )
+
+
+it('keeps native staging, verification and publication in the accepted canonical workspace after preparation', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'muse-native-bound-output-'))), ctx = new Context()
+  const selected = join(root, 'selected'), replacement = join(root, 'other-project')
+  const connected = Object.getOwnPropertyDescriptor(process, 'connected'), send = Object.getOwnPropertyDescriptor(process, 'send')
+  const requests: DouyinDesktopRequest[] = []
+  let output = ''
+  try {
+    mkdirSync(replacement)
+    symlinkSync(root, selected, process.platform === 'win32' ? 'junction' : 'dir')
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(FileVerification)
+    const session = ctx.sessions.create(SessionId('native-canonical-output'), { meta: { cwd: selected } })
+    Object.defineProperty(process, 'connected', { value: true, configurable: true })
+    Object.defineProperty(process, 'send', { configurable: true,
+      value: (request: DouyinDesktopRequest, callback: (error: Error | null) => void) => {
+        requests.push(request)
+        if (request.action === 'prepare') {
+          unlinkSync(selected); symlinkSync(replacement, selected, process.platform === 'win32' ? 'junction' : 'dir')
+        }
+        let staged: string | undefined
+        if (request.action === 'download') {
+          const directory = join(request.cwd, 'source', 'media', 'douyin', `.native-${request.taskId}`)
+          mkdirSync(directory, { recursive: true })
+          staged = join(directory, 'video.mp4')
+          writeFileSync(staged, 'fixture-media')
+          output = join(root, 'source', 'media', 'douyin', `${id}-${request.taskId}.mp4`)
+        }
+        queueMicrotask(() => { EventEmitter.prototype.emit.call(process, 'message', {
+          type: 'douyin-browser-result', requestId: request.requestId, targetVideoId: id,
+          code: request.action === 'prepare' ? 'PREPARED' : request.action === 'download' ? 'STAGED' : 'RELEASED',
+          ...(staged === undefined ? {} : { path: staged, evidence }),
+        }) })
+        callback(null)
+      },
+    })
+    installDesktopDouyinBrowser(ctx)
+    const result = await ctx.douyinBrowser.download({ id: session.id, session, ctx } as Agent,
+      `https://www.douyin.com/video/${id}`, new AbortController().signal, 1024, 1_800_000, { background: true, expectedCwd: root })
+    expect(result).toMatchObject({ status: 'downloaded', path: output, receipt: output + '.source.json', bytes: 13 })
+    expect(requests.map(request => request.action)).toEqual(['prepare', 'download', 'release'])
+    expect(requests.every(request => request.cwd === root)).toBe(true)
+    if (!(ctx.subprocess instanceof FileVerification)) throw new Error('Unexpected verification provider')
+    expect(ctx.subprocess.workspaces).toEqual([root, root])
+    expect(readFileSync(output, 'utf8')).toBe('fixture-media')
+    expect(JSON.parse(readFileSync(output + '.source.json', 'utf8'))).toMatchObject({ path: output, targetVideoId: id })
+    expect(await fileIO.readdir(replacement)).toEqual([])
+  } finally {
+    await ctx.fiber.dispose()
+    if (connected) Object.defineProperty(process, 'connected', connected); else Reflect.deleteProperty(process, 'connected')
+    if (send) Object.defineProperty(process, 'send', send); else Reflect.deleteProperty(process, 'send')
+    if (existsSync(selected)) unlinkSync(selected)
+    rmSync(root, { recursive: true, force: true })
+  }
+})

@@ -230,6 +230,7 @@
     "verify-running-build": "tsx scripts/verify-running-build.ts"
   },
   "devDependencies": {
+    "@deepseek-ai/node-addon-system": "workspace:~",
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/cordis-plugin-include": "workspace:~",
     "@deepseek-ai/cordis-plugin-loader": "workspace:~",
@@ -317,6 +318,7 @@
     "js-yaml": "^4.3.2",
     "jscpd": "^5.1.2",
     "jsdom": "29.1.1",
+    "koffi": "3.1.1",
     "lefthook": "^2.1.12",
     "lightningcss": "^1.33.0",
     "mdast-util-from-markdown": "^2.0.3",

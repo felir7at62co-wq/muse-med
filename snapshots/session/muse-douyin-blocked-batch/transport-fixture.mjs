@@ -24,9 +24,11 @@ class PublicFailure extends Service {
 
 class BrowserFailure extends Service {
   version = 4
+  supportsExpectedCwd = true
   constructor(ctx) { super(ctx, 'douyinBrowser') }
-  async download(agent, url, signal, _maxDownloadBytes, nativeTimeoutMs) {
+  async download(agent, url, signal, _maxDownloadBytes, nativeTimeoutMs, options) {
     signal.throwIfAborted()
+    if (options?.expectedCwd !== agent.session.header.cwd) throw new Error('Missing accepted workspace binding')
     if (nativeTimeoutMs !== 1800000) throw new Error('Missing native timeout deployment setting')
     if (agent.session.header.cwd === undefined) throw new Error('Missing initiating workspace')
     const codes = new Map([
