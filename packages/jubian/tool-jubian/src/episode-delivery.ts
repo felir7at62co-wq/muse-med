@@ -2,12 +2,12 @@
 import { constants, type Stats } from 'node:fs'
 import { lstat, open } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
-import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/cordis'
 import type { VideoArtifactSha256, VideoRecoveryDigest, EpisodeAttemptId, EpisodeExecutionId, EpisodeRendererGeneration } from './types.ts'
 import type { EpisodeDeliveryJob } from './episode-delivery-job.ts'
+import { readEpisodeFileDigest } from './episode-file-digest.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -309,14 +309,7 @@ export async function hashEpisodeFile(path: string, signal: AbortSignal): Promis
     if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
       throw new Error('Episode input changed while opening')
     }
-    const hash = createHash('sha256'), buffer = Buffer.alloc(65536)
-    let bytes = 0
-    while (true) {
-      signal.throwIfAborted()
-      const read = await file.read(buffer, 0, buffer.length, null)
-      if (read.bytesRead === 0) break
-      hash.update(buffer.subarray(0, read.bytesRead)); bytes += read.bytesRead
-    }
+    const { sha256, bytes } = await readEpisodeFileDigest(file, signal)
     const after = await file.stat(), current = await lstat(path)
     if (!current.isFile() || current.dev !== opened.dev || current.ino !== opened.ino
       || bytes !== opened.size || after.size !== opened.size || current.size !== opened.size
@@ -325,7 +318,7 @@ export async function hashEpisodeFile(path: string, signal: AbortSignal): Promis
       throw new Error('Episode input changed during hashing')
     }
     signal.throwIfAborted()
-    return { path, sha256: brandString<Sha256>(hash.digest('hex')), bytes,
+    return { path, sha256: brandString<Sha256>(sha256), bytes,
       dev: current.dev, ino: current.ino, mtimeMs: current.mtimeMs, ctimeMs: current.ctimeMs }
   } finally { await file.close() }
 }

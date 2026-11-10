@@ -422,6 +422,19 @@ export const en = {
   'clock.ymd': '{y}-{m}-{d}',
 } satisfies Record<ChatKey, string>
 
+/** Fixed English copy shared until these specific keys receive translations. */
+const englishFallback = {
+  'chat.preparing': en['chat.preparing'],
+  'chat.preparingFor': en['chat.preparingFor'],
+  'chat.waitingForResponse': en['chat.waitingForResponse'],
+  'chat.waitingForResponseFor': en['chat.waitingForResponseFor'],
+  'chat.waitingForResponseStep': en['chat.waitingForResponseStep'],
+  'chat.receivingReasoning': en['chat.receivingReasoning'],
+  'chat.receivingReasoningFor': en['chat.receivingReasoningFor'],
+  'chat.receivingResponse': en['chat.receivingResponse'],
+  'chat.receivingResponseFor': en['chat.receivingResponseFor'],
+}
+
 /** Japanese copy, checked against the English keys. */
 export const ja = {
   'message.stepProcess.thinking': 'リクエストを分析中',
@@ -619,15 +632,7 @@ export const ja = {
   'json.truncated': '… 省略表示、全{total}文字',
   'clock.md': '{m}/{d}',
   'clock.ymd': '{y}-{m}-{d}',
-  'chat.preparing': en['chat.preparing'],
-  'chat.preparingFor': en['chat.preparingFor'],
-  'chat.waitingForResponse': en['chat.waitingForResponse'],
-  'chat.waitingForResponseFor': en['chat.waitingForResponseFor'],
-  'chat.waitingForResponseStep': en['chat.waitingForResponseStep'],
-  'chat.receivingReasoning': en['chat.receivingReasoning'],
-  'chat.receivingReasoningFor': en['chat.receivingReasoningFor'],
-  'chat.receivingResponse': en['chat.receivingResponse'],
-  'chat.receivingResponseFor': en['chat.receivingResponseFor'],
+  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -827,15 +832,7 @@ export const es = {
   'json.truncated': '… truncado, caracteres {total} en total',
   'clock.md': '{m}/{d}',
   'clock.ymd': '{y}-{m}-{d}',
-  'chat.preparing': en['chat.preparing'],
-  'chat.preparingFor': en['chat.preparingFor'],
-  'chat.waitingForResponse': en['chat.waitingForResponse'],
-  'chat.waitingForResponseFor': en['chat.waitingForResponseFor'],
-  'chat.waitingForResponseStep': en['chat.waitingForResponseStep'],
-  'chat.receivingReasoning': en['chat.receivingReasoning'],
-  'chat.receivingReasoningFor': en['chat.receivingReasoningFor'],
-  'chat.receivingResponse': en['chat.receivingResponse'],
-  'chat.receivingResponseFor': en['chat.receivingResponseFor'],
+  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -1035,15 +1032,7 @@ export const fr = {
   'json.truncated': '… tronqué, nombre total de caractères {total}',
   'clock.md': '{m}/{d}',
   'clock.ymd': '{y}-{m}-{d}',
-  'chat.preparing': en['chat.preparing'],
-  'chat.preparingFor': en['chat.preparingFor'],
-  'chat.waitingForResponse': en['chat.waitingForResponse'],
-  'chat.waitingForResponseFor': en['chat.waitingForResponseFor'],
-  'chat.waitingForResponseStep': en['chat.waitingForResponseStep'],
-  'chat.receivingReasoning': en['chat.receivingReasoning'],
-  'chat.receivingReasoningFor': en['chat.receivingReasoningFor'],
-  'chat.receivingResponse': en['chat.receivingResponse'],
-  'chat.receivingResponseFor': en['chat.receivingResponseFor'],
+  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -1243,15 +1232,7 @@ export const de = {
   'json.truncated': '… gekürzt, {total} Zeichen insgesamt',
   'clock.md': '{m}/{d}',
   'clock.ymd': '{y}-{m}-{d}',
-  'chat.preparing': en['chat.preparing'],
-  'chat.preparingFor': en['chat.preparingFor'],
-  'chat.waitingForResponse': en['chat.waitingForResponse'],
-  'chat.waitingForResponseFor': en['chat.waitingForResponseFor'],
-  'chat.waitingForResponseStep': en['chat.waitingForResponseStep'],
-  'chat.receivingReasoning': en['chat.receivingReasoning'],
-  'chat.receivingReasoningFor': en['chat.receivingReasoningFor'],
-  'chat.receivingResponse': en['chat.receivingResponse'],
-  'chat.receivingResponseFor': en['chat.receivingResponseFor'],
+  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -1451,15 +1432,7 @@ export const ru = {
   'json.truncated': '… усечено, всего символов {total}',
   'clock.md': '{m}/{d}',
   'clock.ymd': '{y}-{m}-{d}',
-  'chat.preparing': en['chat.preparing'],
-  'chat.preparingFor': en['chat.preparingFor'],
-  'chat.waitingForResponse': en['chat.waitingForResponse'],
-  'chat.waitingForResponseFor': en['chat.waitingForResponseFor'],
-  'chat.waitingForResponseStep': en['chat.waitingForResponseStep'],
-  'chat.receivingReasoning': en['chat.receivingReasoning'],
-  'chat.receivingReasoningFor': en['chat.receivingReasoningFor'],
-  'chat.receivingResponse': en['chat.receivingResponse'],
-  'chat.receivingResponseFor': en['chat.receivingResponseFor'],
+  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -1659,13 +1632,5 @@ export const pt = {
   'json.truncated': '… truncado, {total} caracteres no total',
   'clock.md': '{m}/{d}',
   'clock.ymd': '{y}-{m}-{d}',
-  'chat.preparing': en['chat.preparing'],
-  'chat.preparingFor': en['chat.preparingFor'],
-  'chat.waitingForResponse': en['chat.waitingForResponse'],
-  'chat.waitingForResponseFor': en['chat.waitingForResponseFor'],
-  'chat.waitingForResponseStep': en['chat.waitingForResponseStep'],
-  'chat.receivingReasoning': en['chat.receivingReasoning'],
-  'chat.receivingReasoningFor': en['chat.receivingReasoningFor'],
-  'chat.receivingResponse': en['chat.receivingResponse'],
-  'chat.receivingResponseFor': en['chat.receivingResponseFor'],
+  ...englishFallback,
 } satisfies Record<keyof typeof en, string>

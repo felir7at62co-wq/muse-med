@@ -223,11 +223,14 @@ it('distinguishes missing from malformed, over-budget and nonregular journal fil
   await expect(f.job.read()).rejects.toThrow(SyntaxError)
 })
 
-it('observes bounded state JSON and rejects missing-parent errors, malformed JSON and oversized files', async () => {
+it('observes bounded state JSON and preserves platform path errors, malformed JSON and size limits', async () => {
   const f = await fixture(), path = join(f.root, 'state.json')
   expect(await readEpisodeStateSnapshot(path, 4)).toBeUndefined()
   await writeFile(path, '{}'); expect(await readEpisodeStateSnapshot(path, 2)).toEqual({})
-  await expect(readEpisodeStateSnapshot(join(path, 'nested.json'), 4)).rejects.toThrow()
+  const nested = readEpisodeStateSnapshot(join(path, 'nested.json'), 4)
+  // Windows reports ENOENT for a file used as a parent; POSIX reports ENOTDIR.
+  if (process.platform === 'win32') expect(await nested).toBeUndefined()
+  else await expect(nested).rejects.toThrow()
   await writeFile(path, '{'); await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow(SyntaxError)
   await writeFile(path, '12345'); await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow('bounded regular file')
   await expect(readEpisodeStateSnapshot(f.root, 4)).rejects.toThrow('bounded regular file')
@@ -422,10 +425,31 @@ it('refuses unowned running records and orphan historical drain evidence', async
 
 it('propagates real journal and candidate path errors instead of interpreting them as absence', async () => {
   const f = await fixture(); await f.job.admit(f.admission)
-  await expect(readEpisodeRecord(join(f.input, 'nested.json'), 16384)).rejects.toThrow()
+  const nested = readEpisodeRecord(join(f.input, 'nested.json'), 16384)
+  if (process.platform === 'win32') expect(await nested).toBeUndefined()
+  else await expect(nested).rejects.toThrow()
   const execution = await f.execution(), stage = dirname(execution.candidatePath)
   await rm(stage, { recursive: true }); await writeFile(stage, 'not a directory')
   await expect(f.job.assertAdmission(execution.identity)).rejects.toThrow()
+})
+
+it('propagates non-absence metadata errors through both journal readers on every platform', async () => {
+  const f = await fixture(), target = join(f.root, 'denied.json'), lstat = files.lstat
+  const denied = Object.assign(new Error('journal metadata denied'), { code: 'EACCES' })
+  const spy = vi.spyOn(files, 'lstat').mockImplementation(async (...args) => {
+    if (args[0] === target) throw denied
+    return lstat(...args)
+  })
+  onTestFinished(() => { spy.mockRestore() })
+  await expect(readEpisodeRecord(target, 16384)).rejects.toBe(denied)
+  // The POSIX snapshot reader opens directly; force the same parser error at that operation.
+  const open = files.open
+  const openSpy = vi.spyOn(files, 'open').mockImplementation(async (...args) => {
+    if (args[0] === target) throw denied
+    return open(...args)
+  })
+  onTestFinished(() => { openSpy.mockRestore() })
+  await expect(readEpisodeStateSnapshot(target, 16384)).rejects.toBe(denied)
 })
 
 it.each(['journal', 'input'] as const)('refuses a real %s replacement between lstat and open', async (kind) => {

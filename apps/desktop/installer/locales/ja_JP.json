@@ -12,6 +12,7 @@
     "INSTALLER_BROWSE": "参照",
     "INSTALLER_LAUNCH": "今すぐ起動",
     "INSTALLER_LAUNCH_FAILED": "DeepSeek Harness を起動できませんでした。再試行するか、「今すぐ起動」のチェックを外してインストーラーを閉じてください。",
+    "INSTALLER_REBOOT_REQUIRED": "インストールが完了しました。Muse を開く前に Windows を再起動してください。",
     "INSTALLER_UI_ERROR": "インストーラーのウィンドウを初期化できませんでした。閉じてから再試行してください。",
     "INSTALLER_THEME_ERROR": "/THEME=auto、/THEME=light、/THEME=dark のいずれかを指定してください。",
     "INSTALLER_FAILED": "インストールが完了しませんでした。インストーラーを閉じて再試行してください。問題が解決しない場合は、インストーラーを再度ダウンロードしてください。",

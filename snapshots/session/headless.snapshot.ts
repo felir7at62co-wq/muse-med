@@ -1622,17 +1622,27 @@ describe('headless recorded-session snapshots', () => {
     if (scenario === undefined) throw new Error('Missing recorded budget owner')
     const log = await readFile(join(scenario.dir, 'writer.expected.jsonl'), 'utf8')
     const expected = records(log)
-    const index = expected.findIndex(row => row.type === 'request/context'
+    const cwd = '/' + 'x'.repeat(75)
+    const [prompt, schemaText] = await Promise.all([
+      readFile(join(scenario.dir, 'system-prompt.expected.md'), 'utf8'),
+      readFile(join(scenario.dir, 'tool-schemas.expected.json'), 'utf8'),
+    ])
+    const schemas = parseToolSchemasSnapshot(schemaText)
+    const counts = deriveWorkingBudgetExpectations({ log, prompt, schemas: [schemas.initial, ...schemas.changes], cwd })
+    const actual = expected.map((row, offset) => {
+      const count = counts.get(offset)
+      return count === undefined ? row : { ...row, data: { ...row.data as JsonObject, workingContextTokens: count } }
+    })
+    const index = actual.findIndex(row => row.type === 'request/context'
       && typeof (row.data as JsonObject).workingContextTokens === 'number')
-    const data = expected[index]?.data as JsonObject
+    const data = actual[index]?.data as JsonObject
     const estimate = data.workingContextTokens
     const limit = data.workingTokenLimit
     if (typeof estimate !== 'number' || typeof limit !== 'number') throw new Error('Missing recorded working estimate')
-    const cwd = '/' + 'x'.repeat(75)
-    const changed = (value: unknown) => expected.map((row, offset) => offset === index ? { ...row, data: value } : row)
+    const changed = (value: unknown) => actual.map((row, offset) => offset === index ? { ...row, data: value } : row)
     const compare = (actual: JsonObject[]) => workspaceBudgetExpected(scenario, actual, expected, log, cwd)
     await expect(compare(changed({ ...data, workingContextTokens: estimate + 5 }))).rejects.toThrow(/exact working context estimate/)
-    expect(await compare(expected)).toEqual(expected)
+    expect(await compare(actual)).toEqual(actual)
     expect(expected).toEqual(records(log))
     await expect(compare(changed({ ...data, workingContextTokens: limit }))).rejects.toThrow(/exact working context estimate/)
     await expect(compare(changed({ ...data, workingContextTokens: limit + 1 }))).rejects.toThrow(/exact working context estimate/)

@@ -385,6 +385,21 @@ export function ocrBridgeHostPath(moduleUrl = import.meta.url, engine: Config['o
 
 class OcrTimestampOriginError extends Error {}
 
+function printedHalfUnit(text: string): number {
+  const parts = /^[+-]?(?:\d+(?:\.(\d*))?|\.(\d+))(?:e([+-]?\d+))?$/iu.exec(text)
+  if (!parts) return NaN
+  const decimals = (parts[1] ?? parts[2] ?? '').length
+  return 10 ** (Number(parts[3] ?? 0) - decimals) / 2
+}
+
+function matchesPrintedTime(sourceTime: number, sourceText: string, text: string): boolean {
+  const printed = Number(text), halfUnit = printedHalfUnit(text), sourceHalfUnit = printedHalfUnit(sourceText)
+  if (!Number.isFinite(printed) || !Number.isFinite(halfUnit) || !Number.isFinite(sourceHalfUnit)
+    || halfUnit <= 0 || sourceHalfUnit <= 0) return false
+  const roundingError = Number.EPSILON * Math.max(1, Math.abs(sourceTime), Math.abs(printed))
+  return Math.abs(printed - sourceTime) <= halfUnit + sourceHalfUnit + roundingError
+}
+
 async function extractBatch(ctx: Context, config: Config, source: string, ffmpeg: string,
   policy: ReturnType<Context['sandboxPolicy']['resolve']>, signal: AbortSignal, start: number, count: number,
   interval: number, sourceDuration: number): Promise<ExtractedFrame[]> {
@@ -392,10 +407,12 @@ async function extractBatch(ctx: Context, config: Config, source: string, ffmpeg
   const startUs = Math.round(start * 1_000_000), endUs = Math.round((start + count * interval) * 1_000_000)
   const ffprobe = await ctx.subprocess.resolveExecutable(config.ffprobePath, undefined, signal)
   let probeEnd = Math.min(sourceDuration, start + count * interval * 2)
-  let sourceFrames: { pts: number; time: number; duration?: number }[] = []
+  let probeStartUs = startUs
+  let sourceFrames: { pts: number; time: number; timeText: string; duration?: number }[] = []
+  let selected: { frame: (typeof sourceFrames)[number]; requested: number }[] = []
   for (;;) {
     const probe = await Media.runMedia(ctx, [ffprobe, '-v', 'error', '-protocol_whitelist', 'file,pipe',
-      '-select_streams', 'v:0', '-read_intervals', `${startUs / 1_000_000}%${probeEnd >= sourceDuration ? '' : probeEnd}`,
+      '-select_streams', 'v:0', '-read_intervals', `${probeStartUs / 1_000_000}%${probeEnd}`,
       '-show_entries', 'format=start_time:stream=start_time:frame=best_effort_timestamp,best_effort_timestamp_time,duration_time,pkt_duration_time', '-of', 'json', source],
     policy, signal, { timeoutMs: config.ocrCommandTimeoutMs, graceMs: config.graceMs, maxBytes: config.maxOcrBatchImageBytes })
     const parsed: unknown = JSON.parse(Buffer.from(probe.bytes).toString('utf8'))
@@ -423,23 +440,27 @@ async function extractBatch(ctx: Context, config: Config, source: string, ffmpeg
       }
       const rawDuration = 'duration_time' in row ? row.duration_time : 'pkt_duration_time' in row ? row.pkt_duration_time : undefined
       const duration = Number(rawDuration)
-      sourceFrames.push({ pts, time, ...(Number.isFinite(duration) && duration > 0 ? { duration } : {}) })
+      sourceFrames.push({ pts, time, timeText: String(row.best_effort_timestamp_time),
+        ...(Number.isFinite(duration) && duration > 0 ? { duration } : {}) })
       seenPts.add(pts)
     }
     const lastRequest = start + (count - 1) * interval
-    if ((sourceFrames.at(-1)?.time ?? -1) > lastRequest || probeEnd >= sourceDuration) break
+    if ((sourceFrames.at(-1)?.time ?? -1) > lastRequest || probeEnd >= sourceDuration || probeStartUs !== startUs) {
+      const candidates = Array.from({ length: count }, (_, index) => {
+        const requestedUs = Math.round((start + index * interval) * 1_000_000)
+        const position = sourceFrames.findLastIndex(frame => Math.round(frame.time * 1_000_000) <= requestedUs)
+        const frame = sourceFrames[position], next = sourceFrames[position + 1]
+        const displayEnd = next?.time ?? (frame?.duration === undefined ? undefined : frame.time + frame.duration)
+        return !frame || displayEnd === undefined || Math.round(displayEnd * 1_000_000) <= requestedUs
+          ? undefined : { frame, requested: start + index * interval }
+      })
+      if (candidates.every(item => item !== undefined)) { selected = candidates; break }
+      if (probeStartUs === 0) throw Error('OCR source has no frame covering a requested sample')
+      probeStartUs = 0
+      continue
+    }
     probeEnd = Math.min(sourceDuration, start + (probeEnd - start) * 2)
   }
-  const selected = Array.from({ length: count }, (_, index) => {
-    const requestedUs = Math.round((start + index * interval) * 1_000_000)
-    const position = sourceFrames.findLastIndex(frame => Math.round(frame.time * 1_000_000) <= requestedUs)
-    const frame = sourceFrames[position], next = sourceFrames[position + 1]
-    const displayEnd = next?.time ?? (frame?.duration === undefined ? undefined : frame.time + frame.duration)
-    if (!frame || displayEnd === undefined || Math.round(displayEnd * 1_000_000) <= requestedUs) {
-      throw Error('OCR source has no frame covering a requested sample')
-    }
-    return { frame, requested: start + index * interval }
-  })
   const unique = [...new Map(selected.map(item => [item.frame.pts, item.frame])).values()]
   const selection = unique.map(frame => `eq(pts\\,${frame.pts})`).join('+')
   const output = await Media.runMedia(ctx, [ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'info',
@@ -450,23 +471,26 @@ async function extractBatch(ctx: Context, config: Config, source: string, ffmpeg
     '-f', 'image2pipe', 'pipe:1'], policy, signal, { timeoutMs: config.ocrCommandTimeoutMs,
     graceMs: config.graceMs, maxBytes: config.maxOcrBatchImageBytes, maxDiagnosticBytes: config.maxOcrDiagnosticBytes })
   const images = splitMjpeg(output.bytes), timestamps = showinfoTimestamps(output.diagnostic)
-  if (images.length > unique.length || timestamps.length !== images.length
-    || timestamps.some((timestamp, index) => unique[index] === undefined
-      || Math.round(timestamp * 1_000_000) !== Math.round(unique[index].time * 1_000_000))) {
+  const shown = [...output.diagnostic.matchAll(/\bpts:[ \t]*([+-]?\d+)[ \t]+pts_time:([^\s]+)/gu)]
+  if (timestamps.length !== images.length || shown.length !== images.length) {
     throw Error('OCR frame batch did not return the selected source frames')
   }
   const byPts = new Map<number, Uint8Array>()
-  for (const [index, frame] of unique.slice(0, images.length).entries()) {
-    const image = images[index]
-    if (image === undefined) throw Error('OCR frame batch omitted an encoded image')
+  for (const [index, image] of images.entries()) {
+    const frame = unique[index], timing = shown[index] as RegExpMatchArray
+    if (frame === undefined || !Number.isSafeInteger(Number(timing[1])) || Number(timing[1]) !== frame.pts
+      || !matchesPrintedTime(frame.time, frame.timeText, String(timing[2]))) {
+      throw Error('OCR frame batch did not return the selected source frames')
+    }
     byPts.set(frame.pts, image)
   }
-  const available = selected.findIndex(item => !byPts.has(item.frame.pts))
-  return (available < 0 ? selected : selected.slice(0, available)).map((item) => {
+  const frames: ExtractedFrame[] = []
+  for (const item of selected) {
     const bytes = byPts.get(item.frame.pts)
-    if (bytes === undefined) throw Error('OCR frame batch omitted an encoded image')
-    return { id: `frame-${randomUUID()}`, requested_seconds: item.requested, timestamp_seconds: item.frame.time, bytes }
-  })
+    if (bytes === undefined) break
+    frames.push({ id: `frame-${randomUUID()}`, requested_seconds: item.requested, timestamp_seconds: item.frame.time, bytes })
+  }
+  return frames
 }
 
 async function runBridge(ctx: Context, config: Config, policy: ReturnType<Context['sandboxPolicy']['resolve']>, signal: AbortSignal,

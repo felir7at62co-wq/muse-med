@@ -20,7 +20,7 @@ export function stageRuntimeDependencyPatches(repository: string, project: strin
   const target = join(project, 'pnpm-workspace.yaml')
   const workspace = object(load(readFileSync(target, 'utf8')))
   const patchedDependencies: Record<string, string> = {}
-  for (const [selector, file] of Object.entries(declarations).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+  for (const [selector, file] of Object.entries(declarations).sort(([a], [b]) => Number(a > b) - Number(a < b))) {
     if (selector === '' || typeof file !== 'string' || file === '') throw new Error('desktop runtime: invalid dependency patch declaration')
     const input = resolve(repository, file)
     const local = relative(resolve(repository), input)
@@ -42,16 +42,30 @@ export function stageRuntimeDependencyPatches(repository: string, project: strin
  */
 export function verifyRuntimeDependencyPatches(repository: string, project: string): void {
   const name = '@earendil-works/pi-ai'
+  const version = '1.3.0'
   const expectedRoot = join(repository, 'packages/llm/llm-pi-ai/node_modules', name)
   const entry = 'dist/api/openai-completions.js'
   if (!existsSync(join(expectedRoot, 'package.json')) || !existsSync(join(expectedRoot, entry))) {
     throw new Error('desktop runtime: patched PI-AI reference dependency is missing')
   }
+  if (object(JSON.parse(readFileSync(join(expectedRoot, 'package.json'), 'utf8'))).version !== version) {
+    throw new Error('desktop runtime: workspace PI-AI reference version is not reviewed')
+  }
   const expected = readFileSync(join(expectedRoot, entry))
   const text = expected.toString('utf8')
-  if (!text.includes('function hasTokenUsage(usage)') || !text.includes('if (hasTokenUsage(chunk.usage))')
-    || !text.includes('if (!hasTokenUsage(chunk.usage) && hasTokenUsage(choice.usage))')) {
+  const tokenUsagePatch = [
+    'const tokenValues = [chunk.usage?.prompt_tokens, chunk.usage?.completion_tokens];',
+    'const hasTokenUsage = tokenValues.some(value => value !== undefined) && tokenValues.every(value => value === undefined || (typeof value === "number" && Number.isFinite(value) && value >= 0));',
+    'if (hasTokenUsage) {',
+    'const choiceTokenValues = [choice.usage?.prompt_tokens, choice.usage?.completion_tokens];',
+    'const hasChoiceTokenUsage = choiceTokenValues.some(value => value !== undefined) && choiceTokenValues.every(value => value === undefined || (typeof value === "number" && Number.isFinite(value) && value >= 0));',
+    'if (!hasTokenUsage && hasChoiceTokenUsage) {',
+  ]
+  if (!tokenUsagePatch.every(statement => text.includes(statement))) {
     throw new Error('desktop runtime: workspace PI-AI reference lacks the reviewed token-usage patch')
+  }
+  if (object(JSON.parse(readFileSync(join(project, 'node_modules', name, 'package.json'), 'utf8'))).version !== version) {
+    throw new Error('desktop runtime: installed PI-AI version differs from the reviewed reference')
   }
   if (!readFileSync(join(project, 'node_modules', name, entry)).equals(expected)) {
     throw new Error('desktop runtime: installed PI-AI completion bytes differ from the reviewed patched dependency')

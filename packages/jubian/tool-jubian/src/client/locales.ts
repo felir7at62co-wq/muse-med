@@ -261,9 +261,8 @@ export const en = {
   failed: 'Could not complete: {reason}',
 } satisfies Record<JubianLocaleKey, string>
 
-/** English fallback for Japanese interface copy. */
-export const ja = {
-  ...recoveryEn,
+/** Fixed English copy shared until these specific keys receive translations. */
+const englishFallback = {
   'nav': en['nav'],
   'videoSelector': en['videoSelector'],
   'videoModel': en['videoModel'],
@@ -287,144 +286,40 @@ export const ja = {
   'saved': en['saved'],
   'cleared': en['cleared'],
   'failed': en['failed'],
+}
+
+/** English fallback for Japanese interface copy. */
+export const ja = {
+  ...recoveryEn,
+  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** English fallback for Spanish interface copy. */
 export const es = {
   ...recoveryEn,
-  'nav': en['nav'],
-  'videoSelector': en['videoSelector'],
-  'videoModel': en['videoModel'],
-  'videoResolution': en['videoResolution'],
-  'videoUnset': en['videoUnset'],
-  'videoLoading': en['videoLoading'],
-  'videoUnavailable': en['videoUnavailable'],
-  'videoRetry': en['videoRetry'],
-  'videoErrorDetails': en['videoErrorDetails'],
-  'loading': en['loading'],
-  'fieldLabel': en['fieldLabel'],
-  'statusConfigured': en['statusConfigured'],
-  'statusMissing': en['statusMissing'],
-  'statusLabel': en['statusLabel'],
-  'sourceNamed': en['sourceNamed'],
-  'readOnly': en['readOnly'],
-  'hint': en['hint'],
-  'save': en['save'],
-  'saving': en['saving'],
-  'clear': en['clear'],
-  'saved': en['saved'],
-  'cleared': en['cleared'],
-  'failed': en['failed'],
+  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** English fallback for French interface copy. */
 export const fr = {
   ...recoveryEn,
-  'nav': en['nav'],
-  'videoSelector': en['videoSelector'],
-  'videoModel': en['videoModel'],
-  'videoResolution': en['videoResolution'],
-  'videoUnset': en['videoUnset'],
-  'videoLoading': en['videoLoading'],
-  'videoUnavailable': en['videoUnavailable'],
-  'videoRetry': en['videoRetry'],
-  'videoErrorDetails': en['videoErrorDetails'],
-  'loading': en['loading'],
-  'fieldLabel': en['fieldLabel'],
-  'statusConfigured': en['statusConfigured'],
-  'statusMissing': en['statusMissing'],
-  'statusLabel': en['statusLabel'],
-  'sourceNamed': en['sourceNamed'],
-  'readOnly': en['readOnly'],
-  'hint': en['hint'],
-  'save': en['save'],
-  'saving': en['saving'],
-  'clear': en['clear'],
-  'saved': en['saved'],
-  'cleared': en['cleared'],
-  'failed': en['failed'],
+  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** English fallback for German interface copy. */
 export const de = {
   ...recoveryEn,
-  'nav': en['nav'],
-  'videoSelector': en['videoSelector'],
-  'videoModel': en['videoModel'],
-  'videoResolution': en['videoResolution'],
-  'videoUnset': en['videoUnset'],
-  'videoLoading': en['videoLoading'],
-  'videoUnavailable': en['videoUnavailable'],
-  'videoRetry': en['videoRetry'],
-  'videoErrorDetails': en['videoErrorDetails'],
-  'loading': en['loading'],
-  'fieldLabel': en['fieldLabel'],
-  'statusConfigured': en['statusConfigured'],
-  'statusMissing': en['statusMissing'],
-  'statusLabel': en['statusLabel'],
-  'sourceNamed': en['sourceNamed'],
-  'readOnly': en['readOnly'],
-  'hint': en['hint'],
-  'save': en['save'],
-  'saving': en['saving'],
-  'clear': en['clear'],
-  'saved': en['saved'],
-  'cleared': en['cleared'],
-  'failed': en['failed'],
+  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** English fallback for Russian interface copy. */
 export const ru = {
   ...recoveryEn,
-  'nav': en['nav'],
-  'videoSelector': en['videoSelector'],
-  'videoModel': en['videoModel'],
-  'videoResolution': en['videoResolution'],
-  'videoUnset': en['videoUnset'],
-  'videoLoading': en['videoLoading'],
-  'videoUnavailable': en['videoUnavailable'],
-  'videoRetry': en['videoRetry'],
-  'videoErrorDetails': en['videoErrorDetails'],
-  'loading': en['loading'],
-  'fieldLabel': en['fieldLabel'],
-  'statusConfigured': en['statusConfigured'],
-  'statusMissing': en['statusMissing'],
-  'statusLabel': en['statusLabel'],
-  'sourceNamed': en['sourceNamed'],
-  'readOnly': en['readOnly'],
-  'hint': en['hint'],
-  'save': en['save'],
-  'saving': en['saving'],
-  'clear': en['clear'],
-  'saved': en['saved'],
-  'cleared': en['cleared'],
-  'failed': en['failed'],
+  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** English fallback for Portuguese interface copy. */
 export const pt = {
   ...recoveryEn,
-  'nav': en['nav'],
-  'videoSelector': en['videoSelector'],
-  'videoModel': en['videoModel'],
-  'videoResolution': en['videoResolution'],
-  'videoUnset': en['videoUnset'],
-  'videoLoading': en['videoLoading'],
-  'videoUnavailable': en['videoUnavailable'],
-  'videoRetry': en['videoRetry'],
-  'videoErrorDetails': en['videoErrorDetails'],
-  'loading': en['loading'],
-  'fieldLabel': en['fieldLabel'],
-  'statusConfigured': en['statusConfigured'],
-  'statusMissing': en['statusMissing'],
-  'statusLabel': en['statusLabel'],
-  'sourceNamed': en['sourceNamed'],
-  'readOnly': en['readOnly'],
-  'hint': en['hint'],
-  'save': en['save'],
-  'saving': en['saving'],
-  'clear': en['clear'],
-  'saved': en['saved'],
-  'cleared': en['cleared'],
-  'failed': en['failed'],
+  ...englishFallback,
 } satisfies Record<keyof typeof en, string>

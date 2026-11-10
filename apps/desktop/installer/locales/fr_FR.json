@@ -12,6 +12,7 @@
     "INSTALLER_BROWSE": "Parcourir",
     "INSTALLER_LAUNCH": "Lancez-vous maintenant",
     "INSTALLER_LAUNCH_FAILED": "DeepSeek Harness n'a pas pu être lancé. Réessayez ou désactivez Lancer maintenant et fermez le programme d'installation.",
+    "INSTALLER_REBOOT_REQUIRED": "L'installation est terminée. Redémarrez Windows avant d'ouvrir Muse.",
     "INSTALLER_UI_ERROR": "Le programme d'installation n'a pas pu initialiser sa fenêtre. Fermez-le et réessayez.",
     "INSTALLER_THEME_ERROR": "Utilisez /THEME=auto, /THEME=light ou /THEME=dark.",
     "INSTALLER_FAILED": "L'installation n'est pas terminée. Fermez ce programme d'installation et réessayez. Si le problème persiste, téléchargez à nouveau le programme d'installation.",
