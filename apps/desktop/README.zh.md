@@ -6,6 +6,8 @@
 
 Desktop 在原生应用中运行 Harness 工作区。本参考文档说明应用行为、开发与集成；打包、Windows 签名和发布指南分别维护构建与发布操作。
 
+Desktop 也支持产品目录下可选的私有红果 v2 安装。[插件说明](../../third_party/plugins/muse-hongguo-download/README.zh.md#v2-local-runtime)介绍了安装指针和显式环境配置；选择 v2 会保留现有 v1 资源与收据。
+
 ## 目录
 
 - [应用概览](#application-overview)

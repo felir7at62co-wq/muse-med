@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Hongguo.Licensing">
+      <HintPath>$(HongguoArtifactDir)/Hongguo.Licensing.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="BouncyCastle.Cryptography">
+      <HintPath>$(HongguoArtifactDir)/BouncyCastle.Cryptography.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <Reference Include="System.Security.Cryptography.ProtectedData">
+      <HintPath>$(HongguoArtifactDir)/System.Security.Cryptography.ProtectedData.dll</HintPath>
+      <Private>true</Private>
+    </Reference>
+  </ItemGroup>
+  <Target Name="RequireOriginalArtifacts" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(HongguoArtifactDir)' == ''" Text="Set HongguoArtifactDir to the verified original artifact directory." />
+    <Error Condition="!Exists('$(HongguoArtifactDir)/Hongguo.Licensing.dll')" Text="The original Hongguo.Licensing.dll is missing." />
+  </Target>
+</Project>

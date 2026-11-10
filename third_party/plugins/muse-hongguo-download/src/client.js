@@ -13,6 +13,7 @@ import { ManifestCatalog } from './manifest.js';
 import { validateMp4 } from './media.js';
 import { createDeviceBootstrap, createMediaProcessor } from './runtime.js';
 import { LocalSigner } from './signer.js';
+import { V2DownloadClient } from './v2-download.js';
 import { transferMedia } from './transfer.js';
 import { DownloadCheckpoint, discoverReceipts, reusableSeries, verifiedEpisode } from './checkpoint.js';
 
@@ -110,6 +111,7 @@ export class HongguoDownloadClient {
     this.signer = !dependencies.source && !this.config.signServer ? new LocalSigner(dependencies.subprocess, this.config) : null;
     this.source = dependencies.source ?? new SourceCatalog(this.config, { request: this.request, sign: dependencies.sign, signer: this.signer, bootstrap: this.bootstrap });
     this.processMedia = dependencies.processMedia ?? (dependencies.subprocess ? createMediaProcessor(dependencies.subprocess, this.config) : null);
+    this.v2 = this.config.legacyBackend === 'v2' ? new V2DownloadClient(this.config, { subprocess: dependencies.subprocess, processMedia: this.processMedia }) : null;
     this.manifest = new ManifestCatalog(this.config);
     this.lifetime = new AbortController();
     this.pending = new Set();
@@ -119,6 +121,7 @@ export class HongguoDownloadClient {
   async dispose() {
     this.lifetime.abort();
     await Promise.allSettled([...this.pending]);
+    await this.v2?.dispose();
     await this.signer?.dispose();
     await this.bootstrap?.dispose();
   }
@@ -159,6 +162,7 @@ export class HongguoDownloadClient {
   info(args, signal) {
     return this.run(signal, async active => {
       const options = argumentsFor(args, this.config, false), items = [];
+      if (options.mode === 'legacy' && this.v2) return this.v2.info(options, active);
       for (const id of options.seriesIds) {
         const catalog = await this.catalog(id, options.mode, active);
         items.push({ seriesId: id, title: catalog.title, source: catalog.source, episodeCount: catalog.episodeCount,
@@ -266,6 +270,10 @@ export class HongguoDownloadClient {
     return this.run(signal, async active => {
       const options = argumentsFor(args, this.config, true), plans = [];
       const output = await outputDirectory(workspace ?? this.config.outputRoot, options.outputDir, filePolicy);
+      if (options.mode === 'legacy' && this.v2) {
+        await output.create(); active.throwIfAborted();
+        return this.v2.download({ ...options, outputDir: output.path }, active, workspace ?? this.config.outputRoot, filePolicy);
+      }
       const manifestCatalogs = options.mode === 'manifest' ? await this.manifest.load() : null;
       const sourceIdentity = manifestCatalogs ? createHash('sha256').update(JSON.stringify(manifestCatalogs)).digest('hex') : null;
       const checkpoint = new DownloadCheckpoint(output.path, { ...options, sourceIdentity }, this.config);

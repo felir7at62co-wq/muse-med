@@ -73,6 +73,7 @@ import { DesktopTray } from './tray.ts'
 import { DesktopBackgroundNotice } from './background-notice.ts'
 import { DesktopCompletionNotice } from './completion-notice.ts'
 import { prepareDesktopHongguoEnvironment } from './hongguo-runtime.ts'
+import { prepareDesktopHongguoV2Environment } from './hongguo-v2-environment.ts'
 import { applyDesktopProductIdentity, DESKTOP_PRIMARY_ACCOUNT, desktopProductVersion } from './product-identity.ts'
 
 // Identity precedes the product home, every path read, and the single-instance lock below.
@@ -479,7 +480,8 @@ async function main(): Promise<void> {
       runtime: hongguoRuntime,
       productHome: resolve(paths.root, '..'),
     }))
-    hostEnvironment = { ...hostEnvironment, ...hongguo }
+    const hongguoV2 = await prepareDesktopHongguoV2Environment(resolve(paths.root, '..'), hostEnvironment)
+    hostEnvironment = { ...hostEnvironment, ...hongguo, ...hongguoV2 }
   }
   let quitting = false
   let startup: Promise<void> | undefined

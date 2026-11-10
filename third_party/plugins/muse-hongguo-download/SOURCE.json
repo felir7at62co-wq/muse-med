@@ -21,7 +21,8 @@
     "method": "GET",
     "requestIds": "video_id, comma-separated exact video IDs, at most five",
     "responseModel": "data.video_model_data[requestedVideoId].video_model",
-    "nativeSignatureHeaders": false
+    "nativeSignatureHeaders": false,
+    "backend": "v1"
   },
   "credentialFilesIncluded": false,
   "originalRuntimeIncluded": false,
@@ -75,5 +76,14 @@
     "installerSha256": "d8d75a328c175e294c5b34c3be31481f3ec708a082f4a6260ac9d2a7c5bd70cb",
     "moduleSha256": "1e31f90cb656dec89b40f3460e46f668520bc3a9ea281f5b3a506ee8de148cc2",
     "bundled": false
+  },
+  "v2Runtime": {
+    "referenceVersion": "2.0.0",
+    "releaseUrl": "https://github.com/M4St3r0/hongguo-downloader/releases/tag/v2.0.0",
+    "installerSha256": "36bd3ffc0d10f7b08401d3ccec29d2120d4cd1c693a46a20f403b085f315a5bb",
+    "protocol": 2,
+    "preparationScript": "scripts/prepare-v2.mjs",
+    "originalRuntimeIncluded": false,
+    "authorization": "Original LicenseClient, signed server replies and original JVM Licence gate"
   }
 }

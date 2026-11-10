@@ -23,13 +23,20 @@
     "README.zh.md",
     "README.i18n.yaml",
     "LICENSE",
-    "SOURCE.json"
+    "SOURCE.json",
+    "scripts/prepare-v2.mjs",
+    "native/host/PortableHost.java",
+    "native/host/README.*",
+    "native/license-broker/*.cs",
+    "native/license-broker/*.csproj",
+    "native/license-broker/NuGet.Config"
   ],
   "scripts": {
     "test": "node --test tests/*.test.js",
     "check": "node scripts/check.mjs",
     "package": "node scripts/pack.mjs",
-    "test:live": "node --import tsx/esm scripts/live-smoke.mjs"
+    "test:live": "node --import tsx/esm scripts/live-smoke.mjs",
+    "prepare:v2": "node scripts/prepare-v2.mjs"
   },
   "engines": {
     "node": "^22.19.0 || >=24.0.0"

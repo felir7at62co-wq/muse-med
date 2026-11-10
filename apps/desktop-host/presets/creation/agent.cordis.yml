@@ -222,6 +222,9 @@
   name: muse-hongguo-download
   config:
     sourceMode: legacy
+    legacyBackend: !!js "process.env.MUSE_HONGGUO_V2_RUNTIME_DIR ? 'v2' : 'v1'"
+    v2RuntimeDir: !!js process.env.MUSE_HONGGUO_V2_RUNTIME_DIR || ''
+    v2StateDir: !!js process.env.MUSE_HONGGUO_V2_STATE_DIR || ''
     legacyAppDir: !!js process.env.MUSE_HONGGUO_LEGACY_APP_DIR || ''
     signServer: !!js process.env.MUSE_HONGGUO_SIGN_SERVER || ''
     signTokenEnv: MUSE_HONGGUO_SIGN_TOKEN
