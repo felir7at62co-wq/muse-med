@@ -636,12 +636,17 @@ function hasPromptSpeech(prompt: string): boolean {
     const quotes = [...line.matchAll(/“[^”]*”|「[^」]*」|『[^』]*』|"[^"]*"/gu)]
     const outsideQuote = (index: number): boolean => !quotes.some(quote => index > quote.index
       && index < quote.index + quote[0].length)
-    const speechAt = (index: number): boolean => outsideQuote(index) && !ignored.some(field => field.index <= index
-      && outsideQuote(field.index) && (/^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)$/iu.test(String(field[1]))
-        || ![...line.slice(field.index, index + 1).matchAll(/[；;]/gu)]
-          .some(separator => outsideQuote(field.index + separator.index))))
+    const speechAt = (index: number, labeled = false): boolean => outsideQuote(index) && !ignored.some((field) => {
+      if (field.index > index || !outsideQuote(field.index)) return false
+      if (/^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)$/iu.test(String(field[1]))) return true
+      if ([...line.slice(field.index, index + 1).matchAll(/[；;]/gu)]
+        .some(separator => outsideQuote(field.index + separator.index))) return false
+      if (labeled && /^(?:场景|场景名称|核心场景)$/u.test(String(field[1])) && /\s/u.test(line[index] ?? '')
+        && line.slice(field.index + field[0].length, index).trim() !== '') return false
+      return true
+    })
     for (const speech of line.matchAll(/(?:^|[\s；;：:])(?:台词|对白|旁白|解说|画外音|画外声|心声|VO|OS|dialogue)\s*[：:]\s*([^；;]+)/giu)) {
-      if (speech[1] === undefined || !speechAt(speech.index)) continue
+      if (speech[1] === undefined || !speechAt(speech.index, true)) continue
       const before = line.slice(0, speech.index).trim()
       const content = speech[1].trim().replace(/^[^：:]{1,30}[：:]\s*/u, '').trim()
       if (!/(?:不要|不得|禁止|避免|不写|无|没有)\s*$/u.test(before)
