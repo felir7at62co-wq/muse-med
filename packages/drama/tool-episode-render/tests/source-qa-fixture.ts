@@ -14,7 +14,7 @@ export async function sourceQaFixture(project: string, media: string, label = 's
   const inspectionPath = join(project, `${label}-observation.json`)
   const frame = { id: 'ocr-frame-1', requested_seconds: 0, timestamp_seconds: 0,
     image_width: 720, image_height: 1280, lines: [] as ReturnType<typeof sourceQaOcrLine>[] }
-  const ocr = { schema_version: 1, path: media, source_version: 'test-source-version', duration_seconds: 5,
+  const ocr = { schema_version: 1, evidence_algorithm: 'decoded-pts-spatial-v2', path: media, source_version: 'test-source-version', duration_seconds: 5,
     text_source: 'ocr', language_requested: 'zh-Hans-CN', language_used: 'zh-Hans-CN',
     interval: { start_seconds: 0, end_seconds: 5 }, scan_status: 'complete', text_status: 'no_text_detected',
     coverage: { planned_frame_count: 10, processed_frame_count: 10, failed_frame_count: 0,

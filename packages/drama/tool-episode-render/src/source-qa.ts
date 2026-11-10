@@ -33,6 +33,8 @@ interface Evidence {
   ocr: ObjectValue
   inspection: ObjectValue
   duration: number
+  start: number
+  end: number
   files: { path: string; sha256: string }[]
 }
 
@@ -79,27 +81,36 @@ async function artifact(project: string, ref: unknown, label: string): Promise<C
   return { path, sha256: ref.sha256, value }
 }
 
-function inspectOcr(ocr: ObjectValue): number {
+function inspectOcr(ocr: ObjectValue): { duration: number; start: number; end: number } {
   const interval = ocr.interval, coverage = ocr.coverage
-  if (ocr.schema_version !== 1 || ocr.text_source !== 'ocr' || typeof ocr.path !== 'string'
+  if (ocr.schema_version !== 1 || ocr.evidence_algorithm !== 'decoded-pts-spatial-v2' || ocr.text_source !== 'ocr' || typeof ocr.path !== 'string'
     || !positive(ocr.duration_seconds) || typeof ocr.source_version !== 'string'
-    || ocr.scan_status !== 'complete' || !object(interval)
-    || !sameTime(interval.start_seconds, 0) || !sameTime(interval.end_seconds, ocr.duration_seconds)
+    || !object(interval) || typeof interval.start_seconds !== 'number' || !Number.isFinite(interval.start_seconds)
+    || interval.start_seconds < 0 || !positive(interval.end_seconds) || interval.end_seconds <= interval.start_seconds
+    || interval.end_seconds > ocr.duration_seconds || (ocr.scan_status !== 'complete' && ocr.scan_status !== 'partial')
     || !object(coverage) || !positive(coverage.frame_interval_seconds)
-    || coverage.frame_interval_seconds > 0.5) fail('OCR来源或完整扫描状态不符，源画面复验要求至少每0.5秒扫描。')
+    || coverage.frame_interval_seconds > 0.5) fail('OCR来源或完整扫描状态不符，须用当前版本重新扫描，源画面复验要求至少每0.5秒扫描。')
   const frames = rows(ocr.frames, 'OCR原帧')
-  if (!frames.length || frames.length !== Math.ceil(ocr.duration_seconds / coverage.frame_interval_seconds)
+  const start = interval.start_seconds, end = interval.end_seconds
+  if (!frames.length || start + (frames.length - 1) * coverage.frame_interval_seconds >= end
+    || start + frames.length * coverage.frame_interval_seconds < end
     || coverage.planned_frame_count !== frames.length || coverage.processed_frame_count !== frames.length
     || coverage.failed_frame_count !== 0 || !Array.isArray(coverage.failed_timestamps_seconds)
-    || coverage.failed_timestamps_seconds.length !== 0 || !Array.isArray(coverage.unscanned_ranges)
-    || coverage.unscanned_ranges.length !== 0) fail('OCR仍有漏扫或失败时段。')
-  let end = 0
+    || coverage.failed_timestamps_seconds.length !== 0) fail('OCR仍有漏扫或失败时段。')
+  const unscanned = rows(coverage.unscanned_ranges, 'OCR未扫描范围')
+  const remaining = unscanned[0]
+  if (ocr.scan_status === 'complete' ? unscanned.length !== 0
+    : unscanned.length !== 1 || remaining === undefined || !sameTime(remaining.start_seconds, end)
+      || !positive(remaining.end_seconds) || remaining.end_seconds <= end
+      || remaining.end_seconds > ocr.duration_seconds
+      || remaining.reason !== 'deployment_limit') fail('OCR仍有漏扫或失败时段。')
+  let scannedEnd = start
   for (const range of rows(coverage.scanned_ranges, 'OCR扫描范围')) {
-    if (!sameTime(range.start_seconds, end) || !positive(range.end_seconds) || range.end_seconds <= end
-      || range.end_seconds > ocr.duration_seconds + 0.001) fail('OCR扫描范围有缺口。')
-    end = range.end_seconds
+    if (!sameTime(range.start_seconds, scannedEnd) || !positive(range.end_seconds) || range.end_seconds <= scannedEnd
+      || range.end_seconds > end + 0.001) fail('OCR扫描范围有缺口。')
+    scannedEnd = range.end_seconds
   }
-  if (!sameTime(end, ocr.duration_seconds)) fail('OCR没有覆盖完整源片。')
+  if (!sameTime(scannedEnd, end)) fail('OCR没有覆盖本段源片。')
   const ids = new Set<string>()
   let previous = -1
   for (const [index, frame] of frames.entries()) {
@@ -107,14 +118,14 @@ function inspectOcr(ocr: ObjectValue): number {
     if (ids.has(id) || typeof frame.timestamp_seconds !== 'number' || !Number.isFinite(frame.timestamp_seconds)
       || frame.timestamp_seconds < 0 || frame.timestamp_seconds >= ocr.duration_seconds
       || typeof frame.requested_seconds !== 'number' || !Number.isFinite(frame.requested_seconds)
-      || frame.requested_seconds <= previous || frame.requested_seconds >= ocr.duration_seconds
-      || !sameTime(frame.requested_seconds, index * coverage.frame_interval_seconds)
+      || frame.requested_seconds <= previous || frame.requested_seconds >= end
+      || !sameTime(frame.requested_seconds, start + index * coverage.frame_interval_seconds)
       || !positive(frame.image_width) || !positive(frame.image_height)) fail('OCR原帧身份或时间无效。')
     rows(frame.lines, 'OCR文字行')
     previous = frame.requested_seconds
     ids.add(id)
   }
-  return ocr.duration_seconds
+  return { duration: ocr.duration_seconds, start, end }
 }
 
 function inspectReport(report: ObjectValue, ocr: ObjectValue, duration: number): void {
@@ -167,7 +178,8 @@ function verifyTextDecisions(evidence: Evidence, declaration: ObjectValue): void
     }
   }
   const hasText = frames.some(frame => rows(frame.lines, 'OCR文字行').some(line => typeof line.text === 'string' && normalizeOcrText(line.text)))
-  if (evidence.ocr.text_status !== (hasText ? 'candidate_text_detected' : 'no_text_detected')) fail('OCR文字结论和实际文字行不符。')
+  const expectedStatus = hasText ? 'candidate_text_detected' : evidence.ocr.scan_status === 'partial' ? 'indeterminate' : 'no_text_detected'
+  if (evidence.ocr.text_status !== expectedStatus) fail('OCR文字结论和实际文字行不符。')
 }
 
 async function evidence(project: string, value: unknown, expectedMedia: string, expectedSha256: string,
@@ -182,7 +194,7 @@ async function evidence(project: string, value: unknown, expectedMedia: string, 
     const recordedMedia = text(record.path, '工具记录中的源片路径')
     if (!isAbsolute(recordedMedia) || fileKey(await realpath(recordedMedia)) !== fileKey(media)) fail('OCR或审看报告属于另一份源片。')
   }
-  const duration = inspectOcr(ocr.value)
+  const { duration, start, end } = inspectOcr(ocr.value)
   inspectReport(inspection.value, ocr.value, duration)
   const binding: SourceQaEvidenceBinding = { mediaPath: media, mediaSha256: expectedSha256,
     ocrPath: ocr.path, ocrSha256: ocr.sha256, inspectionPath: inspection.path, inspectionSha256: inspection.sha256,
@@ -192,7 +204,34 @@ async function evidence(project: string, value: unknown, expectedMedia: string, 
   const files = [{ path: media, sha256: expectedSha256 }, { path: ocr.path, sha256: ocr.sha256 },
     { path: inspection.path, sha256: inspection.sha256 }]
   for (const file of files) if (await fileSha256(file.path) !== file.sha256) fail('核实执行记录期间源片或复验文件已变化。')
-  return { binding, ocr: ocr.value, inspection: inspection.value, duration, files }
+  return { binding, ocr: ocr.value, inspection: inspection.value, duration, start, end, files }
+}
+
+async function evidenceSet(project: string, value: unknown, expectedMedia: string, expectedSha256: string,
+  verifier: SourceQaVerifier): Promise<Evidence[]> {
+  if (!object(value)) fail('复验没有绑定本次实际源片。')
+  const refs = Array.isArray(value.ocr) ? value.ocr : [value.ocr]
+  if (!refs.length) fail('复验缺少OCR文件。')
+  const parts: Evidence[] = []
+  for (const ref of refs) parts.push(await evidence(project, { ...value, ocr: ref }, expectedMedia, expectedSha256, verifier))
+  const first = parts[0]
+  if (first === undefined) fail('复验缺少OCR文件。')
+  let end = 0
+  for (const part of parts) {
+    if (part.start !== end || part.duration !== first.duration
+      || part.ocr.source_version !== first.ocr.source_version) fail('OCR分段没有按顺序覆盖同一源片。')
+    end = part.end
+  }
+  if (end !== first.duration) fail('OCR没有覆盖完整源片。')
+  const decisions = value.text_decisions === undefined ? [] : rows(value.text_decisions, '非对白文字判定')
+  for (const decision of decisions) {
+    const index = decision.ocr_index ?? (parts.length === 1 ? 0 : undefined)
+    if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0 || index >= parts.length) fail('文字判定缺少有效OCR分段编号。')
+  }
+  for (const [index, part] of parts.entries()) {
+    verifyTextDecisions(part, { text_decisions: decisions.filter(decision => (decision.ocr_index ?? 0) === index) })
+  }
+  return parts
 }
 
 /**
@@ -214,13 +253,16 @@ export async function verifySourceQa(input: {
   const qa = input.review.source_qa
   if (!object(qa) || qa.version !== 1 || !object(qa.selected)) fail('缺少当前源片的source_qa记录。先对实际源片运行video_ocr完整扫描（间隔0.5秒），再优先用video_source_review，或已启用完整模式的video_inspect执行scan→next实际查看图片→observe。按渲染工具README记录工具返回的真实路径、摘要和身份后重验。')
   if (input.verifier === undefined) fail('缺少真实OCR执行和审看记录核验，请在Muse正常drama_render入口，沿video_source_review或已启用完整模式的video_inspect补齐真实审看后重验。')
-  const selected = await evidence(input.project, qa.selected, input.videoPath, input.videoSha256, input.verifier)
-  verifyTextDecisions(selected, qa.selected)
-  const files = [...selected.files]
-  let original: Evidence | undefined
+  const selectedParts = await evidenceSet(input.project, qa.selected, input.videoPath, input.videoSha256, input.verifier)
+  const selected = selectedParts[0]
+  if (selected === undefined) fail('复验缺少OCR文件。')
+  const files = selectedParts.flatMap(part => part.files)
+  let originalParts: Evidence[] | undefined
   if (input.review.subtitle_cleanup === 'clean') {
     if (input.originalSha256 === input.videoSha256) fail('清理片与原片字节相同，须核对实际去字幕结果。')
-    original = await evidence(input.project, qa.original, input.originalPath, input.originalSha256, input.verifier)
+    originalParts = await evidenceSet(input.project, qa.original, input.originalPath, input.originalSha256, input.verifier)
+    const original = originalParts[0]
+    if (original === undefined) fail('复验缺少OCR文件。')
     if (!sameTime(original.duration, selected.duration)) fail('清理片与原片时长不一致，不能沿用原声。')
     const intervals = rows(qa.affected_intervals, '处理时段')
     if (!intervals.length) fail('清理片缺少实际处理时段。')
@@ -236,9 +278,12 @@ export async function verifySourceQa(input: {
         }
       }
     }
-    files.push(...original.files)
+    files.push(...originalParts.flatMap(part => part.files))
   }
-  return { sha256: hash(JSON.stringify({ version: 1, qa, selected: selected.binding, original: original?.binding })), files }
+  const uniqueFiles = [...new Map(files.map(file => [file.path, file])).values()]
+  for (const file of uniqueFiles) if (await fileSha256(file.path) !== file.sha256) fail('核实分段证据期间源片或复验文件已变化。')
+  return { sha256: hash(JSON.stringify({ version: 1, qa, selected: selectedParts.map(part => part.binding),
+    original: originalParts?.map(part => part.binding) })), files: uniqueFiles }
 }
 
 /** Bind each currently approved shot and all inspected files to one render decision.

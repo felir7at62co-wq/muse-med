@@ -173,3 +173,148 @@ it('rejects media changed while successful tool evidence is being resolved', asy
     await writeFile(f.input.videoPath, 'new current media')
   } })).rejects.toThrow(/核实执行记录期间/u)
 })
+
+it('accepts a complete fractional OCR plan without inventing an endpoint frame', async () => {
+  const f = await fixture()
+  const ocr = f.selected.ocr
+  ocr.duration_seconds = 2.1
+  ocr.interval.end_seconds = 2.1
+  ocr.coverage.frame_interval_seconds = 0.3
+  ocr.coverage.planned_frame_count = 7
+  ocr.coverage.processed_frame_count = 7
+  ocr.coverage.scanned_ranges[0]!.end_seconds = 2.1
+  ocr.frames = ocr.frames.slice(0, 7).map((frame, index) => ({ ...frame,
+    requested_seconds: index * 0.3, timestamp_seconds: index * 0.3 }))
+  f.selected.inspection.duration = 2.1
+  f.selected.inspection.scanned_until = 2.1
+  f.selected.inspection.frames[0]!.time = 1.5
+  f.selected.inspection.frames[0]!.decoded_time = 1.5
+  await f.selected.save()
+  await expect(verifySourceQa(f.input)).resolves.toHaveProperty('sha256')
+})
+
+it('requires a new OCR execution for evidence with legacy retimed timestamps', async () => {
+  const f = await fixture()
+  Reflect.deleteProperty(f.selected.ocr, 'evidence_algorithm')
+  await f.selected.save()
+  await expect(verifySourceQa(f.input)).rejects.toThrow(/当前版本重新扫描/u)
+})
+
+async function segmentedFixture() {
+  const f = await fixture()
+  const second = await sourceQaFixture(f.input.project, f.input.videoPath, 'second')
+  f.selected.ocr.interval.end_seconds = 2
+  f.selected.ocr.scan_status = 'partial'
+  f.selected.ocr.text_status = 'indeterminate'
+  f.selected.ocr.coverage.planned_frame_count = 4
+  f.selected.ocr.coverage.processed_frame_count = 4
+  f.selected.ocr.coverage.scanned_ranges[0]!.end_seconds = 2
+  f.selected.ocr.coverage.unscanned_ranges = [{ start_seconds: 2, end_seconds: 5, reason: 'deployment_limit' }]
+  f.selected.ocr.frames = f.selected.ocr.frames.slice(0, 4)
+  second.ocr.interval.start_seconds = 2
+  second.ocr.coverage.planned_frame_count = 6
+  second.ocr.coverage.processed_frame_count = 6
+  second.ocr.coverage.scanned_ranges[0]!.start_seconds = 2
+  second.ocr.frames = second.ocr.frames.slice(4)
+  await f.selected.save()
+  await second.save()
+  const refs = [f.selected.declaration.ocr, second.declaration.ocr]
+  Reflect.set(f.selected.declaration, 'ocr', refs)
+  return { ...f, second, refs }
+}
+
+it('verifies every separately issued OCR part covering a source in order', async () => {
+  const f = await segmentedFixture()
+  const verifier = vi.fn(verifiedSourceQaFixture)
+  const result = await verifySourceQa({ ...f.input, verifier })
+  expect(verifier).toHaveBeenCalledTimes(2)
+  expect(result.files).toHaveLength(4)
+})
+
+it.each(['gap', 'overlap', 'reversed', 'missing', 'different source', 'unissued', 'unscoped decision'])
+('rejects segmented OCR with %s', async (variant) => {
+  const f = await segmentedFixture()
+  const refs = f.refs
+  if (variant === 'gap') f.second.ocr.interval.start_seconds = 2.5
+  if (variant === 'overlap') f.second.ocr.interval.start_seconds = 1.5
+  if (variant === 'different source') f.second.ocr.source_version = 'other-version'
+  if (variant === 'gap' || variant === 'overlap' || variant === 'different source') {
+    f.second.ocr.coverage.scanned_ranges[0]!.start_seconds = f.second.ocr.interval.start_seconds
+    f.second.ocr.frames = f.second.ocr.frames.map((frame, index) => ({ ...frame,
+      requested_seconds: f.second.ocr.interval.start_seconds + index * 0.5,
+      timestamp_seconds: f.second.ocr.interval.start_seconds + index * 0.5 }))
+    await f.second.save()
+    refs[1]!.sha256 = f.second.declaration.ocr.sha256
+  }
+  if (variant === 'reversed') refs.reverse()
+  if (variant === 'missing') refs.pop()
+  if (variant === 'unscoped decision') Reflect.set(f.selected.declaration, 'text_decisions', [{ segment_index: 0 }])
+  const verifier = variant === 'unissued' ? async (binding: Parameters<typeof verifiedSourceQaFixture>[0]) => {
+    if (binding.ocrPath === await realpath(f.second.declaration.ocr.path)) throw Error('not issued')
+  } : verifiedSourceQaFixture
+  await expect(verifySourceQa({ ...f.input, verifier })).rejects.toThrow()
+})
+
+
+it('requires independently scoped text decisions for every OCR part', async () => {
+  const f = await segmentedFixture()
+  f.selected.ocr.frames[0]!.lines = [sourceQaOcrLine('场景标识')]
+  f.selected.ocr.segments = [{ text: '场景标识', start_seconds: 0, end_seconds: 1, evidence_frame_ids: ['ocr-frame-1'] }]
+  f.selected.ocr.text_status = 'candidate_text_detected'
+  f.second.ocr.frames[0]!.lines = [sourceQaOcrLine('字幕样例')]
+  f.second.ocr.segments = [{ text: '字幕样例', start_seconds: 2, end_seconds: 3, evidence_frame_ids: ['ocr-frame-5'] }]
+  f.second.ocr.text_status = 'candidate_text_detected'
+  f.selected.inspection.frames.push({ ...f.selected.inspection.frames[0]!, id: 'F00002', time: 0.5, decoded_time: 0.5 })
+  await f.selected.save()
+  await f.second.save()
+  const refs = f.refs
+  refs[0]!.sha256 = (await fileSha256(refs[0]!.path))
+  refs[1]!.sha256 = f.second.declaration.ocr.sha256
+  Reflect.set(f.selected.declaration, 'text_decisions', [{ ocr_index: 0, segment_index: 0, text: '场景标识',
+    start_seconds: 0, end_seconds: 1, kind: 'non_dialogue_text', reason: '画面标识', observation_frame_ids: ['F00002'] },
+  { ocr_index: 1, segment_index: 0, text: '字幕样例', start_seconds: 2, end_seconds: 3,
+    kind: 'non_dialogue_text', reason: '画面标识', observation_frame_ids: ['F00001'] }])
+  await expect(verifySourceQa(f.input)).resolves.toHaveProperty('sha256')
+  ;(Reflect.get(f.selected.declaration, 'text_decisions') as object[]).pop()
+  await expect(verifySourceQa(f.input)).rejects.toThrow(/待判断文字/u)
+})
+
+it('accepts a 501-second source through separately verified bounded scans', async () => {
+  const f = await fixture()
+  const refs: { path: string; sha256: string }[] = []
+  for (let start = 0; start < 501; start += 120) {
+    const part = start === 0 ? f.selected : await sourceQaFixture(f.input.project, f.input.videoPath, `part-${start}`)
+    const end = Math.min(start + 120, 501), count = (end - start) / 0.5
+    part.ocr.duration_seconds = 501
+    part.ocr.interval = { start_seconds: start, end_seconds: end }
+    part.ocr.scan_status = end < 501 ? 'partial' : 'complete'
+    part.ocr.text_status = end < 501 ? 'indeterminate' : 'no_text_detected'
+    part.ocr.coverage.planned_frame_count = count
+    part.ocr.coverage.processed_frame_count = count
+    part.ocr.coverage.scanned_ranges = [{ start_seconds: start, end_seconds: end }]
+    part.ocr.coverage.unscanned_ranges = end < 501 ? [{ start_seconds: end, end_seconds: 501, reason: 'deployment_limit' }] : []
+    const frame = part.ocr.frames[0]!
+    part.ocr.frames = Array.from({ length: count }, (_, index) => ({ ...frame, id: `frame-${start}-${index}`,
+      requested_seconds: start + index * 0.5, timestamp_seconds: start + index * 0.5 }))
+    if (start === 0) {
+      part.inspection.duration = 501
+      part.inspection.scanned_until = 501
+    }
+    await part.save()
+    refs.push({ ...part.declaration.ocr })
+  }
+  Reflect.set(f.selected.declaration, 'ocr', refs)
+  const verifier = vi.fn(verifiedSourceQaFixture)
+  const result = await verifySourceQa({ ...f.input, verifier })
+  expect(verifier).toHaveBeenCalledTimes(5)
+  expect(result.files).toHaveLength(7)
+})
+
+
+it('accepts a bounded partial call whose requested end is before the source end', async () => {
+  const f = await segmentedFixture()
+  f.selected.ocr.coverage.unscanned_ranges[0]!.end_seconds = 4
+  await f.selected.save()
+  f.refs[0]!.sha256 = await fileSha256(f.refs[0]!.path)
+  await expect(verifySourceQa(f.input)).resolves.toHaveProperty('sha256')
+})

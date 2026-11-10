@@ -56,7 +56,8 @@ it('does not label moving or short-lived story text as a removable overlay', () 
     frame('c', 2, [line('关键剧情字', 10, 10)])]
   const segments = classifyAndMerge(frames, { frameIntervalSeconds: 1, persistentTextMinFrames: 3,
     persistentTextMinSeconds: 2, overlayMinIou: 0.7 })
-  expect(segments).toEqual([expect.objectContaining({ text: '关键剧情字', classification: 'content_candidate' })])
+  expect(segments).toHaveLength(3)
+  expect(segments.every(item => item.text === '关键剧情字' && item.classification === 'content_candidate')).toBe(true)
   expect(frames.every(item => item.lines[0]?.classification === undefined)).toBe(true)
 })
 
@@ -128,4 +129,11 @@ it('ignores whitespace-only OCR lines and does not infer persistence from zero-a
     persistentTextMinFrames: 2, persistentTextMinSeconds: 8, overlayMinIou: 0.7 }))
     .toEqual([expect.objectContaining({ text: '标题', classification: 'content_candidate', start_seconds: 0 }),
       expect.objectContaining({ text: '标题', classification: 'content_candidate', start_seconds: 10 })])
+})
+
+it('separates identical consecutive text at different screen positions', () => {
+  const segments = classifyAndMerge([frame('top', 0, [line('SALE', 10, 10)]),
+    frame('bottom', 0.5, [line('SALE', 10, 70)])], { frameIntervalSeconds: 0.5,
+    persistentTextMinFrames: 12, persistentTextMinSeconds: 8, overlayMinIou: 0.7 })
+  expect(segments.map(segment => segment.evidence_frame_ids)).toEqual([['top'], ['bottom']])
 })
