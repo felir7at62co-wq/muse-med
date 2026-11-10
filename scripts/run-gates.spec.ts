@@ -1008,6 +1008,7 @@ describe('Node 24 lane ownership', () => {
         'apps/desktop/tests/acl-skill.built.e2e.ts',
         'apps/desktop/tests/attention-audio.e2e.ts',
         'apps/desktop/tests/completion-notice.e2e.ts',
+        'apps/desktop/tests/desktop-host-package.e2e.ts',
         'packages/subprocess/subprocess-local/tests/spawn-runner-built.e2e.ts',
         'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
         'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',

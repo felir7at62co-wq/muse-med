@@ -90,6 +90,7 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
     'lib/source-recovery.js', 'lib/retired-bot.js', 'licenses', 'lib/computer-use.js',
     'lib/computer-input-worker.js', 'lib/delegation-policy.js',
     'lib/approved-episode-render.js', 'lib/episode-render-worker.js',
+    'lib/workspace-owned-storage.js',
   ],
   // Sourcemaps stay out by payload policy; the worker-preview surface
   // (dist/preview.html and dist/preview/) backs opt-in experimental
