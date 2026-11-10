@@ -13,7 +13,8 @@ import { encodeVoiceSlot } from '@deepseek-ai/dsh-jubian-api'
 import type { ProductionConfig } from '../src/production.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 import { sessionVideoShot } from './fixtures/session-video.ts'
-import { speakingShot, tempDir, cleanup } from './harness.ts'
+import { actionShot, speakingShot, tempDir, cleanup } from './harness.ts'
+import type { Config } from '../src/index.ts'
 
 const disposers: Array<() => Promise<unknown>> = []
 afterEach(async () => {
@@ -22,7 +23,8 @@ afterEach(async () => {
   vi.unstubAllEnvs()
 })
 
-async function fixture(options: ProductionConfig = {}, useDefault = true, register = true) {
+async function fixture(options: ProductionConfig = {}, useDefault = true, register = true,
+  planPolicy: Pick<Config, 'emptyShotMaxSeconds' | 'repetitiveShotThreshold'> = {}) {
   const root = await tempDir(); disposers.push(() => cleanup(root))
   const catalogue = JSON.parse(await readFile(new URL('../../../jubian/jubian-api/tests/fixtures/catalogue-20261016.json',
     import.meta.url), 'utf8')) as Record<string, unknown>
@@ -77,7 +79,7 @@ async function fixture(options: ProductionConfig = {}, useDefault = true, regist
     '出镜人物：苏晚', '核心场景：后厨', '发声类型：dialogue', '时长：8秒',
   ])).join('\n\n')
   const script = join(root, 'shots.txt'); await writeFile(script, source)
-  const f = await sessionVideoShot(root, { reviewMode: 'advisory', sessionVideoSelection: true,
+  const f = await sessionVideoShot(root, { reviewMode: 'advisory', sessionVideoSelection: true, ...planPolicy,
     productionPackaging: register, production: { baseUrl: 'https://production.invalid', workspaceSecrets: false,
       ledgerRoot: join(root, 'ledger'), ...options } }, useDefault)
   disposers.push(f.dispose)
@@ -191,6 +193,50 @@ it('returns a bounded text-check result without claiming media approval when pre
   expect(result.isError, JSON.stringify(result.content)).toBe(false)
   expect(result.value).toMatchObject({ first_pass_review: { status: 'text_checks_passed', media_acceptance: false,
     scope: 'actual_prepared_prompt', findings: [] } })
+})
+
+it.each([true, false])('reviews declared plans from actual native preparation with configured limits (warn: %s)', async (warn) => {
+  const f = await fixture({}, true, true, warn ? {} : { emptyShotMaxSeconds: 4, repetitiveShotThreshold: 4 })
+  const plan = await f.preview()
+  await f.call({ method: 'apply', plan_path: plan.plan_path })
+  const card = f.cards.get(10000)
+  if (card === undefined) throw Error('Missing authored card')
+  const config = JSON.parse(String(card.modelConfig)) as Record<string, unknown>
+  const references = [...new Set([...String(config.prompt).matchAll(/@\[[^\]]+\]\([^)]+\)/gu)].map(match => match[0]))].join(' ')
+  const prompt = `${references}\n` + [1, 2, 3].map(number => actionShot(number, ['核心场景：后厨', '场景时段：清晨',
+    '镜头类型：纯环境空镜', '景别：特写', '主运镜：固定机位', '空镜用途：交代场景',
+    '时长：3秒', '视线目标：未知', '情绪触发：未知', ...(number === 3 ? ['眼部表现：瞳孔自发光'] : []),
+  ]).replace('景别：全景\n', '')).join('\n\n')
+  card.modelConfig = JSON.stringify({ ...config, prompt })
+  await f.ctx.plugin(Publication, { baseUrl: 'https://production.invalid', workspaceSecrets: false,
+    ledgerRoot: join(f.root, 'ledger') })
+  const result = await f.ctx.tools.execute({ name: 'jubian_storyboard', agent: f.agent,
+    arguments: { method: 'prepare_video', storyboard_id: 10000, project_dir: f.root },
+    callId: ToolCallId('native-declared-plan-review'), signal: new AbortController().signal })
+  expect(result.isError, JSON.stringify(result.content)).toBe(false)
+  const actual = result.value as {
+    preview_path: string
+    idempotencyKey: string
+    first_pass_review: {
+      evidence_kind: string
+      media_acceptance: boolean
+      declared_shots: unknown[]
+      findings: { code: string; line: number }[]
+    }
+  }
+  expect(actual.first_pass_review).toMatchObject({ evidence_kind: 'plan_text_only', media_acceptance: false })
+  expect(actual.first_pass_review.declared_shots).toHaveLength(3)
+  const codes = actual.first_pass_review.findings.map(issue => issue.code)
+  expect(codes.includes('prepared_empty_shot_over_budget')).toBe(warn)
+  expect(codes.includes('prepared_repetitive_framing')).toBe(warn)
+  expect(codes.includes('prepared_repetitive_camera')).toBe(warn)
+  expect(codes).toContain('prepared_eye_light_directive')
+  expect(actual.first_pass_review.findings.every(issue => issue.line > 0)).toBe(true)
+  const stored = JSON.parse(await readFile(actual.preview_path, 'utf8')) as { idempotencyKey: string; payload: { modelConfig: string } }
+  expect(stored.idempotencyKey).toBe(actual.idempotencyKey)
+  expect(JSON.parse(stored.payload.modelConfig)).toMatchObject({ prompt })
+  expect(stored).not.toHaveProperty('first_pass_review')
+  expect(f.calls.filter(call => call.method === 'PUT' && call.body?.isGenerate === 1)).toEqual([])
 })
 
 it('flags missing scene time in a later native package without renumbering its original shots', async () => {

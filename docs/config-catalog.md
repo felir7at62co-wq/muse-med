@@ -4600,6 +4600,10 @@ export interface Config {
   actionShotSeconds?: number
   /** Effective spoken characters per second used for estimates; defaults to eight. */
   speechCharsPerSecond?: number
+  /** Advisory content ceiling for explicitly declared environment inserts; defaults to two seconds. */
+  emptyShotMaxSeconds?: number
+  /** Consecutive explicit close-up or fixed-camera plans reviewed for repetition; defaults to three. */
+  repetitiveShotThreshold?: number
   /** Strict blocks content failures; advisory returns suggestions and separate drafts. Defaults to strict. */
   reviewMode?: DramaShotReviewMode
   /** Read the calling session's video choice and recheck its last packaging review on changes; defaults to false. */
