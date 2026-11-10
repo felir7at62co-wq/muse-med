@@ -56,7 +56,8 @@ function VideoShelfContents(props: PropsRuntime<'conversation.content.overlay'> 
   }, [sessionId, tail, running, reload, inventoryRevision, listVideos, actions])
   const candidate = [...sources].sort((a, b) => Number(b.id === selected) - Number(a.id === selected))
     .find(item => (open || observed[item.id] !== undefined) && item.version !== null && item.playbackUrl !== null
-      && analyses[item.id]?.sourceVersion !== item.version && detectErrors[item.id] !== item.version)
+      && (analyses[item.id]?.sourceVersion !== item.version || (item.status === 'remote-only' && analyses[item.id]?.state === 'ready'))
+      && detectErrors[item.id] !== item.version)
   useEffect(() => {
     if (candidate === undefined || candidate.version === null) { setDetecting(false); return }
     const version = candidate.version
@@ -64,13 +65,16 @@ function VideoShelfContents(props: PropsRuntime<'conversation.content.overlay'> 
     setDetecting(true); setDetectError(false)
     void detectShots(sessionId, candidate.id, candidate.version, controller.signal).then(async (value) => {
       if (controller.signal.aborted) return
-      if (value.state === 'ready' && candidate.status === 'remote-only') {
+      if (candidate.status === 'remote-only') {
         try {
           const inventory = await listVideos(sessionId, controller.signal)
           controller.signal.throwIfAborted()
+          if (value.state === 'ready' && !inventory.sources.some(item => item.id === candidate.id && item.version === value.sourceVersion && item.status === 'local')) {
+            throw Error('Downloaded video is no longer available')
+          }
           actions.inventory(inventory)
         } catch (_error: unknown) {
-          // A failed optional refresh retains the original playable provider URL.
+          if (!controller.signal.aborted) { actions.detectionFailed(candidate.id, version); setDetectError(true) }
         }
       }
       controller.signal.throwIfAborted()
