@@ -20,7 +20,7 @@ export function apply(ctx) {
       storyboardName: 'Offline horizontal test', modelConfig: JSON.stringify({
         standardId: 61, modelId: 'doubao-seedance-2-5-260628', platformId: 'FANG_ZHOU',
         genType: 3, modelGenerationTypeId: 71, videoStandardId: 337, duration: '10',
-        ratio: '16:9', resolution: '480p', genNum: 1, prompt: '@[Existing CG actor](lead)\n镜头1：场景：客厅 旁白：雨停了。',
+        ratio: '16:9', resolution: '480p', genNum: 1, prompt: '@[Existing CG actor](lead)\n镜头1：场景：客厅 画面文字：禁止通行 旁白：雨停了。',
       }), storyboardMaterialList: [] }
     let writes = 0
     globalThis.fetch = async (input, init) => {

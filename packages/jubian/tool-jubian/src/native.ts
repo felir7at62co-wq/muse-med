@@ -641,7 +641,7 @@ function hasPromptSpeech(prompt: string): boolean {
       if (/^(?:负面提示|负向提示|negative prompt|negative|禁止|规则)$/iu.test(String(field[1]))) return true
       if ([...line.slice(field.index, index + 1).matchAll(/[；;]/gu)]
         .some(separator => outsideQuote(field.index + separator.index))) return false
-      if (labeled && /^(?:场景|场景名称|核心场景)$/u.test(String(field[1])) && /\s/u.test(line[index] ?? '')
+      if (labeled && /\s/u.test(line[index] ?? '')
         && line.slice(field.index + field[0].length, index).trim() !== '') return false
       return true
     })
