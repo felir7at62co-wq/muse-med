@@ -3,6 +3,7 @@ scenario: muse-manuscript-video-source
 profile: headless
 composition: muse-manuscript-video-source
 recording: authored
+writerOutput: true
 header:
   class: muse-manuscript-video-source
   pin: true

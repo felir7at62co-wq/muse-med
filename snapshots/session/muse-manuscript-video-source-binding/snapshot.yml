@@ -1,0 +1,12 @@
+version: 1
+scenario: muse-manuscript-video-source-binding
+profile: headless
+composition: muse-manuscript-video-source-binding
+recording: authored
+header:
+  class: muse-manuscript-video-source-binding
+  pin: true
+  childSystemPrompts: [1, 2, 3, 4, 5, 6, 7]
+  childToolSchemas: [1, 2, 3, 4, 5, 6, 7]
+workspace:
+  final: true

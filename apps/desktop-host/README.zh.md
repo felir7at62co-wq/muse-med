@@ -187,7 +187,9 @@ Host 默认值和 `standard`、`ptc`、`cordis`、`short-drama`、`creation`、`
 <a id="video-screenplay-delivery"></a>
 ## 视频剧本交付
 
-文稿动作 `source_fidelity` 接收明确的 `video_sources`：每项指定已保存的 `review_id`、原片秒范围 `start_seconds` 与 `end_seconds`、对应的提取正文 `draft_lines` 和实际已保存的 `frame_ids`。独立只读审校会接收缓存原帧图片与保存的 ASR 原段，`source_checks` 逐项处置所选帧及时间选区内每段 ASR；补带的上下文 ASR 不计入选区内覆盖。结果是独立的 `video_source_review`，范围限定为 `sampled_frames_and_saved_asr`，并返回 `source_manifest` 与 `source_verification`。缺少证据、纯文字路由或来源版本变化不能形成已核对结论；复用时稿件与来源版本须仍匹配。保存的 ASR 不认证原音、人物身份或媒体同源，采样材料也不认证全片。该动作沿用现有视频证据预算，独立于文字连续性审校，不新增 `present` 前提。
+文稿动作 `source_fidelity` 接收明确的 `video_sources`：每项指定已保存的 `review_id`、原片秒范围 `start_seconds` 与 `end_seconds`、对应的提取正文 `draft_lines` 和实际已保存的 `frame_ids`。独立只读审校会接收缓存原帧图片与保存的 ASR 原段，`source_checks` 逐项处置所选帧及时间选区内每段 ASR；补带的上下文 ASR 不计入选区内覆盖。结果是独立的 `video_source_review`，范围限定为 `sampled_frames_and_saved_asr`，并返回 `source_manifest` 与 `source_verification`。缺少证据、纯文字路由或来源版本变化不能形成已核对结论；复用时稿件与来源版本须仍匹配。保存的 ASR 不认证原音、人物身份或媒体同源，采样材料也不认证全片。该动作沿用现有视频证据预算，独立于文字连续性审校。
+
+视频稿件通过 `manuscript_revision delivery` 显式声明 `source_mode: "video"`。已复核交付将已通过的来源凭据与既有文字审校绑定到实际稿件；Host 在登记时及 `present` 前后复验依据与版本。成功加载 `video-to-screenplay` 或调用明确来源审校动作，会保留本轮已知来源要求，省略字段不能绕过。来源与文字问题互不清除；证据未知或问题未解决时可用明确草稿并说明缺口，不能宣称已修复。同版本、同实际范围的凭据可复用；材料变化时核对受影响范围，不主动重跑整剧。导出后的最终文件字节仍须绑定，不能假定 Markdown 凭据自动转给 Word。标签只标注实际正文行和原片秒范围内抽样原帧、保存 ASR 的核对，不认证全片或原音。
 
 受管视频剧本项目通过 [screenplay-project](../../packages/drama/screenplay-project/README.zh.md) 整理视觉事实并保存各集版本。Muse 为新旧项目选择建议型审校，不要求独立批准、A/B/C 分轮或先采用前集，才可起草或采用指定集。受管视频项目使用 `workflow: video_to_screenplay` 和 `qa/screenplay-project.json`；正式文件位于同级 `final/` 目录。分块场景文件和持久化覆盖清单支持恢复，不依赖压缩后的对话摘要。
 

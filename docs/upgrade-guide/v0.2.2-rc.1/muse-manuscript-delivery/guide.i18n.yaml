@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/muse-manuscript-delivery/guide.md
 /:
-  en: 075d8893e3d63b42
-  zh: c9e6a76de7d1af21
+  en: 14658a4d43358200
+  zh: 63ed3dfe1a4a5841
 /declare-the-final-screenplay-version-before-delivery:
   en: 66a4849ac666899e
   zh: 57e8ec98fefcbcf9
 /declare-the-final-screenplay-version-before-delivery/change:
-  en: 1bb3656544fe0e6a
-  zh: d9176b14cdb04934
+  en: 1e4ec495b9965409
+  zh: ab6fe89ded4e0087
 /declare-the-final-screenplay-version-before-delivery/migration:
-  en: b36759f74ea1bbfb
-  zh: d1478fb0d7ad3394
+  en: b53f9e3eb7565f3c
+  zh: e20ad1d1b055c5c5

@@ -3,6 +3,7 @@ scenario: muse-video-screenplay-entry-creation
 profile: headless
 composition: muse-video-screenplay-entry-creation
 recording: authored
+writerOutput: true
 header:
   class: muse-video-screenplay-entry-creation
   pin: true

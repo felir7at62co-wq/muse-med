@@ -2741,13 +2741,15 @@ describe('headless recorded-session snapshots', () => {
               expectedWorkspaceRoot = await prepareManuscriptNotesExpectedWorkspace(await realpath(cwd), scenario.dir, parentId, humans)
             }
             if (['muse-manuscript-final-delivery', 'muse-manuscript-ptc-delivery', 'muse-manuscript-no-receipt',
-              'muse-manuscript-revision-basis', 'muse-manuscript-ordinary-revision', 'muse-manuscript-edit-receipt'].includes(scenario.name)) {
+              'muse-manuscript-revision-basis', 'muse-manuscript-ordinary-revision', 'muse-manuscript-edit-receipt',
+              'muse-manuscript-video-source-binding'].includes(scenario.name)) {
               const parentId = actualLogs[0]?.header.id
               if (typeof parentId !== 'string') throw new Error('manuscript delivery requires the independent actual parent identity')
               expectedWorkspaceRoot = await prepareManuscriptDeliveryExpectedWorkspace(cwd, scenario.dir, parentId,
                 scenario.name === 'muse-manuscript-ptc-delivery' ? 'ptc'
                   : ['muse-manuscript-no-receipt', 'muse-manuscript-revision-basis',
-                    'muse-manuscript-ordinary-revision', 'muse-manuscript-edit-receipt'].includes(scenario.name) ? 'no-receipt' : 'native')
+                    'muse-manuscript-ordinary-revision', 'muse-manuscript-edit-receipt',
+                    'muse-manuscript-video-source-binding'].includes(scenario.name) ? 'no-receipt' : 'native')
             }
             finalWorkspace = await captureWorkspaceSnapshot(cwd, {
               ignoredRootEntries: ignoredWorkspaceEntries,
