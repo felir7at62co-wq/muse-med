@@ -1,10 +1,10 @@
 /** Detect rendered Douyin sign-in and verification controls in a task guest. */
 export const DOUYIN_USER_ACTION_PROBE = `(() => {
-  const visible = element => { const box=element.getBoundingClientRect();
+  const visible = (element,ignoreSelfVisibility=false) => { const box=element.getBoundingClientRect();
     if(box.width<=0||box.height<=0)return false;
     let left=Math.max(box.left,0),right=Math.min(box.right,window.innerWidth),top=Math.max(box.top,0),bottom=Math.min(box.bottom,window.innerHeight),positioned='';
     for(let current=element;current;current=current.parentElement){const style=getComputedStyle(current);
-      if(style.visibility==='hidden'||style.display==='none'||style.opacity==='0'||style.contentVisibility==='hidden')return false;
+      if((current===element&&!ignoreSelfVisibility&&style.visibility!=='visible')||style.display==='none'||style.opacity==='0'||style.contentVisibility==='hidden')return false;
       const createsFixedBlock=[style.transform,style.translate,style.rotate,style.scale,style.perspective,style.filter,style.backdropFilter].some(value=>value&&value!=='none')
         || style.transformStyle==='preserve-3d'
         || /(^|\\s)(layout|paint|strict|content)(\\s|$)/.test(style.contain)
@@ -18,7 +18,7 @@ export const DOUYIN_USER_ACTION_PROBE = `(() => {
     return right>left&&bottom>top; };
   const selectors=['[data-e2e="login-modal"]','[data-e2e="login-dialog"]','#captcha_container','.captcha_verify_container',
     '[role="dialog"][class*="login"]','[role="dialog"][class*="verify"]','[role="dialog"][class*="captcha"]'];
-  return selectors.some(selector=>Array.from(document.querySelectorAll(selector)).some(visible))
-    || Array.from(document.querySelectorAll('.douyin_login_new_class')).some(dialog => visible(dialog)
-      && Array.from(dialog.querySelectorAll('input[type="tel"], img[aria-label="二维码"], img[alt="二维码"]')).some(visible));
+  return selectors.some(selector=>Array.from(document.querySelectorAll(selector)).some(element=>visible(element)))
+    || Array.from(document.querySelectorAll('.douyin_login_new_class')).some(dialog => visible(dialog,true)
+      && Array.from(dialog.querySelectorAll('input[type="tel"], img[aria-label="二维码"], img[alt="二维码"]')).some(element=>visible(element)));
 })()`
