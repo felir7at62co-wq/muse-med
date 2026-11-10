@@ -3,14 +3,14 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/client/ui-session-coordinator/README.md
 /:
-  en: 34131e5070515f5d
-  zh: 34131e5070515f5d
+  en: f719c83c242e414a
+  zh: f719c83c242e414a
 /deepseek-ai-dsh-client-ui-session-coordinator:
   en: ce17b8a3f41a5f11
   zh: c3f5d2b81f75f05a
 /deepseek-ai-dsh-client-ui-session-coordinator/summary:
-  en: 80cc5befb1154a57
-  zh: de6af237885e0c7d
+  en: 0a3fdadb3eabeb08
+  zh: e88b4cb63b069ad4
 /deepseek-ai-dsh-client-ui-session-coordinator/table-of-contents:
   en: 915fd82850e37f7d
   zh: 222a0e8591d31fe3
@@ -36,5 +36,5 @@
   en: 0881f38ce5b634e7
   zh: 12256cd0d724daea
 /deepseek-ai-dsh-client-ui-session-coordinator/known-limitations-and-deferred-work/dev-note:
-  en: 92920a99bda9de52
-  zh: 482e9d1e570e124a
+  en: d3366b175001fab8
+  zh: bc08fe7e3b1db88e

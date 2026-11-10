@@ -1,4 +1,4 @@
-/** Reversible task resource, dock and owner-only Remote registrations. */
+/** Reversible task resource, overlay and owner-only Remote registrations. */
 import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -29,7 +29,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const inject = ['slots', 'locale', 'remote', 'resources', 'uiWorkspace']
 
 /**
- * Mount the task cards; disabling the plugin releases subscriptions and returns the native dock.
+ * Mount the task cards; disabling the plugin releases subscriptions and removes its overlay.
  * @param ctx - Browser feature context.
  * @returns disposer for Remote bindings and all child registrations.
  */
@@ -77,8 +77,8 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
         else showNotice('failedMain', false)
       } }),
     }, MainEntry))
-    scope.slots.inject('conversation.input.dock', () => scope.slots.register({
-      name: 'conversation.input.dock', id: 'muse-coordination', locale: NS, order: -10, inject: () => actions,
+    scope.slots.inject('conversation.content.overlay', () => scope.slots.register({
+      name: 'conversation.content.overlay', id: 'muse-coordination', locale: NS, order: -10, inject: () => actions,
     }, TaskCards))
   })
   try { await fiber.await() } catch (error) { await fiber.dispose(); await disposeRemote(); throw error }

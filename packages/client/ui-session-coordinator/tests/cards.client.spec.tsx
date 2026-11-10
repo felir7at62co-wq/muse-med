@@ -33,7 +33,7 @@ function props(preset = 'main-session', value = task) {
   const useSessions = <T,>(select: (state: SessionListState) => T): T => select(sessions)
   const useResource = vi.fn(() => ({ status: 'live' as const, value: [value], failure: undefined }))
   return {
-    sessionId: SessionId('main'), useSessions, useResource,
+    sessionId: SessionId('main'), activeView: 'chat', useSessions, useResource,
     openSession: vi.fn(), stop: vi.fn(async () => {}), openFile: vi.fn(async () => {}),
     t: makeTranslate(zh, commonZh),
   } satisfies Parameters<typeof TaskCards>[0]
@@ -44,10 +44,16 @@ it('leaves ordinary conversations unchanged', () => {
   expect(view.container.innerHTML).toBe('')
 })
 
+it('hides task overlays outside the chat view', () => {
+  const view = render(<TaskCards {...props()} activeView="trajectory" />)
+  expect(view.container.innerHTML).toBe('')
+})
+
 it('shows worker completion separately from acceptance and opens its native source chat and file', () => {
   const actions = props()
-  render(<TaskCards {...actions} />)
+  const view = render(<TaskCards {...actions} />)
   expect(screen.getByText('执行会话已完成')).toBeTruthy()
+  fireEvent.click(view.container.querySelector('summary')!)
   expect(screen.getByText('执行会话回执，等待你验收')).toBeTruthy()
   fireEvent.click(screen.getByText('打开执行会话'))
   expect(actions.openSession).toHaveBeenCalledWith(SessionId('worker-1'))
@@ -56,10 +62,26 @@ it('shows worker completion separately from acceptance and opens its native sour
   expect(screen.queryByText('停止任务')).toBeNull()
 })
 
+it('opens task details and dismisses them with Escape or an outside click', () => {
+  const view = render(<TaskCards {...props()} />)
+  const bubble = view.container.querySelector('details')!
+  const summary = bubble.querySelector('summary')!
+  fireEvent.click(summary)
+  expect(bubble.open).toBe(true)
+  fireEvent.keyDown(document, { key: 'Escape' })
+  expect(bubble.open).toBe(false)
+  expect(document.activeElement).toBe(summary)
+  fireEvent.click(summary)
+  fireEvent.pointerDown(document.body)
+  expect(bubble.open).toBe(false)
+})
+
 it('stops exactly the selected task revision while keeping stopping visible until the Host settles', async () => {
   const current = { ...task, attempts: [{ ...task.attempts[0]!, status: 'running' as const, report: null, notifiedStatus: null }] }
   const actions = props('main-session', current)
   const view = render(<TaskCards {...actions} />)
+  expect(view.container.querySelector('[data-working]')).toBeTruthy()
+  fireEvent.click(view.container.querySelector('summary')!)
   fireEvent.click(screen.getByText('停止任务'))
   expect(actions.stop).toHaveBeenCalledWith(SessionId('main'), task.id, 3)
   view.rerender(<TaskCards {...props('main-session', { ...current, attempts: [{ ...current.attempts[0]!, status: 'stopping' }] })} />)

@@ -1,5 +1,5 @@
 ---
-description: "Main Session task cards, execution-chat navigation and native file actions in the existing conversation dock."
+description: "Main Session task cards, execution-chat navigation and native file actions below the conversation title."
 kind: "package-reference"
 ---
 
@@ -10,7 +10,7 @@ kind: "package-reference"
 <a id="summary"></a>
 ## 概述
 
-此可选界面插件在主会话中展示真实任务状态、执行会话入口、原生交付文件和停止操作。普通会话保持原来的输入区。
+此可选界面插件在主会话中展示真实任务状态、执行会话入口、原生交付文件和停止操作。任务以紧凑气泡显示在会话标题下方，执行中小蜘蛛会动，点击气泡可查看任务详情。普通会话保持原有界面。
 
 <a id="table-of-contents"></a>
 ## 目录
@@ -52,4 +52,4 @@ Muse 小蜘蛛按钮位于“新会话”上方，打开默认工作间中固定
 
 ### 开发备注
 
-停用此插件恢复原生输入区；协调账本与执行会话仍由各自所有者管理。
+停用此插件移除任务气泡；协调账本与执行会话仍由各自所有者管理。

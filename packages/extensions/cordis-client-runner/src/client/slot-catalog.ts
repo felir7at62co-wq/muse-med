@@ -1030,6 +1030,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'an entry in \'conversation.content.overlayHost\' (client-ui-conversation), so it exists while that entry is mounted',
     occupants: [
+      'client-ui-session-coordinator TaskCards id \'muse-coordination\'',
       'client-ui-session-video VideoShelf id \'muse-session-video\'',
     ],
     replaceRisk: 'none',
@@ -1506,7 +1507,6 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'client-ui-conversation QueueDock id \'queue\'',
       'client-ui-conversation TodoDock id \'todo\'',
       'client-ui-goal GoalDock id \'goal\'',
-      'client-ui-session-coordinator TaskCards id \'muse-coordination\'',
       'experimental-client-ui-claude-code-mods Band id \'claude-code-mods\'',
       'experimental-client-ui-forge WorktreeProgress id \'forge-panel.worktree\'',
     ],

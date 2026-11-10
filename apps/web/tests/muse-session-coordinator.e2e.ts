@@ -86,6 +86,24 @@ describe('web e2e: Muse Main Session coordination', () => {
 
   it('shows real native task receipts and opens the independent execution Session', async () => {
     const cards = page.locator('[data-muse-coordination-cards]')
+    const bubble = cards.locator('[data-coordination-task]').first()
+    const backgrounds = await bubble.evaluate((element) => {
+      const body = document.body
+      const original = body.getAttribute('data-ds-dark-theme')
+      body.removeAttribute('data-ds-dark-theme')
+      const light = getComputedStyle(element).backgroundColor
+      body.setAttribute('data-ds-dark-theme', '')
+      const dark = getComputedStyle(element).backgroundColor
+      if (original === null) body.removeAttribute('data-ds-dark-theme')
+      else body.setAttribute('data-ds-dark-theme', original)
+      return [light, dark]
+    })
+    expect(backgrounds).not.toContain('rgba(0, 0, 0, 0)')
+    expect(backgrounds[0]).not.toBe(backgrounds[1])
+    const overlayBox = await page.locator('[data-conversation-overlay]').boundingBox()
+    const bubbleBox = await bubble.boundingBox()
+    expect(bubbleBox?.y).toBeGreaterThan((overlayBox?.y ?? 0) + 30)
+    await cards.locator('summary').first().click()
     expect(await cards.getByText('The worker reviewed episode two and retained episode three.').count()).toBe(1)
     expect(await cards.getByText('Worker report; awaiting your acceptance').count()).toBe(1)
     expect(await cards.getByText('Stop task', { exact: true }).count()).toBe(0)

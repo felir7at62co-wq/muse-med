@@ -1,7 +1,6 @@
 - group:
-  - text: Execution tasks · 1
-  - article:
-    - text: Review episode two Worker completed
-    - button "Open execution chat"
-    - paragraph: The worker reviewed episode two and retained episode three.
-    - text: Worker report; awaiting your acceptance
+  - text: Review episode two Worker completed
+  - paragraph: Review episode two
+  - button "Open execution chat"
+  - paragraph: The worker reviewed episode two and retained episode three.
+  - text: Worker report; awaiting your acceptance
