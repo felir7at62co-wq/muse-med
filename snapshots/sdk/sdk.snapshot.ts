@@ -1348,8 +1348,16 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
         expect(events.filter(event => event.type === 'user/message' && event.data.source.kind === 'goal')
           .map(event => event.data.source)).toMatchObject([{ round: 1, revision: 1 }, { round: 2, revision: 1 }])
         expect(events.filter(event => event.type === 'turn/start')).toHaveLength(3)
-        expect(events.filter(event => event.type === 'step/start')).toHaveLength(5)
-        expect(modelRequests).toHaveLength(5)
+        expect(events.filter(event => event.type === 'step/start')).toHaveLength(6)
+        expect(events.filter(event => event.type === 'tool/call').map(event => ({
+          turn: event.data.turn, name: event.data.name,
+        }))).toEqual([
+          { turn: 2, name: 'get_goal' },
+          { turn: 3, name: 'get_goal' },
+          { turn: 3, name: 'update_goal' },
+        ])
+        expect(events.filter(event => event.type === 'goal/wait')).toEqual([])
+        expect(modelRequests).toHaveLength(6)
         expect(JSON.stringify(modelRequests.at(-1)?.messages)).toContain('<goal_complete>')
         expect(events.findLast(event => event.type === 'assistant/message'))
           .toMatchObject({ data: { message: { content: [{ type: 'text', text: 'SDK_GOAL_DONE' }] } } })
