@@ -149,6 +149,10 @@ export interface DouyinDataSnapshot {
     readonly authorName: string | null
     /** Provider publication time in Unix seconds. */
     readonly publishedAt: number | null
+    /** Visible selected-work series title, distinct from a verified cross-platform drama identity. */
+    readonly seriesTitle?: string | null
+    /** Evidence for the visible series title. */
+    readonly seriesSource?: 'visible-series-list' | null
   }
   readonly counts: {
     readonly play_count: DouyinDataCount

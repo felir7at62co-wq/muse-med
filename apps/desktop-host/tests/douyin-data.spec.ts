@@ -30,12 +30,23 @@ it('projects safe IPC fields and discards raw headers, media addresses, identifi
   expect(JSON.stringify(result)).not.toContain('PRIVATE_SIG')
 })
 it('preserves bounded metadata and treats an older response as unavailable', () => {
-  expect(dataResult(wire())?.data?.metadata).toEqual({ description: null, authorName: null, publishedAt: null })
+  expect(dataResult(wire())?.data?.metadata).toEqual({ description: null, authorName: null, publishedAt: null,
+    seriesTitle: null, seriesSource: null })
   const raw = { ...snapshot(), metadata: { description: '第一集', authorName: '作者', publishedAt: 1790000000,
     sec_uid: 'PRIVATE_SIG' } }
   const result = dataResult(wire(raw))
-  expect(result?.data?.metadata).toEqual({ description: '第一集', authorName: '作者', publishedAt: 1790000000 })
+  expect(result?.data?.metadata).toEqual({ description: '第一集', authorName: '作者', publishedAt: 1790000000,
+    seriesTitle: null, seriesSource: null })
   expect(JSON.stringify(result)).not.toContain('PRIVATE_SIG')
+})
+it('validates visible series evidence without returning private fields', () => {
+  const metadata = { description: null, authorName: null, publishedAt: null, seriesTitle: '重生换亲娶千金',
+    seriesSource: 'visible-series-list', authorId: 'PRIVATE_SIG' }
+  const result = dataResult(wire({ ...snapshot(), metadata }))
+  expect(result?.data?.metadata).toMatchObject({ seriesTitle: '重生换亲娶千金', seriesSource: 'visible-series-list' })
+  expect(JSON.stringify(result)).not.toContain('PRIVATE_SIG')
+  expect(dataResult(wire({ ...snapshot(), metadata: { ...metadata, seriesSource: null } }))).toBeUndefined()
+  expect(dataResult(wire({ ...snapshot(), metadata: { ...metadata, seriesTitle: 'x'.repeat(201) } }))).toBeUndefined()
 })
 it.each([
   { description: 'x'.repeat(5001), authorName: null, publishedAt: null },

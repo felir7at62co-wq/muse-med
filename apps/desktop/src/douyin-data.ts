@@ -158,7 +158,7 @@ export class DesktopDouyinData {
       ? { status: 'blocked' as const, items: [], cursor: null, hasMore: null,
         code: task.request.selection.comments.cursor === undefined ? 'COMMENTS_UNAVAILABLE' as const : 'COMMENTS_CURSOR_UNAVAILABLE' as const }
       : { status: 'not-requested' as const, items: [], cursor: null, hasMore: null }
-    const data = publicData(body, target, new Date().toISOString(), comments)
+    const data = publicData(body, target, new Date().toISOString(), comments, true)
     if (data !== undefined) void this.finish(task, 'OK', data)
   }
 

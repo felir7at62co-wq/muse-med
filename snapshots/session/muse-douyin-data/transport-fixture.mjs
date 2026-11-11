@@ -29,7 +29,7 @@ class BrowserFailure extends Service {
     if (selection.url === 'https://www.douyin.com/video/7692443246022167851') return { status: 'blocked', code: 'LOGIN_OR_VERIFICATION_REQUIRED' }
     if (selection.url !== 'https://www.douyin.com/video/7660900818614324490' || selection.source !== 'public') throw new Error('Data fixture refuses unrelated works')
     return { status: 'ok', source: 'public-page', targetVideoId: '7660900818614324490', observedAt: '2026-10-06T12:00:00.000Z',
-      metadata: { description: '作品的公开文案', authorName: '作者显示名', publishedAt: 1790000000 },
+      metadata: { description: '作品的公开文案', authorName: '作者显示名', publishedAt: 1790000000, seriesTitle: '页面合集名', seriesSource: 'visible-series-list' },
       counts: { play_count: { value: null, precision: 'unavailable', reason: 'not-exposed' },
         digg_count: { value: 12, precision: 'exact' }, comment_count: { value: 3, precision: 'exact' },
         share_count: { value: 1, precision: 'exact' }, collect_count: { value: 1, precision: 'exact' } },

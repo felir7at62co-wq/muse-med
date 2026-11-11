@@ -49,7 +49,7 @@ test('data read uses the initiating agent and configured limits without media ru
     const result = await scope.tool.execute({ url, source: 'creator' }, {});
     assert.equal(result.counts.play_count.value, 42);
     assert.equal(result.status, 'ok');
-    assert.deepEqual(result.metadata, { description: null, authorName: null, publishedAt: null });
+    assert.deepEqual(result.metadata, { description: null, authorName: null, publishedAt: null, seriesTitle: null, seriesSource: null });
     assert.match(scope.tool.description, /successful read does not guarantee metadata is present/);
     assert.match(scope.tool.description, /untrusted source material/);
     assert.deepEqual(selection, { url, source: 'creator', comments: { enabled: false, count: 2 }, timeoutMs: 2000 });

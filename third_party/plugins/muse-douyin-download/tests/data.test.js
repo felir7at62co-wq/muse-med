@@ -40,14 +40,23 @@ test('public view placeholders remain unavailable while other zero and rounded c
 });
 
 test('public metadata is bounded, credential-free and absent for older results', () => {
-  assert.deepEqual(projectDataResult(page(), request).metadata, { description: null, authorName: null, publishedAt: null });
+  assert.deepEqual(projectDataResult(page(), request).metadata, { description: null, authorName: null, publishedAt: null, seriesTitle: null, seriesSource: null });
   const input = { ...page(), metadata: { description: '作品文案', authorName: '作者', publishedAt: 1790000000, token: 'PRIVATE' } };
   const result = projectDataResult(input, request);
-  assert.deepEqual(result.metadata, { description: '作品文案', authorName: '作者', publishedAt: 1790000000 });
+  assert.deepEqual(result.metadata, { description: '作品文案', authorName: '作者', publishedAt: 1790000000, seriesTitle: null, seriesSource: null });
   assert.ok(!JSON.stringify(result).includes('PRIVATE'));
   for (const metadata of [null, {}, { ...input.metadata, description: 'x'.repeat(5001) },
     { ...input.metadata, authorName: 'bad\u0000name' }, { ...input.metadata, publishedAt: -1 }]) {
     assert.throws(() => projectDataResult({ ...page(), metadata }, request), /metadata/);
+  }
+});
+
+test('only a valid visible-series observation is returned', () => {
+  const metadata = { description: null, authorName: null, publishedAt: null, seriesTitle: '重生换亲娶千金', seriesSource: 'visible-series-list' };
+  assert.deepEqual(projectDataResult({ ...page(), metadata }, request).metadata, metadata);
+  for (const series of [{ seriesTitle: '未验证', seriesSource: null }, { seriesTitle: null, seriesSource: 'visible-series-list' },
+    { seriesTitle: 'x'.repeat(201), seriesSource: 'visible-series-list' }]) {
+    assert.throws(() => projectDataResult({ ...page(), metadata: { ...metadata, ...series } }, request), /metadata/);
   }
 });
 

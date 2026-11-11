@@ -103,6 +103,35 @@ it('reads already served public metadata and joins a pending page read on cancel
   deferred.resolve(JSON.stringify(body()))
   expect(await result).toMatchObject({ code: 'SESSION_NOT_VISIBLE' })
 })
+it('returns the first valid detail response when it precedes the visible-page probe', async () => {
+  vi.useFakeTimers()
+  const fixture = setup(), operation = request()
+  const executeJavaScript = vi.fn(async () => JSON.stringify({ kind: 'public-action-strip', targetVideoId: fixtureId,
+    displays: null, visibleSeries: { title: '页面合集', source: 'visible-series-list' } }))
+  fixture.guest.executeJavaScript = executeJavaScript
+  const result = fixture.controller.request(fixture.owner, operation)
+  fixture.controller.attached(fixture.lease)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(fixture.reload).toHaveBeenCalledOnce()
+  dataBody(fixture); await fixtureResponse(fixture.debug)
+  const value = await result
+  expect(value.data?.metadata?.seriesTitle).toBeUndefined()
+  expect(value.data?.counts.digg_count.value).toBe(4)
+  expect(executeJavaScript).not.toHaveBeenCalled()
+})
+it('returns the first valid visible-page series when it precedes the detail response', async () => {
+  vi.useFakeTimers()
+  const fixture = setup(), operation = request()
+  fixture.guest.executeJavaScript = vi.fn(async () => JSON.stringify({ kind: 'public-action-strip', targetVideoId: fixtureId,
+    displays: null, visibleSeries: { title: '页面合集', source: 'visible-series-list' } }))
+  const result = fixture.controller.request(fixture.owner, operation)
+  fixture.controller.attached(fixture.lease)
+  await vi.advanceTimersByTimeAsync(100)
+  const value = await result
+  expect(value.data?.metadata?.seriesTitle).toBe('页面合集')
+  expect(value.data?.counts.digg_count.value).toBeNull()
+  expect(fixture.debug.listenerCount('message')).toBe(0)
+})
 it('keeps total comments independent from requested comment items when no observed comment page is available', async () => {
   const fixture = setup(), base = request(), pending = await attached(fixture, { ...base,
     selection: { ...base.selection, comments: { enabled: true, count: 10, cursor: '20' } } })

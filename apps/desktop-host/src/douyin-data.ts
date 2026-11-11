@@ -34,15 +34,17 @@ function nullableInteger(value: unknown): value is number | null {
   return value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)
 }
 function metadata(value: unknown): DouyinDataSnapshot['metadata'] | undefined {
-  if (value === undefined) return { description: null, authorName: null, publishedAt: null }
+  if (value === undefined) return { description: null, authorName: null, publishedAt: null, seriesTitle: null, seriesSource: null }
   const item = record(value)
   if (item === undefined) return undefined
   const text = (entry: unknown, limit: number): entry is string | null => entry === null ||
     (typeof entry === 'string' && entry.trim().length > 0 && entry.length <= limit && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(entry))
-  if (!text(item.description, 5000) || !text(item.authorName, 256)
+  const seriesTitle = item.seriesTitle ?? null, seriesSource = item.seriesSource ?? null
+  if (!text(item.description, 5000) || !text(item.authorName, 256) || !text(seriesTitle, 200)
+    || !(seriesTitle === null && seriesSource === null || seriesTitle !== null && seriesSource === 'visible-series-list')
     || !(item.publishedAt === null || typeof item.publishedAt === 'number' && Number.isSafeInteger(item.publishedAt)
       && item.publishedAt > 0 && item.publishedAt <= 253402300799)) return undefined
-  return { description: item.description, authorName: item.authorName, publishedAt: item.publishedAt }
+  return { description: item.description, authorName: item.authorName, publishedAt: item.publishedAt, seriesTitle, seriesSource }
 }
 function comments(value: unknown): DouyinDataComments | undefined {
   const item = record(value)

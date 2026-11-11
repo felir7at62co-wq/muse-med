@@ -53,15 +53,17 @@ function unavailable(reason) { return { value: null, precision: 'unavailable', r
 function numberOrNull(value) { return Number.isSafeInteger(value) && value >= 0 ? value : null; }
 
 function metadataOf(value) {
-  if (value === undefined) return { description: null, authorName: null, publishedAt: null };
+  if (value === undefined) return { description: null, authorName: null, publishedAt: null, seriesTitle: null, seriesSource: null };
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Douyin data bridge returned invalid metadata');
   const text = (item, limit) => item === null || (typeof item === 'string' && item.trim().length > 0 && item.length <= limit
     && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(item));
-  if (!text(value.description, 5000) || !text(value.authorName, 256)
+  const seriesTitle = value.seriesTitle ?? null, seriesSource = value.seriesSource ?? null;
+  if (!text(value.description, 5000) || !text(value.authorName, 256) || !text(seriesTitle, 200)
+    || !(seriesTitle === null && seriesSource === null || seriesTitle !== null && seriesSource === 'visible-series-list')
     || !(value.publishedAt === null || Number.isSafeInteger(value.publishedAt) && value.publishedAt > 0 && value.publishedAt <= 253402300799)) {
     throw new Error('Douyin data bridge returned invalid metadata');
   }
-  return { description: value.description, authorName: value.authorName, publishedAt: value.publishedAt };
+  return { description: value.description, authorName: value.authorName, publishedAt: value.publishedAt, seriesTitle, seriesSource };
 }
 
 function countOf(value) {
