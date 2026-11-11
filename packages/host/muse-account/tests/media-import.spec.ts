@@ -135,6 +135,9 @@ it('uses the actual OS sandbox for workspace-write imports', async () => {
   const confine = vi.spyOn(f.ctx.sandbox, 'confine')
   expect(await f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).toMatchObject({ state: 'local_ready' })
   expect(confine).toHaveBeenCalled()
+  const binaries = await Promise.all(['ffprobe', 'ffmpeg'].map(name => f.ctx.subprocess.resolveExecutable(name)))
+  for (const binary of binaries) expect(confine.mock.calls.some(([argv, policy]) => argv[0] === binary
+    && policy.mode === 'workspace-write')).toBe(true)
 })
 
 it('retains a partial cloud receipt while verifying its selected image independently', async () => {
@@ -267,4 +270,80 @@ it('keeps the real verified file when cancellation arrives during the cloud conf
   expect(await readFile(result.path)).toEqual(video)
   expect(await readFile(result.receipt, 'utf8')).toContain(hash)
   expect(fetcher).toHaveBeenCalledTimes(3)
+})
+
+it('refuses malformed media under the actual workspace-write sandbox without publication', async () => {
+  const f = await fixture({ mode: 'workspace-write', bytes: Buffer.from('not an image or video') })
+  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal))
+    .rejects.toMatchObject({ code: 'invalid-media' })
+  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+})
+
+it('refuses a private media replacement after verification and before commit', async () => {
+  let changed = false
+  const f = await fixture({ mode: 'workspace-write', guard: async () => {
+    if (changed) return
+    changed = true
+    const parent = join(f.cwd, 'source/media/company')
+    const staging = (await readdir(parent)).find(name => name.startsWith('.import-'))
+    if (staging === undefined) throw Error('No active import stage')
+    await writeFile(join(parent, staging, 'media'), 'replaced after decoding')
+  } })
+  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal))
+    .rejects.toMatchObject({ code: 'file-incomplete' })
+  expect(changed).toBe(true)
+  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+})
+
+it('rejects duplicated commit frames without publishing either file', async () => {
+  const f = await fixture({ mode: 'workspace-write' })
+  const original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  let duplicated = false
+  vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
+    const child = original(spec)
+    if (spec.stdio.control === 'pipe') {
+      const control = child.control
+      if (control === undefined) throw Error('Import control pipe missing')
+      const end = control.end.bind(control)
+      vi.spyOn(control, 'end').mockImplementation((chunk, encoding, callback) => {
+        if (typeof chunk !== 'string' || !chunk.includes('"action":"commit"')) throw Error('Expected the real commit frame')
+        duplicated = true
+        return end(chunk + chunk, encoding, callback)
+      })
+    }
+    return child
+  })
+  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal))
+    .rejects.toMatchObject({ code: 'invalid-media' })
+  expect(duplicated).toBe(true)
+  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+})
+
+it('rolls back when the receiving helper exits after verification but before commit', async () => {
+  let stopped = false
+  let stopReceive = async (): Promise<void> => { throw Error('Import helper was not started') }
+  const f = await fixture({ mode: 'workspace-write', guard: async () => {
+    if (stopped) return
+    stopped = true
+    await stopReceive()
+  } })
+  const original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
+  vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
+    const child = original(spec)
+    if (spec.stdio.control === 'pipe') stopReceive = async () => { child.terminate(); await child.waitForExit() }
+    return child
+  })
+  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal))
+    .rejects.toMatchObject({ code: 'invalid-media' })
+  expect(stopped).toBe(true)
+  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+})
+
+it('verifies and imports a real JPEG through the workspace-write sandbox', async () => {
+  const image = await execute('ffmpeg', ['-v', 'error', '-nostdin', '-f', 'lavfi', '-i', 'color=c=blue:s=64x48',
+    '-frames:v', '1', '-f', 'image2pipe', '-vcodec', 'mjpeg', 'pipe:1'], { encoding: 'buffer', maxBuffer: 1_048_576 })
+  const f = await fixture({ mode: 'workspace-write', bytes: image.stdout, kind: 'image' })
+  const result = await f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)
+  expect(result).toMatchObject({ state: 'local_ready', kind: 'image', width: 64, height: 48, fullDecodeVerified: true })
+  expect(await readFile(result.path)).toEqual(image.stdout)
 })

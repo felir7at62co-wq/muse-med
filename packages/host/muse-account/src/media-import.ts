@@ -1,7 +1,7 @@
 /** Account-owned cloud media imports published only after local policy and full media verification. */
 import type { Context } from '@deepseek-ai/cordis'
-import { randomUUID } from 'node:crypto'
-import { realpath } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { lstat, open, realpath } from 'node:fs/promises'
 import { join, isAbsolute } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -45,7 +45,7 @@ const facts = z.object({ bytes: z.number().int().positive(), sha256: z.string().
 const fileIdentity = z.object({ dev: z.string().regex(/^\d+$/u), ino: z.string().regex(/^\d+$/u) })
 const publication = z.object({ media: fileIdentity, receipt: fileIdentity })
 const helperEvent = z.discriminatedUnion('phase', [
-  facts.extend({ phase: z.literal('verified') }),
+  z.object({ phase: z.literal('staged') }),
   facts.extend({ phase: z.literal('published'), path: z.string(), receipt: z.string(), publication }),
   z.object({ phase: z.literal('failed'), code: z.string() }),
   z.object({ phase: z.literal('cleaned') }),
@@ -168,10 +168,84 @@ export class MuseMediaImporter {
     signal: AbortSignal): Promise<readonly string[]> {
     const node = await this.subprocess.resolveExecutable(this.options.nodePath, undefined, signal)
     const command = [node, '--input-type=module', '-e', MEDIA_FILE_HELPER, JSON.stringify({ ...spec, operation, controlFd: SUBPROCESS_CONTROL_FD })]
+    return await this.confine(command, policy, signal)
+  }
+
+
+  private async confine(command: readonly string[], policy: SandboxExecutionPolicy, signal: AbortSignal): Promise<readonly string[]> {
     if (policy.mode === 'danger-full-access') return command
     const sandbox = this.sandbox
     if (sandbox === undefined) throw new SandboxUnavailableError(policy.mode)
     return (await sandbox.confine(command, { ...policy, mode: policy.mode }, signal)).argv
+  }
+
+  private async mediaCommand(command: string, args: readonly string[], spec: HelperSpec,
+    policy: SandboxExecutionPolicy, signal: AbortSignal): Promise<string> {
+    const child = this.subprocess.spawn({ argv: await this.confine([command, ...args], policy, signal), cwd: spec.cwd,
+      signal, graceMs: this.options.graceMs, env: this.environment(),
+      stdio: { stdin: 'ignore', stdout: { maxBytes: spec.maxOutputBytes }, stderr: { maxBytes: spec.maxOutputBytes } } })
+    try {
+      const outcome = await child.done
+      const output = child.collected.stdout?.readFrom(0), errors = child.collected.stderr?.readFrom(0)
+      if (outcome.exitCode !== 0 || outcome.signal !== null || output === undefined || errors === undefined
+        || output.lossy || errors.lossy || output.nextOffset > spec.maxOutputBytes || errors.nextOffset > spec.maxOutputBytes) {
+        throw new MuseMediaImportError('invalid-media')
+      }
+      return output.text
+    } finally { child.terminate(); await child.waitForExit() }
+  }
+
+
+  private async verifyFile(spec: HelperSpec, path: string, signal: AbortSignal) {
+    signal.throwIfAborted()
+    const info = await lstat(path, { bigint: true })
+    if (!info.isFile() || info.isSymbolicLink() || await realpath(path) !== path
+      || info.size !== BigInt(spec.bytes) || info.size > BigInt(spec.maxBytes)) throw new MuseMediaImportError('invalid-media')
+    const file = await open(path, 'r')
+    try {
+      const opened = await file.stat({ bigint: true })
+      if (opened.dev !== info.dev || opened.ino !== info.ino) throw new MuseMediaImportError('invalid-media')
+      const hash = createHash('sha256')
+      let bytes = 0
+      for await (const chunk of file.createReadStream({ autoClose: false, signal })) {
+        if (!Buffer.isBuffer(chunk)) throw new MuseMediaImportError('invalid-media')
+        bytes += chunk.byteLength
+        if (bytes > spec.bytes || bytes > spec.maxBytes) throw new MuseMediaImportError('invalid-media')
+        hash.update(chunk)
+      }
+      const current = await lstat(path, { bigint: true }), final = await file.stat({ bigint: true })
+      if (bytes !== spec.bytes || hash.digest('hex') !== spec.sha256
+        || current.dev !== info.dev || current.ino !== info.ino || current.size !== info.size
+        || current.mtimeNs !== info.mtimeNs || current.ctimeNs !== info.ctimeNs
+        || final.mtimeNs !== info.mtimeNs || final.ctimeNs !== info.ctimeNs) throw new MuseMediaImportError('invalid-media')
+      return { dev: String(info.dev), ino: String(info.ino), mtimeNs: String(info.mtimeNs), ctimeNs: String(info.ctimeNs) }
+    } finally { await file.close() }
+  }
+
+  private async verifyMedia(spec: HelperSpec, policy: SandboxExecutionPolicy, signal: AbortSignal): Promise<z.infer<typeof facts>> {
+    const temporary = join(spec.cwd, ...spec.directory.split('/'), '.import-' + spec.nonce, 'media')
+    const output = await this.mediaCommand(spec.ffprobe, ['-v', 'error', '-protocol_whitelist', 'file,pipe', '-show_entries',
+      'format=format_name,duration:stream=codec_type,width,height', '-of', 'json', temporary], spec, policy, signal)
+    const metadata = z.object({
+      streams: z.array(z.object({ codec_type: z.string().optional(),
+        width: z.number().optional(), height: z.number().optional() })).optional(),
+      format: z.object({ format_name: z.string().optional(), duration: z.union([z.string(), z.number()]).optional() }).optional(),
+    }).parse(JSON.parse(output))
+    const video = metadata.streams?.find(stream => stream.codec_type === 'video')
+    const durationSeconds = Number(metadata.format?.duration)
+    const imageFormat = (metadata.format?.format_name ?? '').split(',').some(name => name.endsWith('_pipe')
+      || ['image2', 'gif', 'apng', 'ico', 'heif', 'avif'].includes(name))
+    if (video === undefined || typeof video.width !== 'number' || !Number.isSafeInteger(video.width) || video.width <= 0
+      || typeof video.height !== 'number' || !Number.isSafeInteger(video.height) || video.height <= 0
+      || video.width * video.height > spec.maxPixels || (spec.kind === 'video' && imageFormat)
+      || (spec.kind === 'image' && !imageFormat && Number.isFinite(durationSeconds) && durationSeconds > 0)
+      || (spec.kind === 'video' && (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > spec.maxDurationSeconds))) {
+      throw new MuseMediaImportError('invalid-media')
+    }
+    await this.mediaCommand(spec.ffmpeg, ['-nostdin', '-v', 'error', '-xerror', '-protocol_whitelist', 'file,pipe', '-i', temporary,
+      '-map', '0:v:0', '-map', '0:a?', '-f', 'null', '-'], spec, policy, signal)
+    return { bytes: spec.bytes, sha256: spec.sha256, kind: spec.kind, width: video.width, height: video.height,
+      ...(spec.kind === 'video' ? { durationSeconds } : {}), fullDecodeVerified: true }
   }
 
   private environment(): NodeJS.ProcessEnv {
@@ -220,7 +294,7 @@ export class MuseMediaImporter {
           const event = helperEvent.parse(JSON.parse(text.slice(0, line)))
           text = text.slice(line + 1)
           if (event.phase === 'failed') { error = failure(event.code); ready.reject(error) }
-          else if (event.phase === 'verified') ready.resolve()
+          else if (event.phase === 'staged') ready.resolve()
           else if (event.phase === 'published') {
             spec.publication = event.publication
             published = { path: event.path, receipt: event.receipt, ...facts.parse(event) }
@@ -239,16 +313,25 @@ export class MuseMediaImporter {
       if (child.stdin === undefined || child.control === undefined) throw new MuseMediaImportError('unavailable')
       await pipeline(Readable.from(fileChunks(transfer.body)), child.stdin, { signal })
       await ready.promise
+      const temporary = join(spec.cwd, ...spec.directory.split('/'), '.import-' + spec.nonce, 'media')
+      const identity = await this.verifyFile(spec, temporary, signal)
+      const verified = await this.verifyMedia(spec, location.policy, signal)
+      const currentIdentity = await this.verifyFile(spec, temporary, signal)
+      if (JSON.stringify(identity) !== JSON.stringify(currentIdentity)) throw new MuseMediaImportError('invalid-media')
       await transfer.assertCurrent()
       const current = await this.location(agent, signal)
       if (current.cwd !== location.cwd) throw new MuseMediaImportError('workspace-outside')
-      child.control.end('commit\n')
+      child.control.end(JSON.stringify({ action: 'commit', facts: verified, media: identity }) + '\n')
       await completion
       await transfer.assertCurrent()
       signal.throwIfAborted()
       const expected = join(spec.cwd, ...spec.directory.split('/'), `${spec.jobId}-${spec.name}`)
       if (published === undefined || published.path !== expected || published.receipt !== expected + '.source.json'
         || published.bytes !== spec.bytes || published.sha256 !== spec.sha256) throw new MuseMediaImportError('invalid-media')
+      const finalIdentity = await this.verifyFile(spec, expected, signal)
+      if (finalIdentity.dev !== identity.dev || finalIdentity.ino !== identity.ino || finalIdentity.mtimeNs !== identity.mtimeNs) {
+        throw new MuseMediaImportError('invalid-media')
+      }
       if (transfer.job.state !== 'cloud_saved' && transfer.job.state !== 'partial') throw new MuseMediaImportError('invalid-media')
       return { state: 'local_ready', jobId: spec.jobId, fileName: spec.name, ...published,
         sourceJobState: transfer.job.state, fileCoverage: transfer.job.file_coverage ?? null }
