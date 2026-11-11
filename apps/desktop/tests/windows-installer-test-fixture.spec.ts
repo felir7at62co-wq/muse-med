@@ -1,8 +1,95 @@
-import { readFile } from 'node:fs/promises'
+import { Buffer } from 'node:buffer'
+import { spawnSync } from 'node:child_process'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { expect, it } from 'vitest'
+import { runInNewContext } from 'node:vm'
+import ts from 'typescript'
+import { expect, it, onTestFinished } from 'vitest'
 import { assertInstallerNegativeControl, assertVisualCppPrerequisiteReceipt, createInstallerTestPagesSource, createInstallerTestSource } from '../scripts/windows-installer-test-fixture.mjs'
+
+async function wrapperPowerShellCalls(language: string): Promise<{ file: string; args: string[] }[]> {
+  const source = await readFile(new URL('../scripts/test-windows-installer.mjs', import.meta.url), 'utf8')
+  const parsed = ts.createSourceFile('test-windows-installer.mjs', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
+  const expressions: ts.CallExpression[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'execute') {
+      const binary = node.arguments[0]
+      if (binary !== undefined && ts.isStringLiteral(binary) && binary.text === 'powershell.exe') expressions.push(node)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+  expect(expressions).toHaveLength(4)
+  const calls: { file: string; args: string[] }[] = []
+  const appRoot = join(tmpdir(), 'installer-argv-only')
+  const output = join(appRoot, 'output'), languageOutput = join(output, language)
+  for (const expression of expressions) {
+    // Execute the actual argv expressions with a recording child double; no build or GUI runs.
+    runInNewContext(expression.getText(parsed), {
+      execute(file: string, args: string[], _options: object) { calls.push({ file, args }) },
+      join, appRoot, output, languageOutput, language,
+      prerequisiteDirectory: join(output, 'prerequisites'), receiptFile: join(output, 'vc-runtime-receipt.json'),
+      negativeOutput: join(languageOutput, 'negative-cleanup'), productName: 'Harness argv test',
+      guid: 'private-argv-test', packageName: 'private-argv-test', uninstallOnly: false,
+      childOptions: { windowsHide: true },
+    })
+  }
+  return calls
+}
+
+it.each(['en_US', 'ja_JP'])('binds the selected %s language in both actual installer wrapper calls', async (language) => {
+  const calls = (await wrapperPowerShellCalls(language)).filter(call => call.args.some(arg => arg.endsWith('windows-installer-smoke.ps1')))
+  expect(calls).toHaveLength(2)
+  expect(calls.filter(call => call.args.includes('-FailAfterAutomaticRelaunch'))).toHaveLength(1)
+  for (const { args } of calls) {
+    const index = args.indexOf('-Language')
+    expect(index).toBeGreaterThanOrEqual(0)
+    expect(args.slice(index, index + 2)).toEqual(['-Language', language])
+  }
+})
+
+it('runs every actual wrapper PowerShell call without interactive parameter prompts', async () => {
+  for (const { args } of await wrapperPowerShellCalls('en_US')) expect(args).toContain('-NonInteractive')
+})
+
+it.runIf(process.platform === 'win32')('rejects missing Language before the extracted PowerShell binder probe body runs', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'installer-binding-only-'))
+  onTestFinished(async () => { await rm(root, { recursive: true, force: true }) })
+  const script = fileURLToPath(new URL('./windows-installer-smoke.ps1', import.meta.url))
+  const probe = join(root, 'binder.ps1'), marker = join(root, 'body.txt')
+  const literal = (value: string) => "'" + value.replaceAll("'", "''") + "'"
+  const body = "\n$ErrorActionPreference = 'Stop'\n[IO.File]::WriteAllText(" + literal(marker) + ", 'bound:' + $Language)\n"
+  const command = [
+    "$ErrorActionPreference = 'Stop'",
+    '$tokens = $null; $parseErrors = $null',
+    '$ast = [System.Management.Automation.Language.Parser]::ParseFile(' + literal(script) + ', [ref]$tokens, [ref]$parseErrors)',
+    "if ($parseErrors.Count -ne 0 -or $null -eq $ast.ParamBlock) { throw 'Expected the actual installer parameter block' }",
+    '[IO.File]::WriteAllText(' + literal(probe) + ', $ast.ParamBlock.Extent.Text + ' + literal(body) + ', [Text.UTF8Encoding]::new($true))',
+    '& ' + literal(probe) + ' -Installer unused.exe -ProductName binder-only -RegistryKey binder-only -OutputDirectory ' + literal(root),
+  ].join('\n')
+  const systemRoot = process.env.SystemRoot
+  if (systemRoot === undefined) throw new Error('Windows SystemRoot is unavailable')
+  const powershell = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+  const options = { encoding: 'utf8', windowsHide: true, timeout: 10_000 } as const
+  // Only the real parameter block and an inert marker body run, never installer or GUI code.
+  const negative = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand',
+    Buffer.from(command, 'utf16le').toString('base64')], options)
+  expect(negative.error).toBeUndefined()
+  expect(negative.signal).toBeNull()
+  expect(negative.status).toBe(1)
+  expect(negative.stderr + negative.stdout).toContain('MissingMandatoryParameter')
+  await expect(readFile(marker, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' })
+  const positive = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', probe,
+    '-Installer', 'unused.exe', '-ProductName', 'binder-only', '-RegistryKey', 'binder-only',
+    '-OutputDirectory', root, '-Language', 'ja_JP'], options)
+  expect(positive.error).toBeUndefined()
+  expect(positive.signal).toBeNull()
+  expect(positive.status, positive.stderr).toBe(0)
+  expect(positive.stderr).toBe('')
+  expect(await readFile(marker, 'utf8')).toBe('bound:ja_JP')
+})
 
 it('copies production prerequisite checks and confines the reboot switch to private fixtures', async () => {
   const source = await readFile(new URL('../scripts/installer.nsh', import.meta.url), 'utf8')

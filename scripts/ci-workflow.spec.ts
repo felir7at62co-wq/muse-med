@@ -291,6 +291,21 @@ describe('CI workflow', () => {
     expect(steps[preparation]).not.toHaveProperty('continue-on-error', true)
   })
 
+  it('prepares confinement before temporary Linux snapshot capture and replay', () => {
+    const job = workflowJob(loadWorkflow('.github/workflows/linux-snapshot-capture.yml'), 'capture')
+    if (!Array.isArray(job.steps)) throw new TypeError('Snapshot capture job must define steps')
+    const steps = job.steps.filter(isRecord)
+    const preparation = steps.findIndex(step => step.run === 'bash scripts/prepare-ci-bubblewrap.sh')
+    const refresh = steps.findIndex(step => step.name === 'Refresh only the ordered approved owners')
+    const replay = steps.findIndex(step => step.name === 'Replay all approved tests without refresh')
+    expect(preparation).toBeGreaterThanOrEqual(0)
+    expect(refresh).toBeGreaterThan(preparation)
+    expect(replay).toBeGreaterThan(preparation)
+    expect(steps[preparation]).toEqual({
+      name: 'Prepare bubblewrap (unrestrict userns)', run: 'bash scripts/prepare-ci-bubblewrap.sh',
+    })
+  })
+
   it.each(['ci.yml', 'ci-master.yml', 'e2e.yml', 'release.yml', 'release-vendor.yml'])(
     '%s cancels superseded validation runs without crossing workflow or ref boundaries', (name) => {
       const workflow = loadWorkflow('.github/workflows/' + name)

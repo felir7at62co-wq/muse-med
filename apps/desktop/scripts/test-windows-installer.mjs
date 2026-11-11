@@ -61,7 +61,7 @@ try {
     '--vc-redist-only', '--output', prerequisiteDirectory, '--cache', join(outputRoot, 'vc-redist-cache')], childOptions)
   if (!process.argv.includes('--compile-only')) {
     const receiptFile = join(output, 'vc-runtime-receipt.json')
-    const prerequisite = await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+    const prerequisite = await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
       join(appRoot, 'scripts', 'prepare-windows-installer-prerequisite.ps1'),
       '-RuntimeFile', join(prerequisiteDirectory, 'vc_redist.x64.exe'),
       '-ReceiptFile', receiptFile], childOptions)
@@ -69,7 +69,7 @@ try {
     process.stdout.write(prerequisite.stdout)
   }
   try {
-    await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+    await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
       join(appRoot, 'scripts', 'prepare-windows-installer.ps1'), '-OutputDirectory', join(output, 'ui'), '-CompileProgressOnly'], childOptions)
   } catch (error) {
     process.stdout.write(error.stdout ?? '')
@@ -157,7 +157,7 @@ SectionEnd
         nsis: { ...config.nsis, guid, include, installerLanguages: [language] }, beforeBuild: undefined, afterPack: undefined, afterSign: undefined, artifactBuildCompleted: undefined },
     })
     if (process.argv.includes('--compile-only')) continue
-    const result = await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+    const result = await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
       join(appRoot, 'tests', uninstallOnly ? 'windows-uninstall-smoke.ps1' : 'windows-installer-smoke.ps1'),
       '-Installer', join(languageOutput, 'installer-test.exe'),
       '-ProductName', productName, '-RegistryKey', guid, '-OutputDirectory', languageOutput,
@@ -168,11 +168,11 @@ SectionEnd
       await mkdir(negativeOutput)
       let injectedFailure
       try {
-        await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+        await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
           join(appRoot, 'tests', 'windows-installer-smoke.ps1'),
           '-Installer', join(languageOutput, 'installer-test.exe'),
           '-ProductName', productName, '-RegistryKey', guid, '-OutputDirectory', negativeOutput,
-          '-FailAfterAutomaticRelaunch'], childOptions)
+          '-Language', language, '-FailAfterAutomaticRelaunch'], childOptions)
       } catch (error) { injectedFailure = error }
       const receipt = JSON.parse(await readFile(join(negativeOutput, 'cleanup-receipt.json'), 'utf8'))
       assertInstallerNegativeControl(injectedFailure, receipt)
