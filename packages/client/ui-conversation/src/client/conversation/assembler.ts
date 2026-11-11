@@ -589,12 +589,13 @@ export class ConversationNodeAssembler implements ConversationViewSnapshotStore 
     id: string,
     match: ConversationMatch,
   ): ConversationPublication {
-    const latest = this.contextsByKind.get(definition.kind)?.at(-1)
+    const kindContexts = this.contextsByKind.get(definition.kind)
+    const latest = kindContexts?.[kindContexts.length - 1]
     const key = latest?.id === id ? latest.key : conversationContextKey(definition.kind, id)
-    let context = this.contexts.get(key)
+    let context = latest?.id === id ? latest : this.contexts.get(key)
     context ??= this.createContext(definition, id, key)
     const starting = match.role === 'start' && context.start === undefined
-    const previous = context.matches.at(-1)
+    const previous = context.matches[context.matches.length - 1]
     if (previous !== undefined && previous.event.seq >= match.event.seq) {
       throw new Error(`conversation Context ${key} received non-appended Match ${match.event.seq}`)
     }
