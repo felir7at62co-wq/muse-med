@@ -143,6 +143,13 @@ export interface DouyinDataSnapshot {
   readonly source: DouyinDataSource
   readonly targetVideoId: DouyinVideoId
   readonly observedAt: string
+  /** Public work text and author display name, or null when not observed; never an inferred drama title. */
+  readonly metadata?: {
+    readonly description: string | null
+    readonly authorName: string | null
+    /** Provider publication time in Unix seconds. */
+    readonly publishedAt: number | null
+  }
   readonly counts: {
     readonly play_count: DouyinDataCount
     readonly digg_count: DouyinDataCount

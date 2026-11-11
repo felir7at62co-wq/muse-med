@@ -41,7 +41,7 @@ async function attached(fixture: ReturnType<typeof setup>, operation: DouyinDesk
 }
 function body(): object { return { aweme_detail: { aweme_id: fixtureId, statistics: {
   play_count: 0, digg_count: 4, comment_count: 123, share_count: 6, collect_count: 7,
-}, author: { sec_uid: 'PRIVATE_SIG' }, video: { play_addr: { url_list: ['PRIVATE_SIG'] } } } } }
+}, desc: '公开作品文案', create_time: 1790000000, author: { nickname: '作者', sec_uid: 'PRIVATE_SIG' }, video: { play_addr: { url_list: ['PRIVATE_SIG'] } } } } }
 function dataBody(fixture: ReturnType<typeof setup>, response: object = body()) {
   fixture.debug.sendCommand.mockImplementation(async method => method === 'Network.getResponseBody'
     ? { body: JSON.stringify(response), base64Encoded: false } : {})
@@ -55,6 +55,7 @@ it('projects counters from the normal exact-target GET and joins detachment befo
   expect(result).toMatchObject({ code: 'OK', requestId: operation.requestId, data: {
     source: 'public-page', targetVideoId: fixtureId, counts: { digg_count: { value: 4, precision: 'exact' },
       play_count: { value: null, precision: 'unavailable', reason: 'not-exposed' } },
+    metadata: { description: '公开作品文案', authorName: '作者', publishedAt: 1790000000 },
     comments: { status: 'not-requested', items: [], cursor: null, hasMore: null },
   } })
   expect(JSON.stringify(result)).not.toContain('PRIVATE_SIG')

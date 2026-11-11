@@ -9,15 +9,23 @@ export function publicDataProbe(target: DouyinVideoId): string {
   return `(() => {
     if(document.readyState!=='complete')return null;
     const data=window._ROUTER_DATA;
-    const rows=Object.values(data?.loaderData??{}).slice(0,16).flatMap(x=>Array.isArray(x?.videoInfoRes?.item_list)?x.videoInfoRes.item_list.slice(0,16):[]);
+    const loaders=Object.values(data?.loaderData??{});
+    if(loaders.length>16||loaders.some(x=>Array.isArray(x?.videoInfoRes?.item_list)&&x.videoInfoRes.item_list.length>16))return null;
+    const rows=loaders.flatMap(x=>Array.isArray(x?.videoInfoRes?.item_list)?x.videoInfoRes.item_list:[]);
     const matches=rows.filter(x=>x?.aweme_id===${JSON.stringify(target)});
     if(matches.length>1)return null;
-    if(matches.length===1&&matches[0].statistics&&typeof matches[0].statistics==='object'){
+    if(matches.length===1){
+      const item=matches[0],raw=item.statistics;
+      if(raw?.aweme_id!==undefined&&raw.aweme_id!==${JSON.stringify(target)})return null;
       const statistics={};
       for(const key of ['play_count','digg_count','comment_count','share_count','collect_count']){
-        const value=matches[0].statistics[key];if(typeof value==='number'&&Number.isSafeInteger(value)&&value>=0)statistics[key]=value;
+        const value=raw?.[key];if(typeof value==='number'&&Number.isSafeInteger(value)&&value>=0)statistics[key]=value;
       }
-      return JSON.stringify({status_code:0,aweme_detail:{aweme_id:${JSON.stringify(target)},statistics}});
+      const detail={aweme_id:${JSON.stringify(target)},statistics};
+      if(typeof item.desc==='string'&&item.desc.length<=5000)detail.desc=item.desc;
+      if(typeof item.author?.nickname==='string'&&item.author.nickname.length<=256)detail.author={nickname:item.author.nickname};
+      if(Number.isSafeInteger(item.create_time)&&item.create_time>0&&item.create_time<=253402300799)detail.create_time=item.create_time;
+      if(Object.keys(statistics).length||detail.desc||detail.author||detail.create_time)return JSON.stringify({status_code:0,aweme_detail:detail});
     }
     const visible=x=>x.getBoundingClientRect().width>0&&x.getBoundingClientRect().height>0;
     const videos=[...document.querySelectorAll('video')];
@@ -36,6 +44,15 @@ export function publicDataProbe(target: DouyinVideoId): string {
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown> : undefined
+}
+
+function publicText(value: unknown, limit: number): string | null {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= limit
+    && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value) ? value : null
+}
+
+function publicationTime(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 && value <= 253402300799 ? value : null
 }
 
 function displayedCount(value: string): DouyinDataCount {
@@ -76,6 +93,7 @@ export function publicData(
       || root.displays.some(value => typeof value !== 'string' || value.length > 64)) return undefined
     const displays = root.displays as [string, string, string, string]
     return { status: 'ok', source: 'public-page', targetVideoId: target, observedAt, comments,
+      metadata: { description: null, authorName: null, publishedAt: null },
       counts: { play_count: { value: null, precision: 'unavailable', reason: 'not-exposed' },
         digg_count: displayedCount(displays[0]), comment_count: displayedCount(displays[1]),
         collect_count: displayedCount(displays[2]), share_count: displayedCount(displays[3]) } }
@@ -84,15 +102,19 @@ export function publicData(
   const detail = record(root?.aweme_detail)
   if (detail === undefined || detail.aweme_id !== target) return undefined
   const stats = record(detail.statistics)
-  if (stats === undefined) return undefined
+  if (stats?.aweme_id !== undefined && stats.aweme_id !== target) return undefined
+  const metadata = { description: publicText(detail.desc, 5000), authorName: publicText(record(detail.author)?.nickname, 256),
+    publishedAt: publicationTime(detail.create_time) }
+  if (stats === undefined && Object.values(metadata).every(value => value === null)) return undefined
+  const counts = stats ?? {}
   return {
-    status: 'ok', source: 'public-page', targetVideoId: target, observedAt,
+    status: 'ok', source: 'public-page', targetVideoId: target, observedAt, metadata,
     counts: {
-      play_count: stats.play_count === 0
+      play_count: counts.play_count === 0
         ? { value: null, precision: 'unavailable', reason: 'not-exposed' }
-        : providerCount(stats.play_count),
-      digg_count: providerCount(stats.digg_count), comment_count: providerCount(stats.comment_count),
-      share_count: providerCount(stats.share_count), collect_count: providerCount(stats.collect_count),
+        : providerCount(counts.play_count),
+      digg_count: providerCount(counts.digg_count), comment_count: providerCount(counts.comment_count),
+      share_count: providerCount(counts.share_count), collect_count: providerCount(counts.collect_count),
     },
     comments,
   }
@@ -116,7 +138,9 @@ export function creatorData(
   if (root?.status_code !== 0 || !Array.isArray(root.aweme_list) || !Array.isArray(root.can_modify)
     || root.aweme_list.length !== root.can_modify.length || root.can_modify.some(value => typeof value !== 'boolean')) return unavailable
   const result = { ownList: true, hasMore: root.has_more === true }
-  const index = root.aweme_list.findIndex(value => record(value)?.aweme_id === target)
+  const matches = root.aweme_list.flatMap((value, index) => record(value)?.aweme_id === target ? [index] : [])
+  const index = matches[0]
+  if (matches.length !== 1 || index === undefined) return result
   if (index < 0 || root.can_modify[index] !== true) return result
   const detail = record(root.aweme_list[index]), stats = record(detail?.statistics)
   if (stats?.aweme_id !== target) return result

@@ -17,10 +17,50 @@ const body = (statistics: object = stats, aweme_id: string = target) => JSON.str
 it('returns the exposed exact work counters without author, authentication or media fields', () => {
   const result = publicData(body(), target, observedAt, comments)
   expect(result).toEqual({ status: 'ok', source: 'public-page', targetVideoId: target, observedAt,
+    metadata: { description: null, authorName: null, publishedAt: null },
     counts: { play_count: { value: 8675309, precision: 'exact' },
       digg_count: { value: 12, precision: 'exact' }, comment_count: { value: 0, precision: 'exact' },
       share_count: { value: 2, precision: 'exact' }, collect_count: { value: 3, precision: 'exact' } }, comments })
   expect(JSON.stringify(result)).not.toMatch(/private|play_addr|sec_uid|token/)
+})
+
+it('returns bounded public metadata from the exact work even without statistics', () => {
+  const value = JSON.stringify({ aweme_detail: { aweme_id: target, desc: '第一集', create_time: 1790000000,
+    author: { nickname: '短剧作者', sec_uid: 'PRIVATE' }, video: { url: 'PRIVATE' } } })
+  const result = publicData(value, target, observedAt, comments)
+  expect(result?.metadata).toEqual({ description: '第一集', authorName: '短剧作者', publishedAt: 1790000000 })
+  expect(result?.counts.digg_count).toEqual({ value: null, precision: 'unavailable', reason: 'missing' })
+  expect(JSON.stringify(result)).not.toContain('PRIVATE')
+  expect(publicData(value, '7692443246022167852' as DouyinVideoId, observedAt, comments)).toBeUndefined()
+})
+
+it('refuses oversized and control-bearing fields rather than forwarding them', () => {
+  const value = JSON.stringify({ aweme_detail: { aweme_id: target, statistics: stats,
+    desc: 'x'.repeat(5001), author: { nickname: 'bad\u0000name' }, create_time: -1 } })
+  expect(publicData(value, target, observedAt, comments)?.metadata)
+    .toEqual({ description: null, authorName: null, publishedAt: null })
+})
+
+it('projects only bounded selected initial metadata, preserving unavailable fields', () => {
+  const data = { document: { readyState: 'complete' }, window: { _ROUTER_DATA: { loaderData: { video: { videoInfoRes: { item_list: [
+    { aweme_id: '7692443246022167852', desc: 'OTHER', author: { nickname: 'OTHER' } },
+    { aweme_id: target, desc: '作品文案', author: { nickname: '作者', sec_uid: 'PRIVATE' }, create_time: 1790000000 },
+  ] } } } } } }
+  const projected = String(runInNewContext(publicDataProbe(target), data))
+  expect(publicData(projected, target, observedAt, comments)?.metadata)
+    .toEqual({ description: '作品文案', authorName: '作者', publishedAt: 1790000000 })
+  expect(projected).not.toMatch(/OTHER|PRIVATE/)
+})
+
+it('refuses an oversized initial-data scan and duplicate creator rows', () => {
+  const rows = [{ aweme_id: target, statistics: stats }, ...Array.from({ length: 16 }, () => ({}))]
+  expect(runInNewContext(publicDataProbe(target), { document: { readyState: 'complete' },
+    window: { _ROUTER_DATA: { loaderData: { video: { videoInfoRes: { item_list: rows } } } } } })).toBeNull()
+  const row = { aweme_id: target, statistics: { ...stats, aweme_id: target } }
+  const duplicate = JSON.stringify({ status_code: 0, aweme_list: [row, row], can_modify: [true, true] })
+  expect(creatorData(duplicate, target, observedAt, comments).data).toBeUndefined()
+  expect(publicData(JSON.stringify({ aweme_detail: { aweme_id: target, desc: '错误统计目标',
+    statistics: { aweme_id: '7692443246022167852', digg_count: 1 } } }), target, observedAt, comments)).toBeUndefined()
 })
 
 it('reports the public zero play placeholder as unavailable without inferring a value', () => {

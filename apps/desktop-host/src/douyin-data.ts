@@ -33,6 +33,17 @@ function count(value: unknown): DouyinDataCount | undefined {
 function nullableInteger(value: unknown): value is number | null {
   return value === null || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0)
 }
+function metadata(value: unknown): DouyinDataSnapshot['metadata'] | undefined {
+  if (value === undefined) return { description: null, authorName: null, publishedAt: null }
+  const item = record(value)
+  if (item === undefined) return undefined
+  const text = (entry: unknown, limit: number): entry is string | null => entry === null ||
+    (typeof entry === 'string' && entry.trim().length > 0 && entry.length <= limit && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(entry))
+  if (!text(item.description, 5000) || !text(item.authorName, 256)
+    || !(item.publishedAt === null || typeof item.publishedAt === 'number' && Number.isSafeInteger(item.publishedAt)
+      && item.publishedAt > 0 && item.publishedAt <= 253402300799)) return undefined
+  return { description: item.description, authorName: item.authorName, publishedAt: item.publishedAt }
+}
 function comments(value: unknown): DouyinDataComments | undefined {
   const item = record(value)
   if (item === undefined || !Array.isArray(item.items) || item.items.length > 200
@@ -71,11 +82,13 @@ export function dataResult(value: unknown): DouyinDesktopDataResult | undefined 
     || typeof data.observedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(data.observedAt)
     || Number.isNaN(Date.parse(data.observedAt)) || values === undefined) return undefined
   const play_count = count(values.play_count), digg_count = count(values.digg_count), comment_count = count(values.comment_count),
-    share_count = count(values.share_count), collect_count = count(values.collect_count), pageComments = comments(data.comments)
+    share_count = count(values.share_count), collect_count = count(values.collect_count), pageComments = comments(data.comments),
+    pageMetadata = metadata(data.metadata)
   if (play_count === undefined || digg_count === undefined || comment_count === undefined
-    || share_count === undefined || collect_count === undefined || pageComments === undefined) return undefined
+    || share_count === undefined || collect_count === undefined || pageComments === undefined
+    || pageMetadata === undefined) return undefined
   return { type: 'douyin-browser-data-result', requestId: result.requestId as DouyinDataRequestId, code: 'OK', data: {
-    status: 'ok', source: data.source, targetVideoId: data.targetVideoId as DouyinVideoId, observedAt: data.observedAt,
+    status: 'ok', source: data.source, targetVideoId: data.targetVideoId as DouyinVideoId, observedAt: data.observedAt, metadata: pageMetadata,
     counts: { play_count, digg_count, comment_count, share_count, collect_count }, comments: pageComments,
   } }
 }

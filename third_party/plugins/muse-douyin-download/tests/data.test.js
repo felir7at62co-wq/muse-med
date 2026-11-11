@@ -39,6 +39,18 @@ test('public view placeholders remain unavailable while other zero and rounded c
   assert.ok(!JSON.stringify(output).includes('private'));
 });
 
+test('public metadata is bounded, credential-free and absent for older results', () => {
+  assert.deepEqual(projectDataResult(page(), request).metadata, { description: null, authorName: null, publishedAt: null });
+  const input = { ...page(), metadata: { description: '作品文案', authorName: '作者', publishedAt: 1790000000, token: 'PRIVATE' } };
+  const result = projectDataResult(input, request);
+  assert.deepEqual(result.metadata, { description: '作品文案', authorName: '作者', publishedAt: 1790000000 });
+  assert.ok(!JSON.stringify(result).includes('PRIVATE'));
+  for (const metadata of [null, {}, { ...input.metadata, description: 'x'.repeat(5001) },
+    { ...input.metadata, authorName: 'bad\u0000name' }, { ...input.metadata, publishedAt: -1 }]) {
+    assert.throws(() => projectDataResult({ ...page(), metadata }, request), /metadata/);
+  }
+});
+
 test('creator page counters keep exact views and disclose missing or invalid fields', () => {
   const creator = selection({ url, source: 'creator' });
   const input = { ...page(), source: 'creator-page', counts: { play_count: exact(42), digg_count: undefined, comment_count: null, share_count: -1, collect_count: { value: null, precision: 'unavailable', reason: 'missing', raw: 'private' } } };

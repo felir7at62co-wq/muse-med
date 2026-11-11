@@ -29,6 +29,23 @@ it('projects safe IPC fields and discards raw headers, media addresses, identifi
   expect(result).toMatchObject({ code: 'OK', data: { targetVideoId: videoId, counts: { digg_count: { value: 42, precision: 'exact' } } } })
   expect(JSON.stringify(result)).not.toContain('PRIVATE_SIG')
 })
+it('preserves bounded metadata and treats an older response as unavailable', () => {
+  expect(dataResult(wire())?.data?.metadata).toEqual({ description: null, authorName: null, publishedAt: null })
+  const raw = { ...snapshot(), metadata: { description: '第一集', authorName: '作者', publishedAt: 1790000000,
+    sec_uid: 'PRIVATE_SIG' } }
+  const result = dataResult(wire(raw))
+  expect(result?.data?.metadata).toEqual({ description: '第一集', authorName: '作者', publishedAt: 1790000000 })
+  expect(JSON.stringify(result)).not.toContain('PRIVATE_SIG')
+})
+it.each([
+  { description: 'x'.repeat(5001), authorName: null, publishedAt: null },
+  { description: null, authorName: 'bad\u0000name', publishedAt: null },
+  { description: null, authorName: null, publishedAt: -1 },
+  { description: null, authorName: null },
+  null,
+])('rejects invalid metadata from IPC %#', (metadata) => {
+  expect(dataResult(wire({ ...snapshot(), metadata }))).toBeUndefined()
+})
 it.each([undefined, null, [], {}, { ...wire(), type: 'douyin-browser-result' }, { ...wire(), requestId: 'bad' },
   { ...wire(), code: 'UPSTREAM_PRIVATE_SIG' }, { ...wire(), code: 'CANCELLED' },
   wire({ ...snapshot(), source: 'official-oauth' }), wire({ ...snapshot(), targetVideoId: 'bad' }),

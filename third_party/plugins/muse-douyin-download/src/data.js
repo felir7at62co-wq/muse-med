@@ -52,6 +52,18 @@ export function resolveDataArgs(value, settings) {
 function unavailable(reason) { return { value: null, precision: 'unavailable', reason }; }
 function numberOrNull(value) { return Number.isSafeInteger(value) && value >= 0 ? value : null; }
 
+function metadataOf(value) {
+  if (value === undefined) return { description: null, authorName: null, publishedAt: null };
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Douyin data bridge returned invalid metadata');
+  const text = (item, limit) => item === null || (typeof item === 'string' && item.trim().length > 0 && item.length <= limit
+    && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(item));
+  if (!text(value.description, 5000) || !text(value.authorName, 256)
+    || !(value.publishedAt === null || Number.isSafeInteger(value.publishedAt) && value.publishedAt > 0 && value.publishedAt <= 253402300799)) {
+    throw new Error('Douyin data bridge returned invalid metadata');
+  }
+  return { description: value.description, authorName: value.authorName, publishedAt: value.publishedAt };
+}
+
 function countOf(value) {
   if (value === undefined || value === null) return unavailable('missing');
   if (typeof value !== 'object' || Array.isArray(value)) return unavailable('invalid');
@@ -107,5 +119,5 @@ export function projectDataResult(value, request) {
       comments = { status: 'available', items, cursor: page.cursor, hasMore: page.hasMore };
     }
   }
-  return { status: comments.status === 'blocked' ? 'partial' : 'ok', source: value.source, targetVideoId: value.targetVideoId, url: `https://www.douyin.com/video/${value.targetVideoId}`, observedAt: value.observedAt, counts, comments };
+  return { status: comments.status === 'blocked' ? 'partial' : 'ok', source: value.source, targetVideoId: value.targetVideoId, url: `https://www.douyin.com/video/${value.targetVideoId}`, observedAt: value.observedAt, metadata: metadataOf(value.metadata), counts, comments };
 }
