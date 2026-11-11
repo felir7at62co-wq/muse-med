@@ -658,9 +658,9 @@ interface ToolArgsMap {
     /** prepare_video / generate 准备阶段必填、submit_video 可选：项目目录，必须含 project_config.json，且其 jubian_script_id 必须等于实时 scriptId。 */
     project_dir: string;
   } & Record<string, JsonValue>;
-  /** 创建与查询剧变项目。create 创建手动项目；get 读取项目身份及稿件绑定；operation 仅凭原 key 查询原业务回执和项目 ID。内容项目必须绑定真实 manuscript_id；前贴素材须明确选择 produce_type=2。创建不自动解析或生成；上传稿件后也可用 jubian_manuscript.start_produce 直接创建绑定项目，不重复建同一项目。 */
+  /** 创建、查询与分享剧变项目。create 创建手动项目；get 读取项目身份及稿件绑定；operation 用原 key 查询原业务回执。share_targets 查询真实用户/部门，shares 查询提供方可见分享，share_preview 冻结具体接收人与保留对象，share_apply 在用户确认后提交原预览并回读。分享不创建公开链接；目标类型不是读写权限；复杂/不完整既有分享停止提交。内容项目绑定真实 manuscript_id；start_produce 本身创建绑定项目，不重复 create。所有写入保留原 key，未知不换 key 重发；创建不自动解析或生成。 */
   jubian_project: {
-    method: "operation" | "get" | "create";
+    method: "operation" | "get" | "create" | "share_targets" | "shares" | "share_preview" | "share_apply";
     /** 剧变项目 ID（scriptId）。erase_subtitle 与 upscale 从任务行读取它，不必单独提供；其余方法按上面的必填说明传入。 */
     script_id?: number;
     /** 内容项目绑定的剧变稿件 ID；与项目 script_id 不同。 */
@@ -679,6 +679,22 @@ interface ToolArgsMap {
     storyboard_count_per_episode?: number;
     /** 已选择的项目设置；保留真实目录中的模型参数，不自动发起生成。 */
     global_config?: Record<string, JsonValue>;
+    /** 分享接收人类型：1=部门，2=用户；每次预览只选一类。 */
+    share_type?: 1 | 2;
+    /** 分享项目目标：1=漫剧视频，2=无限画布；不是只读或编辑权限。 */
+    share_target_type?: 1 | 2;
+    /** 从 share_targets 取得并由用户选定的接收人 ID，不按姓名猜测。 */
+    user_ids?: number[];
+    /** 从 share_targets 取得的单个明确部门 ID；不得猜全员部门。 */
+    department_id?: number;
+    /** share_targets 的用户或部门名称筛选；同名保留各自 ID。 */
+    query?: string;
+    /** share_preview 返回的原预览 ID。 */
+    preview_id?: string;
+    /** share_preview 返回的原预览指纹，不自行构造。 */
+    preview_fingerprint?: string;
+    /** share_apply 必须在用户确认具体项目、接收人与分享范围后设为 true。 */
+    confirm?: boolean;
     /** 写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。 */
     idempotency_key?: string;
   } & Record<string, JsonValue>;
