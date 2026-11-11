@@ -81,6 +81,8 @@ import { existsSync, realpathSync, writeFileSync } from 'node:fs'
 import { join, relative, isAbsolute } from 'node:path'
 export const inject = ['agentPresets', 'agents', 'agentLoop', 'systemPrompt', 'tools', 'skills', 'credentials', 'webServer', 'museAccount', 'toolDiscovery']
 export function apply(ctx) {
+  const callerFiber = ctx.fiber
+  const callerAgents = ctx.agents
   ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-product-smoke', handler: async (_request, response) => {
   if (!(ctx instanceof Context)) throw new Error('desktop runtime: external plugin loaded another Cordis instance')
   const root = ${JSON.stringify(root)}
@@ -96,6 +98,75 @@ export function apply(ctx) {
     failure.stack += '\\nCaused by: ' + failureText(error)
     return failure
   }
+  const identities = new WeakMap()
+  const birthUIDs = new WeakMap()
+  let nextIdentity = 0
+  const identity = value => {
+    if ((typeof value !== 'object' || value === null) && typeof value !== 'function') return null
+    if (!identities.has(value)) identities.set(value, ++nextIdentity)
+    return identities.get(value)
+  }
+  const describeFiber = fiber => {
+    if (fiber === undefined) return null
+    const uid = fiber.uid
+    if (typeof uid === 'number' && !birthUIDs.has(fiber)) birthUIDs.set(fiber, uid)
+    return { identity: identity(fiber), birthUID: birthUIDs.get(fiber) ?? null, uid,
+      state: fiber.state, label: fiber.runtime?.name ?? null }
+  }
+  const tracked = []
+  const firstRecords = []
+  const lastRecords = []
+  const observerErrors = []
+  let droppedRecords = 0, droppedObserverErrors = 0, sequence = 0
+  let location = { preset: null, index: -1, phase: 'request' }
+  const observerError = (event, error) => {
+    let message = 'Observer failure could not be rendered'
+    let renderingFailed = false
+    try { message = String(failureText(error)).slice(0, 4096) } catch { renderingFailed = true }
+    if (observerErrors.length < 8) observerErrors.push({ event, ...location, message, renderingFailed })
+    else droppedObserverErrors++
+  }
+  const appendRecord = record => {
+    record.sequence = ++sequence
+    if (firstRecords.length < 128) firstRecords.push(record)
+    else {
+      lastRecords.push(record)
+      if (lastRecords.length > 384) { lastRecords.shift(); droppedRecords++ }
+    }
+  }
+  const trackedState = (registries, currentAgents) => tracked.map(row => ({
+    preset: row.preset, index: row.index, agentIdentity: identity(row.agent),
+    contextIdentity: identity(row.context), fiber: describeFiber(row.fiber),
+    ...(registries ? {
+      agentRegistryIdentity: identity(callerAgents[Symbol.for('cordis.original')] ?? callerAgents),
+      registeredAgentMatches: callerAgents.get(row.agent.id) === row.agent,
+      currentRegisteredAgentMatches: currentAgents.get(row.agent.id) === row.agent,
+    } : {}),
+  }))
+  const checkpoint = (event, preset, index, phase) => {
+    location = { preset, index, phase }
+    try {
+      const currentAgents = ctx.agents
+      appendRecord({ event, ...location, owner: describeFiber(callerFiber),
+        currentAgentRegistryIdentity: identity(currentAgents[Symbol.for('cordis.original')] ?? currentAgents),
+        tracked: trackedState(true, currentAgents) })
+    } catch (error) { observerError(event, error) }
+  }
+  const observe = (event, fiber, oldState) => {
+    try {
+      const description = describeFiber(fiber)
+      appendRecord({ event, ...location, fiber: description, oldState, owner: describeFiber(callerFiber),
+        tracked: trackedState(false),
+        ...(description.uid === null || event === 'internal/status'
+          ? { stack: new Error('Desktop lifecycle ' + event).stack?.slice(0, 4096) } : {}) })
+    } catch (error) { observerError(event, error) }
+  }
+  const observerReleases = []
+  for (const event of ['internal/plugin', 'internal/status']) {
+    try { observerReleases.push(ctx.root.on(event, (fiber, oldState) => { observe(event, fiber, oldState) })) }
+    catch (error) { observerError('register-' + event, error) }
+  }
+  let failed = false, failure
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
   const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
@@ -123,15 +194,24 @@ export function apply(ctx) {
   }
     for (index = 0; index < 2; index++) {
       phase = 'create'
+      checkpoint('before-create', id, index, phase)
       handles.push(await ctx.agents.create({
         sessionId: 'desktop-product-smoke-' + id + '-' + index, meta: { cwd, agentPreset: id },
         setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, id) },
       }))
+      try {
+        const agent = handles[index].agent
+        const context = agent.ctx
+        tracked.push({ preset: id, index, agent, context, fiber: context?.fiber })
+      } catch (error) { observerError('track-created-agent', error) }
+      checkpoint('after-create', id, index, phase)
     }
     for (const [handleIndex, handle] of handles.entries()) {
     index = handleIndex
     phase = 'tools'
+    checkpoint('before-tools', id, index, phase)
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
+    checkpoint('after-tools', id, index, phase)
     const retiredTools = ['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user']
     for (const name of retiredTools) if (names.has(name)) throw new Error('desktop runtime: archived Bot tool remains active: ' + name + ' in ' + id)
     for (const name of names) if (name.startsWith('mcp__muse-account__')) {
@@ -152,7 +232,9 @@ export function apply(ctx) {
           : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
     phase = 'assemble-initial'
+    checkpoint('before-assemble', id, index, phase)
     const modelInput = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+    checkpoint('after-assemble', id, index, phase)
     const modelNames = modelInput.tools.map(tool => tool.name)
     if (['ptc', 'creation', 'cordis'].includes(id)) {
       if (modelNames.length !== 1 || modelNames[0] !== 'run_code') {
@@ -212,7 +294,9 @@ export function apply(ctx) {
       }
       await manage('load')
       phase = 'assemble-loaded'
+      checkpoint('before-assemble', id, index, phase)
       const loaded = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+      checkpoint('after-assemble', id, index, phase)
       for (const [name, description] of Object.entries(editingModelInput.tools)) {
         if (loaded.tools.find(tool => tool.name === name)?.description !== description) {
           throw new Error('desktop runtime: editing model tool description changed after loading: ' + name)
@@ -220,7 +304,9 @@ export function apply(ctx) {
       }
       await manage('release')
       phase = 'assemble-released'
+      checkpoint('before-assemble', id, index, phase)
       const released = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+      checkpoint('after-assemble', id, index, phase)
       if (JSON.stringify(released.tools.map(tool => tool.name).sort()) !== JSON.stringify(initialNames)
         || deferredTools.some(name => ctx.toolDiscovery.state(handle.agent).loaded.includes(name))) {
         throw new Error('desktop runtime: releasing source tools did not restore initial model tools')
@@ -351,10 +437,17 @@ export function apply(ctx) {
     }
     }
   } catch (error) {
+    checkpoint('failure', id, index, phase)
     failures.push(withContext(error, id, index, phase))
   } finally {
+    checkpoint('before-cleanup', id, index, phase)
     for (index = handles.length - 1; index >= 0; index--) {
-      try { await handles[index].dispose() } catch (error) {
+      checkpoint('before-dispose', id, index, 'dispose')
+      try {
+        await handles[index].dispose()
+        checkpoint('after-dispose', id, index, 'dispose')
+      } catch (error) {
+        checkpoint('dispose-failure', id, index, 'dispose')
         failures.push(withContext(error, id, index, 'dispose'))
       }
     }
@@ -367,12 +460,23 @@ export function apply(ctx) {
   }
   }
   writeFileSync(join(home, '.desktop-product-smoke-complete'), 'ok\\n', { flag: 'wx' })
-  response.end('ok')
   } catch (error) {
-    writeFileSync(join(home, '.desktop-product-smoke-error'), String(error && error.stack ? error.stack : error), { flag: 'wx' })
-    response.statusCode = 500
-    response.end(String(error && error.stack ? error.stack : error))
+    failed = true
+    failure = error
+  } finally {
+    for (const release of observerReleases) {
+      try { await release() } catch (error) { observerError('unregister', error) }
+    }
   }
+  const diagnostic = '\\nDesktop lifecycle diagnostics: ' + JSON.stringify({
+    records: [...firstRecords, ...lastRecords], droppedRecords, observerErrors, droppedObserverErrors,
+  })
+  if (failed) {
+    const report = failureText(failure) + diagnostic
+    writeFileSync(join(home, '.desktop-product-smoke-error'), report, { flag: 'wx' })
+    response.statusCode = 500
+    response.end(report)
+  } else response.end('ok' + diagnostic)
   } }))
 }
 `
@@ -542,7 +646,9 @@ export function apply(ctx) {
     clearTimeout(timer)
     // Preset contributors have settled only after Host readiness, not during fixture activation.
     const productSmoke = await fetch(new URL('/desktop-product-smoke', ready.url), { signal: AbortSignal.timeout(120_000) })
-    await productSmoke.text()
+    const productSmokeText = await productSmoke.text()
+    const diagnosticStart = productSmokeText.indexOf('\nDesktop lifecycle diagnostics: ')
+    if (diagnosticStart >= 0) console.log(productSmokeText.slice(diagnosticStart + 1))
     if (!productSmoke.ok || !existsSync(join(home, '.desktop-product-smoke-complete'))) {
       const failure = existsSync(join(home, '.desktop-product-smoke-error'))
         ? readFileSync(join(home, '.desktop-product-smoke-error'), 'utf8').trim()

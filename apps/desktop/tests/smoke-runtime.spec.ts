@@ -161,7 +161,16 @@ function fixture(packaged = false) {
   }
   const creationSkills = [...skills]
   const selected = new Set<string>()
-  const agent = { preset: 'short-drama', id: 'smoke-agent', session: {
+  const agentFiber = { uid: 101 as number | null, state: 2, runtime: { name: 'scope' } }
+  const agentCtx = { fiber: agentFiber }
+  const ownerFiber = { uid: 100 as number | null, state: 2, runtime: { name: 'desktop-runtime-product-smoke-plugin' } }
+  type LifecycleListener = (fiber: typeof agentFiber, oldState?: number) => void
+  const lifecycleListeners = new Map<string, Set<LifecycleListener>>()
+  const observerDisposers: ReturnType<typeof vi.fn>[] = []
+  const emitLifecycle = (event: string, fiber: typeof agentFiber, oldState?: number) => {
+    for (const listener of lifecycleListeners.get(event) ?? []) listener(fiber, oldState)
+  }
+  const agent = { preset: 'short-drama', id: 'smoke-agent', ctx: agentCtx, session: {
     append: vi.fn((type: string, data: {
       turn?: number
       step?: number
@@ -183,7 +192,6 @@ function fixture(packaged = false) {
       return { seq: 1 }
     }),
   } }
-  const agentCtx = {}
   const dispose = vi.fn(async () => {})
   const mount = vi.fn(async (_context: object, _id: string) => {})
   const names = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
@@ -203,6 +211,16 @@ function fixture(packaged = false) {
     return skill === undefined ? undefined : { ...skill, content: readFileSync(skill.path, 'utf8') }
   }
   class TestContext {
+    root = this
+    fiber = ownerFiber
+    on(event: string, listener: LifecycleListener) {
+      const listeners = lifecycleListeners.get(event) ?? new Set<LifecycleListener>()
+      lifecycleListeners.set(event, listeners)
+      listeners.add(listener)
+      const release = vi.fn(() => { listeners.delete(listener) })
+      observerDisposers.push(release)
+      return release
+    }
     museAccount: { feedback?: () => void } = { feedback: () => {} }
     webServer = { register: vi.fn((value: NonNullable<typeof route>) => {
       route = value
@@ -218,7 +236,10 @@ function fixture(packaged = false) {
       serviceFor: vi.fn((agent: { preset: string }, name: string) => agent.preset === 'creation' && name === 'skills'
         ? { list: vi.fn(async () => creationSkills), get: vi.fn(async (name: string) => loadSkill(creationSkills, name)) } : undefined),
     }
-    agents = { create: vi.fn(async (options: { setup: (context: object) => Promise<void>; meta: { agentPreset: string } }) => {
+    agents = { get: vi.fn((id: string) => id === agent.id ? agent : undefined), create: vi.fn(async (options: {
+      setup: (context: object) => Promise<void>
+      meta: { agentPreset: string }
+    }) => {
       await options.setup(agentCtx)
       return { agent: options.meta.agentPreset === 'short-drama' ? agent : { preset: options.meta.agentPreset }, dispose }
     }) }
@@ -278,17 +299,20 @@ function fixture(packaged = false) {
     Context: TestContext, ToolCallId, createToolResultMessage, AbortSignal, existsSync, realpathSync, writeFileSync,
     join, relative, isAbsolute, process: { platform: process.platform },
   }) as (ctx: TestContext) => void
+  let responseText = ''
   const request = async () => {
     if (route === undefined) throw new Error('smoke route was not registered')
     expect(route.path).toBe('/desktop-product-smoke')
     let text = ''
     const response = { statusCode: 200, end(value: string) { text = value } }
     await route.handler({}, response)
+    responseText = text
     if (response.statusCode !== 200) throw new Error(text)
   }
   const apply = async (ctx: TestContext) => { register(ctx); await request() }
   return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names,
-    sourceCapabilityNames, editingCapabilityNames, selected, skills, creationSkills, cordisSkill, skillRoot, layout, home, root }
+    sourceCapabilityNames, editingCapabilityNames, selected, skills, creationSkills, cordisSkill, skillRoot, layout, home, root,
+    agentFiber, ownerFiber, emitLifecycle, observerDisposers, lifecycleListeners, responseText: () => responseText }
 }
 
 it('defers preset checks until the Host-ready caller requests them', async () => {
@@ -419,6 +443,74 @@ it('retains the primary failure before both disposal failures', async () => {
   expect(f.dispose).toHaveBeenCalledTimes(2)
   expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('records synchronous retirement during assembly before explicit cleanup and retains its original cause', async () => {
+  const f = fixture()
+  const entered = Promise.withResolvers<undefined>()
+  const release = Promise.withResolvers<never>()
+  const primary = new Error('working directory owner retired during inspection')
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async () => { entered.resolve(undefined); return release.promise })
+  const run = f.apply(f.ctx)
+  const rejected = expect(run).rejects.toThrow(primary.message)
+  await entered.promise
+  f.agentFiber.uid = null
+  f.emitLifecycle('internal/plugin', f.agentFiber)
+  f.agentFiber.state = 5
+  f.emitLifecycle('internal/status', f.agentFiber, 2)
+  release.reject(primary)
+  await rejected
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(report).toContain(primary.stack)
+  expect(report).toContain('preset=short-drama index=0 phase=assemble-initial')
+  expect(report).toContain('\nDesktop lifecycle diagnostics: ')
+  const diagnostic = JSON.parse(report.split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: {
+      sequence: number
+      event: string
+      phase: string
+      fiber?: { birthUID: number; uid: number | null; state: number }
+      stack?: string
+    }[]
+  }
+  const retired = diagnostic.records.find(record => record.event === 'internal/plugin' && record.fiber?.uid === null)
+  expect(retired).toMatchObject({ phase: 'assemble-initial', fiber: { birthUID: 101, uid: null, state: 2 } })
+  expect(retired?.stack).toContain('emitLifecycle')
+  const status = diagnostic.records.find(record => record.event === 'internal/status')
+  expect(status).toMatchObject({ fiber: { birthUID: 101, uid: null, state: 5 } })
+  const cleanup = diagnostic.records.find(record => record.event === 'before-dispose')
+  expect(cleanup?.sequence).toBeGreaterThan(retired!.sequence)
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(f.observerDisposers).toHaveLength(2)
+  for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
+  for (const listeners of f.lifecycleListeners.values()) expect(listeners.size).toBe(0)
+})
+
+it('bounds lifecycle observations and isolates observer failures without changing successful checks', async () => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    const unreadable = { state: 2, runtime: { name: 'unreadable-observer-fixture' } }
+    Object.defineProperty(unreadable, 'uid', { get() { throw new Error('observer-only getter failure') } })
+    f.emitLifecycle('internal/plugin', unreadable as typeof f.agentFiber)
+    for (let index = 0; index < 600; index++) f.emitLifecycle('internal/status', f.agentFiber, 1)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const response = f.responseText()
+  expect(response).toContain('\nDesktop lifecycle diagnostics: ')
+  const diagnostic = JSON.parse(response.split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: object[]
+    droppedRecords: number
+    observerErrors: { message: string }[]
+  }
+  expect(diagnostic.records).toHaveLength(512)
+  expect(diagnostic.droppedRecords).toBeGreaterThan(0)
+  expect(diagnostic.observerErrors.some(error => error.message.includes('observer-only getter failure'))).toBe(true)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+  expect(f.dispose).toHaveBeenCalledTimes(14)
+  for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
+  for (const listeners of f.lifecycleListeners.values()) expect(listeners.size).toBe(0)
 })
 
 it('accepts product skills loaded from the installed ASAR unpack directory', async () => {
