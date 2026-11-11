@@ -1580,6 +1580,31 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
         for (const notice of notices) expect(JSON.stringify(notice)).toContain(expectedContent)
         const finalAssistant = parentEvents.findLastIndex(event => event.type === 'assistant/message')
         for (const notice of notices) expect(parentEvents.indexOf(notice)).toBeLessThan(finalAssistant)
+        if (scenario.name === 'subagent-dsh-sdk-diagnostic') {
+          const diagnosticEvents = parseSessionLog(ordered[0]!.content)
+          const diagnosticNotices = diagnosticEvents.flatMap(event => event.type === 'user/message'
+            && event.data.source.kind === 'subagent-settled'
+            ? [{ source: event.data.source, content: event.data.content }] : [])
+          const children = catalog.map(event => (event.data as JsonObject).childId)
+          expect(new Set(children).size).toBe(2)
+          expect(catalog).toMatchObject([
+            { data: { mode: 'external', label: 'Observe first SDK failure' } },
+            { data: { mode: 'external', label: 'Observe second SDK failure' } },
+          ])
+          expect(diagnosticNotices.map(notice => notice.source.senderSessionId)).toEqual(children)
+          for (const notice of diagnosticNotices) {
+            expect(notice.source.summary).toContain('failed before it finished')
+            expect(JSON.stringify(notice.content)).toContain('partial child loader answer')
+            expect(JSON.stringify(notice.content)).toContain('stage: session-run; category: child-error')
+          }
+          expect(diagnosticEvents.filter(event => event.type === 'tool/call').map(event => event.data.name))
+            .toEqual(['subagent_dsh_sdk', 'subagent_dsh_sdk_second'])
+          expect(diagnosticEvents.filter(event => event.type === 'step/start')).toHaveLength(3)
+          expect(diagnosticEvents.filter(event => event.type === 'assistant/message')).toHaveLength(3)
+          expect(diagnosticEvents.filter(event => event.type === 'assistant/message'
+            && event.data.message.content.some(block => block.type === 'text'
+              && block.text === 'PARENT_OBSERVED_DSH_SDK_DIAGNOSTIC'))).toHaveLength(1)
+        }
         expect(parentEvents.filter(event => event.type === 'turn/end')).toEqual([
           expect.objectContaining({ data: { turn: 1, reason: { kind: 'completed' } } }),
         ])
