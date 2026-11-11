@@ -6,4 +6,7 @@ recording: authored
 header:
   class: muse-selected-account-models
   pin: true
+  promptChanges: 1
 writerOutput: true
+environment:
+  DSH_SNAPSHOT_DEEPSEEK_PROMPT_UPDATE: "true"

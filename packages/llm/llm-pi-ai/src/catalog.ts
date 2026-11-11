@@ -270,7 +270,7 @@ const COMPLETIONS_COMPAT_GATE = {
   zaiToolStream: 'offer',
   supportsOpenAIGrammarTools: 'withhold',
   sendSessionAffinityHeaders: 'withhold',
-  supportsMidConvoSystemMessages: 'withhold',
+  supportsMidConvoSystemMessages: 'offer',
   supportsMidConvoToolAdditions: 'withhold',
   sessionAffinityFormat: 'withhold',
 } as const satisfies Record<keyof OpenAICompletionsCompat, CompatDisposition>
@@ -448,6 +448,8 @@ export interface PiAiCompatProfile {
    * `openai-completions`, the three Responses protocols, `anthropic-messages`.
    */
   supportsLongCacheRetention?: boolean
+  /** Whether later `system` messages stay in history; `openai-completions`. */
+  supportsMidConvoSystemMessages?: boolean
   /** Whether the endpoint accepts per-tool `eager_input_streaming`; `anthropic-messages`. */
   supportsEagerToolInputStreaming?: boolean
   /** Whether the endpoint accepts `cache_control` on tool definitions; `anthropic-messages`. */

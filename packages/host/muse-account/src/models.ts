@@ -323,6 +323,8 @@ export class MuseModels {
           return { ...model,
             ...(provider.id === 'yunying' && model.id === 'gemini-3.1-pro' ? { googleThoughtSummaries: true } : {}),
             compat: { supportsReasoningEffort: model.reasoningEfforts !== false,
+              ...(provider.id === 'deepseek-official' && model.id === 'deepseek-flash'
+                ? { supportsMidConvoSystemMessages: true } : {}),
               ...(provider.id === 'yunying' && model.id === 'gpt-6.1-sol' ? { maxTokensField: 'max_completion_tokens' as const } : {}),
               ...(arkDeepSeek || bailianDeepSeek ? {
                 thinkingFormat: bailianDeepSeek ? 'qwen' as const : 'deepseek' as const,
