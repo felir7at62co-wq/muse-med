@@ -69,7 +69,10 @@ interface ActiveDirectoryGuard {
   release(): void
 }
 
-/** One owner for each Session's effective directory and its model-visible changes. */
+/**
+ * One owner for each Session's effective directory and its model-visible changes.
+ * Agent and service disposal cancel queued operations and await in-flight filesystem work.
+ */
 export class WorkingDirectoryService extends Service {
   static inject = ['fs', 'sessionProjections', 'systemPrompt']
 
@@ -299,15 +302,37 @@ export class WorkingDirectoryService extends Service {
 
   private serialize<T>(agent: Agent, signal: AbortSignal | undefined, action: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const session = agent.session
-    const control = signal === undefined
-      ? this.lifecycle.signal
-      : AbortSignal.any([this.lifecycle.signal, signal])
+    const owner = new AbortController()
+    const control = AbortSignal.any(signal === undefined
+      ? [this.lifecycle.signal, owner.signal]
+      : [this.lifecycle.signal, owner.signal, signal])
     const operation = (this.pending.get(session) ?? Promise.resolve()).then(() => {
       control.throwIfAborted()
       agent.ctx.fiber.assertActive()
       return action(control)
     })
-    const settled = operation.finally(() => this.operations.delete(settled))
+    let detachOwner: (() => Promise<void> | void) | undefined
+    try {
+      detachOwner = agent.ctx.effect(() => () => {
+        owner.abort(new Error('working-directory: Agent disposed'))
+        // Cleanup joins the action, not the finalizer that releases this effect.
+        return operation.then(() => {}, () => {})
+      }, 'working-directory.operation')
+    } catch (error: unknown) {
+      owner.abort(error)
+    }
+    const finish = async (): Promise<T> => {
+      try {
+        return await operation
+      } finally {
+        try {
+          await detachOwner?.()
+        } finally {
+          this.operations.delete(settled)
+        }
+      }
+    }
+    const settled = finish()
     this.operations.add(settled)
     this.pending.set(session, settled.then(() => {}, () => {}))
     return settled
