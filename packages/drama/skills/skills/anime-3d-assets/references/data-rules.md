@@ -69,7 +69,7 @@ project/
 
 每次调用的流程证据按 [主技能的完整交付流程](../SKILL.md) 写入既有 review.checks：workflow_01 至 workflow_07 使用维度、result（pass/fail/not_checked）、证据和文件路径。不新增 schema 或第二套状态；适用步骤未完成不得宣布整批交付完成，生成未知和未看图均不能标记通过。
 
-face_design_compliance 使用既有 review.quality_checks 记录脸部设定符合性和图二近似脸污染检查；已有 delivery_layout 可记录左侧面部特写和右侧完整头部至鞋底的正、侧、背三视图；右侧仅可见脸部覆盖纯白，后脑与头发保留，不作为生成、导入或采用条件。保持 schema 2。
+face_design_compliance 使用既有 review.quality_checks 记录脸部设定符合性和图二近似脸污染检查；已有 delivery_layout 可按[人物交付版式](reference-standard.md#人物正式交付版式) 记录左侧正脸胸像与右侧正面／严格侧面／背面三张全身图的实际结果，分别说明两张脸部遮罩与背面未遮罩情况；缺视图或未看图不能写成已符合要求，不作为生成、导入或采用条件。保持 schema 2。
 
 五官差异方案沿用设定卡、identity 与 generation.prompt_parts 记录，参考分工写入 generation.references；face_design_compliance 的证据包含实际对照过的角色／候选修订及图片路径、结构差异和未能比较的范围。同一已采用身份的连续性与不同身份的差异性分开审核，schema 保持 2。
 
