@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto'
 import { lstatSync, readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import ts from 'typescript'
+import { retainedPluginSourcePrefixes } from './retained-plugin-sources.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const baselinePath = 'scripts/no-unknown-casts.baseline.json'
@@ -68,9 +69,8 @@ export function findUnknownCasts(file: string, text: string): UnknownCast[] {
 function isSource(file: string): boolean {
   return /\.(?:[cm]?[jt]s|[jt]sx)$/u.test(file)
     && !file.startsWith('vendor/')
-    // These exact source snapshots are pinned in sources.json; owned sibling adapters remain scanned.
-    && !file.startsWith('third_party/plugins/dsh-feishu/')
-    && !file.startsWith('third_party/plugins/dsh-im/')
+    // Pinned upstream snapshots retain their original types; owned siblings remain scanned.
+    && !retainedPluginSourcePrefixes.some(prefix => file.startsWith(prefix))
     && !file.startsWith('.agents/notes/archived/')
 }
 

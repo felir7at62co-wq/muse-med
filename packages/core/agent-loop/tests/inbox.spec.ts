@@ -82,6 +82,18 @@ async function reconstructPersistedInbox(
 }
 
 describe('ReactLoopInbox', () => {
+  it('validates pending messages as JSON on the wire and preserves their contents', async () => {
+    const { ctx, session, inbox } = await inboxAgent('inbox-wire-json')
+    const message = createUserMessage({ content: [{ type: 'text', text: '待处理的消息' }], source: { kind: 'user' } })
+    inbox.append('next-turn', message)
+    const pending = inbox.nextTurn[0]
+    const wire = ctx.sessionProjections.snapshot(session).values.inbox
+    expect(wire).toEqual({ 'next-turn': [JSON.parse(JSON.stringify(message))], 'next-step': [] })
+    expect(inboxProjectionDefinition.wire.viewSchema.parse(wire)).toEqual(wire)
+    expect(inboxProjectionDefinition.wire.viewSchema.safeParse({ 'next-turn': [() => {}], 'next-step': [] }).success).toBe(false)
+    expect(inbox.nextTurn[0]).toBe(pending)
+  })
+
   it('projects claimed identities across reconnects without exposing claimed content', async () => {
     const { ctx, session, inbox } = await inboxAgent('inbox-wire-claim')
     const steered = createUserMessage({ content: [{ type: 'text', text: 'private steering text' }], source: { kind: 'user' } })

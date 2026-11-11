@@ -189,6 +189,8 @@ describe('desktop package-set selection', () => {
     const files = [
       'package/lib/index.js',
       'package/lib/cli.js',
+      'package/lib/approved-episode-render.js',
+      'package/lib/episode-render-worker.js',
       'package/lib/retired-bot.js',
       'package/lib/delegation-policy.js',
       'package/config/desktop.cordis.patch.yml',
