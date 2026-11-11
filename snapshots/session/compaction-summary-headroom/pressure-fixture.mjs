@@ -20,6 +20,9 @@ export function apply(ctx) {
     const detail = `Observed summary-headroom requests: ${JSON.stringify(requests)}`
     assert.deepEqual(requests.map(request => request.summary), [false, true, false], detail)
     assert.deepEqual(requests.map(request => request.maxTokens), [1000, 1800, 1000], detail)
+    for (const request of requests) {
+      assert.ok(request.summary ? request.tokens >= 6545 : request.tokens < 6545, detail)
+    }
     const events = stopping.session.snapshotEvents()
     const summaries = events.filter(event => event.type === 'compaction/summary')
     assert.equal(summaries.length, 1)
