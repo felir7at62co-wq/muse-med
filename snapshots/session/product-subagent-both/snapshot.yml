@@ -6,3 +6,4 @@ recording: authored
 header:
   class: product-subagent-both
   pin: true
+writerOutput: true
