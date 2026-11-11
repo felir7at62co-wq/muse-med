@@ -9,4 +9,3 @@ header:
   pin: true
   systemPromptSource: text-turn
   toolSchemasSource: text-turn
-writerOutput: true
