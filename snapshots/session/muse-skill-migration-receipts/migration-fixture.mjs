@@ -3,7 +3,9 @@ import assert from 'node:assert/strict'
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { PANEL_MANIFEST, SkillsViewerGateway } from '../../../third_party/plugins/dsh-skill-mcp-panel/src/index.ts'
+import { importSkillPanelSnapshot } from '../muse-skill-panel-import.mjs'
+
+const { PANEL_MANIFEST, SkillsViewerGateway } = await importSkillPanelSnapshot('index')
 
 const conflictName = 'snapshot-conflict-skill'
 const movableName = 'snapshot-movable-skill'

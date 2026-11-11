@@ -46,7 +46,7 @@ Windows coverage [qualifies FFmpeg/ffprobe](../scripts/prepare-ci-ffmpeg.ts).
 
 ## Test resolution: source plane only
 
-- Vitest maps bare workspace imports to `src` through `tsconfig.base.json`; built `lib/` can duplicate singletons ([layout](development.md#typescript-project-layout)). Only explicit `lib` subprocesses and built smokes consume artifacts. Repository-local JavaScript plugins declare built peers as root development dependencies without activating them. After workspace builds, `test:snapshot:built` recompiles Lvpaopao for replay.
+- Vitest resolves workspace imports to `src` through `tsconfig.base.json`; built `lib/` may duplicate singletons ([layout](development.md#typescript-project-layout)). Only explicit `lib` subprocesses and built smokes consume artifacts. Local JavaScript plugins declare built peers as root development dependencies without activation. `test:snapshot:built` prepares compiled Lvpaopao, subscription and Skill/MCP panel packages for plain-Node replay.
 
 ## Test subprocess launch modes
 
