@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { expect, it } from 'vitest'
+import { readInstallerLocales } from '../scripts/installer-locales.mjs'
 
 it('checks the x64 runtime before any offline elevated installation and fails closed', async () => {
   const source = await readFile(new URL('../scripts/installer.nsh', import.meta.url), 'utf8')
@@ -21,14 +22,19 @@ it('checks the x64 runtime before any offline elevated installation and fails cl
   expect(source).toMatch(/muse_vc_reboot:\s+SetRebootFlag true\s+MessageBox .*"\$\(MuseVCReboot\)"/u)
   const keys = [...source.matchAll(/\$\((MuseVC\w+)\)/gu)].map(match => match[1])
   expect(new Set(keys).size).toBe(7)
+  const fallbackStart = source.indexOf('!macro MuseVCDefaultStrings LANGUAGE')
+  const fallback = source.slice(fallbackStart, source.indexOf('!macroend', fallbackStart))
   for (const key of new Set(keys)) {
-    for (const language of ['ENGLISH', 'SIMPCHINESE']) {
-      expect(source).toContain(`LangString ${key} \${LANG_${language}}`)
-    }
+    expect(fallback).toContain(`LangString ${key} \${LANGUAGE}`)
+    expect(source).toContain(`LangString ${key} \${LANG_SIMPCHINESE}`)
+  }
+  for (const locale of readInstallerLocales().filter(locale => locale.nsisLanguage !== 'SIMPCHINESE')) {
+    expect(source).toContain(`!ifdef LANG_${locale.nsisLanguage}\n  !insertmacro MuseVCDefaultStrings \${LANG_${locale.nsisLanguage}}\n  !endif`)
   }
   expect(source).toContain('!macro customHeader')
   expect(source.match(/^!macro customHeader$/gm)).toHaveLength(1)
-  const header = source.slice(source.indexOf('!macro customHeader'), source.indexOf('!macroend'))
+  const headerStart = source.indexOf('!macro customHeader')
+  const header = source.slice(headerStart, source.indexOf('!macroend', headerStart))
   expect(header).toContain('!ifndef BUILD_UNINSTALLER')
   expect(header).toContain('Function MuseEnsureVCRuntime')
   expect(header).toContain('FunctionEnd')
