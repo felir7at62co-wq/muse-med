@@ -1188,6 +1188,14 @@ export const ja = {
   'terminal.expandRest': '… 残り{n}行',
   'terminal.sendInput': '(入力を送信)',
   'terminal.session': 'ターミナル {sessionId}',
+  'attachment.workspaceDropTitle': 'ドロップしてワークスペースのファイルを参照',
+  'attachment.workspaceUnavailable': 'ワークスペースのファイルを追加できませんでした。一覧を更新して再試行してください。',
+  'context.compositionEstimate': '構成要素の推定値は合計と一致しません',
+  'context.modelWindow': 'モデルのコンテキストウィンドウ',
+  'context.workingAria': '作業コンテキスト目標の {percent}',
+  'context.workingTarget': '直近のリクエストのコンテキスト推定値。目標に達すると圧縮されます',
+  'context.workingUsed': '作業コンテキスト',
+  'hero.poetry': '你站在桥上看风景，\n看风景人在楼上看你。\n明月装饰了你的窗子，\n你装饰了别人的梦。\n轻轻的我走了，\n正如我轻轻的来；\n我轻轻的招手，\n作别西天的云彩。\n那河畔的金柳，\n是夕阳中的新娘；\n波光里的艳影，\n在我的心头荡漾。\n撑着油纸伞，独自\n彷徨在悠长、悠长\n又寂寥的雨巷，\n我希望逢着\n一个丁香一样的\n结着愁怨的姑娘。\n黑夜给了我黑色的眼睛\n我却用它寻找光明\n草在结它的种子\n风在摇它的叶子\n我们站着，不说话\n就十分美好\n卑鄙是卑鄙者的通行证，\n高尚是高尚者的墓志铭。\n看吧，在那镀金的天空中，\n飘满了死者弯曲的倒影。\n从明天起，做一个幸福的人\n喂马，劈柴，周游世界\n从明天起，关心粮食和蔬菜\n我有一所房子，面朝大海，春暖花开\n你，\n一会看我，\n一会看云。\n我觉得，\n你看我时很远，\n你看云时很近。\n一切都是命运\n一切都是烟云\n一切都是没有结局的开始\n一切都是稍纵即逝的追寻\n在你的胸前\n我已变成会唱歌的鸢尾花\n你呼吸的轻风吹动我\n在一片叮当响的月光下',
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -1578,6 +1586,14 @@ export const es = {
   'detail.schedule.active': 'Habilitado',
   'detail.schedule.paused': 'Pausada',
   'detail.schedule.ended': 'Finalizada',
+  'attachment.workspaceDropTitle': 'Suelta para referenciar archivos del espacio de trabajo',
+  'attachment.workspaceUnavailable': 'No se pudieron añadir los archivos del espacio de trabajo. Actualiza la lista e inténtalo de nuevo.',
+  'context.compositionEstimate': 'Las estimaciones de los componentes no suman el total',
+  'context.modelWindow': 'Ventana del modelo',
+  'context.workingAria': '{percent} del objetivo del contexto de trabajo',
+  'context.workingTarget': 'Estimación del contexto de la última solicitud; alcanzar el objetivo activa la compactación',
+  'context.workingUsed': 'Contexto de trabajo',
+  'hero.poetry': '你站在桥上看风景，\n看风景人在楼上看你。\n明月装饰了你的窗子，\n你装饰了别人的梦。\n轻轻的我走了，\n正如我轻轻的来；\n我轻轻的招手，\n作别西天的云彩。\n那河畔的金柳，\n是夕阳中的新娘；\n波光里的艳影，\n在我的心头荡漾。\n撑着油纸伞，独自\n彷徨在悠长、悠长\n又寂寥的雨巷，\n我希望逢着\n一个丁香一样的\n结着愁怨的姑娘。\n黑夜给了我黑色的眼睛\n我却用它寻找光明\n草在结它的种子\n风在摇它的叶子\n我们站着，不说话\n就十分美好\n卑鄙是卑鄙者的通行证，\n高尚是高尚者的墓志铭。\n看吧，在那镀金的天空中，\n飘满了死者弯曲的倒影。\n从明天起，做一个幸福的人\n喂马，劈柴，周游世界\n从明天起，关心粮食和蔬菜\n我有一所房子，面朝大海，春暖花开\n你，\n一会看我，\n一会看云。\n我觉得，\n你看我时很远，\n你看云时很近。\n一切都是命运\n一切都是烟云\n一切都是没有结局的开始\n一切都是稍纵即逝的追寻\n在你的胸前\n我已变成会唱歌的鸢尾花\n你呼吸的轻风吹动我\n在一片叮当响的月光下',
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -1968,6 +1984,14 @@ export const fr = {
   'detail.schedule.active': 'Activé',
   'detail.schedule.paused': 'Suspendue',
   'detail.schedule.ended': 'Terminée',
+  'attachment.workspaceDropTitle': 'Déposez pour référencer les fichiers de l’espace de travail',
+  'attachment.workspaceUnavailable': 'Impossible d’ajouter les fichiers de l’espace de travail. Actualisez la liste et réessayez.',
+  'context.compositionEstimate': 'La somme des estimations des composants diffère du total',
+  'context.modelWindow': 'Fenêtre du modèle',
+  'context.workingAria': '{percent} de l’objectif du contexte de travail',
+  'context.workingTarget': 'Estimation du contexte de la dernière requête ; atteindre l’objectif déclenche la compression',
+  'context.workingUsed': 'Contexte de travail',
+  'hero.poetry': '你站在桥上看风景，\n看风景人在楼上看你。\n明月装饰了你的窗子，\n你装饰了别人的梦。\n轻轻的我走了，\n正如我轻轻的来；\n我轻轻的招手，\n作别西天的云彩。\n那河畔的金柳，\n是夕阳中的新娘；\n波光里的艳影，\n在我的心头荡漾。\n撑着油纸伞，独自\n彷徨在悠长、悠长\n又寂寥的雨巷，\n我希望逢着\n一个丁香一样的\n结着愁怨的姑娘。\n黑夜给了我黑色的眼睛\n我却用它寻找光明\n草在结它的种子\n风在摇它的叶子\n我们站着，不说话\n就十分美好\n卑鄙是卑鄙者的通行证，\n高尚是高尚者的墓志铭。\n看吧，在那镀金的天空中，\n飘满了死者弯曲的倒影。\n从明天起，做一个幸福的人\n喂马，劈柴，周游世界\n从明天起，关心粮食和蔬菜\n我有一所房子，面朝大海，春暖花开\n你，\n一会看我，\n一会看云。\n我觉得，\n你看我时很远，\n你看云时很近。\n一切都是命运\n一切都是烟云\n一切都是没有结局的开始\n一切都是稍纵即逝的追寻\n在你的胸前\n我已变成会唱歌的鸢尾花\n你呼吸的轻风吹动我\n在一片叮当响的月光下',
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -2358,6 +2382,14 @@ export const de = {
   'detail.schedule.active': 'Aktiviert',
   'detail.schedule.paused': 'Pausiert',
   'detail.schedule.ended': 'Beendet',
+  'attachment.workspaceDropTitle': 'Ablegen, um auf Arbeitsbereichsdateien zu verweisen',
+  'attachment.workspaceUnavailable': 'Arbeitsbereichsdateien konnten nicht hinzugefügt werden. Aktualisieren Sie die Dateiliste und versuchen Sie es erneut.',
+  'context.compositionEstimate': 'Die Schätzwerte der Bestandteile ergeben nicht die Gesamtsumme',
+  'context.modelWindow': 'Modellfenster',
+  'context.workingAria': '{percent} des Zielwerts für den Arbeitskontext',
+  'context.workingTarget': 'Geschätzter Kontext der letzten Anfrage; beim Erreichen des Zielwerts beginnt die Komprimierung',
+  'context.workingUsed': 'Arbeitskontext',
+  'hero.poetry': '你站在桥上看风景，\n看风景人在楼上看你。\n明月装饰了你的窗子，\n你装饰了别人的梦。\n轻轻的我走了，\n正如我轻轻的来；\n我轻轻的招手，\n作别西天的云彩。\n那河畔的金柳，\n是夕阳中的新娘；\n波光里的艳影，\n在我的心头荡漾。\n撑着油纸伞，独自\n彷徨在悠长、悠长\n又寂寥的雨巷，\n我希望逢着\n一个丁香一样的\n结着愁怨的姑娘。\n黑夜给了我黑色的眼睛\n我却用它寻找光明\n草在结它的种子\n风在摇它的叶子\n我们站着，不说话\n就十分美好\n卑鄙是卑鄙者的通行证，\n高尚是高尚者的墓志铭。\n看吧，在那镀金的天空中，\n飘满了死者弯曲的倒影。\n从明天起，做一个幸福的人\n喂马，劈柴，周游世界\n从明天起，关心粮食和蔬菜\n我有一所房子，面朝大海，春暖花开\n你，\n一会看我，\n一会看云。\n我觉得，\n你看我时很远，\n你看云时很近。\n一切都是命运\n一切都是烟云\n一切都是没有结局的开始\n一切都是稍纵即逝的追寻\n在你的胸前\n我已变成会唱歌的鸢尾花\n你呼吸的轻风吹动我\n在一片叮当响的月光下',
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -2748,6 +2780,14 @@ export const ru = {
   'detail.schedule.active': 'Включено',
   'detail.schedule.paused': 'Приостановлена',
   'detail.schedule.ended': 'Завершена',
+  'attachment.workspaceDropTitle': 'Перетащите, чтобы сослаться на файлы рабочего пространства',
+  'attachment.workspaceUnavailable': 'Не удалось добавить файлы рабочего пространства. Обновите список и повторите попытку.',
+  'context.compositionEstimate': 'Сумма оценок компонентов не совпадает с общим значением',
+  'context.modelWindow': 'Окно контекста модели',
+  'context.workingAria': '{percent} от целевого объёма рабочего контекста',
+  'context.workingTarget': 'Оценка контекста последнего запроса; при достижении цели запускается сжатие',
+  'context.workingUsed': 'Рабочий контекст',
+  'hero.poetry': '你站在桥上看风景，\n看风景人在楼上看你。\n明月装饰了你的窗子，\n你装饰了别人的梦。\n轻轻的我走了，\n正如我轻轻的来；\n我轻轻的招手，\n作别西天的云彩。\n那河畔的金柳，\n是夕阳中的新娘；\n波光里的艳影，\n在我的心头荡漾。\n撑着油纸伞，独自\n彷徨在悠长、悠长\n又寂寥的雨巷，\n我希望逢着\n一个丁香一样的\n结着愁怨的姑娘。\n黑夜给了我黑色的眼睛\n我却用它寻找光明\n草在结它的种子\n风在摇它的叶子\n我们站着，不说话\n就十分美好\n卑鄙是卑鄙者的通行证，\n高尚是高尚者的墓志铭。\n看吧，在那镀金的天空中，\n飘满了死者弯曲的倒影。\n从明天起，做一个幸福的人\n喂马，劈柴，周游世界\n从明天起，关心粮食和蔬菜\n我有一所房子，面朝大海，春暖花开\n你，\n一会看我，\n一会看云。\n我觉得，\n你看我时很远，\n你看云时很近。\n一切都是命运\n一切都是烟云\n一切都是没有结局的开始\n一切都是稍纵即逝的追寻\n在你的胸前\n我已变成会唱歌的鸢尾花\n你呼吸的轻风吹动我\n在一片叮当响的月光下',
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -3138,4 +3178,12 @@ export const pt = {
   'detail.schedule.active': 'Habilitado',
   'detail.schedule.paused': 'Pausada',
   'detail.schedule.ended': 'Concluída',
+  'attachment.workspaceDropTitle': 'Largue para referenciar ficheiros da área de trabalho',
+  'attachment.workspaceUnavailable': 'Não foi possível adicionar os ficheiros da área de trabalho. Atualize a lista e tente novamente.',
+  'context.compositionEstimate': 'As estimativas dos componentes não correspondem ao total',
+  'context.modelWindow': 'Janela do modelo',
+  'context.workingAria': '{percent} da meta do contexto de trabalho',
+  'context.workingTarget': 'Estimativa do contexto do último pedido; ao atingir a meta, é iniciada a compactação',
+  'context.workingUsed': 'Contexto de trabalho',
+  'hero.poetry': '你站在桥上看风景，\n看风景人在楼上看你。\n明月装饰了你的窗子，\n你装饰了别人的梦。\n轻轻的我走了，\n正如我轻轻的来；\n我轻轻的招手，\n作别西天的云彩。\n那河畔的金柳，\n是夕阳中的新娘；\n波光里的艳影，\n在我的心头荡漾。\n撑着油纸伞，独自\n彷徨在悠长、悠长\n又寂寥的雨巷，\n我希望逢着\n一个丁香一样的\n结着愁怨的姑娘。\n黑夜给了我黑色的眼睛\n我却用它寻找光明\n草在结它的种子\n风在摇它的叶子\n我们站着，不说话\n就十分美好\n卑鄙是卑鄙者的通行证，\n高尚是高尚者的墓志铭。\n看吧，在那镀金的天空中，\n飘满了死者弯曲的倒影。\n从明天起，做一个幸福的人\n喂马，劈柴，周游世界\n从明天起，关心粮食和蔬菜\n我有一所房子，面朝大海，春暖花开\n你，\n一会看我，\n一会看云。\n我觉得，\n你看我时很远，\n你看云时很近。\n一切都是命运\n一切都是烟云\n一切都是没有结局的开始\n一切都是稍纵即逝的追寻\n在你的胸前\n我已变成会唱歌的鸢尾花\n你呼吸的轻风吹动我\n在一片叮当响的月光下',
 } satisfies Record<keyof typeof en, string>

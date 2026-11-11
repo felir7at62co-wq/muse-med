@@ -101,6 +101,16 @@ export const ja = {
   'error.load': 'フィードバックを読み込めませんでした',
   'error.generic': 'フィードバックを保存できませんでした',
   'error.noteTooLarge': '説明が長すぎます。短くして再送信してください',
+  'dialog.museDiagnostics': '直近のリクエストと関連する応答の抜粋を上限付きで含めます。完全なログ、ツールの引数・結果、思考内容、添付ファイルは含みません。',
+  'dialog.museHint': 'アカウント、カテゴリ、メッセージまたはタスクの識別子とともに Muse の受信箱へ送信します。',
+  'error.museAccountChanged': 'Muse アカウントが変わりました。再送する前に元のアカウントの受信箱を確認してください',
+  'error.museInvalidInput': '内容を確認して再送してください。下書きは保持されています',
+  'error.museRateLimited': '送信が多すぎます。後で再試行してください。下書きは保持されています',
+  'error.museRejected': 'Muse の受信箱はこのフィードバックを受け付けませんでした。下書きは保持されています',
+  'error.museSignIn': 'フィードバックを送信するには Muse にログインしてください。下書きは保持されています',
+  'error.museUnavailable': 'Muse の受信箱を利用できません。下書きは保持されています',
+  'error.museUnconfirmed': '到達を確認できません。再送する前に Muse の受信箱を確認してください',
+  'toast.museSubmitted': 'Muse の受信箱に送信しました',
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -126,6 +136,16 @@ export const es = {
   'error.load': 'No se pudieron cargar los comentarios',
   'error.generic': 'No se pudieron guardar los comentarios',
   'error.noteTooLarge': 'La descripción es demasiado larga; acortarlo y enviarlo de nuevo',
+  'dialog.museDiagnostics': 'Incluye extractos limitados de la solicitud reciente y de la respuesta relacionada; excluye registros completos, argumentos y resultados de herramientas, razonamiento y adjuntos.',
+  'dialog.museHint': 'Los comentarios se envían a la bandeja de Muse con tu cuenta, categoría e identificador del mensaje o tarea.',
+  'error.museAccountChanged': 'La cuenta de Muse cambió; consulta la bandeja de la cuenta original antes de decidir si reintentas',
+  'error.museInvalidInput': 'Revisa los comentarios y vuelve a enviarlos; se conserva tu borrador',
+  'error.museRateLimited': 'Demasiados envíos; inténtalo más tarde. Se conserva tu borrador',
+  'error.museRejected': 'La bandeja de Muse no aceptó estos comentarios; se conserva tu borrador',
+  'error.museSignIn': 'Inicia sesión en Muse para enviar comentarios; se conserva tu borrador',
+  'error.museUnavailable': 'La bandeja de Muse no está disponible; se conserva tu borrador',
+  'error.museUnconfirmed': 'No se ha confirmado la entrega; consulta la bandeja de Muse antes de decidir si reintentas',
+  'toast.museSubmitted': 'Enviado a la bandeja de Muse',
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -151,6 +171,16 @@ export const fr = {
   'error.load': 'Impossible de charger les commentaires',
   'error.generic': "Impossible d'enregistrer les commentaires",
   'error.noteTooLarge': 'La description est trop longue ; raccourcissez-le et soumettez-le à nouveau',
+  'dialog.museDiagnostics': 'Inclut des extraits limités de la requête récente et de la réponse associée ; exclut les journaux complets, les arguments et résultats d’outils, le raisonnement et les pièces jointes.',
+  'dialog.museHint': 'Les commentaires sont envoyés à la boîte de réception Muse avec votre compte, la catégorie et l’identifiant du message ou de la tâche.',
+  'error.museAccountChanged': 'Le compte Muse a changé ; consultez la boîte du compte d’origine avant de décider de réessayer',
+  'error.museInvalidInput': 'Vérifiez les commentaires et renvoyez-les ; votre brouillon est conservé',
+  'error.museRateLimited': 'Trop d’envois ; réessayez plus tard. Votre brouillon est conservé',
+  'error.museRejected': 'La boîte de réception Muse a refusé ces commentaires ; votre brouillon est conservé',
+  'error.museSignIn': 'Connectez-vous à Muse pour envoyer des commentaires ; votre brouillon est conservé',
+  'error.museUnavailable': 'La boîte de réception Muse est indisponible ; votre brouillon est conservé',
+  'error.museUnconfirmed': 'La réception n’est pas confirmée ; consultez la boîte Muse avant de décider de réessayer',
+  'toast.museSubmitted': 'Envoyé à la boîte de réception Muse',
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -176,6 +206,16 @@ export const de = {
   'error.load': 'Feedback konnte nicht geladen werden',
   'error.generic': 'Das Feedback konnte nicht gespeichert werden',
   'error.noteTooLarge': 'Die Beschreibung ist zu lang; kürzen Sie es und reichen Sie es erneut ein',
+  'dialog.museDiagnostics': 'Begrenzt auf Auszüge aus der letzten Anfrage und der zugehörigen Antwort; vollständige Protokolle, Tool-Argumente und -Ergebnisse, Überlegungen und Anhänge sind ausgeschlossen.',
+  'dialog.museHint': 'Feedback wird mit Ihrem Konto, der Kategorie und der Nachrichten- oder Aufgabenkennung an den Muse-Posteingang gesendet.',
+  'error.museAccountChanged': 'Das Muse-Konto wurde gewechselt; prüfen Sie vor einem erneuten Versuch den Posteingang des ursprünglichen Kontos',
+  'error.museInvalidInput': 'Prüfen Sie das Feedback und senden Sie es erneut; Ihr Entwurf bleibt erhalten',
+  'error.museRateLimited': 'Zu viele Einsendungen; versuchen Sie es später erneut. Ihr Entwurf bleibt erhalten',
+  'error.museRejected': 'Der Muse-Posteingang hat dieses Feedback nicht angenommen; Ihr Entwurf bleibt erhalten',
+  'error.museSignIn': 'Melden Sie sich bei Muse an, um Feedback zu senden; Ihr Entwurf bleibt erhalten',
+  'error.museUnavailable': 'Der Muse-Posteingang ist nicht verfügbar; Ihr Entwurf bleibt erhalten',
+  'error.museUnconfirmed': 'Die Zustellung ist unbestätigt; prüfen Sie vor einem erneuten Versuch den Muse-Posteingang',
+  'toast.museSubmitted': 'An den Muse-Posteingang gesendet',
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -201,6 +241,16 @@ export const ru = {
   'error.load': 'Не удалось загрузить отзыв.',
   'error.generic': 'Не удалось сохранить отзыв',
   'error.noteTooLarge': 'Описание слишком длинное; сократите его и отправьте снова',
+  'dialog.museDiagnostics': 'Включает ограниченные выдержки из последнего запроса и связанного ответа; полные журналы, аргументы и результаты инструментов, рассуждения и вложения исключены.',
+  'dialog.museHint': 'Отзыв поступит во входящие Muse вместе с вашей учётной записью, категорией и идентификатором сообщения или задачи.',
+  'error.museAccountChanged': 'Учётная запись Muse изменилась; прежде чем повторять отправку, проверьте входящие исходной учётной записи',
+  'error.museInvalidInput': 'Проверьте отзыв и отправьте снова; черновик сохранён',
+  'error.museRateLimited': 'Слишком много отправок; попробуйте позже. Черновик сохранён',
+  'error.museRejected': 'Входящие Muse не приняли этот отзыв; черновик сохранён',
+  'error.museSignIn': 'Войдите в Muse, чтобы отправить отзыв; черновик сохранён',
+  'error.museUnavailable': 'Входящие Muse недоступны; черновик сохранён',
+  'error.museUnconfirmed': 'Доставка не подтверждена; прежде чем повторять отправку, проверьте входящие Muse',
+  'toast.museSubmitted': 'Отправлено во входящие Muse',
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -226,4 +276,14 @@ export const pt = {
   'error.load': 'Não foi possível carregar o feedback',
   'error.generic': 'Não foi possível salvar o feedback',
   'error.noteTooLarge': 'A descrição é muito longa; encurte-o e envie novamente',
+  'dialog.museDiagnostics': 'Inclui excertos limitados do pedido recente e da resposta relacionada; exclui registos completos, argumentos e resultados de ferramentas, raciocínio e anexos.',
+  'dialog.museHint': 'O comentário é enviado para a caixa de entrada do Muse com a sua conta, categoria e identificador da mensagem ou tarefa.',
+  'error.museAccountChanged': 'A conta do Muse mudou; consulte a caixa de entrada da conta original antes de decidir repetir',
+  'error.museInvalidInput': 'Verifique o comentário e volte a enviar; o rascunho é mantido',
+  'error.museRateLimited': 'Demasiados envios; tente mais tarde. O rascunho é mantido',
+  'error.museRejected': 'A caixa de entrada do Muse não aceitou este comentário; o rascunho é mantido',
+  'error.museSignIn': 'Inicie sessão no Muse para enviar comentários; o rascunho é mantido',
+  'error.museUnavailable': 'A caixa de entrada do Muse está indisponível; o rascunho é mantido',
+  'error.museUnconfirmed': 'A entrega não está confirmada; consulte a caixa de entrada do Muse antes de decidir repetir',
+  'toast.museSubmitted': 'Enviado para a caixa de entrada do Muse',
 } satisfies Record<keyof typeof en, string>
