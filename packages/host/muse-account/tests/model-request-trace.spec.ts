@@ -83,6 +83,64 @@ it('sends its header only to the company relay after deleting contributed spoofe
   expect(values.slice(1)).toEqual([null, null, null, null, null])
 })
 
+it('closes an iterator without return support and preserves the supplied return value', async () => {
+  const records: MuseModelRequestMetadata[] = []
+  const trace = new MuseModelRequestTrace('https://company.test', record => records.push(record))
+  const chunk: StreamChunk = { type: 'text-delta', index: 0, text: 'private-stream-text' }
+  const iterator = trace.stream(options('returnless'), () => ({
+    [Symbol.asyncIterator]: () => ({ next: async () => ({ done: false, value: chunk }) }),
+  }))[Symbol.asyncIterator]()
+  expect(await iterator.next()).toEqual({ done: false, value: chunk })
+  expect(await iterator.return?.('returned-value')).toEqual({ done: true, value: 'returned-value' })
+  expect(records.map(record => record.phase)).toEqual(['start', 'finish'])
+  expect(records[1]).toMatchObject({ outcome: 'consumer_closed', usage: null })
+  expect(JSON.stringify(records)).not.toMatch(/private-stream-text|returned-value/u)
+  trace.dispose()
+})
+
+it('closes a throwless source in the request context before propagating the caller error', async () => {
+  const records: MuseModelRequestMetadata[] = [], ids: (string | null)[] = []
+  const trace = new MuseModelRequestTrace('https://company.test', record => records.push(record))
+  const request = options('throwless'), failure = new Error('private caller failure')
+  let closed = false
+  const iterator = trace.stream(request, () => ({ [Symbol.asyncIterator]: () => ({
+    next: async () => {
+      ids.push(trace.headers({ ...request, baseURL }, new Headers()).get(header))
+      return { done: false, value: { type: 'text-delta', index: 0, text: 'private-stream-text' } as const }
+    },
+    return: async () => {
+      await Promise.resolve()
+      ids.push(trace.headers({ ...request, baseURL }, new Headers()).get(header))
+      closed = true
+      return { done: true, value: undefined }
+    },
+  }) }))[Symbol.asyncIterator]()
+  await iterator.next()
+  await expect(iterator.throw?.(failure)).rejects.toBe(failure)
+  expect(closed).toBe(true)
+  expect(ids).toHaveLength(2)
+  expect(ids[0]).toMatch(uuid)
+  expect(ids[1]).toBe(ids[0])
+  expect(records.map(record => record.phase)).toEqual(['start', 'finish'])
+  expect(records[1]).toMatchObject({ outcome: 'thrown', usage: null })
+  expect(JSON.stringify(records)).not.toMatch(/private caller failure|private-stream-text/u)
+  trace.dispose()
+})
+
+it('propagates the same caller error when the source has neither throw nor return support', async () => {
+  const records: MuseModelRequestMetadata[] = []
+  const trace = new MuseModelRequestTrace('https://company.test', record => records.push(record))
+  const failure = new Error('private unhandled source error')
+  const iterator = trace.stream(options('minimal-source'), () => ({
+    [Symbol.asyncIterator]: () => ({ next: async () => ({ done: true, value: undefined }) }),
+  }))[Symbol.asyncIterator]()
+  await expect(iterator.throw?.(failure)).rejects.toBe(failure)
+  expect(records.map(record => record.phase)).toEqual(['start', 'finish'])
+  expect(records[1]).toMatchObject({ outcome: 'thrown', usage: null })
+  expect(JSON.stringify(records)).not.toContain('private unhandled source error')
+  trace.dispose()
+})
+
 it('preserves authoritative usage and safe response identities without retaining other replay or request fields', async () => {
   const records: MuseModelRequestMetadata[] = []
   const trace = new MuseModelRequestTrace('https://company.test', value => records.push(value))
@@ -120,6 +178,24 @@ it('omits usage when every observed counter is invalid', async () => {
     yield finish
   })) { /* Consume the original adapter stream. */ }
   expect(records.at(-1)).not.toHaveProperty('usage')
+})
+
+it('redacts credential-bearing response identifiers for a request without a Session', async () => {
+  const records: MuseModelRequestMetadata[] = []
+  const trace = new MuseModelRequestTrace('https://company.test', record => records.push(record))
+  const request: GenerateOptions = { provider: 'muse-cloud-studio', model: 'writer', messages: [], purpose: 'diagnostic' }
+  for await (const _chunk of trace.stream(request, async function* () {
+    trace.credential('fixture-secret')
+    expect(trace.identifier('safe-response', 'id')).toBe('safe-response')
+    expect(trace.identifier('response-fixture-secret', 'id')).toBeNull()
+    yield { type: 'finish', reason: { kind: 'stop' }, replayState: { response: {
+      kind: 'pi-ai', version: 2, responseId: 'response-fixture-secret', responseModel: 'safe-model', stopReason: 'stop',
+    } } } as const
+  })) { /* Consume the original adapter stream. */ }
+  expect(records.at(-1)).toMatchObject({ session_id: null, purpose: 'diagnostic', response_id: null,
+    response_model: 'safe-model', outcome: 'finished' })
+  expect(JSON.stringify(records)).not.toContain('fixture-secret')
+  trace.dispose()
 })
 
 it('does not expose malformed response metadata or a throwing logger and preserves source failures', async () => {
