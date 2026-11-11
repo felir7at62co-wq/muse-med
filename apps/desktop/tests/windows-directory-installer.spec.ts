@@ -44,6 +44,19 @@ it('stages before stopping the application and promotes before registering the i
   expect(result).toContain('IfRebootFlag dsh_skip_upstream_start\n  !insertmacro StartApp\ndsh_skip_upstream_start:')
 })
 
+it('normalizes historical registered paths before choosing a same-directory upgrade while retaining other-directory uninstallation', () => {
+  const result = directoryInstallSection(section)
+  const macro = result.slice(result.indexOf('!macro uninstallOldVersion ROOT_KEY'), result.indexOf('!macroend', result.indexOf('!macro uninstallOldVersion ROOT_KEY')))
+  expect(macro.indexOf('GetFullPathName $R4 "$R4"')).toBeGreaterThan(macro.indexOf('${If} $R4 != ""'))
+  expect(macro.indexOf('StrCpy $R4 $R4 -1')).toBeLessThan(macro.indexOf('${If} $R4 == $INSTDIR'))
+  expect(macro).toContain('${If} ${Errors}\n      StrCpy $R4 ""')
+  expect(macro).toContain('Push $R5')
+  expect(macro).toContain('Pop $R5')
+  expect(macro).toContain('${Else}\n    Push "${ROOT_KEY}"\n    Call uninstallOldVersion')
+  expect(result).toContain('!insertmacro CHECK_APP_RUNNING')
+  expect(result).toContain('Call dshPromoteDirectories\nIfErrors 0 +3\n  SetErrorLevel 2\n  Quit')
+})
+
 it.each(['!include installer.nsh', '!insertmacro setLinkVars', '!insertmacro installApplicationFiles', '  !insertmacro StartApp'])(
   'rejects a missing or duplicate upstream insertion point: %s', (point) => {
     expect(() => directoryInstallSection(section.replace(point, ''))).toThrow('Desktop NSIS template changed')

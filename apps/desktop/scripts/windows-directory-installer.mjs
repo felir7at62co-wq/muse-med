@@ -14,6 +14,7 @@ function replaceOnce(source, before, after) {
 
 /**
  * Preserve upstream registration and uninstall UI while replacing payload installation.
+ * Canonicalize the registered path before recognizing a same-directory upgrade.
  * @param {string} source - Pinned electron-builder installSection.nsh contents.
  * @returns {string} Section with staging before shutdown and directory promotion before registration.
  */
@@ -27,6 +28,23 @@ export function directoryInstallSection(source) {
 !macroundef uninstallOldVersion
 !macro uninstallOldVersion ROOT_KEY
   !insertmacro readReg $R4 "\${ROOT_KEY}" "\${INSTALL_REGISTRY_KEY}" InstallLocation
+  \${If} $R4 != ""
+    Push $R5
+    ClearErrors
+    GetFullPathName $R4 "$R4"
+    \${If} \${Errors}
+      StrCpy $R4 ""
+    \${Else}
+      \${Do}
+        StrCpy $R5 $R4 1 -1
+        \${If} $R5 != "\\"
+          \${ExitDo}
+        \${EndIf}
+        StrCpy $R4 $R4 -1
+      \${Loop}
+    \${EndIf}
+    Pop $R5
+  \${EndIf}
   \${If} $R4 == $INSTDIR
     StrCpy $R0 0
     ClearErrors
