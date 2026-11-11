@@ -2,6 +2,7 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync,
 import { join, dirname, relative, isAbsolute } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runInNewContext } from 'node:vm'
+import { inspect } from 'node:util'
 import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { ToolBatchInput, ToolBatchResult, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -281,7 +282,7 @@ function fixture(packaged = false) {
   const body = source.replace(/^import .*$/gmu, '').replace(/^export /gmu, '')
   const register = runInNewContext(`${body}\napply`, {
     Context: TestContext, ToolCallId, createToolResultMessage, AbortSignal, existsSync, realpathSync, writeFileSync,
-    join, relative, isAbsolute, process: { platform: process.platform },
+    join, relative, isAbsolute, inspect, process: { platform: process.platform },
   }) as (ctx: TestContext) => void
   const request = async () => {
     if (route === undefined) throw new Error('smoke route was not registered')
@@ -324,6 +325,56 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(f.ctx.agents.create).toHaveBeenCalledTimes(15)
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'bot-coordinator')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+})
+
+it('retains the failing preset, Agent and primary cause when teardown also rejects', async () => {
+  const f = fixture()
+  f.ctx.systemPrompt.assemble.mockRejectedValueOnce(new Error('PRIMARY_ASSEMBLY_FAILURE'))
+  f.dispose.mockRejectedValueOnce(new Error('SECONDARY_DISPOSAL_FAILURE'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('PRIMARY_ASSEMBLY_FAILURE')
+  const failure = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(failure).toContain('preset short-drama, agent 1 (smoke-agent), assemble initial prompt failed')
+  expect(failure).toContain('SECONDARY_DISPOSAL_FAILURE')
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('attempts every owned disposal before rejecting a cleanup failure', async () => {
+  const f = fixture()
+  f.dispose.mockRejectedValueOnce(new Error('FIRST_DISPOSAL_FAILURE'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('FIRST_DISPOSAL_FAILURE')
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('identifies second-Agent creation failures and releases the first Agent', async () => {
+  const f = fixture()
+  const create = f.ctx.agents.create.getMockImplementation()!
+  f.ctx.agents.create.mockImplementationOnce(create).mockRejectedValueOnce(new Error('SECOND_AGENT_CREATION_FAILURE'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('SECOND_AGENT_CREATION_FAILURE')
+  const failure = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(failure).toContain('preset short-drama, agent 2 (desktop-product-smoke-short-drama-1), create and mount failed')
+  expect(f.dispose).toHaveBeenCalledOnce()
+})
+
+it('waits for Agent teardown before checking later presets or marking completion', async () => {
+  const f = fixture()
+  const entered = Promise.withResolvers<undefined>()
+  const release = Promise.withResolvers<undefined>()
+  f.dispose.mockImplementationOnce(async () => { entered.resolve(undefined); await release.promise })
+  const request = f.apply(f.ctx)
+  try {
+    await entered.promise
+    expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+    expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+    release.resolve(undefined)
+    await request
+    expect(f.dispose).toHaveBeenCalledTimes(15)
+  } finally {
+    release.resolve(undefined)
+    await request
+  }
 })
 
 it('accepts product skills loaded from the installed ASAR unpack directory', async () => {

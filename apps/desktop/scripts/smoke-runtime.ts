@@ -70,6 +70,7 @@ export function prepareDesktopSmokeSkills(home: string): DesktopSmokeSkillLayout
  * @param home - Disposable smoke product home containing a separate workspace.
  * @returns ESM plugin source checking current product tools, technical skills, retired resources,
  * native skill locations, the tool-free private reviewer, and completed Agent disposal.
+ * Operation errors retain their preset, Agent identity and cause; teardown preserves prior failures.
  * Historical editing resolves to short-drama.
  */
 export function desktopSmokePluginSource(root: string, home: string): string {
@@ -78,6 +79,29 @@ import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { existsSync, realpathSync, writeFileSync } from 'node:fs'
 import { join, relative, isAbsolute } from 'node:path'
+import { inspect } from 'node:util'
+async function smokeOperation(preset, index, operation, action, sessionId = 'desktop-product-smoke-' + preset + '-' + index) {
+  try {
+    return await action()
+  } catch (error) {
+    throw new Error('desktop runtime: preset ' + preset + ', agent ' + (index + 1) + ' (' + sessionId + '), ' + operation + ' failed', { cause: error })
+  }
+}
+async function disposeSmokeAgents(preset, handles, primaryFailure) {
+  const failures = []
+  for (let index = handles.length - 1; index >= 0; index--) {
+    const handle = handles[index]
+    try {
+      await smokeOperation(preset, index, 'dispose', () => handle.dispose(), handle.agent.id)
+    } catch (error) {
+      failures.push(error)
+    }
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(primaryFailure === undefined ? failures : [primaryFailure.error, ...failures],
+      'desktop runtime: preset ' + preset + ' lifecycle failed')
+  }
+}
 export const inject = ['agentPresets', 'agents', 'agentLoop', 'systemPrompt', 'tools', 'skills', 'credentials', 'webServer', 'museAccount', 'toolDiscovery']
 export function apply(ctx) {
   ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-product-smoke', handler: async (_request, response) => {
@@ -111,14 +135,15 @@ export function apply(ctx) {
     throw new Error('desktop runtime: preset is broken or missing from the product package: ' + id + '; ' + (preset.broken ?? 'composition absent'))
   }
   const handles = []
+  let primaryFailure
   try {
     for (let index = 0; index < 2; index++) {
-      handles.push(await ctx.agents.create({
+      handles.push(await smokeOperation(id, index, 'create and mount', () => ctx.agents.create({
         sessionId: 'desktop-product-smoke-' + id + '-' + index, meta: { cwd, agentPreset: id },
         setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, id) },
-      }))
+      })))
     }
-    for (const handle of handles) {
+    for (const [index, handle] of handles.entries()) {
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
     const retiredTools = ['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user']
     for (const name of retiredTools) if (names.has(name)) throw new Error('desktop runtime: archived Bot tool remains active: ' + name + ' in ' + id)
@@ -139,7 +164,7 @@ export function apply(ctx) {
           'tool_search', 'tool_context']
           : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
-    const modelInput = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+    const modelInput = await smokeOperation(id, index, 'assemble initial prompt', () => ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent }), handle.agent.id)
     const modelNames = modelInput.tools.map(tool => tool.name)
     if (['ptc', 'creation', 'cordis'].includes(id)) {
       if (modelNames.length !== 1 || modelNames[0] !== 'run_code') {
@@ -197,14 +222,14 @@ export function apply(ctx) {
         if (result.isError) throw new Error('desktop runtime: tool_context ' + operation + ' failed')
       }
       await manage('load')
-      const loaded = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+      const loaded = await smokeOperation(id, index, 'assemble loaded tools', () => ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent }), handle.agent.id)
       for (const [name, description] of Object.entries(editingModelInput.tools)) {
         if (loaded.tools.find(tool => tool.name === name)?.description !== description) {
           throw new Error('desktop runtime: editing model tool description changed after loading: ' + name)
         }
       }
       await manage('release')
-      const released = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+      const released = await smokeOperation(id, index, 'assemble released tools', () => ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent }), handle.agent.id)
       if (JSON.stringify(released.tools.map(tool => tool.name).sort()) !== JSON.stringify(initialNames)
         || deferredTools.some(name => ctx.toolDiscovery.state(handle.agent).loaded.includes(name))) {
         throw new Error('desktop runtime: releasing source tools did not restore initial model tools')
@@ -218,7 +243,7 @@ export function apply(ctx) {
     }
     const skillRegistry = id === 'creation' ? ctx.agentPresets.serviceFor(handle.agent, 'skills') : ctx.skills
     if (skillRegistry === undefined) throw new Error('desktop runtime: creation skill registry is not isolated')
-    const skills = await skillRegistry.list({ scope: handle.agent, cwd })
+    const skills = await smokeOperation(id, index, 'list skills', () => skillRegistry.list({ scope: handle.agent, cwd }), handle.agent.id)
     if (id === 'creation') {
       for (const name of ['office-docx', 'office-xlsx', 'office-pptx']) {
         if (!skills.some(skill => skill.name === name && skill.invocation.modelInvocable)) {
@@ -251,7 +276,7 @@ export function apply(ctx) {
           || realpathSync.native(skill.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: missing shared Muse skill ' + name)
         }
-        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd })
+        const loaded = await smokeOperation(id, index, 'load skill ' + name, () => skillRegistry.get(name, { scope: handle.agent, cwd }), handle.agent.id)
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(loaded.path)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: shared skill did not load from the packaged Host: ' + name)
@@ -294,7 +319,7 @@ export function apply(ctx) {
         throw new Error('desktop runtime: custom or project skill selection differs in ' + id + ': ' + expected.name
           + '; actual=' + (skill?.path ?? 'missing') + '; expected=' + expected.path)
       }
-      const loaded = await skillRegistry.get(expected.name, { scope: handle.agent, cwd })
+      const loaded = await smokeOperation(id, index, 'load skill ' + expected.name, () => skillRegistry.get(expected.name, { scope: handle.agent, cwd }), handle.agent.id)
       if (!loaded?.path || !loaded.content?.trim() || realpathSync.native(loaded.path) !== realpathSync.native(expected.path)) {
         throw new Error('desktop runtime: custom or project skill could not load in ' + id + ': ' + expected.name)
       }
@@ -321,7 +346,7 @@ export function apply(ctx) {
       }
       if (name === 'shot-script-creator-16-9-3d' || name === 'shot-script-creator-9-16') {
         const expected = join(bundled, name, 'SKILL.md')
-        const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd })
+        const loaded = await smokeOperation(id, index, 'load skill ' + name, () => skillRegistry.get(name, { scope: handle.agent, cwd }), handle.agent.id)
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(expected) || !existsSync(loaded.path)
           || realpathSync.native(skill.path) !== realpathSync.native(expected)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
@@ -330,8 +355,11 @@ export function apply(ctx) {
       }
     }
     }
+  } catch (error) {
+    primaryFailure = { error }
+    throw error
   } finally {
-    for (const handle of handles.reverse()) await handle.dispose()
+    await disposeSmokeAgents(id, handles, primaryFailure)
   }
   }
   const reviewer = await ctx.agentPresets.resolve(reviewerId)
@@ -341,23 +369,28 @@ export function apply(ctx) {
     || !existsSync(reviewerModule)) {
     throw new Error('desktop runtime: private continuity reviewer is broken or missing from the product package')
   }
-  const reviewerHandle = await ctx.agents.create({
+  const reviewerHandle = await smokeOperation(reviewerId, 0, 'create and mount', () => ctx.agents.create({
     sessionId: 'desktop-product-smoke-continuity-reviewer', meta: { cwd, agentPreset: reviewerId },
     setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, reviewerId) },
-  })
+  }), 'desktop-product-smoke-continuity-reviewer')
+  let reviewerFailure
   try {
     if (ctx.tools.schemas(reviewerHandle.agent).length !== 0) {
       throw new Error('desktop runtime: private continuity reviewer exposes ordinary tools')
     }
+  } catch (error) {
+    reviewerFailure = { error }
+    throw error
   } finally {
-    await reviewerHandle.dispose()
+    await disposeSmokeAgents(reviewerId, [reviewerHandle], reviewerFailure)
   }
   writeFileSync(join(home, '.desktop-product-smoke-complete'), 'ok\\n', { flag: 'wx' })
   response.end('ok')
   } catch (error) {
-    writeFileSync(join(home, '.desktop-product-smoke-error'), String(error && error.stack ? error.stack : error), { flag: 'wx' })
+    const failure = inspect(error, { depth: 10, colors: false })
+    writeFileSync(join(home, '.desktop-product-smoke-error'), failure, { flag: 'wx' })
     response.statusCode = 500
-    response.end(String(error && error.stack ? error.stack : error))
+    response.end(failure)
   }
   } }))
 }
