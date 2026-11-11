@@ -28,9 +28,10 @@ function mount(overrides: Partial<MarketActions> = {}, initialAccess: MarketAcce
   const actions = marketActions({ installed: async () => [installation], defaults: async () => emptyDefaults,
     sources: async () => sources, catalog: async () => [published], identity: async () => identity, ...overrides })
   const store = createMarketViewStore().create(), reportOutcome = vi.fn()
+  const subscribe = store.subscribe.bind(store), getSnapshot = store.getSnapshot.bind(store)
   function Harness() {
     const current = useSyncExternalStore(source.subscribe, source.getSnapshot)
-    const view = useSyncExternalStore(store.subscribe, store.getSnapshot)
+    const view = useSyncExternalStore(subscribe, getSnapshot)
     return <MarketPage {...({} as GlobalStandardProps)} operations={actions} reportOutcome={reportOutcome}
       isCurrentAccess={revision => revision === access.revision} useAccess={selector => selector(current)}
       useStore={selector => selector(view)} actions={store.actions} t={marketTranslate} />

@@ -71,7 +71,8 @@ class TracedRemote extends Service {
 }
 
 it('keeps the Host entry inert and the browser entry explicitly injected', () => {
-  expect(host.apply()).toBeUndefined()
+  const apply: () => unknown = host.apply
+  expect(apply()).toBeUndefined()
   expect('default' in host).toBe(false)
   expect('default' in client).toBe(false)
   expect(client.inject).toEqual(['slots', 'locale', 'remote'])

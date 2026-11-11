@@ -20,8 +20,9 @@ function mount(options: Partial<ComponentProps<typeof MarketCreatorPage>> = {}, 
     onPrepared: vi.fn(), onPublished: vi.fn(), reportOutcome: vi.fn(), t: marketTranslate,
     ...options,
   }
+  const subscribe = store.subscribe.bind(store), getSnapshot = store.getSnapshot.bind(store)
   function Creator() {
-    const current = useSyncExternalStore(store.subscribe, store.getSnapshot)
+    const current = useSyncExternalStore(subscribe, getSnapshot)
     return <MarketCreatorPage {...props} draft={current.creator} setDraft={store.actions.setCreator}
       prepared={store.actions.prepared} completeUpload={store.actions.completeUpload} discardUpload={store.actions.discardUpload} />
   }
@@ -89,7 +90,7 @@ it('downloads the selected archive without changing its bytes', async () => {
   const bytes = await new Promise<ArrayBuffer>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => { resolve(reader.result as ArrayBuffer) }
-    reader.onerror = () => { reject(reader.error) }
+    reader.onerror = () => { reject(new Error(reader.error?.message ?? 'Reading exported Blob failed', { cause: reader.error })) }
     reader.readAsArrayBuffer(blob)
   })
   expect([...new Uint8Array(bytes)]).toEqual([0, 1, 2, 255])
