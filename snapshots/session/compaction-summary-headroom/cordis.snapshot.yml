@@ -54,6 +54,8 @@
                 defaultMaxTokens: 1000
     - id: compaction-working-directory
       name: '../../../packages/test-support/session-snapshot/tests/fixtures/compaction-working-directory.ts'
+    - id: summary-headroom-pressure
+      name: './pressure-fixture.mjs'
 
 # Fixed-budget compaction scenario: keep the recorded tool set, whose token counts the thresholds were tuned to.
 - id: tool-fs

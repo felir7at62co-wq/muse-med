@@ -36,6 +36,18 @@ jobs:
               apps/web/tests/code-language.snapshot.ts
               apps/web/tests/workspace-file-drop.snapshot.ts
             filter: '^(minimal agent preset|replays highlighted Python stubs, PowerShell and CSV reads with their document previews$|replays workspace file drag and touch menu references without uploading or sending the draft$)'
+          - group: self-pins
+            config: vitest.snapshot.config.ts
+            suite: snapshots/session/headless.snapshot.ts
+            filter: ' (muse-project-bible-skill|muse-voice-continuity-skill|muse-audio-asset-usage|muse-shared-asset-usage|muse-voice-periods|muse-shot-advisory|muse-shot-derived-visual|muse-shot-director-format|muse-shot-scene-context|muse-shot-session-video|muse-screenplay-advisory|muse-screenplay-project|muse-screenplay-withdrawn-fact) through dsh --profile headless$'
+          - group: compaction-pressure
+            config: vitest.snapshot.config.ts
+            suite: snapshots/session/headless.snapshot.ts
+            filter: ' compaction-summary-headroom through dsh --profile headless$'
+          - group: sdk-diagnostic
+            config: vitest.snapshot.config.ts
+            suite: snapshots/sdk/sdk.snapshot.ts
+            filter: '(refresh|replay)s subagent-dsh-sdk-diagnostic through dsh --profile sdk$'
     env:
       DSH_TELEMETRY_DISABLED: '1'
       DSH_EXAMPLE_MODE: lib
@@ -71,6 +83,48 @@ jobs:
         id: build
         run: pnpm run build:artifacts
 
+      - name: Build and verify the supported Landlock backend
+        if: ${{ matrix.group == 'web3' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes musl-tools
+          pnpm --filter @deepseek-ai/node-addon-system-workspace run build:native
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { createHash } from 'node:crypto'
+          import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+          import { join } from 'node:path'
+          import { spawnSync } from 'node:child_process'
+          import { grantArgs, launcherPath, probe } from './native/system/packages/entry/lib/index.js'
+          const launcher = launcherPath()
+          const enforcement = probe(launcher)
+          assert.notEqual(enforcement, 'unusable', 'The host must enforce the supported Landlock backend')
+          const root = mkdtempSync(join(process.env.RUNNER_TEMP, 'muse-landlock-functional-'))
+          const writable = join(root, 'workspace'), denied = join(root, 'outside')
+          mkdirSync(writable); mkdirSync(denied)
+          const deniedFile = join(denied, 'unchanged.txt')
+          writeFileSync(deniedFile, 'OUTSIDE_UNCHANGED')
+          const script = `
+            import assert from 'node:assert/strict'
+            import { writeFileSync } from 'node:fs'
+            import { join } from 'node:path'
+            writeFileSync(join(process.argv[1], 'allowed.txt'), 'WORKSPACE_WRITE_OK')
+            assert.throws(() => writeFileSync(process.argv[2], 'UNEXPECTED_OUTSIDE_WRITE'),
+              error => error.code === 'EACCES' || error.code === 'EPERM' || error.code === 'EROFS')
+          `
+          const result = spawnSync(launcher, [...grantArgs({ readOnly: ['/'], readWrite: [writable] }), '--',
+            process.execPath, '--input-type=module', '-e', script, writable, deniedFile], { encoding: 'utf8', timeout: 10_000 })
+          assert.equal(result.status, 0, `Confined functional probe failed: ${result.stderr}`)
+          assert.equal(readFileSync(join(writable, 'allowed.txt'), 'utf8'), 'WORKSPACE_WRITE_OK')
+          assert.equal(readFileSync(deniedFile, 'utf8'), 'OUTSIDE_UNCHANGED')
+          const evidence = { launcher, sha256: createHash('sha256').update(readFileSync(launcher)).digest('hex'),
+            enforcement, workspaceWrite: true, outsideWriteDenied: true }
+          writeFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-sandbox-probe.json'), JSON.stringify(evidence, null, 2) + '\n')
+          console.log(JSON.stringify(evidence))
+          NODE
+
       - name: Retain canonical and shared input identities
         id: baseline
         shell: bash
@@ -85,6 +139,10 @@ jobs:
           import { execFileSync } from 'node:child_process'
           const { load } = createRequire(resolve('apps/desktop/package.json'))('js-yaml')
           const group = process.env.SNAPSHOT_CAPTURE_GROUP
+          const selfPins = ['muse-project-bible-skill', 'muse-voice-continuity-skill', 'muse-audio-asset-usage',
+            'muse-shared-asset-usage', 'muse-voice-periods', 'muse-shot-advisory', 'muse-shot-derived-visual',
+            'muse-shot-director-format', 'muse-shot-scene-context', 'muse-shot-session-video',
+            'muse-screenplay-advisory', 'muse-screenplay-project', 'muse-screenplay-withdrawn-fact']
           const webNames = [
             'minimal agent preset sends the exact RL prompt with shell and image schemas, then executes the persistent shell',
             'minimal agent preset expands the completed persistent Bash call in the Web conversation',
@@ -119,6 +177,38 @@ jobs:
                 'apps/web/tests/scaffold.ts', 'apps/web/tests/support.ts',
                 'packages/bundle/web-app/presets/standard.patch.yml'],
             },
+            'self-pins': {
+              config: 'vitest.snapshot.config.ts', suite: 'snapshots/session/headless.snapshot.ts',
+              filter: ` (${selfPins.join('|')}) through dsh --profile headless$`, owners: selfPins,
+              inventoryDirectories: selfPins.map(owner => `snapshots/session/${owner}`),
+              canonicalCounts: selfPins.map(() => 1), expectedTests: 13,
+              passedSuffixes: selfPins.map(owner => ` ${owner} through dsh --profile headless`),
+              extraInputs: ['snapshots/session/headless.snapshot.ts',
+                'packages/drama/tool-drama-assets/tests/snapshot-plugin.mjs',
+                'packages/drama/tool-shot-script/tests/snapshot-plugin.mjs',
+                'packages/drama/tool-shot-script/tests/session-video-snapshot-plugin.mjs'],
+            },
+            'compaction-pressure': {
+              config: 'vitest.snapshot.config.ts', suite: 'snapshots/session/headless.snapshot.ts',
+              filter: ' compaction-summary-headroom through dsh --profile headless$', owners: ['compaction-summary-headroom'],
+              inventoryDirectories: ['snapshots/session/compaction-summary-headroom', 'snapshots/session/compaction-recovery'],
+              canonicalCounts: [2, 3], expectedTests: 1,
+              passedSuffixes: [' compaction-summary-headroom through dsh --profile headless'],
+              extraInputs: ['snapshots/session/headless.snapshot.ts',
+                'packages/test-support/session-snapshot/tests/fixtures/compaction-working-directory.ts'],
+            },
+            'sdk-diagnostic': {
+              config: 'vitest.snapshot.config.ts', suite: 'snapshots/sdk/sdk.snapshot.ts',
+              filter: '(refresh|replay)s subagent-dsh-sdk-diagnostic through dsh --profile sdk$',
+              owners: ['subagent-dsh-sdk-diagnostic'],
+              inventoryDirectories: ['snapshots/sdk/subagent-dsh-sdk-diagnostic'],
+              canonicalCounts: [3], expectedTests: 1,
+              passedSuffixes: [' subagent-dsh-sdk-diagnostic through dsh --profile sdk'],
+              extraInputs: ['snapshots/sdk/sdk.snapshot.ts', 'snapshots/sdk/portable-runtime.cordis.yml',
+                'snapshots/sdk/legacy-context.patch.yml',
+                'packages/test-support/session-snapshot/tests/fixtures/subagent-settlement-barrier.ts',
+                'packages/subagent/subagent-dsh-sdk/tests/fixtures/loader/child-mock-llm.ts'],
+            },
           }
           const selected = groups[group]
           if (selected === undefined || process.env.SNAPSHOT_CAPTURE_CONFIG !== selected.config
@@ -140,7 +230,7 @@ jobs:
               version: 1, scenario: 'tool-call-turn', profile: 'headless', composition: 'default', recording: 'live',
               header: { class: 'default', pin: true, systemPromptSource: 'text-turn', toolSchemasSource: 'text-turn' },
             },
-          } : {
+          } : group === 'web3' ? {
             'minimal-preset': {
               version: 1, scenario: 'minimal-preset', profile: 'web', composition: 'web-minimal', recording: 'authored',
               header: { class: 'web-minimal', pin: true }, writerOutput: true,
@@ -153,10 +243,30 @@ jobs:
               version: 1, scenario: 'workspace-file-drop', profile: 'web', composition: 'web-default', recording: 'authored',
               header: { class: 'web-default' }, writerOutput: true,
             },
-          }
+          } : group === 'compaction-pressure' ? {
+            'compaction-summary-headroom': {
+              version: 1, scenario: 'compaction-summary-headroom', profile: 'headless', composition: 'compaction-summary-headroom',
+              recording: 'authored', platform: 'posix', header: { class: 'compaction-summary-headroom', pin: true,
+                systemPromptSource: 'compaction-recovery', toolSchemasSource: 'compaction-recovery', changes: 1 }, writerOutput: true,
+            },
+          } : group === 'sdk-diagnostic' ? {
+            'subagent-dsh-sdk-diagnostic': {
+              version: 1, scenario: 'subagent-dsh-sdk-diagnostic', profile: 'sdk', composition: 'sdk-dsh-sdk-diagnostic',
+              recording: 'live', writerOutput: true, header: { class: 'sdk-dsh-sdk-diagnostic', pin: true },
+              replay: { override: true },
+            },
+          } : {}
           for (const [owner, expected] of Object.entries(expectedManifests)) {
-            assert.deepEqual(load(readFileSync(`snapshots/${group === 'child-async' ? 'session' : 'web'}/${owner}/snapshot.yml`, 'utf8')), expected,
+            const profileDirectory = group === 'web3' ? 'web' : group === 'sdk-diagnostic' ? 'sdk' : 'session'
+            assert.deepEqual(load(readFileSync(`snapshots/${profileDirectory}/${owner}/snapshot.yml`, 'utf8')), expected,
               `Owner metadata drifted: ${owner}`)
+          }
+          if (group === 'self-pins') for (const owner of owners) {
+            const manifest = load(readFileSync(`snapshots/session/${owner}/snapshot.yml`, 'utf8'))
+            assert.equal(manifest.version, 1); assert.equal(manifest.scenario, owner); assert.equal(manifest.profile, 'headless')
+            assert.equal(manifest.composition, owner); assert.equal(manifest.recording, 'authored'); assert.equal(manifest.writerOutput, true)
+            assert.equal(manifest.session, undefined); assert.equal(manifest.sessionFormat, undefined)
+            assert.deepEqual(manifest.header, { class: owner, pin: true }, `Expected self-owned sidecars: ${owner}`)
           }
           const allowed = group === 'child-async' ? [
             'snapshots/session/text-turn/writer.expected.jsonl',
@@ -165,9 +275,15 @@ jobs:
             'snapshots/session/subagent-child-question-rejection/writer.expected.jsonl',
             'snapshots/session/subagent-child-question-rejection/writer.1.expected.jsonl',
             'snapshots/session/subagent-child-question-rejection/tool-schemas.expected.json',
-          ] : [...owners.map(owner => `snapshots/web/${owner}/writer.expected.jsonl`),
+          ] : group === 'web3' ? [...owners.map(owner => `snapshots/web/${owner}/writer.expected.jsonl`),
             'snapshots/web/minimal-preset/system-prompt.expected.md', 'snapshots/web/minimal-preset/tool-schemas.expected.json']
-          const newOutputs = group === 'web3' ? owners.map(owner => `snapshots/web/${owner}/writer.expected.jsonl`) : []
+            : group === 'self-pins' ? owners.flatMap(owner => ['writer.expected.jsonl', 'system-prompt.expected.md',
+              'tool-schemas.expected.json'].map(file => `snapshots/session/${owner}/${file}`))
+            : group === 'sdk-diagnostic' ? ['writer.expected.jsonl', 'system-prompt.expected.md', 'tool-schemas.expected.json',
+              'notifications.expected.jsonl', 'result.expected.json'].map(file => `snapshots/sdk/subagent-dsh-sdk-diagnostic/${file}`)
+            : ['snapshots/session/compaction-summary-headroom/writer.expected.jsonl']
+          const newOutputs = group === 'web3' ? owners.map(owner => `snapshots/web/${owner}/writer.expected.jsonl`)
+            : group === 'sdk-diagnostic' ? ['snapshots/sdk/subagent-dsh-sdk-diagnostic/writer.expected.jsonl'] : []
           for (const path of allowed) {
             if (!existsSync(path) && newOutputs.includes(path)) continue
             const parent = lstatSync(dirname(path)), stat = lstatSync(path)
@@ -204,11 +320,17 @@ jobs:
           const refreshPlans = group === 'child-async'
             ? owners.map(owner => ({ label: owner, filter: ` ${owner} through dsh --profile headless$`,
               expectedTests: 1, passedSuffixes: [` ${owner} through dsh --profile headless`] }))
-            : [{ label: 'web3', filter: selected.filter, expectedTests: 5, passedSuffixes }]
+            : [{ label: group, filter: selected.filter, expectedTests, passedSuffixes }]
+          const sandboxProbe = group === 'web3'
+            ? JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-sandbox-probe.json'), 'utf8')) : null
+          if (group === 'web3' && (!['full', 'partial'].includes(sandboxProbe.enforcement)
+            || sandboxProbe.workspaceWrite !== true || sandboxProbe.outsideWriteDenied !== true)) {
+            throw new Error('Web capture requires a functional confined backend')
+          }
           writeFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), JSON.stringify({
             head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), group, owners,
             inventoryDirectories, extraInputs, canonicalPaths, manifestPaths, identities, allowed, newOutputs,
-            expectedTests, passedSuffixes, refreshPlans,
+            expectedTests, passedSuffixes, refreshPlans, sandboxProbe,
           }, null, 2) + '\n')
           NODE
 
@@ -221,11 +343,8 @@ jobs:
           set -euo pipefail
           trap 'capture_exit_code=$?; echo "exit_code=$capture_exit_code" >> "$GITHUB_OUTPUT"' EXIT
           mapfile -t suites <<< "$SNAPSHOT_CAPTURE_SUITE"
-          if [[ "$SNAPSHOT_CAPTURE_GROUP" == child-async ]]; then
-            labels=(text-turn subagent-child-question-rejection)
-          else
-            labels=(web3)
-          fi
+          refresh_labels=$(node --input-type=module -e 'import { readFileSync } from "node:fs"; import { join } from "node:path"; const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, "muse-linux-snapshot-inputs.json"), "utf8")); console.log(state.refreshPlans.map(plan => plan.label).join("\n"))')
+          mapfile -t labels <<< "$refresh_labels"
           for label in "${labels[@]}"; do
             export SNAPSHOT_REFRESH_LABEL="$label"
             filter=$(node --input-type=module -e 'import { readFileSync } from "node:fs"; import { join } from "node:path"; const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, "muse-linux-snapshot-inputs.json"), "utf8")); console.log(state.refreshPlans.find(plan => plan.label === process.env.SNAPSHOT_REFRESH_LABEL).filter)')
@@ -260,7 +379,7 @@ jobs:
           import { lstatSync, readFileSync, writeFileSync } from 'node:fs'
           import { join } from 'node:path'
           const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), 'utf8'))
-          const counts = { 'child-async': 6, web3: 5 }
+          const counts = { 'child-async': 6, web3: 5, 'self-pins': 39, 'compaction-pressure': 1, 'sdk-diagnostic': 5 }
           if (state.allowed.length !== counts[state.group]) throw new Error('Unexpected output inventory')
           const outputs = Object.fromEntries(state.allowed.map(path => {
             const stat = lstatSync(path)
@@ -332,6 +451,9 @@ jobs:
           const expectedByGroup = {
             'child-async': { tests: 2, owners: 2, outputs: 6, canonical: 11, manifests: 3 },
             web3: { tests: 5, owners: 3, outputs: 5, canonical: 10, manifests: 6 },
+            'self-pins': { tests: 13, owners: 13, outputs: 39, canonical: 13, manifests: 13 },
+            'compaction-pressure': { tests: 1, owners: 1, outputs: 1, canonical: 5, manifests: 2 },
+            'sdk-diagnostic': { tests: 1, owners: 1, outputs: 5, canonical: 3, manifests: 1 },
           }
           const counts = expectedByGroup[state.group]
           if (counts === undefined || state.expectedTests !== counts.tests || state.owners.length !== counts.owners
@@ -356,7 +478,10 @@ jobs:
             const report = JSON.parse(readFileSync(file, 'utf8'))
             return { passed: report.numPassedTests, failed: report.numFailedTests,
               passedNames: report.testResults.flatMap(result => result.assertionResults)
-                .filter(test => test.status === 'passed').map(test => test.fullName) }
+                .filter(test => test.status === 'passed').map(test => test.fullName),
+              failures: report.testResults.flatMap(result => result.assertionResults)
+                .filter(test => test.status === 'failed').map(test => ({ name: test.fullName,
+                  messages: (test.failureMessages ?? []).map(message => message.slice(0, 16_384)) })) }
           }
           const reports = {
             refresh: state.refreshPlans.map(plan => ({ label: plan.label,
@@ -389,7 +514,8 @@ jobs:
             head: state.head, group: state.group, platform: process.platform, arch: process.arch, node: process.version,
             owners: state.owners, config: process.env.SNAPSHOT_CAPTURE_CONFIG,
             suites: process.env.SNAPSHOT_CAPTURE_SUITE.split('\n'), filter: process.env.SNAPSHOT_CAPTURE_FILTER,
-            refreshPlans: state.refreshPlans, refreshOutcome: process.env.REFRESH_OUTCOME, replayOutcome: process.env.REPLAY_OUTCOME,
+            refreshPlans: state.refreshPlans, sandboxProbe: state.sandboxProbe,
+            refreshOutcome: process.env.REFRESH_OUTCOME, replayOutcome: process.env.REPLAY_OUTCOME,
             refreshExitCode: process.env.REFRESH_EXIT_CODE, replayExitCode: process.env.REPLAY_EXIT_CODE,
             command: 'pnpm exec vitest run --config <config> <approved suites> -t <exact test filter>',
             canonicalPaths: state.canonicalPaths, manifestPaths: state.manifestPaths,
