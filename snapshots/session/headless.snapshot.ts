@@ -4,12 +4,13 @@ import { assertWorkingBudgetExpectations, deriveShadowedBudgetExpectations, deri
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
 import { capabilityOcrRecords, expectedCapabilityOcrHash } from './muse-video-novel-ocr-capability/evidence.ts'
+import { normalizeVisualizeHomePaths } from './muse-visualize/normalize.ts'
 import { assertAsyncChildOutcome, assertAsyncChildQuestion } from './subagent-child-question-rejection/assertions.ts'
 import { assertVideoObservationReportArtifacts, normalizeVideoObservationReportHashes } from '../../packages/perception/tool-video-inspect/tests/snapshot-reports.ts'
 import { chmod, cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -2211,6 +2212,11 @@ describe('headless recorded-session snapshots', () => {
           },
           inspect: async (cwd) => {
             actualLogs = await persistedSessions(cwd)
+            if (scenario.name === 'muse-visualize') {
+              actualLogs = await Promise.all(actualLogs.map(async log => ({
+                ...log, content: await normalizeVisualizeHomePaths(log.content, homedir(), cwd),
+              })))
+            }
             if (scenario.name === 'subagent-child-question-rejection') assertAsyncChildQuestion(actualLogs)
             if (scenario.name === 'subagent-max-tokens-partial' || scenario.name === 'subagent-tool-filter') {
               assertAsyncChildOutcome(actualLogs, scenario.name === 'subagent-max-tokens-partial' ? 'partial' : 'filtered')

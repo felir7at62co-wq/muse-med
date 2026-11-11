@@ -338,12 +338,18 @@ it.each(['github:acme/connected', 'https://github.com/acme/connected.git', 'git+
     const manifest = readProfileManifest('test', dir)
     delete manifest.dependencies
     writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
+    const policy = parseDocument(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8'))
+    policy.set('updateNotifier', false)
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), String(policy))
     writeFileSync(join(dir, '.npmrc'), `store-dir=${join(dir, 'store').replaceAll('\\', '/')}\nhttps-proxy=${proxyUrl}\nproxy=${proxyUrl}\nnoproxy=\nfetch-retries=0\nfetch-timeout=5000\n`)
     const result = await manager.installBundle(spec, { enabled: false })
     expect(result.error).toBeUndefined()
     expect(result).toMatchObject({ changed: true, bundle: name, packageResult: { exitCode: 0 } })
     expect(readProfileManifest('test', dir).dependencies).toHaveProperty(name)
-    expect(requests).toContain('codeload.github.com:443')
+    // The fixture denies HTTPS at the repository probe, before an archive fetch.
+    // Check the observed repository host as well as the real configured Git install.
+    expect(requests).toContain('github.com:443')
+    expect(requests.every(host => ['github.com:443', 'registry.npmjs.org:443'].includes(host))).toBe(true)
   },
 )
 
