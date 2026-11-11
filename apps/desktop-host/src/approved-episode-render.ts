@@ -3,7 +3,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { interpolate } from '@deepseek-ai/cordis-plugin-loader'
 import { createHash, randomUUID } from 'node:crypto'
 import type { ChildProcessWithoutNullStreams } from 'node:child_process'
-import { lstat, mkdir, readdir, realpath, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { basename, dirname, extname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
@@ -24,6 +25,9 @@ import { createEpisodeSourceAuthorityResolver } from './episode-source-authority
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { episodeCandidateSchema, episodeConfigurationSchema, episodeDescriptorSchema, episodeFactsHash,
   insideEpisodeRoot, parseEpisodeRendererConfig, readEpisodeDescriptor, readEpisodeDescriptorV3, episodeClockInputsSchema, episodeDescriptorV3Schema, episodeSourceEvidenceSchema, episodeDescriptorV4Schema, readEpisodeDescriptorV4 } from './episode-render-descriptor.ts'
+
+const physicalFs = process.versions.electron === undefined ? { lstat, realpath, readFile }
+  : (createRequire(import.meta.url)('original-fs') as typeof import('node:fs')).promises
 
 /** Provider resource limits, independently validated by the standalone worker. */
 export interface EpisodeRendererLimits {
@@ -531,7 +535,12 @@ export async function createConfiguredEpisodeRenderer(
 }
 
 async function ownerCodeFiles(entries: readonly string[], maxEntries: number, signal: AbortSignal): Promise<readonly string[]> {
-  const files = new Set<string>(), visited = new Set<string>()
+  const files = new Set<string>(), visited = new Set<string>(), members = new Set<string>()
+  const add = async (path: string): Promise<void> => {
+    if (members.has(path)) return
+    members.add(path)
+    for (const file of await physicalOwnerFiles(path, signal)) files.add(file)
+  }
   let count = 0
   const visit = async (root: string): Promise<void> => {
     if (visited.has(root)) return
@@ -542,17 +551,44 @@ async function ownerCodeFiles(entries: readonly string[], maxEntries: number, si
       const path = join(root, entry.name)
       if (entry.isSymbolicLink()) throw new Error('Episode owner code contains a symbolic link')
       if (entry.isDirectory()) await visit(path)
-      else if (/\.(?:[cm]?js|tsx?|node)$/u.test(entry.name) && !entry.name.endsWith('.d.ts')) files.add(await realpath(path))
+      else if (/\.(?:[cm]?js|tsx?|node)$/u.test(entry.name) && !entry.name.endsWith('.d.ts')) await add(await realpath(path))
     }
   }
   for (const entry of entries) {
-    const path = await realpath(entry); files.add(path)
+    const path = await realpath(entry); await add(path)
     if (/^episode-delivery\.[jt]s$/u.test(basename(path))) {
       const extension = extname(path)
-      for (const module of ['episode-delivery-job', 'episode-execution']) files.add(await realpath(join(dirname(path), module + extension)))
+      for (const module of ['episode-delivery-job', 'episode-execution']) await add(await realpath(join(dirname(path), module + extension)))
     } else await visit(dirname(path))
   }
   return [...files].sort()
+}
+
+async function physicalOwnerFiles(path: string, signal: AbortSignal): Promise<readonly string[]> {
+  const marker = `${sep}app.asar${sep}`, boundary = path.indexOf(marker)
+  if (boundary < 0) return [path]
+  const archive = path.slice(0, boundary + marker.length - 1), stat = await physicalFs.lstat(archive)
+  if (stat.isDirectory()) return [path]
+  if (!stat.isFile() || stat.isSymbolicLink() || await physicalFs.realpath(archive) !== archive) {
+    throw new Error('Episode code archive must be a canonical regular file')
+  }
+  // Electron synthesizes member metadata; bind the physical archive and any unpacked bytes instead.
+  signal.throwIfAborted()
+  const virtual = await readFile(path, { signal }), root = `${archive}.unpacked`
+  const physical = join(root, path.slice(boundary + marker.length))
+  if (!insideEpisodeRoot(root, physical)) throw new Error('Episode unpacked code escaped its archive directory')
+  let unpacked: Awaited<ReturnType<typeof lstat>>
+  try { unpacked = await physicalFs.lstat(physical) }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [archive]
+    throw error
+  }
+  if (!unpacked.isFile() || unpacked.isSymbolicLink() || await physicalFs.realpath(physical) !== physical) {
+    throw new Error('Episode unpacked code must be a canonical regular file')
+  }
+  if (!virtual.equals(await physicalFs.readFile(physical, { signal }))) throw new Error('Episode unpacked code differs from its loaded archive member')
+  signal.throwIfAborted()
+  return [archive, physical]
 }
 
 /** Product renderer provider loaded only by the private Desktop Host. */
