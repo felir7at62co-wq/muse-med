@@ -97,7 +97,6 @@ muse_vc_failed:
 FunctionEnd
 !endif
 
-!macro customHeader
   !define /ifndef INSTALLER_STRINGS_FILE "${INSTALLER_BUILD_DIR}\strings.nsh"
   !include "${INSTALLER_STRINGS_FILE}"
   !ifdef BUILD_UNINSTALLER

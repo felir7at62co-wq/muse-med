@@ -27,6 +27,7 @@ it('checks the x64 runtime before any offline elevated installation and fails cl
     }
   }
   expect(source).toContain('!macro customHeader')
+  expect(source.match(/^!macro customHeader$/gm)).toHaveLength(1)
   const header = source.slice(source.indexOf('!macro customHeader'), source.indexOf('!macroend'))
   expect(header).toContain('!ifndef BUILD_UNINSTALLER')
   expect(header).toContain('Function MuseEnsureVCRuntime')
