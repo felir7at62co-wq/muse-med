@@ -547,7 +547,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'an entry in \'conversation.view\' (client-ui-chat), so it exists while that entry is mounted',
     occupants: [
-      'client-ui-session-video VideoShelfSpacer id \'muse-session-video-spacer\'',
+      'client-ui-session-video VideoHistory id \'muse-session-video-history\'',
     ],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.chat.pinned\', () => ctx.slots.register(\n      { name: \'conversation.chat.pinned\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
@@ -1029,9 +1029,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     hookContext: '',
     slotInject: '',
     declaredBy: 'an entry in \'conversation.content.overlayHost\' (client-ui-conversation), so it exists while that entry is mounted',
-    occupants: [
-      'client-ui-session-video VideoShelf id \'muse-session-video\'',
-    ],
+    occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.content.overlay\', () => ctx.slots.register(\n      { name: \'conversation.content.overlay\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
     source: 'packages/client/ui-conversation/src/client/contract/slots.ts:248',
@@ -2192,7 +2190,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      '/** Header actions derive their state from standard Session props. */\nexport interface ConversationHeaderActionOwnerProps {\n  /** Marker field: entries receive no owner-specific values. */\n  children?: never\n}',
+      '/** Header utilities can select a Conversation View for their action. */\nexport interface ConversationHeaderUtilityOwnerProps {\n  /** Currently selected registered View, or null if none is available. */\n  readonly activeView: string | null\n  /** Select a registered Conversation View. */\n  readonly selectView: (view: string) => void\n}',
     ],
     ownerPropsReferences: [],
     standardProps: [
@@ -2223,6 +2221,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [
       'client-ui-open-in-app SessionOpenInAppAction id \'open-in-app\'',
       'client-ui-schedule ScheduleCatalogAction id \'schedule-catalog\'',
+      'client-ui-session-video VideoHeader id \'muse-session-video-menu\'',
       'experimental-client-ui-forge HeaderButton id \'forge-panel\'',
       'experimental-liveshare LiveshareShareAction id \'liveshare-share\'',
       'session-log-export SessionLogDownloadHeaderAction id \'session-log-download\'',

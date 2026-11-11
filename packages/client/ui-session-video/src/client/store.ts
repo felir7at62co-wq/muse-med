@@ -9,7 +9,6 @@ export interface VideoState {
   detectErrors: Readonly<Record<string, string>>
   open: boolean
   selected: string | null
-  collected: Readonly<Record<string, boolean>>
   observed: Readonly<Record<string, number>>
   issue: string | null
   inventoryRevision: number
@@ -21,9 +20,7 @@ type VideoActions = {
   detectionFailed: (draft: VideoState, id: string, version: string) => void
   retryFailed: (draft: VideoState) => void
   toggle: (draft: VideoState) => void
-  select: (draft: VideoState, id: string) => void
   openSource: (draft: VideoState, id: string) => void
-  collect: (draft: VideoState, id: string, value: boolean) => void
   observe: (draft: VideoState, id: string, delta: 1 | -1) => void
   refreshInventory: (draft: VideoState) => void
 }
@@ -34,7 +31,7 @@ type VideoActions = {
 export function createVideoStore(): EngineStoreHandle<VideoState, VideoActions> {
   return defineStore({
     init: (): VideoState => ({ sources: [], analyses: {}, detectErrors: {}, open: false, selected: null,
-      collected: {}, observed: {}, issue: null, inventoryRevision: 0 }),
+      observed: {}, issue: null, inventoryRevision: 0 }),
     actions: {
       inventory: (draft, value: SessionVideoInventory) => {
         draft.sources = value.sources
@@ -43,7 +40,7 @@ export function createVideoStore(): EngineStoreHandle<VideoState, VideoActions> 
           value.sources.some(source => source.id === id && source.version === version)))
         draft.analyses = Object.fromEntries(Object.entries(draft.analyses).filter(([id, analysis]) =>
           value.sources.some(source => source.id === id && source.version === analysis.sourceVersion)))
-        if (!value.sources.some(source => source.id === draft.selected)) draft.selected = value.sources[0]?.id ?? null
+        if (!value.sources.some(source => source.id === draft.selected)) { draft.selected = null; draft.open = false }
       },
       analysis: (draft, value: SessionVideoAnalysis) => {
         if (!draft.sources.some(source => source.id === value.sourceId && source.version === value.sourceVersion)) return
@@ -59,9 +56,7 @@ export function createVideoStore(): EngineStoreHandle<VideoState, VideoActions> 
         draft.detectErrors = {}
       },
       toggle: (draft) => { draft.open = !draft.open },
-      select: (draft, id: string) => { draft.selected = id },
       openSource: (draft, id: string) => { draft.selected = id; draft.open = true },
-      collect: (draft, id: string, value: boolean) => { draft.collected = { ...draft.collected, [id]: value } },
       observe: (draft, id: string, delta: 1 | -1) => {
         const count = (draft.observed[id] ?? 0) + delta
         if (count > 0) draft.observed = { ...draft.observed, [id]: count }

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-muse-video-ui",
-  "description": "Optional Muse conversation bubbles, video timeline and reversible collection animation",
+  "description": "Optional Muse chat video cards, shot timelines and conversation video history",
   "version": "0.2.2-rc.1",
   "type": "module",
   "license": "MIT",

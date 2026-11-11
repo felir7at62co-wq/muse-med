@@ -110,7 +110,7 @@ describe('web e2e: full inline conversation video cards', () => {
     await expect.poll(() => firstVideo.evaluate(element => (element as HTMLVideoElement).currentTime)).toBeGreaterThan(0)
     await firstVideo.evaluate((element) => { (element as HTMLVideoElement).pause() })
 
-    // Cut analysis belongs to the inline card even when the old bubble is closed.
+    // Cut analysis belongs to each visible inline card.
     const firstShots = first.getByRole('button', { name: /^Shot \d+ ·/u })
     const secondShots = second.getByRole('button', { name: /^Shot \d+ ·/u })
     await second.scrollIntoViewIfNeeded()
@@ -149,12 +149,8 @@ describe('web e2e: full inline conversation video cards', () => {
     expect(after.events.filter(event => event.type === 'user/message')).toHaveLength(userCount)
     expect(after.events.filter(event => event.type === 'request/header')).toHaveLength(0)
 
-    // The original session-wide bubble remains usable while inline cards are present.
-    const bubble = page.locator('[data-muse-video-anchor]')
-    expect(await bubble.count()).toBe(1)
-    await bubble.click()
-    await page.locator('[data-muse-video-shelf]').getByRole('combobox', { name: 'Conversation videos' }).waitFor()
-    await bubble.click()
+    expect(await page.locator('[data-muse-video-anchor], [data-muse-video-shelf], [data-muse-video-spacer]').count()).toBe(0)
+    expect(await page.getByRole('button', { name: 'Conversation videos', exact: true }).count()).toBe(1)
     expect(consoleWatch.pageErrors).toEqual([])
   }, 180000)
 })
@@ -265,7 +261,14 @@ describe('web e2e: generated inline videos stay in their own conversations', () 
     await first.card.getByRole('button', { name: 'Regenerate this shot', exact: true }).click()
     await expect.poll(() => input.innerText()).toContain(`Regenerate this shot: ${GENERATED_A}`)
 
+    const history = page.locator('[data-muse-session-video-history]')
+    const videoMenu = page.getByRole('button', { name: 'Conversation videos', exact: true })
+    await videoMenu.click()
+    expect(await page.getByRole('menu').getByRole('menuitem').allTextContents()).toEqual([GENERATED_A])
+    await page.getByRole('menuitem', { name: GENERATED_A, exact: true }).click()
+    await history.locator('[data-muse-inline-video]').waitFor()
     await openSession(GENERATED_SESSION_B, GENERATED_TITLE_B)
+    await expect.poll(() => history.count()).toBe(0)
     const second = await openCard(GENERATED_B, GENERATED_A)
     expect(second.playback).not.toBe(first.playback)
     expect(await input.innerText()).not.toContain('Keep alpha draft.')
@@ -279,7 +282,15 @@ describe('web e2e: generated inline videos stay in their own conversations', () 
     expect(await input.innerText()).toContain('original range: 1.000–2.000 seconds')
     expect(await input.innerText()).not.toContain(GENERATED_A)
 
+    await videoMenu.click()
+    expect(await page.getByRole('menu').getByRole('menuitem').allTextContents()).toEqual([GENERATED_B])
+    await page.getByRole('menuitem', { name: GENERATED_B, exact: true }).click()
+    await history.locator('[data-muse-inline-video]').waitFor()
     await openSession(GENERATED_SESSION_A, GENERATED_TITLE_A)
+    if (await history.count() > 0) {
+      await expect.poll(() => history.getByRole('combobox', { name: 'Conversation videos' }).locator('option:checked').textContent()).toBe(GENERATED_A)
+      await history.getByRole('button', { name: 'Close video', exact: true }).click()
+    }
     await openCard(GENERATED_A, GENERATED_B)
     await expect.poll(() => input.innerText()).toContain('Keep alpha draft.')
     expect(await input.innerText()).toContain(GENERATED_A)

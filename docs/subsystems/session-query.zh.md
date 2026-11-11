@@ -532,7 +532,7 @@ Native Host plugin; Remote methods take only Session-bound source identities.
  * @param sourceId - Identity returned by this Session's inventory.
  * @param sourceVersion - Inventory version the user selected.
  * @param signal - Cancels download, probe and cut detection.
- * @returns Complete original-video intervals, or a failed result with no invented shots.
+ * @returns Complete original-video intervals bound to the downloaded local version, or a failure without invented shots.
  */
 @Remote({ resources: { session: sessionId => sessionId } }) async detect(sessionId: SessionId, sourceId: SessionVideoSourceId, sourceVersion: string, signal: AbortSignal): Promise<SessionVideoAnalysis>
 ```

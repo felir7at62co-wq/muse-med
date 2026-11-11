@@ -36,9 +36,9 @@ function props(original: SessionVideoSource | undefined, sourceUrl = original?.p
 beforeEach(() => {
   vi.clearAllMocks()
   state = { sources: [first, second], analyses: {}, detectErrors: {}, open: false, selected: null,
-    collected: {}, observed: {}, issue: null, inventoryRevision: 0 }
+    observed: {}, issue: null, inventoryRevision: 0 }
   actions = { inventory: vi.fn(), analysis: vi.fn(), detectionFailed: vi.fn(), retryFailed: vi.fn(), toggle: vi.fn(),
-    select: vi.fn(), openSource: vi.fn(), collect: vi.fn(), observe: vi.fn(), refreshInventory: vi.fn() }
+    openSource: vi.fn(), observe: vi.fn(), refreshInventory: vi.fn() }
   notifyVisibility = []
   vi.stubGlobal('IntersectionObserver', class implements IntersectionObserver {
     readonly root = null

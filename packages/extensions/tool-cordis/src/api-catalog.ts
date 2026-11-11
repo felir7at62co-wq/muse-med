@@ -3894,7 +3894,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         signature: '@Remote({ resources: { session: sessionId => sessionId } }) async detect(sessionId: SessionId, sourceId: SessionVideoSourceId, sourceVersion: string, signal: AbortSignal): Promise<SessionVideoAnalysis>',
         description: 'Detect visual cuts in one exact source version without generating or replacing media.',
         parameters: [{ name: 'sessionId', description: 'Authorized Session identity.' }, { name: 'sourceId', description: 'Identity returned by this Session\'s inventory.' }, { name: 'sourceVersion', description: 'Inventory version the user selected.' }, { name: 'signal', description: 'Cancels download, probe and cut detection.' }],
-        returns: 'Complete original-video intervals, or a failed result with no invented shots.',
+        returns: 'Complete original-video intervals bound to the downloaded local version, or a failure without invented shots.',
       },
     ],
   },

@@ -14,7 +14,7 @@ it('forgets a provider error across download and eviction, including delayed fai
   const failed: SessionVideoAnalysis = { sourceId: id, sourceVersion: 'url:v1', state: 'failed', durationSeconds: null,
     width: null, height: null, shots: [], method: 'ffmpeg-scene', threshold: 0.3, issue: 'unavailable' }
   const store = createVideoStore().create('session')
-  const inventory = (source: SessionVideoSource) => store.actions.inventory({ sessionId: SessionId('session'), sources: [source], complete: true, issues: [] })
+  const inventory = (source: SessionVideoSource) => { store.actions.inventory({ sessionId: SessionId('session'), sources: [source], complete: true, issues: [] }) }
   inventory(remote)
   store.actions.detectionFailed(id, 'url:v1')
   store.actions.analysis(failed)
