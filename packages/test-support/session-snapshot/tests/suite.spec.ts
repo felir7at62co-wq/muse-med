@@ -223,6 +223,10 @@ describe('defineAcpSnapshotSuite: independent writer refresh', () => {
   defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: writerDir, scenarios: writerScenarios, mode: 'refresh' })
 })
 
+describe('defineAcpSnapshotSuite: independent writer replay', () => {
+  defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: writerDir, scenarios: writerScenarios, mode: 'replay' })
+})
+
 describe('ACP independent writer output', () => {
   it('preserves every canonical generation while refreshing all parent and child output roles', () => {
     for (const [file, before] of writerCanonical) expect(readFileSync(join(writerDir, file), 'utf8')).toBe(before)
