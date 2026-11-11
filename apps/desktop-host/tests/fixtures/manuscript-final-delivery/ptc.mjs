@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { importSnapshotModule, importSnapshotPackage } from '../../../../../snapshots/session/muse-fixture-import.mjs'
+import { parsePtcJson } from '../parse-ptc-json.mjs'
 
 const owner = new URL('../../../package.json', import.meta.url)
 const { LlmAdapter, ToolCallId } = await importSnapshotPackage('@deepseek-ai/dsh-llm', owner)
@@ -139,7 +140,7 @@ export async function apply(ctx) {
       if (last && last.toolCallId !== state.results.at(-1)?.call) {
         const text = last.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
         assert.equal(last.isError, false, text)
-        const value = JSON.parse(text)
+        const value = parsePtcJson(text)
         assert.equal(value.delivery_mode, 'reviewed')
         assert.equal(value.label, '已复核本文件全部提取正文（仅当前版本）')
         if (state.results.length === 0) assert.equal(value.review_status, 'consistent')

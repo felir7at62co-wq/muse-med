@@ -4,6 +4,27 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
 import { runLoaderSmoke, LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
+import { parsePtcJson } from './fixtures/parse-ptc-json.mjs'
+
+const partialNotice = '\nFile sandbox enforcement is partial on this host.'
+
+it.each(['', partialNotice])('retains a notice inside JSON data with renderer suffix %j', (suffix) => {
+  const value = { label: 'reviewed', text: partialNotice }
+  const text = JSON.stringify(value) + suffix
+  expect(parsePtcJson(text)).toEqual(value)
+})
+
+it.each([
+  '{"ok":true}\nunknown output',
+  '{"ok":true}' + partialNotice + '\nunknown output',
+  '{"ok":true}\nunknown output' + partialNotice,
+  '{"ok":true}' + partialNotice + partialNotice,
+  '{"ok":' + partialNotice,
+  partialNotice,
+  '{"ok":true}' + partialNotice + '\nThe read-only file sandbox denied an operation.',
+])('rejects malformed or additional fixture output %j', (text) => {
+  expect(() => parsePtcJson(text)).toThrow(SyntaxError)
+})
 
 it.each(['src', 'lib'] as const)('delivers through actual PTC bindings in %s while review logging is delayed, then rebuilds its projection', async (mode) => {
   const patch = fileURLToPath(new URL('./fixtures/manuscript-final-delivery/ptc.cordis.yml', import.meta.url))
