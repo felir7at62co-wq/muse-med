@@ -99,11 +99,15 @@ function fixture(packaged = false) {
   mkdirSync(home)
   const layout = prepareDesktopSmokeSkills(home)
   const ids = ['short-drama', 'standard', 'ptc', 'minimal', 'cordis', 'bot-coordinator', 'creation']
+  const reviewerId = 'muse-manuscript-continuity-reviewer'
   const presetPath = (id: string) => join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/presets', id, 'agent.cordis.yml')
   for (const id of ids) {
     mkdirSync(dirname(presetPath(id)), { recursive: true })
     writeFileSync(presetPath(id), '[]')
   }
+  const reviewerModule = join(root, 'node_modules/@deepseek-ai/dsh-desktop-host/lib/manuscript-continuity-preset.js')
+  mkdirSync(dirname(reviewerModule), { recursive: true })
+  writeFileSync(reviewerModule, '// private reviewer fixture\n')
   const skillRoot = unpacked(join(root, 'node_modules/@deepseek-ai/dsh-drama-skills/skills'))
   const skillNames = ['tweet-drama-core', 'tweet-drama-script-convert',
     'tweet-drama-script-split', 'tweet-drama-asset-vision-check',
@@ -211,9 +215,9 @@ function fixture(packaged = false) {
     effect(acquire: () => () => void) { return acquire() }
     agentPresets = {
       defaultId: 'short-drama',
-      list: vi.fn(async () => ids.map(id => ({ id }))),
+      list: vi.fn(async () => [...ids, reviewerId].map(id => ({ id }))),
       resolve: vi.fn(async (id: string) => ({ id: id === 'editing' ? 'short-drama' : id })),
-      compositionInventory: vi.fn(async () => ids.map(id => ({ id, isDefault: id === 'short-drama', rows: [{ id: 'persona' }] }))),
+      compositionInventory: vi.fn(async () => [...ids, reviewerId].map(id => ({ id, isDefault: id === 'short-drama', rows: [{ id: 'persona' }] }))),
       mount,
       serviceFor: vi.fn((agent: { preset: string }, name: string) => agent.preset === 'creation' && name === 'skills'
         ? { list: vi.fn(async () => creationSkills), get: vi.fn(async (name: string) => loadSkill(creationSkills, name)) } : undefined),
@@ -240,6 +244,7 @@ function fixture(packaged = false) {
       return { results: [{ callId: call.id, result }], additionalContexts: [], concluded: false }
     }), schemas: vi.fn((key?: { preset: string }): { name: string; description?: string }[] => {
       if (key === undefined) return []
+      if (key.preset === reviewerId) return []
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
       return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write', 'todo_update'].includes(name)), ...editingCapabilityNames, ...sourceCapabilityNames, 'tool_search', 'tool_context']
         : key.preset === 'minimal' ? [shell]
@@ -297,7 +302,7 @@ it('defers preset checks until the Host-ready caller requests them', async () =>
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
   await f.request()
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(14)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(15)
 })
 
 it('rejects a product runtime without the Muse inbox feedback entry', async () => {
@@ -315,8 +320,8 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(f.ctx.skills.list).toHaveBeenCalledWith({ scope: f.agent, cwd: f.layout.cwd })
   expect(f.ctx.agentPresets.serviceFor).toHaveBeenCalledWith({ preset: 'creation' }, 'skills')
   expect(f.ctx.skills.list).not.toHaveBeenCalledWith({ scope: { preset: 'creation' }, cwd: f.layout.cwd })
-  expect(f.dispose).toHaveBeenCalledTimes(14)
-  expect(f.ctx.agents.create).toHaveBeenCalledTimes(14)
+  expect(f.dispose).toHaveBeenCalledTimes(15)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(15)
   expect(f.mount).toHaveBeenCalledWith(f.agentCtx, 'bot-coordinator')
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
@@ -653,7 +658,7 @@ it('refuses a roster with additional presets before creating an agent', async ()
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
 })
 
-it.each(['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation'])
+it.each(['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation', 'muse-manuscript-continuity-reviewer'])
 ('refuses a roster missing product preset %s before creating an agent', async (missing) => {
   const f = fixture()
   f.ctx.agentPresets.list.mockResolvedValue((await f.ctx.agentPresets.list()).filter(preset => preset.id !== missing))
@@ -667,6 +672,23 @@ it('refuses a same-sized roster that replaces the coordinator with a personal pr
     .map(preset => preset.id === 'bot-coordinator' ? { id: 'personal' } : preset))
   await expect(f.apply(f.ctx)).rejects.toThrow('product preset roster differs')
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
+})
+
+it('rejects a missing private reviewer module without recording smoke completion', async () => {
+  const f = fixture()
+  rmSync(join(f.root, 'node_modules/@deepseek-ai/dsh-desktop-host/lib/manuscript-continuity-preset.js'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('private continuity reviewer is broken or missing')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('rejects ordinary tools in the private reviewer and awaits its disposal', async () => {
+  const f = fixture()
+  const schemas = f.ctx.tools.schemas.getMockImplementation()!
+  f.ctx.tools.schemas.mockImplementation(key => key?.preset === 'muse-manuscript-continuity-reviewer'
+    ? [{ name: 'write' }] : schemas(key))
+  await expect(f.apply(f.ctx)).rejects.toThrow('private continuity reviewer exposes ordinary tools')
+  expect(f.dispose).toHaveBeenCalledTimes(15)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
 it('rejects changing the default product preset to the coordinator', async () => {
@@ -800,7 +822,7 @@ it('loads deferred source definitions through committed context receipts and res
     'tool/call', 'tool/result', 'tool/call', 'tool/result',
   ])
   expect([...f.selected]).toEqual([])
-  expect(f.dispose).toHaveBeenCalledTimes(14)
+  expect(f.dispose).toHaveBeenCalledTimes(15)
 })
 
 it.each(Object.keys(editingModelInput.tools))('rejects a missing authorized source definition %s', async (missing) => {
@@ -953,7 +975,7 @@ it('accepts an additional model-invocable virtual skill without a filesystem pat
   }])
   await f.apply(f.ctx)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
-  expect(f.dispose).toHaveBeenCalledTimes(14)
+  expect(f.dispose).toHaveBeenCalledTimes(15)
 })
 
 it.each([...defaultHostSkills,

@@ -69,7 +69,8 @@ export function prepareDesktopSmokeSkills(home: string): DesktopSmokeSkillLayout
  * @param root - Prepared product package root.
  * @param home - Disposable smoke product home containing a separate workspace.
  * @returns ESM plugin source checking current product tools, technical skills, retired resources,
- * native skill locations, and completed Agent disposal. Historical editing resolves to short-drama.
+ * native skill locations, the tool-free private reviewer, and completed Agent disposal.
+ * Historical editing resolves to short-drama.
  */
 export function desktopSmokePluginSource(root: string, home: string): string {
   return `
@@ -91,9 +92,11 @@ export function apply(ctx) {
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
   const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
+  const reviewerId = 'muse-manuscript-continuity-reviewer'
+  const roster = [...ids, reviewerId]
   const presets = await ctx.agentPresets.list()
-  if (presets.length !== ids.length || ids.some(id => !presets.some(preset => preset.id === id))) {
-    throw new Error('desktop runtime: product preset roster differs; expected ' + ids.join(', ') + '; found ' + presets.map(preset => preset.id).join(', '))
+  if (presets.length !== roster.length || roster.some(id => !presets.some(preset => preset.id === id))) {
+    throw new Error('desktop runtime: product preset roster differs; expected ' + roster.join(', ') + '; found ' + presets.map(preset => preset.id).join(', '))
   }
   if (ctx.agentPresets.defaultId !== 'short-drama') throw new Error('desktop runtime: product default preset changed')
   if ((await ctx.agentPresets.resolve('editing')).id !== 'short-drama') {
@@ -330,6 +333,24 @@ export function apply(ctx) {
   } finally {
     for (const handle of handles.reverse()) await handle.dispose()
   }
+  }
+  const reviewer = await ctx.agentPresets.resolve(reviewerId)
+  const reviewerComposition = inventory.find(row => row.id === reviewerId)
+  const reviewerModule = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'manuscript-continuity-preset.js')
+  if (reviewer.broken !== undefined || reviewerComposition === undefined || reviewerComposition.rows.length === 0
+    || !existsSync(reviewerModule)) {
+    throw new Error('desktop runtime: private continuity reviewer is broken or missing from the product package')
+  }
+  const reviewerHandle = await ctx.agents.create({
+    sessionId: 'desktop-product-smoke-continuity-reviewer', meta: { cwd, agentPreset: reviewerId },
+    setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, reviewerId) },
+  })
+  try {
+    if (ctx.tools.schemas(reviewerHandle.agent).length !== 0) {
+      throw new Error('desktop runtime: private continuity reviewer exposes ordinary tools')
+    }
+  } finally {
+    await reviewerHandle.dispose()
   }
   writeFileSync(join(home, '.desktop-product-smoke-complete'), 'ok\\n', { flag: 'wx' })
   response.end('ok')

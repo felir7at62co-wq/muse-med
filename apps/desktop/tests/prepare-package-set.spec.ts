@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DESKTOP_CODEX_PACKAGE, DESKTOP_CODEX_RUNTIME_FILES, DESKTOP_FEISHU_PACKAGE, DESKTOP_FEISHU_RUNTIME_FILES, DESKTOP_DRAMA_SKILLS_PACKAGE, DESKTOP_DRAMA_SKILL_RUNTIME_FILES, DESKTOP_SOURCE_PLUGINS, DESKTOP_HOST_RUNTIME_FILES, DESKTOP_PACKAGES_DIR } from '../src/core-package-set.ts'
 import { fileURLToPath } from 'node:url'
+import { create as createTar } from 'tar'
 import {
   assertDesktopDramaSkillPackageFiles,
   assertDesktopCodexPackageFiles,
@@ -318,7 +318,7 @@ it('copies no macOS tarball into the Windows package set', () => {
         writeFileSync(join(folder, file), '')
       }
     }
-    execFileSync('tar', ['-czf', join(inputs, `${stem}.tgz`), '-C', join(folder, '..'), 'package'])
+    createTar({ file: join(inputs, `${stem}.tgz`), cwd: join(folder, '..'), sync: true, gzip: true, portable: true }, ['package'])
   }
   const output = join(root, 'output')
   prepareDesktopPackageSet([inputs], output, { platform: 'win32', arch: 'x64' })
