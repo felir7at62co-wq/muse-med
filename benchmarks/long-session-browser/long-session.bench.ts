@@ -399,17 +399,27 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
           await watchInputOverlap(composer)
           const started = performance.now()
           await page.keyboard.press('Enter')
+          const entered = performance.now()
+          const firstWaitStarted = performance.now()
           const firstMarker = await waitForReplyMarker(page, FIRST)
+          const firstWaitCompleted = performance.now()
           const first = performance.now() - started
+          let typingStarted = 0, typingCompleted = 0
           // Keep focus across submission; mouse actionability must not delay the input probe.
           const input = await measure(page, async () => {
+            typingStarted = performance.now()
             await page.keyboard.type('next synthetic question')
+            typingCompleted = performance.now()
             await expect.poll(() => composer.textContent()).toBe('next synthetic question')
           })
           const inputOverlapped = await composer.getAttribute('data-benchmark-input-overlap') === 'true'
           const firstObservation = await firstMarker.jsonValue()
           await firstMarker.dispose()
-          console.log(JSON.stringify({ benchmark: 'long-session-browser/input', sample, first, input, firstObservation, witness: await composer.getAttribute('data-benchmark-input-witness'), inputTiming: await composer.getAttribute('data-benchmark-input-timing') }))
+          console.log(JSON.stringify({ benchmark: 'long-session-browser/input', sample, first, input, firstObservation,
+            nodeTiming: { started, entered, firstWaitStarted, firstWaitCompleted, typingStarted, typingCompleted,
+              enterMs: entered - started, firstWaitMs: firstWaitCompleted - firstWaitStarted,
+              firstToTypingMs: typingStarted - firstWaitCompleted, typingMs: typingCompleted - typingStarted },
+            witness: await composer.getAttribute('data-benchmark-input-witness'), inputTiming: await composer.getAttribute('data-benchmark-input-timing') }))
           expectInputOverlap(inputOverlapped)
           await (await waitForReplyMarker(page, DONE)).dispose()
           const settlement = await settled
