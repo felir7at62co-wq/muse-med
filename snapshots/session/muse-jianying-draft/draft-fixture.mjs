@@ -1,5 +1,7 @@
 /** Exercise Host warning persistence with external Python substituted; this does not verify Python input decoding, saved editor compatibility or acoustics. */
 import { importSnapshotModule } from '../muse-fixture-import.mjs'
+import { readFile, rm } from 'node:fs/promises'
+import { join } from 'node:path'
 
 const Draft = await importSnapshotModule(
   new URL('../../../apps/desktop-host/src/jianying-draft.ts', import.meta.url),
@@ -15,6 +17,9 @@ export const inject = ['subprocess', 'tools', 'systemPrompt']
 
 /** Mount the real tool and retain the real managed process provider. */
 export async function apply(ctx) {
+  const marker = join(process.cwd(), 'drafts', '.empty')
+  if (await readFile(marker, 'utf8') !== '') throw new Error('Expected the empty draft-directory seed marker')
+  await rm(marker)
   const original = ctx.subprocess.spawn.bind(ctx.subprocess)
   const python = `
     const fs = require('node:fs'), path = require('node:path');

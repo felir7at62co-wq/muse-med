@@ -1128,6 +1128,7 @@ const workspaceSensitiveBudgetScenarios = new Set([
   'muse-short-drama-draft-ending',
   'muse-small-window-compaction',
   'muse-time-context',
+  'muse-visualize',
   'muse-working-budget-stop',
 ])
 
@@ -1140,7 +1141,31 @@ function verifyResidentUiReplay(events: ReturnType<typeof parseSessionLog>, tool
   expect(hostOnlyCatalog, 'resident UI replay keeps a platform-neutral skill catalog').toBe(false)
 }
 
-async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: string, cwd: string) {
+interface VisualizationBudgetPaths { readonly cwd: string; readonly sessionId: string }
+
+function visualizationBudgetText(value: string, paths: VisualizationBudgetPaths): string {
+  let parsed: unknown
+  try { parsed = JSON.parse(value) } catch (_error) { /* Plain tool text has no JSON quoting layer. */ }
+  if (parsed !== null && typeof parsed === 'object') {
+    return value.replace(/"(?:[^"\\]|\\.)*"/gu, literal => {
+      const text: string = JSON.parse(literal)
+      return JSON.stringify(visualizationBudgetText(text, paths))
+    })
+  }
+  return value.replace(/\{\{cwd\}\}[\\/]+\.dsh[\\/]+visualize[\\/]+sessions[\\/]+\{\{session:1\}\}[\\/]+/gu,
+    join(paths.cwd, '.dsh', 'visualize', 'sessions', paths.sessionId) + sep)
+}
+
+function visualizationBudgetValue(value: unknown, paths: VisualizationBudgetPaths): unknown {
+  if (typeof value === 'string') return visualizationBudgetText(value, paths)
+  if (Array.isArray(value)) return value.map(item => visualizationBudgetValue(item, paths))
+  if (value !== null && typeof value === 'object') return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, visualizationBudgetValue(item, paths)]),
+  )
+  return value
+}
+
+async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: string, cwd: string, visualize?: VisualizationBudgetPaths) {
   const pin = pinOf(scenario)
   const promptOwner = scenarioByName.get(pin.manifest.header.systemPromptSource ?? pin.name)
   const schemaOwner = scenarioByName.get(pin.manifest.header.toolSchemasSource ?? pin.name)
@@ -1150,14 +1175,32 @@ async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: st
     readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'),
   ])
   const schemas = parseToolSchemasSnapshot(schemaText)
-  return { log: expectedLog, prompt, schemas: [schemas.initial, ...schemas.changes], cwd }
+  const headers = [schemas.initial, ...schemas.changes]
+  // The committed schema uses canonical slashes, while this native plugin builds
+  // its two asset paths with node:path. Price the actual platform spelling.
+  const expectedSchemas = scenario.name === 'muse-visualize'
+    ? headers.map(tools => tools.map(tool => tool.name === 'visualize' ? {
+      ...tool,
+      description: tool.description
+        .replaceAll('{{cwd}}/.dsh/plugins/dsh-visualize/assets/styles/whale.md',
+          join(cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets', 'styles', 'whale.md'))
+        .replaceAll('{{cwd}}/.dsh/plugins/dsh-visualize/assets/',
+          join(cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets') + sep),
+    } : tool))
+    : headers
+  if (scenario.name === 'muse-visualize') {
+    if (visualize === undefined) throw new Error('Visualization budget requires its allocated store directory and Session id')
+    expectedLog = expectedLog.split('\n').filter(line => line.trim() !== '').map(line =>
+      JSON.stringify(visualizationBudgetValue(JSON.parse(line), visualize))).join('\n') + '\n'
+  }
+  return { log: expectedLog, prompt, schemas: expectedSchemas, cwd }
 }
 
 async function workspaceBudgetExpected(
-  scenario: HeadlessScenario, actual: readonly JsonObject[], expected: JsonObject[], expectedLog: string, cwd: string,
+  scenario: HeadlessScenario, actual: readonly JsonObject[], expected: JsonObject[], expectedLog: string, cwd: string, visualize?: VisualizationBudgetPaths,
 ): Promise<JsonObject[]> {
   if (actual.length !== expected.length) return expected
-  const input = await workspaceBudgetInputs(scenario, expectedLog, cwd)
+  const input = await workspaceBudgetInputs(scenario, expectedLog, cwd, visualize)
   const counts = deriveWorkingBudgetExpectations(input)
   const shadowed = deriveShadowedBudgetExpectations(input)
   const measured = new Map<number, unknown>()
@@ -1619,6 +1662,19 @@ describe('headless recorded-session snapshots', () => {
     }
     expect(() => verifyResidentUiReplay(parseSessionLog(log + JSON.stringify(unexpectedCatalog) + '\n'), tool))
       .toThrow('platform-neutral skill catalog')
+  })
+
+  it('expands visualization store paths without changing runtime-context paths or JSON spacing', () => {
+    const paths = { cwd: join(tmpdir(), 'fixture "store"'), sessionId: 'session-11111111-2222-3333-4444-555555555555' }
+    const target = join(paths.cwd, '.dsh', 'visualize', 'sessions', paths.sessionId, 'visualization-315b444e.whale.html')
+    for (const path of ['{{cwd}}/.dsh/visualize/sessions/{{session:1}}/visualization-315b444e.whale.html',
+      '{{cwd}}\\.dsh\\visualize\\sessions\\{{session:1}}\\visualization-315b444e.whale.html']) {
+      expect(visualizationBudgetText(`Saved at ${path}.`, paths)).toBe(`Saved at ${target}.`)
+      const args = `{ "path" : ${JSON.stringify(path)}, "title" : "Original" }`
+      expect(visualizationBudgetText(args, paths)).toBe(`{ "path" : ${JSON.stringify(target)}, "title" : "Original" }`)
+    }
+    const runtime = 'Current working directory: "{{cwd}}".'
+    expect(visualizationBudgetText(runtime, paths)).toBe(runtime)
   })
 
   it('preserves exact expected-input working estimates and all other context fields', async () => {
@@ -2141,6 +2197,8 @@ describe('headless recorded-session snapshots', () => {
       let preparedExpectedWorkspace: WorkspaceSnapshotEntry[] | undefined
       let visualSpeechHash: string | undefined
       let capabilityOcrHash: string | undefined
+      let generatedCwd: string | undefined
+      let allocatedCwd: string | undefined
       const spillRoot = await mkdtemp(join(tmpdir(), 'acp-snap-spill-'))
       const fixturePath = join(scenario.dir, fixtureFiles[0] ?? sessionFixtureName(0, SESSION_FORMAT_VERSION))
       const locatorRoot = snapshotSpillRoot(fixturePath)
@@ -2194,6 +2252,8 @@ describe('headless recorded-session snapshots', () => {
             ...(mcpDemo === undefined ? {} : { DSH_MCP_DEMO_URL: mcpDemo.url }),
           },
           prepare: async (cwd) => {
+            allocatedCwd = cwd
+            generatedCwd = await realpath(cwd)
             if (scenario.manifest.workspace?.parent === 'outside-temp') assertWorkspaceOutsideTemp(cwd)
             await mkdir(join(cwd, patchRoot), { recursive: true })
             patchSources.forEach((source, index) => {
@@ -2970,6 +3030,13 @@ describe('headless recorded-session snapshots', () => {
       }
 
       const actualContext = contextOf(actualLogs.map(log => log.content))
+      if (scenario.name === 'muse-visualize') {
+        if (generatedCwd === undefined || allocatedCwd === undefined) throw new Error('Visualization replay has no allocated workspace')
+        actualContext.cwd = generatedCwd
+        actualContext.cwdAliases = [...actualContext.cwdAliases ?? [], generatedCwd.replaceAll('\\', '/'),
+          JSON.stringify(generatedCwd).slice(1, -1), allocatedCwd, allocatedCwd.replaceAll('\\', '/'),
+          JSON.stringify(allocatedCwd).slice(1, -1), JSON.stringify(JSON.stringify(allocatedCwd).slice(1, -1)).slice(1, -1)]
+      }
 
       if (writesCurrentSessionFixtures(scenario.manifest, mode)) {
         fixtures = await writeSessionFixtures(
@@ -3028,7 +3095,10 @@ describe('headless recorded-session snapshots', () => {
           expectedRecords = capabilityOcrRecords(expectedSnapshots[index] as string, capabilityOcrHash, false)
         }
         if (index === 0 && workspaceSensitiveBudgetScenarios.has(scenario.name)) {
-          expectedRecords = await workspaceBudgetExpected(scenario, actualRecords, expectedRecords as JsonObject[], expected[index] as string, actualContext.cwd)
+          const sessionId = actualContext.sessionIds[0]
+          if (scenario.name === 'muse-visualize' && (allocatedCwd === undefined || sessionId === undefined)) throw new Error('Visualization budget has no store identity')
+          expectedRecords = await workspaceBudgetExpected(scenario, actualRecords, expectedRecords as JsonObject[], expected[index] as string, actualContext.cwd,
+            scenario.name === 'muse-visualize' ? { cwd: allocatedCwd!, sessionId: sessionId! } : undefined)
         }
         expect(actualRecords, `${scenario.name}: session ${index}`).toEqual(expectedRecords)
       }

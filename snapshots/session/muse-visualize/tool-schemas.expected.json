@@ -630,6 +630,10 @@
             "type": "string",
             "description": "首次scan时标记集号；省略则使用实际视频路径。"
           },
+          "fresh_scan": {
+            "type": "boolean",
+            "description": "仅在scan时使用；显式新建审看并重新扫描，旧观察留在会话历史中，新帧须重新查看和记录。"
+          },
           "method": {
             "type": "string",
             "description": "默认scan；next查看下一批，revisit重显已记录原图，observe逐图记录，events保存动作事件表；status读取进度，timeline并列时间线，compare对照当前稿，metadata只读元数据。close结束当前来源后续跟进，不补记图片；reopen校验来源后恢复，不重新扫描。",
@@ -660,6 +664,13 @@
             "description": "revisit需要重看的已记录frame_id，数量不超过当前批上限；返回缓存原图及原观察，不重新抽帧、不重置记录。",
             "items": {
               "type": "string"
+            }
+          },
+          "timestamps_seconds": {
+            "type": "array",
+            "description": "scan可选的补看来源秒数，最多256项且0≤t<真实视频时长；合入常规扫描，保留同版本已有帧ID，新帧仍须next实际看图并observe，不能凭时间补记完成。",
+            "items": {
+              "type": "number"
             }
           },
           "draft_path": {
@@ -752,7 +763,7 @@
     },
     {
       "name": "visualize",
-      "description": "Show the user an interactive HTML visualization, rendered as a live card in the conversation. `create` (the default) takes the whole markup in `fragment`: literal inline HTML only (no <!doctype>, <html>, <head>, or <body> — the card supplies the document, stylesheet, and theme). To correct a card you already rendered, call `update` with its `path` and one exact `old_str`/`new_str` replacement instead of re-sending the whole fragment. `mode: \"page\"` builds a full standalone page instead of a chat card: the conversation shows a launcher with a live thumbnail, and the user opens the page in its own browser tab. The card appears while you generate; a copy of the finished fragment is saved outside the project, per session. Load the `visualize` skill for the authoring contract before your first call. If this session has no skill tool, read the same contract from {{cwd}}/.dsh/plugins/dsh-visualize/assets/visualize-skill.md (its relative paths resolve against {{cwd}}/.dsh/plugins/dsh-visualize/assets/) with a file or shell tool; do not search for it anywhere else. Cards use the user's \"whale\" card style: its guide is appended to the visualize skill, or read it from {{cwd}}/.dsh/plugins/dsh-visualize/assets/styles/whale.md together with any user style file (<DSH_HOME>/visualize/style.md, then <workspace>/.dsh/visualize-style.md).",
+      "description": "Show the user an interactive HTML visualization, rendered as a live card in the conversation. `create` (the default) takes the whole markup in `fragment`: literal inline HTML only (no <!doctype>, <html>, <head>, or <body> — the card supplies the document, stylesheet, and theme). To correct a card you already rendered, call `update` with its `path` and one exact `old_str`/`new_str` replacement instead of re-sending the whole fragment. `mode: \"page\"` builds a full standalone page instead of a chat card: the conversation shows a launcher with a live thumbnail, and the user opens the page in its own browser tab. The card appears while you generate; a copy of the finished fragment is saved outside the project, per session. Load the `visualize` skill for the authoring contract before your first call. If this session has no skill tool, read the same contract from {{cwd}}/.dsh/plugins/dsh-visualize/assets/visualize-skill.md (its relative paths resolve against {{cwd}}/.dsh/plugins/dsh-visualize/assets/) with a file or shell tool; do not search for it anywhere else. Cards use the user's \"whale\" card style: its guide is appended to the visualize skill, or read it from {{cwd}}/.dsh/plugins/dsh-visualize/assets/styles/whale.md together with any user style file (<DSH_HOME>\\visualize\\style.md, then <workspace>\\.dsh\\visualize-style.md).",
       "parameters": {
         "type": "object",
         "properties": {

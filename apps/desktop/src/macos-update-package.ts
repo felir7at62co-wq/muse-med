@@ -99,8 +99,9 @@ export async function verifyMacOSUpdatePackage(candidate: MacOSUpdatePackage): P
     const application = join(mount, 'muse-med.app')
     if (!(await lstat(application)).isDirectory()) throw new Error('desktop macOS update: disk image application is missing or linked')
     const plist = join(application, 'Contents', 'Info.plist')
-    const identity = await execute('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleIdentifier', '-c', 'Print :CFBundleShortVersionString', plist])
-    if (identity.stdout.trim() !== `${candidate.appId}\n${candidate.version}`) {
+    const identity = await execute('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleIdentifier', plist])
+    const version = await execute('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', plist])
+    if (identity.stdout.trim() !== candidate.appId || version.stdout.trim() !== candidate.version) {
       throw new Error('desktop macOS update: application identity or version differs from the confirmed release')
     }
     await execute('/usr/bin/lipo', [join(application, 'Contents', 'MacOS', 'muse-med'), '-verify_arch',

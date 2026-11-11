@@ -8,6 +8,7 @@ import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-ses
 import type {} from '@deepseek-ai/dsh-skill'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionSkillCatalog } from '../src/skill-catalog.ts'
+import { scopeOf, scopeParentOf } from '@deepseek-ai/dsh-scope'
 
 function observation(
   sessionId: SessionId,
@@ -49,6 +50,57 @@ async function context(): Promise<Context> {
 }
 
 describe('SessionSkillCatalog', () => {
+  it.each([
+    { fails: false, preset: false }, { fails: true, preset: false },
+    { fails: false, preset: true }, { fails: true, preset: true },
+  ])('disposes a cold temporary view with preset=$preset and listing failure=$fails', async ({ fails, preset }) => {
+    const ctx = await context()
+    try {
+      const sessionId = SessionId('cold-temporary-skills')
+      const parent = { preset: 'cold-catalog' }
+      const releasePreset = vi.fn(async () => {})
+      if (preset) ctx.provide('agentPresets', {
+        acquireScope: async () => ({ key: parent, [Symbol.asyncDispose]: releasePreset }),
+      } as never)
+      ctx.provide('sessionQuery', {
+        observeSession: () => Promise.resolve(observation(sessionId, {
+          cwd: '/cold/project', ...preset ? { agentPreset: 'cold-catalog' } : {},
+        })),
+      } as never)
+      let registered = false
+      ctx.on('session-skills/prepare-view', async (view) => {
+        const owned = view.context()
+        expect(view.context()).toBe(owned)
+        const key = scopeOf(owned)
+        if (key === undefined) throw new Error('Expected a temporary catalog scope')
+        expect(scopeParentOf(key)).toBe(preset ? parent : undefined)
+        owned.effect(() => {
+          registered = true
+          return () => { registered = false }
+        })
+      })
+      const list = vi.fn(async (options: { cwd: string; scope?: unknown; signal?: AbortSignal }) => {
+        expect(registered).toBe(true)
+        expect(options.cwd).toBe('/cold/project')
+        expect(options.signal).toBeInstanceOf(AbortSignal)
+        expect(options.scope).toBeDefined()
+        if (fails) throw new Error('temporary catalog unavailable')
+        return [{ name: 'temporary', description: 'Cold view skill.',
+          invocation: { modelInvocable: true, userInvocable: true } }]
+      })
+      ctx.provide('skills', { list } as never)
+      const request = new SessionSkillCatalog(ctx).list({ sessionId }, new AbortController().signal)
+      if (fails) await expect(request).rejects.toThrow('temporary catalog unavailable')
+      else await expect(request).resolves.toEqual({ skills: [{
+        name: 'temporary', description: 'Cold view skill.', modelInvocable: true,
+      }] })
+      expect(list).toHaveBeenCalledOnce()
+      expect(registered).toBe(false)
+      expect(releasePreset).toHaveBeenCalledTimes(preset ? 1 : 0)
+      expect(ctx.agents.list()).toEqual([])
+    } finally { await ctx.fiber.dispose() }
+  })
+
   it('reads a moved cold Session catalog from its recorded current directory without resuming an Agent', async () => {
     const ctx = await context()
     const sessionId = SessionId('cold-skills')

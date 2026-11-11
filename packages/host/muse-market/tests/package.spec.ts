@@ -27,6 +27,12 @@ describe('Skill publications', () => {
     expect(() => marketManifest({ ...manifest, ...change })).toThrow()
   })
 
+  it.each([null, { name: 1, path: 'skills/fixture-skill/SKILL.md' },
+    { name: 'invalid/name', path: 'skills/invalid/name/SKILL.md' },
+    { name: 'fixture-skill', path: 'skills/another-skill/SKILL.md' }])('rejects an invalid Skill manifest entry %#', (skill) => {
+    expect(() => marketManifest({ ...manifest, skills: [skill] })).toThrow('invalid-manifest')
+  })
+
   it('rejects undeclared, altered, missing and case-colliding archive entries', () => {
     const entries = unzipSync(createMarketPackage(manifest, resources, limits))
     const content = { ...entries, 'skills/fixture-skill/assets/sample.bin': Buffer.from('changed') }

@@ -1,6 +1,6 @@
 /** Real native visualization calls in the product's default short-drama preset. */
 import assert from 'node:assert/strict'
-import { cp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -23,7 +23,19 @@ export const inject = ['agentPresets', 'tools', 'systemPrompt', 'workingDirector
  * @returns {Promise<void>} Readiness after the real tool, preset and discovery are active.
  */
 export async function apply(ctx) {
-  const cwd = process.cwd()
+  const cwd = await realpath(process.cwd())
+  // Keep display-path abbreviations independent of the hosted runner's account home.
+  const previousHome = process.env.HOME, previousProfile = process.env.USERPROFILE
+  ctx.effect(() => {
+    process.env.HOME = join(cwd, '.fixture-home')
+    process.env.USERPROFILE = join(cwd, '.fixture-home')
+    return () => {
+      if (previousHome === undefined) delete process.env.HOME
+      else process.env.HOME = previousHome
+      if (previousProfile === undefined) delete process.env.USERPROFILE
+      else process.env.USERPROFILE = previousProfile
+    }
+  })
   const currentEvents = new Map()
   ctx.on('session/event', (session, event) => {
     if (session.header.origin === 'subagent') return

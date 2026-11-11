@@ -5,6 +5,11 @@ on:
     paths:
       - .github/workflows/linux-snapshot-capture.yml
       - .github/workflows/linux-snapshot-capture-plan.json
+      - scripts/prepare-ci-bubblewrap.sh
+      - snapshots/session/headless.snapshot.ts
+      - snapshots/session/muse-jianying-draft/draft-fixture.mjs
+      - snapshots/session/muse-visualize/visualize-fixture.mjs
+      - snapshots/sdk/account-provider-signout/snapshot.yml
 
 permissions:
   contents: read

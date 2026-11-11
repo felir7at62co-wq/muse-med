@@ -103,6 +103,8 @@ it.each([
   ['查角色素材', 'jubian_asset'],
   ['查视频任务查询', 'jubian_video'],
   ['找一下背景音乐', 'drama_bgm'],
+  ['搜索技能', 'skill_catalog'],
+  ['查看视频审核', 'jubian_video_review'],
 ])('finds %s from actual registered descriptions and configured aliases', (query, expected) => {
   const schemas = new Map(catalog.flatMap(entry => entry.schemas).map(schema => [schema.name, schema]))
   const index = new ToolSearchIndex([...schemas.values()].map(schema => ({ ...schema, keywords: config.keywords?.[schema.name] ?? [] })),
@@ -112,7 +114,7 @@ it.each([
 
 it('keeps native delivery, project and memory tools deferred while giving each a capability', () => {
   for (const name of ['drama_draft_dir', 'drama_project', 'jianying_draft', 'screenplay_export_docx',
-    'load_workspace_dependencies', 'manuscript_revision', 'source_recover']) {
+    'load_workspace_dependencies', 'manuscript_revision', 'source_recover', 'skill_catalog', 'jubian_video_review']) {
     expect(config.alwaysLoad).not.toContain(name)
     expect(capabilityMemberships(name, config.capabilities ?? []).length).toBeGreaterThan(0)
     expect(config.keywords?.[name]?.length).toBeGreaterThan(0)
