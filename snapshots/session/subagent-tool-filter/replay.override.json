@@ -1,0 +1,150 @@
+[
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "reasoning"
+      },
+      {
+        "type": "reasoning-delta",
+        "index": 0,
+        "text": "The user wants me to:\n1. Use the subagent tool exactly once to delegate the task: \"Reply with exactly the word CHILD_OK and nothing else.\"\n2. After the subagent returns, reply with the single word PARENT_DONE and stop.\n3. Do not use the bash tool.\n\nLet me do this."
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "reasoning",
+          "text": "The user wants me to:\n1. Use the subagent tool exactly once to delegate the task: \"Reply with exactly the word CHILD_OK and nothing else.\"\n2. After the subagent returns, reply with the single word PARENT_DONE and stop.\n3. Do not use the bash tool.\n\nLet me do this."
+        }
+      },
+      {
+        "type": "block-start",
+        "index": 1,
+        "blockType": "tool-call"
+      },
+      {
+        "type": "tool-call-delta",
+        "index": 1,
+        "id": "call_00_gVbLWC12Qu8JheZpVRRz8749",
+        "name": "subagent",
+        "argumentsDelta": "{\"description\":\"Reply with CHILD_OK\",\"prompt\":\"Reply with exactly the word CHILD_OK and nothing else.\"}"
+      },
+      {
+        "type": "block-end",
+        "index": 1,
+        "block": {
+          "type": "tool-call",
+          "id": "call_00_gVbLWC12Qu8JheZpVRRz8749",
+          "name": "subagent",
+          "arguments": "{\"description\":\"Reply with CHILD_OK\",\"prompt\":\"Reply with exactly the word CHILD_OK and nothing else.\"}"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 5
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "tool-calls"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "text"
+      },
+      {
+        "type": "text-delta",
+        "index": 0,
+        "text": "PARENT_WAITING"
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "text",
+          "text": "PARENT_WAITING"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 2
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  },
+  {
+    "kind": "chunks",
+    "chunks": [
+      {
+        "type": "block-start",
+        "index": 0,
+        "blockType": "reasoning"
+      },
+      {
+        "type": "reasoning-delta",
+        "index": 0,
+        "text": "The subagent returned \"CHILD_OK\" as expected. Now I need to reply with the single word \"PARENT_DONE\" and stop."
+      },
+      {
+        "type": "block-end",
+        "index": 0,
+        "block": {
+          "type": "reasoning",
+          "text": "The subagent returned \"CHILD_OK\" as expected. Now I need to reply with the single word \"PARENT_DONE\" and stop."
+        }
+      },
+      {
+        "type": "block-start",
+        "index": 1,
+        "blockType": "text"
+      },
+      {
+        "type": "text-delta",
+        "index": 1,
+        "text": "PARENT_DONE"
+      },
+      {
+        "type": "block-end",
+        "index": 1,
+        "block": {
+          "type": "text",
+          "text": "PARENT_DONE"
+        }
+      },
+      {
+        "type": "usage",
+        "usage": {
+          "inputTokens": 10,
+          "outputTokens": 2
+        }
+      },
+      {
+        "type": "finish",
+        "reason": {
+          "kind": "stop"
+        }
+      }
+    ]
+  }
+]
