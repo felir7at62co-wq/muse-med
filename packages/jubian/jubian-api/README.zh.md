@@ -11,6 +11,8 @@ kind: "package-reference"
 
 ## 概述
 
+稿件读取器与请求构造器支持当前标签、可绑定稿件、登记文件信息与手动项目创建，区分稿件 ID 和制作项目 ID，并在请求发送前拒绝身份不一致或不支持的表单值。
+
 `@deepseek-ai/dsh-jubian-api` 校验剧变响应数据，并为目录、资产、视频、分镜、图片、去字幕与转高清操作构造请求体；它也下载有大小上限的媒体文件。载荷不匹配时，读取器抛出错误码为 `CONTRACT_CHANGED` 的 `JubianError`，否则返回带类型的值。剧变请求的传输与凭据由 `@deepseek-ai/dsh-jubian` 负责；`@deepseek-ai/dsh-tool-jubian` 使用这些函数。
 
 ## 目录

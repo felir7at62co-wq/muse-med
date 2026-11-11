@@ -16,6 +16,9 @@ let recordCounter = 0
 
 /** The write methods this ledger can record. */
 export type JubianLedgerMethod =
+  | 'document_upload'
+  | 'manuscript_register'
+  | 'project_create'
   | 'pool_claim'
   | 'image_generate'
   | 'asset_register'

@@ -27,6 +27,8 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
+The write ledger also retains `document_upload`, `manuscript_register` and `project_create` intents for original-key reconciliation. These operations carry no generation charge; their business receipts remain owned by the Jubian tool package.
+
 Import the library when your own code must talk to Jubian directly. It is a dependency, not a composition row: it registers no Cordis service, tool, prompt section or session event, so no `cordis.yml` row mounts it, and everything a model can see belongs to `@deepseek-ai/dsh-tool-jubian`.
 
 ### When to choose it

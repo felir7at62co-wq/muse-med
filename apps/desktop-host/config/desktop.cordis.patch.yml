@@ -256,6 +256,8 @@
           drama_render: [剪辑, 成片, 渲染, 合成视频, 交付检查, 台词覆盖, 字幕布局]
           muse_production: [制作任务, 制作编排, 资产生成, 生成成本, 制作进度]
           jubian_catalog: [剧变模型, 模型报价, 剧本目录, 分集列表]
+          jubian_manuscript: [上传剧本, 上传稿件, 登记剧本, 稿件登记, 剧本导入, 绑定稿件]
+          jubian_project: [创建项目, 新建项目, 剧变项目, 项目创建, 项目回执]
           jubian_find: [查找剧本, 剧变剧本, 我的项目, 可认领剧本]
           jubian_organize: [整理成片, 整理素材, 整理项目文件]
           drama_character_reference_project: [角色参考项目, 人物参考项目, 角色资产规划]
@@ -298,7 +300,7 @@
           - id: screenplay
             title: 剧本与分镜
             description: 整理剧本、编写镜头脚本并对照来源证据。
-            tools: [drama_project, drama_shot, 'manuscript_*', video_inspect, jubian_storyboard]
+            tools: [drama_project, drama_shot, jubian_manuscript, jubian_project, 'manuscript_*', video_inspect, jubian_storyboard]
           - id: assets
             title: 角色场景与素材
             description: 查询、整理和准备角色、场景、道具及参考素材。

@@ -11,6 +11,8 @@ Video model selectors resolve from any matching live taskType=1 row; known Seeda
 
 ## Summary
 
+Manuscript readers and builders cover current tag options, bindable manuscripts, registration file metadata and manual project creation. They keep manuscript IDs separate from production project IDs and reject mismatched identities or unsupported form values before a request is sent.
+
 `@deepseek-ai/dsh-jubian-api` validates Jubian response data and builds request bodies for catalog, asset, video, storyboard, image, subtitle, and upscale operations. It also downloads bounded media. Readers return typed values or throw `JubianError` with `CONTRACT_CHANGED` when a payload does not match. `@deepseek-ai/dsh-jubian` owns Jubian request transport and credentials; `@deepseek-ai/dsh-tool-jubian` uses these functions.
 
 ## Table of Contents
