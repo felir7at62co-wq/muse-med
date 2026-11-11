@@ -39,6 +39,17 @@ Content-project creation checks the provider for an existing manuscript/workbenc
 
 Every upload, registration and creation uses a stable `idempotency_key` and a durable business receipt. Unknown results retain that key for `jubian_project operation`; replay never resubmits the original write. A replayed upload identifies the original file hash rather than a later local revision. `documentUploadMaxBytes` limits the local document read to 33554432 bytes by default. `documentUploadTimeoutMs` defaults to 120000 milliseconds for destination discovery and transfer; stopping the tool cancels its network requests and retains an unknown submitted upload for reconciliation. Manuscript registration accepts Word even though object upload also supports TXT. The [project-upload skill](../../drama/skills/skills/jubian-project-upload/SKILL.md) describes the account and file workflow.
 
+<a id="share-an-existing-project"></a>
+### Share an existing project
+
+`jubian_project share_targets` reads selectable users and departments; names never substitute for exact recipient IDs. `shares` reads the provider-visible project sharing records. `share_preview` freezes the selected project, acting account, recipients, current sharing and request. After the user confirms the concrete recipients and target, `share_apply` requires that preview's ID and fingerprint, `confirm: true` and a stable `idempotency_key`. A changed account, directory identity or sharing baseline stops submission. The request chain uses one credential snapshot without storing its token in a preview or result.
+
+Sharing target 1 means drama video and target 2 means infinite canvas; these values do not specify read or edit permissions. The tool creates no public link. Existing mixed recipient types, other targets, unreadable records and incomplete inventories stop apply. An accepted request and verified readback are separate results: report verification only when the requested recipients and preserved visible records are found. Unknown results retain their original key for `operation` and block another local key for the unresolved project attempt.
+
+The provider-visible list is not a global access-control audit. Local locks do not serialize other computers, and the provider supplies no conditional-write guarantee. Offline fixtures validate the observed official frontend request; real-account sharing, retention of invisible grants and recipient access remain unverified until exercised on the intended account. The tool does not remove existing shares or automatically retry a submission.
+
+`projectSharePageSize` (100, range 1–1000) and `projectSharePageLimit` (20, range 1–100) bound each project or sharing inventory. `projectShareMaxDirectoryItems` (10000, range 1–100000) bounds recipient parsing, `projectShareMaxPreviewBytes` (2097152, range 1024–33554432) bounds frozen previews, and `projectShareMaxResultChars` (24000, range 2048–1000000) bounds query results. Reached bounds cannot establish a safe submission baseline.
+
 Mount the row in any preset that needs to read or change a Jubian production, then give the model a task; the tools state their effects in their descriptions.
 
 ### When to choose it

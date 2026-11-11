@@ -1,0 +1,16 @@
+# Bilingual-pair consistency record for guide.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/upgrade-guide/v0.2.2-rc.1/session-video-cards/guide.md
+/:
+  en: 728f2ffc719f80df
+  zh: d87887c3a0f5c0d0
+/use-chat-video-cards-and-the-conversation-menu:
+  en: 82fe0ddc9a1f555f
+  zh: 2b8b9de9a5cac25e
+/use-chat-video-cards-and-the-conversation-menu/change:
+  en: 362021394bf6631e
+  zh: 54783f2452c0dfdf
+/use-chat-video-cards-and-the-conversation-menu/migration:
+  en: 09908dac3332cde3
+  zh: 19f6cc3c5bdc4b70

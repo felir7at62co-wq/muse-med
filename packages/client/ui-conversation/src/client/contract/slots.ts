@@ -277,7 +277,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.session.header.utilities': {
       kind: 'list'
       scope: 'session'
-      owner: ConversationHeaderActionOwnerProps
+      owner: ConversationHeaderUtilityOwnerProps
     }
     /** Global navigation before the Session title, available without a Session. */
     'conversation.header.leading': {
@@ -436,6 +436,14 @@ export interface HeroAgentPresetOwnerProps {
 export interface ConversationHeaderActionOwnerProps {
   /** Marker field: entries receive no owner-specific values. */
   children?: never
+}
+
+/** Header utilities can select a Conversation View for their action. */
+export interface ConversationHeaderUtilityOwnerProps {
+  /** Currently selected registered View, or null if none is available. */
+  readonly activeView: string | null
+  /** Select a registered Conversation View. */
+  readonly selectView: (view: string) => void
 }
 
 /** The header corner's occupant derives its state from standard Session props. */

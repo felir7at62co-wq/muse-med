@@ -39,6 +39,7 @@ import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, reso
 import type { ImageMethodOptions, MethodArgs } from './methods.ts'
 import { manuscriptMethod, type ManuscriptArgs } from './manuscript.ts'
 import { projectMethod, type ProjectArgs } from './project.ts'
+import { projectShareMethod, type ProjectShareArgs } from './project-share.ts'
 import { findMethod } from './find.ts'
 import type { FindArgs } from './find.ts'
 import { claimMethod, claimWatchArgs, claimWatchJob, resolveClaimWatchConfig } from './claim.ts'
@@ -132,6 +133,16 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
   documentUploadMaxBytes?: number
   /** Total document-upload timeout including destination discovery; positive integer milliseconds, default 120000. */
   documentUploadTimeoutMs?: number
+  /** Rows per project/share inventory page; integer 1..1000, default 100. */
+  projectSharePageSize?: number
+  /** Maximum pages per project/share inventory; integer 1..100, default 20. */
+  projectSharePageLimit?: number
+  /** Maximum selectable directory entries; integer 1..100000, default 10000. */
+  projectShareMaxDirectoryItems?: number
+  /** Maximum bytes in a frozen share preview; integer 1024..33554432, default 2097152. */
+  projectShareMaxPreviewBytes?: number
+  /** Maximum JSON characters returned for share queries; integer 2048..1000000, default 24000. */
+  projectShareMaxResultChars?: number
   /** Per-call abort budget in milliseconds. */
   timeoutMs?: number
   /** Watch polling interval in milliseconds; integer 1..60000, default 15000. */
@@ -620,6 +631,21 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     throw new Error('documentUploadTimeoutMs must be a positive integer within 1..2147483647')
   }
   const watchConfig = resolveWatchConfig(config)
+  const projectShare = {
+    pageSize: config.projectSharePageSize ?? 100,
+    pageLimit: config.projectSharePageLimit ?? 20,
+    maxDirectoryItems: config.projectShareMaxDirectoryItems ?? 10000,
+    maxPreviewBytes: config.projectShareMaxPreviewBytes ?? 2097152,
+    maxResultChars: config.projectShareMaxResultChars ?? 24000,
+  }
+  for (const [field, lower, upper] of [
+    ['pageSize', 1, 1000], ['pageLimit', 1, 100], ['maxDirectoryItems', 1, 100000],
+    ['maxPreviewBytes', 1024, 33554432], ['maxResultChars', 2048, 1000000],
+  ] as const) {
+    if (!Number.isSafeInteger(projectShare[field]) || projectShare[field] < lower || projectShare[field] > upper) {
+      throw new Error(`projectShare.${field} must be an integer within ${lower}..${upper}`)
+    }
+  }
   const recovery = resolveVideoRecovery(config, watchConfig.watchTimeoutMs, process.env.DSH_FFMPEG_PATH)
   const episodeDelivery = resolveEpisodeDelivery(config)
   const claimConfig: ClaimWatchConfig = resolveClaimWatchConfig(config)
@@ -854,9 +880,9 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
 
   ctx.effect(() => registerJubianTool(defineTool({
     name: 'jubian_project',
-    description: '创建与查询剧变项目。create 创建手动项目；get 读取项目身份及稿件绑定；operation 仅凭原 key 查询原业务回执和项目 ID。内容项目必须绑定真实 manuscript_id；前贴素材须明确选择 produce_type=2。创建不自动解析或生成；上传稿件后也可用 jubian_manuscript.start_produce 直接创建绑定项目，不重复建同一项目。',
+    description: '创建、查询与分享剧变项目。create 创建手动项目；get 读取项目身份及稿件绑定；operation 用原 key 查询原业务回执。share_targets 查询真实用户/部门，shares 查询提供方可见分享，share_preview 冻结具体接收人与保留对象，share_apply 在用户确认后提交原预览并回读。分享不创建公开链接；目标类型不是读写权限；复杂/不完整既有分享停止提交。内容项目绑定真实 manuscript_id；start_produce 本身创建绑定项目，不重复 create。所有写入保留原 key，未知不换 key 重发；创建不自动解析或生成。',
     parameters: {
-      method: { type: 'string', required: true, enum: ['operation', 'get', 'create'] },
+      method: { type: 'string', required: true, enum: ['operation', 'get', 'create', 'share_targets', 'shares', 'share_preview', 'share_apply'] },
       script_id: ARGS.script_id,
       manuscript_id: { type: 'integer', description: '内容项目绑定的剧变稿件 ID；与项目 script_id 不同。' },
       script_name: { type: 'string', description: 'create 使用的项目名称。' },
@@ -866,10 +892,24 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
       episode_count: { type: 'integer', description: '分镜工作台 create 必填：项目集数。' },
       storyboard_count_per_episode: { type: 'integer', description: '分镜工作台 create 必填：每集初始分镜数。' },
       global_config: { type: 'object', additionalProperties: true, description: '已选择的项目设置；保留真实目录中的模型参数，不自动发起生成。' },
+      share_type: { type: 'integer', enum: [1, 2], description: '分享接收人类型：1=部门，2=用户；每次预览只选一类。' },
+      share_target_type: { type: 'integer', enum: [1, 2], description: '分享项目目标：1=漫剧视频，2=无限画布；不是只读或编辑权限。' },
+      user_ids: { type: 'array', items: { type: 'integer' }, description: '从 share_targets 取得并由用户选定的接收人 ID，不按姓名猜测。' },
+      department_id: { type: 'integer', description: '从 share_targets 取得的单个明确部门 ID；不得猜全员部门。' },
+      query: { type: 'string', description: 'share_targets 的用户或部门名称筛选；同名保留各自 ID。' },
+      preview_id: { type: 'string', description: 'share_preview 返回的原预览 ID。' },
+      preview_fingerprint: { type: 'string', description: 'share_preview 返回的原预览指纹，不自行构造。' },
+      confirm: { type: 'boolean', description: 'share_apply 必须在用户确认具体项目、接收人与分享范围后设为 true。' },
       idempotency_key: ARGS.idempotency_key,
     },
     output: OUTPUT,
-    execute: guarded<ProjectArgs>('jubian_project', args => projectMethod(client, ledger, args)),
+    execute: (args, exec) => guarded<ProjectArgs | ProjectShareArgs>('jubian_project', (input) => {
+      switch (input.method) {
+        case 'share_targets': case 'shares': case 'share_preview': case 'share_apply':
+          return projectShareMethod(client, ledger, input, projectShare, exec.signal)
+        default: return projectMethod(client, ledger, input)
+      }
+    })(args),
   })))
 
   registerJubianTool(defineTool({

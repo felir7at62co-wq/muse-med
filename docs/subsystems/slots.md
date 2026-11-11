@@ -71,6 +71,8 @@ The [context-menu plugin](../../packages/client/ui-context-menu/README.md) contr
 
 ## Component inputs
 
+Session header utilities receive `activeView` and `selectView(view)` from the Conversation owner. An action that displays content in Chat selects `chat` explicitly rather than changing another plugin's state or leaving the content hidden in the current View.
+
 A registered component receives inputs assembled at its binding site. Components derive these types rather than copying their members.
 
 | Input | Declared by | Component type |

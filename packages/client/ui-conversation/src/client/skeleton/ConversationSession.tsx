@@ -223,7 +223,7 @@ export function ConversationSessionHeader({
             </div>}
             <div className={css.headerUtilities}>
               {floating && renderSlot('conversation.session.header.actions', {})}
-              {renderSlot('conversation.session.header.utilities', {})}
+              {renderSlot('conversation.session.header.utilities', { activeView: active?.id ?? null, selectView })}
             </div>
           </>
         )}

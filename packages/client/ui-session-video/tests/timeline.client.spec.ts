@@ -28,4 +28,6 @@ it('does not present failed, pending or stale media as detected shots', () => {
   expect(assembleTimeline([a, b], [analysis(a), { ...analysis(b), sourceVersion: 'old' }]).shots).toHaveLength(2)
   expect(assembleTimeline([a], [{ ...analysis(a), state: 'failed' }]).shots).toEqual([])
   expect(assembleTimeline([a], []).duration).toBe(0)
+  expect(assembleTimeline([{ ...a, status: 'remote-only' }], [analysis(a)]).shots).toEqual([])
+  expect(assembleTimeline([{ ...a, playbackUrl: null }], [analysis(a)]).shots).toEqual([])
 })

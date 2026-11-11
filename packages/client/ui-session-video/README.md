@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Review the current conversation's recorded videos in a compact spider control and one expandable player. The timeline shows source-bound visual cut ranges and supports pointer and keyboard seeking. Delivered and supported generated videos retain inline playback and can be collected into the control as the transcript scrolls. Preparing a shot modification appends a reviewable draft; the user still submits it through ordinary chat.
+Review recorded videos directly in chat cards with a source selector, source-bound visual cut ranges and pointer or keyboard seeking. A compact header menu opens historical videos in the same card presentation. Each card retains its own source selection. Preparing a shot modification appends a reviewable draft; the user still submits it through ordinary chat.
 
 ## Table of Contents
 
@@ -27,7 +27,7 @@ Review the current conversation's recorded videos in a compact spider control an
 
 The independent [Muse video bundle](../../bundle/muse-video-ui/README.md) installs this presentation and its media service together.
 
-This package owns the optional Muse conversation presentation. In **Settings → General → Video bubble and timeline**, turn it on or off without restarting or reloading the page. The accepted switch persists in the profile through the native configuration forms. Disabling removes the spider, timeline, inline replacement players, collection layers, spacer and user-bubble enhancements, restores native navigation and delivered-video playback, and pauses and releases preview media. Transcript identity, input drafts, attachments, recorded files and running Agent jobs remain owned by Muse. Re-enabling creates a fresh presentation scope without duplicate controls. The settings row remains available while the package is installed.
+This package owns the optional chat video cards and Session video history. In **Settings → General → Video cards and timeline**, turn the presentation on or off without restarting or reloading the page. The accepted switch persists in the profile through the native configuration forms. Disabling removes the enhanced players and history action, restores native delivered-video playback, and pauses and releases preview media. Transcript identity, input drafts, attachments, recorded files and running Agent jobs remain owned by Muse. Re-enabling creates a fresh presentation scope without duplicate controls. The settings row remains available while the package is installed.
 
 The Muse Desktop composition mounts this UI and the [Session video service](../../drama/session-video/README.md). Ordinary Web profiles do not activate either package by default. A custom composition retains the canonical `ui-session-video` entry id for its live settings and needs both rows plus the native Chat, Deliverables, locale, renderer and Remote services.
 
@@ -48,15 +48,15 @@ The Muse Desktop composition mounts this UI and the [Session video service](../.
 
 The Host validates this non-secret presentation policy and includes it in the page bootstrap. A new page reads the resolved value before registering the surface; accepted live settings replace the startup switch. The `enabled` field is volatile and changes only presentation registrations, even when configuration HMR is disabled. It is separate from media-processing limits owned by the Session video service.
 
-The shelf reserves one compact header footprint; its expanded curtain floats over the transcript without moving messages or the composer. Opening and closing use the same 900 ms eased transition, and closing content stays mounted only until its exit transition finishes. Reduced-motion preferences remove this transition.
+The normal conversation header contains a compact **Conversation videos** menu. Its recorded sources are ordered newest first. Selecting a source opens the same editable video card at the top of the chat in normal document flow, including sources whose original message is not loaded. Close that card to return to the transcript. There is no floating Muse bubble, overlay player or reserved spacer.
 
-Opening the spider control displays the recorded inventory and analyzes available versioned sources. Missing media, incomplete inventory and failed detection retain explicit status and Retry controls. A failed analysis contributes no invented shot. The combined timeline keeps each source's original local time range; selecting a shot opens its source and seeks to that range.
+A Session controller reads the inventory independently of the menu and cards. Visible cards request analysis of their selected versioned source and share one Session analysis queue. Opening the menu alone does not analyze every video. Missing media, incomplete inventory and failed detection retain status and Retry controls. A failed analysis contributes no invented shot. The combined timeline keeps each source's original local time range; selecting a shot opens its source and seeks to that range.
 
-The video-name selector sits directly on the spider header row without a filled capsule and fades with the curtain; it switches sources without repeating the filename over the picture. The centered playback button and right-aligned zoom controls sit between the picture and timeline ruler with equal space above and below. Timeline zoom adjusts horizontal scale while preserving original media time and shot ranges. Source pills and zoom tracks keep circular corners; modification hover feedback applies only to inputs that support hovering.
+Each card has its own video selector, selected shot, playback position and timeline scale. Playback and zoom controls retain the original media times and shot ranges. The same card component presents delivered videos, generated videos and selected historical videos.
 
 Pressing the playhead preserves its position. Dragging maps the pointer through the filmstrip's actual on-screen bounds and retains the initial grab offset, including at different page zoom levels.
 
-When a video is available, the modification control stays visible at the right of the expanded spider header, with no filled background or shadow. It is disabled until a timeline shot is selected; hovering it explains this requirement. Once a shot is selected, the action appends the source, shot identity and original time range to the existing input draft. It neither sends the draft nor replaces a video. Delivered video contributions replace only the playback body; native file preview and opening actions remain with Deliverables.
+Each video card exposes a modification control. It is disabled until a timeline shot is selected; its tooltip explains this requirement. Once a shot is selected, the action appends the source, shot identity and original time range to the existing input draft. It neither sends the draft nor replaces a video. Delivered video contributions replace only the playback body; native file preview and opening actions remain with Deliverables.
 
 -----
 
@@ -66,18 +66,18 @@ When a video is available, the modification control stays visible at the right o
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The settings controller owns a serialized child Cordis scope for all optional contributions. The child registers a reversible native header preference; disposal restores the preceding preference or deployment default. Its scoped styles apply only while the Chat spacer exists, including when the browser retains the loaded stylesheet. The Session video Host service remains separate and available to other consumers; disabling this presentation makes no inventory or analysis requests.
+The settings controller owns a serialized child Cordis scope for all optional contributions. It leaves the native conversation header presentation unchanged. The Session video Host service remains separate and available to other consumers; disabling this presentation makes no inventory or analysis requests.
 
-The plugin mounts its generated `sessionVideo` Remote contribution, registers the session-scoped `conversation.content.overlay` shelf and a fixed `conversation.chat.pinned` spacer, and contributes to the native delivery-video chain and closing-Turn surface. The shelf mounts only while Chat is active; its expanded layer sits above transcript popovers. Queries use caller cancellation; closing pauses retained playback, and unmounting players releases their media source. The absorption preview remains in its original Chat frame and finds the receiving anchor only inside that frame's enclosing conversation. It preserves the original inline card's layout position and respects reduced-motion preferences. Collection also hides the surrounding native delivery panel; reverse scrolling or teardown restores its original visibility, inert state and ARIA attributes. The spider control, expanded player and inline video card share a dark material with light labels in both page themes.
+The plugin mounts its generated `sessionVideo` Remote contribution, the Session controller and menu in `conversation.session.header.utilities`, a historical card in `conversation.chat.pinned`, and players in the native delivery-video chain and closing-Turn surface. Queries use caller cancellation. Each visible inline card selects its original source independently and may switch to another source recorded in the same Session. Offscreen cards release their analysis interest, pause playback and stop thumbnail capture; recorded results remain available to the shared timeline. An unmatched delivery retains its native authorized playback URL. Editing detected shots requires a locally version-bound playback source. If the viewer started or sought unbound playback before the source resolved, switching to the bound version requires a gesture and retains the current playback until then. Cards share a dark material with light labels in both page themes.
 
 | Source | Responsibility |
 |---|---|
 | [config.ts](src/config.ts) | Host-validated public startup scale |
 | [client/index.ts](src/client/index.ts) | Remote and native Slot registrations |
-| [VideoShelf.tsx](src/client/VideoShelf.tsx) | Inventory, source selection and modification drafts |
+| [VideoController.tsx](src/client/VideoController.tsx) | Session inventory and visible-source analysis |
+| [VideoHistory.tsx](src/client/VideoHistory.tsx) | Conversation menu and historical video card |
 | [VideoPlayer.tsx](src/client/VideoPlayer.tsx) | Actual playback, frame capture and media cleanup |
 | [VideoTimeline.tsx](src/client/VideoTimeline.tsx) | Controlled time mapping, selection needle and conditional edge fades |
-| [useAbsorption.tsx](src/client/useAbsorption.tsx) | Scroll-driven collection preview |
 
 </details>
 

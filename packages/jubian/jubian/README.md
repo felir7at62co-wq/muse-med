@@ -27,7 +27,7 @@ English | [中文](README.zh.md)
 <a id="use-this-package"></a>
 ## Use this package
 
-The write ledger also retains `document_upload`, `manuscript_register` and `project_create` intents for original-key reconciliation. These operations carry no generation charge; their business receipts remain owned by the Jubian tool package.
+The write ledger also retains `document_upload`, `manuscript_register`, `project_create` and `project_share` intents for original-key reconciliation. These operations carry no generation charge; their business receipts remain owned by the Jubian tool package.
 
 Import the library when your own code must talk to Jubian directly. It is a dependency, not a composition row: it registers no Cordis service, tool, prompt section or session event, so no `cordis.yml` row mounts it, and everything a model can see belongs to `@deepseek-ai/dsh-tool-jubian`.
 
@@ -55,6 +55,8 @@ try {
 ```
 
 `path` carries its own query string, and `body` is serialized as JSON for the methods that accept one. Success returns `data` untouched, so a field the provider adds never becomes an error here. The constructor rejects a `timeoutMs` outside 1..60000 and a `maxResponseBytes` outside 1..32 MiB with a `TypeError`; the defaults are 30000 ms and 2 MiB, and `baseUrl` defaults to `https://web.jubianai.net/prod-api`.
+
+`snapshotCredential()` resolves the current credential once and returns a client using that fixed value with the same origin, transport and limits. Use it for a multi-request account check and mutation that must not switch identities midway. The value remains private to the returned client; this does not renew expired credentials or verify account identity.
 
 ### Reading every envelope layout this provider sends
 

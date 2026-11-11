@@ -54,6 +54,7 @@ function bench(feedbackAvailable = false, copyController = new SessionMarkdownCo
   const useSessionMarkdownCopy = bindSnapshot(copyController.store)
   const props: SessionLogDownloadHeaderProps = {
     ...standard,
+    activeView: 'chat', selectView: unused,
     useSessionLogDownload,
     useSessionMarkdownCopy,
     useFeedbackAvailable: bindSnapshot(feedback),
@@ -172,6 +173,7 @@ describe('Session export Header action', () => {
     const useSessionLogDownload = bindSnapshot(controller.store)
     const rerendered: SessionLogDownloadHeaderProps = {
       ...standard,
+      activeView: 'chat', selectView: unused,
       useSessionLogDownload,
       useSessionMarkdownCopy: bindSnapshot(b.copyController.store),
       useFeedbackAvailable: bindSnapshot(b.feedback),

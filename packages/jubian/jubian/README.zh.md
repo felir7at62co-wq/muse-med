@@ -27,7 +27,7 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
-写入账本还保留 `document_upload`、`manuscript_register` 与 `project_create` 意图，供原 key 对账。这些操作不产生生成费用；业务回执仍由剧变工具包管理。
+写入账本还保留 `document_upload`、`manuscript_register`、`project_create` 与 `project_share` 意图，供原 key 对账。这些操作不产生生成费用；业务回执仍由剧变工具包管理。
 
 当你的代码必须直接与剧变通信时导入本库。它是一条依赖，而不是一条组合行：它不注册任何 Cordis 服务、工具、提示词段落或会话事件，因此没有任何 `cordis.yml` 行挂载它，模型能看到的一切都属于 `@deepseek-ai/dsh-tool-jubian`。
 
@@ -55,6 +55,8 @@ try {
 ```
 
 `path` 自带查询字符串，`body` 会在接受它的方法上序列化为 JSON。成功时 `data` 原样返回，因此提供方新增的字段在这里永远不会变成错误。构造函数会以 `TypeError` 拒绝 1..60000 之外的 `timeoutMs` 与 1..32 MiB 之外的 `maxResponseBytes`；默认值分别是 30000 毫秒与 2 MiB，`baseUrl` 默认为 `https://web.jubianai.net/prod-api`。
+
+`snapshotCredential()` 一次解析当前凭证，返回固定使用该值、沿用相同来源、传输和限制的客户端。多请求的账号核对和写入必须避免中途换身份时可使用它。凭证值仅在返回客户端内部保留；此方法不会续期过期凭证，也不验证账号身份。
 
 ### 读取该提供方发出的每一种信封形态
 
