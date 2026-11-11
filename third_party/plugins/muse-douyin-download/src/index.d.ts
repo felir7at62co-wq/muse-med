@@ -21,6 +21,8 @@ export interface DouyinConfig {
   maxVideos?: number;
   /** Deadline for one normally authorized page-data read. */
   dataTimeoutMs?: number;
+  /** Maximum wait after the first page-data observation, within the existing read deadline. */
+  dataAggregationWaitMs?: number;
   /** Maximum comment items returned from one observed page. */
   maxComments?: number;
   taskMaxTasks?: number;
@@ -46,6 +48,7 @@ export interface DouyinDataRequest {
   source: 'auto' | 'public' | 'creator';
   comments: { enabled: boolean; cursor?: string; count: number };
   timeoutMs: number;
+  aggregationWaitMs?: number;
 }
 /** Explicit batch options resolved before any service lookup. */
 export interface ResolvedDouyinDataArgs {
@@ -54,6 +57,7 @@ export interface ResolvedDouyinDataArgs {
   source: DouyinDataRequest['source'];
   comments: DouyinDataRequest['comments'];
   timeoutMs: number;
+  aggregationWaitMs: number;
   download: boolean;
 }
 export interface DouyinArgs {

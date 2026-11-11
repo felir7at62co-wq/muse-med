@@ -5,7 +5,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {
   DouyinTaskId, DouyinVideoId, DouyinCommentId, DouyinDataRequestId, DouyinDataCode, DouyinDataCount, DouyinDataComments,
-  DouyinDataSelection, DouyinDataSnapshot, DouyinDesktopDataRequest, DouyinDesktopDataResult,
+  DouyinDataSelection, DouyinDataSnapshot, DouyinDataAggregation, DouyinObservationReference,
+  DouyinDesktopDataRequest, DouyinDesktopDataResult,
 } from '@deepseek-ai/dsh-client-ui-sidebar-browser/types'
 
 const codes: readonly DouyinDataCode[] = [
@@ -14,6 +15,7 @@ const codes: readonly DouyinDataCode[] = [
   'UI_UNAVAILABLE', 'LEASE_RELEASED', 'DOCUMENT_CHANGED', 'TARGET_MISMATCH',
   'LOGIN_OR_VERIFICATION_REQUIRED', 'PUBLIC_DATA_UNAVAILABLE', 'CREATOR_DATA_UNAVAILABLE',
   'CREATOR_OWNERSHIP_UNVERIFIED', 'COMMENTS_UNAVAILABLE', 'COMMENTS_CURSOR_UNAVAILABLE', 'EXPIRED',
+  'DATA_OBSERVATION_CONFLICT',
 ]
 function record(value: unknown): Record<string, unknown> | undefined {
   return typeof value === 'object' && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined
@@ -45,6 +47,37 @@ function metadata(value: unknown): DouyinDataSnapshot['metadata'] | undefined {
     || !(item.publishedAt === null || typeof item.publishedAt === 'number' && Number.isSafeInteger(item.publishedAt)
       && item.publishedAt > 0 && item.publishedAt <= 253402300799)) return undefined
   return { description: item.description, authorName: item.authorName, publishedAt: item.publishedAt, seriesTitle, seriesSource }
+}
+
+function observation(value: unknown): DouyinObservationReference | null | undefined {
+  if (value === null) return null
+  const item = record(value)
+  if ((item?.source !== 'page' && item?.source !== 'detail') || typeof item.observedAt !== 'string'
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(item.observedAt)
+    || Number.isNaN(Date.parse(item.observedAt)) || new Date(item.observedAt).toISOString() !== item.observedAt) return undefined
+  return { source: item.source, observedAt: item.observedAt }
+}
+
+function aggregation(value: unknown): DouyinDataAggregation | undefined {
+  const item = record(value), refs = record(item?.observations)
+  if (item === undefined || refs === undefined || (item.status !== 'complete' && item.status !== 'partial')
+    || !['paired', 'wait_expired', 'deadline', 'creator'].includes(String(item.reason))) return undefined
+  const rawCounts = record(refs.counts)
+  if (rawCounts === undefined) return undefined
+  const play_count = observation(rawCounts.play_count), digg_count = observation(rawCounts.digg_count),
+    comment_count = observation(rawCounts.comment_count), share_count = observation(rawCounts.share_count),
+    collect_count = observation(rawCounts.collect_count), series = observation(refs.series), description = observation(refs.description),
+    authorName = observation(refs.authorName), publishedAt = observation(refs.publishedAt)
+  if (play_count === undefined || digg_count === undefined || comment_count === undefined || share_count === undefined
+    || collect_count === undefined || series === undefined || description === undefined
+    || authorName === undefined || publishedAt === undefined
+    || (series !== null && series.source !== 'page')
+    || (item.status === 'complete' ? item.reason !== 'paired'
+      || [play_count, digg_count, comment_count, share_count, collect_count].every(ref => ref === null)
+      || series === null : item.reason === 'paired')) return undefined
+  return { status: item.status, reason: item.reason as DouyinDataAggregation['reason'],
+    observations: { counts: { play_count, digg_count, comment_count, share_count, collect_count },
+      series, description, authorName, publishedAt } }
 }
 function comments(value: unknown): DouyinDataComments | undefined {
   const item = record(value)
@@ -85,12 +118,27 @@ export function dataResult(value: unknown): DouyinDesktopDataResult | undefined 
     || Number.isNaN(Date.parse(data.observedAt)) || values === undefined) return undefined
   const play_count = count(values.play_count), digg_count = count(values.digg_count), comment_count = count(values.comment_count),
     share_count = count(values.share_count), collect_count = count(values.collect_count), pageComments = comments(data.comments),
-    pageMetadata = metadata(data.metadata)
+    pageMetadata = metadata(data.metadata), pageAggregation = data.aggregation === undefined ? undefined : aggregation(data.aggregation)
   if (play_count === undefined || digg_count === undefined || comment_count === undefined
     || share_count === undefined || collect_count === undefined || pageComments === undefined
     || pageMetadata === undefined) return undefined
+  if (data.aggregation !== undefined && pageAggregation === undefined) return undefined
+  if (pageAggregation !== undefined) {
+    const refs = pageAggregation.observations
+    if ((refs.counts.play_count !== null) !== (play_count.value !== null)
+      || (refs.counts.digg_count !== null) !== (digg_count.value !== null)
+      || (refs.counts.comment_count !== null) !== (comment_count.value !== null)
+      || (refs.counts.share_count !== null) !== (share_count.value !== null)
+      || (refs.counts.collect_count !== null) !== (collect_count.value !== null)
+      || (pageAggregation.reason === 'creator' && data.source !== 'creator-page')
+      || (refs.series !== null) !== (pageMetadata.seriesTitle != null)
+      || (refs.description !== null) !== (pageMetadata.description !== null)
+      || (refs.authorName !== null) !== (pageMetadata.authorName !== null)
+      || (refs.publishedAt !== null) !== (pageMetadata.publishedAt !== null)) return undefined
+  }
   return { type: 'douyin-browser-data-result', requestId: result.requestId as DouyinDataRequestId, code: 'OK', data: {
     status: 'ok', source: data.source, targetVideoId: data.targetVideoId as DouyinVideoId, observedAt: data.observedAt, metadata: pageMetadata,
+    ...(pageAggregation === undefined ? {} : { aggregation: pageAggregation }),
     counts: { play_count, digg_count, comment_count, share_count, collect_count }, comments: pageComments,
   } }
 }

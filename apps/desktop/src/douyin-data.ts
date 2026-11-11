@@ -8,6 +8,7 @@ import { type DouyinGuest, douyinGuestMatches } from './douyin-downloads.ts'
 import { ProviderResponses } from './douyin-provider.ts'
 import { targetVideoId } from './douyin-policy.ts'
 import { creatorData, publicData, publicDataProbe } from './douyin-data-provider.ts'
+import { DouyinDataAccumulator } from './douyin-data-aggregation.ts'
 
 const creatorPage = 'https://creator.douyin.com/creator-micro/content/manage'
 function isCreatorWorkPage(url: string): boolean { return url === creatorPage }
@@ -22,12 +23,20 @@ interface DataTask {
   target?: DouyinVideoId
   observer?: ProviderResponses
   documentEpoch: number
+  observationEpoch: number
+  inPagePending: boolean
+  inPagePendingUrl?: string
   phase: 'resolving' | 'observing' | 'closing'
   ownList: boolean
   initialization?: Promise<void>
   pageRead?: Promise<void>
+  accumulator?: DouyinDataAccumulator
+  aggregationEpoch?: number
+  settleTimer?: ReturnType<typeof setTimeout>
+  outcome?: { code: DouyinDataCode; data?: DouyinDataSnapshot }
   cleanup?: Promise<void>
   navigation?: (event: Electron.Event, url: string, inPlace: boolean, mainFrame: boolean) => void
+  inPageNavigation?: (event: Electron.Event, url: string, mainFrame: boolean) => void
 }
 
 /** One active data task; session changes and teardown join outstanding response reads before replying. */
@@ -81,9 +90,12 @@ export class DesktopDouyinData {
     if (this.task !== undefined || this.busy()) return answer('BUSY')
     return new Promise((resolveResult) => {
       const task: DataTask = {
-        owner, request, reply: resolveResult, phase: 'resolving', documentEpoch: 0,
+        owner, request, reply: resolveResult, phase: 'resolving', documentEpoch: 0, observationEpoch: 0, inPagePending: false,
         ownList: false,
-        timer: setTimeout(() => { void this.finish(task, request.selection.source === 'creator'
+        timer: setTimeout(() => { if (task.accumulator?.hasObservation) {
+          void this.finish(task, 'OK', task.accumulator.result('deadline')); return
+        }
+        void this.finish(task, request.selection.source === 'creator'
           ? task.ownList ? 'CREATOR_OWNERSHIP_UNVERIFIED' : 'LOGIN_OR_VERIFICATION_REQUIRED'
           : 'PUBLIC_DATA_UNAVAILABLE') }, request.selection.timeoutMs),
         poll: setInterval(() => { this.tick(task) }, 100),
@@ -117,7 +129,7 @@ export class DesktopDouyinData {
     if (guest === undefined) return
     if (guest.isDestroyed() || task.owner.isDestroyed()) { void this.finish(task, 'LEASE_RELEASED'); return }
     if (task.phase === 'observing') {
-      if (task.request.selection.source !== 'creator' && task.documentEpoch === 1 && task.pageRead === undefined) {
+      if (task.request.selection.source !== 'creator' && task.documentEpoch === 1 && !task.inPagePending && task.pageRead === undefined) {
         task.pageRead = this.readPublicPage(task, guest).finally(() => { delete task.pageRead })
       }
       return
@@ -147,34 +159,80 @@ export class DesktopDouyinData {
   }
 
   private async readPublicPage(task: DataTask, guest: WebContents): Promise<void> {
-    const target = task.target, epoch = task.documentEpoch
+    const target = task.target, epoch = task.observationEpoch
     if (target === undefined || targetVideoId(guest.getURL()) !== target) return
     let body: unknown
     try { body = await guest.executeJavaScript(publicDataProbe(target)) }
     catch (_error) { return /* A loading or replaced document supplies no page facts. */ }
-    if (this.task !== task || task.phase !== 'observing' || epoch !== task.documentEpoch
+    if (this.task !== task || task.phase !== 'observing' || task.inPagePending || epoch !== task.observationEpoch
       || targetVideoId(guest.getURL()) !== target || typeof body !== 'string') return
     const comments = task.request.selection.comments.enabled
       ? { status: 'blocked' as const, items: [], cursor: null, hasMore: null,
         code: task.request.selection.comments.cursor === undefined ? 'COMMENTS_UNAVAILABLE' as const : 'COMMENTS_CURSOR_UNAVAILABLE' as const }
       : { status: 'not-requested' as const, items: [], cursor: null, hasMore: null }
     const data = publicData(body, target, new Date().toISOString(), comments, true)
-    if (data !== undefined) void this.finish(task, 'OK', data)
+    if (data !== undefined) this.accept(task, guest, data, 'page')
+  }
+
+  private accept(task: DataTask, guest: WebContents, data: DouyinDataSnapshot, source: 'page' | 'detail'): void {
+    if (this.task !== task || task.phase !== 'observing' || task.lease?.guest !== guest || guest.isDestroyed()
+      || this.active.get(task.owner) !== task.request.sessionId || task.documentEpoch !== 1 || task.inPagePending
+      || (source === 'page' && targetVideoId(guest.getURL()) !== task.target)) return
+    if (!task.request.selection.aggregationWaitMs) { void this.finish(task, 'OK', data); return }
+    if (task.target === undefined || (task.aggregationEpoch !== undefined && task.aggregationEpoch !== task.observationEpoch)) {
+      void this.finish(task, 'DOCUMENT_CHANGED'); return
+    }
+    task.aggregationEpoch = task.observationEpoch
+    task.accumulator ??= new DouyinDataAccumulator(task.target)
+    if (!task.accumulator.add(data, source)) { void this.finish(task, 'DATA_OBSERVATION_CONFLICT'); return }
+    if (task.request.selection.source === 'creator') { void this.finish(task, 'OK', task.accumulator.result('creator')); return }
+    if (task.accumulator.paired) { void this.finish(task, 'OK', task.accumulator.result('paired')); return }
+    task.settleTimer ??= setTimeout(() => {
+      if (task.accumulator?.hasObservation) void this.finish(task, 'OK', task.accumulator.result('wait_expired'))
+    }, task.request.selection.aggregationWaitMs)
   }
 
   private async observe(task: DataTask, guest: WebContents): Promise<void> {
     const target = task.target
     if (target === undefined) { void this.finish(task, 'TARGET_MISMATCH'); return }
+    const sameTarget = (url: string): boolean => task.request.selection.source === 'creator'
+      ? isCreatorWorkPage(url) : targetVideoId(url) === target
+    const invalidate = (): void => {
+      task.observationEpoch++
+      delete task.accumulator
+      delete task.aggregationEpoch
+      if (task.settleTimer !== undefined) clearTimeout(task.settleTimer)
+      delete task.settleTimer
+      task.observer?.sameDocument()
+    }
     task.navigation = (_event, url, inPlace, mainFrame) => {
-      if (this.task !== task || task.phase === 'closing' || !mainFrame || inPlace) return
+      if (this.task !== task || !mainFrame) return
+      if (task.phase === 'closing') { void this.finish(task, 'DOCUMENT_CHANGED'); return }
+      if (inPlace) {
+        if (!sameTarget(url) || task.inPagePending) { void this.finish(task, 'DOCUMENT_CHANGED'); return }
+        if (task.documentEpoch === 1) { task.inPagePending = true; task.inPagePendingUrl = url; invalidate() }
+        return
+      }
       task.documentEpoch++
+      task.observationEpoch++
       task.observer?.newDocument()
-      if (task.documentEpoch !== 1 || (task.request.selection.source === 'creator'
-        ? !isCreatorWorkPage(url) : targetVideoId(url) !== target)) void this.finish(task, 'DOCUMENT_CHANGED')
+      if (task.documentEpoch !== 1 || !sameTarget(url)) void this.finish(task, 'DOCUMENT_CHANGED')
     }
     guest.on('did-start-navigation', task.navigation)
-    task.observer = new ProviderResponses(guest, target, () => task.documentEpoch, () => {}, () => {}, (body, epoch) => {
-      if (this.task !== task || task.phase !== 'observing' || epoch !== task.documentEpoch || task.documentEpoch !== 1
+    task.inPageNavigation = (_event, url, mainFrame) => {
+      if (this.task !== task || !mainFrame || task.documentEpoch < 1) return
+      if (task.phase === 'closing' || !sameTarget(url) || !sameTarget(guest.getURL())
+        || new URL(url).href !== new URL(guest.getURL()).href
+        || (task.inPagePendingUrl !== undefined && new URL(url).href !== new URL(task.inPagePendingUrl).href)) {
+        void this.finish(task, 'DOCUMENT_CHANGED'); return
+      }
+      invalidate()
+      task.inPagePending = false
+      delete task.inPagePendingUrl
+    }
+    guest.on('did-navigate-in-page', task.inPageNavigation)
+    task.observer = new ProviderResponses(guest, target, () => task.observationEpoch, () => {}, () => {}, (body, epoch) => {
+      if (this.task !== task || task.phase !== 'observing' || task.inPagePending || epoch !== task.observationEpoch || task.documentEpoch !== 1
         || (task.request.selection.source === 'creator' ? !isCreatorWorkPage(guest.getURL()) : targetVideoId(guest.getURL()) !== target)) return
       const comments = task.request.selection.comments.enabled
         ? { status: 'blocked' as const, items: [], cursor: null, hasMore: null,
@@ -184,7 +242,7 @@ export class DesktopDouyinData {
         ? creatorData(body, target, new Date().toISOString(), comments) : undefined
       if (creator?.ownList === true) task.ownList = true
       const data = creator === undefined ? publicData(body, target, new Date().toISOString(), comments) : creator.data
-      if (data !== undefined) void this.finish(task, 'OK', data)
+      if (data !== undefined) this.accept(task, guest, data, 'detail')
       else if (creator?.ownList === true && !creator.hasMore) void this.finish(task, 'CREATOR_OWNERSHIP_UNVERIFIED')
     }, task.request.selection.source === 'creator' ? 'creator' : 'public')
     if (!await task.observer.start()) { void this.finish(task, 'PUBLIC_DATA_UNAVAILABLE'); return }
@@ -192,12 +250,16 @@ export class DesktopDouyinData {
   }
 
   private async finish(task: DataTask, code: DouyinDataCode, data?: DouyinDataSnapshot): Promise<void> {
-    if (task.cleanup !== undefined) return task.cleanup
+    if (task.phase === 'closing') {
+      if (code !== 'OK' && task.outcome?.code === 'OK') task.outcome = { code }
+      return task.cleanup ?? Promise.resolve()
+    }
+    task.outcome = { code, ...(data === undefined ? {} : { data }) }
     task.phase = 'closing'
     clearTimeout(task.timer)
+    if (task.settleTimer !== undefined) clearTimeout(task.settleTimer)
     clearInterval(task.poll)
     const guest = task.lease?.guest
-    if (guest !== undefined && task.navigation !== undefined) guest.removeListener('did-start-navigation', task.navigation)
     task.observer?.close()
     const cleanup = (async () => {
       try {
@@ -205,9 +267,17 @@ export class DesktopDouyinData {
         await task.pageRead
         await task.observer?.closeAndWait()
       } finally {
+        if (guest !== undefined && task.navigation !== undefined) guest.removeListener('did-start-navigation', task.navigation)
+        if (guest !== undefined && task.inPageNavigation !== undefined) guest.removeListener('did-navigate-in-page', task.inPageNavigation)
+        if (task.outcome?.code === 'OK' && (task.owner.isDestroyed() || guest === undefined || guest.isDestroyed()
+          || this.active.get(task.owner) !== task.request.sessionId
+          || task.request.selection.source !== 'creator' && targetVideoId(guest.getURL()) !== task.target)) {
+          task.outcome = { code: 'DOCUMENT_CHANGED' }
+        }
         if (this.task === task) this.task = undefined
-        task.reply({ type: 'douyin-browser-data-result', requestId: task.request.requestId, code,
-          ...(data === undefined ? {} : { data }) })
+        const outcome = task.outcome ?? { code: 'HOST_UNAVAILABLE' as const }
+        task.reply({ type: 'douyin-browser-data-result', requestId: task.request.requestId, code: outcome.code,
+          ...(outcome.data === undefined ? {} : { data: outcome.data }) })
       }
     })()
     task.cleanup = cleanup

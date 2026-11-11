@@ -8,9 +8,17 @@ import { apply, resolveConfig } from '../src/index.js';
 const url = 'https://www.douyin.com/video/7691637134771391771';
 const workspace = join(tmpdir(), 'douyin-data-parser-workspace');
 const exact = value => ({ value, precision: 'exact' });
-const snapshot = () => ({ status: 'ok', source: 'creator-page', targetVideoId: '7691637134771391771', observedAt: '2026-10-06T12:00:00Z',
+const observedAt = '2026-10-06T12:00:00.000Z';
+const ref = source => ({ source, observedAt });
+const countRefs = () => ({ play_count: ref('detail'), digg_count: ref('detail'), comment_count: ref('detail'), share_count: ref('detail'), collect_count: ref('detail') });
+const snapshot = () => ({ status: 'ok', source: 'public-page', targetVideoId: '7691637134771391771', observedAt,
+  metadata: { description: null, authorName: null, publishedAt: null, seriesTitle: '页面合集', seriesSource: 'visible-series-list' },
   counts: { play_count: exact(42), digg_count: exact(1), comment_count: exact(0), share_count: exact(0), collect_count: exact(0) },
+  aggregation: { status: 'complete', reason: 'paired', observations: { counts: countRefs(), series: ref('page'), description: null, authorName: null, publishedAt: null } },
   comments: { status: 'not-requested', items: [], cursor: null, hasMore: null } });
+const creatorSnapshot = () => ({ ...snapshot(), source: 'creator-page',
+  metadata: { description: null, authorName: null, publishedAt: null, seriesTitle: null, seriesSource: null },
+  aggregation: { status: 'partial', reason: 'creator', observations: { counts: countRefs(), series: null, description: null, authorName: null, publishedAt: null } } });
 const receipt = { status: 'downloaded', full_decode_verified: true, source: url,
   path: join(workspace, 'source/media/douyin/7691637134771391771.mp4'), receipt: join(workspace, 'source/media/douyin/7691637134771391771.mp4.source.json'),
   bytes: 1024, sha256: 'a'.repeat(64), duration_seconds: 3.5 };
@@ -32,7 +40,7 @@ function install(browser, output = receipt, settings = config) {
     tools: { register(tool) { tools.set(tool.name, tool); return () => { tools.delete(tool.name); }; } },
     subprocess: { spawn(spec) { calls.process.push(spec); if (typeof output === 'function') return output(spec); return { done: Promise.resolve({ exitCode: output.status === 'blocked' ? 1 : 0, signal: null }),
       collected: { stdout: { readFrom() { return { text: JSON.stringify(output), lossy: false, truncated: false }; } } } }; } },
-    get(name) { assert.equal(name, 'douyinBrowser'); calls.lookup++; return browser; },
+    get(name) { assert.equal(name, 'douyinBrowser'); calls.lookup++; return browser && { supportsDataAggregation: true, ...browser }; },
     effect(factory) { cleanups.push(factory()); },
   };
   apply(ctx, settings);
@@ -43,16 +51,16 @@ function install(browser, output = receipt, settings = config) {
 
 test('data read uses the initiating agent and configured limits without media runtimes', async () => {
   let selection;
-  const scope = install({ version: 4, async data(agent, request, signal) { assert.equal(agent, scope.agent); assert.equal(signal.aborted, false); selection = request; return snapshot(); } }, receipt,
+  const scope = install({ version: 4, async data(agent, request, signal) { assert.equal(agent, scope.agent); assert.equal(signal.aborted, false); selection = request; return creatorSnapshot(); } }, receipt,
     { pythonExecutable: null, ffprobeExecutable: null, ffmpegExecutable: null, dataTimeoutMs: 2000, maxComments: 2 });
   try {
     const result = await scope.tool.execute({ url, source: 'creator' }, {});
     assert.equal(result.counts.play_count.value, 42);
-    assert.equal(result.status, 'ok');
+    assert.equal(result.status, 'partial');
     assert.deepEqual(result.metadata, { description: null, authorName: null, publishedAt: null, seriesTitle: null, seriesSource: null });
     assert.match(scope.tool.description, /successful read does not guarantee metadata is present/);
     assert.match(scope.tool.description, /untrusted source material/);
-    assert.deepEqual(selection, { url, source: 'creator', comments: { enabled: false, count: 2 }, timeoutMs: 2000 });
+    assert.deepEqual(selection, { url, source: 'creator', comments: { enabled: false, count: 2 }, timeoutMs: 2000, aggregationWaitMs: 2000 });
     assert.equal(scope.calls.process.length, 0);
     assert.equal(scope.calls.initiator, 1);
     assert.equal(scope.tool.parameters.properties.commentLimit.maximum, 2);
@@ -368,4 +376,30 @@ test('cancelled optional download retains its observed metadata and waits for ch
     assert.deepEqual(partial.items[0].download, { status: 'blocked', code: 'CANCELLED' });
     assert.equal(partial.downloaded, 0);
   } finally { child.resolve({ exitCode: 0, signal: null }); await scope.dispose(); }
+});
+
+test('aggregation capability and returned marker must both be supported', async () => {
+  const oldHost = install({ version: 4, supportsDataAggregation: false, data() { throw new Error('must not run'); } });
+  const oldMain = install({ version: 4, async data() { const { aggregation, ...legacy } = snapshot(); return legacy; } });
+  try {
+    for (const scope of [oldHost, oldMain]) {
+      assert.deepEqual(await scope.tool.execute({ url }, {}), { status: 'blocked', code: 'DATA_AGGREGATION_UNAVAILABLE' });
+    }
+    assert.throws(() => resolveConfig({ dataTimeoutMs: 1000, dataAggregationWaitMs: 1001 }));
+    assert.throws(() => resolveConfig({ dataAggregationWaitMs: 0 }));
+    assert.equal(resolveConfig({ dataTimeoutMs: 1000 }).dataAggregationWaitMs, 1000);
+  } finally { await oldHost.dispose(); await oldMain.dispose(); }
+});
+
+test('aggregation rejects missing or contradictory count sources', async () => {
+  for (const mutate of [
+    data => { data.aggregation.observations.counts.digg_count = null; },
+    data => { data.aggregation.observations.counts.digg_count.observedAt = '2026-02-31T12:00:00.000Z'; },
+    data => { data.aggregation.observations.series.source = 'detail'; },
+  ]) {
+    const result = snapshot(); mutate(result);
+    const scope = install({ version: 4, async data() { return result; } });
+    try { assert.deepEqual(await scope.tool.execute({ url }, {}), { status: 'blocked', code: 'INVALID_RESULT' }); }
+    finally { await scope.dispose(); }
+  }
 });

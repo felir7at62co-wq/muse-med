@@ -16,10 +16,11 @@ const dataCodes = new Set(['HOST_UNAVAILABLE', 'TRANSPORT_TIMEOUT', 'SESSION_NOT
   'UI_UNAVAILABLE', 'LEASE_RELEASED', 'DOCUMENT_CHANGED', 'TARGET_MISMATCH',
   'LOGIN_OR_VERIFICATION_REQUIRED', 'PUBLIC_DATA_UNAVAILABLE', 'CREATOR_DATA_UNAVAILABLE',
   'CREATOR_OWNERSHIP_UNVERIFIED', 'COMMENTS_UNAVAILABLE', 'COMMENTS_CURSOR_UNAVAILABLE', 'EXPIRED']);
+dataCodes.add('DATA_OBSERVATION_CONFLICT');
 
 /** Resolve tool JSON before any browser or media operation. @param {unknown} value Tool JSON. @param {object} settings Resolved deployment limits. @returns {object} Explicit data request. */
 export function resolveDataArgs(value, settings) {
-  const { maxComments, maxVideos, dataTimeoutMs } = settings;
+  const { maxComments, maxVideos, dataTimeoutMs, dataAggregationWaitMs } = settings;
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('Douyin data arguments must be an object');
   for (const [key, entry] of Object.entries(value)) {
     const property = dataProperties[key];
@@ -46,7 +47,7 @@ export function resolveDataArgs(value, settings) {
   if (count < 1 || count > maxComments) throw new TypeError(`This deployment accepts at most ${maxComments} comments per page`);
   if (value.commentCursor !== undefined && (!enabled || urls.length !== 1 || !value.commentCursor || value.commentCursor.length > 1024 || /[\u0000-\u001f]/u.test(value.commentCursor))) throw new TypeError('A comment cursor requires one video and an enabled comment page');
   if (value.commentLimit !== undefined && !enabled) throw new TypeError('A comment limit requires an enabled comment page');
-  return { urls: [...urls], single: value.url !== undefined, source, comments: { enabled, count, ...(value.commentCursor === undefined ? {} : { cursor: value.commentCursor }) }, timeoutMs: dataTimeoutMs, download: value.download ?? false };
+  return { urls: [...urls], single: value.url !== undefined, source, comments: { enabled, count, ...(value.commentCursor === undefined ? {} : { cursor: value.commentCursor }) }, timeoutMs: dataTimeoutMs, aggregationWaitMs: dataAggregationWaitMs, download: value.download ?? false };
 }
 
 function unavailable(reason) { return { value: null, precision: 'unavailable', reason }; }
@@ -64,6 +65,40 @@ function metadataOf(value) {
     throw new Error('Douyin data bridge returned invalid metadata');
   }
   return { description: value.description, authorName: value.authorName, publishedAt: value.publishedAt, seriesTitle, seriesSource };
+}
+
+function aggregationOf(value, metadata, counts) {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !value.observations
+    || typeof value.observations !== 'object' || Array.isArray(value.observations)
+    || !['complete', 'partial'].includes(value.status) || !['paired', 'wait_expired', 'deadline', 'creator'].includes(value.reason)) {
+    throw new Error('Douyin data bridge returned invalid aggregation');
+  }
+  const ref = item => {
+    if (item === null) return null;
+    if (!item || typeof item !== 'object' || Array.isArray(item) || !['page', 'detail'].includes(item.source)
+      || typeof item.observedAt !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/u.test(item.observedAt)
+      || !Number.isFinite(Date.parse(item.observedAt)) || new Date(item.observedAt).toISOString() !== item.observedAt) {
+      throw new Error('Douyin data bridge returned invalid observation');
+    }
+    return { source: item.source, observedAt: item.observedAt };
+  };
+  if (!value.observations.counts || typeof value.observations.counts !== 'object' || Array.isArray(value.observations.counts)) {
+    throw new Error('Douyin data bridge returned invalid count observations');
+  }
+  const countKeys = ['play_count', 'digg_count', 'comment_count', 'share_count', 'collect_count'];
+  const observations = { ...Object.fromEntries(['series', 'description', 'authorName', 'publishedAt'].map(key => [key, ref(value.observations[key])])),
+    counts: Object.fromEntries(countKeys.map(key => [key, ref(value.observations.counts[key])])) };
+  if (observations.series?.source === 'detail'
+    || countKeys.some(key => (observations.counts[key] !== null) !== (counts[key].value !== null))
+    || (observations.series !== null) !== (metadata.seriesTitle !== null)
+    || (observations.description !== null) !== (metadata.description !== null)
+    || (observations.authorName !== null) !== (metadata.authorName !== null)
+    || (observations.publishedAt !== null) !== (metadata.publishedAt !== null)
+    || (value.status === 'complete' ? value.reason !== 'paired' || !Object.values(observations.counts).some(Boolean) || !observations.series : value.reason === 'paired')) {
+    throw new Error('Douyin data bridge returned inconsistent aggregation');
+  }
+  return { status: value.status, reason: value.reason, observations };
 }
 
 function countOf(value) {
@@ -121,5 +156,6 @@ export function projectDataResult(value, request) {
       comments = { status: 'available', items, cursor: page.cursor, hasMore: page.hasMore };
     }
   }
-  return { status: comments.status === 'blocked' ? 'partial' : 'ok', source: value.source, targetVideoId: value.targetVideoId, url: `https://www.douyin.com/video/${value.targetVideoId}`, observedAt: value.observedAt, metadata: metadataOf(value.metadata), counts, comments };
+  const metadata = metadataOf(value.metadata), aggregation = aggregationOf(value.aggregation, metadata, counts);
+  return { status: comments.status === 'blocked' || aggregation?.status === 'partial' ? 'partial' : 'ok', source: value.source, targetVideoId: value.targetVideoId, url: `https://www.douyin.com/video/${value.targetVideoId}`, observedAt: value.observedAt, metadata, counts, comments, ...(aggregation === undefined ? {} : { aggregation }) };
 }

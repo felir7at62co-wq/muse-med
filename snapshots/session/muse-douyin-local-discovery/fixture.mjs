@@ -6,6 +6,7 @@ export const name = 'snapshot-douyin-local-discovery'
 
 class OfflineDouyinBrowser extends Service {
   version = 4
+  supportsDataAggregation = true
   constructor(ctx) { super(ctx, 'douyinBrowser') }
   async data(_agent, selection) {
     assert.equal(selection.url, 'https://www.douyin.com/video/7660900818614324490')

@@ -136,6 +136,26 @@ export type DouyinDataCode =
   | 'UI_UNAVAILABLE' | 'LEASE_RELEASED' | 'DOCUMENT_CHANGED' | 'TARGET_MISMATCH'
   | 'LOGIN_OR_VERIFICATION_REQUIRED' | 'PUBLIC_DATA_UNAVAILABLE' | 'CREATOR_DATA_UNAVAILABLE'
   | 'CREATOR_OWNERSHIP_UNVERIFIED' | 'COMMENTS_UNAVAILABLE' | 'COMMENTS_CURSOR_UNAVAILABLE' | 'EXPIRED'
+  | 'DATA_OBSERVATION_CONFLICT'
+
+/** One selected fact's originating target-bound observation. */
+export interface DouyinObservationReference {
+  readonly source: 'page' | 'detail'
+  readonly observedAt: string
+}
+
+/** Completion and source times for a configured aggregation request. */
+export interface DouyinDataAggregation {
+  readonly status: 'complete' | 'partial'
+  readonly reason: 'paired' | 'wait_expired' | 'deadline' | 'creator'
+  readonly observations: {
+    readonly counts: Readonly<Record<keyof DouyinDataSnapshot['counts'], DouyinObservationReference | null>>
+    readonly series: DouyinObservationReference | null
+    readonly description: DouyinObservationReference | null
+    readonly authorName: DouyinObservationReference | null
+    readonly publishedAt: DouyinObservationReference | null
+  }
+}
 
 /** Bounded, target-associated page facts; media addresses and authentication material are absent. */
 export interface DouyinDataSnapshot {
@@ -143,6 +163,8 @@ export interface DouyinDataSnapshot {
   readonly source: DouyinDataSource
   readonly targetVideoId: DouyinVideoId
   readonly observedAt: string
+  /** Present for aggregation-capable requests; legacy reads retain their original result. */
+  readonly aggregation?: DouyinDataAggregation
   /** Public work text and author display name, or null when not observed; never an inferred drama title. */
   readonly metadata?: {
     readonly description: string | null
@@ -170,6 +192,8 @@ export interface DouyinDataSelection {
   readonly source: 'public' | 'creator' | 'auto'
   readonly comments: { readonly enabled: boolean; readonly cursor?: string; readonly count: number }
   readonly timeoutMs: number
+  /** Bounded settling window; an omitted or zero value retains first-success behavior. */
+  readonly aggregationWaitMs?: number
 }
 
 /** Private Host request; the Main process owns guest, document and target association. */

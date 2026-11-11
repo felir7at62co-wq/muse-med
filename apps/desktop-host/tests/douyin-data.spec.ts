@@ -23,6 +23,53 @@ function snapshot(): object {
 function wire(data: object = snapshot()): object { return { type: 'douyin-browser-data-result', requestId: randomUUID(), code: 'OK', data } }
 const selection: DouyinDataSelection = { url: `https://www.douyin.com/video/${videoId}`, source: 'public', comments: { enabled: false, count: 20 }, timeoutMs: 1000 }
 
+const pageRef = { source: 'page', observedAt: '2026-11-11T00:00:00.100Z' }
+const detailRef = { source: 'detail', observedAt: '2026-11-11T00:00:00.150Z' }
+const aggregationRefs = { counts: { play_count: null, digg_count: detailRef, comment_count: pageRef,
+  share_count: detailRef, collect_count: null }, series: pageRef, description: detailRef, authorName: pageRef, publishedAt: null }
+const aggregateMetadata = { description: '第一集', authorName: '作者', publishedAt: null,
+  seriesTitle: '重生换亲娶千金', seriesSource: 'visible-series-list' }
+const aggregate = { status: 'complete', reason: 'paired', observations: aggregationRefs }
+
+it('validates each counter observation and projects only public aggregation fields', () => {
+  const raw = { ...snapshot(), metadata: aggregateMetadata, aggregation: { ...aggregate, private: 'PRIVATE_SIG',
+    observations: { ...aggregationRefs, counts: { ...aggregationRefs.counts,
+      digg_count: { ...detailRef, cookie: 'PRIVATE_SIG' } }, diagnostic: 'PRIVATE_SIG' } } }
+  const result = dataResult(wire(raw))
+  expect(result?.data?.aggregation).toEqual(aggregate)
+  expect(JSON.stringify(result)).not.toContain('PRIVATE_SIG')
+})
+
+it.each([
+  ['missing counter reference', { ...aggregationRefs, counts: { ...aggregationRefs.counts, digg_count: undefined } }],
+  ['reference for unavailable counter', { ...aggregationRefs, counts: { ...aggregationRefs.counts, play_count: pageRef } }],
+  ['missing reference for known counter', { ...aggregationRefs, counts: { ...aggregationRefs.counts, comment_count: null } }],
+  ['invalid counter source', { ...aggregationRefs, counts: { ...aggregationRefs.counts, share_count: { ...detailRef, source: 'cloud' } } }],
+  ['invalid observation time', { ...aggregationRefs, counts: { ...aggregationRefs.counts, share_count: { ...detailRef, observedAt: '2026-02-30T00:00:00.000Z' } } }],
+  ['detail cannot attest series', { ...aggregationRefs, series: detailRef }],
+  ['missing series reference', { ...aggregationRefs, series: null }],
+  ['missing author reference', { ...aggregationRefs, authorName: null }],
+  ['reference for unavailable published time', { ...aggregationRefs, publishedAt: pageRef }],
+] as const)('rejects aggregation with %s', (_label, observations) => {
+  expect(dataResult(wire({ ...snapshot(), metadata: aggregateMetadata, aggregation: { ...aggregate, observations } }))).toBeUndefined()
+})
+
+it.each([
+  { ...aggregate, status: 'partial' },
+  { ...aggregate, reason: 'deadline' },
+  { ...aggregate, status: 'complete', reason: 'creator' },
+  { ...aggregate, status: 'unknown' },
+  null,
+])('rejects malformed aggregation status and reason %#', (aggregation) => {
+  expect(dataResult(wire({ ...snapshot(), metadata: aggregateMetadata, aggregation }))).toBeUndefined()
+})
+
+it('accepts legacy responses without inventing an aggregation receipt', () => {
+  const result = dataResult(wire({ ...snapshot(), metadata: aggregateMetadata }))
+  expect(result?.data?.metadata).toEqual(aggregateMetadata)
+  expect(result?.data).not.toHaveProperty('aggregation')
+})
+
 it('projects safe IPC fields and discards raw headers, media addresses, identifiers and diagnostics', () => {
   const raw = { ...snapshot(), headers: { Cookie: 'PRIVATE_SIG' }, author: { sec_uid: 'PRIVATE_SIG' }, media: 'PRIVATE_SIG' }
   const result = dataResult({ ...wire(raw), diagnostic: 'PRIVATE_SIG' })
@@ -122,6 +169,20 @@ it('provides version 4 data while retaining the download method and forwarded ti
     .toMatchObject({ targetVideoId: videoId })
   expect(fixture.sent.map(request => request.action)).toEqual(['read', 'release'])
   expect(fixture.sent[0]?.selection).toEqual(selection)
+}))
+it('advertises aggregation and forwards a validated aggregate from Main', async () => harness(async (fixture) => {
+  installDesktopDouyinBrowser(fixture.ctx)
+  expect(fixture.ctx.douyinBrowser.supportsDataAggregation).toBe(true)
+  const aggregatedSelection = { ...selection, aggregationWaitMs: 300 }
+  fixture.onSend((request) => {
+    queueMicrotask(() => {
+      if (request.action === 'read') fixture.respond(request, 'OK', { ...snapshot(), metadata: aggregateMetadata, aggregation: aggregate })
+      else fixture.respond(request)
+    })
+  })
+  const result = await fixture.ctx.douyinBrowser.data(fixture.agent, aggregatedSelection, new AbortController().signal)
+  expect(result).toMatchObject({ status: 'ok', aggregation: aggregate })
+  expect(fixture.sent[0]?.selection).toEqual(aggregatedSelection)
 }))
 it('releases and joins the cancelled read before rejecting, without returning a late snapshot', async () => harness(async (fixture) => {
   const method = installDesktopDouyinData(fixture.ctx), cancellation = new AbortController(), release = Promise.withResolvers<undefined>()

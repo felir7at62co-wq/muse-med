@@ -22,6 +22,7 @@ class PublicFailure extends Service {
 
 class BrowserFailure extends Service {
   version = 4
+  supportsDataAggregation = true
   constructor(ctx) { super(ctx, 'douyinBrowser') }
   async data(agent, selection, signal) {
     signal.throwIfAborted()
@@ -33,6 +34,14 @@ class BrowserFailure extends Service {
       counts: { play_count: { value: null, precision: 'unavailable', reason: 'not-exposed' },
         digg_count: { value: 12, precision: 'exact' }, comment_count: { value: 3, precision: 'exact' },
         share_count: { value: 1, precision: 'exact' }, collect_count: { value: 1, precision: 'exact' } },
+      aggregation: { status: 'complete', reason: 'paired', observations: {
+        counts: { play_count: null, digg_count: { source: 'page', observedAt: '2026-10-06T12:00:00.000Z' },
+          comment_count: { source: 'page', observedAt: '2026-10-06T12:00:00.000Z' },
+          share_count: { source: 'page', observedAt: '2026-10-06T12:00:00.000Z' }, collect_count: { source: 'page', observedAt: '2026-10-06T12:00:00.000Z' } },
+        series: { source: 'page', observedAt: '2026-10-06T12:00:00.000Z' },
+        description: { source: 'detail', observedAt: '2026-10-06T12:00:00.000Z' },
+        authorName: { source: 'detail', observedAt: '2026-10-06T12:00:00.000Z' },
+        publishedAt: { source: 'detail', observedAt: '2026-10-06T12:00:00.000Z' } } },
       comments: { status: 'not-requested', items: [], cursor: null, hasMore: null } }
   }
   async download(agent, url, signal, _maxDownloadBytes, nativeTimeoutMs) {

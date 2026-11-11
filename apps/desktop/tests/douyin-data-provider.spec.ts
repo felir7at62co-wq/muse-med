@@ -99,6 +99,31 @@ it('reads visible text fragments in one DIV while excluding hidden descendants',
   } finally { dom.window.close() }
 })
 
+it.each(['播放中', '第1集 播放中', '短剧 · 甲第1集 播放中'])(
+  'binds a selected playing entry with the supported label %s', (active) => {
+    const dom = seriesPage(`<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">${active}</a>
+      <h3><a href="/video/${target}">第1集 | #AI短剧</a></h3></li></ul></div>`)
+    try { expect(readPage(dom)?.metadata?.seriesTitle).toBe('甲') } finally { dom.window.close() }
+  },
+)
+
+it('ignores an explicitly hidden conflicting episode in the selected entry', () => {
+  const dom = seriesPage(`<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a>
+    <a href="/video/${target}"><span>第1集</span><span data-hidden>第2集</span></a></li></ul></div>`)
+  try { expect(readPage(dom)?.metadata?.seriesTitle).toBe('甲') } finally { dom.window.close() }
+})
+
+it('accepts an explicit episode in a visible non-link sibling of the selected link', () => {
+  const dom = seriesPage(`<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a><span>第1集</span></li></ul></div>`)
+  try { expect(readPage(dom)?.metadata?.seriesTitle).toBe('甲') } finally { dom.window.close() }
+})
+
+it('accepts a matching series label split across visible text nodes', () => {
+  const dom = seriesPage(`<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a>
+    <span>短剧</span><span> · 甲第1集</span></li></ul></div>`)
+  try { expect(readPage(dom)?.metadata?.seriesTitle).toBe('甲') } finally { dom.window.close() }
+})
+
 it('refuses visible text when its bounded node scan overflows', () => {
   const markup = `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">
     <span>短剧 · 甲第1集 播放中</span>${'<span></span>'.repeat(128)}</a></li></ul></div>`
@@ -164,6 +189,15 @@ it.each([
   `<div><div role="presentation navigation"><h2>短剧 · 甲</h2></div><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">第1集</a></li></ul></div>`,
   `<div><div role="region complementary"><h2>短剧 · 甲</h2></div><ul><li><a href="/video/${target}" aria-label="短剧 · 甲第1集 播放中">第1集</a></li></ul></div>`,
   `<div><h2>短剧 · My Life</h2><ul><li><a href="/video/${target}" aria-label="短剧 · MyLife第1集 播放中">第1集</a></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a><a href="/video/${target}">短剧 · 乙第1集</a></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">第1集 播放中</a><a href="/video/${target}">第2集 | #AI短剧</a></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a></li><li><a href="/video/7692443246022167852">播放中</a></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中 <span>推荐</span></a></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a><a href="/video/7692443246022167852">第2集</a></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a><span>短剧 · 乙第1集</span></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">第1集 播放中</a><span>第2集</span></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a><span>短剧</span><span> · 乙第1集</span></li></ul></div>`,
+  `<div><h2>短剧 · 甲</h2><ul><li><a href="/video/${target}">播放中</a><span>短剧</span><span> · 甲乙第1集</span></li></ul></div>`,
 ])('refuses ambiguous or unrelated visible series evidence %#', (markup) => {
   const dom = seriesPage(markup)
   try { expect(readPage(dom)).toBeUndefined() } finally { dom.window.close() }
