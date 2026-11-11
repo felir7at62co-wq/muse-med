@@ -1,0 +1,179 @@
+name: Temporary Linux snapshot capture
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/linux-snapshot-capture.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-snapshot-capture-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    if: >-
+      github.event.pull_request.number == 154
+      && github.event.pull_request.head.ref == 'fix/muse-ci-baseline-20261111'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      DSH_TELEMETRY_DISABLED: '1'
+      DSH_EXAMPLE_MODE: lib
+      DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
+      DSH_SNAPSHOT_MAX_WORKERS: '1'
+      DEEPSEEK_API_KEY: ''
+      OPENAI_API_KEY: ''
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v5.0.0
+        with:
+          dest: ${{ runner.temp }}/snapshot-capture-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Install immutable dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the same libraries used by normal replay
+        id: build
+        run: pnpm run build:artifacts
+
+      - name: Retain canonical input identities
+        id: baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto'
+          import { readFileSync, readdirSync, writeFileSync } from 'node:fs'
+          import { join } from 'node:path'
+          import { execFileSync } from 'node:child_process'
+          const owners = ['muse-asr-purpose', 'muse-asr-queue-expiry', 'muse-web-search-account-proxy']
+          const paths = owners.flatMap(owner => {
+            const directory = `snapshots/session/${owner}`
+            return readdirSync(directory)
+              .filter(name => /^session(?:\..*)?\.jsonl$/u.test(name) || name === 'snapshot.yml')
+              .map(name => `${directory}/${name}`)
+          }).sort()
+          if (paths.length < owners.length * 2) throw new Error('Incomplete owner input inventory')
+          const identities = Object.fromEntries(paths.map(path => [path,
+            createHash('sha256').update(readFileSync(path)).digest('hex')]))
+          writeFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), JSON.stringify({
+            head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), owners, identities,
+          }, null, 2) + '\n')
+          NODE
+
+      - name: Capture the three owners through keyless refresh
+        id: refresh
+        env:
+          DSH_SNAPSHOT: refresh
+        run: |
+          capture_exit_code=0
+          pnpm exec vitest run --config vitest.snapshot.config.ts \
+            snapshots/session/headless.snapshot.ts \
+            --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/refresh-report.json" \
+            -t '(muse-asr-purpose|muse-asr-queue-expiry|muse-web-search-account-proxy) through' || capture_exit_code=$?
+          echo "exit_code=$capture_exit_code" >> "$GITHUB_OUTPUT"
+          exit "$capture_exit_code"
+
+      - name: Replay captured owners without refresh
+        id: replay
+        if: ${{ !cancelled() && steps.baseline.outcome == 'success' }}
+        env:
+          DSH_SNAPSHOT: replay
+        run: |
+          capture_exit_code=0
+          pnpm exec vitest run --config vitest.snapshot.config.ts \
+            snapshots/session/headless.snapshot.ts \
+            --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/replay-report.json" \
+            -t '(muse-asr-purpose|muse-asr-queue-expiry|muse-web-search-account-proxy) through' || capture_exit_code=$?
+          echo "exit_code=$capture_exit_code" >> "$GITHUB_OUTPUT"
+          exit "$capture_exit_code"
+
+      - name: Verify unchanged inputs and collect only approved derived outputs
+        if: ${{ !cancelled() && steps.baseline.outcome == 'success' }}
+        env:
+          REFRESH_OUTCOME: ${{ steps.refresh.outcome }}
+          REPLAY_OUTCOME: ${{ steps.replay.outcome }}
+          REFRESH_EXIT_CODE: ${{ steps.refresh.outputs.exit_code }}
+          REPLAY_EXIT_CODE: ${{ steps.replay.outputs.exit_code }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto'
+          import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+          import { dirname, join } from 'node:path'
+          import { execFileSync } from 'node:child_process'
+          const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), 'utf8'))
+          const directory = join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-capture')
+          mkdirSync(directory)
+          const canonicalPaths = state.owners.flatMap(owner => {
+            const directory = `snapshots/session/${owner}`
+            return readdirSync(directory)
+              .filter(name => /^session(?:\..*)?\.jsonl$/u.test(name) || name === 'snapshot.yml')
+              .map(name => `${directory}/${name}`)
+          }).sort()
+          const sha256 = path => createHash('sha256').update(readFileSync(path)).digest('hex')
+          const after = Object.fromEntries(canonicalPaths.map(path => [path, sha256(path)]))
+          const inputDifferences = [...new Set([...Object.keys(state.identities), ...Object.keys(after)])]
+            .filter(path => state.identities[path] !== after[path])
+          const allowed = state.owners.flatMap(owner => ['writer.expected.jsonl', 'system-prompt.expected.md', 'tool-schemas.expected.json']
+            .map(name => `snapshots/session/${owner}/${name}`))
+          const gitPaths = args => execFileSync('git', args, { encoding: 'utf8' }).split('\0').filter(Boolean)
+          const changed = [...new Set([...gitPaths(['diff', '--name-only', '-z']),
+            ...gitPaths(['ls-files', '--others', '--exclude-standard', '-z'])])].sort()
+          const unexpectedChanges = changed.filter(path => !allowed.includes(path))
+          const invalidOutputs = allowed.filter(path => {
+            if (!existsSync(path)) return true
+            const stat = lstatSync(path)
+            return !stat.isFile() || stat.isSymbolicLink() || stat.size > 10 * 1024 * 1024
+          })
+          const outputs = []
+          const reports = Object.fromEntries(['refresh', 'replay'].map(mode => {
+            const file = join(process.env.RUNNER_TEMP, `${mode}-report.json`)
+            if (!existsSync(file)) return [mode, null]
+            const report = JSON.parse(readFileSync(file, 'utf8'))
+            return [mode, { passed: report.numPassedTests, failed: report.numFailedTests }]
+          }))
+          const verificationPassed = inputDifferences.length === 0 && unexpectedChanges.length === 0 && invalidOutputs.length === 0
+            && process.env.REFRESH_OUTCOME === 'success' && process.env.REPLAY_OUTCOME === 'success'
+            && Object.values(reports).every(report => report?.passed === 3 && report.failed === 0)
+          if (verificationPassed) {
+            for (const path of allowed) {
+              const stat = lstatSync(path)
+              const destination = join(directory, path)
+              mkdirSync(dirname(destination), { recursive: true })
+              copyFileSync(path, destination)
+              outputs.push({ path, bytes: stat.size, sha256: sha256(path) })
+            }
+          }
+          writeFileSync(join(directory, 'evidence.json'), JSON.stringify({
+            head: state.head, platform: process.platform, arch: process.arch, node: process.version,
+            owners: state.owners, filter: '(muse-asr-purpose|muse-asr-queue-expiry|muse-web-search-account-proxy) through',
+            refreshOutcome: process.env.REFRESH_OUTCOME, replayOutcome: process.env.REPLAY_OUTCOME,
+            refreshExitCode: process.env.REFRESH_EXIT_CODE, replayExitCode: process.env.REPLAY_EXIT_CODE,
+            command: 'pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t <filter>',
+            inputsBefore: state.identities, inputsAfter: after, inputDifferences, changed, unexpectedChanges, invalidOutputs,
+            reports, verificationPassed, outputs,
+          }, null, 2) + '\n')
+          if (!verificationPassed) throw new Error('Capture failed verification; only diagnostic evidence was retained')
+          NODE
+
+      - name: Retain the bounded capture and evidence
+        if: ${{ !cancelled() && steps.baseline.outcome == 'success' }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: linux-snapshot-capture-${{ github.sha }}
+          path: ${{ runner.temp }}/muse-linux-snapshot-capture/
+          if-no-files-found: error
+          retention-days: 3
