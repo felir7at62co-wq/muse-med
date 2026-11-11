@@ -172,7 +172,18 @@ function fixture(packaged = false) {
   const emitLifecycle = (event: string, fiber: typeof agentFiber, oldState?: number) => {
     for (const listener of lifecycleListeners.get(event) ?? []) listener(fiber, oldState)
   }
+  type CreatedPayload = { agent: { session: { id: string }; ctx: { fiber: typeof agentFiber } }; signal?: AbortSignal }
+  type CreatedListener = (payload: CreatedPayload) => void
+  type FixtureEvents = { 'internal/plugin': LifecycleListener; 'internal/status': LifecycleListener; 'agent/created': CreatedListener }
+  const createdListeners = new Set<CreatedListener>(), createdDisposers: ReturnType<typeof vi.fn>[] = []
+  const creationController = new AbortController()
+  const eventListeners: { [K in keyof FixtureEvents]: Set<FixtureEvents[K]> } = {
+    'internal/plugin': new Set(), 'internal/status': new Set(), 'agent/created': createdListeners,
+  }
+  lifecycleListeners.set('internal/plugin', eventListeners['internal/plugin'])
+  lifecycleListeners.set('internal/status', eventListeners['internal/status'])
   const agent = { preset: 'short-drama', id: 'smoke-agent', ctx: agentCtx, session: {
+    id: 'smoke-session',
     append: vi.fn((type: string, data: {
       turn?: number
       step?: number
@@ -215,12 +226,12 @@ function fixture(packaged = false) {
   class TestContext {
     root = this
     fiber = ownerFiber
-    on(event: string, listener: LifecycleListener) {
-      const listeners = lifecycleListeners.get(event) ?? new Set<LifecycleListener>()
-      lifecycleListeners.set(event, listeners)
+    on<K extends keyof FixtureEvents>(event: K, listener: FixtureEvents[K]) {
+      const listeners = eventListeners[event]
       listeners.add(listener)
       const release = vi.fn(() => { listeners.delete(listener) })
-      observerDisposers.push(release)
+      if (event === 'agent/created') createdDisposers.push(release)
+      else observerDisposers.push(release)
       return release
     }
     museAccount: { feedback?: () => void } = { feedback: () => {} }
@@ -243,6 +254,9 @@ function fixture(packaged = false) {
       meta: { agentPreset: string }
     }) => {
       await options.setup(agentCtx)
+      if (options.meta.agentPreset === 'short-drama') {
+        for (const listener of createdListeners) listener({ agent, signal: creationController.signal })
+      }
       return { agent: options.meta.agentPreset === 'short-drama' ? agent : { preset: options.meta.agentPreset }, dispose }
     }) }
     toolDiscovery = { state: vi.fn(() => ({ loaded: [...selected], pinned: [] })) }
@@ -315,7 +329,8 @@ function fixture(packaged = false) {
   const apply = async (ctx: TestContext) => { register(ctx); await request() }
   return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names,
     sourceCapabilityNames, editingCapabilityNames, selected, skills, creationSkills, cordisSkill, skillRoot, layout, home, root,
-    agentFiber, ownerFiber, emitLifecycle, observerDisposers, lifecycleListeners, collectCallSites, responseText: () => responseText }
+    agentFiber, ownerFiber, emitLifecycle, observerDisposers, lifecycleListeners, collectCallSites,
+    creationController, createdListeners, createdDisposers, responseText: () => responseText }
 }
 
 it('defers preset checks until the Host-ready caller requests them', async () => {
@@ -587,6 +602,78 @@ it('retains the disposal event when native call-site collection fails', async ()
   expect(diagnostic.observerErrors[0]?.message).toContain('call-site collection unavailable')
   expect(f.dispose).toHaveBeenCalledTimes(14)
   for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
+})
+
+it('records the owned creation abort synchronously before scope retirement and retains the original failure', async () => {
+  const f = fixture(), primary = new Error('assembly rejected after owned abort')
+  f.agent.session.id = 'desktop-product-smoke-short-drama-0'
+  const reason = new Error('agent setup aborted: owner disposed during setup')
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async () => {
+    f.creationController.abort(reason)
+    f.agentFiber.uid = null
+    f.emitLifecycle('internal/plugin', f.agentFiber)
+    throw primary
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow(primary.message)
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  const diagnostic = JSON.parse(report.split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: {
+      sequence: number
+      event: string
+      fiber?: { uid: number | null }
+      reason?: { summary: string; stack?: string }
+      callSites?: object[]
+    }[]
+  }
+  const aborted = diagnostic.records.find(record => record.event === 'agent-abort')
+  const retired = diagnostic.records.find(record => record.event === 'internal/plugin' && record.fiber?.uid === null)
+  expect(aborted).toMatchObject({ fiber: { uid: 101 }, reason: { summary: reason.message, stack: reason.stack } })
+  expect(aborted?.callSites?.length).toBeGreaterThan(0)
+  expect(aborted!.sequence).toBeLessThan(retired!.sequence)
+  expect(report).toContain(primary.stack)
+  expect(f.createdListeners.size).toBe(0)
+  for (const dispose of f.createdDisposers) expect(dispose).toHaveBeenCalledOnce()
+})
+
+it('removes owned abort listeners after success and ignores unrelated sessions', async () => {
+  const ignored = fixture(), ignoredAdd = vi.spyOn(ignored.creationController.signal, 'addEventListener')
+  await ignored.apply(ignored.ctx)
+  expect(ignoredAdd).not.toHaveBeenCalled()
+  const f = fixture()
+  f.agent.session.id = 'desktop-product-smoke-short-drama-0'
+  const added = vi.spyOn(f.creationController.signal, 'addEventListener')
+  const removed = vi.spyOn(f.creationController.signal, 'removeEventListener')
+  await f.apply(f.ctx)
+  expect(added).toHaveBeenCalledExactlyOnceWith('abort', expect.any(Function), { once: true })
+  expect(removed).toHaveBeenCalledExactlyOnceWith('abort', added.mock.calls[0]![1])
+  const before = f.responseText()
+  f.creationController.abort(new Error('late abort after smoke cleanup'))
+  expect(f.responseText()).toBe(before)
+  expect(f.collectCallSites).not.toHaveBeenCalled()
+  expect(f.createdListeners.size).toBe(0)
+  for (const dispose of f.createdDisposers) expect(dispose).toHaveBeenCalledOnce()
+})
+
+it('contains throwing abort reason access without changing successful smoke checks', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.agent.session.id = 'desktop-product-smoke-short-drama-0'
+  const reason = Object.defineProperties({}, {
+    message: { get() { throw new Error('abort reason message unreadable') } },
+    stack: { get() { throw new Error('abort reason stack unreadable') } },
+  })
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    f.creationController.abort(reason)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { event: string; reason?: { summary: string } }[]
+    observerErrors: { event: string }[]
+  }
+  expect(diagnostic.records.find(record => record.event === 'agent-abort')?.reason?.summary).toBe('Abort reason unavailable')
+  expect(diagnostic.observerErrors.map(error => error.event)).toEqual(['abort-reason-summary', 'abort-reason-stack'])
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+  expect(f.createdListeners.size).toBe(0)
 })
 
 it('accepts product skills loaded from the installed ASAR unpack directory', async () => {

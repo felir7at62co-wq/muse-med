@@ -140,6 +140,18 @@ export function apply(ctx) {
       })
     } catch (error) { observerError('getCallSites', error); return [] }
   }
+  const abortReason = reason => {
+    let summary = 'Abort reason unavailable', stack
+    try {
+      const message = reason?.message
+      summary = (typeof message === 'string' ? message : String(reason)).slice(0, 512)
+    } catch (error) { observerError('abort-reason-summary', error) }
+    try {
+      const value = reason?.stack
+      if (typeof value === 'string') stack = value.slice(0, 4096)
+    } catch (error) { observerError('abort-reason-stack', error) }
+    return { summary, ...(stack === undefined ? {} : { stack }) }
+  }
   const appendRecord = record => {
     record.sequence = ++sequence
     if (firstRecords.length < 128) firstRecords.push(record)
@@ -176,11 +188,37 @@ export function apply(ctx) {
           ? { stack: new Error('Desktop lifecycle ' + event).stack?.slice(0, 4096) } : {}) })
     } catch (error) { observerError(event, error) }
   }
+  const observedAgents = new WeakSet(), signalReleases = []
+  const observeCreated = ({ agent, signal }) => {
+    try {
+      if (!agent.session.id.startsWith('desktop-product-smoke-') || signal === undefined || observedAgents.has(agent)) return
+      // The seven preset checks own two Agent instances each.
+      if (signalReleases.length >= 14) { observerError('agent-created-capacity', new Error('Smoke Agent observation limit reached')); return }
+      const context = agent.ctx, fiber = context.fiber, agentIdentity = identity(agent), contextIdentity = identity(context)
+      const alreadyAborted = signal.aborted
+      let recorded = false
+      const onAbort = () => {
+        try {
+          if (recorded) return
+          recorded = true
+          appendRecord({ event: 'agent-abort', ...location, agentIdentity, contextIdentity, alreadyAborted,
+            fiber: describeFiber(fiber), owner: describeFiber(callerFiber), reason: abortReason(signal.reason),
+            callSites: disposalCallSites() })
+        } catch (error) { observerError('agent-abort', error) }
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+      signalReleases.push(() => signal.removeEventListener('abort', onAbort))
+      observedAgents.add(agent)
+      if (alreadyAborted) onAbort()
+    } catch (error) { observerError('agent-created', error) }
+  }
   const observerReleases = []
   for (const event of ['internal/plugin', 'internal/status']) {
     try { observerReleases.push(ctx.root.on(event, (fiber, oldState) => { observe(event, fiber, oldState) })) }
     catch (error) { observerError('register-' + event, error) }
   }
+  try { observerReleases.push(ctx.root.on('agent/created', observeCreated, { global: true })) }
+  catch (error) { observerError('register-agent/created', error) }
   let failed = false, failure
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
@@ -479,6 +517,9 @@ export function apply(ctx) {
     failed = true
     failure = error
   } finally {
+    for (const release of signalReleases) {
+      try { release() } catch (error) { observerError('unregister-abort', error) }
+    }
     for (const release of observerReleases) {
       try { await release() } catch (error) { observerError('unregister', error) }
     }
