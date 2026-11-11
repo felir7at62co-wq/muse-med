@@ -196,7 +196,7 @@ When `feedbackTools` is enabled, two feedback tool schemas join the model reques
 
 #### KV Cache effect
 
-Account settings and status remain Host and Client data. Model selection and the existing tool-history rules determine request-prefix reuse.
+Account settings and status remain Host and Client data. The account's DeepSeek Flash route keeps changed system text in conversation order, preserving the earlier request prefix. Other account routes keep their declared prompt behavior; tool additions remain subject to each route's tool-history support. Model selection still determines which provider cache can be reused.
 
 ## Known Limitations and Deferred Work
 

@@ -31,15 +31,15 @@ class PersonalAdapter extends LlmAdapter {
 /** Loader name for the account-backed model recording. */
 export const name = 'snapshot-selected-account-models'
 /** Account, tool and default-model services provided by the shipped headless composition. */
-export const inject = ['tools', 'llm', 'sessionProjections', 'agentDefaultModel']
+export const inject = ['tools', 'llm', 'sessionProjections', 'agentDefaultModel', 'systemPrompt']
 
-function completion(message) {
+function completion(message, cacheHitTokens = 0) {
   const chunks = message.content.map((block, index) => ({ choices: [{ index: 0, finish_reason: null,
     delta: block.type === 'text' ? { content: block.text } : block.type === 'reasoning' ? { reasoning_content: block.text }
       : { tool_calls: [{ index, id: block.id, type: 'function', function: { name: block.name, arguments: block.arguments } }] },
   }] }))
   chunks.push({ choices: [{ index: 0, delta: {}, finish_reason: message.content.some(block => block.type === 'tool-call') ? 'tool_calls' : 'stop' }],
-    usage: { prompt_tokens: 30, completion_tokens: 4 } })
+    usage: { prompt_tokens: 30, completion_tokens: 4, ...(cacheHitTokens ? { prompt_cache_hit_tokens: cacheHitTokens } : {}) } })
   return [...chunks.map(chunk => JSON.stringify(chunk)), '[DONE]'].map(chunk => `data: ${chunk}\n\n`).join('')
 }
 
@@ -48,6 +48,9 @@ function completion(message) {
  * @returns {Promise<void>} Completion after account, tool and stream fixture registration.
  */
 export async function apply(ctx) {
+  const promptUpdate = process.env.DSH_SNAPSHOT_DEEPSEEK_PROMPT_UPDATE === 'true'
+  const promptGuidance = 'Keep the signed-in model catalog answer brief.'
+  let guidance = ''
   const direct = process.env.DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS === 'true'
   const refusal = process.env.DSH_SNAPSHOT_SUPPLIER_REFUSAL === 'true'
   const contentRefusal = process.env.DSH_SNAPSHOT_CONTENT_REFUSAL === 'true'
@@ -62,6 +65,7 @@ export async function apply(ctx) {
   assert.ok(!pooledZhipu || direct && officialGlm)
   assert.ok(!refusal || direct)
   assert.ok(!contentRefusal || direct && !refusal && !admissionFailure)
+  assert.ok(!promptUpdate || !officialGlm && !refusal && !contentRefusal && !admissionFailure)
   const excludedProvider = process.env.DSH_SNAPSHOT_EXCLUDED_ACCOUNT_PROVIDER
   assert.ok(excludedProvider === undefined || excludedProvider === 'aa')
   const excludesStandaloneAa = excludedProvider === 'aa'
@@ -176,6 +180,15 @@ export async function apply(ctx) {
           const message = script[requests.length]
           if (!refusal && !contentRefusal) assert.ok(message)
           requests.push(payload)
+          if (promptUpdate && requests.length === 2) {
+            const first = requests[0]
+            assert.deepEqual(payload.messages.slice(0, first.messages.length), first.messages)
+            assert.deepEqual(payload.tools, first.tools)
+            const systems = payload.messages.filter(row => row.role === 'system')
+            assert.equal(systems.length, 2)
+            assert.notEqual(systems[1].content, systems[0].content)
+            assert.ok(systems[1].content.includes(promptGuidance))
+          }
           if (contentRefusal) {
             assert.equal(payload.stream, true)
             response.writeHead(200, { 'content-type': 'text/event-stream' })
@@ -214,7 +227,8 @@ export async function apply(ctx) {
               assert.deepEqual(catalogResult.defaultSelectionConflict, defaultSelectionConflict)
             }
           }
-          response.writeHead(200, { 'content-type': 'text/event-stream' }); response.end(completion(message)); return
+          response.writeHead(200, { 'content-type': 'text/event-stream' })
+          response.end(completion(message, promptUpdate && requests.length === 2 ? 20 : 0)); return
         }
         response.writeHead(404); response.end()
       } catch (error) {
@@ -281,6 +295,14 @@ export async function apply(ctx) {
   await mounted.await()
   const service = ctx.get('museAccount')
   assert.ok(service instanceof account.MuseAccountService)
+  if (promptUpdate) {
+    ctx.systemPrompt.section({ name: 'snapshot:muse-cache-prefix', order: 400, text: () => guidance })
+    ctx.on('tools/post-execute', async (exec, result, next) => {
+      const downstream = await next()
+      if (!result.isError && exec.name === 'muse_selected_models') guidance = promptGuidance
+      return downstream
+    })
+  }
   ctx.on('agent/created', async () => {
     const attempt = await service.startBrowserLogin()
     assert.ok(!JSON.stringify(attempt).includes('s'.repeat(43)))
