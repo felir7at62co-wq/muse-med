@@ -1140,10 +1140,7 @@ function verifyResidentUiReplay(events: ReturnType<typeof parseSessionLog>, tool
   expect(hostOnlyCatalog, 'resident UI replay keeps a platform-neutral skill catalog').toBe(false)
 }
 
-async function workspaceBudgetExpected(
-  scenario: HeadlessScenario, actual: readonly JsonObject[], expected: JsonObject[], expectedLog: string, cwd: string,
-): Promise<JsonObject[]> {
-  if (actual.length !== expected.length) return expected
+async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: string, cwd: string) {
   const pin = pinOf(scenario)
   const promptOwner = scenarioByName.get(pin.manifest.header.systemPromptSource ?? pin.name)
   const schemaOwner = scenarioByName.get(pin.manifest.header.toolSchemasSource ?? pin.name)
@@ -1153,7 +1150,14 @@ async function workspaceBudgetExpected(
     readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'),
   ])
   const schemas = parseToolSchemasSnapshot(schemaText)
-  const input = { log: expectedLog, prompt, schemas: [schemas.initial, ...schemas.changes], cwd }
+  return { log: expectedLog, prompt, schemas: [schemas.initial, ...schemas.changes], cwd }
+}
+
+async function workspaceBudgetExpected(
+  scenario: HeadlessScenario, actual: readonly JsonObject[], expected: JsonObject[], expectedLog: string, cwd: string,
+): Promise<JsonObject[]> {
+  if (actual.length !== expected.length) return expected
+  const input = await workspaceBudgetInputs(scenario, expectedLog, cwd)
   const counts = deriveWorkingBudgetExpectations(input)
   const shadowed = deriveShadowedBudgetExpectations(input)
   const measured = new Map<number, unknown>()
@@ -1621,19 +1625,31 @@ describe('headless recorded-session snapshots', () => {
     const scenario = scenarioByName.get('muse-creation-source-id-recovery')
     if (scenario === undefined) throw new Error('Missing recorded budget owner')
     const log = await readFile(join(scenario.dir, 'writer.expected.jsonl'), 'utf8')
-    const expected = records(log)
+    const cwd = '/' + 'x'.repeat(75)
+    const inputs = await workspaceBudgetInputs(scenario, log, cwd)
+    const working = deriveWorkingBudgetExpectations(inputs)
+    const shadowed = deriveShadowedBudgetExpectations(inputs)
+    // Materialize this unit fixture for its cwd and current sidecars. The replay
+    // path independently checks the runtime's measured values against these inputs.
+    const expected = records(log).map((row, index) => {
+      const count = working.get(index) ?? shadowed.get(index)
+      if (count === undefined) return row
+      const field = working.has(index) ? 'workingContextTokens' : 'shadowedTokenCount'
+      return { ...row, data: { ...row.data as JsonObject, [field]: count } }
+    })
+    const retained = structuredClone(expected)
     const index = expected.findIndex(row => row.type === 'request/context'
       && typeof (row.data as JsonObject).workingContextTokens === 'number')
     const data = expected[index]?.data as JsonObject
     const estimate = data.workingContextTokens
     const limit = data.workingTokenLimit
     if (typeof estimate !== 'number' || typeof limit !== 'number') throw new Error('Missing recorded working estimate')
-    const cwd = '/' + 'x'.repeat(75)
     const changed = (value: unknown) => expected.map((row, offset) => offset === index ? { ...row, data: value } : row)
     const compare = (actual: JsonObject[]) => workspaceBudgetExpected(scenario, actual, expected, log, cwd)
     await expect(compare(changed({ ...data, workingContextTokens: estimate + 5 }))).rejects.toThrow(/exact working context estimate/)
     expect(await compare(expected)).toEqual(expected)
-    expect(expected).toEqual(records(log))
+    expect(expected).toEqual(retained)
+    expect(await readFile(join(scenario.dir, 'writer.expected.jsonl'), 'utf8')).toBe(log)
     await expect(compare(changed({ ...data, workingContextTokens: limit }))).rejects.toThrow(/exact working context estimate/)
     await expect(compare(changed({ ...data, workingContextTokens: limit + 1 }))).rejects.toThrow(/exact working context estimate/)
     expect(await compare([])).toEqual(expected)
