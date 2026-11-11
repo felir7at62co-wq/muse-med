@@ -1006,6 +1006,7 @@ describe('Node 24 lane ownership', () => {
       expect.arrayContaining([
         'apps/cli/tests/profiles/headless/tests/source-tool.built.e2e.ts',
         'apps/desktop/tests/acl-skill.built.e2e.ts',
+        'apps/desktop/tests/episode-code-asar.built.e2e.ts',
         'apps/desktop/tests/attention-audio.e2e.ts',
         'apps/desktop/tests/completion-notice.e2e.ts',
         'packages/subprocess/subprocess-local/tests/spawn-runner-built.e2e.ts',
