@@ -67,6 +67,16 @@ function requestFrom(value: unknown): JubianRequest {
   return { method, path: value.path, ...(value.body === undefined ? {} : { body: value.body }) }
 }
 
+/**
+ * Locate the private original-operation receipt for a stable key.
+ * @param ledger - Local write ledger that owns the receipt.
+ * @param key - Original operation key, unchanged from the submitted request.
+ * @returns The canonical receipt path; this helper creates no files.
+ */
+export function projectOperationReceiptPath(ledger: JubianLedger, key: string): string {
+  return join(ledger.root, 'operation-receipts', `${hash(key)}.json`)
+}
+
 function receiptFrom(value: unknown, input: Pick<ProjectOperationInput, 'key' | 'method' | 'scriptId' | 'intent'>): OperationReceipt {
   if (!object(value) || value.version !== 1 || value.key_hash !== hash(input.key) || value.method !== input.method
     || value.script_id !== (input.scriptId ?? null) || !object(value.intent)
@@ -146,7 +156,7 @@ export async function readProjectOperationReceipt(ledger: JubianLedger, supplied
     const upload = await readDocumentUploadReceipt(ledger, key)
     if (upload.found === true) return upload
   }
-  const path = join(ledger.root, 'operation-receipts', `${hash(key)}.json`)
+  const path = projectOperationReceiptPath(ledger, key)
   const saved = await savedValue(path)
   const record = await ledger.find(key)
   const base = { original_idempotency_key: key, receipt_path: path,
@@ -204,7 +214,7 @@ export async function projectOperation(client: JubianClient, ledger: JubianLedge
 async function performProjectOperation(client: JubianClient, ledger: JubianLedger,
   input: ProjectOperationInput, key: string, bindingPath?: string): Promise<ProjectOperationOutcome> {
   const directory = join(ledger.root, 'operation-receipts')
-  const path = join(directory, `${hash(key)}.json`)
+  const path = projectOperationReceiptPath(ledger, key)
   await mkdir(directory, { recursive: true, mode: 0o700 })
   return await withFileLock(path, async () => {
     const prior = await readReceipt(path, input)
