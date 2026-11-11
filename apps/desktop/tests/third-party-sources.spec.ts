@@ -30,7 +30,7 @@ it('retains pinned community source and licenses without tracking installed runt
     desktop?: boolean
   }>
   expect(Object.keys(pins).sort()).toEqual([
-    'ds-bot', 'dsh-bridge', 'dsh-codex-subscription', 'dsh-feishu', 'dsh-ffmpeg', 'dsh-im', 'dsh-plugin-subscriptions', 'dsh-skill-mcp-panel', 'dshmarket', 'muse-hongguo-search',
+    'deep-view', 'ds-bot', 'dsh-bridge', 'dsh-codex-subscription', 'dsh-feishu', 'dsh-ffmpeg', 'dsh-im', 'dsh-plugin-subscriptions', 'dsh-skill-mcp-panel', 'dsh-visualize', 'dshmarket', 'muse-hongguo-search',
   ])
   expect(pins['dsh-codex-subscription']?.desktop).toBe(false)
   expect(pins['dsh-plugin-subscriptions']?.desktop).not.toBe(false)
@@ -57,7 +57,13 @@ it('retains pinned community source and licenses without tracking installed runt
       cwd: repository,
       encoding: 'utf8',
     }), directory).toBe('')
-    if (directory !== 'dsh-bridge' && directory !== 'dsh-im') expect(await readdir(sourceDir), directory).not.toContain('lib')
+    if (!['dsh-bridge', 'dsh-im', 'dsh-visualize'].includes(directory)) expect(await readdir(sourceDir), directory).not.toContain('lib')
+    if (directory === 'dsh-visualize') {
+      const tracked = execFileSync('git', ['ls-files', '--', 'third_party/plugins/dsh-visualize/lib'], {
+        cwd: repository, encoding: 'utf8',
+      }).trim().split(/\r?\n/)
+      expect(tracked).toEqual(['client.js', 'index.d.ts', 'index.js'].map(file => `third_party/plugins/dsh-visualize/lib/${file}`))
+    }
     expect(await readdir(sourceDir), directory).not.toContain('.git')
   }
   expect((await readFile(join(root, 'dsh-codex-subscription', 'THIRD_PARTY_NOTICES.md'), 'utf8')))

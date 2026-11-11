@@ -174,11 +174,8 @@ jobs:
           } else {
             pnpm install --frozen-lockfile
           }
-      # No build before coverage, matching the Linux lane: workspace imports
-      # resolve to src through the tsconfig paths map, and the lib-consuming
-      # suites (webworker-packer image-loadable, webworker-runtime
-      # transform-corpus, client ui-trajectory client-bundle) self-skip on
-      # unbuilt checkouts.
+      # The coverage gate builds its required artifacts before starting readers,
+      # including compiled CLI loader smokes and the real Web scaffold tests.
       - name: Run Windows coverage
         shell: pwsh
         run: pnpm run check:ci:coverage
