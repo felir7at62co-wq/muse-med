@@ -3,12 +3,15 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { load } from 'js-yaml'
+import { AppInfo, Packager } from 'app-builder-lib'
+import { expandMacro } from 'app-builder-lib/out/util/macroExpander.js'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { resolveFiles } from 'electron-updater/out/providers/Provider.js'
 import { createMuseMirrorPlan, recordMuseUnsignedBuild } from '../scripts/muse-release-mirror.mjs'
 import { selectMacOSUpdateDiskImage } from '../src/macos-manual-updater.ts'
 import { verifyMacOSUpdateBytes } from '../src/macos-update-package.ts'
 import { desktopUpdateIdentity } from '../src/update-sources.ts'
+import { createElectronBuilderConfig } from '../scripts/electron-builder-config.mjs'
 import type { UpdateInfo } from 'electron-updater'
 
 vi.mock('electron', () => ({ shell: {} }))
@@ -42,6 +45,60 @@ async function fixture(version = '1.0.2') {
 }
 
 describe('Muse release mirror validation', () => {
+  it.each(['mac-arm64', 'win-x64'] as const)('records the actual unsigned packaging filenames for %s', async (target) => {
+    const mac = target === 'mac-arm64'
+    const platform = mac ? 'darwin' : 'win32'
+    const arch = mac ? 'arm64' : 'x64'
+    const config = createElectronBuilderConfig({
+      DSH_DESKTOP_APP_ID: 'com.example.muse', DSH_DESKTOP_UNSIGNED: '1',
+      DSH_DESKTOP_MANDATORY_UPDATE_CONFIG: 'false',
+    }, platform, arch)
+    const packager = new Packager({ projectDir: tmpdir() })
+    Object.defineProperties(packager, {
+      config: { value: config },
+      metadata: { value: config.extraMetadata },
+    })
+    const appInfo = new AppInfo(packager, undefined)
+    const directory = await mkdtemp(join(tmpdir(), 'muse-unsigned-packaging-'))
+    roots.push(directory)
+    expect(config.directories.output).toMatch(/unsigned-artifacts$/u)
+    const extensions = mac ? ['dmg', 'zip'] : ['exe']
+    const payloads = extensions.map(ext => expandMacro(config.artifactName, arch, appInfo, { os: mac ? 'mac' : 'win', ext }))
+    for (const filename of payloads) await writeFile(join(directory, filename), `verified ${filename}`)
+    const primary = payloads.at(-1)!
+    const bytes = await readFile(join(directory, primary))
+    const sha512 = createHash('sha512').update(bytes).digest('base64')
+    await writeFile(join(directory, `${primary}.blockmap`), 'verified blockmap')
+    const channel = config.publish[0].channel
+    const metadata = `${channel}${mac ? '-mac' : ''}.yml`
+    await writeFile(join(directory, metadata), JSON.stringify({ version: appInfo.version, path: primary, sha512,
+      files: [{ url: primary, size: bytes.length, sha512 }] }))
+    const record = await recordMuseUnsignedBuild({ target, version: appInfo.version, sourceCommit, artifactsRoot: directory })
+    const artifacts: Record<string, { size: number; sha256: string; sha512: string }> = {}
+    for (const filename of [...payloads, `${primary}.blockmap`, metadata]) {
+      const contents = await readFile(join(directory, filename))
+      artifacts[filename] = { size: contents.length, sha256: createHash('sha256').update(contents).digest('hex'),
+        sha512: createHash('sha512').update(contents).digest('base64') }
+    }
+    expect(record).toEqual({ schemaVersion: 1, target, version: appInfo.version, sourceCommit, unsigned: true,
+      artifacts })
+    const plan = await createMuseMirrorPlan({ version: appInfo.version, sourceCommit, targets: [target],
+      artifactDirectories: { [target]: directory } })
+    expect(plan.artifacts.map(file => file.filename)).toEqual([...payloads, `${primary}.blockmap`])
+    expect(plan.artifacts.map(file => file.path)).toEqual([...payloads, `${primary}.blockmap`].map(name => join(directory, name)))
+    expect(await readFile(join(directory, primary))).toEqual(bytes)
+  })
+
+  it('does not substitute a suffixed or unrelated installer for the exact Windows artifact', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'muse-unsigned-missing-'))
+    roots.push(directory)
+    await writeFile(join(directory, 'muse-med-1.0.2-win-x64-unsigned.exe'), 'old naming')
+    await writeFile(join(directory, 'unrelated.exe'), 'unrelated installer')
+    await expect(recordMuseUnsignedBuild({ target: 'win-x64', version: '1.0.2', sourceCommit, artifactsRoot: directory }))
+      .rejects.toMatchObject({ code: 'ENOENT', path: join(directory, 'muse-med-1.0.2-win-x64.exe') })
+    await expect(readFile(join(directory, 'unsigned-build.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('publishes only explicitly selected Windows files and leaves Mac feeds outside the plan', async () => {
     const f = await fixture()
     const plan = await createMuseMirrorPlan({ ...f, targets: ['win-x64'],
