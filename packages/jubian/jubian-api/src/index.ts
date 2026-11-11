@@ -3,6 +3,17 @@ export { REFERENCE_AUDIO_MAX_SECONDS, childAudioUrls, readReferenceAudio, refere
 export type { ReferenceAudio } from './audio.ts'
 export { MODEL_TASK_TYPES, readEpisodes, readModels, readScript, readScriptList, readStoryboardPage } from './catalog.ts'
 export type { ScriptRow } from './catalog.ts'
+export { buildManuscriptProjectCheckRequest, buildProjectCreateRequest, readCreatedProjectId,
+  readManuscriptProjectCheck, readProjectDetail } from './project.ts'
+export type { ProjectCreateInput, ProjectDetail, ProjectParsingPhase } from './project.ts'
+export { MANUSCRIPT_PRODUCER_TYPES, MANUSCRIPT_SCRIPT_FORMATS, MANUSCRIPT_TAG_CATEGORIES,
+  buildBindableManuscriptsRequest, buildManuscriptDetailRequest, buildManuscriptFileRequest,
+  buildManuscriptStartProduceRequest, buildManuscriptTagOptionsRequest,
+  buildManuscriptUploadRequest, readBindableManuscripts, readManuscriptDetail, readManuscriptFile,
+  readManuscriptTagOptions } from './manuscript.ts'
+export type { BindableManuscript, BindableManuscriptQuery, ManuscriptDetail, ManuscriptFileInfo,
+  ManuscriptOwner, ManuscriptTag, ManuscriptTagCategory, ManuscriptTagOptions,
+  ManuscriptUploadFile, ManuscriptUploadInput } from './manuscript.ts'
 export { readAssetList, readAssetPage, readGeneratedImage, readImageGeneration, readMaterialList } from './asset.ts'
 export type { ImageGeneration } from './asset.ts'
 export type { AssetDetail, AssetRow, MaterialRow } from './asset.ts'
@@ -24,7 +35,7 @@ export type { VideoUpscaleInput, PostProcessModel, PostProcessSelection } from '
 export { MEDIA_ALLOWED_ORIGINS, MEDIA_LIMITS, downloadMedia } from './download.ts'
 export type { DownloadMediaOptions, DownloadedMedia, MediaKind } from './download.ts'
 export { REFERENCE_ALIGNMENT, REFERENCE_OBJECT_PREFIX, alignReferenceEdge, alignedReferenceSize,
-  buildReferenceObjectKey, extractAppScriptUrl, extractTosUploadConfig, readReferenceImage,
+  buildDocumentObjectKey, buildReferenceObjectKey, extractAppScriptUrl, extractTosUploadConfig, readReferenceImage,
   referenceMaterialItem, signTosObjectPut } from './reference.ts'
 export type { ReferenceFormat, ReferenceImage, ReferenceMaterialItem, TosPutRequest, TosSignedPut,
   TosUploadConfig } from './reference.ts'

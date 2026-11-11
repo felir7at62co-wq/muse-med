@@ -13,6 +13,7 @@ export const CREATION_SKILL_NAMES: readonly string[] = [
   'audio-transcribe',
   'character-reference-library',
   'douyin-download',
+  'jubian-project-upload',
   'jubian-snatch',
   'media-link-import',
   'muse-dialogue-polish',

@@ -9,8 +9,8 @@
   en: 8578d3ecd3382486
   zh: 1c0e6cb4ba2ed637
 /tool-schema-catalog/tool-package-map:
-  en: 95cdb70b5661556c
-  zh: 1ea02b60dd7323af
+  en: 1eb5b2d9eb490c71
+  zh: 9b7b61e69b58ec43
 /tool-schema-catalog/deepseek-ai-dsh-muse-account:
   en: 08c09d3279885ad6
   zh: 08c09d3279885ad6
@@ -413,6 +413,9 @@
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-find:
   en: 6e586b3decf6be79
   zh: 6e586b3decf6be79
+/tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-manuscript:
+  en: 6e8b9b1aa7793685
+  zh: 6e8b9b1aa7793685
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-media:
   en: c44600d0c58ddc4a
   zh: c44600d0c58ddc4a
@@ -422,6 +425,9 @@
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-organize:
   en: 0c0aa0c004ff0890
   zh: 0c0aa0c004ff0890
+/tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-project:
+  en: e12f33dcc8f97577
+  zh: e12f33dcc8f97577
 /tool-schema-catalog/deepseek-ai-dsh-tool-jubian/jubian-snatch:
   en: ef79792a93ef7942
   zh: ef79792a93ef7942

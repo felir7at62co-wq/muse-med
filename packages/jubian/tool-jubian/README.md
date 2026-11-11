@@ -31,6 +31,14 @@ Muse-owned batch packaging consumes the exported `productionRows`, `readProducti
 <a id="use-this-package"></a>
 ## Use this package
 
+### Upload a screenplay and create a project
+
+`jubian_manuscript` reads current registration options and manuscript identities, uploads an unchanged local DOC/DOCX/UTF-8 TXT object, registers Word screenplay/source files, and creates a bound manual project through `start_produce`. `jubian_project` creates or reads manual projects and looks up original operation receipts. Copyright, source files, team and project settings must be supplied explicitly. Upload, registration and project creation are separate outcomes; a project readback must confirm the exact ID and manuscript binding. `start_produce` already creates the project, so do not also call `create` for the same request. These operations do not start AI parsing or video generation.
+
+Content-project creation checks the provider for an existing manuscript/workbench association. Within the same ledger, both creation entries share a persistent association lock: a submitted attempt blocks a different key even when its outcome is unknown. This protection does not coordinate separate ledger roots or computers.
+
+Every upload, registration and creation uses a stable `idempotency_key` and a durable business receipt. Unknown results retain that key for `jubian_project operation`; replay never resubmits the original write. A replayed upload identifies the original file hash rather than a later local revision. `documentUploadMaxBytes` limits the local document read to 33554432 bytes by default. `documentUploadTimeoutMs` defaults to 120000 milliseconds for destination discovery and transfer; stopping the tool cancels its network requests and retains an unknown submitted upload for reconciliation. Manuscript registration accepts Word even though object upload also supports TXT. The [project-upload skill](../../drama/skills/skills/jubian-project-upload/SKILL.md) describes the account and file workflow.
+
 Mount the row in any preset that needs to read or change a Jubian production, then give the model a task; the tools state their effects in their descriptions.
 
 ### When to choose it

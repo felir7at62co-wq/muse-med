@@ -4955,7 +4955,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:95`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:97`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
@@ -4993,6 +4993,10 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
   characterReferenceQaAuthorizationDataRoot?: string
   /** Origin override; defaults to the client's own default base URL. */
   baseUrl?: string
+  /** Maximum bytes read for a local screenplay document upload; positive integer, default 33554432. */
+  documentUploadMaxBytes?: number
+  /** Total document-upload timeout including destination discovery; positive integer milliseconds, default 120000. */
+  documentUploadTimeoutMs?: number
   /** Per-call abort budget in milliseconds. */
   timeoutMs?: number
   /** Watch polling interval in milliseconds; integer 1..60000, default 15000. */

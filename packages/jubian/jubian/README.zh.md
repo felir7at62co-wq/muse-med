@@ -27,6 +27,8 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用本包
 
+写入账本还保留 `document_upload`、`manuscript_register` 与 `project_create` 意图，供原 key 对账。这些操作不产生生成费用；业务回执仍由剧变工具包管理。
+
 当你的代码必须直接与剧变通信时导入本库。它是一条依赖，而不是一条组合行：它不注册任何 Cordis 服务、工具、提示词段落或会话事件，因此没有任何 `cordis.yml` 行挂载它，模型能看到的一切都属于 `@deepseek-ai/dsh-tool-jubian`。
 
 ### 何时选择本包
