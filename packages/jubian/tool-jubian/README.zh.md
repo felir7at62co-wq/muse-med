@@ -39,6 +39,17 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 
 每次上传、登记和创建均使用稳定的 `idempotency_key` 与持久业务回执。结果未知时保留原 key，通过 `jubian_project operation` 查询；回放不会重复提交原写入。上传回放标识原文件哈希，不表示后续本地修订也已上传。`documentUploadMaxBytes` 默认将本地文档读取限制为 33554432 字节。`documentUploadTimeoutMs` 默认将目标发现与传输限制为 120000 毫秒；停止工具会取消网络请求，并保留已提交但结果未知的上传供对账。对象上传支持 TXT，但稿件登记接受 Word。[项目上传 Skill](../../drama/skills/skills/jubian-project-upload/SKILL.md) 说明账号与文件流程。
 
+<a id="share-an-existing-project"></a>
+### 分享已有项目
+
+`jubian_project share_targets` 读取可选用户与部门，姓名不能代替精确接收人 ID。`shares` 读取提供方可见的项目分享记录。`share_preview` 冻结选定项目、操作者、接收人、当前分享与请求。用户确认具体接收人与目标后，`share_apply` 要求原预览 ID、指纹、`confirm: true` 和稳定的 `idempotency_key`。账号、目录身份或分享基线改变时停止提交。一次请求链固定凭证快照，不在预览或结果中保存 token。
+
+分享目标 1 是漫剧视频、2 是无限画布，不代表只读或编辑权限。工具不创建公开链接。已有接收人类型混合、其他目标、无法读取的记录和不完整清单会阻止提交。请求受理和回读核实分别报告：只有看到指定接收人及保留的可见记录时，才报告已核实。结果未知保留原 key 供 `operation` 查询，并阻止对该未解决项目操作换本地 key 再发。
+
+提供方可见清单不是全局访问权限审计。本地锁不协调其他电脑，提供方未提供条件写入保证。离线夹具验证已观察到的官方前端请求；真实账号分享、不可见授权的保留与接收人访问仍须在目标账号实际验证。工具不删除已有分享，不自动重试提交。
+
+`projectSharePageSize`（100，范围 1–1000）和 `projectSharePageLimit`（20，范围 1–100）限制单次项目或分享清单扫描。`projectShareMaxDirectoryItems`（10000，范围 1–100000）限制接收人解析，`projectShareMaxPreviewBytes`（2097152，范围 1024–33554432）限制冻结预览，`projectShareMaxResultChars`（24000，范围 2048–1000000）限制查询结果。达到限制不能形成可安全提交的基线。
+
 在需要读取或改变剧变制作的任意 preset 里挂载这一行，然后把任务交给模型；工具会在描述中说明各自的副作用。
 
 ### 何时选择

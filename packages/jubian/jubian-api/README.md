@@ -30,6 +30,8 @@ Manuscript readers and builders cover current tag options, bindable manuscripts,
 
 Import the library from any package that already holds a Jubian response envelope. The common path is two calls: send the request once, then hand the envelope's `data` to the reader for that endpoint.
 
+Project-sharing readers validate provider-visible pages, selectable users and the department tree. Lazy or invalid department nodes and inconsistent totals are refused. Sharing builders preserve the exact project row while assigning the explicit project, recipient and target fields. Target codes distinguish drama video from infinite canvas; they do not define access levels. These pure helpers do not establish authorization, sharing retention semantics or recipient access; the [tool package](../tool-jubian/README.md#share-an-existing-project) owns previews and reconciliation.
+
 ### When to choose it
 
 Choose this library when you read or submit Jubian business data and you do not want to re-derive the provider's wire shape. It is a dependency, not a composition row: it registers no Cordis service, tool, prompt section, or session event, so nothing mounts it and no `cordis.yml` entry exists for it. Reach for it from a plugin or a test that owns the transport itself. Reach for `@deepseek-ai/dsh-tool-jubian` instead when a model should call Jubian through tools.

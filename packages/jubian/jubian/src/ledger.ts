@@ -19,6 +19,7 @@ export type JubianLedgerMethod =
   | 'document_upload'
   | 'manuscript_register'
   | 'project_create'
+  | 'project_share'
   | 'pool_claim'
   | 'image_generate'
   | 'asset_register'

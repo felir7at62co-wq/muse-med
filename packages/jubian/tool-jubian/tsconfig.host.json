@@ -10,6 +10,7 @@
     "src/document-upload.ts",
     "src/manuscript.ts",
     "src/project.ts",
+    "src/project-share.ts",
     "src/project-operation.ts",
     "src/budget-settings.ts",
     "src/budget.ts",

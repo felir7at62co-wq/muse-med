@@ -257,7 +257,7 @@
           muse_production: [制作任务, 制作编排, 资产生成, 生成成本, 制作进度]
           jubian_catalog: [剧变模型, 模型报价, 剧本目录, 分集列表]
           jubian_manuscript: [上传剧本, 上传稿件, 登记剧本, 稿件登记, 剧本导入, 绑定稿件]
-          jubian_project: [创建项目, 新建项目, 剧变项目, 项目创建, 项目回执]
+          jubian_project: [创建项目, 新建项目, 剧变项目, 项目创建, 项目回执, 分享项目, 项目分享, 分享给用户, 分享给部门]
           jubian_find: [查找剧本, 剧变剧本, 我的项目, 可认领剧本]
           jubian_organize: [整理成片, 整理素材, 整理项目文件]
           drama_character_reference_project: [角色参考项目, 人物参考项目, 角色资产规划]

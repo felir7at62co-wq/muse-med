@@ -4955,7 +4955,7 @@ export type CompletionDelivery = 'quiet' | 'wakeup'
 ## `@deepseek-ai/dsh-tool-jubian`
 
 - `inject`: `tools` · `credentials`
-- `source`: [`packages/jubian/tool-jubian/src/index.ts:97`](../packages/jubian/tool-jubian/src/index.ts)
+- `source`: [`packages/jubian/tool-jubian/src/index.ts:98`](../packages/jubian/tool-jubian/src/index.ts)
 
 ```ts config-catalog
 /** Where the tool row keeps its ledger and which origin it calls. */
@@ -4997,6 +4997,16 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
   documentUploadMaxBytes?: number
   /** Total document-upload timeout including destination discovery; positive integer milliseconds, default 120000. */
   documentUploadTimeoutMs?: number
+  /** Rows per project/share inventory page; integer 1..1000, default 100. */
+  projectSharePageSize?: number
+  /** Maximum pages per project/share inventory; integer 1..100, default 20. */
+  projectSharePageLimit?: number
+  /** Maximum selectable directory entries; integer 1..100000, default 10000. */
+  projectShareMaxDirectoryItems?: number
+  /** Maximum bytes in a frozen share preview; integer 1024..33554432, default 2097152. */
+  projectShareMaxPreviewBytes?: number
+  /** Maximum JSON characters returned for share queries; integer 2048..1000000, default 24000. */
+  projectShareMaxResultChars?: number
   /** Per-call abort budget in milliseconds. */
   timeoutMs?: number
   /** Watch polling interval in milliseconds; integer 1..60000, default 15000. */

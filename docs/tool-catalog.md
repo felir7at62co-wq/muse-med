@@ -5105,7 +5105,7 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 
 ### `jubian_project`
 
-创建与查询剧变项目。create 创建手动项目；get 读取项目身份及稿件绑定；operation 仅凭原 key 查询原业务回执和项目 ID。内容项目必须绑定真实 manuscript_id；前贴素材须明确选择 produce_type=2。创建不自动解析或生成；上传稿件后也可用 jubian_manuscript.start_produce 直接创建绑定项目，不重复建同一项目。
+创建、查询与分享剧变项目。create 创建手动项目；get 读取项目身份及稿件绑定；operation 用原 key 查询原业务回执。share_targets 查询真实用户/部门，shares 查询提供方可见分享，share_preview 冻结具体接收人与保留对象，share_apply 在用户确认后提交原预览并回读。分享不创建公开链接；目标类型不是读写权限；复杂/不完整既有分享停止提交。内容项目绑定真实 manuscript_id；start_produce 本身创建绑定项目，不重复 create。所有写入保留原 key，未知不换 key 重发；创建不自动解析或生成。
 
 ```json
 {
@@ -5116,7 +5116,11 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
       "enum": [
         "operation",
         "get",
-        "create"
+        "create",
+        "share_targets",
+        "shares",
+        "share_preview",
+        "share_apply"
       ]
     },
     "script_id": {
@@ -5163,6 +5167,49 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
       "type": "object",
       "description": "已选择的项目设置；保留真实目录中的模型参数，不自动发起生成。",
       "additionalProperties": true
+    },
+    "share_type": {
+      "type": "integer",
+      "description": "分享接收人类型：1=部门，2=用户；每次预览只选一类。",
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "share_target_type": {
+      "type": "integer",
+      "description": "分享项目目标：1=漫剧视频，2=无限画布；不是只读或编辑权限。",
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "user_ids": {
+      "type": "array",
+      "description": "从 share_targets 取得并由用户选定的接收人 ID，不按姓名猜测。",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "department_id": {
+      "type": "integer",
+      "description": "从 share_targets 取得的单个明确部门 ID；不得猜全员部门。"
+    },
+    "query": {
+      "type": "string",
+      "description": "share_targets 的用户或部门名称筛选；同名保留各自 ID。"
+    },
+    "preview_id": {
+      "type": "string",
+      "description": "share_preview 返回的原预览 ID。"
+    },
+    "preview_fingerprint": {
+      "type": "string",
+      "description": "share_preview 返回的原预览指纹，不自行构造。"
+    },
+    "confirm": {
+      "type": "boolean",
+      "description": "share_apply 必须在用户确认具体项目、接收人与分享范围后设为 true。"
     },
     "idempotency_key": {
       "type": "string",

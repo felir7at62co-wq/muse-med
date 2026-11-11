@@ -54,3 +54,8 @@ export type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeEpisodeSc
   NativeVideoPreview, SeedanceVideoModel, SubjectIdentityItem } from './native.ts'
 export { encodeVoiceSlot, readVoiceSlot } from './voice-slot.ts'
 export type { VoiceSlotIdentity } from './voice-slot.ts'
+export { buildProjectShareBatchRequest, buildProjectShareDepartmentsRequest, buildProjectShareListRequest,
+  buildProjectSharePageRequest, buildProjectShareUsersRequest, readProjectShareDepartments, readProjectShareList,
+  readProjectSharePage, readProjectShareUsers } from './project-share.ts'
+export type { ProjectShareBatchInput, ProjectShareDepartment, ProjectSharePage, ProjectShareRecord,
+  ProjectShareTargetType, ProjectShareType, ProjectShareUser } from './project-share.ts'

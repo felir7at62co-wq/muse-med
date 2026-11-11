@@ -247,6 +247,16 @@ export class JubianClient {
   }
 
   /**
+   * Resolve the current credential once for one operation's related requests.
+   * @returns A client with the same origin, transport and limits whose credential remains private in a closure.
+   */
+  async snapshotCredential(): Promise<JubianClient> {
+    const token = await this.resolveToken()
+    return new JubianClient({ credential: () => Promise.resolve(token), baseUrl: this.baseUrl,
+      timeoutMs: this.timeoutMs, maxResponseBytes: this.maximum, fetch: this.transport })
+  }
+
+  /**
    * Send one request and return its envelope `data`.
    * @param request - Method, path, optional body and cancellation.
    * @returns Transport evidence, the response hash, the envelope layout and the envelope's data.
