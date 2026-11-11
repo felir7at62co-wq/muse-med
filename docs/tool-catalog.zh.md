@@ -59,7 +59,7 @@
 | `@deepseek-ai/dsh-tool-workflow` | `workflow` | `ctx.tools`、`ctx.workflowEngine`、`ctx.systemPrompt`、`a calling Agent (exec.agent parents the script children)` | `tool/call`、`tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-workspace-dependencies` | `load_workspace_dependencies` | `ctx.tools` | `tool/call`, `tool/result` | - | - |
 | `@deepseek-ai/dsh-tool-web` | `web_fetch`、`web_search` | `ctx.tools`、`ctx.web`、`ctx.systemPrompt` | `tool/call`、`tool/result` | - | web_search 和 web_fetch 将提供方选择置于 ctx.web 之后，使模型可见 schema 在更换后端时保持稳定。 |
-| `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`, `jubian_budget`, `jubian_catalog`, `jubian_character_reference_authorize`, `jubian_claim`, `jubian_find`, `jubian_media`, `jubian_model`, `jubian_organize`, `jubian_snatch`, `jubian_storyboard`, `jubian_video`, `jubian_video_model`, `jubian_video_review`, `jubian_watch` | `ctx.tools`, `ctx.credentials`, `ctx.jobs for jubian_snatch`, `ctx.subprocess and ctx.workingDirectory for fixed recovery` | `tool/call`, `tool/result`, `Jubian two-phase write ledger (NDJSON record pairs under its configured root)` | - 固定 `videoRecovery` 可启用 `jubian_video_review`；approve/reject 要求当前项目与用户最新完整命令。Settings 模式使用独立认证方法，不能同时启用固定模式。 | Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_video_model` is available when sessionVideoSelection is enabled; it records a configured initial specification or explicit user video choices without changing project defaults. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job. |
+| `@deepseek-ai/dsh-tool-jubian` | `jubian_asset`, `jubian_budget`, `jubian_catalog`, `jubian_character_reference_authorize`, `jubian_claim`, `jubian_find`, `jubian_manuscript`, `jubian_media`, `jubian_model`, `jubian_organize`, `jubian_project`, `jubian_snatch`, `jubian_storyboard`, `jubian_video`, `jubian_video_model`, `jubian_video_review`, `jubian_watch` | `ctx.tools`, `ctx.credentials`, `ctx.jobs for jubian_snatch`, `ctx.subprocess and ctx.workingDirectory for fixed recovery` | `tool/call`, `tool/result`, `Jubian two-phase write ledger (NDJSON record pairs under its configured root)` | - 固定 `videoRecovery` 可启用 `jubian_video_review`；approve/reject 要求当前项目与用户最新完整命令。Settings 模式使用独立认证方法，不能同时启用固定模式。 | Every paid write (image_generate, image_generate_batch, generate, submit_video, submit_video_batch, erase_subtitle, upscale) requires a caller-supplied idempotency_key (one per batch item) and records each intent in the ledger before its request leaves; image_generate_batch validates all local items before any request and runs the individually budgeted image writes at configured bounded concurrency; submit_video_batch verifies all previews and reserves the whole budget before bounded parallel storyboard submissions; erase_subtitle and upscale are asynchronous and return as soon as the provider accepts the task, so a caller re-reads `subtasks` instead of waiting on the call. `jubian_video_model` is available when sessionVideoSelection is enabled; it records a configured initial specification or explicit user video choices without changing project defaults. `jubian_claim` inspects or claims one explicitly authorized pool ID; `jubian_snatch` watches an explicitly authorized bounded pool scope through a background job. |
 | `@deepseek-ai/dsh-drama-settings` | `drama_draft_dir`、`drama_project` | `ctx.tools`、`ctx.settings`、已存在的绝对项目目录 | `tool/call`、`tool/result`、`project_config.json` 与 `project-bible.md`、剪映草稿根目录的 Settings 值 | - | drama_project 维护权威 JSON、受版本检查保护的修订、视频包身份与已完成任务历史。生成尺寸与交付尺寸分别记录；初始预算是 Settings 快照，实际计费请求执行当前 Settings 与账号账本授权。drama_draft_dir 读取，或验证并保存已配置的剪映草稿根目录。 |
 | `@deepseek-ai/dsh-tool-shot-script` | `drama_shot`, `muse_production` | `ctx.tools`、源脚本；preview/compile 需资产清单；compile 需项目目录与集号；启用 sessionVideoSelection 时需会话视频选择与投影 | `tool/call`、`tool/result`、compile 时严格模式写正式单集产物，提示模式只写 `shot_reviews/<episode>/shot_script.txt` 与 `review.json`、`muse_production：本地方案和回执；apply 只免费原生写卡并回读，绝不提交付费生成` | - | 三个方法共用同一 schema，报告包含 `review_mode`。`validate` 与 `preview` 只读。包默认采用严格模式，内容检查失败会阻止正式编译。Muse 采用提示模式：内容问题保留为警告，原始提示词与时长不变，`compile` 只保存独立检查草稿。启用 sessionVideoSelection 时，`duration_budget` 标明实际会话模型及上限，过时的 max_submit_seconds 参数会被忽略。上限未知时返回警告，不猜测分包。模型变化时，将最近已记录分包时长的有长度限制的提示型复核追加到普通上下文，不改写脚本、视频卡或系统提示词。提示模式的 `ok` 表示检查已执行完成，不代表单集已通过创作或付费生成验收。输入与文件系统错误仍会失败。 Muse 启用 muse_production，提供本地单集分包、逐镜资产候选、增量选择及免费批量写卡；内容问题只作提示，原稿或卡片变化时保留用户修改并要求刷新方案。声线缺口返回现有共享样本处理流程。 |
 | `@deepseek-ai/dsh-perception-bgm` | `bgm_match` | `ctx.tools`、本地曲目索引或配置的公开目录；仅 index/inspect 需要 Python 和模型资源 | `tool/call`、`tool/result`、index 写本地情绪索引；download 在配置的缓存中写入经校验的音频 | - | `match` 排序候选，不代替选曲；公开库模式返回 ID 与 URL，不自动下载。`download` 接受选定的目录曲目 ID，返回经校验的本地文件。默认使用本地索引；公开库匹配需由部署配置。`index` 和 `inspect` 仅在执行时启动 Python，收集 schema 时不会启动。MERT 分析骨干仅限非商业用途（CC-BY-NC-4.0）；音频权利须另行确认。 |
@@ -4699,6 +4699,236 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
 
 Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
 
+### `jubian_manuscript`
+
+剧变项目制作接入：上传 Word/TXT 对象、登记已有 Word 稿件、由已登记稿件创建手动制作项目。options/get/file/bindable 读取所需表单选项和精确稿件身份。上传对象不等于登记稿件；稿件 ID 不等于制作项目 ID。版权、来源和团队按实际信息填写。上传、登记、创建均需原 idempotency_key，结果未知时用 jubian_project.operation 查询原回执，不换 key 重发；受理与回读核实分别报告。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "enum": [
+        "options",
+        "bindable",
+        "get",
+        "file",
+        "upload_document",
+        "register",
+        "start_produce"
+      ]
+    },
+    "manuscript_id": {
+      "type": "integer",
+      "description": "已存在的稿件 ID，用于 get/file/start_produce；与项目 script_id 不同。"
+    },
+    "name": {
+      "type": "string",
+      "description": "bindable 的名称检索。"
+    },
+    "page_num": {
+      "type": "number",
+      "description": "页码，默认 1。"
+    },
+    "page_size": {
+      "type": "number",
+      "description": "每页条数，默认 20，上限 1000。"
+    },
+    "owner": {
+      "type": "string",
+      "description": "register 必填：选择账号实际使用的生产侧或编辑侧已有稿件入口。",
+      "enum": [
+        "produce",
+        "editor"
+      ]
+    },
+    "document_path": {
+      "type": "string",
+      "description": "upload_document 必填，同时提供 idempotency_key：本地 DOC/DOCX/UTF-8 TXT 绝对路径；返回 URL、object_key 和文件哈希。稿件登记只接受 Word。"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "register 的真实稿件信息。先 options 读取当前标签。两份 Word 分别是剧本稿和原文文件，不自动将同一文件冒充原文。",
+      "additionalProperties": false,
+      "properties": {
+        "scriptName": {
+          "type": "string"
+        },
+        "scriptFormat": {
+          "type": "integer",
+          "enum": [
+            1,
+            2,
+            3,
+            4
+          ]
+        },
+        "creationType": {
+          "type": "integer",
+          "description": "当前 creationType 标签 ID。"
+        },
+        "sourceScriptName": {
+          "type": "string",
+          "description": "迭代/换梗所依据的原本名称。"
+        },
+        "producerType": {
+          "type": "integer",
+          "description": "真实制作团队，当前选项见 options。",
+          "enum": [
+            1,
+            2
+          ]
+        },
+        "episodeCount": {
+          "type": "integer"
+        },
+        "genreTagIds": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "eraTagId": {
+          "type": "integer"
+        },
+        "audienceTagId": {
+          "type": "integer"
+        },
+        "hasCopyright": {
+          "type": "string",
+          "description": "用户实际提供的版权声明；不因上传就推断有版权。",
+          "enum": [
+            "0",
+            "1"
+          ]
+        },
+        "copyrightOwner": {
+          "type": "string"
+        },
+        "assignLeaderId": {
+          "type": "integer"
+        },
+        "manuscriptFile": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "objectKey": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "url",
+            "objectKey"
+          ]
+        },
+        "originalFile": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            },
+            "objectKey": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "url",
+            "objectKey"
+          ]
+        }
+      },
+      "required": [
+        "scriptName",
+        "scriptFormat",
+        "creationType",
+        "producerType",
+        "episodeCount",
+        "genreTagIds",
+        "eraTagId",
+        "audienceTagId",
+        "hasCopyright",
+        "manuscriptFile",
+        "originalFile"
+      ]
+    },
+    "project": {
+      "type": "object",
+      "description": "start_produce 的手动项目表单；内外 manuscriptId 必须一致。",
+      "additionalProperties": false,
+      "properties": {
+        "scriptName": {
+          "type": "string"
+        },
+        "createType": {
+          "type": "integer",
+          "enum": [
+            1
+          ]
+        },
+        "productionType": {
+          "type": "integer",
+          "enum": [
+            0,
+            1
+          ]
+        },
+        "produceType": {
+          "type": "integer",
+          "enum": [
+            1
+          ]
+        },
+        "manuscriptId": {
+          "type": "integer"
+        },
+        "scriptStyle": {
+          "type": "integer"
+        },
+        "episodeCount": {
+          "type": "integer"
+        },
+        "storyboardCountPerEpisode": {
+          "type": "integer"
+        },
+        "globalConfig": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "scriptName",
+        "createType",
+        "productionType",
+        "produceType",
+        "manuscriptId"
+      ]
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。"
+    }
+  },
+  "required": [
+    "method"
+  ]
+}
+```
+
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+
 ### `jubian_media`
 
 把剧变（Jubian）CDN 上的媒体下载到本地文件，返回本地路径、字节数与 sha256。不产生费用、不需要凭证（该 CDN 是公开的）。下载后请用你自己的看图工具（如 read_image）或抽帧工具读取该路径——本工具不会把图片或视频内容放进返回值。
@@ -4875,6 +5105,80 @@ Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jub
     "method",
     "script_id",
     "project_dir"
+  ]
+}
+```
+
+Source: [`packages/jubian/tool-jubian/src/index.ts`](../packages/jubian/tool-jubian/src/index.ts)
+
+### `jubian_project`
+
+创建与查询剧变项目。create 创建手动项目；get 读取项目身份及稿件绑定；operation 仅凭原 key 查询原业务回执和项目 ID。内容项目必须绑定真实 manuscript_id；前贴素材须明确选择 produce_type=2。创建不自动解析或生成；上传稿件后也可用 jubian_manuscript.start_produce 直接创建绑定项目，不重复建同一项目。
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "method": {
+      "type": "string",
+      "enum": [
+        "operation",
+        "get",
+        "create"
+      ]
+    },
+    "script_id": {
+      "type": "number",
+      "description": "剧变项目 ID（scriptId）。erase_subtitle 与 upscale 从任务行读取它，不必单独提供；其余方法按上面的必填说明传入。"
+    },
+    "manuscript_id": {
+      "type": "integer",
+      "description": "内容项目绑定的剧变稿件 ID；与项目 script_id 不同。"
+    },
+    "script_name": {
+      "type": "string",
+      "description": "create 使用的项目名称。"
+    },
+    "production_type": {
+      "type": "integer",
+      "description": "create 必填：0=分镜工作台，1=画布工作台。",
+      "enum": [
+        0,
+        1
+      ]
+    },
+    "produce_type": {
+      "type": "integer",
+      "description": "create 必填：1=剧本内容（必填 manuscript_id），2=前贴素材；按用户实际用途选择。",
+      "enum": [
+        1,
+        2
+      ]
+    },
+    "script_style": {
+      "type": "integer",
+      "description": "分镜工作台 create 必填：使用剧变的风格代码。"
+    },
+    "episode_count": {
+      "type": "integer",
+      "description": "分镜工作台 create 必填：项目集数。"
+    },
+    "storyboard_count_per_episode": {
+      "type": "integer",
+      "description": "分镜工作台 create 必填：每集初始分镜数。"
+    },
+    "global_config": {
+      "type": "object",
+      "description": "已选择的项目设置；保留真实目录中的模型参数，不自动发起生成。",
+      "additionalProperties": true
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "写方法必填；读方法忽略。写方法必须提供 idempotency_key（批量方法在每个项目里提供）：同一请求的同一个 key 不会重复发送，重复调用会返回既有记录（replayed=true）；不同请求不能复用 key。超时或结果未知时不要换 key 重试——先用同一个 key 再调一次。"
+    }
+  },
+  "required": [
+    "method"
   ]
 }
 ```

@@ -37,6 +37,8 @@ import { budgetApproval, budgetCents, JubianBudgets } from './budget.ts'
 import { assertNewNativeDispatchAllowed, resolveGenerateMethod, resolvePreviewPath, validateProjectBinding } from './native.ts'
 import { assetMethod, catalogMethod, mediaMethod, resolveImageBatchOptions, resolveStoryboardBatchOptions, storyboardMethod, videoMethod } from './methods.ts'
 import type { ImageMethodOptions, MethodArgs } from './methods.ts'
+import { manuscriptMethod, type ManuscriptArgs } from './manuscript.ts'
+import { projectMethod, type ProjectArgs } from './project.ts'
 import { findMethod } from './find.ts'
 import type { FindArgs } from './find.ts'
 import { claimMethod, claimWatchArgs, claimWatchJob, resolveClaimWatchConfig } from './claim.ts'
@@ -126,6 +128,10 @@ export interface Config extends ImageRouteConfig, VideoRecoveryConfig, EpisodeDe
   characterReferenceQaAuthorizationDataRoot?: string
   /** Origin override; defaults to the client's own default base URL. */
   baseUrl?: string
+  /** Maximum bytes read for a local screenplay document upload; positive integer, default 33554432. */
+  documentUploadMaxBytes?: number
+  /** Total document-upload timeout including destination discovery; positive integer milliseconds, default 120000. */
+  documentUploadTimeoutMs?: number
   /** Per-call abort budget in milliseconds. */
   timeoutMs?: number
   /** Watch polling interval in milliseconds; integer 1..60000, default 15000. */
@@ -604,6 +610,15 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     || new Set(config.imageAllowedStandardIds).size !== config.imageAllowedStandardIds.length)) {
     throw new Error('imageAllowedStandardIds must contain distinct positive catalogue row IDs')
   }
+  const documentUploadOptions = { maxBytes: config.documentUploadMaxBytes ?? 32 * 1024 * 1024,
+    timeoutMs: config.documentUploadTimeoutMs ?? 120000 }
+  if (!Number.isSafeInteger(documentUploadOptions.maxBytes) || documentUploadOptions.maxBytes < 1) {
+    throw new Error('documentUploadMaxBytes must be a positive safe integer')
+  }
+  if (!Number.isSafeInteger(documentUploadOptions.timeoutMs) || documentUploadOptions.timeoutMs < 1
+    || documentUploadOptions.timeoutMs > 2147483647) {
+    throw new Error('documentUploadTimeoutMs must be a positive integer within 1..2147483647')
+  }
   const watchConfig = resolveWatchConfig(config)
   const recovery = resolveVideoRecovery(config, watchConfig.watchTimeoutMs, process.env.DSH_FFMPEG_PATH)
   const episodeDelivery = resolveEpisodeDelivery(config)
@@ -792,6 +807,70 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
     ...(config.imageActiveTimeoutMs === undefined ? {} : { activeTimeoutMs: config.imageActiveTimeoutMs }),
     ...(config.imageActivePollMs === undefined ? {} : { pollIntervalMs: config.imageActivePollMs }),
   })
+
+  ctx.effect(() => registerJubianTool(defineTool({
+    name: 'jubian_manuscript',
+    description: '剧变项目制作接入：上传 Word/TXT 对象、登记已有 Word 稿件、由已登记稿件创建手动制作项目。options/get/file/bindable 读取所需表单选项和精确稿件身份。上传对象不等于登记稿件；稿件 ID 不等于制作项目 ID。版权、来源和团队按实际信息填写。上传、登记、创建均需原 idempotency_key，结果未知时用 jubian_project.operation 查询原回执，不换 key 重发；受理与回读核实分别报告。',
+    parameters: {
+      method: { type: 'string', required: true,
+        enum: ['options', 'bindable', 'get', 'file', 'upload_document', 'register', 'start_produce'] },
+      manuscript_id: { type: 'integer', description: '已存在的稿件 ID，用于 get/file/start_produce；与项目 script_id 不同。' },
+      name: { type: 'string', description: 'bindable 的名称检索。' },
+      page_num: ARGS.page_num, page_size: ARGS.page_size,
+      owner: { type: 'string', enum: ['produce', 'editor'], description: 'register 必填：选择账号实际使用的生产侧或编辑侧已有稿件入口。' },
+      document_path: { type: 'string', description: 'upload_document 必填，同时提供 idempotency_key：本地 DOC/DOCX/UTF-8 TXT 绝对路径；返回 URL、object_key 和文件哈希。稿件登记只接受 Word。' },
+      metadata: { type: 'object', additionalProperties: false,
+        description: 'register 的真实稿件信息。先 options 读取当前标签。两份 Word 分别是剧本稿和原文文件，不自动将同一文件冒充原文。',
+        properties: {
+          scriptName: { type: 'string', required: true },
+          scriptFormat: { type: 'integer', required: true, enum: [1, 2, 3, 4] },
+          creationType: { type: 'integer', required: true, description: '当前 creationType 标签 ID。' },
+          sourceScriptName: { type: 'string', description: '迭代/换梗所依据的原本名称。' },
+          producerType: { type: 'integer', required: true, enum: [1, 2], description: '真实制作团队，当前选项见 options。' },
+          episodeCount: { type: 'integer', required: true },
+          genreTagIds: { type: 'array', required: true, items: { type: 'integer' } },
+          eraTagId: { type: 'integer', required: true }, audienceTagId: { type: 'integer', required: true },
+          hasCopyright: { type: 'string', required: true, enum: ['0', '1'], description: '用户实际提供的版权声明；不因上传就推断有版权。' },
+          copyrightOwner: { type: 'string' }, assignLeaderId: { type: 'integer' },
+          manuscriptFile: { type: 'object', required: true, additionalProperties: false,
+            properties: { name: { type: 'string', required: true }, url: { type: 'string', required: true },
+              objectKey: { type: 'string', required: true } } },
+          originalFile: { type: 'object', required: true, additionalProperties: false,
+            properties: { name: { type: 'string', required: true }, url: { type: 'string', required: true },
+              objectKey: { type: 'string', required: true } } },
+        } },
+      project: { type: 'object', additionalProperties: false, description: 'start_produce 的手动项目表单；内外 manuscriptId 必须一致。',
+        properties: { scriptName: { type: 'string', required: true }, createType: { type: 'integer', required: true, enum: [1] },
+          productionType: { type: 'integer', required: true, enum: [0, 1] }, produceType: { type: 'integer', required: true, enum: [1] },
+          manuscriptId: { type: 'integer', required: true }, scriptStyle: { type: 'integer' },
+          episodeCount: { type: 'integer' }, storyboardCountPerEpisode: { type: 'integer' },
+          globalConfig: { type: 'object', additionalProperties: true } } },
+      idempotency_key: ARGS.idempotency_key,
+    },
+    output: OUTPUT,
+    execute: (args, exec) => guarded<ManuscriptArgs>('jubian_manuscript', input =>
+      manuscriptMethod(client, ledger, input, { ...documentUploadOptions, signal: exec.signal }))(args),
+  })))
+
+  ctx.effect(() => registerJubianTool(defineTool({
+    name: 'jubian_project',
+    description: '创建与查询剧变项目。create 创建手动项目；get 读取项目身份及稿件绑定；operation 仅凭原 key 查询原业务回执和项目 ID。内容项目必须绑定真实 manuscript_id；前贴素材须明确选择 produce_type=2。创建不自动解析或生成；上传稿件后也可用 jubian_manuscript.start_produce 直接创建绑定项目，不重复建同一项目。',
+    parameters: {
+      method: { type: 'string', required: true, enum: ['operation', 'get', 'create'] },
+      script_id: ARGS.script_id,
+      manuscript_id: { type: 'integer', description: '内容项目绑定的剧变稿件 ID；与项目 script_id 不同。' },
+      script_name: { type: 'string', description: 'create 使用的项目名称。' },
+      production_type: { type: 'integer', enum: [0, 1], description: 'create 必填：0=分镜工作台，1=画布工作台。' },
+      produce_type: { type: 'integer', enum: [1, 2], description: 'create 必填：1=剧本内容（必填 manuscript_id），2=前贴素材；按用户实际用途选择。' },
+      script_style: { type: 'integer', description: '分镜工作台 create 必填：使用剧变的风格代码。' },
+      episode_count: { type: 'integer', description: '分镜工作台 create 必填：项目集数。' },
+      storyboard_count_per_episode: { type: 'integer', description: '分镜工作台 create 必填：每集初始分镜数。' },
+      global_config: { type: 'object', additionalProperties: true, description: '已选择的项目设置；保留真实目录中的模型参数，不自动发起生成。' },
+      idempotency_key: ARGS.idempotency_key,
+    },
+    output: OUTPUT,
+    execute: guarded<ProjectArgs>('jubian_project', args => projectMethod(client, ledger, args)),
+  })))
 
   registerJubianTool(defineTool({
     name: 'jubian_catalog',

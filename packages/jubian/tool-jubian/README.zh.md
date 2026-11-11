@@ -31,6 +31,14 @@ Muse 自有批量制作通过导出的 `productionRows`、`readProductionLibrary
 <a id="use-this-package"></a>
 ## 使用本包
 
+### 上传剧本与创建项目
+
+`jubian_manuscript` 读取当前登记选项和稿件身份，原样上传本地 DOC/DOCX/UTF-8 TXT 对象，登记 Word 剧本与原文文件，并通过 `start_produce` 创建绑定稿件的手动项目。`jubian_project` 创建或读取手动项目，并查询原操作回执。版权、原文文件、团队和项目设置须明确提供。上传、登记和项目创建分别报告；项目回读须核对精确 ID 和稿件绑定。`start_produce` 本身已经创建项目，同一请求不要再调用 `create`。这些操作不会启动 AI 解析或视频生成。
+
+内容项目创建前检查平台是否已有同稿件、同工作台的关联。在同一账本内，两个创建入口共用持久关联锁：已有提交会阻止不同 key 再建，即使原结果未知。此保护不协调不同账本目录或电脑。
+
+每次上传、登记和创建均使用稳定的 `idempotency_key` 与持久业务回执。结果未知时保留原 key，通过 `jubian_project operation` 查询；回放不会重复提交原写入。上传回放标识原文件哈希，不表示后续本地修订也已上传。`documentUploadMaxBytes` 默认将本地文档读取限制为 33554432 字节。`documentUploadTimeoutMs` 默认将目标发现与传输限制为 120000 毫秒；停止工具会取消网络请求，并保留已提交但结果未知的上传供对账。对象上传支持 TXT，但稿件登记接受 Word。[项目上传 Skill](../../drama/skills/skills/jubian-project-upload/SKILL.md) 说明账号与文件流程。
+
 在需要读取或改变剧变制作的任意 preset 里挂载这一行，然后把任务交给模型；工具会在描述中说明各自的副作用。
 
 ### 何时选择

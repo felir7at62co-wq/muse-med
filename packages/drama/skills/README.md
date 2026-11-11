@@ -26,6 +26,8 @@ Create and review drama scripts, reuse assets, maintain project state, prepare e
 <a id="use-this-package"></a>
 ## Use this package
 
+The [Jubian project-upload skill](skills/jubian-project-upload/SKILL.md) guides authorized document upload, manuscript registration and manual project creation with native tools. It keeps source files, copyright metadata, manuscript IDs and production project IDs distinct, and reconciles original operation keys after an unknown result.
+
 The shot-writing skill metadata identifies creation, revision and source-to-shot requests for either confirmed 9:16 live-action projects or confirmed 16:9 3D CG projects. Confirm existing project settings when the medium or aspect ratio is unknown; skill selection does not change those settings or apply shot-writing guidance to ordinary scene-script formatting.
 
 The [first-pass production workflow](skills/tweet-drama-core/references/first-pass-production.md) establishes the same source-backed action and prop requirements for preparation and media review. It covers physical support stages, asset suitability, persistent scene states, actual prepared prompts and scoped evidence before paid repair. It does not guarantee a stochastic generator's first result or replace actual listening and visual review.

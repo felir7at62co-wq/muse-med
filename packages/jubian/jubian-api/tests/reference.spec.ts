@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  REFERENCE_ALIGNMENT, alignReferenceEdge, alignedReferenceSize, buildReferenceObjectKey,
+  REFERENCE_ALIGNMENT, alignReferenceEdge, alignedReferenceSize, buildDocumentObjectKey, buildReferenceObjectKey,
   extractAppScriptUrl, extractTosUploadConfig, readReferenceImage, referenceMaterialItem, signTosObjectPut,
 } from '../src/reference.ts'
 
@@ -156,6 +156,13 @@ describe('reference alignment', () => {
 })
 
 describe('object key and material item', () => {
+  it('uses the manuscript uploader path for documents', () => {
+    expect(buildDocumentObjectKey(new Date(2026, 8, 20), 'ABCDEF12', '.docx'))
+      .toBe('prod/sys-material-video/2026/09/20/abcdef12.docx')
+    expect(() => buildDocumentObjectKey(new Date(), '../etc', '.docx')).toThrow()
+    expect(() => buildDocumentObjectKey(new Date(), 'a'.repeat(32), '.docx/escape')).toThrow()
+  })
+
   it('mints a dated, prefixed key under the workbench path', () => {
     const key = buildReferenceObjectKey(new Date('2026-09-20T10:00:00Z'), 'a'.repeat(32), '.jpg')
     expect(key).toBe(`prod/sys-material-image/2026/09/20/${'a'.repeat(32)}.jpg`)
