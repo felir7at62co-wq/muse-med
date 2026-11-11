@@ -306,6 +306,52 @@ describe('CI workflow', () => {
     })
   })
 
+  it('limits the temporary capture to the four headless owners and one SDK parent writer', () => {
+    const job = workflowJob(loadWorkflow('.github/workflows/linux-snapshot-capture.yml'), 'capture')
+    if (!isRecord(job.strategy) || !isRecord(job.strategy.matrix) || !Array.isArray(job.steps)) {
+      throw new TypeError('Snapshot capture must declare its matrix and steps')
+    }
+    expect(job.strategy.matrix.include).toEqual([
+      {
+        group: 'headless4', config: 'vitest.snapshot.config.ts', suite: 'snapshots/session/headless.snapshot.ts',
+        filter: ' (advanced-toolchain|product-subagent-both|muse-subtitle-visual-preflight|muse-subtitle-visual-preflight-ptc) through dsh --profile headless$',
+      },
+      {
+        group: 'sdk-diagnostic', config: 'vitest.snapshot.config.ts', suite: 'snapshots/sdk/sdk.snapshot.ts',
+        filter: ' subagent-dsh-sdk-diagnostic through dsh --profile sdk$',
+      },
+    ])
+    const steps = job.steps.filter(isRecord)
+    const runFor = (name: string): string => {
+      const step = steps.find(value => value.name === name)
+      if (typeof step?.run !== 'string') throw new TypeError(`Missing snapshot capture step: ${name}`)
+      return step.run
+    }
+    const baseline = runFor('Retain canonical and shared input identities')
+    expect(baseline).toContain('assert.deepEqual(load(readFileSync(')
+    expect(baseline).toContain('canonicalCounts: [9, 3, 1, 1], expectedTests: 4')
+    expect(baseline).toContain('canonicalCounts: [3], expectedTests: 1')
+    expect(baseline).toContain("'notifications.expected.jsonl'")
+    expect(baseline).toContain("group === 'child-async' || group === 'headless4'")
+    const refresh = runFor('Refresh only the ordered approved owners')
+    expect(refresh).toContain('for (const plan of state.refreshPlans) console.log(plan.label)')
+    expect(refresh).toContain('assert.equal(report.numPassedTests, plan.expectedTests')
+    expect(refresh).toContain('assert.equal(report.numFailedTests, 0)')
+    expect(runFor('Freeze all approved outputs after every refresh'))
+      .toContain("headless4: 16, 'sdk-diagnostic': 4")
+    const verify = runFor('Verify protected inputs and collect only owned outputs')
+    expect(verify).toContain('headless4: { tests: 4, owners: 4, outputs: 16, canonical: 14, manifests: 4 }')
+    expect(verify).toContain("'sdk-diagnostic': { tests: 1, owners: 1, outputs: 4, canonical: 3, manifests: 1 }")
+    expect(verify).toContain('inputDifferences.length === 0 && unexpectedChanges.length === 0')
+    expect(verify).toContain('replayOutputDifferences.length === 0')
+    expect(verify).toContain('if (verificationPassed)')
+    for (const owner of ['advanced-toolchain', 'product-subagent-both', 'muse-subtitle-visual-preflight',
+      'muse-subtitle-visual-preflight-ptc', 'subagent-dsh-sdk-diagnostic']) {
+      const section = owner === 'subagent-dsh-sdk-diagnostic' ? 'sdk' : 'session'
+      expect(loadWorkflow(`snapshots/${section}/${owner}/snapshot.yml`).writerOutput, owner).toBe(true)
+    }
+  })
+
   it.each(['ci.yml', 'ci-master.yml', 'e2e.yml', 'release.yml', 'release-vendor.yml'])(
     '%s cancels superseded validation runs without crossing workflow or ref boundaries', (name) => {
       const workflow = loadWorkflow('.github/workflows/' + name)

@@ -3,10 +3,10 @@ scenario: advanced-toolchain
 profile: headless
 composition: advanced-toolchain
 recording: authored
+writerOutput: true
 header:
   class: native-ptc-native
   pin: true
   changes: 2
   promptChanges: 2
   childSystemPrompts: [1, 2]
-writerOutput: true

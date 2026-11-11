@@ -25,17 +25,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - group: child-async
+          - group: headless4
             config: vitest.snapshot.config.ts
             suite: snapshots/session/headless.snapshot.ts
-            filter: ' (text-turn|subagent-child-question-rejection) through dsh --profile headless$'
-          - group: web3
-            config: vitest.web.config.ts
-            suite: |-
-              apps/web/tests/minimal-preset.snapshot.ts
-              apps/web/tests/code-language.snapshot.ts
-              apps/web/tests/workspace-file-drop.snapshot.ts
-            filter: '^(minimal agent preset|replays highlighted Python stubs, PowerShell and CSV reads with their document previews$|replays workspace file drag and touch menu references without uploading or sending the draft$)'
+            filter: ' (advanced-toolchain|product-subagent-both|muse-subtitle-visual-preflight|muse-subtitle-visual-preflight-ptc) through dsh --profile headless$'
           - group: self-pins
             config: vitest.snapshot.config.ts
             suite: snapshots/session/headless.snapshot.ts
@@ -153,6 +146,8 @@ jobs:
             'replays highlighted Python stubs, PowerShell and CSV reads with their document previews',
             'replays workspace file drag and touch menu references without uploading or sending the draft',
           ]
+          const headlessOwners = ['advanced-toolchain', 'product-subagent-both',
+            'muse-subtitle-visual-preflight', 'muse-subtitle-visual-preflight-ptc']
           const groups = {
             'child-async': {
               config: 'vitest.snapshot.config.ts', suite: 'snapshots/session/headless.snapshot.ts',
@@ -179,6 +174,17 @@ jobs:
                 'apps/web/tests/code-language.snapshot.ts', 'apps/web/tests/workspace-file-drop.snapshot.ts',
                 'apps/web/tests/scaffold.ts', 'apps/web/tests/support.ts',
                 'packages/bundle/web-app/presets/standard.patch.yml'],
+            },
+            headless4: {
+              config: 'vitest.snapshot.config.ts', suite: 'snapshots/session/headless.snapshot.ts',
+              filter: ' (advanced-toolchain|product-subagent-both|muse-subtitle-visual-preflight|muse-subtitle-visual-preflight-ptc) through dsh --profile headless$',
+              owners: headlessOwners,
+              inventoryDirectories: headlessOwners.map(owner => `snapshots/session/${owner}`),
+              canonicalCounts: [9, 3, 1, 1], expectedTests: 4,
+              passedSuffixes: headlessOwners.map(owner => ` ${owner} through dsh --profile headless`),
+              extraInputs: ['snapshots/session/headless.snapshot.ts', 'vitest.snapshot.config.ts',
+                'packages/test-support/llm-replay/src/index.ts', 'packages/test-support/session-snapshot/src/normalize.ts',
+                'packages/test-support/session-snapshot/src/manifest.ts'],
             },
             'self-pins': {
               config: 'vitest.snapshot.config.ts', suite: 'snapshots/session/headless.snapshot.ts',
@@ -207,7 +213,10 @@ jobs:
               inventoryDirectories: ['snapshots/sdk/subagent-dsh-sdk-diagnostic'],
               canonicalCounts: [3], expectedTests: 1,
               passedSuffixes: [' subagent-dsh-sdk-diagnostic through dsh --profile sdk'],
-              extraInputs: ['snapshots/sdk/sdk.snapshot.ts', 'snapshots/sdk/portable-runtime.cordis.yml',
+              extraInputs: ['snapshots/sdk/sdk.snapshot.ts', 'vitest.snapshot.config.ts',
+                'packages/test-support/llm-replay/src/index.ts', 'packages/test-support/session-snapshot/src/normalize.ts',
+                'packages/subagent/subagent-dsh-sdk/src/index.ts', 'packages/subagent/tool-subagent/src/index.ts',
+                'snapshots/sdk/portable-runtime.cordis.yml',
                 'snapshots/sdk/legacy-context.patch.yml',
                 'packages/test-support/session-snapshot/tests/fixtures/subagent-settlement-barrier.ts',
                 'packages/subagent/subagent-dsh-sdk/tests/fixtures/loader/child-mock-llm.ts'],
@@ -246,6 +255,26 @@ jobs:
               version: 1, scenario: 'workspace-file-drop', profile: 'web', composition: 'web-default', recording: 'authored',
               header: { class: 'web-default' }, writerOutput: true,
             },
+          } : group === 'headless4' ? {
+            'advanced-toolchain': {
+              version: 1, scenario: 'advanced-toolchain', profile: 'headless', composition: 'advanced-toolchain',
+              recording: 'authored', writerOutput: true,
+              header: { class: 'native-ptc-native', pin: true, changes: 2, promptChanges: 2, childSystemPrompts: [1, 2] },
+            },
+            'product-subagent-both': {
+              version: 1, scenario: 'product-subagent-both', profile: 'headless', composition: 'product-subagent-both',
+              recording: 'authored', writerOutput: true, header: { class: 'product-subagent-both', pin: true },
+            },
+            'muse-subtitle-visual-preflight': {
+              version: 1, scenario: 'muse-subtitle-visual-preflight', profile: 'headless', composition: 'muse-subtitle-visual-preflight',
+              recording: 'authored', writerOutput: true, header: { class: 'muse-subtitle-visual-preflight', pin: true },
+              workspace: { final: true },
+            },
+            'muse-subtitle-visual-preflight-ptc': {
+              version: 1, scenario: 'muse-subtitle-visual-preflight-ptc', profile: 'headless', composition: 'muse-subtitle-visual-preflight-ptc',
+              recording: 'authored', writerOutput: true, header: { class: 'muse-subtitle-visual-preflight-ptc', pin: true },
+              workspace: { final: true },
+            },
           } : group === 'compaction-pressure' ? {
             'compaction-summary-headroom': {
               version: 1, scenario: 'compaction-summary-headroom', profile: 'headless', composition: 'compaction-summary-headroom',
@@ -280,13 +309,22 @@ jobs:
             'snapshots/session/subagent-child-question-rejection/tool-schemas.expected.json',
           ] : group === 'web3' ? [...owners.map(owner => `snapshots/web/${owner}/writer.expected.jsonl`),
             'snapshots/web/minimal-preset/system-prompt.expected.md', 'snapshots/web/minimal-preset/tool-schemas.expected.json']
-            : group === 'self-pins' ? owners.flatMap(owner => ['writer.expected.jsonl', 'system-prompt.expected.md',
+            : group === 'headless4' ? [
+              ...headlessOwners.flatMap(owner => ['writer.expected.jsonl', 'system-prompt.expected.md', 'tool-schemas.expected.json']
+                .map(file => `snapshots/session/${owner}/${file}`)),
+              'snapshots/session/advanced-toolchain/writer.1.expected.jsonl',
+              'snapshots/session/advanced-toolchain/writer.2.expected.jsonl',
+              'snapshots/session/advanced-toolchain/system-prompt.1.expected.md',
+              'snapshots/session/advanced-toolchain/system-prompt.2.expected.md',
+            ] : group === 'self-pins' ? owners.flatMap(owner => ['writer.expected.jsonl', 'system-prompt.expected.md',
               'tool-schemas.expected.json'].map(file => `snapshots/session/${owner}/${file}`))
             : group === 'sdk-diagnostic' ? ['writer.expected.jsonl', 'system-prompt.expected.md', 'tool-schemas.expected.json',
               'notifications.expected.jsonl', 'result.expected.json'].map(file => `snapshots/sdk/subagent-dsh-sdk-diagnostic/${file}`)
             : ['snapshots/session/compaction-summary-headroom/writer.expected.jsonl']
           const newOutputs = group === 'web3' ? owners.map(owner => `snapshots/web/${owner}/writer.expected.jsonl`)
-            : group === 'sdk-diagnostic' ? ['snapshots/sdk/subagent-dsh-sdk-diagnostic/writer.expected.jsonl'] : []
+            : group === 'headless4' ? ['muse-subtitle-visual-preflight', 'muse-subtitle-visual-preflight-ptc']
+              .map(owner => `snapshots/session/${owner}/writer.expected.jsonl`)
+              : group === 'sdk-diagnostic' ? ['snapshots/sdk/subagent-dsh-sdk-diagnostic/writer.expected.jsonl'] : []
           for (const path of allowed) {
             if (!existsSync(path) && newOutputs.includes(path)) continue
             const parent = lstatSync(dirname(path)), stat = lstatSync(path)
@@ -320,7 +358,7 @@ jobs:
             return { kind: 'file', sha256: sha256(path) }
           }
           const identities = Object.fromEntries(protectedPaths.map(path => [path, identity(path)]))
-          const refreshPlans = group === 'child-async'
+          const refreshPlans = group === 'child-async' || group === 'headless4'
             ? owners.map(owner => ({ label: owner, filter: ` ${owner} through dsh --profile headless$`,
               expectedTests: 1, passedSuffixes: [` ${owner} through dsh --profile headless`] }))
             : [{ label: group, filter: selected.filter, expectedTests, passedSuffixes }]
@@ -382,7 +420,7 @@ jobs:
           import { lstatSync, readFileSync, writeFileSync } from 'node:fs'
           import { join } from 'node:path'
           const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), 'utf8'))
-          const counts = { 'child-async': 6, web3: 5, 'self-pins': 39, 'compaction-pressure': 1, 'sdk-diagnostic': 5 }
+          const counts = { 'child-async': 6, web3: 5, headless4: 16, 'self-pins': 39, 'compaction-pressure': 1, 'sdk-diagnostic': 5 }
           if (state.allowed.length !== counts[state.group]) throw new Error('Unexpected output inventory')
           const outputs = Object.fromEntries(state.allowed.map(path => {
             const stat = lstatSync(path)
@@ -454,6 +492,7 @@ jobs:
           const expectedByGroup = {
             'child-async': { tests: 2, owners: 2, outputs: 6, canonical: 11, manifests: 3 },
             web3: { tests: 5, owners: 3, outputs: 5, canonical: 10, manifests: 6 },
+            headless4: { tests: 4, owners: 4, outputs: 16, canonical: 14, manifests: 4 },
             'self-pins': { tests: 13, owners: 13, outputs: 39, canonical: 13, manifests: 13 },
             'compaction-pressure': { tests: 1, owners: 1, outputs: 1, canonical: 5, manifests: 2 },
             'sdk-diagnostic': { tests: 1, owners: 1, outputs: 5, canonical: 3, manifests: 1 },
