@@ -24,10 +24,11 @@ function retryFixture(state: Record<string, unknown>) {
   }
   const start = retry.parent.statements.indexOf(retry)
   const statements = retry.parent.statements.slice(start, start + 4).map(node => node.getText(file)).join('\n')
+  const diagnosticSource = diagnostic.getText(file)
   const report: Record<string, unknown> = {}
   const persisted: unknown[] = []
   const downloads: unknown[] = []
-  const run = () => runInNewContext(`(async () => { ${diagnostic.getText(file)}\n${statements} })()`, {
+  const run = () => runInNewContext(`(async () => { ${diagnosticSource}\n${statements} })()`, {
     root: 'private-fixture-root', report, spec: { version: '1.2.8' }, assert,
     recovery: { coordinator: { download: async (version: string) => { downloads.push(version); return state } } },
     persist: async () => { persisted.push(structuredClone(report)) },
