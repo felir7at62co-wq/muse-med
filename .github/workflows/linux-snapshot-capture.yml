@@ -18,14 +18,27 @@ jobs:
       github.event.pull_request.number == 154
       && github.event.pull_request.head.ref == 'fix/muse-ci-baseline-20261111'
       && github.event.pull_request.head.repo.full_name == github.repository
+    name: Capture ${{ matrix.group }} owner outputs
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: acp
+            suite: snapshots/acp/acp.snapshot.ts
+            filter: 'snapshot: (escalation-rejected|image-compaction) matches the expected outputs'
+          - group: sdk
+            suite: snapshots/sdk/sdk.snapshot.ts
+            filter: '(desktop-context|goal-rounds) through dsh --profile sdk'
     env:
       DSH_TELEMETRY_DISABLED: '1'
       DSH_EXAMPLE_MODE: lib
       DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
       DSH_SNAPSHOT_MAX_WORKERS: '1'
-      SNAPSHOT_CAPTURE_FILTER: '(muse-editing-skill|muse-character-reference-skill|muse-dialogue-polish-skill|muse-drama-project-bible-skill|muse-drama-voice-skill|muse-episode-design-guide|muse-novel-to-script-skill|muse-screenplay-content-review|muse-screenplay-narrative-layers|muse-screenplay-project-skill) through'
+      SNAPSHOT_CAPTURE_GROUP: ${{ matrix.group }}
+      SNAPSHOT_CAPTURE_SUITE: ${{ matrix.suite }}
+      SNAPSHOT_CAPTURE_FILTER: ${{ matrix.filter }}
       DEEPSEEK_API_KEY: ''
       OPENAI_API_KEY: ''
     steps:
@@ -35,7 +48,7 @@ jobs:
 
       - uses: pnpm/action-setup@v5.0.0
         with:
-          dest: ${{ runner.temp }}/snapshot-capture-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
+          dest: ${{ runner.temp }}/snapshot-capture-pnpm-${{ matrix.group }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - uses: actions/setup-node@v7.0.0
         with:
@@ -48,65 +61,148 @@ jobs:
         id: build
         run: pnpm run build:artifacts
 
-      - name: Retain canonical input identities
+      - name: Retain canonical and shared input identities
         id: baseline
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
           import { createHash } from 'node:crypto'
-          import { lstatSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+          import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, writeFileSync } from 'node:fs'
           import { createRequire } from 'node:module'
-          import { join, resolve } from 'node:path'
+          import { dirname, join, resolve } from 'node:path'
           import { execFileSync } from 'node:child_process'
           const { load } = createRequire(resolve('apps/desktop/package.json'))('js-yaml')
-          const owners = ['muse-editing-skill', 'muse-character-reference-skill', 'muse-dialogue-polish-skill',
-            'muse-drama-project-bible-skill', 'muse-drama-voice-skill', 'muse-episode-design-guide',
-            'muse-novel-to-script-skill', 'muse-screenplay-content-review', 'muse-screenplay-narrative-layers', 'muse-screenplay-project-skill']
-          const manifests = Object.fromEntries(owners.map(owner => [owner,
-            load(readFileSync(`snapshots/session/${owner}/snapshot.yml`, 'utf8'))]))
+          const group = process.env.SNAPSHOT_CAPTURE_GROUP
+          const groups = {
+            acp: {
+              profile: 'acp',
+              owners: ['escalation-rejected', 'image-compaction'],
+              ownerDirectories: ['snapshots/acp/escalation-rejected', 'snapshots/acp/image-compaction'],
+              sharedDirectories: ['snapshots/acp/escalation-approved', 'snapshots/session/text-turn', 'snapshots/session/read-image'],
+              extraInputs: ['snapshots/acp/escalation-rejected/input.json', 'snapshots/acp/image-compaction/input.json',
+                'snapshots/acp/escalation-approved/system-prompt.expected.md', 'snapshots/acp/escalation-approved/tool-schemas.expected.json',
+                'snapshots/acp/image-compaction/system-prompt.expected.md', 'snapshots/session/text-turn/system-prompt.expected.md',
+                'snapshots/session/text-turn/tool-schemas.expected.json', 'snapshots/session/read-image/system-prompt.expected.md'],
+              allowed: ['snapshots/acp/escalation-rejected/writer.expected.jsonl', 'snapshots/acp/image-compaction/writer.expected.jsonl'],
+            },
+            sdk: {
+              profile: 'sdk',
+              owners: ['desktop-context', 'goal-rounds'],
+              ownerDirectories: ['snapshots/sdk/desktop-context', 'snapshots/sdk/goal-rounds'],
+              sharedDirectories: [],
+              extraInputs: ['snapshots/sdk/desktop-context/cordis.yml', 'snapshots/sdk/desktop-context/cordis.snapshot.yml',
+                'snapshots/sdk/desktop-context/clock.mjs', 'snapshots/sdk/goal-rounds/replay.override.json',
+                'snapshots/sdk/goal-rounds/capture.cordis.yml', 'snapshots/sdk/manual-compact/capture-requests.mjs'],
+              allowed: ['snapshots/sdk/desktop-context/writer.expected.jsonl', 'snapshots/sdk/desktop-context/system-prompt.expected.md',
+                'snapshots/sdk/desktop-context/tool-schemas.expected.json', 'snapshots/sdk/goal-rounds/writer.expected.jsonl'],
+            },
+          }
+          const selected = groups[group]
+          if (selected === undefined) throw new Error('Unexpected capture group')
+          const { owners, ownerDirectories, sharedDirectories, extraInputs, allowed } = selected
+          const manifests = Object.fromEntries(owners.map((owner, index) => [owner,
+            load(readFileSync(`${ownerDirectories[index]}/snapshot.yml`, 'utf8'))]))
           for (const [owner, manifest] of Object.entries(manifests)) {
-            if (manifest.profile !== 'headless' || manifest.writerOutput !== true || manifest.composition !== 'muse-editing-skill'
-              || manifest.header.class !== 'muse-editing-skill' || manifest.header.systemPromptSource !== undefined
-              || manifest.header.toolSchemasSource !== undefined || (manifest.header.pin === true) !== (owner === 'muse-editing-skill')) {
-              throw new Error(`Owner metadata no longer matches this capture: ${owner}`)
+            if (manifest.profile !== selected.profile || manifest.writerOutput !== true || manifest.session !== undefined
+              || manifest.sessionFormat !== undefined || manifest.header === undefined) throw new Error(`Invalid owner metadata: ${owner}`)
+          }
+          if (group === 'acp') {
+            const rejected = manifests['escalation-rejected'], image = manifests['image-compaction']
+            if (rejected.composition !== 'acp-default' || rejected.header.class !== 'acp-default' || rejected.header.pin === true
+              || rejected.permission !== 'workspace-write' || image.composition !== 'image-compaction'
+              || image.header.class !== 'image-compaction' || image.header.pin !== true || image.permission !== 'danger-full-access'
+              || image.header.systemPromptSource !== 'session/read-image' || image.header.toolSchemasSource !== 'escalation-approved') {
+              throw new Error('ACP owner metadata drifted')
+            }
+            const aliases = {
+              'snapshots/acp/escalation-approved/system-prompt.expected.md': '../../session/text-turn/system-prompt.expected.md',
+              'snapshots/acp/escalation-approved/tool-schemas.expected.json': '../../session/text-turn/tool-schemas.expected.json',
+              'snapshots/acp/image-compaction/system-prompt.expected.md': '../../session/read-image/system-prompt.expected.md',
+            }
+            for (const [path, target] of Object.entries(aliases)) {
+              if (!lstatSync(path).isSymbolicLink() || readlinkSync(path) !== target) throw new Error(`Unexpected shared alias: ${path}`)
+            }
+            const pin = load(readFileSync('snapshots/acp/escalation-approved/snapshot.yml', 'utf8'))
+            if (pin.profile !== 'acp' || pin.composition !== 'acp-default' || pin.header.class !== 'acp-default'
+              || pin.header.pin !== true || pin.header.systemPromptSource !== 'session/text-turn'
+              || pin.header.toolSchemasSource !== 'session/text-turn') throw new Error('ACP shared pin drifted')
+          } else {
+            const pin = manifests['desktop-context'], goal = manifests['goal-rounds']
+            if (pin.composition !== 'sdk-desktop' || pin.header.class !== 'sdk-desktop' || pin.header.pin !== true
+              || pin.header.systemPromptSource !== undefined || pin.header.toolSchemasSource !== undefined
+              || goal.composition !== 'sdk-desktop' || goal.header.class !== 'sdk-desktop' || goal.header.pin === true
+              || goal.header.systemPromptSource !== undefined || goal.header.toolSchemasSource !== undefined
+              || goal.replay?.override !== true) throw new Error('SDK pin cohort drifted')
+            for (const directory of ownerDirectories) {
+              if (readdirSync(directory).some(name => /^notifications.*\.expected\.jsonl$/u.test(name) || name === 'result.expected.json')) {
+                throw new Error('This capture does not permit SDK wire-output changes')
+              }
             }
           }
-          const allowed = [...owners.map(owner => `snapshots/session/${owner}/writer.expected.jsonl`),
-            'snapshots/session/muse-editing-skill/system-prompt.expected.md',
-            'snapshots/session/muse-editing-skill/tool-schemas.expected.json']
           for (const path of allowed) {
+            const parent = lstatSync(dirname(path))
+            if (!parent.isDirectory() || parent.isSymbolicLink()) throw new Error(`Invalid output directory: ${path}`)
+            if (!existsSync(path)) {
+              if (!path.endsWith('/writer.expected.jsonl')) throw new Error(`Missing owned sidecar: ${path}`)
+              continue
+            }
             const stat = lstatSync(path)
-            if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Approved output must already be a regular file: ${path}`)
+            if (!stat.isFile() || stat.isSymbolicLink()) throw new Error(`Approved output must be a regular file: ${path}`)
           }
-          const paths = owners.flatMap(owner => {
-            const directory = `snapshots/session/${owner}`
-            return readdirSync(directory)
-              .filter(name => /^session(?:\..*)?\.jsonl$/u.test(name) || name === 'snapshot.yml')
-              .map(name => `${directory}/${name}`)
-          }).sort()
-          if (paths.length < owners.length * 2) throw new Error('Incomplete owner input inventory')
-          const identities = Object.fromEntries(paths.map(path => [path,
-            createHash('sha256').update(readFileSync(path)).digest('hex')]))
+          const inventoryDirectories = [...ownerDirectories, ...sharedDirectories]
+          const canonicalPaths = inventoryDirectories.flatMap(directory => readdirSync(directory)
+            .filter(name => /^session(?:\..*)?\.jsonl$/u.test(name) || name === 'snapshot.yml')
+            .map(name => `${directory}/${name}`)).sort()
+          for (const directory of ownerDirectories) {
+            const roles = readdirSync(directory).filter(name => /^session(?:\..*)?\.jsonl$/u.test(name))
+            if (roles.length === 0 || roles.some(name => !/^session(?:\.v[1-9]\d*)?\.jsonl$/u.test(name))) {
+              throw new Error(`Expected a root-only canonical owner: ${directory}`)
+            }
+          }
+          const protectedPaths = [...new Set([...canonicalPaths, ...extraInputs])].sort()
+          const sha256 = path => createHash('sha256').update(readFileSync(path)).digest('hex')
+          const identities = Object.fromEntries(protectedPaths.map(path => [path, sha256(path)]))
+          const aliases = Object.fromEntries(protectedPaths.filter(path => lstatSync(path).isSymbolicLink())
+            .map(path => [path, readlinkSync(path)]))
           writeFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), JSON.stringify({
-            head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), owners, identities, allowed,
+            head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), group, owners,
+            inventoryDirectories, extraInputs, identities, aliases, allowed, expectedTests: 2,
           }, null, 2) + '\n')
           NODE
 
-      - name: Capture the ten owners through keyless refresh
+      - name: Refresh exactly two group owners
         id: refresh
         env:
           DSH_SNAPSHOT: refresh
         run: |
           capture_exit_code=0
           pnpm exec vitest run --config vitest.snapshot.config.ts \
-            snapshots/session/headless.snapshot.ts \
+            "$SNAPSHOT_CAPTURE_SUITE" \
             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/refresh-report.json" \
             -t "$SNAPSHOT_CAPTURE_FILTER" || capture_exit_code=$?
           echo "exit_code=$capture_exit_code" >> "$GITHUB_OUTPUT"
           exit "$capture_exit_code"
 
-      - name: Replay captured owners without refresh
+      - name: Freeze the refreshed output identities
+        if: ${{ steps.refresh.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto'
+          import { lstatSync, readFileSync, writeFileSync } from 'node:fs'
+          import { join } from 'node:path'
+          const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), 'utf8'))
+          const outputs = Object.fromEntries(state.allowed.map(path => {
+            const stat = lstatSync(path)
+            if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 10 * 1024 * 1024) throw new Error(`Invalid output: ${path}`)
+            return [path, createHash('sha256').update(readFileSync(path)).digest('hex')]
+          }))
+          writeFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-refreshed.json'), JSON.stringify(outputs, null, 2) + '\n')
+          NODE
+
+      - name: Replay the two owners without refresh
         id: replay
         if: ${{ !cancelled() && steps.baseline.outcome == 'success' }}
         env:
@@ -114,13 +210,13 @@ jobs:
         run: |
           capture_exit_code=0
           pnpm exec vitest run --config vitest.snapshot.config.ts \
-            snapshots/session/headless.snapshot.ts \
+            "$SNAPSHOT_CAPTURE_SUITE" \
             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/replay-report.json" \
             -t "$SNAPSHOT_CAPTURE_FILTER" || capture_exit_code=$?
           echo "exit_code=$capture_exit_code" >> "$GITHUB_OUTPUT"
           exit "$capture_exit_code"
 
-      - name: Verify unchanged inputs and collect only approved derived outputs
+      - name: Verify protected inputs and collect only owned outputs
         if: ${{ !cancelled() && steps.baseline.outcome == 'success' }}
         env:
           REFRESH_OUTCOME: ${{ steps.refresh.outcome }}
@@ -132,24 +228,27 @@ jobs:
           set -euo pipefail
           node --input-type=module <<'NODE'
           import { createHash } from 'node:crypto'
-          import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
+          import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, writeFileSync } from 'node:fs'
           import { dirname, join } from 'node:path'
           import { execFileSync } from 'node:child_process'
           const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), 'utf8'))
           const directory = join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-capture')
           mkdirSync(directory)
-          const canonicalPaths = state.owners.flatMap(owner => {
-            const directory = `snapshots/session/${owner}`
-            return readdirSync(directory)
-              .filter(name => /^session(?:\..*)?\.jsonl$/u.test(name) || name === 'snapshot.yml')
-              .map(name => `${directory}/${name}`)
-          }).sort()
+          const canonicalPaths = state.inventoryDirectories.flatMap(directory => readdirSync(directory)
+            .filter(name => /^session(?:\..*)?\.jsonl$/u.test(name) || name === 'snapshot.yml')
+            .map(name => `${directory}/${name}`)).sort()
+          const protectedPaths = [...new Set([...canonicalPaths, ...state.extraInputs])].sort()
           const sha256 = path => createHash('sha256').update(readFileSync(path)).digest('hex')
-          const after = Object.fromEntries(canonicalPaths.map(path => [path, sha256(path)]))
-          const inputDifferences = [...new Set([...Object.keys(state.identities), ...Object.keys(after)])]
-            .filter(path => state.identities[path] !== after[path])
+          const after = Object.fromEntries(protectedPaths.map(path => [path, existsSync(path) ? sha256(path) : null]))
+          const aliasesAfter = Object.fromEntries(protectedPaths.filter(path => existsSync(path) && lstatSync(path).isSymbolicLink())
+            .map(path => [path, readlinkSync(path)]))
+          const differences = (before, after) => [...new Set([...Object.keys(before), ...Object.keys(after)])]
+            .filter(path => before[path] !== after[path])
+          const inputDifferences = differences(state.identities, after)
+          const aliasDifferences = differences(state.aliases, aliasesAfter)
           const allowed = state.allowed
-          if (allowed.length !== 12 || state.owners.length !== 10) throw new Error('Unexpected approved capture inventory')
+          if (state.owners.length !== 2 || state.expectedTests !== 2
+            || allowed.length !== (state.group === 'acp' ? 2 : state.group === 'sdk' ? 4 : -1)) throw new Error('Unexpected capture inventory')
           const gitPaths = args => execFileSync('git', args, { encoding: 'utf8' }).split('\0').filter(Boolean)
           const changed = [...new Set([...gitPaths(['diff', '--name-only', '-z']),
             ...gitPaths(['ls-files', '--others', '--exclude-standard', '-z'])])].sort()
@@ -159,6 +258,10 @@ jobs:
             const stat = lstatSync(path)
             return !stat.isFile() || stat.isSymbolicLink() || stat.size > 10 * 1024 * 1024
           })
+          const frozenPath = join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-refreshed.json')
+          const frozen = existsSync(frozenPath) ? JSON.parse(readFileSync(frozenPath, 'utf8')) : {}
+          const outputHashes = Object.fromEntries(allowed.map(path => [path, existsSync(path) ? sha256(path) : null]))
+          const replayOutputDifferences = differences(frozen, outputHashes)
           const outputs = []
           const reports = Object.fromEntries(['refresh', 'replay'].map(mode => {
             const file = join(process.env.RUNNER_TEMP, `${mode}-report.json`)
@@ -166,9 +269,10 @@ jobs:
             const report = JSON.parse(readFileSync(file, 'utf8'))
             return [mode, { passed: report.numPassedTests, failed: report.numFailedTests }]
           }))
-          const verificationPassed = inputDifferences.length === 0 && unexpectedChanges.length === 0 && invalidOutputs.length === 0
+          const verificationPassed = inputDifferences.length === 0 && aliasDifferences.length === 0
+            && unexpectedChanges.length === 0 && invalidOutputs.length === 0 && replayOutputDifferences.length === 0
             && process.env.REFRESH_OUTCOME === 'success' && process.env.REPLAY_OUTCOME === 'success'
-            && Object.values(reports).every(report => report?.passed === 10 && report.failed === 0)
+            && Object.values(reports).every(report => report?.passed === 2 && report.failed === 0)
           if (verificationPassed) {
             for (const path of allowed) {
               const stat = lstatSync(path)
@@ -179,13 +283,15 @@ jobs:
             }
           }
           writeFileSync(join(directory, 'evidence.json'), JSON.stringify({
-            head: state.head, platform: process.platform, arch: process.arch, node: process.version,
-            owners: state.owners, filter: process.env.SNAPSHOT_CAPTURE_FILTER,
+            head: state.head, group: state.group, platform: process.platform, arch: process.arch, node: process.version,
+            owners: state.owners, suite: process.env.SNAPSHOT_CAPTURE_SUITE, filter: process.env.SNAPSHOT_CAPTURE_FILTER,
             refreshOutcome: process.env.REFRESH_OUTCOME, replayOutcome: process.env.REPLAY_OUTCOME,
             refreshExitCode: process.env.REFRESH_EXIT_CODE, replayExitCode: process.env.REPLAY_EXIT_CODE,
-            command: 'pnpm exec vitest run --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts -t <filter>',
-            inputsBefore: state.identities, inputsAfter: after, inputDifferences, changed, unexpectedChanges, invalidOutputs,
-            reports, verificationPassed, outputs,
+            command: 'pnpm exec vitest run --config vitest.snapshot.config.ts <suite> -t <filter>',
+            inputsBefore: state.identities, inputsAfter: after, inputDifferences,
+            aliasesBefore: state.aliases, aliasesAfter, aliasDifferences,
+            frozenOutputHashes: frozen, outputHashes, replayOutputDifferences,
+            changed, unexpectedChanges, invalidOutputs, reports, verificationPassed, outputs,
           }, null, 2) + '\n')
           if (!verificationPassed) throw new Error('Capture failed verification; only diagnostic evidence was retained')
           NODE
@@ -194,7 +300,7 @@ jobs:
         if: ${{ !cancelled() && steps.baseline.outcome == 'success' }}
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: linux-snapshot-capture-${{ github.sha }}
+          name: linux-snapshot-capture-${{ matrix.group }}-${{ github.sha }}
           path: ${{ runner.temp }}/muse-linux-snapshot-capture/
           if-no-files-found: error
           retention-days: 3
