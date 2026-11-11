@@ -1,0 +1,3350 @@
+{
+  "version": 1,
+  "temporary": true,
+  "repository": "felir7at62co-wq/muse-med",
+  "pullRequest": 154,
+  "headBranch": "fix/muse-ci-baseline-20261111",
+  "totals": {
+    "groups": 8,
+    "tests": 66,
+    "outputs": 177
+  },
+  "groups": [
+    {
+      "id": "offline-cwd-self-pins",
+      "profile": "headless",
+      "config": "vitest.snapshot.config.ts",
+      "suites": [
+        "snapshots/session/headless.snapshot.ts"
+      ],
+      "owners": [
+        {
+          "name": "browser-use-chrome-devtools-mcp",
+          "dir": "snapshots/session/browser-use-chrome-devtools-mcp"
+        },
+        {
+          "name": "browser-use-stagehand-native",
+          "dir": "snapshots/session/browser-use-stagehand-native"
+        },
+        {
+          "name": "computer-use-cua-driver-mcp",
+          "dir": "snapshots/session/computer-use-cua-driver-mcp"
+        },
+        {
+          "name": "computer-use-cua-driver-native",
+          "dir": "snapshots/session/computer-use-cua-driver-native"
+        },
+        {
+          "name": "deepseek-messages-system-prompt",
+          "dir": "snapshots/session/deepseek-messages-system-prompt"
+        },
+        {
+          "name": "deepseek-protocol-system-prompt",
+          "dir": "snapshots/session/deepseek-protocol-system-prompt"
+        },
+        {
+          "name": "drama-bgm-preview",
+          "dir": "snapshots/session/drama-bgm-preview"
+        },
+        {
+          "name": "drama-draft-settings",
+          "dir": "snapshots/session/drama-draft-settings"
+        },
+        {
+          "name": "fs-glob-sampling",
+          "dir": "snapshots/session/fs-glob-sampling"
+        },
+        {
+          "name": "invalid-tool-arguments-retry",
+          "dir": "snapshots/session/invalid-tool-arguments-retry"
+        },
+        {
+          "name": "lsp-definition",
+          "dir": "snapshots/session/lsp-definition"
+        },
+        {
+          "name": "multimodal-spill-ends",
+          "dir": "snapshots/session/multimodal-spill-ends"
+        },
+        {
+          "name": "muse-asr-quota-exhausted",
+          "dir": "snapshots/session/muse-asr-quota-exhausted"
+        },
+        {
+          "name": "muse-asr-recovery-guard",
+          "dir": "snapshots/session/muse-asr-recovery-guard"
+        },
+        {
+          "name": "muse-codex-subscription",
+          "dir": "snapshots/session/muse-codex-subscription"
+        },
+        {
+          "name": "muse-fanqie-title-download",
+          "dir": "snapshots/session/muse-fanqie-title-download"
+        },
+        {
+          "name": "muse-feishu-send-file",
+          "dir": "snapshots/session/muse-feishu-send-file"
+        },
+        {
+          "name": "muse-jianying-draft",
+          "dir": "snapshots/session/muse-jianying-draft"
+        },
+        {
+          "name": "muse-production-packaging",
+          "dir": "snapshots/session/muse-production-packaging"
+        },
+        {
+          "name": "muse-storyboard-voice-identity",
+          "dir": "snapshots/session/muse-storyboard-voice-identity"
+        },
+        {
+          "name": "muse-video-inspect",
+          "dir": "snapshots/session/muse-video-inspect"
+        },
+        {
+          "name": "product-subagent-codex",
+          "dir": "snapshots/session/product-subagent-codex"
+        },
+        {
+          "name": "pty-tools-sandbox-backend",
+          "dir": "snapshots/session/pty-tools-sandbox-backend"
+        },
+        {
+          "name": "skill-preparation-catalog",
+          "dir": "snapshots/session/skill-preparation-catalog"
+        },
+        {
+          "name": "workspace-dependencies",
+          "dir": "snapshots/session/workspace-dependencies"
+        },
+        {
+          "name": "argument-loop-recovery",
+          "dir": "snapshots/session/argument-loop-recovery"
+        },
+        {
+          "name": "argument-loop-stop",
+          "dir": "snapshots/session/argument-loop-stop"
+        },
+        {
+          "name": "multimodal-spill-middle",
+          "dir": "snapshots/session/multimodal-spill-middle"
+        }
+      ],
+      "inventoryDirectories": [
+        "snapshots/session/argument-loop-recovery",
+        "snapshots/session/argument-loop-stop",
+        "snapshots/session/browser-use-chrome-devtools-mcp",
+        "snapshots/session/browser-use-stagehand-native",
+        "snapshots/session/computer-use-cua-driver-mcp",
+        "snapshots/session/computer-use-cua-driver-native",
+        "snapshots/session/deepseek-messages-system-prompt",
+        "snapshots/session/deepseek-protocol-system-prompt",
+        "snapshots/session/drama-bgm-preview",
+        "snapshots/session/drama-draft-settings",
+        "snapshots/session/fs-glob-sampling",
+        "snapshots/session/invalid-tool-arguments-retry",
+        "snapshots/session/lsp-definition",
+        "snapshots/session/multimodal-spill-ends",
+        "snapshots/session/multimodal-spill-middle",
+        "snapshots/session/muse-asr-quota-exhausted",
+        "snapshots/session/muse-asr-recovery-guard",
+        "snapshots/session/muse-codex-subscription",
+        "snapshots/session/muse-fanqie-title-download",
+        "snapshots/session/muse-feishu-send-file",
+        "snapshots/session/muse-jianying-draft",
+        "snapshots/session/muse-production-packaging",
+        "snapshots/session/muse-storyboard-voice-identity",
+        "snapshots/session/muse-video-inspect",
+        "snapshots/session/product-subagent-codex",
+        "snapshots/session/pty-tools-sandbox-backend",
+        "snapshots/session/skill-preparation-catalog",
+        "snapshots/session/workspace-dependencies"
+      ],
+      "extraInputs": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/drama/tool-shot-script/tests/production-snapshot-plugin.mjs",
+        "packages/experimental/browser-use-stagehand-native/tests/fixtures/chromium.ts",
+        "packages/experimental/browser-use-stagehand-native/tests/fixtures/stagehand.ts",
+        "packages/experimental/computer-use-cua-driver-native/tests/fixtures/cua-driver.ts",
+        "packages/jubian/tool-jubian/tests/snapshot-plugin.mjs",
+        "packages/perception/tool-video-inspect/tests/snapshot-media.ts",
+        "packages/test-support/session-snapshot/tests/fixtures/in-history-prompt-update.ts",
+        "scripts/snapshot-spill-locators.ts",
+        "snapshots/session/headless.snapshot.ts",
+        "snapshots/session/muse-fixture-import.mjs",
+        "snapshots/session/subagent-child-question-rejection/assertions.ts"
+      ],
+      "allowedOutputs": [
+        "snapshots/session/browser-use-chrome-devtools-mcp/writer.expected.jsonl",
+        "snapshots/session/browser-use-chrome-devtools-mcp/system-prompt.expected.md",
+        "snapshots/session/browser-use-chrome-devtools-mcp/tool-schemas.expected.json",
+        "snapshots/session/browser-use-stagehand-native/writer.expected.jsonl",
+        "snapshots/session/browser-use-stagehand-native/system-prompt.expected.md",
+        "snapshots/session/browser-use-stagehand-native/tool-schemas.expected.json",
+        "snapshots/session/computer-use-cua-driver-mcp/writer.expected.jsonl",
+        "snapshots/session/computer-use-cua-driver-mcp/system-prompt.expected.md",
+        "snapshots/session/computer-use-cua-driver-mcp/tool-schemas.expected.json",
+        "snapshots/session/computer-use-cua-driver-native/writer.expected.jsonl",
+        "snapshots/session/computer-use-cua-driver-native/system-prompt.expected.md",
+        "snapshots/session/computer-use-cua-driver-native/tool-schemas.expected.json",
+        "snapshots/session/deepseek-messages-system-prompt/writer.expected.jsonl",
+        "snapshots/session/deepseek-messages-system-prompt/system-prompt.expected.md",
+        "snapshots/session/deepseek-messages-system-prompt/tool-schemas.expected.json",
+        "snapshots/session/deepseek-protocol-system-prompt/writer.expected.jsonl",
+        "snapshots/session/deepseek-protocol-system-prompt/system-prompt.expected.md",
+        "snapshots/session/deepseek-protocol-system-prompt/tool-schemas.expected.json",
+        "snapshots/session/drama-bgm-preview/writer.expected.jsonl",
+        "snapshots/session/drama-bgm-preview/system-prompt.expected.md",
+        "snapshots/session/drama-bgm-preview/tool-schemas.expected.json",
+        "snapshots/session/drama-draft-settings/writer.expected.jsonl",
+        "snapshots/session/drama-draft-settings/system-prompt.expected.md",
+        "snapshots/session/drama-draft-settings/tool-schemas.expected.json",
+        "snapshots/session/fs-glob-sampling/writer.expected.jsonl",
+        "snapshots/session/fs-glob-sampling/system-prompt.expected.md",
+        "snapshots/session/fs-glob-sampling/tool-schemas.expected.json",
+        "snapshots/session/invalid-tool-arguments-retry/writer.expected.jsonl",
+        "snapshots/session/invalid-tool-arguments-retry/system-prompt.expected.md",
+        "snapshots/session/invalid-tool-arguments-retry/tool-schemas.expected.json",
+        "snapshots/session/lsp-definition/writer.expected.jsonl",
+        "snapshots/session/lsp-definition/system-prompt.expected.md",
+        "snapshots/session/lsp-definition/tool-schemas.expected.json",
+        "snapshots/session/multimodal-spill-ends/writer.expected.jsonl",
+        "snapshots/session/multimodal-spill-ends/system-prompt.expected.md",
+        "snapshots/session/multimodal-spill-ends/tool-schemas.expected.json",
+        "snapshots/session/muse-asr-quota-exhausted/writer.expected.jsonl",
+        "snapshots/session/muse-asr-quota-exhausted/system-prompt.expected.md",
+        "snapshots/session/muse-asr-quota-exhausted/tool-schemas.expected.json",
+        "snapshots/session/muse-asr-recovery-guard/writer.expected.jsonl",
+        "snapshots/session/muse-asr-recovery-guard/system-prompt.expected.md",
+        "snapshots/session/muse-asr-recovery-guard/tool-schemas.expected.json",
+        "snapshots/session/muse-codex-subscription/writer.expected.jsonl",
+        "snapshots/session/muse-codex-subscription/system-prompt.expected.md",
+        "snapshots/session/muse-codex-subscription/tool-schemas.expected.json",
+        "snapshots/session/muse-fanqie-title-download/writer.expected.jsonl",
+        "snapshots/session/muse-fanqie-title-download/system-prompt.expected.md",
+        "snapshots/session/muse-fanqie-title-download/tool-schemas.expected.json",
+        "snapshots/session/muse-feishu-send-file/writer.expected.jsonl",
+        "snapshots/session/muse-feishu-send-file/system-prompt.expected.md",
+        "snapshots/session/muse-feishu-send-file/tool-schemas.expected.json",
+        "snapshots/session/muse-jianying-draft/writer.expected.jsonl",
+        "snapshots/session/muse-jianying-draft/system-prompt.expected.md",
+        "snapshots/session/muse-jianying-draft/tool-schemas.expected.json",
+        "snapshots/session/muse-production-packaging/writer.expected.jsonl",
+        "snapshots/session/muse-production-packaging/system-prompt.expected.md",
+        "snapshots/session/muse-production-packaging/tool-schemas.expected.json",
+        "snapshots/session/muse-storyboard-voice-identity/writer.expected.jsonl",
+        "snapshots/session/muse-storyboard-voice-identity/system-prompt.expected.md",
+        "snapshots/session/muse-storyboard-voice-identity/tool-schemas.expected.json",
+        "snapshots/session/muse-video-inspect/writer.expected.jsonl",
+        "snapshots/session/muse-video-inspect/system-prompt.expected.md",
+        "snapshots/session/muse-video-inspect/tool-schemas.expected.json",
+        "snapshots/session/product-subagent-codex/writer.expected.jsonl",
+        "snapshots/session/product-subagent-codex/system-prompt.expected.md",
+        "snapshots/session/product-subagent-codex/tool-schemas.expected.json",
+        "snapshots/session/pty-tools-sandbox-backend/writer.expected.jsonl",
+        "snapshots/session/pty-tools-sandbox-backend/system-prompt.expected.md",
+        "snapshots/session/pty-tools-sandbox-backend/tool-schemas.expected.json",
+        "snapshots/session/skill-preparation-catalog/writer.expected.jsonl",
+        "snapshots/session/skill-preparation-catalog/system-prompt.expected.md",
+        "snapshots/session/skill-preparation-catalog/tool-schemas.expected.json",
+        "snapshots/session/workspace-dependencies/writer.expected.jsonl",
+        "snapshots/session/workspace-dependencies/system-prompt.expected.md",
+        "snapshots/session/workspace-dependencies/tool-schemas.expected.json",
+        "snapshots/session/argument-loop-recovery/writer.expected.jsonl",
+        "snapshots/session/argument-loop-stop/writer.expected.jsonl",
+        "snapshots/session/multimodal-spill-middle/writer.expected.jsonl"
+      ],
+      "phases": [
+        {
+          "id": "phase-1",
+          "owners": [
+            "browser-use-chrome-devtools-mcp",
+            "browser-use-stagehand-native",
+            "computer-use-cua-driver-mcp",
+            "computer-use-cua-driver-native",
+            "deepseek-messages-system-prompt",
+            "deepseek-protocol-system-prompt",
+            "drama-bgm-preview",
+            "drama-draft-settings",
+            "fs-glob-sampling",
+            "invalid-tool-arguments-retry",
+            "lsp-definition",
+            "multimodal-spill-ends",
+            "muse-asr-quota-exhausted",
+            "muse-asr-recovery-guard",
+            "muse-codex-subscription",
+            "muse-fanqie-title-download",
+            "muse-feishu-send-file",
+            "muse-jianying-draft",
+            "muse-production-packaging",
+            "muse-storyboard-voice-identity",
+            "muse-video-inspect",
+            "product-subagent-codex",
+            "pty-tools-sandbox-backend",
+            "skill-preparation-catalog",
+            "workspace-dependencies"
+          ],
+          "filter": " (browser-use-chrome-devtools-mcp|browser-use-stagehand-native|computer-use-cua-driver-mcp|computer-use-cua-driver-native|deepseek-messages-system-prompt|deepseek-protocol-system-prompt|drama-bgm-preview|drama-draft-settings|fs-glob-sampling|invalid-tool-arguments-retry|lsp-definition|multimodal-spill-ends|muse-asr-quota-exhausted|muse-asr-recovery-guard|muse-codex-subscription|muse-fanqie-title-download|muse-feishu-send-file|muse-jianying-draft|muse-production-packaging|muse-storyboard-voice-identity|muse-video-inspect|product-subagent-codex|pty-tools-sandbox-backend|skill-preparation-catalog|workspace-dependencies) through dsh --profile headless$",
+          "passedSuffixes": [
+            " browser-use-chrome-devtools-mcp through dsh --profile headless",
+            " browser-use-stagehand-native through dsh --profile headless",
+            " computer-use-cua-driver-mcp through dsh --profile headless",
+            " computer-use-cua-driver-native through dsh --profile headless",
+            " deepseek-messages-system-prompt through dsh --profile headless",
+            " deepseek-protocol-system-prompt through dsh --profile headless",
+            " drama-bgm-preview through dsh --profile headless",
+            " drama-draft-settings through dsh --profile headless",
+            " fs-glob-sampling through dsh --profile headless",
+            " invalid-tool-arguments-retry through dsh --profile headless",
+            " lsp-definition through dsh --profile headless",
+            " multimodal-spill-ends through dsh --profile headless",
+            " muse-asr-quota-exhausted through dsh --profile headless",
+            " muse-asr-recovery-guard through dsh --profile headless",
+            " muse-codex-subscription through dsh --profile headless",
+            " muse-fanqie-title-download through dsh --profile headless",
+            " muse-feishu-send-file through dsh --profile headless",
+            " muse-jianying-draft through dsh --profile headless",
+            " muse-production-packaging through dsh --profile headless",
+            " muse-storyboard-voice-identity through dsh --profile headless",
+            " muse-video-inspect through dsh --profile headless",
+            " product-subagent-codex through dsh --profile headless",
+            " pty-tools-sandbox-backend through dsh --profile headless",
+            " skill-preparation-catalog through dsh --profile headless",
+            " workspace-dependencies through dsh --profile headless"
+          ],
+          "outputs": [
+            "snapshots/session/browser-use-chrome-devtools-mcp/writer.expected.jsonl",
+            "snapshots/session/browser-use-chrome-devtools-mcp/system-prompt.expected.md",
+            "snapshots/session/browser-use-chrome-devtools-mcp/tool-schemas.expected.json",
+            "snapshots/session/browser-use-stagehand-native/writer.expected.jsonl",
+            "snapshots/session/browser-use-stagehand-native/system-prompt.expected.md",
+            "snapshots/session/browser-use-stagehand-native/tool-schemas.expected.json",
+            "snapshots/session/computer-use-cua-driver-mcp/writer.expected.jsonl",
+            "snapshots/session/computer-use-cua-driver-mcp/system-prompt.expected.md",
+            "snapshots/session/computer-use-cua-driver-mcp/tool-schemas.expected.json",
+            "snapshots/session/computer-use-cua-driver-native/writer.expected.jsonl",
+            "snapshots/session/computer-use-cua-driver-native/system-prompt.expected.md",
+            "snapshots/session/computer-use-cua-driver-native/tool-schemas.expected.json",
+            "snapshots/session/deepseek-messages-system-prompt/writer.expected.jsonl",
+            "snapshots/session/deepseek-messages-system-prompt/system-prompt.expected.md",
+            "snapshots/session/deepseek-messages-system-prompt/tool-schemas.expected.json",
+            "snapshots/session/deepseek-protocol-system-prompt/writer.expected.jsonl",
+            "snapshots/session/deepseek-protocol-system-prompt/system-prompt.expected.md",
+            "snapshots/session/deepseek-protocol-system-prompt/tool-schemas.expected.json",
+            "snapshots/session/drama-bgm-preview/writer.expected.jsonl",
+            "snapshots/session/drama-bgm-preview/system-prompt.expected.md",
+            "snapshots/session/drama-bgm-preview/tool-schemas.expected.json",
+            "snapshots/session/drama-draft-settings/writer.expected.jsonl",
+            "snapshots/session/drama-draft-settings/system-prompt.expected.md",
+            "snapshots/session/drama-draft-settings/tool-schemas.expected.json",
+            "snapshots/session/fs-glob-sampling/writer.expected.jsonl",
+            "snapshots/session/fs-glob-sampling/system-prompt.expected.md",
+            "snapshots/session/fs-glob-sampling/tool-schemas.expected.json",
+            "snapshots/session/invalid-tool-arguments-retry/writer.expected.jsonl",
+            "snapshots/session/invalid-tool-arguments-retry/system-prompt.expected.md",
+            "snapshots/session/invalid-tool-arguments-retry/tool-schemas.expected.json",
+            "snapshots/session/lsp-definition/writer.expected.jsonl",
+            "snapshots/session/lsp-definition/system-prompt.expected.md",
+            "snapshots/session/lsp-definition/tool-schemas.expected.json",
+            "snapshots/session/multimodal-spill-ends/writer.expected.jsonl",
+            "snapshots/session/multimodal-spill-ends/system-prompt.expected.md",
+            "snapshots/session/multimodal-spill-ends/tool-schemas.expected.json",
+            "snapshots/session/muse-asr-quota-exhausted/writer.expected.jsonl",
+            "snapshots/session/muse-asr-quota-exhausted/system-prompt.expected.md",
+            "snapshots/session/muse-asr-quota-exhausted/tool-schemas.expected.json",
+            "snapshots/session/muse-asr-recovery-guard/writer.expected.jsonl",
+            "snapshots/session/muse-asr-recovery-guard/system-prompt.expected.md",
+            "snapshots/session/muse-asr-recovery-guard/tool-schemas.expected.json",
+            "snapshots/session/muse-codex-subscription/writer.expected.jsonl",
+            "snapshots/session/muse-codex-subscription/system-prompt.expected.md",
+            "snapshots/session/muse-codex-subscription/tool-schemas.expected.json",
+            "snapshots/session/muse-fanqie-title-download/writer.expected.jsonl",
+            "snapshots/session/muse-fanqie-title-download/system-prompt.expected.md",
+            "snapshots/session/muse-fanqie-title-download/tool-schemas.expected.json",
+            "snapshots/session/muse-feishu-send-file/writer.expected.jsonl",
+            "snapshots/session/muse-feishu-send-file/system-prompt.expected.md",
+            "snapshots/session/muse-feishu-send-file/tool-schemas.expected.json",
+            "snapshots/session/muse-jianying-draft/writer.expected.jsonl",
+            "snapshots/session/muse-jianying-draft/system-prompt.expected.md",
+            "snapshots/session/muse-jianying-draft/tool-schemas.expected.json",
+            "snapshots/session/muse-production-packaging/writer.expected.jsonl",
+            "snapshots/session/muse-production-packaging/system-prompt.expected.md",
+            "snapshots/session/muse-production-packaging/tool-schemas.expected.json",
+            "snapshots/session/muse-storyboard-voice-identity/writer.expected.jsonl",
+            "snapshots/session/muse-storyboard-voice-identity/system-prompt.expected.md",
+            "snapshots/session/muse-storyboard-voice-identity/tool-schemas.expected.json",
+            "snapshots/session/muse-video-inspect/writer.expected.jsonl",
+            "snapshots/session/muse-video-inspect/system-prompt.expected.md",
+            "snapshots/session/muse-video-inspect/tool-schemas.expected.json",
+            "snapshots/session/product-subagent-codex/writer.expected.jsonl",
+            "snapshots/session/product-subagent-codex/system-prompt.expected.md",
+            "snapshots/session/product-subagent-codex/tool-schemas.expected.json",
+            "snapshots/session/pty-tools-sandbox-backend/writer.expected.jsonl",
+            "snapshots/session/pty-tools-sandbox-backend/system-prompt.expected.md",
+            "snapshots/session/pty-tools-sandbox-backend/tool-schemas.expected.json",
+            "snapshots/session/skill-preparation-catalog/writer.expected.jsonl",
+            "snapshots/session/skill-preparation-catalog/system-prompt.expected.md",
+            "snapshots/session/skill-preparation-catalog/tool-schemas.expected.json",
+            "snapshots/session/workspace-dependencies/writer.expected.jsonl",
+            "snapshots/session/workspace-dependencies/system-prompt.expected.md",
+            "snapshots/session/workspace-dependencies/tool-schemas.expected.json"
+          ]
+        },
+        {
+          "id": "phase-2",
+          "owners": [
+            "argument-loop-recovery",
+            "argument-loop-stop",
+            "multimodal-spill-middle"
+          ],
+          "filter": " (argument-loop-recovery|argument-loop-stop|multimodal-spill-middle) through dsh --profile headless$",
+          "passedSuffixes": [
+            " argument-loop-recovery through dsh --profile headless",
+            " argument-loop-stop through dsh --profile headless",
+            " multimodal-spill-middle through dsh --profile headless"
+          ],
+          "outputs": [
+            "snapshots/session/argument-loop-recovery/writer.expected.jsonl",
+            "snapshots/session/argument-loop-stop/writer.expected.jsonl",
+            "snapshots/session/multimodal-spill-middle/writer.expected.jsonl"
+          ]
+        }
+      ],
+      "replay": {
+        "filter": " (browser-use-chrome-devtools-mcp|browser-use-stagehand-native|computer-use-cua-driver-mcp|computer-use-cua-driver-native|deepseek-messages-system-prompt|deepseek-protocol-system-prompt|drama-bgm-preview|drama-draft-settings|fs-glob-sampling|invalid-tool-arguments-retry|lsp-definition|multimodal-spill-ends|muse-asr-quota-exhausted|muse-asr-recovery-guard|muse-codex-subscription|muse-fanqie-title-download|muse-feishu-send-file|muse-jianying-draft|muse-production-packaging|muse-storyboard-voice-identity|muse-video-inspect|product-subagent-codex|pty-tools-sandbox-backend|skill-preparation-catalog|workspace-dependencies|argument-loop-recovery|argument-loop-stop|multimodal-spill-middle) through dsh --profile headless$",
+        "passedSuffixes": [
+          " browser-use-chrome-devtools-mcp through dsh --profile headless",
+          " browser-use-stagehand-native through dsh --profile headless",
+          " computer-use-cua-driver-mcp through dsh --profile headless",
+          " computer-use-cua-driver-native through dsh --profile headless",
+          " deepseek-messages-system-prompt through dsh --profile headless",
+          " deepseek-protocol-system-prompt through dsh --profile headless",
+          " drama-bgm-preview through dsh --profile headless",
+          " drama-draft-settings through dsh --profile headless",
+          " fs-glob-sampling through dsh --profile headless",
+          " invalid-tool-arguments-retry through dsh --profile headless",
+          " lsp-definition through dsh --profile headless",
+          " multimodal-spill-ends through dsh --profile headless",
+          " muse-asr-quota-exhausted through dsh --profile headless",
+          " muse-asr-recovery-guard through dsh --profile headless",
+          " muse-codex-subscription through dsh --profile headless",
+          " muse-fanqie-title-download through dsh --profile headless",
+          " muse-feishu-send-file through dsh --profile headless",
+          " muse-jianying-draft through dsh --profile headless",
+          " muse-production-packaging through dsh --profile headless",
+          " muse-storyboard-voice-identity through dsh --profile headless",
+          " muse-video-inspect through dsh --profile headless",
+          " product-subagent-codex through dsh --profile headless",
+          " pty-tools-sandbox-backend through dsh --profile headless",
+          " skill-preparation-catalog through dsh --profile headless",
+          " workspace-dependencies through dsh --profile headless",
+          " argument-loop-recovery through dsh --profile headless",
+          " argument-loop-stop through dsh --profile headless",
+          " multimodal-spill-middle through dsh --profile headless"
+        ]
+      },
+      "preparation": {
+        "skillPanel": false,
+        "lvpaopao": false,
+        "media": false
+      },
+      "newOutputs": [],
+      "expectedInputInventory": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/drama/tool-shot-script/tests/production-snapshot-plugin.mjs",
+        "packages/experimental/browser-use-stagehand-native/tests/fixtures/chromium.ts",
+        "packages/experimental/browser-use-stagehand-native/tests/fixtures/stagehand.ts",
+        "packages/experimental/computer-use-cua-driver-native/tests/fixtures/cua-driver.ts",
+        "packages/jubian/tool-jubian/tests/snapshot-plugin.mjs",
+        "packages/perception/tool-video-inspect/tests/snapshot-media.ts",
+        "packages/test-support/session-snapshot/tests/fixtures/in-history-prompt-update.ts",
+        "scripts/snapshot-spill-locators.ts",
+        "snapshots/session/argument-loop-recovery/cordis.snapshot.yml",
+        "snapshots/session/argument-loop-recovery/cordis.yml",
+        "snapshots/session/argument-loop-recovery/guard-fixture.mjs",
+        "snapshots/session/argument-loop-recovery/replay.override.json",
+        "snapshots/session/argument-loop-recovery/session.v4.jsonl",
+        "snapshots/session/argument-loop-recovery/snapshot.yml",
+        "snapshots/session/argument-loop-stop/cordis.snapshot.yml",
+        "snapshots/session/argument-loop-stop/cordis.yml",
+        "snapshots/session/argument-loop-stop/guard-fixture.mjs",
+        "snapshots/session/argument-loop-stop/replay.override.json",
+        "snapshots/session/argument-loop-stop/session.v4.jsonl",
+        "snapshots/session/argument-loop-stop/snapshot.yml",
+        "snapshots/session/browser-use-chrome-devtools-mcp/cordis.snapshot.yml",
+        "snapshots/session/browser-use-chrome-devtools-mcp/cordis.yml",
+        "snapshots/session/browser-use-chrome-devtools-mcp/provider-fixture.mjs",
+        "snapshots/session/browser-use-chrome-devtools-mcp/replay.override.json",
+        "snapshots/session/browser-use-chrome-devtools-mcp/session.v3.jsonl",
+        "snapshots/session/browser-use-chrome-devtools-mcp/session.v4.jsonl",
+        "snapshots/session/browser-use-chrome-devtools-mcp/snapshot.yml",
+        "snapshots/session/browser-use-chrome-devtools-mcp/workspace/catalog.json",
+        "snapshots/session/browser-use-chrome-devtools-mcp/workspace/cli.js",
+        "snapshots/session/browser-use-chrome-devtools-mcp/workspace/package.json",
+        "snapshots/session/browser-use-stagehand-native/cordis.snapshot.yml",
+        "snapshots/session/browser-use-stagehand-native/cordis.yml",
+        "snapshots/session/browser-use-stagehand-native/native-fixture.mjs",
+        "snapshots/session/browser-use-stagehand-native/replay.override.json",
+        "snapshots/session/browser-use-stagehand-native/session.v3.jsonl",
+        "snapshots/session/browser-use-stagehand-native/session.v4.jsonl",
+        "snapshots/session/browser-use-stagehand-native/snapshot.yml",
+        "snapshots/session/computer-use-cua-driver-mcp/cordis.snapshot.yml",
+        "snapshots/session/computer-use-cua-driver-mcp/cordis.yml",
+        "snapshots/session/computer-use-cua-driver-mcp/replay.override.json",
+        "snapshots/session/computer-use-cua-driver-mcp/session.v3.jsonl",
+        "snapshots/session/computer-use-cua-driver-mcp/session.v4.jsonl",
+        "snapshots/session/computer-use-cua-driver-mcp/snapshot.yml",
+        "snapshots/session/computer-use-cua-driver-mcp/workspace/driver.mjs",
+        "snapshots/session/computer-use-cua-driver-native/cordis.snapshot.yml",
+        "snapshots/session/computer-use-cua-driver-native/cordis.yml",
+        "snapshots/session/computer-use-cua-driver-native/native-fixture.mjs",
+        "snapshots/session/computer-use-cua-driver-native/replay.override.json",
+        "snapshots/session/computer-use-cua-driver-native/session.v3.jsonl",
+        "snapshots/session/computer-use-cua-driver-native/session.v4.jsonl",
+        "snapshots/session/computer-use-cua-driver-native/snapshot.yml",
+        "snapshots/session/deepseek-messages-system-prompt/cordis.snapshot.yml",
+        "snapshots/session/deepseek-messages-system-prompt/cordis.yml",
+        "snapshots/session/deepseek-messages-system-prompt/replay.override.json",
+        "snapshots/session/deepseek-messages-system-prompt/session.v3.jsonl",
+        "snapshots/session/deepseek-messages-system-prompt/session.v4.jsonl",
+        "snapshots/session/deepseek-messages-system-prompt/snapshot.yml",
+        "snapshots/session/deepseek-messages-system-prompt/workspace/task.txt",
+        "snapshots/session/deepseek-protocol-system-prompt/cordis.snapshot.yml",
+        "snapshots/session/deepseek-protocol-system-prompt/cordis.yml",
+        "snapshots/session/deepseek-protocol-system-prompt/replay.override.json",
+        "snapshots/session/deepseek-protocol-system-prompt/session.v3.jsonl",
+        "snapshots/session/deepseek-protocol-system-prompt/session.v4.jsonl",
+        "snapshots/session/deepseek-protocol-system-prompt/snapshot.yml",
+        "snapshots/session/deepseek-protocol-system-prompt/workspace/task.txt",
+        "snapshots/session/drama-bgm-preview/cordis.snapshot.yml",
+        "snapshots/session/drama-bgm-preview/cordis.yml",
+        "snapshots/session/drama-bgm-preview/session.v3.jsonl",
+        "snapshots/session/drama-bgm-preview/snapshot.yml",
+        "snapshots/session/drama-draft-settings/cordis.snapshot.yml",
+        "snapshots/session/drama-draft-settings/cordis.yml",
+        "snapshots/session/drama-draft-settings/draft-root-fixture.mjs",
+        "snapshots/session/drama-draft-settings/replay.override.json",
+        "snapshots/session/drama-draft-settings/session.v4.jsonl",
+        "snapshots/session/drama-draft-settings/snapshot.yml",
+        "snapshots/session/drama-draft-settings/workspace/.dsh/profiles/headless/cordis.patch.yml",
+        "snapshots/session/fs-glob-sampling/cordis.snapshot.yml",
+        "snapshots/session/fs-glob-sampling/cordis.yml",
+        "snapshots/session/fs-glob-sampling/session.v2.jsonl",
+        "snapshots/session/fs-glob-sampling/session.v3.jsonl",
+        "snapshots/session/fs-glob-sampling/session.v4.jsonl",
+        "snapshots/session/fs-glob-sampling/snapshot.yml",
+        "snapshots/session/headless.snapshot.ts",
+        "snapshots/session/invalid-tool-arguments-retry/cordis.snapshot.yml",
+        "snapshots/session/invalid-tool-arguments-retry/cordis.yml",
+        "snapshots/session/invalid-tool-arguments-retry/session.v4.jsonl",
+        "snapshots/session/invalid-tool-arguments-retry/snapshot.yml",
+        "snapshots/session/lsp-definition/cordis.snapshot.yml",
+        "snapshots/session/lsp-definition/cordis.yml",
+        "snapshots/session/lsp-definition/session.v2.jsonl",
+        "snapshots/session/lsp-definition/session.v3.jsonl",
+        "snapshots/session/lsp-definition/session.v4.jsonl",
+        "snapshots/session/lsp-definition/snapshot.yml",
+        "snapshots/session/lsp-definition/workspace/lsp-server.mjs",
+        "snapshots/session/lsp-definition/workspace/subject.ts",
+        "snapshots/session/multimodal-spill-ends/cordis.snapshot.yml",
+        "snapshots/session/multimodal-spill-ends/cordis.yml",
+        "snapshots/session/multimodal-spill-ends/fixture.mjs",
+        "snapshots/session/multimodal-spill-ends/session.v3.jsonl",
+        "snapshots/session/multimodal-spill-ends/session.v4.jsonl",
+        "snapshots/session/multimodal-spill-ends/snapshot.yml",
+        "snapshots/session/multimodal-spill-middle/session.v3.jsonl",
+        "snapshots/session/multimodal-spill-middle/session.v4.jsonl",
+        "snapshots/session/multimodal-spill-middle/snapshot.yml",
+        "snapshots/session/muse-asr-quota-exhausted/account-fixture.mjs",
+        "snapshots/session/muse-asr-quota-exhausted/cordis.snapshot.yml",
+        "snapshots/session/muse-asr-quota-exhausted/cordis.yml",
+        "snapshots/session/muse-asr-quota-exhausted/session.v4.jsonl",
+        "snapshots/session/muse-asr-quota-exhausted/snapshot.yml",
+        "snapshots/session/muse-asr-quota-exhausted/workspace.expected/quota-probe.json",
+        "snapshots/session/muse-asr-quota-exhausted/workspace.expected/source/fixture.mp4",
+        "snapshots/session/muse-asr-quota-exhausted/workspace/source/fixture.mp4",
+        "snapshots/session/muse-asr-recovery-guard/account-fixture.mjs",
+        "snapshots/session/muse-asr-recovery-guard/cordis.snapshot.yml",
+        "snapshots/session/muse-asr-recovery-guard/cordis.yml",
+        "snapshots/session/muse-asr-recovery-guard/session.v4.jsonl",
+        "snapshots/session/muse-asr-recovery-guard/snapshot.yml",
+        "snapshots/session/muse-codex-subscription/cordis.snapshot.yml",
+        "snapshots/session/muse-codex-subscription/cordis.yml",
+        "snapshots/session/muse-codex-subscription/session.v4.jsonl",
+        "snapshots/session/muse-codex-subscription/snapshot.yml",
+        "snapshots/session/muse-codex-subscription/subscription-fixture.mjs",
+        "snapshots/session/muse-fanqie-title-download/allocation-fixture.mjs",
+        "snapshots/session/muse-fanqie-title-download/cordis.snapshot.yml",
+        "snapshots/session/muse-fanqie-title-download/cordis.yml",
+        "snapshots/session/muse-fanqie-title-download/session.v4.jsonl",
+        "snapshots/session/muse-fanqie-title-download/snapshot.yml",
+        "snapshots/session/muse-fanqie-title-download/transport-fixture.mjs",
+        "snapshots/session/muse-fanqie-title-download/workspace.expected/novels/fanqie-case01/1000000000000000001.txt",
+        "snapshots/session/muse-feishu-send-file/cordis.snapshot.yml",
+        "snapshots/session/muse-feishu-send-file/cordis.yml",
+        "snapshots/session/muse-feishu-send-file/file-fixture.mjs",
+        "snapshots/session/muse-feishu-send-file/session.v4.jsonl",
+        "snapshots/session/muse-feishu-send-file/snapshot.yml",
+        "snapshots/session/muse-feishu-send-file/workspace.expected/delivery.txt",
+        "snapshots/session/muse-feishu-send-file/workspace.expected/offline-wire/delivery.txt",
+        "snapshots/session/muse-feishu-send-file/workspace.expected/offline-wire/receipts.json",
+        "snapshots/session/muse-feishu-send-file/workspace/delivery.txt",
+        "snapshots/session/muse-fixture-import.mjs",
+        "snapshots/session/muse-jianying-draft/cordis.snapshot.yml",
+        "snapshots/session/muse-jianying-draft/cordis.yml",
+        "snapshots/session/muse-jianying-draft/draft-fixture.mjs",
+        "snapshots/session/muse-jianying-draft/session.v4.jsonl",
+        "snapshots/session/muse-jianying-draft/snapshot.yml",
+        "snapshots/session/muse-jianying-draft/workspace.expected/drafts/.empty",
+        "snapshots/session/muse-jianying-draft/workspace.expected/drafts/candidate-95/draft_content.json",
+        "snapshots/session/muse-jianying-draft/workspace.expected/drafts/candidate-95/muse-review.json",
+        "snapshots/session/muse-jianying-draft/workspace.expected/request.json",
+        "snapshots/session/muse-jianying-draft/workspace/drafts/.empty",
+        "snapshots/session/muse-jianying-draft/workspace/request.json",
+        "snapshots/session/muse-production-packaging/cordis.snapshot.yml",
+        "snapshots/session/muse-production-packaging/cordis.yml",
+        "snapshots/session/muse-production-packaging/session.v4.jsonl",
+        "snapshots/session/muse-production-packaging/snapshot.yml",
+        "snapshots/session/muse-production-packaging/workspace/.muse/production/b1b3ba232ec25aa045bedb76c0993c48cf93df9552aceef689557e1ac8f0436a.json",
+        "snapshots/session/muse-production-packaging/workspace/project_config.json",
+        "snapshots/session/muse-production-packaging/workspace/shots.txt",
+        "snapshots/session/muse-storyboard-voice-identity/cordis.snapshot.yml",
+        "snapshots/session/muse-storyboard-voice-identity/cordis.yml",
+        "snapshots/session/muse-storyboard-voice-identity/session.v4.jsonl",
+        "snapshots/session/muse-storyboard-voice-identity/snapshot.yml",
+        "snapshots/session/muse-storyboard-voice-identity/voice-fixture.mjs",
+        "snapshots/session/muse-storyboard-voice-identity/workspace.expected/_probe/voice-identity-fixture.json",
+        "snapshots/session/muse-storyboard-voice-identity/workspace.expected/project_config.json",
+        "snapshots/session/muse-storyboard-voice-identity/workspace/project_config.json",
+        "snapshots/session/muse-video-inspect/cordis.snapshot.yml",
+        "snapshots/session/muse-video-inspect/cordis.yml",
+        "snapshots/session/muse-video-inspect/session.v4.jsonl",
+        "snapshots/session/muse-video-inspect/snapshot.yml",
+        "snapshots/session/product-subagent-codex/cordis.snapshot.yml",
+        "snapshots/session/product-subagent-codex/cordis.yml",
+        "snapshots/session/product-subagent-codex/session.v2.jsonl",
+        "snapshots/session/product-subagent-codex/session.v3.jsonl",
+        "snapshots/session/product-subagent-codex/session.v4.jsonl",
+        "snapshots/session/product-subagent-codex/snapshot.yml",
+        "snapshots/session/pty-tools-sandbox-backend/cordis.snapshot.yml",
+        "snapshots/session/pty-tools-sandbox-backend/cordis.yml",
+        "snapshots/session/pty-tools-sandbox-backend/pty-snapshot-backend.mjs",
+        "snapshots/session/pty-tools-sandbox-backend/session.v2.jsonl",
+        "snapshots/session/pty-tools-sandbox-backend/session.v3.jsonl",
+        "snapshots/session/pty-tools-sandbox-backend/session.v4.jsonl",
+        "snapshots/session/pty-tools-sandbox-backend/snapshot.yml",
+        "snapshots/session/skill-preparation-catalog/cordis.snapshot.yml",
+        "snapshots/session/skill-preparation-catalog/cordis.yml",
+        "snapshots/session/skill-preparation-catalog/preparation-fixture.mjs",
+        "snapshots/session/skill-preparation-catalog/session.v4.jsonl",
+        "snapshots/session/skill-preparation-catalog/snapshot.yml",
+        "snapshots/session/subagent-child-question-rejection/assertions.ts",
+        "snapshots/session/workspace-dependencies/cordis.snapshot.yml",
+        "snapshots/session/workspace-dependencies/cordis.yml",
+        "snapshots/session/workspace-dependencies/session.v3.jsonl",
+        "snapshots/session/workspace-dependencies/session.v4.jsonl",
+        "snapshots/session/workspace-dependencies/snapshot.yml",
+        "snapshots/session/workspace-dependencies/workspace/runtime-source/runtime.json"
+      ],
+      "expectedManifests": {
+        "snapshots/session/argument-loop-recovery/snapshot.yml": {
+          "version": 1,
+          "scenario": "argument-loop-recovery",
+          "profile": "headless",
+          "composition": "argument-loop-recovery",
+          "recording": "authored",
+          "header": {
+            "class": "default",
+            "pin": true,
+            "systemPromptSource": "invalid-tool-arguments-retry",
+            "toolSchemasSource": "invalid-tool-arguments-retry"
+          },
+          "writerOutput": true,
+          "replay": {
+            "override": true
+          }
+        },
+        "snapshots/session/argument-loop-stop/snapshot.yml": {
+          "version": 1,
+          "scenario": "argument-loop-stop",
+          "profile": "headless",
+          "composition": "argument-loop-stop",
+          "recording": "authored",
+          "header": {
+            "class": "default",
+            "pin": true,
+            "systemPromptSource": "invalid-tool-arguments-retry",
+            "toolSchemasSource": "invalid-tool-arguments-retry"
+          },
+          "writerOutput": true,
+          "replay": {
+            "override": true
+          }
+        },
+        "snapshots/session/browser-use-chrome-devtools-mcp/snapshot.yml": {
+          "version": 1,
+          "scenario": "browser-use-chrome-devtools-mcp",
+          "profile": "headless",
+          "composition": "browser-use-chrome-devtools-mcp",
+          "recording": "authored",
+          "header": {
+            "class": "browser-use-chrome-devtools-mcp",
+            "pin": true
+          },
+          "replay": {
+            "override": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/browser-use-stagehand-native/snapshot.yml": {
+          "version": 1,
+          "scenario": "browser-use-stagehand-native",
+          "profile": "headless",
+          "composition": "browser-use-stagehand-native",
+          "recording": "authored",
+          "header": {
+            "class": "browser-use-stagehand-native",
+            "pin": true
+          },
+          "replay": {
+            "override": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/computer-use-cua-driver-mcp/snapshot.yml": {
+          "version": 1,
+          "scenario": "computer-use-cua-driver-mcp",
+          "profile": "headless",
+          "composition": "computer-use-cua-driver-mcp",
+          "recording": "authored",
+          "header": {
+            "class": "computer-use-cua-driver-mcp",
+            "pin": true
+          },
+          "replay": {
+            "override": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/computer-use-cua-driver-native/snapshot.yml": {
+          "version": 1,
+          "scenario": "computer-use-cua-driver-native",
+          "profile": "headless",
+          "composition": "computer-use-cua-driver-native",
+          "recording": "authored",
+          "header": {
+            "class": "computer-use-cua-driver-native",
+            "pin": true
+          },
+          "replay": {
+            "override": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/deepseek-messages-system-prompt/snapshot.yml": {
+          "version": 1,
+          "scenario": "deepseek-messages-system-prompt",
+          "profile": "headless",
+          "composition": "deepseek-messages-system-prompt",
+          "recording": "authored",
+          "header": {
+            "class": "deepseek-messages-system-prompt",
+            "pin": true,
+            "promptChanges": 1
+          },
+          "replay": {
+            "override": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/deepseek-protocol-system-prompt/snapshot.yml": {
+          "version": 1,
+          "scenario": "deepseek-protocol-system-prompt",
+          "profile": "headless",
+          "composition": "deepseek-protocol-system-prompt",
+          "recording": "authored",
+          "header": {
+            "class": "deepseek-protocol-system-prompt",
+            "pin": true,
+            "promptChanges": 1
+          },
+          "replay": {
+            "override": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/drama-bgm-preview/snapshot.yml": {
+          "version": 1,
+          "scenario": "drama-bgm-preview",
+          "profile": "headless",
+          "composition": "drama-bgm",
+          "recording": "authored",
+          "header": {
+            "class": "drama-bgm",
+            "pin": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/drama-draft-settings/snapshot.yml": {
+          "version": 1,
+          "scenario": "drama-draft-settings",
+          "profile": "headless",
+          "composition": "drama-draft-settings",
+          "recording": "authored",
+          "header": {
+            "class": "drama-draft-settings",
+            "pin": true
+          },
+          "replay": {
+            "override": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/fs-glob-sampling/snapshot.yml": {
+          "version": 1,
+          "scenario": "fs-glob-sampling",
+          "profile": "headless",
+          "composition": "fs-search",
+          "recording": "live",
+          "header": {
+            "class": "fs-search",
+            "pin": true
+          },
+          "platform": "posix",
+          "workspace": {
+            "setup": "fixed-search-mtimes"
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/invalid-tool-arguments-retry/snapshot.yml": {
+          "version": 1,
+          "scenario": "invalid-tool-arguments-retry",
+          "profile": "headless",
+          "composition": "invalid-tool-arguments-retry",
+          "recording": "authored",
+          "header": {
+            "class": "invalid-tool-arguments-retry",
+            "pin": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/lsp-definition/snapshot.yml": {
+          "version": 1,
+          "scenario": "lsp-definition",
+          "profile": "headless",
+          "composition": "lsp",
+          "recording": "authored",
+          "header": {
+            "class": "lsp",
+            "pin": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/multimodal-spill-ends/snapshot.yml": {
+          "version": 1,
+          "scenario": "multimodal-spill-ends",
+          "profile": "headless",
+          "composition": "multimodal-spill",
+          "recording": "authored",
+          "header": {
+            "class": "multimodal-spill",
+            "pin": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/multimodal-spill-middle/snapshot.yml": {
+          "version": 1,
+          "scenario": "multimodal-spill-middle",
+          "profile": "headless",
+          "composition": "multimodal-spill",
+          "recording": "authored",
+          "header": {
+            "class": "multimodal-spill"
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/muse-asr-quota-exhausted/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-asr-quota-exhausted",
+          "profile": "headless",
+          "composition": "muse-asr-quota-exhausted",
+          "recording": "authored",
+          "header": {
+            "class": "muse-asr-quota-exhausted",
+            "pin": true
+          },
+          "workspace": {
+            "final": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/muse-asr-recovery-guard/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-asr-recovery-guard",
+          "profile": "headless",
+          "composition": "muse-asr-recovery-guard",
+          "recording": "authored",
+          "header": {
+            "class": "muse-asr-recovery-guard",
+            "pin": true
+          },
+          "workspace": {
+            "setup": "muse-asr-recovery-guard"
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/muse-codex-subscription/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-codex-subscription",
+          "profile": "headless",
+          "composition": "muse-codex-subscription",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "muse-codex-subscription",
+            "pin": true
+          }
+        },
+        "snapshots/session/muse-fanqie-title-download/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-fanqie-title-download",
+          "profile": "headless",
+          "composition": "muse-fanqie-title-download",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "muse-fanqie-title-download",
+            "pin": true
+          },
+          "workspace": {
+            "final": true
+          }
+        },
+        "snapshots/session/muse-feishu-send-file/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-feishu-send-file",
+          "profile": "headless",
+          "composition": "muse-feishu-send-file",
+          "recording": "authored",
+          "header": {
+            "class": "muse-feishu-send-file",
+            "pin": true
+          },
+          "writerOutput": true,
+          "workspace": {
+            "final": true
+          }
+        },
+        "snapshots/session/muse-jianying-draft/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-jianying-draft",
+          "profile": "headless",
+          "composition": "muse-jianying-draft",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "muse-jianying-draft",
+            "pin": true
+          },
+          "workspace": {
+            "final": true
+          }
+        },
+        "snapshots/session/muse-production-packaging/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-production-packaging",
+          "profile": "headless",
+          "composition": "muse-production-packaging",
+          "recording": "authored",
+          "header": {
+            "class": "muse-production-packaging",
+            "pin": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/muse-storyboard-voice-identity/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-storyboard-voice-identity",
+          "profile": "headless",
+          "composition": "muse-storyboard-voice-identity",
+          "recording": "authored",
+          "header": {
+            "class": "muse-storyboard-voice-identity",
+            "pin": true
+          },
+          "writerOutput": true,
+          "workspace": {
+            "final": true
+          },
+          "environment": {
+            "JUBIANAI_ADMIN_TOKEN": "offline-voice-identity-fixture"
+          }
+        },
+        "snapshots/session/muse-video-inspect/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-video-inspect",
+          "profile": "headless",
+          "composition": "muse-video-inspect",
+          "recording": "authored",
+          "header": {
+            "class": "muse-video-inspect",
+            "pin": true
+          },
+          "workspace": {
+            "setup": "muse-video-inspect"
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/product-subagent-codex/snapshot.yml": {
+          "version": 1,
+          "scenario": "product-subagent-codex",
+          "profile": "headless",
+          "composition": "product-subagent-codex",
+          "recording": "authored",
+          "header": {
+            "class": "product-subagent-codex",
+            "pin": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/pty-tools-sandbox-backend/snapshot.yml": {
+          "version": 1,
+          "scenario": "pty-tools-sandbox-backend",
+          "profile": "headless",
+          "composition": "pty-sandbox-backend",
+          "recording": "authored",
+          "header": {
+            "class": "pty-sandbox-backend",
+            "pin": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/skill-preparation-catalog/snapshot.yml": {
+          "version": 1,
+          "scenario": "skill-preparation-catalog",
+          "profile": "headless",
+          "composition": "skill-preparation-catalog",
+          "recording": "authored",
+          "header": {
+            "class": "skill-preparation-catalog",
+            "pin": true
+          },
+          "environment": {
+            "DSH_SKILL_PREPARATION_FIXTURE": "catalog"
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/workspace-dependencies/snapshot.yml": {
+          "version": 1,
+          "scenario": "workspace-dependencies",
+          "profile": "headless",
+          "composition": "workspace-dependencies",
+          "recording": "authored",
+          "header": {
+            "class": "workspace-dependencies",
+            "pin": true
+          },
+          "writerOutput": true
+        }
+      },
+      "expectedCanonicalPaths": [
+        "snapshots/session/argument-loop-recovery/session.v4.jsonl",
+        "snapshots/session/argument-loop-stop/session.v4.jsonl",
+        "snapshots/session/browser-use-chrome-devtools-mcp/session.v3.jsonl",
+        "snapshots/session/browser-use-chrome-devtools-mcp/session.v4.jsonl",
+        "snapshots/session/browser-use-stagehand-native/session.v3.jsonl",
+        "snapshots/session/browser-use-stagehand-native/session.v4.jsonl",
+        "snapshots/session/computer-use-cua-driver-mcp/session.v3.jsonl",
+        "snapshots/session/computer-use-cua-driver-mcp/session.v4.jsonl",
+        "snapshots/session/computer-use-cua-driver-native/session.v3.jsonl",
+        "snapshots/session/computer-use-cua-driver-native/session.v4.jsonl",
+        "snapshots/session/deepseek-messages-system-prompt/session.v3.jsonl",
+        "snapshots/session/deepseek-messages-system-prompt/session.v4.jsonl",
+        "snapshots/session/deepseek-protocol-system-prompt/session.v3.jsonl",
+        "snapshots/session/deepseek-protocol-system-prompt/session.v4.jsonl",
+        "snapshots/session/drama-bgm-preview/session.v3.jsonl",
+        "snapshots/session/drama-draft-settings/session.v4.jsonl",
+        "snapshots/session/fs-glob-sampling/session.v2.jsonl",
+        "snapshots/session/fs-glob-sampling/session.v3.jsonl",
+        "snapshots/session/fs-glob-sampling/session.v4.jsonl",
+        "snapshots/session/invalid-tool-arguments-retry/session.v4.jsonl",
+        "snapshots/session/lsp-definition/session.v2.jsonl",
+        "snapshots/session/lsp-definition/session.v3.jsonl",
+        "snapshots/session/lsp-definition/session.v4.jsonl",
+        "snapshots/session/multimodal-spill-ends/session.v3.jsonl",
+        "snapshots/session/multimodal-spill-ends/session.v4.jsonl",
+        "snapshots/session/multimodal-spill-middle/session.v3.jsonl",
+        "snapshots/session/multimodal-spill-middle/session.v4.jsonl",
+        "snapshots/session/muse-asr-quota-exhausted/session.v4.jsonl",
+        "snapshots/session/muse-asr-recovery-guard/session.v4.jsonl",
+        "snapshots/session/muse-codex-subscription/session.v4.jsonl",
+        "snapshots/session/muse-fanqie-title-download/session.v4.jsonl",
+        "snapshots/session/muse-feishu-send-file/session.v4.jsonl",
+        "snapshots/session/muse-jianying-draft/session.v4.jsonl",
+        "snapshots/session/muse-production-packaging/session.v4.jsonl",
+        "snapshots/session/muse-storyboard-voice-identity/session.v4.jsonl",
+        "snapshots/session/muse-video-inspect/session.v4.jsonl",
+        "snapshots/session/product-subagent-codex/session.v2.jsonl",
+        "snapshots/session/product-subagent-codex/session.v3.jsonl",
+        "snapshots/session/product-subagent-codex/session.v4.jsonl",
+        "snapshots/session/pty-tools-sandbox-backend/session.v2.jsonl",
+        "snapshots/session/pty-tools-sandbox-backend/session.v3.jsonl",
+        "snapshots/session/pty-tools-sandbox-backend/session.v4.jsonl",
+        "snapshots/session/skill-preparation-catalog/session.v4.jsonl",
+        "snapshots/session/workspace-dependencies/session.v3.jsonl",
+        "snapshots/session/workspace-dependencies/session.v4.jsonl"
+      ],
+      "expectedTests": 28
+    },
+    {
+      "id": "borrowed-header-cwd",
+      "profile": "headless",
+      "config": "vitest.snapshot.config.ts",
+      "suites": [
+        "snapshots/session/headless.snapshot.ts"
+      ],
+      "owners": [
+        {
+          "name": "cordis-inspect-liveness",
+          "dir": "snapshots/session/cordis-inspect-liveness"
+        },
+        {
+          "name": "cordis-inspect-timeout",
+          "dir": "snapshots/session/cordis-inspect-timeout"
+        },
+        {
+          "name": "goal-wait-yields",
+          "dir": "snapshots/session/goal-wait-yields"
+        },
+        {
+          "name": "muse-project-skill-retention",
+          "dir": "snapshots/session/muse-project-skill-retention"
+        },
+        {
+          "name": "pi-ai-first-turn-context",
+          "dir": "snapshots/session/pi-ai-first-turn-context"
+        },
+        {
+          "name": "repeat-tool-reminder",
+          "dir": "snapshots/session/repeat-tool-reminder"
+        },
+        {
+          "name": "skill-root-isolation",
+          "dir": "snapshots/session/skill-root-isolation"
+        },
+        {
+          "name": "todo-incremental",
+          "dir": "snapshots/session/todo-incremental"
+        },
+        {
+          "name": "muse-account-activity",
+          "dir": "snapshots/session/muse-account-activity"
+        },
+        {
+          "name": "muse-account-default-selection-cas",
+          "dir": "snapshots/session/muse-account-default-selection-cas"
+        },
+        {
+          "name": "muse-asr-queue-full",
+          "dir": "snapshots/session/muse-asr-queue-full"
+        }
+      ],
+      "inventoryDirectories": [
+        "snapshots/session/cordis-inspect-jsdoc",
+        "snapshots/session/cordis-inspect-liveness",
+        "snapshots/session/cordis-inspect-timeout",
+        "snapshots/session/goal-wait-yields",
+        "snapshots/session/muse-account-activity",
+        "snapshots/session/muse-account-default-selection-cas",
+        "snapshots/session/muse-asr-purpose",
+        "snapshots/session/muse-asr-queue-full",
+        "snapshots/session/muse-attention-audio",
+        "snapshots/session/muse-project-skill-retention",
+        "snapshots/session/muse-selected-account-models",
+        "snapshots/session/pi-ai-first-turn-context",
+        "snapshots/session/repeat-tool-reminder",
+        "snapshots/session/skill-root-isolation",
+        "snapshots/session/text-turn",
+        "snapshots/session/todo-incremental",
+        "snapshots/session/tool-call-turn"
+      ],
+      "extraInputs": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/llm/llm-pi-ai/src/context.ts",
+        "packages/test-support/session-snapshot/tests/fixtures/skill-root-isolation.ts",
+        "snapshots/session/headless.snapshot.ts",
+        "snapshots/session/muse-fixture-import.mjs",
+        "snapshots/session/subagent-child-question-rejection/assertions.ts"
+      ],
+      "allowedOutputs": [
+        "snapshots/session/cordis-inspect-liveness/writer.expected.jsonl",
+        "snapshots/session/cordis-inspect-timeout/writer.expected.jsonl",
+        "snapshots/session/goal-wait-yields/writer.expected.jsonl",
+        "snapshots/session/muse-project-skill-retention/writer.expected.jsonl",
+        "snapshots/session/pi-ai-first-turn-context/writer.expected.jsonl",
+        "snapshots/session/repeat-tool-reminder/writer.expected.jsonl",
+        "snapshots/session/skill-root-isolation/writer.expected.jsonl",
+        "snapshots/session/todo-incremental/writer.expected.jsonl",
+        "snapshots/session/muse-account-activity/writer.expected.jsonl",
+        "snapshots/session/muse-account-default-selection-cas/writer.expected.jsonl",
+        "snapshots/session/muse-asr-queue-full/writer.expected.jsonl",
+        "snapshots/session/muse-account-default-selection-cas/system-prompt.expected.md"
+      ],
+      "phases": [
+        {
+          "id": "phase-1",
+          "owners": [
+            "cordis-inspect-liveness",
+            "cordis-inspect-timeout",
+            "goal-wait-yields",
+            "muse-project-skill-retention",
+            "pi-ai-first-turn-context",
+            "repeat-tool-reminder",
+            "skill-root-isolation",
+            "todo-incremental",
+            "muse-account-activity",
+            "muse-account-default-selection-cas",
+            "muse-asr-queue-full"
+          ],
+          "filter": " (cordis-inspect-liveness|cordis-inspect-timeout|goal-wait-yields|muse-project-skill-retention|pi-ai-first-turn-context|repeat-tool-reminder|skill-root-isolation|todo-incremental|muse-account-activity|muse-account-default-selection-cas|muse-asr-queue-full) through dsh --profile headless$",
+          "passedSuffixes": [
+            " cordis-inspect-liveness through dsh --profile headless",
+            " cordis-inspect-timeout through dsh --profile headless",
+            " goal-wait-yields through dsh --profile headless",
+            " muse-project-skill-retention through dsh --profile headless",
+            " pi-ai-first-turn-context through dsh --profile headless",
+            " repeat-tool-reminder through dsh --profile headless",
+            " skill-root-isolation through dsh --profile headless",
+            " todo-incremental through dsh --profile headless",
+            " muse-account-activity through dsh --profile headless",
+            " muse-account-default-selection-cas through dsh --profile headless",
+            " muse-asr-queue-full through dsh --profile headless"
+          ],
+          "outputs": [
+            "snapshots/session/cordis-inspect-liveness/writer.expected.jsonl",
+            "snapshots/session/cordis-inspect-timeout/writer.expected.jsonl",
+            "snapshots/session/goal-wait-yields/writer.expected.jsonl",
+            "snapshots/session/muse-project-skill-retention/writer.expected.jsonl",
+            "snapshots/session/pi-ai-first-turn-context/writer.expected.jsonl",
+            "snapshots/session/repeat-tool-reminder/writer.expected.jsonl",
+            "snapshots/session/skill-root-isolation/writer.expected.jsonl",
+            "snapshots/session/todo-incremental/writer.expected.jsonl",
+            "snapshots/session/muse-account-activity/writer.expected.jsonl",
+            "snapshots/session/muse-account-default-selection-cas/writer.expected.jsonl",
+            "snapshots/session/muse-asr-queue-full/writer.expected.jsonl",
+            "snapshots/session/muse-account-default-selection-cas/system-prompt.expected.md"
+          ]
+        }
+      ],
+      "replay": {
+        "filter": " (cordis-inspect-liveness|cordis-inspect-timeout|goal-wait-yields|muse-project-skill-retention|pi-ai-first-turn-context|repeat-tool-reminder|skill-root-isolation|todo-incremental|muse-account-activity|muse-account-default-selection-cas|muse-asr-queue-full) through dsh --profile headless$",
+        "passedSuffixes": [
+          " cordis-inspect-liveness through dsh --profile headless",
+          " cordis-inspect-timeout through dsh --profile headless",
+          " goal-wait-yields through dsh --profile headless",
+          " muse-project-skill-retention through dsh --profile headless",
+          " pi-ai-first-turn-context through dsh --profile headless",
+          " repeat-tool-reminder through dsh --profile headless",
+          " skill-root-isolation through dsh --profile headless",
+          " todo-incremental through dsh --profile headless",
+          " muse-account-activity through dsh --profile headless",
+          " muse-account-default-selection-cas through dsh --profile headless",
+          " muse-asr-queue-full through dsh --profile headless"
+        ]
+      },
+      "preparation": {
+        "skillPanel": false,
+        "lvpaopao": false,
+        "media": false
+      },
+      "newOutputs": [],
+      "expectedInputInventory": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/llm/llm-pi-ai/src/context.ts",
+        "packages/test-support/session-snapshot/tests/fixtures/skill-root-isolation.ts",
+        "snapshots/session/cordis-inspect-jsdoc/cordis.snapshot.yml",
+        "snapshots/session/cordis-inspect-jsdoc/cordis.yml",
+        "snapshots/session/cordis-inspect-jsdoc/session.v2.jsonl",
+        "snapshots/session/cordis-inspect-jsdoc/session.v3.jsonl",
+        "snapshots/session/cordis-inspect-jsdoc/session.v4.jsonl",
+        "snapshots/session/cordis-inspect-jsdoc/snapshot.yml",
+        "snapshots/session/cordis-inspect-jsdoc/system-prompt.expected.md",
+        "snapshots/session/cordis-inspect-jsdoc/tool-schemas.expected.json",
+        "snapshots/session/cordis-inspect-jsdoc/writer.expected.jsonl",
+        "snapshots/session/cordis-inspect-liveness/client-fixture.mjs",
+        "snapshots/session/cordis-inspect-liveness/cordis.snapshot.yml",
+        "snapshots/session/cordis-inspect-liveness/cordis.yml",
+        "snapshots/session/cordis-inspect-liveness/session.v4.jsonl",
+        "snapshots/session/cordis-inspect-liveness/snapshot.yml",
+        "snapshots/session/cordis-inspect-timeout/client-fixture.mjs",
+        "snapshots/session/cordis-inspect-timeout/cordis.snapshot.yml",
+        "snapshots/session/cordis-inspect-timeout/cordis.yml",
+        "snapshots/session/cordis-inspect-timeout/session.v4.jsonl",
+        "snapshots/session/cordis-inspect-timeout/snapshot.yml",
+        "snapshots/session/goal-wait-yields/replay.override.json",
+        "snapshots/session/goal-wait-yields/session.v4.jsonl",
+        "snapshots/session/goal-wait-yields/snapshot.yml",
+        "snapshots/session/headless.snapshot.ts",
+        "snapshots/session/muse-account-activity/activity-fixture.mjs",
+        "snapshots/session/muse-account-activity/cordis.snapshot.yml",
+        "snapshots/session/muse-account-activity/cordis.yml",
+        "snapshots/session/muse-account-activity/session.v4.jsonl",
+        "snapshots/session/muse-account-activity/snapshot.yml",
+        "snapshots/session/muse-account-activity/workspace.expected/activity-probe.json",
+        "snapshots/session/muse-account-default-selection-cas/cordis.snapshot.yml",
+        "snapshots/session/muse-account-default-selection-cas/session.v4.jsonl",
+        "snapshots/session/muse-account-default-selection-cas/snapshot.yml",
+        "snapshots/session/muse-asr-purpose/account-fixture.mjs",
+        "snapshots/session/muse-asr-purpose/cordis.snapshot.yml",
+        "snapshots/session/muse-asr-purpose/cordis.yml",
+        "snapshots/session/muse-asr-purpose/session.v4.jsonl",
+        "snapshots/session/muse-asr-purpose/snapshot.yml",
+        "snapshots/session/muse-asr-purpose/system-prompt.expected.md",
+        "snapshots/session/muse-asr-purpose/tool-schemas.expected.json",
+        "snapshots/session/muse-asr-purpose/writer.expected.jsonl",
+        "snapshots/session/muse-asr-queue-full/account-fixture.mjs",
+        "snapshots/session/muse-asr-queue-full/cordis.snapshot.yml",
+        "snapshots/session/muse-asr-queue-full/cordis.yml",
+        "snapshots/session/muse-asr-queue-full/session.v4.jsonl",
+        "snapshots/session/muse-asr-queue-full/snapshot.yml",
+        "snapshots/session/muse-attention-audio/audio-fixture.mjs",
+        "snapshots/session/muse-attention-audio/cordis.snapshot.yml",
+        "snapshots/session/muse-attention-audio/cordis.yml",
+        "snapshots/session/muse-attention-audio/session.v4.jsonl",
+        "snapshots/session/muse-attention-audio/snapshot.yml",
+        "snapshots/session/muse-attention-audio/system-prompt.expected.md",
+        "snapshots/session/muse-attention-audio/tool-schemas.expected.json",
+        "snapshots/session/muse-attention-audio/workspace.expected/audio-probe.json",
+        "snapshots/session/muse-attention-audio/writer.expected.jsonl",
+        "snapshots/session/muse-fixture-import.mjs",
+        "snapshots/session/muse-project-skill-retention/cordis.snapshot.yml",
+        "snapshots/session/muse-project-skill-retention/cordis.yml",
+        "snapshots/session/muse-project-skill-retention/session.v4.jsonl",
+        "snapshots/session/muse-project-skill-retention/snapshot.yml",
+        "snapshots/session/muse-selected-account-models/account-fixture.mjs",
+        "snapshots/session/muse-selected-account-models/cordis.snapshot.yml",
+        "snapshots/session/muse-selected-account-models/cordis.yml",
+        "snapshots/session/muse-selected-account-models/session.v4.jsonl",
+        "snapshots/session/muse-selected-account-models/snapshot.yml",
+        "snapshots/session/muse-selected-account-models/system-prompt.expected.md",
+        "snapshots/session/muse-selected-account-models/tool-schemas.expected.json",
+        "snapshots/session/muse-selected-account-models/writer.expected.jsonl",
+        "snapshots/session/pi-ai-first-turn-context/context-check.mjs",
+        "snapshots/session/pi-ai-first-turn-context/cordis.snapshot.yml",
+        "snapshots/session/pi-ai-first-turn-context/cordis.yml",
+        "snapshots/session/pi-ai-first-turn-context/session.v3.jsonl",
+        "snapshots/session/pi-ai-first-turn-context/snapshot.yml",
+        "snapshots/session/repeat-tool-reminder/session.v2.jsonl",
+        "snapshots/session/repeat-tool-reminder/session.v3.jsonl",
+        "snapshots/session/repeat-tool-reminder/session.v4.jsonl",
+        "snapshots/session/repeat-tool-reminder/snapshot.yml",
+        "snapshots/session/skill-root-isolation/cordis.snapshot.yml",
+        "snapshots/session/skill-root-isolation/cordis.yml",
+        "snapshots/session/skill-root-isolation/session.v4.jsonl",
+        "snapshots/session/skill-root-isolation/snapshot.yml",
+        "snapshots/session/subagent-child-question-rejection/assertions.ts",
+        "snapshots/session/text-turn/cordis.snapshot.yml",
+        "snapshots/session/text-turn/cordis.yml",
+        "snapshots/session/text-turn/model.cordis.yml",
+        "snapshots/session/text-turn/session.jsonl",
+        "snapshots/session/text-turn/session.v1.jsonl",
+        "snapshots/session/text-turn/snapshot.yml",
+        "snapshots/session/text-turn/system-prompt.expected.md",
+        "snapshots/session/text-turn/tool-schemas.expected.json",
+        "snapshots/session/text-turn/writer.expected.jsonl",
+        "snapshots/session/todo-incremental/session.v3.jsonl",
+        "snapshots/session/todo-incremental/snapshot.yml",
+        "snapshots/session/tool-call-turn/session.v2.jsonl",
+        "snapshots/session/tool-call-turn/session.v3.jsonl",
+        "snapshots/session/tool-call-turn/session.v4.jsonl",
+        "snapshots/session/tool-call-turn/snapshot.yml"
+      ],
+      "expectedManifests": {
+        "snapshots/session/cordis-inspect-jsdoc/snapshot.yml": {
+          "version": 1,
+          "scenario": "cordis-inspect-jsdoc",
+          "profile": "headless",
+          "composition": "advanced",
+          "recording": "authored",
+          "header": {
+            "class": "advanced",
+            "pin": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/cordis-inspect-liveness/snapshot.yml": {
+          "version": 1,
+          "scenario": "cordis-inspect-liveness",
+          "profile": "headless",
+          "composition": "cordis-inspect-liveness",
+          "recording": "authored",
+          "header": {
+            "class": "advanced",
+            "pin": true,
+            "systemPromptSource": "cordis-inspect-jsdoc",
+            "toolSchemasSource": "cordis-inspect-jsdoc"
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/cordis-inspect-timeout/snapshot.yml": {
+          "version": 1,
+          "scenario": "cordis-inspect-timeout",
+          "profile": "headless",
+          "composition": "cordis-inspect-timeout",
+          "recording": "authored",
+          "header": {
+            "class": "advanced",
+            "pin": true,
+            "systemPromptSource": "cordis-inspect-jsdoc",
+            "toolSchemasSource": "cordis-inspect-jsdoc"
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/goal-wait-yields/snapshot.yml": {
+          "version": 1,
+          "scenario": "goal-wait-yields",
+          "profile": "headless",
+          "composition": "default",
+          "recording": "authored",
+          "header": {
+            "class": "default"
+          },
+          "writerOutput": true,
+          "replay": {
+            "override": true
+          }
+        },
+        "snapshots/session/muse-account-activity/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-account-activity",
+          "profile": "headless",
+          "composition": "muse-account-activity",
+          "recording": "authored",
+          "header": {
+            "class": "muse-account-activity",
+            "pin": true,
+            "systemPromptSource": "muse-attention-audio",
+            "toolSchemasSource": "muse-attention-audio"
+          },
+          "writerOutput": true,
+          "workspace": {
+            "final": true
+          }
+        },
+        "snapshots/session/muse-account-default-selection-cas/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-account-default-selection-cas",
+          "profile": "headless",
+          "composition": "muse-selected-account-models",
+          "recording": "authored",
+          "header": {
+            "class": "muse-account-default-selection-cas",
+            "pin": true,
+            "toolSchemasSource": "muse-selected-account-models"
+          },
+          "writerOutput": true,
+          "environment": {
+            "DSH_SNAPSHOT_DEFAULT_SELECTION_RACE": "preserve-newer"
+          }
+        },
+        "snapshots/session/muse-asr-purpose/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-asr-purpose",
+          "profile": "headless",
+          "composition": "muse-asr-purpose",
+          "recording": "authored",
+          "header": {
+            "class": "muse-asr-purpose",
+            "pin": true
+          },
+          "workspace": {
+            "setup": "muse-asr-purpose"
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/muse-asr-queue-full/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-asr-queue-full",
+          "profile": "headless",
+          "composition": "muse-asr-queue-full",
+          "recording": "authored",
+          "header": {
+            "class": "muse-asr-purpose",
+            "pin": true,
+            "systemPromptSource": "muse-asr-purpose",
+            "toolSchemasSource": "muse-asr-purpose"
+          },
+          "workspace": {
+            "setup": "muse-asr-purpose"
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/muse-attention-audio/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-attention-audio",
+          "profile": "headless",
+          "composition": "muse-attention-audio",
+          "recording": "authored",
+          "header": {
+            "class": "muse-attention-audio",
+            "pin": true
+          },
+          "workspace": {
+            "final": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/muse-project-skill-retention/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-project-skill-retention",
+          "profile": "headless",
+          "composition": "muse-project-skill-retention",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "skill",
+            "pin": true,
+            "systemPromptSource": "text-turn",
+            "toolSchemasSource": "text-turn"
+          },
+          "workspace": {
+            "setup": "editing-cordis-skill"
+          }
+        },
+        "snapshots/session/muse-selected-account-models/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-selected-account-models",
+          "profile": "headless",
+          "composition": "muse-selected-account-models",
+          "recording": "authored",
+          "header": {
+            "class": "muse-selected-account-models",
+            "pin": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/pi-ai-first-turn-context/snapshot.yml": {
+          "version": 1,
+          "scenario": "pi-ai-first-turn-context",
+          "profile": "headless",
+          "composition": "pi-ai-first-turn-context",
+          "recording": "authored",
+          "header": {
+            "class": "default",
+            "pin": true,
+            "systemPromptSource": "text-turn",
+            "toolSchemasSource": "text-turn"
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/repeat-tool-reminder/snapshot.yml": {
+          "version": 1,
+          "scenario": "repeat-tool-reminder",
+          "profile": "headless",
+          "composition": "default",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "default"
+          }
+        },
+        "snapshots/session/skill-root-isolation/snapshot.yml": {
+          "version": 1,
+          "scenario": "skill-root-isolation",
+          "profile": "headless",
+          "composition": "skill-root-isolation",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "skill-root-isolation",
+            "pin": true,
+            "systemPromptSource": "text-turn",
+            "toolSchemasSource": "text-turn"
+          },
+          "platform": "posix",
+          "workspace": {
+            "setup": "skill-root-isolation"
+          }
+        },
+        "snapshots/session/text-turn/snapshot.yml": {
+          "version": 1,
+          "scenario": "text-turn",
+          "profile": "headless",
+          "composition": "default",
+          "recording": "live",
+          "sessionFormat": {
+            "version": 1,
+            "coverage": [
+              "adjacent-migration"
+            ]
+          },
+          "header": {
+            "class": "default"
+          }
+        },
+        "snapshots/session/todo-incremental/snapshot.yml": {
+          "version": 1,
+          "scenario": "todo-incremental",
+          "profile": "headless",
+          "composition": "default",
+          "recording": "authored",
+          "header": {
+            "class": "default"
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/tool-call-turn/snapshot.yml": {
+          "version": 1,
+          "scenario": "tool-call-turn",
+          "profile": "headless",
+          "composition": "default",
+          "recording": "live",
+          "header": {
+            "class": "default",
+            "pin": true,
+            "systemPromptSource": "text-turn",
+            "toolSchemasSource": "text-turn"
+          }
+        }
+      },
+      "expectedCanonicalPaths": [
+        "snapshots/session/cordis-inspect-jsdoc/session.v2.jsonl",
+        "snapshots/session/cordis-inspect-jsdoc/session.v3.jsonl",
+        "snapshots/session/cordis-inspect-jsdoc/session.v4.jsonl",
+        "snapshots/session/cordis-inspect-liveness/session.v4.jsonl",
+        "snapshots/session/cordis-inspect-timeout/session.v4.jsonl",
+        "snapshots/session/goal-wait-yields/session.v4.jsonl",
+        "snapshots/session/muse-account-activity/session.v4.jsonl",
+        "snapshots/session/muse-account-default-selection-cas/session.v4.jsonl",
+        "snapshots/session/muse-asr-purpose/session.v4.jsonl",
+        "snapshots/session/muse-asr-queue-full/session.v4.jsonl",
+        "snapshots/session/muse-attention-audio/session.v4.jsonl",
+        "snapshots/session/muse-project-skill-retention/session.v4.jsonl",
+        "snapshots/session/muse-selected-account-models/session.v4.jsonl",
+        "snapshots/session/pi-ai-first-turn-context/session.v3.jsonl",
+        "snapshots/session/repeat-tool-reminder/session.v2.jsonl",
+        "snapshots/session/repeat-tool-reminder/session.v3.jsonl",
+        "snapshots/session/repeat-tool-reminder/session.v4.jsonl",
+        "snapshots/session/skill-root-isolation/session.v4.jsonl",
+        "snapshots/session/text-turn/session.jsonl",
+        "snapshots/session/text-turn/session.v1.jsonl",
+        "snapshots/session/todo-incremental/session.v3.jsonl",
+        "snapshots/session/tool-call-turn/session.v2.jsonl",
+        "snapshots/session/tool-call-turn/session.v3.jsonl",
+        "snapshots/session/tool-call-turn/session.v4.jsonl"
+      ],
+      "expectedTests": 11
+    },
+    {
+      "id": "production-headers-and-repaired-fixtures",
+      "profile": "headless",
+      "config": "vitest.snapshot.config.ts",
+      "suites": [
+        "snapshots/session/headless.snapshot.ts"
+      ],
+      "owners": [
+        {
+          "name": "muse-audio-binding-readback-native",
+          "dir": "snapshots/session/muse-audio-binding-readback-native"
+        },
+        {
+          "name": "muse-audio-binding-readback-ptc",
+          "dir": "snapshots/session/muse-audio-binding-readback-ptc"
+        },
+        {
+          "name": "muse-video-task-discovery-native",
+          "dir": "snapshots/session/muse-video-task-discovery-native"
+        },
+        {
+          "name": "muse-video-task-discovery-ptc",
+          "dir": "snapshots/session/muse-video-task-discovery-ptc"
+        },
+        {
+          "name": "muse-video-recovery",
+          "dir": "snapshots/session/muse-video-recovery"
+        },
+        {
+          "name": "muse-video-recovery-ptc",
+          "dir": "snapshots/session/muse-video-recovery-ptc"
+        },
+        {
+          "name": "muse-mcp-oauth-recovery",
+          "dir": "snapshots/session/muse-mcp-oauth-recovery"
+        },
+        {
+          "name": "muse-skill-delete-undo-recovery",
+          "dir": "snapshots/session/muse-skill-delete-undo-recovery"
+        },
+        {
+          "name": "muse-skill-import-path-recovery",
+          "dir": "snapshots/session/muse-skill-import-path-recovery"
+        },
+        {
+          "name": "muse-skill-migration-receipts",
+          "dir": "snapshots/session/muse-skill-migration-receipts"
+        },
+        {
+          "name": "muse-session-product",
+          "dir": "snapshots/session/muse-session-product"
+        },
+        {
+          "name": "muse-subtitle-visual-preflight",
+          "dir": "snapshots/session/muse-subtitle-visual-preflight"
+        },
+        {
+          "name": "muse-subtitle-visual-preflight-ptc",
+          "dir": "snapshots/session/muse-subtitle-visual-preflight-ptc"
+        },
+        {
+          "name": "muse-visualize",
+          "dir": "snapshots/session/muse-visualize"
+        }
+      ],
+      "inventoryDirectories": [
+        "snapshots/session/muse-audio-binding-readback-native",
+        "snapshots/session/muse-audio-binding-readback-ptc",
+        "snapshots/session/muse-editing-tool-catalog",
+        "snapshots/session/muse-mcp-oauth-recovery",
+        "snapshots/session/muse-session-product",
+        "snapshots/session/muse-skill-delete-undo-recovery",
+        "snapshots/session/muse-skill-import-path-recovery",
+        "snapshots/session/muse-skill-migration-receipts",
+        "snapshots/session/muse-subtitle-visual-preflight",
+        "snapshots/session/muse-subtitle-visual-preflight-ptc",
+        "snapshots/session/muse-video-recovery",
+        "snapshots/session/muse-video-recovery-ptc",
+        "snapshots/session/muse-video-task-discovery-native",
+        "snapshots/session/muse-video-task-discovery-ptc",
+        "snapshots/session/muse-visualize"
+      ],
+      "extraInputs": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/jubian/tool-jubian/tests/snapshot-plugin.mjs",
+        "scripts/prepare-skill-panel-snapshot.mjs",
+        "snapshots/session/headless.snapshot.ts",
+        "snapshots/session/loopback-fixture-server.mjs",
+        "snapshots/session/muse-fixture-import.mjs",
+        "snapshots/session/muse-skill-panel-import.mjs",
+        "snapshots/session/subagent-child-question-rejection/assertions.ts",
+        "third_party/plugins/muse-lvpaopao/scripts/build.mjs",
+        "third_party/plugins/muse-lvpaopao/scripts/native-resources.mjs"
+      ],
+      "allowedOutputs": [
+        "snapshots/session/muse-audio-binding-readback-native/writer.expected.jsonl",
+        "snapshots/session/muse-audio-binding-readback-native/system-prompt.expected.md",
+        "snapshots/session/muse-audio-binding-readback-native/tool-schemas.expected.json",
+        "snapshots/session/muse-audio-binding-readback-ptc/writer.expected.jsonl",
+        "snapshots/session/muse-audio-binding-readback-ptc/system-prompt.expected.md",
+        "snapshots/session/muse-audio-binding-readback-ptc/tool-schemas.expected.json",
+        "snapshots/session/muse-video-task-discovery-native/writer.expected.jsonl",
+        "snapshots/session/muse-video-task-discovery-native/system-prompt.expected.md",
+        "snapshots/session/muse-video-task-discovery-native/tool-schemas.expected.json",
+        "snapshots/session/muse-video-task-discovery-ptc/writer.expected.jsonl",
+        "snapshots/session/muse-video-task-discovery-ptc/system-prompt.expected.md",
+        "snapshots/session/muse-video-task-discovery-ptc/tool-schemas.expected.json",
+        "snapshots/session/muse-video-recovery/writer.expected.jsonl",
+        "snapshots/session/muse-video-recovery/system-prompt.expected.md",
+        "snapshots/session/muse-video-recovery/tool-schemas.expected.json",
+        "snapshots/session/muse-video-recovery-ptc/writer.expected.jsonl",
+        "snapshots/session/muse-video-recovery-ptc/system-prompt.expected.md",
+        "snapshots/session/muse-video-recovery-ptc/tool-schemas.expected.json",
+        "snapshots/session/muse-mcp-oauth-recovery/writer.expected.jsonl",
+        "snapshots/session/muse-mcp-oauth-recovery/system-prompt.expected.md",
+        "snapshots/session/muse-mcp-oauth-recovery/tool-schemas.expected.json",
+        "snapshots/session/muse-skill-delete-undo-recovery/writer.expected.jsonl",
+        "snapshots/session/muse-skill-delete-undo-recovery/system-prompt.expected.md",
+        "snapshots/session/muse-skill-delete-undo-recovery/tool-schemas.expected.json",
+        "snapshots/session/muse-skill-import-path-recovery/writer.expected.jsonl",
+        "snapshots/session/muse-skill-import-path-recovery/system-prompt.expected.md",
+        "snapshots/session/muse-skill-import-path-recovery/tool-schemas.expected.json",
+        "snapshots/session/muse-skill-migration-receipts/writer.expected.jsonl",
+        "snapshots/session/muse-skill-migration-receipts/system-prompt.expected.md",
+        "snapshots/session/muse-skill-migration-receipts/tool-schemas.expected.json",
+        "snapshots/session/muse-session-product/writer.expected.jsonl",
+        "snapshots/session/muse-session-product/system-prompt.expected.md",
+        "snapshots/session/muse-session-product/tool-schemas.expected.json",
+        "snapshots/session/muse-subtitle-visual-preflight/writer.expected.jsonl",
+        "snapshots/session/muse-subtitle-visual-preflight/system-prompt.expected.md",
+        "snapshots/session/muse-subtitle-visual-preflight/tool-schemas.expected.json",
+        "snapshots/session/muse-subtitle-visual-preflight-ptc/writer.expected.jsonl",
+        "snapshots/session/muse-subtitle-visual-preflight-ptc/system-prompt.expected.md",
+        "snapshots/session/muse-subtitle-visual-preflight-ptc/tool-schemas.expected.json",
+        "snapshots/session/muse-visualize/writer.expected.jsonl",
+        "snapshots/session/muse-visualize/system-prompt.expected.md",
+        "snapshots/session/muse-visualize/tool-schemas.expected.json"
+      ],
+      "phases": [
+        {
+          "id": "phase-1",
+          "owners": [
+            "muse-audio-binding-readback-native",
+            "muse-audio-binding-readback-ptc",
+            "muse-video-task-discovery-native",
+            "muse-video-task-discovery-ptc",
+            "muse-video-recovery",
+            "muse-video-recovery-ptc",
+            "muse-mcp-oauth-recovery",
+            "muse-skill-delete-undo-recovery",
+            "muse-skill-import-path-recovery",
+            "muse-skill-migration-receipts",
+            "muse-session-product",
+            "muse-subtitle-visual-preflight",
+            "muse-subtitle-visual-preflight-ptc",
+            "muse-visualize"
+          ],
+          "filter": " (muse-audio-binding-readback-native|muse-audio-binding-readback-ptc|muse-video-task-discovery-native|muse-video-task-discovery-ptc|muse-video-recovery|muse-video-recovery-ptc|muse-mcp-oauth-recovery|muse-skill-delete-undo-recovery|muse-skill-import-path-recovery|muse-skill-migration-receipts|muse-session-product|muse-subtitle-visual-preflight|muse-subtitle-visual-preflight-ptc|muse-visualize) through dsh --profile headless$",
+          "passedSuffixes": [
+            " muse-audio-binding-readback-native through dsh --profile headless",
+            " muse-audio-binding-readback-ptc through dsh --profile headless",
+            " muse-video-task-discovery-native through dsh --profile headless",
+            " muse-video-task-discovery-ptc through dsh --profile headless",
+            " muse-video-recovery through dsh --profile headless",
+            " muse-video-recovery-ptc through dsh --profile headless",
+            " muse-mcp-oauth-recovery through dsh --profile headless",
+            " muse-skill-delete-undo-recovery through dsh --profile headless",
+            " muse-skill-import-path-recovery through dsh --profile headless",
+            " muse-skill-migration-receipts through dsh --profile headless",
+            " muse-session-product through dsh --profile headless",
+            " muse-subtitle-visual-preflight through dsh --profile headless",
+            " muse-subtitle-visual-preflight-ptc through dsh --profile headless",
+            " muse-visualize through dsh --profile headless"
+          ],
+          "outputs": [
+            "snapshots/session/muse-audio-binding-readback-native/writer.expected.jsonl",
+            "snapshots/session/muse-audio-binding-readback-native/system-prompt.expected.md",
+            "snapshots/session/muse-audio-binding-readback-native/tool-schemas.expected.json",
+            "snapshots/session/muse-audio-binding-readback-ptc/writer.expected.jsonl",
+            "snapshots/session/muse-audio-binding-readback-ptc/system-prompt.expected.md",
+            "snapshots/session/muse-audio-binding-readback-ptc/tool-schemas.expected.json",
+            "snapshots/session/muse-video-task-discovery-native/writer.expected.jsonl",
+            "snapshots/session/muse-video-task-discovery-native/system-prompt.expected.md",
+            "snapshots/session/muse-video-task-discovery-native/tool-schemas.expected.json",
+            "snapshots/session/muse-video-task-discovery-ptc/writer.expected.jsonl",
+            "snapshots/session/muse-video-task-discovery-ptc/system-prompt.expected.md",
+            "snapshots/session/muse-video-task-discovery-ptc/tool-schemas.expected.json",
+            "snapshots/session/muse-video-recovery/writer.expected.jsonl",
+            "snapshots/session/muse-video-recovery/system-prompt.expected.md",
+            "snapshots/session/muse-video-recovery/tool-schemas.expected.json",
+            "snapshots/session/muse-video-recovery-ptc/writer.expected.jsonl",
+            "snapshots/session/muse-video-recovery-ptc/system-prompt.expected.md",
+            "snapshots/session/muse-video-recovery-ptc/tool-schemas.expected.json",
+            "snapshots/session/muse-mcp-oauth-recovery/writer.expected.jsonl",
+            "snapshots/session/muse-mcp-oauth-recovery/system-prompt.expected.md",
+            "snapshots/session/muse-mcp-oauth-recovery/tool-schemas.expected.json",
+            "snapshots/session/muse-skill-delete-undo-recovery/writer.expected.jsonl",
+            "snapshots/session/muse-skill-delete-undo-recovery/system-prompt.expected.md",
+            "snapshots/session/muse-skill-delete-undo-recovery/tool-schemas.expected.json",
+            "snapshots/session/muse-skill-import-path-recovery/writer.expected.jsonl",
+            "snapshots/session/muse-skill-import-path-recovery/system-prompt.expected.md",
+            "snapshots/session/muse-skill-import-path-recovery/tool-schemas.expected.json",
+            "snapshots/session/muse-skill-migration-receipts/writer.expected.jsonl",
+            "snapshots/session/muse-skill-migration-receipts/system-prompt.expected.md",
+            "snapshots/session/muse-skill-migration-receipts/tool-schemas.expected.json",
+            "snapshots/session/muse-session-product/writer.expected.jsonl",
+            "snapshots/session/muse-session-product/system-prompt.expected.md",
+            "snapshots/session/muse-session-product/tool-schemas.expected.json",
+            "snapshots/session/muse-subtitle-visual-preflight/writer.expected.jsonl",
+            "snapshots/session/muse-subtitle-visual-preflight/system-prompt.expected.md",
+            "snapshots/session/muse-subtitle-visual-preflight/tool-schemas.expected.json",
+            "snapshots/session/muse-subtitle-visual-preflight-ptc/writer.expected.jsonl",
+            "snapshots/session/muse-subtitle-visual-preflight-ptc/system-prompt.expected.md",
+            "snapshots/session/muse-subtitle-visual-preflight-ptc/tool-schemas.expected.json",
+            "snapshots/session/muse-visualize/writer.expected.jsonl",
+            "snapshots/session/muse-visualize/system-prompt.expected.md",
+            "snapshots/session/muse-visualize/tool-schemas.expected.json"
+          ]
+        }
+      ],
+      "replay": {
+        "filter": " (muse-audio-binding-readback-native|muse-audio-binding-readback-ptc|muse-video-task-discovery-native|muse-video-task-discovery-ptc|muse-video-recovery|muse-video-recovery-ptc|muse-mcp-oauth-recovery|muse-skill-delete-undo-recovery|muse-skill-import-path-recovery|muse-skill-migration-receipts|muse-session-product|muse-subtitle-visual-preflight|muse-subtitle-visual-preflight-ptc|muse-visualize) through dsh --profile headless$",
+        "passedSuffixes": [
+          " muse-audio-binding-readback-native through dsh --profile headless",
+          " muse-audio-binding-readback-ptc through dsh --profile headless",
+          " muse-video-task-discovery-native through dsh --profile headless",
+          " muse-video-task-discovery-ptc through dsh --profile headless",
+          " muse-video-recovery through dsh --profile headless",
+          " muse-video-recovery-ptc through dsh --profile headless",
+          " muse-mcp-oauth-recovery through dsh --profile headless",
+          " muse-skill-delete-undo-recovery through dsh --profile headless",
+          " muse-skill-import-path-recovery through dsh --profile headless",
+          " muse-skill-migration-receipts through dsh --profile headless",
+          " muse-session-product through dsh --profile headless",
+          " muse-subtitle-visual-preflight through dsh --profile headless",
+          " muse-subtitle-visual-preflight-ptc through dsh --profile headless",
+          " muse-visualize through dsh --profile headless"
+        ]
+      },
+      "preparation": {
+        "skillPanel": true,
+        "lvpaopao": true,
+        "media": true
+      },
+      "newOutputs": [
+        "snapshots/session/muse-subtitle-visual-preflight/writer.expected.jsonl",
+        "snapshots/session/muse-subtitle-visual-preflight-ptc/writer.expected.jsonl"
+      ],
+      "expectedInputInventory": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/jubian/tool-jubian/tests/snapshot-plugin.mjs",
+        "scripts/prepare-skill-panel-snapshot.mjs",
+        "snapshots/session/headless.snapshot.ts",
+        "snapshots/session/loopback-fixture-server.mjs",
+        "snapshots/session/muse-audio-binding-readback-native/README.i18n.yaml",
+        "snapshots/session/muse-audio-binding-readback-native/README.md",
+        "snapshots/session/muse-audio-binding-readback-native/README.zh.md",
+        "snapshots/session/muse-audio-binding-readback-native/audio-fixture.mjs",
+        "snapshots/session/muse-audio-binding-readback-native/cordis.snapshot.yml",
+        "snapshots/session/muse-audio-binding-readback-native/cordis.yml",
+        "snapshots/session/muse-audio-binding-readback-native/session.v4.jsonl",
+        "snapshots/session/muse-audio-binding-readback-native/snapshot.yml",
+        "snapshots/session/muse-audio-binding-readback-native/workspace.expected/audio-binding-proof.json",
+        "snapshots/session/muse-audio-binding-readback-ptc/README.i18n.yaml",
+        "snapshots/session/muse-audio-binding-readback-ptc/README.md",
+        "snapshots/session/muse-audio-binding-readback-ptc/README.zh.md",
+        "snapshots/session/muse-audio-binding-readback-ptc/cordis.snapshot.yml",
+        "snapshots/session/muse-audio-binding-readback-ptc/cordis.yml",
+        "snapshots/session/muse-audio-binding-readback-ptc/session.v4.jsonl",
+        "snapshots/session/muse-audio-binding-readback-ptc/snapshot.yml",
+        "snapshots/session/muse-audio-binding-readback-ptc/workspace.expected/audio-binding-proof.json",
+        "snapshots/session/muse-editing-tool-catalog/cordis.snapshot.yml",
+        "snapshots/session/muse-editing-tool-catalog/cordis.yml",
+        "snapshots/session/muse-editing-tool-catalog/delegation-policy.mjs",
+        "snapshots/session/muse-editing-tool-catalog/editing-policy.mjs",
+        "snapshots/session/muse-editing-tool-catalog/editing-preset-fixture.mjs",
+        "snapshots/session/muse-editing-tool-catalog/manuscript-source-review.mjs",
+        "snapshots/session/muse-editing-tool-catalog/session.v4.jsonl",
+        "snapshots/session/muse-editing-tool-catalog/snapshot.yml",
+        "snapshots/session/muse-editing-tool-catalog/source-plugin-layout.mjs",
+        "snapshots/session/muse-editing-tool-catalog/system-prompt.expected.md",
+        "snapshots/session/muse-editing-tool-catalog/tool-schemas.expected.json",
+        "snapshots/session/muse-editing-tool-catalog/writer.expected.jsonl",
+        "snapshots/session/muse-fixture-import.mjs",
+        "snapshots/session/muse-mcp-oauth-recovery/cordis.snapshot.yml",
+        "snapshots/session/muse-mcp-oauth-recovery/cordis.yml",
+        "snapshots/session/muse-mcp-oauth-recovery/oauth-fixture.mjs",
+        "snapshots/session/muse-mcp-oauth-recovery/session.v4.jsonl",
+        "snapshots/session/muse-mcp-oauth-recovery/snapshot.yml",
+        "snapshots/session/muse-mcp-oauth-recovery/workspace.expected/.empty",
+        "snapshots/session/muse-session-product/cordis.snapshot.yml",
+        "snapshots/session/muse-session-product/cordis.yml",
+        "snapshots/session/muse-session-product/product-fixture.mjs",
+        "snapshots/session/muse-session-product/session.v4.jsonl",
+        "snapshots/session/muse-session-product/snapshot.yml",
+        "snapshots/session/muse-skill-delete-undo-recovery/cordis.snapshot.yml",
+        "snapshots/session/muse-skill-delete-undo-recovery/cordis.yml",
+        "snapshots/session/muse-skill-delete-undo-recovery/session.v4.jsonl",
+        "snapshots/session/muse-skill-delete-undo-recovery/snapshot.yml",
+        "snapshots/session/muse-skill-delete-undo-recovery/undo-fixture.mjs",
+        "snapshots/session/muse-skill-delete-undo-recovery/workspace.expected/project/.dsh/skills/category/snapshot-disabled-skill/SKILL.md.disabled",
+        "snapshots/session/muse-skill-delete-undo-recovery/workspace.expected/project/.dsh/skills/category/snapshot-disabled-skill/references/disabled-context.md",
+        "snapshots/session/muse-skill-delete-undo-recovery/workspace.expected/project/.dsh/skills/snapshot-restored-skill/.metadata/settings.json",
+        "snapshots/session/muse-skill-delete-undo-recovery/workspace.expected/project/.dsh/skills/snapshot-restored-skill/SKILL.md",
+        "snapshots/session/muse-skill-delete-undo-recovery/workspace.expected/project/.dsh/skills/snapshot-restored-skill/assets/sample.bin",
+        "snapshots/session/muse-skill-delete-undo-recovery/workspace.expected/project/.dsh/skills/snapshot-restored-skill/references/context.md",
+        "snapshots/session/muse-skill-delete-undo-recovery/workspace.expected/project/.dsh/skills/snapshot-restored-skill/scripts/helper.py",
+        "snapshots/session/muse-skill-import-path-recovery/cordis.snapshot.yml",
+        "snapshots/session/muse-skill-import-path-recovery/cordis.yml",
+        "snapshots/session/muse-skill-import-path-recovery/import-fixture.mjs",
+        "snapshots/session/muse-skill-import-path-recovery/session.v4.jsonl",
+        "snapshots/session/muse-skill-import-path-recovery/snapshot.yml",
+        "snapshots/session/muse-skill-import-path-recovery/workspace.expected/.empty",
+        "snapshots/session/muse-skill-migration-receipts/cordis.snapshot.yml",
+        "snapshots/session/muse-skill-migration-receipts/cordis.yml",
+        "snapshots/session/muse-skill-migration-receipts/migration-fixture.mjs",
+        "snapshots/session/muse-skill-migration-receipts/session.v4.jsonl",
+        "snapshots/session/muse-skill-migration-receipts/snapshot.yml",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-fresh/.dsh/skills/snapshot-conflict-skill/SKILL.md",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-fresh/.dsh/skills/snapshot-conflict-skill/assets/sample.bin",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-fresh/.dsh/skills/snapshot-conflict-skill/references/context.md",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-fresh/.dsh/skills/snapshot-conflict-skill/scripts/helper.py",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-fresh/.dsh/skills/snapshot-second-skill/SKILL.md",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-fresh/.dsh/skills/snapshot-second-skill/assets/sample.bin",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-fresh/.dsh/skills/snapshot-second-skill/references/context.md",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-fresh/.dsh/skills/snapshot-second-skill/scripts/helper.py",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-source/.dsh/skills/.empty",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-target/.dsh/skills/snapshot-conflict-skill/SKILL.md",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-target/.dsh/skills/snapshot-conflict-skill/assets/sample.bin",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-target/.dsh/skills/snapshot-conflict-skill/references/context.md",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-target/.dsh/skills/snapshot-conflict-skill/scripts/helper.py",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-target/.dsh/skills/snapshot-movable-skill/SKILL.md",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-target/.dsh/skills/snapshot-movable-skill/assets/sample.bin",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-target/.dsh/skills/snapshot-movable-skill/references/context.md",
+        "snapshots/session/muse-skill-migration-receipts/workspace.expected/migration-target/.dsh/skills/snapshot-movable-skill/scripts/helper.py",
+        "snapshots/session/muse-skill-panel-import.mjs",
+        "snapshots/session/muse-subtitle-visual-preflight-ptc/README.i18n.yaml",
+        "snapshots/session/muse-subtitle-visual-preflight-ptc/README.md",
+        "snapshots/session/muse-subtitle-visual-preflight-ptc/README.zh.md",
+        "snapshots/session/muse-subtitle-visual-preflight-ptc/cordis.snapshot.yml",
+        "snapshots/session/muse-subtitle-visual-preflight-ptc/cordis.yml",
+        "snapshots/session/muse-subtitle-visual-preflight-ptc/session.v4.jsonl",
+        "snapshots/session/muse-subtitle-visual-preflight-ptc/snapshot.yml",
+        "snapshots/session/muse-subtitle-visual-preflight-ptc/workspace.expected/subtitle-preflight-proof.json",
+        "snapshots/session/muse-subtitle-visual-preflight/README.i18n.yaml",
+        "snapshots/session/muse-subtitle-visual-preflight/README.md",
+        "snapshots/session/muse-subtitle-visual-preflight/README.zh.md",
+        "snapshots/session/muse-subtitle-visual-preflight/cordis.snapshot.yml",
+        "snapshots/session/muse-subtitle-visual-preflight/cordis.yml",
+        "snapshots/session/muse-subtitle-visual-preflight/media-fixture.mjs",
+        "snapshots/session/muse-subtitle-visual-preflight/renderer-fixture.mjs",
+        "snapshots/session/muse-subtitle-visual-preflight/session.v4.jsonl",
+        "snapshots/session/muse-subtitle-visual-preflight/snapshot.yml",
+        "snapshots/session/muse-subtitle-visual-preflight/workspace.expected/subtitle-preflight-proof.json",
+        "snapshots/session/muse-video-recovery-ptc/README.i18n.yaml",
+        "snapshots/session/muse-video-recovery-ptc/README.md",
+        "snapshots/session/muse-video-recovery-ptc/README.zh.md",
+        "snapshots/session/muse-video-recovery-ptc/cordis.snapshot.yml",
+        "snapshots/session/muse-video-recovery-ptc/cordis.yml",
+        "snapshots/session/muse-video-recovery-ptc/session.v4.jsonl",
+        "snapshots/session/muse-video-recovery-ptc/snapshot.yml",
+        "snapshots/session/muse-video-recovery-ptc/workspace.expected/recovery-proof.json",
+        "snapshots/session/muse-video-recovery/README.i18n.yaml",
+        "snapshots/session/muse-video-recovery/README.md",
+        "snapshots/session/muse-video-recovery/README.zh.md",
+        "snapshots/session/muse-video-recovery/cordis.snapshot.yml",
+        "snapshots/session/muse-video-recovery/cordis.yml",
+        "snapshots/session/muse-video-recovery/recovery-fixture.mjs",
+        "snapshots/session/muse-video-recovery/session.v4.jsonl",
+        "snapshots/session/muse-video-recovery/snapshot.yml",
+        "snapshots/session/muse-video-recovery/workspace.expected/recovery-proof.json",
+        "snapshots/session/muse-video-task-discovery-native/README.i18n.yaml",
+        "snapshots/session/muse-video-task-discovery-native/README.md",
+        "snapshots/session/muse-video-task-discovery-native/README.zh.md",
+        "snapshots/session/muse-video-task-discovery-native/cordis.snapshot.yml",
+        "snapshots/session/muse-video-task-discovery-native/cordis.yml",
+        "snapshots/session/muse-video-task-discovery-native/session.v4.jsonl",
+        "snapshots/session/muse-video-task-discovery-native/snapshot.yml",
+        "snapshots/session/muse-video-task-discovery-native/task-discovery-fixture.mjs",
+        "snapshots/session/muse-video-task-discovery-native/workspace.expected/task-discovery-proof.json",
+        "snapshots/session/muse-video-task-discovery-ptc/README.i18n.yaml",
+        "snapshots/session/muse-video-task-discovery-ptc/README.md",
+        "snapshots/session/muse-video-task-discovery-ptc/README.zh.md",
+        "snapshots/session/muse-video-task-discovery-ptc/cordis.snapshot.yml",
+        "snapshots/session/muse-video-task-discovery-ptc/cordis.yml",
+        "snapshots/session/muse-video-task-discovery-ptc/session.v4.jsonl",
+        "snapshots/session/muse-video-task-discovery-ptc/snapshot.yml",
+        "snapshots/session/muse-video-task-discovery-ptc/workspace.expected/task-discovery-proof.json",
+        "snapshots/session/muse-visualize/README.i18n.yaml",
+        "snapshots/session/muse-visualize/README.md",
+        "snapshots/session/muse-visualize/README.zh.md",
+        "snapshots/session/muse-visualize/cordis.snapshot.yml",
+        "snapshots/session/muse-visualize/cordis.yml",
+        "snapshots/session/muse-visualize/replay.override.json",
+        "snapshots/session/muse-visualize/session.v4.jsonl",
+        "snapshots/session/muse-visualize/snapshot.yml",
+        "snapshots/session/muse-visualize/visualize-fixture.mjs",
+        "snapshots/session/muse-visualize/workspace.expected/visualization.html",
+        "snapshots/session/muse-visualize/workspace.expected/visualize-proof.json",
+        "snapshots/session/subagent-child-question-rejection/assertions.ts",
+        "third_party/plugins/muse-lvpaopao/scripts/build.mjs",
+        "third_party/plugins/muse-lvpaopao/scripts/native-resources.mjs"
+      ],
+      "expectedManifests": {
+        "snapshots/session/muse-audio-binding-readback-native/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-audio-binding-readback-native",
+          "profile": "headless",
+          "composition": "muse-audio-binding-readback-native",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "muse-audio-binding-readback-native",
+            "pin": true
+          },
+          "environment": {
+            "JUBIANAI_ADMIN_TOKEN": "offline-audio-name-fixture"
+          },
+          "workspace": {
+            "final": true
+          }
+        },
+        "snapshots/session/muse-audio-binding-readback-ptc/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-audio-binding-readback-ptc",
+          "profile": "headless",
+          "composition": "muse-audio-binding-readback-ptc",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "muse-audio-binding-readback-ptc",
+            "pin": true
+          },
+          "environment": {
+            "JUBIANAI_ADMIN_TOKEN": "offline-audio-name-fixture"
+          },
+          "workspace": {
+            "final": true
+          }
+        },
+        "snapshots/session/muse-editing-tool-catalog/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-editing-tool-catalog",
+          "profile": "headless",
+          "composition": "muse-editing-tool-catalog",
+          "recording": "authored",
+          "header": {
+            "class": "muse-editing-tool-catalog",
+            "pin": true
+          },
+          "workspace": {
+            "setup": "muse-minimal-writing"
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/muse-mcp-oauth-recovery/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-mcp-oauth-recovery",
+          "profile": "headless",
+          "composition": "muse-mcp-oauth-recovery",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "muse-mcp-oauth-recovery",
+            "pin": true
+          },
+          "workspace": {
+            "final": true
+          }
+        },
+        "snapshots/session/muse-session-product/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-session-product",
+          "profile": "headless",
+          "composition": "muse-session-product",
+          "recording": "authored",
+          "writerOutput": true,
+          "permission": "workspace-write",
+          "header": {
+            "class": "muse-session-product",
+            "pin": true,
+            "changes": 2
+          },
+          "workspace": {
+            "setup": "muse-minimal-writing"
+          }
+        },
+        "snapshots/session/muse-skill-delete-undo-recovery/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-skill-delete-undo-recovery",
+          "profile": "headless",
+          "composition": "muse-skill-delete-undo-recovery",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "muse-skill-delete-undo-recovery",
+            "pin": true
+          },
+          "workspace": {
+            "final": true
+          }
+        },
+        "snapshots/session/muse-skill-import-path-recovery/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-skill-import-path-recovery",
+          "profile": "headless",
+          "composition": "muse-skill-import-path-recovery",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "muse-skill-import-path-recovery",
+            "pin": true
+          },
+          "workspace": {
+            "final": true
+          }
+        },
+        "snapshots/session/muse-skill-migration-receipts/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-skill-migration-receipts",
+          "profile": "headless",
+          "composition": "muse-skill-migration-receipts",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "muse-skill-migration-receipts",
+            "pin": true
+          },
+          "workspace": {
+            "final": true
+          }
+        },
+        "snapshots/session/muse-subtitle-visual-preflight-ptc/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-subtitle-visual-preflight-ptc",
+          "profile": "headless",
+          "composition": "muse-subtitle-visual-preflight-ptc",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "muse-subtitle-visual-preflight-ptc",
+            "pin": true
+          },
+          "workspace": {
+            "final": true
+          }
+        },
+        "snapshots/session/muse-subtitle-visual-preflight/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-subtitle-visual-preflight",
+          "profile": "headless",
+          "composition": "muse-subtitle-visual-preflight",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "muse-subtitle-visual-preflight",
+            "pin": true
+          },
+          "workspace": {
+            "final": true
+          }
+        },
+        "snapshots/session/muse-video-recovery-ptc/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-video-recovery-ptc",
+          "profile": "headless",
+          "composition": "muse-video-recovery-ptc",
+          "recording": "authored",
+          "writerOutput": true,
+          "platform": "posix",
+          "header": {
+            "class": "muse-video-recovery-ptc",
+            "pin": true
+          },
+          "workspace": {
+            "final": true
+          },
+          "environment": {
+            "JUBIANAI_ADMIN_TOKEN": "offline-recovery-fixture"
+          }
+        },
+        "snapshots/session/muse-video-recovery/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-video-recovery",
+          "profile": "headless",
+          "composition": "muse-video-recovery",
+          "recording": "authored",
+          "writerOutput": true,
+          "platform": "posix",
+          "header": {
+            "class": "muse-video-recovery",
+            "pin": true
+          },
+          "workspace": {
+            "final": true
+          },
+          "environment": {
+            "JUBIANAI_ADMIN_TOKEN": "offline-recovery-fixture"
+          }
+        },
+        "snapshots/session/muse-video-task-discovery-native/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-video-task-discovery-native",
+          "profile": "headless",
+          "composition": "muse-video-task-discovery-native",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "muse-video-task-discovery-native",
+            "pin": true
+          },
+          "workspace": {
+            "final": true
+          },
+          "environment": {
+            "JUBIANAI_ADMIN_TOKEN": "offline-task-discovery"
+          }
+        },
+        "snapshots/session/muse-video-task-discovery-ptc/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-video-task-discovery-ptc",
+          "profile": "headless",
+          "composition": "muse-video-task-discovery-ptc",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "muse-video-task-discovery-ptc",
+            "pin": true
+          },
+          "workspace": {
+            "final": true
+          },
+          "environment": {
+            "JUBIANAI_ADMIN_TOKEN": "offline-task-discovery"
+          }
+        },
+        "snapshots/session/muse-visualize/snapshot.yml": {
+          "version": 1,
+          "scenario": "muse-visualize",
+          "profile": "headless",
+          "composition": "muse-visualize",
+          "recording": "authored",
+          "writerOutput": true,
+          "replay": {
+            "override": true
+          },
+          "header": {
+            "class": "muse-visualize",
+            "pin": true
+          },
+          "workspace": {
+            "parent": "outside-temp",
+            "final": true
+          }
+        }
+      },
+      "expectedCanonicalPaths": [
+        "snapshots/session/muse-audio-binding-readback-native/session.v4.jsonl",
+        "snapshots/session/muse-audio-binding-readback-ptc/session.v4.jsonl",
+        "snapshots/session/muse-editing-tool-catalog/session.v4.jsonl",
+        "snapshots/session/muse-mcp-oauth-recovery/session.v4.jsonl",
+        "snapshots/session/muse-session-product/session.v4.jsonl",
+        "snapshots/session/muse-skill-delete-undo-recovery/session.v4.jsonl",
+        "snapshots/session/muse-skill-import-path-recovery/session.v4.jsonl",
+        "snapshots/session/muse-skill-migration-receipts/session.v4.jsonl",
+        "snapshots/session/muse-subtitle-visual-preflight-ptc/session.v4.jsonl",
+        "snapshots/session/muse-subtitle-visual-preflight/session.v4.jsonl",
+        "snapshots/session/muse-video-recovery-ptc/session.v4.jsonl",
+        "snapshots/session/muse-video-recovery/session.v4.jsonl",
+        "snapshots/session/muse-video-task-discovery-native/session.v4.jsonl",
+        "snapshots/session/muse-video-task-discovery-ptc/session.v4.jsonl",
+        "snapshots/session/muse-visualize/session.v4.jsonl"
+      ],
+      "expectedTests": 14
+    },
+    {
+      "id": "sdk-default",
+      "profile": "sdk",
+      "config": "vitest.snapshot.config.ts",
+      "suites": [
+        "snapshots/sdk/sdk.snapshot.ts"
+      ],
+      "owners": [
+        {
+          "name": "bash-tool",
+          "dir": "snapshots/sdk/bash-tool"
+        },
+        {
+          "name": "tool-scheduler-recovery",
+          "dir": "snapshots/sdk/tool-scheduler-recovery"
+        }
+      ],
+      "inventoryDirectories": [
+        "snapshots/sdk/bash-tool",
+        "snapshots/sdk/tool-scheduler-recovery"
+      ],
+      "extraInputs": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/test-support/session-snapshot/tests/fixtures/subagent-activation-limit.ts",
+        "snapshots/sdk/factory-shutdown.snapshot.ts",
+        "snapshots/sdk/legacy-context.patch.yml",
+        "snapshots/sdk/manual-compact/capture-requests.mjs",
+        "snapshots/sdk/portable-runtime.cordis.yml",
+        "snapshots/sdk/sdk.snapshot.ts",
+        "snapshots/sdk/subagent-spawn-in-process/session.1.v3.jsonl"
+      ],
+      "allowedOutputs": [
+        "snapshots/sdk/bash-tool/writer.expected.jsonl",
+        "snapshots/sdk/bash-tool/system-prompt.expected.md",
+        "snapshots/sdk/bash-tool/tool-schemas.expected.json",
+        "snapshots/sdk/bash-tool/notifications.expected.jsonl",
+        "snapshots/sdk/bash-tool/result.expected.json",
+        "snapshots/sdk/tool-scheduler-recovery/writer.expected.jsonl",
+        "snapshots/sdk/tool-scheduler-recovery/notifications.expected.jsonl",
+        "snapshots/sdk/tool-scheduler-recovery/result.expected.json"
+      ],
+      "phases": [
+        {
+          "id": "phase-1",
+          "owners": [
+            "bash-tool"
+          ],
+          "filter": "(refresh|replay)s (bash-tool) through dsh --profile sdk$",
+          "passedSuffixes": [
+            " bash-tool through dsh --profile sdk"
+          ],
+          "outputs": [
+            "snapshots/sdk/bash-tool/writer.expected.jsonl",
+            "snapshots/sdk/bash-tool/system-prompt.expected.md",
+            "snapshots/sdk/bash-tool/tool-schemas.expected.json",
+            "snapshots/sdk/bash-tool/notifications.expected.jsonl",
+            "snapshots/sdk/bash-tool/result.expected.json"
+          ]
+        },
+        {
+          "id": "phase-2",
+          "owners": [
+            "tool-scheduler-recovery"
+          ],
+          "filter": "(refresh|replay)s (tool-scheduler-recovery) through dsh --profile sdk$",
+          "passedSuffixes": [
+            " tool-scheduler-recovery through dsh --profile sdk"
+          ],
+          "outputs": [
+            "snapshots/sdk/tool-scheduler-recovery/writer.expected.jsonl",
+            "snapshots/sdk/tool-scheduler-recovery/notifications.expected.jsonl",
+            "snapshots/sdk/tool-scheduler-recovery/result.expected.json"
+          ]
+        }
+      ],
+      "replay": {
+        "filter": "(refresh|replay)s (bash-tool|tool-scheduler-recovery) through dsh --profile sdk$",
+        "passedSuffixes": [
+          " bash-tool through dsh --profile sdk",
+          " tool-scheduler-recovery through dsh --profile sdk"
+        ]
+      },
+      "preparation": {
+        "skillPanel": false,
+        "lvpaopao": false,
+        "media": false
+      },
+      "newOutputs": [
+        "snapshots/sdk/bash-tool/writer.expected.jsonl"
+      ],
+      "expectedInputInventory": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/test-support/session-snapshot/tests/fixtures/subagent-activation-limit.ts",
+        "snapshots/sdk/bash-tool/cordis.snapshot.yml",
+        "snapshots/sdk/bash-tool/cordis.yml",
+        "snapshots/sdk/bash-tool/session.v2.jsonl",
+        "snapshots/sdk/bash-tool/session.v3.jsonl",
+        "snapshots/sdk/bash-tool/session.v4.jsonl",
+        "snapshots/sdk/bash-tool/snapshot.yml",
+        "snapshots/sdk/factory-shutdown.snapshot.ts",
+        "snapshots/sdk/legacy-context.patch.yml",
+        "snapshots/sdk/manual-compact/capture-requests.mjs",
+        "snapshots/sdk/portable-runtime.cordis.yml",
+        "snapshots/sdk/sdk.snapshot.ts",
+        "snapshots/sdk/subagent-spawn-in-process/session.1.v3.jsonl",
+        "snapshots/sdk/tool-scheduler-recovery/runtime.cordis.yml",
+        "snapshots/sdk/tool-scheduler-recovery/scheduler-failure.mjs",
+        "snapshots/sdk/tool-scheduler-recovery/session.v3.jsonl",
+        "snapshots/sdk/tool-scheduler-recovery/session.v4.jsonl",
+        "snapshots/sdk/tool-scheduler-recovery/snapshot.yml"
+      ],
+      "expectedManifests": {
+        "snapshots/sdk/bash-tool/snapshot.yml": {
+          "version": 1,
+          "scenario": "bash-tool",
+          "profile": "sdk",
+          "composition": "sdk-default",
+          "recording": "live",
+          "header": {
+            "class": "sdk-default",
+            "pin": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/sdk/tool-scheduler-recovery/snapshot.yml": {
+          "version": 1,
+          "scenario": "tool-scheduler-recovery",
+          "profile": "sdk",
+          "composition": "sdk-default",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "sdk-default"
+          }
+        }
+      },
+      "expectedCanonicalPaths": [
+        "snapshots/sdk/bash-tool/session.v2.jsonl",
+        "snapshots/sdk/bash-tool/session.v3.jsonl",
+        "snapshots/sdk/bash-tool/session.v4.jsonl",
+        "snapshots/sdk/tool-scheduler-recovery/session.v3.jsonl",
+        "snapshots/sdk/tool-scheduler-recovery/session.v4.jsonl"
+      ],
+      "expectedTests": 2
+    },
+    {
+      "id": "sdk-self-headers",
+      "profile": "sdk",
+      "config": "vitest.snapshot.config.ts",
+      "suites": [
+        "snapshots/sdk/sdk.snapshot.ts"
+      ],
+      "owners": [
+        {
+          "name": "command-attachments",
+          "dir": "snapshots/sdk/command-attachments"
+        },
+        {
+          "name": "desktop-ptc-context",
+          "dir": "snapshots/sdk/desktop-ptc-context"
+        },
+        {
+          "name": "plan-review",
+          "dir": "snapshots/sdk/plan-review"
+        },
+        {
+          "name": "session-resume",
+          "dir": "snapshots/sdk/session-resume"
+        },
+        {
+          "name": "tool-error-details",
+          "dir": "snapshots/sdk/tool-error-details"
+        }
+      ],
+      "inventoryDirectories": [
+        "snapshots/sdk/command-attachments",
+        "snapshots/sdk/desktop-context",
+        "snapshots/sdk/desktop-ptc-context",
+        "snapshots/sdk/plan-review",
+        "snapshots/sdk/session-resume",
+        "snapshots/sdk/tool-error-details",
+        "snapshots/session/text-turn"
+      ],
+      "extraInputs": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/test-support/session-snapshot/tests/fixtures/subagent-activation-limit.ts",
+        "snapshots/sdk/factory-shutdown.snapshot.ts",
+        "snapshots/sdk/legacy-context.patch.yml",
+        "snapshots/sdk/manual-compact/capture-requests.mjs",
+        "snapshots/sdk/portable-runtime.cordis.yml",
+        "snapshots/sdk/sdk.snapshot.ts",
+        "snapshots/sdk/subagent-spawn-in-process/session.1.v3.jsonl"
+      ],
+      "allowedOutputs": [
+        "snapshots/sdk/command-attachments/writer.expected.jsonl",
+        "snapshots/sdk/command-attachments/system-prompt.expected.md",
+        "snapshots/sdk/command-attachments/tool-schemas.expected.json",
+        "snapshots/sdk/desktop-ptc-context/writer.expected.jsonl",
+        "snapshots/sdk/desktop-ptc-context/system-prompt.expected.md",
+        "snapshots/sdk/desktop-ptc-context/tool-schemas.expected.json",
+        "snapshots/sdk/plan-review/writer.expected.jsonl",
+        "snapshots/sdk/plan-review/system-prompt.expected.md",
+        "snapshots/sdk/plan-review/tool-schemas.expected.json",
+        "snapshots/sdk/session-resume/writer.expected.jsonl",
+        "snapshots/sdk/session-resume/system-prompt.expected.md",
+        "snapshots/sdk/session-resume/tool-schemas.expected.json",
+        "snapshots/sdk/tool-error-details/writer.expected.jsonl",
+        "snapshots/sdk/tool-error-details/system-prompt.expected.md",
+        "snapshots/sdk/tool-error-details/tool-schemas.expected.json",
+        "snapshots/sdk/tool-error-details/notifications.expected.jsonl",
+        "snapshots/sdk/tool-error-details/result.expected.json"
+      ],
+      "phases": [
+        {
+          "id": "phase-1",
+          "owners": [
+            "command-attachments",
+            "desktop-ptc-context",
+            "plan-review",
+            "session-resume",
+            "tool-error-details"
+          ],
+          "filter": "(refresh|replay)s (command-attachments|desktop-ptc-context|plan-review|session-resume|tool-error-details) through dsh --profile sdk$",
+          "passedSuffixes": [
+            " command-attachments through dsh --profile sdk",
+            " desktop-ptc-context through dsh --profile sdk",
+            " plan-review through dsh --profile sdk",
+            " session-resume through dsh --profile sdk",
+            " tool-error-details through dsh --profile sdk"
+          ],
+          "outputs": [
+            "snapshots/sdk/command-attachments/writer.expected.jsonl",
+            "snapshots/sdk/command-attachments/system-prompt.expected.md",
+            "snapshots/sdk/command-attachments/tool-schemas.expected.json",
+            "snapshots/sdk/desktop-ptc-context/writer.expected.jsonl",
+            "snapshots/sdk/desktop-ptc-context/system-prompt.expected.md",
+            "snapshots/sdk/desktop-ptc-context/tool-schemas.expected.json",
+            "snapshots/sdk/plan-review/writer.expected.jsonl",
+            "snapshots/sdk/plan-review/system-prompt.expected.md",
+            "snapshots/sdk/plan-review/tool-schemas.expected.json",
+            "snapshots/sdk/session-resume/writer.expected.jsonl",
+            "snapshots/sdk/session-resume/system-prompt.expected.md",
+            "snapshots/sdk/session-resume/tool-schemas.expected.json",
+            "snapshots/sdk/tool-error-details/writer.expected.jsonl",
+            "snapshots/sdk/tool-error-details/system-prompt.expected.md",
+            "snapshots/sdk/tool-error-details/tool-schemas.expected.json",
+            "snapshots/sdk/tool-error-details/notifications.expected.jsonl",
+            "snapshots/sdk/tool-error-details/result.expected.json"
+          ]
+        }
+      ],
+      "replay": {
+        "filter": "(refresh|replay)s (command-attachments|desktop-ptc-context|plan-review|session-resume|tool-error-details) through dsh --profile sdk$",
+        "passedSuffixes": [
+          " command-attachments through dsh --profile sdk",
+          " desktop-ptc-context through dsh --profile sdk",
+          " plan-review through dsh --profile sdk",
+          " session-resume through dsh --profile sdk",
+          " tool-error-details through dsh --profile sdk"
+        ]
+      },
+      "preparation": {
+        "skillPanel": false,
+        "lvpaopao": false,
+        "media": false
+      },
+      "newOutputs": [
+        "snapshots/sdk/command-attachments/writer.expected.jsonl",
+        "snapshots/sdk/desktop-ptc-context/writer.expected.jsonl",
+        "snapshots/sdk/plan-review/writer.expected.jsonl",
+        "snapshots/sdk/session-resume/writer.expected.jsonl",
+        "snapshots/sdk/tool-error-details/writer.expected.jsonl"
+      ],
+      "expectedInputInventory": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/test-support/session-snapshot/tests/fixtures/subagent-activation-limit.ts",
+        "snapshots/sdk/command-attachments/capture.cordis.yml",
+        "snapshots/sdk/command-attachments/session.v4.jsonl",
+        "snapshots/sdk/command-attachments/snapshot.yml",
+        "snapshots/sdk/desktop-context/clock.mjs",
+        "snapshots/sdk/desktop-context/cordis.snapshot.yml",
+        "snapshots/sdk/desktop-context/cordis.yml",
+        "snapshots/sdk/desktop-context/session.v4.jsonl",
+        "snapshots/sdk/desktop-context/snapshot.yml",
+        "snapshots/sdk/desktop-context/system-prompt.expected.md",
+        "snapshots/sdk/desktop-context/tool-schemas.expected.json",
+        "snapshots/sdk/desktop-context/writer.expected.jsonl",
+        "snapshots/sdk/desktop-ptc-context/clock.mjs",
+        "snapshots/sdk/desktop-ptc-context/cordis.snapshot.yml",
+        "snapshots/sdk/desktop-ptc-context/cordis.yml",
+        "snapshots/sdk/desktop-ptc-context/session.v4.jsonl",
+        "snapshots/sdk/desktop-ptc-context/snapshot.yml",
+        "snapshots/sdk/factory-shutdown.snapshot.ts",
+        "snapshots/sdk/legacy-context.patch.yml",
+        "snapshots/sdk/manual-compact/capture-requests.mjs",
+        "snapshots/sdk/plan-review/capture.cordis.yml",
+        "snapshots/sdk/plan-review/session.v4.jsonl",
+        "snapshots/sdk/plan-review/snapshot.yml",
+        "snapshots/sdk/portable-runtime.cordis.yml",
+        "snapshots/sdk/sdk.snapshot.ts",
+        "snapshots/sdk/session-resume/replay.cordis.yml",
+        "snapshots/sdk/session-resume/session.v4.jsonl",
+        "snapshots/sdk/session-resume/snapshot.yml",
+        "snapshots/sdk/subagent-spawn-in-process/session.1.v3.jsonl",
+        "snapshots/sdk/tool-error-details/deny.mjs",
+        "snapshots/sdk/tool-error-details/runtime.cordis.yml",
+        "snapshots/sdk/tool-error-details/session.v3.jsonl",
+        "snapshots/sdk/tool-error-details/session.v4.jsonl",
+        "snapshots/sdk/tool-error-details/snapshot.yml",
+        "snapshots/session/text-turn/cordis.snapshot.yml",
+        "snapshots/session/text-turn/cordis.yml",
+        "snapshots/session/text-turn/model.cordis.yml",
+        "snapshots/session/text-turn/session.jsonl",
+        "snapshots/session/text-turn/session.v1.jsonl",
+        "snapshots/session/text-turn/snapshot.yml",
+        "snapshots/session/text-turn/system-prompt.expected.md",
+        "snapshots/session/text-turn/tool-schemas.expected.json",
+        "snapshots/session/text-turn/writer.expected.jsonl"
+      ],
+      "expectedManifests": {
+        "snapshots/sdk/command-attachments/snapshot.yml": {
+          "version": 1,
+          "scenario": "command-attachments",
+          "profile": "sdk",
+          "composition": "sdk-desktop",
+          "recording": "authored",
+          "header": {
+            "class": "sdk-command-attachments",
+            "pin": true
+          },
+          "input": {
+            "attachments": [
+              {
+                "id": "sha256:b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640",
+                "mediaType": "image/png",
+                "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
+              }
+            ]
+          },
+          "writerOutput": true
+        },
+        "snapshots/sdk/desktop-context/snapshot.yml": {
+          "version": 1,
+          "scenario": "desktop-context",
+          "profile": "sdk",
+          "composition": "sdk-desktop",
+          "recording": "authored",
+          "writerOutput": true,
+          "header": {
+            "class": "sdk-desktop",
+            "pin": true
+          }
+        },
+        "snapshots/sdk/desktop-ptc-context/snapshot.yml": {
+          "version": 1,
+          "scenario": "desktop-ptc-context",
+          "profile": "sdk",
+          "composition": "sdk-desktop-ptc",
+          "recording": "authored",
+          "header": {
+            "class": "sdk-desktop-ptc",
+            "pin": true
+          },
+          "writerOutput": true
+        },
+        "snapshots/sdk/plan-review/snapshot.yml": {
+          "version": 1,
+          "scenario": "plan-review",
+          "profile": "sdk",
+          "composition": "sdk-desktop",
+          "recording": "authored",
+          "header": {
+            "class": "sdk-plan-review",
+            "pin": true,
+            "changes": 4,
+            "promptChanges": 4
+          },
+          "writerOutput": true
+        },
+        "snapshots/sdk/session-resume/snapshot.yml": {
+          "version": 1,
+          "scenario": "session-resume",
+          "profile": "sdk",
+          "composition": "default",
+          "recording": "authored",
+          "header": {
+            "class": "session-resume",
+            "pin": true,
+            "changes": 1,
+            "promptChanges": 1
+          },
+          "writerOutput": true
+        },
+        "snapshots/sdk/tool-error-details/snapshot.yml": {
+          "version": 1,
+          "scenario": "tool-error-details",
+          "profile": "sdk",
+          "composition": "default",
+          "recording": "authored",
+          "header": {
+            "class": "native-then-ptc",
+            "pin": true,
+            "changes": 1,
+            "promptChanges": 1
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/text-turn/snapshot.yml": {
+          "version": 1,
+          "scenario": "text-turn",
+          "profile": "headless",
+          "composition": "default",
+          "recording": "live",
+          "sessionFormat": {
+            "version": 1,
+            "coverage": [
+              "adjacent-migration"
+            ]
+          },
+          "header": {
+            "class": "default"
+          }
+        }
+      },
+      "expectedCanonicalPaths": [
+        "snapshots/sdk/command-attachments/session.v4.jsonl",
+        "snapshots/sdk/desktop-context/session.v4.jsonl",
+        "snapshots/sdk/desktop-ptc-context/session.v4.jsonl",
+        "snapshots/sdk/plan-review/session.v4.jsonl",
+        "snapshots/sdk/session-resume/session.v4.jsonl",
+        "snapshots/sdk/tool-error-details/session.v3.jsonl",
+        "snapshots/sdk/tool-error-details/session.v4.jsonl",
+        "snapshots/session/text-turn/session.jsonl",
+        "snapshots/session/text-turn/session.v1.jsonl"
+      ],
+      "expectedTests": 5
+    },
+    {
+      "id": "sdk-borrowed",
+      "profile": "sdk",
+      "config": "vitest.snapshot.config.ts",
+      "suites": [
+        "snapshots/sdk/sdk.snapshot.ts"
+      ],
+      "owners": [
+        {
+          "name": "account-provider-signout",
+          "dir": "snapshots/sdk/account-provider-signout"
+        },
+        {
+          "name": "ptc-turn",
+          "dir": "snapshots/sdk/ptc-turn"
+        },
+        {
+          "name": "subagent-activation-limit",
+          "dir": "snapshots/sdk/subagent-activation-limit"
+        },
+        {
+          "name": "subagent-list-agents",
+          "dir": "snapshots/sdk/subagent-list-agents"
+        }
+      ],
+      "inventoryDirectories": [
+        "snapshots/sdk/account-provider-signout",
+        "snapshots/sdk/ptc-turn",
+        "snapshots/sdk/subagent-activation-limit",
+        "snapshots/sdk/subagent-list-agents",
+        "snapshots/sdk/text-turn",
+        "snapshots/session/ptc-turn",
+        "snapshots/session/text-turn",
+        "snapshots/session/tool-call-turn"
+      ],
+      "extraInputs": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/test-support/session-snapshot/tests/fixtures/subagent-activation-limit.ts",
+        "snapshots/sdk/factory-shutdown.snapshot.ts",
+        "snapshots/sdk/legacy-context.patch.yml",
+        "snapshots/sdk/manual-compact/capture-requests.mjs",
+        "snapshots/sdk/portable-runtime.cordis.yml",
+        "snapshots/sdk/sdk.snapshot.ts",
+        "snapshots/sdk/subagent-spawn-in-process/session.1.v3.jsonl"
+      ],
+      "allowedOutputs": [
+        "snapshots/sdk/account-provider-signout/writer.expected.jsonl",
+        "snapshots/sdk/account-provider-signout/notifications.expected.jsonl",
+        "snapshots/sdk/account-provider-signout/result.expected.json",
+        "snapshots/sdk/ptc-turn/writer.expected.jsonl",
+        "snapshots/sdk/ptc-turn/notifications.expected.jsonl",
+        "snapshots/sdk/ptc-turn/result.expected.json",
+        "snapshots/sdk/subagent-activation-limit/writer.expected.jsonl",
+        "snapshots/sdk/subagent-activation-limit/writer.1.expected.jsonl",
+        "snapshots/sdk/subagent-activation-limit/system-prompt.1.expected.md",
+        "snapshots/sdk/subagent-activation-limit/tool-schemas.1.expected.json",
+        "snapshots/sdk/subagent-list-agents/writer.expected.jsonl",
+        "snapshots/sdk/subagent-list-agents/writer.1.expected.jsonl",
+        "snapshots/sdk/subagent-list-agents/system-prompt.1.expected.md",
+        "snapshots/sdk/subagent-list-agents/tool-schemas.1.expected.json"
+      ],
+      "phases": [
+        {
+          "id": "phase-1",
+          "owners": [
+            "account-provider-signout",
+            "ptc-turn",
+            "subagent-activation-limit",
+            "subagent-list-agents"
+          ],
+          "filter": "(refresh|replay)s (account-provider-signout|ptc-turn|subagent-activation-limit|subagent-list-agents) through dsh --profile sdk$",
+          "passedSuffixes": [
+            " account-provider-signout through dsh --profile sdk",
+            " ptc-turn through dsh --profile sdk",
+            " subagent-activation-limit through dsh --profile sdk",
+            " subagent-list-agents through dsh --profile sdk"
+          ],
+          "outputs": [
+            "snapshots/sdk/account-provider-signout/writer.expected.jsonl",
+            "snapshots/sdk/account-provider-signout/notifications.expected.jsonl",
+            "snapshots/sdk/account-provider-signout/result.expected.json",
+            "snapshots/sdk/ptc-turn/writer.expected.jsonl",
+            "snapshots/sdk/ptc-turn/notifications.expected.jsonl",
+            "snapshots/sdk/ptc-turn/result.expected.json",
+            "snapshots/sdk/subagent-activation-limit/writer.expected.jsonl",
+            "snapshots/sdk/subagent-activation-limit/writer.1.expected.jsonl",
+            "snapshots/sdk/subagent-activation-limit/system-prompt.1.expected.md",
+            "snapshots/sdk/subagent-activation-limit/tool-schemas.1.expected.json",
+            "snapshots/sdk/subagent-list-agents/writer.expected.jsonl",
+            "snapshots/sdk/subagent-list-agents/writer.1.expected.jsonl",
+            "snapshots/sdk/subagent-list-agents/system-prompt.1.expected.md",
+            "snapshots/sdk/subagent-list-agents/tool-schemas.1.expected.json"
+          ]
+        }
+      ],
+      "replay": {
+        "filter": "(refresh|replay)s (account-provider-signout|ptc-turn|subagent-activation-limit|subagent-list-agents) through dsh --profile sdk$",
+        "passedSuffixes": [
+          " account-provider-signout through dsh --profile sdk",
+          " ptc-turn through dsh --profile sdk",
+          " subagent-activation-limit through dsh --profile sdk",
+          " subagent-list-agents through dsh --profile sdk"
+        ]
+      },
+      "preparation": {
+        "skillPanel": false,
+        "lvpaopao": false,
+        "media": false
+      },
+      "newOutputs": [
+        "snapshots/sdk/account-provider-signout/writer.expected.jsonl"
+      ],
+      "expectedInputInventory": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/test-support/session-snapshot/tests/fixtures/subagent-activation-limit.ts",
+        "snapshots/sdk/account-provider-signout/account-signout.mjs",
+        "snapshots/sdk/account-provider-signout/cordis.snapshot.yml",
+        "snapshots/sdk/account-provider-signout/cordis.yml",
+        "snapshots/sdk/account-provider-signout/session.v3.jsonl",
+        "snapshots/sdk/account-provider-signout/session.v4.jsonl",
+        "snapshots/sdk/account-provider-signout/snapshot.yml",
+        "snapshots/sdk/account-provider-signout/system-prompt.expected.md",
+        "snapshots/sdk/account-provider-signout/tool-schemas.expected.json",
+        "snapshots/sdk/factory-shutdown.snapshot.ts",
+        "snapshots/sdk/legacy-context.patch.yml",
+        "snapshots/sdk/manual-compact/capture-requests.mjs",
+        "snapshots/sdk/portable-runtime.cordis.yml",
+        "snapshots/sdk/ptc-turn/runtime.cordis.yml",
+        "snapshots/sdk/ptc-turn/session.v3.jsonl",
+        "snapshots/sdk/ptc-turn/session.v4.jsonl",
+        "snapshots/sdk/ptc-turn/snapshot.yml",
+        "snapshots/sdk/sdk.snapshot.ts",
+        "snapshots/sdk/subagent-activation-limit/cordis.snapshot.yml",
+        "snapshots/sdk/subagent-activation-limit/cordis.yml",
+        "snapshots/sdk/subagent-activation-limit/replay.override.json",
+        "snapshots/sdk/subagent-activation-limit/session.1.v3.jsonl",
+        "snapshots/sdk/subagent-activation-limit/session.1.v4.jsonl",
+        "snapshots/sdk/subagent-activation-limit/session.v3.jsonl",
+        "snapshots/sdk/subagent-activation-limit/session.v4.jsonl",
+        "snapshots/sdk/subagent-activation-limit/snapshot.yml",
+        "snapshots/sdk/subagent-list-agents/session.1.v2.jsonl",
+        "snapshots/sdk/subagent-list-agents/session.1.v3.jsonl",
+        "snapshots/sdk/subagent-list-agents/session.1.v4.jsonl",
+        "snapshots/sdk/subagent-list-agents/session.v2.jsonl",
+        "snapshots/sdk/subagent-list-agents/session.v3.jsonl",
+        "snapshots/sdk/subagent-list-agents/session.v4.jsonl",
+        "snapshots/sdk/subagent-list-agents/snapshot.yml",
+        "snapshots/sdk/subagent-spawn-in-process/session.1.v3.jsonl",
+        "snapshots/sdk/text-turn/cordis.snapshot.yml",
+        "snapshots/sdk/text-turn/cordis.yml",
+        "snapshots/sdk/text-turn/feedback-producer.mjs",
+        "snapshots/sdk/text-turn/notifications.expected.jsonl",
+        "snapshots/sdk/text-turn/result.expected.json",
+        "snapshots/sdk/text-turn/session.v2.jsonl",
+        "snapshots/sdk/text-turn/session.v3.jsonl",
+        "snapshots/sdk/text-turn/session.v4.jsonl",
+        "snapshots/sdk/text-turn/snapshot.yml",
+        "snapshots/sdk/text-turn/system-prompt.expected.md",
+        "snapshots/sdk/text-turn/tool-schemas.expected.json",
+        "snapshots/sdk/text-turn/writer.expected.jsonl",
+        "snapshots/session/ptc-turn/cordis.snapshot.yml",
+        "snapshots/session/ptc-turn/cordis.yml",
+        "snapshots/session/ptc-turn/session.v2.jsonl",
+        "snapshots/session/ptc-turn/session.v3.jsonl",
+        "snapshots/session/ptc-turn/session.v4.jsonl",
+        "snapshots/session/ptc-turn/snapshot.yml",
+        "snapshots/session/ptc-turn/system-prompt.expected.md",
+        "snapshots/session/ptc-turn/tool-schemas.expected.json",
+        "snapshots/session/ptc-turn/writer.expected.jsonl",
+        "snapshots/session/text-turn/cordis.snapshot.yml",
+        "snapshots/session/text-turn/cordis.yml",
+        "snapshots/session/text-turn/model.cordis.yml",
+        "snapshots/session/text-turn/session.jsonl",
+        "snapshots/session/text-turn/session.v1.jsonl",
+        "snapshots/session/text-turn/snapshot.yml",
+        "snapshots/session/text-turn/system-prompt.expected.md",
+        "snapshots/session/text-turn/tool-schemas.expected.json",
+        "snapshots/session/text-turn/writer.expected.jsonl",
+        "snapshots/session/tool-call-turn/session.v2.jsonl",
+        "snapshots/session/tool-call-turn/session.v3.jsonl",
+        "snapshots/session/tool-call-turn/session.v4.jsonl",
+        "snapshots/session/tool-call-turn/snapshot.yml"
+      ],
+      "expectedManifests": {
+        "snapshots/sdk/account-provider-signout/snapshot.yml": {
+          "version": 1,
+          "scenario": "account-provider-signout",
+          "profile": "sdk",
+          "composition": "sdk-account-provider-signout",
+          "recording": "authored",
+          "header": {
+            "class": "sdk-account-provider-signout",
+            "pin": true,
+            "systemPromptSource": "text-turn",
+            "toolSchemasSource": "text-turn"
+          },
+          "writerOutput": true
+        },
+        "snapshots/sdk/ptc-turn/snapshot.yml": {
+          "version": 1,
+          "scenario": "ptc-turn",
+          "profile": "sdk",
+          "writerOutput": true,
+          "composition": "ptc",
+          "recording": "live",
+          "header": {
+            "class": "ptc"
+          }
+        },
+        "snapshots/sdk/subagent-activation-limit/snapshot.yml": {
+          "version": 1,
+          "scenario": "subagent-activation-limit",
+          "profile": "sdk",
+          "writerOutput": true,
+          "composition": "subagent-activation-limit",
+          "recording": "authored",
+          "header": {
+            "class": "subagent-activation-limit",
+            "pin": true,
+            "systemPromptSource": "session/text-turn",
+            "toolSchemasSource": "session/text-turn",
+            "childSystemPrompts": [
+              1
+            ],
+            "childToolSchemas": [
+              1
+            ]
+          },
+          "replay": {
+            "override": true
+          }
+        },
+        "snapshots/sdk/subagent-list-agents/snapshot.yml": {
+          "version": 1,
+          "scenario": "subagent-list-agents",
+          "profile": "sdk",
+          "writerOutput": true,
+          "composition": "default",
+          "recording": "authored",
+          "header": {
+            "class": "default",
+            "childSystemPrompts": [
+              1
+            ],
+            "childToolSchemas": [
+              1
+            ]
+          }
+        },
+        "snapshots/sdk/text-turn/snapshot.yml": {
+          "version": 1,
+          "scenario": "text-turn",
+          "profile": "sdk",
+          "composition": "sdk-upload",
+          "recording": "live",
+          "writerOutput": true,
+          "environment": {
+            "DSH_SNAPSHOT_FEEDBACK": "1"
+          },
+          "header": {
+            "class": "sdk-upload",
+            "pin": true
+          }
+        },
+        "snapshots/session/ptc-turn/snapshot.yml": {
+          "version": 1,
+          "scenario": "ptc-turn",
+          "profile": "headless",
+          "composition": "ptc",
+          "recording": "live",
+          "writerOutput": true,
+          "header": {
+            "class": "ptc",
+            "pin": true
+          }
+        },
+        "snapshots/session/text-turn/snapshot.yml": {
+          "version": 1,
+          "scenario": "text-turn",
+          "profile": "headless",
+          "composition": "default",
+          "recording": "live",
+          "sessionFormat": {
+            "version": 1,
+            "coverage": [
+              "adjacent-migration"
+            ]
+          },
+          "header": {
+            "class": "default"
+          }
+        },
+        "snapshots/session/tool-call-turn/snapshot.yml": {
+          "version": 1,
+          "scenario": "tool-call-turn",
+          "profile": "headless",
+          "composition": "default",
+          "recording": "live",
+          "header": {
+            "class": "default",
+            "pin": true,
+            "systemPromptSource": "text-turn",
+            "toolSchemasSource": "text-turn"
+          }
+        }
+      },
+      "expectedCanonicalPaths": [
+        "snapshots/sdk/account-provider-signout/session.v3.jsonl",
+        "snapshots/sdk/account-provider-signout/session.v4.jsonl",
+        "snapshots/sdk/ptc-turn/session.v3.jsonl",
+        "snapshots/sdk/ptc-turn/session.v4.jsonl",
+        "snapshots/sdk/subagent-activation-limit/session.1.v3.jsonl",
+        "snapshots/sdk/subagent-activation-limit/session.1.v4.jsonl",
+        "snapshots/sdk/subagent-activation-limit/session.v3.jsonl",
+        "snapshots/sdk/subagent-activation-limit/session.v4.jsonl",
+        "snapshots/sdk/subagent-list-agents/session.1.v2.jsonl",
+        "snapshots/sdk/subagent-list-agents/session.1.v3.jsonl",
+        "snapshots/sdk/subagent-list-agents/session.1.v4.jsonl",
+        "snapshots/sdk/subagent-list-agents/session.v2.jsonl",
+        "snapshots/sdk/subagent-list-agents/session.v3.jsonl",
+        "snapshots/sdk/subagent-list-agents/session.v4.jsonl",
+        "snapshots/sdk/text-turn/session.v2.jsonl",
+        "snapshots/sdk/text-turn/session.v3.jsonl",
+        "snapshots/sdk/text-turn/session.v4.jsonl",
+        "snapshots/session/ptc-turn/session.v2.jsonl",
+        "snapshots/session/ptc-turn/session.v3.jsonl",
+        "snapshots/session/ptc-turn/session.v4.jsonl",
+        "snapshots/session/text-turn/session.jsonl",
+        "snapshots/session/text-turn/session.v1.jsonl",
+        "snapshots/session/tool-call-turn/session.v2.jsonl",
+        "snapshots/session/tool-call-turn/session.v3.jsonl",
+        "snapshots/session/tool-call-turn/session.v4.jsonl"
+      ],
+      "expectedTests": 4
+    },
+    {
+      "id": "sdk-factory-shutdown",
+      "profile": "sdk",
+      "config": "vitest.snapshot.config.ts",
+      "suites": [
+        "snapshots/sdk/factory-shutdown.snapshot.ts"
+      ],
+      "owners": [
+        {
+          "name": "factory-shutdown",
+          "dir": "snapshots/sdk/factory-shutdown"
+        }
+      ],
+      "inventoryDirectories": [
+        "snapshots/sdk/factory-shutdown",
+        "snapshots/sdk/subagent-spawn-in-process"
+      ],
+      "extraInputs": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/test-support/session-snapshot/tests/fixtures/subagent-activation-limit.ts",
+        "snapshots/sdk/factory-shutdown.snapshot.ts",
+        "snapshots/sdk/legacy-context.patch.yml",
+        "snapshots/sdk/manual-compact/capture-requests.mjs",
+        "snapshots/sdk/portable-runtime.cordis.yml",
+        "snapshots/sdk/sdk.snapshot.ts",
+        "snapshots/sdk/subagent-spawn-in-process/session.1.v3.jsonl"
+      ],
+      "allowedOutputs": [
+        "snapshots/sdk/factory-shutdown/writer.expected.jsonl",
+        "snapshots/sdk/factory-shutdown/writer.1.expected.jsonl",
+        "snapshots/sdk/factory-shutdown/result.expected.json",
+        "snapshots/sdk/factory-shutdown/system-prompt.1.expected.md",
+        "snapshots/sdk/factory-shutdown/tool-schemas.1.expected.json"
+      ],
+      "phases": [
+        {
+          "id": "phase-1",
+          "owners": [
+            "factory-shutdown"
+          ],
+          "filter": "joins the active child before releasing inbox projections and closes both durable turns$",
+          "passedSuffixes": [
+            "joins the active child before releasing inbox projections and closes both durable turns"
+          ],
+          "outputs": [
+            "snapshots/sdk/factory-shutdown/writer.expected.jsonl",
+            "snapshots/sdk/factory-shutdown/writer.1.expected.jsonl",
+            "snapshots/sdk/factory-shutdown/result.expected.json",
+            "snapshots/sdk/factory-shutdown/system-prompt.1.expected.md",
+            "snapshots/sdk/factory-shutdown/tool-schemas.1.expected.json"
+          ]
+        }
+      ],
+      "replay": {
+        "filter": "joins the active child before releasing inbox projections and closes both durable turns$",
+        "passedSuffixes": [
+          "joins the active child before releasing inbox projections and closes both durable turns"
+        ]
+      },
+      "preparation": {
+        "skillPanel": false,
+        "lvpaopao": false,
+        "media": false
+      },
+      "newOutputs": [],
+      "expectedInputInventory": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/test-support/session-snapshot/tests/fixtures/subagent-activation-limit.ts",
+        "snapshots/sdk/factory-shutdown.snapshot.ts",
+        "snapshots/sdk/factory-shutdown/replay.override.json",
+        "snapshots/sdk/factory-shutdown/runtime.mjs",
+        "snapshots/sdk/factory-shutdown/session.1.v4.jsonl",
+        "snapshots/sdk/factory-shutdown/session.v4.jsonl",
+        "snapshots/sdk/factory-shutdown/snapshot.yml",
+        "snapshots/sdk/legacy-context.patch.yml",
+        "snapshots/sdk/manual-compact/capture-requests.mjs",
+        "snapshots/sdk/portable-runtime.cordis.yml",
+        "snapshots/sdk/sdk.snapshot.ts",
+        "snapshots/sdk/subagent-spawn-in-process/notifications.expected.jsonl",
+        "snapshots/sdk/subagent-spawn-in-process/result.expected.json",
+        "snapshots/sdk/subagent-spawn-in-process/runtime.cordis.yml",
+        "snapshots/sdk/subagent-spawn-in-process/session.1.v2.jsonl",
+        "snapshots/sdk/subagent-spawn-in-process/session.1.v3.jsonl",
+        "snapshots/sdk/subagent-spawn-in-process/session.1.v4.jsonl",
+        "snapshots/sdk/subagent-spawn-in-process/session.v2.jsonl",
+        "snapshots/sdk/subagent-spawn-in-process/session.v3.jsonl",
+        "snapshots/sdk/subagent-spawn-in-process/session.v4.jsonl",
+        "snapshots/sdk/subagent-spawn-in-process/snapshot.yml"
+      ],
+      "expectedManifests": {
+        "snapshots/sdk/factory-shutdown/snapshot.yml": {
+          "version": 1,
+          "writerOutput": true,
+          "scenario": "factory-shutdown",
+          "profile": "sdk",
+          "composition": "sdk-default",
+          "recording": "authored",
+          "header": {
+            "class": "sdk-default",
+            "childSystemPrompts": [
+              1
+            ],
+            "childToolSchemas": [
+              1
+            ]
+          },
+          "replay": {
+            "override": true
+          }
+        },
+        "snapshots/sdk/subagent-spawn-in-process/snapshot.yml": {
+          "version": 1,
+          "scenario": "subagent-spawn-in-process",
+          "profile": "sdk",
+          "composition": "sdk-default",
+          "recording": "authored",
+          "header": {
+            "class": "sdk-default"
+          }
+        }
+      },
+      "expectedCanonicalPaths": [
+        "snapshots/sdk/factory-shutdown/session.1.v4.jsonl",
+        "snapshots/sdk/factory-shutdown/session.v4.jsonl",
+        "snapshots/sdk/subagent-spawn-in-process/session.1.v2.jsonl",
+        "snapshots/sdk/subagent-spawn-in-process/session.1.v3.jsonl",
+        "snapshots/sdk/subagent-spawn-in-process/session.1.v4.jsonl",
+        "snapshots/sdk/subagent-spawn-in-process/session.v2.jsonl",
+        "snapshots/sdk/subagent-spawn-in-process/session.v3.jsonl",
+        "snapshots/sdk/subagent-spawn-in-process/session.v4.jsonl"
+      ],
+      "expectedTests": 1
+    },
+    {
+      "id": "compaction-pressure",
+      "profile": "headless",
+      "config": "vitest.snapshot.config.ts",
+      "suites": [
+        "snapshots/session/headless.snapshot.ts"
+      ],
+      "owners": [
+        {
+          "name": "compaction-summary-headroom",
+          "dir": "snapshots/session/compaction-summary-headroom"
+        }
+      ],
+      "inventoryDirectories": [
+        "snapshots/session/compaction-recovery",
+        "snapshots/session/compaction-summary-headroom"
+      ],
+      "extraInputs": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/test-support/session-snapshot/tests/fixtures/compaction-working-directory.ts",
+        "snapshots/session/headless.snapshot.ts",
+        "snapshots/session/subagent-child-question-rejection/assertions.ts"
+      ],
+      "allowedOutputs": [
+        "snapshots/session/compaction-summary-headroom/writer.expected.jsonl"
+      ],
+      "phases": [
+        {
+          "id": "phase-1",
+          "owners": [
+            "compaction-summary-headroom"
+          ],
+          "filter": " (compaction-summary-headroom) through dsh --profile headless$",
+          "passedSuffixes": [
+            " compaction-summary-headroom through dsh --profile headless"
+          ],
+          "outputs": [
+            "snapshots/session/compaction-summary-headroom/writer.expected.jsonl"
+          ]
+        }
+      ],
+      "replay": {
+        "filter": " (compaction-summary-headroom) through dsh --profile headless$",
+        "passedSuffixes": [
+          " compaction-summary-headroom through dsh --profile headless"
+        ]
+      },
+      "preparation": {
+        "skillPanel": false,
+        "lvpaopao": false,
+        "media": false
+      },
+      "newOutputs": [],
+      "expectedInputInventory": [
+        ".github/workflows/linux-snapshot-capture-plan.json",
+        ".github/workflows/linux-snapshot-capture.yml",
+        "packages/test-support/session-snapshot/tests/fixtures/compaction-working-directory.ts",
+        "snapshots/session/compaction-recovery/cordis.snapshot.yml",
+        "snapshots/session/compaction-recovery/cordis.yml",
+        "snapshots/session/compaction-recovery/session.v2.jsonl",
+        "snapshots/session/compaction-recovery/session.v3.jsonl",
+        "snapshots/session/compaction-recovery/session.v4.jsonl",
+        "snapshots/session/compaction-recovery/snapshot.yml",
+        "snapshots/session/compaction-recovery/system-prompt.expected.md",
+        "snapshots/session/compaction-recovery/tool-schemas.expected.json",
+        "snapshots/session/compaction-recovery/writer.expected.jsonl",
+        "snapshots/session/compaction-summary-headroom/cordis.snapshot.yml",
+        "snapshots/session/compaction-summary-headroom/cordis.yml",
+        "snapshots/session/compaction-summary-headroom/pressure-fixture.mjs",
+        "snapshots/session/compaction-summary-headroom/session.v3.jsonl",
+        "snapshots/session/compaction-summary-headroom/session.v4.jsonl",
+        "snapshots/session/compaction-summary-headroom/snapshot.yml",
+        "snapshots/session/headless.snapshot.ts",
+        "snapshots/session/subagent-child-question-rejection/assertions.ts"
+      ],
+      "expectedManifests": {
+        "snapshots/session/compaction-recovery/snapshot.yml": {
+          "version": 1,
+          "scenario": "compaction-recovery",
+          "profile": "headless",
+          "composition": "compaction-recovery",
+          "recording": "authored",
+          "header": {
+            "class": "compaction-recovery",
+            "pin": true,
+            "changes": 1
+          },
+          "writerOutput": true
+        },
+        "snapshots/session/compaction-summary-headroom/snapshot.yml": {
+          "version": 1,
+          "scenario": "compaction-summary-headroom",
+          "profile": "headless",
+          "composition": "compaction-summary-headroom",
+          "recording": "authored",
+          "platform": "posix",
+          "header": {
+            "class": "compaction-summary-headroom",
+            "pin": true,
+            "systemPromptSource": "compaction-recovery",
+            "toolSchemasSource": "compaction-recovery",
+            "changes": 1
+          },
+          "writerOutput": true
+        }
+      },
+      "expectedCanonicalPaths": [
+        "snapshots/session/compaction-recovery/session.v2.jsonl",
+        "snapshots/session/compaction-recovery/session.v3.jsonl",
+        "snapshots/session/compaction-recovery/session.v4.jsonl",
+        "snapshots/session/compaction-summary-headroom/session.v3.jsonl",
+        "snapshots/session/compaction-summary-headroom/session.v4.jsonl"
+      ],
+      "expectedTests": 1
+    }
+  ]
+}

@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - .github/workflows/linux-snapshot-capture.yml
+      - .github/workflows/linux-snapshot-capture-plan.json
 
 permissions:
   contents: read
@@ -24,39 +25,21 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - group: child-async
-            config: vitest.snapshot.config.ts
-            suite: snapshots/session/headless.snapshot.ts
-            filter: ' (text-turn|subagent-child-question-rejection) through dsh --profile headless$'
-          - group: web3
-            config: vitest.web.config.ts
-            suite: |-
-              apps/web/tests/minimal-preset.snapshot.ts
-              apps/web/tests/code-language.snapshot.ts
-              apps/web/tests/workspace-file-drop.snapshot.ts
-            filter: '^(minimal agent preset|replays highlighted Python stubs, PowerShell and CSV reads with their document previews$|replays workspace file drag and touch menu references without uploading or sending the draft$)'
-          - group: self-pins
-            config: vitest.snapshot.config.ts
-            suite: snapshots/session/headless.snapshot.ts
-            filter: ' (muse-project-bible-skill|muse-voice-continuity-skill|muse-audio-asset-usage|muse-shared-asset-usage|muse-voice-periods|muse-shot-advisory|muse-shot-derived-visual|muse-shot-director-format|muse-shot-scene-context|muse-shot-session-video|muse-screenplay-advisory|muse-screenplay-project|muse-screenplay-withdrawn-fact) through dsh --profile headless$'
-          - group: compaction-pressure
-            config: vitest.snapshot.config.ts
-            suite: snapshots/session/headless.snapshot.ts
-            filter: ' compaction-summary-headroom through dsh --profile headless$'
-          - group: sdk-diagnostic
-            config: vitest.snapshot.config.ts
-            suite: snapshots/sdk/sdk.snapshot.ts
-            filter: '(refresh|replay)s subagent-dsh-sdk-diagnostic through dsh --profile sdk$'
+        group:
+          - offline-cwd-self-pins
+          - borrowed-header-cwd
+          - production-headers-and-repaired-fixtures
+          - sdk-default
+          - sdk-self-headers
+          - sdk-borrowed
+          - sdk-factory-shutdown
+          - compaction-pressure
     env:
       DSH_TELEMETRY_DISABLED: '1'
       DSH_EXAMPLE_MODE: lib
       DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
       DSH_SNAPSHOT_MAX_WORKERS: '1'
       SNAPSHOT_CAPTURE_GROUP: ${{ matrix.group }}
-      SNAPSHOT_CAPTURE_CONFIG: ${{ matrix.config }}
-      SNAPSHOT_CAPTURE_SUITE: ${{ matrix.suite }}
-      SNAPSHOT_CAPTURE_FILTER: ${{ matrix.filter }}
       DEEPSEEK_API_KEY: ''
       OPENAI_API_KEY: ''
     steps:
@@ -75,19 +58,21 @@ jobs:
       - name: Install immutable dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Prepare bubblewrap (unrestrict userns)
-        run: bash scripts/prepare-ci-bubblewrap.sh
-
-      - name: Install Chromium for the approved Web owners
-        if: ${{ matrix.group == 'web3' }}
-        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
-
       - name: Build the same libraries used by normal replay
-        id: build
         run: pnpm run build:artifacts
 
+      - name: Prepare approved production fixture dependencies
+        if: ${{ matrix.group == 'production-headers-and-repaired-fixtures' }}
+        run: |
+          set -euo pipefail
+          node scripts/prepare-skill-panel-snapshot.mjs
+          node third_party/plugins/muse-lvpaopao/scripts/build.mjs
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+          ffmpeg -version
+          ffprobe -version
+
       - name: Build and verify the supported Landlock backend
-        if: ${{ matrix.group == 'web3' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -101,8 +86,7 @@ jobs:
           import { join } from 'node:path'
           import { spawnSync } from 'node:child_process'
           import { grantArgs, launcherPath, probe } from './native/system/packages/entry/lib/index.js'
-          const launcher = launcherPath()
-          const enforcement = probe(launcher)
+          const launcher = launcherPath(), enforcement = probe(launcher)
           assert.notEqual(enforcement, 'unusable', 'The host must enforce the supported Landlock backend')
           const root = mkdtempSync(join(process.env.RUNNER_TEMP, 'muse-landlock-functional-'))
           const writable = join(root, 'workspace'), denied = join(root, 'outside')
@@ -128,7 +112,7 @@ jobs:
           console.log(JSON.stringify(evidence))
           NODE
 
-      - name: Retain canonical and shared input identities
+      - name: Retain approved metadata and every protected input
         id: baseline
         shell: bash
         run: |
@@ -138,162 +122,32 @@ jobs:
           import { createHash } from 'node:crypto'
           import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs'
           import { createRequire } from 'node:module'
-          import { dirname, join, resolve } from 'node:path'
+          import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
           import { execFileSync } from 'node:child_process'
           const { load } = createRequire(resolve('apps/desktop/package.json'))('js-yaml')
-          const group = process.env.SNAPSHOT_CAPTURE_GROUP
-          const selfPins = ['muse-project-bible-skill', 'muse-voice-continuity-skill', 'muse-audio-asset-usage',
-            'muse-shared-asset-usage', 'muse-voice-periods', 'muse-shot-advisory', 'muse-shot-derived-visual',
-            'muse-shot-director-format', 'muse-shot-scene-context', 'muse-shot-session-video',
-            'muse-screenplay-advisory', 'muse-screenplay-project', 'muse-screenplay-withdrawn-fact']
-          const webNames = [
-            'minimal agent preset sends the exact RL prompt with shell and image schemas, then executes the persistent shell',
-            'minimal agent preset expands the completed persistent Bash call in the Web conversation',
-            'minimal agent preset keeps its snapshot inventory closed',
-            'replays highlighted Python stubs, PowerShell and CSV reads with their document previews',
-            'replays workspace file drag and touch menu references without uploading or sending the draft',
-          ]
-          const groups = {
-            'child-async': {
-              config: 'vitest.snapshot.config.ts', suite: 'snapshots/session/headless.snapshot.ts',
-              filter: ' (text-turn|subagent-child-question-rejection) through dsh --profile headless$',
-              owners: ['text-turn', 'subagent-child-question-rejection'],
-              inventoryDirectories: ['text-turn', 'subagent-child-question-rejection', 'tool-call-turn']
-                .map(owner => `snapshots/session/${owner}`),
-              canonicalCounts: [2, 6, 3], expectedTests: 2,
-              passedSuffixes: [' text-turn through dsh --profile headless', ' subagent-child-question-rejection through dsh --profile headless'],
-              extraInputs: ['snapshots/session/headless.snapshot.ts',
-                'snapshots/session/subagent-spawn-in-process/settlement-order.mjs',
-                'packages/test-support/session-snapshot/tests/fixtures/child-question-tripwire.ts'],
-            },
-            web3: {
-              config: 'vitest.web.config.ts',
-              suite: ['apps/web/tests/minimal-preset.snapshot.ts', 'apps/web/tests/code-language.snapshot.ts',
-                'apps/web/tests/workspace-file-drop.snapshot.ts'].join('\n'),
-              filter: '^(minimal agent preset|replays highlighted Python stubs, PowerShell and CSV reads with their document previews$|replays workspace file drag and touch menu references without uploading or sending the draft$)',
-              owners: ['minimal-preset', 'code-language', 'workspace-file-drop'],
-              inventoryDirectories: ['minimal-preset', 'code-language', 'workspace-file-drop',
-                'minimal-compact', 'minimal-read-image', 'fresh-round-trip'].map(owner => `snapshots/web/${owner}`),
-              canonicalCounts: [3, 1, 1, 1, 1, 3], expectedTests: 5, passedSuffixes: webNames,
-              extraInputs: ['vitest.web.config.ts', 'apps/web/tests/minimal-preset.snapshot.ts',
-                'apps/web/tests/code-language.snapshot.ts', 'apps/web/tests/workspace-file-drop.snapshot.ts',
-                'apps/web/tests/scaffold.ts', 'apps/web/tests/support.ts',
-                'packages/bundle/web-app/presets/standard.patch.yml'],
-            },
-            'self-pins': {
-              config: 'vitest.snapshot.config.ts', suite: 'snapshots/session/headless.snapshot.ts',
-              filter: ` (${selfPins.join('|')}) through dsh --profile headless$`, owners: selfPins,
-              inventoryDirectories: selfPins.map(owner => `snapshots/session/${owner}`),
-              canonicalCounts: selfPins.map(() => 1), expectedTests: 13,
-              passedSuffixes: selfPins.map(owner => ` ${owner} through dsh --profile headless`),
-              extraInputs: ['snapshots/session/headless.snapshot.ts',
-                'packages/drama/tool-drama-assets/tests/snapshot-plugin.mjs',
-                'packages/drama/tool-shot-script/tests/snapshot-plugin.mjs',
-                'packages/drama/tool-shot-script/tests/session-video-snapshot-plugin.mjs'],
-            },
-            'compaction-pressure': {
-              config: 'vitest.snapshot.config.ts', suite: 'snapshots/session/headless.snapshot.ts',
-              filter: ' compaction-summary-headroom through dsh --profile headless$', owners: ['compaction-summary-headroom'],
-              inventoryDirectories: ['snapshots/session/compaction-summary-headroom', 'snapshots/session/compaction-recovery'],
-              canonicalCounts: [2, 3], expectedTests: 1,
-              passedSuffixes: [' compaction-summary-headroom through dsh --profile headless'],
-              extraInputs: ['snapshots/session/headless.snapshot.ts',
-                'packages/test-support/session-snapshot/tests/fixtures/compaction-working-directory.ts'],
-            },
-            'sdk-diagnostic': {
-              config: 'vitest.snapshot.config.ts', suite: 'snapshots/sdk/sdk.snapshot.ts',
-              filter: '(refresh|replay)s subagent-dsh-sdk-diagnostic through dsh --profile sdk$',
-              owners: ['subagent-dsh-sdk-diagnostic'],
-              inventoryDirectories: ['snapshots/sdk/subagent-dsh-sdk-diagnostic'],
-              canonicalCounts: [3], expectedTests: 1,
-              passedSuffixes: [' subagent-dsh-sdk-diagnostic through dsh --profile sdk'],
-              extraInputs: ['snapshots/sdk/sdk.snapshot.ts', 'snapshots/sdk/portable-runtime.cordis.yml',
-                'snapshots/sdk/legacy-context.patch.yml',
-                'packages/test-support/session-snapshot/tests/fixtures/subagent-settlement-barrier.ts',
-                'packages/subagent/subagent-dsh-sdk/tests/fixtures/loader/child-mock-llm.ts'],
-            },
-          }
-          const selected = groups[group]
-          if (selected === undefined || process.env.SNAPSHOT_CAPTURE_CONFIG !== selected.config
-            || process.env.SNAPSHOT_CAPTURE_SUITE !== selected.suite || process.env.SNAPSHOT_CAPTURE_FILTER !== selected.filter) {
-            throw new Error('Unexpected capture group or test filter')
-          }
-          const { owners, inventoryDirectories, extraInputs, expectedTests, passedSuffixes } = selected
-          const expectedManifests = group === 'child-async' ? {
-            'text-turn': {
-              version: 1, scenario: 'text-turn', profile: 'headless', composition: 'default', recording: 'live',
-              sessionFormat: { version: 1, coverage: ['adjacent-migration'] }, header: { class: 'default' },
-            },
-            'subagent-child-question-rejection': {
-              version: 1, scenario: 'subagent-child-question-rejection', profile: 'headless', composition: 'child-question',
-              recording: 'authored', header: { class: 'child-question', pin: true, systemPromptSource: 'text-turn' },
-              replay: { override: true }, writerOutput: true,
-            },
-            'tool-call-turn': {
-              version: 1, scenario: 'tool-call-turn', profile: 'headless', composition: 'default', recording: 'live',
-              header: { class: 'default', pin: true, systemPromptSource: 'text-turn', toolSchemasSource: 'text-turn' },
-            },
-          } : group === 'web3' ? {
-            'minimal-preset': {
-              version: 1, scenario: 'minimal-preset', profile: 'web', composition: 'web-minimal', recording: 'authored',
-              header: { class: 'web-minimal', pin: true }, writerOutput: true,
-            },
-            'code-language': {
-              version: 1, scenario: 'code-language', profile: 'web', composition: 'web-default', recording: 'live',
-              header: { class: 'web-default' }, writerOutput: true,
-            },
-            'workspace-file-drop': {
-              version: 1, scenario: 'workspace-file-drop', profile: 'web', composition: 'web-default', recording: 'authored',
-              header: { class: 'web-default' }, writerOutput: true,
-            },
-          } : group === 'compaction-pressure' ? {
-            'compaction-summary-headroom': {
-              version: 1, scenario: 'compaction-summary-headroom', profile: 'headless', composition: 'compaction-summary-headroom',
-              recording: 'authored', platform: 'posix', header: { class: 'compaction-summary-headroom', pin: true,
-                systemPromptSource: 'compaction-recovery', toolSchemasSource: 'compaction-recovery', changes: 1 }, writerOutput: true,
-            },
-          } : group === 'sdk-diagnostic' ? {
-            'subagent-dsh-sdk-diagnostic': {
-              version: 1, scenario: 'subagent-dsh-sdk-diagnostic', profile: 'sdk', composition: 'sdk-dsh-sdk-diagnostic',
-              recording: 'live', writerOutput: true, header: { class: 'sdk-dsh-sdk-diagnostic', pin: true },
-              replay: { override: true },
-            },
-          } : {}
-          for (const [owner, expected] of Object.entries(expectedManifests)) {
-            const profileDirectory = group === 'web3' ? 'web' : group === 'sdk-diagnostic' ? 'sdk' : 'session'
-            assert.deepEqual(load(readFileSync(`snapshots/${profileDirectory}/${owner}/snapshot.yml`, 'utf8')), expected,
-              `Owner metadata drifted: ${owner}`)
-          }
-          if (group === 'self-pins') for (const owner of owners) {
-            const manifest = load(readFileSync(`snapshots/session/${owner}/snapshot.yml`, 'utf8'))
-            assert.equal(manifest.version, 1); assert.equal(manifest.scenario, owner); assert.equal(manifest.profile, 'headless')
-            assert.equal(manifest.composition, owner); assert.equal(manifest.recording, 'authored'); assert.equal(manifest.writerOutput, true)
-            assert.equal(manifest.session, undefined); assert.equal(manifest.sessionFormat, undefined)
-            assert.deepEqual(manifest.header, { class: owner, pin: true }, `Expected self-owned sidecars: ${owner}`)
-          }
-          const allowed = group === 'child-async' ? [
-            'snapshots/session/text-turn/writer.expected.jsonl',
-            'snapshots/session/text-turn/system-prompt.expected.md',
-            'snapshots/session/text-turn/tool-schemas.expected.json',
-            'snapshots/session/subagent-child-question-rejection/writer.expected.jsonl',
-            'snapshots/session/subagent-child-question-rejection/writer.1.expected.jsonl',
-            'snapshots/session/subagent-child-question-rejection/tool-schemas.expected.json',
-          ] : group === 'web3' ? [...owners.map(owner => `snapshots/web/${owner}/writer.expected.jsonl`),
-            'snapshots/web/minimal-preset/system-prompt.expected.md', 'snapshots/web/minimal-preset/tool-schemas.expected.json']
-            : group === 'self-pins' ? owners.flatMap(owner => ['writer.expected.jsonl', 'system-prompt.expected.md',
-              'tool-schemas.expected.json'].map(file => `snapshots/session/${owner}/${file}`))
-            : group === 'sdk-diagnostic' ? ['writer.expected.jsonl', 'system-prompt.expected.md', 'tool-schemas.expected.json',
-              'notifications.expected.jsonl', 'result.expected.json'].map(file => `snapshots/sdk/subagent-dsh-sdk-diagnostic/${file}`)
-            : ['snapshots/session/compaction-summary-headroom/writer.expected.jsonl']
-          const newOutputs = group === 'web3' ? owners.map(owner => `snapshots/web/${owner}/writer.expected.jsonl`)
-            : group === 'sdk-diagnostic' ? ['snapshots/sdk/subagent-dsh-sdk-diagnostic/writer.expected.jsonl'] : []
-          for (const path of allowed) {
-            if (!existsSync(path) && newOutputs.includes(path)) continue
-            const parent = lstatSync(dirname(path)), stat = lstatSync(path)
-            if (!parent.isDirectory() || parent.isSymbolicLink() || !stat.isFile() || stat.isSymbolicLink()) {
-              throw new Error(`Approved output must already be a regular owned file: ${path}`)
-            }
-          }
+          const plan = JSON.parse(readFileSync('.github/workflows/linux-snapshot-capture-plan.json', 'utf8'))
+          assert.equal(plan.version, 1); assert.equal(plan.temporary, true)
+          assert.equal(plan.repository, 'felir7at62co-wq/muse-med'); assert.equal(plan.pullRequest, 154)
+          assert.equal(plan.headBranch, 'fix/muse-ci-baseline-20261111')
+          assert.deepEqual(plan.totals, { groups: 8, tests: 66, outputs: 177 })
+          const approvedIds = ['offline-cwd-self-pins', 'borrowed-header-cwd', 'production-headers-and-repaired-fixtures',
+            'sdk-default', 'sdk-self-headers', 'sdk-borrowed', 'sdk-factory-shutdown', 'compaction-pressure']
+          assert.deepEqual(plan.groups.map(group => group.id), approvedIds)
+          assert.equal(plan.groups.reduce((n, group) => n + group.expectedTests, 0), 66)
+          assert.equal(plan.groups.reduce((n, group) => n + group.allowedOutputs.length, 0), 177)
+          const spec = plan.groups.find(group => group.id === process.env.SNAPSHOT_CAPTURE_GROUP)
+          if (spec === undefined) throw new Error('Unexpected capture group')
+          const safePath = path => typeof path === 'string' && !isAbsolute(path) && !path.includes('\\')
+            && !/[\0\r\n]/u.test(path) && path.split('/').every(part => part !== '' && part !== '.' && part !== '..')
+          for (const path of [...spec.inventoryDirectories, ...spec.extraInputs, ...spec.allowedOutputs, ...spec.suites]) assert.ok(safePath(path), `Unsafe capture path: ${path}`)
+          assert.equal(spec.config, 'vitest.snapshot.config.ts')
+          assert.equal(spec.expectedTests, spec.owners.length)
+          assert.equal(new Set(spec.owners.map(owner => owner.name)).size, spec.owners.length)
+          assert.equal(new Set(spec.allowedOutputs).size, spec.allowedOutputs.length)
+          assert.equal(spec.phases.reduce((n, phase) => n + phase.passedSuffixes.length, 0), spec.expectedTests)
+          assert.deepEqual(spec.phases.flatMap(phase => phase.owners).sort(), spec.owners.map(owner => owner.name).sort())
+          assert.deepEqual(spec.phases.flatMap(phase => phase.outputs).sort(), [...spec.allowedOutputs].sort())
+          assert.equal(spec.replay.passedSuffixes.length, spec.expectedTests)
           const inventory = directory => {
             const stat = lstatSync(directory)
             if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Input directory must be owned: ${directory}`)
@@ -302,42 +156,44 @@ jobs:
               return entry.isDirectory() && !entry.isSymbolicLink() ? inventory(path) : [path]
             }).sort()
           }
-          const allInputs = inventoryDirectories.flatMap(inventory)
-          const canonicalPaths = allInputs.filter(path => /\/session(?:\.[1-9]\d*)?(?:\.v[1-9]\d*)?\.jsonl$/u.test(path))
-          const manifestPaths = allInputs.filter(path => path.endsWith('/snapshot.yml'))
-          const canonicalCounts = inventoryDirectories.map(directory => canonicalPaths.filter(path => dirname(path) === directory).length)
-          assert.deepEqual(canonicalCounts, selected.canonicalCounts, 'Retained parent/child generations must remain complete')
-          assert.equal(manifestPaths.length, inventoryDirectories.length)
-          const protectedPaths = [...new Set([...allInputs.filter(path => !allowed.includes(path)), ...extraInputs])].sort()
+          const files = spec.inventoryDirectories.flatMap(inventory)
+          const protectedPaths = [...new Set([...files.filter(path => !spec.allowedOutputs.includes(path)), ...spec.extraInputs])].sort()
+          assert.deepEqual(protectedPaths, spec.expectedInputInventory, 'Protected input inventory drifted')
+          assert.deepEqual(files.filter(path => /\/session(?:\.[1-9]\d*)?(?:\.v[1-9]\d*)?\.jsonl$/u.test(path)).sort(), spec.expectedCanonicalPaths)
+          for (const [path, expected] of Object.entries(spec.expectedManifests)) assert.deepEqual(load(readFileSync(path, 'utf8')), expected, `Manifest drifted: ${path}`)
+          for (const owner of spec.owners) {
+            const manifest = load(readFileSync(`${owner.dir}/snapshot.yml`, 'utf8'))
+            assert.equal(manifest.writerOutput, true, `Retained writer required: ${owner.name}`)
+            assert.equal(manifest.session, undefined); assert.equal(manifest.sessionFormat, undefined)
+            assert.equal(manifest.profile, spec.profile)
+          }
+          for (const path of spec.allowedOutputs) {
+            assert.ok(spec.owners.some(owner => path.startsWith(`${owner.dir}/`)), `Output is not owned: ${path}`)
+            assert.ok(!spec.expectedCanonicalPaths.includes(path)); assert.ok(!path.endsWith('/snapshot.yml'))
+            if (!existsSync(path) && spec.newOutputs.includes(path)) { assert.ok(path.endsWith('/writer.expected.jsonl')); continue }
+            const parent = lstatSync(dirname(path)), stat = lstatSync(path)
+            assert.ok(parent.isDirectory() && !parent.isSymbolicLink() && stat.isFile() && !stat.isSymbolicLink(), `Output must be regular: ${path}`)
+          }
           const sha256 = path => createHash('sha256').update(readFileSync(path)).digest('hex')
           const identity = path => {
             const stat = lstatSync(path)
             if (stat.isSymbolicLink()) {
-              if (!statSync(path).isFile()) throw new Error(`Unsupported non-file input alias: ${path}`)
-              return { kind: 'symlink', target: readlinkSync(path), resolved: realpathSync(path), sha256: sha256(path) }
+              const resolved = realpathSync(path)
+              assert.ok(resolved.startsWith(resolve('.') + sep) && statSync(path).isFile(), `Unsupported input alias: ${path}`)
+              return { kind: 'symlink', target: readlinkSync(path), resolved, sha256: sha256(path) }
             }
-            if (!stat.isFile()) throw new Error(`Unsupported input kind: ${path}`)
+            assert.ok(stat.isFile(), `Unsupported input kind: ${path}`)
             return { kind: 'file', sha256: sha256(path) }
           }
           const identities = Object.fromEntries(protectedPaths.map(path => [path, identity(path)]))
-          const refreshPlans = group === 'child-async'
-            ? owners.map(owner => ({ label: owner, filter: ` ${owner} through dsh --profile headless$`,
-              expectedTests: 1, passedSuffixes: [` ${owner} through dsh --profile headless`] }))
-            : [{ label: group, filter: selected.filter, expectedTests, passedSuffixes }]
-          const sandboxProbe = group === 'web3'
-            ? JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-sandbox-probe.json'), 'utf8')) : null
-          if (group === 'web3' && (!['full', 'partial'].includes(sandboxProbe.enforcement)
-            || sandboxProbe.workspaceWrite !== true || sandboxProbe.outsideWriteDenied !== true)) {
-            throw new Error('Web capture requires a functional confined backend')
-          }
+          const sandboxProbe = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-sandbox-probe.json'), 'utf8'))
+          assert.ok(['full', 'partial'].includes(sandboxProbe.enforcement) && sandboxProbe.workspaceWrite === true && sandboxProbe.outsideWriteDenied === true)
           writeFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), JSON.stringify({
-            head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), group, owners,
-            inventoryDirectories, extraInputs, canonicalPaths, manifestPaths, identities, allowed, newOutputs,
-            expectedTests, passedSuffixes, refreshPlans, sandboxProbe,
+            head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), spec, identities, sandboxProbe,
           }, null, 2) + '\n')
           NODE
 
-      - name: Refresh only the ordered approved owners
+      - name: Refresh approved phases and freeze each completed pin
         id: refresh
         env:
           DSH_SNAPSHOT: refresh
@@ -345,69 +201,87 @@ jobs:
         run: |
           set -euo pipefail
           trap 'capture_exit_code=$?; echo "exit_code=$capture_exit_code" >> "$GITHUB_OUTPUT"' EXIT
-          mapfile -t suites <<< "$SNAPSHOT_CAPTURE_SUITE"
-          refresh_labels=$(node --input-type=module -e 'import { readFileSync } from "node:fs"; import { join } from "node:path"; const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, "muse-linux-snapshot-inputs.json"), "utf8")); console.log(state.refreshPlans.map(plan => plan.label).join("\n"))')
-          mapfile -t labels <<< "$refresh_labels"
-          for label in "${labels[@]}"; do
-            export SNAPSHOT_REFRESH_LABEL="$label"
-            filter=$(node --input-type=module -e 'import { readFileSync } from "node:fs"; import { join } from "node:path"; const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, "muse-linux-snapshot-inputs.json"), "utf8")); console.log(state.refreshPlans.find(plan => plan.label === process.env.SNAPSHOT_REFRESH_LABEL).filter)')
-            pnpm exec vitest run --config "$SNAPSHOT_CAPTURE_CONFIG" \
-              "${suites[@]}" \
-              --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/$label-refresh-report.json" \
-              -t "$filter"
+          config=$(node --input-type=module -e 'import{readFileSync}from"node:fs";import{join}from"node:path";console.log(JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,"muse-linux-snapshot-inputs.json"),"utf8")).spec.config)')
+          suites_text=$(node --input-type=module -e 'import{readFileSync}from"node:fs";import{join}from"node:path";console.log(JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,"muse-linux-snapshot-inputs.json"),"utf8")).spec.suites.join("\n"))')
+          mapfile -t suites <<< "$suites_text"
+          phase_ids=$(node --input-type=module -e 'import{readFileSync}from"node:fs";import{join}from"node:path";console.log(JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,"muse-linux-snapshot-inputs.json"),"utf8")).spec.phases.map(phase=>phase.id).join("\n"))')
+          mapfile -t phases <<< "$phase_ids"
+          for phase in "${phases[@]}"; do
+            export SNAPSHOT_CAPTURE_PHASE="$phase"
+            filter=$(node --input-type=module -e 'import{readFileSync}from"node:fs";import{join}from"node:path";console.log(JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,"muse-linux-snapshot-inputs.json"),"utf8")).spec.phases.find(phase=>phase.id===process.env.SNAPSHOT_CAPTURE_PHASE).filter)')
+            pnpm exec vitest run --config "$config" "${suites[@]}" \
+              --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/$phase-refresh-report.json" -t "$filter"
             node --input-type=module <<'NODE'
           import assert from 'node:assert/strict'
-          import { readFileSync } from 'node:fs'
+          import { createHash } from 'node:crypto'
+          import { existsSync, lstatSync, readFileSync, writeFileSync } from 'node:fs'
           import { join } from 'node:path'
-          const label = process.env.SNAPSHOT_REFRESH_LABEL
           const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), 'utf8'))
-          const plan = state.refreshPlans.find(plan => plan.label === label)
-          if (plan === undefined) throw new Error('Unexpected refresh label')
-          const report = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, `${label}-refresh-report.json`), 'utf8'))
+          const phaseIndex = state.spec.phases.findIndex(phase => phase.id === process.env.SNAPSHOT_CAPTURE_PHASE)
+          assert.ok(phaseIndex >= 0)
+          const phase = state.spec.phases[phaseIndex]
+          const report = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, `${phase.id}-refresh-report.json`), 'utf8'))
           const passed = report.testResults.flatMap(result => result.assertionResults).filter(test => test.status === 'passed')
-          assert.equal(report.numPassedTests, plan.expectedTests, `${label}: refresh must execute exactly the approved tests`)
-          assert.equal(report.numFailedTests, 0)
-          assert.equal(passed.length, plan.expectedTests)
-          assert.ok(plan.passedSuffixes.every(suffix => passed.filter(test => test.fullName.endsWith(suffix)).length === 1))
+          assert.equal(report.numPassedTests, phase.passedSuffixes.length); assert.equal(report.numFailedTests, 0)
+          assert.equal(report.numFailedTestSuites, 0)
+          assert.equal(passed.length, phase.passedSuffixes.length)
+          assert.ok(phase.passedSuffixes.every(suffix => passed.filter(test => test.fullName.endsWith(suffix)).length === 1))
+          const frozenPath = join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-phase-freezes.json')
+          const prior = existsSync(frozenPath) ? JSON.parse(readFileSync(frozenPath, 'utf8')) : { outputs: {}, phases: [] }
+          assert.deepEqual(prior.phases.map(record => record.id), state.spec.phases.slice(0, phaseIndex).map(phase => phase.id))
+          const hash = path => {
+            const stat = lstatSync(path)
+            assert.ok(stat.isFile() && !stat.isSymbolicLink() && stat.size <= 10 * 1024 * 1024, `Invalid output: ${path}`)
+            return createHash('sha256').update(readFileSync(path)).digest('hex')
+          }
+          for (const [path, expected] of Object.entries(prior.outputs)) assert.equal(hash(path), expected, `Earlier phase pin changed: ${path}`)
+          const outputs = Object.fromEntries(phase.outputs.map(path => { assert.ok(!Object.hasOwn(prior.outputs, path)); return [path, hash(path)] }))
+          writeFileSync(frozenPath, JSON.stringify({ outputs: { ...prior.outputs, ...outputs },
+            phases: [...prior.phases, { id: phase.id, passed: passed.length, outputs }] }, null, 2) + '\n')
           NODE
           done
 
-      - name: Freeze all approved outputs after every refresh
+      - name: Freeze the complete approved output inventory
         if: ${{ steps.refresh.outcome == 'success' }}
         shell: bash
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
           import { createHash } from 'node:crypto'
           import { lstatSync, readFileSync, writeFileSync } from 'node:fs'
           import { join } from 'node:path'
           const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), 'utf8'))
-          const counts = { 'child-async': 6, web3: 5, 'self-pins': 39, 'compaction-pressure': 1, 'sdk-diagnostic': 5 }
-          if (state.allowed.length !== counts[state.group]) throw new Error('Unexpected output inventory')
-          const outputs = Object.fromEntries(state.allowed.map(path => {
+          const frozen = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-phase-freezes.json'), 'utf8'))
+          assert.deepEqual(frozen.phases.map(phase => phase.id), state.spec.phases.map(phase => phase.id))
+          assert.deepEqual(Object.keys(frozen.outputs).sort(), [...state.spec.allowedOutputs].sort())
+          for (const [path, expected] of Object.entries(frozen.outputs)) {
             const stat = lstatSync(path)
-            if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 10 * 1024 * 1024) throw new Error(`Invalid output: ${path}`)
-            return [path, createHash('sha256').update(readFileSync(path)).digest('hex')]
-          }))
-          writeFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-refreshed.json'), JSON.stringify(outputs, null, 2) + '\n')
+            assert.ok(stat.isFile() && !stat.isSymbolicLink() && stat.size <= 10 * 1024 * 1024)
+            assert.equal(createHash('sha256').update(readFileSync(path)).digest('hex'), expected)
+          }
+          writeFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-refreshed.json'), JSON.stringify(frozen.outputs, null, 2) + '\n')
           NODE
 
-      - name: Replay all approved tests without refresh
+      - name: Replay the approved cohort without refresh
         id: replay
         if: ${{ !cancelled() && steps.baseline.outcome == 'success' }}
         env:
           DSH_SNAPSHOT: replay
+        shell: bash
         run: |
+          set -euo pipefail
+          config=$(node --input-type=module -e 'import{readFileSync}from"node:fs";import{join}from"node:path";console.log(JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,"muse-linux-snapshot-inputs.json"),"utf8")).spec.config)')
+          suites_text=$(node --input-type=module -e 'import{readFileSync}from"node:fs";import{join}from"node:path";console.log(JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,"muse-linux-snapshot-inputs.json"),"utf8")).spec.suites.join("\n"))')
+          mapfile -t suites <<< "$suites_text"
+          filter=$(node --input-type=module -e 'import{readFileSync}from"node:fs";import{join}from"node:path";console.log(JSON.parse(readFileSync(join(process.env.RUNNER_TEMP,"muse-linux-snapshot-inputs.json"),"utf8")).spec.replay.filter)')
           capture_exit_code=0
-          mapfile -t suites <<< "$SNAPSHOT_CAPTURE_SUITE"
-          pnpm exec vitest run --config "$SNAPSHOT_CAPTURE_CONFIG" \
-            "${suites[@]}" \
-            --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/replay-report.json" \
-            -t "$SNAPSHOT_CAPTURE_FILTER" || capture_exit_code=$?
+          pnpm exec vitest run --config "$config" "${suites[@]}" \
+            --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/replay-report.json" -t "$filter" || capture_exit_code=$?
           echo "exit_code=$capture_exit_code" >> "$GITHUB_OUTPUT"
           exit "$capture_exit_code"
 
-      - name: Verify protected inputs and collect only owned outputs
+      - name: Verify all protected inputs and collect only approved outputs
         if: ${{ !cancelled() && steps.baseline.outcome == 'success' }}
         env:
           REFRESH_OUTCOME: ${{ steps.refresh.outcome }}
@@ -423,7 +297,7 @@ jobs:
           import { dirname, join } from 'node:path'
           import { execFileSync } from 'node:child_process'
           const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), 'utf8'))
-          const directory = join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-capture')
+          const spec = state.spec, directory = join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-capture')
           mkdirSync(directory)
           const inventory = directory => {
             const stat = lstatSync(directory)
@@ -433,97 +307,66 @@ jobs:
               return entry.isDirectory() && !entry.isSymbolicLink() ? inventory(path) : [path]
             }).sort()
           }
-          const protectedPaths = [...new Set([
-            ...state.inventoryDirectories.flatMap(inventory).filter(path => !state.allowed.includes(path)), ...state.extraInputs,
-          ])].sort()
+          const protectedPaths = [...new Set([...spec.inventoryDirectories.flatMap(inventory)
+            .filter(path => !spec.allowedOutputs.includes(path)), ...spec.extraInputs])].sort()
           const sha256 = path => createHash('sha256').update(readFileSync(path)).digest('hex')
           const identity = path => {
             if (!existsSync(path)) return null
             const stat = lstatSync(path)
-            if (stat.isSymbolicLink()) {
-              return { kind: 'symlink', target: readlinkSync(path), resolved: realpathSync(path),
-                sha256: statSync(path).isFile() ? sha256(path) : null }
-            }
+            if (stat.isSymbolicLink()) return { kind: 'symlink', target: readlinkSync(path), resolved: realpathSync(path), sha256: statSync(path).isFile() ? sha256(path) : null }
             return stat.isFile() ? { kind: 'file', sha256: sha256(path) } : { kind: 'unexpected' }
           }
           const after = Object.fromEntries(protectedPaths.map(path => [path, identity(path)]))
-          const differences = (before, after) => [...new Set([...Object.keys(before), ...Object.keys(after)])]
-            .filter(path => JSON.stringify(before[path]) !== JSON.stringify(after[path]))
+          const differences = (a, b) => [...new Set([...Object.keys(a), ...Object.keys(b)])].filter(path => JSON.stringify(a[path]) !== JSON.stringify(b[path]))
           const inputDifferences = differences(state.identities, after)
-          const allowed = state.allowed
-          const expectedByGroup = {
-            'child-async': { tests: 2, owners: 2, outputs: 6, canonical: 11, manifests: 3 },
-            web3: { tests: 5, owners: 3, outputs: 5, canonical: 10, manifests: 6 },
-            'self-pins': { tests: 13, owners: 13, outputs: 39, canonical: 13, manifests: 13 },
-            'compaction-pressure': { tests: 1, owners: 1, outputs: 1, canonical: 5, manifests: 2 },
-            'sdk-diagnostic': { tests: 1, owners: 1, outputs: 5, canonical: 3, manifests: 1 },
-          }
-          const counts = expectedByGroup[state.group]
-          if (counts === undefined || state.expectedTests !== counts.tests || state.owners.length !== counts.owners
-            || allowed.length !== counts.outputs || state.canonicalPaths.length !== counts.canonical
-            || state.manifestPaths.length !== counts.manifests) throw new Error('Unexpected capture inventory')
           const gitPaths = args => execFileSync('git', args, { encoding: 'utf8' }).split('\0').filter(Boolean)
-          const changed = [...new Set([...gitPaths(['diff', '--name-only', '-z']),
-            ...gitPaths(['ls-files', '--others', '--exclude-standard', '-z'])])].sort()
-          const unexpectedChanges = changed.filter(path => !allowed.includes(path))
-          const invalidOutputs = allowed.filter(path => {
-            if (!existsSync(path)) return true
-            const stat = lstatSync(path)
-            return !stat.isFile() || stat.isSymbolicLink() || stat.size > 10 * 1024 * 1024
-          })
+          const changed = [...new Set([...gitPaths(['diff', '--name-only', '-z', 'HEAD']), ...gitPaths(['ls-files', '--others', '--exclude-standard', '-z'])])].sort()
+          const unexpectedChanges = changed.filter(path => !spec.allowedOutputs.includes(path))
+          const invalidOutputs = spec.allowedOutputs.filter(path => !existsSync(path) || !lstatSync(path).isFile()
+            || lstatSync(path).isSymbolicLink() || lstatSync(path).size > 10 * 1024 * 1024)
           const frozenPath = join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-refreshed.json')
           const frozen = existsSync(frozenPath) ? JSON.parse(readFileSync(frozenPath, 'utf8')) : {}
-          const outputHashes = Object.fromEntries(allowed.map(path => [path,
-            existsSync(path) && lstatSync(path).isFile() && !lstatSync(path).isSymbolicLink() ? sha256(path) : null]))
+          const outputHashes = Object.fromEntries(spec.allowedOutputs.map(path => [path, invalidOutputs.includes(path) ? null : sha256(path)]))
           const replayOutputDifferences = differences(frozen, outputHashes)
-          const summarize = file => {
-            if (!existsSync(file)) return null
-            const report = JSON.parse(readFileSync(file, 'utf8'))
-            return { passed: report.numPassedTests, failed: report.numFailedTests,
-              passedNames: report.testResults.flatMap(result => result.assertionResults)
-                .filter(test => test.status === 'passed').map(test => test.fullName),
-              failures: report.testResults.flatMap(result => result.assertionResults)
-                .filter(test => test.status === 'failed').map(test => ({ name: test.fullName,
-                  messages: (test.failureMessages ?? []).map(message => message.slice(0, 16_384)) })) }
+          const summarize = path => {
+            if (!existsSync(path)) return null
+            const report = JSON.parse(readFileSync(path, 'utf8'))
+            const tests = report.testResults.flatMap(result => result.assertionResults)
+            return { passed: report.numPassedTests, failed: report.numFailedTests, failedSuites: report.numFailedTestSuites,
+              passedNames: tests.filter(test => test.status === 'passed').map(test => test.fullName),
+              failures: tests.filter(test => test.status === 'failed').map(test => ({ name: test.fullName,
+                messages: (test.failureMessages ?? []).map(message => message.slice(0, 16_384)) })),
+              suiteFailures: report.testResults.filter(result => result.status === 'failed').map(result => ({ name: result.name, message: (result.message ?? '').slice(0, 16_384) })) }
           }
-          const reports = {
-            refresh: state.refreshPlans.map(plan => ({ label: plan.label,
-              result: summarize(join(process.env.RUNNER_TEMP, `${plan.label}-refresh-report.json`)) })),
-            replay: summarize(join(process.env.RUNNER_TEMP, 'replay-report.json')),
-          }
-          const refreshPassed = reports.refresh.every(({ label, result }) => {
-            const plan = state.refreshPlans.find(plan => plan.label === label)
-            return result?.passed === plan.expectedTests && result.failed === 0 && result.passedNames.length === plan.expectedTests
-              && plan.passedSuffixes.every(suffix => result.passedNames.filter(name => name.endsWith(suffix)).length === 1)
-          })
-          const replayPassed = reports.replay?.passed === state.expectedTests && reports.replay.failed === 0
-            && reports.replay.passedNames.length === state.expectedTests
-            && state.passedSuffixes.every(suffix => reports.replay.passedNames.filter(name => name.endsWith(suffix)).length === 1)
-          const verificationPassed = inputDifferences.length === 0 && unexpectedChanges.length === 0
-            && invalidOutputs.length === 0 && replayOutputDifferences.length === 0
+          const matches = (result, suffixes) => result?.passed === suffixes.length && result.failed === 0 && result.failedSuites === 0
+            && result.passedNames.length === suffixes.length
+            && suffixes.every(suffix => result.passedNames.filter(name => name.endsWith(suffix)).length === 1)
+          const reports = { refresh: spec.phases.map(phase => ({ id: phase.id, result: summarize(join(process.env.RUNNER_TEMP, `${phase.id}-refresh-report.json`)) })),
+            replay: summarize(join(process.env.RUNNER_TEMP, 'replay-report.json')) }
+          const phasePath = join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-phase-freezes.json')
+          const phaseFreezes = existsSync(phasePath) ? JSON.parse(readFileSync(phasePath, 'utf8')) : { outputs: {}, phases: [] }
+          const phasesComplete = JSON.stringify(phaseFreezes.phases.map(phase => phase.id)) === JSON.stringify(spec.phases.map(phase => phase.id))
+          const verificationPassed = inputDifferences.length === 0 && unexpectedChanges.length === 0 && invalidOutputs.length === 0
+            && replayOutputDifferences.length === 0 && phasesComplete
             && process.env.REFRESH_OUTCOME === 'success' && process.env.REPLAY_OUTCOME === 'success'
-            && process.env.REFRESH_EXIT_CODE === '0' && process.env.REPLAY_EXIT_CODE === '0' && refreshPassed && replayPassed
+            && process.env.REFRESH_EXIT_CODE === '0' && process.env.REPLAY_EXIT_CODE === '0'
+            && reports.refresh.every((report, index) => matches(report.result, spec.phases[index].passedSuffixes))
+            && matches(reports.replay, spec.replay.passedSuffixes)
           const outputs = []
-          if (verificationPassed) {
-            for (const path of allowed) {
-              const stat = lstatSync(path)
-              const destination = join(directory, path)
-              mkdirSync(dirname(destination), { recursive: true })
-              copyFileSync(path, destination)
-              outputs.push({ path, bytes: stat.size, sha256: sha256(path) })
-            }
+          if (verificationPassed) for (const path of spec.allowedOutputs) {
+            const destination = join(directory, path)
+            mkdirSync(dirname(destination), { recursive: true }); copyFileSync(path, destination)
+            outputs.push({ path, bytes: lstatSync(path).size, sha256: sha256(path) })
           }
           writeFileSync(join(directory, 'evidence.json'), JSON.stringify({
-            head: state.head, group: state.group, platform: process.platform, arch: process.arch, node: process.version,
-            owners: state.owners, config: process.env.SNAPSHOT_CAPTURE_CONFIG,
-            suites: process.env.SNAPSHOT_CAPTURE_SUITE.split('\n'), filter: process.env.SNAPSHOT_CAPTURE_FILTER,
-            refreshPlans: state.refreshPlans, sandboxProbe: state.sandboxProbe,
+            head: state.head, group: spec.id, platform: process.platform, arch: process.arch, node: process.version,
+            owners: spec.owners.map(owner => owner.name), config: spec.config, suites: spec.suites,
+            refreshPhases: spec.phases, replayFilter: spec.replay.filter, expectedTests: spec.expectedTests,
             refreshOutcome: process.env.REFRESH_OUTCOME, replayOutcome: process.env.REPLAY_OUTCOME,
             refreshExitCode: process.env.REFRESH_EXIT_CODE, replayExitCode: process.env.REPLAY_EXIT_CODE,
-            command: 'pnpm exec vitest run --config <config> <approved suites> -t <exact test filter>',
-            canonicalPaths: state.canonicalPaths, manifestPaths: state.manifestPaths,
-            inputsBefore: state.identities, inputsAfter: after, inputDifferences,
-            frozenOutputHashes: frozen, outputHashes, replayOutputDifferences,
+            sandboxProbe: state.sandboxProbe, canonicalPaths: spec.expectedCanonicalPaths,
+            manifestPaths: Object.keys(spec.expectedManifests), inputsBefore: state.identities, inputsAfter: after, inputDifferences,
+            phaseFreezes, frozenOutputHashes: frozen, outputHashes, replayOutputDifferences,
             changed, unexpectedChanges, invalidOutputs, reports, verificationPassed, outputs,
           }, null, 2) + '\n')
           if (!verificationPassed) throw new Error('Capture failed verification; only diagnostic evidence was retained')

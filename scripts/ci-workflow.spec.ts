@@ -295,15 +295,21 @@ describe('CI workflow', () => {
     const job = workflowJob(loadWorkflow('.github/workflows/linux-snapshot-capture.yml'), 'capture')
     if (!Array.isArray(job.steps)) throw new TypeError('Snapshot capture job must define steps')
     const steps = job.steps.filter(isRecord)
-    const preparation = steps.findIndex(step => step.run === 'bash scripts/prepare-ci-bubblewrap.sh')
-    const refresh = steps.findIndex(step => step.name === 'Refresh only the ordered approved owners')
-    const replay = steps.findIndex(step => step.name === 'Replay all approved tests without refresh')
+    const preparation = steps.findIndex(step => step.name === 'Build and verify the supported Landlock backend')
+    const refresh = steps.findIndex(step => step.name === 'Refresh approved phases and freeze each completed pin')
+    const replay = steps.findIndex(step => step.name === 'Replay the approved cohort without refresh')
     expect(preparation).toBeGreaterThanOrEqual(0)
     expect(refresh).toBeGreaterThan(preparation)
     expect(replay).toBeGreaterThan(preparation)
-    expect(steps[preparation]).toEqual({
-      name: 'Prepare bubblewrap (unrestrict userns)', run: 'bash scripts/prepare-ci-bubblewrap.sh',
-    })
+    const backend = steps[preparation]
+    if (backend === undefined || typeof backend.run !== 'string') throw new TypeError('Confinement preparation must run its functional probe')
+    expect(backend).not.toHaveProperty('if')
+    expect(backend).not.toHaveProperty('continue-on-error')
+    expect(backend.run).toContain('run build:native')
+    expect(backend.run).toContain("assert.notEqual(enforcement, 'unusable'")
+    expect(backend.run).toContain('grantArgs({ readOnly:')
+    expect(backend.run).toContain("assert.throws(() => writeFileSync(process.argv[2], 'UNEXPECTED_OUTSIDE_WRITE')")
+    expect(backend.run).not.toContain('sysctl')
   })
 
   it.each(['ci.yml', 'ci-master.yml', 'e2e.yml', 'release.yml', 'release-vendor.yml'])(
