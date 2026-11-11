@@ -3,7 +3,7 @@ import Sessions, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import Projections from '@deepseek-ai/dsh-session-projection'
 import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime, { defineTool } from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { defineTool, TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { expect, it, onTestFinished } from 'vitest'
 import { installSourceQaState, sourceQaStateOf } from '../src/source-qa-state.ts'
@@ -35,4 +35,32 @@ it.each(['content', 'value'] as const)('records only the true body after post-ex
   expect(sourceQaStateOf(read, session).ocr).toEqual({ 'A-ocr.json': { path: 'A.mp4', source_version: 'A', sha256: 'a'.repeat(64) } })
   const restored = Session.create(session.id, session.snapshotEvents(), session.header)
   expect(sourceQaStateOf(read, restored).ocr).toEqual(sourceQaStateOf(read, session).ocr)
+})
+
+it('keeps ignored event state stable and clears failed OCR without issuing its supplied evidence', async () => {
+  const ctx = new Context()
+  onTestFinished(() => ctx.fiber.dispose())
+  await ctx.plugin(Sessions)
+  await ctx.plugin(Projections)
+  const read = await installSourceQaState(ctx)
+  const session = ctx.sessions.create(SessionId('source-qa-failed-result'))
+  const before = read(session)
+  const unrelated = ToolCallId('unrelated-call')
+  session.append('tool/call', { turn: 1, step: 1, callId: unrelated, name: 'present', arguments: '{}' })
+  session.append('tool/result', { turn: 1, step: 1, message: createToolResultMessage({ callId: unrelated,
+    content: [{ type: 'text', text: 'unrelated result' }], isError: false }) }, { surfaceOp: 'append' })
+  expect(read(session)).toBe(before)
+  expect(sourceQaStateOf(read, session)).toBe(before.issuance)
+  const callId = ToolCallId('failed-ocr')
+  session.append('tool/call', { turn: 1, step: 1, callId, name: 'video_ocr', arguments: '{}' })
+  const pending = read(session)
+  expect(pending).not.toBe(before)
+  expect(pending.issuance.native).toEqual({ [callId]: 'video_ocr' })
+  session.append('tool/result', { turn: 1, step: 1, meta: { [TOOL_BODY_META_KEY]: {
+    path: 'source.mp4', source_version: 'source-version', raw_json_path: 'untrusted-ocr.json', raw_json_sha256: 'a'.repeat(64),
+  } }, message: createToolResultMessage({ callId, content: [{ type: 'text', text: 'OCR failed' }], isError: true }) }, { surfaceOp: 'append' })
+  expect(read(session)).not.toBe(pending)
+  expect(sourceQaStateOf(read, session)).toEqual(before.issuance)
+  expect(before.issuance.native).toEqual({})
+  expect(pending.issuance.native).toEqual({ [callId]: 'video_ocr' })
 })
