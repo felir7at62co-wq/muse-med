@@ -1,7 +1,39 @@
 /** Candidate metadata must retain the exact native installer and recorded build identity. */
 import { createHash } from 'node:crypto'
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { runInNewContext } from 'node:vm'
+import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
 import { candidateUpdateSpec } from '../scripts/muse-candidate-update-acceptance.ts'
+
+function retryFixture(state: Record<string, unknown>) {
+  const source = readFileSync(new URL('./fixtures/muse-candidate-update.mjs', import.meta.url), 'utf8')
+  const file = ts.createSourceFile('muse-candidate-update.mjs', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
+  let diagnostic: ts.FunctionDeclaration | undefined
+  let retry: ts.VariableStatement | undefined
+  const visit = (node: ts.Node): void => {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === 'updateStateDiagnostic') diagnostic = node
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === 'retried'
+      && ts.isVariableStatement(node.parent.parent)) retry = node.parent.parent
+    ts.forEachChild(node, visit)
+  }
+  visit(file)
+  if (diagnostic === undefined || retry === undefined || !ts.isBlock(retry.parent)) {
+    throw new Error('Expected the real candidate retry diagnostic before its readiness assertion')
+  }
+  const start = retry.parent.statements.indexOf(retry)
+  const statements = retry.parent.statements.slice(start, start + 4).map(node => node.getText(file)).join('\n')
+  const report: Record<string, unknown> = {}
+  const persisted: unknown[] = []
+  const downloads: unknown[] = []
+  const run = () => runInNewContext(`(async () => { ${diagnostic.getText(file)}\n${statements} })()`, {
+    root: 'private-fixture-root', report, spec: { version: '1.2.8' }, assert,
+    recovery: { coordinator: { download: async (version: string) => { downloads.push(version); return state } } },
+    persist: async () => { persisted.push(structuredClone(report)) },
+  }) as Promise<void>
+  return { run, report, persisted, downloads }
+}
 
 function fixture(target: 'mac-arm64' | 'win-x64' = 'mac-arm64') {
   const options = { target, version: '1.2.4', fromVersion: '1.2.3', sourceCommit: 'a'.repeat(40) }
@@ -21,6 +53,35 @@ function fixture(target: 'mac-arm64' | 'win-x64' = 'mac-arm64') {
 }
 
 describe('real candidate update inputs', () => {
+  it('persists the actual retry failure before retaining the readiness assertion', async () => {
+    const f = retryFixture({ phase: 'error', message: 'signature seal mismatch', preparationFailure: 'signature_invalid',
+      url: 'https://private.invalid/', unexpected: 'not part of the report' })
+    await expect(f.run()).rejects.toMatchObject({ code: 'ERR_ASSERTION', actual: 'error', expected: 'ready' })
+    const expected = { explicitRetry: { phase: 'error', message: 'signature seal mismatch', preparationFailure: 'signature_invalid' } }
+    expect(f.report).toEqual(expected)
+    expect(f.persisted).toEqual([expected])
+    expect(f.downloads).toEqual(['1.2.8'])
+  })
+
+  it('bounds and redacts private retry details without serializing arbitrary state', async () => {
+    const f = retryFixture({ phase: 'error', message: `private-fixture-root/cache Bearer synthetic-secret https://private.invalid/?token=secret ${'x'.repeat(5000)}`,
+      preparationFailure: 'package_invalid', technicalDetails: { token: 'not for this report' } })
+    await expect(f.run()).rejects.toMatchObject({ actual: 'error', expected: 'ready' })
+    const diagnostic = f.report.explicitRetry as { message: string }
+    expect(diagnostic.message).toHaveLength(4096)
+    expect(diagnostic.message).toContain('[private-root]/cache Bearer [redacted] [url]')
+    expect(diagnostic.message).not.toMatch(/synthetic-secret|private\.invalid|token=|private-fixture-root/u)
+    expect(Object.keys(diagnostic).sort()).toEqual(['message', 'phase', 'preparationFailure'])
+  })
+
+  it('records a ready retry without error-only fields or another download', async () => {
+    const f = retryFixture({ phase: 'ready', version: '1.2.8', message: 'stale failure must not be copied' })
+    await f.run()
+    expect(f.report).toEqual({ explicitRetry: { phase: 'ready' } })
+    expect(f.persisted).toEqual([{ explicitRetry: { phase: 'ready' } }])
+    expect(f.downloads).toEqual(['1.2.8'])
+  })
+
   it.each(['mac-arm64', 'win-x64'] as const)('selects the genuine %s installer and preserves source metadata', (target) => {
     const f = fixture(target)
     const before = structuredClone(f.metadata)
