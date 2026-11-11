@@ -129,6 +129,8 @@ SectionEnd
   const compiler = await getMakeNsisPath()
   await execute(compiler.path, ['/V2', payloadSource], { ...childOptions, env: { ...childOptions.env, ...compiler.env } })
   if (sign) await sign({ path: join(payload, `${productName}.exe`), hash: 'sha256', isNest: false })
+  const fixtureSource = createInstallerTestSource(await readFile(join(appRoot, 'scripts', 'installer.nsh'), 'utf8'), appRoot)
+  const fixturePages = createInstallerTestPagesSource(await readFile(join(appRoot, 'installer', 'pages.nsh'), 'utf8'))
   for (const locale of readInstallerLocales()) {
     const language = locale.id
     const config = createElectronBuilderConfig()

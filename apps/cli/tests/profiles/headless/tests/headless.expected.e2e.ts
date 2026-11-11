@@ -1010,15 +1010,16 @@ describe('headless stream-json snapshots', () => {
 
       expect(result.stderr).toBe('')
       expect(parseJsonl(result.stdout).at(-1)).toMatchObject({ type: 'result', output: 'DONE' })
+      expect(server.requests).toHaveLength(3)
+      for (const request of server.requests) {
+        expect(JSON.stringify(request.messages)).toContain('read task.txt and follow it')
+      }
       expect(server.requests.map(piAiTranscript)).toMatchInlineSnapshot(`
         [
           {
             "messages": [
               {
                 "role": "system",
-              },
-              {
-                "role": "user",
               },
               {
                 "role": "user",
@@ -1030,9 +1031,6 @@ describe('headless stream-json snapshots', () => {
             "messages": [
               {
                 "role": "system",
-              },
-              {
-                "role": "user",
               },
               {
                 "role": "user",
@@ -1060,9 +1058,6 @@ describe('headless stream-json snapshots', () => {
             "messages": [
               {
                 "role": "system",
-              },
-              {
-                "role": "user",
               },
               {
                 "role": "user",

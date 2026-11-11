@@ -269,7 +269,8 @@ it.each(['removed', 'foreign identity'] as const)('observes a receipt %s between
   } finally { spy.mockRestore() }
 })
 
-it('propagates a completed-output lstat error without treating it as a missing file', async () => {
+// Windows reports ENOENT for this self-referential link; POSIX supplies ELOOP.
+it.skipIf(process.platform === 'win32')('propagates a completed-output lstat error without treating it as a missing file', async () => {
   const f = await completed(), exports = join(f.project, 'exports'), retained = exports + '.retained'
   await rename(exports, retained); await symlink('exports', exports)
   try {
@@ -277,6 +278,20 @@ it('propagates a completed-output lstat error without treating it as a missing f
     expect(await readFile(join(retained, f.outputPath.slice(exports.length + 1)))).toEqual(f.outputBytes)
     expect(f.renderer.calls).toBe(1); expect(f.renderer.encodes).toBe(1)
   } finally { await unlink(exports); await rename(retained, exports) }
+  await f.preserved()
+})
+
+it('propagates an injected completed-output IO failure on every platform', async () => {
+  const f = await completed(), lstat = files.lstat
+  const failure = Object.assign(new Error('Output inspection failed'), { code: 'EIO' })
+  const spy = vi.spyOn(files, 'lstat').mockImplementation(async (...args) => {
+    if (args[0] === f.outputPath) throw failure
+    return lstat(...args)
+  })
+  try {
+    await expect(f.service.episodeStatus(f.input)).rejects.toBe(failure)
+    expect(f.renderer.calls).toBe(1); expect(f.renderer.encodes).toBe(1)
+  } finally { spy.mockRestore() }
   await f.preserved()
 })
 

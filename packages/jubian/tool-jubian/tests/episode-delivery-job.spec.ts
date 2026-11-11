@@ -227,7 +227,9 @@ it('observes bounded state JSON and rejects missing-parent errors, malformed JSO
   const f = await fixture(), path = join(f.root, 'state.json')
   expect(await readEpisodeStateSnapshot(path, 4)).toBeUndefined()
   await writeFile(path, '{}'); expect(await readEpisodeStateSnapshot(path, 2)).toEqual({})
-  await expect(readEpisodeStateSnapshot(join(path, 'nested.json'), 4)).rejects.toThrow()
+  // Windows reports ENOENT for a path below a regular file; POSIX reports ENOTDIR.
+  if (process.platform === 'win32') await expect(readEpisodeStateSnapshot(join(path, 'nested.json'), 4)).resolves.toBeUndefined()
+  else await expect(readEpisodeStateSnapshot(join(path, 'nested.json'), 4)).rejects.toThrow()
   await writeFile(path, '{'); await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow(SyntaxError)
   await writeFile(path, '12345'); await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow('bounded regular file')
   await expect(readEpisodeStateSnapshot(f.root, 4)).rejects.toThrow('bounded regular file')
@@ -249,6 +251,23 @@ it('retains the complete opened state when its path is atomically replaced', asy
     expect(await readEpisodeStateSnapshot(path, 128)).toEqual({ state: 'running' })
     expect(JSON.parse(await readFile(path, 'utf8'))).toEqual({ state: 'completed' })
   } finally { spy.mockRestore() }
+})
+
+it.each(['EACCES', 'ENOTDIR'])('propagates %s from both journal readers on every platform', async (code) => {
+  const f = await fixture(), path = join(f.root, 'unreadable.json'), lstat = files.lstat, open = files.open
+  const failure = Object.assign(new Error('Journal inspection failed'), { code })
+  const spy = vi.spyOn(files, 'lstat').mockImplementation(async (...args) => {
+    if (args[0] === path) throw failure
+    return lstat(...args)
+  })
+  const opening = vi.spyOn(files, 'open').mockImplementation(async (...args) => {
+    if (args[0] === path) throw failure
+    return open(...args)
+  })
+  try {
+    await expect(readEpisodeRecord(path, 4)).rejects.toBe(failure)
+    await expect(readEpisodeStateSnapshot(path, 4)).rejects.toBe(failure)
+  } finally { opening.mockRestore(); spy.mockRestore() }
 })
 
 it.each(['growth before reading', 'size change after reading', 'same-size modification after reading'] as const)(
@@ -422,7 +441,9 @@ it('refuses unowned running records and orphan historical drain evidence', async
 
 it('propagates real journal and candidate path errors instead of interpreting them as absence', async () => {
   const f = await fixture(); await f.job.admit(f.admission)
-  await expect(readEpisodeRecord(join(f.input, 'nested.json'), 16384)).rejects.toThrow()
+  // Keep the native error distinction instead of requiring POSIX ENOTDIR on Windows.
+  if (process.platform === 'win32') await expect(readEpisodeRecord(join(f.input, 'nested.json'), 16384)).resolves.toBeUndefined()
+  else await expect(readEpisodeRecord(join(f.input, 'nested.json'), 16384)).rejects.toThrow()
   const execution = await f.execution(), stage = dirname(execution.candidatePath)
   await rm(stage, { recursive: true }); await writeFile(stage, 'not a directory')
   await expect(f.job.assertAdmission(execution.identity)).rejects.toThrow()
