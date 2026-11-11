@@ -24,8 +24,9 @@ import { bundle, limits, manifest, metadata, resources } from './fixtures.ts'
 
 let host: TypertContribution, remote: TypertRemoteInfo
 beforeAll(async () => {
+  // The Host build owns TypeScript diagnostics; this owner validates the source-generated wire codecs.
   const [face] = new WorkspaceAnalyzer({ root: resolve(import.meta.dirname, '../../../..'),
-    packages: ['@deepseek-ai/dsh-muse-market'], faces: ['host'], rejectBuildOutputs: true }).analyze().faces
+    packages: ['@deepseek-ai/dsh-muse-market'], faces: ['host'], checkDiagnostics: false, rejectBuildOutputs: true }).analyze().faces
   if (face === undefined) throw new Error('Missing market Host program')
   const artifact = new FaceModelEmitter(face).emit('@deepseek-ai/dsh-muse-market')
   if (artifact?.remote === undefined) throw new Error('Missing source-generated market Remote')
