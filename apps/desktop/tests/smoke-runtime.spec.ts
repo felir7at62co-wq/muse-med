@@ -2,6 +2,8 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync,
 import { join, dirname, relative, isAbsolute } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runInNewContext } from 'node:vm'
+import { getCallSites } from 'node:util'
+import { pathToFileURL } from 'node:url'
 import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { ToolBatchInput, ToolBatchResult, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -292,12 +294,13 @@ function fixture(packaged = false) {
     }
   }
   // Execute exactly the emitted plugin body; fixture services never impersonate a real prepared-runtime smoke.
+  const collectCallSites = vi.fn((frames: number, options: { sourceMap: boolean }) => getCallSites(frames, options))
   const source = desktopSmokePluginSource(root, home)
   expect(source).toMatch(/export const inject = \[[^\]]*'credentials'/u)
   const body = source.replace(/^import .*$/gmu, '').replace(/^export /gmu, '')
   const register = runInNewContext(`${body}\napply`, {
     Context: TestContext, ToolCallId, createToolResultMessage, AbortSignal, existsSync, realpathSync, writeFileSync,
-    join, relative, isAbsolute, process: { platform: process.platform },
+    join, relative, isAbsolute, getCallSites: collectCallSites, process: { platform: process.platform },
   }) as (ctx: TestContext) => void
   let responseText = ''
   const request = async () => {
@@ -312,7 +315,7 @@ function fixture(packaged = false) {
   const apply = async (ctx: TestContext) => { register(ctx); await request() }
   return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names,
     sourceCapabilityNames, editingCapabilityNames, selected, skills, creationSkills, cordisSkill, skillRoot, layout, home, root,
-    agentFiber, ownerFiber, emitLifecycle, observerDisposers, lifecycleListeners, responseText: () => responseText }
+    agentFiber, ownerFiber, emitLifecycle, observerDisposers, lifecycleListeners, collectCallSites, responseText: () => responseText }
 }
 
 it('defers preset checks until the Host-ready caller requests them', async () => {
@@ -511,6 +514,79 @@ it('bounds lifecycle observations and isolates observer failures without changin
   expect(f.dispose).toHaveBeenCalledTimes(14)
   for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
   for (const listeners of f.lifecycleListeners.values()) expect(listeners.size).toBe(0)
+})
+
+it('retains a disposal initiator beyond the default Error stack without changing global stack settings', async () => {
+  const f = fixture(), stackLimit = Error.stackTraceLimit, prepareStack = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace')
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    function descend(depth: number): void {
+      if (depth > 0) { descend(depth - 1); return }
+      f.agentFiber.uid = null
+      f.emitLifecycle('internal/plugin', f.agentFiber)
+    }
+    function smokeDisposalInitiator(): void { descend(24) }
+    smokeDisposalInitiator()
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { event: string; disposalCallSites?: { fn: string; file: string; line: number; column: number }[] }[]
+  }
+  const sites = diagnostic.records.find(record => record.event === 'internal/plugin' && record.disposalCallSites)?.disposalCallSites
+  expect(sites?.length).toBeGreaterThan(10)
+  expect(sites?.length).toBeLessThanOrEqual(48)
+  expect(sites?.findIndex(site => site.fn === 'smokeDisposalInitiator')).toBeGreaterThan(10)
+  expect(f.collectCallSites).toHaveBeenCalledExactlyOnceWith(48, { sourceMap: false })
+  expect(Error.stackTraceLimit).toBe(stackLimit)
+  expect(Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace')).toEqual(prepareStack)
+  for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
+})
+
+it('abbreviates disposal frame roots and bounds each function and script name', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.collectCallSites.mockReturnValueOnce([
+    { functionName: 'f'.repeat(200), scriptName: pathToFileURL(join(f.root, 'r'.repeat(400))).href,
+      lineNumber: 17, columnNumber: 23, scriptId: '1' },
+    { functionName: 'homeFrame', scriptName: pathToFileURL(join(f.home, 'plugin.js')).href,
+      lineNumber: 31, columnNumber: 7, scriptId: '2' },
+  ])
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    f.agentFiber.uid = null
+    f.emitLifecycle('internal/plugin', f.agentFiber)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { disposalCallSites?: { fn: string; file: string; line: number; column: number }[] }[]
+  }
+  const sites = diagnostic.records.find(record => record.disposalCallSites)?.disposalCallSites
+  expect(sites).toEqual([
+    { fn: 'f'.repeat(96), file: ('<runtime>/' + 'r'.repeat(400)).slice(0, 320), line: 17, column: 23 },
+    { fn: 'homeFrame', file: '<home>/plugin.js', line: 31, column: 7 },
+  ])
+})
+
+it('retains the disposal event when native call-site collection fails', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.collectCallSites.mockImplementationOnce(() => { throw new Error('call-site collection unavailable') })
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    f.agentFiber.uid = null
+    f.emitLifecycle('internal/plugin', f.agentFiber)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { event: string; fiber?: { uid: number | null }; disposalCallSites?: object[] }[]
+    observerErrors: { event: string; message: string }[]
+  }
+  expect(diagnostic.records.find(record => record.event === 'internal/plugin' && record.fiber?.uid === null))
+    .toMatchObject({ disposalCallSites: [] })
+  expect(diagnostic.observerErrors).toHaveLength(1)
+  expect(diagnostic.observerErrors[0]?.event).toBe('getCallSites')
+  expect(diagnostic.observerErrors[0]?.message).toContain('call-site collection unavailable')
+  expect(f.dispose).toHaveBeenCalledTimes(14)
+  for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
 })
 
 it('accepts product skills loaded from the installed ASAR unpack directory', async () => {

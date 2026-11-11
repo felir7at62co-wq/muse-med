@@ -79,6 +79,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { existsSync, realpathSync, writeFileSync } from 'node:fs'
 import { join, relative, isAbsolute } from 'node:path'
+import { getCallSites } from 'node:util'
 export const inject = ['agentPresets', 'agents', 'agentLoop', 'systemPrompt', 'tools', 'skills', 'credentials', 'webServer', 'museAccount', 'toolDiscovery']
 export function apply(ctx) {
   const callerFiber = ctx.fiber
@@ -126,6 +127,19 @@ export function apply(ctx) {
     if (observerErrors.length < 8) observerErrors.push({ event, ...location, message, renderingFailed })
     else droppedObserverErrors++
   }
+  const disposalCallSites = () => {
+    try {
+      const aliases = ${JSON.stringify([[pathToFileURL(home).href + '/', '<home>/'], [pathToFileURL(root).href + '/', '<runtime>/']])}
+      return getCallSites(48, { sourceMap: false }).map(frame => {
+        let file = frame.scriptName
+        for (const [prefix, alias] of aliases) {
+          if (file.startsWith(prefix)) { file = alias + file.slice(prefix.length); break }
+        }
+        return { fn: frame.functionName.slice(0, 96), file: file.slice(0, 320),
+          line: frame.lineNumber, column: frame.columnNumber }
+      })
+    } catch (error) { observerError('getCallSites', error); return [] }
+  }
   const appendRecord = record => {
     record.sequence = ++sequence
     if (firstRecords.length < 128) firstRecords.push(record)
@@ -157,6 +171,7 @@ export function apply(ctx) {
       const description = describeFiber(fiber)
       appendRecord({ event, ...location, fiber: description, oldState, owner: describeFiber(callerFiber),
         tracked: trackedState(false),
+        ...(event === 'internal/plugin' && description.uid === null ? { disposalCallSites: disposalCallSites() } : {}),
         ...(description.uid === null || event === 'internal/status'
           ? { stack: new Error('Desktop lifecycle ' + event).stack?.slice(0, 4096) } : {}) })
     } catch (error) { observerError(event, error) }
