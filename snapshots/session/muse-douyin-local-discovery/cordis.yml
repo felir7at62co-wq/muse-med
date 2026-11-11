@@ -1,0 +1,24 @@
+- id: llm-deepseek
+  config:
+    models:
+      - id: deepseek-v4-flash
+        toolUpdate: in-history
+
+- insert:
+    - id: discovery
+      name: '../../../apps/desktop/tests/fixtures/resident-discovery.mjs'
+    - id: agent-preset-registry
+      name: '@deepseek-ai/dsh-agent-preset-registry'
+      config:
+        default: short-drama
+    - id: product-preset
+      name: '../muse-editing-tool-catalog/editing-preset-fixture.mjs'
+      config:
+        presetId: short-drama
+        hidePlatformShellTools: true
+    - id: local-douyin-fixture
+      name: './fixture.mjs'
+
+# The headless case does not consume generated Typert endpoints.
+- id: typert-loader
+  disabled: true

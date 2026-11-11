@@ -275,6 +275,7 @@
           source_snapshot: [选材快照, 数据采集, 榜单观测, 快照对比, 导入旧数据]
           source_report: [选材日报, 选材报告, 数据报告, 指标缺失, 覆盖率]
           work_mapping: [作品关系, 作品映射, 同名作品, 同IP, 改编关系, 续作核验, 人工确认]
+          douyin_data: [抖音数据, 抖音作品数据, 抖音链接数据, 抖音播放量, 抖音点赞, 抖音评论数, 抖音互动数据]
           douyin_download: [抖音下载, 下载视频, 抖音后台下载, 下载队列]
           douyin_download_task: [抖音下载任务, 抖音下载进度, 抖音断点恢复, 恢复抖音下载, 取消抖音下载]
           screenplay_export_docx: [Word, docx, 导出剧本, 剧本文档]
@@ -312,7 +313,7 @@
             tools: [screenplay_export_docx, load_workspace_dependencies, jianying_draft, drama_draft_dir, drama_render, drama_bgm, bgm_match, jubian_media, jubian_organize]
           - id: data-sourcing
             title: 数据选材与下载
-            description: 采集红果与七猫公开数据，保存观测快照、比较指标、人工核验作品关系并生成选材报告，搜索和下载小说、剧目及视频素材。
+            description: 采集红果、七猫与抖音公开数据，保存观测快照、比较指标、人工核验作品关系并生成选材报告，搜索和下载小说、剧目及视频素材。
             tools: ['hongguo_*', 'douyin_*', 'fanqie_*', 'qimao_*', source_snapshot, source_report, work_mapping, lvpaopao, jubian_find, jubian_snatch, jubian_watch, jubian_claim]
           - id: knowledge
             title: 技能、MCP 与项目资料
