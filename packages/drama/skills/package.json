@@ -25,6 +25,8 @@
     "skills/jubian-snatch/scripts/snatcher/ledger.py",
     "skills/tweet-drama-asset-vision-check/SKILL.md",
     "skills/tweet-drama-asset-vision-check/agents/openai.yaml",
+    "skills/tweet-drama-asset-vision-check/references/character-delivery-layout.md",
+    "skills/tweet-drama-asset-vision-check/references/images/character-delivery-layout.png",
     "skills/tweet-drama-asset-vision-check/references/io-contract.md",
     "skills/tweet-drama-background-render/SKILL.md",
     "skills/tweet-drama-background-render/references/story-bgm-selection.md",

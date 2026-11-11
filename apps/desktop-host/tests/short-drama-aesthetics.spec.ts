@@ -90,6 +90,9 @@ it('keeps shot requirements resident and loads creative direction with skills', 
     expect(system).toContain('所有资产图默认16:9横版')
     expect(system).toContain('用户明确指定其他比例时按指定执行')
     expect(system).toContain('资产图比例与视频成片比例分别处理')
+    expect(system).toContain('人物资产生成与交付提醒：先查看 tweet-drama-asset-vision-check 的 references/character-delivery-layout.md 及配图')
+    expect(system).toContain('只参考交付版式，不参考五官或人物形象')
+    expect(system).toContain('配图默认只供看版式，不自动混入角色身份或画风参考')
     for (const requirement of ['人物角色资产图：16:9横版白底', '四个独立区域从左到右依次',
       '正脸胸像', '正面（0°）全身、严格侧面（90°）全身、背面（180°）全身',
       '肩部和上胸，不遮罩', '完整保留头部、发型和双脚', '纯白遮罩仅贴合右侧正面和侧面的脸部轮廓',

@@ -1,5 +1,6 @@
 """Offline creation-skill migration checks; no project or remote API access."""
 from pathlib import Path
+import hashlib
 import json
 import re
 import unittest
@@ -142,12 +143,19 @@ class CreationResourcesTests(unittest.TestCase):
         ):
             self.assertIn(requirement, text)
 
-    def test_only_maintenance_file_types_are_packaged(self):
+    def test_only_maintenance_files_and_the_selected_layout_image_are_packaged(self):
+        layout_image = "tweet-drama-asset-vision-check/references/images/character-delivery-layout.png"
         for name in NAMES:
             for path in (SKILLS / name).rglob("*"):
                 if path.is_file():
                     with self.subTest(path=path):
-                        self.assertIn(path.suffix, {".md", ".py", ".yaml"})
+                        if path.relative_to(SKILLS).as_posix() == layout_image:
+                            data = path.read_bytes()
+                            self.assertTrue(data.startswith(b"\x89PNG\r\n\x1a\n"))
+                            self.assertEqual(hashlib.sha256(data).hexdigest(),
+                                             "aae929911471f6fa7078d2dfea88a8ed0ee3a51577488c8ac6862c88222301fc")
+                        else:
+                            self.assertIn(path.suffix, {".md", ".py", ".yaml"})
                         self.assertNotIn("__pycache__", path.parts)
                         self.assertNotIn("_legacy", path.parts)
 
