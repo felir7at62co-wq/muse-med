@@ -445,10 +445,18 @@ describe('package payload constraints', () => {
   })
 
 
-  it('rejects undeclared reference pictures without widening skill publication', () => {
+  it('accepts the declared delivery reference while rejecting other reference pictures', () => {
     const dir = 'packages/drama/skills'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
-    for (const file of ['skills/anime-3d-assets/references/images/other.png', 'skills/tweet-drama-core/references/images/target-quality.png']) {
+    expect(manifest.files).toContain('skills/tweet-drama-asset-vision-check/references/images/character-delivery-layout.png')
+    expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
+    for (const file of [
+      'skills/anime-3d-assets/references/images/other.png',
+      'skills/tweet-drama-core/references/images/target-quality.png',
+      'skills/tweet-drama-asset-vision-check/references/images/other.png',
+      'skills/tweet-drama-asset-vision-check/references/character-delivery-layout.png',
+      'skills/tweet-drama-core/references/images/character-delivery-layout.png',
+    ]) {
       expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files: [...manifest.files!, file] } }))
         .toContainEqual(expect.stringContaining('resource package file must be a declared skill resource'))
     }

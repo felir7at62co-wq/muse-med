@@ -681,7 +681,8 @@ function checkDramaSkillsResourceManifest(manifest: PackageManifest): string[] {
       && ['references/images/female-quality-reference.png', 'references/images/male-quality-layout.png',
         'references/images/rejected-cartoon.png', 'references/images/rejected-flat-cg.png',
         'references/images/target-quality.png'].includes(resource)
-    if (match?.[1] === undefined || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference || windowsDraftBridge)) {
+    const deliveryLayoutReference = file === 'skills/tweet-drama-asset-vision-check/references/images/character-delivery-layout.png'
+    if (match?.[1] === undefined || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference || deliveryLayoutReference || windowsDraftBridge)) {
       errors.push(`${label}: resource package file must be a declared skill resource: ${file}`)
       continue
     }
