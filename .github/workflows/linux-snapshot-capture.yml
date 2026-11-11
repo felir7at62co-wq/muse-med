@@ -25,21 +25,24 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - group: editing
+          - group: child-async
+            config: vitest.snapshot.config.ts
             suite: snapshots/session/headless.snapshot.ts
-            filter: '(muse-editing-skill|muse-douyin-download-skill|muse-llm-wiki-skill|muse-project-participation-skill|muse-script-safety-skill|muse-transcript-to-novel-skill|muse-transcript-to-script-skill|muse-trope-adaptation-skill|muse-wechat-harvest-skill) through'
-          - group: selected
-            suite: snapshots/session/headless.snapshot.ts
-            filter: '(muse-selected-account-models|muse-account-excluded-provider|muse-account-excluded-yunying-models|muse-account-gemini-visible|muse-content-refusal|muse-direct-account-models|muse-direct-account-refusal) through'
-          - group: glm
-            suite: snapshots/session/headless.snapshot.ts
-            filter: '(muse-glm-tool-stream|muse-leased-glm-models|muse-model-admission-uncertain|muse-pooled-glm-models) through'
+            filter: ' (text-turn|subagent-child-question-rejection) through dsh --profile headless$'
+          - group: web3
+            config: vitest.web.config.ts
+            suite: |-
+              apps/web/tests/minimal-preset.snapshot.ts
+              apps/web/tests/code-language.snapshot.ts
+              apps/web/tests/workspace-file-drop.snapshot.ts
+            filter: '^(minimal agent preset|replays highlighted Python stubs, PowerShell and CSV reads with their document previews$|replays workspace file drag and touch menu references without uploading or sending the draft$)'
     env:
       DSH_TELEMETRY_DISABLED: '1'
       DSH_EXAMPLE_MODE: lib
       DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
       DSH_SNAPSHOT_MAX_WORKERS: '1'
       SNAPSHOT_CAPTURE_GROUP: ${{ matrix.group }}
+      SNAPSHOT_CAPTURE_CONFIG: ${{ matrix.config }}
       SNAPSHOT_CAPTURE_SUITE: ${{ matrix.suite }}
       SNAPSHOT_CAPTURE_FILTER: ${{ matrix.filter }}
       DEEPSEEK_API_KEY: ''
@@ -60,6 +63,10 @@ jobs:
       - name: Install immutable dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Chromium for the approved Web owners
+        if: ${{ matrix.group == 'web3' }}
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
+
       - name: Build the same libraries used by normal replay
         id: build
         run: pnpm run build:artifacts
@@ -70,94 +77,180 @@ jobs:
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
           import { createHash } from 'node:crypto'
-          import { lstatSync, readFileSync, readdirSync, readlinkSync, writeFileSync } from 'node:fs'
+          import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs'
           import { createRequire } from 'node:module'
           import { dirname, join, resolve } from 'node:path'
           import { execFileSync } from 'node:child_process'
           const { load } = createRequire(resolve('apps/desktop/package.json'))('js-yaml')
           const group = process.env.SNAPSHOT_CAPTURE_GROUP
+          const webNames = [
+            'minimal agent preset sends the exact RL prompt with shell and image schemas, then executes the persistent shell',
+            'minimal agent preset expands the completed persistent Bash call in the Web conversation',
+            'minimal agent preset keeps its snapshot inventory closed',
+            'replays highlighted Python stubs, PowerShell and CSV reads with their document previews',
+            'replays workspace file drag and touch menu references without uploading or sending the draft',
+          ]
           const groups = {
-            editing: {
-              pin: 'muse-editing-skill', tool: 'skill',
-              owners: ['muse-editing-skill', 'muse-douyin-download-skill', 'muse-llm-wiki-skill',
-                'muse-project-participation-skill', 'muse-script-safety-skill', 'muse-transcript-to-novel-skill',
-                'muse-transcript-to-script-skill', 'muse-trope-adaptation-skill', 'muse-wechat-harvest-skill'],
-              extraInputs: ['snapshots/session/muse-editing-skill/cordis.yml', 'snapshots/session/muse-editing-skill/cordis.snapshot.yml'],
+            'child-async': {
+              config: 'vitest.snapshot.config.ts', suite: 'snapshots/session/headless.snapshot.ts',
+              filter: ' (text-turn|subagent-child-question-rejection) through dsh --profile headless$',
+              owners: ['text-turn', 'subagent-child-question-rejection'],
+              inventoryDirectories: ['text-turn', 'subagent-child-question-rejection', 'tool-call-turn']
+                .map(owner => `snapshots/session/${owner}`),
+              canonicalCounts: [2, 6, 3], expectedTests: 2,
+              passedSuffixes: [' text-turn through dsh --profile headless', ' subagent-child-question-rejection through dsh --profile headless'],
+              extraInputs: ['snapshots/session/headless.snapshot.ts',
+                'snapshots/session/subagent-spawn-in-process/settlement-order.mjs',
+                'packages/test-support/session-snapshot/tests/fixtures/child-question-tripwire.ts'],
             },
-            selected: {
-              pin: 'muse-selected-account-models', tool: 'muse_selected_models',
-              owners: ['muse-selected-account-models', 'muse-account-excluded-provider', 'muse-account-excluded-yunying-models',
-                'muse-account-gemini-visible', 'muse-content-refusal', 'muse-direct-account-models', 'muse-direct-account-refusal'],
-              extraInputs: ['snapshots/session/muse-selected-account-models/cordis.yml',
-                'snapshots/session/muse-selected-account-models/cordis.snapshot.yml', 'snapshots/session/muse-selected-account-models/account-fixture.mjs'],
-            },
-            glm: {
-              pin: 'muse-glm-tool-stream', tool: 'muse_selected_models',
-              owners: ['muse-glm-tool-stream', 'muse-leased-glm-models', 'muse-model-admission-uncertain', 'muse-pooled-glm-models'],
-              extraInputs: ['snapshots/session/muse-glm-tool-stream/cordis.yml', 'snapshots/session/muse-glm-tool-stream/cordis.snapshot.yml',
-                'snapshots/session/muse-selected-account-models/account-fixture.mjs'],
+            web3: {
+              config: 'vitest.web.config.ts',
+              suite: ['apps/web/tests/minimal-preset.snapshot.ts', 'apps/web/tests/code-language.snapshot.ts',
+                'apps/web/tests/workspace-file-drop.snapshot.ts'].join('\n'),
+              filter: '^(minimal agent preset|replays highlighted Python stubs, PowerShell and CSV reads with their document previews$|replays workspace file drag and touch menu references without uploading or sending the draft$)',
+              owners: ['minimal-preset', 'code-language', 'workspace-file-drop'],
+              inventoryDirectories: ['minimal-preset', 'code-language', 'workspace-file-drop',
+                'minimal-compact', 'minimal-read-image', 'fresh-round-trip'].map(owner => `snapshots/web/${owner}`),
+              canonicalCounts: [3, 1, 1, 1, 1, 3], expectedTests: 5, passedSuffixes: webNames,
+              extraInputs: ['vitest.web.config.ts', 'apps/web/tests/minimal-preset.snapshot.ts',
+                'apps/web/tests/code-language.snapshot.ts', 'apps/web/tests/workspace-file-drop.snapshot.ts',
+                'apps/web/tests/scaffold.ts', 'apps/web/tests/support.ts',
+                'packages/bundle/web-app/presets/standard.patch.yml'],
             },
           }
           const selected = groups[group]
-          if (selected === undefined) throw new Error('Unexpected capture group')
-          const { owners, pin, extraInputs } = selected
-          const ownerDirectories = owners.map(owner => `snapshots/session/${owner}`)
-          const manifests = Object.fromEntries(owners.map((owner, index) => [owner,
-            load(readFileSync(`${ownerDirectories[index]}/snapshot.yml`, 'utf8'))]))
-          for (const [owner, manifest] of Object.entries(manifests)) {
-            if (manifest.profile !== 'headless' || manifest.writerOutput !== true || manifest.session !== undefined
-              || manifest.sessionFormat !== undefined || manifest.composition !== pin || manifest.header?.class !== pin
-              || (manifest.header.pin === true) !== (owner === pin) || manifest.header.systemPromptSource !== undefined
-              || manifest.header.toolSchemasSource !== undefined || manifest.header.childSystemPrompts !== undefined
-              || manifest.header.childToolSchemas !== undefined) throw new Error(`Owner metadata drifted: ${owner}`)
-            const writer = readFileSync(`snapshots/session/${owner}/writer.expected.jsonl`, 'utf8').trim().split(/\r?\n/u).map(line => JSON.parse(line))
-            if (writer.some(row => /^(?:subagent|job)\//u.test(row.type)
-              || row.type === 'tool/call' && row.data.name !== selected.tool)) throw new Error(`Unexpected asynchronous or foreign business case: ${owner}`)
+          if (selected === undefined || process.env.SNAPSHOT_CAPTURE_CONFIG !== selected.config
+            || process.env.SNAPSHOT_CAPTURE_SUITE !== selected.suite || process.env.SNAPSHOT_CAPTURE_FILTER !== selected.filter) {
+            throw new Error('Unexpected capture group or test filter')
           }
-          const allowed = [...owners.map(owner => `snapshots/session/${owner}/writer.expected.jsonl`),
-            `snapshots/session/${pin}/system-prompt.expected.md`, `snapshots/session/${pin}/tool-schemas.expected.json`]
+          const { owners, inventoryDirectories, extraInputs, expectedTests, passedSuffixes } = selected
+          const expectedManifests = group === 'child-async' ? {
+            'text-turn': {
+              version: 1, scenario: 'text-turn', profile: 'headless', composition: 'default', recording: 'live',
+              sessionFormat: { version: 1, coverage: ['adjacent-migration'] }, header: { class: 'default' },
+            },
+            'subagent-child-question-rejection': {
+              version: 1, scenario: 'subagent-child-question-rejection', profile: 'headless', composition: 'child-question',
+              recording: 'authored', header: { class: 'child-question', pin: true, systemPromptSource: 'text-turn' },
+              replay: { override: true }, writerOutput: true,
+            },
+            'tool-call-turn': {
+              version: 1, scenario: 'tool-call-turn', profile: 'headless', composition: 'default', recording: 'live',
+              header: { class: 'default', pin: true, systemPromptSource: 'text-turn', toolSchemasSource: 'text-turn' },
+            },
+          } : {
+            'minimal-preset': {
+              version: 1, scenario: 'minimal-preset', profile: 'web', composition: 'web-minimal', recording: 'authored',
+              header: { class: 'web-minimal', pin: true }, writerOutput: true,
+            },
+            'code-language': {
+              version: 1, scenario: 'code-language', profile: 'web', composition: 'web-default', recording: 'live',
+              header: { class: 'web-default' }, writerOutput: true,
+            },
+            'workspace-file-drop': {
+              version: 1, scenario: 'workspace-file-drop', profile: 'web', composition: 'web-default', recording: 'authored',
+              header: { class: 'web-default' }, writerOutput: true,
+            },
+          }
+          for (const [owner, expected] of Object.entries(expectedManifests)) {
+            assert.deepEqual(load(readFileSync(`snapshots/${group === 'child-async' ? 'session' : 'web'}/${owner}/snapshot.yml`, 'utf8')), expected,
+              `Owner metadata drifted: ${owner}`)
+          }
+          const allowed = group === 'child-async' ? [
+            'snapshots/session/text-turn/writer.expected.jsonl',
+            'snapshots/session/text-turn/system-prompt.expected.md',
+            'snapshots/session/text-turn/tool-schemas.expected.json',
+            'snapshots/session/subagent-child-question-rejection/writer.expected.jsonl',
+            'snapshots/session/subagent-child-question-rejection/writer.1.expected.jsonl',
+            'snapshots/session/subagent-child-question-rejection/tool-schemas.expected.json',
+          ] : [...owners.map(owner => `snapshots/web/${owner}/writer.expected.jsonl`),
+            'snapshots/web/minimal-preset/system-prompt.expected.md', 'snapshots/web/minimal-preset/tool-schemas.expected.json']
+          const newOutputs = group === 'web3' ? owners.map(owner => `snapshots/web/${owner}/writer.expected.jsonl`) : []
           for (const path of allowed) {
+            if (!existsSync(path) && newOutputs.includes(path)) continue
             const parent = lstatSync(dirname(path)), stat = lstatSync(path)
             if (!parent.isDirectory() || parent.isSymbolicLink() || !stat.isFile() || stat.isSymbolicLink()) {
               throw new Error(`Approved output must already be a regular owned file: ${path}`)
             }
           }
-          const inventoryDirectories = ownerDirectories
-          const canonicalPaths = inventoryDirectories.flatMap(directory => readdirSync(directory)
-            .filter(name => /^session(?:\..*)?\.jsonl$/u.test(name) || name === 'snapshot.yml')
-            .map(name => `${directory}/${name}`)).sort()
-          for (const directory of ownerDirectories) {
-            const roles = readdirSync(directory).filter(name => /^session(?:\..*)?\.jsonl$/u.test(name))
-            if (roles.length === 0 || roles.some(name => !/^session(?:\.v[1-9]\d*)?\.jsonl$/u.test(name))) {
-              throw new Error(`Expected a root-only canonical owner: ${directory}`)
-            }
+          const inventory = directory => {
+            const stat = lstatSync(directory)
+            if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Input directory must be owned: ${directory}`)
+            return readdirSync(directory).flatMap(name => {
+              const path = `${directory}/${name}`, entry = lstatSync(path)
+              return entry.isDirectory() && !entry.isSymbolicLink() ? inventory(path) : [path]
+            }).sort()
           }
-          const protectedPaths = [...new Set([...canonicalPaths, ...extraInputs])].sort()
+          const allInputs = inventoryDirectories.flatMap(inventory)
+          const canonicalPaths = allInputs.filter(path => /\/session(?:\.[1-9]\d*)?(?:\.v[1-9]\d*)?\.jsonl$/u.test(path))
+          const manifestPaths = allInputs.filter(path => path.endsWith('/snapshot.yml'))
+          const canonicalCounts = inventoryDirectories.map(directory => canonicalPaths.filter(path => dirname(path) === directory).length)
+          assert.deepEqual(canonicalCounts, selected.canonicalCounts, 'Retained parent/child generations must remain complete')
+          assert.equal(manifestPaths.length, inventoryDirectories.length)
+          const protectedPaths = [...new Set([...allInputs.filter(path => !allowed.includes(path)), ...extraInputs])].sort()
           const sha256 = path => createHash('sha256').update(readFileSync(path)).digest('hex')
-          const identities = Object.fromEntries(protectedPaths.map(path => [path, sha256(path)]))
-          const aliases = Object.fromEntries(protectedPaths.filter(path => lstatSync(path).isSymbolicLink())
-            .map(path => [path, readlinkSync(path)]))
+          const identity = path => {
+            const stat = lstatSync(path)
+            if (stat.isSymbolicLink()) {
+              if (!statSync(path).isFile()) throw new Error(`Unsupported non-file input alias: ${path}`)
+              return { kind: 'symlink', target: readlinkSync(path), resolved: realpathSync(path), sha256: sha256(path) }
+            }
+            if (!stat.isFile()) throw new Error(`Unsupported input kind: ${path}`)
+            return { kind: 'file', sha256: sha256(path) }
+          }
+          const identities = Object.fromEntries(protectedPaths.map(path => [path, identity(path)]))
+          const refreshPlans = group === 'child-async'
+            ? owners.map(owner => ({ label: owner, filter: ` ${owner} through dsh --profile headless$`,
+              expectedTests: 1, passedSuffixes: [` ${owner} through dsh --profile headless`] }))
+            : [{ label: 'web3', filter: selected.filter, expectedTests: 5, passedSuffixes }]
           writeFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), JSON.stringify({
             head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), group, owners,
-            inventoryDirectories, extraInputs, identities, aliases, allowed, expectedTests: owners.length,
+            inventoryDirectories, extraInputs, canonicalPaths, manifestPaths, identities, allowed, newOutputs,
+            expectedTests, passedSuffixes, refreshPlans,
           }, null, 2) + '\n')
           NODE
 
-      - name: Refresh the declared cohort owners
+      - name: Refresh only the ordered approved owners
         id: refresh
         env:
           DSH_SNAPSHOT: refresh
+        shell: bash
         run: |
-          capture_exit_code=0
-          pnpm exec vitest run --config vitest.snapshot.config.ts \
-            "$SNAPSHOT_CAPTURE_SUITE" \
-            --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/refresh-report.json" \
-            -t "$SNAPSHOT_CAPTURE_FILTER" || capture_exit_code=$?
-          echo "exit_code=$capture_exit_code" >> "$GITHUB_OUTPUT"
-          exit "$capture_exit_code"
+          set -euo pipefail
+          trap 'capture_exit_code=$?; echo "exit_code=$capture_exit_code" >> "$GITHUB_OUTPUT"' EXIT
+          mapfile -t suites <<< "$SNAPSHOT_CAPTURE_SUITE"
+          if [[ "$SNAPSHOT_CAPTURE_GROUP" == child-async ]]; then
+            labels=(text-turn subagent-child-question-rejection)
+          else
+            labels=(web3)
+          fi
+          for label in "${labels[@]}"; do
+            export SNAPSHOT_REFRESH_LABEL="$label"
+            filter=$(node --input-type=module -e 'import { readFileSync } from "node:fs"; import { join } from "node:path"; const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, "muse-linux-snapshot-inputs.json"), "utf8")); console.log(state.refreshPlans.find(plan => plan.label === process.env.SNAPSHOT_REFRESH_LABEL).filter)')
+            pnpm exec vitest run --config "$SNAPSHOT_CAPTURE_CONFIG" \
+              "${suites[@]}" \
+              --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/$label-refresh-report.json" \
+              -t "$filter"
+            node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { readFileSync } from 'node:fs'
+          import { join } from 'node:path'
+          const label = process.env.SNAPSHOT_REFRESH_LABEL
+          const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), 'utf8'))
+          const plan = state.refreshPlans.find(plan => plan.label === label)
+          if (plan === undefined) throw new Error('Unexpected refresh label')
+          const report = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, `${label}-refresh-report.json`), 'utf8'))
+          const passed = report.testResults.flatMap(result => result.assertionResults).filter(test => test.status === 'passed')
+          assert.equal(report.numPassedTests, plan.expectedTests, `${label}: refresh must execute exactly the approved tests`)
+          assert.equal(report.numFailedTests, 0)
+          assert.equal(passed.length, plan.expectedTests)
+          assert.ok(plan.passedSuffixes.every(suffix => passed.filter(test => test.fullName.endsWith(suffix)).length === 1))
+          NODE
+          done
 
-      - name: Freeze the refreshed output identities
+      - name: Freeze all approved outputs after every refresh
         if: ${{ steps.refresh.outcome == 'success' }}
         shell: bash
         run: |
@@ -167,6 +260,8 @@ jobs:
           import { lstatSync, readFileSync, writeFileSync } from 'node:fs'
           import { join } from 'node:path'
           const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), 'utf8'))
+          const counts = { 'child-async': 6, web3: 5 }
+          if (state.allowed.length !== counts[state.group]) throw new Error('Unexpected output inventory')
           const outputs = Object.fromEntries(state.allowed.map(path => {
             const stat = lstatSync(path)
             if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 10 * 1024 * 1024) throw new Error(`Invalid output: ${path}`)
@@ -175,15 +270,16 @@ jobs:
           writeFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-refreshed.json'), JSON.stringify(outputs, null, 2) + '\n')
           NODE
 
-      - name: Replay the cohort without refresh
+      - name: Replay all approved tests without refresh
         id: replay
         if: ${{ !cancelled() && steps.baseline.outcome == 'success' }}
         env:
           DSH_SNAPSHOT: replay
         run: |
           capture_exit_code=0
-          pnpm exec vitest run --config vitest.snapshot.config.ts \
-            "$SNAPSHOT_CAPTURE_SUITE" \
+          mapfile -t suites <<< "$SNAPSHOT_CAPTURE_SUITE"
+          pnpm exec vitest run --config "$SNAPSHOT_CAPTURE_CONFIG" \
+            "${suites[@]}" \
             --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/replay-report.json" \
             -t "$SNAPSHOT_CAPTURE_FILTER" || capture_exit_code=$?
           echo "exit_code=$capture_exit_code" >> "$GITHUB_OUTPUT"
@@ -201,28 +297,46 @@ jobs:
           set -euo pipefail
           node --input-type=module <<'NODE'
           import { createHash } from 'node:crypto'
-          import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, writeFileSync } from 'node:fs'
+          import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs'
           import { dirname, join } from 'node:path'
           import { execFileSync } from 'node:child_process'
           const state = JSON.parse(readFileSync(join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-inputs.json'), 'utf8'))
           const directory = join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-capture')
           mkdirSync(directory)
-          const canonicalPaths = state.inventoryDirectories.flatMap(directory => readdirSync(directory)
-            .filter(name => /^session(?:\..*)?\.jsonl$/u.test(name) || name === 'snapshot.yml')
-            .map(name => `${directory}/${name}`)).sort()
-          const protectedPaths = [...new Set([...canonicalPaths, ...state.extraInputs])].sort()
+          const inventory = directory => {
+            const stat = lstatSync(directory)
+            if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Input directory changed: ${directory}`)
+            return readdirSync(directory).flatMap(name => {
+              const path = `${directory}/${name}`, entry = lstatSync(path)
+              return entry.isDirectory() && !entry.isSymbolicLink() ? inventory(path) : [path]
+            }).sort()
+          }
+          const protectedPaths = [...new Set([
+            ...state.inventoryDirectories.flatMap(inventory).filter(path => !state.allowed.includes(path)), ...state.extraInputs,
+          ])].sort()
           const sha256 = path => createHash('sha256').update(readFileSync(path)).digest('hex')
-          const after = Object.fromEntries(protectedPaths.map(path => [path, existsSync(path) ? sha256(path) : null]))
-          const aliasesAfter = Object.fromEntries(protectedPaths.filter(path => existsSync(path) && lstatSync(path).isSymbolicLink())
-            .map(path => [path, readlinkSync(path)]))
+          const identity = path => {
+            if (!existsSync(path)) return null
+            const stat = lstatSync(path)
+            if (stat.isSymbolicLink()) {
+              return { kind: 'symlink', target: readlinkSync(path), resolved: realpathSync(path),
+                sha256: statSync(path).isFile() ? sha256(path) : null }
+            }
+            return stat.isFile() ? { kind: 'file', sha256: sha256(path) } : { kind: 'unexpected' }
+          }
+          const after = Object.fromEntries(protectedPaths.map(path => [path, identity(path)]))
           const differences = (before, after) => [...new Set([...Object.keys(before), ...Object.keys(after)])]
-            .filter(path => before[path] !== after[path])
+            .filter(path => JSON.stringify(before[path]) !== JSON.stringify(after[path]))
           const inputDifferences = differences(state.identities, after)
-          const aliasDifferences = differences(state.aliases, aliasesAfter)
           const allowed = state.allowed
-          const expectedByGroup = { editing: 9, selected: 7, glm: 4 }
-          if (state.expectedTests !== expectedByGroup[state.group] || state.owners.length !== state.expectedTests
-            || allowed.length !== state.expectedTests + 2) throw new Error('Unexpected capture inventory')
+          const expectedByGroup = {
+            'child-async': { tests: 2, owners: 2, outputs: 6, canonical: 11, manifests: 3 },
+            web3: { tests: 5, owners: 3, outputs: 5, canonical: 10, manifests: 6 },
+          }
+          const counts = expectedByGroup[state.group]
+          if (counts === undefined || state.expectedTests !== counts.tests || state.owners.length !== counts.owners
+            || allowed.length !== counts.outputs || state.canonicalPaths.length !== counts.canonical
+            || state.manifestPaths.length !== counts.manifests) throw new Error('Unexpected capture inventory')
           const gitPaths = args => execFileSync('git', args, { encoding: 'utf8' }).split('\0').filter(Boolean)
           const changed = [...new Set([...gitPaths(['diff', '--name-only', '-z']),
             ...gitPaths(['ls-files', '--others', '--exclude-standard', '-z'])])].sort()
@@ -234,19 +348,34 @@ jobs:
           })
           const frozenPath = join(process.env.RUNNER_TEMP, 'muse-linux-snapshot-refreshed.json')
           const frozen = existsSync(frozenPath) ? JSON.parse(readFileSync(frozenPath, 'utf8')) : {}
-          const outputHashes = Object.fromEntries(allowed.map(path => [path, existsSync(path) ? sha256(path) : null]))
+          const outputHashes = Object.fromEntries(allowed.map(path => [path,
+            existsSync(path) && lstatSync(path).isFile() && !lstatSync(path).isSymbolicLink() ? sha256(path) : null]))
           const replayOutputDifferences = differences(frozen, outputHashes)
-          const outputs = []
-          const reports = Object.fromEntries(['refresh', 'replay'].map(mode => {
-            const file = join(process.env.RUNNER_TEMP, `${mode}-report.json`)
-            if (!existsSync(file)) return [mode, null]
+          const summarize = file => {
+            if (!existsSync(file)) return null
             const report = JSON.parse(readFileSync(file, 'utf8'))
-            return [mode, { passed: report.numPassedTests, failed: report.numFailedTests }]
-          }))
-          const verificationPassed = inputDifferences.length === 0 && aliasDifferences.length === 0
-            && unexpectedChanges.length === 0 && invalidOutputs.length === 0 && replayOutputDifferences.length === 0
+            return { passed: report.numPassedTests, failed: report.numFailedTests,
+              passedNames: report.testResults.flatMap(result => result.assertionResults)
+                .filter(test => test.status === 'passed').map(test => test.fullName) }
+          }
+          const reports = {
+            refresh: state.refreshPlans.map(plan => ({ label: plan.label,
+              result: summarize(join(process.env.RUNNER_TEMP, `${plan.label}-refresh-report.json`)) })),
+            replay: summarize(join(process.env.RUNNER_TEMP, 'replay-report.json')),
+          }
+          const refreshPassed = reports.refresh.every(({ label, result }) => {
+            const plan = state.refreshPlans.find(plan => plan.label === label)
+            return result?.passed === plan.expectedTests && result.failed === 0 && result.passedNames.length === plan.expectedTests
+              && plan.passedSuffixes.every(suffix => result.passedNames.filter(name => name.endsWith(suffix)).length === 1)
+          })
+          const replayPassed = reports.replay?.passed === state.expectedTests && reports.replay.failed === 0
+            && reports.replay.passedNames.length === state.expectedTests
+            && state.passedSuffixes.every(suffix => reports.replay.passedNames.filter(name => name.endsWith(suffix)).length === 1)
+          const verificationPassed = inputDifferences.length === 0 && unexpectedChanges.length === 0
+            && invalidOutputs.length === 0 && replayOutputDifferences.length === 0
             && process.env.REFRESH_OUTCOME === 'success' && process.env.REPLAY_OUTCOME === 'success'
-            && Object.values(reports).every(report => report?.passed === state.expectedTests && report.failed === 0)
+            && process.env.REFRESH_EXIT_CODE === '0' && process.env.REPLAY_EXIT_CODE === '0' && refreshPassed && replayPassed
+          const outputs = []
           if (verificationPassed) {
             for (const path of allowed) {
               const stat = lstatSync(path)
@@ -258,12 +387,13 @@ jobs:
           }
           writeFileSync(join(directory, 'evidence.json'), JSON.stringify({
             head: state.head, group: state.group, platform: process.platform, arch: process.arch, node: process.version,
-            owners: state.owners, suite: process.env.SNAPSHOT_CAPTURE_SUITE, filter: process.env.SNAPSHOT_CAPTURE_FILTER,
-            refreshOutcome: process.env.REFRESH_OUTCOME, replayOutcome: process.env.REPLAY_OUTCOME,
+            owners: state.owners, config: process.env.SNAPSHOT_CAPTURE_CONFIG,
+            suites: process.env.SNAPSHOT_CAPTURE_SUITE.split('\n'), filter: process.env.SNAPSHOT_CAPTURE_FILTER,
+            refreshPlans: state.refreshPlans, refreshOutcome: process.env.REFRESH_OUTCOME, replayOutcome: process.env.REPLAY_OUTCOME,
             refreshExitCode: process.env.REFRESH_EXIT_CODE, replayExitCode: process.env.REPLAY_EXIT_CODE,
-            command: 'pnpm exec vitest run --config vitest.snapshot.config.ts <suite> -t <filter>',
+            command: 'pnpm exec vitest run --config <config> <approved suites> -t <exact test filter>',
+            canonicalPaths: state.canonicalPaths, manifestPaths: state.manifestPaths,
             inputsBefore: state.identities, inputsAfter: after, inputDifferences,
-            aliasesBefore: state.aliases, aliasesAfter, aliasDifferences,
             frozenOutputHashes: frozen, outputHashes, replayOutputDifferences,
             changed, unexpectedChanges, invalidOutputs, reports, verificationPassed, outputs,
           }, null, 2) + '\n')
