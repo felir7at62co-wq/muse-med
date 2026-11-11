@@ -28,7 +28,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.workingDirectory` — `WorkingDirectoryService`
 
-One owner for each Session's effective directory and its model-visible changes.
+One owner for each Session's effective directory and its model-visible changes. Agent and service disposal cancel queued operations and await in-flight filesystem work.
 
 ```ts cordis-catalog
 /**
