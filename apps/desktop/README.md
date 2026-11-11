@@ -470,6 +470,8 @@ macOS supports the same explicit `--unsigned` flag: `pnpm run package:desktop:ma
 
 Ad-hoc macOS builds carry a sealed, version-bound manual update marker. Updates use the configured primary and fallback feeds, select the exact same-architecture DMG, verify its SHA-512 and size, and mount it read-only to verify the application identifier, release version, executable architecture, and complete code signature without executing it. After a separate user confirmation, the updater rechecks the bytes, applies the existing task-stop protection, opens the verified DMG and quits Muse. Drag Muse into Applications, replace the existing app, and reopen it after copying finishes; account data, sessions and settings remain outside the app. Deferral leaves tasks running, and verification or installer-open failures retain retry and Host recovery. This path does not automatically replace the app or claim publisher authentication from an ad-hoc signature. Developer ID builds retain native Squirrel signature validation. The [upgrade guide](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-manual-mac-update/guide.md) describes migration from earlier unsealed packages.
 
+The native macOS packaging lane checks the production verifier with private DMGs before assembling the candidate. The checks require the exact application identifier and version, intact resources and the selected executable architecture; failures stop packaging without retry.
+
 ### Windows installer interface
 
 Windows installers keep video assets inside the main compressed payload. Separate precompressed-file collection is disabled because its traversal skips `node_modules`, including unpacked skill assets such as `ending_effect.mp4`.
