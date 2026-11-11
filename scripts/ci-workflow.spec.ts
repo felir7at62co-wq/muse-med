@@ -306,7 +306,7 @@ describe('CI workflow', () => {
     })
   })
 
-  it('limits the temporary capture to the four headless owners and one SDK parent writer', () => {
+  it('retains the author capture groups and adds only the four approved headless owners', () => {
     const job = workflowJob(loadWorkflow('.github/workflows/linux-snapshot-capture.yml'), 'capture')
     if (!isRecord(job.strategy) || !isRecord(job.strategy.matrix) || !Array.isArray(job.steps)) {
       throw new TypeError('Snapshot capture must declare its matrix and steps')
@@ -317,8 +317,16 @@ describe('CI workflow', () => {
         filter: ' (advanced-toolchain|product-subagent-both|muse-subtitle-visual-preflight|muse-subtitle-visual-preflight-ptc) through dsh --profile headless$',
       },
       {
+        group: 'self-pins', config: 'vitest.snapshot.config.ts', suite: 'snapshots/session/headless.snapshot.ts',
+        filter: ' (muse-project-bible-skill|muse-voice-continuity-skill|muse-audio-asset-usage|muse-shared-asset-usage|muse-voice-periods|muse-shot-advisory|muse-shot-derived-visual|muse-shot-director-format|muse-shot-scene-context|muse-shot-session-video|muse-screenplay-advisory|muse-screenplay-project|muse-screenplay-withdrawn-fact) through dsh --profile headless$',
+      },
+      {
+        group: 'compaction-pressure', config: 'vitest.snapshot.config.ts', suite: 'snapshots/session/headless.snapshot.ts',
+        filter: ' compaction-summary-headroom through dsh --profile headless$',
+      },
+      {
         group: 'sdk-diagnostic', config: 'vitest.snapshot.config.ts', suite: 'snapshots/sdk/sdk.snapshot.ts',
-        filter: ' subagent-dsh-sdk-diagnostic through dsh --profile sdk$',
+        filter: '(refresh|replay)s subagent-dsh-sdk-diagnostic through dsh --profile sdk$',
       },
     ])
     const steps = job.steps.filter(isRecord)
@@ -332,19 +340,23 @@ describe('CI workflow', () => {
     expect(baseline).toContain('canonicalCounts: [9, 3, 1, 1], expectedTests: 4')
     expect(baseline).toContain('canonicalCounts: [3], expectedTests: 1')
     expect(baseline).toContain("'notifications.expected.jsonl'")
+    expect(baseline).toContain("'result.expected.json'")
     expect(baseline).toContain("group === 'child-async' || group === 'headless4'")
     const refresh = runFor('Refresh only the ordered approved owners')
-    expect(refresh).toContain('for (const plan of state.refreshPlans) console.log(plan.label)')
+    expect(refresh).toContain('state.refreshPlans.map(plan => plan.label).join("\\n")')
     expect(refresh).toContain('assert.equal(report.numPassedTests, plan.expectedTests')
     expect(refresh).toContain('assert.equal(report.numFailedTests, 0)')
     expect(runFor('Freeze all approved outputs after every refresh'))
-      .toContain("headless4: 16, 'sdk-diagnostic': 4")
+      .toContain("headless4: 16, 'self-pins': 39, 'compaction-pressure': 1, 'sdk-diagnostic': 5")
     const verify = runFor('Verify protected inputs and collect only owned outputs')
     expect(verify).toContain('headless4: { tests: 4, owners: 4, outputs: 16, canonical: 14, manifests: 4 }')
-    expect(verify).toContain("'sdk-diagnostic': { tests: 1, owners: 1, outputs: 4, canonical: 3, manifests: 1 }")
+    expect(verify).toContain("'self-pins': { tests: 13, owners: 13, outputs: 39, canonical: 13, manifests: 13 }")
+    expect(verify).toContain("'compaction-pressure': { tests: 1, owners: 1, outputs: 1, canonical: 5, manifests: 2 }")
+    expect(verify).toContain("'sdk-diagnostic': { tests: 1, owners: 1, outputs: 5, canonical: 3, manifests: 1 }")
     expect(verify).toContain('inputDifferences.length === 0 && unexpectedChanges.length === 0')
     expect(verify).toContain('replayOutputDifferences.length === 0')
     expect(verify).toContain('if (verificationPassed)')
+    expect(runFor('Build and verify the supported Landlock backend')).toContain('outsideWriteDenied')
     for (const owner of ['advanced-toolchain', 'product-subagent-both', 'muse-subtitle-visual-preflight',
       'muse-subtitle-visual-preflight-ptc', 'subagent-dsh-sdk-diagnostic']) {
       const section = owner === 'subagent-dsh-sdk-diagnostic' ? 'sdk' : 'session'
