@@ -312,6 +312,54 @@ describe('CI workflow', () => {
     expect(backend.run).not.toContain('sysctl')
   })
 
+  it('limits temporary Linux capture to the reviewed cohorts and immutable inputs', () => {
+    const job = workflowJob(loadWorkflow('.github/workflows/linux-snapshot-capture.yml'), 'capture')
+    const plan = loadWorkflow('.github/workflows/linux-snapshot-capture-plan.json')
+    if (!isRecord(job.strategy) || !isRecord(job.strategy.matrix) || !Array.isArray(job.steps)
+      || !Array.isArray(plan.groups)) throw new TypeError('Snapshot capture must declare its matrix and plan')
+    expect(plan).toMatchObject({ version: 1, temporary: true, repository: 'felir7at62co-wq/muse-med',
+      pullRequest: 154, headBranch: 'fix/muse-ci-baseline-20261111', totals: { groups: 8, tests: 66, outputs: 177 } })
+    const groups = plan.groups.filter(isRecord)
+    expect(groups).toHaveLength(8)
+    expect(plan.groups).toHaveLength(8)
+    expect(groups.map(group => [group.id, group.expectedTests,
+      Array.isArray(group.allowedOutputs) ? group.allowedOutputs.length : -1])).toEqual([
+      ['offline-cwd-self-pins', 28, 78], ['borrowed-header-cwd', 11, 12],
+      ['production-headers-and-repaired-fixtures', 14, 42], ['sdk-default', 2, 8],
+      ['sdk-self-headers', 5, 17], ['sdk-borrowed', 4, 14],
+      ['sdk-factory-shutdown', 1, 5], ['compaction-pressure', 1, 1],
+    ])
+    expect(job.strategy.matrix.group).toEqual(groups.map(group => group.id))
+    const steps = job.steps.filter(isRecord)
+    const runFor = (name: string): string => {
+      const step = steps.find(value => value.name === name)
+      if (typeof step?.run !== 'string') throw new TypeError('Missing snapshot capture step: ' + name)
+      expect(step).not.toHaveProperty('continue-on-error')
+      return step.run
+    }
+    const baseline = runFor('Retain approved metadata and every protected input')
+    expect(baseline).toContain('assert.deepEqual(protectedPaths, spec.expectedInputInventory')
+    expect(baseline).toContain('spec.expectedCanonicalPaths')
+    expect(baseline).toContain('spec.expectedManifests')
+    const refresh = runFor('Refresh approved phases and freeze each completed pin')
+    expect(refresh).toContain('report.numPassedTests, phase.passedSuffixes.length')
+    expect(refresh).toContain('report.numFailedTests, 0')
+    expect(refresh).toContain('report.numFailedTestSuites, 0')
+    expect(refresh).toContain('Earlier phase pin changed:')
+    runFor('Freeze the complete approved output inventory')
+    const verify = runFor('Verify all protected inputs and collect only approved outputs')
+    expect(verify).toContain('inputDifferences.length === 0')
+    expect(verify).toContain('unexpectedChanges.length === 0')
+    expect(verify).toContain('replayOutputDifferences.length === 0')
+    expect(verify).toContain('if (verificationPassed)')
+    expect(runFor('Build and verify the supported Landlock backend')).toContain('outsideWriteDenied')
+    for (const owner of ['advanced-toolchain', 'product-subagent-both', 'muse-subtitle-visual-preflight',
+      'muse-subtitle-visual-preflight-ptc', 'subagent-dsh-sdk-diagnostic']) {
+      const section = owner === 'subagent-dsh-sdk-diagnostic' ? 'sdk' : 'session'
+      expect(loadWorkflow('snapshots/' + section + '/' + owner + '/snapshot.yml').writerOutput, owner).toBe(true)
+    }
+  })
+
   it.each(['ci.yml', 'ci-master.yml', 'e2e.yml', 'release.yml', 'release-vendor.yml'])(
     '%s cancels superseded validation runs without crossing workflow or ref boundaries', (name) => {
       const workflow = loadWorkflow('.github/workflows/' + name)

@@ -3,6 +3,7 @@ scenario: account-provider-signout
 profile: sdk
 composition: sdk-account-provider-signout
 recording: authored
+writerOutput: true
 header:
   class: sdk-account-provider-signout
   pin: true

@@ -108,7 +108,8 @@ export async function apply(ctx) {
       for (const call of mediaProbes) {
         assert.deepEqual(call.args.slice(0, -1), ['-v', 'error', '-show_streams', '-show_format', '-of', 'json'])
       }
-      assert.ok(visualProbes.length > 0)
+      assert.ok(visualProbes.length > 0, 'font refusal must still perform a real bbox layout probe')
+      assert.equal(calls.length, mediaProbes.length + visualProbes.length)
       assert.ok(visualProbes.every(call => call.args.some(arg => arg.includes('bbox=min_val=1'))))
     } else {
       assert.equal(completed, 1)
