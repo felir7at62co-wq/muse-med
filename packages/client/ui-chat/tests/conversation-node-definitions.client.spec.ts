@@ -1051,12 +1051,15 @@ describe('built-in conversation node Definitions', () => {
     expect(processSource.getSnapshot()?.spec.answerAnchorSeq).toBe(44)
   })
 
-  it('reuses the open Turn-process projection across continuing Assistant chunks', () => {
+  it.each(['text-delta', 'reasoning-delta'] as const)('reuses the open Turn-process projection across continuing %s chunks', (type) => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),
       at(2, 'step/start', { turn: 1, step: 1 }),
       at(3, 'assistant/live-chunk', {
-        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'first' },
+        turn: 1, step: 1, chunk: { type, index: 0, text: '  ' },
+      }),
+      at(4, 'assistant/live-chunk', {
+        turn: 1, step: 1, chunk: { type, index: 0, text: 'first' },
       }),
     ])
     const before = snapshot(value)
@@ -1064,13 +1067,14 @@ describe('built-in conversation node Definitions', () => {
     const processData = before.timeline.turns.get(1)?.data.get('turn-process')
     const assistantNode = node(before, 'assistant-step')
     if (assistantNode === undefined) throw new Error('Assistant node is unavailable')
+    expect(assistantNode.anchorSeq).toBe(4)
     const processSource = before.nodes.processSource(assistantNode.key)
     const processPresentation = processSource.getSnapshot()
     let processNotifications = 0
     processSource.subscribe(() => { processNotifications++ })
 
-    value.append(at(4, 'assistant/live-chunk', {
-      turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: ' second' },
+    value.append(at(5, 'assistant/live-chunk', {
+      turn: 1, step: 1, chunk: { type, index: 0, text: ' second' },
     }))
     value.flush()
 
