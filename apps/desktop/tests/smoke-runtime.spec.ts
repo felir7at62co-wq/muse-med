@@ -3,6 +3,7 @@ import { join, dirname, relative, isAbsolute } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runInNewContext } from 'node:vm'
 import { getCallSites } from 'node:util'
+import { EventEmitter } from 'node:events'
 import { pathToFileURL } from 'node:url'
 import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { ToolBatchInput, ToolBatchResult, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
@@ -309,12 +310,14 @@ function fixture(packaged = false) {
   }
   // Execute exactly the emitted plugin body; fixture services never impersonate a real prepared-runtime smoke.
   const collectCallSites = vi.fn((frames: number, options: { sourceMap: boolean }) => getCallSites(frames, options))
+  const rejectionEvents = Object.assign(new EventEmitter(), { platform: process.platform })
+  const diagnosticLog = vi.fn((_line: string) => {})
   const source = desktopSmokePluginSource(root, home)
   expect(source).toMatch(/export const inject = \[[^\]]*'credentials'/u)
   const body = source.replace(/^import .*$/gmu, '').replace(/^export /gmu, '')
   const register = runInNewContext(`${body}\napply`, {
     Context: TestContext, ToolCallId, createToolResultMessage, AbortSignal, existsSync, realpathSync, writeFileSync,
-    join, relative, isAbsolute, getCallSites: collectCallSites, process: { platform: process.platform },
+    join, relative, isAbsolute, getCallSites: collectCallSites, process: rejectionEvents, console: { log: diagnosticLog },
   }) as (ctx: TestContext) => void
   let responseText = ''
   const request = async () => {
@@ -330,7 +333,7 @@ function fixture(packaged = false) {
   return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names,
     sourceCapabilityNames, editingCapabilityNames, selected, skills, creationSkills, cordisSkill, skillRoot, layout, home, root,
     agentFiber, ownerFiber, emitLifecycle, observerDisposers, lifecycleListeners, collectCallSites,
-    creationController, createdListeners, createdDisposers, responseText: () => responseText }
+    creationController, createdListeners, createdDisposers, rejectionEvents, diagnosticLog, responseText: () => responseText }
 }
 
 it('defers preset checks until the Host-ready caller requests them', async () => {
@@ -674,6 +677,109 @@ it('contains throwing abort reason access without changing successful smoke chec
   expect(diagnostic.observerErrors.map(error => error.event)).toEqual(['abort-reason-summary', 'abort-reason-stack'])
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
   expect(f.createdListeners.size).toBe(0)
+})
+
+it('observes only the first unhandled rejection before the existing handlers and retains the original failure', async () => {
+  const f = fixture(), order: string[] = []
+  const reason = new Error('first fixture rejection'), promise = Promise.resolve()
+  const later = new Error('second fixture rejection'), laterPromise = Promise.resolve()
+  const firstHandler = vi.fn(() => { order.push('first handler') })
+  const secondHandler = vi.fn(() => { order.push('second handler') })
+  f.rejectionEvents.on('unhandledRejection', firstHandler).on('unhandledRejection', secondHandler)
+  const original = f.rejectionEvents.rawListeners('unhandledRejection')
+  f.diagnosticLog.mockImplementation(() => { order.push('diagnostic') })
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async () => {
+    f.rejectionEvents.emit('unhandledRejection', reason, promise)
+    f.rejectionEvents.emit('unhandledRejection', later, laterPromise)
+    throw reason
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow(reason.message)
+  expect(order).toEqual(['diagnostic', 'first handler', 'second handler', 'first handler', 'second handler'])
+  for (const handler of [firstHandler, secondHandler]) {
+    expect(handler).toHaveBeenNthCalledWith(1, reason, promise)
+    expect(handler).toHaveBeenNthCalledWith(2, later, laterPromise)
+  }
+  expect(f.rejectionEvents.rawListeners('unhandledRejection')).toEqual(original)
+  expect(f.diagnosticLog).toHaveBeenCalledOnce()
+  const line = f.diagnosticLog.mock.calls[0]![0]
+  const record = JSON.parse(line.slice('Desktop unhandled rejection: '.length)) as {
+    event: string
+    phase: string
+    reason: { message: string; stack: string }
+    callSites: object[]
+  }
+  expect(record).toMatchObject({ event: 'unhandled-rejection', phase: 'assemble-initial',
+    reason: { message: reason.message, stack: reason.stack!.slice(0, 4096) } })
+  expect(record.callSites.length).toBeGreaterThan(0)
+  expect(record.callSites.length).toBeLessThanOrEqual(48)
+  expect(readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')).toContain(reason.stack)
+})
+
+it('does not install an unhandled rejection handler where Node has none', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    expect(f.rejectionEvents.listenerCount('unhandledRejection')).toBe(0)
+    expect(f.rejectionEvents.emit('unhandledRejection', new Error('unobserved fixture value'), Promise.resolve())).toBe(false)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  expect(f.diagnosticLog).not.toHaveBeenCalled()
+  expect(f.rejectionEvents.listenerCount('unhandledRejection')).toBe(0)
+})
+
+it('limits rejection diagnostics to bounded safe fields and removes its listener after success', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  const reason = Object.assign(new Error('request failed https://example.invalid/path?token=fixture-private\nAuthorization: Bearer fixture-private'), {
+    code: 'E_FIXTURE', configuration: { password: 'fixture-private' },
+  })
+  reason.stack = 'Error: private request https://example.invalid/?key=fixture-private\nCookie: sid=fixture-private\n' + 'x'.repeat(5000)
+  const handler = vi.fn()
+  f.rejectionEvents.on('unhandledRejection', handler)
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    f.rejectionEvents.emit('unhandledRejection', reason, Promise.resolve())
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const line = f.diagnosticLog.mock.calls[0]![0]
+  expect(line).not.toContain('fixture-private')
+  expect(line).not.toContain('configuration')
+  const record = JSON.parse(line.slice('Desktop unhandled rejection: '.length)) as {
+    reason: { message: string; code: string; stack: string }
+  }
+  expect(record.reason.message).toContain('request failed [URL omitted]')
+  expect(record.reason.code).toBe('E_FIXTURE')
+  expect(record.reason.message.length).toBeLessThanOrEqual(512)
+  expect(record.reason.stack.length).toBeLessThanOrEqual(4096)
+  expect(f.rejectionEvents.rawListeners('unhandledRejection')).toEqual([handler])
+  f.rejectionEvents.emit('unhandledRejection', new Error('after cleanup'), Promise.resolve())
+  expect(handler).toHaveBeenCalledTimes(2)
+  expect(f.diagnosticLog).toHaveBeenCalledOnce()
+})
+
+it('contains rejection diagnostic getter and output failures without suppressing existing handlers', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  const reason = Object.defineProperties({}, {
+    message: { get() { throw new Error('do not invoke message getter') } },
+    stack: { get() { throw new Error('do not invoke stack getter') } },
+  })
+  const handler = vi.fn()
+  f.rejectionEvents.on('unhandledRejection', handler)
+  f.diagnosticLog.mockImplementationOnce(() => { throw new Error('fixture output failure') })
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    expect(() => f.rejectionEvents.emit('unhandledRejection', reason, Promise.resolve())).not.toThrow()
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  expect(handler).toHaveBeenCalledOnce()
+  expect(f.rejectionEvents.rawListeners('unhandledRejection')).toEqual([handler])
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { event: string; reason: { kind: string; unreadable?: boolean } }[]
+    observerErrors: { event: string }[]
+  }
+  expect(diagnostic.records.find(record => record.event === 'unhandled-rejection')?.reason)
+    .toEqual({ kind: 'object', unreadable: true })
+  expect(diagnostic.observerErrors.map(error => error.event)).toContain('unhandled-rejection-output')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
 it('accepts product skills loaded from the installed ASAR unpack directory', async () => {

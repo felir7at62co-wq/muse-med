@@ -219,6 +219,43 @@ export function apply(ctx) {
   }
   try { observerReleases.push(ctx.root.on('agent/created', observeCreated, { global: true })) }
   catch (error) { observerError('register-agent/created', error) }
+  const rejectionText = (value, limit) => value.slice(0, 16384)
+    .replace(/(?:https?|wss?):[/][/][^\\s"'<>]+/giu, '[URL omitted]')
+    .replace(/[^\\n]*(?:authorization|set-cookie|cookie|password|api[_-]?key|access[_-]?token|refresh[_-]?token|secret)[ \\t]*[:=][^\\n]*/giu,
+      '[credential-bearing line omitted]')
+    .slice(0, limit)
+  const rejectionReason = reason => {
+    const result = { kind: typeof reason }
+    if (typeof reason === 'string') result.message = rejectionText(reason, 512)
+    if (reason === null || (typeof reason !== 'object' && typeof reason !== 'function')) return result
+    // Read only these own fields; V8 may expose Error.stack through an accessor.
+    for (const [key, limit] of [['name', 96], ['code', 96], ['message', 512], ['stack', 4096]]) {
+      try {
+        const field = Object.getOwnPropertyDescriptor(reason, key)
+        const value = key === 'stack' && typeof field?.get === 'function' ? field.get.call(reason) : field?.value
+        if (typeof value === 'string') result[key] = rejectionText(value, limit)
+      } catch { result.unreadable = true }
+    }
+    return result
+  }
+  let rejectionObserved = false, rejectionRegistered = false
+  const onUnhandledRejection = reason => {
+    try {
+      if (rejectionObserved) return
+      rejectionObserved = true
+      const record = { event: 'unhandled-rejection', ...location, reason: rejectionReason(reason), callSites: disposalCallSites() }
+      appendRecord(record)
+      try { console.log('Desktop unhandled rejection: ' + JSON.stringify(record)) }
+      catch { observerError('unhandled-rejection-output', new Error('Rejection diagnostic output failed')) }
+    } catch { observerError('unhandled-rejection', new Error('Rejection diagnostic could not be recorded')) }
+  }
+  try {
+    // The supported profile already owns fatal handling. Do not replace Node's default when it does not.
+    if (process.listenerCount('unhandledRejection') > 0) {
+      process.prependListener('unhandledRejection', onUnhandledRejection)
+      rejectionRegistered = true
+    }
+  } catch { observerError('register-unhandled-rejection', new Error('Rejection observation could not be registered')) }
   let failed = false, failure
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
@@ -517,6 +554,10 @@ export function apply(ctx) {
     failed = true
     failure = error
   } finally {
+    if (rejectionRegistered) {
+      try { process.removeListener('unhandledRejection', onUnhandledRejection) }
+      catch { observerError('unregister-unhandled-rejection', new Error('Rejection observation could not be removed')) }
+    }
     for (const release of signalReleases) {
       try { release() } catch (error) { observerError('unregister-abort', error) }
     }
