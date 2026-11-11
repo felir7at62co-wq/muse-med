@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync } from 'node:fs'
-import { readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -66,9 +66,8 @@ test('uses the durable call identity and requires a live root for an interactive
   assert.match(await fixture.show({ view: CHOICES }, { callId: undefined }), /tool-call identity/)
 })
 test('a failed save keeps the turn running and reports no private path', async t => {
-  const parent = mkdtempSync(join(tmpdir(), 'deep-view-block-')); t.after(() => rm(parent, { recursive: true, force: true }))
-  const blocker = join(parent, 'blocker'); await writeFile(blocker, 'x')
-  const fixture = start(t, { home: join(blocker, 'sub') }), exec = fixture.exec()
+  const fixture = start(t, { home: mkdtempSync(join(tmpdir(), 'deep-view-block-')) }), exec = fixture.exec()
+  await mkdir(join(fixture.home, 'pending.json'))
   const text = await fixture.ctx.registeredTools.get('show_view').execute({ view: CHOICES }, exec)
   assert.match(text, /could not be kept open/); assert.doesNotMatch(text, /deep-view-block-/)
   assert.equal(exec.concluded, false)
