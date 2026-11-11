@@ -183,7 +183,7 @@ it('omits usage when every observed counter is invalid', async () => {
 it('redacts credential-bearing response identifiers for a request without a Session', async () => {
   const records: MuseModelRequestMetadata[] = []
   const trace = new MuseModelRequestTrace('https://company.test', record => records.push(record))
-  const request: GenerateOptions = { provider: 'muse-cloud-studio', model: 'writer', messages: [], purpose: 'diagnostic' }
+  const request: GenerateOptions = { provider: 'muse-cloud-studio', model: 'writer', messages: [] }
   for await (const _chunk of trace.stream(request, async function* () {
     trace.credential('fixture-secret')
     expect(trace.identifier('safe-response', 'id')).toBe('safe-response')
@@ -192,7 +192,7 @@ it('redacts credential-bearing response identifiers for a request without a Sess
       kind: 'pi-ai', version: 2, responseId: 'response-fixture-secret', responseModel: 'safe-model', stopReason: 'stop',
     } } } as const
   })) { /* Consume the original adapter stream. */ }
-  expect(records.at(-1)).toMatchObject({ session_id: null, purpose: 'diagnostic', response_id: null,
+  expect(records.at(-1)).toMatchObject({ session_id: null, purpose: null, response_id: null,
     response_model: 'safe-model', outcome: 'finished' })
   expect(JSON.stringify(records)).not.toContain('fixture-secret')
   trace.dispose()
