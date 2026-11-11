@@ -253,10 +253,10 @@ describe('ACP independent writer output', () => {
     const dir = join(writerDir, 'plain-turn')
     const logs = ['writer.expected.jsonl', 'writer.1.expected.jsonl'].map(file => readFileSync(join(dir, file), 'utf8'))
     const context = fixtureContext(logs[0] as string)
-    expect(() => assertSessionSnapshotOutputs(logs, context, logs)).not.toThrow()
+    expect(() => { assertSessionSnapshotOutputs(logs, context, logs) }).not.toThrow()
     const changed = logs.map(log => log.replace('"model":"fake"', '"model":"unexpected"'))
-    expect(() => assertSessionSnapshotOutputs(logs, context, changed)).toThrow()
-    expect(() => assertSessionSnapshotOutputs(logs, context, logs.slice(0, 1))).toThrow()
+    expect(() => { assertSessionSnapshotOutputs(logs, context, changed) }).toThrow()
+    expect(() => { assertSessionSnapshotOutputs(logs, context, logs.slice(0, 1)) }).toThrow()
   })
 })
 
