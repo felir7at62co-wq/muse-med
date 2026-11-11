@@ -49,8 +49,15 @@ export function verifyRuntimeDependencyPatches(repository: string, project: stri
   }
   const expected = readFileSync(join(expectedRoot, entry))
   const text = expected.toString('utf8')
-  if (!text.includes('function hasTokenUsage(usage)') || !text.includes('if (hasTokenUsage(chunk.usage))')
-    || !text.includes('if (!hasTokenUsage(chunk.usage) && hasTokenUsage(choice.usage))')) {
+  const usageGuards = [
+    'const tokenValues = [chunk.usage?.prompt_tokens, chunk.usage?.completion_tokens];',
+    'const hasTokenUsage = tokenValues.some(value => value !== undefined) && tokenValues.every(value => value === undefined || (typeof value === "number" && Number.isFinite(value) && value >= 0));',
+    'if (hasTokenUsage) {',
+    'const choiceTokenValues = [choice.usage?.prompt_tokens, choice.usage?.completion_tokens];',
+    'const hasChoiceTokenUsage = choiceTokenValues.some(value => value !== undefined) && choiceTokenValues.every(value => value === undefined || (typeof value === "number" && Number.isFinite(value) && value >= 0));',
+    'if (!hasTokenUsage && hasChoiceTokenUsage) {',
+  ]
+  if (usageGuards.some(guard => !text.includes(guard))) {
     throw new Error('desktop runtime: workspace PI-AI reference lacks the reviewed token-usage patch')
   }
   if (!readFileSync(join(project, 'node_modules', name, entry)).equals(expected)) {
