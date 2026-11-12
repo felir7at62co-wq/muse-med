@@ -54,6 +54,8 @@ Collected bytes become text through `decodeStreamText`: a read that is well-form
 
 An ordinary spawn can request the [subprocess control pipe](../subprocess/README.md#using-a-control-pipe). A Node target receives fd 7 on every supported host; Windows descriptor numbering requires CRT initialization. POSIX runners preserve that descriptor across `execve`; Windows Job and ACL runners establish it in the child's CRT startup table before Node initializes and close their own carrier copies after spawning. Standard streams and the runner's private management channel remain independent.
 
+Before Linux `execve`, the private runner restores blocking status on standard descriptors 0, 1 and 2 while preserving their other file-status flags. This prevents Node's eager stream initialization from leaving native commands with nonblocking standard input or output. The fd 7 control transport keeps its existing status flags and remains separate from this standard-stream adjustment. A failed descriptor operation rejects startup before the target runs.
+
 <a id="running-terminal-sessions"></a>
 ### Running terminal sessions
 
