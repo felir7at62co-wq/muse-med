@@ -180,3 +180,77 @@ it('discards a successful history reply after its selection has been retired', a
     await pending.promise
   }
 })
+
+it('does not publish an old status rejection while a second public pin holds the retired observation', async () => {
+  const pending = Promise.withResolvers<RemoteResult<EpisodeDeliveryStatus>>()
+  const f = episodeClientFixture({ episodeStatus: vi.fn<EpisodeClient['episodeStatus']>(() => pending.promise) })
+  const pins = vi.spyOn(f.resources, 'pin'), extra = new AbortController()
+  try {
+    f.directory.history(input)
+    await vi.waitFor(() => { expect(f.directory.state.getSnapshot().displayedHistory?.entries).toHaveLength(1) })
+    f.directory.selectOriginal(input, f.directory.state.getSnapshot().historyAddress)
+    await vi.waitFor(() => { expect(f.api.episodeStatus).toHaveBeenCalledTimes(1) })
+    const address = f.directory.state.getSnapshot().statusAddress, source = f.resources.source(address)
+    const owner = pins.mock.calls.find(([pinned]) => pinned === address)?.[1]
+    if (owner === undefined) throw new Error('Expected the real directory pin signal')
+    f.resources.pin(address, extra.signal)
+    expect(pins.mock.calls.filter(([pinned]) => pinned === address).map(([, signal]) => signal)).toEqual([owner, extra.signal])
+    expect(owner.aborted).toBe(false)
+    f.directory.retireSelection('2')
+    const retired = f.directory.state.getSnapshot()
+    pending.reject(new Error('Old status connection failed'))
+    await pending.promise.catch(() => undefined)
+    await f.directory.admit(); await f.directory.admit(true)
+    expect(owner.aborted).toBe(true)
+    expect(extra.signal.aborted).toBe(false)
+    expect(source.getSnapshot()).toEqual({ status: 'loading', value: undefined, failure: undefined })
+    expect(f.directory.state.getSnapshot()).toBe(retired)
+    expect(retired).toMatchObject({ episodeText: '2', target: null, displayedStatus: null, statusAddress: '' })
+    expect(f.api.episodeStatus).toHaveBeenCalledExactlyOnceWith(input)
+    expect(f.api.admitEpisode).not.toHaveBeenCalled()
+    expect(f.notices).not.toHaveBeenCalled()
+  } finally {
+    extra.abort()
+    pending.resolve({ ok: true, value: original })
+    await pending.promise.catch(() => undefined)
+    pins.mockRestore()
+  }
+})
+
+it('stops before scheduling another status poll when its observer and directory pin release during publication', async () => {
+  vi.useFakeTimers()
+  const running: EpisodeDeliveryStatus = { ...original, state: 'running' }
+  const f = episodeClientFixture({ episodeStatus: vi.fn<EpisodeClient['episodeStatus']>(async () => ({ ok: true, value: running })) }, 1000)
+  const pins = vi.spyOn(f.resources, 'pin')
+  let releaseObserver = () => {}
+  try {
+    f.directory.history(input)
+    await vi.advanceTimersByTimeAsync(0)
+    f.directory.selectOriginal(input, f.directory.state.getSnapshot().historyAddress)
+    const address = f.directory.state.getSnapshot().statusAddress, source = f.resources.source(address)
+    const owner = pins.mock.calls.find(([pinned]) => pinned === address)?.[1]
+    if (owner === undefined) throw new Error('Expected the real directory pin signal')
+    const frames: ReturnType<typeof source.getSnapshot>[] = []
+    releaseObserver = source.subscribe(() => {
+      const frame = source.getSnapshot()
+      if (frames.length !== 0 || frame.status !== 'live') return
+      frames.push(frame)
+      releaseObserver()
+      f.disconnect()
+    })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(frames).toEqual([{ status: 'live', value: running, failure: undefined }])
+    expect(owner.aborted).toBe(true)
+    expect(f.directory.state.getSnapshot()).toMatchObject({ connected: false, statusAddress: '', displayedStatus: running })
+    expect(source.getSnapshot()).toEqual({ status: 'loading', value: undefined, failure: undefined })
+    await vi.advanceTimersByTimeAsync(10_000)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(f.api.episodeStatus).toHaveBeenCalledExactlyOnceWith(input)
+    expect(f.api.admitEpisode).not.toHaveBeenCalled()
+    expect(f.notices).not.toHaveBeenCalled()
+  } finally {
+    releaseObserver()
+    f.disconnect()
+    pins.mockRestore()
+  }
+})
