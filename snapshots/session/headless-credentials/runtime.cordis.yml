@@ -1,3 +1,17 @@
 # This owner verifies the shipped headless policy, not the shared preset fixture store.
 - id: credentials
   disabled: true
+
+# No shell is called here. Match the resident UI fixtures' unused runner on
+# Windows so its ACL backend does not add an unrelated diagnostic skill.
+- id: sandbox
+  config:
+    runnerCommand: !!js "process.platform === 'win32' ? ['snapshot-unused-runner'] : []"
+    runnerFailureSignatures: !!js "process.platform === 'win32' ? ['snapshot-unused-runner-failure'] : []"
+
+# Keep the unused shell catalog in the recorded dialect. The business assertion
+# permits only the Config inspection call, so neither shell tool may execute.
+- id: tool-bash
+  disabled: false
+- id: tool-pwsh
+  disabled: true
