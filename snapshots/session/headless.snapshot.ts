@@ -1163,10 +1163,60 @@ function verifyResidentUiReplay(events: ReturnType<typeof parseSessionLog>, tool
 
 interface VisualizationBudgetPaths { readonly cwd: string; readonly sessionId: string }
 
+function visualizationAssetDirectory(cwd: string, layout: 'src' | 'lib' = resolveExampleMode()): string {
+  return layout === 'lib'
+    ? join(cwd, '.dsh', 'profiles', 'headless', 'node_modules', '@nagi-ovo', 'dsh-visualize', 'assets')
+    : join(cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets')
+}
+
 function visualizationStyleDescription(description: string): string {
   return description
     .replaceAll('<DSH_HOME>/visualize/style.md', join('<DSH_HOME>', 'visualize', 'style.md'))
     .replaceAll('<workspace>/.dsh/visualize-style.md', join('<workspace>', '.dsh', 'visualize-style.md'))
+}
+
+function visualizationAssetDescription(description: string, assets: string, pathSeparator = sep): string {
+  const prefix = '{{cwd}}/.dsh/plugins/dsh-visualize/assets/'
+  const skill = `from ${prefix}visualize-skill.md`, relative = `(its relative paths resolve against ${prefix})`
+  const style = `read it from ${prefix}styles/whale.md`
+  if (description.split(prefix).length !== 4 || !description.includes(skill) || !description.includes(relative) || !description.includes(style)) {
+    throw new Error('Visualization description must declare exactly its three expected asset references')
+  }
+  return visualizationStyleDescription(description)
+    .replace(skill, `from ${assets}${pathSeparator}visualize-skill.md`)
+    .replace(relative, `(its relative paths resolve against ${assets}${pathSeparator})`)
+    .replace(style, `read it from ${assets}${pathSeparator}styles${pathSeparator}whale.md`)
+}
+
+function visualizationSkillLayout(log: string, assets: string, pathSeparator = sep): string {
+  const prefix = '{{cwd}}/.dsh/plugins/dsh-visualize/assets/'
+  const callId = 'call_visualize_skill', before = `Base directory for this skill: ${prefix}`
+  let calls = 0, results = 0
+  const lines = log.split('\n').map((line) => {
+    if (line.trim() === '') return line
+    const row = JSON.parse(line) as JsonObject, data = row.data as JsonObject | undefined
+    if (row.type === 'tool/call' && data?.callId === callId) {
+      if (data.name !== 'skill' || data.arguments !== '{"name":"visualize"}') throw new Error('Visualization asset path has another Skill call')
+      calls++
+    }
+    if (row.type !== 'tool/result' || (data?.message as JsonObject | undefined)?.toolCallId !== callId) {
+      if (line.includes(prefix)) throw new Error('Visualization asset path appeared outside its declared Skill result')
+      return line
+    }
+    const message = data!.message as JsonObject, content = message.content
+    if (message.isError !== false || !Array.isArray(content) || content.length !== 1) throw new Error('Visualization Skill result must be one successful text block')
+    const block = content[0] as JsonObject
+    if (block.type !== 'text' || typeof block.text !== 'string' || block.text.split(prefix).length !== 2
+      || block.text.split('\n').filter(value => value === before).length !== 1) {
+      throw new Error('Visualization Skill result must declare exactly its Base directory asset reference')
+    }
+    const original = JSON.stringify(block.text)
+    if (line.split(original).length !== 2) throw new Error('Visualization Skill result text must have one canonical JSON spelling')
+    results++
+    return line.replace(original, JSON.stringify(block.text.replace(before, `Base directory for this skill: ${assets}${pathSeparator}`)))
+  })
+  if (calls !== 1 || results !== 1) throw new Error('Visualization asset layout requires its one declared Skill call and result')
+  return lines.join('\n')
 }
 
 function transformVisualizationSchema(tool: unknown, rewrite: (description: string) => string): unknown {
@@ -1202,7 +1252,8 @@ function visualizationBudgetValue(value: unknown, paths: VisualizationBudgetPath
   return value
 }
 
-async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: string, cwd: string, visualize?: VisualizationBudgetPaths) {
+async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: string, cwd: string, visualize?: VisualizationBudgetPaths,
+  visualizationLayout: 'src' | 'lib' = resolveExampleMode()) {
   const pin = pinOf(scenario)
   const promptOwner = scenarioByName.get(pin.manifest.header.systemPromptSource ?? pin.name)
   const schemaOwner = scenarioByName.get(pin.manifest.header.toolSchemasSource ?? pin.name)
@@ -1217,16 +1268,13 @@ async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: st
   // its asset and style paths with node:path. Price the actual platform spelling.
   const expectedSchemas = scenario.name === 'muse-visualize'
     ? headers.map(tools => tools.map(tool => transformVisualizationSchema(tool, description =>
-      visualizationStyleDescription(description)
-        .replaceAll('{{cwd}}/.dsh/plugins/dsh-visualize/assets/styles/whale.md',
-          join(cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets', 'styles', 'whale.md'))
-        .replaceAll('{{cwd}}/.dsh/plugins/dsh-visualize/assets/',
-          join(cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets') + sep))))
+      visualizationAssetDescription(description, visualizationAssetDirectory(cwd, visualizationLayout)))))
     : headers
   if (scenario.name === 'muse-visualize') {
     if (visualize === undefined) throw new Error('Visualization budget requires its allocated store directory and Session id')
-    expectedLog = expectedLog.split('\n').filter(line => line.trim() !== '').map(line =>
-      JSON.stringify(visualizationBudgetValue(JSON.parse(line), visualize))).join('\n') + '\n'
+    expectedLog = visualizationSkillLayout(expectedLog, visualizationAssetDirectory(cwd, visualizationLayout))
+      .split('\n').filter(line => line.trim() !== '').map(line =>
+        JSON.stringify(visualizationBudgetValue(JSON.parse(line), visualize))).join('\n') + '\n'
   }
   return { log: expectedLog, prompt, schemas: expectedSchemas, cwd }
 }
@@ -1565,7 +1613,8 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
   const prompt = await readFile(join(promptOwner.dir, 'system-prompt.expected.md'), 'utf8')
   const schemas = parseToolSchemasSnapshot(await readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'))
   const schemaSets = [schemas.initial, ...schemas.changes].map(set => scenario.name === 'muse-visualize'
-    ? set.map(tool => transformVisualizationSchema(tool, visualizationStyleDescription))
+    ? set.map(tool => transformVisualizationSchema(tool, description => visualizationAssetDescription(description,
+      visualizationAssetDirectory('{{cwd}}').replaceAll('\\', '/'), '/')))
     : set)
   expect(schemaSets, `${scenario.name}: pin tool-schema count`).toHaveLength(pinned.length)
   const reconstructed = pinned.map((header, index) => restorePinnedToolSchemas(
@@ -1758,6 +1807,73 @@ describe('headless recorded-session snapshots', () => {
     }
   })
 
+  it('expands only declared visualization asset references for source and installed layouts', async () => {
+    const owner = scenarioByName.get('muse-visualize')
+    if (owner === undefined) throw new Error('Missing visualization owner')
+    const log = await readFile(join(owner.dir, 'writer.expected.jsonl'), 'utf8')
+    const schemas = parseToolSchemasSnapshot(await readFile(join(owner.dir, 'tool-schemas.expected.json'), 'utf8'))
+    const tool = schemas.initial.find(value => (value as JsonObject).name === 'visualize') as JsonObject
+    if (typeof tool.description !== 'string') throw new Error('Missing visualization description')
+    const before = records(log)
+    for (const layout of ['src', 'lib'] as const) {
+      const assets = visualizationAssetDirectory('{{cwd}}', layout).replaceAll('\\', '/')
+      const projected = visualizationSkillLayout(log, assets, '/')
+      const rows = records(projected)
+      expect(rows).toHaveLength(before.length)
+      const changed = rows.flatMap((row, index) => JSON.stringify(row) === JSON.stringify(before[index]) ? [] : [index])
+      expect(changed).toEqual(layout === 'src' ? [] : [18])
+      if (layout === 'src') expect(projected).toBe(log)
+      const result = (rows[18]!.data as JsonObject).message as JsonObject
+      const original = (before[18]!.data as JsonObject).message as JsonObject
+      const content = result.content as JsonObject[], originalContent = original.content as JsonObject[]
+      expect(String(content[0]!.text).replace(`Base directory for this skill: ${assets}/`,
+        'Base directory for this skill: {{cwd}}/.dsh/plugins/dsh-visualize/assets/')).toBe(originalContent[0]!.text)
+      expect({ ...result, content: original.content }).toEqual(original)
+      const description = visualizationAssetDescription(tool.description, assets, '/')
+      expect(description.split(assets).length).toBe(4)
+      expect(description.split(`${assets}/`).join('{{cwd}}/.dsh/plugins/dsh-visualize/assets/'))
+        .toBe(visualizationStyleDescription(tool.description))
+    }
+    expect(await readFile(join(owner.dir, 'writer.expected.jsonl'), 'utf8')).toBe(log)
+  })
+
+  it('matches the retained real visualization description and rejects non-path description changes', async () => {
+    const [{ Context }, { visualizeTool }] = await Promise.all([
+      import('@deepseek-ai/cordis'), import('../../third_party/plugins/dsh-visualize/src/tool.ts'),
+    ])
+    const ctx = new Context()
+    try {
+      const schemaText = await readFile(join(snapshotsRoot, 'muse-visualize/tool-schemas.expected.json'), 'utf8')
+      const schema = parseToolSchemasSnapshot(schemaText).initial.find(value => (value as JsonObject).name === 'visualize') as JsonObject
+      if (typeof schema.description !== 'string') throw new Error('Missing visualization description')
+      const description = schema.description
+      const assets = fileURLToPath(new URL('../../third_party/plugins/dsh-visualize/assets/', import.meta.url)).slice(0, -1)
+      const actual = visualizeTool(ctx, 65536).description
+      expect(actual).toBe(visualizationAssetDescription(description, assets))
+      expect(() => expect(actual).toBe(visualizationAssetDescription(description.replace('interactive HTML', 'unreviewed HTML'), assets)))
+        .toThrow()
+    } finally { await ctx.fiber.dispose() }
+  })
+
+  it('rejects visualization asset references outside the declared description and Skill result', async () => {
+    const log = await readFile(join(snapshotsRoot, 'muse-visualize/writer.expected.jsonl'), 'utf8')
+    const assets = visualizationAssetDirectory('{{cwd}}', 'lib').replaceAll('\\', '/')
+    const prefix = '{{cwd}}/.dsh/plugins/dsh-visualize/assets/'
+    const wrongCall = records(log).map(row => row.type === 'tool/call' && (row.data as JsonObject).callId === 'call_visualize_skill'
+      ? { ...row, data: { ...row.data as JsonObject, name: 'another_skill' } } : row).map(row => JSON.stringify(row)).join('\n') + '\n'
+    expect(() => visualizationSkillLayout(wrongCall, assets, '/')).toThrow('another Skill call')
+    expect(() => visualizationSkillLayout(log.replace('Base directory for this skill:', 'A business path:'), assets, '/')).toThrow('Base directory')
+    expect(() => visualizationSkillLayout(log.replace('预算方案 V1更新', `${prefix}business.html 预算方案 V1更新`), assets, '/'))
+      .toThrow('outside its declared Skill result')
+    expect(() => visualizationAssetDescription(`Changed description ${prefix}`, assets, '/')).toThrow('exactly its three')
+    const changed = records(log).map((row) => {
+      if (row.type !== 'tool/result' || ((row.data as JsonObject).message as JsonObject).toolCallId !== 'call_visualize_skill') return row
+      const data = row.data as JsonObject, message = data.message as JsonObject, content = message.content as JsonObject[]
+      return { ...row, data: { ...data, message: { ...message, content: content.map(block => ({ ...block, text: `${block.text}\nUnexpected Skill body.` })) } } }
+    }).map(row => JSON.stringify(row)).join('\n') + '\n'
+    expect(() => expect(visualizationSkillLayout(changed, assets, '/')).toBe(visualizationSkillLayout(log, assets, '/'))).toThrow()
+  })
+
   it('preserves exact expected-input working estimates and all other context fields', async () => {
     const scenario = scenarioByName.get('muse-creation-source-id-recovery')
     if (scenario === undefined) throw new Error('Missing recorded budget owner')
@@ -1783,6 +1899,7 @@ describe('headless recorded-session snapshots', () => {
     if (typeof estimate !== 'number' || typeof limit !== 'number') throw new Error('Missing recorded working estimate')
     const changed = (value: unknown) => expected.map((row, offset) => offset === index ? { ...row, data: value } : row)
     const compare = (actual: JsonObject[]) => workspaceBudgetExpected(scenario, actual, expected, log, cwd)
+    await expect(compare(changed({ ...data, workingContextTokens: estimate + 1 }))).rejects.toThrow(/exact working context estimate/)
     await expect(compare(changed({ ...data, workingContextTokens: estimate + 5 }))).rejects.toThrow(/exact working context estimate/)
     expect(await compare(expected)).toEqual(expected)
     expect(expected).toEqual(retained)
@@ -3369,7 +3486,9 @@ describe('headless recorded-session snapshots', () => {
             expectedSnapshots[index] as string,
             sessionHeaderVersion(expected[index] as string, 'session-reference-spill fixture'),
           )
-          : records(expectedSnapshots[index] as string)
+          : records(scenario.name === 'muse-visualize'
+            ? visualizationSkillLayout(expectedSnapshots[index] as string,
+              visualizationAssetDirectory('{{cwd}}').replaceAll('\\', '/'), '/') : expectedSnapshots[index] as string)
         if (scenario.name === 'drama-subtitle-visual-review' && index === 0) {
           if (visualSpeechHash === undefined) throw new Error('Visual speech inputs were not checked')
           expectedRecords = visualSpeechRecords(expectedSnapshots[index] as string, visualSpeechHash, false)
