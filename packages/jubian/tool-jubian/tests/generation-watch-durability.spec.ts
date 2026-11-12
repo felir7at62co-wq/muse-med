@@ -7,7 +7,8 @@ import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm
 import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import { afterEach, expect, it, vi } from 'vitest'
-import { createGenerationWatchNotice, deliverGenerationWatchNotice, registerGenerationWatchDelivery } from '../src/generation-watch-delivery.ts'
+import { createGenerationWatchNotice, deliverGenerationWatchNotice,
+  registerGenerationWatchDelivery } from '../src/generation-watch-delivery.ts'
 import { GenerationWatchStore, type GenerationWatchRun } from '../src/generation-watch-store.ts'
 
 const roots: string[] = []
@@ -27,6 +28,62 @@ async function checkpoint() {
   return { root, store, run, path: join(root, 'watches', `${run.id}.json`) }
 }
 
+it('commits the same checkpoint after a public ownership claim without inventing a notice or changing its deadline', async () => {
+  const f = await checkpoint()
+  await f.store.claimOwnership(f.run)
+  expect(await f.store.load(f.run.id)).toBeUndefined()
+  await f.store.put(f.run)
+  expect(await f.store.load(f.run.id)).toEqual(f.run)
+  const restarted = new GenerationWatchStore(join(f.root, 'watches'))
+  expect(await restarted.load(f.run.id)).toEqual(f.run)
+  expect(await restarted.listActive()).toEqual([f.run])
+})
+
+it('keeps repeated same-key dispatch fences idempotent and refuses a later no-send claim', async () => {
+  const f = await checkpoint(), key = f.run.packs[0]?.key
+  if (key === undefined) throw new Error('Missing fixture preview key')
+  await f.store.claimAndCreate(f.run)
+  await f.store.markDispatchStarted(f.run.id, key)
+  await f.store.markDispatchStarted(f.run.id, key)
+  await expect(f.store.recordNoSend(f.run.id)).rejects.toThrow('ownership is ambiguous')
+  expect(await f.store.hasNoSend(f.run.id)).toBe(false)
+  expect(await f.store.load(f.run.id)).toEqual(f.run)
+})
+
+it('refuses a dispatch fence after a proven no-send receipt without rewriting the original checkpoint', async () => {
+  const f = await checkpoint(), key = f.run.packs[0]?.key
+  if (key === undefined) throw new Error('Missing fixture preview key')
+  await f.store.claimAndCreate(f.run)
+  await f.store.recordNoSend(f.run.id)
+  const before = await readFile(f.path)
+  await expect(f.store.markDispatchStarted(f.run.id, key)).rejects.toThrow('ownership is ambiguous')
+  expect(await f.store.hasNoSend(f.run.id)).toBe(true)
+  expect(await readFile(f.path)).toEqual(before)
+})
+
+it('rejects dispatch-state mutations for a missing run while retaining the registered original', async () => {
+  const f = await checkpoint(), missing = 'c'.repeat(64)
+  await f.store.create(f.run)
+  const before = await readFile(f.path)
+  await expect(f.store.markDispatchStarted(missing, 'b'.repeat(64))).rejects.toThrow('ownership is ambiguous')
+  await expect(f.store.recordNoSend(missing)).rejects.toThrow('ownership is ambiguous')
+  await expect(f.store.finishInitialDispatch(missing)).rejects.toThrow('ownership is ambiguous')
+  expect(await f.store.load(missing)).toBeUndefined()
+  expect(await f.store.load(f.run.id)).toEqual(f.run)
+  expect(await readFile(f.path)).toEqual(before)
+})
+
+it('refuses changed preview metadata for an already registered run without replacing its original checkpoint', async () => {
+  const f = await checkpoint()
+  await f.store.claimAndCreate(f.run)
+  const before = await readFile(f.path)
+  const changed: GenerationWatchRun = { ...f.run,
+    packs: f.run.packs.map(pack => ({ ...pack, previewPath: join(f.root, 'another.preview.json') })) }
+  await expect(f.store.claimAndCreate(changed)).rejects.toThrow('Generation watch run inputs changed')
+  expect(await f.store.load(f.run.id)).toEqual(f.run)
+  expect(await readFile(f.path)).toEqual(before)
+})
+
 it('refuses a valid checkpoint stored under another run identity', async () => {
   const f = await checkpoint()
   await f.store.create(f.run)
@@ -40,7 +97,8 @@ it('reports non-file checkpoints and does not hide an unreadable storage root', 
   await mkdir(f.path, { recursive: true })
   const report = vi.fn()
   await expect(f.store.listActive(report)).resolves.toEqual([])
-  expect(report).toHaveBeenCalledExactlyOnceWith(f.run.id, expect.objectContaining({ message: 'Generation watch checkpoint must be a regular file' }))
+  expect(report).toHaveBeenCalledExactlyOnceWith(f.run.id,
+    expect.objectContaining({ message: 'Generation watch checkpoint must be a regular file' }))
   await expect(f.store.listActive()).rejects.toThrow('regular file')
   const fileRoot = join(f.root, 'root-is-file')
   await writeFile(fileRoot, 'not a directory')

@@ -52,6 +52,92 @@ async function fixture() {
   return { root, store, ledger, fetch, deliver, warn, runtime, packs, run }
 }
 
+it('refuses dispatch before enrollment without calling the supplied operation or a provider', async () => {
+  const f = await fixture(), runtime = f.runtime()
+  const operation = vi.fn<Parameters<GenerationWatchRuntime['executeDispatch']>[1]>(async () => ({ status: 'unexpected' }))
+  await expect(runtime.executeDispatch(id, operation)).rejects.toThrow('Generation dispatch is not owned by this invocation')
+  await runtime.close()
+  expect(operation).not.toHaveBeenCalled()
+  expect(f.fetch).not.toHaveBeenCalled()
+  expect(f.deliver).not.toHaveBeenCalled()
+  expect(await f.store.listAll()).toEqual([])
+})
+
+it('refuses a callback fence for a key outside the enrolled batch and preserves an unpaid retry receipt', async () => {
+  const f = await fixture(), runtime = f.runtime()
+  const original = await runtime.enroll(owner, f.packs)
+  const operation = vi.fn<Parameters<GenerationWatchRuntime['executeDispatch']>[1]>(async (beforeSend) => {
+    await beforeSend(secondKey)
+    return { status: 'unexpected' }
+  })
+  await expect(runtime.executeDispatch(original.id, operation)).rejects.toThrow('ownership is ambiguous')
+  const repeated = vi.fn<Parameters<GenerationWatchRuntime['executeDispatch']>[1]>(async () => ({ status: 'unexpected' }))
+  await expect(runtime.executeDispatch(original.id, repeated)).rejects.toThrow('Generation dispatch is not owned by this invocation')
+  await runtime.close()
+  expect(operation).toHaveBeenCalledOnce()
+  expect(repeated).not.toHaveBeenCalled()
+  expect(await f.store.hasNoSend(original.id)).toBe(true)
+  expect((await f.store.load(original.id))?.packs).toEqual([{ ...f.packs[0], outcome: { status: 'unverified',
+    detail: 'Preflight finished before any paid video request was sent' } }])
+  expect(f.fetch).not.toHaveBeenCalled()
+  expect(f.deliver).not.toHaveBeenCalled()
+})
+
+it('retains a review-required checkpoint when its caller asks to enroll the same batch again', async () => {
+  const f = await fixture(), runtime = f.runtime(), recorded = { ...f.run, reviewRequired: true as const }
+  await f.store.create(recorded)
+  await expect(runtime.enroll(owner, f.packs)).rejects.toThrow('Generation watch ownership requires manual review')
+  await runtime.close()
+  expect(await f.store.load(recorded.id)).toEqual(recorded)
+  expect(f.fetch).not.toHaveBeenCalled()
+  expect(f.deliver).not.toHaveBeenCalled()
+})
+
+it('reuses a restored unfinished watch with its original ledger claim without dispatching again', async () => {
+  const f = await fixture(), first = f.runtime(), original = await first.enroll(owner, f.packs)
+  await first.close()
+  const before = await f.store.load(original.id)
+  await f.ledger.begin({ idempotencyKey: key, method: 'storyboard_native_submit', scriptId: 5933,
+    requestSha256: 'c'.repeat(64) })
+  const restarted = f.runtime()
+  expect(await restarted.enroll(owner, f.packs)).toEqual({ id: original.id, initial: false })
+  await restarted.close()
+  expect(await f.store.load(original.id)).toEqual(before)
+  expect(await f.store.listAll()).toHaveLength(1)
+  expect(f.fetch).not.toHaveBeenCalled()
+  expect(f.deliver).not.toHaveBeenCalled()
+})
+
+it('does not redeliver an outbox whose receipt was committed after the worker obtained an active snapshot', async () => {
+  const f = await fixture(), notice = createGenerationWatchNotice('Original terminal result')
+  const original: GenerationWatchRun = { ...f.run, notice,
+    packs: [{ ...f.packs[0], outcome: { status: 'failed', detail: 'Original provider failure' } }] }
+  await f.store.create(original)
+  const delivered: GenerationWatchRun = { ...original, notice: { ...notice, deliveredAt: Date.now() } }
+  const readActive = f.store.listActive.bind(f.store), load = f.store.load.bind(f.store)
+  let committed = false
+  const observed = Promise.withResolvers<undefined>()
+  const scan = vi.spyOn(f.store, 'listActive').mockImplementation(async (onUnreadable) => {
+    const snapshot = await readActive(onUnreadable)
+    if (!committed) { committed = true; await f.store.put(delivered) }
+    return snapshot
+  })
+  const reading = vi.spyOn(f.store, 'load').mockImplementation(async (runId) => {
+    const current = await load(runId)
+    if (current?.notice?.deliveredAt === delivered.notice?.deliveredAt) observed.resolve(undefined)
+    return current
+  })
+  releases.push(() => { scan.mockRestore(); reading.mockRestore() })
+  const runtime = f.runtime(); runtime.start()
+  await observed.promise
+  await runtime.close()
+  expect(scan).toHaveBeenCalled()
+  expect(committed).toBe(true)
+  expect(await f.store.load(original.id)).toEqual(delivered)
+  expect(f.deliver).not.toHaveBeenCalled()
+  expect(f.fetch).not.toHaveBeenCalled()
+})
+
 it('rejects concurrent overlapping dispatches without replacing the original checkpoint', async () => {
   const f = await fixture()
   const runtime = f.runtime()
