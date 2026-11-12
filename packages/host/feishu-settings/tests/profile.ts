@@ -54,6 +54,9 @@ export const BridgeRow = { name: 'bridge-row', Config: BridgeConfig, apply: () =
 /** Bridge instance whose activation waits for the product's setup service. */
 const GatedBridgeRow = { ...BridgeRow, name: 'gated-bridge-row', inject: ['feishuSetup'] }
 
+/** A bridge supplied without a schema leaves its credentials as ordinary config values. */
+const RawBridgeRow = { name: 'raw-bridge-row', apply: () => {} }
+
 /** Rows every harness composition carries: the settings pair plus the two sections this product writes. */
 export const FEISHU_ROWS: readonly EntryOptions[] = [
   { id: 'config-editor', name: 'cordis:editor' },
@@ -121,6 +124,7 @@ async function bootFeishuProfile(profile: ProfileContext): Promise<FeishuComposi
     host.provide('appReady', { onReady: (listener: () => void) => { listener(); return () => {} } })
     Object.assign(host.loader.builtins, {
       editor: ConfigEditor, settings: Settings, probe: ProbeRow, bridge: BridgeRow, feishu: Feishu, gatedBridge: GatedBridgeRow,
+      rawBridge: RawBridgeRow,
     })
   })
   onTestFinished(async () => { await ctx.fiber.dispose() })
