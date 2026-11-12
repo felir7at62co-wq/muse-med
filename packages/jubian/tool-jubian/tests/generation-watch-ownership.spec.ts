@@ -268,3 +268,67 @@ it('never resolves or resumes a Session without affirmative Host ownership evide
       async () => true)).rejects.toThrow('requires the Host session controller')
   } finally { await ctx.fiber.dispose() }
 })
+
+it('public lifecycle: refuses another Session enrollment of an existing active key without changing its receipt', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'muse-watch-public-session-'))
+  const store = new GenerationWatchStore(root), original = run(root, 'a', 'original-session', ['b'])
+  const fetch = vi.fn(async () => { throw new Error('Refused enrollment must not call the provider') })
+  const deliver = vi.fn(async () => { throw new Error('Refused enrollment must not deliver a notice') })
+  const runtime = new GenerationWatchRuntime({ store,
+    client: new JubianClient({ credential: async () => 'fixture', fetch }),
+    ledger: new JubianLedger({ root: join(root, 'ledger') }), deliver, warn: () => {},
+    watchTimeoutMs: 5000, watchPollIntervalMs: 20,
+    withoutInitiator: async (operation) => { await operation() } })
+  try {
+    await store.create(original)
+    const paths = [join(root, original.id + '.json'), join(root, 'ownership.v1.json'), join(root, 'ownership.v2.json')]
+    const before = await Promise.all(paths.map(path => readFile(path)))
+    await expect(runtime.enroll(SessionId('other-session'), original.packs))
+      .rejects.toBeInstanceOf(GenerationWatchOwnershipConflict)
+    expect(await Promise.all(paths.map(path => readFile(path)))).toEqual(before)
+    expect(await store.listAll()).toEqual([original])
+    expect(fetch).not.toHaveBeenCalled()
+    expect(deliver).not.toHaveBeenCalled()
+  } finally {
+    await runtime.close()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+it.each(['missing', 'not-unsent', 'transport-started'] as const)(
+  'public lifecycle: refuses an explicit retry with a %s predecessor without publishing a successor', async (state) => {
+    const root = await mkdtemp(join(tmpdir(), 'muse-watch-public-retry-'))
+    try {
+      const store = new GenerationWatchStore(root), original = run(root, 'a', 'session', ['b'])
+      await store.create(original)
+      if (state === 'transport-started') await store.markDispatchStarted(original.id, original.packs[0]!.key)
+      const paths = [join(root, original.id + '.json'), join(root, 'ownership.v1.json'), join(root, 'ownership.v2.json')]
+      const before = await Promise.all(paths.map(path => readFile(path)))
+      const successor = { ...original, id: 'c'.repeat(64) }
+      await expect(store.retryUnsent(state === 'missing' ? 'd'.repeat(64) : original.id, successor))
+        .rejects.toBeInstanceOf(GenerationWatchOwnershipConflict)
+      expect(await Promise.all(paths.map(path => readFile(path)))).toEqual(before)
+      expect(await store.load(successor.id)).toBeUndefined()
+      expect(await store.listAll()).toEqual([original])
+      expect(await store.hasNoSend(original.id)).toBe(false)
+      expect(await store.isRetired(original.id)).toBe(false)
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+
+it('public lifecycle: propagates the original Host attestor error without changing the submitting identity', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'muse-watch-public-attestor-'))
+  try {
+    const store = new GenerationWatchStore(root), original = run(root, 'a', 'session', ['b'])
+    await store.create(original)
+    const pack = original.packs[0]!, failure = new Error('Host evidence verification unavailable')
+    const paths = [join(root, original.id + '.json'), join(root, 'ownership.v1.json'), join(root, 'ownership.v2.json')]
+    const before = await Promise.all(paths.map(path => readFile(path)))
+    const attest = vi.fn(async () => { throw failure })
+    await expect(store.resolveVerifiedOwner(pack.key, pack.previewPath, root, attest)).rejects.toBe(failure)
+    expect(attest).toHaveBeenCalledExactlyOnceWith({
+      runId: original.id, sessionId: original.sessionId, key: pack.key, previewPath: pack.previewPath,
+    }, root)
+    expect(await Promise.all(paths.map(path => readFile(path)))).toEqual(before)
+    expect(await store.load(original.id)).toEqual(original)
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
