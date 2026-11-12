@@ -363,12 +363,24 @@ describe('approved episode service', () => {
     const secondInput = { projectDir: f.project, episode: 2, digest: secondReady.digest }
     await f.service.admitEpisode(input); await f.renderer.entered
     const second = await f.service.admitEpisode(secondInput)
+    if (second.attempt === null) throw new Error('Expected the second original attempt')
     await f.recovery.configure({ enabled: false, projectDir: f.project })
     const cancelled = await f.service.episodeStatus(secondInput)
     expect(cancelled).toMatchObject({ state: 'cancelled', canResume: true, attempt: second.attempt })
     expect(f.renderer.encodes).toBe(1)
-    await f.service.admitEpisode({ ...secondInput, resume: true }); f.renderer.release()
-    await vi.waitFor(async () => { const state = await f.service.episodeStatus(secondInput); expect(state.state, state.problem).toBe('completed') })
+    const committed = Promise.withResolvers<undefined>(), write = atomic.writeFileAtomic
+    const statePath = join(f.project, '.muse', 'episode-delivery', second.attempt, 'state.json')
+    const writer = vi.spyOn(atomic, 'writeFileAtomic').mockImplementation(async (...args) => {
+      await write(...args)
+      if (args[0] === statePath && typeof args[1] === 'string'
+        && z.object({ state: z.string() }).parse(JSON.parse(args[1])).state === 'completed') committed.resolve(undefined)
+    })
+    try {
+      await f.service.admitEpisode({ ...secondInput, resume: true }); f.renderer.release()
+      await committed.promise
+      const state = await f.service.episodeStatus(secondInput)
+      expect(state.state, state.problem).toBe('completed')
+    } finally { writer.mockRestore() }
     expect((await f.service.episodeStatus(secondInput)).attempt).toBe(second.attempt)
     expect(f.renderer.encodes).toBe(2); expect(f.fetch).not.toHaveBeenCalled()
   })
