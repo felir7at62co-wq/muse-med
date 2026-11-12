@@ -37,7 +37,7 @@ export function apply(ctx) {
               genTypes: [{ id: 71, type: 3 }], videoStandards: [{ id: 337, ratio: '16:9', resolution: '480p', genNum: 1 }] }]
           : [{ id: 42, modelId: 'gpt-image-2', platformId: 'YU_DIAN', unitPrice: 0.5, unit: '张',
           genTypes: [{ id: 7, type: 3 }],
-          videoStandards: [{ id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1 }] }]
+          videoStandards: [{ id: 91, ratio: '16:9', resolution: '1K', width: 1280, height: 720, genNum: 1, quality: 'high' }] }]
       } else if (url.pathname.endsWith('/aigc/storyboard/916953') && init?.method === 'GET') {
         data = storyboard
       } else if (url.pathname.endsWith('/aigc/storyboard') && init?.method === 'PUT') {
@@ -62,6 +62,8 @@ export function apply(ctx) {
         data = { total: 0, rows: [] }
       } else if (url.pathname.endsWith('/aigc/asset') && init?.method === 'POST') {
         if (++writes !== 1) throw new Error('Offline image fixture rejects repeated paid writes')
+        const config = JSON.parse(JSON.parse(init.body).modelConfig)
+        if (config.quality !== 'high') throw new Error('Offline image fixture requires the selected high quality')
         data = 83749
       } else if (url.pathname.endsWith('/aigc/asset/83749') && init?.method === 'GET') {
         data = { id: 83749, scriptId: 2708, assetType: 1, assetName: '横屏CG测试角色', hsAssetStatus: null }

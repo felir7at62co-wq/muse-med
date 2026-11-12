@@ -109,7 +109,7 @@ describe('explicit image catalogue selection', () => {
   const catalogue = [...IMAGE_CATALOGUE, { ...IMAGE_CATALOGUE[0]!, id: 71,
     modelId: 'doubao-seedream-5-0-260128', platformId: 'FANG_ZHOU', videoStandards: [
       { id: 101, ratio: '16:9', resolution: '2K', width: 0, height: 0, genNum: 1 },
-      { id: 102, ratio: '16:9', resolution: '2K', width: 0, height: 0, genNum: 1 },
+      { id: 102, ratio: '16:9', resolution: '2K', width: 0, height: 0, genNum: 1, quality: 'high' },
     ] }]
   const selection = { image_model_id: 'doubao-seedream-5-0-260128', image_platform_id: 'FANG_ZHOU',
     image_resolution: '2K', image_spec_id: 102 }
@@ -124,7 +124,18 @@ describe('explicit image catalogue selection', () => {
     const writes = calls.filter(call => call.method === 'POST')
     expect(writes).toHaveLength(1)
     expect(JSON.parse(String(writes[0]!.body!.modelConfig))).toMatchObject({ modelId: selection.image_model_id,
-      platformId: selection.image_platform_id, resolution: '2K', standardId: 71, videoStandardId: 102 })
+      platformId: selection.image_platform_id, resolution: '2K', standardId: 71, videoStandardId: 102, quality: 'high' })
+  })
+
+  it.each(['image_generate', 'image_generate_batch'])('refuses malformed image quality before reservation in %s', async (method) => {
+    const rows = [{ ...IMAGE_CATALOGUE[0]!, videoStandards: [{ ...IMAGE_CATALOGUE[0]!.videoStandards[0], quality: 1 }] }]
+    const { client, calls } = imageProvider(rows)
+    const item = { asset_name: 'lead', asset_type: 1, prompt: '3D动漫，四区人物设定板。', idempotency_key: method }
+    await expect(videoMethod(client, ledger, method === 'image_generate'
+      ? { method, script_id: 2708, ...item }
+      : { method, script_id: 2708, items: [item] }, imageDeps())).rejects.toThrow()
+    expect(calls.filter(call => call.method !== 'GET')).toEqual([])
+    expect(await ledger.records()).toEqual([])
   })
 
   it('generates with the permitted Sunburst row without inheriting a different model pin', async () => {

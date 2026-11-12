@@ -128,6 +128,31 @@ describe('buildImageRequest', () => {
   })
   const request = { scriptId: 1, assetName: 'lead', assetType: 1, prompt: 'ready', references: [] }
 
+  it.each(['high', 'medium', 'low'])('copies the selected specification quality %s for creates and edits', (quality) => {
+    const catalogue = [{ ...CATALOGUE[0]!, videoStandards: CATALOGUE[0]!.videoStandards.map(row =>
+      ({ ...row, quality: row.id === 90 ? quality : 'other-specification' })) }]
+    const selection = { videoStandardId: 90, resolution: '2K' }
+    expect(resolveImageModel(catalogue, selection)).toMatchObject({ quality, videoStandardId: 90 })
+    for (const parentAssetId of [undefined, 83749]) {
+      const body = buildImageRequest({ ...request, prompt: '水彩画风。\n胸像、正面、侧面、背面。',
+        ...(parentAssetId === undefined ? {} : { parentAssetId }) }, catalogue, selection)
+      const config = JSON.parse(String(body.modelConfig)) as Record<string, unknown>
+      expect(config).toMatchObject({ quality, videoStandardId: 90, resolution: '2K',
+        prompt: '水彩画风。\n胸像、正面、侧面、背面。' })
+    }
+  })
+
+  it.each([undefined, null, ''])('retains the empty provider quality when the specification states %j', (quality) => {
+    const catalogue = [{ ...CATALOGUE[0]!, videoStandards: [{ ...CATALOGUE[0]!.videoStandards[1], quality }] }]
+    const body = buildImageRequest(request, catalogue)
+    expect(JSON.parse(String(body.modelConfig))).toHaveProperty('quality', '')
+  })
+
+  it.each([1, true, {}, ' ', 'high\nlow', '\ud800'])('rejects malformed specification quality %j before building a request', (quality) => {
+    const catalogue = [{ ...CATALOGUE[0]!, videoStandards: [{ ...CATALOGUE[0]!.videoStandards[1], quality }] }]
+    expect(() => buildImageRequest(request, catalogue)).toThrow()
+  })
+
   it.each([{ scriptId: 0 }, { assetType: 0 }, { parentAssetId: 0 }, { assetName: '' }, { assetName: '\ud800' },
     { assetName: 'bad\nname' }, { prompt: '' }, { prompt: 'bad\u0000prompt' }])
   ('refuses unusable local image request fields %j', (overrides) => {

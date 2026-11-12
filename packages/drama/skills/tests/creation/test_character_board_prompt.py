@@ -88,6 +88,16 @@ class CharacterBoardPrompt(unittest.TestCase):
         self.assertIn(self.module.BOARD_LAYOUT, result["prompt"])
         self.assertNotIn("PBR", result["prompt"])
 
+    def test_delivery_references_do_not_exempt_layout_or_style_from_acceptance(self):
+        owner = PACKAGE / "skills/tweet-drama-asset-vision-check/SKILL.md"
+        self.assertIn("版式或画风未通过", owner.read_text(encoding="utf-8"))
+        directory = PACKAGE / "skills/anime-3d-assets/references"
+        for filename in ("data-rules.md", "first-pass-cg.md", "reference-standard.md"):
+            with self.subTest(reference=filename):
+                text = (directory / filename).read_text(encoding="utf-8")
+                self.assertIn("../../tweet-drama-asset-vision-check/SKILL.md#人物设定板版式", text)
+                self.assertNotRegex(text, r"不加入必须通过的检查|不作为生成、导入或采用条件|不加入提交检查、导入或采用条件|不增加生成、导入或采用的前置条件")
+
 
 if __name__ == "__main__":
     unittest.main()
