@@ -1,7 +1,7 @@
 /** Multi-series downloader with validated per-episode progress, durable recovery and owned cancellation. */
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { lstat, mkdir, realpath, rename, rm } from 'node:fs/promises';
+import { lstat, mkdir, realpath, link, rm, mkdtemp } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { resolveConfig } from './config.js';
@@ -124,7 +124,7 @@ export class HongguoDownloadClient {
     const work = (async () => {
       try { active.throwIfAborted(); return await operation(active); }
       catch (error) {
-        if (active.aborted) return { ok: false, complete: false, code: 'cancelled', message: '下载已取消或超过时限；未完成文件已清理' };
+        if (active.aborted && error.code !== 'cleanup_unconfirmed') return { ok: false, complete: false, code: 'cancelled', message: '下载已取消或超过时限；未完成文件已清理' };
         return { ok: false, complete: false, ...safeError(error) };
       }
     })();
@@ -206,10 +206,11 @@ export class HongguoDownloadClient {
 
   async saveEpisode(media, path, signal, workspace, refresh) {
     checkedUrl(media.url, 'media', this.config.mediaHosts, this.config.mediaPorts);
-    const part = `${path}.part`;
-    const decoded = `${path}.decoded.part`;
     for (let attempt = 0; ; attempt++) {
       const active = AbortSignal.any([signal, AbortSignal.timeout(this.config.downloadTimeoutMs)]);
+      const stage = await mkdtemp(join(dirname(path), '.media-stage-'));
+      const part = join(stage, 'input.part'), decoded = join(stage, 'output.part');
+      let cleanupProcessed, preserveStage = false;
       try {
         active.throwIfAborted();
         const { bytes, sha256 } = await transferMedia({ request: this.request, url: media.url, signal: active,
@@ -222,11 +223,12 @@ export class HongguoDownloadClient {
         if (!media.encryption) await validateMp4(part);
         if (!this.processMedia) throw new DownloadError('missing_media_runtime', '缺少受管视频处理运行时；无法验证解密和完整播放');
         const validation = await this.processMedia(media, { inputPath: part, outputPath: decoded, workspace, signal: active });
-        const processed = media.encryption ? decoded : part;
+        cleanupProcessed = validation.cleanup;
+        const processed = media.encryption || media.codec === 'bytevc2' ? decoded : part;
         if (validation.processedPath !== processed || validation.fullDecodeChecked !== true) throw new DownloadError('invalid_media', '视频处理未返回完整解码验证结果');
         await validateMp4(processed);
         let finalBytes = bytes, finalSha256 = sha256;
-        if (media.encryption) {
+        if (media.encryption || media.codec === 'bytevc2') {
           finalBytes = 0;
           const finalDigest = createHash('sha256');
           const stream = createReadStream(processed, { signal: active });
@@ -237,16 +239,18 @@ export class HongguoDownloadClient {
           }
           finalSha256 = finalDigest.digest('hex');
         }
-        active.throwIfAborted(); await rename(processed, path);
+        active.throwIfAborted();
+        try { await link(processed, path); }
+        catch (error) { if (error.code === 'EEXIST') throw new DownloadError('output_exists', '视频目标已存在；已有文件已保留，请检查输出目录'); throw error; }
         return { bytes: finalBytes, sha256: finalSha256, sourceBytes: bytes, sourceSha256: sha256,
-          encryptedSource: Boolean(media.encryption), durationSeconds: validation.durationSeconds,
+          encryptedSource: Boolean(media.encryption), ...(media.codec === 'bytevc2' ? { convertedFrom: 'bytevc2' } : {}), durationSeconds: validation.durationSeconds,
           format: 'mp4', validationLevel: 'ffprobe-full-decode-sha256', fullDecodeChecked: true };
       } catch (error) {
+        preserveStage = error.code === 'cleanup_unconfirmed';
         if (signal.aborted || attempt >= this.config.retries || !['network', 'incomplete_media', 'http_error', ...(refresh ? ['unsafe_redirect'] : [])].includes(error.code)) throw error;
         if (error.code === 'http_error' && error.httpStatus < 500 && error.httpStatus !== 429 && !(refresh && error.httpStatus === 403)) throw error;
       } finally {
-        await rm(part, { force: true });
-        await rm(decoded, { force: true });
+        if (!preserveStage) { await cleanupProcessed?.(); await rm(stage, { recursive: true, force: true }); }
       }
       if (this.config.retryDelayMs) await delay(this.config.retryDelayMs, undefined, { signal });
       if (refresh) {
@@ -307,7 +311,7 @@ export class HongguoDownloadClient {
         await checkpoint.clearParts(); await persist();
         const workers = new AbortController(), workerSignal = AbortSignal.any([active, workers.signal]);
         let pendingSource, firstFailure;
-        const fail = error => { firstFailure ??= error; workers.abort(); };
+        const fail = error => { if (!firstFailure || error.code === 'cleanup_unconfirmed') firstFailure = error; workers.abort(); };
         const progress = () => ({ path: checkpoint.directory, checkpoint: checkpoint.file,
           retainedEpisodeCount: state.completed.length, reusedEpisodeCount: reused,
           remainingEpisodeCount: plans.reduce((sum, plan) => sum + plan.selected.length, 0) - state.completed.length,
@@ -360,7 +364,7 @@ export class HongguoDownloadClient {
           fail(error); await pendingSource; await saveTail;
           return { ok: false, complete: false, ...safeError(firstFailure), ...progress(),
             resume: { seriesIds: options.seriesIds, ...(options.episodes ? { episodes: options.episodes } : {}), sourceMode: options.mode, outputDir: output.path },
-            ...(active.aborted ? { code: 'cancelled', message: '下载已取消或超过时限；已验证集和进度已保留，可按原请求继续' } : {}) };
+            ...(active.aborted && firstFailure.code !== 'cleanup_unconfirmed' ? { code: 'cancelled', message: '下载已取消或超过时限；已验证集和进度已保留，可按原请求继续' } : {}) };
         } finally { workers.abort(); await pendingSource; await saveTail; await checkpoint.clearParts(); }
       });
     });

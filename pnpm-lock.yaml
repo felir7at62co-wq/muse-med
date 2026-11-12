@@ -842,6 +842,9 @@ importers:
         specifier: ^8.21.3
         version: 8.21.3
     devDependencies:
+      7zip-bin:
+        specifier: 5.2.0
+        version: 5.2.0
       '@aws-sdk/client-s3':
         specifier: ^3.1143.0
         version: 3.1161.0
@@ -21312,6 +21315,9 @@ importers:
 
 packages:
 
+  7zip-bin@5.2.0:
+    resolution: {integrity: sha512-ukTPVhqG4jNzMro2qA9HSCSSVJN3aN7tlb+hfqYCt3ER0yWroeA2VR38MNrOHLQ/cVj+DaIMad0kFCtWWowh/A==}
+
   '@agentclientprotocol/sdk@1.4.0':
     resolution: {integrity: sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg==}
     peerDependencies:
@@ -29145,6 +29151,8 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  7zip-bin@5.2.0: {}
 
   '@agentclientprotocol/sdk@1.4.0(zod@4.6.6)':
     dependencies:

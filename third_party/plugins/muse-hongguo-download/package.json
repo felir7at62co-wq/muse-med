@@ -25,7 +25,8 @@
     "upstream/",
     "NOTICE",
     "scripts/bundle-upstream.mjs",
-    "LICENSE-Muse-original"
+    "LICENSE-Muse-original",
+    "patches/"
   ],
   "scripts": {
     "test": "node --test tests/*.test.js",

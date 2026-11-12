@@ -21381,8 +21381,10 @@ function rebuildMoov(data, moovOff, moovSize, top) {
             const original = frma && frma.size === frma.hdr + 4 ? data.toString("latin1", frma.off + frma.hdr, frma.off + frma.hdr + 4) : null;
             const avc = children.some((child) => child.typ === "avcC");
             const hevc = children.some((child) => child.typ === "hvcC");
-            newType = original || (avc && !hevc ? "avc1" : hevc && !avc ? "hvc1" : null);
-            if (!["avc1", "avc3", "hvc1", "hev1"].includes(newType) || (newType.startsWith("avc") ? !avc || hevc : !hevc || avc)) {
+            const bvc2 = children.some((child) => child.typ === "bv2C");
+            newType = original || (avc && !hevc && !bvc2 ? "avc1" : hevc && !avc && !bvc2 ? "hvc1" : null);
+            const matchingConfiguration = newType === "bvc2" ? bvc2 && !avc && !hevc : newType?.startsWith("avc") ? avc && !hevc && !bvc2 : hevc && !avc && !bvc2;
+            if (!["avc1", "avc3", "hvc1", "hev1", "bvc2"].includes(newType) || !matchingConfiguration) {
               throw new Error("\u65E0\u6CD5\u786E\u5B9A\u52A0\u5BC6\u89C6\u9891\u7684\u539F\u59CB\u7F16\u7801\uFF08codec\uFF09\uFF0C\u8BF7\u66F4\u6362\u7247\u6E90\u91CD\u8BD5\u3002");
             }
           }
@@ -21487,7 +21489,11 @@ function decryptMp4Buffer(data, key) {
     }
     const ivs = [];
     if (senc) {
+      if (senc.hdr !== 8 || senc.size < 16) throw new Error("Unsupported CENC sample encryption layout");
       const sc = data.readUInt32BE(senc.off + 12);
+      if (data.readUInt32BE(senc.off + 8) !== 0 || sc !== n || senc.size !== 16 + sc * 8) {
+        throw new Error("Unsupported CENC sample encryption layout");
+      }
       for (let i = 0; i < sc; i++) {
         ivs.push(data.subarray(senc.off + 16 + i * 8, senc.off + 24 + i * 8));
       }

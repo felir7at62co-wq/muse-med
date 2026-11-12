@@ -8,7 +8,8 @@ const ranges = {
   requestTimeoutMs: [100, 120000], downloadTimeoutMs: [100, 3600000], callTimeoutMs: [100, 86400000],
   maxResponseBytes: [1024, 33554432], maxEpisodeBytes: [1024, 8589934592], maxSeries: [1, 20],
   concurrency: [1, 8], retries: [0, 4],
-  mediaProcessGraceMs: [1, 10000],
+  mediaProcessGraceMs: [1, 10000], bytevc2Concurrency: [1, 8], bytevc2Threads: [1, 16],
+  decryptionConcurrency: [1, 4], maxDecryptionBytes: [1024, 1073741824], decryptionWorkerHeapMb: [32, 1024],
   retryDelayMs: [0, 60000],
   signerStartupTimeoutMs: [100, 600000], signerHeapMb: [256, 4096],
   signerPollIntervalMs: [1, 1000], signerPortAttempts: [1, 16],
@@ -23,7 +24,8 @@ const defaults = {
   v2PollIntervalMs: 1000, v2RequestTimeoutMs: 120000, v2StartupTimeoutMs: 30000,
   v2ShutdownTimeoutMs: 10000, v2MaxLineBytes: 1048576, v2MaxPendingRequests: 8, v2MaxEpisodesPerJob: 10000, v2EpisodesAtOnce: 1, v2ConnectionsPerFile: 1,
   sourceMode: 'legacy', legacyAppDir: '', signServer: '', signTokenEnv: 'MUSE_HONGGUO_SIGN_TOKEN',
-  pythonExecutable: '', ffmpegExecutable: '', ffprobeExecutable: '',
+  pythonExecutable: '', ffmpegExecutable: '', ffprobeExecutable: '', bytevc2Executable: '', bytevc2Concurrency: 1, bytevc2Threads: 2,
+  decryptionConcurrency: 1, maxDecryptionBytes: 268435456, decryptionWorkerHeapMb: 128,
   javaExecutable: '', signerStartupTimeoutMs: 120000, signerHeapMb: 1024,
   signerPollIntervalMs: 25, signerPortAttempts: 4,
   bootstrapDevices: false, deviceBootstrapTimeoutMs: 30000,
@@ -66,7 +68,7 @@ export function resolveConfig(value = {}) {
   if (config.legacyBackend === 'v2' && (!config.v2RuntimeDir || !config.v2StateDir)) throw new TypeError('v2 后端必须配置 v2RuntimeDir 和 v2StateDir');
   if (!['legacy', 'manifest', 'public'].includes(config.sourceMode)) throw new TypeError('sourceMode 必须是 legacy、manifest 或 public');
   if (!config.mediaUserAgent || config.mediaUserAgent.length > 1024 || /[\r\n\0]/.test(config.mediaUserAgent)) throw new TypeError('mediaUserAgent 必须是非空有效请求头值');
-  for (const key of ['v2RuntimeDir', 'v2StateDir', 'legacyAppDir', 'catalogPath', 'outputRoot', 'pythonExecutable', 'ffmpegExecutable', 'ffprobeExecutable', 'javaExecutable']) {
+  for (const key of ['v2RuntimeDir', 'v2StateDir', 'legacyAppDir', 'catalogPath', 'outputRoot', 'pythonExecutable', 'ffmpegExecutable', 'ffprobeExecutable', 'bytevc2Executable', 'javaExecutable']) {
     if (config[key] && !isAbsolute(config[key])) throw new TypeError(`${key} 必须是绝对路径`);
   }
   if (!/^[A-Z_][A-Z0-9_]*$/.test(config.signTokenEnv)) throw new TypeError('signTokenEnv 必须是环境变量名称');

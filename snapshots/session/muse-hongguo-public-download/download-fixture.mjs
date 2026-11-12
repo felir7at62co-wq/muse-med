@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { registerHooks } from 'node:module'
-import { isAbsolute, join } from 'node:path'
+import { basename, dirname, isAbsolute, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { importSnapshotPackage } from '../muse-fixture-import.mjs'
 import { media, privateMarker, requests, series } from './network-fixture.mjs'
@@ -48,7 +48,9 @@ class CodecFixture extends Service {
     assert.equal(spec.argv[0], process.execPath)
     const probe = spec.argv.includes('-show_entries')
     const path = spec.argv[spec.argv.indexOf('-i') + 1]
-    assert.equal(path, join(spec.cwd, `公开下载测试虚构剧-${series[0]}`, '0001.mp4.part'))
+    assert.equal(dirname(dirname(path)), join(spec.cwd, `公开下载测试虚构剧-${series[0]}`))
+    assert.match(basename(dirname(path)), /^\.media-stage-[a-zA-Z0-9]+$/)
+    assert.equal(basename(path), 'input.part')
     assert.deepEqual(spec.argv, probe
       ? [process.execPath, '-v', 'error', '-show_entries', 'format=duration:stream=codec_type,codec_name,width,height',
         '-of', 'json', '-protocol_whitelist', 'file,pipe', '-i', path]

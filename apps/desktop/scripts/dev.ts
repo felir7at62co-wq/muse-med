@@ -14,6 +14,7 @@ import { copyDevelopmentUserPatch, prepareDevelopmentProject } from './developme
 import { prepareDevelopmentApp } from './development-app.ts'
 import { preparePrimaryRuntime, smokePrimaryRuntime } from './prepare-primary-runtime.ts'
 import { prepareDevelopmentRuntime } from './development-runtime.ts'
+import { prepareBytevc2Runtime, validateBytevc2RuntimeLock } from './prepare-bytevc2-runtime.ts'
 import { resolveDevelopmentProtocolRegistration } from '../src/development-protocol.ts'
 
 const APP_ROOT = resolve(import.meta.dirname, '..')
@@ -143,6 +144,11 @@ async function main(): Promise<void> {
     verify: smokePrimaryRuntime,
   })
   if (primaryRuntime !== undefined) process.env.DSH_DESKTOP_PRIMARY_RUNTIME_DIR = primaryRuntime
+  const runtimeRoot = resolve(developmentRuntimeDirectory(), '..')
+  const bytevc2Lock = validateBytevc2RuntimeLock(JSON.parse(readFileSync(new URL('./bytevc2-runtime.lock.json', import.meta.url), 'utf8')))
+  await prepareBytevc2Runtime({ target: resolveDesktopBuildTarget(), output: join(runtimeRoot, 'bytevc2'),
+    cache: join(APP_ROOT, '.desktop-build', 'downloads', 'bytevc2'), lock: bytevc2Lock })
+  process.env.DSH_DESKTOP_BYTEVC2_RUNTIME_DIR = join(runtimeRoot, 'bytevc2')
   await launchElectron(registerProtocol)
 }
 

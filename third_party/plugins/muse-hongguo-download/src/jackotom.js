@@ -34,13 +34,17 @@ export class JackotomSource {
       if (!info?.url || info.locked || String(info.vid) !== vid) {
         throw new DownloadError('source_unavailable', '红果未返回可用的完整分集片源；已停止请求，已验证文件保留', { sourceStage: 'video_model', retryable: false });
       }
-      if (info.codec === 'bytevc2') throw new DownloadError('unsupported_codec', '此片源使用 ByteVC2；当前 Muse 未配置其解码组件，未下载或降级', { retryable: false });
+      if (info.codec === 'bytevc2' && !this.config.bytevc2Executable) throw new DownloadError('missing_bytevc2_runtime', '此片源使用 ByteVC2；请更新 Muse 或配置 bytevc2Executable，未下载或降级', { retryable: false });
+      if (info.codec === 'bytevc2' && (!Number.isFinite(Number(info.duration)) || Number(info.duration) <= 0
+        || !Number.isSafeInteger(Number(info.width)) || Number(info.width) <= 0 || !Number.isSafeInteger(Number(info.height)) || Number(info.height) <= 0)) {
+        throw new DownloadError('invalid_source_metadata', 'ByteVC2 来源缺少有效时长或画面尺寸；未下载或转换', { retryable: false });
+      }
       const key = info.contentKey || (info.spadeA ? engine.deriveKey(info.spadeA)?.toString('hex') : null);
       if ((info.spadeA && !key) || (key && !/^[a-f\d]{32}$/i.test(key))) throw new DownloadError('invalid_key', '片源解密信息无效', { retryable: false });
       result.set(vid, { url: info.url, expectedBytes: null, headers: { 'user-agent': info.userAgent || engine.UA,
         ...(info.referer ? { referer: info.referer } : {}) }, encryption: key ? { contentKey: key } : null,
         expectedWidth: Number(info.width) || null, expectedHeight: Number(info.height) || null,
-        expectedDuration: Number(info.duration) || null, quality: this.config.quality });
+        expectedDuration: Number(info.duration) || null, quality: this.config.quality, codec: info.codec ?? null });
     }
     return result;
   }

@@ -20,17 +20,26 @@ test('passes requested quality without exposing keys in catalog or changing epis
   const media = (await source.videoUrls([vid], signal(), id)).get(vid);
   assert.equal(options.quality, '1080p'); assert.equal(media.encryption.contentKey, 'a'.repeat(32));
 });
-test('stops on denied source and unsupported codecs before subsequent episode requests', async () => {
+test('stops on denied source and missing decoder configuration before subsequent episode requests', async () => {
   let calls = 0;
   const engine = { fetchPlayUrlSingle: async () => { calls++; return { error: 'private signed URL', url: null }; } };
   const source = new JackotomSource(resolveConfig(), engine);
   await assert.rejects(source.videoUrls([vid, '123'], signal(), id), error => error.code === 'source_unavailable' && !error.message.includes('private'));
   assert.equal(calls, 1);
   engine.fetchPlayUrlSingle = async () => ({ vid, url: 'https://a.qznovelvod.com/video', codec: 'bytevc2' });
-  await assert.rejects(source.videoUrls([vid], signal(), id), { code: 'unsupported_codec' });
+  await assert.rejects(source.videoUrls([vid], signal(), id), { code: 'missing_bytevc2_runtime' });
 });
 test('pre-cancelled source lookup does no work', async () => {
   const controller = new AbortController(); controller.abort(); let calls = 0;
   const source = new JackotomSource(resolveConfig(), { fetchPlayUrlSingle: async () => { calls++; } });
   await assert.rejects(source.videoUrls([vid], controller.signal, id)); assert.equal(calls, 0);
+});
+
+test('ByteVC2 sources reach conversion only with an explicitly configured decoder', async () => {
+  const source = new JackotomSource(resolveConfig({ bytevc2Executable: '/runtime/librempeg' }), {
+    fetchPlayUrlSingle: async () => ({ vid, url: 'https://a.qznovelvod.com/video', codec: 'bytevc2', width: 1080, height: 1920, duration: 12.34 }) });
+  const media = (await source.videoUrls([vid], signal(), id)).get(vid);
+  assert.equal(media.codec, 'bytevc2');
+  assert.equal(media.encryption, null);
+  assert.equal(media.expectedWidth, 1080);
 });

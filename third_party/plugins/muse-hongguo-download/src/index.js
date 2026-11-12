@@ -15,7 +15,7 @@ export function apply(ctx, config = {}) {
       name: method === 'info' ? 'hongguo_download_info' : 'hongguo_download',
       description: method === 'info'
         ? '通过 jackotom/hongguo-drama 开源引擎读取红果系列的真实分集目录。不返回签名地址或密钥；目录完整不表示视频已下载。'
-        : '使用 jackotom/hongguo-drama 引擎下载红果短剧，默认1080p，不自动降级。seriesIds 为十进制字符串；省略 episodes 下载全集，指定则仅下这些集。下载经过容器、尺寸、完整解码和SHA256校验。已验证文件及进度保留，重复同一请求可续下。只读权限拒绝写入，工作区权限仅写工作区，完全权限可写显式外部绝对目录。遇到来源拒绝停止，不盲目重试；ByteVC2 当前明确报未支持。不返回媒体直链、签名、设备信息或解密密钥。部分完成不可称为全集。',
+        : '使用 jackotom/hongguo-drama 引擎下载红果短剧，默认1080p，不自动降级。seriesIds 为十进制字符串；省略 episodes 下载全集，指定则仅下这些集。下载经过容器、尺寸、完整解码和SHA256校验。已验证文件及进度保留，重复同一请求可续下。只读权限拒绝写入，工作区权限仅写工作区，完全权限可写显式外部绝对目录。遇到来源拒绝停止，不盲目重试；ByteVC2 通过内置组件转换为 H.264/AAC 后完整校验；缺少解码组件时停止。不返回媒体直链、签名、设备信息或解密密钥。部分完成不可称为全集。',
       parameters: { type: 'object', additionalProperties: false, required: ['seriesIds'], properties: {
         seriesIds: { type: 'array', items: { type: 'string', pattern: '^[0-9]+$' }, minItems: 1, maxItems: client.config.maxSeries },
         ...(method === 'download' ? { episodes: { type: 'array', items: { type: 'integer', minimum: 1 }, uniqueItems: true, minItems: 1 },

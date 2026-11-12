@@ -307,6 +307,7 @@
     quality: 1080p
     ffprobeExecutable: !!js process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || ''
     ffmpegExecutable: !!js process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || ''
+    bytevc2Executable: !!js process.env.MUSE_HONGGUO_BYTEVC2_PATH || ''
 - id: muse-douyin-download
   name: muse-douyin-download
   config:

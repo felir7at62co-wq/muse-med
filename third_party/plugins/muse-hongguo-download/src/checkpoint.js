@@ -5,6 +5,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rm } from 'node:fs/promises'
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { withFileLock, writeFileAtomic } from '@deepseek-ai/dsh-atomic-write';
 import { DownloadError } from './errors.js';
+import { pendingMediaProcess, mediaCleanupError } from './media-ownership.js';
 import { validateMp4 } from './media.js';
 
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -128,8 +129,10 @@ export class DownloadCheckpoint {
     this.file = join(this.directory, 'resume-state.json');
   }
 
-  /** Load only a matching, versioned checkpoint with complete catalogs and bounded metadata. */
+  /** Refuse unfinished process leases, then load matching versioned metadata with complete catalogs. */
   async read() {
+    const pending = await pendingMediaProcess(this.directory);
+    if (pending) throw mediaCleanupError(pending);
     if (!await regularPath(this.root, this.directory, true)) return null;
     const value = await privateJson(this.file, this.config.maxResponseBytes);
     if (!record(value) || value.version !== 1 || JSON.stringify(value.request) !== JSON.stringify(this.request)
@@ -149,7 +152,11 @@ export class DownloadCheckpoint {
     catch (error) { if (error.code !== 'ENOENT') throw error; }
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     if (!await regularPath(this.root, this.directory, true)) throw new DownloadError('unsafe_path', '续下载目录包含链接或已被替换');
-    try { return await withFileLock(this.file, operation, { waitMs: 0 }); }
+    try { return await withFileLock(this.file, async () => {
+      const pending = await pendingMediaProcess(this.directory);
+      if (pending) throw mediaCleanupError(pending);
+      return operation();
+    }, { waitMs: 0 }); }
     catch (error) {
       if (error.message?.startsWith('atomic-write: timed out')) throw new DownloadError('download_in_progress', '同一下载任务正在运行；请等待原任务，不要并行重复提交');
       throw error;
@@ -169,9 +176,9 @@ export class DownloadCheckpoint {
     await writeFileAtomic(join(this.directory, 'download-manifest.json'), JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
   }
 
-  /** Remove only incomplete owned transfer files; verified episodes and their journal remain resumable. */
+  /** Remove incomplete owned transfer files only when no process lease remains; verified episodes and their journal remain resumable. */
   async clearParts() {
-    if (!await regularPath(this.root, this.directory, true)) return;
+    if (!await regularPath(this.root, this.directory, true) || await pendingMediaProcess(this.directory)) return;
     for (const folder of await readdir(this.directory, { withFileTypes: true })) {
       if (!folder.isDirectory() || folder.isSymbolicLink()) continue;
       const path = join(this.directory, folder.name);

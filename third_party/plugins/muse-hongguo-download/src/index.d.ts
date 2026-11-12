@@ -15,6 +15,8 @@ export interface HongguoDownloadConfig {
   sourceMode?: 'legacy' | 'manifest' | 'public'; legacyAppDir?: string; signServer?: string;
   signTokenEnv?: string; catalogPath?: string; outputRoot?: string; mediaHosts?: string[]; mediaPorts?: number[];
   pythonExecutable?: string; ffmpegExecutable?: string; ffprobeExecutable?: string;
+  bytevc2Executable?: string; bytevc2Concurrency?: number; bytevc2Threads?: number;
+  decryptionConcurrency?: number; maxDecryptionBytes?: number; decryptionWorkerHeapMb?: number;
   javaExecutable?: string; signerStartupTimeoutMs?: number; signerHeapMb?: number;
   signerPollIntervalMs?: number; signerPortAttempts?: number;
   bootstrapDevices?: boolean; deviceBootstrapTimeoutMs?: number;
@@ -31,7 +33,7 @@ export interface DownloadOptions {
 }
 export interface DownloadedEpisode {
   index: number; title: string; path: string; durationSeconds: number | null; bytes: number; sha256: string;
-  sourceBytes: number | null; sourceSha256: string | null; encryptedSource: boolean | null; origin?: 'engine-output';
+  sourceBytes: number | null; sourceSha256: string | null; encryptedSource: boolean | null; convertedFrom?: 'bytevc2'; origin?: 'engine-output';
   format: 'mp4'; validationLevel: 'ffprobe-full-decode-sha256'; fullDecodeChecked: true;
 }
 export interface DownloadFailure {

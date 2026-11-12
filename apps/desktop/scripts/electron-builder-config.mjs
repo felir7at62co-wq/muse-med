@@ -80,7 +80,7 @@ export function createElectronBuilderConfig(
     '**/@deepseek-ai/dsh-drama-skills/**', '**/@deepseek-ai/dsh-desktop-host/skills/**',
     '**/@deepseek-ai/dsh-desktop-host/presets/cordis/skills/**', '**/@openai/codex*/**',
     ...packagesWindows ? ['**/@deepseek-ai/dsh-tool-video-inspect/scripts/**'] : [],
-    '**/muse-douyin-download/python/**', '**/muse-hongguo-download/python/**',
+    '**/muse-douyin-download/python/**', '**/muse-hongguo-download/**',
     '**/muse-reverse-tools/resources/**', '**/muse-fanqie-download/python/**', '**/muse-lvpaopao/native/**',
     `**/node_modules/@deepseek-ai/libreoffice-kit-${resolvedPlatform}-${resolvedArch}/**/*`,
     // LaunchServices requires the notarized helper bundles on disk.

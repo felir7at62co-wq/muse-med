@@ -495,7 +495,10 @@ async function main(): Promise<void> {
       runtime: hongguoRuntime,
       productHome: resolve(paths.root, '..'),
     }))
-    hostEnvironment = { ...hostEnvironment, ...hongguo }
+    const bytevc2Runtime = app.isPackaged ? join(process.resourcesPath, 'runtime', 'bytevc2')
+      : resolve(process.env.DSH_DESKTOP_BYTEVC2_RUNTIME_DIR ?? resolve(primaryRuntime, '..', 'bytevc2'))
+    hostEnvironment = { ...hostEnvironment, ...hongguo, MUSE_HONGGUO_BYTEVC2_PATH:
+      join(bytevc2Runtime, process.platform === 'win32' ? 'librempeg.exe' : 'librempeg') }
   }
   let quitting = false
   let startup: Promise<void> | undefined

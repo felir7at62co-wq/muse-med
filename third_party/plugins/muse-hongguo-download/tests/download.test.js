@@ -13,6 +13,7 @@ import { SourceCatalog } from '../src/source.js';
 import { checkedUrl, isPublicAddress } from '../src/network.js';
 import { parsePlayer } from '../src/parser.js';
 import { DownloadError } from '../src/errors.js';
+import { createMediaLease, mediaCleanupError } from '../src/media-ownership.js';
 
 const box = (type, bytes = Buffer.alloc(0)) => { const header = Buffer.alloc(8); header.writeUInt32BE(bytes.length + 8); header.write(type, 4); return Buffer.concat([header, bytes]); };
 const mp4 = Buffer.concat([box('ftyp', Buffer.from('isom\0\0\0\0isom')), box('moov', box('trak', box('mdia'))), box('mdat', Buffer.from('fixture payload'))]);
@@ -758,7 +759,7 @@ test('a failed prefetched batch retains the current five validated episodes and 
   assert.deepEqual(f.batches.flat().slice(5), Array.from({ length: 7 }, (_, i) => `101v${i + 6}`));
 });
 
-test('a corrupt retained episode is downloaded again while the other verified episodes are reused', async t => {
+test('a changed retained episode is preserved until explicitly removed before recovery', async t => {
   const f = await fixture(t, { count: 7 });
   const original = f.client.mediaOptions.bind(f.client);
   f.client.mediaOptions = (catalog, batch, mode, signal) => batch[0].index === 6
@@ -767,10 +768,17 @@ test('a corrupt retained episode is downloaded again while the other verified ep
   const state = await assertRetained(join(f.root, 'downloads'), 5);
   await writeFile(state.completed.find(item => item.episode.index === 3).episode.path, Buffer.from('corrupt'));
   f.client.mediaOptions = original;
+  const blocked = await f.client.download(first.resume);
+  assert.equal(blocked.code, 'output_exists');
+  const changedPath = state.completed.find(item => item.episode.index === 3).episode.path;
+  assert.equal(await readFile(changedPath, 'utf8'), 'corrupt');
+  await rm(changedPath);
+  const preserved = JSON.parse(await readFile(first.checkpoint, 'utf8')).completed;
+  const missing = Array.from({ length: 7 }, (_, index) => index + 1).filter(index => !preserved.some(item => item.episode.index === index));
   const calls = f.urls.length;
   const result = await f.client.download(first.resume);
-  assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.reusedEpisodeCount, 4); assert.equal(result.newlyDownloadedEpisodeCount, 3);
-  assert.deepEqual(f.urls.slice(calls).filter(call => call.kind === 'media').map(call => new URL(call.value).pathname).sort(), ['/101v3', '/101v6', '/101v7']);
+  assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.reusedEpisodeCount, preserved.length); assert.equal(result.newlyDownloadedEpisodeCount, missing.length);
+  assert.deepEqual(f.urls.slice(calls).filter(call => call.kind === 'media').map(call => new URL(call.value).pathname).sort(), missing.map(index => `/101v${index}`).sort());
 });
 
 test('a complete nested historical receipt is validated and reused without any source or CDN request', async t => {
@@ -810,9 +818,11 @@ test('an invalid checkpoint and an out-of-tree completed record cannot authorize
   state.completed[0].episode.path = external;
   await writeFile(first.checkpoint, JSON.stringify(state));
   const next = await f.client.download({ seriesIds: ['101'] });
-  assert.equal(next.ok, true); assert.equal(next.reusedEpisodeCount, 0); assert.equal(next.newlyDownloadedEpisodeCount, 1);
+  assert.equal(next.ok, false); assert.equal(next.code, 'output_exists');
+  assert.equal(next.reusedEpisodeCount, 0);
+  assert.deepEqual(await readFile(first.items[0].episodes[0].path), mp4);
   assert.equal(await readFile(external, 'hex'), mp4.toString('hex'));
-  await rm(join(next.path, 'download-manifest.json'));
+  await rm(first.items[0].episodes[0].path);
   await writeFile(first.checkpoint, '{invalid');
   const after = await f.client.download({ seriesIds: ['101'] });
   assert.equal(after.ok, true); assert.equal(after.reusedEpisodeCount, 0);
@@ -835,4 +845,81 @@ test('a new client recovers a journal lock left by an exited process without rep
   assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.reusedEpisodeCount, 2);
   assert.equal(result.newlyDownloadedEpisodeCount, 0); assert.equal(f.urls.length, calls);
   assert.ok(!(await readdir(first.path)).includes('resume-state.json.lock'));
+});
+
+test('plain ByteVC2 conversion publishes transformed bytes and keeps source and final hashes distinct', async t => {
+  const converted = Buffer.concat([box('ftyp', Buffer.from('isom\0\0\0\0isom')), box('moov', box('trak', box('mdia'))), box('mdat', Buffer.from('converted H264 payload with AAC'))]);
+  const f = await fixture(t, { count: 1 });
+  const source = f.client.source.videoUrls.bind(f.client.source);
+  f.client.source.videoUrls = async (...args) => {
+    const urls = await source(...args);
+    for (const media of urls.values()) media.codec = 'bytevc2';
+    return urls;
+  };
+  f.client.processMedia = async (media, { inputPath, outputPath }) => {
+    assert.equal(media.codec, 'bytevc2');
+    assert.deepEqual(await readFile(inputPath), mp4);
+    await writeFile(outputPath, converted, { flag: 'wx', mode: 0o600 });
+    return { processedPath: outputPath, durationSeconds: 10, fullDecodeChecked: true, convertedFrom: 'bytevc2',
+      validationLevel: 'ffprobe-full-decode-sha256', cleanup: () => rm(outputPath, { force: true }) };
+  };
+  const result = await f.client.download({ seriesIds: ['101'] });
+  assert.equal(result.ok, true);
+  const episode = result.items[0].episodes[0];
+  assert.equal(episode.convertedFrom, 'bytevc2');
+  assert.equal(episode.encryptedSource, false);
+  assert.equal(episode.sourceSha256, sha256);
+  assert.equal(episode.sourceBytes, mp4.length);
+  assert.equal(episode.sha256, createHash('sha256').update(converted).digest('hex'));
+  assert.equal(episode.bytes, converted.length);
+  assert.deepEqual(await readFile(episode.path), converted);
+  assert.ok(!(await readdir(result.path, { recursive: true })).some(path => path.endsWith('.part')));
+});
+
+test('ByteVC2 conversion refusal preserves an output it did not create', async t => {
+  const f = await fixture(t);
+  const path = join(f.root, 'owned.mp4'), decoded = `${path}.decoded.part`;
+  await writeFile(decoded, 'previous file');
+  f.client.processMedia = async () => { throw new DownloadError('conversion_failed', '转换未启动'); };
+  await assert.rejects(f.client.saveEpisode({ url: 'https://v1.qznovelvod.com/test', codec: 'bytevc2' }, path,
+    emptySignal(), f.root), { code: 'conversion_failed' });
+  assert.equal(await readFile(decoded, 'utf8'), 'previous file');
+});
+
+
+test('unconfirmed native exit preserves staging and blocks fresh clients before network or cleanup', async t => {
+  const f = await fixture(t, { count: 1 });
+  let marker, input, processed;
+  f.client.processMedia = async (_media, { inputPath, outputPath, workspace }) => {
+    marker = await createMediaLease(workspace, [inputPath, outputPath], new Set());
+    await writeFile(outputPath, 'native process may still write');
+    input = inputPath; processed = outputPath;
+    throw mediaCleanupError(marker);
+  };
+  const first = await f.client.download({ seriesIds: ['101'] });
+  assert.equal(first.code, 'cleanup_unconfirmed');
+  assert.equal(first.cleanupPendingPath, marker);
+  assert.deepEqual(await readFile(input), mp4);
+  assert.equal(await readFile(processed, 'utf8'), 'native process may still write');
+  const calls = f.urls.length;
+  const next = new HongguoDownloadClient(f.config, { request: f.request, source: f.client.source, processMedia: fixtureProcessMedia });
+  t.after(() => next.dispose());
+  const retry = await next.download(first.resume);
+  assert.equal(retry.code, 'cleanup_unconfirmed');
+  assert.equal(f.urls.length, calls);
+  assert.equal(await readFile(processed, 'utf8'), 'native process may still write');
+});
+
+test('exclusive publication preserves a destination created while processing was running', async t => {
+  const f = await fixture(t, { count: 1 });
+  let existing;
+  f.client.processMedia = async (_media, { inputPath }) => {
+    existing = join(inputPath, '..', '..', '0001.mp4');
+    await writeFile(existing, 'user-created video', { flag: 'wx' });
+    return { processedPath: inputPath, durationSeconds: 10, fullDecodeChecked: true, validationLevel: 'ffprobe-full-decode-sha256' };
+  };
+  const result = await f.client.download({ seriesIds: ['101'] });
+  assert.equal(result.code, 'output_exists');
+  assert.equal(await readFile(existing, 'utf8'), 'user-created video');
+  assert.equal(result.retainedEpisodeCount, 0);
 });

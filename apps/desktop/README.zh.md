@@ -112,7 +112,7 @@ Host 在加载创作预设前验证内置主运行时，并将抖音下载工具
 
 Desktop Main 与 Host 使用私有协议 9，在 Host 就绪消息及运行时描述中核对。浏览器服务版本 4 提供 `data(agent, selection, signal)`，并要求 `download(agent, url, signal, maxDownloadBytes, nativeTimeoutMs)`。内置插件在 IPC 前拒绝版本 2 和 3；应用与插件必须配套更新。数据观察读取确切作品的有界详情 GET 响应或当前公开页的初始数据；Creator 观察仅读取正常本人作品列表 GET 响应。它返回带精度及不可用原因的公开计数、独立评论分页；响应正文、认证字段、媒体地址与作者标识留在私有进程内。缺失的公开播放量与零占位值均标为不可用。Creator 结果要求字符串作品 ID、同一位置的修改权限和统计中的作品 ID 一致。未核验的归属和不可用评论分页返回明确诊断。可见会话的数据观察及等待模式下载在会话切换、导航、取消或 Host 关闭时等待未完成的读取结束。后台下载使用 Main 持有的隔离 guest，不受聊天及侧栏切换影响；归属结束或取消会撤销 guest 并等待清理。浏览器服务版本 4 通过 supportsBackgroundDownload 声明可选的下载第六参数能力，见[任务升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-download-tasks/guide.zh.md)。数据观察与下载不能同时占用浏览器通道。配套应用及插件的安装见[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-douyin-internal-browser/guide.zh.md)。
 
-开源红果下载提供者使用内置 FFmpeg 和 FFprobe，不调用旧 Java/Python 签名器或 v2 授权。已有哈希锁定的 `runtime/hongguo` 作为番茄等共享 Python 使用者的兼容资源保留；准备与完整性检查由[准备程序](scripts/prepare-hongguo-runtime.ts)负责。
+开源红果下载提供者使用内置 FFmpeg 和 FFprobe，不调用旧 Java/Python 签名器或 v2 授权。ByteVC2 下载使用独立的 `runtime/bytevc2` Librempeg 辅助程序。开发启动器与发布打包通过[准备程序](scripts/prepare-bytevc2-runtime.ts)准备目标平台对应、哈希锁定的上游可执行文件、完整对应源码与原始许可；本机准备会检查 ByteVC2 解码器与 H264 编码器。Host 通过 `MUSE_HONGGUO_BYTEVC2_PATH` 接收其绝对路径。开发启动器将 `DSH_DESKTOP_BYTEVC2_RUNTIME_DIR` 指向当前源码目录的目标运行时；选择 primary-runtime 覆盖目录时，不在覆盖目录旁写入资源。打包版本始终使用内置资源。已有哈希锁定的 `runtime/hongguo` 作为番茄等共享 Python 使用者的兼容资源保留；准备与完整性检查由[准备程序](scripts/prepare-hongguo-runtime.ts)负责。
 
 Desktop 从 ASAR 内技能包的 assets 读取 [Office 技能](../../packages/skill/skill-office/README.zh.md)，其 Python 创作使用上述内置库。Office 资源缺失或无效、Office profile 行无法加载时，都不会阻止 Host 启动。
 
