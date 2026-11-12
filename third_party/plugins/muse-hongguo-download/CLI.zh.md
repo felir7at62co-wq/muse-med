@@ -25,13 +25,20 @@ dsh hongguo resume <task-id>
 dsh hongguo cancel <task-id>
 dsh hongguo retry <task-id>
 dsh hongguo remove <task-id>
+dsh hongguo merge <task-id> --series 7702841940475120702 --episodes 1,2 --mode auto --output combined.mp4
 ```
 
-重复 `--series` 可以选择多部剧。省略 `--episodes` 下载完整目录；选集时输入用逗号分隔的正整数。`--quality` 支持 `1080p`、`720p`、`auto`，固定画质不会自动降低。`--output` 可以是工作区内的相对路径；外部绝对目录需要显式指定 `--permission-mode danger-full-access`，下载器仍核对真实目录并拒绝链接。默认文件权限为工作区写入。
+`info` 和 `download` 通过重复 `--series` 可以选择多部剧。省略 `--episodes` 下载完整目录；选集时输入用逗号分隔的正整数。`--quality` 支持 `1080p`、`720p`、`auto`，固定画质不会自动降低。`--output` 可以是工作区内的相对路径；外部绝对目录需要显式指定 `--permission-mode danger-full-access`，下载器仍核对真实目录并拒绝链接。默认文件权限为工作区写入。
 
 下载、恢复和重试均在前台等待。Ctrl+C 发起取消并等待退出，保留已验证进度；CLI 不创建后台守护程序。暂停和取消绑定精确运行：可以显式传入 `--run-id`，省略时先读取任务状态。`--request-id` 可复用同一停止请求。只有执行者确认停止后才算完成，尚未确认时仍显示 pending；CLI 不会根据任务记录猜测 PID 并结束进程。
 
 新 CLI 任务归专用 profile 的本地操作员所有。`--owner-session` 仅用于明确选择已有 Muse 会话的记录进行查看或控制，不会修改任务归属，也不会为新 CLI 任务伪造会话。应在相同的规范工作区中读取任务。移除任务记录会保留下载的视频。
+
+## Merge
+
+`merge` 只读取原任务中已验证的分集，不补下载缺集，也不修改任务归属。`--series` 选择一部剧；只有任务明确包含一部剧时才能省略。省略 `--episodes` 时沿用原任务选集；原任务未选集时要求完整剧集。缺少指定分集会报错，不会跳过后声称合并完成。
+
+`--mode auto` 自动选择受支持的方法；`copy` 要求音视频流兼容，不满足安全拼接条件时报错；`compatible` 生成 H.264；所选源含音频时使用 AAC。`--output` 只能是原 checkpoint 目录中的 `.mp4` 文件名，开启完全权限也不改变此限制；省略时使用合并器的安全默认名称。已有目标和原始分集均会保留。合并在前台等待，取消及文件验证与聊天工具使用同一流程。
 
 ## Output
 

@@ -284,6 +284,14 @@ export class HongguoDownloadClient {
       checkpointDirectory: new DownloadCheckpoint(output.path, { ...options, sourceIdentity }, this.config).directory };
   }
 
+  /** Reauthorize the frozen output without loading catalogs or contacting its source. */
+  async resolveTaskOutput(request, workspace, filePolicy) {
+    const options = argumentsFor(request, this.config, true);
+    const output = await outputDirectory(workspace, options.outputDir, filePolicy);
+    if (output.path !== request.outputDir) throw new DownloadError('task_source_changed', '下载任务输出目录已变化');
+    return output;
+  }
+
   async requestSpec(args, workspace, filePolicy) {
     const options = argumentsFor(args, this.config, true);
     const output = await outputDirectory(workspace ?? this.config.outputRoot, options.outputDir, filePolicy);

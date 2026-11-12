@@ -90,6 +90,7 @@ async function launchElectron(registerProtocol: '0' | '1'): Promise<void> {
     const executable = prepareDevelopmentApp({ electron, appRoot: APP_ROOT, directory: DEVELOPMENT_ROOT,
       home, museHome, userData, productVersion, registerProtocol,
       primaryRuntime: environment.DSH_DESKTOP_PRIMARY_RUNTIME_DIR!,
+      bytevc2Runtime: environment.DSH_DESKTOP_BYTEVC2_RUNTIME_DIR!,
       mainPort, rendererPort, hostPort, openDevtools: environment.DSH_DESKTOP_OPEN_DEVTOOLS!,
       ...(environment.MUSE_BASE_URL === undefined ? {} : { museBaseUrl: environment.MUSE_BASE_URL }) })
     await run(executable, [], APP_ROOT, environment)

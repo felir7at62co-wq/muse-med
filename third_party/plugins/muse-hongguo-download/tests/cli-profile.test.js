@@ -53,20 +53,23 @@ test('ordinary packed CLI boots through built dsh without an Agent or account su
   const fixtureClient = new HongguoDownloadClient();
   const spec = await fixtureClient.resolveTaskRequest({ seriesIds: ['10001'], quality: 'auto' }, canonicalCwd, policy);
   await fixtureClient.dispose();
-  const folder = join(spec.checkpointDirectory, 'CLI verified cache fixture');
+  const folder = join(spec.checkpointDirectory, "CLI verified cache fixture's");
   await mkdir(folder, { recursive: true });
-  const media = join(folder, '0001.mp4'), ffmpeg = process.env.MUSE_HONGGUO_TEST_FFMPEG ?? 'ffmpeg';
-  const encoded = spawnSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', 'color=c=blue:s=160x90:r=10:d=1', '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', media], { encoding: 'utf8' });
-  assert.equal(encoded.status, 0, encoded.stderr);
-  const decoded = spawnSync(ffmpeg, ['-v', 'error', '-xerror', '-i', media, '-f', 'null', '-'], { encoding: 'utf8' });
-  assert.equal(decoded.status, 0, decoded.stderr);
-  const bytes = await readFile(media), sha256 = createHash('sha256').update(bytes).digest('hex');
-  const episode = { index: 1, title: 'codec fixture', path: media, bytes: bytes.length, sha256,
-    durationSeconds: 1, sourceBytes: bytes.length, sourceSha256: sha256, encryptedSource: false,
-    width: 160, height: 90, quality: '90p', videoCodec: 'h264', format: 'mp4', validationLevel: 'ffprobe-full-decode-sha256', fullDecodeChecked: true };
+  const ffmpeg = process.env.MUSE_HONGGUO_TEST_FFMPEG ?? 'ffmpeg', episodes = [];
+  for (const [offset, color] of ['blue', 'red'].entries()) {
+    const index = offset + 1, media = join(folder, `${String(index).padStart(4, '0')}.mp4`);
+    const encoded = spawnSync(ffmpeg, ['-v', 'error', '-f', 'lavfi', '-i', `color=c=${color}:s=160x90:r=10:d=1`, '-an', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', media], { encoding: 'utf8' });
+    assert.equal(encoded.status, 0, encoded.stderr);
+    const decoded = spawnSync(ffmpeg, ['-v', 'error', '-xerror', '-i', media, '-f', 'null', '-'], { encoding: 'utf8' });
+    assert.equal(decoded.status, 0, decoded.stderr);
+    const bytes = await readFile(media), sha256 = createHash('sha256').update(bytes).digest('hex');
+    episodes.push({ index, title: `codec fixture ${index}`, path: media, bytes: bytes.length, sha256,
+      durationSeconds: 1, sourceBytes: bytes.length, sourceSha256: sha256, encryptedSource: false,
+      width: 160, height: 90, quality: '90p', videoCodec: 'h264', format: 'mp4', validationLevel: 'ffprobe-full-decode-sha256', fullDecodeChecked: true });
+  }
   await writeFile(join(spec.checkpointDirectory, 'download-manifest.json'), JSON.stringify({ ok: true, sourceMode: 'legacy',
     sourceIdentity: spec.sourceIdentity, requestedQuality: 'auto', complete: true, items: [{ seriesId: '10001', title: 'CLI verified cache fixture',
-      source: 'local-codec-test-fixture', episodeCount: 1, downloadedEpisodeCount: 1, complete: true, path: folder, episodes: [episode] }] }));
+      source: 'local-codec-test-fixture', episodeCount: 2, downloadedEpisodeCount: 2, complete: true, path: folder, episodes }] }));
   const taskId = `hgt-${randomUUID().replaceAll('-', '')}`, previousRunId = `hgr-${randomUUID().replaceAll('-', '')}`;
   const store = new TaskStore(canonicalCwd, resolveConfig()), at = new Date().toISOString();
   await store.change(taskId, () => ({ version: 1, kind: 'download', id: taskId, owner: { kind: 'cli', id: identity.id }, cwd: canonicalCwd,
@@ -76,10 +79,48 @@ test('ordinary packed CLI boots through built dsh without an Agent or account su
   assert.equal(resumed.expired, false); assert.equal(resumed.code, 0, resumed.stderr);
   const completed = JSON.parse(resumed.stdout);
   assert.equal(completed.ok, true, resumed.stdout); assert.equal(completed.state, 'completed');
-  assert.equal(completed.reusedEpisodeCount, 1); assert.equal(completed.newlyDownloadedEpisodeCount, 0);
+  assert.equal(completed.reusedEpisodeCount, 2); assert.equal(completed.newlyDownloadedEpisodeCount, 0);
   assert.notEqual(completed.runId, previousRunId);
   assert.deepEqual(completed.task.owner, { kind: 'cli', id: identity.id });
   assert.equal((await store.read(taskId)).state, 'completed');
+  const locate = name => {
+    const located = spawnSync(process.platform === 'win32' ? 'where' : 'which', [name], { encoding: 'utf8' });
+    assert.equal(located.status, 0, `required media test tool: ${name}`);
+    return resolve(located.stdout.trim().split(/\r?\n/)[0]);
+  };
+  env.MUSE_HONGGUO_FFMPEG_PATH = locate(ffmpeg);
+  env.MUSE_HONGGUO_FFPROBE_PATH = locate(process.env.MUSE_HONGGUO_TEST_FFPROBE ?? 'ffprobe');
+  const deniedMerge = await command(resolve(bin), ['--profile', 'hongguo', 'merge', taskId,
+    '--permission-mode', 'read-only', '--output', 'read-only.mp4'], cwd, env);
+  assert.equal(deniedMerge.code, 1, deniedMerge.stderr);
+  assert.equal(JSON.parse(deniedMerge.stdout).code, 'file_access_denied');
+  await assert.rejects(readFile(join(spec.checkpointDirectory, 'read-only.mp4')), { code: 'ENOENT' });
+  const merge = await command(resolve(bin), ['--profile', 'hongguo', 'merge', taskId, '--series', '10001', '--episodes', '2,1', '--mode', 'auto', '--output', 'cli-combined.mp4'], cwd, env);
+  assert.equal(merge.expired, false); assert.equal(merge.code, 0, merge.stderr);
+  const merged = JSON.parse(merge.stdout);
+  assert.equal(merged.ok, true, merge.stdout);
+  assert.equal(merged.fullDecodeChecked, true);
+  assert.deepEqual(merged.episodes, [1, 2], 'the task library orders selected episodes numerically');
+  assert.equal(merged.actualMode, 'copy');
+  assert.equal(merged.path, join(spec.checkpointDirectory, 'cli-combined.mp4'));
+  assert.equal(createHash('sha256').update(await readFile(merged.path)).digest('hex'), merged.sha256);
+  const pixel = time => {
+    const sampled = spawnSync(ffmpeg, ['-v', 'error', '-ss', String(time), '-i', merged.path,
+      '-frames:v', '1', '-vf', 'scale=1:1', '-pix_fmt', 'rgb24', '-f', 'rawvideo', 'pipe:1']);
+    assert.equal(sampled.status, 0, sampled.stderr.toString());
+    assert.equal(sampled.stdout.length, 3);
+    return sampled.stdout;
+  };
+  const firstFrame = pixel(.2), secondFrame = pixel(1.2);
+  assert.ok(firstFrame[2] > firstFrame[0] + 100, 'the first episode remains blue in the merged video');
+  assert.ok(secondFrame[0] > secondFrame[2] + 100, 'the second episode remains red in the merged video');
+  for (const episode of episodes) assert.equal(createHash('sha256').update(await readFile(episode.path)).digest('hex'), episode.sha256, 'merge keeps the original episode bytes');
+  const mergeAgain = await command(resolve(bin), ['--profile', 'hongguo', 'merge', taskId, '--output', 'cli-combined.mp4'], cwd, env);
+  assert.equal(mergeAgain.code, 1, mergeAgain.stderr);
+  assert.equal(JSON.parse(mergeAgain.stdout).ok, false, 'an existing merge destination is never replaced');
+  const missing = await command(resolve(bin), ['--profile', 'hongguo', 'merge', taskId, '--episodes', '1,2,3', '--output', 'missing.mp4'], cwd, env);
+  assert.equal(missing.code, 1, missing.stderr); assert.equal(JSON.parse(missing.stdout).code, 'missing_episodes');
+  await assert.rejects(readFile(join(spec.checkpointDirectory, 'missing.mp4')), { code: 'ENOENT' });
   let sessions = [];
   try { sessions = await readdir(join(home, 'sessions'), { recursive: true }); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }

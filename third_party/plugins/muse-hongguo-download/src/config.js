@@ -2,6 +2,8 @@
 import { isAbsolute } from 'node:path';
 
 const ranges = {
+  maxMergeEpisodes: [1, 10000], maxMergeBytes: [1024, 68719476736], mergeTimeoutMs: [100, 86400000],
+  mergeFrameRate: [1, 60], mergeThreads: [1, 16], mergeCrf: [0, 51], mergeAudioBitrate: [32000, 512000], mergeDurationToleranceMs: [1, 60000],
   taskMaxRecords: [1, 10000], taskMaxStateBytes: [1024, 33554432], taskPollIntervalMs: [20, 60000],
   taskControlWaitMs: [20, 60000], taskLockWaitMs: [0, 60000],
   v2PollIntervalMs: [100, 60000], v2RequestTimeoutMs: [100, 300000], v2StartupTimeoutMs: [100, 300000],
@@ -22,6 +24,8 @@ const ranges = {
   emptySourceCooldownMs: [1000, 600000], resumeSearchDepth: [0, 8], resumeSearchEntries: [1, 100000],
 };
 const defaults = {
+  maxMergeEpisodes: 1000, maxMergeBytes: 8589934592, mergeTimeoutMs: 7200000,
+  mergePreset: 'veryfast', mergeFrameRate: 30, mergeThreads: 2, mergeCrf: 23, mergeAudioBitrate: 128000, mergeDurationToleranceMs: 2000,
   taskDirectory: '.muse-downloads/hongguo', taskMaxRecords: 1000, taskMaxStateBytes: 1048576,
   taskPollIntervalMs: 250, taskControlWaitMs: 10000, taskLockWaitMs: 1000,
   quality: '1080p', legacyBackend: 'v1', v2RuntimeDir: '', v2StateDir: '', v2Quality: '720p',
@@ -65,6 +69,7 @@ export function resolveConfig(value = {}) {
     } else if (typeof entry !== 'string') throw new TypeError(`${key} 必须是字符串`);
     config[key] = Array.isArray(entry) ? [...entry] : entry;
   }
+  if (!['ultrafast', 'superfast', 'veryfast', 'faster', 'fast', 'medium', 'slow', 'slower', 'veryslow'].includes(config.mergePreset)) throw new TypeError('mergePreset 必须是有效的 x264 preset');
   if (!config.taskDirectory || isAbsolute(config.taskDirectory) || /[\\\0]/.test(config.taskDirectory)
     || config.taskDirectory.split('/').some(part => !part || part === '.' || part === '..')) throw new TypeError('taskDirectory 必须是工作区内不含链接的相对目录');
   if (config.mediaConnectionLimit < config.concurrency) throw new TypeError('mediaConnectionLimit 不能小于 concurrency');

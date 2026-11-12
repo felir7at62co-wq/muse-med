@@ -87,3 +87,40 @@ test('an explicit run does not select a newer run and failed status sends no con
 test('CLI refuses a context that was not launched by a dsh profile', () => {
   assert.throws(() => apply({ get: () => undefined }), /dsh profile launcher/);
 });
+
+test('merge parses one source task and leaves omitted episode selection to its recorded request', () => {
+  const request = parseCliArguments(['merge', taskId, '--series', '10001', '--episodes', '3,1', '--mode', 'compatible', '--output', 'combined0.mp4']);
+  assert.deepEqual(request.merge, { taskId, seriesId: '10001', episodes: [3, 1], mode: 'compatible', outputFile: 'combined0.mp4' });
+  const originalSelection = parseCliArguments(['merge', taskId]);
+  assert.deepEqual(originalSelection.merge, { taskId });
+  assert.equal(Object.hasOwn(originalSelection.merge, 'episodes'), false);
+  assert.equal(originalSelection.permissionMode, 'workspace-write');
+});
+
+test('merge rejects foreign paths, several series and options from download', () => {
+  for (const extra of [['--output', '../combined.mp4'], ['--output', '/tmp/combined.mp4'], ['--output', 'C:\\combined.mp4'],
+    ['--output', '.mp4'], ['--output', 'combined'], ['--series', '1', '--series', '2'], ['--mode', 'fast'],
+    ['--quality', '720p'], ['--source-mode', 'legacy']]) {
+    assert.throws(() => parseCliArguments(['merge', taskId, ...extra]), undefined, JSON.stringify(extra));
+  }
+  assert.throws(() => parseCliArguments(['download', '--series', '1', '--mode', 'copy']));
+});
+
+test('merge delegates to its owner once without issuing downloads or replacing the original caller', async () => {
+  const calls = [], expected = { ok: true, path: '/checkpoint/combined.mp4', modeUsed: 'compatible' }, active = signal();
+  const request = parseCliArguments(['merge', taskId, '--series', '10001', '--mode', 'auto', '--output', 'combined.mp4']);
+  const merger = { async merge(args, identity, receivedSignal) { calls.push(['merge', args, identity, receivedSignal]); return expected; } };
+  const forbidden = { download() { throw new Error('merge must not download'); }, control() { throw new Error('merge must not start a download run'); } };
+  const result = await executeCliCommand(request, {}, forbidden, caller, active, value => { calls.push(['progress', value]); }, merger);
+  assert.equal(result, expected); assert.equal(calls.length, 2);
+  assert.equal(calls[0][1].phase, 'started');
+  assert.deepEqual(calls[1], ['merge', request.merge, caller, active]);
+});
+
+test('a missing-episode merge failure is returned without retry or a source download', async () => {
+  let calls = 0;
+  const expected = { ok: false, code: 'missing_episode', message: 'requested episode is missing' };
+  const result = await executeCliCommand(parseCliArguments(['merge', taskId, '--episodes', '1,2']), {}, {}, caller, signal(), undefined,
+    { async merge() { calls++; return expected; } });
+  assert.equal(result, expected); assert.equal(calls, 1);
+});

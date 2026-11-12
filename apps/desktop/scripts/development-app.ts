@@ -16,6 +16,8 @@ export interface DevelopmentAppOptions {
   readonly productVersion: string
   readonly userData: string
   readonly primaryRuntime: string
+  /** Decoder prepared by this checkout, including when the primary runtime is shared. */
+  readonly bytevc2Runtime?: string
   readonly mainPort: number
   readonly rendererPort: number
   readonly hostPort: number
@@ -106,6 +108,7 @@ export function developmentLauncher(options: DevelopmentAppOptions, bundle: stri
     DSH_DESKTOP_HOST_INSPECT_PORT: String(options.hostPort),
     DSH_DESKTOP_OPEN_DEVTOOLS: options.openDevtools,
     DSH_DESKTOP_PRIMARY_RUNTIME_DIR: options.primaryRuntime,
+    DSH_DESKTOP_BYTEVC2_RUNTIME_DIR: options.bytevc2Runtime ?? join(options.primaryRuntime, '..', 'bytevc2'),
     ELECTRON_ENABLE_LOGGING: '1',
     ...(options.museBaseUrl === undefined ? {} : { MUSE_BASE_URL: museOrigin(options.museBaseUrl) }),
   }

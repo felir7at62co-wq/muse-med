@@ -27,6 +27,14 @@ The current workspace keeps private records under `.muse-downloads/hongguo`, con
 
 Use the [CLI profile](CLI.md) for local commands without a model or a shared Desktop account. CLI foreground operations use the same task library; an explicitly selected existing Session owner is limited to that workspace.
 
+## Merge episodes
+
+`hongguo_merge` and the CLI `merge` command assemble one stopped download task's verified episodes without network requests. A multi-series task requires `seriesId`. Omit `episodes` to keep the task's original selected list, or the entire declared series when the task selected all episodes; any missing episode stops the merge. Explicit selections are sorted numerically. Every input must still match its path, size and SHA256 receipt. The source task and checkpoint writer remain locked during the operation.
+
+`mode: auto` copies matching H264/HEVC stream configurations and otherwise selects `compatible`. `copy` rejects differing stream parameters. `compatible` outputs H264, retains no-audio inputs without adding audio, and uses AAC stereo 48 kHz when any episode has audio; silent episodes receive silence. Its common even-sized canvas uses the smallest input dimensions with aspect-preserving scaling and padding. Original episodes remain unchanged. `outputFile` is an optional `.mp4` filename in the original task's checkpoint directory; existing media or receipt files are never overwritten. A successful output includes a separate JSON receipt, selected episode indices, measured dimensions and duration, a full-decoding result and SHA256. A selected subset remains `complete: false`.
+
+`maxMergeEpisodes` defaults to 1000 and `maxMergeBytes` to 8 GiB; the byte limit bounds source plus normalized staging files and separately the final MP4. `mergeTimeoutMs` defaults to two hours, `mergeThreads` to 2, `mergePreset` to `veryfast`, `mergeFrameRate` to 30, `mergeCrf` to 23, `mergeAudioBitrate` to 128000 and `mergeDurationToleranceMs` to 2000. Duration differences are limited to the smaller of the configured tolerance and the larger of two output frames or one percent of selected duration. Merge cancellation waits for native exit; unknown cleanup retains staging and its process lease and blocks reuse. Current permissions are checked again, including full access for an external output directory.
+
 ## Model Experience
 
 If process exit cannot be confirmed, `cleanup_unconfirmed` retains private staging and a durable process lease. Restarted downloads refuse that lease until its process and files have been inspected. Existing destination files are never overwritten.

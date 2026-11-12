@@ -589,7 +589,7 @@ test('host tools obtain the workspace from the initiating session and declare ca
     tools: { register(value) { tools.push(value); return () => {}; } }, agents: { requireInitiator() { return agent; }, get(id) { return id === agent.id ? agent : undefined; } },
     subprocess: { spawn() { throw new Error('Unexpected subprocess before source configuration'); } }, effect(factory) { cleanup.push(factory()); } });
   t.after(() => Promise.all(cleanup.map(fn => fn())));
-  assert.deepEqual(tools.map(item => item.name), ['hongguo_download_info', 'hongguo_download', 'hongguo_download_task']);
+  assert.deepEqual(tools.map(item => item.name), ['hongguo_download_info', 'hongguo_download', 'hongguo_download_task', 'hongguo_merge']);
   assert.equal(tools[1].presentCall().kind, 'write');
   const result = await tools[1].execute({ seriesIds: ['123'] }, { signal: emptySignal() });
   assert.equal(result.code, 'file_access_denied');

@@ -6,7 +6,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { withFileLock } from '@deepseek-ai/dsh-atomic-write';
 import { resolveConfig } from './config.js';
 import { safeError } from './errors.js';
-import { pendingMediaProcess } from './media-ownership.js';
+import { pendingMediaProcess, mediaCleanupError } from './media-ownership.js';
+import { DownloadCheckpoint } from './checkpoint.js';
 import { TaskStore, taskError, validTaskId, validRunId } from './task-store.js';
 const activeStates = ['queued', 'running'];
 const inside = (root, path) => { const part = relative(root, path); return !isAbsolute(part) && part !== '..' && !part.startsWith(`..${sep}`); };
@@ -300,6 +301,36 @@ export class HongguoTasks {
       await delay(this.config.taskPollIntervalMs, undefined, { signal });
     }
   }
+  /** Hold a stopped download and its current output authorization for an offline consumer. */
+  async withStoppedTask(taskId, caller, signal, operation) {
+    const active = AbortSignal.any([this.lifetime.signal, ...(signal ? [signal] : [])]);
+    const work = this.stoppedTask(taskId, caller, active, operation);
+    this.controls.add(work);
+    try { return await work; } finally { this.controls.delete(work); }
+  }
+  async stoppedTask(taskId, caller, signal, operation) {
+    signal.throwIfAborted();
+    if (this.closing) throw taskError('task_unloading', '红果任务管理正在停止');
+    const context = await this.caller(caller, true);
+    const initial = await this.read(context, taskId);
+    if (activeStates.includes(initial.state) || initial.state === 'blocked') throw taskError('task_locked', '下载仍在运行或清理未确认');
+    try {
+      return await withFileLock(context.store.runPath(taskId), async () => {
+        signal?.throwIfAborted();
+        const task = await this.read(context, taskId, false), live = await this.caller(caller, true);
+        if (live.cwd !== task.cwd || ownerKey(live.owner) !== ownerKey(task.owner)) throw taskError('task_forbidden', '下载任务所有者或工作区已变化');
+        if (activeStates.includes(task.state) || task.state === 'blocked') throw taskError('task_locked', '下载仍在运行或清理未确认');
+        const output = await this.client.resolveTaskOutput(task.request, task.cwd, live.policy);
+        const checkpoint = new DownloadCheckpoint(output.path, { mode: task.request.sourceMode, seriesIds: task.request.seriesIds,
+          episodes: task.request.episodes ?? null, sourceIdentity: task.sourceIdentity }, this.config);
+        if (checkpoint.directory !== task.checkpointDirectory) throw taskError('task_state_invalid', '下载进度目录与固定任务请求不一致');
+        const pending = await pendingMediaProcess(checkpoint.directory);
+        if (pending) throw mediaCleanupError(pending);
+        return checkpoint.locked(() => operation({ task, cwd: task.cwd, policy: live.policy, output, checkpoint, signal }));
+      }, { waitMs: 0, signal });
+    } catch (error) { if (locked(error)) throw taskError('task_locked', '下载任务仍由另一操作占用'); throw error; }
+  }
+
   /** Stop admission and await owned downloads, process cleanup and state publication. */
   async dispose() {
     this.closing = true; this.lifetime.abort();

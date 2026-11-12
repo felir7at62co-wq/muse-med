@@ -21,7 +21,11 @@
       "types": "./src/tasks.d.ts",
       "default": "./src/tasks.js"
     },
-    "./profiles/hongguo/*": "./profiles/hongguo/*"
+    "./profiles/hongguo/*": "./profiles/hongguo/*",
+    "./merger": {
+      "types": "./src/merger.d.ts",
+      "default": "./src/merger.js"
+    }
   },
   "files": [
     "src/",

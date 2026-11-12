@@ -2,6 +2,7 @@
 import { HongguoDownloadClient } from './client.js';
 import { resolveConfig } from './config.js';
 import { HongguoTasks } from './tasks.js';
+import { HongguoMerger } from './merger.js';
 export const name = 'muse-hongguo-download';
 export const inject = ['tools', 'agents', 'subprocess'];
 export { HongguoDownloadClient, resolveConfig } from './client.js';
@@ -11,7 +12,12 @@ export function apply(ctx, config = {}) {
   const client = new HongguoDownloadClient(resolveConfig(config), { subprocess: ctx.subprocess });
   const tasks = new HongguoTasks(config, { client, jobs: ctx.get('jobs'), agents: ctx.agents,
     resolvePolicy: agent => ctx.get('sandboxPolicy')?.resolve({ session: agent.session }) });
-  ctx.effect(() => async () => { await tasks.dispose(); await client.dispose(); }, 'hongguo-download: abort and await cleanup');
+  const merger = new HongguoMerger({ tasks, subprocess: ctx.subprocess, config });
+  ctx.effect(() => async () => {
+    const outcomes = await Promise.allSettled([merger.dispose(), tasks.dispose(), client.dispose()]);
+    const errors = outcomes.filter(outcome => outcome.status === 'rejected').map(outcome => outcome.reason);
+    if (errors.length) throw new AggregateError(errors, 'Hongguo plugin cleanup failed');
+  }, 'hongguo-download: abort and await cleanup');
   for (const method of ['info', 'download']) {
     const title = method === 'info' ? '检查红果剧集目录' : '下载红果短剧';
     ctx.effect(() => ctx.tools.register({
@@ -55,4 +61,22 @@ export function apply(ctx, config = {}) {
     presentCall(args) { return { card: 'generic', title: '管理红果下载任务', kind: ['list', 'status'].includes(args.action) ? 'read' : 'write' }; },
     presentResult(_args, result) { return { card: 'generic', title: '管理红果下载任务', content: result.content }; },
   }), 'hongguo-download: task controls');
+  ctx.effect(() => ctx.tools.register({
+    name: 'hongguo_merge',
+    description: '将当前会话和工作区中已有红果下载任务的分集合并为一个MP4。taskId使用下载工具返回的任务ID；多剧任务须选seriesId。episodes省略时合并原任务选集或该剧完整目录，缺集停止，不自动补下载；显式选集按数字顺序合并。每个输入重新检查原回执、路径、大小和SHA256。auto仅在流参数完全一致时直接拼接，否则统一为H.264/AAC；copy不兼容时拒绝；compatible统一格式。outputFile仅为.mp4文件名，保存在原任务下载目录；已有文件不覆盖，原始分集保留。只读权限拒绝，外部目录仍须当前完全权限。前台等待完整解码、时长和SHA256验证后返回，部分选集不可称为全集。',
+    parameters: { type: 'object', additionalProperties: false, required: ['taskId'], properties: {
+      taskId: { type: 'string', pattern: '^hgt-[a-f0-9]{32}$' },
+      seriesId: { type: 'string', pattern: '^[0-9]+$' },
+      episodes: { type: 'array', items: { type: 'integer', minimum: 1 }, minItems: 1,
+        maxItems: client.config.maxMergeEpisodes, uniqueItems: true },
+      mode: { type: 'string', enum: ['auto', 'copy', 'compatible'] },
+      outputFile: { type: 'string', description: '原任务下载目录中的MP4文件名，不含路径；省略使用按剧和集号生成的名称' },
+    } },
+    output: { schema: { type: 'object', additionalProperties: true, required: ['ok'], properties: { ok: { type: 'boolean' } } },
+      render: (_args, value) => [{ type: 'text', text: JSON.stringify(value, null, 2) }] },
+    timeoutMs: client.config.mergeTimeoutMs,
+    execute: (args, exec) => merger.merge(args, { kind: 'session', agent: ctx.agents.requireInitiator() }, exec.signal),
+    presentCall() { return { card: 'generic', title: '合并红果分集', kind: 'write' }; },
+    presentResult(_args, result) { return { card: 'generic', title: '合并红果分集', content: result.content }; },
+  }), 'hongguo-download: merge');
 }

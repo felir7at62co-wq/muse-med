@@ -8,6 +8,8 @@ import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess';
 
 /** Deployment fields never store signing credentials. */
 export interface HongguoDownloadConfig {
+  maxMergeEpisodes?: number; maxMergeBytes?: number; mergeTimeoutMs?: number; mergeThreads?: number;
+  mergePreset?: string; mergeFrameRate?: number; mergeCrf?: number; mergeAudioBitrate?: number; mergeDurationToleranceMs?: number;
   taskDirectory?: string; taskMaxRecords?: number; taskMaxStateBytes?: number; taskPollIntervalMs?: number;
   taskControlWaitMs?: number; taskLockWaitMs?: number;
   quality?: '1080p' | '720p' | 'auto';
@@ -68,6 +70,7 @@ export class HongguoDownloadClient {
   readonly config: Readonly<Required<HongguoDownloadConfig>>;
   info(options: Pick<DownloadOptions, 'seriesIds' | 'sourceMode'>, signal?: AbortSignal): Promise<DownloadInfo | DownloadFailure>;
   resolveTaskRequest(options: DownloadOptions, workspace: string, filePolicy: SandboxExecutionPolicy): Promise<{ request: DownloadOptions & { quality: '1080p' | '720p' | 'auto'; sourceMode: 'legacy' | 'manifest' | 'public'; outputDir: string }; sourceIdentity: string | null; checkpointDirectory: string }>;
+  resolveTaskOutput(request: DownloadOptions & { outputDir: string }, workspace: string, filePolicy: SandboxExecutionPolicy): Promise<{ path: string; create(): Promise<void> }>;
   download(options: DownloadOptions, signal?: AbortSignal, workspace?: string, filePolicy?: SandboxExecutionPolicy, observer?: { onProgress?(progress: Record<string, number | string | boolean>): void | Promise<void> }): Promise<DownloadResult | DownloadFailure>;
 
   dispose(): Promise<void>;
@@ -79,3 +82,5 @@ export function resolveConfig(config?: HongguoDownloadConfig): Readonly<Required
 export function apply(ctx: Context, config?: HongguoDownloadConfig): void;
 
 export type { HongguoTaskId, HongguoRunId, HongguoTaskCaller, HongguoTaskEnvelope, HongguoTaskResult } from './tasks.js';
+
+export type { HongguoMergeOptions, HongguoMergeResult } from './merger.js';

@@ -261,6 +261,49 @@
       }
     },
     {
+      "name": "hongguo_merge",
+      "description": "将当前会话和工作区中已有红果下载任务的分集合并为一个MP4。taskId使用下载工具返回的任务ID；多剧任务须选seriesId。episodes省略时合并原任务选集或该剧完整目录，缺集停止，不自动补下载；显式选集按数字顺序合并。每个输入重新检查原回执、路径、大小和SHA256。auto仅在流参数完全一致时直接拼接，否则统一为H.264/AAC；copy不兼容时拒绝；compatible统一格式。outputFile仅为.mp4文件名，保存在原任务下载目录；已有文件不覆盖，原始分集保留。只读权限拒绝，外部目录仍须当前完全权限。前台等待完整解码、时长和SHA256验证后返回，部分选集不可称为全集。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "taskId"
+        ],
+        "properties": {
+          "taskId": {
+            "type": "string",
+            "pattern": "^hgt-[a-f0-9]{32}$"
+          },
+          "seriesId": {
+            "type": "string",
+            "pattern": "^[0-9]+$"
+          },
+          "episodes": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "minItems": 1,
+            "maxItems": 1000,
+            "uniqueItems": true
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "copy",
+              "compatible"
+            ]
+          },
+          "outputFile": {
+            "type": "string",
+            "description": "原任务下载目录中的MP4文件名，不含路径；省略使用按剧和集号生成的名称"
+          }
+        }
+      }
+    },
+    {
       "name": "job_kill",
       "description": "Request cancellation of a running background job.",
       "parameters": {

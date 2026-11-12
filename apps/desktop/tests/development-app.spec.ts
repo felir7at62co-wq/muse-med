@@ -12,16 +12,17 @@ it.skipIf(process.platform === 'win32')('passes literal workspace paths and cold
   const bundle = join(root, "Harness ' $(false).app")
   const binary = join(bundle, 'Contents', 'MacOS', 'Electron')
   mkdirSync(join(bundle, 'Contents', 'MacOS'), { recursive: true })
-  writeFileSync(binary, '#!/bin/sh\nprintf "%s\\n" "$DSH_HOME" "$DSH_DESKTOP_DEV_APP" "$DSH_DESKTOP_DEV_REGISTER_PROTOCOL" "$DSH_DESKTOP_OPEN_DEVTOOLS" "$DSH_DESKTOP_PRIMARY_RUNTIME_DIR" "$MUSE_BASE_URL" "$@"\n', { mode: 0o755 })
+  writeFileSync(binary, '#!/bin/sh\nprintf "%s\\n" "$DSH_HOME" "$DSH_DESKTOP_DEV_APP" "$DSH_DESKTOP_DEV_REGISTER_PROTOCOL" "$DSH_DESKTOP_OPEN_DEVTOOLS" "$DSH_DESKTOP_PRIMARY_RUNTIME_DIR" "$DSH_DESKTOP_BYTEVC2_RUNTIME_DIR" "$MUSE_BASE_URL" "$@"\n', { mode: 0o755 })
   const launcher = join(root, 'launcher')
   const home = join(root, "home ' $(false)")
   writeFileSync(launcher, developmentLauncher({ electron: binary, appRoot: root, directory: root,
     home, museHome: home, productVersion: '1.2.8', userData: join(root, 'browser data'), primaryRuntime: join(root, 'primary runtime'),
-    mainPort: 9229, rendererPort: 9222, hostPort: 9230, openDevtools: '0', registerProtocol: '0', museBaseUrl: 'http://127.0.0.1:29388' }, bundle))
+    bytevc2Runtime: join(root, "decoder ' $(false)"), mainPort: 9229, rendererPort: 9222, hostPort: 9230,
+    openDevtools: '0', registerProtocol: '0', museBaseUrl: 'http://127.0.0.1:29388' }, bundle))
   const result = execFileSync('/bin/sh', [launcher, '--test-launch-argument'], {
-    encoding: 'utf8', env: { ...process.env, DSH_DESKTOP_DEV_REGISTER_PROTOCOL: '1' },
+    encoding: 'utf8', env: { ...process.env, DSH_DESKTOP_DEV_REGISTER_PROTOCOL: '1', DSH_DESKTOP_BYTEVC2_RUNTIME_DIR: '/stale-parent-decoder' },
   })
-  expect(result.trimEnd().split('\n')).toEqual([home, '1', '0', '0', join(root, 'primary runtime'), 'http://127.0.0.1:29388', '--inspect=127.0.0.1:9229',
+  expect(result.trimEnd().split('\n')).toEqual([home, '1', '0', '0', join(root, 'primary runtime'), join(root, "decoder ' $(false)"), 'http://127.0.0.1:29388', '--inspect=127.0.0.1:9229',
     '--remote-debugging-port=9222', `--user-data-dir=${join(root, 'browser data')}`, root, '--test-launch-argument'])
 })
 

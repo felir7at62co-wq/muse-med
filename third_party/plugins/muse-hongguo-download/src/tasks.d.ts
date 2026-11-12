@@ -36,5 +36,7 @@ export class HongguoTasks {
   }): Promise<HongguoTaskResult | ((DownloadResult | DownloadFailure) & HongguoTaskResult)>;
   control(args: { action: 'list' | 'status' | 'pause' | 'resume' | 'cancel' | 'retry' | 'remove'; taskId?: HongguoTaskId;
     expectedRunId?: HongguoRunId; requestId?: string; mode?: 'wait' | 'background' }, caller: HongguoTaskCaller, signal?: AbortSignal, execMeta?: { callId?: string; rootCallId?: string }): Promise<HongguoTaskResult>;
+  /** Hold the stopped task and media writer locks while a same-package consumer owns offline work. */
+  withStoppedTask<T>(taskId: HongguoTaskId, caller: HongguoTaskCaller, signal: AbortSignal, operation: (context: { signal: AbortSignal; task: Pick<HongguoTaskEnvelope, 'id' | 'kind' | 'owner' | 'cwd' | 'request' | 'state'> & { sourceIdentity: string | null; checkpointDirectory: string }; cwd: string; policy: SandboxExecutionPolicy; output: { path: string; create(): Promise<void> }; checkpoint: { directory: string; read(): Promise<object | null> } }) => Promise<T>): Promise<T>;
   dispose(): Promise<void>;
 }

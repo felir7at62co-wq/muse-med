@@ -29,6 +29,14 @@ description: "使用固定版本的 GPL 引擎和 Muse 会话权限下载红果�
 
 [CLI profile](CLI.md) 提供不调用模型、不共用 Desktop 账号的本地命令。CLI 前台操作复用同一任务库，显式选择已有会话所有者时仍限定在该工作区。
 
+## 合并分集
+
+`hongguo_merge` 与 CLI 的 `merge` 命令从已停止下载任务的验证回执中合并分集，不访问网络。多剧任务须指定 `seriesId`。省略 `episodes` 保留原任务的选集；原任务选全集时则使用完整目录，缺少任一集即停止。显式选集按数字排序。每个输入重新核对路径、大小与 SHA256，合并期间持有原任务与下载进度的写入锁。
+
+`mode: auto` 在 H264/HEVC 流配置完全一致时直接拼接，否则使用 `compatible`。`copy` 遇不同流参数拒绝。`compatible` 输出 H264；全部无音频时保留无音轨，否则使用 AAC 双声道 48 kHz，并为无音轨分集补静音。共同的偶数画布取各输入最小尺寸，保持宽高比缩放并补边。原分集不变。`outputFile` 可指定原任务下载进度目录中的 `.mp4` 文件名，已有视频或回执不覆盖。成功结果另附 JSON 回执、所选集号、实测尺寸和时长、完整解码验证及 SHA256。只选部分集时保持 `complete: false`。
+
+`maxMergeEpisodes` 默认 1000，`maxMergeBytes` 默认 8 GiB；字节上限约束源文件与归一化文件的暂存合计，并单独约束最终 MP4。`mergeTimeoutMs` 默认两小时，`mergeThreads` 为 2，`mergePreset` 为 `veryfast`，`mergeFrameRate` 为 30，`mergeCrf` 为 23，`mergeAudioBitrate` 为 128000，`mergeDurationToleranceMs` 为 2000。时长差异取配置容差与“两输出帧或所选总时长百分之一的较大值”中较小者。取消会等待原生进程退出；清理未知时保留暂存和进程标记并阻止复用。合并重验当前权限，外部输出目录仍须完全权限。
+
 ## 模型体验
 
 无法确认进程退出时，`cleanup_unconfirmed` 保留私有暂存目录及持久进程记录；重启后仍拒绝复用，需先检查对应进程和文件。已有目标文件不会被覆盖。
