@@ -1181,6 +1181,14 @@ async dispatch(main: Agent, request: DispatchRequest): Promise<CoordinationTask>
 @Remote list(sessionId: SessionId): CoordinationTask[]
 
 /**
+ * Capture an owner-verified report without accepting model-authored status or files.
+ * @param main - Actual live Main Agent with a local owner request.
+ * @param taskIds - Exact owned goals; omission or an empty list selects recent goals.
+ * @returns Complete task facts bounded by searchLimit and the combined readChars model-result/metadata budget.
+ */
+async displayReport(main: Agent, taskIds: readonly CoordinationTaskId[] = []): Promise<CoordinationReport>
+
+/**
  * Observe complete owner-only task snapshots; no model polling or wake loop.
  * @param sessionId - Main Session selecting the task directory.
  * @param signal - Client cancellation; plugin unload also closes the stream.

@@ -1114,6 +1114,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   ApprovedVideoSourceRequest: 'approved original-key source batches are owned by packages/jubian/tool-jubian/README.md and src/types.ts',
   CoordinationTask: 'Muse coordination records and routing operations are owned by packages/session/session-coordinator/README.md',
   CoordinationTaskId: 'Muse coordination records and routing operations are owned by packages/session/session-coordinator/README.md',
+  CoordinationReport: 'Muse owner-verified report receipts are owned by packages/session/session-coordinator/README.md',
   DispatchRequest: 'Muse coordination records and routing operations are owned by packages/session/session-coordinator/README.md',
   WorkerReport: 'Muse coordination records and routing operations are owned by packages/session/session-coordinator/README.md',
   SessionVideoInventory: 'recorded video inventory and coverage fields are owned by packages/drama/session-video/README.md',

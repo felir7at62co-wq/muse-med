@@ -1,5 +1,6 @@
 /** Routing-only preset capabilities, enforced independently of prompt wording. */
 import { apply as applyPolicy } from './policy.ts'
+import { installDisplayTools } from './display-tools.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
@@ -31,6 +32,7 @@ export async function apply(ctx: Context): Promise<void> {
   applyPolicy(ctx)
   const fiber = ctx.inject(['sessionCoordinator'], (scope) => {
     const service = scope.sessionCoordinator
+    installDisplayTools(scope, service)
     scope.tools.register(defineTool({
       name: 'coordinator_sessions', description: 'Search the local owner’s ordinary Sessions across workspaces; no Session is resumed. Empty query lists recent candidates.',
       parameters: { query: { type: 'string', required: true } }, output,

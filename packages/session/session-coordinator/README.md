@@ -24,11 +24,13 @@ Mount the default export on the Host and `/worker` alongside ordinary tools. Com
 
 `mainPreset` and `workerPreset` select distinct roles; `searchLimit` bounds search rows and `readChars` bounds each raw history page, allowing one oversized event intact. Search and read are local profile-owner capabilities across working directories. They never open remote accounts or grant access to another user's profile. The Remote methods require global owner access; scoped guest grants do not authorize the task directory.
 
-Main's positive capability list admits only coordination tools and `ask_user_question`. An execution guard also rejects other tools, including late registrations and the PTC transport. Workers are created through the ordinary Session controller, outside Main's restrictive scope. Business planning, technical decisions and review are delegated too.
+Main's positive capability list admits coordination tools, `ask_user_question`, `show_view` and `visualize`. The fixed `coordinator_display_skill` loader reads only the model-invocable `visualize` Skill through the native registry; general `skill`, file and shell tools remain unavailable. An execution guard also rejects other tools, including late registrations and the PTC transport. Workers are created through the ordinary Session controller, outside Main's restrictive scope. Business planning, technical decisions and review are delegated too.
 
 Routing instructions are tagged relay context. Only Host-verified original human messages retain their original user attribution and unchanged content; coordinator-authored instructions never become human authorization. Dispatch includes the exact original human message and attachments, all earlier revision requirements, routing instructions and the saved video-model key when present. A fresh worker receives Main's dialogue-model selection; reusing a worker preserves its dialogue model. A saved video selection is applied through the worker's native selection service before input delivery. Missing or unavailable selection support rejects delivery instead of silently defaulting.
 
 An existing worker must be idle, have no pending input or live owned jobs, and have no unsettled coordination task. Archived Sessions and subagents are reference-only. The agent chooses another worker when reuse is unavailable. A revision requires the expected revision and settlement or an explicit stop of its predecessor; it cannot silently steer over an in-flight assignment.
+
+`coordinator_show_report` captures owner-verified task IDs, current revisions, worker Sessions, status and native file declarations in versioned tool-result metadata. Omitted or empty IDs select recent tasks; `searchLimit` also bounds reports, with explicit total and truncation fields. The combined serialized model result and metadata are bounded by `readChars`; only complete task receipts are retained, and an oversized first task fails instead of cutting its summary or files. Unknown, foreign, duplicate or excessive IDs fail. The model cannot provide completion flags, percentages or artifact paths. The Client renders inline cards and can follow the same captured revision through the existing task watch; later revisions never replace an earlier receipt. Main reports key progress, deliveries and exceptions rather than every execution step.
 
 The Muse spider entry below New Session opens one retained Main Session per profile in Muse's existing default Workspace. Creation goes through the native Workspace and Session controllers; repeated clicks and plugin restarts reuse its stable identity. Workers keep their selected project directories.
 
@@ -48,11 +50,11 @@ Stop persists `stopping`, removes unconsumed assigned input, cancels the assigne
 
 #### What the model sees
 
-Main receives routing instructions plus `coordinator_sessions`, `coordinator_read`, `coordinator_dispatch`, `coordinator_tasks` and `coordinator_stop`. Workers receive a logged `muse-coordination` assignment followed by the unchanged verified human messages, and use `coordinator_report` for an explicit outcome. Read pages include an explicit continuation cursor. Reports distinguish delivered, running, finishing, interrupted, stopped and worker-reported completion.
+Main receives routing instructions plus `coordinator_sessions`, `coordinator_read`, `coordinator_dispatch`, `coordinator_tasks`, `coordinator_stop`, `coordinator_show_report` and `coordinator_display_skill`. Where installed, `show_view` and `visualize` remain resident and excluded from Tool Search. Workers receive a logged `muse-coordination` assignment followed by the unchanged verified human messages, and use `coordinator_report` for an explicit outcome. Read pages include an explicit continuation cursor. Reports distinguish delivered, running, finishing, interrupted, stopped and worker-reported completion.
 
 #### Token effect
 
-History enters only when requested. Dispatch repeats the original task material and revision requirements in the chosen worker; terminal receipts add one bounded account to Main. The task watch does not call a model.
+History enters only when requested. Dispatch repeats the original task material and revision requirements in the chosen worker; terminal receipts add one bounded account to Main. Report cards append the selected bounded receipt as ordinary logged tool output. The task watch does not call a model.
 
 #### KV Cache effect
 

@@ -58,6 +58,27 @@ export interface CoordinationTask {
   readonly attempts: readonly Assignment[]
 }
 
+/** Display facts captured from one authoritative task revision. */
+export interface ReportTask {
+  readonly id: CoordinationTaskId
+  readonly title: string
+  readonly revision: number
+  readonly sessionId: SessionId
+  readonly cwd: string
+  readonly status: AssignmentStatus
+  readonly report: WorkerReport | null
+  readonly issue: string | null
+}
+
+/** Versioned report receipt retained in a tool result for offline chat replay. */
+export interface CoordinationReport {
+  readonly version: 1
+  readonly owner: SessionId
+  readonly tasks: readonly ReportTask[]
+  readonly total: number
+  readonly truncated: boolean
+}
+
 /** Agent-selected routing decision. Omitted target creates an ordinary worker. */
 export interface DispatchRequest {
   readonly key: string

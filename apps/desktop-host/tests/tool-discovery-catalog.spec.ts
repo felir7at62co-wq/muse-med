@@ -165,7 +165,7 @@ it('recalls the registered Lvpaopao background controls without contacting the n
 })
 
 it('removes Bot-only tools from product discovery while retaining native questions and task controls', () => {
-  expect(config.excludeFromSearch).toEqual(expect.arrayContaining(['ask_user_question', 'show_view', 'visualize']))
+  expect(config.excludeFromSearch).toEqual(expect.arrayContaining(['ask_user_question', 'show_view', 'visualize', 'coordinator_show_report', 'coordinator_display_skill']))
   for (const name of ['list_bots', 'message_bot', 'stop_bot', 'create_bot', 'update_bot', 'list_bot_models',
     'create_group', 'update_group', 'delete_group', 'post_to_group', 'ask_user', 'request_secret',
     'list_secrets', 'group_relay', 'read_own_chat', 'read_group_chat', 'remember', 'forget', 'recall', 'read_browser',

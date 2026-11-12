@@ -38,7 +38,9 @@
         "@deepseek-ai/dsh-client-ui-workspace",
         "@deepseek-ai/dsh-client-resources",
         "@deepseek-ai/dsh-api-remotes",
-        "@deepseek-ai/dsh-client-ui-sidebar"
+        "@deepseek-ai/dsh-client-ui-sidebar",
+        "@deepseek-ai/dsh-client-ui-tool",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
       ],
       "platform": "web"
     }
@@ -76,7 +78,12 @@
     "@deepseek-ai/dsh-brand": "workspace:*",
     "@deepseek-ai/dsh-client-ui-layout": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
-    "@deepseek-ai/dsh-client-ui-sidebar": "workspace:*"
+    "@deepseek-ai/dsh-client-ui-sidebar": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-tool": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-sidebar-right": "workspace:*",
+    "@deepseek-ai/dsh-util-workspace-path": "workspace:*",
+    "@deepseek-ai/dsh-client-ui-chat": "workspace:*",
+    "@deepseek-ai/dsh-util-values": "workspace:*"
   },
   "files": [
     "locale/*.json",

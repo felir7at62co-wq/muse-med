@@ -1,5 +1,5 @@
 /** Real Web composition: native workers, owner-only task resources and reversible UI. */
-import { mkdir } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import { chromium, type Browser, type Page } from 'playwright'
@@ -14,6 +14,7 @@ import { connectFreshWorkspace, newEnglishPage } from './support.ts'
 
 const OVERLAY = fileURLToPath(new URL('./muse-session-coordinator.overlay.yml', import.meta.url))
 const EXPECTED = fileURLToPath(new URL('./expected/muse-session-coordinator/navigation.expected.md', import.meta.url))
+const REPORT_EXPECTED = fileURLToPath(new URL('./expected/muse-session-coordinator/report.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
 
 describe('web e2e: Muse Main Session coordination', () => {
@@ -33,8 +34,13 @@ describe('web e2e: Muse Main Session coordination', () => {
     ] } })
     const initial = await scaffold.ctx.workspaceController.initializeDefault(new AbortController().signal)
     expect(initial?.workspace.path).toBe(join(scaffold.workspaceCwd, 'Documents', 'deepseek-harness', 'default-workspace'))
+    await mkdir(join(scaffold.workspaceCwd, 'workspace'), { recursive: true })
+    await writeFile(join(scaffold.workspaceCwd, 'workspace', 'episode-two-review.md'), '# Episode two review\n\nEpisode three remains unchanged.\n')
     const adapter = new MockAdapter([
       textResponse('Main Session is ready to assign the task.'),
+      toolCallResponse('present-web-review', 'present', {
+        files: [{ path: 'episode-two-review.md', description: 'Episode two review notes' }],
+      }),
       (options) => {
         const input = options.messages.findLast(message => message.role === 'user' && message.source?.kind === 'muse-coordination')
         if (input?.source?.kind !== 'muse-coordination') throw new Error('Worker assignment input missing')
@@ -46,8 +52,10 @@ describe('web e2e: Muse Main Session coordination', () => {
       (options) => {
         const receipt = options.messages.findLast(message => message.role === 'user' && message.source?.kind === 'muse-coordination' && message.source.purpose === 'receipt')
         if (!JSON.stringify(receipt?.content).includes('The worker reviewed episode two and retained episode three.')) throw new Error('Worker result missing from Main Session receipt')
-        return textResponse('The worker reviewed episode two and retained episode three; the result is ready for your review.')
+        expect(options.tools?.map(tool => tool.name)).toContain('coordinator_show_report')
+        return toolCallResponse('show-web-report', 'coordinator_show_report', {})
       },
+      textResponse('The worker reviewed episode two and retained episode three; the result is ready for your review.'),
     ])
     vi.spyOn(adapter, 'listModels').mockResolvedValue([{ provider: 'coordination-fixture', id: 'mock', name: 'Coordination fixture' }])
     scaffold.ctx.llm.registerAdapter(['coordination-fixture'], adapter)
@@ -90,8 +98,9 @@ describe('web e2e: Muse Main Session coordination', () => {
     main.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Review episode two; retain episode three.' }] }))
     await main.whenIdle()
     const dispatched = await executeToolFixture(scaffold.ctx, { agent: main, name: 'coordinator_dispatch',
-      arguments: { request_key: 'web-review-episode-2', cwd: join(scaffold.workspaceCwd, 'workspace'), title: 'Review episode two',
-        instructions: 'Review episode two. Do not change episode three. This fixture does not write files or call a provider.', reason: 'Fresh isolated review context' },
+      arguments: { request_key: 'web-review-episode-2', cwd: join(scaffold.workspaceCwd, 'workspace'),
+        title: 'Review episode two and retain episode three — verify all previously accepted scene boundaries',
+        instructions: 'Review episode two. Do not change episode three. Present the existing fixture review notes, then report the result.', reason: 'Fresh isolated review context' },
       callId: ToolCallId('main-dispatch'), signal: new AbortController().signal })
     expect(dispatched.isError).not.toBe(true)
     await page.getByText('The worker reviewed episode two and retained episode three; the result is ready for your review.', { exact: true }).waitFor({ timeout: 20000 })
@@ -158,6 +167,48 @@ describe('web e2e: Muse Main Session coordination', () => {
     expect(await page.locator('[data-subagent-action], [data-team-panel]').count()).toBe(0)
   })
 
+  it('shows the actual worker report and delivered file inline with usable actions in both themes and narrow layouts', async () => {
+    const report = page.locator('[data-muse-coordination-report]')
+    await report.waitFor({ timeout: 20000 })
+    await report.getByText('Current status', { exact: false }).waitFor()
+    expect(await report.getByText('The worker reviewed episode two and retained episode three.', { exact: true }).count()).toBe(1)
+    expect(await report.getByRole('button', { name: 'Episode two review notes', exact: true }).count()).toBe(1)
+    const aria = await captureStableAria(page, '[data-muse-coordination-report]', scaffold.workspaceCwd)
+    await compareOrRefreshGolden(REPORT_EXPECTED, aria, MODE)
+    await report.getByRole('button', { name: 'Open execution chat', exact: true }).click()
+    await page.getByText('Worker verification finished.', { exact: true }).waitFor()
+    expect(await page.locator('[data-conversation-content]').getAttribute('data-conversation-session')).toBe(workerId)
+    await page.getByRole('button', { name: 'Muse Main Session', exact: true }).click()
+    await report.waitFor()
+    await report.getByRole('button', { name: 'Episode two review notes', exact: true }).click()
+    await page.getByText('Episode three remains unchanged.', { exact: true }).waitFor()
+    await page.getByRole('button', { name: 'Collapse right sidebar', exact: true }).click()
+    await mkdir(join(process.cwd(), '.artifacts', 'muse-main-reports'), { recursive: true })
+    try {
+      const collapse = page.getByRole('button', { name: 'Collapse sidebar', exact: true })
+      if (await collapse.isVisible()) await collapse.click()
+      for (const theme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme: theme })
+        await expect.poll(() => page.locator('body').getAttribute('data-ds-dark-theme')).toBe(theme === 'dark' ? '' : null)
+        for (const width of [1280, 520]) {
+          await page.setViewportSize({ width, height: 960 })
+          await report.scrollIntoViewIfNeeded()
+          const bounds = await report.boundingBox()
+          expect(bounds).not.toBeNull()
+          expect(bounds!.x).toBeGreaterThanOrEqual(0)
+          expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width + 1)
+          await report.getByRole('button', { name: 'Open execution chat', exact: true }).click({ trial: true })
+          await page.screenshot({ path: join(process.cwd(), '.artifacts', 'muse-main-reports', `${theme}-${width}.png`), animations: 'disabled' })
+        }
+      }
+    } finally {
+      await page.setViewportSize({ width: 1280, height: 960 })
+      await page.emulateMedia({ colorScheme: 'light' })
+      const expand = page.getByRole('button', { name: 'Open sidebar', exact: true })
+      if (await expand.isVisible()) await expand.click()
+    }
+  })
+
   it('opens the retained Main Session after reload while ordinary work remains listed', async () => {
     const workerRow = page.locator(`[data-row-key="session:${workerId}"]`)
     expect(await workerRow.locator('[data-task-status]').count()).toBe(0)
@@ -171,6 +222,9 @@ describe('web e2e: Muse Main Session coordination', () => {
       .toBe(mainId)
     await page.getByText('The worker reviewed episode two and retained episode three; the result is ready for your review.', { exact: true }).waitFor({ timeout: 20000 })
     await page.getByText('Review episode two; retain episode three.', { exact: true }).first().waitFor({ timeout: 20000 })
+    const report = page.locator('[data-muse-coordination-report]')
+    await report.waitFor({ timeout: 20000 })
+    expect(await report.getByRole('button', { name: 'Episode two review notes', exact: true }).count()).toBe(1)
     await vi.waitFor(async () => {
       expect(await page.locator(`[data-row-key="session:${mainId}"]`).count()).toBe(0)
       expect(await page.locator(`[data-row-key="session:${workerId}"]`).count()).toBe(1)

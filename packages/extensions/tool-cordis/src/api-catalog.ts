@@ -3684,6 +3684,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'current and previous revisions, including exact worker and artifact references.',
       },
       {
+        signature: 'async displayReport(main: Agent, taskIds: readonly CoordinationTaskId[] = []): Promise<CoordinationReport>',
+        description: 'Capture an owner-verified report without accepting model-authored status or files.',
+        parameters: [{ name: 'main', description: 'Actual live Main Agent with a local owner request.' }, { name: 'taskIds', description: 'Exact owned goals; omission or an empty list selects recent goals.' }],
+        returns: 'Complete task facts bounded by searchLimit and the combined readChars model-result/metadata budget.',
+      },
+      {
         signature: '@Remote({ mode: \'stream\' }) async *watch(sessionId: SessionId, signal: AbortSignal): AsyncIterable<CoordinationTask[]>',
         description: 'Observe complete owner-only task snapshots; no model polling or wake loop.',
         parameters: [{ name: 'sessionId', description: 'Main Session selecting the task directory.' }, { name: 'signal', description: 'Client cancellation; plugin unload also closes the stream.' }],
@@ -7369,6 +7375,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ContinuableCreateSpec {\n    readonly seed?: readonly SessionEvent[];\n}',
   },
   {
+    name: 'CoordinationReport',
+    declaration: 'export interface CoordinationReport {\n    readonly version: 1;\n    readonly owner: SessionId;\n    readonly tasks: readonly ReportTask[];\n    readonly total: number;\n    readonly truncated: boolean;\n}',
+  },
+  {
     name: 'CoordinationTask',
     declaration: 'export interface CoordinationTask {\n    readonly id: CoordinationTaskId;\n    readonly owner: SessionId;\n    readonly title: string;\n    readonly createdAt: number;\n    readonly attempts: readonly Assignment[];\n}',
   },
@@ -9727,6 +9737,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ReplayEnvelope',
     declaration: 'export interface ReplayEnvelope {\n    response: unknown;\n    blocks?: readonly unknown[];\n}',
+  },
+  {
+    name: 'ReportTask',
+    declaration: 'export interface ReportTask {\n    readonly id: CoordinationTaskId;\n    readonly title: string;\n    readonly revision: number;\n    readonly sessionId: SessionId;\n    readonly cwd: string;\n    readonly status: AssignmentStatus;\n    readonly report: WorkerReport | null;\n    readonly issue: string | null;\n}',
   },
   {
     name: 'RequestContext',

@@ -114,6 +114,7 @@
     "@deepseek-ai/dsh-agent-preset-registry": "workspace:*",
     "@deepseek-ai/dsh-scope": "workspace:*",
     "@deepseek-ai/dsh-api-workspace-controller": "workspace:*",
-    "@deepseek-ai/dsh-subagent": "workspace:*"
+    "@deepseek-ai/dsh-subagent": "workspace:*",
+    "@deepseek-ai/dsh-skill": "workspace:*"
   }
 }

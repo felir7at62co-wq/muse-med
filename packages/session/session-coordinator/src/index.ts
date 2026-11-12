@@ -19,7 +19,8 @@ import { SessionId } from '@deepseek-ai/dsh-session'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { coordinationDomain, latest, reservesWorker, revise } from './ledger.ts'
-import type { CoordinationTask, CoordinationTaskId, DispatchRequest, WorkerReport } from './types.ts'
+import type { CoordinationTask, CoordinationTaskId, CoordinationReport, DispatchRequest, WorkerReport } from './types.ts'
+import { ToolArgsError, ToolContextUnavailableError } from '@deepseek-ai/dsh-tools'
 
 export type * from './types.ts'
 
@@ -36,9 +37,9 @@ export interface Config {
   readonly mainPreset?: string
   /** Preset used only for newly created workers. Defaults to `short-drama`. */
   readonly workerPreset?: string
-  /** Maximum returned Session search rows. Defaults to 30. */
+  /** Maximum returned Session search rows or report tasks. Defaults to 30. */
   readonly searchLimit?: number
-  /** Maximum characters returned by one history read. Defaults to 24000. */
+  /** History-page characters and combined serialized report content/metadata budget. Defaults to 24000. */
   readonly readChars?: number
 }
 
@@ -163,13 +164,13 @@ export class SessionCoordinator extends TypertRemoteService {
     const registry = this.ctx.get('agentPresets')
     const preset = registry === undefined ? agent.session.header.agentPreset : registry.composedPreset(agent.ctx)
     if (this.ctx.agents.get(agent.id) !== agent || preset !== this.config.mainPreset) {
-      throw new Error('Only a live main-session Agent can route work')
+      throw new ToolContextUnavailableError('Only a live main-session Agent can route work')
     }
     const history = await this.ctx.sessionQuery.readSession(agent.id)
     const input = history.events.findLast(event => event.type === 'user/message' && event.data.source.kind === 'user')
-    if (input?.type !== 'user/message') throw new Error('An owner request is required before coordinating work')
+    if (input?.type !== 'user/message') throw new ToolContextUnavailableError('An owner request is required before coordinating work')
     if ('principal' in input.data.source) {
-      throw new Error('Cross-session coordination requires the local profile owner')
+      throw new ToolContextUnavailableError('Cross-session coordination requires the local profile owner')
     }
   }
 
@@ -319,6 +320,40 @@ export class SessionCoordinator extends TypertRemoteService {
   }
 
   /**
+   * Capture an owner-verified report without accepting model-authored status or files.
+   * @param main - Actual live Main Agent with a local owner request.
+   * @param taskIds - Exact owned goals; omission or an empty list selects recent goals.
+   * @returns Complete task facts bounded by searchLimit and the combined readChars model-result/metadata budget.
+   */
+  async displayReport(main: Agent, taskIds: readonly CoordinationTaskId[] = []): Promise<CoordinationReport> {
+    await this.requireMain(main)
+    if (taskIds.length > this.config.searchLimit) throw new ToolArgsError(['task_ids exceeds the configured report limit'])
+    if (new Set(taskIds).size !== taskIds.length) throw new ToolArgsError(['task_ids must be unique'])
+    const selected = taskIds.length === 0
+      ? this.list(main.id).sort((a, b) => b.createdAt - a.createdAt)
+      : taskIds.map(id => this.owned(main.id, id))
+    let report: CoordinationReport = { version: 1, owner: main.id, total: selected.length, truncated: selected.length > 0, tasks: [] }
+    const fits = (value: CoordinationReport): boolean => JSON.stringify(value).length
+      + JSON.stringify({ museCoordinationReport: value }).length <= this.config.readChars
+    if (!fits(report)) throw new ToolArgsError(['The empty report exceeds the configured readChars budget'])
+    for (const task of selected.slice(0, this.config.searchLimit)) {
+      const attempt = latest(task)
+      const item = { id: task.id, title: task.title, revision: attempt.revision, sessionId: attempt.sessionId,
+        cwd: attempt.cwd, status: attempt.status, issue: attempt.issue,
+        report: attempt.report === null ? null : { ...attempt.report, files: attempt.report.files.map(file => ({
+          path: file.path, ...(file.description === undefined ? {} : { description: file.description }),
+        })) } }
+      const next = { ...report, tasks: [...report.tasks, item], truncated: report.tasks.length + 1 < selected.length }
+      if (!fits(next)) {
+        if (report.tasks.length === 0) throw new ToolArgsError(['The task report exceeds the configured readChars budget; inspect its source through coordinator_read'])
+        break
+      }
+      report = next
+    }
+    return report
+  }
+
+  /**
    * Observe complete owner-only task snapshots; no model polling or wake loop.
    * @param sessionId - Main Session selecting the task directory.
    * @param signal - Client cancellation; plugin unload also closes the stream.
@@ -416,7 +451,7 @@ export class SessionCoordinator extends TypertRemoteService {
 
   private owned(owner: SessionId, id: CoordinationTaskId): CoordinationTask {
     const task = this.table.get(id)
-    if (task === undefined || task.owner !== owner) throw new Error('Task does not belong to this Main Session')
+    if (task === undefined || task.owner !== owner) throw new ToolArgsError(['Task does not belong to this Main Session'])
     return task
   }
 

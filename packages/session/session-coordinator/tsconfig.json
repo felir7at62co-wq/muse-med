@@ -67,6 +67,9 @@
     },
     {
       "path": "../../subagent/subagent"
+    },
+    {
+      "path": "../../skill/skill"
     }
   ]
 }

@@ -11,6 +11,8 @@ English | [中文](README.zh.md)
 
 This optional UI plugin opens the retained Main Session and provides its sidebar entry. Execution conversations use native sidebar rows. Results return through Main Session chat messages; task bubbles do not occupy the conversation header or Session rows.
 
+Successful paired `coordinator_show_report` calls render task reports inline in their originating Turn, outside the folded process details. Their versioned result metadata retains task identity, revision, worker directory, status, report and delivered files for replay. Only current observations of that same assignment update the card; newer revisions, unavailable streams and removed tasks keep the recorded receipt with a historical label. Partial reports retain their shown and total counts.
+
 ## Table of Contents
 
 - [Use this package](#use-this-package)
@@ -20,6 +22,8 @@ This optional UI plugin opens the retained Main Session and provides its sidebar
 ## Use this package
 
 Load beside the [coordination service](../../session/session-coordinator/README.md). The service owns task dispatch and completion receipts, including waking the Main Session to relay results. Open an execution conversation through its normal sidebar row to inspect the work.
+
+Each report can open its execution conversation and delivery files. File previews use that worker's Session and directory, including relative paths. The report has no task-mutation buttons. Malformed, unsupported, nested and failed report results remain in the ordinary tool details without adding report cards. A report's identity includes its Turn so later model reuse of a call id does not replace earlier reports.
 
 Cordis disposal releases registrations, resource streams, generated Remote bindings and action feedback. Re-enabling restores navigation without dispatching work or changing ordinary Sessions.
 
@@ -31,7 +35,7 @@ The retained Main conversation opens on startup when access is available and no 
 
 #### What the model sees
 
-No additional model input. The coordination service owns `coordinator_report` results and receipts.
+No additional model input. The coordination service owns `coordinator_show_report` results and worker receipts.
 
 #### Token effect
 

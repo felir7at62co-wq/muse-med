@@ -27,11 +27,13 @@ kind: "package-reference"
 
 `mainPreset` 与 `workerPreset` 指定不同角色；`searchLimit` 限制搜索条数，`readChars` 限制每页原始历史字符数，但单个超限事件完整返回。检索权限限于当前本地配置的所有者，可跨工作目录，不会打开其他远程账号或授权读取其他用户配置。Remote 方法要求全局所有者权限，访客的局部授权不能访问任务目录。
 
-主会话的正向工具清单只允许协调工具与 `ask_user_question`。执行守卫同时拒绝其他工具，包括后注册工具与 PTC 传输。执行会话通过普通会话控制器独立创建，不继承主会话的限制。业务规划、技术决策和审查同样交给执行会话。
+主会话的正向工具清单允许协调工具、`ask_user_question`、`show_view` 与 `visualize`。固定入口 `coordinator_display_skill` 仅通过原生注册表读取允许模型调用的 `visualize` Skill；通用 `skill`、文件与 shell 工具仍不可用。执行守卫同时拒绝其他工具，包括后注册工具与 PTC 传输。执行会话通过普通会话控制器独立创建，不继承主会话的限制。业务规划、技术决策和审查同样交给执行会话。
 
 调度说明标记为转交上下文；只有 Host 核对过的原始用户消息保留原用户来源与不变正文，调度者补写的说明不会成为用户授权。派发携带用户原始消息与附件、此前每次修订的要求、调度说明，以及已保存的视频模型 key。新执行会话继承主会话的对话模型选择，复用会话保留原对话模型。已保存的视频选择在送达前通过执行会话原生选择服务写入；选择服务缺失或选项失效会拒绝送达，不会静默改用默认值。
 
 复用会话必须空闲，没有待处理输入、活跃作业或未结算协调任务。归档会话和子代理只能用作参考。无法复用时，由 Agent 选择其他执行会话。任务修订需要预期修订号，且上一轮已经结算或被明确停止，不会覆盖正在执行的任务。
+
+`coordinator_show_report` 将已核实所有者的任务标识、当前修订、执行会话、状态和原生文件声明保存在带版本的工具结果 metadata 中。省略或传空标识列表时选择最近任务；`searchLimit` 同时限制汇报条数，并明确返回总数与截断标记。模型结果与 metadata 的合计序列化字符数受 `readChars` 限制，只保留完整任务回执；首个任务自身超限时明确失败，不截断摘要或文件。不存在、外部所有者、重复或超限的标识会失败。模型不能填写完成状态、进度百分比或产物路径。Client 在聊天内展示卡片，并通过现有任务监听跟进被捕获的同一修订；后续修订不会替换旧回执。主会话在关键进展、交付和异常时汇报，不逐条播报执行步骤。
 
 “新会话”下方的 Muse 小蜘蛛入口打开默认工作间中固定的主会话。创建过程使用原生工作区与会话控制器，重复点击或重新启用插件会复用同一会话。执行会话保留各自选定的项目目录。
 
@@ -55,7 +57,7 @@ kind: "package-reference"
 <a id="what-the-model-sees"></a>
 #### 模型可见内容
 
-主会话获得调度说明及 `coordinator_sessions`、`coordinator_read`、`coordinator_dispatch`、`coordinator_tasks`、`coordinator_stop`。执行会话先接收写入日志的 `muse-coordination` 任务说明，再接收保留原文的已核实用户消息，用 `coordinator_report` 明确汇报结果。历史页包含后续游标；回执区分送达、执行、收尾、中断、停止和执行会话报告完成。
+主会话获得调度说明及 `coordinator_sessions`、`coordinator_read`、`coordinator_dispatch`、`coordinator_tasks`、`coordinator_stop`、`coordinator_show_report` 和 `coordinator_display_skill`。已安装的 `show_view` 与 `visualize` 保持常驻且排除于 Tool Search。执行会话先接收写入日志的 `muse-coordination` 任务说明，再接收保留原文的已核实用户消息，用 `coordinator_report` 明确汇报结果。历史页包含后续游标；回执区分送达、执行、收尾、中断、停止和执行会话报告完成。
 
 <a id="token-effect"></a>
 #### Token 影响

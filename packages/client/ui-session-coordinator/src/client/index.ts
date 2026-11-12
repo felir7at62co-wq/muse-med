@@ -1,5 +1,6 @@
 /** Retained Main Session navigation and owner-only Remote registrations. */
 import { RemoteError, remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
+import { fileAddressFor } from '@deepseek-ai/dsh-util-workspace-path'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import { TaskToast, type TaskNotice, type TaskToastInjected } from './TaskToast.tsx'
@@ -11,10 +12,14 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-api-remote-access/client'
 import remote from '@deepseek-ai/dsh-session-coordinator/remote'
 import { MainEntry } from './MainEntry.tsx'
+import { ReportCardNode, type ReportCardActions } from './ReportCard.tsx'
+import { reportDefinition } from './report-definition.ts'
 import { openRetainedMain } from './open-main.ts'
 import { followInitialMain } from './initial-main.ts'
 import { NS, zh, en, type CoordinationKey } from './locales.ts'
@@ -29,7 +34,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Browser prerequisites before mounting the generated coordinator Remote. */
-export const inject = ['slots', 'locale', 'remote', 'resources', 'uiWorkspace', 'remoteAccess', 'conversation']
+export const inject = ['slots', 'locale', 'remote', 'resources', 'uiWorkspace', 'remoteAccess', 'conversation', 'uiConversation', 'sidebarRight']
 
 /**
  * Mount retained Main Session navigation and transient action feedback.
@@ -65,6 +70,14 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       },
     }
     scope.effect(() => scope.resources.register(provider), 'coordination: task resources')
+    scope.effect(() => scope.uiConversation.events.register(reportDefinition), 'coordination: inline report definition')
+    scope.slots.inject('conversation.chat.node', () => scope.slots.register({
+      name: 'conversation.chat.node', key: 'muse-coordination-report', locale: NS,
+      inject: (): ReportCardActions => ({
+        openExecution: (id) => { scope.uiWorkspace.openSession(id) },
+        openDelivery: (id, cwd, path) => { scope.sidebarRight.openResource(fileAddressFor(id, cwd, path)) },
+      }),
+    }, ReportCardNode))
     const notice = createSnapshotStore<TaskNotice | null>(null)
     let noticeSeq = 0
     const showNotice = (key: CoordinationKey, success: boolean): void => { notice.set({ seq: ++noticeSeq, key, success }) }

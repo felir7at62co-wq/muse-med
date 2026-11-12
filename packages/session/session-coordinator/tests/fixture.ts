@@ -17,7 +17,7 @@ import * as Persistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { TestSessionQuery } from '../../../team/agent-team/tests/test-session-query.ts'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
-import Coordinator from '../src/index.ts'
+import Coordinator, { type Config } from '../src/index.ts'
 import * as Main from '../src/main.ts'
 import * as Worker from '../src/worker.ts'
 
@@ -56,7 +56,8 @@ export async function makeAgent(ctx: Context, id: SessionId, preset: string, cwd
 }
 
 /** Build one fixture with independent scopes; caller owns disposal and its private persistence root. */
-export async function setup(root: string, script: ConstructorParameters<typeof MockAdapter>[0], pool = new MemoryMediaPool()) {
+export async function setup(root: string, script: ConstructorParameters<typeof MockAdapter>[0],
+  pool = new MemoryMediaPool(), config: Config = {}) {
   const ctx = new Context()
   try {
     await mountAgentLoopTestDependencies(ctx)
@@ -80,7 +81,7 @@ export async function setup(root: string, script: ConstructorParameters<typeof M
     await ctx.plugin(TestController, {})
     const adapter = new MockAdapter(script)
     ctx.llm.registerAdapter(['mock'], adapter)
-    const fiber = await ctx.plugin(Coordinator, {})
+    const fiber = await ctx.plugin(Coordinator, config)
     await ctx.plugin(Worker)
     if (ctx.tools.get('coordinator_report') === undefined) throw new Error('Worker report did not mount')
     return { ctx, adapter, pool, fiber, service: ctx.sessionCoordinator, makeAgent: (id: string, preset = 'short-drama', cwd?: string) => makeAgent(ctx, SessionId(id), preset, cwd) }
