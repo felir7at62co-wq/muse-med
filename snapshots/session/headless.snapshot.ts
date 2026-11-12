@@ -2562,7 +2562,7 @@ describe('headless recorded-session snapshots', () => {
               const preview = JSON.parse(positive.text)
               expect(preview).toMatchObject({ method: 'preview', ok: true, failures: [], written: [] })
               expect(preview.shots[1]).toMatchObject({ duration_seconds: 4, duration_source: 'declared' })
-              expect(preview.packages.every((pack: JsonObject) => !/(?:动作预算|发声预算|反应预算|表演顺序)：/.test(pack.prompt))).toBe(true)
+              expect(preview.packages.every((pack: JsonObject) => !/(?:动作预算|发声预算|反应预算|表演顺序|身体状态)：/.test(pack.prompt))).toBe(true)
               expect(preview.shots.map((shot: JsonObject) => shot.text)).toEqual(['', '慢一点。', '别让孩子摔倒。', ''])
               expect(preview.shots.map((shot: JsonObject) => shot.bindings.filter((asset: JsonObject) => asset.type === '角色')
                 .map((asset: JsonObject) => asset.asset_id))).toEqual([[], ['72001', '72002'], ['72001'], ['72003']])
@@ -2576,9 +2576,9 @@ describe('headless recorded-session snapshots', () => {
                 name: '小禾身份母版', asset_id: '72001', material_id: '82001', reference_scope: 'identity',
               })
               expect(pack.prompt).not.toContain('he-repeat')
-              expect(pack.prompt).toContain('身体状态：【非孕期；7岁；黄色雨衣】')
+              expect(pack.prompt).not.toContain('身体状态：【非孕期；7岁；黄色雨衣】')
               expect(pack.prompt).toContain('动作状态：【蹲下扶住板凳】')
-              expect(pack.prompt).toContain('身体状态：【非孕期；68岁；灰色夹袄；草帽】')
+              expect(pack.prompt).not.toContain('身体状态：【非孕期；68岁；灰色夹袄；草帽】')
               expect(pack.prompt).toContain('谭伯OS，内心独白，不对口型；声源画外')
               expect(pack.prompt).toContain('木枪保持已有木制外形，不改成机械枪')
               expect(pack.prompt).not.toContain('时长：')
@@ -2648,13 +2648,13 @@ describe('headless recorded-session snapshots', () => {
               ])
               expect(identityPackage.prompt).not.toContain('rain-repeat')
               expect(identityPackage.prompt.match(/仅参考本人面孔与身份/g)).toHaveLength(2)
-              expect(identityPackage.prompt).toContain('身体状态：【非孕期；青年；砖红卫衣】')
-              expect(identityPackage.prompt).toContain('身体状态：【非孕期；青年；墨绿夹克】')
+              expect(identityPackage.prompt).not.toContain('身体状态：【非孕期；青年；砖红卫衣】')
+              expect(identityPackage.prompt).not.toContain('身体状态：【非孕期；青年；墨绿夹克】')
               expect(preview.packages[1].material_bindings).toEqual([
                 { material_key: 'background', name: '后厨', type: '场景', official: true, asset_id: '71004', material_id: '81004', url: 'https://example.invalid/kitchen.png', reference_scope: 'appearance' },
                 { material_key: 'asset_71002', name: '温雨雨衣版', type: '角色', official: true, asset_id: '71002', material_id: '81002', url: 'https://example.invalid/rain-yellow.png', reference_scope: 'appearance' },
               ])
-              expect(preview.packages[1].prompt).toContain('身体状态：【非孕期；青年；黄色雨衣】')
+              expect(preview.packages[1].prompt).not.toContain('身体状态：【非孕期；青年；黄色雨衣】')
               expect(preview.packages[1].prompt).toContain('保留本镜正式参考人物的脸型、年龄感和可见妆造差异')
               expect(preview.packages[1].prompt).toContain('动作和表情以本镜正文为准，不复制参考图的姿态')
               expect(preview.packages[1].prompt).toContain('同一素材中的脸部、服装和多视角属于同一人，同一key在本镜仅一个人物实例，跨镜复用不新增人物')

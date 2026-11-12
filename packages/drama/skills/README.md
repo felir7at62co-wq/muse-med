@@ -9,6 +9,8 @@ English | [中文](README.zh.md)
 
 Shot writing keeps a per-episode source-to-shot record for dialogue, speakers, actions, and performance details. The agent reads the confirmed project aspect ratio and style, uses the conversation's selected video model and resolution, calculates each package duration from its shots, and checks the complete batch before parallel submission.
 
+Video scripts identify subjects by formal asset names and material keys without repeating asset appearance descriptions. Body-state declarations remain in compiler sources for version selection. See [Core](skills/tweet-drama-core/SKILL.md#资产引用与视频正文) for writing and submission rules.
+
 ## Summary
 
 Create and review drama scripts, reuse assets, maintain project state, prepare editable drafts, render episodes, assemble whole-drama deliveries, and claim newly released scripts from the Jubian pool. The entry points are the maintained `skills/*/SKILL.md` files selected for the current task. Python scripts and necessary static resources travel together, including the renderer's ending effect and ending sound. User projects, credentials, per-project media, and local environments do not.

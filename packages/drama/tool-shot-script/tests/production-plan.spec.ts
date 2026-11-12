@@ -35,6 +35,8 @@ it('selects appearances per shot while keeping one character and complete dialog
   expect(plan.packages[0]?.images.map(row => row.asset_id)).toEqual([101, 201, 301, 102])
   expect(plan.packages[0]?.prompt.match(/台词：苏晚：我会好~好~享~用~的~/gu)).toHaveLength(4)
   expect(plan.matches.every(row => row.review_required)).toBe(true)
+  expect(plan.packages[0]?.prompt).not.toContain('身体状态')
+  expect(plan.source).toBe(source)
 })
 
 it('keeps a disputed explicit choice and reports the exact shot rather than blocking publication', () => {
