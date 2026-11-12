@@ -45,6 +45,8 @@ While the root-scoped `sidebar.panellist.actions` list has registrations, a **Mo
 
 Optional navigation entries use the list slot `sidebar.session.entry` above New Session. The shell supplies `wide`; each plugin owns its label, action and permission check. With no registration, the native layout stays unchanged.
 
+Entries registered in `sidebar.workspaces.entry` appear with New Session above the workspace browser. While any is registered, the browser hides its section label and retains its search and workspace controls. Removing the registrations restores the native layout.
+
 ### Collapse behavior
 
 The sidebar and conversation-header toggles show the effective shortcut from the command catalog in their hover and keyboard-focus tooltips and `aria-keyshortcuts`. An unbound command shows only the action label.

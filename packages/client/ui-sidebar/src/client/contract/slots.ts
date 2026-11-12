@@ -18,6 +18,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /** Optional navigation entries between the brand row and New Session. */
     'sidebar.session.entry': { kind: 'list'; scope: 'root'; owner: SidebarSessionEntryOwnerProps }
+    /** Entries grouped with New Session at the top of the workspace browser. */
+    'sidebar.workspaces.entry': { kind: 'list'; scope: 'root'; owner: SidebarSessionEntryOwnerProps }
     /** Non-interactive notification inside the collapsed sidebar expand button. */
     'sidebar.toggle.badge': { kind: 'single'; scope: 'root'; owner: Record<never, never> }
     /**
@@ -135,6 +137,8 @@ export interface SidebarSectionOwnerProps {
   wide: boolean
   /** Ensure the sidebar is visible; safe to call while already expanded. */
   expandSidebar: () => void
+  /** Whether to display the browser's section heading. */
+  showSectionLabel?: boolean
 }
 
 /**
@@ -183,6 +187,8 @@ export type SidebarRootInjected = {
     entryPins: ObservableSnapshot<readonly string[]>
     /** Whether `sidebar.panellist.actions` has registrations. */
     entryActions: ObservableSnapshot<boolean>
+    /** Whether the workspace region has a dedicated navigation entry. */
+    workspaceEntries: ObservableSnapshot<boolean>
   }
 }
 
@@ -198,6 +204,7 @@ export type SidebarRootComponentProps =
     | 'sidebar.brand.name'
     | 'sidebar.toggle.badge'
     | 'sidebar.session.entry'
+    | 'sidebar.workspaces.entry'
     | 'sidebar.panellist'
     | 'sidebar.panellist.actions'
     | 'sidebar.workspaces'

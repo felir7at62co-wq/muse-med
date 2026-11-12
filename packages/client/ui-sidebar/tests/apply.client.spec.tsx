@@ -69,6 +69,7 @@ describe('ui-sidebar apply', () => {
     expect(b.slots.spec('sidebar.brand.mark')).toEqual({ kind: 'single', scope: 'root' })
     expect(b.slots.spec('sidebar.brand.name')).toEqual({ kind: 'single', scope: 'root' })
     expect(b.slots.spec('sidebar.workspaces')).toEqual({ kind: 'single', scope: 'root' })
+    expect(b.slots.spec('sidebar.workspaces.entry')).toEqual({ kind: 'list', scope: 'root' })
     expect(b.slots.spec('sidebar.settings')).toEqual({ kind: 'single', scope: 'root' })
     expect(b.slots.spec('sidebar.footer.action')).toEqual({ kind: 'list', scope: 'root' })
     expect(b.slots.spec('sidebar.panellist')).toEqual({ kind: 'list', scope: 'root' })
@@ -85,6 +86,7 @@ describe('ui-sidebar apply', () => {
     expect(injected.hooks.panels.getSnapshot()).toEqual([])
     expect(injected.hooks.entryPins.getSnapshot()).toEqual([])
     expect(injected.hooks.entryActions.getSnapshot()).toBe(false)
+    expect(injected.hooks.workspaceEntries.getSnapshot()).toBe(false)
     expect(b.slots.entries('main')).toEqual([])
     // Both arms delegate to the Workspace UI's shared New Session action.
     injected.startSession('workspace' as never)
@@ -118,6 +120,21 @@ describe('ui-sidebar apply', () => {
     const leading = (b.slots.entries('shell.leading')[0]!.inject as () => SidebarRootInjected)()
     leading.trackEntryClick({ menu_name: 'cron', position: 'sidebar_more' })
     expect(track).toHaveBeenLastCalledWith('sidebar_menu_click', { menu_name: 'cron', position: 'sidebar_more' })
+  })
+
+  it('tracks workspace entry registration and disposal', async () => {
+    const b = await bench()
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const injected = (b.slots.entries('sidebar')[0]!.inject as () => SidebarRootInjected)()
+    const notify = vi.fn()
+    const unsubscribe = injected.hooks.workspaceEntries.subscribe(notify)
+    const dispose = b.slots.register({ name: 'sidebar.workspaces.entry', id: 'example' }, () => null)
+    expect(injected.hooks.workspaceEntries.getSnapshot()).toBe(true)
+    await Promise.resolve()
+    expect(notify).toHaveBeenCalled()
+    dispose()
+    expect(injected.hooks.workspaceEntries.getSnapshot()).toBe(false)
+    unsubscribe()
   })
 
   it('waits for the sidebar declaration before registering', async () => {

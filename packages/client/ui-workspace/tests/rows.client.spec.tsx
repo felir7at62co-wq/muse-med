@@ -33,6 +33,7 @@ type RowSlotName =
   | 'sidebar.workspaces.session.menu.item'
   | 'sidebar.workspaces.session.row.action'
   | 'sidebar.session.row.trailing'
+  | 'sidebar.session.row.persistent'
   | 'sidebar.session.row.leading'
   | 'sidebar.session.row.hover'
 type RowRenderSlot = PropsRenderSlots<RowSlotName>['renderSlot']
@@ -1400,9 +1401,12 @@ describe('session row decoration seats', () => {
     expect(icon.previousElementSibling?.textContent).toBe('刚刚')
     expect(icon.parentElement?.className).toContain('rowResting')
     expect(icon.nextElementSibling?.getAttribute('aria-label') ?? null).toBe(archived ? null : '已置顶')
+    const persistent = view.container.querySelector('[data-seat="sidebar.session.row.persistent"]')!
+    expect(persistent.parentElement?.className).not.toContain('rowResting')
     view.rerender(<SessionNodeItem node={{ ...idle, blank: true }} currentId={undefined} now={0}
       onOpen={vi.fn()} renderSlot={renderSlot} t={t} />)
     expect(view.container.querySelector('[data-seat="sidebar.session.row.trailing"]')).toBeNull()
+    expect(view.container.querySelector('[data-seat="sidebar.session.row.persistent"]')).toBeNull()
   })
 
   it('opens a focused row with Enter or Space without handling its action buttons', () => {
@@ -1447,7 +1451,8 @@ describe('session row decoration seats', () => {
         .querySelector('[data-seat="sidebar.session.row.leading"]')?.parentElement
       expect(cell?.previousElementSibling ?? null).toBeNull()
       expect(cell?.nextElementSibling?.textContent).toBe('Idle Session')
-      expect(cell?.nextElementSibling?.nextElementSibling?.textContent).toBe('刚刚')
+      expect(cell?.nextElementSibling?.nextElementSibling?.getAttribute('data-seat')).toBe('sidebar.session.row.persistent')
+      expect(cell?.nextElementSibling?.nextElementSibling?.nextElementSibling?.textContent).toBe('刚刚')
     }
     assertPlacement()
     // Rerender through the same row: the seat stays leading without the flat

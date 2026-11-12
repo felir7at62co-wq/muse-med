@@ -18,6 +18,7 @@ import { MainEntry } from './MainEntry.tsx'
 import { openRetainedMain } from './open-main.ts'
 import { followInitialMain } from './initial-main.ts'
 import { TaskCards, type TaskActions } from './TaskCards.tsx'
+import { TaskRowStatus, type TaskRowInjected } from './TaskRowStatus.tsx'
 import { NS, zh, en, type CoordinationKey } from './locales.ts'
 
 export type { TaskActions, TaskCardsProps } from './TaskCards.tsx'
@@ -44,6 +45,8 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
     const lifetime = new AbortController()
     scope.effect(() => () => { lifetime.abort() })
     let mainId: SessionId | null = null
+    const coordinatorMain = createSnapshotStore<SessionId | null>(null)
+    scope.effect(() => () => { coordinatorMain.set(null) })
     let mainIdKnown = false
     let identityEpoch = 0
     let unhide: (() => void) | undefined
@@ -52,6 +55,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       if (mainId === id) return
       unhide?.()
       mainId = id
+      coordinatorMain.set(id)
       unhide = scope.uiWorkspace.hideSession(id)
     }
     const provider: ResourceProvider<'muse-tasks'> = {
@@ -97,7 +101,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
             for await (const id of scope.remote.sessionCoordinator.watchMain(signal)) {
               if (signal.aborted) break
               if (id !== null) rememberMain(id)
-              else if (startingEpoch === identityEpoch) { unhide?.(); unhide = undefined; mainId = null }
+              else if (startingEpoch === identityEpoch) { unhide?.(); unhide = undefined; mainId = null; coordinatorMain.set(null) }
               mainIdKnown = true
             }
           } catch (error) {
@@ -110,7 +114,10 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       }
       follow()
       const stopReset = scope.on('connection/reset', follow)
-      return () => { stopReset(); reader?.abort(); removeFilter(); unhide?.(); unhide = undefined; mainId = null; mainIdKnown = false }
+      return () => {
+        stopReset(); reader?.abort(); removeFilter(); unhide?.(); unhide = undefined
+        mainId = null; mainIdKnown = false; coordinatorMain.set(null)
+      }
     })
     scope.slots.inject('shell.overlay', () => scope.slots.register({
       name: 'shell.overlay', id: 'muse-coordination-toast', locale: NS,
@@ -127,8 +134,8 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
         if (!result.ok) showNotice('failedOpen', false)
       },
     }
-    scope.slots.inject('sidebar.session.entry', () => scope.slots.register({
-      name: 'sidebar.session.entry', id: 'muse-main-session', locale: NS,
+    scope.slots.inject('sidebar.workspaces.entry', () => scope.slots.register({
+      name: 'sidebar.workspaces.entry', id: 'muse-main-session', locale: NS,
       inject: () => ({ openMain: (): Promise<void> => openRetainedMain(
         lifetime.signal,
         () => scope.remote.sessionCoordinator.openMain(),
@@ -144,6 +151,10 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
     scope.slots.inject('conversation.content.overlay', () => scope.slots.register({
       name: 'conversation.content.overlay', id: 'muse-coordination', locale: NS, order: -10, inject: () => actions,
     }, TaskCards))
+    scope.slots.inject('sidebar.session.row.persistent', () => scope.slots.register({
+      name: 'sidebar.session.row.persistent', id: 'muse-coordination-status', locale: NS,
+      inject: (): TaskRowInjected => ({ hooks: { coordinatorMain } }),
+    }, TaskRowStatus))
   })
   try { await fiber.await() } catch (error) { await fiber.dispose(); await disposeRemote(); throw error }
   return async () => { await fiber.dispose(); await disposeRemote() }

@@ -1,4 +1,4 @@
-/** Dedicated profile-wide routing conversation above the native New Session action. */
+/** Dedicated profile-wide routing conversation in the workspace region. */
 import { useRef, useState } from 'react'
 import { Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
@@ -11,7 +11,7 @@ export interface MainEntryActions {
   readonly openMain: () => Promise<void>
 }
 
-type Props = Pick<PropsRuntime<'sidebar.session.entry'>, 'wide' | 'useRemoteAccess'> & PropsLocale<typeof NS> & MainEntryActions
+type Props = Pick<PropsRuntime<'sidebar.workspaces.entry'>, 'wide' | 'useRemoteAccess'> & PropsLocale<typeof NS> & MainEntryActions
 
 /**
  * Show the Muse spider entry in the full sidebar or compact rail.

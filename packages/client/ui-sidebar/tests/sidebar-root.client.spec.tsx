@@ -50,18 +50,19 @@ function makeHeaderProps(): HeaderLeadingControlsProps {
     useSessions: neverHook, useSessionStatus, useSessionRetainInfo: neverHook,
     usePanelInfo, useResource, useWorkspaces: neverHook, ...allowAllAccess,
     usePanels: selector => selector([]), useShortcuts: selector => selector([]),
-    useEntryPins: selector => selector([]), useEntryActions: selector => selector(false),
+    useEntryPins: selector => selector([]), useEntryActions: selector => selector(false), useWorkspaceEntries: selector => selector(false),
     selectPanel: vi.fn(), setPinned: vi.fn(), toggleSidebar: vi.fn(),
     startSession: vi.fn(), trackEntryClick: vi.fn(), t,
   }
 }
 
-function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts = [], content }: {
+function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts = [], content, workspaceEntries = false }: {
   collapsed?: boolean
   width?: number
   drawer?: boolean
   shortcuts?: readonly ShortcutCatalogEntry[]
   content?: ReactNode
+  workspaceEntries?: boolean
 } = {}) {
   const startSession = vi.fn()
   const toggleSidebar = vi.fn()
@@ -78,7 +79,7 @@ function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts 
       collapsed={current.collapsed} width={current.width}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
-      useEntryActions={selector => selector(false)} setPinned={vi.fn()}
+      useEntryActions={selector => selector(false)} useWorkspaceEntries={selector => selector(workspaceEntries)} setPinned={vi.fn()}
       useShortcuts={selector => selector(shortcuts)}
       useContextMenu={contextMenuHook()} useResource={useResource} useWorkspaces={neverHook}
       {...allowAllAccess}
@@ -89,6 +90,7 @@ function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts 
       ) => {
         if (key === 'sidebar.brand.mark') return brandMark
         if (key === 'sidebar.brand.name') return brandName
+        if (key === 'sidebar.workspaces.entry') return <button type="button">Muse main</button>
         if (key === 'sidebar.toggle.badge' || key === 'sidebar.session.entry') return null
         if (key === 'sidebar.settings') {
           settingsOwner = owner
@@ -128,6 +130,18 @@ function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts 
 }
 
 describe('SidebarRoot shell', () => {
+  it('groups an opted-in entry and New Session with the workspace browser', () => {
+    const b = mountShell({ workspaceEntries: true })
+    const region = screen.getByTestId('region').parentElement!
+    const main = screen.getByRole('button', { name: 'Muse main' })
+    const newSession = Array.from(region.querySelectorAll('button')).find(button => button.getAttribute('aria-label') === 'New session')!
+    expect(region.contains(main)).toBe(true)
+    expect(main.compareDocumentPosition(newSession) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(newSession.compareDocumentPosition(screen.getByTestId('region')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(b.regionOwner().showSectionLabel).toBe(false)
+    fireEvent.click(newSession)
+    expect(b.startSession).toHaveBeenCalledOnce()
+  })
   it('advertises the effective new-session binding', () => {
     const shortcut: ShortcutCatalogEntry = { id: 'session.new' as ShortcutCommandId, label: 'New', aliases: [],
       binding: null, modified: true, conflicts: [], issue: null, keys: ['Ctrl', 'N'], aria: 'Control+N' }
@@ -147,7 +161,8 @@ describe('SidebarRoot shell', () => {
       useSessionRetainInfo={neverHook} useContextMenu={contextMenuHook()} useResource={useResource} useWorkspaces={neverHook}
       {...allowAllAccess}
       usePanels={select => select([])} useEntryPins={select => select([])}
-      useEntryActions={select => select(false)} setPinned={vi.fn()} useShortcuts={select => select([shortcut])} />)
+      useEntryActions={select => select(false)} useWorkspaceEntries={select => select(false)}
+      setPinned={vi.fn()} useShortcuts={select => select([shortcut])} />)
     const button = screen.getByRole('button', { name: 'New session' })
     expect(screen.getByRole('button', { name: 'Open sidebar' }).hasAttribute('data-sidebar-opener')).toBe(true)
     expect(button.getAttribute('aria-keyshortcuts')).toBe('Control+N')
@@ -190,7 +205,7 @@ describe('SidebarRoot shell', () => {
       collapsed={false} width={300} drawer={false}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
-      useEntryActions={selector => selector(false)} setPinned={vi.fn()}
+      useEntryActions={selector => selector(false)} useWorkspaceEntries={selector => selector(false)} setPinned={vi.fn()}
       useShortcuts={selector => selector([])}
       useContextMenu={contextMenuHook()} useResource={useResource} useWorkspaces={neverHook}
       {...allowAllAccess}
@@ -223,7 +238,7 @@ describe('SidebarRoot shell', () => {
       collapsed={false} width={300}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
-      useEntryActions={selector => selector(false)} setPinned={vi.fn()}
+      useEntryActions={selector => selector(false)} useWorkspaceEntries={selector => selector(false)} setPinned={vi.fn()}
       useShortcuts={selector => selector([])}
       useContextMenu={contextMenuHook()} useResource={useResource} useWorkspaces={neverHook}
       {...allowAllAccess}
@@ -247,7 +262,7 @@ describe('SidebarRoot shell', () => {
       collapsed={false} width={300}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
-      useEntryActions={selector => selector(false)} setPinned={vi.fn()}
+      useEntryActions={selector => selector(false)} useWorkspaceEntries={selector => selector(false)} setPinned={vi.fn()}
       useShortcuts={selector => selector([])}
       useContextMenu={contextMenuHook()} useResource={useResource} useWorkspaces={neverHook}
       {...allowAllAccess}
@@ -275,7 +290,7 @@ describe('SidebarRoot shell', () => {
       collapsed={false} width={300} drawer={false}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
-      useEntryActions={selector => selector(false)} setPinned={vi.fn()}
+      useEntryActions={selector => selector(false)} useWorkspaceEntries={selector => selector(false)} setPinned={vi.fn()}
       useShortcuts={selector => selector([])}
       useContextMenu={contextMenuHook()} useResource={useResource} useWorkspaces={neverHook}
       {...allowAllAccess}
@@ -326,7 +341,7 @@ describe('SidebarRoot shell', () => {
       collapsed={false} width={300}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
-      useEntryActions={selector => selector(false)} setPinned={vi.fn()}
+      useEntryActions={selector => selector(false)} useWorkspaceEntries={selector => selector(false)} setPinned={vi.fn()}
       useShortcuts={selector => selector([])}
       useContextMenu={contextMenuHook()} useResource={useResource} useWorkspaces={neverHook}
       {...allowAllAccess}
@@ -440,7 +455,7 @@ describe('SidebarRoot shell', () => {
       collapsed width={56}
       useSessions={neverHook} useSessionStatus={useSessionStatus} useSessionRetainInfo={neverHook}
       usePanelInfo={usePanelInfo} selectPanel={() => {}} usePanels={selector => selector([])} useEntryPins={selector => selector([])}
-      useEntryActions={selector => selector(false)} setPinned={vi.fn()}
+      useEntryActions={selector => selector(false)} useWorkspaceEntries={selector => selector(false)} setPinned={vi.fn()}
       useShortcuts={selector => selector([])}
       useContextMenu={contextMenuHook()} useResource={useResource} useWorkspaces={neverHook}
       {...allowAllAccess}

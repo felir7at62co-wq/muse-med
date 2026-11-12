@@ -258,6 +258,7 @@ type SessionTreeProps = Pick<
 > & PropsRenderSlots<
   | 'sidebar.workspaces.session.row.action'
   | 'sidebar.session.row.trailing'
+  | 'sidebar.session.row.persistent'
   | 'sidebar.session.row.leading'
   | 'sidebar.session.row.hover'
 > & {
@@ -903,6 +904,7 @@ function SearchResults({
  */
 export function WorkspaceBrowser({
   wide,
+  showSectionLabel = true,
   usePanelInfo,
   expandSidebar,
   useSessions,
@@ -1230,7 +1232,7 @@ export function WorkspaceBrowser({
   return (
     <div className={clsx(css.root, !wide && css.rail)}>
       <div className={clsx(css.sectionHeader, wide && searchSpacingMotionEnabled && css.searchSpacingMotion)}>
-        {wide && (
+        {wide && showSectionLabel && (
           <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
             {groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
           </span>

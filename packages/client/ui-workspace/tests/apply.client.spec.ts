@@ -321,6 +321,7 @@ describe('ui-workspace apply', () => {
     })
     expect(b.slots.spec(ROW_ACTION)).toEqual({ kind: 'list', scope: 'root' })
     expect(b.slots.spec('sidebar.session.row.trailing')).toEqual({ kind: 'list', scope: 'root', inline: true })
+    expect(b.slots.spec('sidebar.session.row.persistent')).toEqual({ kind: 'list', scope: 'root', inline: true })
     expect(b.slots.spec('sidebar.session.row.leading')).toEqual({ kind: 'list', scope: 'root', inline: true })
 
     const rows = (key: RowListName) => b.slots.entries(key)

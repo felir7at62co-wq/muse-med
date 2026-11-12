@@ -140,6 +140,7 @@ export function SidebarRoot({
   usePanels,
   useEntryPins,
   useEntryActions,
+  useWorkspaceEntries,
   useShortcuts,
   usePanelInfo,
   t,
@@ -149,6 +150,7 @@ export function SidebarRoot({
   const unpinned = useEntryPins(ids => ids)
   const activePanelId = usePanelInfo(info => info.activePanelId)
   const hasEntryActions = useEntryActions(registered => registered)
+  const hasWorkspaceEntries = useWorkspaceEntries(registered => registered)
   const shortcut = useShortcuts(rows => rows.find(row => row.id === 'sidebar.left.toggle'))
   const newShortcut = useShortcuts(rows => rows.find(row => row.id === 'session.new'))
   // A page whose access snapshot excludes starting a Session offers no New Session affordance.
@@ -278,6 +280,28 @@ export function SidebarRoot({
     </Tooltip>
   )
 
+  const newSessionControl = canStartSession ? (
+    <Tooltip label={t('session.new.label')} shortcutKeys={newShortcut?.keys} delayMs={500} side={captionTooltipSide} disabled={wide}>
+      <button
+        type="button"
+        className={css.newSession}
+        aria-label={t('session.new.label')}
+        aria-keyshortcuts={newShortcut?.aria}
+        onClick={openNewSession}
+      >
+        <span className={css.newSessionLabelMask}><span className={css.newSessionContent}>
+          {wide
+            ? <IconNewChatOutlineMedium size={14} />
+            : <IconNewChatOutlineRegular size={windowsTitlebar ? 16 : 18} />}
+          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
+        </span></span>
+        {wide && newShortcut !== undefined && newShortcut.keys.length > 0 && <span className={css.newSessionShortcut} aria-hidden="true">
+          <ShortcutKeys keys={newShortcut.keys} />
+        </span>}
+      </button>
+    </Tooltip>
+  ) : null
+
   return (
     <div
       ref={column}
@@ -359,28 +383,7 @@ export function SidebarRoot({
 
       {canStartSession && renderSlot('sidebar.session.entry', { wide })}
 
-      {/* The label fades before the hover/focus shortcut, including on translucent backgrounds. */}
-      {canStartSession && (
-        <Tooltip label={t('session.new.label')} shortcutKeys={newShortcut?.keys} delayMs={500} side={captionTooltipSide} disabled={wide}>
-          <button
-            type="button"
-            className={css.newSession}
-            aria-label={t('session.new.label')}
-            aria-keyshortcuts={newShortcut?.aria}
-            onClick={openNewSession}
-          >
-            <span className={css.newSessionLabelMask}><span className={css.newSessionContent}>
-              {wide
-                ? <IconNewChatOutlineMedium size={14} />
-                : <IconNewChatOutlineRegular size={windowsTitlebar ? 16 : 18} />}
-              {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
-            </span></span>
-            {wide && newShortcut !== undefined && newShortcut.keys.length > 0 && <span className={css.newSessionShortcut} aria-hidden="true">
-              <ShortcutKeys keys={newShortcut.keys} />
-            </span>}
-          </button>
-        </Tooltip>
-      )}
+      {!hasWorkspaceEntries && newSessionControl}
 
       {panels.length > 0 && (
         <nav className={css.panelList} aria-label={t('panels.label')}>
@@ -419,8 +422,11 @@ export function SidebarRoot({
       {/* The browsing region fills the column between the controls and the
           foot in both states; its rail icon column rides the same slot. */}
       <div className={clsx(css.regionArea, !collapsed && everCollapsed.current && css.wideIn)}>
+        {hasWorkspaceEntries && canStartSession && renderSlot('sidebar.workspaces.entry', { wide })}
+        {hasWorkspaceEntries && newSessionControl}
         {renderSlot('sidebar.workspaces', {
           wide,
+          showSectionLabel: !hasWorkspaceEntries,
           expandSidebar: () => { if (collapsed) toggleSidebar() },
         })}
       </div>

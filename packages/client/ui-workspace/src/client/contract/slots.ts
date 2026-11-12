@@ -156,6 +156,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * bind or retain the Session.
      */
     'sidebar.session.row.trailing': { kind: 'list'; scope: 'root'; inline: true; owner: SessionRowTrailingOwnerProps }
+    /** Non-interactive decoration kept visible while row actions are exposed. Blank Sessions omit the slot. */
+    'sidebar.session.row.persistent': { kind: 'list'; scope: 'root'; inline: true; owner: SessionRowTrailingOwnerProps }
     /**
      * Section of the Session row's hover card between its relative time and
      * its trailing status line. Mounted only while that card is open.
@@ -503,6 +505,7 @@ export type WorkspaceBrowserProps =
     | 'sidebar.workspaces.directoryFlow'
     | 'sidebar.workspaces.session.row.action'
     | 'sidebar.session.row.trailing'
+    | 'sidebar.session.row.persistent'
     | 'sidebar.session.row.leading'
     | 'sidebar.session.row.hover'
   >

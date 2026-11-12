@@ -1930,6 +1930,14 @@ describe('WorkspaceBrowser', () => {
     }
   })
 
+  it('keeps workspace controls available when the section label is hidden', () => {
+    mount({ showSectionLabel: false })
+    expect(screen.queryByText('工作区')).toBeNull()
+    expect(screen.getByRole('button', { name: '添加工作区' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
+    expect(document.activeElement).toBe(screen.getByPlaceholderText('搜索会话名称'))
+  })
+
   it.each(['clear', 'escape', 'outside'] as const)('animates %s search dismissal without carrying spacing motion through the rail', (dismissal) => {
     vi.useFakeTimers()
     try {

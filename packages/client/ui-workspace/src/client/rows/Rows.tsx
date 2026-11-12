@@ -48,6 +48,7 @@ type RowTranslate = WorkspaceBrowserProps['t']
 type RowRenderSlots = PropsRenderSlots<
   | 'sidebar.workspaces.session.row.action'
   | 'sidebar.session.row.trailing'
+  | 'sidebar.session.row.persistent'
   | 'sidebar.session.row.leading'
   | 'sidebar.session.row.hover'
 >['renderSlot']
@@ -617,6 +618,7 @@ export function SessionNodeItem({
 } & Pick<WorkspaceBrowserProps, 'useSessionAccess'> & PropsRenderSlots<
   | 'sidebar.workspaces.session.row.action'
   | 'sidebar.session.row.trailing'
+  | 'sidebar.session.row.persistent'
   | 'sidebar.session.row.leading'
   | 'sidebar.session.row.hover'
 >) {
@@ -734,16 +736,19 @@ export function SessionNodeItem({
       {/* Blank rows have no first prompt, so neither trailing details nor
           actions for existing content are available. */}
       {!row.blank && (
-        <span className={css.rowResting}>
-          <span
-            className={clsx(css.time, primaryStatus.trailingLabel === undefined && css.timestamp)}
-            aria-hidden={primaryStatus.trailingLabel === undefined ? undefined : true}
-          >
-            {primaryStatus.trailingLabel ?? timeLabel(row.updatedAt, now, t)}
+        <>
+          {renderSlot('sidebar.session.row.persistent', { sessionId: node.id })}
+          <span className={css.rowResting}>
+            <span
+              className={clsx(css.time, primaryStatus.trailingLabel === undefined && css.timestamp)}
+              aria-hidden={primaryStatus.trailingLabel === undefined ? undefined : true}
+            >
+              {primaryStatus.trailingLabel ?? timeLabel(row.updatedAt, now, t)}
+            </span>
+            {renderSlot('sidebar.session.row.trailing', { sessionId: node.id })}
+            {row.pinned && !row.archived && <PinnedIndicator t={t} />}
           </span>
-          {renderSlot('sidebar.session.row.trailing', { sessionId: node.id })}
-          {row.pinned && !row.archived && <PinnedIndicator t={t} />}
-        </span>
+        </>
       )}
       {/* The strip's clicks stay in the strip: the trigger and every
           row.action entry act without also opening the row, so an entry's
