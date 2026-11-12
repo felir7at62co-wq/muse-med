@@ -20,6 +20,19 @@ async function harness() {
 }
 
 describe('original model selection guard', () => {
+  it('refuses a missing live route and revokes a held route that becomes unavailable', async () => {
+    const h = await harness()
+    h.options.provider = ''
+    expect(() => h.model.guard(INITIAL, h.owner.signal)).toThrow('does not match')
+    h.options.provider = INITIAL.provider
+    const guard = h.model.guard(INITIAL, h.owner.signal)
+    h.options.model = ''
+    expect(() => { guard.assertCurrent() }).toThrow('guarded model changed')
+    expect(guard.signal.aborted).toBe(true)
+    expect(h.model.current()).toBeUndefined()
+    expect(h.session.snapshotEvents()).toEqual([])
+  })
+
   it('blocks route and explicit effort changes without logging or changing the selected model', async () => {
     const h = await harness()
     const guard = h.model.guard(INITIAL, h.owner.signal)
