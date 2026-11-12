@@ -397,6 +397,32 @@ describe('CI workflow', () => {
     expect(wine.steps).toContainEqual(expect.objectContaining({ name: 'Shut down wineserver', if: 'always()' }))
   })
 
+  it('qualifies and probes both Windows coverage media executables before running coverage', () => {
+    const coverage = workflowJob(loadWorkflow('.github/workflows/ci-windows.yml'), 'windows-coverage')
+    if (!Array.isArray(coverage.steps)) throw new TypeError('Windows coverage must define steps')
+    const steps = coverage.steps.filter(isRecord)
+    const install = steps.findIndex(step => step.name === 'Install (immutable)')
+    const prepare = steps.findIndex(step => step.name === 'Prepare media test executables')
+    const verify = steps.findIndex(step => step.name === 'Verify media test executables')
+    const run = steps.findIndex(step => step.run === 'pnpm run check:ci:coverage')
+    expect(install).toBeGreaterThanOrEqual(0)
+    expect(prepare).toBeGreaterThan(install)
+    expect(verify).toBeGreaterThan(prepare)
+    expect(run).toBeGreaterThan(verify)
+    expect(steps[prepare]).toEqual({
+      name: 'Prepare media test executables', shell: 'pwsh', run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts',
+    })
+    expect(steps[verify]).toEqual({
+      name: 'Verify media test executables', shell: 'pwsh', run: [
+        "foreach ($name in @('ffmpeg', 'ffprobe')) {",
+        '  $binary = (Get-Command $name -CommandType Application -ErrorAction Stop).Source',
+        '  & $binary -version',
+        '  if ($LASTEXITCODE -ne 0) { throw "$name version probe failed: $LASTEXITCODE" }',
+        '}', '',
+      ].join('\n'),
+    })
+  })
+
   it.each([
     ['node-24-coverage', 'ci.yml', 'Linux', 'LINUX', 'pnpm run check:ci:coverage'],
     ['windows-coverage', 'ci-windows.yml', 'Windows', 'WINDOWS', 'pnpm run check:ci:coverage'],
