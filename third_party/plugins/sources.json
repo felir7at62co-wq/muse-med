@@ -197,7 +197,7 @@
     "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
     "license": "BSD-3-Clause",
     "localModifications": {
-      "description": "Admit the reviewed Muse Host; isolate Session cards, preserve partial save receipts, bind native Client lifecycles and locale, protect frame and composer ownership, and render Desktop pages in place.",
+      "description": "Admit the reviewed Muse Host; isolate Session cards, preserve partial save receipts, parse Windows home aliases and retry bounded atomic rename sharing conflicts, bind native Client lifecycles and locale, protect frame and composer ownership, and render Desktop pages in place.",
       "files": {
         "lib/client.js": {
           "upstreamSha256": "80f8c71122db3bd59e13b544a6fa5b795134c1301c7acdb1dca7e2ff342e54e9",
@@ -209,7 +209,7 @@
         },
         "lib/index.js": {
           "upstreamSha256": "00e961e047026887116be5b5097af4a933c023385700f787c50fbea00ca3a3d7",
-          "sha256": "dee5e8134b4148e3ee55651ddaa9e46e745b8035aa5d24ace2fd5c32c84059a4"
+          "sha256": "514d813f2c0ae4f353e8ec5febc7fa77819819148117521f44ab7b6b4251c987"
         },
         "package.json": {
           "upstreamSha256": "8a174bf1598bd301666b358a517c0e000f7be615c16b64067b919b9572bdccb9",
@@ -249,7 +249,7 @@
         },
         "src/storage.ts": {
           "upstreamSha256": "4f3ff4878ca81a7f4c87e97a4ce8bd0ba6e96b008f3b19d21f4d9e82612e1e18",
-          "sha256": "930444fbffc3f26cc3e9bb7ce2dff5a00a6ceea6df5652e02031240fcc0ad7a5"
+          "sha256": "32b34fb6d6ccfb87e0e9ac353cd88aaba3bafe1b6d0635cecedc28f170ac78de"
         },
         "src/tool.ts": {
           "upstreamSha256": "403dfd8dab2fd4b724b0938e0dd77bcfc00190afde15b94114ff4720484319f4",
@@ -273,11 +273,11 @@
         },
         "tests/storage-commit.spec.ts": {
           "upstreamSha256": null,
-          "sha256": "8557d023dc4b329319502925e8a73b909b42b60f2839117d54a7a9e4db534203"
+          "sha256": "b1962649756b1cf1e36f27f76042c1fdc69c312c403e5eb5a8afb8d979659064"
         },
         "tests/storage.spec.ts": {
           "upstreamSha256": "a56c830a0b9adfbc6944f0b2c8c4468ccebece02dfef8103d979b83d9e0e365e",
-          "sha256": "c273778eef2e260c866a718657dc1196e97b7df6e6656be53d4551919fe40b8b"
+          "sha256": "a5e01402a69e9d784fcb45b3fea5d63bf00c70e643fb7b9dad6908eef05108fe"
         },
         "tests/turn-cards.spec.tsx": {
           "upstreamSha256": "e7e359b505b17cab121843fbe9979e0a39fc9e7c12e5c013a8646eaf989f1ef0",
@@ -286,6 +286,10 @@
         "tests/tool.spec.ts": {
           "upstreamSha256": "8947246170a19a9531096d234c83f7305a2e5a93023e2bbe75f15581b9e69514",
           "sha256": "8de817a3e658d8ce6983516be51542310c5c372746d2f02781b4990595d681b3"
+        },
+        "tests/card-images.spec.ts": {
+          "upstreamSha256": "bd04d320a71f8cbb2d2e60a7549f328f5af432e6b524082f658c538e75ef915e",
+          "sha256": "025fd7737e460506988e05f92c37ba17bb95e4bf919c532c9a66bf2721535545"
         }
       }
     }
