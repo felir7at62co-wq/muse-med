@@ -28,6 +28,8 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 
 构建产物的 jsdom 用例共用 `installAssembledBootEnv`，提供不匹配的媒体查询，并在每项测试后恢复浏览器全局对象；真实媒体查询行为由浏览器用例验证。
 
+[Bot 侧栏夹具](bot-sidebar-rail.e2e.ts)以合成名单和空 Sessions 挂载内置导航，释放时取消其公开导航 guard。窄屏 Web 和 macOS 用例检查可见抽屉、命中、键盘焦点和不占侧栏列的主区；Windows 保留图标栏。这些几何检查不验证原生 Session 操作。
+
 ## 完成状态观察
 
 桌面引导通过[只读账号观察器](fixtures/plugins/fixture-onboarding-account/client.js)等待余额结果发布。暂扣返回充值页后的响应，将请求到达、导航按钮启用与失败结果到达账号订阅区分开；夹具在其 Client 插件停止时释放该订阅。
