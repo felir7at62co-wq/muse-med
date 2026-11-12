@@ -8,6 +8,8 @@ import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess';
 
 /** Deployment fields never store signing credentials. */
 export interface HongguoDownloadConfig {
+  taskDirectory?: string; taskMaxRecords?: number; taskMaxStateBytes?: number; taskPollIntervalMs?: number;
+  taskControlWaitMs?: number; taskLockWaitMs?: number;
   quality?: '1080p' | '720p' | 'auto';
   legacyBackend?: 'v1' | 'v2'; v2RuntimeDir?: string; v2StateDir?: string; v2Quality?: '1080p' | '720p' | '540p' | '480p' | '360p';
   v2PollIntervalMs?: number; v2RequestTimeoutMs?: number; v2StartupTimeoutMs?: number; v2ShutdownTimeoutMs?: number;
@@ -65,7 +67,8 @@ export class HongguoDownloadClient {
   constructor(config?: HongguoDownloadConfig, dependencies?: { subprocess?: SubprocessRuntime });
   readonly config: Readonly<Required<HongguoDownloadConfig>>;
   info(options: Pick<DownloadOptions, 'seriesIds' | 'sourceMode'>, signal?: AbortSignal): Promise<DownloadInfo | DownloadFailure>;
-  download(options: DownloadOptions, signal?: AbortSignal, workspace?: string, filePolicy?: SandboxExecutionPolicy): Promise<DownloadResult | DownloadFailure>;
+  resolveTaskRequest(options: DownloadOptions, workspace: string, filePolicy: SandboxExecutionPolicy): Promise<{ request: DownloadOptions & { quality: '1080p' | '720p' | 'auto'; sourceMode: 'legacy' | 'manifest' | 'public'; outputDir: string }; sourceIdentity: string | null; checkpointDirectory: string }>;
+  download(options: DownloadOptions, signal?: AbortSignal, workspace?: string, filePolicy?: SandboxExecutionPolicy, observer?: { onProgress?(progress: Record<string, number | string | boolean>): void | Promise<void> }): Promise<DownloadResult | DownloadFailure>;
 
   dispose(): Promise<void>;
 }
@@ -74,3 +77,5 @@ export const inject: readonly ['tools', 'agents', 'subprocess'];
 export function resolveConfig(config?: HongguoDownloadConfig): Readonly<Required<HongguoDownloadConfig>>;
 /** Register tools on the owning Cordis context; its effects dispose owned downloads on unload. */
 export function apply(ctx: Context, config?: HongguoDownloadConfig): void;
+
+export type { HongguoTaskId, HongguoRunId, HongguoTaskCaller, HongguoTaskEnvelope, HongguoTaskResult } from './tasks.js';

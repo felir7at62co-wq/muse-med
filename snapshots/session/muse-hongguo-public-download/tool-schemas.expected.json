@@ -179,6 +179,14 @@
             ],
             "description": "本次下载画质；省略采用插件默认值。固定画质不自动降级，auto兼容优先"
           },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "wait",
+              "background"
+            ],
+            "description": "wait等待验证完成（默认）；background返回持久taskId，通过hongguo_download_task管理"
+          },
           "outputDir": {
             "type": "string",
             "description": "默认当前会话 downloads；完全权限可指定外部绝对路径"
@@ -204,6 +212,50 @@
             },
             "minItems": 1,
             "maxItems": 10
+          }
+        }
+      }
+    },
+    {
+      "name": "hongguo_download_task",
+      "description": "管理当前会话和工作区中的红果下载任务。list/status查询；pause暂停，resume继续，cancel取消，retry按原清晰度重试；remove仅移除已结束的任务记录，保留视频和原下载进度。暂停/取消须带status返回的expectedRunId，只有控制确认acknowledged才表示已停止。重启不自动下载；清理未知的任务保持blocked，不得强行恢复。taskId不同于Jobs的jobId。",
+      "parameters": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "list",
+              "status",
+              "pause",
+              "resume",
+              "cancel",
+              "retry",
+              "remove"
+            ]
+          },
+          "taskId": {
+            "type": "string",
+            "pattern": "^hgt-[a-f0-9]{32}$"
+          },
+          "expectedRunId": {
+            "type": "string",
+            "pattern": "^hgr-[a-f0-9]{32}$"
+          },
+          "requestId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,160}$"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "wait",
+              "background"
+            ]
           }
         }
       }

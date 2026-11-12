@@ -2,6 +2,8 @@
 import { isAbsolute } from 'node:path';
 
 const ranges = {
+  taskMaxRecords: [1, 10000], taskMaxStateBytes: [1024, 33554432], taskPollIntervalMs: [20, 60000],
+  taskControlWaitMs: [20, 60000], taskLockWaitMs: [0, 60000],
   v2PollIntervalMs: [100, 60000], v2RequestTimeoutMs: [100, 300000], v2StartupTimeoutMs: [100, 300000],
   v2ShutdownTimeoutMs: [100, 60000], v2MaxLineBytes: [1024, 33554432], v2MaxPendingRequests: [2, 64],
   v2MaxEpisodesPerJob: [1, 10000], v2EpisodesAtOnce: [1, 8], v2ConnectionsPerFile: [1, 4],
@@ -20,6 +22,8 @@ const ranges = {
   emptySourceCooldownMs: [1000, 600000], resumeSearchDepth: [0, 8], resumeSearchEntries: [1, 100000],
 };
 const defaults = {
+  taskDirectory: '.muse-downloads/hongguo', taskMaxRecords: 1000, taskMaxStateBytes: 1048576,
+  taskPollIntervalMs: 250, taskControlWaitMs: 10000, taskLockWaitMs: 1000,
   quality: '1080p', legacyBackend: 'v1', v2RuntimeDir: '', v2StateDir: '', v2Quality: '720p',
   v2PollIntervalMs: 1000, v2RequestTimeoutMs: 120000, v2StartupTimeoutMs: 30000,
   v2ShutdownTimeoutMs: 10000, v2MaxLineBytes: 1048576, v2MaxPendingRequests: 8, v2MaxEpisodesPerJob: 10000, v2EpisodesAtOnce: 1, v2ConnectionsPerFile: 1,
@@ -61,6 +65,8 @@ export function resolveConfig(value = {}) {
     } else if (typeof entry !== 'string') throw new TypeError(`${key} 必须是字符串`);
     config[key] = Array.isArray(entry) ? [...entry] : entry;
   }
+  if (!config.taskDirectory || isAbsolute(config.taskDirectory) || /[\\\0]/.test(config.taskDirectory)
+    || config.taskDirectory.split('/').some(part => !part || part === '.' || part === '..')) throw new TypeError('taskDirectory 必须是工作区内不含链接的相对目录');
   if (config.mediaConnectionLimit < config.concurrency) throw new TypeError('mediaConnectionLimit 不能小于 concurrency');
   if (!['1080p', '720p', 'auto'].includes(config.quality)) throw new TypeError('quality 必须是 1080p、720p 或 auto');
   if (config.legacyBackend !== 'v1') throw new TypeError('旧下载后端已移除，请使用 jackotom 引擎');

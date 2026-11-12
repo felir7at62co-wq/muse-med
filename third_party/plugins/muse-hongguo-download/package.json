@@ -12,7 +12,16 @@
     },
     "./client": "./src/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./cli": {
+      "types": "./src/cli.d.ts",
+      "default": "./src/cli.js"
+    },
+    "./tasks": {
+      "types": "./src/tasks.d.ts",
+      "default": "./src/tasks.js"
+    },
+    "./profiles/hongguo/*": "./profiles/hongguo/*"
   },
   "files": [
     "src/",
@@ -26,7 +35,10 @@
     "NOTICE",
     "scripts/bundle-upstream.mjs",
     "LICENSE-Muse-original",
-    "patches/"
+    "patches/",
+    "profiles/",
+    "CLI.md",
+    "CLI.zh.md"
   ],
   "scripts": {
     "test": "node --test tests/*.test.js",
@@ -44,7 +56,10 @@
     "@deepseek-ai/dsh-subprocess": "0.2.2-rc.2",
     "@deepseek-ai/dsh-sandbox": "0.2.2-rc.2",
     "@deepseek-ai/dsh-sandbox-policy": "0.2.2-rc.2",
-    "@deepseek-ai/dsh-atomic-write": "0.2.2-rc.2"
+    "@deepseek-ai/dsh-atomic-write": "0.2.2-rc.2",
+    "@deepseek-ai/dsh-jobs": "0.2.2-rc.2",
+    "@deepseek-ai/dsh-brand": "0.2.2-rc.2",
+    "@deepseek-ai/dsh-session": "0.2.2-rc.2"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -66,6 +81,15 @@
       "optional": true
     },
     "@deepseek-ai/dsh-atomic-write": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-jobs": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-brand": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-session": {
       "optional": true
     }
   },

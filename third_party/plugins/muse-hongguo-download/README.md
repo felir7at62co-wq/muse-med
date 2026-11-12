@@ -19,6 +19,14 @@ The default destination is the Session workspace's `downloads` directory. Read-o
 
 The pipeline checks complete ordered catalogs, transfers, decrypted MP4 structure, expected dimensions and duration, requested resolution, full video/audio decoding and SHA256 before publishing a success receipt. Cancellation and failures preserve verified episodes and the recovery journal; repeat the same request to resume. Only a verified complete declared episode list sets `complete: true`. Catalog inspection alone never confirms media availability. Plugin disposal aborts calls and waits for cleanup.
 
+## Download tasks
+
+Pass `mode: background` to `hongguo_download` for a Session-owned background job; the default `wait` retains foreground cancellation. `hongguo_download_task` lists and inspects tasks, pauses, resumes, cancels, retries, or removes ended records. Pause and cancel require the exact `expectedRunId` from status; only an `acknowledged` control confirms that cleanup and final state publication finished. A pending request is not confirmation.
+
+The current workspace keeps private records under `.muse-downloads/hongguo`, configurable through `taskDirectory`. Tasks freeze the original Session or CLI owner, canonical workspace, output directory, quality and source identity. Explicit resume rechecks current write permissions and verified checkpoints. Restart never replays requests; unknown process cleanup remains blocked. Removing a record preserves media and checkpoints. Task completion for a selected subset does not claim full-series completion.
+
+Use the [CLI profile](CLI.md) for local commands without a model or a shared Desktop account. CLI foreground operations use the same task library; an explicitly selected existing Session owner is limited to that workspace.
+
 ## Model Experience
 
 If process exit cannot be confirmed, `cleanup_unconfirmed` retains private staging and a durable process lease. Restarted downloads refuse that lease until its process and files have been inspected. Existing destination files are never overwritten.

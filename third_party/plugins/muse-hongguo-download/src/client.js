@@ -276,20 +276,33 @@ export class HongguoDownloadClient {
     }
   }
 
+  /** Resolve safe, immutable task arguments without network requests or creating output directories. */
+  async resolveTaskRequest(args, workspace, filePolicy) {
+    const { options, output, sourceIdentity } = await this.requestSpec(args, workspace, filePolicy);
+    return { request: { seriesIds: options.seriesIds, sourceMode: options.mode, quality: options.quality,
+      ...(options.episodes ? { episodes: options.episodes } : {}), outputDir: output.path }, sourceIdentity,
+      checkpointDirectory: new DownloadCheckpoint(output.path, { ...options, sourceIdentity }, this.config).directory };
+  }
+
+  async requestSpec(args, workspace, filePolicy) {
+    const options = argumentsFor(args, this.config, true);
+    const output = await outputDirectory(workspace ?? this.config.outputRoot, options.outputDir, filePolicy);
+    const requestConfig = Object.freeze({ ...this.config, quality: options.quality });
+    const source = options.mode === 'legacy' ? this.sourceFactory(requestConfig) : this.source;
+    const manifestCatalogs = options.mode === 'manifest' ? await this.manifest.load() : null;
+    const baseIdentity = manifestCatalogs ? createHash('sha256').update(JSON.stringify(manifestCatalogs)).digest('hex') : source.identity ?? null;
+    // The pinned engine already records quality; preserve those checkpoint ids and source-preserving auto requests.
+    const sourceIdentity = options.mode === 'legacy'
+      ? typeof baseIdentity === 'string' && baseIdentity.startsWith('jackotom:') && baseIdentity.endsWith(`:${options.quality}`)
+        ? baseIdentity : `${baseIdentity ?? 'legacy'}:quality:${options.quality}`
+      : options.quality === 'auto' ? baseIdentity : `${baseIdentity ?? 'public'}:quality:${options.quality}`;
+    return { options, output, source, manifestCatalogs, sourceIdentity };
+  }
+
   /** Retain verified episodes across interrupted calls; only a complete request publishes a success receipt. */
-  download(args, signal, workspace, filePolicy) {
+  download(args, signal, workspace, filePolicy, observer = {}) {
     return this.run(signal, async active => {
-      const options = argumentsFor(args, this.config, true), plans = [];
-      const output = await outputDirectory(workspace ?? this.config.outputRoot, options.outputDir, filePolicy);
-      const requestConfig = Object.freeze({ ...this.config, quality: options.quality });
-      const source = options.mode === 'legacy' ? this.sourceFactory(requestConfig) : this.source;
-      const manifestCatalogs = options.mode === 'manifest' ? await this.manifest.load() : null;
-      const baseIdentity = manifestCatalogs ? createHash('sha256').update(JSON.stringify(manifestCatalogs)).digest('hex') : source.identity ?? null;
-      // The pinned engine already records quality; preserve those checkpoint ids and source-preserving auto requests.
-      const sourceIdentity = options.mode === 'legacy'
-        ? typeof baseIdentity === 'string' && baseIdentity.startsWith('jackotom:') && baseIdentity.endsWith(`:${options.quality}`)
-          ? baseIdentity : `${baseIdentity ?? 'legacy'}:quality:${options.quality}`
-        : options.quality === 'auto' ? baseIdentity : `${baseIdentity ?? 'public'}:quality:${options.quality}`;
+      const { options, output, source, manifestCatalogs, sourceIdentity } = await this.requestSpec(args, workspace, filePolicy), plans = [];
       const checkpoint = new DownloadCheckpoint(output.path, { ...options, sourceIdentity }, this.config);
       const prior = await checkpoint.read();
       const discovery = await discoverReceipts(output.path, options.mode, this.config, active, sourceIdentity, options.quality);
@@ -340,6 +353,7 @@ export class HongguoDownloadClient {
           remainingEpisodeCount: plans.reduce((sum, plan) => sum + plan.selected.length, 0) - state.completed.length,
           discoveryTruncated: discovery.truncated });
         try {
+          await observer.onProgress?.(progress());
           for (const { catalog, selected } of plans) {
             const folderName = `${slug(catalog.title)}-${slug(catalog.seriesId)}`;
             const missing = selected.filter(episode => !state.completed.some(item => item.seriesId === catalog.seriesId && item.vid === episode.vid));
@@ -369,6 +383,7 @@ export class HongguoDownloadClient {
                   state.completed.push({ seriesId: catalog.seriesId, vid: episode.vid,
                     episode: { index: episode.index, title: episode.title, path, ...saved } }); downloaded++;
                   await persist();
+                  await observer.onProgress?.(progress());
                 }
               });
               const settled = await Promise.allSettled(jobs.map(job => job.catch(error => { fail(error); throw error; })));

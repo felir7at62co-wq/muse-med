@@ -584,21 +584,22 @@ test('host tools obtain the workspace from the initiating session and declare ca
   const root = await mkdtemp(join(tmpdir(), 'muse-hongguo-tool-')); t.after(() => rm(root, { recursive: true, force: true }));
   const tools = [], cleanup = [];
   let mode = 'read-only';
-  apply({ get(name) { assert.equal(name, 'sandboxPolicy'); return { resolve({ session }) { assert.equal(session.header.cwd, root); return { mode }; } }; },
-    tools: { register(value) { tools.push(value); return () => {}; } }, agents: { requireInitiator() { return { session: { header: { cwd: root } } }; } },
+  const agent = { id: 'session-tool', session: { id: 'session-tool', header: { cwd: root } } };
+  apply({ get(name) { if (name === 'jobs') return undefined; assert.equal(name, 'sandboxPolicy'); return { resolve({ session }) { assert.equal(session, agent.session); return { mode, workspaceRoot: root }; } }; },
+    tools: { register(value) { tools.push(value); return () => {}; } }, agents: { requireInitiator() { return agent; }, get(id) { return id === agent.id ? agent : undefined; } },
     subprocess: { spawn() { throw new Error('Unexpected subprocess before source configuration'); } }, effect(factory) { cleanup.push(factory()); } });
   t.after(() => Promise.all(cleanup.map(fn => fn())));
-  assert.deepEqual(tools.map(item => item.name), ['hongguo_download_info', 'hongguo_download']);
+  assert.deepEqual(tools.map(item => item.name), ['hongguo_download_info', 'hongguo_download', 'hongguo_download_task']);
   assert.equal(tools[1].presentCall().kind, 'write');
   const result = await tools[1].execute({ seriesIds: ['123'] }, { signal: emptySignal() });
   assert.equal(result.code, 'file_access_denied');
   assert.equal(tools[1].output.render({}, result)[0].type, 'text');
   mode = 'read-only';
-  assert.equal((await tools[1].execute({ seriesIds: ['123'] }, { signal: emptySignal() })).code, 'file_access_denied');
+  assert.equal((await tools[1].execute({ seriesIds: ['123'] }, { signal: emptySignal(), callId: 'child-call', rootCallId: 'root-call' })).code, 'file_access_denied');
   mode = 'workspace-write';
   const outside = await mkdtemp(join(tmpdir(), 'muse-hongguo-tool-output-'));
   t.after(() => rm(outside, { recursive: true, force: true }));
-  assert.equal((await tools[1].execute({ seriesIds: ['123'], outputDir: outside }, { signal: emptySignal() })).code, 'file_access_denied');
+  assert.equal((await tools[1].execute({ seriesIds: ['123'], outputDir: outside }, { signal: emptySignal(), callId: 'child-call', rootCallId: 'root-call' })).code, 'file_access_denied');
 });
 
 test('config and URL validation reject unsafe and unknown settings', () => {
