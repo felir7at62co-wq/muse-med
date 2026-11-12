@@ -10,4 +10,4 @@
 
 `apps/web/tests/muse-visualize.e2e.ts` 使用相同的原生 Session 数据打开已打包的客户端，检查滑块交互和刷新、两个会话的隔离，并验证图卡提示只填入草稿，保留用户已有草稿和附件。浏览器截图和验收回执保存在 `.artifacts/visualize-browser-ui/` 下。
 
-精确请求预算的期望值根据已分配的工作目录和 Session id 展开已提交的提示词、工具定义及工具文本。源码资源位于 `.dsh/plugins/dsh-visualize`；构建版资源位于经过审查的 `.dsh/profiles/headless/node_modules/@nagi-ovo/dsh-visualize` 安装目录。期望输入只将可视化工具描述中的三处资源引用和指定 Skill 结果中的一行 Base directory 绑定到该布局；其余文本与工具参数保留原字节。运行时上下文路径保留解析后的目录，可视化存储路径保留所配置 home 的写法，包括 Windows 路径别名。夹具销毁时恢复临时 home 环境变量，规范录制文件保持不变。
+精确请求预算的期望值根据已分配的工作目录和 Session id 展开已提交的提示词、工具定义及工具文本。挂载选定插件前，夹具在 harness 的私有 spill 目录记录真实入口和资源目录。harness 要求路径属于支持的暂存或 profile 安装布局，且资源可读；证据缺失或被改动时直接失败，不依据启动模式猜测。完整 schema、Skill 和预算比较使用同一选择，只改动工具描述中指定的三处资源引用和 Skill 的一行 Base directory；其余文本与工具参数保留原字节。运行时上下文路径保留解析后的目录，可视化存储路径保留所配置 home 的写法，包括 Windows 路径别名。包管理器的 home 和缓存位于私有回执旁，不进入模型工作区。夹具销毁时恢复临时 home 环境变量，规范录制文件保持不变。
