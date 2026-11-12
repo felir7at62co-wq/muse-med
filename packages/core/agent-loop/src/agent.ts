@@ -574,6 +574,18 @@ export class ReactLoopAgent implements Agent {
             () => Promise.resolve<RequestErrorAction>(undefined),
           )
           signal.throwIfAborted()
+          if (action?.kind === 'switch') {
+            if (action.selection.provider === request.provider) {
+              throw new Error(`agent "${this.id}": request recovery must switch to a different provider`)
+            }
+            const current = this.model.current()
+            if (current?.provider === decision.selection.provider
+              && current.model === decision.selection.model
+              && current.reasoningEffort === decision.selection.reasoningEffort) {
+              this.model.select(action.selection)
+            }
+            return null
+          }
           if (action?.kind !== 'retry') {
             throw new LlmError(finish.failure.message, finish.failure.code, finish.failure)
           }

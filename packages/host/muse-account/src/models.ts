@@ -1,5 +1,5 @@
 /** Session-bound Muse models registered beside user-managed providers. */
-import type { Context } from '@deepseek-ai/cordis'
+import type { Context, Events } from '@deepseek-ai/cordis'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { LlmError, ReasoningEffortId, resolveImageAttachmentAccess } from '@deepseek-ai/dsh-llm'
 import type {
@@ -11,7 +11,7 @@ import type {
   GenerateOptions,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
-import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
+import type { Agent, ModelSelection, RequestErrorAction } from '@deepseek-ai/dsh-agent'
 import { scopeChainOf, scopeOf } from '@deepseek-ai/dsh-scope'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
@@ -62,6 +62,16 @@ const metadata = z.object({ providers: z.array(z.object({
   }
 })
 const modelName = (id: string): string => id.slice(id.lastIndexOf('/') + 1)
+
+type AccountModel = z.infer<typeof metadata>['providers'][number]['models'][number]
+type FailoverRoute = { readonly provider: string; readonly model: AccountModel }
+
+/** Only known supplier failures are safe to repeat on another account route. */
+const failoverCodes = new Set(['QUOTA', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'STREAM_CLOSED', 'EMPTY_RESPONSE'])
+
+function modelFamily(id: string): string {
+  return modelName(id).toLowerCase().split(/[-.]/u, 1)[0] ?? ''
+}
 
 type DirectStream = (options: GenerateOptions, signal: AbortSignal) => AsyncIterable<StreamChunk>
 
@@ -142,6 +152,14 @@ export class MuseModels {
   private readonly trace: MuseModelRequestTrace
   private readonly selectionRepairs = new Set<Promise<void>>()
   private readonly disposeAgentCreated: () => void
+  private readonly disposeRequestError: () => void
+  private readonly attemptedProviders = new WeakMap<Agent, {
+    session: Agent['session']
+    turn: number
+    providers: Set<string>
+    sourceModel: AccountModel
+  }>()
+  private failoverRoutes: readonly FailoverRoute[] = []
 
   constructor(private readonly ctx: Context, private readonly options: MuseModelsOptions) {
     const trace = this.trace = new MuseModelRequestTrace(options.baseUrl, (record) => { ctx.logger.info(JSON.stringify(record)) })
@@ -189,6 +207,63 @@ export class MuseModels {
       await this.repairSelection(agent, signal ?? this.stop.signal)
       return undefined
     })
+    this.disposeRequestError = ctx.on('agent/request-error', (payload, next) => this.failover(payload, next))
+  }
+
+  /** Delegate the route's own retry policy before considering another account supplier. */
+  private async failover(
+    { agent, turn, provider, failure, signal }: Parameters<Events['agent/request-error']>[0],
+    next: () => Promise<RequestErrorAction>,
+  ): Promise<RequestErrorAction> {
+    const recovery = await next()
+    if (recovery !== undefined) return recovery
+    if (!provider.startsWith('muse-cloud-') || !failoverCodes.has(failure.code) || this.isStopped() || signal.aborted) return
+    const owner = scopeOf(this.ctx)
+    if (owner !== undefined && !scopeChainOf(agent).includes(owner)) return
+    const header = agent.session.requestHeader()
+    const selected = agent.model.current()
+    const explicitEffort = header?.adapterDefaults?.reasoningEffort === true ? undefined : header?.config.reasoningEffort
+    if (header?.config.provider !== provider || selected?.provider !== provider || selected.model !== header.config.model
+      || selected.reasoningEffort !== explicitEffort) return
+    const source = this.failoverRoutes.find(route => route.provider === provider && route.model.id === selected.model)
+    const revision = this.revision
+    const profiles = this.profiles
+    if (!source || !revision || !profiles.has(provider)) return
+    const currentSession = await readMuseSession(this.options.sessionFile, this.options.baseUrl)
+    signal.throwIfAborted()
+    if (this.isStopped() || this.revision !== revision || this.profiles !== profiles
+      || currentSession?.revision !== revision) return
+    const attempts = this.attemptedProviders.get(agent)
+    const sameTurn = attempts?.session === agent.session && attempts.turn === turn
+    const tried = sameTurn ? attempts.providers : new Set<string>()
+    const sourceModel = sameTurn ? attempts.sourceModel : source.model
+    if (!sameTurn) this.attemptedProviders.set(agent, { session: agent.session, turn, providers: tried, sourceModel })
+    tried.add(provider)
+    const needsImage = agent.session.deriveMessages().some(message => message.content.some(block =>
+      block.type === 'image' && block.offloaded !== true))
+    const explicitMaxTokens = header.adapterDefaults?.maxTokens === true ? undefined : header.config.maxTokens
+    const routes = this.failoverRoutes.filter(route => route.provider !== provider && !tried.has(route.provider)
+      && profiles.has(route.provider) && this.providerSelectable(route.provider)
+      && this.modelSelectable(route.provider, route.model.id)
+      && route.model.contextWindow >= sourceModel.contextWindow
+      && (explicitMaxTokens === undefined || route.model.maxTokens >= explicitMaxTokens)
+      && route.model.input.includes('text')
+      && (!needsImage || route.model.input.includes('image'))
+      && (selected.reasoningEffort === undefined || route.model.reasoningEfforts !== false
+        && Object.hasOwn(route.model.reasoningEfforts, selected.reasoningEffort)))
+    routes.sort((a, b) => {
+      const rank = (route: FailoverRoute): number => route.model.id === sourceModel.id ? 0
+        : modelFamily(route.model.id) === modelFamily(sourceModel.id) ? 1 : 2
+      return rank(a) - rank(b)
+    })
+    const target = routes[0]
+    if (target === undefined) {
+      if (tried.size > 1) throw new LlmError('All compatible Muse model providers are unavailable. Please retry later.', 'MUSE_PROVIDERS_EXHAUSTED')
+      return
+    }
+    signal.throwIfAborted()
+    return { kind: 'switch', selection: { provider: target.provider, model: target.model.id,
+      ...(selected.reasoningEffort === undefined ? {} : { reasoningEffort: selected.reasoningEffort }) } }
   }
 
   private directStream(adapterOptions: PiAiAdapterOptions, provider: string, model: string): DirectStream | undefined {
@@ -214,10 +289,12 @@ export class MuseModels {
     this.authorization.abort()
     this.trace.dispose()
     this.disposeAgentCreated()
+    this.disposeRequestError()
     this.registration?.()
     this.registration = undefined
     this.profiles = new Map()
     this.defaultEfforts = new Map()
+    this.failoverRoutes = []
     await Promise.allSettled([this.queue, ...this.selectionRepairs])
   }
 
@@ -237,6 +314,7 @@ export class MuseModels {
     this.registration?.replace([])
     this.profiles = new Map()
     this.defaultEfforts = new Map()
+    this.failoverRoutes = []
     this.revision = undefined
     this.signature = undefined
     await clearModelAccess(this.options.sessionFile, this.options.baseUrl, revision, this.stop.signal)
@@ -299,6 +377,7 @@ export class MuseModels {
     }
     const providers: Record<string, PiAiProviderProfile> = {}
     const defaults = new Map<string, ReasoningEffortId>()
+    const failoverRoutes: FailoverRoute[] = []
     for (const provider of data.providers) {
       if (this.options.excludedProviderIds?.includes(provider.id)) continue
       const id = `muse-cloud-${provider.id}`
@@ -309,6 +388,7 @@ export class MuseModels {
       if (!allowedModels.length) continue
       for (const model of allowedModels) {
         if (model.defaultReasoningEffort !== undefined) defaults.set(`${id}:${model.id}`, ReasoningEffortId(model.defaultReasoningEffort))
+        failoverRoutes.push({ provider: id, model })
       }
       providers[id] = {
         displayName: `Muse · ${provider.name}`, api: 'openai-completions',
@@ -359,12 +439,14 @@ export class MuseModels {
     if (publishedSession?.revision !== session.revision) { await this.clear(); return }
     const previous = this.profiles
     const previousDefaults = this.defaultEfforts
+    const previousRoutes = this.failoverRoutes
     this.profiles = candidate
     this.defaultEfforts = defaults
+    this.failoverRoutes = failoverRoutes
     try {
       if (this.registration) this.registration.replace([...candidate.keys()])
       else if (candidate.size) this.registration = this.ctx.llm.registerAdapter([...candidate.keys()], this.adapter)
-    } catch (error) { this.profiles = previous; this.defaultEfforts = previousDefaults; throw error }
+    } catch (error) { this.profiles = previous; this.defaultEfforts = previousDefaults; this.failoverRoutes = previousRoutes; throw error }
     this.revision = session.revision
     await this.selectInitialDefault(providers, session.revision)
     this.signature = signature

@@ -435,11 +435,11 @@ type PreStepDecision =
   }
 ```
 
-`agent/request-error` 在失败的模型步骤关闭之后、其轮次关闭之前运行。listener 可以在失败轮次的 signal 仍然存活时修复持久状态或 await 策略工作。处理该错误的 listener 返回 `{ kind: 'retry' }` 且不调用 `next()`；默认的 `undefined` 会让失败保持终态。
+`agent/request-error` 在失败的模型尝试记录后、步骤关闭前运行。监听器可在轮次 signal 存活时修复持久状态或等待策略操作。处理该错误的监听器返回 `{ kind: 'retry' }` 可重试同一步骤，返回 `{ kind: 'switch', selection }` 可选用其他提供方并在新步骤继续，不重复已接纳的用户输入。驱动器保留用户较新的选择，并拒绝切回失败的提供方。默认的 `undefined` 让失败保持终态。
 
 ```ts type-equiv
 /** Action returned by a listener that owns model-request recovery. */
-type RequestErrorAction = { kind: 'retry' } | undefined
+type RequestErrorAction = { kind: 'retry' } | { kind: 'switch'; selection: ModelSelection } | undefined
 ```
 
 `agent/pre-step` 是请求推导前唯一的 waterfall（瀑布式）监听器链。`agent/turn-stopping` 在轮次没有工具或 steering（中途引导）后续时运行，先于最后一次 steering 排空。
@@ -1142,14 +1142,14 @@ Source: [`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/s
 
 #### `agent/request-error` — waterfall
 
-Handle one failed model-request attempt before the loop retries or closes its step. A listener returns `{ kind: 'retry' }` without calling `next()` when it owns recovery, or calls `next()` to delegate. The default `undefined` leaves the failure terminal.
+Handle one recorded failed model-request attempt before its step closes. A listener returns `retry` to repeat the step, `switch` to select a different provider in a new step, or calls `next()` to delegate. The default `undefined` leaves the failure terminal.
 
 ```ts cordis-catalog
 /**
- * Handle one failed model-request attempt before the loop retries or closes
- * its step. A listener returns `{ kind: 'retry' }` without calling `next()`
- * when it owns recovery, or calls `next()` to delegate. The default
- * `undefined` leaves the failure terminal.
+ * Handle one recorded failed model-request attempt before its step closes.
+ * A listener returns `retry` to repeat the step, `switch` to select a
+ * different provider in a new step, or calls `next()` to delegate.
+ * The default `undefined` leaves the failure terminal.
  * @param payload.agent - the agent whose request failed.
  * @param payload.turn - the turn containing the failed request.
  * @param payload.step - the step containing the failed request attempt.
@@ -1157,6 +1157,10 @@ Handle one failed model-request attempt before the loop retries or closes its st
  * @param payload.failure - serializable facts normalized at the final adapter boundary.
  * @param payload.retryPolicy - the policy of the adapter registration that served the failed request.
  * @param payload.signal - the turn abort signal.
+ * A `retry` repeats the same prepared step. A `switch` records a new
+ * provider selection and resumes in a fresh step with newly assembled tools
+ * and prompt; the driver ignores the proposed selection if the user changed
+ * the failed step's choice while recovery was pending.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */

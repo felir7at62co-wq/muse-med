@@ -1,0 +1,13 @@
+version: 1
+scenario: muse-provider-failover
+profile: headless
+composition: muse-selected-account-models
+recording: authored
+header:
+  class: muse-provider-failover
+  pin: true
+  changes: 1
+  promptChanges: 1
+writerOutput: true
+environment:
+  DSH_SNAPSHOT_PROVIDER_FAILOVER: "true"

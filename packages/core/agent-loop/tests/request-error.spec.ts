@@ -9,7 +9,8 @@ import type { LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
-import { MockAdapter, textResponse } from './mock-adapter.ts'
+import { defineContentToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 async function harness(adapter: MockAdapter): Promise<Context> {
   const ctx = new Context()
@@ -121,6 +122,103 @@ describe('agent/request-error', () => {
     expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')).toMatchObject({
       type: 'turn/end',
       data: { reason: { kind: 'aborted', reason: { kind: 'user' } } },
+    })
+  })
+
+  it('switches a failed provider in a new step without replaying user input or executing failed tool calls', async () => {
+    const failedCall = toolCallResponse('untrusted-call', 'unsafe', {})
+    const first = new MockAdapter([[
+      ...failedCall.slice(0, -1),
+      { type: 'finish', reason: { kind: 'error', failure: { code: 'SERVER', message: 'unavailable' } } },
+    ]])
+    const second = new MockAdapter([textResponse('recovered')])
+    const ctx = await harness(first)
+    ctx.llm.registerAdapter(['backup'], second)
+    let executed = 0
+    ctx.tools.register(defineContentToolFixture({
+      name: 'unsafe', description: 'Must not run from a failed model attempt', parameters: {},
+      async execute() { executed += 1; return [{ type: 'text', text: 'unexpected' }] },
+    }))
+    const agent = await ctx.agentLoop.create(SessionId('request-error-switch'), { provider: 'mock', model: 'primary' })
+    ctx.on('agent/request-error', async ({ provider }) => provider === 'mock'
+      ? { kind: 'switch', selection: { provider: 'backup', model: 'secondary' } }
+      : undefined)
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    expect(first.requests).toHaveLength(1)
+    expect(second.requests).toHaveLength(1)
+    expect(second.requests[0]).toMatchObject({ provider: 'backup', model: 'secondary' })
+    expect(agent.model.current()).toEqual({ provider: 'backup', model: 'secondary' })
+    expect(executed).toBe(0)
+    const events = agent.session.snapshotEvents()
+    expect(events.filter(event => event.type === 'step/start').map(event => event.data.step)).toEqual([1, 2])
+    expect(events.filter(event => event.type === 'assistant/attempt')).toHaveLength(1)
+    expect(events.filter(event => event.type === 'tool/call')).toHaveLength(0)
+    expect(events.filter(event => event.type === 'user/message' && event.data.source.kind === 'user')).toHaveLength(1)
+    expect(events.filter(event => event.type === 'request/header').map(event => event.data.header.config.provider)).toEqual(['mock', 'backup'])
+    expect(events.find(event => event.type === 'turn/end')).toMatchObject({ data: { reason: { kind: 'completed' } } })
+  })
+
+  it('keeps a newer user selection when a provider switch arrives after it', async () => {
+    const first = new MockAdapter([fail('unavailable', 'SERVER')])
+    const backup = new MockAdapter([textResponse('unused')])
+    const selected = new MockAdapter([textResponse('user choice')])
+    const ctx = await harness(first)
+    ctx.llm.registerAdapter(['backup'], backup)
+    ctx.llm.registerAdapter(['selected'], selected)
+    const agent = await ctx.agentLoop.create(SessionId('request-error-switch-user-choice'), { provider: 'mock', model: 'primary' })
+    ctx.on('agent/request-error', async ({ agent: subject }) => {
+      subject.model.select({ provider: 'selected', model: 'chosen' })
+      return { kind: 'switch', selection: { provider: 'backup', model: 'secondary' } }
+    })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    expect(backup.requests).toHaveLength(0)
+    expect(selected.requests).toHaveLength(1)
+    expect(agent.model.current()).toEqual({ provider: 'selected', model: 'chosen' })
+  })
+
+  it('lets cancellation win over a provider switch', async () => {
+    const first = new MockAdapter([fail('unavailable', 'SERVER')])
+    const backup = new MockAdapter([textResponse('unused')])
+    const ctx = await harness(first)
+    ctx.llm.registerAdapter(['backup'], backup)
+    const agent = await ctx.agentLoop.create(SessionId('request-error-switch-cancel'), { provider: 'mock', model: 'primary' })
+    ctx.on('agent/request-error', async ({ agent: subject }) => {
+      subject.cancel({ kind: 'user' })
+      return { kind: 'switch', selection: { provider: 'backup', model: 'secondary' } }
+    })
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    expect(first.requests).toHaveLength(1)
+    expect(backup.requests).toHaveLength(0)
+    expect(agent.model.current()).toEqual({ provider: 'mock', model: 'primary' })
+    expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')).toMatchObject({
+      type: 'turn/end', data: { reason: { kind: 'aborted', reason: { kind: 'user' } } },
+    })
+  })
+
+  it('rejects a recovery action that selects the failed provider again', async () => {
+    const adapter = new MockAdapter([fail('unavailable', 'SERVER'), textResponse('unused')])
+    const ctx = await harness(adapter)
+    const agent = await ctx.agentLoop.create(SessionId('request-error-switch-same-provider'), { provider: 'mock', model: 'primary' })
+    ctx.on('agent/request-error', async () => ({
+      kind: 'switch', selection: { provider: 'mock', model: 'another-model' },
+    }))
+
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+
+    expect(adapter.requests).toHaveLength(1)
+    expect(agent.model.current()).toEqual({ provider: 'mock', model: 'primary' })
+    expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')).toMatchObject({
+      type: 'turn/end', data: { reason: { kind: 'error', error: { code: 'UNKNOWN' } } },
     })
   })
 

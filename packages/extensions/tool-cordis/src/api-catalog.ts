@@ -5454,9 +5454,9 @@ export const EVENT_API: readonly EventApiEntry[] = [
     name: 'agent/request-error',
     mode: 'waterfall',
     signature: '\'agent/request-error\'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; provider: string; failure: LlmFailure; retryPolicy: ResolvedRetryPolicy | undefined; signal: AbortSignal }, next: () => Promise<RequestErrorAction>): Promise<RequestErrorAction>',
-    summary: 'Handle one failed model-request attempt before the loop retries or closes its step.',
-    description: 'Handle one failed model-request attempt before the loop retries or closes its step. A listener returns `{ kind: \'retry\' }` without calling `next()` when it owns recovery, or calls `next()` to delegate. The default `undefined` leaves the failure terminal.',
-    parameters: [{ name: 'payload', description: '.signal - the turn abort signal. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.' }],
+    summary: 'Handle one recorded failed model-request attempt before its step closes.',
+    description: 'Handle one recorded failed model-request attempt before its step closes. A listener returns `retry` to repeat the step, `switch` to select a different provider in a new step, or calls `next()` to delegate. The default `undefined` leaves the failure terminal.',
+    parameters: [{ name: 'payload', description: '.signal - the turn abort signal. A `retry` repeats the same prepared step. A `switch` records a new provider selection and resumes in a fresh step with newly assembled tools and prompt; the driver ignores the proposed selection if the user changed the failed step\'s choice while recovery was pending. Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.' }],
   },
   {
     name: 'agent/status',
@@ -9088,7 +9088,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RequestErrorAction',
-    declaration: 'export type RequestErrorAction = {\n    kind: \'retry\';\n} | undefined;',
+    declaration: 'export type RequestErrorAction = {\n    kind: \'retry\';\n} | {\n    kind: \'switch\';\n    selection: ModelSelection;\n} | undefined;',
   },
   {
     name: 'RequestHeaderReason',
