@@ -1,5 +1,10 @@
-/** Source preflight for native input evidence; Windows CI owns message and focus execution. */
-import { readFile } from 'node:fs/promises'
+/** Source preflight and private native-window regression; CI owns full installer input execution. */
+import { execFile } from 'node:child_process'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { describe, expect, it } from 'vitest'
 
 const [ui, smoke, strings] = await Promise.all([
@@ -93,7 +98,44 @@ function inputEvidenceFailures(helper: string, scenario: string): string[] {
   return Object.entries(requirements).filter(([, satisfied]) => !satisfied).map(([name]) => name)
 }
 
+function automaticCaptureFailures(helper: string, scenario: string): string[] {
+  const capture = helper.slice(helper.indexOf('public static bool TrySaveAutomaticProgress('), helper.indexOf('public static IntPtr TopLevel('))
+  const automatic = scenario.slice(scenario.indexOf('# The /S argument models older Muse updaters;'), scenario.indexOf("$results.Add('automatic-update-shows-progress-and-relaunches-without-finish-click')"))
+  const completion = automatic.indexOf('if ($process.ExitCode -ne 0 -or -not $observedProgress -or -not $observedComplete -or -not $capturedProgress)')
+  const requirements: Record<string, boolean> = {
+    noWaitOnTransientWindow: capture.includes('window == IntPtr.Zero || !IsWindow(window)')
+      && capture.includes('GetProp(window, "HarnessInstaller.Ready") == IntPtr.Zero')
+      && !/Reveal\(|SaveNative\(|Thread.Sleep|PrintWindow/u.test(capture),
+    ownedWindow: capture.includes('GetWindowThreadProcessId(window, out owner)')
+      && capture.includes('if (owner != process) throw'),
+    realCapture: capture.includes('SaveVisibleDesktop(window, path);'),
+    onlyClosedWindowRetry: capture.includes('catch (ArgumentException)')
+      && capture.includes('if (!IsWindow(window) || !IsWindowVisible(window)) return false;\n            throw;'),
+    retryUntilCaptured: automatic.includes('$capturedProgress = $false')
+      && automatic.includes('if (-not $capturedProgress)')
+      && automatic.includes('$capturedProgress = [InstallerCapture]::TrySaveAutomaticProgress($process.Id, $window,')
+      && !automatic.includes('[InstallerCapture]::Save('),
+    allEvidenceBeforeInjection: completion >= 0 && completion < automatic.indexOf('if ($FailAfterAutomaticRelaunch)'),
+  }
+  return Object.entries(requirements).filter(([, satisfied]) => !satisfied).map(([name]) => name)
+}
+
 describe('Windows installer input evidence source preflight', () => {
+  it('retries transient progress capture without waiting while requiring actual screenshot and completion before the negative control', () => {
+    expect(automaticCaptureFailures(ui, smoke)).toEqual([])
+  })
+
+  it.each([
+    ['stale HWND wait', ui.replace('SaveVisibleDesktop(window, path);', 'Save(window, path); Reveal(window);'), smoke, 'noWaitOnTransientWindow'],
+    ['foreign HWND', ui.replace('if (owner != process) throw', 'if (false) throw'), smoke, 'ownedWindow'],
+    ['no screenshot', ui.replace('SaveVisibleDesktop(window, path);', ''), smoke, 'realCapture'],
+    ['swallowed screenshot error', ui.replace('catch (ArgumentException)', 'catch (Exception)'), smoke, 'onlyClosedWindowRetry'],
+    ['one capture attempt', ui, smoke.replace('if (-not $capturedProgress)', 'if (-not $observedProgress)'), 'retryUntilCaptured'],
+    ['missing capture requirement', ui, smoke.replace(' -or -not $capturedProgress)', ')'), 'allEvidenceBeforeInjection'],
+  ])('rejects %s automatic progress regression', (_name, helper, scenario, requirement) => {
+    expect(automaticCaptureFailures(helper, scenario)).toContain(requirement)
+  })
+
   it('retains the Process-owned handle at launch and records strict managed/native exit evidence before failure', () => {
     expect(exitObservationFailures(ui, smoke)).toEqual([])
   })
@@ -206,3 +248,65 @@ describe('Windows installer input evidence source preflight', () => {
       .toBeLessThan(smoke.indexOf('if ($FailAfterAutomaticRelaunch)'))
   })
 })
+
+it.runIf(process.platform === 'win32')('replays an expired progress HWND and then captures a ready owned window without hiding screenshot errors', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'muse-progress-capture-'))
+  const literal = (value: string): string => `'${value.replaceAll("'", "''")}'`
+  const script = join(directory, 'progress-replay.ps1')
+  await writeFile(script, `\uFEFF
+$ErrorActionPreference = 'Stop'
+. ${literal(fileURLToPath(new URL('./windows-installer-ui.ps1', import.meta.url)))}
+[InstallerCapture]::Initialize()
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class ProgressCaptureFixture {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern IntPtr CreateWindowEx(uint exStyle, string kind, string title, uint style, int x, int y, int width, int height, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr data);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool SetProp(IntPtr window, string name, IntPtr value);
+    [DllImport("user32.dll")] public static extern bool DestroyWindow(IntPtr window);
+    public static IntPtr Create() {
+        IntPtr window = CreateWindowEx(0, "STATIC", "Private progress capture fixture", 0x90000000, 64, 64, 64, 64, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+        if (window == IntPtr.Zero) throw new InvalidOperationException("Could not create private capture fixture");
+        return window;
+    }
+}
+'@
+$path = ${literal(join(directory, 'progress.png'))}
+$window = [ProgressCaptureFixture]::Create()
+try {
+    $unready = [InstallerCapture]::TrySaveAutomaticProgress($PID, $window, $path)
+    [void][ProgressCaptureFixture]::DestroyWindow($window)
+    $stale = $window
+    $window = [IntPtr]::Zero
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    $expired = [InstallerCapture]::TrySaveAutomaticProgress($PID, $stale, $path)
+    $retryMs = $timer.ElapsedMilliseconds
+    $oldFailure = $null
+    try { [void][InstallerCapture]::Save($stale, $path) } catch { $oldFailure = $_.Exception.ToString() }
+    if (-not $oldFailure -or -not $oldFailure.Contains('Native page did not finish creating controls')) { throw 'Legacy stale-HWND path did not reproduce' }
+    $window = [ProgressCaptureFixture]::Create()
+    if (-not [ProgressCaptureFixture]::SetProp($window, 'HarnessInstaller.Ready', [IntPtr]1)) { throw 'Could not mark private capture fixture ready' }
+    $captured = [InstallerCapture]::TrySaveAutomaticProgress($PID, $window, $path)
+    $foreignRejected = $false
+    try { [void][InstallerCapture]::TrySaveAutomaticProgress(($PID + 1), $window, $path) } catch { $foreignRejected = $_.Exception.ToString().Contains('another process') }
+    $writeRejected = $false
+    try { [void][InstallerCapture]::TrySaveAutomaticProgress($PID, $window, ${literal(join(directory, 'missing-directory', 'progress.png'))}) } catch { $writeRejected = $true }
+    [ordered]@{ unready=$unready; expired=$expired; retryMs=$retryMs; legacyTimeout=$true; captured=$captured; bytes=(Get-Item -LiteralPath $path).Length; foreignRejected=$foreignRejected; writeRejected=$writeRejected } | ConvertTo-Json -Compress
+} finally {
+    if ($window -ne [IntPtr]::Zero) { [void][ProgressCaptureFixture]::DestroyWindow($window) }
+}
+`, 'utf8')
+  try {
+    const { stdout } = await promisify(execFile)('powershell.exe', [
+      '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script,
+    ], { timeout: 25000, windowsHide: true })
+    const evidence = JSON.parse(stdout.trim()) as Record<string, unknown>
+    expect(evidence).toMatchObject({
+      unready: false, expired: false, legacyTimeout: true, captured: true, foreignRejected: true, writeRejected: true,
+    })
+    expect(evidence.retryMs).toBeLessThan(1000)
+    expect(evidence.bytes).toBeGreaterThan(0)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+}, 30000)

@@ -622,6 +622,7 @@ try {
     $timer = [Diagnostics.Stopwatch]::StartNew()
     $observedProgress = $false
     $observedComplete = $false
+    $capturedProgress = $false
     $previous = 0
     while (-not $process.HasExited) {
         if ($timer.Elapsed.TotalSeconds -gt 30) { throw 'Visible automatic update did not complete' }
@@ -632,7 +633,9 @@ try {
             $percent = [int]$Matches[1]
             if ($percent -lt $previous) { throw 'Automatic update progress went backwards' }
             if ($percent -eq 100 -and [InstallerCapture]::GetProp($window, 'HarnessInstaller.Succeeded') -eq [IntPtr]::Zero) { throw 'Automatic update showed completion before installation succeeded' }
-            if (-not $observedProgress) { [void][InstallerCapture]::Save($window, (Join-Path $OutputDirectory 'automatic-update-progress.png')) }
+            if (-not $capturedProgress) {
+                $capturedProgress = [InstallerCapture]::TrySaveAutomaticProgress($process.Id, $window, (Join-Path $OutputDirectory 'automatic-update-progress.png'))
+            }
             $observedProgress = $true
             $previous = $percent
         }
@@ -642,6 +645,7 @@ try {
     if ((Get-ItemProperty ('HKCU:\Software\' + $RegistryKey)).InstallLocation -cne $installPath) {
         throw 'Automatic update did not canonicalize historical InstallLocation'
     }
+    if ($process.ExitCode -ne 0 -or -not $observedProgress -or -not $observedComplete -or -not $capturedProgress) { throw 'Automatic update did not paint verified progress through successful completion' }
     if ($FailAfterAutomaticRelaunch) {
         $timer.Restart()
         $unregisteredApp = $null
@@ -659,7 +663,6 @@ try {
         }
         throw 'Injected automatic update failure after relaunch'
     }
-    if ($process.ExitCode -ne 0 -or -not $observedProgress -or -not $observedComplete) { throw 'Automatic update did not paint verified progress through successful completion' }
     $timer.Restart()
     $app = $null
     while (-not $app -and $timer.Elapsed.TotalSeconds -lt 10) {
