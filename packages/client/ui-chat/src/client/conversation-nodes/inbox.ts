@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ConversationNodeDefinition, ConversationPreviousContext,
+  ConversationNodeDefinitionInput, ConversationPreviousContext,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 
 interface InboxIdentity {
@@ -117,12 +117,14 @@ function applySplice(
   }
 }
 
-function inboxDefinition(target: 'next-step' | 'next-turn'): ConversationNodeDefinition<InboxState> {
+function inboxDefinition(target: 'next-step' | 'next-turn'): ConversationNodeDefinitionInput<InboxState> {
   const kind = `inbox-${target}`
   return {
     kind,
-    match: event => event.type === 'agent/inbox/spliced' && event.data.target === target
-      ? { id: String(event.seq), role: 'start' } : null,
+    match: {
+      'agent/inbox/spliced': event => event.type === 'agent/inbox/spliced' && event.data.target === target
+        ? { id: String(event.seq), role: 'start' } : null,
+    },
     start: (_context, match, reader) => {
       if (match.event.type !== 'agent/inbox/spliced') throw new Error('inbox start requires agent/inbox/spliced')
       return applySplice(reader.previous<InboxState>(kind), match.event.data, match.event.seq)
