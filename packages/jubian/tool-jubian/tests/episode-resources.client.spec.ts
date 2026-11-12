@@ -4,9 +4,9 @@ import { ResourceRegistry } from '@deepseek-ai/dsh-client-resources/src/client/r
 import { RemoteError, type RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { EpisodeClient } from '../src/client/episode-directory.ts'
-import type { EpisodeDeliveryStatus } from '../src/types.ts'
+import type { EpisodeDeliveryStatus, EpisodeHistory } from '../src/types.ts'
 import { registerEpisodeResources } from '../src/client/episode-resources.ts'
-import { episodeClientFixture, input, original, unadmitted } from './fixtures/episode-client.client.ts'
+import { attempt, episodeClientFixture, input, original, unadmitted } from './fixtures/episode-client.client.ts'
 
 afterEach(() => { vi.useRealTimers() })
 
@@ -149,4 +149,34 @@ it('cancels a scheduled status poll when its connection disappears', async () =>
   expect(api).toHaveBeenCalledTimes(1)
   expect(f.directory.state.getSnapshot()).toMatchObject({ connected: false, displayedStatus: { state: 'running' } })
   expect(f.notices).not.toHaveBeenCalled()
+})
+
+it('discards a successful history reply after its selection has been retired', async () => {
+  const pending = Promise.withResolvers<RemoteResult<EpisodeHistory>>()
+  const value: EpisodeHistory = { projectDir: input.projectDir, episode: input.episode,
+    entries: [{ attempt, digest: input.digest, recordedState: 'unknown' }],
+    truncated: false, unreadableRecords: 0, scannedEntries: 1 }
+  const f = episodeClientFixture({ episodeHistory: vi.fn<EpisodeClient['episodeHistory']>(() => pending.promise) })
+  try {
+    f.directory.history(input)
+    await vi.waitFor(() => { expect(f.api.episodeHistory).toHaveBeenCalledTimes(1) })
+    const address = f.directory.state.getSnapshot().historyAddress
+    const source = f.resources.source(address)
+    expect(source.getSnapshot().status).toBe('loading')
+    f.directory.retireSelection('2')
+    const retired = f.directory.state.getSnapshot()
+    pending.resolve({ ok: true, value })
+    await pending.promise
+    await f.directory.admit(); await f.directory.admit(true)
+    expect(source.getSnapshot()).toEqual({ status: 'loading', value: undefined, failure: undefined })
+    expect(f.directory.state.getSnapshot()).toBe(retired)
+    expect(retired).toMatchObject({ episodeText: '2', target: null, displayedHistory: null, historyAddress: '', statusAddress: '' })
+    expect(f.api.episodeStatus).not.toHaveBeenCalled()
+    expect(f.api.admitEpisode).not.toHaveBeenCalled()
+    expect(f.api.episodeHistory).toHaveBeenCalledTimes(1)
+    expect(f.notices).not.toHaveBeenCalled()
+  } finally {
+    pending.resolve({ ok: true, value })
+    await pending.promise
+  }
 })
