@@ -14,7 +14,7 @@
   font-size: 14px;
   cursor: pointer;
 }
-.wide { width: calc(100% - 24px); }
+.wide { margin-inline: calc(var(--dsh-sidebar-paint-inset) + 1px); }
 .rail { justify-content: center; margin-inline: 8px; width: 40px; padding-inline: 0; }
 .entry:disabled { opacity: .6; cursor: wait; }
 .entry:focus-visible { outline: 2px solid var(--dsw-alias-label-primary); outline-offset: 2px; }

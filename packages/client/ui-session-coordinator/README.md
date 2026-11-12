@@ -27,7 +27,7 @@ Each report can open its execution conversation and delivery files. File preview
 
 Cordis disposal releases registrations, resource streams, generated Remote bindings and action feedback. Re-enabling restores navigation without dispatching work or changing ordinary Sessions.
 
-The retained Main conversation opens on startup when access is available and no user navigation or draft supersedes it. The Muse spider button sits below New Session and returns to it from another conversation. Ordinary Workspace lists omit that conversation but retain execution Sessions. Disabling this plugin removes the button and navigation registrations; re-enabling retains the same Main Session.
+The retained Main conversation opens on startup when access is available and no user navigation or draft supersedes it. The Muse spider button sits below New Session, shares its left and right edges in the expanded sidebar, and returns to the Main conversation from another conversation. Ordinary Workspace lists omit that conversation but retain execution Sessions. Disabling this plugin removes the button and navigation registrations; re-enabling retains the same Main Session.
 
 ## Model Experience
 
