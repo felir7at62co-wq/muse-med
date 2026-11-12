@@ -1,0 +1,51 @@
+name: Muse Web footer diagnostic
+
+on:
+  push:
+    branches: [qa/web-footer-linux-20261113]
+
+permissions:
+  contents: read
+
+env:
+  DSH_TELEMETRY_DISABLED: '1'
+  DSH_SNAPSHOT: replay
+  DSH_GATE_CONCURRENCY: '2'
+
+jobs:
+  footer:
+    name: Linux footer replay (diagnostic only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v5.0.0
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+      - name: Install immutable dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Prepare the existing CI sandbox
+        run: bash scripts/prepare-ci-bubblewrap.sh
+      - name: Install the real browser and system dependencies
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
+      - name: Build the unchanged product and test entrypoints
+        run: pnpm run build
+      - name: Replay both account footers with their original assertions
+        run: |
+          mkdir -p .artifacts/web-footer-diagnostic
+          git rev-parse HEAD > .artifacts/web-footer-diagnostic/head.txt
+          sha256sum packages/client/ui-sidebar/src/client/SidebarRoot.tsx packages/client/ui-sidebar/src/client/SidebarRoot.module.css apps/web/tests/sidebar-alignment.e2e.ts > .artifacts/web-footer-diagnostic/source.sha256
+          pnpm run test:web:built apps/web/tests/sidebar-alignment.e2e.ts -t 'keeps non-Muse Desktop account footer' --maxWorkers=1 --no-file-parallelism 2>&1 | tee .artifacts/web-footer-diagnostic/replay.log
+      - name: Preserve diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: web-footer-diagnostic-${{ github.sha }}
+          path: .artifacts/web-footer-diagnostic
+          if-no-files-found: warn
