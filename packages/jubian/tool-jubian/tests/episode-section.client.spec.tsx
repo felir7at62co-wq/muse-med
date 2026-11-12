@@ -219,3 +219,36 @@ it('keeps cached history visible after reconnect but requires explicit fresh dis
   fireEvent.click(screen.getByRole('button', { name: en.episodeSelect }))
   await waitFor(() => { expect(f.api.episodeStatus).toHaveBeenCalledWith(input) })
 })
+
+it('shows blocking readiness issues and keeps export unavailable until a successful explicit check', async () => {
+  const f = fixture({ episodeReadiness: vi.fn<EpisodeClient['episodeReadiness']>(async () => ({ ok: true,
+    value: { ...ready, ready: false, digest: null, issues: ['Shot 1 has no approved video'] } })) })
+  fireEvent.click(screen.getByRole('button', { name: en.episodeCheck }))
+  await screen.findByText(en.episodeBlocked)
+  expect(screen.getByText('Shot 1 has no approved video')).toBeDefined()
+  expect(screen.getByRole('button', { name: en.episodeExport }).hasAttribute('disabled')).toBe(true)
+  expect(f.api.episodeStatus).not.toHaveBeenCalled()
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+  vi.mocked(f.api.episodeReadiness).mockResolvedValueOnce({ ok: true, value: ready })
+  fireEvent.click(screen.getByRole('button', { name: en.episodeCheck }))
+  await screen.findByText(en.episodeReady)
+  await waitFor(() => { expect(screen.getByRole('button', { name: en.episodeExport }).hasAttribute('disabled')).toBe(false) })
+  expect(screen.queryByText('Shot 1 has no approved video')).toBeNull()
+})
+
+it('distinguishes failed checks and failed history queries without treating either as export permission', async () => {
+  const f = fixture({
+    episodeReadiness: vi.fn<EpisodeClient['episodeReadiness']>(async () => ({ ok: false,
+      error: new RemoteError('jubian-video-recovery/rejected', 'Readiness unavailable', {}) })),
+    episodeHistory: vi.fn<EpisodeClient['episodeHistory']>(async () => ({ ok: false,
+      error: new RemoteError('jubian-video-recovery/rejected', 'History unavailable', {}) })),
+  })
+  fireEvent.click(screen.getByRole('button', { name: en.episodeCheck }))
+  await screen.findByText(en.episodeCheckFailed)
+  fireEvent.click(screen.getByRole('button', { name: en.episodeHistory }))
+  await screen.findByText(en.episodeHistoryFailed)
+  expect(screen.getByRole('button', { name: en.episodeExport }).hasAttribute('disabled')).toBe(true)
+  expect(screen.queryByRole('button', { name: en.episodeSelect })).toBeNull()
+  expect(f.api.episodeStatus).not.toHaveBeenCalled()
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+})

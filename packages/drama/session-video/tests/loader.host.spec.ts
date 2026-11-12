@@ -1,6 +1,6 @@
 /** Real Loader, local filesystem, attachment storage and FFmpeg over synthetic media only. */
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
@@ -198,4 +198,90 @@ it('replays persisted source checkpoints when deployment inventory limits change
   const state = sourceStateSchema.parse(restored.checkpoint.sessionVideoSources?.val)
   expect(state.sources).toHaveLength(1)
   expect(state.complete).toBe(false)
+})
+
+it('lists absent, directory and oversized recorded videos without starting detection', async () => {
+  const f = await fixture({ maxSourceBytes: 1 }), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  mkdirSync(join(f.root, 'directory.mp4'))
+  f.user('@missing.mp4 @directory.mp4 @three-shots.mp4')
+  const sources = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources
+  expect(sources).toMatchObject([
+    { path: 'missing.mp4', status: 'missing', playbackUrl: null, issue: 'Recorded video file is missing' },
+    { path: 'directory.mp4', status: 'missing', playbackUrl: null, issue: 'Recorded video file is missing' },
+    { path: 'three-shots.mp4', status: 'unsupported', playbackUrl: null, issue: 'Recorded video exceeds the configured byte limit' },
+  ])
+  expect(spawn).not.toHaveBeenCalled()
+})
+
+it('serves the recorded filename media type and refuses an empty local video', async () => {
+  const f = await fixture()
+  for (const extension of ['webm', 'mov']) copyFileSync(f.file, join(f.root, `source.${extension}`))
+  writeFileSync(join(f.root, 'empty.mp4'), '')
+  f.user('@source.webm @source.mov @empty.mp4')
+  const sources = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources
+  const route = f.routes.get('/api/session-video')!
+  const read = vi.spyOn(f.ctx.fs, 'readByteRange')
+  for (const [index, type] of ['video/webm', 'video/quicktime'].entries()) {
+    const source = sources[index]!
+    const response = await route.fetch(new Request(new URL(source.playbackUrl!, 'http://localhost/'), { method: 'HEAD' }))
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe(type)
+    expect(response.headers.get('content-length')).toBe(String(readFileSync(f.file).length))
+    expect((await response.arrayBuffer()).byteLength).toBe(0)
+  }
+  const empty = await route.fetch(new Request(new URL(sources[2]!.playbackUrl!, 'http://localhost/')))
+  expect(empty.status).toBe(404)
+  expect(await empty.text()).toBe('Video has no readable bytes')
+  expect(read).not.toHaveBeenCalled()
+})
+
+it('rejects non-JSON output from a real analyzer process and retains its unchanged source', async () => {
+  const f = await fixture({ ffprobePath: process.execPath })
+  f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!, before = readFileSync(f.file)
+  const spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  const result = await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)
+  expect(result.state).toBe('failed')
+  expect(result.shots).toEqual([])
+  expect(result.issue).toContain('not valid JSON')
+  expect(spawn).toHaveBeenCalledOnce()
+  expect(readFileSync(f.file)).toEqual(before)
+  expect((await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]).toEqual(source)
+})
+
+it('evicts downloaded provider videos at the configured bound and downloads the old source again', async () => {
+  const f = await fixture({ maxCachedAnalyses: 1 })
+  const urls = ['https://101.aigc.jubianai.net/first.mp4', 'https://101.aigc.jubianai.net/second.mp4']
+  f.tool('jubian_video', { method: 'subtasks', task_id: 7 }, { subtasks: { rows: urls.map(video_url => ({
+    parent_task_id: 7, status: 'succeeded', video_url,
+  })) } })
+  const fetch = vi.fn(async (_input: RequestInfo | URL) => new Response(readFileSync(f.file)))
+  vi.stubGlobal('fetch', fetch)
+  const sources = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources
+  for (const index of [0, 1, 0]) {
+    const source = sources[index]!
+    expect((await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)).state).toBe('ready')
+  }
+  expect(fetch).toHaveBeenCalledTimes(3)
+  expect(fetch.mock.calls.map(call => call[0])).toEqual(urls.concat(urls[0]!))
+  const current = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources
+  expect(current.map(source => source.status)).toEqual(['local', 'remote-only'])
+})
+
+it('keeps provider-only playback unavailable until detection has saved a local source', async () => {
+  const f = await fixture(), url = 'https://101.aigc.jubianai.net/provider-only.mp4'
+  f.tool('jubian_video', { method: 'sources' }, { sources: { sources: [{ status: 'succeeded', video_url: url }] } })
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  expect(source).toMatchObject({ status: 'remote-only', playbackUrl: url })
+  if (source.version === null) throw Error('Provider source has no inventory version')
+  const query = new URLSearchParams({ sessionId: f.session.id, sourceId: source.id, version: source.version })
+  const route = f.routes.get('/api/session-video')!
+  const fetch = vi.fn(); vi.stubGlobal('fetch', fetch)
+  const read = vi.spyOn(f.ctx.fs, 'readByteRange'), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  for (const method of ['GET', 'HEAD']) {
+    const response = await route.fetch(new Request(`http://localhost/api/session-video?${query}`, { method }))
+    expect(response.status).toBe(404)
+    expect(await response.text()).toBe(method === 'HEAD' ? '' : 'Local video unavailable')
+  }
+  expect(fetch).not.toHaveBeenCalled(); expect(read).not.toHaveBeenCalled(); expect(spawn).not.toHaveBeenCalled()
 })

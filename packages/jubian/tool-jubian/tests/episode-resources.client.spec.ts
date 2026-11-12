@@ -86,3 +86,67 @@ it('rolls back earlier protocol registrations when a later public registration c
     replacement(); occupied()
   } finally { await ctx.fiber.dispose() }
 })
+
+it.each(['readiness', 'history', 'status'] as const)('contains a thrown %s query failure in its resource and allows an explicit retry', async (kind) => {
+  const f = episodeClientFixture()
+  const query = kind === 'readiness' ? f.api.episodeReadiness : kind === 'history' ? f.api.episodeHistory : f.api.episodeStatus
+  vi.mocked(query).mockRejectedValueOnce('The connection closed')
+  if (kind === 'history' || kind === 'status') {
+    f.directory.history(input)
+    if (kind === 'status') {
+      await vi.waitFor(() => { expect(f.directory.state.getSnapshot().displayedHistory?.entries).toHaveLength(1) })
+      f.directory.selectOriginal(input, f.directory.state.getSnapshot().historyAddress)
+    }
+  } else f.directory.check(input)
+  const address = f.directory.state.getSnapshot()[`${kind}Address`]
+  await vi.waitFor(() => {
+    expect(f.resources.source(address).getSnapshot()).toMatchObject({
+      status: 'failed', failure: { message: 'The connection closed' },
+    })
+  })
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+  if (kind === 'readiness') f.directory.check(input)
+  else if (kind === 'history') f.directory.history(input)
+  else f.directory.refresh()
+  await vi.waitFor(() => {
+    const current = f.directory.state.getSnapshot()[`${kind}Address`]
+    expect(f.resources.source(current).getSnapshot().status).toBe('live')
+  })
+  expect(query).toHaveBeenCalledTimes(2)
+})
+
+it.each(['readiness', 'history'] as const)('does not restore a retired %s query when its failed reply arrives late', async (kind) => {
+  const pending = Promise.withResolvers<never>(), f = episodeClientFixture()
+  if (kind === 'readiness') {
+    vi.mocked(f.api.episodeReadiness).mockReturnValueOnce(pending.promise)
+    f.directory.check(input)
+  } else {
+    vi.mocked(f.api.episodeHistory).mockReturnValueOnce(pending.promise)
+    f.directory.history(input)
+  }
+  const address = f.directory.state.getSnapshot()[`${kind}Address`]
+  f.directory.retireSelection('2')
+  pending.reject(new Error('Old connection failed'))
+  await pending.promise.catch(() => undefined)
+  await vi.waitFor(() => {
+    expect(f.resources.source(address).getSnapshot()).toEqual({ status: 'loading', value: undefined, failure: undefined })
+  })
+  expect(f.directory.state.getSnapshot()).toMatchObject({ displayedReadiness: null, displayedHistory: null, episodeText: '2' })
+  expect(f.notices).not.toHaveBeenCalled()
+})
+
+it('cancels a scheduled status poll when its connection disappears', async () => {
+  vi.useFakeTimers()
+  const api = vi.fn<EpisodeClient['episodeStatus']>(async () => ({ ok: true, value: { ...original, state: 'running' } }))
+  const f = episodeClientFixture({ episodeStatus: api }, 1000)
+  f.directory.history(input)
+  await vi.advanceTimersByTimeAsync(0)
+  f.directory.selectOriginal(input, f.directory.state.getSnapshot().historyAddress)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(f.directory.state.getSnapshot().displayedStatus?.state).toBe('running')
+  f.disconnect()
+  await vi.advanceTimersByTimeAsync(10_000)
+  expect(api).toHaveBeenCalledTimes(1)
+  expect(f.directory.state.getSnapshot()).toMatchObject({ connected: false, displayedStatus: { state: 'running' } })
+  expect(f.notices).not.toHaveBeenCalled()
+})
