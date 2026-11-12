@@ -24,11 +24,16 @@ export const inject = ['agentPresets', 'tools', 'systemPrompt', 'workingDirector
  */
 export async function apply(ctx) {
   const cwd = await realpath(process.cwd())
+  const layoutReceipt = process.env.DSH_VISUALIZE_FIXTURE_LAYOUT
+  assert.equal(typeof layoutReceipt, 'string', 'Visualization replay requires its private layout receipt')
+  const receiptRelative = relative(cwd, layoutReceipt)
+  assert.ok(isAbsolute(layoutReceipt) && (isAbsolute(receiptRelative) || receiptRelative === '..' || receiptRelative.startsWith('..' + sep)),
+    'Visualization layout receipt must stay outside the model workspace')
   // Keep display-path abbreviations independent of the hosted runner's account home.
   const previousHome = process.env.HOME, previousProfile = process.env.USERPROFILE
   ctx.effect(() => {
-    process.env.HOME = join(cwd, '.fixture-home')
-    process.env.USERPROFILE = join(cwd, '.fixture-home')
+    process.env.HOME = join(dirname(layoutReceipt), 'visualize-home')
+    process.env.USERPROFILE = join(dirname(layoutReceipt), 'visualize-home')
     return () => {
       if (previousHome === undefined) delete process.env.HOME
       else process.env.HOME = previousHome
@@ -63,6 +68,9 @@ export async function apply(ctx) {
       process.platform === 'win32' ? 'junction' : 'dir')
   }
   const entry = built ? 'lib/index.js' : 'src/index.ts'
+  const selectedEntry = await realpath(join(plugin, entry))
+  const assets = await realpath(join(dirname(dirname(selectedEntry)), 'assets'))
+  await writeFile(layoutReceipt, JSON.stringify({ entry: selectedEntry, assets }) + '\n', { flag: 'wx' })
   const visualize = await import(pathToFileURL(join(plugin, entry)).href)
   await ctx.plugin(visualize, {}).await()
   await mountPreset(ctx, { presetId: 'short-drama', hidePlatformShellTools: true })
