@@ -26,7 +26,6 @@ import { shutdownDesktopHost } from './shutdown.ts'
 import { installDesktopQuitInspection } from './quit-inspection.ts'
 import { installPlatformSessionPublisher } from './platform-session.ts'
 import { attentionSoundForEvent } from './attention-sound.ts'
-import { installOfficeEngineResolution } from './office-engine.ts'
 import { installOperationDiagnostics } from './operation-diagnostics.ts'
 import { desktopDownloadEnvironment } from './download-runtime.ts'
 import { installDesktopDouyinBrowser } from './douyin-browser.ts'
@@ -135,7 +134,8 @@ async function main(): Promise<void> {
     || (pnpm === undefined) !== (nodeBin === undefined) || process.send === undefined) {
     throw new Error('muse-med: expected runtime and profile directories, optional primary runtime and paired package-manager paths, and Node IPC')
   }
-  const primarySource = primaryRuntime ?? join(runtimeDir, '..', 'runtime', 'primary-runtime')
+  const primarySource = primaryRuntime || join(runtimeDir, '..', 'runtime', 'primary-runtime')
+  process.env.DSH_PRIMARY_RUNTIME = primarySource
   process.env.MUSE_OCR_PYTHON_PATH = workspaceDependencyPaths(primarySource, await readPrimaryRuntime(primarySource)).python
   const downloadEnvironment = await desktopDownloadEnvironment(primarySource, process.env)
   process.env.MUSE_DOUYIN_PYTHON_PATH = downloadEnvironment.MUSE_DOUYIN_PYTHON_PATH
@@ -146,8 +146,7 @@ async function main(): Promise<void> {
   }
   // The shipped driver runs in its own process; no PATH lookup or user installation is needed.
   process.env.MUSE_COMPUTER_USE_EXECUTABLE = join(primarySource, '..', 'cua', process.platform === 'win32' ? 'cua-driver.exe' : 'cua-driver')
-  installOfficeEngineResolution(runtimeDir)
-  const installAnchor = join(runtimeDir, 'package.json')
+  const installAnchor = packageManifestPath(runtimeDir, '@deepseek-ai/dsh')
   const { profile, patches, moduleOverrides } = await desktopComposition(runtimeDir, projectDir, allowLinkedPackages)
   reportSkippedBundles('muse-med', profile)
   // JSON is YAML-compatible; inherited bundle rows remain owned by runProfile.
@@ -263,9 +262,7 @@ async function main(): Promise<void> {
     throw new Error('Forced product subtitle visual is missing from the Desktop environment')
   }
   await ctx.plugin(desktopOffice, {
-    runtimeDir,
     source: primarySource,
-    root: join(resolveDshHome(), 'dsh-runtimes', 'dsh-primary-runtime'),
     docxReviewMode: 'advisory',
     ...(forceDraftSubtitleVisual && productSubtitleVisual !== undefined ? { jianyingDraft: {
       enforceSubtitleVisual: true,

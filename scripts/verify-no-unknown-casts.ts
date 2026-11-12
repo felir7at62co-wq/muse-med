@@ -71,6 +71,10 @@ function isSource(file: string): boolean {
     // These exact source snapshots are pinned in sources.json; owned sibling adapters remain scanned.
     && !file.startsWith('third_party/plugins/dsh-feishu/')
     && !file.startsWith('third_party/plugins/dsh-im/')
+    && !file.startsWith('third_party/plugins/dsh-plugin-subscriptions/src/')
+    && !file.startsWith('third_party/plugins/dsh-plugin-subscriptions/test/')
+    && !file.startsWith('third_party/plugins/dsh-visualize/src/')
+    && !file.startsWith('third_party/plugins/dsh-visualize/tests/')
     && !file.startsWith('.agents/notes/archived/')
 }
 

@@ -1,5 +1,5 @@
 ---
-description: "Main Session task cards, execution-chat navigation and native file actions below the conversation title."
+description: "Retained Main Session navigation with native execution conversations and chat result reports."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This optional UI plugin shows authoritative task status, execution-chat navigation, native delivery files and Stop in Main Sessions. Compact task bubbles sit below the conversation title; the spider moves while work is running, and each bubble opens its task details. Ordinary conversations keep their native interface.
+This optional UI plugin opens the retained Main Session and provides its sidebar entry. Execution conversations use native sidebar rows. Results return through Main Session chat messages; task bubbles do not occupy the conversation header or Session rows.
 
 ## Table of Contents
 
@@ -19,15 +19,15 @@ This optional UI plugin shows authoritative task status, execution-chat navigati
 
 ## Use this package
 
-Load beside the [coordination service](../../session/session-coordinator/README.md). Cards consume its owner-only Remote watch through `useResource`, without model polling. Native conversation navigation retains the execution context; file buttons open actual worker delivery paths through native file actions. Stop reports its request before the ledger confirms settlement.
+Load beside the [coordination service](../../session/session-coordinator/README.md). The service owns task dispatch and completion receipts, including waking the Main Session to relay results. Open an execution conversation through its normal sidebar row to inspect the work.
 
-Cordis disposal releases registrations, resource streams, generated Remote bindings and action feedback. Re-enabling reads retained tasks without dispatching work or changing ordinary Sessions.
+Cordis disposal releases registrations, resource streams, generated Remote bindings and action feedback. Re-enabling restores navigation without dispatching work or changing ordinary Sessions.
 
-The retained Main conversation opens on startup when access is available and no user navigation or draft supersedes it. The Muse spider button sits above New Session and returns to it from another conversation. Ordinary Workspace lists omit that conversation but retain execution Sessions. Disabling this plugin removes the button and cards together; re-enabling retains the same Main Session.
+The retained Main conversation opens on startup when access is available and no user navigation or draft supersedes it. The Muse spider button sits below New Session and returns to it from another conversation. Ordinary Workspace lists omit that conversation but retain execution Sessions. Disabling this plugin removes the button and navigation registrations; re-enabling retains the same Main Session.
 
 ## Model Experience
 
-### Visible tasks
+### Main Session navigation
 
 #### What the model sees
 
@@ -35,7 +35,7 @@ No additional model input. The coordination service owns `coordinator_report` re
 
 #### Token effect
 
-Zero; viewing and expanding cards never calls a model.
+Zero; navigating to a conversation does not call a model.
 
 #### KV Cache effect
 
@@ -43,8 +43,8 @@ Zero; UI observations do not change Session history.
 
 ## Known Limitations and Deferred Work
 
-- Cards report worker state and file declarations, not creative quality or human acceptance.
+- The coordination service owns worker completion reports; completion does not imply creative quality or human acceptance.
 
 ### Dev Note
 
-Disabling removes the task overlay; the coordination ledger and execution Sessions retain their own owners.
+Disabling removes the Main Session entry; the coordination ledger and execution Sessions retain their own owners.

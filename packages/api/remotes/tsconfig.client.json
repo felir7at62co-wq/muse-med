@@ -12,6 +12,9 @@
   ],
   "references": [
     {
+      "path": "../../team/agent-team"
+    },
+    {
       "path": "../../client/product-analytics/tsconfig.client.json"
     },
     {
@@ -108,13 +111,13 @@
       "path": "../../boot/plugin-manager"
     },
     {
+      "path": "../../mcp/mcp-manager"
+    },
+    {
       "path": "../../boot/plugin-market"
     },
     {
-      "path": "../../document/office-to-pdf"
-    },
-    {
-      "path": "../account-controller"
+      "path": "../../document/office-kit"
     },
     {
       "path": "../../credentials/deepseek-account"
@@ -127,6 +130,9 @@
     },
     {
       "path": "../../host/muse-account/tsconfig.host.json"
+    },
+    {
+      "path": "../../web/web"
     }
   ]
 }

@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-root",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -227,7 +227,8 @@
     "muse:web": "node scripts/muse-web.mjs",
     "check:ci:windows-observational": "tsx scripts/run-gates.ts ci-windows-observational-ready",
     "resolve-translation-pairing-conflicts": "tsx scripts/merge-translation-pairing.ts --resolve",
-    "verify-running-build": "tsx scripts/verify-running-build.ts"
+    "verify-running-build": "tsx scripts/verify-running-build.ts",
+    "verify-plugin-entry-exports": "tsx scripts/verify-plugin-entry-exports.ts"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:~",
@@ -341,8 +342,9 @@
     "vitest": "^4.1.11",
     "ws": "8.21.0",
     "yaml": "2.9.0",
-    "zod": "^4.4.3",
-    "@deepseek-ai/dsh-client-connection": "workspace:*"
+    "zod": "4.6.6",
+    "@deepseek-ai/dsh-client-connection": "workspace:*",
+    "@deepseek-ai/dsh-terminal-panel": "workspace:*"
   },
   "description": "muse-med short-drama desktop agent, built on the DeepSeek Harness fork"
 }

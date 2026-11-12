@@ -1,5 +1,6 @@
 {
   "meta": {
-    "title": "Muse Main Session coordination"
+    "title": "Muse session coordination",
+    "description": "Dispatch tasks to execution sessions and relay their reports."
   }
 }

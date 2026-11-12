@@ -51,7 +51,7 @@ it('delivers a fresh subagent the parent video selection through the loaded serv
     const selected = await service.select(parent, choice.key, 0)
     const before = requests.length
     const run = await ctx.subagents.startActivation({ provider: 'spawn', label: 'video model inheritance', delivery: 'caller',
-      request: { parent, prompt: [{ type: 'text', text: '核对当前模型与时长。' }] }, signal: new AbortController().signal })
+      parent, prompt: [{ type: 'text', text: '核对当前模型与时长。' }], signal: new AbortController().signal })
     const child = ctx.agents.get(run.childId)
     if (child === undefined) throw new Error('Fresh loaded video-choice child was not published')
     try {
@@ -66,8 +66,7 @@ it('delivers a fresh subagent the parent video selection through the loaded serv
     } finally { await run.dispose() }
     await ctx.loader.resolve(entry).fiber!.dispose()
     expect(ctx.sessionProjections.snapshot(parent.session, ['jubianVideoSelection']).values).toEqual({})
-    const afterDispose = (await ctx.agents.create({ sessionId: SessionId('video-child-after-dispose'), parentAgent: parent,
-      agentOptions: { provider: 'mock', model: 'mock' }, meta: { cwd: home, origin: 'subagent', parentSession: parent.id } })).agent
+    const afterDispose = (await ctx.agents.create({ sessionId: SessionId('video-child-after-dispose'), agentOptions: { provider: 'mock', model: 'mock' }, meta: { cwd: home, origin: 'subagent', parentSession: parent.id } })).agent
     expect(afterDispose.session.snapshotEvents().some(event => event.type === 'jubian/video-selection')).toBe(false)
   } finally { fetch.mockRestore(); await ctx.fiber.dispose() }
 })

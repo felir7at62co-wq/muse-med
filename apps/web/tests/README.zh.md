@@ -22,6 +22,8 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 
 只有根会话的记录会话 owner 可以通过 [`writerOutput`](../../../packages/test-support/session-snapshot/README.zh.md) 保留规范 replay 输入。scaffold 将被驱动的根会话与单独的当前 writer 输出比较基准比较，并检查其精确清单；Web 的此选项会拒绝规范子会话角色。refresh 可以在清理阶段收集根会话比较基准之前检查清单；replay 始终要求该文件存在。
 
+每个场景都要求整个客户端组合全部激活。产品启动只对必需名单外的未激活 entry 告警，但 `watchConsole` 绊线、[真实 Host 冒烟](smoke-real.e2e.ts)与[组装 jsdom 启动](assembled-boot.ts)把 `web boot: warning` 视为失败。没有任何场景选项放宽这一点：产品组合中出现未激活插件就是需要修复的缺陷。
+
 ## 完成状态观察
 
 桌面引导通过[只读账号观察器](fixtures/plugins/fixture-onboarding-account/client.js)等待余额结果发布。暂扣返回充值页后的响应，将请求到达、导航按钮启用与失败结果到达账号订阅区分开；夹具在其 Client 插件停止时释放该订阅。

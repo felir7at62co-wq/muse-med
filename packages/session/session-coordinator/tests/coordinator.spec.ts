@@ -2,11 +2,13 @@
 import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, it, onTestFinished } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import type { SubagentActivation, SubagentResult } from '@deepseek-ai/dsh-subagent'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { JubianVideoSelection } from '@deepseek-ai/dsh-tool-jubian'
 import { toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
@@ -107,7 +109,7 @@ describe('routing-only Main Session', () => {
     expect(inputs).toHaveLength(1)
     expect(JSON.stringify(inputs)).toContain('第3集不要动')
     expect(JSON.stringify(inputs)).toContain('current.docx')
-    expect(test.ctx.agents.isOwnedBy(worker.id, test.main)).toBe(false)
+    expect(worker.session.header.parentSession).toBeUndefined()
     await expect(test.service.dispatch(test.main, { ...request, instructions: 'Different goal' })).rejects.toThrow(/different work/)
     expect(latest(await waitStatus(test, 'needs-report')).status).toBe('needs-report')
   })
@@ -170,6 +172,90 @@ describe('routing-only Main Session', () => {
     expect(['stopping', 'stopped']).toContain(latest(receipt).status)
     const stopped = await waitStatus(test, 'stopped')
     expect(test.ctx.agents.get(latest(stopped).sessionId)?.status).toBe('idle')
+  })
+
+  it.each([
+    ['completed', 'parent'], ['error', 'parent'], ['stopped', 'parent'], ['stopped', 'caller'],
+  ] as const)('waits for an external descendant to release resources before publishing %s with %s delivery', async (outcome, delivery) => {
+    const script = Array.from({ length: 30 }, () => textResponse('ack'))
+    const test = await fixture([
+      script[0]!,
+      (options) => {
+        const input = options.messages.findLast(message => message.role === 'user' && message.source?.kind === 'muse-coordination')
+        if (input?.source?.kind !== 'muse-coordination') throw new Error('Assignment missing')
+        return toolCallResponse('early-report', 'coordinator_report', {
+          task_id: input.source.taskId, revision: input.source.revision, outcome: 'completed', summary: 'Worker report before its helper settles',
+        })
+      }, ...script,
+    ])
+    const result = Promise.withResolvers<SubagentResult>()
+    const cleanup = Promise.withResolvers<undefined>()
+    const cleaning = Promise.withResolvers<undefined>()
+    let activation: SubagentActivation | undefined
+    let opened = false
+    test.ctx.subagents.registerProvider({
+      name: 'external-check', inheritsParentContext: false,
+      capabilities: { agentOptions: false, agentPreset: false, outputSchema: false, depthLimit: false },
+      async start({ signal }) {
+        signal.addEventListener('abort', () => { result.resolve({ output: [], stopReason: 'aborted' }) }, { once: true })
+        return { id: SessionId('external-check'), result: result.promise, async dispose() { cleaning.resolve(undefined); await cleanup.promise } }
+      },
+    })
+    test.ctx.on('agent/pre-step', async ({ agent }, next) => {
+      if (agent !== test.main && !opened) {
+        opened = true
+        activation = await test.ctx.subagents.startActivation({
+          parent: agent, provider: 'external-check', label: 'helper', delivery,
+          ...delivery === 'parent' ? { name: 'helper' } : {},
+          signal: new AbortController().signal, prompt: [{ type: 'text', text: 'Check the result' }],
+        })
+      }
+      return next()
+    })
+    const task = await test.service.dispatch(test.main, request)
+    const worker = test.ctx.agents.get(latest(task).sessionId)!
+    try {
+      await waitStatus(test, 'finishing')
+      await worker.whenIdle()
+      expect(test.ctx.subagents.hasTreeWork(worker)).toBe(true)
+      if (outcome === 'stopped') {
+        const stopping = await test.service.stop(test.main.id, task.id, 1)
+        expect(latest(stopping).status).toBe('stopping')
+      } else result.resolve({ output: [], stopReason: outcome })
+      await cleaning.promise
+      expect(latest(test.service.list(test.main.id)[0]!).status).toBe(outcome === 'stopped' ? 'stopping' : 'finishing')
+      cleanup.resolve(undefined)
+      const settled = await waitStatus(test, outcome === 'error' ? 'interrupted' : outcome)
+      if (outcome === 'error') expect(latest(settled).issue).toContain('delegated execution failed')
+    } finally {
+      result.resolve({ output: [], stopReason: 'completed' })
+      cleanup.resolve(undefined)
+      await activation?.dispose()
+    }
+  })
+
+  it('retains an unverified subtree as interrupted instead of publishing the worker report', async () => {
+    const test = await fixture([
+      textResponse('main'),
+      (options) => {
+        const input = options.messages.findLast(message => message.role === 'user' && message.source?.kind === 'muse-coordination')
+        if (input?.source?.kind !== 'muse-coordination') throw new Error('Assignment missing')
+        return toolCallResponse('unverified-report', 'coordinator_report', {
+          task_id: input.source.taskId, revision: input.source.revision, outcome: 'completed', summary: 'Unverified worker report',
+        })
+      },
+      () => {
+        const listing = vi.spyOn(test.ctx.subagents, 'listDescendants').mockRejectedValue(new Error('catalog unavailable'))
+        onTestFinished(() => { listing.mockRestore() })
+        return textResponse('worker finished')
+      },
+      textResponse('Inspect the retained execution before continuing.'),
+    ])
+    await test.service.dispatch(test.main, request)
+    const task = await waitStatus(test, 'interrupted')
+    expect(latest(task).issue).toContain('Execution subtree could not be verified')
+    expect(latest(task).issue).toContain('catalog unavailable')
+    expect(latest(task).report?.outcome).toBe('completed')
   })
 
   it('retains persisted task receipts when the plugin is disabled and re-enabled without repeating execution', async () => {

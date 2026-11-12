@@ -7,5 +7,6 @@ recording: authored
 header:
   class: sdk-background-wait
   pin: true
+  systemPromptSource: desktop-context
 replay:
   override: true

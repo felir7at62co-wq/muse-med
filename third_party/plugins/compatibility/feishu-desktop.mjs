@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { cpSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { applyFeishuReliability } from './feishu-reliability.mjs'
+import { reviewedHostVersion } from './host-runtime.mjs'
 
 export const feishuDesktopCompatibility = {
   upstreamCommit: 'f10ef5f6efb5beb5bd5d10e3e31a8f68f48b6e75',
@@ -157,8 +158,8 @@ export function apply(ctx, config) {
   manifest.main = 'lib/index.js'
   manifest.exports = { '.': './lib/index.js', './package.json': './package.json' }
   manifest.files = ['lib', 'cordis.patch.yml', 'LICENSE', 'SOURCE.json']
-  manifest.peerDependencies['@deepseek-ai/dsh-home-paths'] = '0.2.2-rc.1'
-  manifest.peerDependencies['@deepseek-ai/dsh-scope'] = '0.2.2-rc.1'
+  manifest.peerDependencies['@deepseek-ai/dsh-home-paths'] = reviewedHostVersion
+  manifest.peerDependencies['@deepseek-ai/dsh-scope'] = reviewedHostVersion
   delete manifest.types
   delete manifest.bin
   manifest.scripts = {}

@@ -18,5 +18,6 @@
 .rail { justify-content: center; margin-inline: 8px; width: 40px; padding-inline: 0; }
 .entry:disabled { opacity: .6; cursor: wait; }
 .entry:focus-visible { outline: 2px solid var(--dsw-alias-label-primary); outline-offset: 2px; }
-.spider { flex: none; width: 28px; height: 24px; background: url('./assets/muse-spider.svg') center / contain no-repeat; }
+.spider { flex: none; width: 48px; height: 41px; background: url('./assets/muse-spider.svg') center / contain no-repeat; }
+.rail .spider { width: 32px; height: 28px; }
 @media (hover: hover) { .entry:hover { background: var(--dsw-alias-bg-l2); } }

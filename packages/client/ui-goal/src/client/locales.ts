@@ -4,7 +4,7 @@
 export const zh = {
   'phase.active': '进行中的目标',
   'phase.waiting': '等待新情况',
-  'phase.active.disarmed': '已暂停的目标',
+  'phase.active.disarmed': '待继续的目标',
   'phase.paused': '已暂停的目标',
   'phase.blocked': '受阻的目标',
   'objective.aria': '目标内容',

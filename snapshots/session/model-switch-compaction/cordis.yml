@@ -7,10 +7,10 @@
   config:
     models:
       - id: deepseek-v4-flash
-        contextWindow: 100000
+        contextWindow: 97000
         maxTokens: 1000
       - id: deepseek-v4-pro
-        contextWindow: 11000
+        contextWindow: 9700
         maxTokens: 1000
 
 - id: compaction-basic

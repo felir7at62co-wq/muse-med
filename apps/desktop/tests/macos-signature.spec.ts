@@ -84,6 +84,7 @@ describe('desktop macOS release signature', () => {
       '**/muse-hongguo-download/python/**',
       '**/muse-lvpaopao/native/**',
       '**/@openai/codex*/**',
+      '**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/native/bin/**/*',
     ]))
     expect(config.icon).toMatch(/[/\\]renderer[/\\]icon\.png$/u)
     expect(config).toHaveProperty('win.icon', expect.stringMatching(/[/\\]renderer[/\\]icon\.ico$/u))

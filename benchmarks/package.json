@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-benchmarks",
-  "version": "0.2.1-alpha.1",
+  "version": "0.2.2-rc.2",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -47,7 +47,7 @@
     "@deepseek-ai/dsh-token-meter": "workspace:*",
     "@deepseek-ai/dsh-typert-protocol": "workspace:*",
     "@deepseek-ai/dsh-util-values": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "4.6.6"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:~"

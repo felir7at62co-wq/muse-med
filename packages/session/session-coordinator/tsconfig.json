@@ -64,6 +64,9 @@
     },
     {
       "path": "../../api/workspace-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../../subagent/subagent"
     }
   ]
 }

@@ -1,5 +1,6 @@
 {
   "meta": {
-    "title": "Muse 主会话调度"
+    "title": "Muse 会话调度",
+    "description": "向执行会话分配任务，并转交执行回报。"
   }
 }

@@ -20,7 +20,7 @@ Compose this optional Host plugin with a routing-only preset. The Main Session s
 
 ## Use this package
 
-Mount the default export on the Host and `/worker` alongside ordinary tools. Compose `/main` only inside the configured Main preset. Muse offers `main-session` and retains `short-drama` as its default. The optional [task-card plugin](../../client/ui-session-coordinator/README.md) adds status, worker navigation, file opening and Stop to the existing conversation dock. Removing it restores the native dock; removing the Host plugin retains ledger files and ordinary Session history.
+Mount the default export on the Host and `/worker` alongside ordinary tools. Compose `/main` only inside the configured Main preset. Muse offers `main-session` and retains `short-drama` as its default. The optional [Main Session navigation plugin](../../client/ui-session-coordinator/README.md) provides the retained Main entry and startup navigation. Worker Sessions keep their native sidebar rows; results return through Main chat messages. Removing the Host plugin retains ledger files and ordinary Session history.
 
 `mainPreset` and `workerPreset` select distinct roles; `searchLimit` bounds search rows and `readChars` bounds each raw history page, allowing one oversized event intact. Search and read are local profile-owner capabilities across working directories. They never open remote accounts or grant access to another user's profile. The Remote methods require global owner access; scoped guest grants do not authorize the task directory.
 
@@ -30,7 +30,7 @@ Routing instructions are tagged relay context. Only Host-verified original human
 
 An existing worker must be idle, have no pending input or live owned jobs, and have no unsettled coordination task. Archived Sessions and subagents are reference-only. The agent chooses another worker when reuse is unavailable. A revision requires the expected revision and settlement or an explicit stop of its predecessor; it cannot silently steer over an in-flight assignment.
 
-The Muse spider entry above New Session opens one retained Main Session per profile in Muse's existing default Workspace. Creation goes through the native Workspace and Session controllers; repeated clicks and plugin restarts reuse its stable identity. Workers keep their selected project directories.
+The Muse spider entry below New Session opens one retained Main Session per profile in Muse's existing default Workspace. Creation goes through the native Workspace and Session controllers; repeated clicks and plugin restarts reuse its stable identity. Workers keep their selected project directories.
 
 ## Understand the implementation
 
@@ -38,9 +38,9 @@ The validated `muse_coordination` storage domain writes each task intent before 
 
 Native inbox splices and admitted user messages establish delivery. Recovery checks those records before retrying a dispatch intent. A receipt without confirmed settlement becomes interrupted; generation is never automatically resubmitted. Opening Main preserves its task directory, so the router can inspect the worker and explicitly stop or revise the task. Plugin unload drains its owned mutations and closes observers without cancelling ordinary execution Sessions.
 
-`coordinator_report` accepts only a consumed current assignment from its assigned worker. It captures successful native `present` declarations after that assignment's input and checkpoints the worker log. Its outcome is published only after the worker, its live runtime descendants and their jobs settle. Idle without a report becomes `needs-report`; text claiming completion alone does not complete the task. File declarations retain their source paths and are not copied or treated as content snapshots.
+`coordinator_report` accepts only a consumed current assignment from its assigned worker. It captures successful native `present` declarations after that assignment's input and checkpoints the worker log. Its outcome is published only after the worker, its runtime descendants and their jobs settle, including pending creation and external execution cleanup. The runtime manager supplies tree ownership and nonblocking work checks; tree waits run outside the coordinator command queue so Stop remains available. A delegated failure after the report requires inspection and a new report. Idle without a report becomes `needs-report`; text claiming completion alone does not complete the task. File declarations retain their source paths and are not copied or treated as content snapshots.
 
-Stop persists `stopping`, removes unconsumed assigned input, cancels the assigned activity and its owned runtime descendants and jobs, and publishes `stopped` only after quiescence. If the worker is processing another input, it is retained for inspection rather than cancelled. Structured receipts wake Main through durable, identified native messages. UI status watches storage changes without model polling.
+Stop persists `stopping`, removes unconsumed assigned input, cancels the assigned activity and its owned runtime descendants and jobs, and publishes `stopped` only after quiescence. Tree interruption includes pending startup and caller-delivered external execution, preserves child inboxes, and permits later task revisions to create new descendants. If the worker is processing another input, it is retained for inspection rather than cancelled. Structured receipts wake Main through durable, identified native messages. UI status watches storage changes without model polling.
 
 ## Model Experience
 

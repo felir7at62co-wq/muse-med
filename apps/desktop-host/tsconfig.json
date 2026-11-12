@@ -8,13 +8,20 @@
     "src"
   ],
   "references": [
-    { "path": "../../packages/drama/session-video" },
-    { "path": "../../packages/client/ui-session-video/tsconfig.host.json" },
+    {
+      "path": "../../packages/drama/session-video"
+    },
+    {
+      "path": "../../packages/client/ui-session-video/tsconfig.host.json"
+    },
     {
       "path": "../../vendor/cordis"
     },
     {
       "path": "../../packages/core/agent"
+    },
+    {
+      "path": "../../packages/team/agent-team"
     },
     {
       "path": "../../packages/jobs/jobs"
@@ -147,6 +154,9 @@
     },
     {
       "path": "../../packages/jubian/jubian-api"
+    },
+    {
+      "path": "../../packages/attachment/attachment"
     }
   ]
 }
