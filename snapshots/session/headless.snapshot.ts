@@ -1288,6 +1288,31 @@ async function verifySessionQuerySpill(log: string, spillRoot: string, locatorRo
   expect(full).toContain('session_event_search')
 }
 
+/** Require the live headless credential store to remain inactive before accepting its recorded answer. */
+function assertHeadlessCredentialsInactive(log: string): void {
+  const events = parseSessionLog(log)
+  const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
+  expect(calls.map(call => ({ name: call.name, arguments: JSON.parse(call.arguments) }))).toEqual([{
+    name: 'cordis_inspect_query',
+    arguments: { platform: 'host', provider: 'Config', method: 'listConfigs', input: { name: '@deepseek-ai/dsh-credentials-local' } },
+  }])
+  const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+  expect(results).toHaveLength(1)
+  const result = results[0]!
+  expect(result.toolCallId).toBe(calls[0]!.callId)
+  expect(result.isError).toBe(false)
+  const text = result.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('')
+  expect(JSON.parse(text), 'headless managed credentials remain inactive').toEqual({
+    platform: 'host', provider: 'Config', method: 'listConfigs',
+    data: {
+      entries: [{ id: 'include:credentials', patchId: 'credentials', name: '@deepseek-ai/dsh-credentials-local', status: 'inactive' }],
+      total: 1,
+      nextOffset: null,
+    },
+  })
+  expect(finalTextFromSession(log)).toBe('HEADLESS_CREDENTIALS_INACTIVE')
+}
+
 /** Preserve successful native, program, direct-child, and workflow execution in one flow. */
 function verifyAdvancedToolchain(logs: readonly SessionLog[]): void {
   expect(logs).toHaveLength(3)
@@ -2053,6 +2078,14 @@ describe('headless recorded-session snapshots', () => {
     expect(() => assertProductSubagentDiagnostics(content.replaceAll(before, after))).toThrow()
   })
 
+  it('rejects an active managed credential store even when the recorded answer claims inactivity', async () => {
+    const content = await readFile(join(snapshotsRoot, 'headless-credentials/session.v4.jsonl'), 'utf8')
+    assertHeadlessCredentialsInactive(content)
+    const changed = content.replace(String.raw`\"status\": \"inactive\"`, String.raw`\"status\": \"schema\"`)
+    expect(changed).not.toBe(content)
+    expect(() => assertHeadlessCredentialsInactive(changed)).toThrow('headless managed credentials remain inactive')
+  })
+
   it.each(['subagent-agent-preset', 'subagent-no-message-tool'])('rejects premature parent completion in retained %s input', async (name) => {
     const logs = await Promise.all(['session.v4.jsonl', 'session.1.v4.jsonl'].map(async (file) => {
       let content = await readFile(join(snapshotsRoot, name, file), 'utf8')
@@ -2512,6 +2545,7 @@ describe('headless recorded-session snapshots', () => {
           },
           inspect: async (cwd) => {
             actualLogs = await persistedSessions(cwd)
+            if (scenario.name === 'headless-credentials') assertHeadlessCredentialsInactive(actualLogs[0]!.content)
             if (scenario.name === 'subagent-child-question-rejection') assertAsyncChildQuestion(actualLogs)
             if (scenario.name === 'subagent-agent-preset') assertAsyncChildPreset(actualLogs)
             if (scenario.name === 'subagent-no-message-tool') {

@@ -1192,6 +1192,7 @@
         "snapshots/session/fs-read-window/session.v4.jsonl",
         "snapshots/session/fs-read-window/snapshot.yml",
         "snapshots/session/fs-read-window/workspace/big.txt",
+        "snapshots/session/headless-credentials/runtime.cordis.yml",
         "snapshots/session/headless-credentials/session.v4.jsonl",
         "snapshots/session/headless-credentials/snapshot.yml",
         "snapshots/session/headless.snapshot.ts",

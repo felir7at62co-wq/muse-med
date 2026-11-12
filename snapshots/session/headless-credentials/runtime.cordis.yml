@@ -1,0 +1,3 @@
+# This owner verifies the shipped headless policy, not the shared preset fixture store.
+- id: credentials
+  disabled: true
