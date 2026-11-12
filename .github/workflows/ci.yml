@@ -195,7 +195,15 @@ jobs:
           exit "$sandbox_status"
 
       - name: Prepare media test executables
-        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+          decoder="$(command -v ffmpeg)"
+          [[ "$decoder" == /* ]]
+          test -f "$decoder"
+          test -x "$decoder"
+          "$decoder" -version
+          printf 'MUSE_RECOVERY_TEST_FFMPEG=%s\n' "$decoder" >> "$GITHUB_ENV"
 
       - name: Run exhaustive coverage
         run: pnpm run check:ci:coverage
