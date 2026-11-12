@@ -125,5 +125,15 @@ it('rejects malformed wire arguments before HTTP and preserves structured domain
   await expect(f.call('getPublication', { id: 'a'.repeat(64) })).rejects.toMatchObject({
     code: 'muse-market/cloud-failed', details: { code: 'invalid-publication', status: 400 },
   })
+  await expect(f.call('getPublication', { id: '../../outside?query=1\r\n' })).rejects.toMatchObject({
+    code: 'muse-market/cloud-failed', details: { code: 'invalid-publication', status: 400 },
+  })
+  await expect(f.call('publishDraft', { localId: 'not-a-release-digest', publisherId: f.publication.publisherId,
+    requestId: 'invalid-local-release-attempt' })).rejects.toMatchObject({
+    code: 'muse-market/cloud-failed', details: { code: 'invalid-local-release', status: 400 },
+  })
+  await expect(f.call('installPublication', { id: f.publication.id, expectedSha256: 'not-a-digest' })).rejects.toMatchObject({
+    code: 'muse-market/cloud-failed', details: { code: 'invalid-digest', status: 400 },
+  })
   expect(f.paths).toEqual([])
 })

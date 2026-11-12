@@ -28,6 +28,9 @@ describe('Skill publications', () => {
     expect(createMarketPackage(manifest, Object.fromEntries(Object.entries(resources).reverse()), limits)).toEqual(archive)
     const decoded = readMarketPackage(archive, limits)
     expect(decoded.manifest).toEqual(manifest)
+    expect(decoded.manifest.skills).toHaveLength(1)
+    expect(decoded.skillInstructions).toBe(decoded.files[decoded.manifest.skills[0].path])
+    expect(Buffer.from(decoded.skillInstructions)).toEqual(Buffer.from(resources['skills/fixture-skill/SKILL.md']))
     for (const [path, bytes] of Object.entries(resources)) expect(Buffer.from(decoded.files[path]!)).toEqual(Buffer.from(bytes))
     expect(marketRelease(archive, limits)).toMatchObject({
       id: marketDigest(archive), sha256: marketDigest(archive), bytes: archive.byteLength,
