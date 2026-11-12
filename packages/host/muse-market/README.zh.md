@@ -87,6 +87,8 @@ kind: "package-reference"
 
 归档读取器返回已校验的单 Skill 清单、完整资源，以及必需指令文件的 `skillInstructions`。绑定捕获和 Skill 加载会在核对完整版本身份后，使用这份已校验的字节。该解码结果不会为持久化清单或 Session 绑定增加字段；确定性的 ZIP 资源顺序和字节保持不变。
 
+冷视图先选已记录版本，已执行但未绑定的 Session 返回空集合，其余读取当前默认值。显式分支仅在捕获默认值时执行 `await`，保留已绑定与旧 Session 路径的同步时序，并避免 V8 覆盖率误计汇合后的路径。
+
 </details>
 
 <a id="further-exploration"></a>
