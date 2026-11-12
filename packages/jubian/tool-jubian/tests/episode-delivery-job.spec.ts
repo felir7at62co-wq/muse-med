@@ -1,14 +1,14 @@
 /** Durable admission, strict records and one-shot arm ownership use actual files. */
 import { createHash, randomUUID } from 'node:crypto'
 import { execFileSync } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import * as files from 'node:fs/promises'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { createEpisodeDeliveryJob, readEpisodeRecord, readEpisodeStateSnapshot, attemptIdentitySchema, executionIdentitySchema,
-  executionDrainSchema, runningExecutionSchema } from '../src/episode-delivery.ts'
+  executionDrainSchema, runningExecutionSchema, parseEpisodeDeliveryJobRecord } from '../src/episode-delivery.ts'
 import type { EpisodeExecutionId, RunningExecution, Sha256 } from '../src/episode-delivery.ts'
 import type { EpisodeExecutionAdmission } from '../src/episode-delivery-job.ts'
 import type { VideoRecoveryDigest } from '../src/types.ts'
@@ -51,6 +51,71 @@ async function fixture(recordBytes = 16384) {
   }
   return { root, job, options, identity, input, admission, execution, running, finish }
 }
+
+it('refuses a pre-existing linked private directory without changing its owned target or the original admission', async () => {
+  const f = await fixture(), selected = join(f.root, 'linked-project'), alias = join(selected, '.muse')
+  await mkdir(selected)
+  const originalBytes = await readFile(f.input), originalEntries = await readdir(f.job.attemptRoot)
+  await symlink(f.job.attemptRoot, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  try {
+    await expect(createEpisodeDeliveryJob({ ...f.options, projectDir: selected }))
+      .rejects.toThrow('Episode job directory must be canonical and regular')
+    expect(await readdir(f.job.attemptRoot)).toEqual(originalEntries)
+    expect(await readFile(f.input)).toEqual(originalBytes)
+    expect(await f.job.read()).toBeUndefined()
+  } finally { await unlink(alias) }
+  const original = await createEpisodeDeliveryJob(f.options)
+  expect(await original.admit(f.admission)).toEqual(await f.job.read())
+})
+
+it('refuses a static directory selected as an input before admitting any job and allows a later valid admission', async () => {
+  const f = await fixture(), selected = join(f.job.attemptRoot, 'directory-input')
+  await mkdir(selected)
+  await expect(f.job.admit({ ...f.admission, inputs: [{ path: selected, sha256: hash(''), bytes: 0 }] }))
+    .rejects.toThrow('Episode input must be a regular file')
+  expect(await f.job.read()).toBeUndefined()
+  expect(await readdir(selected)).toEqual([])
+  expect(await readFile(f.input, 'utf8')).toBe('approved source')
+  const admitted = await f.job.admit(f.admission)
+  expect(await f.job.read()).toEqual(admitted)
+})
+
+it('roundtrips a measured empty input through the public journal parser without losing its zero-byte identity', async () => {
+  const f = await fixture(), empty = join(f.job.attemptRoot, 'empty-input.bin')
+  await writeFile(empty, new Uint8Array())
+  const input = { path: empty, sha256: hash(''), bytes: 0 }
+  const admitted = await f.job.admit({ ...f.admission, inputs: [input] })
+  const decoded: unknown = JSON.parse((await readFile(join(f.job.attemptRoot, 'job.json'))).toString('utf8'))
+  expect(parseEpisodeDeliveryJobRecord(decoded)).toEqual(admitted)
+  expect(admitted.inputs).toEqual([input])
+  expect(admitted.executionRef).toBeNull()
+  expect(admitted.armedExecutions).toEqual([])
+  const restarted = await createEpisodeDeliveryJob(f.options)
+  expect(await restarted.read()).toEqual(admitted)
+  expect(await restarted.admit({ ...f.admission, inputs: [input] })).toEqual(admitted)
+})
+
+it.each([-1, 0.5, Number.MAX_SAFE_INTEGER + 1])('refuses a nonphysical byte count in decoded job JSON: %s', async (bytes) => {
+  const f = await fixture(), admitted = await f.job.admit(f.admission)
+  const decoded: unknown = JSON.parse(JSON.stringify({ ...admitted, inputs: admitted.inputs.map(input => ({ ...input, bytes })) }))
+  expect(() => parseEpisodeDeliveryJobRecord(decoded)).toThrow()
+  expect(await f.job.read()).toEqual(admitted)
+})
+
+it('preserves a native invalid candidate-path error instead of admitting an armed execution', async () => {
+  const f = await fixture(); await f.job.admit(f.admission)
+  const id = randomUUID(), stage = join(f.job.attemptRoot, id)
+  await mkdir(stage)
+  const descriptor = JSON.stringify({ attempt: f.identity.attempt, execution: id }), descriptorPath = join(stage, 'descriptor.json')
+  await writeFile(descriptorPath, descriptor)
+  const identity = executionIdentitySchema.parse({ ...f.identity, execution: id, descriptorSha256: hash(descriptor) })
+  const proposed: EpisodeExecutionAdmission = { identity, descriptorPath, candidatePath: join(stage, 'candidate\0.mp4'), retry: 'initial' }
+  await f.job.admitExecution(proposed)
+  await expect(f.job.assertAdmission(identity)).rejects.toMatchObject({ code: 'ERR_INVALID_ARG_VALUE' })
+  expect((await f.job.read())?.executionRef).toBeNull()
+  expect(await f.job.readExecution(identity.execution)).toEqual(proposed)
+  expect(await readFile(f.input, 'utf8')).toBe('approved source')
+})
 
 it('accepts typed full execution facts as an attempt and shares one durable admission', async () => {
   const f = await fixture()
