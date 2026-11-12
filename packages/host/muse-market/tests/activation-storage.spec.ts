@@ -17,6 +17,25 @@ async function fixture() {
 }
 
 describe('explicit activation storage', () => {
+  it('reuses a byte-identical existing migration backup without rewriting its bytes', async () => {
+    const value = await fixture(), before = await readFile(value.ledger)
+    const backup = join(value.root, 'installations.v1.backup.json')
+    await writeFile(backup, before)
+    await value.local.initializeActivation()
+    expect(await readFile(backup)).toEqual(before)
+    expect(await value.local.defaults()).toEqual({ revision: 0, defaults: [] })
+    expect(await value.local.list()).toEqual([value.first, value.second])
+  })
+
+  it('retains a conflicting prior migration backup and leaves the legacy ledger unchanged', async () => {
+    const value = await fixture(), before = await readFile(value.ledger)
+    const backup = join(value.root, 'installations.v1.backup.json')
+    await writeFile(backup, 'retained earlier backup')
+    await expect(value.local.initializeActivation()).rejects.toThrow('migration-backup-conflict')
+    expect(await readFile(value.ledger)).toEqual(before)
+    expect(await readFile(backup, 'utf8')).toBe('retained earlier backup')
+  })
+
   it('preserves the exact v1 backup, migrates empty defaults and keeps M1 records disabled', async () => {
     const value = await fixture(), before = await readFile(value.ledger)
     await value.local.initializeActivation()

@@ -199,10 +199,7 @@ export class MuseMarketLocal {
         const item = state.installations.find(row => row.release.id === id)
         if (item === undefined) throw new MarketError('invalid-ledger')
         const parsed = readMarketPackage(await this.verify(item.release), this.config.limits)
-        const member = item.release.manifest.skills[0]
-        const bytes = member === undefined ? undefined : parsed.files[member.path]
-        if (bytes === undefined) throw new MarketError('missing-skill')
-        const skill = marketSkill(new TextDecoder('utf-8', { fatal: true }).decode(bytes), name)
+        const skill = marketSkill(new TextDecoder('utf-8', { fatal: true }).decode(parsed.skillInstructions), name)
         entries.push({ release: item.release, skill: { name, description: skill.description, invocation: skill.invocation,
           ...(skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse }) } })
       }
@@ -232,9 +229,8 @@ export class MuseMarketLocal {
       for (const entry of await readdir(directory, { withFileTypes: true })) {
         const path = prefix + entry.name, native = join(directory, entry.name)
         if (entry.isDirectory() && directories.has(path)) { await visit(native, path + '/'); continue }
-        if (!entry.isFile() || path !== 'publication.zip' && files[path] === undefined) throw new MarketError('modified-installation')
         const expected = path === 'publication.zip' ? archive : files[path]
-        if (expected === undefined) throw new MarketError('modified-installation')
+        if (!entry.isFile() || expected === undefined) throw new MarketError('modified-installation')
         const actual = await readMarketBytes(native, this.config.limits.expandedBytes)
         if (!actual.equals(expected)) throw new MarketError('modified-installation')
       }
