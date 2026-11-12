@@ -1,0 +1,99 @@
+name: Muse Linux layout diagnostic
+on:
+  push:
+    branches: [qa/web-layout-current-20261113]
+permissions:
+  contents: read
+env:
+  DSH_TELEMETRY_DISABLED: "1"
+  DSH_SNAPSHOT: replay
+  DSH_GATE_CONCURRENCY: "2"
+jobs:
+  layout:
+    name: Linux existing layout owners (diagnostic only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v5.0.0
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "24"
+      - name: Record the actual source
+        run: |
+          set -euo pipefail
+          mkdir -p .artifacts/layout-diagnostic
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git rev-parse HEAD > .artifacts/layout-diagnostic/head.txt
+          git rev-parse 'HEAD^{tree}' > .artifacts/layout-diagnostic/tree.txt
+          sha256sum apps/web/tests/bot-sidebar-rail.e2e.ts apps/web/tests/window-drag-coverage.e2e.ts apps/web/tests/markdown-file-links.e2e.ts apps/web/tests/fixtures/plugins/fixture-bot-sidebar-rail/client-entry.js snapshots/web/markdown-file-links/links.expected.md > .artifacts/layout-diagnostic/source.sha256
+      - name: Install the immutable workspace
+        run: pnpm install --frozen-lockfile
+      - name: Prepare the existing CI sandbox
+        run: bash scripts/prepare-ci-bubblewrap.sh
+      - name: Install the real browser and system dependencies
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium webkit
+      - name: Build the official product
+        run: |
+          set -euo pipefail
+          pnpm run build 2>&1 | tee .artifacts/layout-diagnostic/build.log
+      - name: Replay the three complete existing owners
+        id: replay
+        run: |
+          set -euo pipefail
+          set +e
+          pnpm run test:web:built apps/web/tests/bot-sidebar-rail.e2e.ts apps/web/tests/window-drag-coverage.e2e.ts apps/web/tests/markdown-file-links.e2e.ts --maxWorkers=1 --no-file-parallelism --reporter=default --reporter=json --outputFile.json=.artifacts/layout-diagnostic/results.json 2>&1 | tee .artifacts/layout-diagnostic/stdout.log
+          status=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$status" > .artifacts/layout-diagnostic/exit-code
+          exit "$status"
+      - name: Check real execution without accepting empty or skipped owners
+        if: ${{ !cancelled() && steps.replay.outcome != 'skipped' }}
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          import { resolve } from 'node:path'
+          const receipt={accepted:false}
+          try {
+            const result=JSON.parse(readFileSync('.artifacts/layout-diagnostic/results.json','utf8'))
+            const owners=['bot-sidebar-rail','window-drag-coverage','markdown-file-links'].map(name=>resolve('apps/web/tests/'+name+'.e2e.ts')).sort()
+            assert.equal(result.success,true)
+            assert.equal(result.numFailedTests,0)
+            assert.equal(result.numFailedTestSuites,0)
+            assert.equal(result.numPendingTests,0)
+            assert.equal(result.numTodoTests,0)
+            assert.deepEqual(result.testResults.map(file=>file.name).sort(),owners)
+            const assertions=result.testResults.flatMap(file=>file.assertionResults)
+            assert.equal(result.numTotalTests,assertions.length)
+            assert.equal(result.numPassedTests,assertions.length)
+            for(const file of result.testResults){
+              assert.equal(file.status,'passed')
+              assert.ok(file.assertionResults.length>0)
+              assert.ok(file.assertionResults.every(test=>test.status==='passed'))
+            }
+            receipt.accepted=true;receipt.owners=owners;receipt.passed=assertions.length
+          } catch(error){receipt.error=String(error);process.exitCode=1}
+          finally {writeFileSync('.artifacts/layout-diagnostic/acceptance.json',JSON.stringify(receipt,null,2)+'\n');console.log(JSON.stringify(receipt))}
+          NODE
+      - name: Keep all snapshot inputs unchanged
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p .artifacts/layout-diagnostic
+          git diff -- snapshots > .artifacts/layout-diagnostic/protected-snapshots.diff
+          git ls-files --others --exclude-standard -- snapshots > .artifacts/layout-diagnostic/untracked-snapshots.txt
+          git diff --exit-code -- snapshots
+          test ! -s .artifacts/layout-diagnostic/untracked-snapshots.txt
+      - name: Preserve the actual Linux evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: layout-diagnostic-${{ github.sha }}
+          path: .artifacts/layout-diagnostic
+          if-no-files-found: error
