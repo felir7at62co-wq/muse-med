@@ -39,6 +39,8 @@ jobs:
       - name: Install the real browser and system dependencies
         run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium webkit
       - name: Build the official product
+        env:
+          DSH_BUILD_CLIENT_PROFILE: official
         run: |
           set -euo pipefail
           pnpm run build 2>&1 | tee .artifacts/layout-diagnostic/build.log
@@ -70,11 +72,13 @@ jobs:
             assert.equal(result.numTodoTests,0)
             assert.deepEqual(result.testResults.map(file=>file.name).sort(),owners)
             const assertions=result.testResults.flatMap(file=>file.assertionResults)
+            assert.equal(assertions.length,21,'all 4 Bot, 13 window and 4 file-link cases must execute')
             assert.equal(result.numTotalTests,assertions.length)
             assert.equal(result.numPassedTests,assertions.length)
             for(const file of result.testResults){
               assert.equal(file.status,'passed')
-              assert.ok(file.assertionResults.length>0)
+              const count=file.name.endsWith('/bot-sidebar-rail.e2e.ts')?4:file.name.endsWith('/window-drag-coverage.e2e.ts')?13:4
+              assert.equal(file.assertionResults.length,count)
               assert.ok(file.assertionResults.every(test=>test.status==='passed'))
             }
             receipt.accepted=true;receipt.owners=owners;receipt.passed=assertions.length
