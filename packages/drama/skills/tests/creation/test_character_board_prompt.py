@@ -36,6 +36,14 @@ class CharacterBoardPrompt(unittest.TestCase):
                 layouts.append(result["prompt"][len(prefix):])
         self.assertEqual(len(set(layouts)), 1)
 
+    def test_fixed_layout_does_not_inject_a_medium_or_material_style(self):
+        for style in ("水彩，透明色层与纸张纹理。", "二维动画，保持手绘轮廓。", "三维动画，柔和棚拍光。"):
+            with self.subTest(style=style):
+                result = self.module.build_prompt(style, "保持已确认角色。")
+                layout = result["prompt"].split("\n", 2)[2]
+                for injected in ("PBR", "CG", "二维", "三维", "真人", "平涂", "次表面散射"):
+                    self.assertNotIn(injected, layout)
+
     def test_four_distinct_regions_and_only_front_side_masks_reach_cli_output(self):
         result = subprocess.run(
             [sys.executable, "-B", str(SCRIPT), "--style-prompt", "3D动漫，PBR材质。",
