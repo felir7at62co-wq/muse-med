@@ -28,6 +28,18 @@ async function checkpoint() {
   return { root, store, run, path: join(root, 'watches', `${run.id}.json`) }
 }
 
+it.each(['ownership.v2.json', 'ownership.v1.json'])('propagates a corrupt %s without replacing it or creating a watch', async (name) => {
+  const f = await checkpoint(), directory = join(f.root, 'watches'), path = join(directory, name)
+  await mkdir(directory, { recursive: true })
+  const original = Buffer.from('{"truncated":')
+  await writeFile(path, original)
+  await expect(f.store.claimAndCreate(f.run)).rejects.toBeInstanceOf(SyntaxError)
+  expect(await readFile(path)).toEqual(original)
+  expect(await f.store.load(f.run.id)).toBeUndefined()
+  const absent = join(directory, name === 'ownership.v2.json' ? 'ownership.v1.json' : 'ownership.v2.json')
+  await expect(readFile(absent)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
 it('commits the same checkpoint after a public ownership claim without inventing a notice or changing its deadline', async () => {
   const f = await checkpoint()
   await f.store.claimOwnership(f.run)

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, it } from 'vitest'
 import { readInstallerLocales, renderInstallerStrings } from '../scripts/installer-locales.mjs'
+import { createInstallerTestSource } from '../scripts/windows-installer-test-fixture.mjs'
 
 it('defines one non-nested header hook containing both prerequisite and installer UI setup', async () => {
   const source = await readFile(new URL('../scripts/installer.nsh', import.meta.url), 'utf8')
@@ -52,9 +53,7 @@ it('checks the x64 runtime before any offline elevated installation and fails cl
     expect(fallback).toContain(`LangString ${key} \${LANGUAGE}`)
     expect(source).toContain(`LangString ${key} \${LANG_SIMPCHINESE}`)
   }
-  for (const locale of readInstallerLocales().filter(locale => locale.nsisLanguage !== 'SIMPCHINESE')) {
-    expect(source).toContain(`!ifdef LANG_${locale.nsisLanguage}\n  !insertmacro MuseVCDefaultStrings \${LANG_${locale.nsisLanguage}}\n  !endif`)
-  }
+  expect(source).toContain('!ifdef LANG_ENGLISH\n  !insertmacro MuseVCDefaultStrings ${LANG_ENGLISH}\n  !endif')
   expect(source).toContain('!macro customHeader')
   expect(source.match(/^!macro customHeader$/gm)).toHaveLength(1)
   const headerStart = source.indexOf('!macro customHeader')
@@ -67,6 +66,26 @@ it('checks the x64 runtime before any offline elevated installation and fails cl
   expect(source).not.toMatch(/https?:\/\/|NSISdl|inetc::|ExecWait|SKIP.*(?:REDIST|PREREQ)/iu)
   expect(source).toContain('!insertmacro dshFinishDirectories')
   expect(source.indexOf('!insertmacro dshFinishDirectories')).toBeLessThan(source.lastIndexOf('Call MuseEnsureVCRuntime'))
+})
+
+it('declares each prerequisite message once per shipped language in production and the actual installer fixture', async () => {
+  const appRoot = new URL('../', import.meta.url)
+  const source = await readFile(new URL('scripts/installer.nsh', appRoot), 'utf8')
+  const keys = [...new Set([...source.matchAll(/\$\((MuseVC\w+)\)/gu)].map(match => match[1]!))]
+  expect(keys).toHaveLength(7)
+  for (const [owner, text] of [['production', source], ['fixture', createInstallerTestSource(source, 'C:\\private-installer')]] as const) {
+    const start = text.indexOf('!macro MuseVCDefaultStrings LANGUAGE')
+    const defaults = text.slice(start, text.indexOf('!macroend', start))
+    for (const locale of readInstallerLocales()) {
+      const language = `\\$\\{LANG_${locale.nsisLanguage}\\}`
+      const fallback = [...text.matchAll(new RegExp(`^\\s*!insertmacro MuseVCDefaultStrings ${language}\\s*$`, 'gmu'))].length
+      for (const key of keys) {
+        const direct = [...text.matchAll(new RegExp(`^\\s*LangString ${key} ${language} `, 'gmu'))].length
+        const defaultDeclarations = [...defaults.matchAll(new RegExp(`^\\s*LangString ${key} \\$\\{LANGUAGE\\} `, 'gmu'))].length
+        expect(direct + fallback * defaultDeclarations, `${owner}: ${locale.id} ${key} must have exactly one declaration`).toBe(1)
+      }
+    }
+  }
 })
 
 it('retains reboot-required guidance and refuses both finish-page launch paths', async () => {

@@ -4,7 +4,7 @@
 InstallDir "$LOCALAPPDATA\Programs\${APP_FILENAME}"
 
 ; customHeader runs after electron-builder registers the installer languages.
-; Other supported locales retain the reviewed English prerequisite fallback.
+; Each supported locale declares its prerequisite messages once.
 !macro MuseVCDefaultStrings LANGUAGE
   LangString MuseVCMissing ${LANGUAGE} "The bundled Microsoft Visual C++ x64 prerequisite is missing. Installation cannot complete. Obtain a complete muse-med installer."
   LangString MuseVCConsent ${LANGUAGE} "muse-med requires Microsoft Visual C++ x64 Runtime 14.51.36247.0 or later. Install the bundled runtime now? This changes system components and requires administrator approval. No download is performed. Declining stops muse-med installation."
@@ -18,24 +18,6 @@ InstallDir "$LOCALAPPDATA\Programs\${APP_FILENAME}"
 !macro customHeader
   !ifdef LANG_ENGLISH
   !insertmacro MuseVCDefaultStrings ${LANG_ENGLISH}
-  !endif
-  !ifdef LANG_GERMAN
-  !insertmacro MuseVCDefaultStrings ${LANG_GERMAN}
-  !endif
-  !ifdef LANG_SPANISHINTERNATIONAL
-  !insertmacro MuseVCDefaultStrings ${LANG_SPANISHINTERNATIONAL}
-  !endif
-  !ifdef LANG_FRENCH
-  !insertmacro MuseVCDefaultStrings ${LANG_FRENCH}
-  !endif
-  !ifdef LANG_JAPANESE
-  !insertmacro MuseVCDefaultStrings ${LANG_JAPANESE}
-  !endif
-  !ifdef LANG_PORTUGUESEBR
-  !insertmacro MuseVCDefaultStrings ${LANG_PORTUGUESEBR}
-  !endif
-  !ifdef LANG_RUSSIAN
-  !insertmacro MuseVCDefaultStrings ${LANG_RUSSIAN}
   !endif
   !ifdef LANG_SIMPCHINESE
   LangString MuseVCMissing ${LANG_SIMPCHINESE} "安装包缺少 Microsoft Visual C++ x64 运行库，无法完成安装。请获取完整的 muse-med 安装包。"
