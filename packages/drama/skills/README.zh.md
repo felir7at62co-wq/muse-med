@@ -102,6 +102,8 @@ npm test
 
 声音连续性技能区分同人物的人生时期，在不同 Muse 账号间核对共享项目音频库，确认既有声线后归档本地重复候选。首个已授权视频包可不带参考音频生成，提取结果供后续包使用，不额外创建付费试音。
 
+可选的[人物设定板提示词助手](skills/tweet-drama-asset-vision-check/references/character-delivery-layout.md#生成四区提示词)完整保留输入的画风和人物描述，再加入胸像、正面、严格侧面和背面四个独立区域。UTF-8 JSON仅包含`prompt`与`image_aspect_ratio`；助手不选择二维、三维或仿真人，不提交生成，也不判断成图。缺少视图或实际生成媒介违背提示词时，视觉交付验收不通过。
+
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
