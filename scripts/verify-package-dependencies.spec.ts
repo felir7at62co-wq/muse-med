@@ -1080,10 +1080,10 @@ describe('dependency sections', () => {
   })
 
   it.each([
-    ['@deepseek-ai/dsh-llm', 'ReasoningEffortId'],
-    ['@deepseek-ai/dsh-workspace', 'WorkspaceId'],
+    ['@deepseek-ai/dsh-llm', 'MessageId'],
+    ['@deepseek-ai/dsh-scope', 'carrierKeyOf'],
     ['@deepseek-ai/dsh-tools', 'TOOL_BODY_META_KEY'],
-  ])('retains generation identity and metadata imports on shared peers: %s#%s', (specifier, exportName) => {
+  ])('retains message and scope identity plus tool metadata on shared peers: %s#%s', (specifier, exportName) => {
     const sourcePath = 'packages/core/probe/src/index.ts'
     const manifest: PackageDependencyManifest = { name: '@deepseek-ai/dsh-probe',
       peerDependencies: { [CORDIS]: 'workspace:~', [specifier]: 'workspace:*' },

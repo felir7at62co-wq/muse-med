@@ -31,7 +31,13 @@
     "lib/delegation-policy.js",
     "lib/approved-episode-render.js",
     "lib/episode-render-worker.js",
-    "lib/workspace-owned-storage.js"
+    "lib/workspace-owned-storage.js",
+    "lib/workspace-owner-lease.js",
+    "lib/workspace-storage-composition.js",
+    "lib/workspace-handoff.js",
+    "lib/workspace-process-snapshot.js",
+    "lib/generation-loop-composition.js",
+    "lib/episode-source-authority.js"
   ],
   "dependencies": {
     "koffi": "3.1.1",
