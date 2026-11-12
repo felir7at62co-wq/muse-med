@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { boot } from '@deepseek-ai/dsh-app-boot'
 import Sessions, { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
@@ -131,7 +131,7 @@ it('reports executable failure and source mutation without caching invented cut 
   resolve.mockRestore()
   const original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
   vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
-    if (String(spec.argv[0]).endsWith('ffmpeg')) appendFileSync(f.file, 'fixture-version-change')
+    if (/^ffmpeg(?:\.exe)?$/iu.test(basename(String(spec.argv[0])))) appendFileSync(f.file, 'fixture-version-change')
     return original(spec)
   })
   const changed = await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)
@@ -169,7 +169,7 @@ it('cancels and joins a running process before another detection uses the slot',
   let child: ReturnType<Context['subprocess']['spawn']> | undefined
   const original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
   const spawn = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
-    if (String(spec.argv[0]).endsWith('ffmpeg')) {
+    if (/^ffmpeg(?:\.exe)?$/iu.test(basename(String(spec.argv[0])))) {
       child = original({ ...spec, argv: [process.execPath, '-e', 'setInterval(() => {}, 1000)'] })
       started.resolve(undefined)
       return child
