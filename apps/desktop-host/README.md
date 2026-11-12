@@ -115,6 +115,8 @@ Specialized project, manuscript, production, delivery, model-catalog and asset t
 
 ## Short-drama identity
 
+The short-drama prompt guides conversations with the user to lead with a concise conclusion and group status, deliverables and next steps. It recommends available cards for comparisons, multiple deliverables and user input, while simple answers remain text. Display uses supported facts and does not authorize extra production, charges or source rewrites. Workers assigned by Main keep executing and return results or missing information through `coordinator_report`; cards do not replace that report.
+
 When the user supplies a production prompt to preserve, the short-drama preset keeps its complete text and only replaces authorized material placeholders. Creative defaults do not authorize rewriting it, and a character-name mention alone does not select an image reference. The latest request to see a prompt or preview ends before card writes, extra image generation or paid submission, even when an earlier task had broader authorization. These instructions do not add per-package approval or intercept external scripts.
 
 Image prompts for characters, scenes and props follow the project or user's language by default, including Chinese for Chinese projects; explicit language requests and user-supplied verbatim text take precedence. The Agent explains verified model language requirements. This is guidance rather than a generation gate.
