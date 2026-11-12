@@ -1,0 +1,133 @@
+name: Muse Goal writer diagnostic
+on:
+  push:
+    branches:
+      - qa/goal-writer-current-20261113
+permissions:
+  contents: read
+env:
+  DSH_TELEMETRY_DISABLED: "1"
+  DSH_EXAMPLE_MODE: lib
+  DSH_GATE_CONCURRENCY: "2"
+jobs:
+  replay:
+    name: Linux Goal writer harvest and replay (diagnostic only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: pnpm/action-setup@v5.0.0
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "24"
+      - name: Freeze source and all existing owner inputs
+        run: |-
+          set -euo pipefail
+          mkdir -p .artifacts/goal-writer
+          git diff --exit-code 4f84ffd971e8646e0aa4d24a4441fff71dd08c79 HEAD -- . ':!.github/workflows/muse-goal-writer-diagnostic.yml' ':!snapshots/web/goal-multi-turn-actions/snapshot.yml'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git rev-parse HEAD > .artifacts/goal-writer/head.txt
+          git rev-parse 'HEAD^{tree}' > .artifacts/goal-writer/source-tree.txt
+          node --version > .artifacts/goal-writer/node-version.txt
+          pnpm --version > .artifacts/goal-writer/pnpm-version.txt
+          cat > .artifacts/goal-writer/check.mjs <<'NODE'
+          import assert from 'node:assert/strict'
+          import { execFileSync } from 'node:child_process'
+          import { createHash } from 'node:crypto'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          import { resolve } from 'node:path'
+          const owner='snapshots/web/goal-multi-turn-actions/'
+          const output=owner+'writer.expected.jsonl'
+          const artifact='.artifacts/goal-writer/'
+          const hash=path=>createHash('sha256').update(readFileSync(path)).digest('hex')
+          const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim()
+          const mode=process.argv[2]
+          if(mode==='freeze') {
+            const paths=git('ls-files','--',owner,'apps/web/tests/goal-multi-turn-actions.e2e.ts','apps/web/tests/scaffold.ts').split('\n').filter(Boolean)
+            assert.equal(paths.includes(output),false,'the writer must be harvested from the actual replay')
+            assert.equal(paths.filter(path=>/\/session(?:\.v\d+)?\.jsonl$/.test(path)).length,3,'all three retained canonical generations must remain')
+            assert.match(readFileSync(owner+'snapshot.yml','utf8'),/^writerOutput: true$/m)
+            writeFileSync(artifact+'protected-before.json',JSON.stringify(Object.fromEntries(paths.map(path=>[path,hash(path)])),null,2)+'\n')
+          } else if(mode==='guard') {
+            const before=JSON.parse(readFileSync(artifact+'protected-before.json','utf8'))
+            for(const [path,digest] of Object.entries(before)) assert.equal(hash(path),digest,'existing fixture or source changed: '+path)
+            assert.equal(git('diff','--','snapshots','apps/web/tests/goal-multi-turn-actions.e2e.ts','apps/web/tests/scaffold.ts'),'','refresh must not change canonical, UI or test source')
+            assert.equal(git('ls-files','--others','--exclude-standard','--','snapshots'),output,'only the harvested root writer may be added')
+            const digest=hash(output)
+            const stage=process.argv[3]
+            if(stage==='replay') assert.equal(digest,readFileSync(artifact+'harvested-writer.sha256','utf8').trim(),'replay must not mutate its writer oracle')
+            else assert.equal(stage,'harvest')
+            writeFileSync(artifact+stage+'-guard.json',JSON.stringify({accepted:true,protectedFiles:Object.keys(before).length,writerSha256:digest},null,2)+'\n')
+            if(stage==='harvest') writeFileSync(artifact+'harvested-writer.sha256',digest+'\n')
+          } else {
+            assert.equal(mode,'report')
+            const stage=process.argv[3]
+            const result=JSON.parse(readFileSync(artifact+stage+'.json','utf8'))
+            assert.equal(result.success,true)
+            assert.equal(result.numFailedTests,0)
+            assert.equal(result.numFailedTestSuites,0)
+            assert.equal(result.numTodoTests,0)
+            assert.equal(result.testResults.length,1,'exactly the intended full owner must execute')
+            const file=result.testResults[0]
+            assert.equal(file.name.replaceAll('\\','/'),resolve('apps/web/tests/goal-multi-turn-actions.e2e.ts').replaceAll('\\','/'))
+            assert.equal(file.status,'passed')
+            const passed=file.assertionResults.filter(test=>test.status==='passed')
+            const skipped=file.assertionResults.filter(test=>test.status==='skipped')
+            assert.deepEqual(passed.map(test=>test.title).sort(),['keeps a closed fixture inventory','keeps actions on both completed Goal turn tails'])
+            assert.deepEqual(skipped.map(test=>test.title),['records the two-round Goal through the real model'])
+            assert.equal(file.assertionResults.length,3)
+            assert.equal(result.numPassedTests,2)
+            assert.equal(result.numPendingTests,1)
+            for(const test of passed) {
+              assert.deepEqual(test.failureMessages,[])
+              assert.equal(typeof test.duration,'number')
+              assert.ok(Number.isFinite(test.duration)&&test.duration>=0)
+            }
+            writeFileSync(artifact+stage+'-acceptance.json',JSON.stringify({accepted:true,passed:2,recordOnlySkipped:1,tests:passed.map(test=>({title:test.title,status:test.status,duration:test.duration}))},null,2)+'\n')
+          }
+          NODE
+          node .artifacts/goal-writer/check.mjs freeze
+      - name: Install immutable dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install the existing pinned community test toolchain
+        run: pnpm --dir third_party/plugins/toolchain install --frozen-lockfile --ignore-scripts
+      - name: Prepare the existing CI sandbox
+        run: bash scripts/prepare-ci-bubblewrap.sh
+      - name: Install Chromium and system dependencies
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
+      - name: Build the official product and test entrypoints
+        env:
+          DSH_BUILD_CLIENT_PROFILE: official
+        run: |-
+          set -euo pipefail
+          pnpm run build 2>&1 | tee .artifacts/goal-writer/build.log
+      - name: Harvest the actual current writer through the original full owner
+        env:
+          DSH_SNAPSHOT: refresh
+        run: |-
+          set -euo pipefail
+          node node_modules/vitest/vitest.mjs run --config vitest.web.config.ts apps/web/tests/goal-multi-turn-actions.e2e.ts --maxWorkers=1 --no-file-parallelism --reporter=default --reporter=json --outputFile.json=.artifacts/goal-writer/harvest.json 2>&1 | tee .artifacts/goal-writer/harvest.log
+          node .artifacts/goal-writer/check.mjs report harvest
+          node .artifacts/goal-writer/check.mjs guard harvest
+          cp snapshots/web/goal-multi-turn-actions/writer.expected.jsonl .artifacts/goal-writer/writer.expected.jsonl
+      - name: Replay independently against the harvested writer with all original assertions
+        env:
+          DSH_SNAPSHOT: replay
+        run: |-
+          set -euo pipefail
+          node node_modules/vitest/vitest.mjs run --config vitest.web.config.ts apps/web/tests/goal-multi-turn-actions.e2e.ts --maxWorkers=1 --no-file-parallelism --reporter=default --reporter=json --outputFile.json=.artifacts/goal-writer/replay.json 2>&1 | tee .artifacts/goal-writer/replay.log
+          node .artifacts/goal-writer/check.mjs report replay
+          node .artifacts/goal-writer/check.mjs guard replay
+      - name: Preserve raw diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: goal-writer-current-${{ github.sha }}
+          path: .artifacts/goal-writer
+          if-no-files-found: error
