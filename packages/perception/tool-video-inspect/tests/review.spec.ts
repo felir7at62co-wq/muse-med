@@ -625,6 +625,28 @@ it('closes a removed source by its provider-resolved saved path without changing
   expect(stat.mock.calls.every(([target]) => target.displayPath === h.root)).toBe(true)
 })
 
+it('retains an unresolvable old review when another source has no saved review and still accepts its ID', async () => {
+  const h = await fixture(), directory = join(h.root, 'retired-project'), oldSource = join(directory, 'episode-80.mp4')
+  await mkdir(directory)
+  await copyFile(h.input, oldSource)
+  await h.run(h.call('scan', { file_path: oldSource }), undefined)
+  const saved = reviewsOf(h.readReviews, h.agent.session), before = saved[oldSource]!
+  expect(before).toBeDefined()
+  await rm(directory, { recursive: true, force: true })
+  await writeFile(directory, 'The former source directory is now a regular file.')
+  await expect(h.ctx.fs.resolve(oldSource, { cwd: h.root })).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: h.input } }, undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_REQUIRED')
+  expect(reviewsOf(h.readReviews, h.agent.session)).toBe(saved)
+  expect(saved[oldSource]).toBe(before)
+  await h.run({ name: 'video_inspect', args: { method: 'status', review_id: before.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)).toBe(saved)
+  await h.run({ name: 'video_inspect', args: { method: 'close', review_id: before.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)[oldSource]).toEqual({ ...before, follow_up: { status: 'closed' } })
+})
+
 it.skipIf(process.platform === 'win32')('passes symlink-parent traversal to the filesystem provider before probing the source', async () => {
   const h = await fixture(), physical = join(h.root, 'physical', 'episode-80.mp4')
   await mkdir(join(h.root, 'physical', 'nested'), { recursive: true })

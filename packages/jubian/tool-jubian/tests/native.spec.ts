@@ -2039,6 +2039,27 @@ describe('submit_video_batch', () => {
     expect(await ledger.records()).toHaveLength(items.length)
   })
 
+  it('does not reconcile or resend an initially recorded batch key after its identity changes', async () => {
+    const { provider, items } = await batch()
+    for (const item of items) {
+      const preview = JSON.parse(await readFile(item.preview_path, 'utf8')) as NativeVideoPreview
+      await ledger.begin({ idempotencyKey: item.idempotency_key, method: 'storyboard_native_submit', scriptId: 2708,
+        requestSha256: bodyHash(preview.payload), beforeTaskIds: [], videoPreviewPath: item.preview_path })
+    }
+    const originalFind = ledger.find.bind(ledger)
+    let reads = 0
+    const find = vi.spyOn(ledger, 'find').mockImplementation(async (key) => {
+      reads++
+      const entry = await originalFind(key)
+      return reads <= items.length ? entry : { ...entry!, record_id: 'replaced-record' }
+    })
+    try {
+      await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items })).rejects.toThrow('Recorded video submission identity changed')
+    } finally { find.mockRestore() }
+    expect(provider.calls).toEqual([])
+    expect(await ledger.records()).toHaveLength(items.length)
+  })
+
   it('refuses a linked batch preview before creating a reservation', async () => {
     const { provider, items } = await batch(1)
     const link = join(root, 'linked-preview.json')
