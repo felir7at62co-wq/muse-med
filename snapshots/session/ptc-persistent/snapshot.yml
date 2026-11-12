@@ -1,4 +1,5 @@
 version: 1
+writerOutput: true
 scenario: ptc-persistent
 profile: headless
 composition: ptc-persistent

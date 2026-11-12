@@ -1,4 +1,5 @@
 version: 1
+writerOutput: true
 scenario: system-prompt-in-history
 profile: headless
 composition: system-prompt-in-history

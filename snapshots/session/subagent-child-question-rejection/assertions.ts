@@ -42,7 +42,7 @@ function assertManagedChild(logs: readonly ManagedChildLog[], completedText: str
   }))
   const replies = events.filter(event => event.type === 'assistant/message')
     .map(event => ({ event, text: textOf(event.data.message.content) })).filter(reply => reply.text !== '')
-  expect(replies.map(reply => reply.text)).toEqual(['PARENT_WAITING', completedText])
+  expect(replies.map(reply => reply.text), 'parent waits for child terminal notice before completion').toEqual(['PARENT_WAITING', completedText])
   const [waiting, completed] = replies
   const firstTurnEnd = events.find(event => event.type === 'turn/end' && event.data.turn === 1)
   const notices = events.filter(event => event.type === 'user/message' && event.data.source.kind === 'subagent-settled')
@@ -104,4 +104,45 @@ export function assertAsyncChildOutcome(logs: readonly ManagedChildLog[], outcom
     expect(textOf(result.data.message.content)).toBe('Error: unknown tool "write"')
     expect(end.data.reason.kind).toBe('completed')
   }
+}
+
+/**
+ * Check reviewer preset capabilities and its real completed child before the parent finishes.
+ * @param logs - Complete parent-first persisted Session logs from the finished CLI process.
+ */
+export function assertAsyncChildPreset(logs: readonly ManagedChildLog[]): void {
+  const childEvents = assertManagedChild(logs, 'PARENT_DONE', 'CHILD_OK')
+  const [parent, child] = logs
+  if (parent === undefined || child === undefined) throw new Error('Missing reviewer parent or child Session')
+  expect(child.header.agentPreset).toBe('reviewer')
+  const call = parseSessionLog(parent.content).find(event => event.type === 'tool/call')
+  if (call?.type !== 'tool/call') throw new Error('Missing reviewer delegation call')
+  expect(JSON.parse(call.data.arguments).agent_preset).toBe('reviewer')
+  const initial = childEvents.find(event => event.type === 'request/header')
+  if (initial?.type !== 'request/header') throw new Error('Missing reviewer tool definitions')
+  expect(initial.data.header.tools?.map(tool => tool.name)).toEqual(expect.arrayContaining(['read', 'write', 'reviewer_delegate']))
+  expect(childEvents.filter(event => event.type === 'tool/call')).toEqual([])
+  expect(childEvents.filter(event => event.type === 'assistant/message')
+    .map(event => textOf(event.data.message.content))).toEqual(['CHILD_OK'])
+  const end = childEvents.findLast(event => event.type === 'turn/end')
+  if (end?.type !== 'turn/end') throw new Error('Missing reviewer child turn end')
+  expect(end.data.reason.kind).toBe('completed')
+}
+
+/**
+ * Check a child preset cannot inherit its parent's messaging or file tools before completion.
+ * @param logs - Complete parent-first persisted Session logs from the finished CLI process.
+ */
+export function assertAsyncChildWithoutMessageTool(logs: readonly ManagedChildLog[]): void {
+  assertAsyncChildOutcome(logs, 'filtered')
+  const child = logs[1]
+  if (child === undefined) throw new Error('Missing isolated child Session')
+  expect(child.header.agentPreset).toBe('child')
+  const childEvents = parseSessionLog(child.content)
+  const initial = childEvents.find(event => event.type === 'request/header')
+  if (initial?.type !== 'request/header') throw new Error('Missing child preset tool definitions')
+  const names = initial.data.header.tools?.map(tool => tool.name) ?? []
+  expect(names).not.toContain('send_message')
+  expect(names).not.toContain('write')
+  expect(names).not.toContain('web_fetch')
 }

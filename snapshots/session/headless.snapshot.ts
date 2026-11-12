@@ -4,7 +4,8 @@ import { assertWorkingBudgetExpectations, deriveShadowedBudgetExpectations, deri
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
 import { capabilityOcrRecords, expectedCapabilityOcrHash } from './muse-video-novel-ocr-capability/evidence.ts'
-import { assertAsyncChildOutcome, assertAsyncChildQuestion } from './subagent-child-question-rejection/assertions.ts'
+import { assertAsyncChildOutcome, assertAsyncChildPreset, assertAsyncChildQuestion, assertAsyncChildWithoutMessageTool } from './subagent-child-question-rejection/assertions.ts'
+import { assertAcpSubagentDiagnostics, assertProductSubagentDiagnostics } from './managed-subagent-assertions.ts'
 import { assertVideoObservationReportArtifacts, normalizeVideoObservationReportHashes } from '../../packages/perception/tool-video-inspect/tests/snapshot-reports.ts'
 import { chmod, cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -258,6 +259,18 @@ async function fixtureSessions(scenario: HeadlessScenario, selectedFiles?: reado
     assertSessionFixtureVersion(file, content)
     return content
   }))
+}
+
+/** Check the default generations independently of any explicitly selected historical replay input. */
+async function assertReplayInputsUnchanged(
+  scenario: HeadlessScenario,
+  canonicalBefore: readonly string[],
+  retained?: { readonly file: string; readonly content: string },
+): Promise<void> {
+  expect(await fixtureSessions(scenario), 'historical replay input remains unchanged').toEqual(canonicalBefore)
+  if (retained !== undefined) {
+    expect(await readFile(join(scenario.dir, retained.file), 'utf8'), 'retained replay input bytes').toBe(retained.content)
+  }
 }
 
 /** First live recordings use manifest input and the composition's model until a Session exists. */
@@ -1840,6 +1853,125 @@ describe('headless recorded-session snapshots', () => {
     }
   })
 
+  it('keeps retained V3 and latest V4 replay inputs independent of writer output', async () => {
+    const owner = scenarios.find(scenario => scenario.name === 'tool-call-turn')
+    if (owner === undefined) throw new Error('Missing retained tool-call replay fixture')
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-retained-writer-output-'))
+    try {
+      for (const file of ['session.v3.jsonl', 'session.v4.jsonl']) {
+        await copyFile(join(owner.dir, file), join(dir, file))
+      }
+      const scenario: HeadlessScenario = { ...owner, dir, manifest: { ...owner.manifest, writerOutput: true } }
+      const canonicalBefore = await fixtureSessions(scenario)
+      const retained = { file: 'session.v3.jsonl', content: await readFile(join(dir, 'session.v3.jsonl'), 'utf8') }
+      const current = canonicalBefore[0]
+      if (current === undefined) throw new Error('Missing current tool-call replay fixture')
+      expect(retained.content).not.toBe(current)
+      const header: JsonObject = JSON.parse(current.split('\n')[0] ?? '')
+      await writeSessionFixtures(scenario, [{ content: current, header }], [retained.content], contextOf([current]))
+      expect(existsSync(join(dir, writerSnapshotName(0)))).toBe(true)
+      await assertReplayInputsUnchanged(scenario, canonicalBefore, retained)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it.each(['session.v3.jsonl', 'session.v4.jsonl'])('rejects changed %s replay input beside a writer oracle', async (file) => {
+    const owner = scenarios.find(scenario => scenario.name === 'tool-call-turn')
+    if (owner === undefined) throw new Error('Missing retained tool-call replay fixture')
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-retained-writer-integrity-'))
+    try {
+      for (const input of ['session.v3.jsonl', 'session.v4.jsonl']) {
+        await copyFile(join(owner.dir, input), join(dir, input))
+      }
+      const scenario: HeadlessScenario = { ...owner, dir, manifest: { ...owner.manifest, writerOutput: true } }
+      const canonicalBefore = await fixtureSessions(scenario)
+      const retained = { file: 'session.v3.jsonl', content: await readFile(join(dir, 'session.v3.jsonl'), 'utf8') }
+      const current = canonicalBefore[0]
+      if (current === undefined) throw new Error('Missing current tool-call replay fixture')
+      await writeFile(join(dir, writerSnapshotName(0)), current)
+      await writeFile(join(dir, file), `${await readFile(join(dir, file), 'utf8')}\n`)
+      await expect(assertReplayInputsUnchanged(scenario, canonicalBefore, retained)).rejects.toThrow(
+        file === retained.file ? 'retained replay input bytes' : 'historical replay input remains unchanged',
+      )
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it.each(['product-subagent-result-diagnostic', 'subagent-acp-diagnostic'])('checks terminal diagnostics before %s completion', async (name) => {
+    const content = await readFile(join(snapshotsRoot, name, 'session.v4.jsonl'), 'utf8')
+    const assertDiagnostics = name === 'product-subagent-result-diagnostic' ? assertProductSubagentDiagnostics : assertAcpSubagentDiagnostics
+    assertDiagnostics(content)
+    const events = records(content)
+    const settled = (event: JsonObject): boolean => event.type === 'user/message'
+      && (event.data as { source?: { kind: string } } | undefined)?.source?.kind === 'subagent-settled'
+    const notices = events.filter(settled)
+    const reordered = events.filter(event => !settled(event))
+    reordered.splice(reordered.findLastIndex(event => event.type === 'assistant/message'), 0, ...[...notices].reverse())
+    const reorderedSeqs = new Map(reordered.map((event, index) => [event, index]))
+    const reorderedContent = reordered.map((event) => {
+      const ranges = event.sourceEventSeqs as (number | [number, number])[] | undefined
+      if (ranges === undefined) return JSON.stringify(event)
+      const sources = ranges.flatMap(range => typeof range === 'number'
+        ? [range] : Array.from({ length: range[1] - range[0] + 1 }, (_, index) => range[0] + index))
+      const sourceEventSeqs = sources.map((source) => {
+        const original = events[source]
+        const seq = original === undefined ? undefined : reorderedSeqs.get(original)
+        if (seq === undefined) throw new Error('Missing reordered diagnostic source event')
+        return seq
+      })
+      return JSON.stringify({ ...event, sourceEventSeqs })
+    }).join('\n')
+    assertDiagnostics(reorderedContent)
+    const finalIndex = events.findLastIndex(event => event.type === 'assistant/message')
+    const noticeIndex = events.findLastIndex(settled)
+    const premature = [...events]
+    const [completed] = premature.splice(finalIndex, 1)
+    if (completed === undefined) throw new Error('Missing parent diagnostic completion event')
+    premature.splice(noticeIndex, 0, completed)
+    expect(() => assertDiagnostics(premature.map(event => JSON.stringify(event)).join('\n')))
+      .toThrow('child terminal notice precedes parent completion')
+    expect(() => assertDiagnostics(events.filter((_, index) => index !== noticeIndex).map(event => JSON.stringify(event)).join('\n')))
+      .toThrow('delivered child terminal notices')
+    const mismatched = structuredClone(events)
+    const firstNotice = notices[0]
+    const lastNotice = mismatched[noticeIndex]
+    if (firstNotice === undefined || lastNotice === undefined) throw new Error('Missing diagnostic notice fixture')
+    const firstSource = firstNotice.data as { source: { senderSessionId: string } }
+    const lastSource = lastNotice.data as { source: { senderSessionId: string } }
+    lastSource.source.senderSessionId = firstSource.source.senderSessionId
+    expect(() => assertDiagnostics(mismatched.map(event => JSON.stringify(event)).join('\n')))
+      .toThrow('Missing terminal notice for acknowledged child')
+  })
+
+  it.each([
+    ['category: limit', 'category: transport'],
+    ['ANSWER_SURVIVES_CLEANUP_FAILURE', 'ANSWER_WAS_LOST'],
+  ])('rejects changed product diagnostic evidence %s', async (before, after) => {
+    const content = await readFile(join(snapshotsRoot, 'product-subagent-result-diagnostic/session.v4.jsonl'), 'utf8')
+    expect(() => assertProductSubagentDiagnostics(content.replaceAll(before, after))).toThrow()
+  })
+
+  it.each(['subagent-agent-preset', 'subagent-no-message-tool'])('rejects premature parent completion in retained %s input', async (name) => {
+    const logs = await Promise.all(['session.v4.jsonl', 'session.1.v4.jsonl'].map(async (file) => {
+      let content = await readFile(join(snapshotsRoot, name, file), 'utf8')
+      if (file === 'session.v4.jsonl') {
+        for (const event of records(content)) {
+          if (event.type !== 'tool/call') continue
+          const data = event.data as { arguments: string }
+          const args: JsonObject = JSON.parse(data.arguments)
+          delete args.run_in_background
+          content = content.replaceAll(JSON.stringify(data.arguments), JSON.stringify(JSON.stringify(args)))
+        }
+      }
+      const header: JsonObject = JSON.parse(content.split('\n')[0] ?? '')
+      return { content, header }
+    }))
+    const assertChild = name === 'subagent-agent-preset' ? assertAsyncChildPreset : assertAsyncChildWithoutMessageTool
+    expect(() => assertChild(logs)).toThrow('parent waits for child terminal notice before completion')
+  })
+
   it('tokenizes a refreshed skill path after the session header retained cwd', () => {
     const cwd = String.raw`C:\Users\runner\AppData\Local\Temp\dsh-log-snap-test`
     const log = [
@@ -2169,6 +2301,7 @@ describe('headless recorded-session snapshots', () => {
       let fixtureFiles = retainedToolInput === undefined
         ? recordingFixtureNames(await readdir(scenario.dir), mode) : [retainedToolInput]
       let fixtures = await fixtureSessions(scenario, fixtureFiles)
+      const canonicalBefore = await fixtureSessions(scenario)
       const primaryFixture = fixtures[0]
       const task = (primaryFixture === undefined ? undefined : taskFromSession(primaryFixture))
         ?? scenario.manifest.input?.task
@@ -2280,6 +2413,13 @@ describe('headless recorded-session snapshots', () => {
           inspect: async (cwd) => {
             actualLogs = await persistedSessions(cwd)
             if (scenario.name === 'subagent-child-question-rejection') assertAsyncChildQuestion(actualLogs)
+            if (scenario.name === 'subagent-agent-preset') assertAsyncChildPreset(actualLogs)
+            if (scenario.name === 'subagent-no-message-tool') {
+              assertAsyncChildWithoutMessageTool(actualLogs)
+              expect(existsSync(join(cwd, 'filtered-write.txt'))).toBe(false)
+            }
+            if (scenario.name === 'product-subagent-result-diagnostic') assertProductSubagentDiagnostics(actualLogs[0]!.content)
+            if (scenario.name === 'subagent-acp-diagnostic') assertAcpSubagentDiagnostics(actualLogs[0]!.content)
             if (scenario.name === 'subagent-max-tokens-partial' || scenario.name === 'subagent-tool-filter') {
               assertAsyncChildOutcome(actualLogs, scenario.name === 'subagent-max-tokens-partial' ? 'partial' : 'filtered')
               if (scenario.name === 'subagent-tool-filter') expect(existsSync(join(cwd, 'filtered-write.txt'))).toBe(false)
@@ -3066,17 +3206,19 @@ describe('headless recorded-session snapshots', () => {
         expect(writerFiles, 'native writer oracle inventory').toEqual(scenario.manifest.sessionFormat === undefined && scenario.manifest.writerOutput !== true
           ? [] : fixtures.map((_, index) => writerSnapshotName(index)).sort())
       }
-      let expected = retainedToolInput === undefined ? fixtures : await fixtureSessions(scenario)
-      if (retainedToolInput !== undefined) {
-        expect(await readFile(join(scenario.dir, retainedToolInput), 'utf8'), 'retained replay input bytes').toBe(primaryFixture)
-      }
+      let expected = retainedToolInput === undefined ? fixtures : canonicalBefore
       if (scenario.manifest.sessionFormat !== undefined || scenario.manifest.writerOutput === true) {
         if (mode === 'refresh') await writeSessionFixtures(scenario, actualLogs, fixtures, actualContext)
         expected = await Promise.all(fixtures.map((_, index) => readFile(join(scenario.dir, writerSnapshotName(index)), 'utf8')))
         for (const [index, content] of expected.entries()) {
           expect(sessionHeaderVersion(content, writerSnapshotName(index))).toBeLessThanOrEqual(SESSION_FORMAT_VERSION)
         }
-        expect(await fixtureSessions(scenario), 'historical replay input remains unchanged').toEqual(fixtures)
+      }
+      if (scenario.manifest.sessionFormat !== undefined || scenario.manifest.writerOutput === true || retainedToolInput !== undefined) {
+        if (retainedToolInput !== undefined && primaryFixture === undefined) throw new Error('Missing retained replay input')
+        const retained = retainedToolInput !== undefined && primaryFixture !== undefined
+          ? { file: retainedToolInput, content: primaryFixture } : undefined
+        await assertReplayInputsUnchanged(scenario, canonicalBefore, retained)
       }
       const outputLog = expected[0]
       if (outputLog === undefined) throw new Error(`${scenario.name}: CLI projection has no primary session`)

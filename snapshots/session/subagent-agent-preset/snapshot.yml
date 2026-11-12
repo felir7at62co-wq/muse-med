@@ -1,8 +1,11 @@
 version: 1
+writerOutput: true
 scenario: subagent-agent-preset
 profile: headless
 composition: subagent-agent-preset
 recording: authored
+replay:
+  override: true
 header:
   class: subagent-agent-preset
   pin: true

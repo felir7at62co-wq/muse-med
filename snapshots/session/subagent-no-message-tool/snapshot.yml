@@ -1,8 +1,11 @@
 version: 1
+writerOutput: true
 scenario: subagent-no-message-tool
 profile: headless
 composition: subagent-no-message-tool
 recording: authored
+replay:
+  override: true
 header:
   class: subagent-no-message-tool
   pin: true
