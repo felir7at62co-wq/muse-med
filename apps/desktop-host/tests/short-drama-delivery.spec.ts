@@ -48,10 +48,10 @@ interface FixtureTimeline { delivery: { width: number; height: number; fps: numb
 interface FixtureDraft { timeline_sha256: string; materials: Array<{ path: string; sha256: string }> }
 const readFixture = async <T>(path: string): Promise<T> => JSON.parse(await readFile(path, 'utf8')) as T
 
-async function fixture() {
+async function fixture(episodeParent = '视频') {
   const root = await mkdtemp(join(tmpdir(), 'muse-short-drama-delivery-'))
   cleanups.push(() => rm(root, { recursive: true, force: true }))
-  const project = join(root, 'short-drama'), episode = join(project, '视频', '第41集')
+  const project = join(root, 'short-drama'), episode = join(project, episodeParent, '第41集')
   const video = join(episode, '01_可交付视频', '第41集.mp4'), working = join(project, 'exports', '41.mp4')
   const draft = join(episode, '02_剪映草稿', '第41集')
   const timeline = join(project, 'editing', '41-timeline.json'), subtitle = join(project, 'editing', '41.srt')
@@ -271,6 +271,67 @@ it('uses the Loader-owned policy before present events or either attachment exec
   }
   expect(h.sent).toEqual([])
   expect(h.owner.session.snapshotEvents().filter(event => event.type === 'deliverables/presented')).toHaveLength(1)
+})
+
+it('requires staging for episode upload folders alongside a bound production root without blocking previews', async () => {
+  const f = await fixture(), h = await formalHost(f)
+  const upload = join(f.root, '视频', '第46集', '00-交付上传', '46.mp4')
+  const nestedUpload = join(f.project, '视频', '第46集', '00-交付上传', '46.mp4')
+  const preview = join(f.root, '视频', '第46集', '01-修复候选', '46.mp4')
+  const source = join(f.project, 'video', '46', 'shot_001.mp4')
+  for (const path of [upload, nestedUpload, preview, source]) {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, 'manual video')
+  }
+  for (const name of ['present', 'send_file', 'dsh_im_return_file']) {
+    const result = await h.execute(name, relative(f.root, upload))
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result)).toContain('short_drama_delivery_unstaged')
+  }
+  expect((await h.execute('present', relative(f.root, nestedUpload))).isError).toBe(true)
+  expect((await h.execute('present', relative(f.root, preview))).isError).toBe(false)
+  expect((await h.execute('present', relative(f.root, source))).isError).toBe(false)
+  expect(h.sent).toEqual([])
+})
+
+it('does not treat an unrelated upload folder as a bound short-drama delivery', async () => {
+  const f = await fixture(), h = await formalHost(f)
+  const unrelated = join(f.root, 'other', '视频', '第46集', '00-交付上传', '46.mp4')
+  await mkdir(dirname(unrelated), { recursive: true })
+  await writeFile(unrelated, 'unrelated video')
+  expect((await h.execute('present', relative(f.root, unrelated))).isError).toBe(false)
+})
+
+it('accepts only a byte-identical upload copy of the same currently staged episode', async () => {
+  const f = await fixture(), h = await formalHost(f)
+  const sibling = join(f.root, '视频', '第41集', '00-交付上传', '41.mp4')
+  const local = join(f.episode, '00-交付上传', '41.mp4')
+  for (const path of [sibling, local]) {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, await readFile(f.video))
+    expect((await h.execute('present', relative(f.root, path))).isError).toBe(false)
+  }
+  for (const name of ['send_file', 'dsh_im_return_file']) {
+    expect((await h.execute(name, relative(f.root, sibling))).isError).toBe(false)
+  }
+  await writeFile(sibling, 'altered upload copy')
+  expect(JSON.stringify(await h.execute('present', relative(f.root, sibling)))).toContain('short_drama_delivery_changed')
+  await writeFile(sibling, await readFile(f.video))
+  await writeFile(f.subtitle, 'modified after stage')
+  expect(JSON.stringify(await h.execute('present', relative(f.root, sibling)))).toContain('short_drama_delivery_changed')
+})
+
+it('accepts a copy next to its own nonstandard staged episode but does not guess a sibling upload location', async () => {
+  const f = await fixture('其他位置'), h = await formalHost(f)
+  const local = join(f.episode, '00-交付上传', '41.mp4')
+  const sibling = join(f.root, '视频', '第41集', '00-交付上传', '41.mp4')
+  for (const path of [local, sibling]) {
+    await mkdir(dirname(path), { recursive: true })
+    await writeFile(path, await readFile(f.video))
+  }
+  expect((await h.execute('present', relative(f.root, f.video))).isError).toBe(false)
+  expect((await h.execute('present', relative(f.root, local))).isError).toBe(false)
+  expect(JSON.stringify(await h.execute('present', relative(f.root, sibling)))).toContain('short_drama_delivery_unstaged')
 })
 
 it('registers relative native output paths from the actual episode report and Session cwd', async () => {
