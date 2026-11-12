@@ -13,6 +13,8 @@ The Host awaits application teardown and IPC delivery of its shutdown acknowledg
 
 Desktop opens ordinary Sessions and leaves archived Bot state unchanged. The built-in Bot interface, long-term memory service and phone-control entry are inactive; retained files do not automatically become Session memory. Recovery and profile backups are documented in the [upgrade guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-session-product/guide.md).
 
+Workspace storage retains an exclusive kernel owner and a separate successor directory. Migrating existing legacy bytes requires other Desktop Hosts to exit before source capture and publication. A fresh profile with no source document can initialize while an independent Host runs; the actual JSON backend must confirm the same source path is still absent immediately before publication. An appearing source, changed path or failed read rejects initialization. Sharing one home across independent instances remains unsupported.
+
 The account plugin no longer starts a Muse knowledge-base MCP sidecar. User-configured MCP connections, Feishu and project files remain separate; the [knowledge-base removal guide](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-account-kb-removal/guide.md) describes the retained account and cloud data.
 
 Desktop includes the [Lvpaopao download plugin](../../third_party/plugins/muse-lvpaopao/README.md). One Host-owned bridge serves the unified director’s scoped `lvpaopao` tool; native setup and connection start only when requested. Missing Python dependencies or a qualified logged-in WeChat runtime return a setup result without blocking Desktop startup. The plugin README owns platform qualification and isolated-Mac restrictions.

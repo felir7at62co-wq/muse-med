@@ -13,6 +13,8 @@ Host 等待应用收尾完成并通过 IPC 送达关闭确认后，才显式退�
 
 Desktop 打开普通会话，保持归档的 Bot 状态不变。内置 Bot 界面、长期记忆服务和手机控制入口停用；保留的文件不会自动成为会话记忆。恢复与 profile 备份见[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-session-product/guide.zh.md)。
 
+工作区存储保留独占内核所有者和单独的后继目录。迁移已有旧存储字节时，必须在来源捕获和发布前确认其他 Desktop Host 已退出。没有来源文档的新 profile 可在独立 Host 运行时初始化；实际 JSON 后端必须在发布前再次确认同一路径仍无来源。来源出现、路径变化或读取失败都会拒绝初始化。独立实例仍不支持共享同一个 home。
+
 账号插件不再启动 Muse 知识库 MCP 子进程。用户配置的 MCP 连接、飞书和项目文件保持独立；账号与云端数据的保留方式见[知识库移除指南](../../docs/upgrade-guide/v0.2.1-alpha.1/muse-account-kb-removal/guide.zh.md)。
 
 Desktop 包含[绿泡泡下载插件](../../third_party/plugins/muse-lvpaopao/README.zh.md)。统一编导的作用域内 `lvpaopao` 工具使用同一个 Host 共享连接，仅在请求时开始原生准备和连接。缺少 Python 依赖或已验证且已登录的微信运行时会返回准备结果，不阻止 Desktop 启动。平台验证范围及 Mac 隔离副本限制由插件 README 说明。
