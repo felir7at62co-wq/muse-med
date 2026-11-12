@@ -598,7 +598,6 @@
         "snapshots/session/muse-jianying-draft/draft-fixture.mjs",
         "snapshots/session/muse-jianying-draft/session.v4.jsonl",
         "snapshots/session/muse-jianying-draft/snapshot.yml",
-        "snapshots/session/muse-jianying-draft/workspace.expected/drafts/.empty",
         "snapshots/session/muse-jianying-draft/workspace.expected/drafts/candidate-95/draft_content.json",
         "snapshots/session/muse-jianying-draft/workspace.expected/drafts/candidate-95/muse-review.json",
         "snapshots/session/muse-jianying-draft/workspace.expected/request.json",

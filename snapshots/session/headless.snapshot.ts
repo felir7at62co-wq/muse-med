@@ -1143,6 +1143,12 @@ function verifyResidentUiReplay(events: ReturnType<typeof parseSessionLog>, tool
 
 interface VisualizationBudgetPaths { readonly cwd: string; readonly sessionId: string }
 
+function visualizationStyleDescription(description: string): string {
+  return description
+    .replaceAll('<DSH_HOME>/visualize/style.md', join('<DSH_HOME>', 'visualize', 'style.md'))
+    .replaceAll('<workspace>/.dsh/visualize-style.md', join('<workspace>', '.dsh', 'visualize-style.md'))
+}
+
 function visualizationBudgetText(value: string, paths: VisualizationBudgetPaths): string {
   let parsed: unknown
   try { parsed = JSON.parse(value) } catch (_error) { /* Plain tool text has no JSON quoting layer. */ }
@@ -1177,11 +1183,11 @@ async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: st
   const schemas = parseToolSchemasSnapshot(schemaText)
   const headers = [schemas.initial, ...schemas.changes]
   // The committed schema uses canonical slashes, while this native plugin builds
-  // its two asset paths with node:path. Price the actual platform spelling.
+  // its asset and style paths with node:path. Price the actual platform spelling.
   const expectedSchemas = scenario.name === 'muse-visualize'
     ? headers.map(tools => tools.map(tool => tool.name === 'visualize' ? {
       ...tool,
-      description: tool.description
+      description: visualizationStyleDescription(tool.description)
         .replaceAll('{{cwd}}/.dsh/plugins/dsh-visualize/assets/styles/whale.md',
           join(cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets', 'styles', 'whale.md'))
         .replaceAll('{{cwd}}/.dsh/plugins/dsh-visualize/assets/',
@@ -1503,7 +1509,9 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
   }
   const prompt = await readFile(join(promptOwner.dir, 'system-prompt.expected.md'), 'utf8')
   const schemas = parseToolSchemasSnapshot(await readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'))
-  const schemaSets = [schemas.initial, ...schemas.changes]
+  const schemaSets = [schemas.initial, ...schemas.changes].map(set => scenario.name === 'muse-visualize'
+    ? set.map(tool => tool.name === 'visualize' ? { ...tool, description: visualizationStyleDescription(tool.description) } : tool)
+    : set)
   expect(schemaSets, `${scenario.name}: pin tool-schema count`).toHaveLength(pinned.length)
   const reconstructed = pinned.map((header, index) => restorePinnedToolSchemas(
     header,
