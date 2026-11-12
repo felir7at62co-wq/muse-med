@@ -28,6 +28,8 @@ Root-only recorded-session owners can preserve canonical replay inputs with [`wr
 
 Built-bundle jsdom cases share `installAssembledBootEnv`, which supplies non-matching media queries and restores browser globals after each test; real media-query behavior belongs to browser cases.
 
+The [Bot sidebar fixture](bot-sidebar-rail.e2e.ts) mounts the shipped navigation with a synthetic roster and empty Sessions. Its public navigation guard is cancelled on release. Narrow Web and macOS cases check the visible drawer, hit testing, keyboard focus and unreserved main column; Windows retains its rail. These geometry checks do not certify native Session operations.
+
 ## Completion observations
 
 Desktop onboarding waits for the published balance result through a [read-only account observer](fixtures/plugins/fixture-onboarding-account/client.js). A held post-return response separates request arrival and enabled navigation from the failed result reaching the account subscription; the fixture disposes that subscription when its Client plugin stops.

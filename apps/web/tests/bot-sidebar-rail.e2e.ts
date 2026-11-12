@@ -117,6 +117,51 @@ async function collapse(page: Page): Promise<void> {
   await expect.poll(async () => (await geometry(page)).buttonHit).toBe(true)
 }
 
+/** Exercise the modal drawer without treating its hidden backing box as a painted rail. */
+async function narrowPresentation(page: Page, platform: 'web' | 'darwin' | 'windows') {
+  if (platform === 'windows') {
+    await expect.poll(async () => (await geometry(page)).sidebar.width).toBe(56)
+    const narrow = await geometry(page)
+    expect(narrow.sidebar.width).toBe(56)
+    expect(narrow.buttonHit).toBe(true)
+    expect(narrow.main.left).toBeGreaterThanOrEqual(narrow.sidebar.right)
+    expect(narrow.pageWidth).toBe(narrow.viewportWidth)
+    return narrow
+  }
+  const drawer = page.locator('[data-sidebar-drawer]')
+  await drawer.waitFor({ state: 'attached' })
+  const sidebar = page.locator('.bt-side')
+  await expect.poll(() => sidebar.isVisible()).toBe(false)
+  const closed = await geometry(page)
+  expect(closed.collapsed).toBe(true)
+  expect(closed.buttonHit).toBe(false)
+  expect(closed.main.left).toBe(0)
+  expect(closed.main.right).toBe(closed.viewportWidth)
+  expect(closed.pageWidth).toBe(closed.viewportWidth)
+  const reopen = page.getByRole('button', { name: 'Open sidebar', exact: true }).filter({ visible: true })
+  await reopen.focus()
+  await expect.poll(() => reopen.evaluate(element => document.activeElement === element)).toBe(true)
+  await page.keyboard.press('Enter')
+  await sidebar.waitFor()
+  await expect.poll(async () => (await geometry(page)).sidebar.left).toBe(0)
+  const chief = sidebar.locator('[data-bot-id="chief"]')
+  await chief.click()
+  expect(await page.locator('html').getAttribute('data-fixture-bot-selected')).toBe('chief')
+  await sidebar.locator('.bt-list').evaluate((element) => { element.scrollTop = element.scrollHeight })
+  expect(await sidebar.locator('.bt-list').evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+  await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).filter({ visible: true }).click()
+  await expect.poll(() => sidebar.isVisible()).toBe(false)
+  await reopen.focus()
+  await expect.poll(() => reopen.evaluate(element => document.activeElement === element)).toBe(true)
+  const restored = await geometry(page)
+  expect(restored.main.left).toBe(closed.main.left)
+  expect(restored.main.width).toBe(closed.main.width)
+  expect(restored.buttonHit).toBe(false)
+  expect(restored.pageWidth).toBe(restored.viewportWidth)
+  expect(restored.pageHeight).toBe(restored.viewportHeight)
+  return restored
+}
+
 /** Read browser layout on successive painted frames, including interrupted transitions. */
 async function sampleMotion(page: Page, toggles: number[] = []) {
   return page.evaluate(async (interruptAt) => {
@@ -238,10 +283,11 @@ it.each(['web', 'darwin', 'windows'] as const)(
           })
         })
         await page.setViewportSize({ width: 390, height: 600 })
-        await expect.poll(async () => (await geometry(page)).sidebar.width).toBe(56)
+        await narrowPresentation(page, platform)
         expect(await page.locator('html').getAttribute('data-resize-track-transition'), 'responsive collapse stays immediate').toBe('false')
         await page.emulateMedia({ reducedMotion: 'reduce' })
         await page.setViewportSize({ width: 1280, height: 800 })
+        await expect.poll(() => page.locator('[data-sidebar-drawer]').count()).toBe(0)
         await expect.poll(async () => (await geometry(page)).sidebar.width).toBe(expandedWidth)
         await collapse(page)
         const reducedExpand = await sampleMotion(page)
@@ -319,16 +365,18 @@ it('retains painted desktop rails and restores classic presentation when the she
           await collapse(page)
           await page.setViewportSize({ width: 390, height: 600 })
           await expect.poll(async () => (await geometry(page)).viewportWidth).toBe(390)
-          const narrow = await geometry(page)
-          expect(narrow.sidebar.width).toBe(56)
-          expect(narrow.buttonHit).toBe(true)
-          expect(narrow.main.left).toBeGreaterThanOrEqual(narrow.sidebar.right)
-          expect(narrow.pageWidth).toBe(narrow.viewportWidth)
+          const narrow = await narrowPresentation(page, platform)
           await page.getByRole('button', { name: 'Leave fixture Bot mode', exact: true }).click()
-          await expect.poll(async () => (await geometry(page)).sidebar.width).toBe(platform === 'web' ? 56 : 0)
+          expect(await page.locator('html').getAttribute('data-fixture-landing-before-release')).toBe('true')
+          expect(await page.locator('html').getAttribute('data-fixture-landing-after-release')).toBe('false')
+          if (platform === 'windows') await expect.poll(async () => (await geometry(page)).sidebar.width).toBe(0)
+          else {
+            await page.locator('[data-sidebar-drawer]').waitFor({ state: 'attached' })
+            await expect.poll(async () => (await geometry(page)).main.left).toBe(0)
+          }
           const classic = await geometry(page)
           expect(classic.rail).toBeNull()
-          expect(classic.retained).toBe(platform === 'web')
+          expect(classic.retained).toBe(false)
           expect(classic.pageWidth).toBe(classic.viewportWidth)
           expected.push(`${platform}/${colorScheme}: ${JSON.stringify({ wide: result, narrow, classic })}`)
           expect(tripwire.pageErrors).toEqual([])
@@ -343,6 +391,7 @@ it('retains painted desktop rails and restores classic presentation when the she
         } finally { await page.close() }
       }
     }
+    await writeFile(join(ARTIFACTS, 'geometry.actual.md'), expected.join('\n') + '\n')
     await compareOrRefreshGolden(fileURLToPath(new URL('./expected/bot-sidebar-rail/geometry.expected.md', import.meta.url)),
       expected.join('\n'), webSnapshotMode())
   } finally {
