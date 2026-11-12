@@ -149,6 +149,7 @@ jobs:
           const spec = plan.groups.find(group => group.id === process.env.SNAPSHOT_CAPTURE_GROUP)
           if (spec === undefined) throw new Error('Unexpected capture group')
           for (const path of ['snapshots/session/headless.snapshot.ts', 'snapshots/session/working-budget-oracle.ts',
+            'packages/test-support/session-snapshot/src/identity.ts', 'packages/perception/tool-video-inspect/tests/snapshot-reports.ts',
             'snapshots/session/managed-subagent-assertions.ts', 'snapshots/session/subagent-child-question-rejection/assertions.ts',
             'snapshots/session/muse-session-product/budget.ts']) {
             assert.ok(spec.extraInputs.includes(path), `Required capture helper missing: ${path}`)

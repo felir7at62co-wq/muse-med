@@ -34,6 +34,8 @@ function pairs(records: readonly Row[]) {
       if (typeof body.observation_report !== 'string' || !object(meta) || body.complete !== true
         || meta.observationReport !== body.observation_report || meta.sha256 !== body.observation_report_sha256
         || meta.reviewId !== body.review_id || meta.sessionId !== body.observation_session_id
+        || typeof body.path !== 'string' || typeof body.source_version !== 'string'
+        || meta.path !== body.path || meta.sourceVersion !== body.source_version
         || typeof body.observation_report_sha256 !== 'string') throw Error('Video-review report tool/meta identity or digest mismatch')
       reports.push({ path: body.observation_report, digest: body.observation_report_sha256, body, block, meta })
     }
@@ -47,33 +49,56 @@ function pairs(records: readonly Row[]) {
  */
 export async function assertVideoObservationReportArtifacts(logs: readonly string[]): Promise<void> {
   for (const log of logs) for (const report of pairs(rows(log))) {
-    if (!HASH.test(report.digest) || createHash('sha256').update(await readFile(report.path)).digest('hex') !== report.digest) {
+    const bytes = await readFile(report.path)
+    if (!HASH.test(report.digest) || createHash('sha256').update(bytes).digest('hex') !== report.digest) {
       throw Error('Video-review report digest differs from actual artifact bytes')
     }
+    const saved: unknown = JSON.parse(bytes.toString('utf8'))
+    if (!object(saved) || saved.id !== report.meta.reviewId || saved.path !== report.meta.path
+      || saved.source_version !== report.meta.sourceVersion) throw Error('Video-review report artifact identity differs from its issuance')
   }
+  normalizeVideoObservationReportHashes(logs)
 }
 
-/** Replace only paired complete-report digest fields; all other hashes and tool text remain meaningful.
+/** Validate report references against prior issuance and tokenize only their matching digest fields.
  * @param logs - Actual logs whose artifacts were checked, or the two owners' current-writer oracles.
  * @returns Relationship tokens preserving repeated files and keeping distinct files distinct.
  */
 export function normalizeVideoObservationReportHashes(logs: readonly string[]): string[] {
-  const identities = new Map<string, { digest: string; token: string }>()
+  const identities = new Map<string, { digest: string; token: string; meta: Row }>()
   return logs.map((log) => {
     const records = rows(log)
-    for (const report of pairs(records)) {
-      if (!HASH.test(report.digest) && !TOKEN.test(report.digest)) throw Error('Video-review report digest is neither raw nor its owner token')
-      let identity = identities.get(report.path)
-      if (identity === undefined) {
-        identity = { digest: report.digest, token: `{{videoObservationReportSha256:${identities.size + 1}}}` }
-        identities.set(report.path, identity)
+    const issued = new Map(pairs(records).map(report => [report.meta, report]))
+    for (const row of records) {
+      const data = row.data
+      if (row.type !== 'tool/result' || !object(data) || !object(data.message) || data.message.isError === true
+        || !object(data.meta)) continue
+      const references: Row[] = object(data.meta.videoReviewEvidence) ? [data.meta.videoReviewEvidence] : []
+      const bodyMeta = data.meta.__dsh_tool_body_meta_v1
+      if (object(bodyMeta) && object(bodyMeta.videoReviewEvidence)) references.push(bodyMeta.videoReviewEvidence)
+      for (const meta of references) {
+        if (meta.sha256 === undefined) continue
+        const report = issued.get(meta)
+        if (report !== undefined) {
+          if (!HASH.test(report.digest) && !TOKEN.test(report.digest)) throw Error('Video-review report digest is neither raw nor its owner token')
+          const prior = identities.get(report.path)
+          if (prior === undefined) {
+            identities.set(report.path, { digest: report.digest,
+              token: `{{videoObservationReportSha256:${identities.size + 1}}}`, meta: { ...meta } })
+          } else if (prior.digest !== report.digest) throw Error('Video-review report path changed digest within one snapshot')
+        }
+        const identity = typeof meta.observationReport === 'string' ? identities.get(meta.observationReport) : undefined
+        if (identity === undefined || meta.sha256 !== identity.digest
+          || ['path', 'reviewId', 'sessionId', 'sourceVersion'].some(key => meta[key] !== identity.meta[key])
+          || TOKEN.test(identity.digest) && identity.digest !== identity.token) {
+          throw Error('Video-review report reference has no matching prior issuance')
+        }
+        if (report !== undefined) {
+          report.body.observation_report_sha256 = identity.token
+          report.block.text = JSON.stringify(report.body)
+        }
+        meta.sha256 = identity.token
       }
-      if (identity.digest !== report.digest || TOKEN.test(report.digest) && report.digest !== identity.token) {
-        throw Error('Video-review report path changed digest within one snapshot')
-      }
-      report.body.observation_report_sha256 = identity.token
-      report.block.text = JSON.stringify(report.body)
-      report.meta.sha256 = identity.token
     }
     return records.map(row => JSON.stringify(row)).join('\n') + (log.endsWith('\n') ? '\n' : '')
   })

@@ -48,7 +48,10 @@ describe('session-product exact budget', () => {
 
   it('keeps both Windows runtime roots JSON-quoted before exact pricing', async () => {
     const cwd = 'C:\\Users\\Administrator\\AppData\\Local\\Temp\\dsh-log-snap-123456'
-    const source = await input(cwd)
+    const original = await input(cwd)
+    // The physical Session header uses this host's absolute path; model-visible
+    // Windows context remains unchanged and is the input being priced.
+    const source = changedLog(original, (row) => { if (row.type === 'session') row.cwd = process.cwd() })
     const restored = sessionProductBudgetInput(source)
     const runtime = rows(restored.log).find(row => row.type === 'user/message'
       && (row.data as { source: { kind: string } }).source.kind === 'runtime-context')
@@ -60,7 +63,7 @@ describe('session-product exact budget', () => {
       JSON.stringify('session workspace: "{{cwd}}"').slice(1, -1),
     ) }
     expect(deriveWorkingBudgetExpectations(unquoted).get(15)).toBe(9458)
-    expect(source.log).toBe((await input(cwd)).log)
+    expect(original.log).toBe((await input(cwd)).log)
   })
 
   it('retains each role, message and block overhead while preserving the folded nodes', async () => {

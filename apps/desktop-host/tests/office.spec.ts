@@ -17,7 +17,7 @@ import { SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { Config as DiscoveryConfig } from '@deepseek-ai/dsh-tool-discovery'
 import { ToolSearchIndex } from '../../../packages/core/tool-discovery/src/search.ts'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import * as desktopOffice from '../src/office.ts'
 
 class OfficeQueries extends SessionQueryEngine {
@@ -69,10 +69,12 @@ it.each([[undefined, true], ['advisory', true], [undefined, false]] as const)(
       expect((await ctx.skills.get('office-pptx'))?.resourceBase).toEqual({ kind: 'directory', path: join(assets, 'office-pptx').split(sep).join('/') })
       expect((await ctx.skills.get('office-pptx'))?.content).toContain('office-render')
       expect((await ctx.skills.get('office-pptx'))?.content).not.toContain(nodeDirectory)
-      expect(ctx.tools.schemas().map(tool => tool.name)).toEqual([
-        'load_workspace_dependencies', 'manuscript_revision', ...(recoveryEnabled ? ['source_recover'] : []),
-        'jianying_draft', 'screenplay_export_docx',
-      ])
+      await vi.waitFor(() => {
+        expect(ctx.tools.schemas().map(tool => tool.name)).toEqual([
+          'load_workspace_dependencies', 'manuscript_revision', ...(recoveryEnabled ? ['source_recover'] : []),
+          'jianying_draft', 'screenplay_export_docx',
+        ])
+      })
       const discovery = loadOverlayPatches('desktop-office-discovery', fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url)))
         .flatMap(patch => patch.insert ?? []).find(row => row.id === 'tool-discovery')
       if (!discovery) throw new Error('Missing Desktop tool-discovery row')

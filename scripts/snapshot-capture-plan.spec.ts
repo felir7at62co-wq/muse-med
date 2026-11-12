@@ -82,6 +82,14 @@ it.each([
     g.extraInputs = g.extraInputs.filter(p => p !== path);
     g.expectedInputInventory = g.expectedInputInventory.filter(p => p !== path);
   }`],
+  ...['packages/test-support/session-snapshot/src/identity.ts',
+    'packages/perception/tool-video-inspect/tests/snapshot-reports.ts'].map(path => [
+    'an omitted normalization helper', `{
+      const g = plan.groups[1], path = ${JSON.stringify(path)};
+      g.extraInputs = g.extraInputs.filter(p => p !== path);
+      g.expectedInputInventory = g.expectedInputInventory.filter(p => p !== path);
+    }`,
+  ] as const),
   ['a missing managed child replay declaration', `{
     const g = plan.groups[1], path = 'snapshots/session/subagent-agent-preset/snapshot.yml';
     delete g.expectedManifests[path].replay;
