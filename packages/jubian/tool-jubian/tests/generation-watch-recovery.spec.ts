@@ -110,8 +110,10 @@ it('reuses a restored unfinished watch with its original ledger claim without di
 
 it('does not redeliver an outbox whose receipt was committed after the worker obtained an active snapshot', async () => {
   const f = await fixture(), notice = createGenerationWatchNotice('Original terminal result')
+  const pack = f.packs[0]
+  if (pack === undefined) throw new Error('Expected the original generation fixture pack')
   const original: GenerationWatchRun = { ...f.run, notice,
-    packs: [{ ...f.packs[0], outcome: { status: 'failed', detail: 'Original provider failure' } }] }
+    packs: [{ ...pack, outcome: { status: 'failed', detail: 'Original provider failure' } }] }
   await f.store.create(original)
   const delivered: GenerationWatchRun = { ...original, notice: { ...notice, deliveredAt: Date.now() } }
   const readActive = f.store.listActive.bind(f.store), load = f.store.load.bind(f.store)
