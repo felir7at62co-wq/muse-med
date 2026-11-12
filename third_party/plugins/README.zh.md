@@ -25,6 +25,8 @@ pnpm --dir third_party/plugins/toolchain run test:im
 
 每个压缩包保留上游许可证和 Codex 声明，按需添加所内嵌 Heroicons 的许可证，并在 `SOURCE.json` 记录上游固定版本、已审核的 Host/vendor 版本及工具链锁文件摘要。[Host 版本审核](compatibility/host-runtime.mjs)拒绝未审核的 Host 或 vendor 版本。产物清单禁用生命周期脚本、固定运行时依赖，并在 peer 候选中显式允许已审核的 Host 和 vendor 预发行版本。产物移除已退役的 `dsh-invariants` 依赖。构建覆盖不修改保留的清单与源码文件。
 
+当前审核面向 Host `0.2.2-rc.2`，保留上游版本与固定修订。私有构建检查使用已构建的 Host 和 Client，覆盖订阅 RPC 与图片流、账号传输、原生 IM 会话恢复与权限控制、公开数据工具、FFmpeg、Skill 管理及交互卡片。供应商与平台响应均为测试数据；这些检查不登录真实账号，也不代表在线下载服务当前可用。
+
 归档的 Codex 兼容构建在 `SOURCE.json` 记录修改：子任务检查与准备仅接受已审核的 Host provider 版本，CLI 仍固定为 `0.153.4`。provider 与 Host adapter 共用 Host 安装的 pi-ai `1.3.0`；复制后的运行时与产物 peer 仅接受该精确版本。覆盖检查保留的 provider 模块和目录测试的 SHA-256。复制后的检查使用当前模型目录，并通过 GPT-5.6 Luna 验证自定义上下文；不会给已移除的离线模型虚构别名。打包后从 `app.asar.unpacked` 解析 CLI 清单和启动文件。保留的上游文件不变；源码文本不符合预期时，补丁失败，而非静默跳过。
 
 归档的 Codex 订阅模型仅在连接了 Codex OAuth 账号时出现在模型选择器中。Muse 登录不授予订阅供应商的访问权限；断开 Codex 后，下次查询列表会隐藏其模型。其模型菜单与固定分组标题在浅色和深色模式下均使用主题的不透明底色。私有构建补丁使用共享的 portal 和视口定位，每次显示一个面板，保留模型、推理等级、速度与输出详略操作，并在 `SOURCE.json` 中记录这些配置。
@@ -76,6 +78,8 @@ Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence
 ### 普通会话卡片
 
 保留的 [Deep View](deep-view/README.md) 插件为普通 Muse 会话提供 `show_view`，支持表格、图表、选择和表单等结构化视图。交互回答通过所属 Session 返回；简单问题仍可使用原生 `ask_user_question`。源码固定记录公开 fork 与上游修订，构建器使用当前运行时验证其 Host 和浏览器入口。Bot 团队保持归档。
+
+[私有 Host 覆盖](compatibility/deep-view-host.mjs)将 Deep View 适配到已审阅 Host 的 Agent Registry API。只有 Registry 中确切的活跃根 Agent 可以创建交互卡片；回答投递前还会确认解析出的 Agent 对应请求中的 Session。暂存清单保留原有 DSH engine 范围，并显式接受已审阅的 Host 版本；原生兼容检查无需豁免。构建使用真实 Agent Registry 和 AgentLoop、隔离数据且不请求外部模型来验证这些检查；保留的上游文件及源码哈希保持不变。
 
 独立的 [Skill 进化插件](muse-skill-evolution/README.zh.md)复盘新完成的工具任务，创建自有技能并保留提案及回退版本。原生持久化复盘会话使用任务所选模型。其 README 说明复盘限制、正常模型用量及文件权限。
 

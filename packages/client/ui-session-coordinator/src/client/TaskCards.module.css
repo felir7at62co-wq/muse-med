@@ -1,0 +1,34 @@
+.tasks {
+  position: absolute;
+  top: 48px;
+  left: 24px;
+  z-index: 30;
+  width: min(320px, calc(100% - 48px));
+  max-height: min(55%, 420px);
+  overflow: auto;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  pointer-events: auto;
+}
+.list { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 2px; }
+.card { width: 100%; border: 1px solid var(--dsw-alias-border-l1); border-radius: 20px; background: var(--dsw-alias-bg-layer-1); box-shadow: var(--dsw-elevation-panel); }
+.heading { display: flex; align-items: center; gap: 9px; min-width: 0; padding: 8px 12px 8px 8px; cursor: pointer; list-style: none; }
+.heading::-webkit-details-marker { display: none; }
+.heading:focus-visible { outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary)); outline-offset: 2px; border-radius: 20px; }
+.spider { flex: none; width: 38px; height: 32px; background: url('./assets/muse-spider.svg') center / contain no-repeat; filter: hue-rotate(110deg) saturate(.9); transform-origin: center bottom; }
+.card[data-working] .spider { animation: working 1.8s ease-in-out infinite; }
+.headingText { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
+.title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.status, .panel small, .chevron { color: var(--dsw-alias-label-secondary); }
+.status { font-size: 11px; }
+.chevron { font-size: 17px; transition: transform 180ms ease; }
+.card[open] .chevron { transform: rotate(180deg); }
+.panel { padding: 0 14px 12px; overflow-wrap: anywhere; }
+.panel p { margin: 7px 0; white-space: pre-wrap; }
+.fullTitle { font-weight: 500; }
+.actions, .files { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
+.actions button, .files button { color: var(--dsw-alias-label-primary); background: none; border: none; padding: 2px 0; font-size: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.actions button:disabled { opacity: .5; cursor: default; }
+.issue { color: var(--dsw-alias-label-secondary); }
+@keyframes working { 0%, 100% { transform: translateY(0) rotate(0); } 25% { transform: translateY(-3px) rotate(-5deg); } 50% { transform: translateY(0) rotate(3deg); } 75% { transform: translateY(-2px) rotate(-3deg); } }
+@media (prefers-reduced-motion: reduce) { .card[data-working] .spider { animation: none; } .chevron { transition: none; } }

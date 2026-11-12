@@ -34,6 +34,14 @@ async function harness() {
 }
 
 describe('Desktop workspace successor ownership', () => {
+  it('refuses a selected backend that is not the configured JSON implementation', async () => {
+    const h = await harness()
+    const backend = new OwnedWorkspaceStorage({ sourceBackend: 'json', root: h.root }, { close: () => Promise.resolve() })
+    onTestFinished(() => backend.close())
+    await expect(backend.kv.open(descriptor)).rejects.toThrow('not a live JSON storage backend')
+    expect(await readFile(h.sourcePath, 'utf8')).toBe(h.source)
+  })
+
   it('migrates the full original identity and keeps a source hash while preserving the source bytes', async () => {
     const h = await harness()
     const unit = await h.backend.kv.open(descriptor)

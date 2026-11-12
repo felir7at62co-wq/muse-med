@@ -8,18 +8,35 @@
     "src"
   ],
   "references": [
-    { "path": "../../packages/session/working-directory" },
-    { "path": "../../packages/storage/storage-domain" },
-    { "path": "../../packages/storage/storage-json" },
-    { "path": "../../packages/storage/storage" },
-    { "path": "../../packages/api/session-controller/tsconfig.host.json" },
-    { "path": "../../packages/drama/session-video" },
-    { "path": "../../packages/client/ui-session-video/tsconfig.host.json" },
+    {
+      "path": "../../packages/session/working-directory"
+    },
+    {
+      "path": "../../packages/storage/storage-domain"
+    },
+    {
+      "path": "../../packages/storage/storage-json"
+    },
+    {
+      "path": "../../packages/storage/storage"
+    },
+    {
+      "path": "../../packages/api/session-controller/tsconfig.host.json"
+    },
+    {
+      "path": "../../packages/drama/session-video"
+    },
+    {
+      "path": "../../packages/client/ui-session-video/tsconfig.host.json"
+    },
     {
       "path": "../../vendor/cordis"
     },
     {
       "path": "../../packages/core/agent"
+    },
+    {
+      "path": "../../packages/team/agent-team"
     },
     {
       "path": "../../packages/jobs/jobs"
@@ -148,13 +165,13 @@
       "path": "../../packages/mcp/mcp-client"
     },
     {
-      "path": "../../packages/drama/tool-episode-render"
-    },
-    {
       "path": "../../packages/jubian/tool-jubian/tsconfig.host.json"
     },
     {
       "path": "../../packages/jubian/jubian-api"
+    },
+    {
+      "path": "../../packages/attachment/attachment"
     }
   ]
 }

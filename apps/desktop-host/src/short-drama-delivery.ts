@@ -6,7 +6,7 @@ import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from '
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-tool-present'
 import type {} from '@deepseek-ai/dsh-tools'
-import { findShortDramaProject } from '@deepseek-ai/dsh-tool-episode-render'
+import { findShortDramaProject } from '@deepseek-ai/dsh-tool-episode-render/delivery'
 import { z } from 'zod'
 
 const hash = z.string().regex(/^[a-f0-9]{64}$/u)

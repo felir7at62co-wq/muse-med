@@ -99,6 +99,7 @@ export function apply(ctx: Context, config: Config): void {
       if (failure.code !== TOOL_ARGUMENT_LOOP || recovery?.pending !== true) return next()
       recovery.pending = false
       signal.throwIfAborted()
+      if (!active) throw LlmError.fromFailure({ message: failure.message, code: TOOL_ARGUMENT_LOOP })
       return Promise.resolve({ kind: 'retry' })
     }, { prepend: true })
     ctx.on('llm/stream', (options, next) => {
@@ -136,7 +137,7 @@ export function apply(ctx: Context, config: Config): void {
           return
         }
         // Exhaustion stays outside provider retry semantics, including always.
-        throw new LlmError(`${message} and no automatic recovery was requested.`, TOOL_ARGUMENT_LOOP)
+        throw LlmError.fromFailure({ message: `${message} and no automatic recovery was requested.`, code: TOOL_ARGUMENT_LOOP })
       })()
     }, { prepend: true })
     yield async () => {

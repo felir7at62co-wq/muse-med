@@ -11,7 +11,7 @@ import { apply, Config, inject, name, resolveCall, resolveSettings, runDramaRend
 import * as Audio from '../src/audio.ts'
 import * as Speech from '../src/speech-coverage.ts'
 import * as Staging from '../src/stage-delivery.ts'
-import * as VideoInspection from '@deepseek-ai/dsh-tool-video-inspect'
+import * as VideoInspection from '@deepseek-ai/dsh-tool-video-inspect/source-qa'
 import { episodePaths } from '../src/paths.ts'
 import { verifyPreparedSubtitleClock } from '../src/prepare.ts'
 import { writeSubtitleClock } from '../src/subtitle-clock.ts'

@@ -102,7 +102,7 @@ class BudgetAdapter extends LlmAdapter {
     }
     this.requests.push(options)
     this.onOrdinary?.()
-    if (this.ordinaryFailure !== undefined) throw new LlmError('provider-owned failure', this.ordinaryFailure)
+    if (this.ordinaryFailure !== undefined) throw LlmError.fromFailure({ message: 'provider-owned failure', code: this.ordinaryFailure })
     if (this.replies.shift() === 'tool') {
       yield { type: 'block-start', index: 0, blockType: 'tool-call' }
       yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: ToolCallId('work-once'), name: 'work', arguments: '{}' } }

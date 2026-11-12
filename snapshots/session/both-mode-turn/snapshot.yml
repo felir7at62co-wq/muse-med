@@ -7,3 +7,4 @@ writerOutput: true
 header:
   class: ptc-shell
   pin: true
+  toolSchemasSource: ptc-turn

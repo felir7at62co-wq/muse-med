@@ -1,0 +1,12 @@
+- region "Task report":
+  - heading "Task report" [level=3]
+  - article:
+    - heading "Review episode two and retain episode three — verify all previously accepted scene boundaries" [level=4]
+    - text: Worker completed
+    - paragraph: Revision 1Current status
+    - paragraph: The worker reviewed episode two and retained episode three.
+    - button "Open execution chat"
+    - list "Files":
+      - listitem:
+        - button "Episode two review notes"
+    - paragraph: Worker report; awaiting your acceptance

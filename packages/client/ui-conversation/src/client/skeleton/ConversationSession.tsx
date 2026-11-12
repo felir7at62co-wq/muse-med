@@ -110,7 +110,7 @@ function equalBreadcrumbs(left: readonly Breadcrumb[], right: readonly Breadcrum
  */
 export function ConversationSessionHeader({
   sessionId, hideChrome, presentation = 'standard', useSessions, useConversationViews, useStore,
-  renderSlot, open, useContextMenu, selectView, setPinned, t, useEntryPins, useEntryActions,
+  renderSlot, renderFactorySlot, open, useContextMenu, selectView, setPinned, t, useEntryPins, useEntryActions,
 }: ConversationSessionHeaderProps) {
   const { getTriggerProps } = useContextMenu()
   const tabs = useConversationViews(value => value)
@@ -172,14 +172,14 @@ export function ConversationSessionHeader({
                   // base.css) and leave the title inert for dragging too.
                   const title = last
                     ? (
-                      <span className={clsx(css.crumb, summary.subagent && css.crumbSubagent, css.crumbCurrent)}>
+                      <span className={clsx(css.crumb, css.crumbCurrent)}>
                         {summary.displayTitle}
                       </span>
                     )
                     : (
                       <button
                         type="button"
-                        className={clsx(css.crumb, summary.subagent && css.crumbSubagent)}
+                        className={css.crumb}
                         onClick={() => { open(summary.id) }}
                       >
                         {summary.displayTitle}
@@ -224,6 +224,10 @@ export function ConversationSessionHeader({
             <div className={css.headerUtilities}>
               {floating && renderSlot('conversation.session.header.actions', {})}
               {renderSlot('conversation.session.header.utilities', { activeView: active?.id ?? null, selectView })}
+              {renderFactorySlot('contextMenu.button', {
+                target: { kind: 'sessionHeader', value: { sessionId } },
+                label: t('header.more'), className: css.headerMenuButton, size: 'sm',
+              })}
             </div>
           </>
         )}

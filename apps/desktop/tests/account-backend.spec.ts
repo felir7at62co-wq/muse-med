@@ -45,7 +45,54 @@ it('does not replay an expiry reason from an account snapshot', () => {
   expect(accountView({ ...state, signOutReason: 'expired' })).toEqual(state)
 })
 
-it('receives live expiry separately from account snapshots', async () => {
+it('does not open a socket when disposed while obtaining its owned cookie', async () => {
+  const pending = Promise.withResolvers<string>()
+  const cookies = vi.fn(() => pending.promise)
+  const failed = vi.fn()
+  const backend = desktopAccountBackend('http://127.0.0.1:1234', () => Promise.resolve(null), cookies)
+  const stop = backend.watch(vi.fn(), failed, vi.fn())
+  stop()
+  pending.resolve('dsh-auth-owned=secret')
+  await pending.promise
+  await Promise.resolve()
+  expect(cookies).toHaveBeenCalledOnce()
+  expect(failed).not.toHaveBeenCalled()
+})
+
+it('obtains the current owned cookie again when reconnecting', async () => {
+  const server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+  await once(server, 'listening')
+  onTestFinished(async () => {
+    for (const client of server.clients) client.terminate()
+    await new Promise<void>((resolve, reject) => { server.close((error) => { if (error) reject(error); else resolve() }) })
+  })
+  const address = server.address()
+  if (typeof address === 'string' || address === null) throw new Error('missing server address')
+  let cookie = 'dsh-auth-first=owned'
+  const cookies = vi.fn(() => Promise.resolve(cookie))
+  const failed = vi.fn()
+  const first = once(server, 'connection')
+  const backend = desktopAccountBackend(`http://127.0.0.1:${address.port}`, () => Promise.resolve(null), cookies)
+  const stop = backend.watch(vi.fn(), failed, vi.fn())
+  onTestFinished(stop)
+  const [socket, request] = await first as [import('ws').WebSocket, IncomingMessage]
+  expect(request.headers.cookie).toBe(cookie)
+  cookie = 'dsh-auth-reconnected=owned'
+  const second = once(server, 'connection')
+  socket.close()
+  const [, nextRequest] = await second as [import('ws').WebSocket, IncomingMessage]
+  expect(nextRequest.headers.cookie).toBe(cookie)
+  expect(cookies).toHaveBeenCalledTimes(2)
+  expect(failed).toHaveBeenCalledOnce()
+  stop()
+})
+
+it.each([
+  ['snapshot', 'invalid'],
+  ['credentials-changed', 'invalid'],
+  ['snapshot', ['snapshot']],
+  ['credentials-changed', ['credentials-changed']],
+] as const)('receives %s state updates separately from live expiry and rejects type %j', async (type, invalidType) => {
   const server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
   await once(server, 'listening')
   onTestFinished(async () => {
@@ -63,8 +110,9 @@ it('receives live expiry separately from account snapshots', async () => {
   const received = Promise.withResolvers<undefined>()
   const cookie = 'dsh-auth-current=owned'
   const backend = desktopAccountBackend(`http://127.0.0.1:${address.port}`, () => Promise.resolve(snapshot), () => Promise.resolve(cookie))
+  const failed = vi.fn()
   const stop = backend.watch(
-    (value) => { expect(value).toEqual(snapshot); received.resolve(undefined) }, vi.fn(), expired, onAnalyticsEnabledChanged,
+    (value) => { expect(value).toEqual(snapshot); received.resolve(undefined) }, failed, expired, onAnalyticsEnabledChanged,
   )
   onTestFinished(stop)
   const request = await connected.promise
@@ -81,7 +129,7 @@ it('receives live expiry separately from account snapshots', async () => {
     if (streams.size === 3) opened.resolve(undefined)
   })
   await opened.promise
-  socket.send(JSON.stringify({ type: 'item', streamId: streams.get('account/watch'), value: snapshot }))
+  socket.send(JSON.stringify({ type: 'item', streamId: streams.get('account/watch'), value: { type, state: snapshot } }))
   await received.promise
   socket.send(JSON.stringify({ type: 'item', streamId: streams.get('productAnalytics/watchPolicy'), value: true }))
   await vi.waitFor(() => { expect(onAnalyticsEnabledChanged).toHaveBeenLastCalledWith(true) })
@@ -94,5 +142,7 @@ it('receives live expiry separately from account snapshots', async () => {
   expect(expired).not.toHaveBeenCalled()
   socket.send(JSON.stringify({ type: 'item', streamId: streams.get('account/watchExpiry'), value: 'session-expired' }))
   await vi.waitFor(() => { expect(expired).toHaveBeenCalledOnce() })
+  socket.send(JSON.stringify({ type: 'item', streamId: streams.get('account/watch'), value: { type: invalidType, state: snapshot } }))
+  await vi.waitFor(() => { expect(failed).toHaveBeenCalledOnce() })
   stop()
 })

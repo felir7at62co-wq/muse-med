@@ -16,11 +16,12 @@ function record(userId: number, rowId = userId): Row {
   return { id: rowId, scriptId: 91, shareType: 2, shareTargetType: 1, shareUserId: userId, shareDeptId: null }
 }
 function fixture(ledgerRoot = root) {
+  const responseData: unknown = null
   const state = { token: 'account-one', permissions: ['aigc:share:add'], canShare: 1,
     projectName: '剧本项目', rows: [] as Row[], users: [{ userId: 11, nickName: '编导甲' },
       { userId: 12, nickName: '编导乙' }, { userId: 13, nickName: '编导乙' }],
     departments: [{ id: 21, label: '制作组', children: [{ id: 22, label: '配音组' }] }] as Row[],
-    responseData: null as unknown,
+    responseData,
     mode: 'normal' as 'normal' | 'lost' | 'unchanged', tokenChangeOnProject: false, incomplete: false, readbackUnavailable: false }
   const calls: { method: string; path: string; token: string | null; body: unknown }[] = []
   const client = new JubianClient({ credential: async () => state.token, fetch: async (input, init) => {

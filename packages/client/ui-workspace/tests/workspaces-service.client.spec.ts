@@ -162,7 +162,7 @@ class FakeSessions implements ISessions {
   declare readonly using: ISessions['using']
   declare readonly retainInfo: ISessions['retainInfo']
   declare readonly searchResultLimit: ISessions['searchResultLimit']
-  declare readonly refresh: ISessions['refresh']
+  readonly refresh = vi.fn<ISessions['refresh']>(async () => {})
   declare readonly search: ISessions['search']
   declare readonly scope: ISessions['scope']
   declare readonly scopeOf: ISessions['scopeOf']
@@ -286,7 +286,10 @@ function bench(options: BenchOptions = {}) {
   ctx.effect(() => locale.register('workspace', { en, zh }))
   ctx.provide('locale', locale)
   const requestDraftInitialization = vi.fn<SessionInputResolver['requestDraftInitialization']>(() => 'applied')
-  if (options.conversation !== false) ctx.provide('conversation', { input: { requestDraftInitialization } })
+  const inputState = createSnapshotStore<{ draft: string; attachmentIds: readonly string[]; phase: string }>({
+    draft: '', attachmentIds: [], phase: 'plain',
+  })
+  if (options.conversation !== false) ctx.provide('conversation', { input: { requestDraftInitialization, for: () => ({ state: inputState }) } })
   const layout = new LayoutController({
     selectPanel: vi.fn(), retainMainPanels: vi.fn(),
     setSidebar: vi.fn(), toggleSidebar: vi.fn(), setSidebarRailRetained: vi.fn(), setViewportWidth: vi.fn(),
@@ -310,7 +313,8 @@ function bench(options: BenchOptions = {}) {
     view.actions,
     notify,
   )
-  return { ctx, directoryPicker, sessions, uiWorkspace, workspaces, layout, selectPanel, view, notify, requestDraftInitialization }
+  return { ctx, directoryPicker, sessions, uiWorkspace, workspaces, layout, selectPanel, view, notify,
+    requestDraftInitialization, inputState }
 }
 
 function lastOpening(open: MockInstance<UiWorkspaceService['openWorkspace']>): Promise<void> {
@@ -320,6 +324,187 @@ function lastOpening(open: MockInstance<UiWorkspaceService['openWorkspace']>): P
 }
 
 describe('UiWorkspaceService', () => {
+  it('opens the feature initial Session instead of starting ordinary restoration', async () => {
+    const b = bench()
+    const target = Promise.withResolvers<SessionId | undefined>()
+    const initial = b.uiWorkspace.openInitialSession(() => target.promise, new AbortController().signal)
+    b.workspaces.list.set(workspaceState())
+    b.sessions.list.set(sessionState([summary('main')]))
+    expect(b.workspaces.initializeDefault).not.toHaveBeenCalled()
+    target.resolve(sid('main'))
+    await initial
+    expect(b.sessions.retain).toHaveBeenCalledExactlyOnceWith(sid('main'), { source: 'mainView' })
+    await b.uiWorkspace.openInitialSession(async () => sid('another'), new AbortController().signal)
+    expect(b.sessions.retain).toHaveBeenCalledOnce()
+  })
+
+  it('supersedes a pending ordinary restoration when the feature arrives later', async () => {
+    const created = Promise.withResolvers<SessionId>()
+    const b = bench({ workspaces: workspaceState([workspace('home')]), sessions: sessionState([summary('main')]),
+      configureSessions: (sessions) => { sessions.create.mockReturnValueOnce(created.promise) } })
+    await vi.waitFor(() => { expect(b.sessions.create).toHaveBeenCalledOnce() })
+    await b.uiWorkspace.openInitialSession(async () => sid('main'), new AbortController().signal)
+    created.resolve(sid('ordinary'))
+    await setImmediate()
+    expect(b.sessions.retain.mock.calls.map(args => args[0])).toEqual([sid('main')])
+  })
+
+  it('waits for the new Session in the refreshed catalog before opening it', async () => {
+    const b = bench()
+    const first = Promise.withResolvers<undefined>()
+    b.sessions.refresh.mockReturnValueOnce(first.promise).mockImplementationOnce(async () => {
+      b.sessions.list.set(sessionState([summary('main')]))
+    })
+    const opening = b.uiWorkspace.openInitialSession(async () => sid('main'), new AbortController().signal)
+    await vi.waitFor(() => { expect(b.sessions.refresh).toHaveBeenCalledOnce() })
+    expect(b.sessions.retain).not.toHaveBeenCalled()
+    first.resolve(undefined)
+    await opening
+    expect(b.sessions.refresh).toHaveBeenCalledTimes(2)
+    expect(b.sessions.retain.mock.calls.map(args => args[0])).toEqual([sid('main')])
+  })
+
+  it('does not open a refreshed Session after a manual choice during the catalog wait', async () => {
+    const b = bench()
+    const refresh = Promise.withResolvers<undefined>()
+    b.sessions.refresh.mockReturnValueOnce(refresh.promise)
+    const opening = b.uiWorkspace.openInitialSession(async () => sid('main'), new AbortController().signal)
+    await vi.waitFor(() => { expect(b.sessions.refresh).toHaveBeenCalledOnce() })
+    b.uiWorkspace.openSession(sid('ordinary'))
+    await opening
+    b.sessions.list.set(sessionState([summary('main')]))
+    refresh.resolve(undefined)
+    await setImmediate()
+    expect(b.sessions.retain.mock.calls.map(args => args[0])).toEqual([sid('ordinary')])
+  })
+
+  it('reports a missing Session after the bounded catalog refresh and allows retry', async () => {
+    const b = bench()
+    await expect(b.uiWorkspace.openInitialSession(async () => sid('main'), new AbortController().signal))
+      .rejects.toThrow('Initial Session is unavailable in the Session list')
+    expect(b.sessions.refresh).toHaveBeenCalledTimes(2)
+    b.sessions.list.set(sessionState([summary('main')]))
+    await b.uiWorkspace.openInitialSession(async () => sid('main'), new AbortController().signal)
+    expect(b.sessions.retain.mock.calls.map(args => args[0])).toEqual([sid('main')])
+  })
+
+  it.each(['session', 'panel', 'disposal', 'feature'] as const)(
+    'does not replace a later %s navigation when initial selection is pending', async (kind) => {
+      const b = bench()
+      const target = Promise.withResolvers<SessionId | undefined>()
+      const controller = new AbortController()
+      const initial = b.uiWorkspace.openInitialSession(() => target.promise, controller.signal)
+      if (kind === 'session') b.uiWorkspace.openSession(sid('ordinary'))
+      else if (kind === 'panel') b.layout.selectPanel('other-panel' as MainPanelId)
+      else if (kind === 'feature') controller.abort()
+      else await b.ctx.fiber.dispose()
+      target.resolve(sid('main'))
+      await initial
+      expect(b.sessions.retain.mock.calls.map(args => args[0])).toEqual(kind === 'session' ? [sid('ordinary')] : [])
+    },
+  )
+
+  it('does not replace an existing or newly entered draft during initial selection', async () => {
+    persistSelection({ sessionId: sid('ordinary') })
+    const b = bench({ workspaces: workspaceState([workspace('home', [sid('ordinary')])]), sessions: sessionState([summary('ordinary')]) })
+    expect(b.sessions.retain).toHaveBeenCalledOnce()
+    const target = Promise.withResolvers<SessionId | undefined>()
+    const initial = b.uiWorkspace.openInitialSession(() => target.promise, new AbortController().signal)
+    b.inputState.set({ draft: 'unfinished', attachmentIds: [], phase: 'plain' })
+    target.resolve(sid('main'))
+    await initial
+    expect(b.sessions.retain.mock.calls.map(args => args[0])).toEqual([sid('ordinary')])
+
+    const other = bench({ workspaces: workspaceState([workspace('home', [sid('ordinary')])]), sessions: sessionState([summary('ordinary')]) })
+    other.inputState.set({ draft: 'already here', attachmentIds: [], phase: 'plain' })
+    const resolve = vi.fn(async () => sid('main'))
+    await other.uiWorkspace.openInitialSession(resolve, new AbortController().signal)
+    expect(resolve).not.toHaveBeenCalled()
+  })
+
+  it('does not start initial navigation after an explicit Session choice', async () => {
+    const b = bench()
+    b.uiWorkspace.openSession(sid('ordinary'))
+    const resolve = vi.fn(async () => sid('main'))
+    await b.uiWorkspace.openInitialSession(resolve, new AbortController().signal)
+    expect(resolve).not.toHaveBeenCalled()
+    expect(b.sessions.retain.mock.calls.map(args => args[0])).toEqual([sid('ordinary')])
+  })
+
+  it('suppresses a late initial failure after user navigation and surfaces active failures', async () => {
+    const b = bench()
+    const target = Promise.withResolvers<SessionId | undefined>()
+    const initial = b.uiWorkspace.openInitialSession(() => target.promise, new AbortController().signal)
+    b.uiWorkspace.openSession(sid('ordinary'))
+    target.reject(new Error('late failure'))
+    await expect(initial).resolves.toBeUndefined()
+    expect(b.sessions.retain.mock.calls.map(args => args[0])).toEqual([sid('ordinary')])
+    const fresh = bench()
+    await expect(fresh.uiWorkspace.openInitialSession(async () => { throw new Error('unavailable') }, new AbortController().signal))
+      .rejects.toThrow('unavailable')
+  })
+
+  it.each(['empty', 'error'] as const)('restores ordinary navigation and allows retry after an initial %s result', async (result) => {
+    const b = bench({ configureWorkspaces: (workspaces) => {
+      workspaces.initializeDefault.mockImplementation(async () => {
+        const item = workspace('default')
+        workspaces.list.set(workspaceState([item]))
+        return item
+      })
+    } })
+    const first = b.uiWorkspace.openInitialSession(async () => {
+      if (result === 'error') throw new Error('unavailable')
+      return undefined
+    }, new AbortController().signal)
+    if (result === 'error') await expect(first).rejects.toThrow('unavailable')
+    else await expect(first).resolves.toBeUndefined()
+    b.workspaces.list.set(workspaceState())
+    b.sessions.list.set(sessionState())
+    await vi.waitFor(() => { expect(b.sessions.retain).toHaveBeenCalledWith(sid('created-default'), { source: 'mainView' }) })
+    b.sessions.list.set(sessionState([summary('main')]))
+    await b.uiWorkspace.openInitialSession(async () => sid('main'), new AbortController().signal)
+    expect(b.sessions.retain.mock.calls.at(-1)?.[0]).toBe(sid('main'))
+  })
+
+  it('restores ordinary navigation and permits a retry when the feature loses and regains access', async () => {
+    const b = bench({ configureWorkspaces: (workspaces) => {
+      workspaces.initializeDefault.mockImplementation(async () => {
+        const item = workspace('default')
+        workspaces.list.set(workspaceState([item]))
+        return item
+      })
+    } })
+    const pending = Promise.withResolvers<SessionId | undefined>()
+    const feature = new AbortController()
+    const initial = b.uiWorkspace.openInitialSession(() => pending.promise, feature.signal)
+    feature.abort()
+    await expect(initial).resolves.toBeUndefined()
+    b.workspaces.list.set(workspaceState())
+    b.sessions.list.set(sessionState())
+    await vi.waitFor(() => { expect(b.sessions.retain).toHaveBeenCalledWith(sid('created-default'), { source: 'mainView' }) })
+    b.sessions.list.set(sessionState([summary('main')]))
+    await b.uiWorkspace.openInitialSession(async () => sid('main'), new AbortController().signal)
+    pending.resolve(sid('late-main'))
+    await setImmediate()
+    expect(b.sessions.retain.mock.calls.map(args => args[0])).toEqual([sid('created-default'), sid('main')])
+  })
+
+  it('never retries initial navigation after a manual choice even if feature access is lost', async () => {
+    const b = bench()
+    const pending = Promise.withResolvers<SessionId | undefined>()
+    const feature = new AbortController()
+    const initial = b.uiWorkspace.openInitialSession(() => pending.promise, feature.signal)
+    b.uiWorkspace.openSession(sid('ordinary'))
+    feature.abort()
+    await initial
+    const retry = vi.fn(async () => sid('main'))
+    await b.uiWorkspace.openInitialSession(retry, new AbortController().signal)
+    pending.resolve(sid('late-main'))
+    await setImmediate()
+    expect(retry).not.toHaveBeenCalled()
+    expect(b.sessions.retain.mock.calls.map(args => args[0])).toEqual([sid('ordinary')])
+  })
+
   it('prepares and selects the default Workspace after both startup baselines', async () => {
     const b = bench({ configureWorkspaces: (workspaces) => {
       workspaces.initializeDefault.mockImplementation(async () => {
@@ -701,6 +886,19 @@ describe('UiWorkspaceService', () => {
     b.sessions.create.mockClear()
     await expect(b.uiWorkspace.connectWorkspace(wid('a'))).resolves.toBe(sid('bot'))
     expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a'), sessionId: sid('bot') })
+  })
+
+  it('keeps duplicate hidden Session contributions independent and leaves Workspace membership untouched', () => {
+    const b = bench({ workspaces: workspaceState([workspace('a', [sid('main'), sid('ordinary')])]) })
+    const first = b.uiWorkspace.hideSession(sid('main'))
+    const second = b.uiWorkspace.hideSession(sid('main'))
+    expect(b.uiWorkspace.hiddenSessionIds.getSnapshot()).toEqual([sid('main')])
+    first()
+    first()
+    expect(b.uiWorkspace.hiddenSessionIds.getSnapshot()).toEqual([sid('main')])
+    expect(b.workspaces.list.getSnapshot().items[0]?.sessionIds).toEqual([sid('main'), sid('ordinary')])
+    second()
+    expect(b.uiWorkspace.hiddenSessionIds.getSnapshot()).toEqual([])
   })
 
   it('keeps repeated registrations independent and applies every blank filter', async () => {

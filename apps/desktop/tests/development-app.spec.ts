@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, onTestFinished } from 'vitest'
-import { developmentLauncher } from '../scripts/development-app.ts'
+import { developmentLauncher, developmentProtocolUrlTypes } from '../scripts/development-app.ts'
 
 it.skipIf(process.platform === 'win32')('passes literal workspace paths and cold-start settings to Electron', () => {
   const root = mkdtempSync(join(tmpdir(), 'dsh-development-app-'))
@@ -12,19 +12,39 @@ it.skipIf(process.platform === 'win32')('passes literal workspace paths and cold
   const bundle = join(root, "Harness ' $(false).app")
   const binary = join(bundle, 'Contents', 'MacOS', 'Electron')
   mkdirSync(join(bundle, 'Contents', 'MacOS'), { recursive: true })
-  writeFileSync(binary, '#!/bin/sh\nprintf "%s\\n" "$DSH_HOME" "$DSH_DESKTOP_DEV_APP" "$DSH_DESKTOP_OPEN_DEVTOOLS" "$DSH_DESKTOP_PRIMARY_RUNTIME_DIR" "$MUSE_BASE_URL" "$@"\n', { mode: 0o755 })
+  writeFileSync(binary, '#!/bin/sh\nprintf "%s\\n" "$DSH_HOME" "$DSH_DESKTOP_DEV_APP" "$DSH_DESKTOP_DEV_REGISTER_PROTOCOL" "$DSH_DESKTOP_OPEN_DEVTOOLS" "$DSH_DESKTOP_PRIMARY_RUNTIME_DIR" "$MUSE_BASE_URL" "$@"\n', { mode: 0o755 })
   const launcher = join(root, 'launcher')
   const home = join(root, "home ' $(false)")
   writeFileSync(launcher, developmentLauncher({ electron: binary, appRoot: root, directory: root,
     home, museHome: home, productVersion: '1.2.8', userData: join(root, 'browser data'), primaryRuntime: join(root, 'primary runtime'),
-    mainPort: 9229, rendererPort: 9222, hostPort: 9230, openDevtools: '0', museBaseUrl: 'http://127.0.0.1:29388' }, bundle))
-  const result = execFileSync('/bin/sh', [launcher, '--test-launch-argument'], { encoding: 'utf8' })
-  expect(result.trimEnd().split('\n')).toEqual([home, '1', '0', join(root, 'primary runtime'), 'http://127.0.0.1:29388', '--inspect=127.0.0.1:9229',
+    mainPort: 9229, rendererPort: 9222, hostPort: 9230, openDevtools: '0', registerProtocol: '0', museBaseUrl: 'http://127.0.0.1:29388' }, bundle))
+  const result = execFileSync('/bin/sh', [launcher, '--test-launch-argument'], {
+    encoding: 'utf8', env: { ...process.env, DSH_DESKTOP_DEV_REGISTER_PROTOCOL: '1' },
+  })
+  expect(result.trimEnd().split('\n')).toEqual([home, '1', '0', '0', join(root, 'primary runtime'), 'http://127.0.0.1:29388', '--inspect=127.0.0.1:9229',
     '--remote-debugging-port=9222', `--user-data-dir=${join(root, 'browser data')}`, root, '--test-launch-argument'])
 })
 
 const options = { electron: '/electron', appRoot: '/app', directory: '/development', home: '/home', museHome: '/muse-home', productVersion: '1.2.8', userData: '/browser',
   primaryRuntime: '/runtime', mainPort: 9229, rendererPort: 9222, hostPort: 9230, openDevtools: '0' }
+
+it('retains protocol registration by default in the persisted launcher and bundle', () => {
+  expect(developmentLauncher(options, '/bundle')).toContain("export DSH_DESKTOP_DEV_REGISTER_PROTOCOL='1'")
+  expect(developmentProtocolUrlTypes()).toEqual([
+    { CFBundleURLName: 'muse-med', CFBundleURLSchemes: ['dsh'], CFBundleTypeRole: 'Viewer' },
+  ])
+})
+
+it.each(['0', '1'])('retains explicit protocol registration %s without the parent shell', (registerProtocol) => {
+  expect(developmentLauncher({ ...options, registerProtocol }, '/bundle')).toContain(`export DSH_DESKTOP_DEV_REGISTER_PROTOCOL='${registerProtocol}'`)
+  expect(developmentProtocolUrlTypes(registerProtocol)).toEqual(registerProtocol === '0' ? [] : developmentProtocolUrlTypes())
+})
+
+it.each(['', 'true', 'false', '2', ' 0', '0\nprivate-input'])('rejects invalid persisted protocol registration without echoing its contents: %j', (registerProtocol) => {
+  for (const build of [() => developmentLauncher({ ...options, registerProtocol }, '/bundle'), () => developmentProtocolUrlTypes(registerProtocol)]) {
+    expect(build).toThrow(/^DSH_DESKTOP_DEV_REGISTER_PROTOCOL must be 0 or 1$/)
+  }
+})
 
 it('keeps an unspecified Muse origin out of the persisted launcher', () => {
   expect(developmentLauncher(options, '/bundle')).not.toContain('MUSE_BASE_URL')

@@ -6,4 +6,5 @@ recording: authored
 header:
   class: multimodal-spill
   pin: true
+  systemPromptSource: read-image
 writerOutput: true

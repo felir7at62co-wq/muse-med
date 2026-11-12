@@ -31,6 +31,8 @@ kind: "package-reference"
 
 Web 应用以 `./muse-med-logo-black.webp` 和 `./muse-med-logo-white.webp` 提供原始透明的 1254 × 1254 图案。品牌图案在应用解析后的浅色主题中使用黑色，在深色主题中使用白色，支持手动选择和跟随系统模式。浏览器 favicon 始终使用黑色图案，不跟随应用主题。打包的桌面图标与 PWA 安装图标不随主题变化。`DSH_CLIENT_BUILD_PROFILE` 不限制注册。本插件不占据 `sidebar.brand.name`；侧栏拥有本地化名称与构建元数据。
 
+本包也通过带内容版本号的 `./assets/*` 导出发布可选的首页背景图集；Muse 图案不会挂载该背景。
+
 ### 替换品牌
 
 使用其他品牌的部署不组合本包，而是组合另一个占据侧栏与首屏图片 slot 的包。占据 slot 是组合路径；本包没有品牌配置字段。
@@ -55,7 +57,7 @@ Web 应用以 `./muse-med-logo-black.webp` 和 `./muse-med-logo-white.webp` 提�
 以下页面说明渲染图案的 slot 与外壳。
 
 - [ui-sidebar](../ui-sidebar/README.zh.md)——声明 `sidebar.brand.mark` 与 `sidebar.brand.name` 并渲染其回退。
-- [ui-conversation](../ui-conversation/README.zh.md)——在首屏声明 `conversation.hero.brand.mark`。
+- [ui-conversation](../ui-conversation/README.zh.md)——在首屏声明 `conversation.hero.brand.mark`，以及本包占用的 `conversation.hero.frame` 层。
 - [Web 客户端架构](../../../docs/subsystems/web-client.zh.md)——浏览器插件行如何加载并注册 slot。
 
 -----

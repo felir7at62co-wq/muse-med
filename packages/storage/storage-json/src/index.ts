@@ -43,15 +43,17 @@ export class JsonStorageBackend implements StorageBackend {
   // Reserved synchronously at open() entry so a concurrent open of the same
   // unit fails, and close() can await opens still in flight.
   private readonly opening = new Map<string, Promise<KvUnit>>()
-  private closed = false
+  readonly #root: string
+  #closed = false
 
-  constructor(private readonly root: string) { sourceRoots.set(this, root) }
+  /** @param root - Explicit JSON backend directory, retained for complete migration reads. */
+  constructor(root: string) { this.#root = root }
 
   readonly kv: KvFacet = {
     // The body up to the first await runs synchronously, so the opening-slot
     // reservation below still excludes a concurrent open of the same unit.
     open: async (descriptor: KvUnitDescriptor): Promise<KvUnit> => {
-      if (this.closed) throw new StorageError('closed', 'json backend is closed')
+      if (this.#closed) throw new StorageError('closed', 'json backend is closed')
       validateDescriptor(descriptor)
       if (this.open.has(descriptor.name) || this.opening.has(descriptor.name)) {
         // Double-open is a caller bug, not a medium condition.
@@ -64,14 +66,14 @@ export class JsonStorageBackend implements StorageBackend {
   }
 
   private async openUnit(descriptor: KvUnitDescriptor): Promise<KvUnit> {
-    await mkdir(this.root, { recursive: true, mode: 0o700 })
+    await mkdir(this.#root, { recursive: true, mode: 0o700 })
     // The two layouts differ in medium shape only; each opener owns its own
     // path convention under the shared root.
     const onClose = () => this.open.delete(descriptor.name)
     const unit = descriptor.layout === 'per-record'
-      ? await openPerRecordUnit(descriptor, this.root, onClose)
-      : await openSingleUnit(descriptor, this.root, onClose)
-    if (this.closed) {
+      ? await openPerRecordUnit(descriptor, this.#root, onClose)
+      : await openSingleUnit(descriptor, this.#root, onClose)
+    if (this.#closed) {
       // The backend closed while this open was in flight: do not hand out a
       // live unit past close().
       await unit.close()
@@ -81,10 +83,56 @@ export class JsonStorageBackend implements StorageBackend {
     return unit
   }
 
+  /**
+   * Resolve the real JSON backend's single-unit source without reading its memory cache.
+   * @param descriptor - Exact single-layout domain identity to migrate.
+   * @returns the canonical root's unit path; an absent root retains its absolute spelling.
+   */
+  async sourcePath(descriptor: KvUnitDescriptor): Promise<string> {
+    validateDescriptor(descriptor)
+    if (this.#closed) throw new Error('migration source is not a live JSON storage backend')
+    const root = this.#root
+    if (descriptor.layout === 'per-record') throw new Error('migration source must use the complete single-unit layout')
+    let canonical: string
+    try { canonical = await realpath(root) }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      canonical = resolve(root)
+    }
+    return join(canonical, `${descriptor.name}.json`)
+  }
+
+  /**
+   * Read one stable whole-unit document from the selected JSON backend.
+   * @param descriptor - Exact unit name, version and complete table declaration.
+   * @returns source path and complete bytes; a concurrent replacement or malformed document rejects.
+   */
+  async readSource(descriptor: KvUnitDescriptor): Promise<JsonUnitSource> {
+    const path = await this.sourcePath(descriptor)
+    let handle
+    try { handle = await open(path, 'r') }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      return { path, text: undefined }
+    }
+    try {
+      const before = await handle.stat({ bigint: true })
+      const text = await handle.readFile('utf8')
+      const after = await handle.stat({ bigint: true })
+      const current = await stat(path, { bigint: true })
+      if (before.dev !== current.dev || before.ino !== current.ino || before.size !== after.size
+        || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs) {
+        throw new Error('JSON unit changed while reading its migration source')
+      }
+      parse(text, descriptor)
+      if (this.#closed) throw new Error('migration source JSON backend closed while reading')
+      return { path, text }
+    } finally { await handle.close() }
+  }
+
   async close(): Promise<void> {
-    if (!this.closed) {
-      this.closed = true
-      sourceRoots.delete(this)
+    if (!this.#closed) {
+      this.#closed = true
     }
     await Promise.allSettled([...this.opening.values()])
     for (const unit of [...this.open.values()]) {
@@ -121,62 +169,10 @@ export function apply(ctx: Context, config: Config) {
   ctx.provide(storageBackendServiceKey('json'), backend)
 }
 
-
-const sourceRoots = new WeakMap<StorageBackend, string>()
-
 /** Complete on-disk single-unit snapshot for an explicitly selected migration source. */
 export interface JsonUnitSource {
   /** Canonical configured unit file, independent of an opened unit's cache. */
   readonly path: string
   /** Undefined only when the canonical unit file does not exist. */
   readonly text: string | undefined
-}
-
-/**
- * Resolve the real JSON backend's single-unit source without reading its memory cache.
- * @param backend - The registered source backend instance.
- * @param descriptor - Exact single-layout domain identity to migrate.
- * @returns the canonical root's unit path; an absent root retains its absolute spelling.
- */
-export async function jsonUnitSourcePath(backend: StorageBackend, descriptor: KvUnitDescriptor): Promise<string> {
-  validateDescriptor(descriptor)
-  const root = sourceRoots.get(backend)
-  if (root === undefined) throw new Error('migration source is not a live JSON storage backend')
-  if (descriptor.layout === 'per-record') throw new Error('migration source must use the complete single-unit layout')
-  let canonical: string
-  try { canonical = await realpath(root) }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    canonical = resolve(root)
-  }
-  return join(canonical, `${descriptor.name}.json`)
-}
-
-/**
- * Read one stable whole-unit document from the selected JSON backend.
- * @param backend - Registered source backend whose original path remains authoritative.
- * @param descriptor - Exact unit name, version and complete table declaration.
- * @returns source path and complete bytes; a concurrent replacement or malformed document rejects.
- */
-export async function readJsonUnitSource(backend: StorageBackend, descriptor: KvUnitDescriptor): Promise<JsonUnitSource> {
-  const path = await jsonUnitSourcePath(backend, descriptor)
-  let handle
-  try { handle = await open(path, 'r') }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    return { path, text: undefined }
-  }
-  try {
-    const before = await handle.stat({ bigint: true })
-    const text = await handle.readFile('utf8')
-    const after = await handle.stat({ bigint: true })
-    const current = await stat(path, { bigint: true })
-    if (before.dev !== current.dev || before.ino !== current.ino || before.size !== after.size
-      || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs) {
-      throw new Error('JSON unit changed while reading its migration source')
-    }
-    parse(text, descriptor)
-    if (!sourceRoots.has(backend)) throw new Error('migration source JSON backend closed while reading')
-    return { path, text }
-  } finally { await handle.close() }
 }

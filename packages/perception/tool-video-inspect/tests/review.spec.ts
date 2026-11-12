@@ -20,6 +20,7 @@ import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, expect, it, vi } from 'vitest'
 import * as Video from '../src/index.ts'
+import { createVideoSourceQaVerifier } from '../src/source-qa-evidence.ts'
 import * as ImageOffload from '@deepseek-ai/dsh-compaction-image-offload'
 import { LlmError, IMAGE_OFFLOAD_REQUIRED_CODE } from '@deepseek-ai/dsh-llm'
 import * as Present from '@deepseek-ai/dsh-tool-present'
@@ -123,7 +124,7 @@ async function fixture(options: {
     agentOptions: { provider: 'synthetic', model: 'vision' }, meta: { cwd: root } })
   const agent = handle.agent
   const readReviews = await installReviewState(ctx)
-  const verifySourceQa = await Video.createVideoSourceQaVerifier(ctx)
+  const verifySourceQa = await createVideoSourceQaVerifier(ctx)
   const reviewTool = options.companion ? 'video_source_review' : 'video_inspect'
   const call = (method: string, extra = {}) => ({ name: reviewTool, args: { file_path: input, method, episode: '第80集', ...extra } })
   const run = async (...plans: Plan[]) => {

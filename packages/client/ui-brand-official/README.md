@@ -31,6 +31,8 @@ Mount this plugin in the browser roster of a muse-med deployment. Its image occu
 
 The Web application supplies the original transparent 1254 × 1254 artwork as `./muse-med-logo-black.webp` and `./muse-med-logo-white.webp`. Brand marks use black for the application's resolved light theme and white for its resolved dark theme, including manual selection and system-following mode. The browser favicon always uses black artwork independently of the application theme. The packaged desktop and PWA install icons remain theme-independent. `DSH_CLIENT_BUILD_PROFILE` does not gate registration. This plugin does not occupy `sidebar.brand.name`; the sidebar owns its localized name and build metadata.
 
+The package also publishes the optional home-background atlas under its content-revisioned `./assets/*` export; the Muse marks do not mount that background.
+
 ### Replacing the brand
 
 A deployment with another identity leaves this package out and composes another package occupying the sidebar and hero image slots. Occupying a slot is the composition route; this package has no brand configuration fields.
@@ -55,7 +57,7 @@ The browser half, [`src/client/index.ts`](src/client/index.ts), installs two ind
 These pages describe the slots and shell that render the artwork.
 
 - [ui-sidebar](../ui-sidebar/README.md) — declares `sidebar.brand.mark` and `sidebar.brand.name` and renders their fallbacks.
-- [ui-conversation](../ui-conversation/README.md) — declares `conversation.hero.brand.mark` in the hero.
+- [ui-conversation](../ui-conversation/README.md) — declares `conversation.hero.brand.mark` in the hero and the `conversation.hero.frame` layer this package occupies.
 - [Web client architecture](../../../docs/subsystems/web-client.md) — how browser plugin rows load and register slots.
 
 -----

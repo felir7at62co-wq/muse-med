@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import Llm, { createUserMessage } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId, type SessionEvent, type SessionEventMap, type SessionEventType, type SurfaceEventType, type SurfaceIntent } from '@deepseek-ai/dsh-session'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import Tools from '@deepseek-ai/dsh-tools'
@@ -457,11 +457,12 @@ it('restores only uncommitted inputs after a protected AgentLoop batch partly ap
     agent.inbox.append('next-step', a)
     agent.inbox.append('next-step', b)
     const append = agent.session.append.bind(agent.session)
-    agent.session.append = <T extends SessionEventType>(type: T, data: SessionEventMap[T],
-      ...options: T extends SurfaceEventType ? [opts: SurfaceIntent<T>] : []): SessionEvent<T> => {
-      if (type === 'user/message' && 'id' in data && data.id === b.id) throw new Error('Injected partial write failure')
-      return append(type, data, ...options)
-    }
+    // Preserve both native append overloads while failing one single-event commit.
+    agent.session.append = new Proxy(append, { apply(target, receiver, args) {
+      const [type, data] = args
+      if (type === 'user/message' && data.id === b.id) throw new Error('Injected partial write failure')
+      return Reflect.apply(target, receiver, args)
+    } })
     agent.followup(c)
     release.resolve(undefined)
     await hold

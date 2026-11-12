@@ -14,7 +14,10 @@ import type {
   InboxTarget,
   InboxWireState,
 } from '@deepseek-ai/dsh-agent'
+import { isJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import { z } from 'zod'
+
+const wireMessageSchema = z.custom<JsonValue>(isJsonValue, { message: 'inbox message must be losslessly JSON-serializable' })
 
 /** Wire validation for pending agent input reconstructed from durable inbox splices. */
 export const inboxProjectionSchema = z.object({
@@ -100,15 +103,17 @@ export const inboxProjectionDefinition = {
   wire: {
     // Pending messages round-trip the session log as lossless JSON. Claims expose
     // only the identities and positions needed to follow later queue restoration.
-    viewSchema: z.object({ 'next-turn': z.array(z.custom<UserMessage>()),
-      'next-step': z.array(z.custom<UserMessage>()),
+    viewSchema: z.object({ 'next-turn': z.array(wireMessageSchema),
+      'next-step': z.array(wireMessageSchema),
       activeClaim: z.object({ turn: z.number().int().nonnegative(), step: z.number().int().positive(),
-        nextStep: z.array(z.custom<MessageId>()).readonly(), nextTurn: z.array(z.custom<MessageId>()).readonly() }).optional(),
-    }) as unknown as z.ZodType<InboxWireState>,
-    view: (state: InboxState) => ({ 'next-turn': state['next-turn'], 'next-step': state['next-step'],
+        nextStep: z.array(z.custom<MessageId>()).readonly(), nextTurn: z.array(z.custom<MessageId>()).readonly() }).exactOptional(),
+    }),
+    view: (state: InboxState): InboxWireState => ({
+      'next-turn': state['next-turn'].map(message => wireMessageSchema.parse(message)),
+      'next-step': state['next-step'].map(message => wireMessageSchema.parse(message)),
       ...state.claim === undefined ? {} : { activeClaim: { turn: state.claim.turn, step: state.claim.step,
         nextStep: state.claim.nextStep.map(message => message.id), nextTurn: state.claim.nextTurn.map(message => message.id) } },
-    }) as unknown as InboxWireState,
+    }),
   },
   stateVersion: 2,
 } satisfies ProjectionDefinition<'inbox', InboxState>

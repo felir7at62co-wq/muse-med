@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-feishu-settings",
   "description": "Feishu bridge setup for the product home: the feishu switch row, QR app registration, and the Web Settings page that drives the bridge row's activation key",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "publishConfig": {
     "access": "public"
   },
@@ -46,10 +46,14 @@
     "cordis.patch.yml",
     "lib/types/*.js",
     "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "lib/**/*.js.map",
     "lib/typert.host.js",
     "lib/typert.host.d.ts",
     "lib/typert.remote-client.js",
-    "lib/typert.remote-client.d.ts"
+    "lib/typert.remote-client.d.ts",
+    "lib/typert.remote-client.d.ts.map",
+    "src"
   ],
   "license": "MIT",
   "dsh": {
@@ -76,7 +80,7 @@
     "@deepseek-ai/schemastery": "workspace:~",
     "@larksuite/channel": "0.4.1",
     "qrcode-generator": "1.4.4",
-    "zod": "^4.4.3",
+    "zod": "4.6.6",
     "@deepseek-ai/dsh-typert-protocol": "workspace:*"
   },
   "peerDependencies": {

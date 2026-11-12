@@ -1,0 +1,43 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/session/session-coordinator/README.md
+/:
+  en: 14c8940e78d2b197
+  zh: 4d2fadbb4d0b34e4
+/deepseek-ai-dsh-session-coordinator:
+  en: 9ee5ddd4329060c3
+  zh: 2a8df5a0288f3add
+/deepseek-ai-dsh-session-coordinator/summary:
+  en: 079df48e163834c2
+  zh: cad742297c7e4b56
+/deepseek-ai-dsh-session-coordinator/table-of-contents:
+  en: fe1ecb09a73d1c7a
+  zh: 75a64837d8b79682
+/deepseek-ai-dsh-session-coordinator/use-this-package:
+  en: 55caa8c01758c5cc
+  zh: 2809b9d000fba5ca
+/deepseek-ai-dsh-session-coordinator/understand-the-implementation:
+  en: 8bc752f02e63988b
+  zh: 5433806ec3b16298
+/deepseek-ai-dsh-session-coordinator/model-experience:
+  en: 215e7ba838619b7b
+  zh: 33c5a59b497cad40
+/deepseek-ai-dsh-session-coordinator/model-experience/routing-and-report-tools:
+  en: 146f92401e07191b
+  zh: 24cce1583fd5f3af
+/deepseek-ai-dsh-session-coordinator/model-experience/routing-and-report-tools/what-the-model-sees:
+  en: 76e13e091e84ccb4
+  zh: bb9daada078be277
+/deepseek-ai-dsh-session-coordinator/model-experience/routing-and-report-tools/token-effect:
+  en: 67e56cf74d1c8637
+  zh: eaa7858557e63260
+/deepseek-ai-dsh-session-coordinator/model-experience/routing-and-report-tools/kv-cache-effect:
+  en: 40ca7838a92fd7b2
+  zh: c5566127f55f2414
+/deepseek-ai-dsh-session-coordinator/known-limitations-and-deferred-work:
+  en: cc41fcf59ea3d304
+  zh: ddb32a3e74d6a5ed
+/deepseek-ai-dsh-session-coordinator/known-limitations-and-deferred-work/dev-note:
+  en: e558bfd2b434b37f
+  zh: f771173276a4a660

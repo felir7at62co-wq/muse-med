@@ -255,7 +255,7 @@ describe('package dependency scope', () => {
     expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-experimental-forge'])
       .toEqual(['changeRequestKey'])
     expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-experimental-worktree'])
-      .toEqual(['generatedWorktreeName'])
+      .toEqual(['generatedWorktreeName', 'CREATED_RECORD', 'createdWorktreeSchema'])
     expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-fs']).toEqual(['FsError'])
     expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-session'])
       .toEqual(['SESSION_FORMAT_VERSION', 'appendPluginRecord', 'pluginRecordOf'])
@@ -1140,6 +1140,36 @@ describe('dependency sections', () => {
       'verify-package-dependencies: 1 Host runtime edge(s) remain in peerDependencies for shared exports or required services across 1 package(s):',
       '  @deepseek-ai/dsh-probe -> @deepseek-ai/dsh-runtime: @deepseek-ai/dsh-runtime#runtimeValue',
     ])
+  })
+
+  it('keeps native generation bindings and provider rejection imports on shared peers', async () => {
+    const imports = {
+      '@deepseek-ai/dsh-jubian-api': ['buildDocumentObjectKey', 'MANUSCRIPT_SCRIPT_FORMATS', 'buildProjectShareUsersRequest'],
+      '@deepseek-ai/dsh-llm': ['ReasoningEffortId'],
+      '@deepseek-ai/dsh-tools/pipeline': ['TOOL_BODY_META_KEY'],
+      '@deepseek-ai/dsh-workspace': ['WorkspaceId'],
+    }
+    const providers = ['@deepseek-ai/dsh-jubian-api', '@deepseek-ai/dsh-llm', '@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-workspace']
+    const root = mkdtempSync(join(tmpdir(), 'dsh-generation-dependencies-'))
+    roots.push(root)
+    const subject = pkg('@f/generation', 'packages/core/generation/package.json', {
+      dependencies: Object.fromEntries(providers.map(name => [name, 'workspace:*'])),
+      devDependencies: { [CORDIS]: 'workspace:~' },
+      peerDependencies: { [CORDIS]: 'workspace:~' },
+    })
+    mkdirSync(join(root, subject.dir, 'src'), { recursive: true })
+    writeFileSync(join(root, subject.dir, 'src/index.ts'), Object.entries(imports)
+      .map(([specifier, names]) => `import { ${names.join(', ')} } from ${JSON.stringify(specifier)}`).join('\n') + '\n')
+    const found = await readPackageDependencyFacts(root, subject, 'configured-host',
+      new Set([CORDIS, subject.name, ...providers]), PACKAGE_DEPENDENCY_POLICY)
+    const expected = expectedPackageDependencies(found)
+    for (const provider of providers) expect(expected.get(provider)?.section).toBe('peer-dev')
+    repairPackageDependencyManifest(found)
+    expect(subject.manifest.dependencies).toBeUndefined()
+    for (const provider of providers) {
+      expect(subject.manifest.peerDependencies?.[provider]).toBe('workspace:*')
+      expect(subject.manifest.devDependencies?.[provider]).toBe('workspace:*')
+    }
   })
 
   it('requires both peer and development declarations for a service without a value import', () => {

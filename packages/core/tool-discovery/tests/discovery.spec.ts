@@ -698,7 +698,7 @@ describe('Loader-composed tool discovery', () => {
     try {
       const parent = await f.create('discovery-parent')
       await search(f, parent, 'video_inspect')
-      const child = await f.create('discovery-child', { parentAgent: parent, meta: { cwd: root, parentSession: parent.id, origin: 'subagent' } })
+      const child = await f.create('discovery-child', { meta: { cwd: root, parentSession: parent.id, origin: 'subagent' } })
       expect(await shown(f.ctx, child)).toEqual(['base_read', 'tool_context', 'tool_search'])
       await search(f, child, 'export_word')
       expect(await shown(f.ctx, child)).toEqual(['base_read', 'export_word', 'tool_context', 'tool_search'])

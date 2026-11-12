@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-muse-market",
-  "version": "0.2.2-rc.1",
+  "version": "0.2.2-rc.2",
   "private": true,
   "description": "Skill publications with separate local storage, activation and optional account-bound cloud services",
   "type": "module",
@@ -69,10 +69,14 @@
     "lib/cloud-values.browser.js",
     "lib/types/**/*.js",
     "lib/types/**/*.d.ts",
+    "lib/types/**/*.d.ts.map",
+    "lib/**/*.js.map",
     "lib/typert.host.js",
     "lib/typert.host.d.ts",
     "lib/typert.remote-client.js",
-    "lib/typert.remote-client.d.ts"
+    "lib/typert.remote-client.d.ts",
+    "lib/typert.remote-client.d.ts.map",
+    "src"
   ],
   "license": "MIT",
   "dependencies": {
@@ -84,7 +88,7 @@
     "@deepseek-ai/schemastery": "workspace:~",
     "fflate": "^0.8.3",
     "yaml": "^2.4.2",
-    "zod": "^4.4.3",
+    "zod": "4.6.6",
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-projection": "workspace:*",

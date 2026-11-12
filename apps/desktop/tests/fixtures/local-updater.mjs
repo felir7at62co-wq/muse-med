@@ -17,7 +17,7 @@ import { DesktopMandatoryUpdatePolicy, resolveDesktopPolicyConfig } from '../../
 import { DesktopMandatoryUpdateWindow } from '../../lib/types/mandatory-update-window.js'
 import { DesktopUpdateOverlays } from '../../lib/types/update-overlay.js'
 import { DesktopUpdatePreparationError } from '../../lib/types/update-error.js'
-import { DesktopUpdateHttpExecutor } from '../../lib/types/update-http-executor.js'
+import { DesktopUpdateHttpExecutor } from '../../lib/types/updates/electron-updater/http-executor.js'
 import { DesktopUpdateOverlays } from '../../lib/types/update-overlay.js'
 import { qualifyUpdateDialogs } from './update-dialogs.mjs'
 

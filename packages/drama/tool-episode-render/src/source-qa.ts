@@ -4,7 +4,7 @@ import { constants } from 'node:fs'
 import { lstat, open, readFile, realpath, stat } from 'node:fs/promises'
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { fileSha256 } from './cache.ts'
-import { normalizeOcrText } from '@deepseek-ai/dsh-tool-video-inspect'
+import { normalizeOcrText } from '@deepseek-ai/dsh-tool-video-inspect/source-qa'
 
 /** Exact local artifacts whose successful execution the Host must establish. */
 export interface SourceQaEvidenceBinding {

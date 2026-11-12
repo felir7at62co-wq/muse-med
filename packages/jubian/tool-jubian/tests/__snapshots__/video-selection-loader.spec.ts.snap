@@ -60,11 +60,13 @@ exports[`delivers a fresh subagent the parent video selection through the loaded
   },
   "contexts": [
     "本会话的视频生成设置：seedance2.0；分辨率 480p；通道 FANG_ZHOU；modelId=doubao-seedance-2-0-260128；standardId=8。单次生成时长上限 15 秒；上限不代表推荐包长。后续生成以此会话选择为准；读取剧变项目不改变此选择，也不修改项目默认值。仅同步本次要生成的视频卡并回读，保留提示词与素材。若原视频包超过新上限，使用 jubian_video_model 的 duration_conflict 询问用户保留模型重新拆包，或选择可容纳原包的模型；同批合并询问，不截断对白。已提交任务保持原配置。",
-    "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.
+    "<system-reminder>
+The following information describes your current session:
 
 本会话的视频生成设置：seedance2.0；分辨率 480p；通道 FANG_ZHOU；modelId=doubao-seedance-2-0-260128；standardId=8。单次生成时长上限 15 秒；上限不代表推荐包长。后续生成以此会话选择为准；读取剧变项目不改变此选择，也不修改项目默认值。仅同步本次要生成的视频卡并回读，保留提示词与素材。若原视频包超过新上限，使用 jubian_video_model 的 duration_conflict 询问用户保留模型重新拆包，或选择可容纳原包的模型；同批合并询问，不截断对白。已提交任务保持原配置。
 
-You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it.",
+You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it.
+</system-reminder>",
   ],
 }
 `;

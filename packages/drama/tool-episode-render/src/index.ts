@@ -24,7 +24,7 @@ import { AUDIO_MIX_RESULT_SCHEMA, previewAudio } from './audio.ts'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { createVideoSourceQaVerifier, type VideoSourceQaVerifier } from '@deepseek-ai/dsh-tool-video-inspect'
+import { createVideoSourceQaVerifier, type VideoSourceQaVerifier } from '@deepseek-ai/dsh-tool-video-inspect/source-qa'
 import z from '@deepseek-ai/schemastery'
 import { FONT_FAMILY_PATTERN, deliveryRenderSettings } from './delivery.ts'
 import { deliveryPolicyFor, resolveDeliveryPolicy } from './delivery-policy.ts'
@@ -51,13 +51,9 @@ import { formatSrtDocument, normalizeSubtitleDisplay, readSubtitleCues, subtitle
 import { StaleSubtitleClockError, subtitleClockPath, writeDerivedSubtitleClock } from './subtitle-clock.ts'
 import type { SourceQaVerifier } from './source-qa.ts'
 
-export { findShortDramaProject, isShortDramaProject } from './delivery-policy.ts'
-
 export type { MediaCommandOutcome, ProcessChannel, RenderSettings } from './types.ts'
-export { prepareStagedEpisodeAudio, stagedEpisodeEndingAssets, preparedSubtitleClockInputs } from './prepare.ts'
-export { captureEpisodeSourceReview } from './episode-source-capture.ts'
+export { prepareStagedEpisodeAudio, stagedEpisodeEndingAssets } from './prepare.ts'
 export type { EpisodeSourceCapture } from './episode-source-capture.ts'
-export { createSourceQaStagedAccess } from './source-qa.ts'
 export type { SourceQaStagedAccess } from './source-qa.ts'
 export type { PreparedSubtitleClockInputs } from './prepare.ts'
 
