@@ -160,8 +160,14 @@ export class MuseMediaImporter {
     const root = await this.fs.resolve(policy.workspaceRoot, { signal })
     if (policy.mode === 'workspace-write' && !this.fs.contains(root, target)) throw new MuseMediaImportError('workspace-outside')
     // Confinement is required for workspace-write publication, including helper descendants.
-    if (policy.mode !== 'danger-full-access' && this.sandbox === undefined) throw new SandboxUnavailableError(policy.mode)
+    if (policy.mode !== 'danger-full-access') this.requiredSandbox(policy.mode)
     return { cwd, policy }
+  }
+
+  private requiredSandbox(mode: Exclude<SandboxExecutionPolicy['mode'], 'danger-full-access'>): Context['sandbox'] {
+    const sandbox = this.sandbox
+    if (sandbox === undefined) throw new SandboxUnavailableError(mode)
+    return sandbox
   }
 
   private async argv(spec: HelperSpec, operation: 'receive' | 'cleanup' | 'finalize', policy: SandboxExecutionPolicy,
@@ -169,8 +175,7 @@ export class MuseMediaImporter {
     const node = await this.subprocess.resolveExecutable(this.options.nodePath, undefined, signal)
     const command = [node, '--input-type=module', '-e', MEDIA_FILE_HELPER, JSON.stringify({ ...spec, operation, controlFd: SUBPROCESS_CONTROL_FD })]
     if (policy.mode === 'danger-full-access') return command
-    const sandbox = this.sandbox
-    if (sandbox === undefined) throw new SandboxUnavailableError(policy.mode)
+    const sandbox = this.requiredSandbox(policy.mode)
     return (await sandbox.confine(command, { ...policy, mode: policy.mode }, signal)).argv
   }
 
