@@ -223,7 +223,7 @@ it('distinguishes missing from malformed, over-budget and nonregular journal fil
   await expect(f.job.read()).rejects.toThrow(SyntaxError)
 })
 
-it('observes bounded state JSON and rejects missing-parent errors, malformed JSON and oversized files', async () => {
+it('observes bounded state JSON and preserves platform path errors, malformed JSON and size limits', async () => {
   const f = await fixture(), path = join(f.root, 'state.json')
   expect(await readEpisodeStateSnapshot(path, 4)).toBeUndefined()
   await writeFile(path, '{}'); expect(await readEpisodeStateSnapshot(path, 2)).toEqual({})
@@ -447,6 +447,25 @@ it('propagates real journal and candidate path errors instead of interpreting th
   const execution = await f.execution(), stage = dirname(execution.candidatePath)
   await rm(stage, { recursive: true }); await writeFile(stage, 'not a directory')
   await expect(f.job.assertAdmission(execution.identity)).rejects.toThrow()
+})
+
+it('propagates non-absence metadata errors through both journal readers on every platform', async () => {
+  const f = await fixture(), target = join(f.root, 'denied.json'), lstat = files.lstat
+  const denied = Object.assign(new Error('journal metadata denied'), { code: 'EACCES' })
+  const spy = vi.spyOn(files, 'lstat').mockImplementation(async (...args) => {
+    if (args[0] === target) throw denied
+    return lstat(...args)
+  })
+  onTestFinished(() => { spy.mockRestore() })
+  await expect(readEpisodeRecord(target, 16384)).rejects.toBe(denied)
+  // The POSIX snapshot reader opens directly; force the same parser error at that operation.
+  const open = files.open
+  const openSpy = vi.spyOn(files, 'open').mockImplementation(async (...args) => {
+    if (args[0] === target) throw denied
+    return open(...args)
+  })
+  onTestFinished(() => { openSpy.mockRestore() })
+  await expect(readEpisodeStateSnapshot(target, 16384)).rejects.toBe(denied)
 })
 
 it.each(['journal', 'input'] as const)('refuses a real %s replacement between lstat and open', async (kind) => {

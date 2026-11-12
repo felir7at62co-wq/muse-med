@@ -20,6 +20,10 @@ export function generatedRemoteMockPlugin(repositoryRoot: string) {
       'packages/host/feishu-settings/src/client/index.ts',
       'packages/host/feishu-settings/tests/browser-plugin.client.spec.tsx',
     ]],
+    ['@deepseek-ai/dsh-session-video/remote', [
+      'packages/client/ui-session-video/src/client/index.ts',
+      'packages/client/ui-session-video/tests/locales.client.spec.ts',
+    ]],
   ]
   const remoteOwners = new Map(remoteFiles.map(([id, files]) => [id, files.map(file =>
     join(repositoryRoot, file).replaceAll('\\', '/'))]))

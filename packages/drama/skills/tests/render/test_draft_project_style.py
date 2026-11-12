@@ -2,6 +2,7 @@
 import importlib.util
 from copy import deepcopy
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -114,7 +115,7 @@ class DraftStyleResolutionTests(unittest.TestCase):
             self.assertEqual(self.inputs.subtitle_visual(timeline, self.project), visual)
             style = self.inputs.draft_style(timeline, self.project)
             self.assertEqual(style['watermark'], {'font_size_ui': 8})
-            self.assertEqual(style['subtitle']['font_family'], None)
+            self.assertEqual(style['subtitle']['font_family'], visual['font_family'])
             self.assertEqual(style['subtitle']['font_size_ui'], 11)
             self.assertEqual(style['subtitle']['border_width_ui'], 20)
             self.assertAlmostEqual(style['subtitle']['transform_y'], 1 - 2 * visual['center_y_ratio'])
@@ -162,6 +163,24 @@ class DraftStyleResolutionTests(unittest.TestCase):
                                       'MUSE_DEFAULT_SUBTITLE_VISUAL': '{}'}, clear=True):
             with self.assertRaisesRegex(ValueError, 'complete'):
                 self.inputs.draft_style({}, self.project)
+
+    def test_product_font_inherits_runtime_family_and_visual_family_takes_precedence(self):
+        with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
+                                      'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(VISUAL_STYLE),
+                                      'MUSE_SUBTITLE_FONT_FAMILY': 'Zhuque Fangsong (technical preview)'}, clear=True):
+            self.assertEqual(self.inputs.draft_style({}, self.project)['subtitle']['font_family'],
+                             'Zhuque Fangsong (technical preview)')
+            explicit = {**VISUAL_STYLE, 'font_family': 'Configured face'}
+            with patch.dict('os.environ', {'MUSE_DEFAULT_SUBTITLE_VISUAL': json.dumps(explicit)}):
+                self.assertEqual(self.inputs.draft_style({}, self.project)['subtitle']['font_family'],
+                                 'Configured face')
+
+    def test_product_missing_font_is_not_treated_as_verified_system_default(self):
+        with patch.dict('os.environ', {}, clear=True):
+            choice = self.inputs.subtitle_font_request(None, 'backend', required=True)
+        self.assertEqual(choice['status'], 'missingIdentity')
+        self.assertFalse(choice['delivery_ready'])
+        self.assertIsNone(choice['resolved'])
 
     def test_forced_policy_ignores_invalid_old_subtitle_but_validates_watermark(self):
         old = {'delivery': {'draft_style': {'subtitle': {'font_size_ui': -1},
@@ -362,7 +381,7 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
 
     def make_candidate(self, style=None, medium='photorealistic', snapshot=None,
                        has_snapshot=False, ending_assets=False, geometry=None, visual=None,
-                       snapshot_visual=None, has_visual_snapshot=False):
+                       snapshot_visual=None, has_visual_snapshot=False, expected_ready=True):
         temporary = tempfile.TemporaryDirectory(prefix='draft-project-style-')
         self.addCleanup(temporary.cleanup)
         project = Path(temporary.name)
@@ -403,8 +422,9 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
         with patch.object(sys, 'path', [*sys.path]):
             result = self.generator.generate_draft(str(editor), str(materials),
                                                     name_prefix='样式候选-', project=str(project))
-        self.assertTrue(result['success'], result)
-        self.assertEqual(result['drafts_created'], 1, result)
+        self.assertEqual(result['success'], expected_ready, result)
+        self.assertEqual(result['drafts_created'], int(expected_ready), result)
+        self.assertTrue(result['drafts'][0]['saved'], result)
         draft_path = Path(result['drafts'][0]['path'])
         content = json.loads((draft_path / 'draft_content.json').read_text(encoding='utf-8'))
         review = json.loads((draft_path / 'muse-review.json').read_text(encoding='utf-8'))
@@ -438,23 +458,28 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
             self.assertEqual(material['letter_spacing'], 0.0)
             self.assertEqual(segment['clip']['transform']['y'], transform_y)
 
-    def test_project_style_is_saved_with_missing_font_fallback(self):
-        content, result, review = self.make_candidate(style=PROJECT_STYLE)
+    def test_missing_font_keeps_editable_candidate_but_blocks_delivery(self):
+        content, result, review = self.make_candidate(style=PROJECT_STYLE, expected_ready=False)
         marks = self.text_rows(content, watermark=True)
         self.assertEqual(len(marks), 1)
         self.assertEqual(marks[0][2]['styles'][0]['size'], 7)
         self.assert_subtitle_style(content, transform_y=-0.4)
         self.assertEqual(review['draft_style'], PROJECT_STYLE)
         self.assertEqual(review['subtitle_font']['requested'], '山海经')
-        self.assertEqual(review['subtitle_font']['resolved'], '剪映系统默认字体')
-        self.assertEqual(review['subtitle_font']['status'], 'fallback')
+        self.assertIsNone(review['subtitle_font']['resolved'])
+        self.assertEqual(review['subtitle_font']['status'], 'backendUnsupported')
+        self.assertFalse(review['subtitle_font']['delivery_ready'])
+        self.assertEqual(result['quality'], 'needs_repair')
+        self.assertIn(result['drafts'][0]['path'], result['error'])
+        self.assertIn(result['drafts'][0]['review_path'], result['error'])
         self.assertIsNone(review['subtitle_font']['resource_id'])
         for warnings in (result['warnings'], review['warnings']):
-            self.assertTrue(any('山海经' in warning and '回退剪映系统默认字体' in warning
+            self.assertTrue(any('山海经' in warning and '不能按请求字体交付' in warning
                                  for warning in warnings), warnings)
 
     def test_product_forced_style_is_saved_as_editable_text_despite_old_snapshot(self):
-        visual = {**VISUAL_STYLE, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9}
+        visual = {**VISUAL_STYLE, 'center_y_ratio': 0.736747073, 'max_width_ratio': 0.9,
+                  'font_family': 'Zhuque Fangsong (technical preview)'}
         old = {'watermark': {'font_size_ui': 7}, 'subtitle': {
             'font_family': 'legacy', 'font_size_ui': 31, 'border_width_ui': 2, 'transform_y': 0.2}}
         with patch.dict('os.environ', {'MUSE_FORCE_SUBTITLE_VISUAL': '1',
@@ -462,10 +487,11 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
             content, _result, review = self.make_candidate(style=PROJECT_STYLE, snapshot=old,
                                                            has_snapshot=True, visual=VISUAL_STYLE,
                                                            snapshot_visual={}, has_visual_snapshot=True,
-                                                           geometry={'width': 1440, 'height': 2560})
+                                                           geometry={'width': 1440, 'height': 2560}, expected_ready=False)
         self.assertEqual(self.text_rows(content, watermark=True)[0][2]['styles'][0]['size'], 7)
         self.assert_subtitle_style(content, transform_y=1 - 2 * visual['center_y_ratio'])
-        self.assertEqual(review['subtitle_font']['status'], 'default')
+        self.assertEqual(review['subtitle_font']['status'], 'backendUnsupported')
+        self.assertEqual(review['subtitle_font']['requested'], visual['font_family'])
         self.assertEqual(review['subtitle_visual_adapter']['typography_source'], 'product_editor_defaults')
         for _segment, material, _text in self.text_rows(content):
             self.assertEqual(material['type'], 'text')
@@ -508,7 +534,7 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
         self.assertEqual(segment.clip_settings.transform_y, LEGACY_STYLE['subtitle']['transform_y'])
 
     def test_project_visual_style_overrides_only_subtitles_and_reports_unverified_adapter(self):
-        content, result, review = self.make_candidate(style=PROJECT_STYLE, visual=VISUAL_STYLE)
+        content, result, review = self.make_candidate(style=PROJECT_STYLE, visual=VISUAL_STYLE, expected_ready=False)
         self.assertEqual(self.text_rows(content, watermark=True)[0][2]['styles'][0]['size'], 7)
         self.assertEqual(review['subtitle_visual'], VISUAL_STYLE)
         self.assertEqual(review['subtitle_visual_adapter']['status'], 'needs_preview')
@@ -529,7 +555,7 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
 
     def test_empty_visual_snapshot_keeps_the_existing_draft_style(self):
         content, result, review = self.make_candidate(style=PROJECT_STYLE, visual=VISUAL_STYLE,
-                                                       snapshot_visual={}, has_visual_snapshot=True)
+                                                       snapshot_visual={}, has_visual_snapshot=True, expected_ready=False)
         self.assertEqual(review['draft_style'], PROJECT_STYLE)
         self.assertNotIn('subtitle_visual_adapter', review)
         self.assert_subtitle_style(content, transform_y=-0.4)
@@ -540,7 +566,7 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
         saved = {**VISUAL_STYLE, 'center_y_ratio': 0.6, 'max_width_ratio': 0.9,
                  'font_family': 'Saved reference font'}
         content, result, review = self.make_candidate(style=PROJECT_STYLE, visual=project,
-                                                     snapshot_visual=saved, has_visual_snapshot=True)
+                                                     snapshot_visual=saved, has_visual_snapshot=True, expected_ready=False)
         self.assertEqual(review['subtitle_visual'], saved)
         self.assertEqual(review['subtitle_font']['requested'], '山海经')
         self.assertEqual(review['subtitle_visual_adapter']['reference_font_family'], 'Saved reference font')
@@ -577,7 +603,7 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
         content, result, review = self.make_candidate(visual=VISUAL_STYLE)
         self.assertTrue(result['success'])
         self.assert_subtitle_style(content, transform_y=-0.5)
-        self.assertEqual(review['subtitle_font']['status'], 'default')
+        self.assertEqual(review['subtitle_font']['status'], 'notRequested')
         self.assertTrue(any('旧默认' in warning and '预览' in warning for warning in result['warnings']))
 
     def test_no_visual_section_keeps_the_complete_legacy_subtitle_path(self):
@@ -640,8 +666,9 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
 
     def test_style_verification_observes_changed_font_id_subtitle_size_and_watermark(self):
         font = next(item for item in self.generator.draft.FontType if not item.value.is_vip)
-        content, _result, review = self.make_candidate(style={'subtitle': {'font_family': font.name}})
-        self.assertEqual(review['subtitle_font']['status'], 'reference_unverified')
+        content, _result, review = self.make_candidate(style={'subtitle': {'font_family': font.name}}, expected_ready=False)
+        self.assertEqual(review['subtitle_font']['status'], 'resourceUnverified')
+        self.assertTrue(review['subtitle_font']['saved_reference_matched'])
         self.assertEqual(review['subtitle_font']['resource_id'], font.value.resource_id)
         self.generator.verify_draft_delivery(content, **self.verification)
         cases = ((False, 'font_id', '字体资源引用'),
@@ -661,26 +688,81 @@ class DraftProjectStyleGenerationTests(unittest.TestCase):
 
     def test_font_choice_reports_default_unknown_vip_and_free_resource_evidence(self):
         default = self.generator.draft_font_choice(None)
-        self.assertEqual(default, {'requested': None, 'resolved': '剪映系统默认字体',
-                                   'resource_id': None, 'status': 'default', 'warnings': []})
+        self.assertEqual(default['status'], 'notRequested')
+        self.assertTrue(default['delivery_ready'])
+        self.assertIsNone(default['resolved'])
         vip = next(item for item in self.generator.draft.FontType if item.value.is_vip)
-        for name, reason in (('山海经', '不在当前打包字体目录'), (vip.name, '会员资源')):
+        for name, reason, status in (('山海经', '本地字体绑定', 'backendUnsupported'),
+                                     (vip.name, '会员资源', 'resourceUnavailable')):
             with self.subTest(font=name):
                 choice = self.generator.draft_font_choice(name)
                 self.assertEqual(choice['requested'], name)
-                self.assertEqual(choice['resolved'], '剪映系统默认字体')
-                self.assertEqual(choice['status'], 'fallback')
+                self.assertIsNone(choice['resolved'])
+                self.assertEqual(choice['status'], status)
+                self.assertFalse(choice['delivery_ready'])
                 self.assertIsNone(choice['resource_id'])
-                self.assertTrue(any(reason in warning and '回退剪映系统默认字体' in warning
+                self.assertTrue(any(reason in warning and '不能按请求字体交付' in warning
                                     for warning in choice['warnings']), choice)
         free = next(item for item in self.generator.draft.FontType if not item.value.is_vip)
         choice = self.generator.draft_font_choice(free.name)
         self.assertEqual(choice['requested'], free.name)
         self.assertEqual(choice['resolved'], free.value.name)
         self.assertEqual(choice['resource_id'], free.value.resource_id)
-        self.assertEqual(choice['status'], 'reference_unverified')
-        self.assertTrue(any('尚未验证本机资源可用性或使用许可' in warning and '未下载字体' in warning
+        self.assertEqual(choice['status'], 'resourceUnverified')
+        self.assertFalse(choice['delivery_ready'])
+        self.assertTrue(any('尚未验证本机资源可用性' in warning and '未下载字体' in warning
                             for warning in choice['warnings']), choice)
+
+    def test_managed_file_is_retained_and_referenced_by_each_generated_subtitle(self):
+        spec = importlib.util.spec_from_file_location(
+            'managed_font_test_fixture', Path(__file__).with_name('test_draft_fonts.py'))
+        fixtures = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fixtures)
+        temporary = tempfile.TemporaryDirectory(prefix='managed-font-runtime-')
+        self.addCleanup(temporary.cleanup)
+        folder = Path(temporary.name) / 'fonts'
+        source, notice = fixtures.managed_font(folder)
+        original = source.read_bytes(), notice.read_bytes()
+        with patch.dict(os.environ, {'MUSE_FONTS_DIR': str(folder)}):
+            content, result, review = self.make_candidate(
+                style={'subtitle': {'font_family': 'Managed Test Font'}})
+        selected = review['subtitle_font']
+        self.assertEqual(selected['status'], 'localFileBound')
+        self.assertTrue(selected['delivery_ready'])
+        self.assertIsNone(selected['resource_id'])
+        self.assertEqual(Path(selected['path']).read_bytes(), original[0])
+        self.assertEqual(Path(selected['license_path']).read_bytes(), original[1])
+        self.assertTrue(Path(selected['path']).is_relative_to(Path(result['drafts'][0]['path'])))
+        for _segment, _material, text in self.text_rows(content):
+            self.assertTrue(text['styles'])
+            self.assertTrue(all(span['font'] == {'id': '', 'path': selected['path']} for span in text['styles']))
+        self.assertEqual((source.read_bytes(), notice.read_bytes()), original)
+        self.verification['ending']['subtitle_font'] = selected
+        self.generator.verify_draft_delivery(content, **self.verification)
+
+    def test_saved_font_checks_every_subtitle_span_and_never_certifies_catalog_availability(self):
+        font = next(item for item in self.generator.draft.FontType if not item.value.is_vip)
+        choice = self.generator.draft_font_choice(font.name)
+        content, _result, _review = self.make_candidate(
+            style={'subtitle': {'font_family': font.name}}, expected_ready=False)
+        checked = self.generator.verify_saved_subtitle_font(content, choice)
+        self.assertTrue(checked['saved_reference_matched'])
+        self.assertFalse(checked['delivery_ready'])
+        missing = deepcopy(content)
+        missing['tracks'] = [track for track in missing['tracks']
+                             if track.get('type') != 'text' or track.get('name') == 'AI内容标识']
+        rejected = self.generator.verify_saved_subtitle_font(missing, choice, expected_subtitle_count=2)
+        self.assertEqual(rejected['status'], 'readbackMismatch')
+        self.assertFalse(rejected['delivery_ready'])
+        for font_field in ({}, {'font': {'id': 'wrong-resource'}}):
+            with self.subTest(font_field=font_field):
+                changed = deepcopy(content)
+                _segment, material, text = self.text_rows(changed)[-1]
+                text['styles'].append({'range': [1, 2], **font_field})
+                material['content'] = json.dumps(text)
+                rejected = self.generator.verify_saved_subtitle_font(changed, choice)
+                self.assertEqual(rejected['status'], 'readbackMismatch')
+                self.assertFalse(rejected['delivery_ready'])
 
     def test_ui7_watermark_uses_estimated_safe_layout_on_landscape_and_portrait_canvases(self):
         for width, height in ((2560, 1440), (1440, 2560), (480, 854)):

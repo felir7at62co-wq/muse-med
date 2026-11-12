@@ -19,6 +19,8 @@ import type { DramaRenderReport, TimelineClip } from './types.ts'
 import { verifyEpisode, type VerifyInput } from './verify.ts'
 import { summarizeSourceQa, type SourceQaVerifier } from './source-qa.ts'
 import { assertVideoHashesAllowed } from './video.ts'
+import { verifyEpisodeContentReview, type ContentReviewVerifier } from './content-review.ts'
+import { verifyDraftSubtitleFont } from './draft-font.ts'
 
 const DRAFTS = '02_剪映草稿'
 const UPLOAD = '01_可交付视频'
@@ -31,6 +33,7 @@ interface StageDeliveryInput extends VerifyInput {
   readonly transcriptsPath?: string
   readonly decisionsPath?: string
   readonly sourceQaVerifier?: SourceQaVerifier
+  readonly contentReviewVerifier?: ContentReviewVerifier
 }
 
 const digest = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{64}$/.test(value)
@@ -148,7 +151,8 @@ async function checkBoundSubtitleRules(input: VerifyInput, render: DeliveryRende
 
 /** Verify the editable draft, then match its selected body to the independently verified render. */
 async function checkDraft(project: string, episode: string, draft: string, render: DeliveryRenderInputs,
-  separateAudio: boolean, requireSpeech: boolean, episodeDir?: string): Promise<string> {
+  separateAudio: boolean, requireSpeech: boolean, episodeDir?: string,
+  font?: { readonly fontsDir: string; readonly subtitleCount: number; readonly expectedFamily: string }) {
   const path = resolve(draft, DRAFT_SOURCE)
   const sha = await localDigest(path)
   const source: unknown = JSON.parse(await readFile(path, 'utf8'))
@@ -175,6 +179,7 @@ async function checkDraft(project: string, episode: string, draft: string, rende
   }
   const draftNames = new Set<string>()
   const materialDigests = new Set<string>()
+  let nativeSha = ''
   for (const [files, isMaterial] of [[source.files, false], [source.materials, true]] as const) {
     for (const file of files) {
       if (!object(file) || typeof file.path !== 'string' || !digest(file.sha256) || isAbsolute(file.path) !== isMaterial) {
@@ -188,15 +193,34 @@ async function checkDraft(project: string, episode: string, draft: string, rende
         throw new Error(`剪映草稿引用的素材不在本集目录：${file.path}`)
       }
       if (isMaterial) materialDigests.add(file.sha256)
-      else draftNames.add(file.path)
+      else {
+        draftNames.add(file.path)
+        if (file.path === 'draft_content.json') nativeSha = file.sha256
+      }
     }
   }
   if (!DRAFT_FILES.every(name => draftNames.has(name))) throw new Error('剪映草稿来源回执缺少原生草稿文件。')
   const retained = [render.timeline_sha256, render.subtitle_sha256, ...render.videos.map(item => item.sha256)]
   if (source.audio_mode === 'independent') retained.push(render.master_audio_sha256)
   if (retained.some(sha256 => !materialDigests.has(sha256))) throw new Error('剪映草稿缺少已记录的本集素材。')
+  const fontFiles = font === undefined ? [] : await verifyDraftSubtitleFont({ draft, source, ...font,
+    read: async (path) => {
+      const entry = await localEntry(path)
+      if (!entry?.isFile() || entry.size > 64 * 1024 * 1024) throw new Error('草稿字体证据必须是64MiB以内的普通文件。')
+      return await readFile(path)
+    } })
   if (sha === null || sha !== await localDigest(path)) throw new Error('归档期间剪映草稿来源回执已变化。')
-  return sha
+  return { sha, fontFiles, nativeSha }
+}
+
+/** Retain the initially verified native font references so later editor saves remain user-owned. */
+async function retainNativeFontSnapshot(draft: string, sha256: string) {
+  const path = resolve(draft, 'muse-original-draft-content.json')
+  if (await localEntry(path) === undefined) {
+    await writeFile(path, await readFile(resolve(draft, 'draft_content.json')), { flag: 'wx', mode: 0o600 })
+  }
+  if (await localDigest(path) !== sha256) throw new Error('原始剪映字体快照与已验草稿不一致，不能覆盖或借用旧稿证据。')
+  return { snapshot_path: path, snapshot_sha256: sha256 }
 }
 
 async function checkPreparedSources(project: string, episode: string, render: DeliveryRenderInputs,
@@ -378,13 +402,27 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
       throw new Error('严格声文检查需要工作成片绑定已准备的音画来源。请重新 prepare 并以 resume=true 渲染。')
     }
     const speechEvidence = requireSpeech ? await checkBoundSpeechCoverage(input, render, timeline, prepared) : undefined
-    const draftSha = await checkDraft(project, episode, draft, render, prepared.separateAudio, requireSpeech,
-      requireSourceReview ? episodeDir : undefined)
+    const draftProof = await checkDraft(project, episode, draft, render, prepared.separateAudio, requireSpeech,
+      requireSourceReview ? episodeDir : undefined,
+      requireSourceReview && render.subtitle_visual_verification !== undefined ? {
+        fontsDir: input.settings.fontsDir, expectedFamily: render.subtitle_visual_verification.requested_font,
+        subtitleCount: parseSrtDocument(await readBoundText(subtitleSrt, render.subtitle_sha256), subtitleSrt).length,
+      } : undefined)
+    const draftSha = draftProof.sha
     const sha256 = record.output.sha256
+    const clipDurations = new Map(timeline.clips.map(clip => [clip.shot, clip.durationUs]))
+    const contentReview = requireSourceReview ? await verifyEpisodeContentReview({ project, episode, output,
+      outputSha256: sha256, duration: verified.media.duration_seconds,
+      sources: render.videos.map(row => ({ ...row, duration: Number(clipDurations.get(row.shot)) / 1_000_000 })),
+      cuts: timeline.clips.map(clip => clip.startUs / 1_000_000).slice(1),
+      ...(input.contentReviewVerifier === undefined ? {} : { verifier: input.contentReviewVerifier }) }) : undefined
+    const draftFont = draftProof.fontFiles.length === 0 ? undefined : await retainNativeFontSnapshot(draft, draftProof.nativeSha)
     const body = `${JSON.stringify({ version: 1, status: 'candidate', episode, video, draft, sha256,
       working_output: output, render_source_sha256: sourceSha, draft_source_sha256: draftSha,
       ...(prepared.sourceQa === undefined ? {} : { source_qa_sha256: prepared.sourceQa.sha256 }),
       ...(musicDecision === undefined ? {} : { music_decision: musicDecision }),
+      ...(contentReview === undefined ? {} : { content_review: contentReview }),
+      ...(draftFont === undefined ? {} : { draft_font: draftFont }),
       ...(speechEvidence === undefined ? {} : { speech_evidence_sha256: speechEvidence }) }, null, 2)}\n`
     const present = await localEntry(receipt)
     if (present !== undefined && (!present.isFile() || await readFile(receipt, 'utf8') !== body)) {
@@ -403,6 +441,15 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
       await assertVideoHashesAllowed(project, [sha256, ...record.inputs, ...render.videos.map(item => item.sha256),
         ...prepared.reviewedAudioHashes])
       const recheckSelection = async () => {
+        if (draftFont !== undefined && await localDigest(draftFont.snapshot_path) !== draftFont.snapshot_sha256) {
+          throw new Error('归档期间原始剪映字体快照已变化。')
+        }
+        for (const file of draftProof.fontFiles) {
+          if (await localDigest(file.path) !== file.sha256) throw new Error('归档期间草稿字体文件或引用证据已变化。')
+        }
+        if (contentReview !== undefined) for (const file of contentReview.files) {
+          if (await localDigest(file.path) !== file.sha256) throw new Error('归档期间内容审查证据已变化。')
+        }
         if (prepared.sourceSha !== (await checkPreparedSources(project, episode, render, verified.clips,
           requireSpeech, requireSourceReview, input.sourceQaVerifier)).sourceSha
           || draftSha !== await localDigest(resolve(draft, DRAFT_SOURCE))
@@ -441,8 +488,14 @@ export async function stageEpisodeDelivery(input: StageDeliveryInput, draft: str
         await rmdir(staging)
       }
     })
-    return { ...verified, output: video, written, warnings: [...verified.warnings, CANDIDATE_WARNING],
-      summary: { ...verified.summary, warnings: verified.summary.warnings + 1 },
+    return { ...verified, output: video, written,
+      checks: contentReview === undefined ? verified.checks : [...verified.checks, { id: 'content_review', severity: 'failure' as const,
+        ok: true, detail: '当前分包和成片的观察证据、内容结论与真实试听回答已绑定；不代表自动语义检测完美。',
+        fix: '' }],
+      not_checked: contentReview === undefined ? verified.not_checked : verified.not_checked.filter(id => id !== 'content_review'),
+      warnings: [...verified.warnings, CANDIDATE_WARNING],
+      summary: { ...verified.summary, checks: verified.summary.checks + (contentReview === undefined ? 0 : 1),
+        warnings: verified.summary.warnings + 1 },
       delivery_package: { status: 'candidate', video, draft, sha256, reused, receipt } }
   })
 }

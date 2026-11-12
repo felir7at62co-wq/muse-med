@@ -11,6 +11,7 @@ import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { createScope } from '@deepseek-ai/dsh-scope'
 import { parse as parseYaml } from 'yaml'
 import { expect, it } from 'vitest'
+import { resolveExampleMode } from '@deepseek-ai/dsh-loader-smoke'
 import { loadSourceResearchPlugin } from './fixtures/source-research-plugin.ts'
 import * as CreationPolicy from '../src/creation-policy.ts'
 
@@ -19,7 +20,8 @@ interface PresetRow {
   readonly name?: string
 }
 
-it('registers source snapshot, report and work relation tools in every nonminimal preset and disposes each contribution', async () => {
+const builtIt = it.skipIf(resolveExampleMode() !== 'lib')
+builtIt('registers source snapshot, report and work relation tools in every nonminimal preset and disposes each contribution', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(SystemPrompt)

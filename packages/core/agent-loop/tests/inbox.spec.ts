@@ -3,7 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { agentEvents, type Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage, freezeMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
-import type { UserMessage } from '@deepseek-ai/dsh-session'
+import type { TurnEndReason, UserMessage } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { inboxProjectionDefinition, ReactLoopInbox } from '../src/inbox.ts'
@@ -93,6 +93,136 @@ describe('ReactLoopInbox', () => {
     expect(inboxProjectionDefinition.wire.viewSchema.safeParse({ 'next-turn': [() => {}], 'next-step': [] }).success).toBe(false)
     expect(inbox.nextTurn[0]).toBe(pending)
   })
+
+  it('preserves complete JSON messages and replay metadata in both pending wire lists and legacy views', async () => {
+    const { ctx, session, inbox } = await inboxAgent('inbox-wire-json-fields')
+    const source = { kind: 'model' as const, provider: 'historical', model: 'retained',
+      replayState: { response: { id: 'private-replay', flags: [true, null, 3] }, blocks: ['text-meta'] },
+      producerMetadata: { nested: ['future', { preserved: true }] } }
+    const queued = { ...createUserMessage({ content: [{ type: 'text', text: 'queued' }], source }),
+      futureMessageMetadata: { attribution: ['one', 'two'] } }
+    const steered = createUserMessage({ content: [{ type: 'text', text: 'steer' }], source })
+    inbox.append('next-turn', queued)
+    inbox.append('next-step', steered)
+    const legacyWire = { 'next-turn': [queued], 'next-step': [steered] }
+    expect(ctx.sessionProjections.snapshot(session).values.inbox).toEqual(legacyWire)
+    expect(inboxProjectionDefinition.wire.viewSchema.parse(legacyWire)).toEqual(legacyWire)
+    session.append('turn/start', { turn: 1 })
+    inbox.claimDurably('next-turn', 1, 1)
+    const claimedWire = { 'next-turn': [], 'next-step': [],
+      activeClaim: { turn: 1, step: 1, nextStep: [steered.id], nextTurn: [queued.id] } }
+    expect(ctx.sessionProjections.snapshot(session).values.inbox).toEqual(claimedWire)
+    expect(inboxProjectionDefinition.wire.viewSchema.parse(claimedWire)).toEqual(claimedWire)
+  })
+
+  it('omits absent claims from JSON wire views', () => {
+    const pending = { 'next-turn': [], 'next-step': [] }
+    const view = inboxProjectionDefinition.wire.viewSchema.parse({ ...pending, activeClaim: undefined })
+    expect(view).toEqual(pending)
+    expect(Object.hasOwn(view, 'activeClaim')).toBe(false)
+  })
+
+  it('rejects non-JSON values at the inbox wire boundary without projecting lossy replacements', () => {
+    for (const replayState of [undefined, Number.NaN, () => 'not JSON']) {
+      const message = { ...createUserMessage({ content: [{ type: 'text', text: 'invalid' }], source: { kind: 'user' } }),
+        source: { kind: 'model', provider: 'historical', model: 'retained', replayState } }
+      for (const target of ['next-turn', 'next-step'] as const) {
+        expect(inboxProjectionDefinition.wire.viewSchema.safeParse({ 'next-turn': [], 'next-step': [], [target]: [message] }).success)
+          .toBe(false)
+      }
+    }
+  })
+
+  it.each(['active', 'step-id', 'step-count', 'turn-id', 'turn-count'] as const)(
+    'rejects a persisted %s claim instead of losing pending input', async (kind) => {
+      const steered = createUserMessage({ content: [{ type: 'text', text: 'step' }], source: { kind: 'user' } })
+      const queued = createUserMessage({ content: [{ type: 'text', text: 'turn' }], source: { kind: 'user' } })
+      const error = await reconstructPersistedInbox(`inbox-invalid-claim-${kind}`, (session) => {
+        session.append('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [steered] })
+        session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [queued] })
+        const nextStep = kind === 'step-id' ? [queued.id] : kind === 'step-count' ? [steered.id, queued.id] : [steered.id]
+        const nextTurn = kind === 'turn-id' ? [steered.id] : kind === 'turn-count' ? [queued.id, steered.id] : [queued.id]
+        session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep, nextTurn })
+        if (kind === 'active') session.append('agent/inbox/claim', { turn: 1, step: 2, nextStep: [], nextTurn: [] })
+      })
+      expect(error.message).toBe(kind === 'active' ? 'a durable inbox claim is already active' : 'durable inbox claim does not match pending messages')
+    },
+  )
+
+  it.each(['absent', 'turn', 'step', 'duplicate', 'unknown'] as const)(
+    'rejects persisted claim filtering with %s ownership', async (kind) => {
+      const message = createUserMessage({ content: [{ type: 'text', text: 'pending' }], source: { kind: 'user' } })
+      const other = createUserMessage({ content: [{ type: 'text', text: 'other' }], source: { kind: 'user' } })
+      const error = await reconstructPersistedInbox(`inbox-invalid-filter-${kind}`, (session) => {
+        session.append('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [message] })
+        if (kind !== 'absent') session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [message.id], nextTurn: [] })
+        session.append('agent/inbox/claim-filtered', {
+          turn: kind === 'turn' ? 2 : 1, step: kind === 'step' ? 2 : 1,
+          discarded: kind === 'duplicate' ? [message.id, message.id] : [other.id],
+        })
+      })
+      expect(error.message).toBe(kind === 'duplicate' || kind === 'unknown' ? 'invalid durable inbox claim discard' : 'unknown durable inbox claim')
+    },
+  )
+
+  it.each(['absent', 'turn', 'step', 'pending-step', 'pending-turn'] as const)(
+    'rejects persisted settlement of an %s claim', async (kind) => {
+      const message = createUserMessage({ content: [{ type: 'text', text: 'pending' }], source: { kind: 'user' } })
+      const error = await reconstructPersistedInbox(`inbox-invalid-settle-${kind}`, (session) => {
+        if (kind === 'pending-step' || kind === 'pending-turn') {
+          session.append('agent/inbox/spliced', { target: kind === 'pending-step' ? 'next-step' : 'next-turn', start: 0, inserted: [message] })
+        }
+        if (kind !== 'absent') session.append('agent/inbox/claim', { turn: 1, step: 1,
+          nextStep: kind === 'pending-step' ? [message.id] : [], nextTurn: kind === 'pending-turn' ? [message.id] : [] })
+        session.append('agent/inbox/claim-settled', { turn: kind === 'turn' ? 2 : 1, step: kind === 'step' ? 2 : 1 })
+      })
+      expect(error.message).toBe('durable inbox claim is not settled')
+    },
+  )
+
+  it('keeps no-op claim commands inert and filters only the owned claimed identities', async () => {
+    const { ctx, session, inbox } = await inboxAgent('inbox-filter-owned-claims')
+    expect(inbox.claimDurably('next-step', 1, 1)).toEqual([])
+    inbox.filterClaim(1, 1, [])
+    inbox.settleClaim(1, 1)
+    expect(session.snapshotEvents()).toHaveLength(0)
+    const steered = createUserMessage({ content: [{ type: 'text', text: 'step' }], source: { kind: 'user' } })
+    const queued = createUserMessage({ content: [{ type: 'text', text: 'turn' }], source: { kind: 'user' } })
+    inbox.append('next-step', steered)
+    inbox.append('next-turn', queued)
+    expect(inbox.claimDurably('next-turn', 1, 1)).toEqual([steered, queued])
+    const count = session.snapshotEvents().length
+    inbox.filterClaim(1, 1, [steered, queued])
+    expect(session.snapshotEvents()).toHaveLength(count)
+    inbox.filterClaim(1, 1, [steered])
+    expect(ctx.sessionProjections.snapshot(session).values.inbox).toEqual({ 'next-turn': [], 'next-step': [],
+      activeClaim: { turn: 1, step: 1, nextStep: [steered.id], nextTurn: [] } })
+    inbox.filterClaim(1, 1, [])
+    inbox.settleClaim(1, 1)
+    inbox.append('next-turn', queued)
+    inbox.append('next-step', steered)
+    expect(inbox.claimDurably('next-step', 1, 2)).toEqual([steered])
+    expect(inbox.nextTurn).toEqual([queued])
+  })
+
+  it.each([
+    [{ kind: 'forked' }, true],
+    [{ kind: 'aborted', reason: { kind: 'user' } }, true],
+    [{ kind: 'aborted', reason: { kind: 'legacy' } }, false],
+    [{ kind: 'completed' }, false],
+  ] satisfies [TurnEndReason, boolean][])(
+    'restores or drops both claimed queues according to the durable turn ending %j', async (reason, dropped) => {
+      const { session, inbox } = await inboxAgent(`inbox-turn-end-${reason.kind}-${dropped}`)
+      const steered = createUserMessage({ content: [{ type: 'text', text: 'step' }], source: { kind: 'user' } })
+      const queued = createUserMessage({ content: [{ type: 'text', text: 'turn' }], source: { kind: 'user' } })
+      inbox.append('next-step', steered)
+      inbox.append('next-turn', queued)
+      inbox.claimDurably('next-turn', 1, 1)
+      session.append('turn/end', { turn: 1, reason })
+      expect(inbox.nextStep).toEqual(dropped ? [] : [steered])
+      expect(inbox.nextTurn).toEqual(dropped ? [] : [queued])
+    },
+  )
 
   it('projects claimed identities across reconnects without exposing claimed content', async () => {
     const { ctx, session, inbox } = await inboxAgent('inbox-wire-claim')

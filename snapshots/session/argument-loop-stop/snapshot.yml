@@ -6,8 +6,6 @@ recording: authored
 header:
   class: default
   pin: true
-  systemPromptSource: invalid-tool-arguments-retry
-  toolSchemasSource: invalid-tool-arguments-retry
 writerOutput: true
 replay:
   override: true

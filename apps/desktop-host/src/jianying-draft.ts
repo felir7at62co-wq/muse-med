@@ -17,6 +17,10 @@ export interface Config {
   readonly ffprobePath?: string
   /** Final BGM track gain ceiling; defaults to 8, while Muse office composition selects 1. */
   readonly maxBgmGain?: number
+  /** Bundled font directory, independent of fonts installed in the operating system. */
+  readonly fontsDir?: string
+  /** Product subtitle family supplied to both rendering and editable-draft backends. */
+  readonly subtitleFontFamily?: string
   readonly source: string
   readonly pythonPath?: string
   readonly windowsPowerShellPath?: string
@@ -46,6 +50,7 @@ export interface Config {
 export const Config: z<Config> = z.object({
   ffmpegPath: z.string().min(1), ffprobePath: z.string().min(1),
   maxBgmGain: z.number().min(0).max(8).default(8),
+  fontsDir: z.string().min(1), subtitleFontFamily: z.string().min(1).max(128),
   source: z.string().min(1).required(), pythonPath: z.string().min(1),
   windowsPowerShellPath: z.string().min(1), windowsCliPath: z.string().min(1), windowsHostPath: z.string().min(1),
   windowsLandscapeSubtitleSize: z.number().min(0.01).max(100),
@@ -102,6 +107,12 @@ const DraftResult = z.object({
     episode: z.string().required(), name: z.string().required(), path: z.string().required(),
     id: z.string().required(), success: z.boolean().required(), error: z.string().required(),
     quality: z.string(), warnings: z.array(z.string()).default([]), review_path: z.string(),
+    saved: z.boolean(),
+    subtitle_font: z.union([z.const(undefined), z.object({
+      requested: z.union([z.string(), z.const(null)]),
+      required: z.boolean().required(), status: z.string().required(),
+      delivery_ready: z.boolean().required(), binding_verified: z.boolean().required(),
+    })]),
   })).required(),
   materials_dir: z.string(),
   quality: z.string(),
@@ -136,6 +147,8 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
     .replace(/([\\/])app\.asar([\\/])/u, '$1app.asar.unpacked$2')
   const script = join(dirname(manifest), 'skills', 'tweet-drama-draft-build', 'scripts', backend.script)
   const env: Record<string, string | undefined> = { PYTHONUTF8: '1', DSH_BGM_MAX_GAIN: String(config.maxBgmGain ?? 8) }
+  if (config.fontsDir !== undefined) env.MUSE_FONTS_DIR = config.fontsDir
+  if (config.subtitleFontFamily !== undefined) env.MUSE_SUBTITLE_FONT_FAMILY = config.subtitleFontFamily
   if (config.enforceSubtitleVisual) {
     if (config.defaultSubtitleVisual === undefined) throw new Error('Forced subtitle visual requires the product visual configuration')
     env.MUSE_FORCE_SUBTITLE_VISUAL = '1'
@@ -180,6 +193,10 @@ export async function generateJianyingDraft(subprocess: SubprocessRuntime, input
     throw new Error(`Jianying draft generation failed: ${summary.error}`)
   }
   const result = DraftResult(row)
+  if (result.drafts.some(draft => config.enforceSubtitleVisual && draft.subtitle_font === undefined
+    || draft.subtitle_font?.required && !draft.subtitle_font.delivery_ready)) {
+    throw new Error('Draft subtitle font was not verified; saved candidates cannot be delivered with a fallback font')
+  }
   if (result.drafts_created < 1 || result.drafts_created !== result.drafts.length || result.drafts.some(draft => !draft.success)
     || result.editor_open_verified || result.library.name !== backend.library
     || (backend.library === 'aa-jianying' && row.backend !== 'aa-jianying')) {

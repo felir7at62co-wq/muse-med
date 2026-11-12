@@ -1065,12 +1065,28 @@ describe('Node 24 lane ownership', () => {
         'apps/desktop/tests/episode-code-asar.built.e2e.ts',
         'apps/desktop/tests/attention-audio.e2e.ts',
         'apps/desktop/tests/completion-notice.e2e.ts',
+        'apps/desktop/tests/desktop-host-package.e2e.ts',
+        'apps/desktop-host/tests/manuscript-revision-basis.spec.ts',
+        'apps/desktop-host/tests/manuscript-continuity-submission.spec.ts',
+        'apps/desktop-host/tests/manuscript-ptc-delivery.spec.ts',
+        'apps/desktop-host/tests/hongguo-public-download-loader.spec.ts',
+        'apps/desktop-host/tests/manuscript-video-source-delivery.spec.ts',
+        'apps/desktop-host/tests/manuscript-cross-episode-loader.spec.ts',
+        'apps/desktop-host/tests/hongguo-search-loader.spec.ts',
+        'apps/desktop-host/tests/manuscript-video-source-binding-loader.spec.ts',
+        'apps/desktop-host/tests/manuscript-repetition-loader.spec.ts',
+        'apps/desktop-host/tests/manuscript-notes-loader.spec.ts',
+        'apps/desktop-host/tests/source-research-discovery.built.e2e.ts',
         'packages/subprocess/subprocess-local/tests/spawn-runner-built.e2e.ts',
         'packages/subagent/subagent-codex/tests/loader-composition.e2e.ts',
         'packages/subagent/subagent-claude-code/tests/loader-composition.e2e.ts',
         'packages/experimental/agent-team/tests/built-lib.e2e.ts',
       ]),
     )
+    const e2eConfig = readFileSync(new URL('../vitest.e2e.config.ts', import.meta.url), 'utf8')
+    for (const path of subject.find(item => item.id === 'built-bin-smoke')?.args ?? []) {
+      if (path.startsWith('apps/desktop-host/tests/')) expect(e2eConfig).toContain(`'${path}'`)
+    }
     expect(subject.find(item => item.id === 'web-snapshot')).toMatchObject({
       displayCommand: 'DSH_SNAPSHOT=replay pnpm run test:web:built',
       env: { DSH_SNAPSHOT: 'replay' },

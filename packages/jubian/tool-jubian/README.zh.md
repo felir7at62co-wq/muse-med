@@ -376,7 +376,7 @@ voice_reference_pending 与协调等待不同，reason_code 为 asset-missing、
 
 统一角色声音时，加载[声线参考技能](../../drama/skills/skills/tweet-drama-voice-continuity/SKILL.md)。`jubian_asset upload_audio` 接受 `audio_path`，测量实际 16 位 PCM WAV 样本，在上传前拒绝超过 15 秒的文件，返回 `materialUrl`、`audioDuration`、SHA-256 和 `duration_verified: true`。它不创建资产或生成任务。`select_assets` 更新图片选源时保留已有上传音频；音频有独立组内顺序，无需图片父资产 ID。原生准备冻结这些参考，分别报告已保存时长与字节验证状态；未知远端时长保持未核实。提交的音频必须在子结果有序 `audioMaterials[].audioUrl` 中回读一致，才能认领任务。参考错误时修复并保存原分镜。
 
-`prepare_video` 另返回 `voice_continuity_review`：提示词含明确对白但没有音频参考时为 `dialogue_without_voice_reference`，有参考时为 `voice_reference_present_unverified`。它识别有标签的对白和旁白、引用或声明的说话人台词、明确人物列表中的角色台词，以及角色名下的引号台词。具名角色的台词也可位于带编号的镜头描述内部；有标签的台词字段可以在同一行的非空场景或画面文字值之后用空格分隔。嵌套的场景、画面文字和负面字段、引号内的道具文字及空台词占位不算发声。未识别的发声仍须人工核对。这是免费预检提示，不会自动生成、绑定或改写台词，也不批准提交或证明实际录音合格。跨包角色先听核第一包的实际发声并建立认可参考，再生成后续包；即使已绑定，仍须听核角色与音色，不能把素材存在视作音色一致。
+`prepare_video` 另返回 `voice_continuity_review`：提示词含明确对白但没有音频参考时为 `dialogue_without_voice_reference`，有参考时为 `voice_reference_present_unverified`。它识别有标签的对白和旁白、引用或声明的说话人台词、明确人物列表中的角色台词，以及角色名下的引号台词。姓名台词支持括号内的表演指示和编号镜头内的句末边界；画外心声即使不动嘴也算发声。有标签的台词字段可以在同一行的非空场景或画面文字值之后用空格分隔。明确不发声的指示、动作描述、嵌套场景、画面文字和负面字段、引号内的道具文字及空台词占位不算发声。句末边界或明确的发声字段可结束动作描述；单独的句末边界不能结束画面文字或负面字段，发声标签也不能结束负面字段。未识别的发声仍须人工核对。这是免费预检提示，不会自动生成、绑定或改写台词，也不批准提交或证明实际录音合格。跨包角色先听核第一包的实际发声并建立认可参考，再生成后续包；即使已绑定，仍须听核角色与音色，不能把素材存在视作音色一致。
 
 主体视频由提供方从一次 `isGenerate=1` 的分镜 `PUT` 创建；直接的建任务 `POST` 不会保留主体身份。生产证据把这条差异钉死了：任务 `335343` 来自分镜 `PUT`，七项身份全部保留并成功；`335470` 来自 direct `POST /admin/aigc/video/task/create`，丢失 `assetId`/`materialName` 并失败。因此本包不支持那条路径，也没有任何方法调用它。
 
@@ -548,7 +548,7 @@ Settings 子区域只在明确发起检查后执行成本较高的就绪检查�
 <a id="episode-execution-library"></a>
 ### 整集执行库
 
-`@deepseek-ai/dsh-tool-jubian/episode-delivery` 库把一个逻辑任务绑定到不可变的输入与审批身份，并为每次实际执行保留独立身份。严格的版本化记录区分文件缺失与内容无效。登记执行时，先持久化执行引用，再写运行记录或启动首个媒体命令。后续执行必须具有与前次运行相符的退出证据；任务推进后，所有已登记执行 UUID 仍被占用。调用方须在登记前核验当前人工批准，记录中的审批引用不授权新的决定。
+`@deepseek-ai/dsh-tool-jubian/episode-delivery` 库把一个逻辑任务绑定到不可变的输入与审批身份，并为每次实际执行保留独立身份。严格的版本化记录区分文件缺失与内容无效。登记与渲染共用流式摘要读取，分别保留各自的文件身份和修改检查。登记执行时，先持久化执行引用，再写运行记录或启动首个媒体命令。后续执行必须具有与前次运行相符的退出证据；任务推进后，所有已登记执行 UUID 仍被占用。调用方须在登记前核验当前人工批准，记录中的审批引用不授权新的决定。
 
 `EpisodeExecutionOwner` 将短暂的持久化登记与串行工作分开。相同的重复登记共享同一次完成结果。dispose（资源释放）同步停止接收登记，取消排队及运行中的工作，并等待全部已登记操作结束。队列结束本身不能证明媒体进程已退出，调用方仍须核验守护者证据。该库不注册模型工具、Remote 方法或自动启动扫描。进程所有权由 [Desktop 守护者](../../../apps/desktop-host/README.zh.md#episode-execution-supervision)负责。
 
@@ -568,7 +568,7 @@ Host 调用方通过 `jubianVideoRecovery.withApprovedSources` 在同一所选�
 
 Client TypeScript 项目引用 `dsh-jubian`，由后者拥有生成的 Remote 声明使用的共享项目预算类型。该项目将这些类型编译到自己的 `lib/types` 目录。
 
-Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的调用通过 peer 依赖解析。部署提供共享的传输构造函数和错误构造函数，以及每个已解析账本根目录唯一的队列；安装独立包副本不得拆分同一运行时内的额度预留。
+Host 对 `dsh-tools`、`dsh-credentials`、`dsh-jubian` 和 `dsh-jubian-api` 的调用通过 peer 依赖解析。部署提供共享的传输构造函数和错误构造函数，以及每个已解析账本根目录唯一的队列；安装独立包副本不得拆分同一运行时内的额度预留。生成续跑也将 `dsh-llm` 和 `dsh-workspace` 保留为共享 peer，用于路由和工作区身份；会话持久化的类型导入仅列在开发依赖中。
 
 ### 设计理念
 

@@ -109,7 +109,7 @@ it.each([false, true])('restores a partially verified batch without another PUT 
       idempotency_key: item.idempotency_key, status: 'submitted', task_id: String(secondId), result_urls: [], next: 'observed' } : undefined
   })
   const deliver = vi.fn<ConstructorParameters<typeof GenerationWatchRuntime>[0]['deliver']>(async () => 'settled')
-  const warn = vi.fn()
+  const warn = vi.fn<(message: string, error: unknown) => void>()
   const createRuntime = (store: GenerationWatchStore): GenerationWatchRuntime => new GenerationWatchRuntime({ store, client, ledger,
     watchPollIntervalMs: 20, watchTimeoutMs: 5000, deliver, warn, withoutInitiator: async operation => operation() })
   const store = new GenerationWatchStore(join(root, 'watches'))
@@ -147,7 +147,23 @@ it.each([false, true])('restores a partially verified batch without another PUT 
     expect(deliver).toHaveBeenCalledExactlyOnceWith(owner, expect.objectContaining({ id: after?.notice?.id }),
       expect.any(AbortSignal), groupOrigin, groupOrigin === undefined ? undefined : after?.notice?.id,
       expect.objectContaining({ id, sessionId: owner }))
-    expect(calls.filter(call => call.method === 'POST').map(call => call.body)).toEqual(duplicate
+    const redact = (value: string): string => value.replaceAll(root, '<fixture>')
+      .replaceAll(root.replaceAll('\\', '/'), '<fixture>')
+      .replace(/\b(?:https?:\/\/|Bearer\s+)\S+/giu, '<redacted>')
+      .replace(/\b(token|password|secret|authorization|api[-_]?key)\s*[:=]\s*\S+/giu, '$1=<redacted>').slice(0, 512)
+    const context = JSON.stringify({
+      requests: calls.map(({ method, path, body }, index) => ({ sequence: index + 1, method, path, body })),
+      warnings: warn.mock.calls.map(([message, error]) => ({
+        message: typeof message === 'string' ? redact(message) : '<non-string warning>',
+        error: error !== null && typeof error === 'object' ? {
+          ...('name' in error && typeof error.name === 'string' ? { name: redact(error.name) } : {}),
+          ...('message' in error && typeof error.message === 'string' ? { message: redact(error.message) } : {}),
+          ...('code' in error && typeof error.code === 'string' ? { code: redact(error.code) } : {}),
+        }
+          : { kind: typeof error },
+      })),
+    })
+    expect(calls.filter(call => call.method === 'POST').map(call => call.body), context).toEqual(duplicate
       ? [] : [{ aigcVideoTaskId: 42 }, { aigcVideoTaskId: 43 }])
     expect(calls.some(call => call.method === 'PUT' || call.path.endsWith('/999'))).toBe(false)
     expect(warn).not.toHaveBeenCalled()

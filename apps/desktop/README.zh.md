@@ -381,7 +381,7 @@ Windows 发布验收还需在 Desktop 构建后手动运行[目录和替换检�
 pwsh -NoProfile -File apps/desktop/scripts/smoke-windows.ps1 -Makensis $Makensis -SevenZip $SevenZip -PluginDir $PluginDir -FrameLibrary apps/desktop/.desktop-build/targets/win-x64/installer-ui/window-frame.dll
 ```
 
-Windows 安装器在启动时和选定目标目录后检查应用是否正在运行，通过检查后才将新版本解压到安装目录旁边。通过同卷目录改名替换前，安装器会再次检查。运行中的应用会阻止安装；更新启动允许等待应用退出，最长十秒。同路径升级在替换成功前保留旧目录；解压失败时旧版不变，替换失败时尝试恢复旧目录。安装器在启动前清理旧版备份。强制结束安装器或断电可能留下 `.new-*` 或 `.old-*` 目录；不同安装位置或安装范围迁移仍使用 electron-builder 的旧卸载器流程。
+Windows 安装器在启动时和选定目标目录后检查应用是否正在运行，通过检查后才将新版本解压到安装目录旁边。通过同卷目录改名替换前，安装器会再次检查。运行中的应用会阻止安装；更新启动允许等待应用退出，最长十秒。注册位置按去掉尾部分隔符的规范化完整路径比较。同路径升级在替换成功前保留旧目录；解压失败时旧版不变，替换失败时尝试恢复旧目录。安装器在启动前清理旧版备份。强制结束安装器或断电可能留下 `.new-*` 或 `.old-*` 目录；不同安装位置或安装范围迁移仍使用 electron-builder 的旧卸载器流程。
 
 解压失败时，安装器会把 7-Zip 的结果和完整错误输出写入更新缓存目录 `%LOCALAPPDATA%\<按包名派生>-updater\installer-logs\extract-failure-<时间戳>.log`（当前为 `@deepseek-aidsh-desktop-updater`），并在弹窗中显示首条错误行和 **复制错误信息** 按钮；静默安装只写入报告。未签名的 Windows 构建（`DSH_DESKTOP_UNSIGNED=1`）将 `muse-med-<版本>-win-x64.exe` 写入该 target 的 `unsigned-artifacts/` 目录而非发布目录，因此未签名构建不会被误当作发布产物。
 
@@ -667,7 +667,7 @@ node apps/desktop/node_modules/pnpm/bin/pnpm.mjs --dir apps/desktop run test:upd
 - MUSE 知识库和云端语音依赖已启用的网关接口及服务器管理的 ASR 额度。服务不可用时会报错；桌面版没有用户 ASR 凭据设置页，也不会自动回退到离线识别。
 
 - 发布签名、公证、更新托管和跨上一版本的已安装产物验证需要生产发布环境。
-- 依赖包含 lifecycle script 的桌面插件，只有其包名进入桌面项目经过评审的 `allowBuilds` 策略后才能安装。生产和开发项目明确禁用 TOS CRC 包的构建脚本，因为其发布包已包含编译好的 JavaScript 运行时。它们还跳过精确版本 `@whiskeysockets/baileys@7.0.0-rc14` 的 preinstall：该脚本只检查 Node ≥20，桌面版固定的 Node 运行时已满足要求，且包内带有编译好的 JavaScript。其他 Baileys 版本仍须重新评审。
+- 依赖包含 lifecycle script 的桌面插件，只有其包名进入桌面项目经过评审的 `allowBuilds` 策略后才能安装。私有生产安装明确禁用精确版本 `tos-crc64-js@0.0.1` 的构建脚本，因为其发布包已包含编译好的 JavaScript 运行时。它还跳过精确版本 `@whiskeysockets/baileys@7.0.0-rc14` 的 preinstall：该脚本只检查 Node ≥20，桌面版固定的 Node 运行时已满足要求，且包内带有编译好的 JavaScript。其他 TOS CRC 和 Baileys 版本仍须重新评审。开发和用户 profile 保留既有插件构建策略；生产安装的决定不会授予插件执行脚本的权限。
 - 独立产品不迁移现有 DSH 会话或凭据，用户在产品内配置自己的账号。显式把 `MUSE_MED_HOME` 指向已有 DSH home 会退出数据隔离，这不构成数据迁移。
 - 在 Electron win32-arm64 宿主上，未打包启动现在可以成功，但载荷仍为 x64：`packages/skill/tool-workspace-dependencies/src/index.ts` 的架构校验会把载荷记录的架构与宿主 `process.arch` 比较，因此 `load_workspace_dependencies` 工具仍可能拒绝 primary runtime。
 

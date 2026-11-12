@@ -1,6 +1,29 @@
 import { readFile } from 'node:fs/promises'
 import { expect, it } from 'vitest'
-import { readInstallerLocales } from '../scripts/installer-locales.mjs'
+import { readInstallerLocales, renderInstallerStrings } from '../scripts/installer-locales.mjs'
+
+it('defines one non-nested header hook containing both prerequisite and installer UI setup', async () => {
+  const source = await readFile(new URL('../scripts/installer.nsh', import.meta.url), 'utf8')
+  let current: string | undefined
+  const headers: string[] = []
+  for (const line of source.split(/\r?\n/u)) {
+    const start = /^!macro\s+(\w+)/u.exec(line)
+    if (start) {
+      expect(current, `Nested NSIS macro: ${line}`).toBeUndefined()
+      current = start[1]
+      if (current === 'customHeader') headers.push(current)
+    } else if (/^!macroend\s*$/u.test(line)) {
+      expect(current, 'NSIS macro end without an opener').toBeDefined()
+      current = undefined
+    }
+  }
+  expect(current).toBeUndefined()
+  expect(headers).toEqual(['customHeader'])
+  const header = source.slice(source.indexOf('!macro customHeader'), source.indexOf('!macroend'))
+  for (const marker of ['LangString MuseVCMissing', 'Function MuseEnsureVCRuntime',
+    '!include "${INSTALLER_SOURCE_DIR}\\theme.nsh"', '!include "${INSTALLER_SOURCE_DIR}\\pages.nsh"',
+    '!include "${INSTALLER_SOURCE_DIR}\\lifecycle.nsh"']) expect(header).toContain(marker)
+})
 
 it('checks the x64 runtime before any offline elevated installation and fails closed', async () => {
   const source = await readFile(new URL('../scripts/installer.nsh', import.meta.url), 'utf8')
@@ -60,6 +83,24 @@ it('retains reboot-required guidance and refuses both finish-page launch paths',
   )
   for (const language of ['ENGLISH', 'SIMPCHINESE']) {
     expect(strings).toContain(`LangString INSTALLER_REBOOT_REQUIRED \${LANG_${language}}`)
+  }
+})
+
+it('renders every installer page and lifecycle message from all shipped locale sources', async () => {
+  const sources = await Promise.all(['pages.nsh', 'lifecycle.nsh'].map(name =>
+    readFile(new URL(`../installer/${name}`, import.meta.url), 'utf8')))
+  const used = new Set(sources.flatMap(source => [...source.matchAll(/\$\((INSTALLER_[A-Z_]+)\)/gu)].map((match) => {
+    const key = match[1]
+    if (key === undefined) throw new Error('Missing captured installer message key')
+    return key
+  })))
+  expect(used.has('INSTALLER_REBOOT_REQUIRED')).toBe(true)
+  for (const locale of readInstallerLocales()) {
+    const rendered = renderInstallerStrings([locale])
+    for (const key of used) {
+      expect(locale.strings[key], `${locale.id}: ${key}`).toBeTruthy()
+      expect(rendered).toContain(`LangString ${key} \${LANG_${locale.nsisLanguage}} `)
+    }
   }
 })
 

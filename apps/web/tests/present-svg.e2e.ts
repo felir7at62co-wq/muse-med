@@ -110,6 +110,25 @@ describe('web e2e: requested SVG is explicitly delivered', () => {
     expect(parsedSvg).toEqual({ root: 'svg', namespace: 'http://www.w3.org/2000/svg', errors: 0 })
 
     const events = session.snapshotEvents()
+    if (MODE !== 'record') {
+      const canonicalCalls = parseSessionLog(await readFile(FIXTURE, 'utf8'))
+        .filter(event => event.type === 'tool/call')
+      expect(canonicalCalls.map(call => call.data.name)).toEqual(['write', 'present'])
+      const calls = events.filter(event => event.type === 'tool/call')
+      expect(calls.map(call => call.data.name)).toEqual(['write', 'present'])
+      const recordedWrite: unknown = JSON.parse(canonicalCalls[0]!.data.arguments)
+      if (recordedWrite === null || typeof recordedWrite !== 'object'
+        || !('content' in recordedWrite) || typeof recordedWrite.content !== 'string'
+        || !('file_path' in recordedWrite) || typeof recordedWrite.file_path !== 'string') {
+        throw new Error('Canonical SVG write arguments are incomplete')
+      }
+      expect(svg, 'delivered SVG preserves the canonical source bytes').toBe(recordedWrite.content)
+      expect(JSON.parse(calls[0]!.data.arguments)).toEqual({ ...recordedWrite, file_path: join(cwd, FILE) })
+      expect(JSON.parse(calls[1]!.data.arguments)).toEqual(JSON.parse(canonicalCalls[1]!.data.arguments))
+      const results = events.filter(event => event.type === 'tool/result')
+      expect(results.map(result => result.data.message.toolCallId)).toEqual(calls.map(call => call.data.callId))
+      expect(results.every(result => result.data.message.isError === false)).toBe(true)
+    }
     const declarations = events.filter(event => event.type === 'deliverables/presented')
     const delivery = declarations.find(event => event.data.files.some(file => resolve(cwd, file.path) === join(cwd, FILE)))
     expect(delivery, 'explicit file-card delivery requires a successful present declaration').toBeDefined()

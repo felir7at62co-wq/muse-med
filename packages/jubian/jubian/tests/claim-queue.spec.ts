@@ -1,10 +1,15 @@
 import { mkdtemp, rm } from 'node:fs/promises'
+import * as FileSystem from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { randomUUID } from 'node:crypto'
-import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import * as AtomicWrite from '@deepseek-ai/dsh-atomic-write'
 import { withLedgerQueue } from '../src/claim-queue.ts'
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, mkdir: vi.fn(actual.mkdir) }
+})
 
 describe('ledger operation queue', () => {
   it('keeps a following operation behind a rejected reservation and releases the queue afterward', async () => {
@@ -33,10 +38,9 @@ describe('ledger operation queue', () => {
 
   it('uses one Windows queue for ledger paths with different casing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'jubian-queue-'))
-    // This case tests the in-process queue key. The native lock and path rules
-    // belong to the actual filesystem, whose platform is not changed by this stub.
+    // These cases isolate the process queue from the host filesystem's casing and lock semantics.
+    const mkdir = vi.mocked(FileSystem.mkdir).mockImplementation(async () => undefined)
     const lock = vi.spyOn(AtomicWrite, 'withFileLock').mockImplementation(async (_path, run) => await run())
-    onTestFinished(() => { lock.mockRestore() })
     const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
     const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
     const events: string[] = []
@@ -48,22 +52,23 @@ describe('ledger operation queue', () => {
       })
       await Promise.race([entered.promise, first])
       second = withLedgerQueue(join(root, 'ledger'), async () => { events.push('second entered') })
-      // An independent queue drains runnable operations while the first remains blocked.
-      await withLedgerQueue(join(root, 'sentinel'), async () => {})
-      expect(events).toEqual(['first entered'])
+      await withLedgerQueue(join(root, 'control'), async () => { events.push('control finished') })
+      expect(events).toEqual(['first entered', 'control finished'])
       release.resolve(undefined); await Promise.all([first, second])
-      expect(events).toEqual(['first entered', 'first finished', 'second entered'])
+      expect(events).toEqual(['first entered', 'control finished', 'first finished', 'second entered'])
     } finally {
       release.resolve(undefined); await Promise.allSettled([...(first ? [first] : []), ...(second ? [second] : [])])
       Object.defineProperty(process, 'platform', descriptor)
+      lock.mockRestore()
+      mkdir.mockRestore()
       await rm(root, { recursive: true, force: true })
     }
   })
 
   it('keeps differently cased POSIX ledger operations independent', async () => {
-    const root = await mkdtemp(join(tmpdir(), `Ledger-${randomUUID()}`))
+    const root = await mkdtemp(join(tmpdir(), 'jubian-queue-'))
+    const mkdir = vi.mocked(FileSystem.mkdir).mockImplementation(async () => undefined)
     const lock = vi.spyOn(AtomicWrite, 'withFileLock').mockImplementation(async (_path, run) => await run())
-    onTestFinished(() => { lock.mockRestore() })
     const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
     const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
     const events: string[] = []
@@ -80,6 +85,8 @@ describe('ledger operation queue', () => {
     } finally {
       release.resolve(undefined); await Promise.allSettled([...(first ? [first] : []), ...(second ? [second] : [])])
       Object.defineProperty(process, 'platform', descriptor)
+      lock.mockRestore()
+      mkdir.mockRestore()
       await rm(root, { recursive: true, force: true })
     }
   })

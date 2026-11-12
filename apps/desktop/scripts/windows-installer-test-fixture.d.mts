@@ -1,3 +1,10 @@
+/** Prepare the actual launcher fixtures from both production NSIS sources.
+ * @param appRoot - Absolute desktop application directory.
+ * @param output - Existing locale-specific fixture directory.
+ * @returns Written include paths for the installer build.
+ */
+export function prepareInstallerTestFixtures(appRoot: string, output: string): Promise<{ fixture: string, pages: string }>
+
 /** Build a private NSIS fixture while preserving the production prerequisite checks.
  * @param source - Production NSIS source.
  * @param appRoot - Absolute desktop application directory.

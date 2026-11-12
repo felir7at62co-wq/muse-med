@@ -422,7 +422,7 @@ export const en = {
   'clock.ymd': '{y}-{m}-{d}',
 } satisfies Record<ChatKey, string>
 
-/** Fixed English copy for fields that do not yet have a translation. */
+/** Fixed English copy shared until these specific keys receive translations. */
 const englishFallback = {
   'chat.preparing': en['chat.preparing'],
   'chat.preparingFor': en['chat.preparingFor'],
@@ -435,12 +435,9 @@ const englishFallback = {
   'chat.receivingResponseFor': en['chat.receivingResponseFor'],
 }
 
-
-
 /** Japanese copy, checked against the English keys. */
 export const ja = {
   ...englishFallback,
-  ...en,
   'message.stepProcess.thinking': 'リクエストを分析中',
   'message.stepProcess.read': 'ファイルを読み取り中',
   'message.stepProcess.readImage': '画像を読み取り中',
@@ -650,7 +647,6 @@ export const ja = {
 /** Spanish dictionary, checked against the English keys. */
 export const es = {
   ...englishFallback,
-  ...en,
   'message.stepProcess.thinking': 'Analizando la solicitud',
   'message.stepProcess.read': 'Leyendo archivos',
   'message.stepProcess.readImage': 'Leyendo imágenes',
@@ -860,7 +856,6 @@ export const es = {
 /** French dictionary, checked against the English keys. */
 export const fr = {
   ...englishFallback,
-  ...en,
   'message.stepProcess.thinking': 'Analyser la demande',
   'message.stepProcess.read': 'Lecture de fichiers',
   'message.stepProcess.readImage': 'Lire des images',
@@ -1070,7 +1065,6 @@ export const fr = {
 /** German dictionary, checked against the English keys. */
 export const de = {
   ...englishFallback,
-  ...en,
   'message.stepProcess.thinking': 'Analyse der Anfrage',
   'message.stepProcess.read': 'Dateien lesen',
   'message.stepProcess.readImage': 'Bilder lesen',
@@ -1280,7 +1274,6 @@ export const de = {
 /** Russian dictionary, checked against the English keys. */
 export const ru = {
   ...englishFallback,
-  ...en,
   'message.stepProcess.thinking': 'Анализ запроса',
   'message.stepProcess.read': 'Чтение файлов',
   'message.stepProcess.readImage': 'Чтение изображений',
@@ -1490,7 +1483,6 @@ export const ru = {
 /** Portuguese dictionary, checked against the English keys. */
 export const pt = {
   ...englishFallback,
-  ...en,
   'message.stepProcess.thinking': 'Analisando a solicitação',
   'message.stepProcess.read': 'Lendo arquivos',
   'message.stepProcess.readImage': 'Lendo imagens',

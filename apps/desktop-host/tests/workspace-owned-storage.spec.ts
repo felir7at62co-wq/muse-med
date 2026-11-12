@@ -160,16 +160,28 @@ describe('Desktop workspace successor ownership', () => {
       fileURLToPath(new URL('./fixtures/workspace-owned-process.ts', import.meta.url)), h.dir, h.root, 'crash-before-publish'], {
       cwd: process.cwd(), stdio: ['pipe', 'pipe', 'pipe'],
     })
+    const closed = once(child, 'close')
+    void closed.catch(() => {})
+    onTestFinished(async () => {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      await closed
+    })
     let stderr = ''
+    let stdout = ''
     child.stderr.on('data', (chunk) => { stderr += String(chunk) })
+    child.stdout.on('data', (chunk) => { stdout += String(chunk) })
     const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
       const timer = setTimeout(() => { reject(new Error('migration child did not exit')) }, 5000)
       child.once('exit', (code, signal) => { clearTimeout(timer); resolve({ code, signal }) })
       child.once('error', (error) => { clearTimeout(timer); reject(error) })
     })
-    onTestFinished(() => { child.kill('SIGKILL') })
     const { code, signal } = await exit
-    expect({ code, signal }, stderr).toEqual({ code: null, signal: 'SIGKILL' })
+    await closed
+    expect(stderr).toBe('')
+    expect(JSON.parse(stdout)).toEqual({ phase: 'before-migration-publication',
+      api: process.platform === 'win32' ? 'MoveFileExW' : 'rename' })
+    expect({ code, signal }).toEqual(process.platform === 'win32'
+      ? { code: 1, signal: null } : { code: null, signal: 'SIGKILL' })
     await expect(stat(h.root)).rejects.toMatchObject({ code: 'ENOENT' })
     expect((await readdir(h.dir)).some(name => name.startsWith('.owned.v1-migration-'))).toBe(true)
     expect(await readFile(h.sourcePath, 'utf8')).toBe(h.source)

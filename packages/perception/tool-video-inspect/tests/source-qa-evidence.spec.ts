@@ -8,10 +8,11 @@ import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
-import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools'
+import { defineTool, TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { afterEach, expect, it, vi } from 'vitest'
-import { createVideoSourceQaVerifier, type VideoSourceQaEvidenceBinding } from '../src/source-qa-evidence.ts'
+import { createVideoObservationVerifier, createVideoSourceQaVerifier,
+  type VideoObservationEvidenceBinding, type VideoSourceQaEvidenceBinding } from '../src/source-qa-evidence.ts'
 import { installReviewState, reviewEvidenceJson, reviewsOf, saveReview, VideoReviewId, type VideoReview } from '../src/review-state.ts'
 import { installSourceQaState } from '../src/source-qa-state.ts'
 
@@ -25,7 +26,7 @@ afterEach(async () => {
 })
 const digest = (value: Uint8Array | string) => createHash('sha256').update(value).digest('hex')
 
-async function fixture(options: { ocr?: boolean; report?: boolean } = {}) {
+async function fixture(options: { ocr?: boolean; report?: boolean; reportTool?: 'video_inspect' | 'video_source_review' } = {}) {
   const root = await mkdtemp(join(tmpdir(), 'muse-source-qa-consumer-')), ctx = new Context()
   fixtures.push({ ctx, root })
   await mountAgentLoopTestDependencies(ctx)
@@ -33,6 +34,7 @@ async function fixture(options: { ocr?: boolean; report?: boolean } = {}) {
   ctx.provide('sandboxPolicy', { resolve: () => ({ mode: 'danger-full-access', workspaceRoot: root }) } as never)
   const readReviews = await installReviewState(ctx)
   const verifySourceQa = await createVideoSourceQaVerifier(ctx)
+  const verifyObservations = await createVideoObservationVerifier(ctx)
   const session = ctx.sessions.create(SessionId(randomUUID()))
   const mediaPath = join(root, 'source.mp4'), ocrPath = join(root, 'ocr.json'), inspectionPath = join(root, 'review.json')
   await writeFile(mediaPath, 'consumer fixture source bytes')
@@ -45,11 +47,11 @@ async function fixture(options: { ocr?: boolean; report?: boolean } = {}) {
       image: { attachmentId: 'fixture-frame', mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
       observation: { visible: '测试画面中的人物站在门口', change: '人物转头', uncertainty: '' } }] }
   saveReview(readReviews, session, review)
-  const issue = (name: string, value: Record<string, JsonValue>) => {
+  const issue = (name: string, value: Record<string, JsonValue>, isError = false) => {
     const callId = ToolCallId(randomUUID())
     session.append('tool/call', { turn: 1, step: 1, callId, name, arguments: '{}' })
     session.append('tool/result', { turn: 1, step: 1, meta: { [TOOL_BODY_META_KEY]: value }, message: createToolResultMessage({ callId,
-      content: [{ type: 'text', text: JSON.stringify(value) }], isError: false }) }, { surfaceOp: 'append' })
+      content: [{ type: 'text', text: JSON.stringify(value) }], isError }) }, { surfaceOp: 'append' })
   }
   await writeFile(ocrPath, '{"scan_status":"complete"}')
   await writeFile(inspectionPath, reviewEvidenceJson(review))
@@ -58,17 +60,38 @@ async function fixture(options: { ocr?: boolean; report?: boolean } = {}) {
     sessionId: session.id, reviewId: review.id }
   if (options.ocr !== false) issue('video_ocr', { path: mediaPath, source_version: info.version,
     raw_json_path: ocrPath, raw_json_sha256: binding.ocrSha256 })
-  if (options.report !== false) issue('video_inspect', { complete: true, path: mediaPath, source_version: info.version,
+  if (options.report !== false) issue(options.reportTool ?? 'video_inspect', { complete: true, path: mediaPath, source_version: info.version,
     review_id: review.id, observation_session_id: session.id, observation_report: inspectionPath,
     observation_report_sha256: binding.inspectionSha256 })
   const verify = (value = binding) => verifySourceQa(session, value, new AbortController().signal)
-  return { ctx, root, session, review, binding, readReviews, verify, verifySourceQa, issue }
+  const observation: VideoObservationEvidenceBinding = { mediaPath, mediaSha256: binding.mediaSha256,
+    inspectionPath, inspectionSha256: binding.inspectionSha256, sessionId: session.id, reviewId: review.id }
+  const verifyObservation = (value = observation) => verifyObservations(session, value, new AbortController().signal)
+  return { ctx, root, session, review, binding, readReviews, verify, verifySourceQa, issue,
+    observation, verifyObservation, verifyObservations }
 }
 
 it('rejects a missing source Session before using any report', async () => {
   const f = await fixture()
   await expect(f.verifySourceQa(undefined, f.binding, new AbortController().signal))
     .rejects.toThrow('SOURCE_QA_SESSION')
+})
+
+it('uses the available complete-review tool while rejecting OCR-free source adoption', async () => {
+  const f = await fixture({ ocr: false })
+  f.ctx.tools.register(defineTool({ name: 'video_source_review', description: 'Fixture complete review availability.', parameters: {},
+    output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] }, execute: async () => 'unused' }))
+  await expect(f.verifyObservation()).resolves.toBeUndefined()
+  await expect(f.verify()).rejects.toThrow('SOURCE_QA_OCR')
+  f.issue('video_ocr', { path: f.binding.mediaPath, source_version: f.review.source_version,
+    raw_json_path: f.binding.ocrPath, raw_json_sha256: 'f'.repeat(64) })
+  await expect(f.verify()).rejects.toThrow('SOURCE_QA_OCR')
+})
+
+it('requires a fresh OCR check when the source version changes before adoption', async () => {
+  const f = await fixture()
+  await appendFile(f.binding.mediaPath, 'new source before adoption')
+  await expect(f.verify()).rejects.toThrow('须重新审看和OCR')
 })
 
 it('does not treat an unresolvable saved source path as matching current media', async () => {
@@ -145,6 +168,7 @@ it('retains the verifier readers after a separate review registration unloads', 
   await f.verify()
   await peer.dispose()
   await expect(f.verify()).resolves.toBeUndefined()
+  await expect(f.verifyObservation()).resolves.toBeUndefined()
 })
 
 it('does not authorize inherited OCR or observations after a child issues its own report', async () => {
@@ -159,6 +183,8 @@ it('does not authorize inherited OCR or observations after a child issues its ow
   }, { surfaceOp: 'append' })
   expect(reviewsOf(await installReviewState(f.ctx), child)[f.review.path]?.id).toBe(f.review.id)
   await expect(f.verifySourceQa(child, { ...f.binding, sessionId: child.id }, new AbortController().signal))
+    .rejects.toThrow('审看来自继承会话')
+  await expect(f.verifyObservations(child, { ...f.observation, sessionId: child.id }, new AbortController().signal))
     .rejects.toThrow('审看来自继承会话')
   await expect(f.verify()).resolves.toBeUndefined()
   const ownReview = { ...f.review, id: VideoReviewId('child-review') }
@@ -178,4 +204,86 @@ it('does not authorize inherited OCR or observations after a child issues its ow
     observation_report_sha256: ownReportSha })
   await expect(f.verifySourceQa(child, { ...f.binding, sessionId: child.id, reviewId: ownReview.id,
     inspectionSha256: ownReportSha }, new AbortController().signal)).resolves.toBeUndefined()
+})
+
+it.each(['video_inspect', 'video_source_review'] as const)('verifies %s observations without reading or requiring OCR', async (reportTool) => {
+  const f = await fixture({ ocr: false, reportTool })
+  await rm(f.binding.ocrPath)
+  const read = vi.spyOn(f.ctx.fs, 'readBytes')
+  await expect(f.verifyObservation()).resolves.toBeUndefined()
+  expect(read.mock.calls.map(([target]) => target.displayPath)).toEqual([f.observation.inspectionPath])
+  await expect(f.verify()).rejects.toThrow()
+})
+
+it('ignores unfinished OCR for observation-only evidence while source adoption still waits', async () => {
+  const f = await fixture({ ocr: false })
+  f.session.append('tool/call', { turn: 1, step: 1, callId: ToolCallId('pending-ocr'), name: 'video_ocr', arguments: '{}' })
+  await expect(f.verifyObservation()).resolves.toBeUndefined()
+  await expect(f.verify()).rejects.toThrow('SOURCE_QA_TOOL_PENDING')
+})
+
+it('requires the same initiating Session for observation evidence', async () => {
+  const f = await fixture({ ocr: false })
+  await expect(f.verifyObservations(undefined, f.observation, new AbortController().signal))
+    .rejects.toThrow('SOURCE_QA_SESSION')
+  await expect(f.verifyObservation({ ...f.observation, sessionId: 'another-session' })).rejects.toThrow('SOURCE_QA_SESSION')
+})
+
+it.each(['incomplete scan', 'unscanned tail', 'no frames', 'unexposed image', 'missing image',
+  'missing observation', 'uncertainty'] as const)('rejects incomplete observation evidence: %s', async (kind) => {
+  const f = await fixture({ ocr: false })
+  const review = structuredClone(f.review)
+  const frame = review.frames[0]!
+  if (kind === 'incomplete scan') review.scan_complete = false
+  if (kind === 'unscanned tail') review.scanned_until = 2
+  if (kind === 'no frames') review.frames = []
+  if (kind === 'unexposed image') frame.exposed = false
+  if (kind === 'missing image') delete frame.image
+  if (kind === 'missing observation') delete frame.observation
+  if (kind === 'uncertainty') frame.observation!.uncertainty = '手部是否接触墙面仍需补看。'
+  saveReview(f.readReviews, f.session, review)
+  await expect(f.verifyObservation()).rejects.toThrow('SOURCE_QA_REVIEW')
+})
+
+it.each(['missing', 'failed', 'pending'] as const)('requires successful committed observation issuance: %s', async (kind) => {
+  const f = await fixture({ ocr: false, report: false })
+  if (kind === 'failed') f.issue('video_inspect', { complete: true, path: f.observation.mediaPath,
+    source_version: f.review.source_version, review_id: f.review.id, observation_session_id: f.session.id,
+    observation_report: f.observation.inspectionPath, observation_report_sha256: f.observation.inspectionSha256 }, true)
+  if (kind === 'pending') f.session.append('tool/call', { turn: 1, step: 1, callId: ToolCallId('pending-observation'),
+    name: 'video_inspect', arguments: '{}' })
+  await expect(f.verifyObservation()).rejects.toThrow(kind === 'pending' ? 'SOURCE_QA_TOOL_PENDING' : '报告路径不是当前会话')
+})
+
+it('rejects a copied or changed report even when its new hash is supplied', async () => {
+  const f = await fixture({ ocr: false })
+  const copy = join(f.root, 'unissued-copy.json')
+  await writeFile(copy, await readFile(f.observation.inspectionPath))
+  await expect(f.verifyObservation({ ...f.observation, inspectionPath: copy })).rejects.toThrow('报告路径不是当前会话')
+  await appendFile(f.observation.inspectionPath, ' ')
+  await expect(f.verifyObservation({ ...f.observation, inspectionSha256: digest(await readFile(f.observation.inspectionPath)) }))
+    .rejects.toThrow('准确完整观察记录')
+})
+
+it('rejects changed media and a cancelled observation check', async () => {
+  const f = await fixture({ ocr: false })
+  const controller = new AbortController()
+  controller.abort(new Error('cancelled observation'))
+  await expect(f.verifyObservations(f.session, f.observation, controller.signal))
+    .rejects.toThrow('cancelled observation')
+  await appendFile(f.observation.mediaPath, 'changed')
+  await expect(f.verifyObservation()).rejects.toThrow('SOURCE_QA_CHANGED')
+})
+
+it.each(['source', 'observations'] as const)('detects %s changing during an observation-only check', async (kind) => {
+  const f = await fixture({ ocr: false })
+  const read = f.ctx.fs.readBytes.bind(f.ctx.fs)
+  vi.spyOn(f.ctx.fs, 'readBytes').mockImplementation(async (target, signal, maxBytes) => {
+    const bytes = await read(target, signal, maxBytes)
+    if (kind === 'source') await appendFile(f.observation.mediaPath, 'new source')
+    else saveReview(f.readReviews, f.session, { ...f.review, frames: [{ ...f.review.frames[0]!,
+      observation: { visible: '测试画面中的人物已经走出房门', change: '走出房门', uncertainty: '' } }] })
+    return bytes
+  })
+  await expect(f.verifyObservation()).rejects.toThrow('SOURCE_QA_CHANGED')
 })

@@ -8,6 +8,10 @@
 
 源码清单中 `desktop: false` 的条目和已归档的 `ds-bot` 源码均不参与默认构建。`dsh-plugin-subscriptions` 提供当前订阅 bundle；旧 Codex 固定版本与源码保留，供显式恢复构建使用。桌面打包独立选择包闭包，不会复制所有可用 tarball。`--only dsh-plugin-subscriptions` 选择当前订阅产物；`--only dsh-codex-subscription` 选择归档兼容路径。
 
+unknown 断言门禁通过[文件来源锁](../../scripts/retained-plugin-origins.json)核验已审阅的上游文件，不采用目录豁免。未修改的文件必须匹配固定内容哈希。维护过的文件还须匹配已登记哈希与精确原文；只有断言操作符和类型能通过未改行一对一映回原文时，才保留上游归属。新增或改动的断言行、未登记文件和自有适配器仍接受检查。五份原文样本保留固定 Visualize 源码的 [BSD-3-Clause 许可证](dsh-visualize/LICENSE)；更新 pin 时须一并审阅源哈希与原文。源文件、pin、锁、原文及许可证路径逐组件校验；即使内容哈希相同，祖先符号链接或 junction、非普通文件及超出 canonical 仓库的路径仍会被拒绝。
+
+原有的飞书和 IM 源码排除规则独立于这套文件来源机制，保持不变。
+
 ## 构建
 
 使用已安装依赖、且已构建当前 Host 与 Client 包的源码仓库。在仓库根目录运行：

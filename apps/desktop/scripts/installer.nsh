@@ -46,6 +46,60 @@ InstallDir "$LOCALAPPDATA\Programs\${APP_FILENAME}"
   LangString MuseVCReboot ${LANG_SIMPCHINESE} "Microsoft Visual C++ x64 运行库安装成功，但需要重启 Windows。请重启后再启动 muse-med，不要勾选完成页的立即运行选项。"
   LangString MuseVCPriorFailed ${LANG_SIMPCHINESE} "muse-med 安装在运行库检查之前已失败。"
   !endif
+  !ifdef LANG_GERMAN
+  LangString MuseVCMissing ${LANG_GERMAN} "Das mitgelieferte Microsoft Visual C++ x64-Paket fehlt. Die Installation kann nicht abgeschlossen werden. Besorgen Sie ein vollständiges muse-med-Installationsprogramm."
+  LangString MuseVCConsent ${LANG_GERMAN} "muse-med benötigt Microsoft Visual C++ x64 Runtime 14.51.36247.0 oder neuer. Die mitgelieferte Laufzeit jetzt installieren? Dies ändert Systemkomponenten und erfordert Administratorberechtigung. Es erfolgt kein Download. Bei Ablehnung wird die muse-med-Installation beendet."
+  LangString MuseVCDenied ${LANG_GERMAN} "Die Installation von Microsoft Visual C++ x64 Runtime wurde nicht genehmigt. Die muse-med-Installation kann nicht abgeschlossen werden."
+  LangString MuseVCExitFailed ${LANG_GERMAN} "Microsoft Visual C++ x64 Runtime wurde nicht erfolgreich installiert (Rückgabewert: $2). Die muse-med-Installation kann nicht abgeschlossen werden."
+  LangString MuseVCLaunchFailed ${LANG_GERMAN} "Microsoft Visual C++ x64 Runtime konnte nicht gestartet oder überwacht werden (Status: $0, Details: $1). Die Administratorberechtigung wurde möglicherweise verweigert. Die muse-med-Installation kann nicht abgeschlossen werden."
+  LangString MuseVCReboot ${LANG_GERMAN} "Microsoft Visual C++ x64 Runtime wurde installiert, erfordert aber einen Windows-Neustart. Starten Sie Windows neu, bevor Sie muse-med öffnen. Wählen Sie auf der Abschlussseite nicht die Option zum Starten von muse-med."
+  LangString MuseVCPriorFailed ${LANG_GERMAN} "Die muse-med-Installation ist vor der Prüfung der Laufzeit fehlgeschlagen."
+  !endif
+  !ifdef LANG_SPANISHINTERNATIONAL
+  LangString MuseVCMissing ${LANG_SPANISHINTERNATIONAL} "Falta el requisito incluido Microsoft Visual C++ x64. No se puede completar la instalación. Obtenga un instalador completo de muse-med."
+  LangString MuseVCConsent ${LANG_SPANISHINTERNATIONAL} "muse-med requiere Microsoft Visual C++ x64 Runtime 14.51.36247.0 o posterior. ¿Instalar ahora el entorno incluido? Esto modifica componentes del sistema y requiere autorización de administrador. No se realizará ninguna descarga. Si rechaza, se detendrá la instalación de muse-med."
+  LangString MuseVCDenied ${LANG_SPANISHINTERNATIONAL} "No se autorizó la instalación de Microsoft Visual C++ x64 Runtime. No se puede completar la instalación de muse-med."
+  LangString MuseVCExitFailed ${LANG_SPANISHINTERNATIONAL} "Microsoft Visual C++ x64 Runtime no se instaló correctamente (resultado: $2). No se puede completar la instalación de muse-med."
+  LangString MuseVCLaunchFailed ${LANG_SPANISHINTERNATIONAL} "No se pudo iniciar o supervisar Microsoft Visual C++ x64 Runtime (estado: $0, detalle: $1). Es posible que se haya denegado la autorización de administrador. No se puede completar la instalación de muse-med."
+  LangString MuseVCReboot ${LANG_SPANISHINTERNATIONAL} "Microsoft Visual C++ x64 Runtime se instaló correctamente, pero requiere reiniciar Windows. Reinicie Windows antes de abrir muse-med. No seleccione Ejecutar muse-med en la página final."
+  LangString MuseVCPriorFailed ${LANG_SPANISHINTERNATIONAL} "La instalación de muse-med falló antes de comprobar el entorno de ejecución."
+  !endif
+  !ifdef LANG_FRENCH
+  LangString MuseVCMissing ${LANG_FRENCH} "Le composant requis Microsoft Visual C++ x64 fourni est manquant. L'installation ne peut pas se terminer. Procurez-vous un programme d'installation complet de muse-med."
+  LangString MuseVCConsent ${LANG_FRENCH} "muse-med nécessite Microsoft Visual C++ x64 Runtime 14.51.36247.0 ou une version ultérieure. Installer maintenant le composant fourni ? Cela modifie des composants système et nécessite l'autorisation d'un administrateur. Aucun téléchargement ne sera effectué. Un refus arrête l'installation de muse-med."
+  LangString MuseVCDenied ${LANG_FRENCH} "L'installation de Microsoft Visual C++ x64 Runtime n'a pas été autorisée. L'installation de muse-med ne peut pas se terminer."
+  LangString MuseVCExitFailed ${LANG_FRENCH} "Microsoft Visual C++ x64 Runtime n'a pas été installé correctement (résultat : $2). L'installation de muse-med ne peut pas se terminer."
+  LangString MuseVCLaunchFailed ${LANG_FRENCH} "Microsoft Visual C++ x64 Runtime n'a pas pu être démarré ou surveillé (état : $0, détail : $1). L'autorisation d'un administrateur a peut-être été refusée. L'installation de muse-med ne peut pas se terminer."
+  LangString MuseVCReboot ${LANG_FRENCH} "Microsoft Visual C++ x64 Runtime a été installé, mais nécessite un redémarrage de Windows. Redémarrez Windows avant d'ouvrir muse-med. Ne sélectionnez pas Exécuter muse-med sur la page finale."
+  LangString MuseVCPriorFailed ${LANG_FRENCH} "L'installation de muse-med a échoué avant la vérification du composant requis."
+  !endif
+  !ifdef LANG_JAPANESE
+  LangString MuseVCMissing ${LANG_JAPANESE} "同梱の Microsoft Visual C++ x64 前提コンポーネントがありません。インストールを完了できません。完全な muse-med インストーラーを入手してください。"
+  LangString MuseVCConsent ${LANG_JAPANESE} "muse-med には Microsoft Visual C++ x64 Runtime 14.51.36247.0 以降が必要です。同梱のランタイムを今すぐインストールしますか？システムコンポーネントが変更され、管理者の承認が必要です。ダウンロードは行いません。拒否すると muse-med のインストールを終了します。"
+  LangString MuseVCDenied ${LANG_JAPANESE} "Microsoft Visual C++ x64 Runtime のインストールが承認されませんでした。muse-med のインストールを完了できません。"
+  LangString MuseVCExitFailed ${LANG_JAPANESE} "Microsoft Visual C++ x64 Runtime のインストールに失敗しました（終了結果：$2）。muse-med のインストールを完了できません。"
+  LangString MuseVCLaunchFailed ${LANG_JAPANESE} "Microsoft Visual C++ x64 Runtime を起動または監視できませんでした（状態：$0、詳細：$1）。管理者の承認が拒否された可能性があります。muse-med のインストールを完了できません。"
+  LangString MuseVCReboot ${LANG_JAPANESE} "Microsoft Visual C++ x64 Runtime はインストールされましたが、Windows の再起動が必要です。muse-med を開く前に Windows を再起動してください。完了ページで muse-med の実行を選択しないでください。"
+  LangString MuseVCPriorFailed ${LANG_JAPANESE} "ランタイムの確認前に muse-med のインストールが失敗しました。"
+  !endif
+  !ifdef LANG_PORTUGUESEBR
+  LangString MuseVCMissing ${LANG_PORTUGUESEBR} "O pré-requisito Microsoft Visual C++ x64 incluído está ausente. Não é possível concluir a instalação. Obtenha um instalador completo do muse-med."
+  LangString MuseVCConsent ${LANG_PORTUGUESEBR} "O muse-med requer Microsoft Visual C++ x64 Runtime 14.51.36247.0 ou posterior. Instalar agora o componente incluído? Isso altera componentes do sistema e requer autorização de administrador. Nenhum download será realizado. A recusa interrompe a instalação do muse-med."
+  LangString MuseVCDenied ${LANG_PORTUGUESEBR} "A instalação do Microsoft Visual C++ x64 Runtime não foi autorizada. Não é possível concluir a instalação do muse-med."
+  LangString MuseVCExitFailed ${LANG_PORTUGUESEBR} "O Microsoft Visual C++ x64 Runtime não foi instalado corretamente (resultado: $2). Não é possível concluir a instalação do muse-med."
+  LangString MuseVCLaunchFailed ${LANG_PORTUGUESEBR} "Não foi possível iniciar ou monitorar o Microsoft Visual C++ x64 Runtime (status: $0, detalhe: $1). A autorização de administrador pode ter sido negada. Não é possível concluir a instalação do muse-med."
+  LangString MuseVCReboot ${LANG_PORTUGUESEBR} "O Microsoft Visual C++ x64 Runtime foi instalado, mas requer a reinicialização do Windows. Reinicie o Windows antes de abrir o muse-med. Não selecione Executar muse-med na página final."
+  LangString MuseVCPriorFailed ${LANG_PORTUGUESEBR} "A instalação do muse-med falhou antes da verificação do componente necessário."
+  !endif
+  !ifdef LANG_RUSSIAN
+  LangString MuseVCMissing ${LANG_RUSSIAN} "Отсутствует входящий в комплект компонент Microsoft Visual C++ x64. Установку нельзя завершить. Получите полный установщик muse-med."
+  LangString MuseVCConsent ${LANG_RUSSIAN} "Для muse-med требуется Microsoft Visual C++ x64 Runtime 14.51.36247.0 или новее. Установить компонент из комплекта сейчас? Это изменит системные компоненты и потребует разрешения администратора. Загрузка из сети не выполняется. Отказ остановит установку muse-med."
+  LangString MuseVCDenied ${LANG_RUSSIAN} "Установка Microsoft Visual C++ x64 Runtime не разрешена. Установку muse-med нельзя завершить."
+  LangString MuseVCExitFailed ${LANG_RUSSIAN} "Не удалось установить Microsoft Visual C++ x64 Runtime (код завершения: $2). Установку muse-med нельзя завершить."
+  LangString MuseVCLaunchFailed ${LANG_RUSSIAN} "Не удалось запустить или отследить Microsoft Visual C++ x64 Runtime (статус: $0, сведения: $1). Возможно, в разрешении администратора было отказано. Установку muse-med нельзя завершить."
+  LangString MuseVCReboot ${LANG_RUSSIAN} "Microsoft Visual C++ x64 Runtime установлен, но требуется перезагрузка Windows. Перезагрузите Windows перед запуском muse-med. Не выбирайте запуск muse-med на последней странице."
+  LangString MuseVCPriorFailed ${LANG_RUSSIAN} "Установка muse-med завершилась с ошибкой до проверки необходимого компонента."
+  !endif
 
 ; The header hook runs after builder finishes adding its official plugin directories.
 !ifndef BUILD_UNINSTALLER

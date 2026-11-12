@@ -88,6 +88,8 @@ it.each([
   ['查视频任务查询', 'jubian_video'],
   ['复核生成结果', 'jubian_video_review'],
   ['搜索技能目录', 'skill_catalog'],
+  ['查找技能目录', 'skill_catalog'],
+  ['查看视频质检报告', 'jubian_video_review'],
   ['找一下背景音乐', 'drama_bgm'],
   ['搜索技能', 'skill_catalog'],
   ['查看视频审核', 'jubian_video_review'],

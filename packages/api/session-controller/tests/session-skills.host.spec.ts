@@ -5,6 +5,7 @@ import { provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-test
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
+import { scopeChainOf, type ScopeKey } from '@deepseek-ai/dsh-scope'
 import type {} from '@deepseek-ai/dsh-skill'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionSkillCatalog } from '../src/skill-catalog.ts'
@@ -228,6 +229,59 @@ describe('SessionSkillCatalog', () => {
     expect(acquireScope).toHaveBeenCalledWith('minimal')
     expect(list).toHaveBeenCalledWith({ cwd: '/cold/project', scope })
     expect(ctx.agents.list()).toEqual([])
+  })
+
+  it.each([
+    { withPreset: true, listingFails: false }, { withPreset: false, listingFails: false },
+    { withPreset: true, listingFails: true }, { withPreset: false, listingFails: true },
+  ])('isolates prepared cold views with preset=$withPreset and listingFails=$listingFails', async ({ withPreset, listingFails }) => {
+    const ctx = await context()
+    try {
+      const sessionId = SessionId('prepared-preset-skills'), preset = { agentPreset: 'minimal' }
+      ctx.provide('sessionQuery', {
+        observeSession: () => Promise.resolve(observation(sessionId, { cwd: '/cold/project',
+          ...withPreset ? { agentPreset: 'minimal' } : {} })),
+      } as never)
+      let active = false
+      const release = vi.fn(async () => { expect(active).toBe(false) })
+      if (withPreset) ctx.provide('agentPresets', {
+        acquireScope: () => Promise.resolve({ key: preset, [Symbol.asyncDispose]: release }),
+      } as never)
+      ctx.on('session-skills/prepare-view', async (view) => {
+        const prepared = view.context()
+        expect(view.context()).toBe(prepared)
+        prepared.effect(() => {
+          active = true
+          return () => { active = false }
+        })
+      })
+      const keys: ScopeKey[] = []
+      const list = vi.fn(async ({ scope }: { scope: ScopeKey }) => {
+        keys.push(scope)
+        const chain = scopeChainOf(scope)
+        if (!active || !(withPreset ? chain.includes(preset) : chain.length === 1)) return []
+        if (listingFails) throw new Error('prepared view provider unavailable')
+        return [{ name: 'prepared-preset', description: 'Visible through its cold preset.',
+          invocation: { modelInvocable: true, userInvocable: true } }]
+      })
+      ctx.provide('skills', { list } as never)
+      const catalog = new SessionSkillCatalog(ctx), signal = new AbortController().signal
+      for (let index = 0; index < 2; index++) {
+        const result = catalog.list({ sessionId }, signal)
+        if (listingFails) await expect(result).rejects.toMatchObject({ code: 'gateway/internal',
+          message: 'skill listing failed: Error: prepared view provider unavailable' })
+        else await expect(result).resolves.toEqual({
+          skills: [{ name: 'prepared-preset', description: 'Visible through its cold preset.', modelInvocable: true }],
+        })
+        expect(active).toBe(false)
+      }
+      expect(keys).toHaveLength(2)
+      expect(keys[0]).not.toBe(keys[1])
+      expect(release).toHaveBeenCalledTimes(withPreset ? 2 : 0)
+      expect(ctx.agents.list()).toEqual([])
+    } finally {
+      await ctx.fiber.dispose()
+    }
   })
 
   it('falls back to the global registry when the recorded preset is unavailable', async () => {

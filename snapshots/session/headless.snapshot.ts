@@ -63,6 +63,7 @@ import {
 import { LOADER_SMOKE_TEST_TIMEOUT_MS, resolveExampleMode, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 import { resolvePwshPath } from '@deepseek-ai/dsh-pwsh-local'
 import { parseSessionLog, prepareSessionSnapshotFixtureForComparison } from '@deepseek-ai/dsh-llm-replay'
+import { renderSkillContent } from '@deepseek-ai/dsh-skill'
 
 const repoRoot = fileURLToPath(new URL('../../', import.meta.url))
 const snapshotsRoot = fileURLToPath(new URL('./', import.meta.url))
@@ -1152,6 +1153,21 @@ const workspaceSensitiveBudgetScenarios = new Set([
   'muse-working-budget-stop',
 ])
 
+function assertSubtitleReviewSkill(log: string, source: string, baseDirectory: string): void {
+  const events = parseSessionLog(log)
+  const calls = events.flatMap(event => event.type === 'tool/call' && event.data.name === 'skill' ? [event.data] : [])
+  expect(calls).toHaveLength(1)
+  expect(JSON.parse(calls[0]!.arguments)).toEqual({ name: 'tweet-drama-draft-build' })
+  const results = events.flatMap(event => event.type === 'tool/result'
+    && event.data.message.toolCallId === calls[0]!.callId ? [event.data.message] : [])
+  expect(results).toHaveLength(1)
+  expect(results[0]!.isError).toBe(false)
+  expect(results[0]!.content, 'current packaged draft skill body').toEqual([{ type: 'text', text: renderSkillContent({
+    name: 'tweet-drama-draft-build', provider: 'filesystem', resourceBase: { kind: 'directory', path: baseDirectory },
+    content: source.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, '').trim(),
+  }) }])
+}
+
 function verifyResidentUiReplay(events: ReturnType<typeof parseSessionLog>, tool: 'ask_user' | 'show_view'): void {
   const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data.name] : [])
   expect(calls, 'resident UI replay tool calls remain intact').toEqual([tool])
@@ -1644,6 +1660,17 @@ async function verifyChildOutputLimitRejection(scenario: HeadlessScenario, actua
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('binds subtitle review skill output to the current packaged source and rejects stale font guidance', async () => {
+    const [log, source] = await Promise.all([
+      readFile(join(snapshotsRoot, 'muse-subtitle-text-review/writer.expected.jsonl'), 'utf8'),
+      readFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-draft-build/SKILL.md'), 'utf8'),
+    ])
+    const base = '{{cwd}}/.dsh/skills/tweet-drama-draft-build'
+    assertSubtitleReviewSkill(log, source, base)
+    const stale = log.replaceAll('Resources/fonts', 'Resources/obsolete-fonts')
+    expect(stale).not.toBe(log)
+    expect(() => { assertSubtitleReviewSkill(stale, source, base) }).toThrow('current packaged draft skill body')
+  })
   it('Lvpaopao expected workspace expands only saved media paths and keeps original keys', () => {
     const cwd = join(tmpdir(), 'lvpaopao-workspace-oracle')
     const prefix = '{{cwd}}/downloads/lvpaopao/lvpaopao-84817d56f3ed4113d52398c7/episodes/0001/episode-0001.mp4'
@@ -1777,7 +1804,7 @@ describe('headless recorded-session snapshots', () => {
     const retained = structuredClone(expected)
     const index = expected.findIndex(row => row.type === 'request/context'
       && typeof (row.data as JsonObject).workingContextTokens === 'number')
-    const data = expected[index]?.data as JsonObject
+    const data = actual[index]?.data as JsonObject
     const estimate = data.workingContextTokens
     const limit = data.workingTokenLimit
     if (typeof estimate !== 'number' || typeof limit !== 'number') throw new Error('Missing recorded working estimate')
@@ -2558,6 +2585,10 @@ describe('headless recorded-session snapshots', () => {
               assertAsyncChildOutcome(actualLogs, scenario.name === 'subagent-max-tokens-partial' ? 'partial' : 'filtered')
               if (scenario.name === 'subagent-tool-filter') expect(existsSync(join(cwd, 'filtered-write.txt'))).toBe(false)
             }
+            if (scenario.name === 'muse-subtitle-text-review') {
+              const source = await readFile(join(repoRoot, 'packages/drama/skills/skills/tweet-drama-draft-build/SKILL.md'), 'utf8')
+              assertSubtitleReviewSkill(actualLogs[0]!.content, source, join(await realpath(cwd), '.dsh/skills/tweet-drama-draft-build'))
+            }
             if (scenario.name === 'muse-core-display-source-lines') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])
@@ -3143,17 +3174,30 @@ describe('headless recorded-session snapshots', () => {
             if (scenario.name === 'muse-storyboard-voice-identity') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const results = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
-              expect(results).toHaveLength(2)
-              for (const [index, message] of results.entries()) {
+              expect(results).toHaveLength(4)
+              for (const [index, message] of results.slice(0, 2).entries()) {
                 expect(message.isError).toBe(true)
                 const block = message.content[0]
                 if (block?.type !== 'text') throw new Error('Missing voice identity refusal')
                 expect(block.text).toContain(index === 0 ? 'Project voice configuration project_bible' : 'Shared character voice requires')
                 expect(block.text).not.toContain('expected envelope')
               }
+              const statuses = results.slice(2).map(message => {
+                expect(message.isError).toBe(false)
+                const block = message.content.find(item => item.type === 'text')
+                if (block?.type !== 'text') throw new Error('Missing voiceover preparation result')
+                const result = JSON.parse(block.text)
+                expect(result).toMatchObject({ status: 'prepared', content_duration_ms: 25000 })
+                return result.voice_continuity_review.status
+              })
+              expect(statuses).toEqual(['voice_reference_present_unverified', 'dialogue_without_voice_reference'])
               const evidence = JSON.parse(await readFile(join(cwd, '_probe/voice-identity-fixture.json'), 'utf8'))
               expect(evidence).toMatchObject({ simulated: true, writes: 0 })
-              expect(evidence.requests).toHaveLength(3)
+              expect(evidence.requests.slice(0, 3)).toEqual([
+                { method: 'GET', path: '/prod-api/aigc/storyboard/901' },
+                { method: 'GET', path: '/prod-api/aigc/storyboard/901' },
+                { method: 'GET', path: '/prod-api/aigc/asset/77' },
+              ])
               expect(evidence.requests.every((row: JsonObject) => row.method === 'GET')).toBe(true)
             }
             if (scenario.name === 'muse-voice-periods') {

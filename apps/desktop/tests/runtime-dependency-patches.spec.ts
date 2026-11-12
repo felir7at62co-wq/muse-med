@@ -32,6 +32,7 @@ function fixture() {
   write(join(repository, 'packages/llm/llm-pi-ai/package.json'), '{}\n')
   write(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai/package.json'), '{"name":"@earendil-works/pi-ai","version":"1.3.0"}\n')
   write(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js'), patched)
+  write(join(project, 'node_modules/@earendil-works/pi-ai/package.json'), '{"name":"@earendil-works/pi-ai","version":"1.3.0"}\n')
   write(join(project, 'pnpm-workspace.yaml'), 'packages:\n  - .\nallowBuilds: {}\n')
   return { root, repository, project }
 }
@@ -44,6 +45,9 @@ it('carries exact patch bytes and changes the workspace identity when a patch ch
   expect(data.allowUnusedPatches).toBe(true)
   expect(Object.keys(data.patchedDependencies)).toHaveLength(2)
   expect(readFileSync(join(project, data.patchedDependencies[selector]!), 'utf8')).toBe(patch)
+  writeFileSync(join(repository, 'pnpm-workspace.yaml'), `patchedDependencies:\n  'build-only@1.0.0': patches/build-only.patch\n  '${selector}': patches/pi-ai.patch\n`)
+  stageRuntimeDependencyPatches(repository, project)
+  expect(readFileSync(join(project, 'pnpm-workspace.yaml'), 'utf8')).toBe(first)
   writeFileSync(join(repository, 'patches/pi-ai.patch'), patch + '\n')
   stageRuntimeDependencyPatches(repository, project)
   expect(readFileSync(join(project, 'pnpm-workspace.yaml'), 'utf8')).not.toBe(first)
@@ -102,7 +106,9 @@ it('rejects missing patch files and an unpatched or changed active runtime imple
 
 it('rejects invalid patch declarations and an unpatched workspace reference', () => {
   const { repository, project } = fixture()
-  for (const declaration of ['patchedDependencies: []\n', 'patchedDependencies:\n  invalid: ../outside.patch\n', 'patchedDependencies:\n  invalid: 42\n']) {
+  for (const declaration of ['[]\n', 'patchedDependencies: null\n', 'patchedDependencies: []\n',
+    'patchedDependencies:\n  invalid: ../outside.patch\n', 'patchedDependencies:\n  invalid: /outside.patch\n',
+    'patchedDependencies:\n  invalid: 42\n', "patchedDependencies:\n  '': patches/pi-ai.patch\n", "patchedDependencies:\n  invalid: ''\n"]) {
     writeFileSync(join(repository, 'pnpm-workspace.yaml'), declaration)
     expect(() => { stageRuntimeDependencyPatches(repository, project) }).toThrow()
   }
@@ -115,4 +121,40 @@ it('rejects invalid patch declarations and an unpatched workspace reference', ()
   expect(() => { verifyRuntimeDependencyPatches(repository, project) }).toThrow('reference dependency is missing')
   write(join(reference, 'package.json'), '{}\n')
   expect(() => { verifyRuntimeDependencyPatches(repository, project) }).toThrow('reference dependency is missing')
+})
+
+it('accepts the actual locked PI-AI reference instead of the retired function-shaped patch', () => {
+  const { project } = fixture()
+  const repository = resolve(import.meta.dirname, '../../..')
+  const reference = join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai')
+  const entry = join(project, 'node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js')
+  write(entry, readFileSync(join(reference, 'dist/api/openai-completions.js'), 'utf8'))
+  expect(() => { verifyRuntimeDependencyPatches(repository, project) }).not.toThrow()
+  writeFileSync(entry, readFileSync(entry, 'utf8') + '\n')
+  expect(() => { verifyRuntimeDependencyPatches(repository, project) }).toThrow('differ from the reviewed patched dependency')
+})
+
+it.each([0, 1, 2, 3, 4, 5])('rejects a missing token predicate or branch at statement %i even when both copies agree', (index) => {
+  const { repository, project } = fixture()
+  const changed = patched.split('\n').filter((_line, offset) => offset !== index).join('\n')
+  write(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js'), changed)
+  write(join(project, 'node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js'), changed)
+  expect(() => { verifyRuntimeDependencyPatches(repository, project) }).toThrow('reference lacks the reviewed token-usage patch')
+})
+
+it.each(['tokenValues', 'choiceTokenValues'])('rejects a changed %s validity rule rather than accepting a similar marker', (values) => {
+  const { repository, project } = fixture()
+  const changed = patched.replace(`${values}.every(value => value === undefined || (typeof value === "number" && Number.isFinite(value) && value >= 0))`, 'true')
+  write(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js'), changed)
+  write(join(project, 'node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js'), changed)
+  expect(() => { verifyRuntimeDependencyPatches(repository, project) }).toThrow('reference lacks the reviewed token-usage patch')
+})
+
+it.each(['workspace', 'installed'])('rejects an unreviewed %s PI-AI version with otherwise identical module bytes', (location) => {
+  const { repository, project } = fixture()
+  write(join(project, 'node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js'), patched)
+  const root = location === 'workspace' ? join(repository, 'packages/llm/llm-pi-ai') : project
+  write(join(root, 'node_modules/@earendil-works/pi-ai/package.json'), '{"name":"@earendil-works/pi-ai","version":"0.87.1"}\n')
+  expect(() => { verifyRuntimeDependencyPatches(repository, project) }).toThrow(location === 'workspace'
+    ? 'workspace PI-AI reference version is not reviewed' : 'installed PI-AI version differs from the reviewed reference')
 })
