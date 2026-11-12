@@ -37,8 +37,6 @@ jobs:
           - retained-tools-writers
           - session-product-budget
     env:
-      # Match normal CI before capturing path-dependent working-context counts.
-      TMPDIR: ${{ runner.temp }}
       DSH_TELEMETRY_DISABLED: '1'
       DSH_EXAMPLE_MODE: lib
       DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
@@ -47,6 +45,10 @@ jobs:
       DEEPSEEK_API_KEY: ''
       OPENAI_API_KEY: ''
     steps:
+      - name: Use runner-owned temporary storage
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false

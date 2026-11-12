@@ -329,8 +329,13 @@ describe('CI workflow', () => {
     ])
     expect(job.strategy.matrix.group).toEqual(groups.map(group => group.id))
     if (!isRecord(job.env)) throw new TypeError('Capture environment must be declared')
-    expect(job.env.TMPDIR).toBe('${{ runner.temp }}')
+    expect(job.env).not.toHaveProperty('TMPDIR')
     const steps = job.steps.filter(isRecord)
+    expect(steps[0]).toEqual({
+      name: 'Use runner-owned temporary storage',
+      shell: 'bash',
+      run: 'echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"',
+    })
     const runFor = (name: string): string => {
       const step = steps.find(value => value.name === name)
       if (typeof step?.run !== 'string') throw new TypeError('Missing snapshot capture step: ' + name)

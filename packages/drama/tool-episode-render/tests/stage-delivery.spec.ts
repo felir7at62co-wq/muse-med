@@ -293,7 +293,7 @@ async function reviewedFixture(strict = false, separate = false) {
 describe('stageEpisodeDelivery', () => {
   it('rejects independent audio presented as an untreated source', async () => {
     const f = await reviewedFixture(true, true)
-    const review: Record<string, unknown> = JSON.parse(await readFile(f.reviewPath, 'utf8'))
+    const review = JSON.parse(await readFile(f.reviewPath, 'utf8')) as Record<string, unknown>
     await writePlaceholder(f.reviewPath, JSON.stringify({ ...review, subtitle_cleanup: 'not_required' }))
     await expect(verifySelectedSourceReviews(f.paths, [{ shot: 1, package: 1, video: f.shot, audio: f.audio }],
       true, true, verifiedSourceQaFixture)).rejects.toThrow('独立原声音轨缺少可验证的原片复验')
