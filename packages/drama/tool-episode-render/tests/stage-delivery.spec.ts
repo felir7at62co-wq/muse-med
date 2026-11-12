@@ -235,10 +235,12 @@ async function reviewedFixture(strict = false, separate = false) {
   const packagePath = join(f.project, 'episode_packages', '26', 'package.json')
   const reviewPath = join(f.project, 'reviews', 'ep26-p01.json')
   const frame = join(f.project, 'review.png'), download = join(f.project, 'download.json')
+  const originalDownload = separate ? join(f.project, 'original-download.json') : download
   const audio = separate ? join(f.project, 'original-audio.wav') : f.shot
   if (separate) await writePlaceholder(audio, 'reviewed independent audio')
   const audioSha = await fileSha256(audio), sha = f.source.videos[0]!.sha256
   const qa = await sourceQaFixture(f.project, f.shot)
+  const originalQa = separate ? await sourceQaFixture(f.project, audio, 'original') : undefined
   await Promise.all([
     writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({
       project_bible: { delivery: { require_source_review: true } },
@@ -247,12 +249,17 @@ async function reviewedFixture(strict = false, separate = false) {
     writePlaceholder(packagePath, JSON.stringify({ episode: '26', video_tasks: [{ shots: [1] }] })),
     writePlaceholder(download, JSON.stringify({ version: 1, kind: 'video', media_type: 'video/mp4',
       path: f.shot, sha256: `sha256:${sha}`, source_sha256: 'b'.repeat(64) })),
+    ...(separate ? [writePlaceholder(originalDownload, JSON.stringify({ version: 1, kind: 'video', media_type: 'video/mp4',
+      path: audio, sha256: `sha256:${audioSha}`, source_sha256: 'c'.repeat(64) }))] : []),
   ])
   await writePlaceholder(reviewPath, JSON.stringify({ episode: '26', package: 1, status: 'approved',
-    subtitle_cleanup: 'not_required', video_path: f.shot, video_sha256: sha,
+    subtitle_cleanup: separate ? 'clean' : 'not_required', video_path: f.shot, video_sha256: sha,
     audio_path: audio, audio_sha256: audioSha,
-    package_sha256: await fileSha256(packagePath), original_download_receipt_path: download, review_frames: [frame],
-    source_qa: { version: 1, selected: qa.declaration },
+    package_sha256: await fileSha256(packagePath), original_download_receipt_path: originalDownload, review_frames: [frame],
+    ...(separate ? { subtitle_erasure: { stage: 'erase_subtitle', source_task_id: 629024, operation_task_id: 700001,
+      result_id: 700002, output_url_sha256: 'b'.repeat(64), download_receipt_path: download } } : {}),
+    source_qa: { version: 1, selected: qa.declaration, ...(originalQa === undefined ? {}
+      : { original: originalQa.declaration, affected_intervals: [{ start_seconds: 2, end_seconds: 3 }] }) },
     content_review: { identity: 'pass', wardrobe: 'pass', scene: 'pass', prop: 'pass', action_and_dialogue: 'pass',
       visible_artifacts: 'pass', continuity: 'pass', voice_and_speaker: 'pass', av_sync: 'pass',
       sensitive_content: 'pass', embedded_subtitles: 'absent' },
@@ -284,6 +291,15 @@ async function reviewedFixture(strict = false, separate = false) {
 }
 
 describe('stageEpisodeDelivery', () => {
+  it('rejects independent audio presented as an untreated source', async () => {
+    const f = await reviewedFixture(true, true)
+    const review: Record<string, unknown> = JSON.parse(await readFile(f.reviewPath, 'utf8'))
+    await writePlaceholder(f.reviewPath, JSON.stringify({ ...review, subtitle_cleanup: 'not_required' }))
+    await expect(verifySelectedSourceReviews(f.paths, [{ shot: 1, package: 1, video: f.shot, audio: f.audio }],
+      true, true, verifiedSourceQaFixture)).rejects.toThrow('独立原声音轨缺少可验证的原片复验')
+    await expectNoDelivery(f)
+  })
+
   it.each([false, true])('recognizes the parent short-drama project when staging an episode subdirectory (local config: %s)', async (localConfig) => {
     const f = await fixture(undefined, undefined, undefined, true)
     await writePlaceholder(join(f.projectRoot, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933 }))
