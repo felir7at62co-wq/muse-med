@@ -18,6 +18,7 @@ import ts from 'typescript'
 import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import { releasedV0SessionFormatCodec } from '@deepseek-ai/dsh-session-format-v0-to-v1'
 import type { SessionFormatEvent, SessionFormatMigrationContext } from '@deepseek-ai/dsh-session-format'
+import type { PackageReport, ShotReport } from '../../packages/drama/tool-shot-script/src/types.ts'
 import { assertWorkspaceOutsideTemp, outsideTempWorkspaceParent } from '../../scripts/snapshot-workspace-parent.ts'
 import {
   assertPersistedSessionVersion,
@@ -1162,6 +1163,17 @@ function visualizationStyleDescription(description: string): string {
     .replaceAll('<workspace>/.dsh/visualize-style.md', join('<workspace>', '.dsh', 'visualize-style.md'))
 }
 
+function transformVisualizationSchema(tool: unknown, rewrite: (description: string) => string): unknown {
+  if (tool === null || typeof tool !== 'object' || Array.isArray(tool)) {
+    throw new Error('Visualization tool schema must be a JSON object')
+  }
+  if (!('name' in tool) || tool.name !== 'visualize') return tool
+  if (!('description' in tool) || typeof tool.description !== 'string') {
+    throw new Error('Visualization tool description must be a string')
+  }
+  return { ...tool, description: rewrite(tool.description) }
+}
+
 function visualizationBudgetText(value: string, paths: VisualizationBudgetPaths): string {
   let parsed: unknown
   try { parsed = JSON.parse(value) } catch (_error) { /* Plain tool text has no JSON quoting layer. */ }
@@ -1198,14 +1210,12 @@ async function workspaceBudgetInputs(scenario: HeadlessScenario, expectedLog: st
   // The committed schema uses canonical slashes, while this native plugin builds
   // its asset and style paths with node:path. Price the actual platform spelling.
   const expectedSchemas = scenario.name === 'muse-visualize'
-    ? headers.map(tools => tools.map(tool => tool.name === 'visualize' ? {
-      ...tool,
-      description: visualizationStyleDescription(tool.description)
+    ? headers.map(tools => tools.map(tool => transformVisualizationSchema(tool, description =>
+      visualizationStyleDescription(description)
         .replaceAll('{{cwd}}/.dsh/plugins/dsh-visualize/assets/styles/whale.md',
           join(cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets', 'styles', 'whale.md'))
         .replaceAll('{{cwd}}/.dsh/plugins/dsh-visualize/assets/',
-          join(cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets') + sep),
-    } : tool))
+          join(cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets') + sep))))
     : headers
   if (scenario.name === 'muse-visualize') {
     if (visualize === undefined) throw new Error('Visualization budget requires its allocated store directory and Session id')
@@ -1523,7 +1533,7 @@ async function verifyHeaders(scenario: HeadlessScenario, actualLogs: readonly Se
   const prompt = await readFile(join(promptOwner.dir, 'system-prompt.expected.md'), 'utf8')
   const schemas = parseToolSchemasSnapshot(await readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'))
   const schemaSets = [schemas.initial, ...schemas.changes].map(set => scenario.name === 'muse-visualize'
-    ? set.map(tool => tool.name === 'visualize' ? { ...tool, description: visualizationStyleDescription(tool.description) } : tool)
+    ? set.map(tool => transformVisualizationSchema(tool, visualizationStyleDescription))
     : set)
   expect(schemaSets, `${scenario.name}: pin tool-schema count`).toHaveLength(pinned.length)
   const reconstructed = pinned.map((header, index) => restorePinnedToolSchemas(
@@ -1696,6 +1706,24 @@ describe('headless recorded-session snapshots', () => {
     }
     const runtime = 'Current working directory: "{{cwd}}".'
     expect(visualizationBudgetText(runtime, paths)).toBe(runtime)
+  })
+
+  it('rewrites visualization descriptions while preserving all other schema fields', () => {
+    const tool = { name: 'visualize', description: 'Original style path', parameters: { type: 'object' }, metadata: { version: 2 } }
+    const transformed = transformVisualizationSchema(tool, description => `${description} expanded`)
+    expect(transformed).toEqual({ ...tool, description: 'Original style path expanded' })
+    expect(tool.description).toBe('Original style path')
+    const other = { name: 'read', description: 'Read a file', parameters: { type: 'object' } }
+    expect(transformVisualizationSchema(other, () => { throw new Error('Unrelated descriptions must stay unchanged') })).toBe(other)
+  })
+
+  it('rejects malformed visualization schema objects and descriptions', () => {
+    for (const tool of [null, [], 7, 'visualize']) {
+      expect(() => transformVisualizationSchema(tool, description => description)).toThrow('must be a JSON object')
+    }
+    for (const tool of [{ name: 'visualize' }, { name: 'visualize', description: null }, { name: 'visualize', description: 7 }]) {
+      expect(() => transformVisualizationSchema(tool, description => description)).toThrow('description must be a string')
+    }
   })
 
   it('preserves exact expected-input working estimates and all other context fields', async () => {
@@ -2771,8 +2799,8 @@ describe('headless recorded-session snapshots', () => {
               expect(preview.shots[2].scene).toBe('办公室窗下外墙')
               expect(preview.packages[3].prompt).not.toContain('场次1-3')
               expect(preview.packages[4].prompt).toContain('场次1-3：门口 次日清晨 外；')
-              expect(preview.packages.every((pack: JsonObject) => !pack.prompt.includes('场次对照') && !pack.prompt.includes('原文出场人物') && !pack.prompt.includes('时长：'))).toBe(true)
-              expect(preview.shots.every((shot: JsonObject) => !shot.bindings.some((asset: JsonObject) => asset.name === '陆沉'))).toBe(true)
+              expect(preview.packages.every((pack: PackageReport) => !pack.prompt.includes('场次对照') && !pack.prompt.includes('原文出场人物') && !pack.prompt.includes('时长：'))).toBe(true)
+              expect(preview.shots.every((shot: ShotReport) => !shot.bindings.some(asset => asset.name === '陆沉'))).toBe(true)
               const refusedInference = JSON.parse(metadataOnly.text)
               expect(refusedInference).toMatchObject({ ok: true, failures: [], written: [], shots: [{ bindings: [] }] })
               expect(refusedInference.warnings).toEqual(expect.arrayContaining([expect.objectContaining({ code: 'no_scene_bound' })]))
@@ -2791,10 +2819,10 @@ describe('headless recorded-session snapshots', () => {
               const preview = JSON.parse(positive.text)
               expect(preview).toMatchObject({ method: 'preview', ok: true, failures: [], written: [] })
               expect(preview.shots[1]).toMatchObject({ duration_seconds: 4, duration_source: 'declared' })
-              expect(preview.packages.every((pack: JsonObject) => !/(?:动作预算|发声预算|反应预算|表演顺序)：/.test(pack.prompt))).toBe(true)
+              expect(preview.packages.every((pack: PackageReport) => !/(?:动作预算|发声预算|反应预算|表演顺序)：/.test(pack.prompt))).toBe(true)
               expect(preview.shots.map((shot: JsonObject) => shot.text)).toEqual(['', '慢一点。', '别让孩子摔倒。', ''])
-              expect(preview.shots.map((shot: JsonObject) => shot.bindings.filter((asset: JsonObject) => asset.type === '角色')
-                .map((asset: JsonObject) => asset.asset_id))).toEqual([[], ['72001', '72002'], ['72001'], ['72003']])
+              expect(preview.shots.map((shot: ShotReport) => shot.bindings.filter(asset => asset.type === '角色')
+                .map(asset => asset.asset_id))).toEqual([[], ['72001', '72002'], ['72001'], ['72003']])
               expect(preview.shots[2]).toMatchObject({ speaker: '谭伯', voice_type: 'vo', offscreen: true })
               expect(preview.packages).toHaveLength(1)
               const pack = preview.packages[0]
