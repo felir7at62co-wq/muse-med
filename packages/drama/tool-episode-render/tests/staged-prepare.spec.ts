@@ -1,6 +1,6 @@
 /** Staged inputs retain the current renderer's audio clock and delivery policy. */
-import { writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readFile, writeFile } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { prepareStagedEpisodeAudio, stagedEpisodeEndingAssets } from '../src/prepare.ts'
 import { ENDING_AUDIO_ASSET, ENDING_EFFECT_ASSET } from '../src/delivery.ts'
@@ -42,6 +42,43 @@ it('uses the captured per-shot audio and rejects an incomplete audio inventory',
   expect(channel.calls[0]?.args.slice(3, 7)).toEqual(['-i', audioPaths[0], '-i', audioPaths[1]])
   await expect(prepareStagedEpisodeAudio({ ...input, audioPaths: [audioPaths[0]!] }, settings)).rejects.toThrow('音轨数量')
   expect(channel.calls).toHaveLength(1)
+})
+
+it('writes an explicit audio proof without replacing the prepared master', async () => {
+  const input = await fixture(), paths = episodePaths(input.project, input.episode)
+  const target = join(input.project, 'proof', 'original-audio.wav')
+  const channel = stubChannel([call => ({ after: async () => {
+    const output = call.args.at(-1)
+    if (output === undefined) throw new Error('Audio command did not name its output')
+    await writeFile(output, 'measured original voice')
+  } })])
+  await prepareStagedEpisodeAudio({ ...input, proofOutputPath: target }, {
+    ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel,
+  })
+  expect(channel.calls).toHaveLength(1)
+  expect(channel.calls[0]?.args.at(-1)).toBe(target)
+  expect(await readFile(target, 'utf8')).toBe('measured original voice')
+  await expect(readFile(paths.masterAudio)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('rejects an audio proof aimed at the project or outside it before media work', async () => {
+  const input = await fixture(), channel = stubChannel([])
+  const settings = { ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel }
+  for (const target of [input.project, dirname(input.project), join(dirname(input.project), 'outside-audio.wav')]) {
+    await expect(prepareStagedEpisodeAudio({ ...input, proofOutputPath: target }, settings))
+      .rejects.toThrow('音轨核验输出必须在私有项目内')
+  }
+  expect(channel.calls).toEqual([])
+})
+
+it('preserves an existing audio proof and refuses to encode over it', async () => {
+  const input = await fixture(), channel = stubChannel([]), target = join(input.project, 'accepted-proof.wav')
+  await writeFile(target, 'previously accepted voice')
+  await expect(prepareStagedEpisodeAudio({ ...input, proofOutputPath: target }, {
+    ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel,
+  })).rejects.toThrow('音轨核验输出已存在')
+  expect(await readFile(target, 'utf8')).toBe('previously accepted voice')
+  expect(channel.calls).toEqual([])
 })
 
 it('propagates native audio failures instead of claiming a complete master', async () => {

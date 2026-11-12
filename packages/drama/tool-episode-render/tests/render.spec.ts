@@ -281,6 +281,14 @@ async function render(
 }
 
 describe('renderEpisode', () => {
+  it('refuses a Host source-review digest when the delivery never requested strict source QA', async () => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared)
+    await expect(render(prepared, channel, false, undefined, { sourceQaExpectedSha: 'a'.repeat(64) }))
+      .rejects.toThrow('Host 指定的源片审核未在严格交付策略下核验')
+    expect(channel.calls).toEqual([])
+    await expect(readFile(prepared.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('refuses partial-episode resume before probing or encoding any source', async () => {
     const prepared = await preparedProject(), channel = renderChannel(prepared)
     await expect(render(prepared, channel, false, undefined, { resume: true, lastShot: 1 }))

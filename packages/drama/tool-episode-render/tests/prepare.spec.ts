@@ -16,7 +16,7 @@ import {
   verifyPreparedSubtitleClock,
 } from '../src/prepare.ts'
 import { subtitleClockPath, writeSubtitleClock } from '../src/subtitle-clock.ts'
-import { readTimeline } from '../src/timeline.ts'
+import { formatTimelineDocument, readTimeline } from '../src/timeline.ts'
 import type { SubtitleCue } from '../src/types.ts'
 import { cleanup, probeHandler, sizeOf, srtDocument, stubChannel, tempProject, writePlaceholder, type StubHandler } from './harness.ts'
 
@@ -644,6 +644,23 @@ describe('prepared subtitle source clock', () => {
     expect(cause).toBeInstanceOf(SyntaxError)
     for (const file of before) expect(await readFile(file.path)).toEqual(file.bytes)
     expect(channel.calls).toEqual(callsBefore)
+    await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
+  it('rejects a prepared shot manifest that no longer matches the complete timeline', async () => {
+    const { project, paths, channel } = await preparedClockProject(false)
+    const timeline = await readTimeline(paths.timeline)
+    const first = timeline.clips[0]
+    if (first === undefined) throw new Error('Fixture timeline has no first shot')
+    const firstEndSeconds = (first.startUs + first.durationUs) / 1_000_000
+    await writeFile(paths.timeline, formatTimelineDocument({ ...timeline, clips: [first],
+      bodyEndSeconds: firstEndSeconds, declaredBodyEndSeconds: firstEndSeconds }))
+    const before = await readFile(paths.sources)
+    const calls = [...channel.calls]
+    await expect(preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined))
+      .rejects.toThrow('字幕来源清单与当前时间线不一致')
+    expect(await readFile(paths.sources)).toEqual(before)
+    expect(channel.calls).toEqual(calls)
     await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 

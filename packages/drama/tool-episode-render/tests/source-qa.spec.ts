@@ -36,6 +36,41 @@ it('accepts a fully inspected unchanged original without unnecessary before/afte
     mediaPath: await realpath(f.input.videoPath), mediaSha256: f.input.videoSha256, reviewId: 'review-selected' }))
 })
 
+it('accepts an omitted text decision list when complete OCR found no text', async () => {
+  const f = await fixture()
+  const { text_decisions: _decisions, ...selected } = f.qa.selected
+  const verifier = vi.fn(verifiedSourceQaFixture)
+  const result = await verifySourceQa({ ...f.input, verifier,
+    review: { ...f.input.review, source_qa: { ...f.qa, selected } } })
+  expect(result.files).toHaveLength(3)
+  expect(verifier).toHaveBeenCalledOnce()
+})
+
+it('rejects an empty OCR inventory before accepting Host execution evidence', async () => {
+  const f = await fixture(), verifier = vi.fn(verifiedSourceQaFixture)
+  await expect(verifySourceQa({ ...f.input, verifier,
+    review: { ...f.input.review, source_qa: { ...f.qa, selected: { ...f.qa.selected, ocr: [] } } } }))
+    .rejects.toThrow('复验缺少OCR文件')
+  expect(verifier).not.toHaveBeenCalled()
+})
+
+it('rejects cleaned footage without the original source evidence', async () => {
+  const f = await fixture(true)
+  await expect(verifySourceQa({ ...f.input,
+    review: { ...f.input.review, source_qa: { ...f.qa, original: null } } }))
+    .rejects.toThrow('复验没有绑定本次实际源片')
+})
+
+it('reads only captured directory inventories and rejects evidence from another project', async () => {
+  const f = await fixture(), project = await realpath(f.input.project)
+  const staged = createSourceQaStagedAccess(project, join(project, 'private-stage'), [], new AbortController().signal,
+    [{ originalPath: project, entries: ['selected-ocr.json', 'selected-observation.json'] }])
+  expect(staged.list(project)).toEqual(['selected-ocr.json', 'selected-observation.json'])
+  expect(() => staged.list('not-captured')).toThrow('no captured directory snapshot')
+  await expect(verifySourceQa({ ...f.input, project: join(project, 'another-project'), staged }))
+    .rejects.toThrow('暂存证据属于另一项目')
+})
+
 it('validates unmodified staged copies against original identities without treating the map as authorization', async () => {
   const f = await fixture(), stage = join(f.input.project, 'private-stage')
   await mkdir(stage)
@@ -47,6 +82,10 @@ it('validates unmodified staged copies against original identities without treat
     return { originalPath, stagedPath, aliases: [spelling], sha256: createHash('sha256').update(data).digest('hex'), bytes: data.length }
   }))
   const staged = createSourceQaStagedAccess(project, stageRoot, files, new AbortController().signal)
+  const media = files[0]
+  if (media === undefined) throw new Error('Fixture media was not captured')
+  expect(staged.stagedPath(media.originalPath)).toBe(media.stagedPath)
+  expect(() => { staged.stagedPath(join(project, 'uncaptured-video.mp4')) }).toThrow('no captured mapping')
   const verifier = vi.fn(verifiedSourceQaFixture)
   const original = await verifySourceQa({ ...f.input, verifier })
   const stagedResult = await verifySourceQa({ ...f.input, project, verifier, staged })
