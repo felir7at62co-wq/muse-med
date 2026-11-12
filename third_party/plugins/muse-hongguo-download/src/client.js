@@ -25,10 +25,13 @@ const note = mode => mode === 'legacy' ? '使用 jackotom/hongguo-drama 开源�
 
 function argumentsFor(args, config, download) {
   if (!record(args)) throw new DownloadError('invalid_arguments', '工具参数必须是对象');
-  const allowed = download ? ['seriesIds', 'sourceMode', 'episodes', 'outputDir'] : ['seriesIds', 'sourceMode'];
+  const allowed = download ? ['seriesIds', 'sourceMode', 'episodes', 'outputDir', 'quality'] : ['seriesIds', 'sourceMode'];
   if (Object.keys(args).some(key => !allowed.includes(key))) throw new DownloadError('invalid_arguments', '工具参数包含未知字段');
   const mode = args.sourceMode ?? config.sourceMode;
   if (!modes.includes(mode)) throw new DownloadError('invalid_arguments', 'sourceMode 必须是 legacy、manifest 或 public');
+  // Public and manifest requests historically preserve source bytes; only the open engine has a selectable deployment default.
+  const quality = args.quality === undefined ? (mode === 'legacy' ? config.quality : 'auto') : args.quality;
+  if (!['1080p', '720p', 'auto'].includes(quality)) throw new DownloadError('invalid_arguments', 'quality 必须是 1080p、720p 或 auto');
   if (!Array.isArray(args.seriesIds) || !args.seriesIds.length || args.seriesIds.length > config.maxSeries
     || args.seriesIds.some(id => typeof id !== 'string' || !id || id.length > 120)) throw new DownloadError('invalid_arguments', `seriesIds 必须包含 1–${config.maxSeries} 个字符串 ID`);
   if (new Set(args.seriesIds).size !== args.seriesIds.length) throw new DownloadError('invalid_arguments', 'seriesIds 不能重复');
@@ -43,7 +46,7 @@ function argumentsFor(args, config, download) {
     episodes = [...args.episodes].sort((a, b) => a - b);
   }
   if (args.outputDir !== undefined && (typeof args.outputDir !== 'string' || !args.outputDir.trim() || args.outputDir.includes('\0'))) throw new DownloadError('invalid_arguments', 'outputDir 必须是有效的目录路径');
-  return { seriesIds: [...args.seriesIds], mode, episodes, outputDir: args.outputDir };
+  return Object.freeze({ seriesIds: [...args.seriesIds], mode, episodes, outputDir: args.outputDir, quality });
 }
 
 async function outputDirectory(workspace, value, filePolicy) {
@@ -106,7 +109,8 @@ export class HongguoDownloadClient {
   constructor(config = {}, dependencies = {}) {
     this.config = resolveConfig(config);
     this.request = dependencies.request ?? officialRequest;
-    this.source = dependencies.source ?? new JackotomSource(this.config, dependencies.engine);
+    this.source = dependencies.source ?? dependencies.sourceFactory?.(this.config) ?? new JackotomSource(this.config, dependencies.engine);
+    this.sourceFactory = dependencies.sourceFactory ?? (config => this.source.withQuality?.(config.quality) ?? this.source);
     this.processMedia = dependencies.processMedia ?? (dependencies.subprocess ? createMediaProcessor(dependencies.subprocess, this.config) : null);
     this.manifest = new ManifestCatalog(this.config);
     this.lifetime = new AbortController();
@@ -142,9 +146,9 @@ export class HongguoDownloadClient {
     catch (error) { throw new DownloadError('invalid_player', '官网没有返回请求集的有效播放器数据'); }
   }
 
-  async catalog(id, mode, signal) {
+  async catalog(id, mode, signal, source = this.source) {
     const active = AbortSignal.any([signal, AbortSignal.timeout(this.config.requestTimeoutMs)]);
-    if (mode === 'legacy') return this.source.episodes(id, active);
+    if (mode === 'legacy') return source.episodes(id, active);
     if (mode === 'manifest') return this.manifest.episodes(id);
     const { info, vids } = await this.player(id, 1, active, { metadataOnly: true });
     return { seriesId: id, title: info.title, episodeCount: info.episodeCount, source: 'official-public-player',
@@ -168,8 +172,8 @@ export class HongguoDownloadClient {
     });
   }
 
-  async mediaOptions(catalog, batch, mode, signal) {
-    if (mode === 'legacy') return this.source.videoUrls(batch.map(episode => episode.vid), signal, catalog.seriesId);
+  async mediaOptions(catalog, batch, mode, signal, source = this.source, quality = this.config.quality) {
+    if (mode === 'legacy') return source.videoUrls(batch.map(episode => episode.vid), signal, catalog.seriesId, { quality });
     if (mode === 'manifest') return new Map(batch.map(episode => [episode.vid, { url: episode.url, expectedBytes: episode.expectedBytes, sha256: episode.sha256 }]));
     const result = new Map();
     for (const episode of batch) {
@@ -224,6 +228,15 @@ export class HongguoDownloadClient {
         if (!this.processMedia) throw new DownloadError('missing_media_runtime', '缺少受管视频处理运行时；无法验证解密和完整播放');
         const validation = await this.processMedia(media, { inputPath: part, outputPath: decoded, workspace, signal: active });
         cleanupProcessed = validation.cleanup;
+        const width = Number.isSafeInteger(validation.width) && validation.width > 0 ? validation.width : null;
+        const height = Number.isSafeInteger(validation.height) && validation.height > 0 ? validation.height : null;
+        if (media.requireQualityMetadata && media.quality !== 'auto' && (width === null || height === null)) {
+          throw new DownloadError('quality_unverified', '未取得视频实测尺寸，无法确认请求清晰度；没有生成成功回执');
+        }
+        if (media.quality !== undefined && media.quality !== 'auto' && width !== null && height !== null
+          && Math.min(width, height) < (media.quality === '1080p' ? 1080 : 720)) {
+          throw new DownloadError('quality_unavailable', '视频实际尺寸低于请求清晰度；没有降级或生成成功回执');
+        }
         const processed = media.encryption || media.codec === 'bytevc2' ? decoded : part;
         if (validation.processedPath !== processed || validation.fullDecodeChecked !== true) throw new DownloadError('invalid_media', '视频处理未返回完整解码验证结果');
         await validateMp4(processed);
@@ -244,6 +257,8 @@ export class HongguoDownloadClient {
         catch (error) { if (error.code === 'EEXIST') throw new DownloadError('output_exists', '视频目标已存在；已有文件已保留，请检查输出目录'); throw error; }
         return { bytes: finalBytes, sha256: finalSha256, sourceBytes: bytes, sourceSha256: sha256,
           encryptedSource: Boolean(media.encryption), ...(media.codec === 'bytevc2' ? { convertedFrom: 'bytevc2' } : {}), durationSeconds: validation.durationSeconds,
+          width, height, quality: width !== null && height !== null ? `${Math.min(width, height)}p` : null,
+          videoCodec: typeof validation.videoCodec === 'string' ? validation.videoCodec : null,
           format: 'mp4', validationLevel: 'ffprobe-full-decode-sha256', fullDecodeChecked: true };
       } catch (error) {
         preserveStage = error.code === 'cleanup_unconfirmed';
@@ -266,21 +281,28 @@ export class HongguoDownloadClient {
     return this.run(signal, async active => {
       const options = argumentsFor(args, this.config, true), plans = [];
       const output = await outputDirectory(workspace ?? this.config.outputRoot, options.outputDir, filePolicy);
+      const requestConfig = Object.freeze({ ...this.config, quality: options.quality });
+      const source = options.mode === 'legacy' ? this.sourceFactory(requestConfig) : this.source;
       const manifestCatalogs = options.mode === 'manifest' ? await this.manifest.load() : null;
-      const sourceIdentity = manifestCatalogs ? createHash('sha256').update(JSON.stringify(manifestCatalogs)).digest('hex') : this.source.identity ?? null;
+      const baseIdentity = manifestCatalogs ? createHash('sha256').update(JSON.stringify(manifestCatalogs)).digest('hex') : source.identity ?? null;
+      // The pinned engine already records quality; preserve those checkpoint ids and source-preserving auto requests.
+      const sourceIdentity = options.mode === 'legacy'
+        ? typeof baseIdentity === 'string' && baseIdentity.startsWith('jackotom:') && baseIdentity.endsWith(`:${options.quality}`)
+          ? baseIdentity : `${baseIdentity ?? 'legacy'}:quality:${options.quality}`
+        : options.quality === 'auto' ? baseIdentity : `${baseIdentity ?? 'public'}:quality:${options.quality}`;
       const checkpoint = new DownloadCheckpoint(output.path, { ...options, sourceIdentity }, this.config);
       const prior = await checkpoint.read();
-      const discovery = await discoverReceipts(output.path, options.mode, this.config, active, sourceIdentity);
+      const discovery = await discoverReceipts(output.path, options.mode, this.config, active, sourceIdentity, options.quality);
       const retained = new Map();
       for (const id of options.seriesIds) {
-        const existing = await reusableSeries(output.path, discovery.items, id, options.episodes, this.config, active);
+        const existing = await reusableSeries(output.path, discovery.items, id, options.episodes, this.config, active, options.quality);
         if (existing) retained.set(id, existing);
         const saved = prior?.plans.find(plan => plan.seriesId === id && !plan.fromReceipt);
         const catalog = existing ? { seriesId: id, title: existing.title, source: existing.source,
           episodeCount: existing.episodeCount, fromReceipt: true,
           episodes: discovery.items.find(item => item.seriesId === id && item.episodeCount === existing.episodeCount).episodes
             .map(episode => ({ index: episode.index, vid: `retained:${episode.index}`, title: episode.title, durationSeconds: episode.durationSeconds })) }
-          : manifestCatalogs ? manifestCatalogs.find(item => item.seriesId === id) : saved ?? await this.catalog(id, options.mode, active);
+          : manifestCatalogs ? manifestCatalogs.find(item => item.seriesId === id) : saved ?? await this.catalog(id, options.mode, active, source);
         if (!catalog) throw new DownloadError('series_not_found', '授权媒体目录中没有请求的系列');
         const selected = options.episodes ? catalog.episodes.filter(episode => options.episodes.includes(episode.index)) : catalog.episodes;
         if (options.episodes && selected.length !== options.episodes.length) throw new DownloadError('episode_not_found', '请求集号不在此剧完整列表中');
@@ -303,8 +325,9 @@ export class HongguoDownloadClient {
           for (const episode of selected) {
             const old = retained.get(catalog.seriesId)?.episodes.find(item => item.index === episode.index)
               ?? previous?.completed.find(item => item.seriesId === catalog.seriesId && item.vid === episode.vid)?.episode;
-            if (old?.index === episode.index && await verifiedEpisode(output.path, old, this.config, active)) {
-              state.completed.push({ seriesId: catalog.seriesId, vid: episode.vid, episode: old }); reused++;
+            if (old?.index === episode.index && await verifiedEpisode(output.path, old, this.config, active, options.quality)) {
+              state.completed.push({ seriesId: catalog.seriesId, vid: episode.vid, episode: { ...old,
+                width: old.width ?? null, height: old.height ?? null, quality: old.quality ?? null, videoCodec: old.videoCodec ?? null } }); reused++;
             }
           }
         }
@@ -312,7 +335,7 @@ export class HongguoDownloadClient {
         const workers = new AbortController(), workerSignal = AbortSignal.any([active, workers.signal]);
         let pendingSource, firstFailure;
         const fail = error => { if (!firstFailure || error.code === 'cleanup_unconfirmed') firstFailure = error; workers.abort(); };
-        const progress = () => ({ path: checkpoint.directory, checkpoint: checkpoint.file,
+        const progress = () => ({ path: checkpoint.directory, checkpoint: checkpoint.file, requestedQuality: options.quality,
           retainedEpisodeCount: state.completed.length, reusedEpisodeCount: reused,
           remainingEpisodeCount: plans.reduce((sum, plan) => sum + plan.selected.length, 0) - state.completed.length,
           discoveryTruncated: discovery.truncated });
@@ -322,7 +345,7 @@ export class HongguoDownloadClient {
             const missing = selected.filter(episode => !state.completed.some(item => item.seriesId === catalog.seriesId && item.vid === episode.vid));
             if (!missing.length) continue;
             const folder = await checkpoint.folder(folderName), batchSize = this.config.mediaBatchSize;
-            const prepare = offset => this.mediaOptions(catalog, missing.slice(offset, offset + batchSize), options.mode, workerSignal)
+            const prepare = offset => this.mediaOptions(catalog, missing.slice(offset, offset + batchSize), options.mode, workerSignal, source, options.quality)
               .then(urls => ({ urls }), error => ({ error }));
             pendingSource = prepare(0);
             for (let offset = 0; offset < missing.length; offset += batchSize) {
@@ -334,10 +357,14 @@ export class HongguoDownloadClient {
               let next = 0;
               const jobs = Array.from({ length: Math.min(this.config.concurrency, batch.length) }, async () => {
                 while (next < batch.length) {
-                  workerSignal.throwIfAborted(); const episode = batch[next++], media = urls.get(episode.vid);
-                  if (!media) throw new DownloadError('missing_episode_url', '来源没有返回某集媒体地址；已完成集保留供续下载');
+                  workerSignal.throwIfAborted(); const episode = batch[next++], selectedMedia = urls.get(episode.vid);
+                  if (!selectedMedia) throw new DownloadError('missing_episode_url', '来源没有返回某集媒体地址；已完成集保留供续下载');
+                  const media = { ...selectedMedia, quality: options.quality, requireQualityMetadata: options.mode !== 'legacy' };
                   const path = join(folder, `${String(episode.index).padStart(4, '0')}.mp4`);
-                  const refresh = options.mode === 'legacy' ? async () => (await this.mediaOptions(catalog, [episode], options.mode, workerSignal)).get(episode.vid) : null;
+                  const refresh = options.mode === 'legacy' ? async () => {
+                    const refreshed = (await this.mediaOptions(catalog, [episode], options.mode, workerSignal, source, options.quality)).get(episode.vid);
+                    return refreshed ? { ...refreshed, quality: options.quality, requireQualityMetadata: options.mode !== 'legacy' } : null;
+                  } : null;
                   const saved = await this.saveEpisode(media, path, workerSignal, checkpoint.directory, refresh);
                   state.completed.push({ seriesId: catalog.seriesId, vid: episode.vid,
                     episode: { index: episode.index, title: episode.title, path, ...saved } }); downloaded++;
@@ -363,7 +390,7 @@ export class HongguoDownloadClient {
         } catch (error) {
           fail(error); await pendingSource; await saveTail;
           return { ok: false, complete: false, ...safeError(firstFailure), ...progress(),
-            resume: { seriesIds: options.seriesIds, ...(options.episodes ? { episodes: options.episodes } : {}), sourceMode: options.mode, outputDir: output.path },
+            resume: { seriesIds: options.seriesIds, ...(options.episodes ? { episodes: options.episodes } : {}), sourceMode: options.mode, outputDir: output.path, quality: options.quality },
             ...(active.aborted && firstFailure.code !== 'cleanup_unconfirmed' ? { code: 'cancelled', message: '下载已取消或超过时限；已验证集和进度已保留，可按原请求继续' } : {}) };
         } finally { workers.abort(); await pendingSource; await saveTail; await checkpoint.clearParts(); }
       });

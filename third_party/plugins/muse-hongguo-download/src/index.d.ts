@@ -30,10 +30,12 @@ export interface HongguoDownloadConfig {
 }
 export interface DownloadOptions {
   seriesIds: string[]; sourceMode?: 'legacy' | 'manifest' | 'public'; episodes?: number[]; outputDir?: string;
+  quality?: '1080p' | '720p' | 'auto';
 }
 export interface DownloadedEpisode {
   index: number; title: string; path: string; durationSeconds: number | null; bytes: number; sha256: string;
   sourceBytes: number | null; sourceSha256: string | null; encryptedSource: boolean | null; convertedFrom?: 'bytevc2'; origin?: 'engine-output';
+  width?: number | null; height?: number | null; quality?: string | null; videoCodec?: string | null;
   format: 'mp4'; validationLevel: 'ffprobe-full-decode-sha256'; fullDecodeChecked: true;
 }
 export interface DownloadFailure {
@@ -42,12 +44,14 @@ export interface DownloadFailure {
   upstreamCode?: number; sourceStage?: 'catalog' | 'video_model' | 'source_api'; retryable?: false;
   httpStatus?: number; responseBytes?: number;
   path?: string; checkpoint?: string; cleanupPendingPath?: string; retainedEpisodeCount?: number; reusedEpisodeCount?: number;
+  requestedQuality?: '1080p' | '720p' | 'auto';
   remainingEpisodeCount?: number; discoveryTruncated?: boolean; resume?: DownloadOptions;
 }
 export interface DownloadResult {
   ok: true; sourceBackend?: 'v2'; sourceMode: 'legacy' | 'manifest' | 'public'; complete: boolean; path: string; validatedBytes: number;
   checkpoint: string; retainedEpisodeCount: number; reusedEpisodeCount: number; remainingEpisodeCount: number;
   newlyDownloadedEpisodeCount: number; discoveryTruncated: boolean; sourceIdentity: string | null;
+  requestedQuality: '1080p' | '720p' | 'auto';
   validationLevel: 'ffprobe-full-decode-sha256'; fullDecodeChecked: true; note: string;
   items: { seriesId: string; title: string; source: string; episodeCount: number; downloadedEpisodeCount: number; complete: boolean; path: string; episodes: DownloadedEpisode[] }[];
 }

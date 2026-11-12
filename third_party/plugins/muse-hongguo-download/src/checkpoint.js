@@ -44,15 +44,20 @@ async function regularPath(root, path, directory = false) {
  * @param episode - Persisted episode metadata to validate.
  * @param config - Resolved file-size limits.
  * @param signal - Cancellation for hashing and file inspection.
+ * @param quality - Requested minimum resolution; missing historical dimensions remain unknown.
  * @returns Whether the unchanged MP4 still matches its receipt.
  */
-export async function verifiedEpisode(root, episode, config, signal) {
+export async function verifiedEpisode(root, episode, config, signal, quality = 'auto') {
   if (!record(episode) || !Number.isSafeInteger(episode.index) || episode.index < 1
     || typeof episode.path !== 'string' || !isAbsolute(episode.path)
     || !Number.isSafeInteger(episode.bytes) || episode.bytes <= 0 || episode.bytes > config.maxEpisodeBytes
     || !/^[a-f0-9]{64}$/.test(episode.sha256) || episode.fullDecodeChecked !== true
     || episode.validationLevel !== 'ffprobe-full-decode-sha256'
     || !await regularPath(root, episode.path)) return false;
+  for (const dimension of [episode.width, episode.height]) {
+    if (dimension !== undefined && dimension !== null && (!Number.isSafeInteger(dimension) || dimension <= 0)) return false;
+  }
+  if (quality !== 'auto' && episode.width && episode.height && Math.min(episode.width, episode.height) < (quality === '1080p' ? 1080 : 720)) return false;
   signal.throwIfAborted();
   if ((await lstat(episode.path)).size !== episode.bytes) return false;
   const hash = createHash('sha256');
@@ -68,10 +73,11 @@ export async function verifiedEpisode(root, episode, config, signal) {
  * @param mode - Source mode required in each receipt.
  * @param config - Resolved search-depth, entry and response-size limits.
  * @param signal - Cancellation for directory traversal.
- * @param sourceIdentity - Manifest digest required for manifest-mode reuse.
+ * @param sourceIdentity - Engine identity or manifest digest required for receipt reuse.
+ * @param quality - Frozen request quality; older source-preserving receipts may only satisfy auto.
  * @returns Complete series metadata and whether the search limit was reached.
  */
-export async function discoverReceipts(root, mode, config, signal, sourceIdentity = null) {
+export async function discoverReceipts(root, mode, config, signal, sourceIdentity = null, quality = 'auto') {
   const items = [], queue = [[root, 0]];
   let scanned = 0, truncated = false;
   while (queue.length) {
@@ -87,7 +93,11 @@ export async function discoverReceipts(root, mode, config, signal, sourceIdentit
       if (entry.isDirectory() && depth < config.resumeSearchDepth && !entry.name.startsWith('.')) queue.push([path, depth + 1]);
       if (!entry.isFile() || entry.name !== 'download-manifest.json') continue;
       const value = await privateJson(path, config.maxResponseBytes);
-      if (!record(value) || value.ok !== true || value.sourceMode !== mode || mode === 'manifest' && value.sourceIdentity !== sourceIdentity || !Array.isArray(value.items)) continue;
+      if (!record(value) || value.ok !== true || value.sourceMode !== mode || value.sourceIdentity !== sourceIdentity || !Array.isArray(value.items)) continue;
+      const priorQuality = value.requestedQuality;
+      const pinnedQuality = mode === 'legacy' && typeof sourceIdentity === 'string'
+        && sourceIdentity.startsWith('jackotom:') && sourceIdentity.endsWith(`:${quality}`);
+      if (priorQuality !== quality && !(priorQuality === undefined && (pinnedQuality || mode !== 'legacy' && quality === 'auto'))) continue;
       for (const item of value.items) {
         if (record(item) && typeof item.seriesId === 'string' && typeof item.title === 'string'
           && typeof item.source === 'string' && typeof item.path === 'string' && item.complete === true && completeList(item)) items.push(item);
@@ -106,20 +116,21 @@ export async function discoverReceipts(root, mode, config, signal, sourceIdentit
  * @param selected - Requested episode numbers, or null for the declared full list.
  * @param config - Resolved file limits.
  * @param signal - Cancellation for retained-file validation.
+ * @param quality - Frozen minimum resolution used when dimensions were retained.
  * @returns Verified metadata, or null when a requested file needs downloading.
  */
-export async function reusableSeries(root, items, id, selected, config, signal) {
+export async function reusableSeries(root, items, id, selected, config, signal, quality = 'auto') {
   for (const item of items.filter(item => item.seriesId === id)) {
     const episodes = selected ? item.episodes.filter(episode => selected.includes(episode.index)) : item.episodes;
     if (selected && episodes.length !== selected.length) continue;
     let valid = true;
-    for (const episode of episodes) if (!await verifiedEpisode(root, episode, config, signal)) { valid = false; break; }
+    for (const episode of episodes) if (!await verifiedEpisode(root, episode, config, signal, quality)) { valid = false; break; }
     if (valid) return { ...item, episodes, downloadedEpisodeCount: episodes.length, complete: episodes.length === item.episodeCount };
   }
   return null;
 }
 
-/** One stable request directory survives cancellation, process exit and retry without storing media URLs or encryption keys. */
+/** Source identities include selected quality so checkpoints never cross resolution requests. */
 export class DownloadCheckpoint {
   constructor(root, options, config) {
     this.root = root; this.config = config;

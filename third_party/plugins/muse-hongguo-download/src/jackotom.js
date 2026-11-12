@@ -12,6 +12,8 @@ export class JackotomSource {
     this.identity = `jackotom:${revision}:${config.quality}`;
   }
   load() { return this.engine ??= require('../upstream/engine.cjs'); }
+  /** Return an independent request source without changing the engine or another request's quality. */
+  withQuality(quality) { return new JackotomSource(Object.freeze({ ...this.config, quality }), this.engine); }
   async episodes(id, signal) {
     signal.throwIfAborted();
     const data = await this.load().fetchEpisodeList(id, { signal, deadline: Date.now() + this.config.requestTimeoutMs });
@@ -33,6 +35,10 @@ export class JackotomSource {
       signal.throwIfAborted();
       if (!info?.url || info.locked || String(info.vid) !== vid) {
         throw new DownloadError('source_unavailable', '红果未返回可用的完整分集片源；已停止请求，已验证文件保留', { sourceStage: 'video_model', retryable: false });
+      }
+      if (this.config.quality !== 'auto' && Number(info.width) > 0 && Number(info.height) > 0
+        && Math.min(Number(info.width), Number(info.height)) < (this.config.quality === '1080p' ? 1080 : 720)) {
+        throw new DownloadError('quality_unavailable', '来源没有返回请求清晰度的完整片源；未下载或降级', { sourceStage: 'video_model', retryable: false });
       }
       if (info.codec === 'bytevc2' && !this.config.bytevc2Executable) throw new DownloadError('missing_bytevc2_runtime', '此片源使用 ByteVC2；请更新 Muse 或配置 bytevc2Executable，未下载或降级', { retryable: false });
       if (info.codec === 'bytevc2' && (!Number.isFinite(Number(info.duration)) || Number(info.duration) <= 0

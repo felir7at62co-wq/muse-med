@@ -277,7 +277,8 @@ export function createMediaProcessor(subprocess, config, dependencies = {}) {
         '-protocol_whitelist', 'file,pipe', '-i', processedPath, '-map', '0:v?', '-map', '0:a?', '-f', 'null', '-'], 'ignore', 'decode');
       if (decoded.trim()) throw failure('decode');
       active.throwIfAborted();
-      return { processedPath, durationSeconds, fullDecodeChecked: true, validationLevel: 'ffprobe-full-decode-sha256',
+      return { processedPath, durationSeconds, width: video.width, height: video.height, videoCodec: video.codec_name,
+        fullDecodeChecked: true, validationLevel: 'ffprobe-full-decode-sha256',
         ...(bytevc2 ? { convertedFrom: 'bytevc2', cleanup: cleanupOutput } : {}) };
 
     } catch (error) {

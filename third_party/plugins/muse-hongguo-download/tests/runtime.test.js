@@ -64,7 +64,7 @@ test('plaintext requires only media executables and validates every video and au
   const f = fixture([{ stdout: probe() }, {}], { ...config(), pythonExecutable: '', legacyAppDir: '' });
   const local = paths();
   const result = await f.process({ encryption: null }, local);
-  assert.deepEqual(result, { processedPath: local.inputPath, durationSeconds: 12.34, fullDecodeChecked: true, validationLevel: 'ffprobe-full-decode-sha256' });
+  assert.deepEqual(result, { processedPath: local.inputPath, durationSeconds: 12.34, width: 720, height: 1280, videoCodec: 'h264', fullDecodeChecked: true, validationLevel: 'ffprobe-full-decode-sha256' });
   assert.deepEqual(f.resolutions, [f.settings.ffprobeExecutable, f.settings.ffmpegExecutable]);
   assert.equal(f.calls.length, 2); assert.equal(f.exits.length, 2);
   for (const call of f.calls) {
