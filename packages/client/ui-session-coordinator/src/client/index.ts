@@ -10,11 +10,13 @@ import type { ResourceProvider } from '@deepseek-ai/dsh-client-resources/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-api-remote-access/client'
 import remote from '@deepseek-ai/dsh-session-coordinator/remote'
 import { MainEntry } from './MainEntry.tsx'
 import { openRetainedMain } from './open-main.ts'
+import { followInitialMain } from './initial-main.ts'
 import { TaskCards, type TaskActions } from './TaskCards.tsx'
 import { NS, zh, en, type CoordinationKey } from './locales.ts'
 
@@ -28,7 +30,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 /** Browser prerequisites before mounting the generated coordinator Remote. */
-export const inject = ['slots', 'locale', 'remote', 'resources', 'uiWorkspace', 'remoteAccess']
+export const inject = ['slots', 'locale', 'remote', 'resources', 'uiWorkspace', 'remoteAccess', 'conversation']
 
 /**
  * Mount the task cards; disabling the plugin releases subscriptions and removes its overlay.
@@ -67,6 +69,20 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
     const notice = createSnapshotStore<TaskNotice | null>(null)
     let noticeSeq = 0
     const showNotice = (key: CoordinationKey, success: boolean): void => { notice.set({ seq: ++noticeSeq, key, success }) }
+    scope.remoteAccess.whenAccess('sessionCoordinator/openMain', () => followInitialMain(
+      lifetime.signal,
+      follow => scope.on('connection/reset', follow),
+      signal => scope.uiWorkspace.openInitialSession(async (navigation) => {
+        const result = await scope.remote.sessionCoordinator.openMain()
+        if (navigation.aborted) return undefined
+        if (!result.ok) { showNotice('failedMain', false); return undefined }
+        identityEpoch++
+        rememberMain(result.value)
+        mainIdKnown = true
+        return result.value
+      }, signal),
+      (error) => { console.warn('Initial Main Session unavailable:', error); showNotice('failedMain', false) },
+    ))
     scope.remoteAccess.whenAccess('sessionCoordinator/watchMain', () => {
       let reader: AbortController | undefined
       const removeFilter = scope.uiWorkspace.registerBlankSessionFilter(id => mainIdKnown && id !== mainId)

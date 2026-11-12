@@ -23,7 +23,7 @@ Load beside the [coordination service](../../session/session-coordinator/README.
 
 Cordis disposal releases registrations, resource streams, generated Remote bindings and action feedback. Re-enabling reads retained tasks without dispatching work or changing ordinary Sessions.
 
-The Muse spider button sits above New Session and opens the profile's retained Main conversation. Ordinary Workspace lists omit that conversation but retain execution Sessions. Disabling this plugin removes the button and cards together; re-enabling retains the same Main Session.
+The retained Main conversation opens on startup when access is available and no user navigation or draft supersedes it. The Muse spider button sits above New Session and returns to it from another conversation. Ordinary Workspace lists omit that conversation but retain execution Sessions. Disabling this plugin removes the button and cards together; re-enabling retains the same Main Session.
 
 ## Model Experience
 

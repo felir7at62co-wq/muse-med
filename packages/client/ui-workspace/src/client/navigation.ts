@@ -53,6 +53,13 @@ export interface UiWorkspace {
    */
   openSession(target: SessionTarget): void
   /**
+   * Choose the initial Session once for this Client lifetime without overriding later user navigation or draft input.
+   * @param resolve - resolves the initial Session; its signal aborts on supersession or disposal.
+   * @param signal - the contributing feature's lifetime.
+   * @returns completion of the attempt; a superseded attempt never changes the selection.
+   */
+  openInitialSession(resolve: (signal: AbortSignal) => Promise<SessionTarget | undefined>, signal: AbortSignal): Promise<void>
+  /**
    * Connect a Workspace and open its Session unless a later navigation supersedes it.
    * @param workspaceId - target Workspace.
    * @param beforeOpen - optional synchronous preparation for the selected Session,
@@ -196,6 +203,10 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   )
   private mainReference: SessionReference | undefined
   private restorationNavigation: AbortSignal | undefined
+  private initialNavigationAttempted = false
+  private initialNavigationClaimed = false
+  private explicitNavigation = false
+  private resumeInitialRestore: (() => void) | undefined
 
   /**
    * @param ctx - Client root Context.
@@ -329,7 +340,72 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   }
 
   openSession(target: SessionTarget): void {
+    this.explicitNavigation = true
     this.replaceMain(target, this.lifetime.signal, 'reveal')
+  }
+
+  async openInitialSession(resolve: (signal: AbortSignal) => Promise<SessionTarget | undefined>, signal: AbortSignal): Promise<void> {
+    if (this.initialNavigationAttempted || signal.aborted || this.lifetime.signal.aborted) return
+    this.initialNavigationAttempted = true
+    if (this.explicitNavigation
+      || this.ctx.layout.panelInfo.getSnapshot().activePanelId !== null) return
+    const current = this.mainReference
+    const conversation = this.ctx.get('conversation')
+    if (current !== undefined && conversation === undefined) return
+    const input = current === undefined ? undefined : conversation?.input.for(current.binding.ctx)
+    const hasDraft = (): boolean => {
+      const state = input?.state.getSnapshot()
+      return state !== undefined && (state.draft.length > 0 || state.attachmentIds.length > 0 || state.phase !== 'plain')
+    }
+    if (hasDraft()) return
+    this.initialNavigationClaimed = true
+    const layoutNavigation = this.ctx.layout.beginNavigation()
+    const navigation = AbortSignal.any([layoutNavigation, this.lifetime.signal, signal])
+    let released = false
+    let committing = false
+    const release = (retry: boolean): void => {
+      if (released) return
+      released = true
+      this.initialNavigationClaimed = false
+      if (retry && !this.lifetime.signal.aborted && !this.explicitNavigation) {
+        this.initialNavigationAttempted = false
+        this.resumeInitialRestore?.()
+      }
+    }
+    let cancelled!: () => void
+    const cancellation = new Promise<undefined>((done) => {
+      cancelled = () => {
+        if (committing) return
+        release(!layoutNavigation.aborted)
+        done(undefined)
+      }
+      navigation.addEventListener('abort', cancelled, { once: true })
+      if (navigation.aborted) cancelled()
+    })
+    try {
+      const target = await Promise.race([resolve(navigation), cancellation])
+      if (navigation.aborted) return
+      if (target === undefined) { release(true); return }
+      if (hasDraft()) { release(false); return }
+      if (typeof target === 'string' && this.sessions.list.getSnapshot().byId[target] === undefined) {
+        // An existing list pull may predate creation; the next pull starts after it settles.
+        for (let pull = 0; pull < 2 && this.sessions.list.getSnapshot().byId[target] === undefined; pull++) {
+          await Promise.race([this.sessions.refresh(), cancellation])
+          if (navigation.aborted) return
+        }
+        if (this.sessions.list.getSnapshot().byId[target] === undefined) {
+          throw new Error('Initial Session is unavailable in the Session list')
+        }
+      }
+      if (hasDraft()) { release(false); return }
+      committing = true
+      this.replaceMain(target, navigation, 'reveal')
+      release(false)
+    } catch (error) {
+      if (!navigation.aborted) { release(true); throw error }
+    } finally {
+      navigation.removeEventListener('abort', cancelled)
+    }
   }
 
   openWorkspace(
@@ -337,6 +413,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     beforeOpen?: (sessionId: SessionId) => void,
     options: Pick<StartSessionOptions, 'agentPreset'> = {},
   ): Promise<void> {
+    this.explicitNavigation = true
     return this.openWorkspaceSession(workspaceId, beforeOpen, options)
   }
 
@@ -373,6 +450,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
   }
 
   startSession(workspaceId?: WorkspaceId, options?: StartSessionOptions): void {
+    this.explicitNavigation = true
     const { agentPreset, ...draft } = options ?? {}
     const draftOptions = options === undefined ? undefined : draft
     const initializeDraft = draftOptions !== undefined && (draftOptions.prompt !== undefined
@@ -468,10 +546,11 @@ class UiWorkspaceService extends Service implements UiWorkspace {
 
   private watchNavigation(): () => void {
     let initial: 'waiting' | 'connecting' | 'done' = 'waiting'
+    let attempt = 0
     const reconcile = (): void => {
       if (this.lifetime.signal.aborted) return
       if (this.clearArchivedCurrent()) return
-      if (initial !== 'waiting' || this.restorationNavigation?.aborted === true) return
+      if (initial !== 'waiting' || this.initialNavigationClaimed || this.restorationNavigation?.aborted === true) return
       const workspace = this.workspaces.list.getSnapshot()
       const sessions = this.sessions.list.getSnapshot()
       if (workspace.phase !== 'ready' || sessions.phase !== 'ready') return
@@ -480,10 +559,11 @@ class UiWorkspaceService extends Service implements UiWorkspace {
         return
       }
       initial = 'connecting'
+      const currentAttempt = ++attempt
       void this.restoreSelection(workspace, sessions).then(
-        () => { initial = 'done' },
+        () => { if (currentAttempt === attempt) initial = 'done' },
         (reason: unknown) => {
-          if (this.lifetime.signal.aborted) return
+          if (this.lifetime.signal.aborted || currentAttempt !== attempt) return
           initial = 'waiting'
           console.warn('initial Session restoration failed:', reason)
         },
@@ -492,9 +572,16 @@ class UiWorkspaceService extends Service implements UiWorkspace {
 
     const disposeWorkspaces = this.workspaces.list.subscribe(reconcile)
     const disposeSessions = this.sessions.list.subscribe(reconcile)
+    this.resumeInitialRestore = () => {
+      attempt++
+      initial = 'waiting'
+      this.restorationNavigation = undefined
+      reconcile()
+    }
     reconcile()
     return () => {
       this.lifetime.abort()
+      this.resumeInitialRestore = undefined
       disposeSessions()
       disposeWorkspaces()
     }

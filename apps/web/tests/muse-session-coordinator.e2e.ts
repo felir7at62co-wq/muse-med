@@ -50,14 +50,12 @@ describe('web e2e: Muse Main Session coordination', () => {
     consoleTripwire = watchConsole(page)
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30000 })
-    await connectFreshWorkspace(page, scaffold.workspaceCwd)
     expect(scaffold.ctx.agentPresets.defaultId).toBe('standard')
     expect(await page.getByTitle('Choose the agent preset for your new task').count()).toBe(0)
     const entry = page.getByRole('button', { name: 'Muse Main Session', exact: true })
     const entryBox = await entry.boundingBox()
     const newBox = await page.getByRole('button', { name: 'New session', exact: true }).last().boundingBox()
     expect(entryBox?.y).toBeLessThan(newBox?.y ?? 0)
-    await entry.click()
     await vi.waitFor(() => {
       expect(scaffold.ctx.agents.list().some(agent => scaffold.ctx.agentPresets.composedPreset(agent.ctx) === 'main-session')).toBe(true)
     }, { timeout: 15000 })
@@ -66,6 +64,15 @@ describe('web e2e: Muse Main Session coordination', () => {
     mainId = main.id
     expect(scaffold.ctx.agentPresets.composedPreset(main.ctx)).toBe('main-session')
     expect(main.session.header.cwd).toBe(initial?.workspace.path)
+    await vi.waitFor(async () => {
+      expect(await page.locator('[data-conversation-content]').getAttribute('data-conversation-session')).toBe(mainId)
+    }, { timeout: 15000 })
+    await connectFreshWorkspace(page, scaffold.workspaceCwd)
+    await vi.waitFor(async () => {
+      const selected = await page.locator('[data-conversation-content]').getAttribute('data-conversation-session')
+      expect(selected).toBeTruthy()
+      expect(selected).not.toBe(mainId)
+    }, { timeout: 15000 })
     await entry.click()
     expect(scaffold.ctx.agents.list().filter(agent => scaffold.ctx.agentPresets.composedPreset(agent.ctx) === 'main-session')).toHaveLength(1)
     const denied = await executeToolFixture(scaffold.ctx, { agent: main, name: 'bash',
@@ -124,16 +131,21 @@ describe('web e2e: Muse Main Session coordination', () => {
     await page.screenshot({ path: join(process.cwd(), '.artifacts/muse-session-coordinator.png') })
     await cards.getByRole('button', { name: 'Open execution chat' }).click()
     await page.getByText('Worker verification finished.', { exact: true }).waitFor()
+    expect(await page.locator('[data-conversation-content]').getAttribute('data-conversation-session')).toBe(workerId)
     expect(await page.locator('[data-muse-coordination-cards]').count()).toBe(0)
     await page.getByRole('button', { name: 'Muse Main Session', exact: true }).click()
     await page.getByText('Worker completed', { exact: true }).waitFor()
   })
 
-  it('restores Main Session through its entry while ordinary work remains listed', async () => {
+  it('opens the retained Main Session after reload while ordinary work remains listed', async () => {
+    await page.locator(`[data-row-key="session:${workerId}"]`).click()
+    await page.getByText('Worker verification finished.', { exact: true }).waitFor()
+    expect(await page.locator('[data-conversation-content]').getAttribute('data-conversation-session')).toBe(workerId)
     await page.reload({ waitUntil: 'load' })
     const entry = page.getByRole('button', { name: 'Muse Main Session', exact: true })
     await entry.waitFor({ timeout: 30000 })
-    await entry.click()
+    await expect.poll(async () => page.locator('[data-conversation-content]').getAttribute('data-conversation-session'), { timeout: 30000 })
+      .toBe(mainId)
     await page.getByText('Worker completed', { exact: true }).waitFor({ timeout: 20000 })
     await page.getByText('Review episode two; retain episode three.', { exact: true }).first().waitFor({ timeout: 20000 })
     await vi.waitFor(async () => {
