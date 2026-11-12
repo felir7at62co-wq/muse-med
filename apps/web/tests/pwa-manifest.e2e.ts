@@ -10,7 +10,7 @@ it('ships muse-med install metadata with the built web application', async () =>
   const index = await readFile(join(DIST_ROOT, 'index.html'), 'utf8')
   expect(index).toContain('<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />')
   expect(index).toContain('<link rel="manifest" href="./manifest.webmanifest" />')
-  expect(index).toContain('<title>muse-med</title>')
+  expect(index).toContain('<title>Muse</title>')
   expect(index).toContain('<link rel="icon" type="image/webp" href="./muse-med-logo-black.webp" />')
   expect(index).toContain('<link rel="apple-touch-icon" href="./muse-med-logo.png" />')
   expect(index).toContain('<meta name="mobile-web-app-capable" content="yes" />')
