@@ -1,5 +1,5 @@
 ---
-description: "Main Session task cards, execution-chat navigation and native file actions below the conversation title."
+description: "Retained Main Session navigation with native execution conversations and chat result reports."
 kind: "package-reference"
 ---
 
@@ -10,7 +10,7 @@ kind: "package-reference"
 <a id="summary"></a>
 ## 概述
 
-此可选界面插件在主会话中展示真实任务状态、执行会话入口、原生交付文件和停止操作。任务以紧凑气泡显示在会话标题下方，执行中小蜘蛛会动，点击气泡可查看任务详情。普通会话保持原有界面。
+此可选界面插件打开固定主会话，并提供侧栏入口。执行会话使用原生侧栏行，结果通过主会话聊天消息返回；会话标题下方和会话行中均不展示任务气泡。
 
 <a id="table-of-contents"></a>
 ## 目录
@@ -22,16 +22,16 @@ kind: "package-reference"
 <a id="use-this-package"></a>
 ## 使用此包
 
-与[协调服务](../../session/session-coordinator/README.zh.md)共同加载。任务卡通过 `useResource` 消费所有者权限的 Remote 观察流，不进行模型轮询。原生会话导航保留当前执行上下文，文件按钮通过原生打开能力访问执行会话的实际交付路径。停止先显示请求状态，账本确认后才显示已停止。
+与[协调服务](../../session/session-coordinator/README.zh.md)共同加载。任务派发、完成回执以及唤醒主会话转告结果均由协调服务负责。通过普通侧栏行打开执行会话，即可查看执行过程。
 
-所有注册、观察流、生成的 Remote 绑定与反馈提示都随 Cordis 卸载释放；重新加载会从账本读取现有任务，不派发任务或修改普通会话。
+所有注册、观察流、生成的 Remote 绑定与反馈提示都随 Cordis 卸载释放；重新加载会恢复导航，不派发任务或修改普通会话。
 
-启动时在权限可用且未被用户导航或草稿取代时打开固定主会话。Muse 小蜘蛛按钮位于“新会话”上方，可从其他对话返回主会话。普通工作区列表不展示主会话，执行会话仍正常展示。停用插件时同时移除入口与任务卡；重新启用后保留同一主会话。
+启动时在权限可用且未被用户导航或草稿取代时打开固定主会话。Muse 小蜘蛛按钮位于“新会话”下方，可从其他对话返回主会话。普通工作区列表不展示主会话，执行会话仍正常展示。停用插件时移除入口及导航注册；重新启用后保留同一主会话。
 
 <a id="model-experience"></a>
 ## 模型体验
 
-### 可见任务
+### 主会话导航
 
 #### 模型可见内容
 
@@ -39,7 +39,7 @@ kind: "package-reference"
 
 #### Token 影响
 
-零；读取卡片和展开列表不调用模型。
+零；导航到会话不调用模型。
 
 #### KV Cache 影响
 
@@ -48,8 +48,8 @@ kind: "package-reference"
 <a id="known-limitations-and-deferred-work"></a>
 ## 已知限制与延后工作
 
-- 卡片报告执行会话状态与文件声明，不认证作品质量或用户验收。
+- 执行会话的完成回报由协调服务负责；完成不代表作品质量或用户验收。
 
 ### 开发备注
 
-停用此插件移除任务气泡；协调账本与执行会话仍由各自所有者管理。
+停用此插件移除主会话入口；协调账本与执行会话仍由各自所有者管理。

@@ -1030,7 +1030,6 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'an entry in \'conversation.content.overlayHost\' (client-ui-conversation), so it exists while that entry is mounted',
     occupants: [
-      'client-ui-session-coordinator TaskCards id \'muse-coordination\'',
       'client-ui-session-video VideoShelf id \'muse-session-video\'',
     ],
     replaceRisk: 'none',
@@ -5245,9 +5244,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     hookContext: '',
     slotInject: '',
     declaredBy: 'an entry in \'sidebar.workspaces\' (client-ui-workspace), so it exists while that entry is mounted',
-    occupants: [
-      'client-ui-session-coordinator TaskRowStatus id \'muse-coordination-status\'',
-    ],
+    occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'sidebar.session.row.persistent\', () => ctx.slots.register(\n      { name: \'sidebar.session.row.persistent\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
     source: 'packages/client/ui-workspace/src/client/contract/slots.ts:160',

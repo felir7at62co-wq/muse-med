@@ -12,7 +12,7 @@ import { captureStableAria, compareOrRefreshGolden, launchWebScaffold, watchCons
 import { connectFreshWorkspace, newEnglishPage } from './support.ts'
 
 const OVERLAY = fileURLToPath(new URL('./muse-session-coordinator.overlay.yml', import.meta.url))
-const EXPECTED = fileURLToPath(new URL('./expected/muse-session-coordinator/tasks.expected.md', import.meta.url))
+const EXPECTED = fileURLToPath(new URL('./expected/muse-session-coordinator/navigation.expected.md', import.meta.url))
 const MODE = webSnapshotMode()
 
 describe('web e2e: Muse Main Session coordination', () => {
@@ -59,7 +59,7 @@ describe('web e2e: Muse Main Session coordination', () => {
     const entry = page.getByRole('button', { name: 'Muse Main Session', exact: true })
     const entryBox = await entry.boundingBox()
     const newBox = await page.getByRole('button', { name: 'New session', exact: true }).last().boundingBox()
-    expect(entryBox?.y).toBeLessThan(newBox?.y ?? 0)
+    expect(newBox?.y).toBeLessThan(entryBox?.y ?? 0)
     await vi.waitFor(() => {
       expect(scaffold.ctx.agents.list().some(agent => scaffold.ctx.agentPresets.composedPreset(agent.ctx) === 'main-session')).toBe(true)
     }, { timeout: 15000 })
@@ -90,9 +90,8 @@ describe('web e2e: Muse Main Session coordination', () => {
         instructions: 'Review episode two. Do not change episode three. This fixture does not write files or call a provider.', reason: 'Fresh isolated review context' },
       callId: ToolCallId('main-dispatch'), signal: new AbortController().signal })
     expect(dispatched.isError).not.toBe(true)
-    await page.locator('[data-muse-coordination-cards]').getByText('Worker completed', { exact: true }).waitFor({ timeout: 20000 })
-    await main.whenIdle()
     await page.getByText('The worker reviewed episode two and retained episode three; the result is ready for your review.', { exact: true }).waitFor({ timeout: 20000 })
+    await main.whenIdle()
     expect(await page.locator('[data-conversation-content]').getAttribute('data-conversation-session')).toBe(main.id)
     const matches = JSON.parse(await scaffold.ctx.sessionCoordinator.search(main, 'Review episode')) as { sessions: { sessionId: string }[] }
     expect(matches.sessions.length).toBeGreaterThan(0)
@@ -108,44 +107,25 @@ describe('web e2e: Muse Main Session coordination', () => {
     await scaffold?.close()
   })
 
-  it('shows real native task receipts and opens the independent execution Session', async () => {
-    const cards = page.locator('[data-muse-coordination-cards]')
-    const bubble = cards.locator('[data-coordination-task]').first()
-    const backgrounds = await bubble.evaluate((element) => {
-      const body = document.body
-      const original = body.getAttribute('data-ds-dark-theme')
-      body.removeAttribute('data-ds-dark-theme')
-      const light = getComputedStyle(element).backgroundColor
-      body.setAttribute('data-ds-dark-theme', '')
-      const dark = getComputedStyle(element).backgroundColor
-      if (original === null) body.removeAttribute('data-ds-dark-theme')
-      else body.setAttribute('data-ds-dark-theme', original)
-      return [light, dark]
-    })
-    expect(backgrounds).not.toContain('rgba(0, 0, 0, 0)')
-    expect(backgrounds[0]).not.toBe(backgrounds[1])
-    const overlayBox = await page.locator('[data-conversation-overlay]').boundingBox()
-    const bubbleBox = await bubble.boundingBox()
-    expect(bubbleBox?.y).toBeGreaterThan((overlayBox?.y ?? 0) + 30)
-    await cards.locator('summary').first().click()
-    expect(await cards.getByText('The worker reviewed episode two and retained episode three.').count()).toBe(1)
-    expect(await cards.getByText('Worker report; awaiting your acceptance').count()).toBe(1)
-    expect(await cards.getByText('Stop task', { exact: true }).count()).toBe(0)
-    const aria = await captureStableAria(page, '[data-muse-coordination-cards]', scaffold.workspaceCwd)
+  it('relays results in chat and opens the worker through its native sidebar row without task overlays', async () => {
+    expect(await page.locator('[data-muse-coordination-cards]').count()).toBe(0)
+    const workerRow = page.locator(`[data-row-key="session:${workerId}"]`)
+    expect(await workerRow.locator('[data-task-status]').count()).toBe(0)
+    const aria = await captureStableAria(page, '[data-muse-main-entry]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(EXPECTED, aria, MODE)
     await mkdir(join(process.cwd(), '.artifacts'), { recursive: true })
     await page.screenshot({ path: join(process.cwd(), '.artifacts/muse-session-coordinator.png') })
-    await cards.getByRole('button', { name: 'Open execution chat' }).click()
+    await workerRow.click()
     await page.getByText('Worker verification finished.', { exact: true }).waitFor()
     expect(await page.locator('[data-conversation-content]').getAttribute('data-conversation-session')).toBe(workerId)
     expect(await page.locator('[data-muse-coordination-cards]').count()).toBe(0)
     await page.getByRole('button', { name: 'Muse Main Session', exact: true }).click()
-    await page.locator('[data-muse-coordination-cards]').getByText('Worker completed', { exact: true }).waitFor()
+    await page.getByText('The worker reviewed episode two and retained episode three; the result is ready for your review.', { exact: true }).waitFor()
   })
 
   it('opens the retained Main Session after reload while ordinary work remains listed', async () => {
     const workerRow = page.locator(`[data-row-key="session:${workerId}"]`)
-    await workerRow.locator('[data-task-status="completed"]').waitFor()
+    expect(await workerRow.locator('[data-task-status]').count()).toBe(0)
     await workerRow.click()
     await page.getByText('Worker verification finished.', { exact: true }).waitFor()
     expect(await page.locator('[data-conversation-content]').getAttribute('data-conversation-session')).toBe(workerId)
@@ -154,7 +134,7 @@ describe('web e2e: Muse Main Session coordination', () => {
     await entry.waitFor({ timeout: 30000 })
     await expect.poll(async () => page.locator('[data-conversation-content]').getAttribute('data-conversation-session'), { timeout: 30000 })
       .toBe(mainId)
-    await page.locator('[data-muse-coordination-cards]').getByText('Worker completed', { exact: true }).waitFor({ timeout: 20000 })
+    await page.getByText('The worker reviewed episode two and retained episode three; the result is ready for your review.', { exact: true }).waitFor({ timeout: 20000 })
     await page.getByText('Review episode two; retain episode three.', { exact: true }).first().waitFor({ timeout: 20000 })
     await vi.waitFor(async () => {
       expect(await page.locator(`[data-row-key="session:${mainId}"]`).count()).toBe(0)
@@ -163,16 +143,17 @@ describe('web e2e: Muse Main Session coordination', () => {
     expect(scaffold.ctx.agents.list().filter(agent => scaffold.ctx.agentPresets.composedPreset(agent.ctx) === 'main-session')).toHaveLength(1)
   })
 
-  it('removes and restores its UI without duplicate cards or another worker execution', async () => {
+  it('removes and restores its entry without task overlays or another worker execution', async () => {
     const ui = [...scaffold.ctx.loader.entries()].find(entry => entry.options.id === 'ui-muse-session-coordinator')
     if (ui?.options.id === undefined) throw new Error('Task UI loader entry missing')
     const count = scaffold.ctx.agents.list().length
     scaffold.ctx.loader.remove(ui.id)
-    await expect.poll(() => page.locator('[data-muse-coordination-cards]').count()).toBe(0)
-    expect(await page.locator('[data-muse-main-entry]').count()).toBe(0)
+    await expect.poll(() => page.locator('[data-muse-main-entry]').count()).toBe(0)
+    expect(await page.locator('[data-muse-coordination-cards]').count()).toBe(0)
     await scaffold.ctx.loader.create({ name: '@deepseek-ai/dsh-client-ui-session-coordinator' })
-    await page.locator('[data-muse-coordination-cards]').getByText('Worker completed', { exact: true }).waitFor()
-    expect(await page.locator('[data-muse-coordination-cards]').count()).toBe(1)
+    await page.locator('[data-muse-main-entry]').waitFor()
+    expect(await page.locator('[data-muse-coordination-cards]').count()).toBe(0)
+    expect(await page.locator('[data-task-status]').count()).toBe(0)
     expect(await page.locator('[data-muse-main-entry]').count()).toBe(1)
     expect(scaffold.ctx.agents.list()).toHaveLength(count)
     expect(consoleTripwire.warnings).toEqual([])

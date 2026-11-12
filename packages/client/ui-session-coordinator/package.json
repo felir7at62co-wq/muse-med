@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-client-ui-session-coordinator",
-  "description": "Muse Main Session task cards and execution-session navigation",
+  "description": "Muse retained Main Session navigation",
   "version": "0.2.2-rc.1",
   "publishConfig": {
     "access": "public"

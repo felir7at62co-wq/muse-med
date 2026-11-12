@@ -100,7 +100,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-client-ui-schedule` | no | Host task management page and Session reminder catalog |
 | `@deepseek-ai/dsh-client-ui-secret-mask` | no | Web display masking for recognized credentials in sent user text |
 | `@deepseek-ai/dsh-client-ui-session` | no | Session Controller adapter for React and session-scoped slots |
-| `@deepseek-ai/dsh-client-ui-session-coordinator` | no | Muse Main Session task cards and execution-session navigation |
+| `@deepseek-ai/dsh-client-ui-session-coordinator` | no | Muse retained Main Session navigation |
 | `@deepseek-ai/dsh-client-ui-session-video` | yes | Muse conversation video curtain, shot timeline and inline video collection |
 | `@deepseek-ai/dsh-client-ui-settings` | no | Settings domain base plugin: shared configuration forms and the canonical settings slot-type contract |
 | `@deepseek-ai/dsh-client-ui-settings-account` | yes | Manage DeepSeek login and open Platform billing pages |

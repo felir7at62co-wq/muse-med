@@ -130,14 +130,14 @@ function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts 
 }
 
 describe('SidebarRoot shell', () => {
-  it('groups an opted-in entry and New Session with the workspace browser', () => {
+  it('places New Session above an opted-in entry in the workspace browser', () => {
     const b = mountShell({ workspaceEntries: true })
     const region = screen.getByTestId('region').parentElement!
     const main = screen.getByRole('button', { name: 'Muse main' })
     const newSession = Array.from(region.querySelectorAll('button')).find(button => button.getAttribute('aria-label') === 'New session')!
     expect(region.contains(main)).toBe(true)
-    expect(main.compareDocumentPosition(newSession) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(newSession.compareDocumentPosition(screen.getByTestId('region')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(newSession.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(main.compareDocumentPosition(screen.getByTestId('region')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(b.regionOwner().showSectionLabel).toBe(false)
     fireEvent.click(newSession)
     expect(b.startSession).toHaveBeenCalledOnce()
