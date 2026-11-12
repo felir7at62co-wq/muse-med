@@ -1,5 +1,5 @@
 /** Staged inputs retain the current renderer's audio clock and delivery policy. */
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile, realpath, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { prepareStagedEpisodeAudio, stagedEpisodeEndingAssets } from '../src/prepare.ts'
@@ -10,7 +10,7 @@ import { cleanup, stubChannel, tempProject } from './harness.ts'
 const roots: string[] = []
 afterEach(async () => { await Promise.all(roots.splice(0).map(async (root) => { await cleanup(root) })) })
 async function fixture(medium: 'animation_3d' | 'photorealistic' = 'photorealistic') {
-  const project = await tempProject(); roots.push(project)
+  const project = await realpath(await tempProject()); roots.push(project)
   const timelinePath = join(project, 'timeline.json')
   await writeFile(timelinePath, JSON.stringify({ clips: [
     { shot: 1, start_us: 0, duration_us: 1_000_000 }, { shot: 2, start_us: 1_000_000, duration_us: 2_000_000 },
