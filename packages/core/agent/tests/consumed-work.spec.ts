@@ -211,3 +211,53 @@ it.each(['user', 'parent'] as const)('accounts for pending durable input cancell
   session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind } } })
   expect(foldConsumedWork(session.snapshotEvents()).end?.data.turn).toBe(kind === 'user' ? 1 : undefined)
 })
+
+it('does not attribute claim or discard records whose opening history is outside the owned suffix', () => {
+  const session = Session.create(SessionId('claim-owned-suffix')), pending = message('pending')
+  session.append('turn/start', { turn: 1 })
+  session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [pending.id], nextTurn: [] })
+  session.append('agent/inbox/claim-filtered', { turn: 1, step: 1, discarded: [pending.id] })
+  session.append('turn/end', { turn: 1, reason: { kind: 'blocked' } })
+  const events = session.snapshotEvents()
+  expect(foldConsumedWork(events)).toMatchObject({ end: { data: { turn: 1 } }, droppedUnrun: false })
+  expect(foldConsumedWork(events.slice(events.findIndex(event => event.type === 'agent/inbox/claim'))))
+    .toEqual({ droppedUnrun: false })
+  expect(foldConsumedWork(events.slice(events.findIndex(event => event.type === 'agent/inbox/claim-filtered'))))
+    .toEqual({ droppedUnrun: false })
+})
+
+it('counts only discarded identities present in the durable claim', () => {
+  const session = Session.create(SessionId('claim-filter-identities')), pending = message('pending'), other = message('other')
+  session.append('turn/start', { turn: 1 })
+  session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [pending.id], nextTurn: [] })
+  session.append('agent/inbox/claim-filtered', { turn: 1, step: 1, discarded: [other.id, pending.id] })
+  session.append('turn/end', { turn: 1, reason: { kind: 'blocked' } })
+  expect(foldConsumedWork(session.snapshotEvents())).toMatchObject({ end: { data: { turn: 1 } }, droppedUnrun: false })
+})
+
+it.each([false, true])('accounts for a materialized message only when its identity was claimed (matching: %s)', (matching) => {
+  const session = Session.create(SessionId(`claimed-message-${matching}`)), pending = message('pending')
+  session.append('turn/start', { turn: 1 })
+  session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [], nextTurn: [pending.id] })
+  session.append('user/message', matching ? pending : message('independent context'), { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 1, reason: { kind: 'blocked' } })
+  const result = foldConsumedWork(session.snapshotEvents())
+  expect(result.droppedUnrun).toBe(false)
+  expect(result.end?.data.turn).toBe(matching ? 1 : undefined)
+})
+
+it.each(['user', 'parent'] as const)('accounts for an unmaterialized durable claim canceled by %s', (kind) => {
+  const session = Session.create(SessionId(`pending-claim-${kind}`)), pending = message('pending')
+  session.append('turn/start', { turn: 1 })
+  session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [pending.id], nextTurn: [] })
+  session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind } } })
+  expect(foldConsumedWork(session.snapshotEvents()).end?.data.turn).toBe(kind === 'user' ? 1 : undefined)
+})
+
+it('does not count an empty durable claim as canceled work', () => {
+  const session = Session.create(SessionId('empty-durable-claim'))
+  session.append('turn/start', { turn: 1 })
+  session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [], nextTurn: [] })
+  session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'user' } } })
+  expect(foldConsumedWork(session.snapshotEvents())).toEqual({ droppedUnrun: false })
+})

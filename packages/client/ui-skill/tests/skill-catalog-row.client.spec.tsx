@@ -89,9 +89,13 @@ describe('SkillCatalogRow', () => {
     { kind: 'skill-catalog', totalMatched: 4, hasMore: true },
     { kind: 'skill-catalog', count: 2, hasMore: true },
     { kind: 'skill-catalog', count: 2, totalMatched: 4 },
+    { kind: 'skill-catalog' },
+    { kind: 'skill-catalog', count: 1 },
+    { kind: 'skill-catalog', count: 1, totalMatched: 1 },
   ])('keeps partial historical metadata %j from inventing page counts or a next page', (meta) => {
     const view = render(<SkillCatalogRow {...props(settled({ meta }))} />)
     expect(screen.getByRole('status').textContent).toBe('查询完成')
+    expect(view.container.textContent).not.toContain('本页')
     expect(view.container.textContent).not.toContain('private-session')
     expect(view.container.textContent).not.toContain('digest')
     view.rerender(<SkillCatalogRow {...props(settled())} />)

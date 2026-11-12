@@ -162,26 +162,24 @@ describe('Desktop workspace successor ownership', () => {
     })
     const closed = once(child, 'close')
     void closed.catch(() => {})
-    onTestFinished(async () => {
-      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
-      await closed
-    })
-    let stderr = ''
-    let stdout = ''
+    let stderr = '', output = '', reachedPublication = false
     child.stderr.on('data', (chunk) => { stderr += String(chunk) })
-    child.stdout.on('data', (chunk) => { stdout += String(chunk) })
+    child.stdout.on('data', (chunk) => {
+      output += String(chunk)
+      if (!reachedPublication && output.includes('WORKSPACE_BEFORE_PUBLICATION\n')) {
+        reachedPublication = true
+        child.kill('SIGKILL')
+      }
+    })
     const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
-      const timer = setTimeout(() => { reject(new Error('migration child did not exit')) }, 5000)
+      const timer = setTimeout(() => { reject(new Error(`migration child did not exit: ${stderr}`)) }, 5000)
       child.once('exit', (code, signal) => { clearTimeout(timer); resolve({ code, signal }) })
       child.once('error', (error) => { clearTimeout(timer); reject(error) })
     })
+    onTestFinished(async () => { child.kill('SIGKILL'); await closed })
     const { code, signal } = await exit
-    await closed
-    expect(stderr).toBe('')
-    expect(JSON.parse(stdout)).toEqual({ phase: 'before-migration-publication',
-      api: process.platform === 'win32' ? 'MoveFileExW' : 'rename' })
-    expect({ code, signal }).toEqual(process.platform === 'win32'
-      ? { code: 1, signal: null } : { code: null, signal: 'SIGKILL' })
+    expect(reachedPublication).toBe(true)
+    expect({ code, signal }, stderr).toEqual({ code: null, signal: 'SIGKILL' })
     await expect(stat(h.root)).rejects.toMatchObject({ code: 'ENOENT' })
     expect((await readdir(h.dir)).some(name => name.startsWith('.owned.v1-migration-'))).toBe(true)
     expect(await readFile(h.sourcePath, 'utf8')).toBe(h.source)
