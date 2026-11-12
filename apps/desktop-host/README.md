@@ -25,7 +25,7 @@ Work relationship proposals cite saved snapshots and require an explicit human d
 
 The private Host supplies the Muse compositions used by the [Desktop application](../desktop/README.md). Its bundled preset files remain ordinary Cordis configuration. User-owned model providers and credentials stay separate from the Muse account catalog.
 
-The Host package retains `lib/workspace-owned-storage.js` beside `lib/index.js` for the Desktop module override. Other ownership and composition helpers are included in their owning bundles. Package admission requires the independent storage entry before a profile can boot.
+The Host package retains `lib/workspace-owned-storage.js` beside `lib/index.js` for the Desktop module override. Other ownership and composition helpers remain in their owning bundles and also have standalone entries when declared in the publication manifest. The build configuration covers every declared standalone `lib/*.js` file. Package admission requires the independent storage entry before a profile can boot.
 
 The Desktop tool-discovery policy keeps routine file, command, image, video-inspection, search, interaction and task tools resident. Specialized screenplay, asset, production, collection and delivery tools load through tool search when needed; registration and execution permissions remain unchanged. Bot-only definitions and preference services are absent from the default product.
 
