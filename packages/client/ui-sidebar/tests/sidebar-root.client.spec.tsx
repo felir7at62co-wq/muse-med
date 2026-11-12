@@ -106,7 +106,9 @@ function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts 
     />
   )
   const placed = () => anchor ? <div style={{ display: 'contents' }}>{root()}</div> : root()
-  const view = render(placed(), fragment ? { container: document.createDocumentFragment() } : undefined)
+  const view = fragment
+    ? render(placed(), { container: document.createDocumentFragment() })
+    : render(placed())
   return {
     container: view.container,
     startSession,
