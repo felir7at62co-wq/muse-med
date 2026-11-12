@@ -126,6 +126,8 @@ Viewer streams belong to their opening actor. Notifications and control projecti
 
 The external Liveshare server's service, stores, OAuth provider, and deployment remain separately owned. Owner-only tests live here; tests that start both complete products remain with the upper Liveshare server integration.
 
+The source-only viewer tests generate Remote modules in a private Node subprocess using the current workspace aliases, then consume them in the instrumented viewer. Generation reports complete output and exit status, rejects missing files, and joins the child before staging cleanup; the UI assertions and their deadlines remain unchanged.
+
 </details>
 
 -----
