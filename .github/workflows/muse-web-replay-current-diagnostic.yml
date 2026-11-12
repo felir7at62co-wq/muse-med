@@ -1,0 +1,260 @@
+name: Muse current Linux replay diagnostic
+on:
+  push:
+    branches:
+      - qa/web-replay-current-20261113
+permissions:
+  contents: read
+env:
+  DSH_TELEMETRY_DISABLED: "1"
+  DSH_SNAPSHOT: replay
+  DSH_EXAMPLE_MODE: lib
+  DSH_GATE_CONCURRENCY: "2"
+jobs:
+  replay:
+    name: Linux current Web and headless replay (diagnostic only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v5.0.0
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "24"
+      - name: Record the actual diagnostic checkout
+        run: |-
+          set -euo pipefail
+          mkdir -p .artifacts/linux-replay-current/web .artifacts/linux-replay-current/headless
+          git rev-parse HEAD > .artifacts/linux-replay-current/head.txt
+          git rev-parse 'HEAD^{tree}' > .artifacts/linux-replay-current/source-tree.txt
+          node --version > .artifacts/linux-replay-current/node-version.txt
+          pnpm --version > .artifacts/linux-replay-current/pnpm-version.txt
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          cat > .artifacts/linux-replay-current/assert-results.mjs <<'NODE'
+          import assert from 'node:assert/strict'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          import { resolve } from 'node:path'
+          const webOwners=["apps/web/tests/sidebar-alignment.e2e.ts","apps/web/tests/lifecycle-chrome.e2e.ts","apps/web/tests/onboarding-deepseek-config.e2e.ts","apps/web/tests/account-login.e2e.ts","apps/web/tests/tool-details.e2e.ts","apps/web/tests/additional-locales.e2e.ts","apps/web/tests/jubian-episode-delivery.e2e.ts","apps/web/tests/muse-drama-modes.e2e.ts","apps/web/tests/pwa-manifest.e2e.ts","apps/web/tests/deepseek-messages-chat.e2e.ts","apps/web/tests/feedback-command.e2e.ts","apps/web/tests/plan-review.e2e.ts","apps/web/tests/ptc-escalation.e2e.ts","apps/web/tests/question-composer.e2e.ts","apps/web/tests/live-interactions.e2e.ts","apps/web/tests/replay-round-trip.e2e.ts","apps/web/tests/session-replay-reload.e2e.ts","apps/web/tests/session-inspector.e2e.ts","apps/web/tests/voice-input.e2e.ts","apps/web/tests/changed-files-turn.e2e.ts","apps/web/tests/creation-recommendations.e2e.ts","apps/web/tests/file-upload-round.e2e.ts","apps/web/tests/permission-policy-context.e2e.ts","apps/web/tests/plugin-recommendations.e2e.ts","apps/web/tests/present.e2e.ts","apps/web/tests/ptc-round.e2e.ts","apps/web/tests/web-search-round.e2e.ts","apps/web/tests/official-subagent-bundle.e2e.ts","apps/web/tests/standalone-string-editor.e2e.ts","apps/web/tests/muse-personal-models.e2e.ts","apps/web/tests/muse-mobile-session.e2e.ts"]
+          const headlessTitles=["replays muse-jianying-draft through dsh --profile headless","replays muse-visualize through dsh --profile headless"]
+          const suite='headless recorded-session snapshots'
+          const [reportPath,group,receiptPath]=process.argv.slice(2)
+          const receipt={group,reportPath,accepted:false}
+          try {
+            const result=JSON.parse(readFileSync(reportPath,'utf8'))
+            assert.equal(result.success,true,'Vitest must report success')
+            assert.equal(result.numFailedTestSuites,0)
+            assert.ok(result.numTotalTestSuites>=1)
+            assert.equal(result.numPassedTestSuites,result.numTotalTestSuites)
+            assert.equal(result.numPendingTestSuites,0)
+            assert.equal(result.numFailedTests,0)
+            assert.equal(result.numTodoTests,0)
+            assert.ok(Array.isArray(result.testResults)&&result.testResults.length>0,'no-test reports are rejected')
+            const assertions=result.testResults.flatMap(file=>file.assertionResults??[])
+            assert.equal(result.numTotalTests,assertions.length)
+            const passed=assertions.filter(test=>test.status==='passed')
+            assert.equal(result.numPassedTests,passed.length)
+            assert.ok(result.testResults.every(file=>file.status==='passed'))
+            assert.ok(assertions.every(test=>['passed','skipped','pending'].includes(test.status)),'failed/todo/unfinished assertions reject')
+            if(group==='web') {
+              const expected=webOwners.map(file=>resolve(file).replaceAll('\\','/')).sort()
+              const actual=result.testResults.map(file=>file.name.replaceAll('\\','/')).sort()
+              assert.deepEqual(actual,expected,'every declared Web owner must execute exactly once')
+              for(const file of result.testResults) assert.ok(file.assertionResults.some(test=>test.status==='passed'),'an entirely skipped Web owner is not a pass: '+file.name)
+              receipt.owners=actual.length
+              receipt.passed=passed.length
+              receipt.existingSkippedOrPending=assertions.length-passed.length
+            } else {
+              assert.equal(group,'headless')
+              assert.equal(result.testResults.length,1)
+              assert.equal(result.testResults[0].name.replaceAll('\\','/'),resolve('snapshots/session/headless.snapshot.ts').replaceAll('\\','/'))
+              const selected=assertions.filter(test=>headlessTitles.includes(test.title))
+              assert.equal(selected.length,2,'both actual intended tests must be present once')
+              assert.deepEqual(selected.map(test=>test.title).sort(),[...headlessTitles].sort())
+              assert.deepEqual(passed.map(test=>test.fullName).sort(),headlessTitles.map(title=>suite+' '+title).sort(),'exactly the two intended cases must pass; no other case counts')
+              assert.equal(result.numPassedTests,2)
+              for(const test of selected) {
+                assert.equal(test.status,'passed','selected skips cannot count as success')
+                assert.deepEqual(test.ancestorTitles,[suite])
+                assert.equal(typeof test.duration,'number')
+                assert.ok(Number.isFinite(test.duration)&&test.duration>=0)
+                assert.deepEqual(test.failureMessages,[])
+              }
+              const excluded=assertions.filter(test=>!headlessTitles.includes(test.title))
+              assert.ok(excluded.every(test=>test.status==='skipped'),'all nonselected same-file tests must remain filtered, never extra passing tests')
+              assert.equal(result.numPendingTests,excluded.length)
+              receipt.selected=selected.map(test=>({title:test.title,fullName:test.fullName,status:test.status,duration:test.duration}))
+              receipt.passed=2
+              receipt.selectedSkipped=0
+              receipt.filteredNotExecuted=excluded.length
+            }
+            receipt.accepted=true
+            console.log(JSON.stringify(receipt,null,2))
+          } catch(error) {
+            receipt.error=String(error)
+            console.error(receipt.error)
+            process.exitCode=1
+          } finally {
+            writeFileSync(receiptPath,JSON.stringify(receipt,null,2)+'\n')
+          }
+          NODE
+          cat > .artifacts/linux-replay-current/assert-collection.mjs <<'NODE'
+          import assert from 'node:assert/strict'
+          import { readFileSync } from 'node:fs'
+          import { resolve } from 'node:path'
+          const listed=JSON.parse(readFileSync(process.argv[2],'utf8'))
+          assert.equal(listed.length,2,'the actual Vitest filter must collect exactly two cases')
+          assert.deepEqual(listed.map(test=>test.name).sort(),["replays muse-jianying-draft through dsh --profile headless","replays muse-visualize through dsh --profile headless"].map(title=>'headless recorded-session snapshots > '+title).sort())
+          assert.ok(listed.every(test=>test.file.replaceAll('\\','/')===resolve('snapshots/session/headless.snapshot.ts').replaceAll('\\','/')))
+          console.log('Verified actual Vitest selection: exactly muse-jianying-draft and muse-visualize, no test execution yet.')
+          NODE
+          cat > .artifacts/linux-replay-current/capture-provenance.mjs <<'NODE'
+          import assert from 'node:assert/strict'
+          import { execFileSync } from 'node:child_process'
+          import { createHash } from 'node:crypto'
+          import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+          const group=process.argv[2]
+          const directory='.artifacts/linux-replay-current/'+group
+          mkdirSync(directory,{recursive:true})
+          const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim()
+          const head=git('rev-parse','HEAD')
+          assert.equal(head,process.env.GITHUB_SHA,'evidence must describe the checked out workflow source')
+          const paths=['.github/workflows/muse-web-replay-current-diagnostic.yml','package.json','pnpm-lock.yaml','pnpm-workspace.yaml','vitest.snapshot.config.ts','vitest.web.config.ts','vitest.shared.ts','apps/web/tests','snapshots/web','snapshots/session/headless.snapshot.ts','snapshots/session/muse-jianying-draft','snapshots/session/muse-visualize','packages/core','packages/session','packages/fs/tool-fs','packages/jobs/jobs-local','packages/shell/tool-bash','packages/goal','packages/todo','packages/interaction/user-approval','packages/context/harness-dev-context','packages/web','scripts','third_party/plugins/sources.json']
+          const files=execFileSync('git',['ls-files','-z','--',...paths],{encoding:'utf8',maxBuffer:16*1024*1024}).split('\0').filter(Boolean).sort()
+          assert.ok(files.length>0)
+          const hashes=files.map(file=>createHash('sha256').update(readFileSync(file)).digest('hex')+'  '+file).join('\n')+'\n'
+          writeFileSync(directory+'/source.sha256',hashes)
+          const data={group,head,sourceTree:git('rev-parse','HEAD^{tree}'),ref:process.env.GITHUB_REF,runId:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,node:process.version,pnpm:execFileSync('pnpm',['--version'],{encoding:'utf8'}).trim(),vitest:JSON.parse(readFileSync('node_modules/vitest/package.json','utf8')).version,sourceFiles:files.length,sourceManifestSha256:createHash('sha256').update(hashes).digest('hex'),snapshotMode:process.env.DSH_SNAPSHOT,exampleMode:process.env.DSH_EXAMPLE_MODE,trackedStatus:git('status','--porcelain=v1')}
+          writeFileSync(directory+'/provenance.json',JSON.stringify(data,null,2)+'\n')
+          console.log(JSON.stringify(data,null,2))
+          NODE
+      - name: Install immutable dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install the existing pinned community test toolchain
+        run: pnpm --dir third_party/plugins/toolchain install --frozen-lockfile --ignore-scripts
+      - name: Prepare the existing CI sandbox
+        run: bash scripts/prepare-ci-bubblewrap.sh
+      - name: Install the real browser and system dependencies
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium webkit
+      - name: Prepare the existing media test executables
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+      - name: Build the official product and test entrypoints
+        id: build
+        env:
+          DSH_BUILD_CLIENT_PROFILE: official
+        run: |-
+          set -euo pipefail
+          set +e
+          pnpm run build 2>&1 | tee .artifacts/linux-replay-current/build.log
+          status=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$status" > .artifacts/linux-replay-current/build.exit-code
+          exit "$status"
+      - name: Capture Web source provenance
+        id: web_source
+        run: node .artifacts/linux-replay-current/capture-provenance.mjs web
+      - name: Replay all 31 declared current Web owners
+        id: web
+        run: |-
+          set -euo pipefail
+          set +e
+          pnpm run test:web:built \
+            apps/web/tests/sidebar-alignment.e2e.ts \
+            apps/web/tests/lifecycle-chrome.e2e.ts \
+            apps/web/tests/onboarding-deepseek-config.e2e.ts \
+            apps/web/tests/account-login.e2e.ts \
+            apps/web/tests/tool-details.e2e.ts \
+            apps/web/tests/additional-locales.e2e.ts \
+            apps/web/tests/jubian-episode-delivery.e2e.ts \
+            apps/web/tests/muse-drama-modes.e2e.ts \
+            apps/web/tests/pwa-manifest.e2e.ts \
+            apps/web/tests/deepseek-messages-chat.e2e.ts \
+            apps/web/tests/feedback-command.e2e.ts \
+            apps/web/tests/plan-review.e2e.ts \
+            apps/web/tests/ptc-escalation.e2e.ts \
+            apps/web/tests/question-composer.e2e.ts \
+            apps/web/tests/live-interactions.e2e.ts \
+            apps/web/tests/replay-round-trip.e2e.ts \
+            apps/web/tests/session-replay-reload.e2e.ts \
+            apps/web/tests/session-inspector.e2e.ts \
+            apps/web/tests/voice-input.e2e.ts \
+            apps/web/tests/changed-files-turn.e2e.ts \
+            apps/web/tests/creation-recommendations.e2e.ts \
+            apps/web/tests/file-upload-round.e2e.ts \
+            apps/web/tests/permission-policy-context.e2e.ts \
+            apps/web/tests/plugin-recommendations.e2e.ts \
+            apps/web/tests/present.e2e.ts \
+            apps/web/tests/ptc-round.e2e.ts \
+            apps/web/tests/web-search-round.e2e.ts \
+            apps/web/tests/official-subagent-bundle.e2e.ts \
+            apps/web/tests/standalone-string-editor.e2e.ts \
+            apps/web/tests/muse-personal-models.e2e.ts \
+            apps/web/tests/muse-mobile-session.e2e.ts \
+            --maxWorkers=1 --no-file-parallelism \
+            --reporter=default --reporter=json \
+            --outputFile.json=.artifacts/linux-replay-current/web/results.json 2>&1 | tee .artifacts/linux-replay-current/web/stdout.log
+          status=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$status" > .artifacts/linux-replay-current/web/exit-code
+          exit "$status"
+      - name: Require real passing results from every Web owner
+        if: ${{ !cancelled() && steps.web.outcome != 'skipped' }}
+        run: node .artifacts/linux-replay-current/assert-results.mjs .artifacts/linux-replay-current/web/results.json web .artifacts/linux-replay-current/web/acceptance.json
+      - name: Capture headless source provenance
+        id: headless_source
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: node .artifacts/linux-replay-current/capture-provenance.mjs headless
+      - name: Verify the exact two headless cases before replay
+        id: headless_selection
+        if: ${{ !cancelled() && steps.headless_source.outcome == 'success' }}
+        run: |-
+          set -euo pipefail
+          DSH_SNAPSHOT_MAX_CONCURRENCY=1 DSH_SNAPSHOT_MAX_WORKERS=1 \
+          pnpm exec vitest list --config vitest.snapshot.config.ts snapshots/session/headless.snapshot.ts \
+            --testNamePattern '^headless recorded-session snapshots replays (muse-jianying-draft|muse-visualize) through dsh --profile headless$' \
+            --json .artifacts/linux-replay-current/headless/collected.json --maxWorkers=1 --no-file-parallelism \
+            2>&1 | tee .artifacts/linux-replay-current/headless/collection.log
+          node .artifacts/linux-replay-current/assert-collection.mjs .artifacts/linux-replay-current/headless/collected.json
+      - name: Replay only the two actual built headless cases
+        id: headless
+        if: ${{ !cancelled() && steps.headless_selection.outcome == 'success' }}
+        env:
+          DSH_SNAPSHOT_MAX_CONCURRENCY: "1"
+          DSH_SNAPSHOT_MAX_WORKERS: "1"
+        run: |-
+          set -euo pipefail
+          set +e
+          pnpm run test:snapshot:built snapshots/session/headless.snapshot.ts \
+            --testNamePattern '^headless recorded-session snapshots replays (muse-jianying-draft|muse-visualize) through dsh --profile headless$' \
+            --maxWorkers=1 --no-file-parallelism \
+            --reporter=default --reporter=json \
+            --outputFile.json=.artifacts/linux-replay-current/headless/results.json 2>&1 | tee .artifacts/linux-replay-current/headless/stdout.log
+          status=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$status" > .artifacts/linux-replay-current/headless/exit-code
+          exit "$status"
+      - name: Require exactly two intended headless passes
+        if: ${{ !cancelled() && steps.headless.outcome != 'skipped' }}
+        run: node .artifacts/linux-replay-current/assert-results.mjs .artifacts/linux-replay-current/headless/results.json headless .artifacts/linux-replay-current/headless/acceptance.json
+      - name: Confirm all protected canonical snapshot inputs are unchanged
+        if: always()
+        run: |-
+          set -euo pipefail
+          mkdir -p .artifacts/linux-replay-current
+          git diff -- snapshots > .artifacts/linux-replay-current/protected-snapshots.diff
+          git ls-files --others --exclude-standard -- snapshots > .artifacts/linux-replay-current/untracked-snapshots.txt
+          git diff --exit-code -- snapshots
+          test ! -s .artifacts/linux-replay-current/untracked-snapshots.txt
+      - name: Preserve raw diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: linux-replay-current-${{ github.sha }}
+          path: .artifacts/linux-replay-current
+          if-no-files-found: error
