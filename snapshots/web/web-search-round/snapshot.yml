@@ -3,5 +3,6 @@ scenario: web-search-round
 profile: web
 composition: web-default
 recording: live
+writerOutput: true
 header:
   class: web-default
