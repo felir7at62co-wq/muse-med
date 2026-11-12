@@ -315,21 +315,65 @@ describe('CI workflow', () => {
   it('limits temporary Linux capture to the reviewed cohorts and immutable inputs', () => {
     const job = workflowJob(loadWorkflow('.github/workflows/linux-snapshot-capture.yml'), 'capture')
     const plan = loadWorkflow('.github/workflows/linux-snapshot-capture-plan.json')
-    if (!isRecord(job.strategy) || !isRecord(job.strategy.matrix) || !Array.isArray(job.steps)
-      || !Array.isArray(plan.groups)) throw new TypeError('Snapshot capture must declare its matrix and plan')
+    if (!Array.isArray(job.steps) || !Array.isArray(plan.groups)) {
+      throw new TypeError('Snapshot capture must declare its ordered cohorts and plan')
+    }
     expect(plan).toMatchObject({ version: 1, temporary: true, repository: 'felir7at62co-wq/muse-med',
-      pullRequest: 154, headBranch: 'fix/muse-ci-baseline-20261111', totals: { groups: 8, tests: 66, outputs: 177 } })
+      pullRequest: 154, headBranch: 'fix/muse-ci-baseline-20261111', execution: 'ordered-single-job',
+      totals: { groups: 8, owners: 81, refreshTests: 81, replayTests: 82, outputs: 214 } })
     const groups = plan.groups.filter(isRecord)
     expect(groups).toHaveLength(8)
     expect(plan.groups).toHaveLength(8)
-    expect(groups.map(group => [group.id, group.expectedTests,
+    expect(groups.map(group => [group.id, group.expectedRefreshTests, group.expectedReplayTests,
       Array.isArray(group.allowedOutputs) ? group.allowedOutputs.length : -1])).toEqual([
-      ['offline-cwd-self-pins', 28, 78], ['borrowed-header-cwd', 11, 12],
-      ['production-headers-and-repaired-fixtures', 14, 42], ['sdk-default', 2, 8],
-      ['sdk-self-headers', 5, 17], ['sdk-borrowed', 4, 14],
-      ['sdk-factory-shutdown', 1, 5], ['compaction-pressure', 1, 1],
+      ['headless-current-pin-owners', 6, 7, 11], ['headless-managed-async-review', 11, 11, 49],
+      ['headless-ptc-borrowers', 11, 11, 25], ['headless-muse-product-1', 12, 12, 34],
+      ['headless-muse-product-2', 8, 8, 22], ['headless-runtime-1', 12, 12, 23],
+      ['headless-runtime-2', 12, 12, 27], ['headless-runtime-3', 9, 9, 23],
     ])
-    expect(job.strategy.matrix.group).toEqual(groups.map(group => group.id))
+    expect(job).not.toHaveProperty('strategy')
+    expect(job['timeout-minutes']).toBe(30)
+    expect(plan.frozenExternalPins).toEqual([
+      'snapshots/session/cordis-inspect-jsdoc', 'snapshots/session/dynamic-tool-updates',
+      'snapshots/session/muse-editing-skill', 'snapshots/session/persistent-pwsh-tool-turn',
+      'snapshots/session/ptc-turn', 'snapshots/session/text-turn',
+    ])
+    const outputs = groups.flatMap(group => Array.isArray(group.allowedOutputs) ? Array.from<unknown>(group.allowedOutputs) : [])
+    expect(outputs).toHaveLength(214)
+    expect(new Set(outputs).size).toBe(214)
+    const allOwners: string[] = []
+    for (const group of groups) {
+      if (!Array.isArray(group.owners) || !Array.isArray(group.phases) || !isRecord(group.replay)
+        || !isRecord(group.expectedManifests) || !Array.isArray(group.inventoryDirectories)
+        || !Array.isArray(group.extraInputs)) throw new TypeError('Incomplete closed capture cohort')
+      expect(group.phases).toHaveLength(1)
+      const phase: unknown = group.phases[0]
+      if (!isRecord(phase) || !Array.isArray(phase.passedSuffixes) || !Array.isArray(group.replay.passedSuffixes)) {
+        throw new TypeError('Every capture phase needs exact refresh and replay suffixes')
+      }
+      expect(phase.id).toBe(group.id)
+      expect(phase.passedSuffixes).toHaveLength(Number(group.expectedRefreshTests))
+      expect(group.replay.passedSuffixes).toHaveLength(Number(group.expectedReplayTests))
+      expect(phase.passedSuffixes.some(suffix => typeof suffix === 'string' && suffix.includes(' from retained '))).toBe(false)
+      expect(group.extraInputs).toContain('snapshots/session/managed-subagent-assertions.ts')
+      for (const owner of group.owners) {
+        if (!isRecord(owner) || typeof owner.name !== 'string' || typeof owner.dir !== 'string') {
+          throw new TypeError('Every capture owner needs an exact name and directory')
+        }
+        allOwners.push(owner.name)
+        expect(group.inventoryDirectories).toContain(owner.dir)
+        const manifest = group.expectedManifests[owner.dir + '/snapshot.yml']
+        if (['muse-manuscript-user-revisions', 'muse-manuscript-user-revisions-pwsh'].includes(owner.name)) {
+          expect(manifest).toMatchObject({ sessionFormat: { version: 4, coverage: ['retired-tools'] } })
+          expect(manifest).not.toHaveProperty('writerOutput')
+        } else {
+          expect(manifest).toMatchObject({ writerOutput: true })
+          expect(manifest).not.toHaveProperty('sessionFormat')
+        }
+      }
+    }
+    expect(allOwners).toHaveLength(81)
+    expect(new Set(allOwners).size).toBe(81)
     const steps = job.steps.filter(isRecord)
     const runFor = (name: string): string => {
       const step = steps.find(value => value.name === name)
@@ -341,6 +385,9 @@ describe('CI workflow', () => {
     expect(baseline).toContain('assert.deepEqual(protectedPaths, spec.expectedInputInventory')
     expect(baseline).toContain('spec.expectedCanonicalPaths')
     expect(baseline).toContain('spec.expectedManifests')
+    expect(baseline).toContain('expectedRefreshTests: 81, expectedReplayTests: 82')
+    expect(baseline).toContain(' from retained V3 input through dsh --profile headless')
+    expect(baseline).toContain('plan.frozenExternalPins.every')
     const refresh = runFor('Refresh approved phases and freeze each completed pin')
     expect(refresh).toContain('report.numPassedTests, phase.passedSuffixes.length')
     expect(refresh).toContain('report.numFailedTests, 0')
@@ -353,11 +400,6 @@ describe('CI workflow', () => {
     expect(verify).toContain('replayOutputDifferences.length === 0')
     expect(verify).toContain('if (verificationPassed)')
     expect(runFor('Build and verify the supported Landlock backend')).toContain('outsideWriteDenied')
-    for (const owner of ['advanced-toolchain', 'product-subagent-both', 'muse-subtitle-visual-preflight',
-      'muse-subtitle-visual-preflight-ptc', 'subagent-dsh-sdk-diagnostic']) {
-      const section = owner === 'subagent-dsh-sdk-diagnostic' ? 'sdk' : 'session'
-      expect(loadWorkflow('snapshots/' + section + '/' + owner + '/snapshot.yml').writerOutput, owner).toBe(true)
-    }
   })
 
   it.each(['ci.yml', 'ci-master.yml', 'e2e.yml', 'release.yml', 'release-vendor.yml'])(
