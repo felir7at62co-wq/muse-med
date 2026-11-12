@@ -66,7 +66,7 @@ it('records the parent video choice before a fresh spawned child requests its mo
   await f.service.select(f.agent, choice.key, 0)
   f.script.push(textResponse('已按继承的视频模型核对本集。'))
   const run = await f.ctx.subagents.startActivation({ provider: 'spawn', label: 'video model inheritance', delivery: 'caller',
-    request: { parent: f.agent, prompt: [{ type: 'text', text: '核对本集所选视频模型与时长。' }] }, signal: new AbortController().signal })
+    parent: f.agent, prompt: [{ type: 'text', text: '核对本集所选视频模型与时长。' }], signal: new AbortController().signal })
   const child = f.ctx.agents.get(run.childId)
   if (child === undefined) throw new Error('Fresh video-choice child was not published')
   try {
@@ -89,8 +89,7 @@ it('samples each new child from the latest parent choice without changing existi
   const second = options.find(option => option.maxDurationSeconds === 30)!
   const third = options.find(option => option.key !== first.key && option.key !== second.key)!
   await f.service.select(f.agent, first.key, 0)
-  const create = async (id: string) => (await f.ctx.agents.create({ sessionId: SessionId(id), parentAgent: f.agent,
-    agentOptions: { provider: 'mock', model: 'mock' },
+  const create = async (id: string) => (await f.ctx.agents.create({ sessionId: SessionId(id), agentOptions: { provider: 'mock', model: 'mock' },
     meta: { cwd: f.root, origin: 'subagent', parentSession: f.agent.id } })).agent
   const older = await create('video-child-before-switch')
   await f.service.select(f.agent, second.key, 1)
@@ -108,21 +107,18 @@ it('keeps forked and child-owned choices and uses the configured default when th
   const f = await fixture(defaults)
   const options = await f.service.catalogue()
   const own = options.find(option => option.maxDurationSeconds === 15)!
-  const emptyChild = (await f.ctx.agents.create({ sessionId: SessionId('video-child-default'), parentAgent: f.agent,
-    agentOptions: { provider: 'mock', model: 'mock' },
+  const emptyChild = (await f.ctx.agents.create({ sessionId: SessionId('video-child-default'), agentOptions: { provider: 'mock', model: 'mock' },
     meta: { cwd: f.root, origin: 'subagent', parentSession: f.agent.id } })).agent
   expect(f.service.selectionFor(emptyChild.session)).toBeNull()
   expect(await f.service.initialize(emptyChild)).toMatchObject({ ...defaults, revision: 1 })
   const parentChoice = await f.service.select(f.agent, own.key, 0)
   const seed = f.agent.session.snapshotEvents()
-  const forked = (await f.ctx.agents.create({ sessionId: SessionId('video-child-fork'), parentAgent: f.agent,
-    agentOptions: { provider: 'mock', model: 'mock' }, seed, inheritedEventCount: SessionLogOffset(seed.length),
+  const forked = (await f.ctx.agents.create({ sessionId: SessionId('video-child-fork'), agentOptions: { provider: 'mock', model: 'mock' }, seed, inheritedEventCount: SessionLogOffset(seed.length),
     meta: { cwd: f.root, origin: 'subagent', parentSession: f.agent.id, isSeeded: true } })).agent
   expect(f.service.selectionFor(forked.session)).toEqual(parentChoice)
   expect(forked.session.snapshotEvents().filter(event => event.type === 'jubian/video-selection')).toHaveLength(1)
   const childChoice = options.find(option => option.key !== own.key)!
-  const owned = (await f.ctx.agents.create({ sessionId: SessionId('video-child-own'), parentAgent: f.agent,
-    agentOptions: { provider: 'mock', model: 'mock' },
+  const owned = (await f.ctx.agents.create({ sessionId: SessionId('video-child-own'), agentOptions: { provider: 'mock', model: 'mock' },
     meta: { cwd: f.root, origin: 'subagent', parentSession: f.agent.id },
     setup: async (_ctx, child) => { await f.service.select(child, childChoice.key, 0) } })).agent
   expect(f.service.selectionFor(owned.session)?.key).toBe(childChoice.key)

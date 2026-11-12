@@ -64,7 +64,7 @@ export function stubAgent(id: SessionId, agentCtx: Context, injected: UserMessag
  * @returns the idempotent detach closure that removes this exact entry.
  */
 export async function publishAgent(ctx: Context, agent: Agent): Promise<() => void> {
-  const detach = ctx.agents.enter(agent, undefined)
+  const detach = ctx.agents.enter(agent)
   await ctx.agents.announce(agent, 'startup')
   return detach
 }

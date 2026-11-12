@@ -29,7 +29,7 @@ export interface DirectModelOptions {
 function interruptedAccess(signal: AbortSignal): LlmError {
   return signal.aborted
     ? new LlmError('Muse model request cancelled', 'ABORTED')
-    : new LlmError('Muse model access could not be confirmed', 'MODEL_ACCESS_UNCERTAIN')
+    : LlmError.fromFailure({ message: 'Muse model access could not be confirmed', code: 'MODEL_ACCESS_UNCERTAIN' })
 }
 
 /** Acquire once, stream directly, check login liveness and release after supplier teardown.
@@ -97,7 +97,7 @@ export async function* streamWithModelLease(
   let accessFailure: LlmError | undefined
   const interruption = (): LlmError | undefined => signal.aborted ? undefined
     : accessFailure ?? (deadline.aborted
-      ? new LlmError('Muse model request reached its access deadline', 'MODEL_REQUEST_DEADLINE') : undefined)
+      ? LlmError.fromFailure({ message: 'Muse model request reached its access deadline', code: 'MODEL_REQUEST_DEADLINE' }) : undefined)
   const check = (): void => {
     timer = setTimeout(() => {
       checking = (async () => {
@@ -108,11 +108,10 @@ export async function* streamWithModelLease(
           await response.arrayBuffer()
         } catch (error) {
           if (!combined.aborted) {
-            accessFailure = new LlmError('Muse model access check failed', 'MODEL_ACCESS_CHECK_FAILED',
-              error instanceof LlmError ? {
-                ...error.failure.status === undefined ? {} : { status: error.failure.status },
-                ...error.failure.providerRetryAfterMs === undefined ? {} : { providerRetryAfterMs: error.failure.providerRetryAfterMs },
-              } : undefined)
+            accessFailure = LlmError.fromFailure({ message: 'Muse model access check failed', code: 'MODEL_ACCESS_CHECK_FAILED', ...(error instanceof LlmError ? {
+              ...error.failure.status === undefined ? {} : { status: error.failure.status },
+              ...error.failure.providerRetryAfterMs === undefined ? {} : { providerRetryAfterMs: error.failure.providerRetryAfterMs },
+            } : {}) })
           }
           controller.abort()
         }

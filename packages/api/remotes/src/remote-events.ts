@@ -17,6 +17,7 @@ import type {} from '@deepseek-ai/dsh-plugin-market/types'
 import type {} from '@deepseek-ai/dsh-schedule/client'
 import type {} from '@deepseek-ai/dsh-skill'
 import type { TypertForwardableEventEntry } from '@deepseek-ai/dsh-typert-protocol'
+import type {} from '@deepseek-ai/dsh-web/types'
 
 /**
  * Host events this application forwards without renaming. The explicit mode is
@@ -61,4 +62,5 @@ export const API_REMOTE_FORWARDED_EVENTS = [
   { event: 'muse-market/defaults-changed', mode: 'emit' },
   { event: 'muse-account/session-changed', mode: 'emit' },
   { event: 'user-questions/request', mode: 'waterfall' },
+  { event: 'web/providers-changed', mode: 'emit' },
 ] as const satisfies readonly TypertForwardableEventEntry[]

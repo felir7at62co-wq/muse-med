@@ -2,6 +2,7 @@
 import { createHash } from 'node:crypto'
 import { cpSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { reviewedHostVersion, reviewedVendorVersions } from './host-runtime.mjs'
 
 export const imDesktopCompatibility = {
   upstreamCommit: 'ca949ee276cc8cfb5a60b4ebd8e2fb616959e136',
@@ -150,8 +151,8 @@ export function applyImDesktopCompatibility(directory) {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
   delete manifest.bin
   delete manifest.optionalDependencies
-  manifest.dependencies['@deepseek-ai/schemastery'] = '3.18.5-alpha.1'
-  manifest.dependencies['@deepseek-ai/dsh-home-paths'] = '0.2.2-rc.1'
+  manifest.dependencies['@deepseek-ai/schemastery'] = reviewedVendorVersions['@deepseek-ai/schemastery']
+  manifest.dependencies['@deepseek-ai/dsh-home-paths'] = reviewedHostVersion
   manifest.dependencies['@larksuiteoapi/node-sdk'] = '1.73.0'
   manifest.dependencies.semver = '7.8.5'
   // These dynamic imports remain external in the retained Host builder.

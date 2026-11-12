@@ -12,8 +12,8 @@
   en: 127ea90553cb6af7
   zh: 7b1c5aec8558c684
 /muse-desktop/application-overview:
-  en: 802ec1e3073a1b97
-  zh: bd1ddf852c2e7f27
+  en: 8298e840a763a189
+  zh: 949eb3640a81ed90
 /muse-desktop/terminal-command:
   en: 5f2d25a1d8472647
   zh: 2acb5c5d7d1917e2
@@ -24,14 +24,14 @@
   en: fab9b5e3ee69367b
   zh: a91982455452a30c
 /muse-desktop/key-technical-decisions/bundled-workspace-dependencies:
-  en: 1f9cabb1c582b3c6
-  zh: ed8c70f8fc89ccf3
+  en: 87bbe3d781b0ef6c
+  zh: ccd96ca132e343a3
 /muse-desktop/bundled-command-runtime:
   en: 72a17219edaaf28a
   zh: e91c96f0040bacd9
 /muse-desktop/installation-ownership:
-  en: f4276ef2ca08949d
-  zh: 5ef519e891a70d4a
+  en: d998fc8800d143f2
+  zh: 18873cc4f58be9de
 /muse-desktop/installation-ownership/short-drama-resources-and-limits:
   en: 29b0b0c26b1eca4e
   zh: 4f963171d1c942ef
@@ -57,8 +57,8 @@
   en: 548a53cda22d92c5
   zh: 062a662b6ecdb8a0
 /muse-desktop/package/runtime-file-selection:
-  en: a17bda8c2f3baebb
-  zh: 6073f8c6bc78e11b
+  en: 91746240055c412b
+  zh: c46aa85f7fe060c7
 /muse-desktop/package/unsigned-installers:
   en: 3196681c5db146e8
   zh: ef7cee2487e484f0
@@ -69,11 +69,11 @@
   en: 67ce5a22d029c969
   zh: 4129236adbe47010
 /muse-desktop/updates:
-  en: 82e4353dee3cb8e2
-  zh: 0d738d6d03d6e427
+  en: cb297ceb9a2ddbde
+  zh: ed23d95448470df2
 /muse-desktop/updates/local-desktop-settings:
-  en: 2e57457c44c85b5f
-  zh: 5b8510a3dc4c6c9d
+  en: dbe57394894b7368
+  zh: a3bb788c2ce631a4
 /muse-desktop/updates/mandatory-update-policy:
   en: 84a95845b359f21c
   zh: b6bc9d9e60d71dbd

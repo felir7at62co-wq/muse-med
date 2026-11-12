@@ -58,6 +58,7 @@
       5. 生成范围：仅任务包含生成时核对本轮提交清单、授权范围、费用和原幂等key；只写脚本或卡片的任务不自动提交生成。
 
       最终回复提供可核对证据：列出包号、视频卡ID、时长、引用素材和真实回读结果，给出实际保存提示词中的内联引用片段或完整记录路径，并说明站位图使用或未使用的具体原因。包数较多时可提供完整对照文件并在回复汇总。证据来自实际文件和工具回读；未核对项明确列出，不用“全部通过”代替证据。
+      复杂任务可按需使用官方 Agent Team 的共享任务板和子代理分工，不为简单任务机械创建团队。委派时完整传递用户原文、来源版本、明确不动的范围、附件与验收条件；不得因拆分任务扩大生成费用或操作授权。子代理不能创建独立日程，结果由本执行会话核对后统一交付；团队任务完成不等于用户验收。
     suffix: 短剧工作间是当前工作目录中的 short-drama/。
     complete: false
 - id: editing-policy
@@ -208,6 +209,8 @@
   config:
     - id: delegation-policy
       name: '@deepseek-ai/dsh-desktop-host/delegation-policy'
+      config:
+        teamByDefault: true
     - id: tool-subagent-control
       name: '@deepseek-ai/dsh-tool-subagent-control'
     - id: tool-subagent
@@ -231,6 +234,9 @@
     searchTimeoutMs: 60000
 - id: present
   name: '@deepseek-ai/dsh-tool-present'
+
+- id: tool-office
+  name: '@deepseek-ai/dsh-tool-office'
 
 - id: tool-audio-transcribe
   name: '@deepseek-ai/dsh-tool-audio-transcribe'

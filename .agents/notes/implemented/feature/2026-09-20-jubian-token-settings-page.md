@@ -32,7 +32,7 @@ A person can now set the token from the GUI, and the row picks it up on the next
 
 The cost is a second way to write one reference: `ctx.remote.credentials` and `ctx.remote.jubianToken` both reach `ctx.credentials.set` for `JUBIANAI_ADMIN_TOKEN`. They are not interchangeable — the generic namespace needs the reference name, this one cannot take one — but a deployment that wants a single audit point must watch the seam, not either namespace.
 
-The package is now dual-face, so its build has two compiler faces and its browser entry imports a generated artifact that exists only after a Host build. `packages/jubian/tool-jubian/src/client/index.ts` is therefore outside the per-file coverage gate, on the same stated grounds as `packages/experimental/client-ui-agent-team/src/client/index.ts`: the import it binds has no source form to execute against.
+The package is now dual-face, so its build has two compiler faces and its browser entry imports a generated artifact that exists only after a Host build. `packages/jubian/tool-jubian/src/client/index.ts` is therefore outside the per-file coverage gate, on the same stated grounds as `packages/client/ui-agent-team/src/client/index.ts`: the import it binds has no source form to execute against.
 
 The page cannot clear a token supplied by a read-only source: `describe` reports `writable: false`, both buttons are disabled, and the copy says why. That is the credential seam's shadowing rule showing through, not a gap in the page.
 

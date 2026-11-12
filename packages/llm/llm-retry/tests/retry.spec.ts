@@ -288,7 +288,7 @@ describe('provider-routed retry policy', () => {
     })
   })
 
-  it.each(['TRANSPORT', 'INVALID_TOOL_ARGUMENTS'])('retries %s without committing partial chunks as a message or executing tools', async (code) => {
+  it.each(['TRANSPORT', 'INVALID_TOOL_ARGUMENTS'] as const)('retries %s without committing partial chunks as a message or executing tools', async (code) => {
     vi.useFakeTimers()
     const adapter = new ScriptedAdapter([
       partialToolFailure(new LlmError('stream interrupted', code)),

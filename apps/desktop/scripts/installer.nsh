@@ -2,6 +2,10 @@
 !include "WordFunc.nsh"
 !include "StdUtils.nsh"
 InstallDir "$LOCALAPPDATA\Programs\${APP_FILENAME}"
+!include "${__FILEDIR__}\restart-banner.nsh"
+!include "FileFunc.nsh"
+!define INSTALLER_SOURCE_DIR "${__FILEDIR__}\..\installer"
+!define /ifndef INSTALLER_BUILD_DIR "${__FILEDIR__}\..\.desktop-build\targets\win-x64\installer-ui"
 
 ; customHeader runs after electron-builder registers the installer languages.
 !macro customHeader
@@ -117,9 +121,6 @@ FunctionEnd
     FunctionEnd
   !endif
 !macroend
-!include "FileFunc.nsh"
-!define INSTALLER_SOURCE_DIR "${__FILEDIR__}\..\installer"
-!define /ifndef INSTALLER_BUILD_DIR "${__FILEDIR__}\..\.desktop-build\targets\win-x64\installer-ui"
 
 ; The external qualification directory is opt-in and already created by the application.
 ; Native code owns UTC timestamps and fixed event names; failures never change installation behavior.
@@ -184,6 +185,11 @@ ManifestDPIAware true
   File "/oname=$PLUGINSDIR\window-frame.dll" "${INSTALLER_BUILD_DIR}\window-frame.dll"
   !insertmacro InstallerRecordTiming 0
   !insertmacro InstallerRecordTiming 1
+  ${If} ${Silent}
+  ${AndIf} ${isUpdated}
+  ${AndIf} ${isForceRun}
+    !insertmacro ShowRestartBanner
+  ${EndIf}
   Call InstallerCheckAppRunning
   !insertmacro InstallerRecordTiming 2
   ${If} ${Silent}
@@ -359,6 +365,11 @@ ManifestDPIAware true
   ${EndIf}
   !insertmacro InstallerPublishStage 4
   !insertmacro dshFinishDirectories
+  ${If} $RestartStatusJob != ""
+  ${AndIf} $RestartStatusJob != 0
+    System::Call 'kernel32::CloseHandle(p $RestartStatusJob)'
+    StrCpy $RestartStatusJob 0
+  ${EndIf}
   ; Standard uninstall-entry metadata read by inventory tools; the upstream template records it only under its private key.
   WriteRegStr SHELL_CONTEXT "${UNINSTALL_REGISTRY_KEY}" InstallLocation "$INSTDIR"
   ${If} $0 == 1

@@ -1,5 +1,5 @@
 /** Exact Host releases qualified by the private community-plugin build. */
-export const reviewedHostVersion = '0.2.2-rc.1'
+export const reviewedHostVersion = '0.2.2-rc.2'
 
 /** Vendor peers must admit the reviewed prereleases explicitly. */
 export const reviewedVendorVersions = Object.freeze({

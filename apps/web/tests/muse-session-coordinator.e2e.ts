@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { chromium, type Browser, type Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type {} from '@deepseek-ai/dsh-session-coordinator'
+import type {} from '@deepseek-ai/dsh-agent-team'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
@@ -48,7 +49,10 @@ describe('web e2e: Muse Main Session coordination', () => {
         return textResponse('The worker reviewed episode two and retained episode three; the result is ready for your review.')
       },
     ])
+    vi.spyOn(adapter, 'listModels').mockResolvedValue([{ provider: 'coordination-fixture', id: 'mock', name: 'Coordination fixture' }])
     scaffold.ctx.llm.registerAdapter(['coordination-fixture'], adapter)
+    expect((await scaffold.ctx.sessionController.modelCatalog()).groups.find(group => group.id === 'coordination-fixture'))
+      .toMatchObject({ models: [{ id: 'mock' }] })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     consoleTripwire = watchConsole(page)
@@ -121,6 +125,37 @@ describe('web e2e: Muse Main Session coordination', () => {
     expect(await page.locator('[data-muse-coordination-cards]').count()).toBe(0)
     await page.getByRole('button', { name: 'Muse Main Session', exact: true }).click()
     await page.getByText('The worker reviewed episode two and retained episode three; the result is ready for your review.', { exact: true }).waitFor()
+  })
+
+  it('keeps the Main Session routing-only while exposing official Team controls in execution Sessions', async () => {
+    const main = scaffold.ctx.agents.list().find(agent => agent.id === mainId)
+    const worker = scaffold.ctx.agents.list().find(agent => agent.id === workerId)
+    if (main === undefined || worker === undefined) throw new Error('Coordination Sessions are not live')
+    const denied = await executeToolFixture(scaffold.ctx, { agent: main, name: 'team_task_create',
+      arguments: { subject: 'Main must delegate this work' }, callId: ToolCallId('main-team-denial'), signal: new AbortController().signal })
+    expect(denied.isError).toBe(true)
+    await page.getByRole('button', { name: /^Select model/u }).click()
+    expect(await page.getByRole('switch', { name: 'Enable agent teamwork', exact: true }).count()).toBe(0)
+    expect(await page.locator('[data-subagent-action]').count()).toBe(0)
+    await page.keyboard.press('Escape')
+
+    await scaffold.ctx.agentTeams.setEnabled(worker, true)
+    const task = await scaffold.ctx.agentTeams.createTask(worker, {
+      subject: 'Verify episode continuity together', description: 'Keep shared work inside the execution Session.',
+    })
+    await page.locator(`[data-row-key="session:${workerId}"]`).click()
+    await page.getByText('Worker verification finished.', { exact: true }).waitFor()
+    await page.getByRole('button', { name: /^Select model/u }).click()
+    const toggle = page.getByRole('switch', { name: 'Enable agent teamwork', exact: true })
+    await toggle.waitFor()
+    expect(await toggle.getAttribute('aria-checked')).toBe('true')
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: '0 subagents', exact: true }).click()
+    await page.locator('[data-team-panel]').getByText(task.subject, { exact: true }).waitFor()
+    await page.keyboard.press('Escape')
+    await page.getByRole('button', { name: 'Muse Main Session', exact: true }).click()
+    await page.getByText('The worker reviewed episode two and retained episode three; the result is ready for your review.', { exact: true }).waitFor()
+    expect(await page.locator('[data-subagent-action], [data-team-panel]').count()).toBe(0)
   })
 
   it('opens the retained Main Session after reload while ordinary work remains listed', async () => {

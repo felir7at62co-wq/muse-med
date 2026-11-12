@@ -3,6 +3,7 @@ import { randomUUID, createHash } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller'
 import type {} from '@deepseek-ai/dsh-session-query'
@@ -58,6 +59,7 @@ export class SessionCoordinator extends TypertRemoteService {
   private readonly lifetime = new AbortController()
   private readonly observers = new Set<() => void>()
   private generation = 0
+  private readonly treeWaits = new Map<Agent, Promise<void>>()
 
   /**
    * @param ctx - Profile-owner Host services.
@@ -96,11 +98,10 @@ export class SessionCoordinator extends TypertRemoteService {
         })
       }
     })
-    this.ctx.jobs.events.subscribe({ owners: 'all' }, (event) => {
-      if (event.type !== 'settled' || event.job.owner === undefined) return
-      const agent = this.ctx.agents.get(event.job.owner)
-      if (agent !== undefined) this.background(() => this.settleRelated(agent))
-    })
+    this.ctx.effect(() => this.ctx.jobs.events.subscribe({ owners: 'all' }, (event) => {
+      if (event.type === 'settled' && event.job.owner !== undefined) this.background(() => this.settleAllWorkers())
+    }), 'coordination: owned Job settlement')
+    this.ctx.on('subagent/end', () => { this.background(() => this.settleAllWorkers()) })
     this.background(() => this.recover())
   }
 
@@ -366,14 +367,17 @@ export class SessionCoordinator extends TypertRemoteService {
       const worker = resolved.agent
       for (const id of [attempt.briefId, ...attempt.forwardedIds]) worker.inbox.remove(id)
       const lastInput = (await this.ctx.sessionQuery.readSession(worker.id)).events.findLast(event => event.type === 'user/message')
-      const hasActivity = this.executionTree(worker).some(member => member.status === 'running' || this.liveJobs(member.id).length > 0)
+      const hasActivity = this.busy(worker.id)
       if (hasActivity && lastInput?.type === 'user/message'
         && ![attempt.briefId, ...attempt.forwardedIds].includes(lastInput.data.id)) {
         return this.save(revise(task, { status: 'interrupted', issue: 'Worker is processing another input; it was not cancelled' }))
       }
-      for (const member of this.executionTree(worker)) {
-        member.cancel({ kind: 'user' }, { keepInbox: member === worker })
-        for (const job of this.liveJobs(member.id)) this.ctx.jobs.kill(job.id, member.id, 'Main Session stopped this task')
+      const descendants = await this.descendantIds(worker)
+      worker.cancel({ kind: 'user' }, { keepInbox: true })
+      const subagents = this.ctx.get('subagents')
+      subagents?.interruptTree(worker)
+      for (const id of [worker.id, ...descendants]) {
+        for (const job of this.liveJobs(id)) this.ctx.jobs.kill(job.id, id, 'Main Session stopped this task')
       }
       await this.ctx.sessions.flush(worker.session)
       await this.settleWorker(worker)
@@ -421,19 +425,63 @@ export class SessionCoordinator extends TypertRemoteService {
   }
 
   private executionTree(root: Agent): Agent[] {
-    const result = [root]
-    for (const owner of result) {
-      for (const candidate of this.ctx.agents.list()) {
-        if (this.ctx.agents.isOwnedBy(candidate.id, owner) && !result.includes(candidate)) result.push(candidate)
+    const subagents = this.ctx.get('subagents')
+    if (subagents === undefined) return [root]
+    return this.ctx.agents.list().filter((candidate) => {
+      if (candidate === root) return true
+      try { return subagents.rootOf(candidate) === root }
+      catch (error) {
+        if (error instanceof SubagentError && error.code === 'UNAUTHORIZED') return false
+        throw error
       }
+    })
+  }
+
+  private async descendantIds(root: Agent): Promise<SessionId[]> {
+    const subagents = this.ctx.get('subagents')
+    if (subagents === undefined) return []
+    const descendants = await subagents.listDescendants(root.id, this.lifetime.signal)
+    if (descendants.some(entry => entry.kind === 'diagnostic')) throw new Error('Execution subtree is unavailable; inspect before completing or reusing it')
+    return descendants.map(entry => entry.id)
+  }
+
+  private treeBusy(worker: Agent): boolean {
+    return this.executionTree(worker).some(member => member.status !== 'idle' || this.liveJobs(member.id).length > 0)
+      || (this.ctx.get('subagents')?.hasTreeWork(worker) ?? false)
+  }
+
+  private followTree(worker: Agent): void {
+    const subagents = this.ctx.get('subagents')
+    if (subagents === undefined || this.treeWaits.has(worker) || !subagents.hasTreeWork(worker)) return
+    const waiting = this.optional(subagents.waitForTreeWork(worker)).then((result) => {
+      this.treeWaits.delete(worker)
+      if (result.kind === 'value') this.background(() => this.settleWorker(worker))
+    }, (error: unknown) => {
+      this.treeWaits.delete(worker)
+      this.background(async () => {
+        for (const [, task] of this.table.entries()) {
+          if (latest(task).sessionId === worker.id && reservesWorker(latest(task))) {
+            await this.publish(revise(task, { status: 'interrupted', issue: `Execution subtree settlement failed: ${String(error)}` }))
+          }
+        }
+      })
+    })
+    this.treeWaits.set(worker, waiting)
+  }
+
+  private async settleAllWorkers(): Promise<void> {
+    for (const [, task] of this.table.entries()) {
+      if (!reservesWorker(latest(task))) continue
+      const worker = this.ctx.agents.get(latest(task).sessionId)
+      if (worker !== undefined) await this.settleWorker(worker)
     }
-    return result
   }
 
   private busy(sessionId: SessionId): boolean {
     const agent = this.ctx.agents.get(sessionId)
     const members = agent === undefined ? [] : this.executionTree(agent)
-    return members.some(member => member.status === 'running' || member.inbox.nextTurn.length > 0 || member.inbox.nextStep.length > 0
+    return (agent !== undefined && (this.ctx.get('subagents')?.hasTreeWork(agent) ?? false))
+      || members.some(member => member.status === 'running' || member.inbox.nextTurn.length > 0 || member.inbox.nextStep.length > 0
       || this.liveJobs(member.id).length > 0) || this.liveJobs(sessionId).length > 0
   }
 
@@ -450,7 +498,10 @@ export class SessionCoordinator extends TypertRemoteService {
     const preset = selected?.type === 'agent-preset/selected' ? selected.data.agentPreset : snapshot.session.agentPreset
     if (id === mainId || preset === this.config.mainPreset || snapshot.session.origin === 'subagent'
       || this.ctx.workspaceRegistry.archivedSessionIds.includes(id)) throw new Error('Target is not an available ordinary execution Session')
-    if (this.busy(id)) throw new Error('Target is busy; create a fresh Session instead')
+    const worker = this.ctx.agents.get(id)
+    if (this.busy(id) || worker !== undefined && (await this.descendantIds(worker)).some(child => this.liveJobs(child).length > 0)) {
+      throw new Error('Target is busy; create a fresh Session instead')
+    }
     return snapshot.session
   }
 
@@ -473,7 +524,9 @@ export class SessionCoordinator extends TypertRemoteService {
       || (event.type === 'agent/inbox/spliced' && event.data.inserted.some(message => ids.has(message.id))))
     if (received) return this.save(revise(task, { status: pending ? 'accepted' : 'interrupted',
       issue: pending ? null : 'A durable input receipt exists; inspect the worker before explicitly continuing. Nothing was resent.' }))
-    if (this.busy(worker.id)) throw new Error('Worker became busy before dispatch; intent retained without sending')
+    if (this.busy(worker.id) || (await this.descendantIds(worker)).some(child => this.liveJobs(child).length > 0)) {
+      throw new Error('Worker became busy before dispatch; intent retained without sending')
+    }
     const owner = await this.ctx.sessionQuery.readSession(task.owner)
     const originals = task.attempts.map((revision, index): UserMessage => {
       const source = owner.events.find(event => event.seq === revision.sourceSeq)
@@ -509,7 +562,20 @@ export class SessionCoordinator extends TypertRemoteService {
   }
 
   private async settleWorker(worker: Agent): Promise<void> {
-    if (this.executionTree(worker).some(member => member.status !== 'idle' || this.liveJobs(member.id).length > 0)) return
+    if (this.ctx.agents.get(worker.id) !== worker) return
+    if (this.treeBusy(worker)) { this.followTree(worker); return }
+    let descendants: SessionId[]
+    try { descendants = await this.descendantIds(worker) }
+    catch (error) {
+      if (this.unloading()) return
+      for (const [, task] of this.table.entries()) {
+        if (latest(task).sessionId === worker.id && reservesWorker(latest(task))) {
+          await this.publish(revise(task, { status: 'interrupted', issue: `Execution subtree could not be verified: ${String(error)}` }))
+        }
+      }
+      return
+    }
+    if (descendants.some(id => this.liveJobs(id).length > 0)) return
     for (const [, task] of this.table.entries()) {
       const attempt = latest(task)
       if (attempt.sessionId !== worker.id || !reservesWorker(attempt)) continue
@@ -517,11 +583,20 @@ export class SessionCoordinator extends TypertRemoteService {
       if (checkpoint.kind === 'aborted' || !checkpoint.value) return
       const observed = await this.optional(this.ctx.sessionQuery.readSession(worker.id))
       if (observed.kind === 'aborted') return
+      if (this.treeBusy(worker)) { this.followTree(worker); return }
+      if (descendants.some(id => this.liveJobs(id).length > 0)) return
       const log = observed.value
       const input = log.events.find(event => event.type === 'user/message' && event.data.id === attempt.messageId)
       if (input !== undefined && log.events.some(event => event.seq > input.seq
         && event.type === 'job/settled' && !event.data.producerReported)) {
         await this.publish(revise(task, { status: 'interrupted', issue: 'A background producer did not confirm resource release; stopping is unconfirmed' }))
+        continue
+      }
+      const report = attempt.report
+      if (attempt.status !== 'stopping' && report !== null && log.events.some(event => event.seq > report.throughSeq
+        && event.type === 'user/message' && event.data.source.kind === 'subagent-settled'
+        && event.data.source.stopReason !== undefined && event.data.source.stopReason !== 'completed')) {
+        await this.publish(revise(task, { status: 'interrupted', issue: 'A delegated execution failed after the worker report; inspect and report again' }))
         continue
       }
       if (attempt.status === 'stopping') await this.publish(revise(task, { status: 'stopped' }))

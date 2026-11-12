@@ -1,5 +1,6 @@
 {
   "meta": {
-    "title": "Muse 主会话任务卡"
+    "title": "Muse 主会话导航",
+    "description": "从侧边栏打开保留的主会话。"
   }
 }

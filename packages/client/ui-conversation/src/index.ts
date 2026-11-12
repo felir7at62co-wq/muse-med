@@ -1,4 +1,4 @@
-/** Host registration for browser conversation preferences. */
+/** Browser conversation preferences. */
 import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 import { HeaderPresentation, HEADER_PRESENTATION_GLOBAL } from './header-presentation.ts'
@@ -29,7 +29,7 @@ export const Config = z.object({
   headerPresentation: HeaderPresentation,
 })
 
-/** Host preferences are consumed through the configuration form projection.
+/** Register browser conversation preferences.
  * @param ctx Plugin context used for optional settings presentation.
  * @param config Validated startup policy and live input preferences.
  */

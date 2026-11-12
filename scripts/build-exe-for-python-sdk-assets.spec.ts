@@ -28,5 +28,7 @@ describe('Python runtime executable assets', () => {
     expect(result.stdout).toContain('"ocr-models-notice.txt"')
     expect(result.stdout).toContain('"ocr-models-license.txt"')
     expect(result.stdout).not.toContain('node_modules/**/*.py')
+    // skill-office reads its SKILL.md files from the package's assets directory.
+    expect(result.stdout).toContain('"node_modules/**/*.md"')
   })
 })

@@ -1,7 +1,8 @@
 /** Native AgentLoop and durable KV fixture; only the ordinary Session creation adapter is replaced. */
 import { Context, Service } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
+import { mountAgentLoopTestDependencies, provideWorkingDirectoryFixture } from '@deepseek-ai/dsh-agent-loop-testkit'
+import SubagentRuntime from '@deepseek-ai/dsh-subagent'
 import { WorkspaceController } from '@deepseek-ai/dsh-api-workspace-controller'
 import { SessionController } from '@deepseek-ai/dsh-api-session-controller'
 import type { SessionCreateRequest } from '@deepseek-ai/dsh-api-session-controller/types'
@@ -14,7 +15,7 @@ import JobsLocal from '@deepseek-ai/dsh-jobs-local'
 import TypertRegistry from '@deepseek-ai/dsh-typert-registry'
 import * as Persistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import { MockAdapter, textResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
-import { TestSessionQuery } from '../../../experimental/agent-team/tests/test-session-query.ts'
+import { TestSessionQuery } from '../../../team/agent-team/tests/test-session-query.ts'
 import { MemoryMediaPool, MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
 import Coordinator from '../src/index.ts'
 import * as Main from '../src/main.ts'
@@ -63,6 +64,8 @@ export async function setup(root: string, script: ConstructorParameters<typeof M
     await ctx.plugin(Persistence, { root })
     await ctx.plugin(TestSessionQuery)
     await ctx.plugin(AgentLoop, { agents: [] })
+    provideWorkingDirectoryFixture(ctx)
+    await ctx.plugin(SubagentRuntime)
     await ctx.plugin(Storage)
     ctx.storage.backend.register('memory', new MemoryStorageBackend(pool))
     const domain = new DomainFacility(ctx, { backend: 'memory', routes: {} })

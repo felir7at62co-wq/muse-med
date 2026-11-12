@@ -5,7 +5,7 @@ import { shell } from 'electron'
 import electronUpdater, { type AppUpdater, type ResolvedUpdateFileInfo } from 'electron-updater'
 import type { DownloadUpdateOptions } from 'electron-updater/out/AppUpdater.js'
 import type { AppAdapter } from 'electron-updater/out/AppAdapter.js'
-import type { DesktopUpdateHttpExecutor } from './update-http-executor.ts'
+import type { DesktopUpdateHttpExecutor } from './updates/electron-updater/http-executor.ts'
 import { verifyMacOSUpdateBytes, verifyMacOSUpdatePackage, type MacOSUpdatePackage } from './macos-update-package.ts'
 
 /** Main-owned manual installation operations selected only for sealed ad-hoc builds. */

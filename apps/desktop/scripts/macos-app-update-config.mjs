@@ -37,8 +37,8 @@ export function resolveMacOSAppUpdateFeed(publish) {
     repo: nonEmptyString(provider.repo, 'GitHub repository'),
     channel: nonEmptyString(provider.channel, 'GitHub channel'),
   }
-  if (provider.provider !== 'generic' || !['nightly', 'latest'].includes(provider.channel)) {
-    throw new Error('desktop macOS update config: publish provider must be generic with nightly or latest channel')
+  if (provider.provider !== 'generic' || !['nightly', 'latest', 'stable'].includes(provider.channel)) {
+    throw new Error('desktop macOS update config: publish provider must be generic with nightly, latest or stable channel')
   }
   return { publicUrl: nonEmptyString(provider.url, 'publish provider URL'), channel: resolveDesktopUpdateChannel({ DSH_DESKTOP_UPDATE_CHANNEL: provider.channel }) }
 }
