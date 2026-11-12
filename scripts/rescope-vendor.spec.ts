@@ -353,7 +353,7 @@ describe('product identifiers', () => {
   it.each([
     'apps/desktop-host/tests/preset-executors.spec.ts',
     'apps/desktop-host/tests/qimao-presets.spec.ts',
-    'apps/desktop-host/tests/source-research-presets.spec.ts',
+    'apps/desktop-host/tests/source-research-presets.expected.e2e.ts',
     'scripts/gen-tool-catalog.ts',
     'third_party/plugins/dsh-skill-mcp-panel/test-tool-filter.mjs',
   ])('retains preset and scoped-directory identifiers while rescoping imports in %s', (file) => {
