@@ -61,6 +61,15 @@ async function fixture(overrides: Partial<Config> = {}) {
   return { root, file, ctx, session, signal, user, tool, routes }
 }
 
+async function localPlayback(overrides: Partial<Config> = {}) {
+  const f = await fixture(overrides)
+  f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]
+  const route = f.routes.get('/api/session-video')
+  if (!route || !source?.playbackUrl) throw Error('Expected a recorded local playback route')
+  return { ...f, source, route, url: new URL(source.playbackUrl, 'http://localhost/') }
+}
+
 it('detects three shot intervals through the real Loader and preserves original bytes', async () => {
   const f = await fixture()
   f.user('@three-shots.mp4')
@@ -284,4 +293,105 @@ it('keeps provider-only playback unavailable until detection has saved a local s
     expect(await response.text()).toBe(method === 'HEAD' ? '' : 'Local video unavailable')
   }
   expect(fetch).not.toHaveBeenCalled(); expect(read).not.toHaveBeenCalled(); expect(spawn).not.toHaveBeenCalled()
+})
+
+it('binds playback to its conversation and exact current file version', async () => {
+  const f = await localPlayback(), before = readFileSync(f.file)
+  const read = vi.spyOn(f.ctx.fs, 'readByteRange'), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  const foreign = f.ctx.sessions.create(SessionId('other-conversation'), { meta: { cwd: f.root } })
+  const foreignUrl = new URL(f.url); foreignUrl.searchParams.set('sessionId', foreign.id)
+  expect((await f.route.fetch(new Request(foreignUrl))).status).toBe(404)
+  expect(read).not.toHaveBeenCalled()
+  appendFileSync(f.file, 'real-source-version-change')
+  expect((await f.route.fetch(new Request(f.url))).status).toBe(409)
+  expect(read).not.toHaveBeenCalled()
+  const latest = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]
+  expect(latest?.version).not.toBe(f.source.version)
+  if (!latest?.playbackUrl) throw Error('Expected refreshed local playback URL')
+  const response = await f.route.fetch(new Request(new URL(latest.playbackUrl, f.url)))
+  expect(response.status).toBe(200)
+  expect(Buffer.from(await response.arrayBuffer())).toEqual(Buffer.concat([before, Buffer.from('real-source-version-change')]))
+  expect(spawn).not.toHaveBeenCalled()
+})
+
+it('returns exact full, open and suffix byte ranges while HEAD performs no byte read', async () => {
+  const f = await localPlayback({ playbackChunkBytes: 127 }), bytes = readFileSync(f.file)
+  const read = vi.spyOn(f.ctx.fs, 'readByteRange')
+  for (const range of [undefined, 'bytes=16-', 'bytes=-16', `bytes=0-${bytes.length + 100}`]) {
+    const start = range === 'bytes=16-' ? 16 : range === 'bytes=-16' ? bytes.length - 16 : 0
+    const response = await f.route.fetch(new Request(f.url, { headers: range ? { range } : {} }))
+    expect(response.status).toBe(range ? 206 : 200)
+    expect(response.headers.get('content-length')).toBe(String(bytes.length - start))
+    expect(response.headers.get('content-range')).toBe(range ? `bytes ${start}-${bytes.length - 1}/${bytes.length}` : null)
+    expect(response.headers.get('content-type')).toBe('video/mp4')
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes.subarray(start))
+    const readsBeforeHead = read.mock.calls.length
+    const head = await f.route.fetch(new Request(f.url, { method: 'HEAD', headers: range ? { range } : {} }))
+    expect(head.status).toBe(response.status)
+    expect([...head.headers]).toEqual([...response.headers])
+    expect((await head.arrayBuffer()).byteLength).toBe(0)
+    expect(read).toHaveBeenCalledTimes(readsBeforeHead)
+  }
+  expect(readFileSync(f.file)).toEqual(bytes)
+})
+
+it('rejects ambiguous source coordinates and invalid byte ranges without opening a stream', async () => {
+  const f = await localPlayback(), bytes = readFileSync(f.file), read = vi.spyOn(f.ctx.fs, 'readByteRange')
+  const duplicated = new URL(f.url); duplicated.searchParams.append('sourceId', f.source.id)
+  expect((await f.route.fetch(new Request(duplicated))).status).toBe(400)
+  for (const range of ['bytes=-', 'bytes=3-2', `bytes=${bytes.length}-`, 'bytes=0-1,2-3', 'bytes=9007199254740992-']) {
+    const response = await f.route.fetch(new Request(f.url, { headers: { range } }))
+    expect(response.status).toBe(416)
+    expect(response.headers.get('content-range')).toBe(`bytes */${bytes.length}`)
+  }
+  expect(read).not.toHaveBeenCalled()
+  expect(readFileSync(f.file)).toEqual(bytes)
+})
+
+it('refuses already aborted GET and HEAD playback before reading source bytes', async () => {
+  const f = await localPlayback(), before = readFileSync(f.file)
+  const read = vi.spyOn(f.ctx.fs, 'readByteRange'), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  const caller = new AbortController(); caller.abort(new Error('Playback request already cancelled'))
+  for (const method of ['GET', 'HEAD']) {
+    const response = await f.route.fetch(new Request(f.url, { method, signal: caller.signal }))
+    expect(response.status).toBe(499)
+    expect(await response.text()).toBe(method === 'HEAD' ? '' : 'Playback request already cancelled')
+  }
+  expect(read).not.toHaveBeenCalled(); expect(spawn).not.toHaveBeenCalled()
+  const next = await f.route.fetch(new Request(f.url))
+  expect(next.status).toBe(200)
+  expect(Buffer.from(await next.arrayBuffer())).toEqual(before)
+})
+
+it('refuses real probed duration and pixel limits before starting cut detection', async () => {
+  for (const limits of [{ maxDurationSeconds: 1 }, { maxSourcePixels: 1 }]) {
+    const f = await localPlayback(limits), before = readFileSync(f.file), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+    if (!f.source.version) throw Error('Expected source version before detection')
+    const result = await f.ctx.sessionVideo.detect(f.session.id, f.source.id, f.source.version, f.signal)
+    expect(result).toMatchObject({ state: 'failed', shots: [], issue: 'Video duration or dimensions exceed the configured detection limit' })
+    expect(spawn).toHaveBeenCalledOnce()
+    expect(spawn.mock.calls[0]?.[0].argv[0]).toMatch(/(?:^|[/\\])ffprobe(?:\.exe)?$/iu)
+    expect(readFileSync(f.file)).toEqual(before)
+  }
+})
+
+it('evicts an old analysis at the configured cache bound and reanalyzes its unchanged real source', async () => {
+  const f = await fixture({ maxCachedAnalyses: 1 }), before = readFileSync(f.file), second = join(f.root, 'second.mp4')
+  copyFileSync(f.file, second)
+  f.user('@three-shots.mp4 @second.mp4')
+  const sources = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources
+  const a = sources[0], b = sources[1]
+  if (!a?.version || !b?.version) throw Error('Expected two versioned real sources')
+  const spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  const initial = await f.ctx.sessionVideo.detect(f.session.id, a.id, a.version, f.signal)
+  expect(initial.state).toBe('ready')
+  expect(initial.shots.map(shot => [shot.startSeconds, shot.endSeconds])).toEqual([[0, 1], [1, 2], [2, 3]])
+  expect(await f.ctx.sessionVideo.detect(f.session.id, a.id, a.version, f.signal)).toEqual(initial)
+  expect(spawn).toHaveBeenCalledTimes(2)
+  expect((await f.ctx.sessionVideo.detect(f.session.id, b.id, b.version, f.signal)).state).toBe('ready')
+  expect(spawn).toHaveBeenCalledTimes(4)
+  expect(await f.ctx.sessionVideo.detect(f.session.id, a.id, a.version, f.signal)).toEqual(initial)
+  expect(spawn).toHaveBeenCalledTimes(6)
+  expect(readFileSync(f.file)).toEqual(before); expect(readFileSync(second)).toEqual(before)
 })
