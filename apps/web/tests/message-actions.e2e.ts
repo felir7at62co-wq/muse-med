@@ -431,6 +431,10 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
       { timeout: 10_000 },
     ).toEqual(expect.arrayContaining([expect.stringContaining('Use the read tool twice (2)')]))
     expect(await sourceRow.textContent()).toContain('Use the read tool twice (1)')
+    await expect.poll(
+      () => page.locator('[role="treeitem"]').nth(1).textContent(),
+      { timeout: 10_000 },
+    ).toContain('Use the read tool twice (2)')
     const tree = await captureStableAria(
       page,
       '[role="tree"][aria-label="Sessions"]',
