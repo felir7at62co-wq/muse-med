@@ -67,11 +67,13 @@ test('uses the durable call identity and requires a live root for an interactive
 })
 test('a failed save keeps the turn running and reports no private path', async t => {
   const fixture = start(t, { home: mkdtempSync(join(tmpdir(), 'deep-view-block-')) }), exec = fixture.exec()
-  await mkdir(join(fixture.home, 'pending.json'))
+  const path = join(fixture.home, 'pending.json'), broken = '{"unfinished":'
+  await writeFile(path, broken)
   const text = await fixture.ctx.registeredTools.get('show_view').execute({ view: CHOICES }, exec)
   assert.match(text, /could not be kept open/); assert.doesNotMatch(text, /deep-view-block-/)
   assert.equal(exec.concluded, false)
   assert.equal((await fixture.call('pending', { sessionId: 's1' })).error.code, 'deep-view/internal')
+  assert.equal(await readFile(path, 'utf8'), broken)
 })
 test('an uncertain flush retains one answer identity and retries never enqueue twice', async t => {
   const fixture = start(t); await fixture.show({ view: CHOICES })

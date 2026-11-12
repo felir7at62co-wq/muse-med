@@ -177,7 +177,7 @@
         },
         "test/host.test.js": {
           "upstreamSha256": "7ea106cb891ef448bc147fa0db2ea417d4ecc8797b5aefa2b189e5d4353b61ad",
-          "sha256": "06a9a3d03b04477b5b97bc700b96a2b55c3db597e2f364723d99352acab44dcf"
+          "sha256": "9a25fd0b2764841273f38718c1cfaa8de99492af8d43acfd37a86bd5761c2b9d"
         },
         "test/pending.test.js": {
           "upstreamSha256": null,

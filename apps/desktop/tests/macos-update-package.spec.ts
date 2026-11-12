@@ -99,10 +99,22 @@ it.each([
   ['cn.other.app', '1.0.4'], ['cn.muse.med', '1.0.5'], ['', '1.0.4'], ['cn.muse.med', ''],
 ])('rejects a separately read bundle identity %s and version %s before signature verification', async (appId, version) => {
   f.appId = appId; f.version = version
-  await expect(verifyMacOSUpdatePackage(await candidate())).rejects.toThrow('identity or version')
+  const verification = verifyMacOSUpdatePackage(await candidate())
+  await expect(verification).rejects.toThrow('identity or version')
+  const expected = `observed id=${appId || '<invalid>'}, version=${version || '<invalid>'}`
+    + '; expected id=cn.muse.med, version=1.0.4'
+  await expect(verification).rejects.toThrow(expected)
   expect(f.signatureChecks).toBe(0)
   expect(f.devices).toEqual([f.mount])
   await expect(stat(dirname(f.mount))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('does not copy arbitrary plist content into verification diagnostics', async () => {
+  f.appId = 'private/path\npassword=do-not-report'
+  const verification = verifyMacOSUpdatePackage(await candidate())
+  await expect(verification).rejects.toThrow('observed id=<invalid>, version=1.0.4')
+  await expect(verification).rejects.not.toThrow('do-not-report')
+  expect(f.signatureChecks).toBe(0)
 })
 
 it('preserves the private image and reports both detach failures when safe cleanup cannot complete', async () => {
