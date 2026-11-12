@@ -205,3 +205,77 @@ it('keeps disconnected actions inert and ignores a retired connection release af
   f.connect()()
   expect(f.directory.state.getSnapshot().connected).toBe(false)
 })
+
+it('does not restore a retired readiness observation through the public acceptance method', async () => {
+  const f = episodeClientFixture()
+  await f.waitReady()
+  const address = f.directory.state.getSnapshot().readinessAddress
+  const value = f.directory.state.getSnapshot().displayedReadiness
+  if (value === null) throw new Error('Expected an observed readiness reply')
+  expect(address).not.toBe('')
+  f.directory.retireSelection('2')
+  const retired = f.directory.state.getSnapshot()
+  f.directory.acceptReadiness(address, value)
+  await f.directory.admit(); await f.directory.admit(true)
+  expect(f.directory.state.getSnapshot()).toBe(retired)
+  expect(retired).toMatchObject({ episodeText: '2', checked: false, target: null, displayedReadiness: null, statusAddress: '' })
+  expect(f.api.episodeStatus).toHaveBeenCalledTimes(1)
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+  expect(f.notices).not.toHaveBeenCalled()
+  f.directory.retireSelection('1')
+  await f.waitReady()
+  expect(f.directory.state.getSnapshot().displayedReadiness).toEqual(ready)
+  expect(f.directory.state.getSnapshot().readinessAddress).not.toBe(address)
+  expect(f.api.episodeReadiness).toHaveBeenCalledTimes(2)
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+})
+
+it('does not restore retired history or select its original through the public acceptance method', async () => {
+  const f = episodeClientFixture()
+  f.directory.history(input)
+  await vi.waitFor(() => { expect(f.directory.state.getSnapshot().displayedHistory?.entries).toHaveLength(1) })
+  const address = f.directory.state.getSnapshot().historyAddress
+  const value = f.directory.state.getSnapshot().displayedHistory
+  if (value === null) throw new Error('Expected an observed history reply')
+  f.directory.retireSelection('2')
+  const retired = f.directory.state.getSnapshot()
+  f.directory.acceptHistory(address, value)
+  f.directory.selectOriginal(input, address)
+  await f.directory.admit(); await f.directory.admit(true)
+  expect(f.directory.state.getSnapshot()).toBe(retired)
+  expect(retired).toMatchObject({ episodeText: '2', target: null, displayedHistory: null, historyAddress: '', statusAddress: '' })
+  expect(f.api.episodeStatus).not.toHaveBeenCalled()
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+  expect(f.notices).not.toHaveBeenCalled()
+  f.directory.retireSelection('1')
+  f.directory.history(input)
+  await vi.waitFor(() => { expect(f.directory.state.getSnapshot().displayedHistory).toEqual(value) })
+  expect(f.directory.state.getSnapshot().historyAddress).not.toBe(address)
+  expect(f.api.episodeHistory).toHaveBeenCalledTimes(2)
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+})
+
+it('suppresses a rejected admission reply after selection retirement without another submission', async () => {
+  const pending = Promise.withResolvers<RemoteResult<EpisodeDeliveryStatus>>()
+  const f = episodeClientFixture({ admitEpisode: vi.fn<EpisodeClient['admitEpisode']>(() => pending.promise) })
+  await f.waitReady()
+  const admission = f.directory.admit()
+  try {
+    expect(f.api.admitEpisode).toHaveBeenCalledExactlyOnceWith(input)
+    expect(f.directory.state.getSnapshot().busy).toBe(true)
+    f.directory.retireSelection('2')
+    const retired = f.directory.state.getSnapshot()
+    pending.reject(new Error('Old connection failed after admission'))
+    await admission
+    await f.directory.admit(); await f.directory.admit(true); f.directory.refresh()
+    expect(f.directory.state.getSnapshot()).toBe(retired)
+    expect(retired).toMatchObject({ episodeText: '2', busy: false, checked: false, target: null, statusAddress: '' })
+    expect(f.notices).not.toHaveBeenCalled()
+    expect(f.api.episodeStatus).toHaveBeenCalledTimes(1)
+    expect(f.api.episodeReadiness).toHaveBeenCalledTimes(1)
+    expect(f.api.admitEpisode).toHaveBeenCalledExactlyOnceWith(input)
+  } finally {
+    pending.resolve({ ok: true, value: original })
+    await admission
+  }
+})
