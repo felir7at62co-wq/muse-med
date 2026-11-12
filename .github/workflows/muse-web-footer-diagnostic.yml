@@ -1,4 +1,4 @@
-name: Muse Web footer diagnostic
+name: Muse Web Linux repair diagnostic
 
 on:
   push:
@@ -14,7 +14,7 @@ env:
 
 jobs:
   footer:
-    name: Linux footer replay (diagnostic only)
+    name: Linux Web repairs (diagnostic only)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
@@ -33,15 +33,44 @@ jobs:
       - name: Prepare the existing CI sandbox
         run: bash scripts/prepare-ci-bubblewrap.sh
       - name: Install the real browser and system dependencies
-        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium webkit
+      - name: Prepare the existing media test executables
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
       - name: Build the unchanged product and test entrypoints
         run: pnpm run build
-      - name: Replay both account footers with their original assertions
+      - name: Replay the repaired Web owners with their original assertions
         run: |
           mkdir -p .artifacts/web-footer-diagnostic
           git rev-parse HEAD > .artifacts/web-footer-diagnostic/head.txt
           sha256sum packages/client/ui-sidebar/src/client/SidebarRoot.tsx packages/client/ui-sidebar/src/client/SidebarRoot.module.css apps/web/tests/sidebar-alignment.e2e.ts > .artifacts/web-footer-diagnostic/source.sha256
-          pnpm run test:web:built apps/web/tests/sidebar-alignment.e2e.ts -t 'keeps non-Muse Desktop account footer' --maxWorkers=1 --no-file-parallelism 2>&1 | tee .artifacts/web-footer-diagnostic/replay.log
+          pnpm run test:web:built \
+            apps/web/tests/sidebar-alignment.e2e.ts \
+            apps/web/tests/lifecycle-chrome.e2e.ts \
+            apps/web/tests/onboarding-deepseek-config.e2e.ts \
+            apps/web/tests/account-login.e2e.ts \
+            apps/web/tests/tool-details.e2e.ts \
+            apps/web/tests/additional-locales.e2e.ts \
+            apps/web/tests/jubian-episode-delivery.e2e.ts \
+            apps/web/tests/muse-drama-modes.e2e.ts \
+            apps/web/tests/pwa-manifest.e2e.ts \
+            apps/web/tests/deepseek-messages-chat.e2e.ts \
+            apps/web/tests/feedback-command.e2e.ts \
+            apps/web/tests/plan-review.e2e.ts \
+            apps/web/tests/ptc-escalation.e2e.ts \
+            apps/web/tests/question-composer.e2e.ts \
+            apps/web/tests/live-interactions.e2e.ts \
+            apps/web/tests/replay-round-trip.e2e.ts \
+            apps/web/tests/session-replay-reload.e2e.ts \
+            apps/web/tests/session-inspector.e2e.ts \
+            apps/web/tests/voice-input.e2e.ts \
+            --maxWorkers=1 --no-file-parallelism 2>&1 | tee .artifacts/web-footer-diagnostic/replay.log
+      - name: Confirm protected snapshot inputs are unchanged
+        if: always()
+        run: |
+          git diff --exit-code -- snapshots
+          test -z "$(git ls-files --others --exclude-standard -- snapshots)"
       - name: Preserve diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v6
