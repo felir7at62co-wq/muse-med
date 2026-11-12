@@ -19,7 +19,8 @@ it('defines one non-nested header hook containing both prerequisite and installe
   }
   expect(current).toBeUndefined()
   expect(headers).toEqual(['customHeader'])
-  const header = source.slice(source.indexOf('!macro customHeader'), source.indexOf('!macroend'))
+  const headerStart = source.indexOf('!macro customHeader')
+  const header = source.slice(headerStart, source.indexOf('!macroend', headerStart))
   for (const marker of ['LangString MuseVCMissing', 'Function MuseEnsureVCRuntime',
     '!include "${INSTALLER_SOURCE_DIR}\\theme.nsh"', '!include "${INSTALLER_SOURCE_DIR}\\pages.nsh"',
     '!include "${INSTALLER_SOURCE_DIR}\\lifecycle.nsh"']) expect(header).toContain(marker)

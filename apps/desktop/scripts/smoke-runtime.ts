@@ -619,7 +619,7 @@ export function apply(ctx) {
     records: [...firstRecords, ...lastRecords], droppedRecords, observerErrors, droppedObserverErrors,
   })
   if (failed) {
-    const report = inspect(failure, { depth: 10, colors: false }) + diagnostic
+    const report = failureText(failure) + '\\n' + inspect(failure, { depth: 10, colors: false }) + diagnostic
     writeFileSync(join(home, '.desktop-product-smoke-error'), report, { flag: 'wx' })
     response.statusCode = 500
     response.end(report)
