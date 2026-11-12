@@ -128,6 +128,18 @@ describe('buildImageRequest', () => {
   })
   const request = { scriptId: 1, assetName: 'lead', assetType: 1, prompt: 'ready', references: [] }
 
+  it.each([undefined, 83749])('requests caller-defined layout and masks instead of the asset template for parent %j', (parentAssetId) => {
+    for (const style of ['3D动漫，PBR材质。', '2D动画，水彩质感。', '真人摄影，柔和棚光。']) {
+      const prompt = `${style}\n左侧正脸胸像，右侧正面、严格侧面、背面全身；仅正侧脸遮白，背面不遮罩。`
+      const references = parentAssetId === undefined ? [] : ['https://example.test/approved-character.png']
+      const body = buildImageRequest({ ...request, prompt, references,
+        ...(parentAssetId === undefined ? {} : { parentAssetId }) }, CATALOGUE)
+      const config = JSON.parse(String(body.modelConfig)) as Record<string, unknown>
+      expect(config).toMatchObject({ skipAssetReferenceTemplate: true, prompt,
+        materialList: references.map(materialUrl => ({ materialUrl, materialType: 'image', sortOrder: 1 })) })
+    }
+  })
+
   it.each(['high', 'medium', 'low'])('copies the selected specification quality %s for creates and edits', (quality) => {
     const catalogue = [{ ...CATALOGUE[0]!, videoStandards: CATALOGUE[0]!.videoStandards.map(row =>
       ({ ...row, quality: row.id === 90 ? quality : 'other-specification' })) }]

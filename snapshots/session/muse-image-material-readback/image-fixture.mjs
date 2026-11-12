@@ -64,6 +64,7 @@ export function apply(ctx) {
         if (++writes !== 1) throw new Error('Offline image fixture rejects repeated paid writes')
         const config = JSON.parse(JSON.parse(init.body).modelConfig)
         if (config.quality !== 'high') throw new Error('Offline image fixture requires the selected high quality')
+        if (config.skipAssetReferenceTemplate !== true) throw new Error('Offline image fixture requires caller-controlled composition')
         data = 83749
       } else if (url.pathname.endsWith('/aigc/asset/83749') && init?.method === 'GET') {
         data = { id: 83749, scriptId: 2708, assetType: 1, assetName: '横屏CG测试角色', hsAssetStatus: null }

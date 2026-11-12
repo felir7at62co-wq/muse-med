@@ -274,7 +274,8 @@ export function validateImageRequestInput(input: ImageRequestInput): void {
  * @param input - Caller-supplied identity, prompt, optional aspect ratio and ordered reference URLs.
  * @param catalogue - Live `taskType=2` catalogue.
  * @param selection - The catalogue row this deployment pinned.
- * @returns The wire body, with `id` present only on the update route.
+ * @returns The wire body requesting the caller's composition instead of the provider's asset reference template,
+ *   with `id` present only on the update route.
  */
 export function buildImageRequest(input: ImageRequestInput, catalogue: unknown,
   selection: ImageModelSelection = {}): Record<string, unknown> {
@@ -288,7 +289,7 @@ export function buildImageRequest(input: ImageRequestInput, catalogue: unknown,
     ({ materialUrl, materialType: 'image', sortOrder: index + 1 }))
   const config = { ...selectors, duration: 1, resolution, ratio: aspectRatio, genNum: 1, backupModelList: [],
     prompt: input.prompt, style: resolveImageStyle(input.prompt, input.imageStyle) === 'anime' ? 1 : 0,
-    materialList: references, quality: quality ?? '' }
+    materialList: references, quality: quality ?? '', skipAssetReferenceTemplate: true }
   return { scriptId: input.scriptId, assetName: input.assetName, assetType: input.assetType,
     modelConfig: JSON.stringify(config), isLocal: 0, isGenerate: 1,
     ...(input.parentAssetId === undefined ? {} : { id: input.parentAssetId }) }

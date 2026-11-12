@@ -38,6 +38,8 @@ Pool rows expose `claim_leader_id` and `claim_member_id` when available. The cla
 
 `ImageRequestInput.imageStyle` selects `anime` or `live_action`; the provider receives `style: 1` or `style: 0`. `resolveImageStyle` recognizes a leading positive anime or live-action declaration, optionally preceded by the exact `项目风格:` or `项目风格：` prefix on the same first line, when the field is omitted; unmarked legacy prompts retain live action. Other text and negative instructions do not supply a medium. An explicit choice conflicting with the leading declaration fails before submission. The prompt remains byte-for-byte unchanged, including the 3D subtype. This selector describes the request medium and does not establish generated-image quality.
 
+Image requests set `skipAssetReferenceTemplate: true` so the provider is asked to use the caller's composition, face masks and art direction instead of its asset reference template. The prompt and ordered reference images remain unchanged for creates and edits. This request setting does not establish visual acceptance.
+
 The selected image specification supplies the provider's `quality` value without changing the prompt or art direction. A missing, null or empty catalogue quality retains the empty provider field; malformed values fail before request construction. A quality selection does not establish visual acceptance.
 
 `readImageGeneration(data)` reads the generated-image endpoint's task/result identity and state independently of image availability. It classifies reference-limit, content-refusal and other provider failures without returning remote error text. URL-only legacy replies return null. `buildImageRequest` refuses more than five reference images on KU_AI before a billable request is constructed.

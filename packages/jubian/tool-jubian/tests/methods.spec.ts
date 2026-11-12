@@ -124,7 +124,8 @@ describe('explicit image catalogue selection', () => {
     const writes = calls.filter(call => call.method === 'POST')
     expect(writes).toHaveLength(1)
     expect(JSON.parse(String(writes[0]!.body!.modelConfig))).toMatchObject({ modelId: selection.image_model_id,
-      platformId: selection.image_platform_id, resolution: '2K', standardId: 71, videoStandardId: 102, quality: 'high' })
+      platformId: selection.image_platform_id, resolution: '2K', standardId: 71, videoStandardId: 102, quality: 'high',
+      skipAssetReferenceTemplate: true })
   })
 
   it.each(['image_generate', 'image_generate_batch'])('refuses malformed image quality before reservation in %s', async (method) => {
