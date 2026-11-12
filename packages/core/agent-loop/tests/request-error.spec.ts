@@ -4,7 +4,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
-import LlmRuntime, { createUserMessage, LlmError  } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { LlmFailure, ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -180,6 +180,54 @@ describe('agent/request-error', () => {
     expect(backup.requests).toHaveLength(0)
     expect(selected.requests).toHaveLength(1)
     expect(agent.model.current()).toEqual({ provider: 'selected', model: 'chosen' })
+  })
+
+  it.each([
+    { field: 'model', model: 'chosen', effort: ReasoningEffortId('low') },
+    { field: 'reasoning effort', model: 'primary', effort: ReasoningEffortId('high') },
+  ])('keeps a newer $field selection on the failed provider while recovery is pending', async ({ model, effort }) => {
+    const low = ReasoningEffortId('low')
+    const first = new MockAdapter([fail('unavailable', 'SERVER'), textResponse('user choice')], {
+      efforts: [{ id: low, name: 'Low' }, { id: ReasoningEffortId('high'), name: 'High' }],
+      defaultEffort: low,
+    })
+    const backup = new MockAdapter([textResponse('unused')])
+    const ctx = await harness(first)
+    ctx.llm.registerAdapter(['backup'], backup)
+    const agent = await ctx.agentLoop.create(SessionId(`request-error-switch-user-${model}-${effort}`), {
+      provider: 'mock', model: 'primary', reasoningEffort: low,
+    })
+    const recovering = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    ctx.on('agent/request-error', async () => {
+      recovering.resolve(undefined)
+      await release.promise
+      return { kind: 'switch', selection: { provider: 'backup', model: 'secondary' } }
+    })
+
+    try {
+      agent.followup(createUserMessage({ content: [{ type: 'text', text: 'go' }], source: { kind: 'user' } }))
+      await recovering.promise
+      const selected = { provider: 'mock', model, reasoningEffort: effort }
+      agent.model.select(selected)
+      release.resolve(undefined)
+      await agent.whenIdle()
+
+      expect(backup.requests).toHaveLength(0)
+      expect(first.requests.map(request => ({
+        model: request.model, reasoningEffort: request.reasoningEffort,
+      }))).toEqual([
+        { model: 'primary', reasoningEffort: low },
+        { model, reasoningEffort: effort },
+      ])
+      expect(agent.model.current()).toEqual(selected)
+      const events = agent.session.snapshotEvents()
+      expect(events.filter(event => event.type === 'model/selection').map(event => event.data)).toEqual([selected])
+      expect(events.find(event => event.type === 'turn/end')).toMatchObject({ data: { reason: { kind: 'completed' } } })
+    } finally {
+      release.resolve(undefined)
+      await ctx.fiber.dispose()
+    }
   })
 
   it('lets cancellation win over a provider switch', async () => {

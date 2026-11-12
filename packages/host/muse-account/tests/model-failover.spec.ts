@@ -5,9 +5,11 @@ import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import { createUserMessage, ReasoningEffortId, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import { createScope, scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { MuseModels } from '../src/models.ts'
+import * as sessionStorage from '../src/session.ts'
 import { writeMuseSession } from '../src/session.ts'
 import { oldSessionFixture, waitForIdle } from './model-routing-fixture.ts'
 import { closeMockServers, mockServer, textEvents } from '../../../llm/llm-pi-ai/tests/mock-server.ts'
@@ -24,6 +26,7 @@ interface CatalogProvider {
     maxTokens: number
     input: ('text' | 'image')[]
     reasoningEfforts: false | Record<string, string | null>
+    defaultReasoningEffort?: 'low'
   }[]
 }
 const provider = (id: string): CatalogProvider => ({
@@ -50,7 +53,7 @@ async function harness(script: SupplierScript, options: {
   hiddenProviderIds?: readonly string[]
   providers?: CatalogProvider[]
   retryBeforeModels?: boolean
-} = {}): Promise<{ ctx: Context; agent: Agent; server: Awaited<ReturnType<typeof mockServer>>; root: string }> {
+} = {}): Promise<{ ctx: Context; agent: Agent; models: MuseModels; server: Awaited<ReturnType<typeof mockServer>>; root: string }> {
   const root = await mkdtemp(join(tmpdir(), 'muse-model-failover-'))
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const fixture = await oldSessionFixture(false, root)
@@ -70,7 +73,7 @@ async function harness(script: SupplierScript, options: {
   cleanup.push(() => models.dispose())
   await models.refresh()
   fixture.agent.model.select({ provider: 'muse-cloud-alpha', model: 'writer' })
-  return { ctx: fixture.ctx, agent: fixture.agent, server, root }
+  return { ctx: fixture.ctx, agent: fixture.agent, models, server, root }
 }
 
 async function installRetry(ctx: Context): Promise<void> {
@@ -122,6 +125,177 @@ it('can fall back to a compatible model with a different name at another supplie
     .toEqual(['writer', 'other-writer'])
   expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')?.data.reason)
     .toMatchObject({ kind: 'completed' })
+})
+
+it('tries the exact original model, then its family, before a different family regardless of catalog order', async () => {
+  const choices = [
+    ['alpha', 'deepseek-v4-flash'], ['beta', 'gpt-6-sol'],
+    ['delta', 'deepseek-v4-pro'], ['gamma', 'deepseek-v4-flash'],
+  ] as const
+  const { ctx, agent, server } = await harness([
+    { status: 503, body: '{}' }, { status: 503, body: '{}' }, { status: 503, body: '{}' },
+    { events: textEvents },
+  ], { providers: choices.map(([id, model]) => ({ ...provider(id), models: [
+    { ...provider(id).models[0]!, id: model, name: model },
+  ] })) })
+  agent.model.select({ provider: 'muse-cloud-alpha', model: 'deepseek-v4-flash' })
+  await send(ctx, agent)
+
+  expect(server.paths).toEqual(['alpha', 'gamma', 'delta', 'beta']
+    .map(id => `/api/desktop-models/${id}/chat/completions`))
+  expect((server.requests as { model: string }[]).map(request => request.model))
+    .toEqual(['deepseek-v4-flash', 'deepseek-v4-flash', 'deepseek-v4-pro', 'gpt-6-sol'])
+  expect(agent.model.current()).toEqual({ provider: 'muse-cloud-beta', model: 'gpt-6-sol' })
+  expect(agent.session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.source.kind === 'user'))
+    .toHaveLength(1)
+})
+
+it('can switch when the failed model supplied the omitted reasoning effort as an adapter default', async () => {
+  const defaults = (id: string): CatalogProvider => ({ ...provider(id), models: [
+    { ...provider(id).models[0]!, reasoningEfforts: { low: 'low' }, defaultReasoningEffort: 'low' },
+  ] })
+  const { ctx, agent, server } = await harness([
+    { status: 503, body: '{}' }, { events: textEvents },
+  ], { providers: [defaults('alpha'), defaults('beta')] })
+  await send(ctx, agent)
+
+  expect(server.paths).toEqual(['alpha', 'beta'].map(id => `/api/desktop-models/${id}/chat/completions`))
+  expect((server.requests as { reasoning_effort: string }[]).map(request => request.reasoning_effort))
+    .toEqual(['low', 'low'])
+  expect(agent.model.current()).toEqual({ provider: 'muse-cloud-beta', model: 'writer' })
+})
+
+it.each(['provider', 'model', 'effort'] as const)('preserves a newer user %s choice made while recovery is pending', async (choice) => {
+  const primary = provider('alpha')
+  primary.models = [{ ...primary.models[0]!, reasoningEfforts: { low: 'low', high: 'high' } },
+    { ...primary.models[0]!, id: 'other-writer', name: 'Other writer' }]
+  const { ctx, agent, server } = await harness([{ status: 503, body: '{}' }], { providers: [primary, provider('beta')] })
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  ctx.on('agent/request-error', async (_payload, next) => {
+    entered.resolve(undefined)
+    await release.promise
+    return next()
+  })
+  agent.model.select({ provider: 'muse-cloud-alpha', model: 'writer', reasoningEffort: ReasoningEffortId('low') })
+  const pending = send(ctx, agent)
+  cleanup.push(async () => { release.resolve(undefined); await pending })
+  await entered.promise
+  const selection = choice === 'provider' ? { provider: 'muse-cloud-beta', model: 'writer' }
+    : choice === 'model' ? { provider: 'muse-cloud-alpha', model: 'other-writer' }
+      : { provider: 'muse-cloud-alpha', model: 'writer', reasoningEffort: ReasoningEffortId('high') }
+  agent.model.select(selection)
+  release.resolve(undefined)
+  await pending
+
+  expect(server.paths).toEqual(['/api/desktop-models/alpha/chat/completions'])
+  expect(agent.model.current()).toEqual(selection)
+  expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')?.data.reason)
+    .toMatchObject({ kind: 'error', error: { code: 'SERVER' } })
+})
+
+it('does not recover from a catalog withdrawn by logout while downstream recovery is pending', async () => {
+  const { ctx, agent, models, server, root } = await harness([{ status: 503, body: '{}' }])
+  ctx.on('agent/request-error', async (_payload, next) => {
+    await rm(join(root, 'session.json'))
+    await models.refresh()
+    return next()
+  })
+  await send(ctx, agent)
+
+  expect(ctx.llm.listProviders().some(item => item.id.startsWith('muse-cloud-'))).toBe(false)
+  expect(server.paths).toEqual(['/api/desktop-models/alpha/chat/completions'])
+  expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')?.data.reason)
+    .toMatchObject({ kind: 'error', error: { code: 'SERVER' } })
+})
+
+it('rejects a public recovery event whose admitted carrier does not own its payload agent', async () => {
+  const { ctx, agent, server, root } = await harness([{ status: 503, body: '{}' }])
+  const ownerKey = { account: 'another-scope' }
+  const ready = Promise.withResolvers<ReturnType<typeof createScope>>()
+  await ctx.plugin(Object.assign((inner: Context) => { ready.resolve(createScope(inner, ownerKey)) }, { inject: ['llm'] }))
+  const scope = await ready.promise
+  cleanup.push(() => scope.dispose())
+  const owner = new MuseModels(scope.ctx, {
+    baseUrl: server.url, sessionFile: join(root, 'session.json'), requestTimeoutMs: 1_000,
+    fetcher: async () => Response.json({ providers: [provider('studio'), provider('reserve')] }),
+  })
+  cleanup.push(() => owner.dispose())
+  await owner.refresh()
+  agent.model.select({ provider: 'muse-cloud-studio', model: 'writer' })
+  await send(ctx, agent)
+  let admitted = 0
+  scope.ctx.on('agent/request-error', async (_payload, next) => { admitted += 1; return next() })
+  const before = agent.session.snapshotEvents()
+
+  // Exercise the public dispatch seam with an erroneous caller: carrier belongs to
+  // the account scope, while the real payload Agent belongs to a different scope.
+  const action = await ctx.waterfall(scopeTarget(agent, ownerKey), 'agent/request-error', {
+    agent, turn: 1, step: 1, provider: 'muse-cloud-studio',
+    failure: { code: 'SERVER', message: 'Unavailable' }, retryPolicy: undefined,
+    signal: new AbortController().signal,
+  }, async () => undefined)
+
+  expect(admitted).toBe(1)
+  expect(action).toBeUndefined()
+  expect(server.paths).toEqual(['/api/desktop-models/studio/chat/completions'])
+  expect(agent.model.current()).toEqual({ provider: 'muse-cloud-studio', model: 'writer' })
+  expect(agent.session.snapshotEvents()).toEqual(before)
+})
+
+it.each(['logout', 'login replacement', 'catalog refresh', 'disposal'] as const)(
+  'does not select a stale route when %s overlaps the recovery account read', async (change) => {
+    const providers = [provider('alpha'), provider('beta')]
+    const { ctx, agent, models, server, root } = await harness([{ status: 503, body: '{}' }], { providers })
+    const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+    let recovering = false
+    const read = sessionStorage.readMuseSession
+    vi.spyOn(sessionStorage, 'readMuseSession').mockImplementation(async (...args) => {
+      if (recovering) {
+        recovering = false
+        entered.resolve(undefined)
+        await release.promise
+      }
+      return read(...args)
+    })
+    ctx.on('agent/request-error', async (_payload, next) => { recovering = true; return next() })
+    const pending = send(ctx, agent)
+    cleanup.push(async () => { release.resolve(undefined); await pending })
+    await entered.promise
+    if (change === 'logout') await rm(join(root, 'session.json'))
+    else if (change === 'login replacement') await writeMuseSession(join(root, 'session.json'), {
+      baseUrl: server.url, username: 'bob', cookie: '__Host-muse=bob-session',
+    })
+    else if (change === 'catalog refresh') { providers.push(provider('gamma')); await models.refresh() }
+    else await models.dispose()
+    release.resolve(undefined)
+    await pending
+
+    expect(server.paths).toEqual(['/api/desktop-models/alpha/chat/completions'])
+    expect(agent.model.current()).toEqual({ provider: 'muse-cloud-alpha', model: 'writer' })
+    expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')?.data.reason)
+      .toMatchObject({ kind: 'error', error: { code: 'SERVER' } })
+  })
+
+it.each(['cancellation', 'disposal'] as const)('lets %s stop a recovery listener that has already been captured', async (change) => {
+  const { ctx, agent, models, server } = await harness([{ status: 503, body: '{}' }])
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  ctx.on('agent/request-error', async (_payload, next) => {
+    entered.resolve(undefined)
+    await release.promise
+    return next()
+  })
+  const pending = send(ctx, agent)
+  cleanup.push(async () => { release.resolve(undefined); await pending })
+  await entered.promise
+  if (change === 'cancellation') agent.cancel({ kind: 'user' })
+  else await models.dispose()
+  release.resolve(undefined)
+  await pending
+
+  expect(server.paths).toEqual(['/api/desktop-models/alpha/chat/completions'])
+  expect(agent.model.current()).toEqual({ provider: 'muse-cloud-alpha', model: 'writer' })
+  expect(agent.session.snapshotEvents().find(event => event.type === 'turn/end')?.data.reason)
+    .toMatchObject(change === 'cancellation' ? { kind: 'aborted' } : { kind: 'error', error: { code: 'SERVER' } })
 })
 
 it('skips hidden and incompatible-effort suppliers while retaining a compatible account route', async () => {

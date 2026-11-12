@@ -70,7 +70,7 @@ type FailoverRoute = { readonly provider: string; readonly model: AccountModel }
 const failoverCodes = new Set(['QUOTA', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT', 'STREAM_CLOSED', 'EMPTY_RESPONSE'])
 
 function modelFamily(id: string): string {
-  return modelName(id).toLowerCase().split(/[-.]/u, 1)[0] ?? ''
+  return modelName(id).toLowerCase().replace(/[-.].*$/su, '')
 }
 
 type DirectStream = (options: GenerateOptions, signal: AbortSignal) => AsyncIterable<StreamChunk>
