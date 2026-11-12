@@ -88,6 +88,36 @@ class CharacterBoardPrompt(unittest.TestCase):
         self.assertIn(self.module.BOARD_LAYOUT, result["prompt"])
         self.assertNotIn("PBR", result["prompt"])
 
+    def test_masks_are_opaque_graphics_exempt_from_face_rendering(self):
+        result = self.module.build_prompt("水彩，保留纸张纹理。", "成年女性，面部自然。")
+        prompt = result["prompt"]
+        self.assertIn("#FFFFFF", prompt)
+        self.assertIn("不透明度100%", prompt)
+        self.assertIn("仅B、C脸部", prompt)
+        self.assertIn("不参与人物皮肤、五官、材质或光照渲染", prompt)
+        self.assertIn("只有A区显示清晰五官", prompt)
+        for region in ("B", "C"):
+            line = next(line for line in prompt.splitlines() if line.startswith(region + "区（"))
+            self.assertIn("无五官纯白区域", line)
+        self.assertNotIn("PBR", prompt)
+
+    def test_repair_preserves_existing_four_views_and_uses_input_style(self):
+        style = "真人摄影，服装有真实厚度。"
+        result = self.module.build_prompt(style, "保留既有角色。", edit_existing=True)
+        self.assertIn("四区已齐时", result["prompt"])
+        self.assertIn("仅缺失C区时", result["prompt"])
+        self.assertIn("不复制已有侧面", result["prompt"])
+        self.assertIn("不继承候选的画风", result["prompt"])
+        self.assertTrue(result["prompt"].startswith(style + "\n"))
+
+    def test_create_and_repair_outputs_match_recorded_prompt_inputs(self):
+        record = json.loads((Path(__file__).parent / "expected/character-board-prompt.json").read_text(encoding="utf-8"))
+        for mode, expected in record["outputs"].items():
+            with self.subTest(mode=mode):
+                actual = self.module.build_prompt(record["style_prompt"], record["character_prompt"],
+                                                  edit_existing=mode == "repair")
+                self.assertEqual(actual, expected)
+
     def test_delivery_references_do_not_exempt_layout_or_style_from_acceptance(self):
         owner = PACKAGE / "skills/tweet-drama-asset-vision-check/SKILL.md"
         self.assertIn("版式或画风未通过", owner.read_text(encoding="utf-8"))

@@ -1,8 +1,24 @@
 /** Offline generation provider with one image write and an ambiguous video PUT. */
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 export const name = 'image-material-fixture'
 export function apply(ctx) {
+  const board = JSON.parse(readFileSync(new URL(
+    '../../../packages/drama/skills/tests/creation/expected/character-board-prompt.json', import.meta.url), 'utf8')).outputs.create
+  ctx.on('llm/stream', async function* (_options, next) {
+    for await (const chunk of next()) {
+      if (chunk.type === 'block-end' && chunk.block.type === 'tool-call' && chunk.block.id === 'call_image_generate') {
+        const args = JSON.parse(chunk.block.arguments)
+        if (args.method !== 'image_generate' || args.prompt !== '写实3D CG横屏角色设定') {
+          throw new Error('Recorded character-board input changed')
+        }
+        yield { ...chunk, block: { ...chunk.block, arguments: JSON.stringify({ ...args,
+          prompt: board.prompt, image_style: 'anime', image_aspect_ratio: board.image_aspect_ratio }) } }
+      } else {
+        yield chunk
+      }
+    }
+  })
   const ledger = join(process.env.DSH_HOME, 'jubian', 'ledger')
   mkdirSync(ledger, { recursive: true })
   writeFileSync(join(ledger, 'authorization.json'), JSON.stringify({ version: 1,
@@ -65,6 +81,7 @@ export function apply(ctx) {
         const config = JSON.parse(JSON.parse(init.body).modelConfig)
         if (config.quality !== 'high') throw new Error('Offline image fixture requires the selected high quality')
         if (config.skipAssetReferenceTemplate !== true) throw new Error('Offline image fixture requires caller-controlled composition')
+        if (config.prompt !== board.prompt) throw new Error('Offline image fixture requires the complete character-board prompt')
         data = 83749
       } else if (url.pathname.endsWith('/aigc/asset/83749') && init?.method === 'GET') {
         data = { id: 83749, scriptId: 2708, assetType: 1, assetName: '横屏CG测试角色', hsAssetStatus: null }
