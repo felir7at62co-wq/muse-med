@@ -236,7 +236,8 @@ const harness = await vi.hoisted(async () => {
     windows, views, hosts, handlers, app, FakeWindow, FakeView, FakeHost, powerMonitor, nativeTheme, analytics,
     trays, FakeTray, backgroundNotice, shellDialog,
     menu, popup, updateFeedPolicy: vi.fn(), packagedUpdateChannel: undefined as 'latest' | 'stable' | 'nightly' | undefined,
-    socketHeaders: vi.fn(), connectWelcome: vi.fn(), removeLegacyHostCookies: vi.fn(async () => {}), hostCookies: {},
+    socketHeaders: vi.fn(), connectWelcome: vi.fn<(...args: Parameters<typeof import('../src/welcome-backend.ts').connectDesktopWelcome>) => void>(),
+    removeLegacyHostCookies: vi.fn(async () => {}), hostCookies: {},
     loginShell, readLoginShell, updateCheck, updateDownload, updateInstall,
     platformDispose,
     platformCloseAndWait,
@@ -434,7 +435,7 @@ vi.mock('../src/platform-view.ts', async importOriginal => ({
   },
 }))
 vi.mock('../src/welcome-backend.ts', () => ({
-  connectDesktopWelcome: (...args: unknown[]) => {
+  connectDesktopWelcome: (...args: Parameters<typeof import('../src/welcome-backend.ts').connectDesktopWelcome>) => {
     harness.connectWelcome(...args)
     return {
       analyticsEnabled: async () => harness.analyticsEnabled,
@@ -499,6 +500,8 @@ beforeEach(() => {
   vi.stubGlobal('process', { ...process, platform: 'win32', arch: 'x64', resourcesPath: 'desktop-test-resources' })
   vi.stubEnv('DSH_DESKTOP_HOST_INSPECT_PORT', undefined)
   vi.stubEnv('DSH_DESKTOP_DEV_PROJECT_DIR', undefined)
+  vi.stubEnv('DSH_DESKTOP_DEV_APP', undefined)
+  vi.stubEnv('DSH_DESKTOP_DEV_REGISTER_PROTOCOL', undefined)
   vi.stubEnv('DSH_DESKTOP_MANDATORY_UPDATE_CONFIG', undefined)
   vi.stubEnv('DSH_DESKTOP_UPDATE_JOURNAL_DIR', undefined)
   vi.stubEnv('DSH_CLIENT_VERSION', '0.2.2-rc.1')
@@ -525,6 +528,30 @@ afterEach(async () => {
 afterAll(() => { rmSync(harness.app.getAppPath(), { recursive: true, force: true }) })
 
 describe('desktop main startup', () => {
+  it.each([
+    [false, '0', false], [false, '1', true], [false, undefined, true],
+    [true, '0', true], [true, '1', true], [true, 'invalid', true],
+  ] as const)('registers the dsh protocol only when permitted (packaged=%s, development setting=%s)', async (packaged, registration, expected) => {
+    harness.app.isPackaged = packaged
+    vi.stubEnv('DSH_DESKTOP_DEV_APP', '1')
+    vi.stubEnv('DSH_DESKTOP_DEV_REGISTER_PROTOCOL', registration)
+    await readyForUpdate()
+    if (expected) expect(harness.app.setAsDefaultProtocolClient).toHaveBeenCalledExactlyOnceWith('dsh')
+    else expect(harness.app.setAsDefaultProtocolClient).not.toHaveBeenCalled()
+  })
+
+  it.each(['', 'false', '2', ' 0'])('rejects an invalid development protocol setting before starting a Host: %s', async (registration) => {
+    harness.app.isPackaged = false
+    vi.stubEnv('DSH_DESKTOP_DEV_APP', '1')
+    vi.stubEnv('DSH_DESKTOP_DEV_REGISTER_PROTOCOL', registration)
+    await import('../src/main.ts')
+    await harness.dialogShown.promise
+    const options = harness.dialog.showMessageBox.mock.calls[0]![0] as MessageBoxOptions
+    expect(options.detail).toContain('DSH_DESKTOP_DEV_REGISTER_PROTOCOL must be 0 or 1')
+    expect(harness.app.setAsDefaultProtocolClient).not.toHaveBeenCalled()
+    expect(harness.hosts).toHaveLength(0)
+  })
+
   it('passes explicit legacy latest manifest evidence to the single-source updater', async () => {
     harness.packagedUpdateChannel = 'latest'
     await readyForUpdate()
@@ -1501,7 +1528,7 @@ describe('desktop main startup', () => {
     await Promise.resolve(invoke(DESKTOP_IPC.boot))
     expect(harness.connectWelcome).toHaveBeenCalledWith(`${protocol}//127.0.0.1:3080/`, expect.any(Function), expect.any(Function))
     const cookieSource = harness.connectWelcome.mock.calls.at(-1)?.[2]
-    expect(await cookieSource()).toBe('test-cookie')
+    expect(await cookieSource?.()).toBe('test-cookie')
     expect(harness.removeLegacyHostCookies).not.toHaveBeenCalled()
     const handler = harness.socketHeaders.mock.calls[0]![1] as (
       details: { url: string; webContentsId: number; requestHeaders: Record<string, string> },

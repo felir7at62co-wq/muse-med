@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { resolveDevelopmentProtocolRegistration } from '../src/development-protocol.ts'
 
 /** Workspace and runtime settings captured for Launch Services cold starts. */
 export interface DevelopmentAppOptions {
@@ -21,6 +22,8 @@ export interface DevelopmentAppOptions {
   readonly openDevtools: string
   /** Muse service origin retained when Launch Services starts without the parent shell. */
   readonly museBaseUrl?: string
+  /** Development-only protocol registration retained across Launch Services cold starts. */
+  readonly registerProtocol?: string
 }
 
 function quote(value: string): string { return `'${value.replaceAll("'", "'\\''")}'` }
@@ -59,7 +62,7 @@ export function prepareDevelopmentApp(options: DevelopmentAppOptions): string {
       CFBundleDisplayName: 'Muse Dev',
       CFBundleExecutable: 'MuseDev',
       CFBundleShortVersionString: options.productVersion,
-      CFBundleURLTypes: [{ CFBundleURLName: 'muse-med', CFBundleURLSchemes: ['dsh'], CFBundleTypeRole: 'Viewer' }],
+      CFBundleURLTypes: developmentProtocolUrlTypes(options.registerProtocol),
     }
     for (const [key, value] of Object.entries(values)) {
       execFileSync('/usr/bin/plutil', ['-replace', key, '-json', JSON.stringify(value), plist])
@@ -73,6 +76,20 @@ export function prepareDevelopmentApp(options: DevelopmentAppOptions): string {
 }
 
 /**
+ * Select the protocol declarations for a disposable development bundle.
+ * @param registerProtocol - Development opt-out; omission retains protocol registration.
+ * @returns URL types for dsh links, or an empty list for an isolated development instance.
+ */
+export function developmentProtocolUrlTypes(registerProtocol?: string): {
+  CFBundleURLName: string
+  CFBundleURLSchemes: string[]
+  CFBundleTypeRole: string
+}[] {
+  return resolveDevelopmentProtocolRegistration({ DSH_DESKTOP_DEV_REGISTER_PROTOCOL: registerProtocol }) === '0'
+    ? [] : [{ CFBundleURLName: 'muse-med', CFBundleURLSchemes: ['dsh'], CFBundleTypeRole: 'Viewer' }]
+}
+
+/**
  * Create the development executable used by both the CLI and Launch Services.
  * @param options - Persisted development locations and debugging settings.
  * @param bundle - Generated application bundle.
@@ -83,6 +100,9 @@ export function developmentLauncher(options: DevelopmentAppOptions, bundle: stri
     DSH_HOME: options.home,
     MUSE_HOME: options.museHome,
     DSH_DESKTOP_DEV_APP: '1',
+    DSH_DESKTOP_DEV_REGISTER_PROTOCOL: resolveDevelopmentProtocolRegistration({
+      DSH_DESKTOP_DEV_REGISTER_PROTOCOL: options.registerProtocol,
+    }),
     DSH_DESKTOP_HOST_INSPECT_PORT: String(options.hostPort),
     DSH_DESKTOP_OPEN_DEVTOOLS: options.openDevtools,
     DSH_DESKTOP_PRIMARY_RUNTIME_DIR: options.primaryRuntime,

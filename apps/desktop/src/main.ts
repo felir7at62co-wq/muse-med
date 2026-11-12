@@ -79,6 +79,7 @@ import { DesktopBackgroundNotice } from './background-notice.ts'
 import { DesktopCompletionNotice } from './completion-notice.ts'
 import { prepareDesktopHongguoEnvironment } from './hongguo-runtime.ts'
 import { applyDesktopProductIdentity, DESKTOP_PRIMARY_ACCOUNT, desktopProductVersion } from './product-identity.ts'
+import { resolveDevelopmentProtocolRegistration } from './development-protocol.ts'
 
 // Identity precedes the product home, every path read, and the single-instance lock below.
 applyDesktopProductIdentity(app)
@@ -468,6 +469,7 @@ async function main(): Promise<void> {
   const paths = activeDesktopPaths()
   // Unpackaged launches own a disposable development project; packaged ones use the managed profile.
   const development = app.isPackaged ? undefined : join(app.getAppPath(), '.desktop-build', 'development', 'project')
+  const registerDevelopmentProtocol = development !== undefined && resolveDevelopmentProtocolRegistration(process.env) === '1'
   const primaryRuntime = development === undefined
     ? join(process.resourcesPath, 'runtime', 'primary-runtime')
     : developmentPrimaryRuntime()
@@ -943,7 +945,7 @@ async function main(): Promise<void> {
     // A confirmation on a hidden window would go unseen, so it waits for the next show; the mandatory
     // flow keeps its own taskbar and Dock attention instead.
     if (!isMandatory()) await windowShown()
-    if (quitting) return state
+    if (isQuitting()) return state
     return updates.install(version, revision)
   }
   const windowShown = (): Promise<void> => new Promise((resolve) => {
@@ -1699,7 +1701,7 @@ async function main(): Promise<void> {
     window.focus()
   }
 
-  if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1') app.setAsDefaultProtocolClient('dsh')
+  if (app.isPackaged || process.env.DSH_DESKTOP_DEV_APP === '1' && registerDevelopmentProtocol) app.setAsDefaultProtocolClient('dsh')
   app.on('open-url', (event, url) => {
     event.preventDefault()
     if (url === 'dsh://open' || url === 'dsh://open/') focusPrimaryWindow()

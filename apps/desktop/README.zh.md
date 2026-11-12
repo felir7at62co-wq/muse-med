@@ -249,6 +249,8 @@ pnpm run dev:desktop
 
 开发 Harness 状态默认写入 `apps/desktop/.desktop-build/development/home`，一次性 npm 项目位于 `apps/desktop/.desktop-build/development/project`，Electron 浏览器数据则位于 `apps/desktop/.desktop-build/development/electron-user-data`。`MUSE_HOME` 默认使用该 Harness home；显式 `DSH_HOME`、`MUSE_HOME` 或 `DSH_DESKTOP_USER_DATA_DIR` 分别选择对应位置。macOS 启动的 `Muse Dev.app` 使用隔离的 bundle 标识，并在应用元数据中记录 Muse 产品版本。Renderer DevTools 默认自动打开，Main、Renderer 和 dsh Host 调试端口依次为 9229、9222 和 9230。`DSH_DESKTOP_MAIN_INSPECT_PORT`、`DSH_DESKTOP_RENDERER_DEBUG_PORT` 与 `DSH_DESKTOP_HOST_INSPECT_PORT` 可以替换这些端口，`DSH_DESKTOP_OPEN_DEVTOOLS=0` 则保持 Renderer 调试窗口关闭。
 
+与另一个 Muse 实例并行测试时，使用 `DSH_DESKTOP_DEV_REGISTER_PROTOCOL=0 pnpm run start:desktop`。它禁止开发实例注册系统 `dsh://` 协议，并从生成的 macOS 开发应用中移除该 scheme；持久化启动脚本在冷启动时保留这一选择。该变量仅接受 `0` 或 `1`，默认为 `1`。打包应用忽略此变量，继续按原有方式注册协议。
+
 `DSH_DESKTOP_USER_PATCH_FILE` 显式选择一个已有普通文件，在开发 profile 重建后、Electron 启动前复制为其中的 `cordis.patch.yml`。启动器按字节复制，不过滤或记录内容，也不修改源文件；所选 patch 需兼容当前 bundle。POSIX 上项目目录权限为 `0700`，复制后的 patch 为 `0600`。源文件链接、项目目录链接以及非普通文件的目标均被拒绝。
 
 `DSH_DESKTOP_PRIMARY_RUNTIME_DIR` 可以为本地开发选择已准备的 primary runtime。启动器会将其解析为绝对路径，检查平台和架构，并在启动前执行现有运行时自检。无效路径直接失败，不下载替代环境。该运行时必须保留匹配的相邻资源目录；未设置覆盖时，开发启动仍准备完整的锁定运行环境。
