@@ -17,13 +17,14 @@ const context = {
   bezierCurveTo: vi.fn(), lineTo: vi.fn(), closePath: vi.fn(), fill: vi.fn(), rect: vi.fn(),
   roundRect: vi.fn(), clip: vi.fn(), globalAlpha: 1, fillStyle: '',
 }
+const browserContext: Pick<CanvasRenderingContext2D, keyof typeof context> = context
 beforeEach(() => {
   top = 240; nextFrame = 0; paused = 0; frames.clear()
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.set(++nextFrame, callback); return nextFrame })
   vi.stubGlobal('cancelAnimationFrame', (id: number) => { frames.delete(id) })
   vi.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => { paused++ })
   vi.spyOn(HTMLMediaElement.prototype, 'load').mockImplementation(() => {})
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => context as CanvasRenderingContext2D)
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => browserContext as CanvasRenderingContext2D)
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
     if (this.hasAttribute('data-muse-inline-video')) return new DOMRect(200, top, 400, 240)
     if (this.hasAttribute('data-muse-video-anchor')) return new DOMRect(350, 60, 100, 40)
@@ -55,6 +56,9 @@ function scrollTo(view: ReturnType<typeof render>, progress: number) {
 function wrap(card: React.ReactNode) {
   return <div data-chat-frame><button data-muse-video-anchor>Library</button><div data-chat-scroll>{card}</div></div>
 }
+
+// Unit slot inputs retain consumed fields; unrelated Host slot hooks are absent.
+function slotInput<T>(props: Partial<T>): T { return props as T }
 
 it.each([true, false])('collects and opens only an authorized source (bound=%s)', (bound) => {
   const value = source('clip'), state = shared([value])
@@ -88,8 +92,10 @@ it('retries the same source and releases the previous URL on replacement and unm
 it('matches delivered cards by both event sequence and presented index', () => {
   const expected = source('matched', { eventSeq: 7, presentedIndex: 2 })
   const state = shared([source('wrong-seq', { presentedIndex: 2 }), source('wrong-index', { eventSeq: 7, presentedIndex: 1 }), expected])
-  const input = { ...state, sourceUrl: '/delivered', label: 'Delivered', path: '/work/matched.mp4', seq: 7, index: 2 }
-  const view = render(wrap(<DeliveredVideoCard {...input as Parameters<typeof DeliveredVideoCard>[0]} />))
+  const input = slotInput<Parameters<typeof DeliveredVideoCard>[0]>({
+    ...state, sourceUrl: '/delivered', label: 'Delivered', path: '/work/matched.mp4', seq: 7, index: 2,
+  })
+  const view = render(wrap(<DeliveredVideoCard {...input} />))
   scrollTo(view, 0.5)
   fireEvent.click(view.getByRole('button', { name: en.collected }))
   expect(state.store.getSnapshot().selected).toBe(expected.id)
@@ -102,8 +108,8 @@ it('shows only unpresented generated videos in the completed turn and suppresses
     source('delivery', { path: '/same.mp4', presentedIndex: 2 }), source('null-path', { path: null })]
   const state = shared(values)
   const turn = { start: { seq: 2 }, end: { seq: 5 } } as Parameters<typeof GeneratedVideoCards>[0]['turn']
-  const input = { ...state, turn, seq: 8 }
-  const view = render(<GeneratedVideoCards {...input as Parameters<typeof GeneratedVideoCards>[0]} />)
+  const input = slotInput<Parameters<typeof GeneratedVideoCards>[0]>({ ...state, turn, seq: 8 })
+  const view = render(<GeneratedVideoCards {...input} />)
   expect([...view.container.querySelectorAll('video')].map(video => video.getAttribute('src'))).toEqual(['/api/visible', '/api/null-path'])
   const missingStart = { ...input, turn: { start: undefined, end: undefined } } as Parameters<typeof GeneratedVideoCards>[0]
   view.rerender(<GeneratedVideoCards {...missingStart} />)
