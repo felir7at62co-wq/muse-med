@@ -318,18 +318,18 @@ describe('CI workflow', () => {
     if (!isRecord(job.strategy) || !isRecord(job.strategy.matrix) || !Array.isArray(job.steps)
       || !Array.isArray(plan.groups)) throw new TypeError('Snapshot capture must declare its matrix and plan')
     expect(plan).toMatchObject({ version: 1, temporary: true, repository: 'felir7at62co-wq/muse-med',
-      pullRequest: 154, headBranch: 'fix/muse-ci-baseline-20261111', totals: { groups: 8, tests: 66, outputs: 177 } })
+      pullRequest: 154, headBranch: 'fix/muse-ci-baseline-20261111', totals: { groups: 5, tests: 81, replayTests: 82, outputs: 214 } })
     const groups = plan.groups.filter(isRecord)
-    expect(groups).toHaveLength(8)
-    expect(plan.groups).toHaveLength(8)
+    expect(groups).toHaveLength(5)
+    expect(plan.groups).toHaveLength(5)
     expect(groups.map(group => [group.id, group.expectedTests,
       Array.isArray(group.allowedOutputs) ? group.allowedOutputs.length : -1])).toEqual([
-      ['offline-cwd-self-pins', 28, 78], ['borrowed-header-cwd', 11, 12],
-      ['production-headers-and-repaired-fixtures', 14, 42], ['sdk-default', 2, 8],
-      ['sdk-self-headers', 5, 17], ['sdk-borrowed', 4, 14],
-      ['sdk-factory-shutdown', 1, 5], ['compaction-pressure', 1, 1],
+      ['remaining-pins-and-consumers', 18, 25], ['remaining-legacy-writers', 17, 48],
+      ['remaining-current-writers', 43, 132], ['retained-tools-writers', 2, 6], ['session-product-budget', 1, 3],
     ])
     expect(job.strategy.matrix.group).toEqual(groups.map(group => group.id))
+    if (!isRecord(job.env)) throw new TypeError('Capture environment must be declared')
+    expect(job.env.TMPDIR).toBe('${{ runner.temp }}')
     const steps = job.steps.filter(isRecord)
     const runFor = (name: string): string => {
       const step = steps.find(value => value.name === name)
@@ -341,6 +341,9 @@ describe('CI workflow', () => {
     expect(baseline).toContain('assert.deepEqual(protectedPaths, spec.expectedInputInventory')
     expect(baseline).toContain('spec.expectedCanonicalPaths')
     expect(baseline).toContain('spec.expectedManifests')
+    expect(baseline).toContain('Cross-group output overlap')
+    expect(baseline).toContain('tool-call-turn from retained V3 input')
+    expect(baseline).toContain("{ version: 4, coverage: ['retired-tools'] }")
     const refresh = runFor('Refresh approved phases and freeze each completed pin')
     expect(refresh).toContain('report.numPassedTests, phase.passedSuffixes.length')
     expect(refresh).toContain('report.numFailedTests, 0')
@@ -395,6 +398,20 @@ describe('CI workflow', () => {
       name: 'Save coverage duration history', if: '${{ !cancelled() }}',
     }))
     expect(wine.steps).toContainEqual(expect.objectContaining({ name: 'Shut down wineserver', if: 'always()' }))
+  })
+
+  it('prepares pinned FFmpeg before native Windows coverage', () => {
+    const job = workflowJob(loadWorkflow('.github/workflows/ci-windows.yml'), 'windows-coverage')
+    if (!Array.isArray(job.steps)) throw new TypeError('Windows coverage must define steps')
+    const steps = job.steps.filter(isRecord)
+    const install = steps.findIndex(step => step.name === 'Install (immutable)')
+    const media = steps.findIndex(step => step.name === 'Prepare verified Windows media tools')
+    const coverage = steps.findIndex(step => step.name === 'Run Windows coverage')
+    expect(install).toBeGreaterThanOrEqual(0)
+    expect(media).toBeGreaterThan(install)
+    expect(coverage).toBeGreaterThan(media)
+    expect(steps[media]).toEqual({ name: 'Prepare verified Windows media tools', shell: 'pwsh',
+      run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts' })
   })
 
   it.each([

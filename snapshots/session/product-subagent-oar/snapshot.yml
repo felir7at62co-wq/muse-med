@@ -3,6 +3,7 @@ scenario: product-subagent-oar
 profile: headless
 composition: product-subagent-oar
 recording: authored
+writerOutput: true
 header:
   class: product-subagent-oar
   pin: true

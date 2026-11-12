@@ -3,6 +3,7 @@ scenario: cua-native
 profile: headless
 composition: cua-native
 recording: authored
+writerOutput: true
 header:
   class: cua-native
   pin: true

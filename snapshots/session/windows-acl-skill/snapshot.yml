@@ -3,6 +3,7 @@ scenario: windows-acl-skill
 profile: headless
 composition: default
 recording: authored
+writerOutput: true
 header:
   class: skill
 workspace:

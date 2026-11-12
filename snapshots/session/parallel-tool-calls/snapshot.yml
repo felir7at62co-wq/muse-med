@@ -3,6 +3,7 @@ scenario: parallel-tool-calls
 profile: headless
 composition: fs
 recording: authored
+writerOutput: true
 header:
   class: fs
   pin: true

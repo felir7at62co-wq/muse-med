@@ -1,6 +1,7 @@
 /** Recorded-session replay through the shipped headless `dsh` profile. */
 
 import { assertWorkingBudgetExpectations, deriveShadowedBudgetExpectations, deriveWorkingBudgetExpectations } from './working-budget-oracle.ts'
+import { sessionProductBudgetInput } from './muse-session-product/budget.ts'
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
 import { capabilityOcrRecords, expectedCapabilityOcrHash } from './muse-video-novel-ocr-capability/evidence.ts'
@@ -1125,6 +1126,7 @@ const workspaceSensitiveBudgetScenarios = new Set([
   'muse-editing-tool-catalog',
   'muse-resident-view',
   'muse-script-refinement',
+  'muse-session-product',
   'muse-short-drama-draft-ending',
   'muse-small-window-compaction',
   'muse-time-context',
@@ -1206,7 +1208,8 @@ async function workspaceBudgetExpected(
   scenario: HeadlessScenario, actual: readonly JsonObject[], expected: JsonObject[], expectedLog: string, cwd: string, visualize?: VisualizationBudgetPaths,
 ): Promise<JsonObject[]> {
   if (actual.length !== expected.length) return expected
-  const input = await workspaceBudgetInputs(scenario, expectedLog, cwd, visualize)
+  const independentInput = await workspaceBudgetInputs(scenario, expectedLog, cwd, visualize)
+  const input = scenario.name === 'muse-session-product' ? sessionProductBudgetInput(independentInput) : independentInput
   const counts = deriveWorkingBudgetExpectations(input)
   const shadowed = deriveShadowedBudgetExpectations(input)
   const measured = new Map<number, unknown>()

@@ -3,6 +3,7 @@ scenario: ptc-persistent
 profile: headless
 composition: ptc-persistent
 recording: authored
+writerOutput: true
 header:
   class: ptc-persistent
   pin: true
