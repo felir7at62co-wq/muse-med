@@ -13,6 +13,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, readdir, rm, mkdir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Readable } from 'node:stream'
 import { afterEach, beforeAll, expect, it, vi } from 'vitest'
 import { MuseMediaImporter } from '../src/media-import.ts'
 import { MuseMediaClient, MuseMediaError } from '../src/media.ts'
@@ -80,6 +81,45 @@ async function fixture(options: FixtureOptions = {}) {
     maxOutputBytes: 65_536, maxPixels: 1_000_000, maxDurationSeconds: 60 })
   importers.push(importer)
   return { ctx, agent, importer, cwd, requests: () => requests, destination: join(cwd, 'source/media/company', `${id}-video.mp4`) }
+}
+
+/** Keep the fully received file private until a malformed-file fixture is ready for verification. */
+function beforeVerification(ctx: Context, prepare: () => Promise<void>) {
+  const original = ctx.subprocess.spawn.bind(ctx.subprocess)
+  return vi.spyOn(ctx.subprocess, 'spawn').mockImplementation((spec) => {
+    const child = original(spec)
+    if (spec.stdio.control !== 'pipe') return child
+    const output = child.stdout
+    if (output === undefined) throw Error('Import helper output missing')
+    const stdout = Readable.from((async function* () {
+      let buffered = Buffer.alloc(0)
+      for await (const chunk of output) {
+        if (!Buffer.isBuffer(chunk)) throw Error('Expected binary helper output')
+        buffered = Buffer.concat([buffered, chunk])
+        for (;;) {
+          const newline = buffered.indexOf(10)
+          if (newline < 0) break
+          const frame = buffered.subarray(0, newline + 1)
+          buffered = buffered.subarray(newline + 1)
+          if (frame.equals(Buffer.from('{"phase":"staged"}\n'))) await prepare()
+          yield frame
+        }
+      }
+      if (buffered.length > 0) yield buffered
+    })(), { objectMode: false })
+    return { stdin: child.stdin, stdout, stderr: child.stderr, control: child.control,
+      collected: child.collected, done: child.done,
+      terminate: () => { child.terminate() }, waitForExit: signal => child.waitForExit(signal) }
+  })
+}
+
+/** Supply only the external probe response; media decoding and publication stay real. */
+function probeResponse(ctx: Context, metadata: object) {
+  const original = ctx.subprocess.spawn.bind(ctx.subprocess)
+  return vi.spyOn(ctx.subprocess, 'spawn').mockImplementation(spec => original(spec.argv.includes('-show_entries')
+    ? { ...spec, argv: [process.execPath, '--input-type=module', '-e',
+      `process.stdout.write(${JSON.stringify(JSON.stringify(metadata))})`] }
+    : spec))
 }
 
 it('publishes a complete real video and a stable file-backed receipt without private transaction fields', async () => {
@@ -159,6 +199,49 @@ it.each(['hash', 'metadata'] as const)('does not publish %s-corrupt media', asyn
 it('rejects a real video mislabeled as an image rather than reporting a cover import', async () => {
   const f = await fixture({ kind: 'image' })
   await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)).rejects.toMatchObject({ code: 'invalid-media' })
+  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+})
+
+it.each(['length', 'digest'] as const)('refuses a fully received file with an incorrect %s before decoding or publication', async (kind) => {
+  const f = await fixture()
+  let prepared = false
+  const spawn = beforeVerification(f.ctx, async () => {
+    const parent = join(f.cwd, 'source/media/company')
+    const stages = (await readdir(parent)).filter(name => name.startsWith('.import-'))
+    expect(stages).toHaveLength(1)
+    const staged = stages[0]
+    if (staged === undefined) throw Error('Import stage missing')
+    const bytes = Buffer.from(video)
+    bytes.writeUInt8(bytes.readUInt8(bytes.length - 1) ^ 1, bytes.length - 1)
+    await writeFile(join(parent, staged, 'media'), kind === 'length' ? bytes.subarray(0, bytes.length - 1) : bytes)
+    prepared = true
+  })
+  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal))
+    .rejects.toMatchObject({ code: 'invalid-media' })
+  expect(prepared).toBe(true)
+  expect(f.requests()).toBe(1)
+  expect(spawn.mock.calls.some(([spec]) => spec.argv.includes('-show_entries'))).toBe(false)
+  expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
+})
+
+it('decodes a verified video when the probe omits its optional container name', async () => {
+  const f = await fixture()
+  probeResponse(f.ctx, { streams: [{ codec_type: 'video', width: 128, height: 72 }], format: { duration: '0.4' } })
+  const result = await f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal)
+  expect(result).toMatchObject({ state: 'local_ready', kind: 'video', width: 128, height: 72,
+    durationSeconds: 0.4, fullDecodeVerified: true })
+  expect(await readFile(result.path)).toEqual(video)
+  expect(JSON.parse(await readFile(result.receipt, 'utf8'))).toMatchObject({
+    sha256: createHash('sha256').update(video).digest('hex'), fullDecodeVerified: true,
+  })
+})
+
+it('refuses video probe data without container metadata or a finite duration', async () => {
+  const f = await fixture()
+  const spawn = probeResponse(f.ctx, { streams: [{ codec_type: 'video', width: 128, height: 72 }] })
+  await expect(f.importer.import(f.agent, id, 'video.mp4', new AbortController().signal))
+    .rejects.toMatchObject({ code: 'invalid-media' })
+  expect(spawn.mock.calls.some(([spec]) => spec.argv.includes('-map'))).toBe(false)
   expect(await readdir(join(f.cwd, 'source/media/company'))).toEqual([])
 })
 
