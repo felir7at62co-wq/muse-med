@@ -259,6 +259,7 @@ export type WorkspaceBrowserInjected = {
     hostInfo: HostObservable<RemoteHostFacts>
     workspaceShortcuts: HostObservable<WorkspaceShortcutState>
     shortcuts: HostObservable<readonly ShortcutCatalogEntry[]>
+    hiddenSessionIds: HostObservable<readonly SessionId[]>
   }
   /** Open the browser search and focus its input. */
   requestSearch: () => void

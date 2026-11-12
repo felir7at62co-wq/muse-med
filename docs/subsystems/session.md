@@ -862,6 +862,21 @@ Host service backing the generated `ctx.remote.session` namespace.
 
 ```ts cordis-catalog
 /**
+ * Restrict blank Session reuse while a feature owns the identity.
+ * @param filter - accepts one candidate and requested preset.
+ * @returns disposer for this independent contribution.
+ */
+registerBlankReuseFilter(filter: (id: SessionId, preset: string | undefined) => boolean): () => void
+
+/**
+ * Evaluate the registered blank reuse policy.
+ * @param id - candidate Session identity.
+ * @param preset - requested preset, if supplied.
+ * @returns whether every contribution accepts the candidate.
+ */
+canReuseBlank(id: SessionId, preset: string | undefined): boolean
+
+/**
  * Resolve or resume one ordinary Session for another Host API domain.
  * @param sessionId - Session identity whose Agent owns the operation.
  * @returns the live Agent or the stable Session-domain failure.
@@ -1079,6 +1094,13 @@ Source: [`packages/api/session-controller/src/index.ts`](../../packages/api/sess
 Task router whose durable writes precede Session creation and message delivery.
 
 ```ts cordis-catalog
+/**
+ * Observe the retained Main Session identity without creating a Session.
+ * @param signal - Client cancellation; plugin unload also closes the stream.
+ * @returns the initial identity and subsequent changes.
+ */
+@Remote({ mode: 'stream' }) async *watchMain(signal: AbortSignal): AsyncIterable<SessionId | null>
+
 /**
  * Open the profile's durable Main Session from its dedicated navigation entry.
  * @returns the retained routing Session, initially created in the native default Workspace.

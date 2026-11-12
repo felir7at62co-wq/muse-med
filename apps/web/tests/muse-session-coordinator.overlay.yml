@@ -2,6 +2,10 @@
   config:
     default: standard
     selectablePresets: [main-session, standard]
+    selectedDefault: main-session
+    allowUserDefault: false
+- id: ui-agent-preset
+  disabled: true
 - insert:
     - id: muse-session-coordinator
       name: '@deepseek-ai/dsh-session-coordinator'

@@ -119,6 +119,7 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     useContextMenuTarget: selector => selector(null),
     useShortcuts: select => select([]),
     useWorkspaceShortcuts: bindSnapshotSelector(controls.state),
+    useHiddenSessionIds: hook([]),
     requestSearch: controls.search,
     requestAddWorkspace: controls.add,
     closeAddWorkspace: controls.closeAdd,
@@ -1387,6 +1388,60 @@ describe('WorkspaceBrowser', () => {
     expect(screen.queryByText('新会话')).toBeNull()
     fireEvent.change(screen.getByPlaceholderText('搜索会话名称'), { target: { value: '新会话' } })
     expect(screen.queryByText('新会话')).toBeNull()
+  })
+
+  it.each(['workspace', 'flat'] as const)('hides only the contributed Session in %s view and restores it when the contribution ends', (mode) => {
+    const preferences = createWorkspaceViewStore().create()
+    preferences.actions.setGroupBy(mode)
+    preferences.actions.setGroupExpanded('alpha', true)
+    const hidden = createSnapshotStore<readonly SessionId[]>([sid('main')])
+    mount({
+      useHiddenSessionIds: bindSnapshotSelector(hidden),
+      useSessions: hook(sessionState([summary('main', 2), summary('ordinary', 1)], { main: sid('main') })),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['main', 'ordinary'])])),
+    })
+    expect(screen.queryByText('main')).toBeNull()
+    expect(screen.getByText('ordinary')).toBeTruthy()
+    act(() => { hidden.set([]) })
+    expect(screen.getByText('main')).toBeTruthy()
+    expect(screen.getByText('ordinary')).toBeTruthy()
+  })
+
+  it('hides only a Workspace containing the hidden Session alone', () => {
+    mount({
+      useHiddenSessionIds: hook([sid('main')]),
+      useSessions: hook(sessionState([summary('main', 2)])),
+      useWorkspaces: hook(workspaceState([
+        workspace('main-only', ['main']),
+        workspace('empty', []),
+        workspace('pending', ['main', 'still-loading']),
+      ])),
+    })
+    expect(screen.queryByText('main-only')).toBeNull()
+    expect(screen.getByText('empty')).toBeTruthy()
+    expect(screen.getByText('pending')).toBeTruthy()
+  })
+
+  it('omits the contributed Session from both local and Host content search', async () => {
+    vi.useFakeTimers()
+    try {
+      const searchSessions = vi.fn(async () => ({ items: [
+        { sessionId: sid('main'), snippet: 'hidden content' },
+        { sessionId: sid('ordinary'), snippet: 'visible content' },
+      ], hasMore: false }))
+      mount({
+        useHiddenSessionIds: hook([sid('main')]),
+        useSessions: hook(sessionState([summary('main', 2, { displayTitle: 'main report' }), summary('ordinary', 1, { displayTitle: 'ordinary report' })])),
+        useWorkspaces: hook(workspaceState([workspace('alpha', ['main', 'ordinary'])])),
+        searchSessions,
+      })
+      fireEvent.change(screen.getByPlaceholderText('搜索会话名称'), { target: { value: 'report' } })
+      await act(async () => { await vi.advanceTimersByTimeAsync(250) })
+      expect(screen.queryByText('main report')).toBeNull()
+      expect(screen.queryByText('hidden content')).toBeNull()
+      expect(screen.getByText('ordinary report')).toBeTruthy()
+      expect(screen.getByText('visible content')).toBeTruthy()
+    } finally { vi.useRealTimers() }
   })
 
   it.each(['workspace', 'flat', 'ungrouped'] as const)('keeps a new blank first across %s mode switches and enables drag after the first prompt', (mode) => {

@@ -20,6 +20,8 @@ describe('web e2e: Muse Main Session coordination', () => {
   let browser: Browser
   let page: Page
   let consoleTripwire: WebConsoleTripwire
+  let mainId: string
+  let workerId: string
 
   beforeAll(async () => {
     scaffold = await launchWebScaffold({ firstUse: true, extraOverlayPath: [
@@ -49,6 +51,8 @@ describe('web e2e: Muse Main Session coordination', () => {
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
+    expect(scaffold.ctx.agentPresets.defaultId).toBe('standard')
+    expect(await page.getByTitle('Choose the agent preset for your new task').count()).toBe(0)
     const entry = page.getByRole('button', { name: 'Muse Main Session', exact: true })
     const entryBox = await entry.boundingBox()
     const newBox = await page.getByRole('button', { name: 'New session', exact: true }).last().boundingBox()
@@ -59,6 +63,8 @@ describe('web e2e: Muse Main Session coordination', () => {
     }, { timeout: 15000 })
     const main = scaffold.ctx.agents.list().find(agent => scaffold.ctx.agentPresets.composedPreset(agent.ctx) === 'main-session')
     if (main === undefined) throw new Error('Web profile did not activate the selected Main preset')
+    mainId = main.id
+    expect(scaffold.ctx.agentPresets.composedPreset(main.ctx)).toBe('main-session')
     expect(main.session.header.cwd).toBe(initial?.workspace.path)
     await entry.click()
     expect(scaffold.ctx.agents.list().filter(agent => scaffold.ctx.agentPresets.composedPreset(agent.ctx) === 'main-session')).toHaveLength(1)
@@ -77,6 +83,11 @@ describe('web e2e: Muse Main Session coordination', () => {
     await main.whenIdle()
     const matches = JSON.parse(await scaffold.ctx.sessionCoordinator.search(main, 'Review episode')) as { sessions: { sessionId: string }[] }
     expect(matches.sessions.length).toBeGreaterThan(0)
+    workerId = matches.sessions[0]!.sessionId
+    await vi.waitFor(async () => {
+      expect(await page.locator(`[data-row-key="session:${mainId}"]`).count()).toBe(0)
+      expect(await page.locator(`[data-row-key="session:${workerId}"]`).count()).toBe(1)
+    })
   }, 120000)
 
   afterAll(async () => {
@@ -116,6 +127,20 @@ describe('web e2e: Muse Main Session coordination', () => {
     expect(await page.locator('[data-muse-coordination-cards]').count()).toBe(0)
     await page.getByRole('button', { name: 'Muse Main Session', exact: true }).click()
     await page.getByText('Worker completed', { exact: true }).waitFor()
+  })
+
+  it('restores Main Session through its entry while ordinary work remains listed', async () => {
+    await page.reload({ waitUntil: 'load' })
+    const entry = page.getByRole('button', { name: 'Muse Main Session', exact: true })
+    await entry.waitFor({ timeout: 30000 })
+    await entry.click()
+    await page.getByText('Worker completed', { exact: true }).waitFor({ timeout: 20000 })
+    await page.getByText('Review episode two; retain episode three.', { exact: true }).first().waitFor({ timeout: 20000 })
+    await vi.waitFor(async () => {
+      expect(await page.locator(`[data-row-key="session:${mainId}"]`).count()).toBe(0)
+      expect(await page.locator(`[data-row-key="session:${workerId}"]`).count()).toBe(1)
+    })
+    expect(scaffold.ctx.agents.list().filter(agent => scaffold.ctx.agentPresets.composedPreset(agent.ctx) === 'main-session')).toHaveLength(1)
   })
 
   it('removes and restores its UI without duplicate cards or another worker execution', async () => {

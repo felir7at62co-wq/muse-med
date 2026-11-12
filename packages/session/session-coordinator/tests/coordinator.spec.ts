@@ -47,8 +47,14 @@ async function waitStatus(test: Awaited<ReturnType<typeof fixture>>, status: Ass
 describe('routing-only Main Session', () => {
   it('opens the same dedicated Main Session in the existing default Workspace', async () => {
     const test = await fixture()
+    const controller = new AbortController()
+    const identities = test.service.watchMain(controller.signal)[Symbol.asyncIterator]()
+    expect((await identities.next()).value).toBeNull()
     const [first, repeated] = await Promise.all([test.service.openMain(), test.service.openMain()])
     expect(repeated).toBe(first)
+    expect((await identities.next()).value).toBe(first)
+    controller.abort()
+    await identities.return?.()
     const agent = test.ctx.agents.get(first)
     const initial = await test.ctx.workspaceController.initializeDefault(new AbortController().signal)
     expect(initial).toBeDefined()
@@ -57,6 +63,9 @@ describe('routing-only Main Session', () => {
     expect(agent?.session.header.agentPreset).toBe('main-session')
     expect(agent?.status).toBe('idle')
     expect(test.ctx.agents.list().filter(item => item.id === first)).toHaveLength(1)
+    expect(test.ctx.sessionController.canReuseBlank(first, undefined)).toBe(false)
+    expect(test.ctx.sessionController.canReuseBlank(first, 'short-drama')).toBe(false)
+    expect(test.ctx.sessionController.canReuseBlank(first, 'main-session')).toBe(true)
   })
 
   it('does not create a Main Session elsewhere after the default Workspace was removed', async () => {

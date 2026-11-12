@@ -175,6 +175,28 @@ export class SessionController extends TypertRemoteService {
   private readonly videoConfig: Config['video']
   private readonly listWorkSliceMs: number
   private readonly promotions = new Set<Promise<void>>()
+  private readonly reuseFilters = new Set<{ readonly accepts: (id: SessionId, preset: string | undefined) => boolean }>()
+
+  /**
+   * Restrict blank Session reuse while a feature owns the identity.
+   * @param filter - accepts one candidate and requested preset.
+   * @returns disposer for this independent contribution.
+   */
+  registerBlankReuseFilter(filter: (id: SessionId, preset: string | undefined) => boolean): () => void {
+    const entry = { accepts: filter }
+    this.reuseFilters.add(entry)
+    return () => { this.reuseFilters.delete(entry) }
+  }
+
+  /**
+   * Evaluate the registered blank reuse policy.
+   * @param id - candidate Session identity.
+   * @param preset - requested preset, if supplied.
+   * @returns whether every contribution accepts the candidate.
+   */
+  canReuseBlank(id: SessionId, preset: string | undefined): boolean {
+    return [...this.reuseFilters].every(filter => filter.accepts(id, preset))
+  }
 
   /**
    * @param ctx - Host context containing the Session capability assembly.
@@ -199,7 +221,8 @@ export class SessionController extends TypertRemoteService {
     ctx.typert.resources.register('session', { resolve: resolveSessionResource })
     this.agents = new ApiSessionAgentController(ctx)
     this.agents.initialize()
-    this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
+    this.commands = new SessionCommandController(ctx, this.agents, process.cwd(),
+      (id, preset) => this.canReuseBlank(id, preset))
     ctx.effect(() => ctx.fileUploads.registerAgentResolver(async (sessionId) => {
       const result = await this.agents.resolveAgent(sessionId)
       if ('error' in result) throw result.error

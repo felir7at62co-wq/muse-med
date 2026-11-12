@@ -14,6 +14,7 @@ import type {
 // Type-only: pulls the `agentPreset` Session projection value into this program.
 import type {} from '@deepseek-ai/dsh-agent-preset-registry/types'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
+import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type {
   IWorkspaces, WorkspaceId, WorkspaceSnapshot, WorkspaceView,
@@ -38,6 +39,14 @@ export interface StartSessionOptions extends DraftInitializationOptions {
 
 /** Workspace archive and directory operations consumed by Client UI domains. */
 export interface UiWorkspace {
+  /** Session identities hidden from the Workspace browser by feature contributions. */
+  readonly hiddenSessionIds: HostObservable<readonly SessionId[]>
+  /**
+   * Hide one Session from the Workspace browser without changing its stored membership.
+   * @param sessionId - the Session to hide.
+   * @returns an idempotent disposer for this contribution.
+   */
+  hideSession(sessionId: SessionId): () => void
   /**
    * Select a Session and show its Conversation as one UI navigation action.
    * @param target - known Session identity or durable direct-parent subagent address to display.
@@ -173,6 +182,8 @@ export class DirectoryBrowseError extends Error {
 
 /** Implements Workspace archive and directory UI operations. */
 class UiWorkspaceService extends Service implements UiWorkspace {
+  readonly hiddenSessionIds = createSnapshotStore<readonly SessionId[]>([])
+  private readonly hiddenSessionContributions = new Set<{ readonly id: SessionId }>()
   /** The latest in-flight connection per Workspace; a request joins it only when both name the same preset. */
   private readonly connecting = new Map<WorkspaceId, {
     readonly agentPreset: string | undefined
@@ -245,6 +256,16 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     const entry = { accepts: filter }
     this.blankSessionFilters.add(entry)
     return () => { this.blankSessionFilters.delete(entry) }
+  }
+
+  hideSession(sessionId: SessionId): () => void {
+    const contribution = { id: sessionId }
+    const publish = (): void => { this.hiddenSessionIds.set([...new Set([...this.hiddenSessionContributions].map(row => row.id))]) }
+    this.hiddenSessionContributions.add(contribution)
+    publish()
+    return () => {
+      if (this.hiddenSessionContributions.delete(contribution)) publish()
+    }
   }
 
   /** Name the first reusable member blank; a requested preset also skips blanks listing another preset. */

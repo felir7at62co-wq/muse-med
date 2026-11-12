@@ -88,11 +88,13 @@ export class SessionCommandController {
    * @param ctx - Host context carrying Agent, model, attachment, title, and Workspace services.
    * @param agents - sole owner of create, resume, and Agent composition.
    * @param defaultCwd - project directory used when create names neither a Workspace nor a cwd.
+   * @param canReuse - registered Session identity and requested preset policy.
    */
   constructor(
     private readonly ctx: Context,
     private readonly agents: ApiSessionAgentController,
     private readonly defaultCwd: string,
+    private readonly canReuse: (id: SessionId, preset: string | undefined) => boolean = () => true,
   ) {}
 
   /**
@@ -122,7 +124,8 @@ export class SessionCommandController {
         cwd,
         ...(request.agentPreset === undefined ? {} : { agentPreset: request.agentPreset }),
         reusable: sessionId => !this.ctx.workspaceRegistry.archivedSessionIds.includes(sessionId)
-          && (workspace === undefined || workspace.sessionIds.includes(sessionId)),
+          && (workspace === undefined || workspace.sessionIds.includes(sessionId))
+          && this.canReuse(sessionId, request.agentPreset),
       })
     } catch (error) {
       this.rejectCreation(error)

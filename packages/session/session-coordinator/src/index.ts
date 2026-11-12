@@ -79,6 +79,9 @@ export class SessionCoordinator extends TypertRemoteService {
       await this.tail
       await domain.close()
     })
+    this.ctx.effect(() => this.ctx.sessionController.registerBlankReuseFilter(
+      (id, preset) => id !== this.entry.get('main') || preset === this.config.mainPreset,
+    ), 'coordination: reserve Main Session identity')
     this.ctx.on('agent/status', ({ agent, status }) => {
       if (status === 'idle') this.background(() => this.settleRelated(agent))
     })
@@ -102,6 +105,27 @@ export class SessionCoordinator extends TypertRemoteService {
   }
 
   /**
+   * Observe the retained Main Session identity without creating a Session.
+   * @param signal - Client cancellation; plugin unload also closes the stream.
+   * @returns the initial identity and subsequent changes.
+   */
+  @Remote({ mode: 'stream' })
+  async *watchMain(signal: AbortSignal): AsyncIterable<SessionId | null> {
+    const combined = AbortSignal.any([signal, this.lifetime.signal])
+    while (!combined.aborted) {
+      const generation = this.generation
+      yield this.entry.get('main') ?? null
+      if (generation !== this.generation) continue
+      await new Promise<void>((resolve) => {
+        const wake = (): void => { this.observers.delete(wake); combined.removeEventListener('abort', wake); resolve() }
+        this.observers.add(wake)
+        combined.addEventListener('abort', wake, { once: true })
+        if (combined.aborted || generation !== this.generation) wake()
+      })
+    }
+  }
+
+  /**
    * Open the profile's durable Main Session from its dedicated navigation entry.
    * @returns the retained routing Session, initially created in the native default Workspace.
    */
@@ -114,7 +138,10 @@ export class SessionCoordinator extends TypertRemoteService {
       if (!exists) {
         const initial = await this.ctx.workspaceController.initializeDefault(this.lifetime.signal)
         if (initial === undefined) throw new Error('The default Workspace is unavailable; restore it before opening Main Session')
-        if (saved === undefined) await this.entry.put('main', id)
+        if (saved === undefined) {
+          await this.entry.put('main', id)
+          this.changed()
+        }
         const result = await this.ctx.sessionController.create({
           sessionId: id, workspaceId: initial.workspace.workspaceId, agentPreset: this.config.mainPreset,
         })

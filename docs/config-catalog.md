@@ -193,6 +193,8 @@ export interface Config {
   default: string
   /** User-selected default; edited through Settings. */
   selectedDefault: Volatile<string | undefined>
+  /** Whether a saved user default overrides the deployment default. Defaults to true. */
+  allowUserDefault?: boolean
   /** Presets available for new sessions; omitted means every registered preset. Historical resolution remains unrestricted. */
   selectablePresets?: readonly string[]
 }

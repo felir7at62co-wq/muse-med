@@ -3235,6 +3235,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Host service backing the generated `ctx.remote.session` namespace.',
     methods: [
       {
+        signature: 'registerBlankReuseFilter(filter: (id: SessionId, preset: string | undefined) => boolean): () => void',
+        description: 'Restrict blank Session reuse while a feature owns the identity.',
+        parameters: [{ name: 'filter', description: 'accepts one candidate and requested preset.' }],
+        returns: 'disposer for this independent contribution.',
+      },
+      {
+        signature: 'canReuseBlank(id: SessionId, preset: string | undefined): boolean',
+        description: 'Evaluate the registered blank reuse policy.',
+        parameters: [{ name: 'id', description: 'candidate Session identity.' }, { name: 'preset', description: 'requested preset, if supplied.' }],
+        returns: 'whether every contribution accepts the candidate.',
+      },
+      {
         signature: 'resolveAgent(sessionId: SessionId): Promise<ApiSessionAgentResult>',
         description: 'Resolve or resume one ordinary Session for another Host API domain.',
         parameters: [{ name: 'sessionId', description: 'Session identity whose Agent owns the operation.' }],
@@ -3405,6 +3417,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     summary: 'Task router whose durable writes precede Session creation and message delivery.',
     description: 'Task router whose durable writes precede Session creation and message delivery.',
     methods: [
+      {
+        signature: '@Remote({ mode: \'stream\' }) async *watchMain(signal: AbortSignal): AsyncIterable<SessionId | null>',
+        description: 'Observe the retained Main Session identity without creating a Session.',
+        parameters: [{ name: 'signal', description: 'Client cancellation; plugin unload also closes the stream.' }],
+        returns: 'the initial identity and subsequent changes.',
+      },
       {
         signature: '@Remote openMain(): Promise<SessionId>',
         description: 'Open the profile\'s durable Main Session from its dedicated navigation entry.',

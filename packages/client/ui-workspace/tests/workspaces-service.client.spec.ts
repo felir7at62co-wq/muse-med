@@ -703,6 +703,19 @@ describe('UiWorkspaceService', () => {
     expect(b.sessions.create).toHaveBeenCalledExactlyOnceWith({ workspaceId: wid('a'), sessionId: sid('bot') })
   })
 
+  it('keeps duplicate hidden Session contributions independent and leaves Workspace membership untouched', () => {
+    const b = bench({ workspaces: workspaceState([workspace('a', [sid('main'), sid('ordinary')])]) })
+    const first = b.uiWorkspace.hideSession(sid('main'))
+    const second = b.uiWorkspace.hideSession(sid('main'))
+    expect(b.uiWorkspace.hiddenSessionIds.getSnapshot()).toEqual([sid('main')])
+    first()
+    first()
+    expect(b.uiWorkspace.hiddenSessionIds.getSnapshot()).toEqual([sid('main')])
+    expect(b.workspaces.list.getSnapshot().items[0]?.sessionIds).toEqual([sid('main'), sid('ordinary')])
+    second()
+    expect(b.uiWorkspace.hiddenSessionIds.getSnapshot()).toEqual([])
+  })
+
   it('keeps repeated registrations independent and applies every blank filter', async () => {
     const b = bench({
       sessions: sessionState([summary('blank', { blank: true, cwd: '/w/a' })], 'pending'),

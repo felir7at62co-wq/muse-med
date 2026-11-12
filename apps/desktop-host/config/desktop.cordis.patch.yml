@@ -13,6 +13,7 @@
   config:
     default: short-drama
     selectablePresets: [short-drama, main-session]
+    allowUserDefault: false
 
 - id: sandbox-policy
   config:
@@ -59,9 +60,9 @@
 - id: ui-settings-agent-notes
   disabled: true
 
-# The preset chooser offers Main Session alongside the normal short-drama preset.
+# The dedicated Main Session entry and the short-drama default do not require a chooser.
 - id: ui-agent-preset
-  disabled: false
+  disabled: true
 
 - id: entry-customization
   disabled: true
