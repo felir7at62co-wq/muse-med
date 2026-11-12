@@ -87,6 +87,8 @@ The separate `./cloud-host` provider serves a private loopback store under a ded
 
 The archive reader returns a validated one-Skill manifest, complete resources and `skillInstructions` for the required instruction file. Binding capture and Skill loading consume those verified bytes after checking the complete release identity. This decoder result adds no fields to stored manifests or Session bindings; deterministic ZIP resource order and bytes stay the same.
 
+Cold views select recorded releases first, then an empty set for executed unbound Sessions, otherwise current defaults. The explicit branches `await` only default capture, preserving the synchronous bound and legacy paths and avoiding V8 coverage miscounts at their shared continuation.
+
 </details>
 
 <a id="further-exploration"></a>
