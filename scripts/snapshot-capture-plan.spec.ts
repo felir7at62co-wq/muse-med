@@ -83,6 +83,7 @@ it.each([
     g.expectedInputInventory = g.expectedInputInventory.filter(p => p !== path);
   }`],
   ...['packages/test-support/session-snapshot/src/identity.ts',
+    'packages/test-support/session-snapshot/src/normalize.ts',
     'packages/perception/tool-video-inspect/tests/snapshot-reports.ts'].map(path => [
     'an omitted normalization helper', `{
       const g = plan.groups[1], path = ${JSON.stringify(path)};

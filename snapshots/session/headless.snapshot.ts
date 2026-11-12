@@ -1907,6 +1907,35 @@ describe('headless recorded-session snapshots', () => {
     }
   })
 
+  it('compares the confinement writer and raw log with identical visible job identities after bulk removal', async () => {
+    const owner = scenarios.find(scenario => scenario.name === 'background-confinement-failure')
+    if (owner === undefined) throw new Error('Missing background confinement fixture')
+    const [fixture] = await fixtureSessions(owner)
+    if (fixture === undefined) throw new Error('Missing canonical confinement input')
+    const job = 'bash-aaaaaaaaaaaaaaaa'
+    const actual = fixture.replaceAll('{{id:1}}', job)
+      .replace('"text":"{{system}}"', '"text":"Anonymous user: 99999999-9999-4999-8999-999999999999"')
+    expect(actual).not.toContain('{{system}}')
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-confinement-writer-order-'))
+    try {
+      const file = sessionFixtureName(0, sessionHeaderVersion(fixture, owner.name))
+      const canonical = join(dir, file)
+      await writeFile(canonical, fixture)
+      const scenario = { ...owner, dir }
+      const context = contextOf([actual])
+      const header: JsonObject = JSON.parse(actual.split('\n')[0] ?? '')
+      const output = await writeSessionFixtures(scenario, [{ content: actual, header }], [fixture], context)
+      expect(await readFile(canonical, 'utf8')).toBe(fixture)
+      expect(await readFile(join(dir, writerSnapshotName(0)), 'utf8')).toBe(output[0])
+      expect(output[0]).toContain('background job {{id:1}}')
+      expect(output[0]).toContain('fixture asynchronous confinement refused')
+      expect(normalizeSessionSnapshots([actual], context, { nativeWriterOutput: true }))
+        .toEqual(normalizeSessionSnapshots(output, contextOf(output), { nativeWriterOutput: true }))
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it.each(['session.v3.jsonl', 'session.v4.jsonl'])('rejects changed %s replay input beside a writer oracle', async (file) => {
     const owner = scenarios.find(scenario => scenario.name === 'tool-call-turn')
     if (owner === undefined) throw new Error('Missing retained tool-call replay fixture')

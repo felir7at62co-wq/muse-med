@@ -492,6 +492,7 @@ export function normalizeSessionSnapshot(
 /**
  * Normalize one scenario's primary and child logs with shared typed identity redaction.
  * Native-writer comparison strictly restores each input before tokenizing its own delivery generation.
+ * Prompt and schema bulk is removed before identity allocation, matching fixture write-back.
  * @param rawLogs - primary-first persisted or projected session JSONL.
  * @param ctx - generated cwd spellings and other volatile run facts.
  * @param options - separator and native-writer comparison controls; identity relationships are preserved.
@@ -509,12 +510,12 @@ export function normalizeSessionSnapshots(
     return normalizeSessionFormatMetadata(currentLog, nativeWriterOutput
       ? sessionHeaderVersion(log, 'source Session snapshot') : undefined)
   })
-  return redactSessionSnapshotIds(comparableLogs).map(log => projectSessionSnapshot(
-    scrubSessionSnapshot(normalizeSessionLog(
+  return redactSessionSnapshotIds(comparableLogs.map(scrubSessionSnapshot)).map(log => projectSessionSnapshot(
+    normalizeSessionLog(
       log,
       { ...ctx, sessionIds: [] },
       { ...normalizeOptions, identityMode: 'preserve' },
-    )),
+    ),
   ))
 }
 

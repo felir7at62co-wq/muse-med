@@ -349,6 +349,7 @@ describe('CI workflow', () => {
       expect(group.extraInputs).toContain('snapshots/session/managed-subagent-assertions.ts')
       expect(group.extraInputs).toContain('snapshots/session/muse-session-product/budget.ts')
       expect(group.extraInputs).toContain('packages/test-support/session-snapshot/src/identity.ts')
+      expect(group.extraInputs).toContain('packages/test-support/session-snapshot/src/normalize.ts')
       expect(group.extraInputs).toContain('packages/perception/tool-video-inspect/tests/snapshot-reports.ts')
       for (const owner of group.owners) {
         if (!isRecord(owner) || typeof owner.name !== 'string' || typeof owner.dir !== 'string') {
