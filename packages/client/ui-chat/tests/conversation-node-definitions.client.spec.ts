@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type {
   ChatConversationViewNode, ChatSnapshot,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
@@ -7,7 +8,8 @@ import type {
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
   ConversationNodeAssembler,
-  type ConversationNodeDefinition,
+  ConversationEventRegistry,
+  type ConversationNodeDefinitionInput,
   type ConversationViewDefinition,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
@@ -35,7 +37,7 @@ import type {
   AssistantChatData, ChatNode, ManualCompactionChatData, RetryChatData, ToolChatData, TurnTailChatData,
 } from '../src/client/contract/chat-nodes.ts'
 
-const DEFINITIONS: readonly ConversationNodeDefinition[] = [
+const DEFINITIONS: readonly ConversationNodeDefinitionInput[] = [
   nextStepInboxDefinition,
   nextTurnInboxDefinition,
   messageDefinition,
@@ -54,14 +56,13 @@ const DEFINITIONS: readonly ConversationNodeDefinition[] = [
   turnTailDefinition,
 ]
 
-class TestEventDefinitions {
-  entries(): readonly ConversationNodeDefinition[] {
-    return DEFINITIONS
-  }
-
-  fallbackEntry(): ConversationNodeDefinition {
-    return unknownFallbackDefinition
-  }
+function eventDefinitions(): ConversationEventRegistry {
+  const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
+  const registry = new ConversationEventRegistry(ctx)
+  for (const definition of DEFINITIONS) registry.register(definition)
+  registry.registerFallback(unknownFallbackDefinition)
+  return registry
 }
 
 class TestViewDefinitions {
@@ -153,7 +154,7 @@ function packedInputs(entries: readonly SessionLiveEventEntry[]): SessionEventLi
 }
 
 function assembler(entries: readonly SessionEventLikeEntry[] = [], hasMore = false): ConversationNodeAssembler {
-  const value = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions())
+  const value = new ConversationNodeAssembler(eventDefinitions(), new TestViewDefinitions())
   value.replaceWindow(entries, hasMore)
   value.activateTarget('chat')
   return value
@@ -237,6 +238,33 @@ function toolResult(callId: string, text: string, isError = false) {
 }
 
 describe('built-in conversation node Definitions', () => {
+  it('keeps unrelated business matchers off live Assistant dispatch', () => {
+    const ctx = new Context()
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    const registry = new ConversationEventRegistry(ctx)
+    const handlers = [
+      nextStepInboxDefinition, nextTurnInboxDefinition, messageDefinition,
+      requestPromptDefinition(inspectRequestPrompt), commandDefinition,
+      compactionDefinition, retryDefinition, turnErrorDefinition, turnMaxTokensDefinition,
+    ].flatMap((definition) => {
+      const match = definition.match
+      if (typeof match === 'function') {
+        const handler = vi.fn(match)
+        registry.register({ ...definition, match: handler })
+        return [handler]
+      }
+      const entries = Object.entries(match).map(([type, handler]) => [type, vi.fn(handler)] as const)
+      registry.register({ ...definition, match: Object.fromEntries(entries) })
+      return entries.map(([, handler]) => handler)
+    })
+    const value = new ConversationNodeAssembler(registry, new TestViewDefinitions())
+    value.replaceWindow([], false)
+    for (let seq = 1; seq <= 64; seq++) {
+      appendAssistantChunk(value, seq, { type: 'text-delta', index: 0, text: 'streamed reply' })
+    }
+    for (const handler of handlers) expect(handler).not.toHaveBeenCalled()
+  })
+
   it.each(['replay', 'live', 'prepend'] as const)('keeps developer tool changes visible while hiding ordinary Context (%s)', (mode) => {
     const entries = [
       at(0, 'request/header', { reason: 'initial', header: {
