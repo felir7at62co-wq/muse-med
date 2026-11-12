@@ -19,7 +19,7 @@ const ranges = {
   emptySourceCooldownMs: [1000, 600000], resumeSearchDepth: [0, 8], resumeSearchEntries: [1, 100000],
 };
 const defaults = {
-  legacyBackend: 'v1', v2RuntimeDir: '', v2StateDir: '', v2Quality: '720p',
+  quality: '1080p', legacyBackend: 'v1', v2RuntimeDir: '', v2StateDir: '', v2Quality: '720p',
   v2PollIntervalMs: 1000, v2RequestTimeoutMs: 120000, v2StartupTimeoutMs: 30000,
   v2ShutdownTimeoutMs: 10000, v2MaxLineBytes: 1048576, v2MaxPendingRequests: 8, v2MaxEpisodesPerJob: 10000, v2EpisodesAtOnce: 1, v2ConnectionsPerFile: 1,
   sourceMode: 'legacy', legacyAppDir: '', signServer: '', signTokenEnv: 'MUSE_HONGGUO_SIGN_TOKEN',
@@ -28,7 +28,7 @@ const defaults = {
   signerPollIntervalMs: 25, signerPortAttempts: 4,
   bootstrapDevices: false, deviceBootstrapTimeoutMs: 30000,
   mediaRequestIntervalMs: 6000, mediaIdleTimeoutMs: 20000,
-  mediaBatchSize: 5, mediaConnections: 4, mediaConnectionLimit: 12, mediaSegmentMinBytes: 2097152,
+  mediaBatchSize: 5, mediaConnections: 1, mediaConnectionLimit: 12, mediaSegmentMinBytes: 2097152,
   emptySourceCooldownMs: 120000, resumeSearchDepth: 4, resumeSearchEntries: 10000,
   mediaUserAgent: 'Mozilla/5.0 (Linux; Android 12)',
   catalogPath: '', outputRoot: '', mediaHosts: ['*.qznovelvod.com', '*.douyinvod.com', '*.idouyinvod.com', '*.pkoplink.com', '*.bdcgslb.com', '*.vegslb.com', '*.jspcdn.cn', '*.qrstuvwxyzab.com', '*.ctydoh.cn'],
@@ -60,7 +60,8 @@ export function resolveConfig(value = {}) {
     config[key] = Array.isArray(entry) ? [...entry] : entry;
   }
   if (config.mediaConnectionLimit < config.concurrency) throw new TypeError('mediaConnectionLimit 不能小于 concurrency');
-  if (!['v1', 'v2'].includes(config.legacyBackend)) throw new TypeError('legacyBackend 必须是 v1 或 v2');
+  if (!['1080p', '720p', 'auto'].includes(config.quality)) throw new TypeError('quality 必须是 1080p、720p 或 auto');
+  if (config.legacyBackend !== 'v1') throw new TypeError('旧下载后端已移除，请使用 jackotom 引擎');
   if (!['1080p', '720p', '540p', '480p', '360p'].includes(config.v2Quality)) throw new TypeError('v2Quality 不是支持的视频清晰度');
   if (config.legacyBackend === 'v2' && (!config.v2RuntimeDir || !config.v2StateDir)) throw new TypeError('v2 后端必须配置 v2RuntimeDir 和 v2StateDir');
   if (!['legacy', 'manifest', 'public'].includes(config.sourceMode)) throw new TypeError('sourceMode 必须是 legacy、manifest 或 public');

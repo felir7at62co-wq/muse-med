@@ -24,7 +24,7 @@ try {
   await ctx.plugin(SubprocessLocal);
   client = new HongguoDownloadClient(config, { subprocess: ctx.subprocess });
   const info = await client.info({ seriesIds: ids });
-  const download = info.ok ? await client.download({ seriesIds: ids, ...(mode === 'public' ? { episodes: [1] } : {}) }) : info;
+  const download = info.ok ? await client.download({ seriesIds: ids, episodes: (process.env.MUSE_HONGGUO_LIVE_EPISODES || '1').split(',').map(Number) }) : info;
   const fullSeriesSourceAcceptance = mode === 'legacy' && download.ok && download.complete && download.fullDecodeChecked;
   const evidence = { checkedAt: new Date().toISOString(), sourceMode: mode, fullSeriesSourceAcceptance,
     multiSeriesSourceAcceptance: fullSeriesSourceAcceptance && download.items.length > 1,

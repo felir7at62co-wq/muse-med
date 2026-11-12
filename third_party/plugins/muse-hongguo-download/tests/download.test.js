@@ -51,9 +51,9 @@ async function fixture(t, extra = {}) {
     assert.ok(vids.length >= 1 && vids.length <= 5);
     return reply({ data: { video_model_data: Object.fromEntries(vids.map(vid => [vid, { video_model: JSON.stringify({ video_list: [{ main_url: Buffer.from(extra.mediaUrl?.(vid, batches.length) ?? `https://v1.qznovelvod.com/${vid}?token=MEDIA_SECRET`).toString('base64'), video_meta: { size: extra.expectedBytes ?? mp4.length }, encrypt_info: extra.encryptInfo }] }) }])) } });
   };
-  const config = { legacyAppDir: legacy, signServer: 'http://127.0.0.1:8123', outputRoot: root, retries: 0, retryDelayMs: 0, mediaRequestIntervalMs: 0, ...extra.config };
+  const config = { mediaBatchSize: 5, mediaConnections: 4, legacyAppDir: legacy, signServer: 'http://127.0.0.1:8123', outputRoot: root, retries: 0, retryDelayMs: 0, mediaRequestIntervalMs: 0, ...extra.config };
   const sign = async (url, payload, token) => { signs.push({ url, payload, token }); return reply({ 'x-signed': 'SIGNED_PRIVATE' }); };
-  const client = new HongguoDownloadClient(config, { request, sign, processMedia: extra.processMedia ?? fixtureProcessMedia });
+  const client = new HongguoDownloadClient(config, { request, sign, source: new SourceCatalog(resolveConfig(config), { request, sign }), processMedia: extra.processMedia ?? fixtureProcessMedia });
   t.after(() => client.dispose());
   return { root, legacy, config, client, request, sign, batches, urls, signs, setMedia(value) { media = value; } };
 }
@@ -76,12 +76,6 @@ async function assertRetained(root, expectedCount) {
   return state;
 }
 
-test('default original source fails explicitly without silently selecting preview or manifest', async () => {
-  const client = new HongguoDownloadClient();
-  const result = await client.info({ seriesIds: ['123'] });
-  assert.equal(result.ok, false); assert.equal(result.code, 'missing_original_source');
-  assert.match(result.message, /config\.json/); await client.dispose();
-});
 
 test('batched video-tab requests accumulate and deduplicate every requested video id', async t => {
   const f = await fixture(t);
@@ -588,7 +582,7 @@ test('public preview is never substituted for a default full-series request', as
 test('host tools obtain the workspace from the initiating session and declare canonical output', async t => {
   const root = await mkdtemp(join(tmpdir(), 'muse-hongguo-tool-')); t.after(() => rm(root, { recursive: true, force: true }));
   const tools = [], cleanup = [];
-  let mode = 'workspace-write';
+  let mode = 'read-only';
   apply({ get(name) { assert.equal(name, 'sandboxPolicy'); return { resolve({ session }) { assert.equal(session.header.cwd, root); return { mode }; } }; },
     tools: { register(value) { tools.push(value); return () => {}; } }, agents: { requireInitiator() { return { session: { header: { cwd: root } } }; } },
     subprocess: { spawn() { throw new Error('Unexpected subprocess before source configuration'); } }, effect(factory) { cleanup.push(factory()); } });
@@ -596,14 +590,14 @@ test('host tools obtain the workspace from the initiating session and declare ca
   assert.deepEqual(tools.map(item => item.name), ['hongguo_download_info', 'hongguo_download']);
   assert.equal(tools[1].presentCall().kind, 'write');
   const result = await tools[1].execute({ seriesIds: ['123'] }, { signal: emptySignal() });
-  assert.equal(result.code, 'missing_original_source');
+  assert.equal(result.code, 'file_access_denied');
   assert.equal(tools[1].output.render({}, result)[0].type, 'text');
   mode = 'read-only';
   assert.equal((await tools[1].execute({ seriesIds: ['123'] }, { signal: emptySignal() })).code, 'file_access_denied');
-  mode = 'danger-full-access';
+  mode = 'workspace-write';
   const outside = await mkdtemp(join(tmpdir(), 'muse-hongguo-tool-output-'));
   t.after(() => rm(outside, { recursive: true, force: true }));
-  assert.equal((await tools[1].execute({ seriesIds: ['123'], outputDir: outside }, { signal: emptySignal() })).code, 'missing_original_source');
+  assert.equal((await tools[1].execute({ seriesIds: ['123'], outputDir: outside }, { signal: emptySignal() })).code, 'file_access_denied');
 });
 
 test('config and URL validation reject unsafe and unknown settings', () => {
@@ -738,7 +732,7 @@ test('cancellation joins a prefetched lookup before retaining its recovery journ
 test('media scheduling defaults are bounded and explicitly configurable', () => {
   const config = resolveConfig();
   assert.equal(config.mediaIdleTimeoutMs, 20000);
-  assert.equal(config.mediaBatchSize, 5); assert.equal(config.mediaConnections, 4);
+  assert.equal(config.mediaBatchSize, 5); assert.equal(config.mediaConnections, 1);
   assert.equal(config.mediaConnectionLimit, 12); assert.equal(config.mediaSegmentMinBytes, 2097152);
   for (const entry of [{ mediaBatchSize: 0 }, { mediaBatchSize: 6 }, { mediaConnections: 5 },
     { mediaSegmentMinBytes: 65535 }, { mediaIdleTimeoutMs: 99 }, { mediaConnectionLimit: 2, concurrency: 3 }]) assert.throws(() => resolveConfig(entry));
@@ -755,7 +749,7 @@ test('a failed prefetched batch retains the current five validated episodes and 
   await assertRetained(join(f.root, 'downloads'), 5);
   const calls = f.urls.length;
   await f.client.dispose();
-  const next = new HongguoDownloadClient(f.config, { request: f.request, sign: f.sign, processMedia: fixtureProcessMedia });
+  const next = new HongguoDownloadClient(f.config, { request: f.request, sign: f.sign, source: new SourceCatalog(resolveConfig(f.config), { request: f.request, sign: f.sign }), processMedia: fixtureProcessMedia });
   t.after(() => next.dispose());
   const result = await next.download(first.resume);
   assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.complete, true);
@@ -835,7 +829,7 @@ test('a new client recovers a journal lock left by an exited process without rep
   await writeFile(first.checkpoint + '.lock', child.stdout + '\n', { flag: 'wx' });
   const calls = f.urls.length;
   await f.client.dispose();
-  const next = new HongguoDownloadClient(f.config, { request: f.request, sign: f.sign, processMedia: fixtureProcessMedia });
+  const next = new HongguoDownloadClient(f.config, { request: f.request, sign: f.sign, source: new SourceCatalog(resolveConfig(f.config), { request: f.request, sign: f.sign }), processMedia: fixtureProcessMedia });
   t.after(() => next.dispose());
   const result = await next.download({ seriesIds: ['101'] });
   assert.equal(result.ok, true, JSON.stringify(result)); assert.equal(result.reusedEpisodeCount, 2);

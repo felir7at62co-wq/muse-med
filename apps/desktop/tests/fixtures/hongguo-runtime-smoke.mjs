@@ -183,7 +183,8 @@ async function checkSignature(client, signal, started) {
 export async function checkHongguoRuntime(root, resourcesRuntime, environment = process.env, mount = mountPackagedRuntime) {
   const paths = { app: environment.MUSE_HONGGUO_LEGACY_APP_DIR, java: environment.MUSE_HONGGUO_JAVA_PATH,
     python: environment.MUSE_HONGGUO_PYTHON_PATH,
-    ffmpeg: join(resourcesRuntime, 'media', 'ffmpeg', 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg') }
+    ffmpeg: join(resourcesRuntime, 'media', 'ffmpeg', 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
+    ffprobe: join(resourcesRuntime, 'media', 'ffmpeg', 'bin', process.platform === 'win32' ? 'ffprobe.exe' : 'ffprobe') }
   assert.ok(environment.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'
     && [paths.app, paths.java, paths.python].every(value => typeof value === 'string' && isAbsolute(value)),
   'Hongguo native smoke requires prepared local runtime paths')
@@ -195,7 +196,17 @@ export async function checkHongguoRuntime(root, resourcesRuntime, environment = 
   try {
     runtime = await mount(root, paths)
     stage = 'bootstrap'
-    await runtime.client.source.load(lifetime.signal)
+    const engine = await runtime.client.source.load(lifetime.signal)
+    if (runtime.client.source.identity?.startsWith('jackotom:')) {
+      assert.ok(typeof engine.fetchEpisodeList === 'function' && typeof engine.fetchPlayUrlSingle === 'function', 'Hongguo open engine is missing');
+      stage = 'media-tools';
+      for (const executable of [paths.ffmpeg, paths.ffprobe]) {
+        assert.ok(executable, 'Hongguo media executable is missing');
+        const probe = await nativeProbe(runtime.subprocess, paths, [executable, '-version'], lifetime.signal);
+        assert.match(probe.stdout, /ff(?:mpeg|probe) version/u);
+      }
+      return { engine: 'jackotom', ffmpeg: true, ffprobe: true, cleanup: true };
+    }
     stage = 'signer-start'
     await checkSignature(runtime.client, lifetime.signal, () => { stage = 'signer-request' })
     stage = 'java-version'

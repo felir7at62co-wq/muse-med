@@ -1,4 +1,5 @@
 /** Produce a host-version-matched tarball; credentials and local source configuration are never packed. */
+import './verify-upstream.mjs';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -2,21 +2,18 @@
 # section, a hash of its English and Chinese blocks outside code blocks and generated regions.
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write third_party/plugins/muse-hongguo-download/README.md
-/muse-hongguo-download-tools:
-  en: 079478bf710c6511
-  zh: 3b3768d63606ac3b
-/muse-hongguo-download-tools/configuration:
-  en: c10167ddfeb01f18
-  zh: 54b08e849c10fbdd
-/muse-hongguo-download-tools/v2-local-runtime:
-  en: 4651f8bdc6e0dca4
-  zh: 46264af098e39928
-/muse-hongguo-download-tools/v2-local-runtime/health-check:
-  en: a628341b01be5089
-  zh: 8414d4a4c9524780
-/muse-hongguo-download-tools/validation:
-  en: bdaac1b3094e9433
-  zh: 9d0a840e827007cb
-/muse-hongguo-download-tools/catalog-and-source-failures:
-  en: b21f305198d93e22
-  zh: 4089fe6c8102dcfd
+/:
+  en: bc43ba1c6af1ead0
+  zh: 4d52fe37b483ad8e
+/muse-hongguo-download:
+  en: bc87fc3ce3ee1f6e
+  zh: cbaf106d2adb1e4e
+/muse-hongguo-download/use:
+  en: ba33d382dd5c031c
+  zh: 36174807f2a83932
+/muse-hongguo-download/model-experience:
+  en: c1eec5a51fa01dc1
+  zh: 2ca897512964621d
+/muse-hongguo-download/known-limitations-and-deferred-work:
+  en: 4da82d2c2d99a5b9
+  zh: dd1f9f006bb67b3f

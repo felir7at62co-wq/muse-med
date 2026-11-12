@@ -36,6 +36,7 @@ export interface HongguoSmokePaths {
 /** Existing client methods used by the local acceptance fixture. */
 export interface HongguoSmokeClient {
   source: {
+    identity?: string
     load(signal: AbortSignal): Promise<unknown>
     sign(url: string, payload: { url: string; headers: Record<string, string> }, token: string,
       signal: AbortSignal): Promise<AsyncIterable<Buffer> & { statusCode: number; destroy(): void }>
@@ -74,4 +75,4 @@ export function mountPackagedRuntime(root: string, paths: HongguoSmokePaths,
 export function checkHongguoRuntime(root: string, resourcesRuntime: string, environment?: NodeJS.ProcessEnv,
   mount?: (root: string, paths: HongguoSmokePaths) => Promise<HongguoSmokeRuntime>): Promise<{
     java: string; python: string; bootstrap: true; signer: true; offline: true; aes: true; cleanup: true
-  }>
+  } | { engine: 'jackotom'; ffmpeg: true; ffprobe: true; cleanup: true }>

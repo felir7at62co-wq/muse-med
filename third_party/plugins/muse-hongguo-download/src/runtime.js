@@ -127,8 +127,8 @@ export function createDeviceBootstrap(subprocess, config) {
 export function createMediaProcessor(subprocess, config) {
   return async (media, { inputPath, outputPath, workspace, signal }) => {
     const encrypted = media.encryption !== null && media.encryption !== undefined;
-    const names = ['ffprobeExecutable', 'ffmpegExecutable', ...(encrypted ? ['pythonExecutable'] : [])];
-    if (!subprocess || names.some(name => !config[name]) || (encrypted && !config.legacyAppDir)) throw failure('runtime');
+    const names = ['ffprobeExecutable', 'ffmpegExecutable', ...(encrypted && !media.encryption.contentKey ? ['pythonExecutable'] : [])];
+    if (!subprocess || names.some(name => !config[name]) || (encrypted && !media.encryption.contentKey && !config.legacyAppDir)) throw failure('runtime');
     const deadline = new AbortController();
     const timer = setTimeout(() => deadline.abort(), config.downloadTimeoutMs);
     const active = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
@@ -166,7 +166,11 @@ export function createMediaProcessor(subprocess, config) {
       if (lookup.some(item => item.status === 'rejected')) throw failure('runtime');
       const executables = Object.fromEntries(names.map((name, index) => [name, lookup[index].value]));
       const processedPath = encrypted ? outputPath : inputPath;
-      if (encrypted) {
+      if (encrypted && media.encryption.contentKey) {
+        await run([executables.ffmpegExecutable, '-v', 'error', '-xerror', '-nostdin', '-protocol_whitelist', 'file,pipe',
+          '-decryption_key', media.encryption.contentKey, '-i', inputPath, '-map', '0:v:0', '-map', '0:a?', '-c', 'copy',
+          '-movflags', '+faststart', '-f', 'mp4', outputPath], 'ignore', 'decrypt');
+      } else if (encrypted) {
         const text = await run([executables.pythonExecutable, '-I', '-B', bridge], { data: JSON.stringify({
           appDir: config.legacyAppDir, spade: media.encryption.spade, input: inputPath, output: outputPath, ffmpeg: executables.ffmpegExecutable,
         }) }, 'decrypt');
@@ -174,8 +178,13 @@ export function createMediaProcessor(subprocess, config) {
         try { result = JSON.parse(text); } catch (error) { throw failure('decrypt'); }
         if (!record(result) || result.ok !== true) throw failure('decrypt');
       }
-      const durationSeconds = probeDuration(await run([executables.ffprobeExecutable, '-v', 'error', '-show_entries',
-        'format=duration:stream=codec_type,codec_name,width,height', '-of', 'json', '-protocol_whitelist', 'file,pipe', '-i', processedPath], 'ignore', 'probe'));
+      const probeText = await run([executables.ffprobeExecutable, '-v', 'error', '-show_entries',
+        'format=duration:stream=codec_type,codec_name,width,height', '-of', 'json', '-protocol_whitelist', 'file,pipe', '-i', processedPath], 'ignore', 'probe');
+      const durationSeconds = probeDuration(probeText);
+      const video = JSON.parse(probeText).streams.find(stream => stream.codec_type === 'video');
+      if (media.expectedWidth && media.expectedHeight && (video.width !== media.expectedWidth || video.height !== media.expectedHeight)) throw failure('probe');
+      if (media.quality !== undefined && media.quality !== 'auto' && Math.min(video.width, video.height) < (media.quality === '1080p' ? 1080 : 720)) throw failure('probe');
+      if (media.expectedDuration && durationSeconds < media.expectedDuration - Math.max(1, media.expectedDuration * .01)) throw failure('probe');
       const decoded = await run([executables.ffmpegExecutable, '-v', 'error', '-xerror', '-err_detect', 'explode',
         '-protocol_whitelist', 'file,pipe', '-i', processedPath, '-map', '0:v?', '-map', '0:a?', '-f', 'null', '-'], 'ignore', 'decode');
       if (decoded.trim()) throw failure('decode');

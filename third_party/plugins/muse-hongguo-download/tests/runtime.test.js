@@ -301,3 +301,19 @@ test('device bootstrap disposal aborts startup and waits for complete child clea
   await disposing;
   await assert.rejects(work, error => error.code === 'cancelled');
 });
+
+test('open-engine encrypted media uses FFmpeg without Python and validates the requested resolution', async () => {
+  const local = paths(), key = 'a'.repeat(32);
+  const metadata = probe({ streams: [{ codec_type: 'video', codec_name: 'hevc', width: 1080, height: 1920 }] });
+  const f = fixture([{}, { stdout: metadata }, {}], { ...config(), pythonExecutable: '', legacyAppDir: '' });
+  const result = await f.process({ encryption: { contentKey: key }, quality: '1080p', expectedWidth: 1080, expectedHeight: 1920 }, local);
+  assert.equal(result.processedPath, local.outputPath);
+  assert.equal(f.calls[0].argv[0], f.settings.ffmpegExecutable);
+  assert.equal(f.resolutions.length, 2);
+  assert.equal(JSON.stringify(result).includes(key), false);
+  for (const media of [{ quality: '1080p' }, { expectedWidth: 1920, expectedHeight: 1080 }, { expectedDuration: 30 }]) {
+    const mismatch = fixture([{ stdout: probe() }]);
+    await assert.rejects(mismatch.process({ encryption: null, ...media }, paths()), { code: 'invalid_media' });
+    assert.equal(mismatch.calls.length, 1);
+  }
+});

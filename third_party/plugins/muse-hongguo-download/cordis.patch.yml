@@ -2,15 +2,6 @@
     - id: muse-hongguo-download
       name: muse-hongguo-download
       config:
-        sourceMode: legacy
-        legacyBackend: !!js "process.env.MUSE_HONGGUO_V2_RUNTIME_DIR ? 'v2' : 'v1'"
-        v2RuntimeDir: !!js process.env.MUSE_HONGGUO_V2_RUNTIME_DIR || ''
-        v2StateDir: !!js process.env.MUSE_HONGGUO_V2_STATE_DIR || ''
-        legacyAppDir: !!js process.env.MUSE_HONGGUO_LEGACY_APP_DIR || ''
-        signServer: !!js process.env.MUSE_HONGGUO_SIGN_SERVER || ''
-        signTokenEnv: MUSE_HONGGUO_SIGN_TOKEN
-        pythonExecutable: !!js process.env.MUSE_HONGGUO_PYTHON_PATH || ''
-        javaExecutable: !!js process.env.MUSE_HONGGUO_JAVA_PATH || ''
-        bootstrapDevices: !!js process.env.MUSE_HONGGUO_BOOTSTRAP_DEVICES === '1'
+        quality: 1080p
         ffprobeExecutable: !!js process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || ''
         ffmpegExecutable: !!js process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || ''

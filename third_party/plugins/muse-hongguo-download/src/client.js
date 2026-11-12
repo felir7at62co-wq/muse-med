@@ -8,19 +8,18 @@ import { resolveConfig } from './config.js';
 import { DownloadError, safeError } from './errors.js';
 import { checkedUrl, officialRequest } from './network.js';
 import { ORIGIN, parsePlayer, parsePublicPlayback, seriesId, episodeNumber } from './parser.js';
-import { responseBytes, SourceCatalog } from './source.js';
+import { responseBytes } from './source.js';
+import { JackotomSource } from './jackotom.js';
 import { ManifestCatalog } from './manifest.js';
 import { validateMp4 } from './media.js';
-import { createDeviceBootstrap, createMediaProcessor } from './runtime.js';
-import { LocalSigner } from './signer.js';
-import { V2DownloadClient } from './v2-download.js';
+import { createMediaProcessor } from './runtime.js';
 import { transferMedia } from './transfer.js';
 import { DownloadCheckpoint, discoverReceipts, reusableSeries, verifiedEpisode } from './checkpoint.js';
 
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const modes = ['legacy', 'manifest', 'public'];
 const within = (root, target) => { const path = relative(root, target); return path === '' || (!path.startsWith(`..${sep}`) && path !== '..' && !isAbsolute(path)); };
-const note = mode => mode === 'legacy' ? '使用所提供源码中的原红果接口；只有声明总集数与全部文件一致时才标记全剧。'
+const note = mode => mode === 'legacy' ? '使用 jackotom/hongguo-drama 开源引擎；只有声明总集数与全部文件一致时才标记全剧。'
   : mode === 'manifest' ? '修复源码的授权媒体目录；完整仅指目录声明的媒体列表，不代表红果平台全剧验收。'
     : '显式使用红果官网公开播放器；试看集不代表全剧。';
 
@@ -107,11 +106,8 @@ export class HongguoDownloadClient {
   constructor(config = {}, dependencies = {}) {
     this.config = resolveConfig(config);
     this.request = dependencies.request ?? officialRequest;
-    this.bootstrap = !dependencies.source && this.config.bootstrapDevices ? createDeviceBootstrap(dependencies.subprocess, this.config) : null;
-    this.signer = !dependencies.source && !this.config.signServer ? new LocalSigner(dependencies.subprocess, this.config) : null;
-    this.source = dependencies.source ?? new SourceCatalog(this.config, { request: this.request, sign: dependencies.sign, signer: this.signer, bootstrap: this.bootstrap });
+    this.source = dependencies.source ?? new JackotomSource(this.config, dependencies.engine);
     this.processMedia = dependencies.processMedia ?? (dependencies.subprocess ? createMediaProcessor(dependencies.subprocess, this.config) : null);
-    this.v2 = this.config.legacyBackend === 'v2' ? new V2DownloadClient(this.config, { subprocess: dependencies.subprocess, processMedia: this.processMedia }) : null;
     this.manifest = new ManifestCatalog(this.config);
     this.lifetime = new AbortController();
     this.pending = new Set();
@@ -121,9 +117,6 @@ export class HongguoDownloadClient {
   async dispose() {
     this.lifetime.abort();
     await Promise.allSettled([...this.pending]);
-    await this.v2?.dispose();
-    await this.signer?.dispose();
-    await this.bootstrap?.dispose();
   }
 
   run(signal, operation) {
@@ -162,7 +155,6 @@ export class HongguoDownloadClient {
   info(args, signal) {
     return this.run(signal, async active => {
       const options = argumentsFor(args, this.config, false), items = [];
-      if (options.mode === 'legacy' && this.v2) return this.v2.info(options, active);
       for (const id of options.seriesIds) {
         const catalog = await this.catalog(id, options.mode, active);
         items.push({ seriesId: id, title: catalog.title, source: catalog.source, episodeCount: catalog.episodeCount,
@@ -176,26 +168,8 @@ export class HongguoDownloadClient {
     });
   }
 
-  /** Inspect the selected v2 installation without refreshing authorization or obtaining media. */
-  health(args = {}, signal) {
-    return this.run(signal, async active => {
-      if (!record(args) || Object.keys(args).some(key => key !== 'seriesIds')) throw new DownloadError('invalid_arguments', '健康检查仅接受可选 seriesIds');
-      const ids = args.seriesIds;
-      if (ids !== undefined) {
-        if (!Array.isArray(ids) || !ids.length || ids.length > this.config.maxSeries || new Set(ids).size !== ids.length) throw new DownloadError('invalid_arguments', '健康检查 seriesIds 必须是不重复的非空剧目 ID 列表');
-        try { ids.forEach(seriesId); } catch (error) { throw new DownloadError('invalid_arguments', '健康检查剧目 ID 必须是十进制字符串'); }
-      }
-      if (!this.v2) return { ok: false, sourceBackend: 'v1', code: 'health_not_supported', message: '此健康检查用于已配置的红果 v2 后端；当前仍使用 v1' };
-      return this.v2.health({ seriesIds: ids ?? [] }, active);
-    }).then(value => {
-      const result = { ...value, authorization: 'not_checked', mediaAvailability: 'not_tested', verifiedDownload: false };
-      delete result.complete;
-      return result;
-    });
-  }
-
   async mediaOptions(catalog, batch, mode, signal) {
-    if (mode === 'legacy') return this.source.videoUrls(batch.map(episode => episode.vid), signal);
+    if (mode === 'legacy') return this.source.videoUrls(batch.map(episode => episode.vid), signal, catalog.seriesId);
     if (mode === 'manifest') return new Map(batch.map(episode => [episode.vid, { url: episode.url, expectedBytes: episode.expectedBytes, sha256: episode.sha256 }]));
     const result = new Map();
     for (const episode of batch) {
@@ -288,12 +262,8 @@ export class HongguoDownloadClient {
     return this.run(signal, async active => {
       const options = argumentsFor(args, this.config, true), plans = [];
       const output = await outputDirectory(workspace ?? this.config.outputRoot, options.outputDir, filePolicy);
-      if (options.mode === 'legacy' && this.v2) {
-        await output.create(); active.throwIfAborted();
-        return this.v2.download({ ...options, outputDir: output.path }, active, workspace ?? this.config.outputRoot, filePolicy);
-      }
       const manifestCatalogs = options.mode === 'manifest' ? await this.manifest.load() : null;
-      const sourceIdentity = manifestCatalogs ? createHash('sha256').update(JSON.stringify(manifestCatalogs)).digest('hex') : null;
+      const sourceIdentity = manifestCatalogs ? createHash('sha256').update(JSON.stringify(manifestCatalogs)).digest('hex') : this.source.identity ?? null;
       const checkpoint = new DownloadCheckpoint(output.path, { ...options, sourceIdentity }, this.config);
       const prior = await checkpoint.read();
       const discovery = await discoverReceipts(output.path, options.mode, this.config, active, sourceIdentity);
