@@ -10,7 +10,7 @@ import { LlmAdapter, ToolCallId, type GenerateOptions, type LlmResolvedModelInfo
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent-default-model'
 import { launchWebScaffold, webSnapshotMode, type WebScaffold } from './scaffold.ts'
-import { REPO_ROOT, ZH_BROWSER_LOCALE } from './support.ts'
+import { REPO_ROOT, ZH_BROWSER_LOCALE, writeComposerDraft } from './support.ts'
 
 const PROVIDER = 'muse-mobile-session-fixture'
 const MODEL = 'mobile-reply'
@@ -215,15 +215,20 @@ describe.skipIf(MODE === 'record')('Muse mobile native Session round trip', () =
         ])
         await page.goto(`${account.base}/desktop/${deviceId}/?mobile=1`)
       }
-      await page.locator('button[data-bot-id]').first().waitFor({ timeout: 30_000 })
-      const botId = await page.locator('button[data-bot-id]').first().getAttribute('data-bot-id')
+      const firstBot = page.locator('button[data-bot-id]').first()
+      // Mobile rows attach inside the closed drawer before they become visible.
+      await firstBot.waitFor({ state: 'attached', timeout: 30_000 })
+      const botId = await firstBot.getAttribute('data-bot-id')
       if (botId === null) throw new Error('Mobile Bot row has no native Session identifier')
       const row = page.locator(`button[data-bot-id="${botId}"]`).filter({ visible: true }).first()
       if (!await row.count()) await page.getByRole('button', { name: /展开侧边栏|打开侧边栏|Expand sidebar|Open sidebar/u }).first().click()
-      await page.locator(`button[data-bot-id="${botId}"]`).filter({ visible: true }).first().click()
+      await row.waitFor({ state: 'visible', timeout: 30_000 })
+      await row.click()
+      await page.getByRole('button', { name: /收起侧边栏|关闭侧边栏|Collapse sidebar|Close sidebar/u }).first().click()
+      await row.waitFor({ state: 'hidden', timeout: 30_000 })
       const composer = page.locator('[data-composer-input][contenteditable="true"]').first()
-      await composer.fill(`${marker}：生成一份本地 HTML 结果，向我确认后再交付。`)
-      await composer.press('Enter')
+      await writeComposerDraft(page, composer, `${marker}：生成一份本地 HTML 结果，向我确认后再交付。`)
+      await page.getByRole('button', { name: '发送消息', exact: true }).click()
       await page.getByText(`正在执行 ${marker}`, { exact: true }).waitFor({ timeout: 30_000 })
       await expect.poll(() => adapter.holds.has(marker)).toBe(true)
       const agent = scaffold!.ctx.agents.get(SessionId(botId))
