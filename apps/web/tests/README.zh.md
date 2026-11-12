@@ -14,6 +14,8 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 
 普通场景以没有已登记 Workspace 或 Session、但持久化标记记录默认 Workspace 已被删除的状态启动，使显式文件夹选择场景自行决定 cwd。`launchWebScaffold({ firstUse: true })` 保留初始化资格，供启动场景使用。
 
+普通 Web 在欢迎提示后直接进入凭据设置。相关场景在使用真实设置页、核对凭据持久化的同时，检查账号登录选项、账号菜单和赠金请求均不存在。桌面场景在启动前声明载体，并保留账号菜单几何、登录和赠金通知断言。
+
 工作区文件引用录制将已录制 Session 保留的两个技能描述写入自有临时技能目录，以提供历史技能目录，不依赖个人或内置技能根目录。其键盘操作先选中草稿，再将选区折叠到末尾，使 macOS 和 Windows 都在同一位置插入下一个引用。
 
 [工具详情](tool-details.e2e.ts)逐一核对未改动的已录制 Session 中的历史调用，并通过单独的真实 Host 回合验证当前 Schedule 卡片。已结束的列表行是 UI 前置条件，不表示定时任务已运行。

@@ -14,6 +14,8 @@ On Linux, `--with-deps` installs dependencies through the system package manager
 
 Ordinary scenarios begin with no registered Workspace or Session and a durable marker recording a removed default Workspace, so explicit folder-selection scenarios retain control of their cwd. `launchWebScaffold({ firstUse: true })` leaves initialization eligible for startup scenarios.
 
+Plain Web opens credential setup directly after the welcome notice. Its scenarios check that account sign-in choices, account menus and bonus requests remain absent while exercising real Settings and credential persistence. Desktop cases declare their carrier before boot and retain the account-menu geometry, sign-in and bonus-notice assertions.
+
 The workspace file-reference recording supplies its historical two-skill catalog through an owned temporary skill directory, using the descriptors retained in the recorded Session and independent of personal or bundled skill roots. Its keyboard gesture collapses a selected draft at the end before inserting the next reference on macOS and Windows.
 
 [Tool details](tool-details.e2e.ts) checks each historical call against the unchanged recorded Session and exercises current Schedule cards through a separate real Host turn. The ended list row is a UI precondition; it does not assert that a scheduled task ran.
