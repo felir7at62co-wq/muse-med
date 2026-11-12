@@ -108,7 +108,10 @@ exit 0
             if ((Test-Path (Join-Path $runner 'dsh-task/listened')) -ne ($case -in @('ready','stale','reused','runner-failure','recovery','task-route'))) { throw "Listener admission failed: $case" }
             if ($case -in @('recovery','task-route')) {
                 foreach ($expected in @('RUNNER-STDOUT','RUNNER-STDERR','RUNNER-SURVIVED-RECOVERY','Network process exited','Network process restarted (attempt 2)')) {
-                    if (-not $output.Contains($expected)) { throw "Missing recovery evidence: $expected`nTest runner output:`n$output" }
+                    if (-not $output.Contains($expected)) {
+                        Write-Output "Recovery output for ${case}:`n$output"
+                        throw "Missing recovery evidence for ${case}: $expected"
+                    }
                 }
             }
             if ($case -eq 'stale' -and -not $stale.HasExited) { throw 'Owned stale provider was not reaped' }
