@@ -404,6 +404,51 @@ describe('Session working directories', () => {
 })
 
 describe('Session directory guard', () => {
+  it.each(['release', 'abort'] as const)('keeps a replacement guard held when an old %s handle is released again', async (ending) => {
+    await using f = await fixture()
+    await mkdir(join(f.root, 'other'))
+    const owner = new AbortController()
+    const previous = await f.ctx.workingDirectory.guard(f.agent, f.root, owner.signal)
+    if (ending === 'release') previous.release()
+    else owner.abort(new Error('previous owner finished'))
+    expect(previous.signal.aborted).toBe(true)
+    const nextOwner = new AbortController()
+    const next = await f.ctx.workingDirectory.guard(f.agent, f.root, nextOwner.signal)
+    previous.release()
+    owner.abort()
+    previous.release()
+    expect(next.signal.aborted).toBe(false)
+    await expect(f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)).rejects.toThrow('already held')
+    await expect(f.ctx.workingDirectory.set(f.agent, 'other')).rejects.toThrow('guarded directory cannot change')
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.guard')).toHaveLength(1)
+    nextOwner.abort(new Error('replacement owner finished'))
+    expect(next.signal.aborted).toBe(true)
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.guard')).toEqual([])
+    next.release()
+    await expect(f.ctx.workingDirectory.set(f.agent, 'other')).resolves.toBe(join(f.root, 'other'))
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.operation')).toEqual([])
+  })
+
+  it.each(['before', 'after'] as const)('drains guard ownership when its native signal ends %s acquisition', async (ending) => {
+    await using f = await fixture()
+    const owner = new AbortController(), reason = new Error('guard owner finished')
+    if (ending === 'before') {
+      owner.abort(reason)
+      await expect(f.ctx.workingDirectory.guard(f.agent, f.root, owner.signal)).rejects.toBe(reason)
+    } else {
+      const guard = await f.ctx.workingDirectory.guard(f.agent, f.root, owner.signal)
+      owner.abort(reason)
+      expect(guard.signal.aborted).toBe(true)
+    }
+    await expect(f.ctx.workingDirectory.ensure(f.agent)).resolves.toBe(f.root)
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.guard')).toEqual([])
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.operation')).toEqual([])
+    const replacement = await f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)
+    replacement.release()
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.guard')).toEqual([])
+    expect(f.agent.session.snapshotEvents().filter(event => event.type === 'working-directory/change')).toEqual([])
+  })
+
   it('releases only the guard belonging to an Agent disposal notification', async () => {
     await using f = await fixture()
     const sibling = await f.harness.create(SessionId('guard-disposal-sibling'), {}, { cwd: f.root })
