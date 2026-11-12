@@ -199,14 +199,10 @@ it('keeps original episode tasks across reply loss, reload and offline receipt r
   if (original === undefined) throw new Error('Committed task was not discoverable after lost reply')
   const target = { projectDir: f.project, episode: 1, digest: original.digest }
   expect(counters.admission).toBe(1); await expect.poll(() => renderer.encodes).toBe(1)
-  await page.clock.install()
-  await page.clock.pauseAt(Date.now() + 1000)
   for (let i = 0; i < 2; i++) {
     const reads = counters.status
-    await page.clock.runFor(101)
     await expect.poll(() => counters.status).toBeGreaterThan(reads)
   }
-  await page.clock.resume()
   expect(counters.readiness).toBe(1)
   renderer.release()
   await region.getByRole('status').filter({ hasText: 'Episode MP4 published' }).waitFor()

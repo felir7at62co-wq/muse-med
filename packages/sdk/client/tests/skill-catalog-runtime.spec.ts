@@ -52,12 +52,14 @@ it.skipIf(!existsSync(CLI))('retains full bounded catalog pages, cursor results 
     await symlink(join(ROOT, 'packages/test-support/llm-replay'), join(scope, 'dsh-llm-replay'), process.platform === 'win32' ? 'junction' : 'dir')
     const harness = new DeepSeekHarness({
       dshBin: CLI, profile: 'sdk', dshHome: home, cwd, processCwd: cwd,
-      patches: [join(CASE, 'cordis.snapshot.yml')], provider: 'deepseek-official', model: 'deepseek-v4-flash',
+      patches: [join(CASE, 'cordis.snapshot.yml'), join(import.meta.dirname, 'fixtures/market-runtime.cordis.patch.yml')],
+      provider: 'deepseek-official', model: 'deepseek-v4-flash',
       env: { ...process.env, DEEPSEEK_API_KEY: '', DSH_TELEMETRY_DISABLED: '1', DSH_EXAMPLE_MODE: 'lib',
         DSH_SNAPSHOT: 'replay', DSH_SNAPSHOT_FILE: join(CASE, 'session.v4.jsonl') },
     })
     try {
       const result = await harness.run(await recordedInput(), { sessionId: SESSION })
+      expect(result.finishReason, JSON.stringify(result.events.filter(event => event.type === 'turn/end'))).toBe('completed')
       expect(result.sessionId).toBe(SESSION)
       const notifications = result.notifications.filter(notification => notification.method === 'session.event'
         && notification.params.sessionId === result.sessionId).map(notification => validatedSessionEvent(notification.params.event))
