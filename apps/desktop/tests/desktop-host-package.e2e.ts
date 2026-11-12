@@ -12,6 +12,12 @@ import { assertDesktopHostPackageFiles } from '../scripts/prepare-package-set.ts
 
 const root = fileURLToPath(new URL('../../../', import.meta.url))
 const host = join(root, 'apps/desktop-host')
+const runtimeEntries = ['index', 'cli', 'retired-bot', 'delegation-policy', 'native-preset', 'creation-policy',
+  'editing-policy', 'creation-skills', 'short-drama-guidance', 'feishu-migration', 'manuscript-revisions',
+  'manuscript-continuity-preset', 'manuscript-source-review', 'source-recovery', 'jianying-draft', 'computer-use',
+  'computer-input-worker', 'workspace-owned-storage', 'workspace-owner-lease', 'workspace-storage-composition',
+  'workspace-handoff', 'workspace-process-snapshot', 'generation-loop-composition', 'episode-source-authority',
+  'approved-episode-render', 'episode-render-worker']
 
 // The mandatory built-bin gate selects lib; the real-API lane runs from source.
 it.skipIf(process.env.DSH_EXAMPLE_MODE !== 'lib')('packs the independently loaded Workspace storage entry and refuses a tarball without it', async () => {
@@ -34,8 +40,6 @@ it.skipIf(process.env.DSH_EXAMPLE_MODE !== 'lib')('packs the independently loade
   const storage = 'package/lib/workspace-owned-storage.js'
   expect(files).toContain(storage)
   expect(() => { assertDesktopHostPackageFiles(files.filter(file => file !== storage)) }).toThrow(storage)
-  for (const helper of ['workspace-owner-lease', 'workspace-storage-composition', 'workspace-handoff',
-    'workspace-process-snapshot', 'generation-loop-composition', 'episode-source-authority']) {
-    expect(files).not.toContain(`package/lib/${helper}.js`)
-  }
+  expect(files.filter(file => /^package\/lib\/[^/]+\.js$/u.test(file)).sort())
+    .toEqual(runtimeEntries.map(entry => `package/lib/${entry}.js`).sort())
 })
