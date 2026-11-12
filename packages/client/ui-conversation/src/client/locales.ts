@@ -802,8 +802,23 @@ export const en = {
   'terminal.session': 'Terminal {sessionId}',
 } satisfies Record<ConversationKey, string>
 
+/** Fixed English copy for fields that do not yet have a translation. */
+const englishFallback = {
+  'attachment.workspaceUnavailable': en['attachment.workspaceUnavailable'],
+  'attachment.workspaceDropTitle': en['attachment.workspaceDropTitle'],
+  'context.workingAria': en['context.workingAria'],
+  'context.workingUsed': en['context.workingUsed'],
+  'context.modelWindow': en['context.modelWindow'],
+  'context.workingTarget': en['context.workingTarget'],
+  'context.compositionEstimate': en['context.compositionEstimate'],
+  'hero.poetry': en['hero.poetry'],
+}
+
+
+
 /** Japanese copy, checked against the English keys. */
 export const ja = {
+  ...englishFallback,
   ...en,
   'quote.remove': '引用を削除',
   'shortcut.newline': '改行',
@@ -1192,6 +1207,7 @@ export const ja = {
 
 /** Spanish dictionary, checked against the English keys. */
 export const es = {
+  ...englishFallback,
   ...en,
   'quote.remove': 'Eliminar cotización',
   'shortcut.newline': 'Nueva linea',
@@ -1582,6 +1598,7 @@ export const es = {
 
 /** French dictionary, checked against the English keys. */
 export const fr = {
+  ...englishFallback,
   ...en,
   'quote.remove': 'Supprimer le devis',
   'shortcut.newline': 'Nouvelle ligne',
@@ -1972,6 +1989,7 @@ export const fr = {
 
 /** German dictionary, checked against the English keys. */
 export const de = {
+  ...englishFallback,
   ...en,
   'quote.remove': 'Zitat entfernen',
   'shortcut.newline': 'Neue Zeile',
@@ -2362,6 +2380,7 @@ export const de = {
 
 /** Russian dictionary, checked against the English keys. */
 export const ru = {
+  ...englishFallback,
   ...en,
   'quote.remove': 'Удалить цитату',
   'shortcut.newline': 'Новая линия',
@@ -2752,6 +2771,7 @@ export const ru = {
 
 /** Portuguese dictionary, checked against the English keys. */
 export const pt = {
+  ...englishFallback,
   ...en,
   'quote.remove': 'Remover cotação',
   'shortcut.newline': 'Nova linha',
