@@ -21,7 +21,7 @@ beforeEach(() => {
   vi.spyOn(HTMLMediaElement.prototype, 'play').mockImplementation(playVideo)
 })
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers() })
-function props(): VideoPlayerProps {
+function props(): VideoPlayerProps & { source: VideoPlayerProps['source'] & { version: string } } {
   return { source: { id: brandString<SessionVideoSourceId>('first'), label: 'Actual source', origin: 'generated', path: '/work/a.mp4', eventSeq: 4,
     presentedIndex: null, callId: null, status: 'local', version: 'v1', playbackUrl: '/api/session-video?id=first', remoteUrl: null, issue: null },
   analysis: undefined, shots: [], offset: 0, duration: 0, pixelsPerSecond: 48, zoom: 1, onZoom: vi.fn(),
@@ -43,7 +43,7 @@ function thumbnailProps(count = 2): VideoPlayerProps & { analysis: SessionVideoA
 
 function thumbnailHarness(input: VideoPlayerProps = thumbnailProps()) {
   const created = vi.spyOn(document, 'createElement')
-  const drawImage = vi.fn<CanvasRenderingContext2D['drawImage']>()
+  const drawImage = vi.fn<(image: CanvasImageSource, dx: number, dy: number, ...coordinates: number[]) => void>()
   const context: Pick<CanvasRenderingContext2D, 'drawImage'> = { drawImage }
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(context as CanvasRenderingContext2D)
   const encode = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL')
