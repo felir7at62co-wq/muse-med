@@ -318,7 +318,33 @@ it('loads a warning-producing compiler with explicit board budgets and disposes 
     const animalReport = JSON.parse(animalContent.text) as DramaShotReport
     expect(animalReport.ok).toBe(true)
     const matched = JSON.parse(await readFile(join(root, 'matches', '02.matched.json'), 'utf8')) as MatchedPayload
-    expect(matched.video_tasks[0]?.prompt).toContain(animalScript)
+    expect(matched.video_tasks[0]?.prompt).not.toContain('身体状态')
+    expect(matched.video_tasks[0]?.prompt).not.toContain('家常装')
+    expect(matched.video_tasks[0]?.prompt).toMatchInlineSnapshot(`
+      "真人短剧写实风格
+      【镜头1】
+      景别：全景
+      运镜：相机固定，赵大刚快步穿过客厅走向楼梯
+      视角：相机视角平视
+      主体状态追踪：
+      【赵大刚】-位置：【场景图视角客厅中央靠近楼梯口处】；
+      动作状态：【快步穿过客厅】；
+      四层朝向链：【身体朝向楼梯方向，面部朝向那里，目光固定，眼神着急】；
+      手部状态：【双手提着裙摆】，【无】；
+      情绪状态：【眉头紧锁】；
+      发声类型：action
+      出镜人物：赵大刚
+      核心场景：后厨
+      关键道具：无
+      四层朝向链：【目光落在小鸡身上】；
+      动作复杂度：较复杂
+      素材映射：@[赵大刚](human) @[后厨](scene)
+      无噪点，无跳帧，五官稳定不变形
+      人物参考：赵大刚 → @[赵大刚](human)（保留本镜正式参考人物的脸型、年龄感和可见妆造差异；正文明确变化时使用对应正式版本，不把不同人物统一成年轻模板；动作和表情以本镜正文为准，不复制参考图的姿态；同一素材中的脸部、服装和多视角属于同一人，同一key在本镜仅一个人物实例，跨镜复用不新增人物）
+      人物参考：黄色雏鸡 → @[黄色雏鸡](asset_71002)
+      本镜人物范围：最多1人，仅限赵大刚；可按本镜景别局部入画或遮挡，不强求全员同框；画外发声、来源场次人物表和其他镜头的人物不增加本镜人数。
+      结尾保持自然反应、呼吸或动作收束，不新增台词"
+    `)
     expect(matched.video_tasks[0]?.prompt).toBe(animalReport.packages[0]?.prompt)
     expect({ ok: animalReport.ok, failures: animalReport.failures.map(issue => issue.code),
       bound: animalReport.shots[0]?.bindings.map(binding => binding.name),
