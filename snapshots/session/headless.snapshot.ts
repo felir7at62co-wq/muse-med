@@ -294,21 +294,25 @@ async function writeSessionFixtures(
   actualLogs: readonly SessionLog[],
   existing: readonly string[],
   ctx: NormalizeContext,
+  writeMode: SnapshotMode = mode,
 ): Promise<string[]> {
   const names = actualLogs.map((log, index) => scenario.manifest.sessionFormat === undefined && scenario.manifest.writerOutput !== true
     ? sessionFixtureName(index, sessionHeaderVersion(log.content, `harvested Session ${index}`))
     : writerSnapshotName(index))
   const prior = names.map((_, index) => existing[index] ?? '')
-  const replacements = mode === 'refresh'
+  const replacements = writeMode === 'refresh'
     ? refreshFixtureReplacements(actualLogs.map(harvested), prior)
     : []
   for (const replacement of [...replacements]) {
     if (replacement.from === ctx.cwd) replacements.push({ from: ctx.cwd.split(sep).join('/'), to: replacement.to })
   }
-  const fresh = actualLogs.map((log, index) => {
-    const stable = tokenizeRefreshedFixtureCwd(mode === 'refresh'
-      ? stabilizeRefreshLog(log.content, prior[index] as string, replacements, ctx)
-      : log.content, ctx.cwd)
+  // Strictly restore complete graphs before shared ids can be replaced by per-record stabilization.
+  const prepared = actualLogs.map(log => prepareSessionSnapshotFixtureForComparison(log.content))
+  const identified = redactSessionSnapshotIds(prepared)
+  const fresh = identified.map((content, index) => {
+    const stable = tokenizeRefreshedFixtureCwd(writeMode === 'refresh'
+      ? stabilizeRefreshLog(content, prior[index] as string, replacements, ctx)
+      : content, ctx.cwd)
     return scrubSessionSnapshot(prepareSessionSnapshotFixtureForComparison(stable))
   })
   const redacted = redactSessionSnapshotIds(stabilizeFixtureMessageIds(fresh, prior))
@@ -1884,6 +1888,29 @@ describe('headless recorded-session snapshots', () => {
     }
   })
 
+  it('keeps a refreshed job identity shared across persisted events and rendered results', async () => {
+    const owner = scenarios.find(scenario => scenario.name === 'background-confinement-failure')
+    if (owner === undefined) throw new Error('Missing background confinement fixture')
+    const [fixture] = await fixtureSessions(owner)
+    if (fixture === undefined) throw new Error('Missing canonical replay input')
+    const jobId = 'bash-0011223344556677'
+    const content = fixture.replaceAll('{{id:1}}', jobId)
+    const header = headerOf(content)
+    const dir = await mkdtemp(join(tmpdir(), 'dsh-writer-job-identity-'))
+    try {
+      const canonical = join(dir, sessionFixtureName(0, sessionHeaderVersion(fixture, owner.name)))
+      await writeFile(canonical, fixture)
+      const output = await writeSessionFixtures({ ...owner, dir },
+        [{ content, header }], [fixture], contextOf([content]), 'refresh')
+      expect(output[0]).toContain('started background job {{id:1}}')
+      expect(normalizeSessionSnapshots(output, contextOf(output), { nativeWriterOutput: true }))
+        .toEqual(normalizeSessionSnapshots([content], contextOf([content]), { nativeWriterOutput: true }))
+      expect(await readFile(canonical, 'utf8')).toBe(fixture)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('keeps retained V3 and latest V4 replay inputs independent of writer output', async () => {
     const owner = scenarios.find(scenario => scenario.name === 'tool-call-turn')
     if (owner === undefined) throw new Error('Missing retained tool-call replay fixture')
@@ -1907,15 +1934,22 @@ describe('headless recorded-session snapshots', () => {
     }
   })
 
-  it('compares the confinement writer and raw log with identical visible job identities after bulk removal', async () => {
+  it('compares the confinement writer and raw log with complete identities across repeated refreshes', async () => {
     const owner = scenarios.find(scenario => scenario.name === 'background-confinement-failure')
     if (owner === undefined) throw new Error('Missing background confinement fixture')
     const [fixture] = await fixtureSessions(owner)
     if (fixture === undefined) throw new Error('Missing canonical confinement input')
     const job = 'bash-aaaaaaaaaaaaaaaa'
+    const schemas = parseToolSchemasSnapshot(await readFile(join(owner.dir, 'tool-schemas.expected.json'), 'utf8'))
+    const firstTool = schemas.initial[0]
+    if (firstTool === null || typeof firstTool !== 'object' || Array.isArray(firstTool)
+      || !('description' in firstTool) || typeof firstTool.description !== 'string') throw new Error('Missing confinement tool definition')
+    const tools = [{ ...firstTool, description: `${firstTool.description}\nAnonymous user: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa` }, ...schemas.initial.slice(1)]
     const actual = fixture.replaceAll('{{id:1}}', job)
       .replace('"text":"{{system}}"', '"text":"Anonymous user: 99999999-9999-4999-8999-999999999999"')
+      .replace('"tools":"{{tools}}"', `"tools":${JSON.stringify(tools)}`)
     expect(actual).not.toContain('{{system}}')
+    expect(actual).toContain('Anonymous user: aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
     const dir = await mkdtemp(join(tmpdir(), 'dsh-confinement-writer-order-'))
     try {
       const file = sessionFixtureName(0, sessionHeaderVersion(fixture, owner.name))
@@ -1924,13 +1958,19 @@ describe('headless recorded-session snapshots', () => {
       const scenario = { ...owner, dir }
       const context = contextOf([actual])
       const header: JsonObject = JSON.parse(actual.split('\n')[0] ?? '')
-      const output = await writeSessionFixtures(scenario, [{ content: actual, header }], [fixture], context)
+      const logs = [{ content: actual, header }]
+      const output = await writeSessionFixtures(scenario, logs, [fixture], context, 'refresh')
       expect(await readFile(canonical, 'utf8')).toBe(fixture)
       expect(await readFile(join(dir, writerSnapshotName(0)), 'utf8')).toBe(output[0])
-      expect(output[0]).toContain('background job {{id:1}}')
+      expect(output[0]).toContain('background job {{id:3}}')
       expect(output[0]).toContain('fixture asynchronous confinement refused')
       expect(normalizeSessionSnapshots([actual], context, { nativeWriterOutput: true }))
         .toEqual(normalizeSessionSnapshots(output, contextOf(output), { nativeWriterOutput: true }))
+      const refreshed = await writeSessionFixtures(scenario, logs, output, context, 'refresh')
+      expect(refreshed).toEqual(output)
+      expect(normalizeSessionSnapshots(refreshed, contextOf(refreshed), { nativeWriterOutput: true }))
+        .toEqual(normalizeSessionSnapshots([actual], context, { nativeWriterOutput: true }))
+      expect(await readFile(canonical, 'utf8')).toBe(fixture)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

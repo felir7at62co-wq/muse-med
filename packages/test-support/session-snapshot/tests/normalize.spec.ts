@@ -651,7 +651,7 @@ describe('normalizeSessionLog', () => {
 })
 
 describe('normalizeSessionSnapshot', () => {
-  it.each([false, true])('allocates visible job identities after prompt and schema bulk is removed (retained id: %s)', (retained) => {
+  it.each([false, true])('preserves the complete identity graph before prompt and schema bulk is removed (retained id: %s)', (retained) => {
     const job = 'bash-aaaaaaaaaaaaaaaa', unrelated = 'bash-bbbbbbbbbbbbbbbb'
     const visibleId = '88888888-8888-4888-8888-888888888888'
     const raw = [
@@ -662,13 +662,16 @@ describe('normalizeSessionSnapshot', () => {
       JSON.stringify({ type: 'user/message', data: { text: `background job ${job} failed: confinement refused; keep ${unrelated}` } }),
       JSON.stringify({ type: 'tool/call', data: { name: 'job_output', arguments: JSON.stringify({ job_id: job, wait: true }) } }),
     ].join('\n') + '\n'
-    const writer = redactSessionSnapshotIds([scrubSessionSnapshot(raw)])
+    const identified = redactSessionSnapshotIds([raw])
+    const writer = identified.map(scrubSessionSnapshot)
     const [actual] = normalizeSessionSnapshots([raw], ctx)
     expect([actual]).toEqual(normalizeSessionSnapshots(writer, ctx))
-    expect(actual).toContain(`background job {{id:${retained ? 2 : 1}}} failed: confinement refused`)
+    expect(identified[0]).toContain('Anonymous user: {{id:1}}')
+    expect(identified[0]).toContain('"requestId":"{{id:2}}"')
+    expect(actual).toContain(`background job {{id:${retained ? 4 : 3}}} failed: confinement refused`)
     expect(actual).toContain(unrelated)
     expect(actual).toContain('"tools":"{{tools}}"')
-    if (retained) expect(actual).toContain('"requestId":"{{id:1}}","echoed":"{{id:1}}"')
+    if (retained) expect(actual).toContain('"requestId":"{{id:3}}","echoed":"{{id:3}}"')
     expect(normalizeSessionSnapshots([raw.replace('confinement refused', 'command executed')], ctx)).not.toEqual([actual])
     expect(normalizeSessionSnapshots([raw.replace(`"job_id\\\":\\\"${job}`, `"job_id\\\":\\\"${unrelated}`)], ctx)).not.toEqual([actual])
   })
