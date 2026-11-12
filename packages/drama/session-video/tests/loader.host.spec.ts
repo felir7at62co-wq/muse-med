@@ -1,5 +1,6 @@
 /** Real Loader, local filesystem, attachment storage and FFmpeg over synthetic media only. */
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync, copyFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
@@ -21,11 +22,16 @@ import { sourceStateSchema } from '../src/sources.ts'
 
 const roots: string[] = []
 const contexts: Context[] = []
+const readReleases: (() => void)[] = []
 afterEach(async () => {
-  vi.restoreAllMocks()
-  vi.unstubAllGlobals()
-  await Promise.all(contexts.splice(0).map(ctx => ctx.fiber.dispose()))
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
+  const errors: unknown[] = []
+  for (const release of readReleases.splice(0)) { try { release() } catch (error) { errors.push(error) } }
+  try { vi.restoreAllMocks() } catch (error) { errors.push(error) }
+  try { vi.unstubAllGlobals() } catch (error) { errors.push(error) }
+  const disposed = await Promise.allSettled(contexts.splice(0).map(async (ctx) => { await ctx.fiber.dispose() }))
+  for (const result of disposed) if (result.status === 'rejected') errors.push(result.reason)
+  for (const root of roots.splice(0)) { try { rmSync(root, { recursive: true, force: true }) } catch (error) { errors.push(error) } }
+  if (errors.length) throw new AggregateError(errors, 'Session video fixture cleanup failed')
 })
 
 async function fixture(overrides: Partial<Config> = {}) {
@@ -68,6 +74,27 @@ async function localPlayback(overrides: Partial<Config> = {}) {
   const route = f.routes.get('/api/session-video')
   if (!route || !source?.playbackUrl) throw Error('Expected a recorded local playback route')
   return { ...f, source, route, url: new URL(source.playbackUrl, 'http://localhost/') }
+}
+
+/** Hold the return of a real read so cancellation and disposal have an observable boundary. */
+function holdPlaybackRead(ctx: Context) {
+  const entered = Promise.withResolvers<AbortSignal>(), gate = Promise.withResolvers<undefined>()
+  const settled = Promise.withResolvers<undefined>()
+  const release = () => { gate.resolve(undefined) }
+  readReleases.push(release)
+  const read = ctx.fs.readByteRange.bind(ctx.fs)
+  void entered.promise.catch(() => {})
+  vi.spyOn(ctx.fs, 'readByteRange').mockImplementationOnce(async (...args) => {
+    try {
+      const bytes = await read(...args), signal = args[2]
+      if (!signal) throw Error('Playback read has no owning cancellation signal')
+      entered.resolve(signal)
+      await gate.promise
+      return bytes
+    } catch (error) { entered.reject(error); throw error }
+    finally { settled.resolve(undefined) }
+  })
+  return { entered: entered.promise, release, settled: settled.promise }
 }
 
 it('detects three shot intervals through the real Loader and preserves original bytes', async () => {
@@ -394,4 +421,68 @@ it('evicts an old analysis at the configured cache bound and reanalyzes its unch
   expect(await f.ctx.sessionVideo.detect(f.session.id, a.id, a.version, f.signal)).toEqual(initial)
   expect(spawn).toHaveBeenCalledTimes(6)
   expect(readFileSync(f.file)).toEqual(before); expect(readFileSync(second)).toEqual(before)
+})
+
+it('keeps a cancelled playback slot owned until its real pending read returns', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1, playbackChunkBytes: 64 }), before = readFileSync(f.file)
+  const held = holdPlaybackRead(f.ctx), response = await f.route.fetch(new Request(f.url))
+  if (!response.body) throw Error('Expected a playback body')
+  const signal = await held.entered, reader = response.body.getReader()
+  let cancelled = false
+  const cancellation = reader.cancel().then(() => { cancelled = true })
+  try {
+    expect(signal.aborted).toBe(true)
+    expect((await f.route.fetch(new Request(f.url))).status).toBe(429)
+    expect(cancelled).toBe(false)
+    held.release()
+    await cancellation
+    const next = await f.route.fetch(new Request(f.url))
+    expect(next.status).toBe(200)
+    expect(Buffer.from(await next.arrayBuffer())).toEqual(before)
+    expect(createHash('sha256').update(readFileSync(f.file)).digest('hex')).toBe(createHash('sha256').update(before).digest('hex'))
+  } finally { held.release(); await cancellation }
+})
+
+it('aborts playback and waits for its real pending read before completing plugin unload', async () => {
+  const f = await localPlayback(), before = readFileSync(f.file)
+  const held = holdPlaybackRead(f.ctx), response = await f.route.fetch(new Request(f.url))
+  if (!response.body) throw Error('Expected a playback body')
+  const outcome = response.body.getReader().read().then(value => ({ value }), (error: unknown) => ({ error }))
+  const signal = await held.entered, aborted = Promise.withResolvers<undefined>()
+  signal.addEventListener('abort', () => { aborted.resolve(undefined) }, { once: true })
+  const fiber = [...f.ctx.loader.entries()].find(entry => entry.options.id === 'video')?.fiber
+  if (!fiber) throw Error('Expected the real video plugin fiber')
+  let unloaded = false
+  const disposal = fiber.dispose().then(() => { unloaded = true })
+  try {
+    await aborted.promise
+    expect(unloaded).toBe(false)
+    held.release()
+    await disposal
+    const read = await outcome
+    if (!('error' in read)) throw Error('Playback returned data after plugin unload')
+    expect(String(read.error)).toContain('Session video plugin stopped')
+    expect(f.routes.size).toBe(0)
+    expect(createHash('sha256').update(readFileSync(f.file)).digest('hex')).toBe(createHash('sha256').update(before).digest('hex'))
+  } finally { held.release(); await disposal; await outcome }
+})
+
+it('propagates caller abort during playback and releases its slot after the owned read settles', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1 }), before = readFileSync(f.file)
+  const held = holdPlaybackRead(f.ctx), caller = new AbortController(), reason = new Error('Caller stopped playback')
+  const response = await f.route.fetch(new Request(f.url, { signal: caller.signal }))
+  const outcome = response.arrayBuffer().then(bytes => ({ bytes }), (error: unknown) => ({ error }))
+  try {
+    const signal = await held.entered
+    caller.abort(reason)
+    expect(signal.reason).toBe(reason)
+    const read = await outcome
+    if (!('error' in read)) throw Error('Playback completed after caller cancellation')
+    expect(read.error).toBe(reason)
+    expect((await f.route.fetch(new Request(f.url))).status).toBe(429)
+    held.release(); await held.settled
+    const next = await f.route.fetch(new Request(f.url))
+    expect(next.status).toBe(200)
+    expect(Buffer.from(await next.arrayBuffer())).toEqual(before)
+  } finally { caller.abort(reason); held.release(); await held.settled; await outcome }
 })
