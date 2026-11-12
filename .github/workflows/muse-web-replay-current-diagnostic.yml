@@ -39,7 +39,7 @@ jobs:
           import assert from 'node:assert/strict'
           import { readFileSync, writeFileSync } from 'node:fs'
           import { resolve } from 'node:path'
-          const webOwners=["apps/web/tests/sidebar-alignment.e2e.ts","apps/web/tests/lifecycle-chrome.e2e.ts","apps/web/tests/onboarding-deepseek-config.e2e.ts","apps/web/tests/account-login.e2e.ts","apps/web/tests/tool-details.e2e.ts","apps/web/tests/additional-locales.e2e.ts","apps/web/tests/jubian-episode-delivery.e2e.ts","apps/web/tests/muse-drama-modes.e2e.ts","apps/web/tests/pwa-manifest.e2e.ts","apps/web/tests/deepseek-messages-chat.e2e.ts","apps/web/tests/feedback-command.e2e.ts","apps/web/tests/plan-review.e2e.ts","apps/web/tests/ptc-escalation.e2e.ts","apps/web/tests/question-composer.e2e.ts","apps/web/tests/live-interactions.e2e.ts","apps/web/tests/replay-round-trip.e2e.ts","apps/web/tests/session-replay-reload.e2e.ts","apps/web/tests/session-inspector.e2e.ts","apps/web/tests/voice-input.e2e.ts","apps/web/tests/changed-files-turn.e2e.ts","apps/web/tests/creation-recommendations.e2e.ts","apps/web/tests/file-upload-round.e2e.ts","apps/web/tests/permission-policy-context.e2e.ts","apps/web/tests/plugin-recommendations.e2e.ts","apps/web/tests/present.e2e.ts","apps/web/tests/ptc-round.e2e.ts","apps/web/tests/web-search-round.e2e.ts","apps/web/tests/official-subagent-bundle.e2e.ts","apps/web/tests/standalone-string-editor.e2e.ts","apps/web/tests/muse-personal-models.e2e.ts","apps/web/tests/muse-mobile-session.e2e.ts"]
+          const webOwners=["apps/web/tests/sidebar-alignment.e2e.ts","apps/web/tests/lifecycle-chrome.e2e.ts","apps/web/tests/onboarding-deepseek-config.e2e.ts","apps/web/tests/account-login.e2e.ts","apps/web/tests/tool-details.e2e.ts","apps/web/tests/additional-locales.e2e.ts","apps/web/tests/jubian-episode-delivery.e2e.ts","apps/web/tests/muse-drama-modes.e2e.ts","apps/web/tests/pwa-manifest.e2e.ts","apps/web/tests/deepseek-messages-chat.e2e.ts","apps/web/tests/feedback-command.e2e.ts","apps/web/tests/plan-review.e2e.ts","apps/web/tests/ptc-escalation.e2e.ts","apps/web/tests/question-composer.e2e.ts","apps/web/tests/live-interactions.e2e.ts","apps/web/tests/replay-round-trip.e2e.ts","apps/web/tests/session-replay-reload.e2e.ts","apps/web/tests/session-inspector.e2e.ts","apps/web/tests/voice-input.e2e.ts","apps/web/tests/changed-files-turn.e2e.ts","apps/web/tests/creation-recommendations.e2e.ts","apps/web/tests/file-upload-round.e2e.ts","apps/web/tests/permission-policy-context.e2e.ts","apps/web/tests/plugin-recommendations.e2e.ts","apps/web/tests/present.e2e.ts","apps/web/tests/ptc-round.e2e.ts","apps/web/tests/web-search-round.e2e.ts","apps/web/tests/official-subagent-bundle.e2e.ts","apps/web/tests/standalone-string-editor.e2e.ts","apps/web/tests/muse-personal-models.e2e.ts","apps/web/tests/muse-mobile-session.e2e.ts","apps/web/tests/bot-sidebar-rail.e2e.ts","apps/web/tests/window-drag-coverage.e2e.ts","apps/web/tests/markdown-file-links.e2e.ts","apps/web/tests/default-workspace.e2e.ts"]
           const headlessTitles=["replays muse-jianying-draft through dsh --profile headless","replays muse-visualize through dsh --profile headless"]
           const suite='headless recorded-session snapshots'
           const [reportPath,group,receiptPath]=process.argv.slice(2)
@@ -65,6 +65,12 @@ jobs:
               const actual=result.testResults.map(file=>file.name.replaceAll('\\','/')).sort()
               assert.deepEqual(actual,expected,'every declared Web owner must execute exactly once')
               for(const file of result.testResults) assert.ok(file.assertionResults.some(test=>test.status==='passed'),'an entirely skipped Web owner is not a pass: '+file.name)
+              for(const [name,count] of [['bot-sidebar-rail',4],['window-drag-coverage',13],['markdown-file-links',4],['default-workspace',3]]) {
+                const file=result.testResults.find(file=>file.name.replaceAll('\\','/')===resolve('apps/web/tests/'+name+'.e2e.ts').replaceAll('\\','/'))
+                assert.ok(file,'missing existing layout owner: '+name)
+                assert.equal(file.assertionResults.length,count)
+                assert.ok(file.assertionResults.every(test=>test.status==='passed'),'all original layout cases must execute: '+name)
+              }
               receipt.owners=actual.length
               receipt.passed=passed.length
               receipt.existingSkippedOrPending=assertions.length-passed.length
@@ -159,7 +165,7 @@ jobs:
       - name: Capture Web source provenance
         id: web_source
         run: node .artifacts/linux-replay-current/capture-provenance.mjs web
-      - name: Replay all 31 declared current Web owners
+      - name: Replay all 35 declared current Web owners
         id: web
         run: |-
           set -euo pipefail
@@ -196,6 +202,10 @@ jobs:
             apps/web/tests/standalone-string-editor.e2e.ts \
             apps/web/tests/muse-personal-models.e2e.ts \
             apps/web/tests/muse-mobile-session.e2e.ts \
+            apps/web/tests/bot-sidebar-rail.e2e.ts \
+            apps/web/tests/window-drag-coverage.e2e.ts \
+            apps/web/tests/markdown-file-links.e2e.ts \
+            apps/web/tests/default-workspace.e2e.ts \
             --maxWorkers=1 --no-file-parallelism \
             --reporter=default --reporter=json \
             --outputFile.json=.artifacts/linux-replay-current/web/results.json 2>&1 | tee .artifacts/linux-replay-current/web/stdout.log
