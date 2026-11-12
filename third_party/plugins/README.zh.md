@@ -79,6 +79,8 @@ Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence
 
 保留的 [Deep View](deep-view/README.md) 插件为普通 Muse 会话提供 `show_view`，支持表格、图表、选择和表单等结构化视图。交互回答通过所属 Session 返回；简单问题仍可使用原生 `ask_user_question`。源码固定记录公开 fork 与上游修订，构建器使用当前运行时验证其 Host 和浏览器入口。Bot 团队保持归档。
 
+[私有 Host 覆盖](compatibility/deep-view-host.mjs)将 Deep View 适配到已审阅 Host 的 Agent Registry API。只有 Registry 中确切的活跃根 Agent 可以创建交互卡片；回答投递前还会确认解析出的 Agent 对应请求中的 Session。暂存清单保留原有 DSH engine 范围，并显式接受已审阅的 Host 版本；原生兼容检查无需豁免。构建使用真实 Agent Registry 和 AgentLoop、隔离数据且不请求外部模型来验证这些检查；保留的上游文件及源码哈希保持不变。
+
 独立的 [Skill 进化插件](muse-skill-evolution/README.zh.md)复盘新完成的工具任务，创建自有技能并保留提案及回退版本。原生持久化复盘会话使用任务所选模型。其 README 说明复盘限制、正常模型用量及文件权限。
 
 保留的 [Visualize](dsh-visualize/README.md) 插件展示交互式 HTML 卡片及独立页面。桌面外壳拒绝 Blob 弹窗，因此页面视图在对话内展开；Web 可另开标签页。`visualize`、`show_view` 和原生 `ask_user_question` 保持常驻，并从 Tool Search 中排除。内置编写技能在 Muse 创作目录中可用。卡片按钮可以填入所属会话的输入框，由用户发送草稿；已有草稿和附件会保留。卡片更新限制在所属 Session 内。若文件提交后保存中断，错误回执分别说明片段和图片清单的状态；再次修改前应读取回执路径，不盲目重复旧替换。
