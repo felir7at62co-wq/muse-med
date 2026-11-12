@@ -48,6 +48,16 @@ function current(overrides: Partial<Assignment> = {}): CoordinationTask {
 }
 
 describe('report receipt admission', () => {
+  it('replays a reconciliation receipt with its exact revision and no completion claim', () => {
+    const reconciling: CoordinationReport = { ...receipt, tasks: [{ ...task, status: 'reconciling' }] }
+    const block = settled({ museCoordinationReport: reconciling })
+    expect(reportCardModel(props(block))).toEqual(reconciling)
+    render(<ReportCard {...props(block)} />)
+    expect(screen.getByText('准备核对')).toBeTruthy()
+    expect(screen.getByText('第 3 次执行')).toBeTruthy()
+    expect(screen.queryByText('执行会话已完成')).toBeNull()
+  })
+
   it('replays complete tool metadata without a live coordinator', () => {
     const block = settled(JSON.parse(JSON.stringify({ museCoordinationReport: recorded })))
     expect(reportCardModel(props(block))).toEqual(recorded)

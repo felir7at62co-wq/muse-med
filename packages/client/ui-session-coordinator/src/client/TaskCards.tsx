@@ -41,7 +41,7 @@ function TaskCard({ task, openSession, stop, openFile, t }: Pick<TaskCardsProps,
     return () => { document.removeEventListener('pointerdown', closeOutside); document.removeEventListener('keydown', closeEscape) }
   }, [])
   if (attempt === undefined) return null
-  const canStop = ['dispatching', 'accepted', 'running', 'finishing', 'needs-report', 'interrupted'].includes(attempt.status)
+  const canStop = ['dispatching', 'reconciling', 'accepted', 'running', 'finishing', 'needs-report', 'interrupted'].includes(attempt.status)
   const stopTask = async (): Promise<void> => {
     if (pendingRef.current) return
     pendingRef.current = true
@@ -49,7 +49,7 @@ function TaskCard({ task, openSession, stop, openFile, t }: Pick<TaskCardsProps,
     try { await stop(task.owner, task.id, attempt.revision) }
     finally { pendingRef.current = false; setPending(false) }
   }
-  const working = ['dispatching', 'accepted', 'running', 'finishing', 'stopping'].includes(attempt.status)
+  const working = ['dispatching', 'reconciling', 'accepted', 'running', 'finishing', 'stopping'].includes(attempt.status)
   return <details ref={detailsRef} className={css.card} data-coordination-task={task.id} data-working={working || undefined}>
     <summary className={css.heading}>
       <span className={css.spider} aria-hidden="true" />

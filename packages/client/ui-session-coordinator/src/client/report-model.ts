@@ -5,7 +5,7 @@ import type { ToolCallPhaseProps, ToolCallViewProps } from '@deepseek-ai/dsh-cli
 import type { ResourceSnapshot } from '@deepseek-ai/dsh-client-resources/client'
 import type { AssignmentStatus, CoordinationReport, CoordinationTask, CoordinationTaskId, ReportTask, WorkerReport } from '@deepseek-ai/dsh-session-coordinator/types'
 
-const statuses: readonly AssignmentStatus[] = ['dispatching', 'accepted', 'running', 'finishing', 'needs-report', 'interrupted', 'stopping', 'stopped', 'completed', 'blocked', 'needs-input', 'failed']
+const statuses: readonly AssignmentStatus[] = ['dispatching', 'reconciling', 'accepted', 'running', 'finishing', 'needs-report', 'interrupted', 'stopping', 'stopped', 'completed', 'blocked', 'needs-input', 'failed']
 
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)

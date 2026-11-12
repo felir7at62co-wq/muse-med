@@ -8,7 +8,7 @@ import type { ContextFormed } from '@deepseek-ai/dsh-llm'
 export type CoordinationTaskId = Branded<'CoordinationTaskId'>
 
 /** One execution revision's delivery and settlement state. */
-export type AssignmentStatus = 'dispatching' | 'accepted' | 'running' | 'finishing'
+export type AssignmentStatus = 'dispatching' | 'reconciling' | 'accepted' | 'running' | 'finishing'
   | 'needs-report' | 'interrupted' | 'stopping' | 'stopped'
   | 'completed' | 'blocked' | 'needs-input' | 'failed'
 
@@ -30,6 +30,12 @@ export interface Assignment {
   readonly instructions: string
   readonly reason: string
   readonly sourceSeq: number
+  /** Existing worker input inspected by Main; reconciliation never replays its business command. */
+  readonly reconciliation?: {
+    readonly throughSeq: number
+    readonly humanSeq: number
+    readonly humanMessageId: MessageId
+  } | undefined
   readonly messageId: MessageId
   /** Stable relay metadata identity; never presented as human-authored requirements. */
   readonly briefId: MessageId
@@ -47,6 +53,10 @@ export interface Assignment {
   readonly noticeId: MessageId
   /** Native receipt for the most recent terminal notification; null until one is durably enqueued. */
   readonly notifiedStatus: AssignmentStatus | null
+  /** Most recent direct worker input requiring Main inspection; retained across receipt delivery. */
+  readonly changedInputSeq?: number | undefined
+  /** Input-change notification already durably delivered to Main. */
+  readonly notifiedInputSeq?: number | undefined
 }
 
 /** Persisted task with the complete assignment history retained for routing and retry checks. */
@@ -90,6 +100,16 @@ export interface DispatchRequest {
   /** Omitted starts an independent goal; present continues that goal with an expected revision. */
   readonly taskId?: CoordinationTaskId
   readonly expectedRevision?: number
+}
+
+/** Main-authorized report recovery against an inspected, quiescent original worker. */
+export interface ReconcileRequest {
+  readonly key: string
+  readonly taskId: CoordinationTaskId
+  readonly expectedRevision: number
+  readonly expectedWorkerSeq: number
+  readonly instructions: string
+  readonly reason: string
 }
 
 declare module '@deepseek-ai/dsh-llm' {

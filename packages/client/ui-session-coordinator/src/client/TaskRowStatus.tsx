@@ -17,7 +17,7 @@ type Props = Pick<PropsRuntime<'sidebar.session.row.persistent'>, 'sessionId'> &
 
 const priority: Record<AssignmentStatus, number> = {
   failed: 0, blocked: 0, 'needs-input': 0, interrupted: 0, 'needs-report': 0,
-  dispatching: 1, accepted: 1, running: 1, finishing: 1, stopping: 1,
+  dispatching: 1, reconciling: 1, accepted: 1, running: 1, finishing: 1, stopping: 1,
   stopped: 2, completed: 2,
 }
 
@@ -31,7 +31,7 @@ function BoundStatus({ mainId, sessionId, useResource, t }: Props & { readonly m
   const first = matches[0]
   if (first === undefined) return null
   const text = matches.map(({ task, attempt }) => `${task.title}: ${t(attempt.status)}`).join('; ')
-  const working = ['dispatching', 'accepted', 'running', 'finishing', 'stopping'].includes(first.attempt.status)
+  const working = ['dispatching', 'reconciling', 'accepted', 'running', 'finishing', 'stopping'].includes(first.attempt.status)
   return <span className={css.badge} data-task-status={first.attempt.status} data-working={working || undefined}>
     <span className={css.spider} aria-hidden="true" />
     <span className={css.labels} aria-hidden="true">

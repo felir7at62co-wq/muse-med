@@ -8,6 +8,7 @@ import type {} from '@deepseek-ai/dsh-session-coordinator'
 import type {} from '@deepseek-ai/dsh-agent-team'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../packages/core/agent-loop/tests/mock-adapter.ts'
 import { captureStableAria, compareOrRefreshGolden, launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold, type WebConsoleTripwire } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage } from './support.ts'
@@ -246,6 +247,82 @@ describe('web e2e: Muse Main Session coordination', () => {
     expect(await page.locator('[data-muse-main-entry]').count()).toBe(1)
     expect(scaffold.ctx.agents.list()).toHaveLength(count)
     expect(consoleTripwire.warnings).toEqual([])
+    expect(consoleTripwire.pageErrors).toEqual([])
+  })
+
+  it('keeps a real reconciliation receipt readable while delivery waits, then follows its verified result', async () => {
+    const main = scaffold.ctx.agents.list().find(agent => agent.id === mainId)
+    if (main === undefined) throw new Error('Main Session is not live')
+    let showReport = true
+    const reported = new Set<string>()
+    const adapter = new MockAdapter(Array.from({ length: 30 }, () => (options: GenerateOptions) => {
+      const human = options.messages.findLast(message => message.role === 'user' && message.source?.kind === 'user')
+      if (options.tools?.some(tool => tool.name === 'coordinator_dispatch')) {
+        if (showReport && JSON.stringify(human?.content).includes('Show reconciliation status')) {
+          showReport = false
+          return toolCallResponse('show-reconciliation', 'coordinator_show_report', {})
+        }
+        return textResponse('Task status received.')
+      }
+      const brief = options.messages.findLast(message => message.role === 'user' && message.source?.kind === 'muse-coordination')
+      if (brief?.source?.kind === 'muse-coordination' && brief.source.revision === 2 && !reported.has(brief.source.taskId)) {
+        reported.add(brief.source.taskId)
+        return toolCallResponse('report-reconciliation', 'coordinator_report', { task_id: brief.source.taskId,
+          revision: 2, outcome: 'completed', summary: 'Existing work verified without replaying the business command.' })
+      }
+      return textResponse('Existing work retained.')
+    }))
+    scaffold.ctx.llm.registerAdapter(['reconciliation-fixture'], adapter)
+    main.model.select({ provider: 'reconciliation-fixture', model: 'mock' })
+    const initial = await scaffold.ctx.sessionCoordinator.dispatch(main, { key: 'web-reconciliation', title: 'Verify existing work',
+      instructions: 'Inspect the existing work only.', reason: 'Reconciliation UI fixture' })
+    const workerId = initial.attempts.at(-1)!.sessionId
+    const worker = scaffold.ctx.agents.get(workerId)!
+    await worker.whenIdle()
+    await expect.poll(() => scaffold.ctx.sessionCoordinator.list(main.id).find(task => task.id === initial.id)?.attempts.at(-1)?.status)
+      .toBe('needs-report')
+    worker.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Retain episode three and verify existing work.' }] }))
+    await worker.whenIdle()
+    await expect.poll(() => scaffold.ctx.sessionCoordinator.list(main.id).find(task => task.id === initial.id)?.attempts.at(-1)?.status)
+      .toBe('needs-report')
+    await main.whenIdle()
+    const log = await scaffold.ctx.sessionQuery.readSession(workerId)
+    const ready = Promise.withResolvers<undefined>()
+    const release = Promise.withResolvers<undefined>()
+    const resolveAgent = scaffold.ctx.sessionController.resolveAgent.bind(scaffold.ctx.sessionController)
+    let resolutions = 0
+    const resolve = vi.spyOn(scaffold.ctx.sessionController, 'resolveAgent').mockImplementation(async (...args) => {
+      if (args[0] === workerId && ++resolutions === 2) { ready.resolve(undefined); await release.promise }
+      return resolveAgent(...args)
+    })
+    const operation = scaffold.ctx.sessionCoordinator.reconcile(main, { key: 'web-reconciliation-check', taskId: initial.id,
+      expectedRevision: 1, expectedWorkerSeq: log.events.at(-1)!.seq,
+      instructions: 'Verify the existing work and report its state.', reason: 'User clarified the retained scope' })
+    try {
+      await ready.promise
+      main.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: 'Show reconciliation status.' }] }))
+      await main.whenIdle()
+      const report = page.locator(`[data-report-task="${initial.id}"][data-report-revision="2"]`).last()
+      await report.getByText('Preparing reconciliation', { exact: true }).waitFor()
+      expect(await report.getByText('Worker completed', { exact: true }).count()).toBe(0)
+      await report.getByRole('button', { name: 'Open execution chat', exact: true }).click({ trial: true })
+      await mkdir(join(process.cwd(), '.artifacts', 'muse-main-reconciliation'), { recursive: true })
+      for (const theme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme: theme })
+        await report.scrollIntoViewIfNeeded()
+        await report.screenshot({ path: join(process.cwd(), '.artifacts', 'muse-main-reconciliation', `${theme}.png`) })
+      }
+    } finally {
+      release.resolve(undefined)
+      resolve.mockRestore()
+      await operation
+      await page.emulateMedia({ colorScheme: 'light' })
+    }
+    await worker.whenIdle()
+    await expect.poll(() => scaffold.ctx.sessionCoordinator.list(main.id).find(task => task.id === initial.id)?.attempts.at(-1)?.status)
+      .toBe('completed')
+    const report = page.locator(`[data-report-task="${initial.id}"][data-report-revision="2"]`).last()
+    await report.getByText('Existing work verified without replaying the business command.', { exact: true }).waitFor()
     expect(consoleTripwire.pageErrors).toEqual([])
   })
 })

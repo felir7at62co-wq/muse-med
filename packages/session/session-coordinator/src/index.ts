@@ -2,12 +2,14 @@
 import { randomUUID, createHash } from 'node:crypto'
 import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import { z as zod } from 'zod'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SubagentError } from '@deepseek-ai/dsh-subagent'
 import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type {} from '@deepseek-ai/dsh-api-workspace-controller'
 import type {} from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-workspace'
+import type {} from '@deepseek-ai/dsh-working-directory'
 import type {} from '@deepseek-ai/dsh-agent-preset-registry'
 import type {} from '@deepseek-ai/dsh-jobs'
 import type {} from '@deepseek-ai/dsh-tool-present/types'
@@ -15,12 +17,22 @@ import type {} from '@deepseek-ai/dsh-tool-jubian'
 import { createUserMessage, boundContextSummary } from '@deepseek-ai/dsh-llm'
 import type { MessageId, UserMessage } from '@deepseek-ai/dsh-llm'
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
+import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { coordinationDomain, latest, reservesWorker, revise } from './ledger.ts'
-import type { CoordinationTask, CoordinationTaskId, CoordinationReport, DispatchRequest, WorkerReport } from './types.ts'
+import type { CoordinationTask, CoordinationTaskId, CoordinationReport, DispatchRequest, ReconcileRequest, WorkerReport } from './types.ts'
 import { ToolArgsError, ToolContextUnavailableError } from '@deepseek-ai/dsh-tools'
+import type { ToolExecution, ToolGuardDenial } from '@deepseek-ai/dsh-tools'
+
+const reconciliationInputSchema = zod.object({
+  humanId: zod.string().nullable(),
+  humanSeq: zod.number().int().nonnegative().nullable(),
+  brief: zod.object({ id: zod.string(), taskId: zod.string(), revision: zod.number().int().positive() }).nullable(),
+})
+type ReconciliationInput = zod.infer<typeof reconciliationInputSchema>
+const reconciliationReads = new Set(['read', 'read_image', 'glob', 'grep', 'present', 'coordinator_report'])
 
 export type * from './types.ts'
 
@@ -46,7 +58,7 @@ export interface Config {
 /** Task router whose durable writes precede Session creation and message delivery. */
 export class SessionCoordinator extends TypertRemoteService {
   static inject = [
-    'agents', 'sessions', 'sessionQuery', 'sessionController', 'workspaceController', 'storageDomain', 'workspaceRegistry', 'jobs', 'typert',
+    'agents', 'sessions', 'sessionQuery', 'sessionController', 'workspaceController', 'storageDomain', 'workspaceRegistry', 'jobs', 'typert', 'tools', 'sessionProjections',
   ]
   static Config: z<Config> = z.object({
     mainPreset: z.string().default('main-session'), workerPreset: z.string().default('short-drama'),
@@ -61,6 +73,7 @@ export class SessionCoordinator extends TypertRemoteService {
   private readonly observers = new Set<() => void>()
   private generation = 0
   private readonly treeWaits = new Map<Agent, Promise<void>>()
+  private reconciliationInput!: ProjectionHandle<ReconciliationInput>
 
   /**
    * @param ctx - Profile-owner Host services.
@@ -82,6 +95,18 @@ export class SessionCoordinator extends TypertRemoteService {
       await this.tail
       await domain.close()
     })
+    this.reconciliationInput = await this.ctx.sessionProjections.register({
+      key: 'museCoordinationInput', stateVersion: 2, stateSchema: reconciliationInputSchema,
+      init: () => ({ humanId: null, humanSeq: null, brief: null }),
+      apply: (state, event) => {
+        if (event.type !== 'user/message') return state
+        if (event.data.source.kind === 'user') return { ...state, humanId: event.data.id, humanSeq: event.seq }
+        const source = event.data.source
+        return source.kind === 'muse-coordination' && source.purpose === 'assignment'
+          ? { ...state, brief: { id: event.data.id, taskId: source.taskId, revision: source.revision } } : state
+      },
+    })
+    this.ctx.effect(() => this.ctx.tools.guard(exec => this.reconciliationGuard(exec)))
     this.ctx.effect(() => this.ctx.sessionController.registerBlankReuseFilter(
       (id, preset) => id !== this.entry.get('main') || preset === this.config.mainPreset,
     ), 'coordination: reserve Main Session identity')
@@ -95,7 +120,30 @@ export class SessionCoordinator extends TypertRemoteService {
         this.background(async () => {
           const task = this.table.get(source.taskId)
           if (task === undefined || latest(task).revision !== source.revision || latest(task).sessionId !== session.id) return
-          if (['accepted', 'dispatching'].includes(latest(task).status)) await this.save(revise(task, { status: 'running' }))
+          if (['accepted', 'dispatching', 'reconciling'].includes(latest(task).status)) await this.save(revise(task, { status: 'running' }))
+        })
+      }
+      if (event.type === 'user/message' && event.data.source.kind === 'user') {
+        const input = event.data
+        const affected = [...this.table.entries()].flatMap(([id, task]) => {
+          const attempt = latest(task)
+          return attempt.sessionId === session.id && reservesWorker(attempt) && attempt.status !== 'stopping'
+            && attempt.messageId !== input.id && !attempt.forwardedIds.includes(input.id)
+            && event.seq > (attempt.reconciliation?.throughSeq ?? -1)
+            ? [{ id, revision: attempt.revision }] : []
+        })
+        this.background(async () => {
+          for (const captured of affected) {
+            const task = this.table.get(captured.id)
+            if (task === undefined) continue
+            const attempt = latest(task)
+            if (attempt.revision !== captured.revision || attempt.status === 'stopping' || attempt.status === 'stopped') continue
+            const log = await this.ctx.sessionQuery.readSession(session.id)
+            const anchor = log.events.find(item => item.type === 'user/message' && item.data.id === attempt.messageId)
+            if (anchor === undefined || event.seq <= anchor.seq) continue
+            await this.publish(revise(task, { status: 'interrupted', report: null, changedInputSeq: event.seq,
+              issue: 'Worker received a later direct human request. Inspect its history and reconcile this task before reporting; the new work was not stopped.' }))
+          }
         })
       }
     })
@@ -287,25 +335,89 @@ export class SessionCoordinator extends TypertRemoteService {
       }
       const video = (await this.ctx.sessionQuery.readSession(main.id)).events.findLast(event => event.type === 'jubian/video-selection')
       const messageId = createUserMessage({ content: [], source: { kind: 'user' } }).id
-      const forwardedIds = [...(previous?.attempts ?? []).map(() => createUserMessage({ content: [], source: { kind: 'user' } }).id), messageId]
-      const task: CoordinationTask = {
+      let task: CoordinationTask = {
         id: previous?.id ?? brandString<CoordinationTaskId>(`task-${randomUUID()}`), owner: main.id,
         title: previous?.title ?? request.title, createdAt: previous?.createdAt ?? Date.now(),
         attempts: [...previous?.attempts ?? [], {
           revision: (previous === undefined ? 0 : latest(previous).revision) + 1,
           key: request.key, requestHash, instructions: request.instructions, reason: request.reason, sourceSeq: source.seq,
-          messageId, forwardedIds, briefId: createUserMessage({ content: [], source: { kind: 'user' } }).id,
+          messageId, forwardedIds: [], briefId: createUserMessage({ content: [], source: { kind: 'user' } }).id,
           noticeId: createUserMessage({ content: [], source: { kind: 'user' } }).id,
           sessionId: target, createSession, cwd, sourceCwd: main.session.header.cwd ?? null, videoKey: video?.type === 'jubian/video-selection' ? video.data.selection.key : null,
           status: 'dispatching', report: null, issue: null, notifiedStatus: null,
         }],
       }
+      const originals = await this.humanInputs(task)
+      task = revise(task, { forwardedIds: originals.map((_input, index) => index === originals.length - 1
+        ? messageId : createUserMessage({ content: [], source: { kind: 'user' } }).id) })
       await this.save(task)
       try { return await this.deliver(task) }
       catch (error) {
         await this.save(revise(task, { status: 'interrupted', issue: String(error) }))
         throw error
       }
+    })
+  }
+
+  /**
+   * Ask an inspected original worker to verify existing results without replaying human business commands.
+   * @param main - Exact live owner Main Agent.
+   * @param request - Idempotent recovery request with task and complete worker-history revisions.
+   * @returns retained successor assignment; an uncertain delivery remains interrupted for inspection.
+   */
+  async reconcile(main: Agent, request: ReconcileRequest): Promise<CoordinationTask> {
+    await this.requireMain(main)
+    return this.serial(async () => {
+      if ([request.key, request.instructions, request.reason].some(value => value.trim() === '')
+        || !Number.isSafeInteger(request.expectedWorkerSeq) || request.expectedWorkerSeq < 0
+        || !Number.isSafeInteger(request.expectedRevision) || request.expectedRevision < 1) {
+        throw new ToolArgsError(['Reconciliation needs a nonempty key, instructions, reason, and valid expected revisions'])
+      }
+      const requestHash = createHash('sha256').update(JSON.stringify({ kind: 'reconcile', key: request.key,
+        taskId: request.taskId, expectedRevision: request.expectedRevision, expectedWorkerSeq: request.expectedWorkerSeq,
+        instructions: request.instructions, reason: request.reason })).digest('hex')
+      const existing = this.list(main.id).find(task => task.attempts.some(attempt => attempt.key === request.key))
+      if (existing !== undefined) {
+        if (existing.attempts.find(attempt => attempt.key === request.key)?.requestHash !== requestHash) {
+          throw new ToolArgsError(['Request key already names different work'])
+        }
+        return latest(existing).status === 'reconciling' ? this.deliverReconciliation(existing) : existing
+      }
+      const previous = this.owned(main.id, request.taskId)
+      const attempt = latest(previous)
+      if (attempt.revision !== request.expectedRevision) throw new ToolArgsError(['Task revision changed; read tasks again'])
+      if (!['needs-report', 'interrupted'].includes(attempt.status)) {
+        throw new ToolArgsError(['Only needs-report or interrupted assignments can be reconciled'])
+      }
+      await this.requireReusable(attempt.sessionId, main.id)
+      const resolved = await this.ctx.sessionController.resolveAgent(attempt.sessionId)
+      if ('error' in resolved) throw resolved.error
+      await this.ctx.sessions.flush(resolved.agent.session)
+      const log = await this.ctx.sessionQuery.readSession(attempt.sessionId)
+      if (log.events.at(-1)?.seq !== request.expectedWorkerSeq) throw new ToolArgsError(['Worker history changed; read its complete history again'])
+      const human = log.events.findLast(event => event.type === 'user/message' && event.data.source.kind === 'user')
+      if (human?.type !== 'user/message' || human.data.source.kind !== 'user' || 'principal' in human.data.source) {
+        throw new ToolContextUnavailableError('Reconciliation requires a retained local owner input in the original worker')
+      }
+      const source = (await this.ctx.sessionQuery.readSession(main.id)).events.findLast(event => event.type === 'user/message' && event.data.source.kind === 'user')
+      if (source === undefined) throw new ToolContextUnavailableError('A retained Main owner request is required')
+      let task: CoordinationTask = { ...previous, attempts: [...previous.attempts, {
+        revision: attempt.revision + 1, key: request.key, requestHash, instructions: request.instructions, reason: request.reason,
+        sourceSeq: source.seq, messageId: human.data.id, forwardedIds: [],
+        briefId: createUserMessage({ content: [], source: { kind: 'user' } }).id,
+        noticeId: createUserMessage({ content: [], source: { kind: 'user' } }).id,
+        sessionId: attempt.sessionId, createSession: false, cwd: attempt.cwd, sourceCwd: main.session.header.cwd ?? null,
+        videoKey: attempt.videoKey, status: 'reconciling', report: null, issue: null, notifiedStatus: null,
+        reconciliation: { throughSeq: request.expectedWorkerSeq, humanSeq: human.seq, humanMessageId: human.data.id },
+      }] }
+      await this.humanInputs(task)
+      await this.save(task)
+      try { task = await this.deliverReconciliation(task) }
+      catch (error) {
+        await this.save(revise(task, { status: 'interrupted', issue: String(error) }))
+        throw error
+      }
+      return task
     })
   }
 
@@ -431,15 +543,20 @@ export class SessionCoordinator extends TypertRemoteService {
    */
   report(worker: Agent, taskId: CoordinationTaskId, revision: number, outcome: WorkerReport['outcome'], summary: string): Promise<CoordinationTask> {
     return this.serial(async () => {
+      if (this.ctx.agents.get(worker.id) !== worker) throw new ToolContextUnavailableError('Report requires the current live worker instance')
       const task = this.table.get(taskId)
       if (task === undefined || latest(task).sessionId !== worker.id || latest(task).revision !== revision
-        || !reservesWorker(latest(task)) || latest(task).status === 'stopping') throw new Error('No current assignment belongs to this worker')
+        || !reservesWorker(latest(task)) || latest(task).status === 'stopping') throw new ToolArgsError(['No current assignment belongs to this worker'])
       const events = (await this.ctx.sessionQuery.readSession(worker.id)).events
       const input = events.find(event => event.type === 'user/message' && event.data.id === latest(task).messageId)
-      if (input === undefined) throw new Error('Assignment input has not been consumed')
+      if (input === undefined) throw new ToolArgsError(['Assignment input has not been consumed'])
+      const brief = events.find(event => event.type === 'user/message' && event.data.id === latest(task).briefId
+        && event.data.source.kind === 'muse-coordination' && event.data.source.purpose === 'assignment'
+        && event.data.source.taskId === task.id && event.data.source.revision === revision)
+      if (brief === undefined) throw new ToolArgsError(['The current revision coordination brief has not been consumed'])
       const latestHuman = events.findLast(event => event.type === 'user/message' && event.data.source.kind === 'user')
       if (latestHuman?.type !== 'user/message' || latestHuman.data.id !== latest(task).messageId) {
-        throw new Error('Worker input changed; inspect and revise this task from Main before reporting it')
+        throw new ToolArgsError(['Worker input changed; inspect and reconcile this task from Main before reporting it'])
       }
       const files = events.flatMap(event => event.seq > input.seq && event.type === 'deliverables/presented' ? event.data.files : [])
       await this.ctx.sessions.flush(worker.session)
@@ -532,12 +649,118 @@ export class SessionCoordinator extends TypertRemoteService {
     const selected = snapshot.events.findLast(event => event.type === 'agent-preset/selected')
     const preset = selected?.type === 'agent-preset/selected' ? selected.data.agentPreset : snapshot.session.agentPreset
     if (id === mainId || preset === this.config.mainPreset || snapshot.session.origin === 'subagent'
-      || this.ctx.workspaceRegistry.archivedSessionIds.includes(id)) throw new Error('Target is not an available ordinary execution Session')
+      || this.ctx.workspaceRegistry.archivedSessionIds.includes(id)) throw new ToolArgsError(['Target is not an available ordinary execution Session'])
     const worker = this.ctx.agents.get(id)
     if (this.busy(id) || worker !== undefined && (await this.descendantIds(worker)).some(child => this.liveJobs(child).length > 0)) {
-      throw new Error('Target is busy; create a fresh Session instead')
+      throw new ToolArgsError(['Target is busy; create a fresh Session instead'])
     }
     return snapshot.session
+  }
+
+  private async humanInputs(task: CoordinationTask): Promise<{
+    message: UserMessage
+    sessionId: SessionId
+    seq: number
+    cwd: string | null
+  }[]> {
+    const owner = await this.ctx.sessionQuery.readSession(task.owner)
+    const result: { message: UserMessage; sessionId: SessionId; seq: number; cwd: string | null }[] = []
+    for (const [index, attempt] of task.attempts.entries()) {
+      const source = owner.events.find(event => event.seq === attempt.sourceSeq)
+      if (source?.type !== 'user/message' || source.data.source.kind !== 'user' || 'principal' in source.data.source) {
+        throw new ToolContextUnavailableError('Original verified Main human request is unavailable')
+      }
+      result.push({ message: source.data, sessionId: task.owner, seq: source.seq,
+        cwd: this.inputDirectory(owner.session.cwd ?? attempt.sourceCwd, owner.events, source.seq) })
+      const reconciliation = attempt.reconciliation
+      if (reconciliation === undefined) continue
+      const previous = task.attempts[index - 1]
+      if (previous === undefined || previous.sessionId !== attempt.sessionId) throw new ToolContextUnavailableError('Reconciled worker history has no matching predecessor')
+      const worker = await this.ctx.sessionQuery.readSession(attempt.sessionId)
+      const start = worker.events.find(event => event.type === 'user/message' && event.data.id === previous.messageId)
+      const end = worker.events.find(event => event.type === 'user/message' && event.seq === reconciliation.humanSeq
+        && event.data.id === reconciliation.humanMessageId && event.data.source.kind === 'user')
+      if (start === undefined || end === undefined || end.seq > reconciliation.throughSeq) {
+        throw new ToolContextUnavailableError('Original reconciled worker human input is unavailable')
+      }
+      for (const event of worker.events) {
+        if (event.type === 'user/message' && event.data.source.kind === 'user'
+          && event.seq > start.seq && event.seq <= reconciliation.humanSeq) {
+          if ('principal' in event.data.source) throw new ToolContextUnavailableError('Cross-owner worker input cannot be reconciled into a local owner task')
+          result.push({ message: event.data, sessionId: attempt.sessionId, seq: event.seq,
+            cwd: this.inputDirectory(worker.session.cwd ?? attempt.cwd, worker.events, event.seq) })
+        }
+      }
+    }
+    return result
+  }
+
+  private inputDirectory(initial: string | null, events: readonly SessionEvent[], throughSeq: number): string | null {
+    let directory = initial
+    for (const event of events) {
+      if (event.seq > throughSeq) break
+      if (event.type === 'working-directory/change') directory = event.data.cwd
+    }
+    return directory
+  }
+
+  private reconciliationGuard(exec: Readonly<ToolExecution>): ToolGuardDenial | undefined {
+    const worker = exec.agent
+    if (worker === undefined || reconciliationReads.has(exec.name)) return undefined
+    const state = this.reconciliationInput.stateOf(worker.session)
+    for (const [, task] of this.table.entries()) {
+      const attempt = latest(task)
+      if (attempt.sessionId !== worker.id || attempt.reconciliation === undefined || !reservesWorker(attempt)
+        || state.humanId !== attempt.messageId || state.brief?.id !== attempt.briefId
+        || state.brief.taskId !== task.id || state.brief.revision !== attempt.revision) continue
+      const error = new ToolContextUnavailableError('Task reconciliation permits only local file reads, existing-file presentation, and coordinator_report. Report missing work to Main; do not repeat business actions.')
+      return { reason: error.message, info: { name: error.name, code: error.code } }
+    }
+    return undefined
+  }
+
+  private async deliverReconciliation(task: CoordinationTask): Promise<CoordinationTask> {
+    const attempt = latest(task)
+    const reconciliation = attempt.reconciliation
+    if (reconciliation === undefined) throw new ToolContextUnavailableError('Reconciliation input metadata is unavailable')
+    const resolved = await this.ctx.sessionController.resolveAgent(attempt.sessionId)
+    if ('error' in resolved) throw resolved.error
+    const worker = resolved.agent
+    const log = await this.ctx.sessionQuery.readSession(worker.id)
+    const pending = [...worker.inbox.nextTurn, ...worker.inbox.nextStep].some(message => message.id === attempt.briefId)
+    const consumed = log.events.some(event => event.type === 'user/message' && event.data.id === attempt.briefId)
+    const received = pending || consumed || log.events.some(event => event.type === 'agent/inbox/spliced'
+      && event.data.inserted.some(message => message.id === attempt.briefId))
+    if (received) {
+      if (this.reconciliationInput.stateOf(worker.session).humanId !== reconciliation.humanMessageId) {
+        if (pending) worker.inbox.remove(attempt.briefId)
+        await this.ctx.sessions.flush(worker.session)
+        const interrupted = revise(task, { status: 'interrupted', report: null,
+          issue: 'Worker human input changed after the retained reconciliation. Its old pending brief was removed without waking it; unrelated work was preserved.' })
+        await this.publish(interrupted)
+        return interrupted
+      }
+      if (pending) worker.wakePending?.(attempt.briefId)
+      return this.save(revise(task, { status: consumed ? 'running' : pending ? 'accepted' : 'interrupted',
+        issue: pending || consumed ? null : 'A durable reconciliation receipt exists but is not pending or consumed; nothing was resent.' }))
+    }
+    const descendants = await this.descendantIds(worker)
+    const current = await this.ctx.sessionQuery.readSession(worker.id)
+    if (current.events.at(-1)?.seq !== reconciliation.throughSeq || worker.session.seq - 1 !== reconciliation.throughSeq
+      || this.busy(worker.id) || this.treeBusy(worker)
+      || descendants.some(id => this.liveJobs(id).length > 0)) {
+      throw new ToolArgsError(['Worker changed or became busy after reconciliation intent was saved; inspect it before continuing'])
+    }
+    const anchor = current.events.findLast(event => event.type === 'user/message' && event.data.source.kind === 'user')
+    if (anchor?.type !== 'user/message' || anchor.data.id !== reconciliation.humanMessageId || anchor.seq !== reconciliation.humanSeq) {
+      throw new ToolArgsError(['Worker human input changed; read its history again'])
+    }
+    worker.followup({ ...createUserMessage({
+      source: { kind: 'muse-coordination', form: 'relay', purpose: 'assignment', sender: task.owner, taskId: task.id, revision: attempt.revision },
+      content: [{ type: 'text', text: `Main Session reconciliation ${task.id}, revision ${attempt.revision}.\nGoal: ${task.title}\nReason: ${attempt.reason}\nInspection instructions: ${attempt.instructions}\nVerified existing human input: message ${reconciliation.humanMessageId}, seq ${reconciliation.humanSeq}; inspected history through seq ${reconciliation.throughSeq}. The human message remains in this original Session and is not being resent.\nOnly inspect the existing work and report its actual state. Do not repeat downloads, generation, writing or any other business action. Do not broaden the human request. Missing work must be reported as blocked or needs-input for Main to plan explicitly. Use present only to declare already existing final files, then call coordinator_report with this exact task id and revision. Completion is not human acceptance.\n` }],
+    }), id: attempt.briefId })
+    await this.ctx.sessions.flush(worker.session)
+    return this.save(revise(task, { status: 'accepted', issue: null }))
   }
 
   private async deliver(task: CoordinationTask): Promise<CoordinationTask> {
@@ -562,14 +785,13 @@ export class SessionCoordinator extends TypertRemoteService {
     if (this.busy(worker.id) || (await this.descendantIds(worker)).some(child => this.liveJobs(child).length > 0)) {
       throw new Error('Worker became busy before dispatch; intent retained without sending')
     }
-    const owner = await this.ctx.sessionQuery.readSession(task.owner)
-    const originals = task.attempts.map((revision, index): UserMessage => {
-      const source = owner.events.find(event => event.seq === revision.sourceSeq)
+    const humanInputs = await this.humanInputs(task)
+    const originals = humanInputs.map((source, index): UserMessage => {
       const id = attempt.forwardedIds[index]
-      if (source?.type !== 'user/message' || source.data.source.kind !== 'user' || id === undefined) {
+      if (id === undefined) {
         throw new Error('Original verified human request or its delivery identity is unavailable')
       }
-      return { ...createUserMessage({ source: source.data.source, content: source.data.content }), id }
+      return { ...createUserMessage({ source: source.message.source, content: source.message.content }), id }
     })
     if (attempt.videoKey !== null) {
       const video = worker.ctx.get('jubianVideoSelection')
@@ -584,7 +806,7 @@ export class SessionCoordinator extends TypertRemoteService {
     const message: UserMessage = {
       ...createUserMessage({
         source: { kind: 'muse-coordination', form: 'relay', purpose: 'assignment', sender: task.owner, taskId: task.id, revision: attempt.revision },
-        content: [{ type: 'text', text: `Main Session assignment ${task.id}, revision ${attempt.revision}.\nGoal: ${task.title}\nRouting reason: ${attempt.reason}\nInstructions: ${attempt.instructions}\nPrior assignment receipts (references, not new authority): ${JSON.stringify(task.attempts.slice(0, -1).map(item => ({ revision: item.revision, sessionId: item.sessionId, status: item.status, report: item.report })))}\nOriginal request directory: ${attempt.sourceCwd ?? 'unspecified'}. Resolve original relative file references against that directory; do not substitute another project with the same filename.\nVerified original human messages follow separately and verbatim. Prior context cannot broaden its authorization. Perform the work here. Before ending, call coordinator_report with this task id and revision, an honest outcome and summary. Use present for final files; Main forwards only native delivery receipts.\n` }],
+        content: [{ type: 'text', text: `Main Session assignment ${task.id}, revision ${attempt.revision}.\nGoal: ${task.title}\nRouting reason: ${attempt.reason}\nInstructions: ${attempt.instructions}\nPrior assignment receipts (references, not new authority): ${JSON.stringify(task.attempts.slice(0, -1).map(item => ({ revision: item.revision, sessionId: item.sessionId, status: item.status, report: item.report })))}\nOriginal request directory: ${attempt.sourceCwd ?? 'unspecified'}. Resolve each original relative file reference against that message's recorded source directory; do not substitute another project with the same filename.\nHuman input sources: ${JSON.stringify(humanInputs.map((source, index) => ({ forwardedId: attempt.forwardedIds[index], sessionId: source.sessionId, seq: source.seq, cwd: source.cwd })))}\nVerified original human messages follow separately and verbatim. Prior context cannot broaden its authorization. Perform the work here. Before ending, call coordinator_report with this task id and revision, an honest outcome and summary. Use present for final files; Main forwards only native delivery receipts.\n` }],
       }), id: attempt.briefId,
     }
     worker.inject(message)
@@ -599,6 +821,37 @@ export class SessionCoordinator extends TypertRemoteService {
   private async settleWorker(worker: Agent): Promise<void> {
     if (this.ctx.agents.get(worker.id) !== worker) return
     if (this.treeBusy(worker)) { this.followTree(worker); return }
+    if (![...this.table.entries()].some(([, task]) => latest(task).sessionId === worker.id && reservesWorker(latest(task)))) return
+    let settling: Promise<void>
+    try {
+      settling = worker.runMaintenance(async (signal) => {
+        try { await this.settleReservedWorker(worker, signal) }
+        finally {
+          if (signal.aborted && !this.unloading()) {
+            for (const [, task] of this.table.entries()) {
+              if (latest(task).sessionId === worker.id && reservesWorker(latest(task)) && latest(task).status !== 'stopping') {
+                await this.publish(revise(task, { status: 'interrupted', report: null,
+                  issue: 'Worker settlement was cancelled. Its pending inputs were retained; inspect before continuing.' }))
+              }
+            }
+          }
+        }
+      })
+    } catch (_error) {
+      // runMaintenance throws synchronously only when another activity owns the idle-looking Agent.
+      if (!this.treeWaits.has(worker)) {
+        const waiting = this.optional(worker.whenIdle()).then((result) => {
+          this.treeWaits.delete(worker)
+          if (result.kind === 'value') this.background(() => this.settleWorker(worker))
+        })
+        this.treeWaits.set(worker, waiting)
+      }
+      return
+    }
+    await settling
+  }
+
+  private async settleReservedWorker(worker: Agent, signal: AbortSignal): Promise<void> {
     let descendants: SessionId[]
     try { descendants = await this.descendantIds(worker) }
     catch (error) {
@@ -622,6 +875,13 @@ export class SessionCoordinator extends TypertRemoteService {
       if (descendants.some(id => this.liveJobs(id).length > 0)) return
       const log = observed.value
       const input = log.events.find(event => event.type === 'user/message' && event.data.id === attempt.messageId)
+      const latestInput = this.reconciliationInput.stateOf(worker.session)
+      if (attempt.status !== 'stopping' && input !== undefined && latestInput.humanSeq !== null
+        && latestInput.humanId !== attempt.messageId) {
+        await this.publish(revise(task, { status: 'needs-report', report: null, changedInputSeq: latestInput.humanSeq,
+          issue: 'Worker direct human work is now quiescent. Inspect its latest history and reconcile the task before accepting a report.' }))
+        continue
+      }
       if (input !== undefined && log.events.some(event => event.seq > input.seq
         && event.type === 'job/settled' && !event.data.producerReported)) {
         await this.publish(revise(task, { status: 'interrupted', issue: 'A background producer did not confirm resource release; stopping is unconfirmed' }))
@@ -635,33 +895,59 @@ export class SessionCoordinator extends TypertRemoteService {
         continue
       }
       if (attempt.status === 'stopping') await this.publish(revise(task, { status: 'stopped' }))
-      else if (attempt.report !== null) await this.publish(revise(task, { status: attempt.report.outcome }))
+      else if (attempt.report !== null) await this.publish(revise(task, { status: attempt.report.outcome }), signal)
       else if (!worker.inbox.nextTurn.some(message => message.id === attempt.messageId)) {
         await this.publish(revise(task, { status: 'needs-report', issue: 'Worker is idle without a structured task report; completion is unconfirmed' }))
       }
     }
   }
 
-  private async publish(task: CoordinationTask): Promise<void> {
-    await this.save(task)
-    await this.notify(task)
+  private invalidatedReport(task: CoordinationTask, signal?: AbortSignal): CoordinationTask {
+    const attempt = latest(task)
+    if (attempt.report === null || attempt.status !== attempt.report.outcome) return task
+    if (signal?.aborted) return revise(task, { status: 'interrupted', report: null,
+      issue: 'Worker settlement was cancelled before report publication; inspect before continuing.' })
+    const worker = this.ctx.agents.get(attempt.sessionId)
+    if (worker === undefined) return revise(task, { status: 'interrupted', report: null,
+      issue: 'Worker became unavailable before its report was published; inspect before continuing.' })
+    const state = this.reconciliationInput.stateOf(worker.session)
+    if (state.humanId === attempt.messageId) return task
+    return revise(task, { status: this.busy(worker.id) ? 'interrupted' : 'needs-report', report: null,
+      ...(state.humanSeq === null ? {} : { changedInputSeq: state.humanSeq }),
+      issue: 'Worker input changed before report publication. Inspect its latest history and reconcile this task.' })
   }
 
-  private async notify(task: CoordinationTask): Promise<void> {
+  private async publish(task: CoordinationTask, signal?: AbortSignal): Promise<void> {
+    const checked = this.invalidatedReport(task, signal)
+    await this.save(checked)
+    const current = this.invalidatedReport(checked, signal)
+    if (current !== checked) await this.save(current)
+    await this.notify(current, true, signal)
+  }
+
+  private async notify(task: CoordinationTask, verifyInput = false, signal?: AbortSignal): Promise<void> {
     if (this.unloading()) return
     const attempt = latest(task)
-    if (attempt.notifiedStatus === attempt.status) return
+    if (attempt.notifiedStatus === attempt.status && attempt.notifiedInputSeq === attempt.changedInputSeq) return
     const resolution = await this.optional(this.ctx.sessionController.resolveAgent(task.owner))
     if (resolution.kind === 'aborted') return
     const resolved = resolution.value
     if ('error' in resolved) throw resolved.error
     if (this.unloading()) return
     const owner = resolved.agent
-    const noticeId = brandString<MessageId>(`${attempt.noticeId}-${attempt.status}`)
+    const noticeId = brandString<MessageId>(`${attempt.noticeId}-${attempt.status}${attempt.changedInputSeq === undefined ? '' : `-${attempt.changedInputSeq}`}`)
     const pending = [...owner.inbox.nextTurn, ...owner.inbox.nextStep].some(message => message.id === noticeId)
     const history = await this.optional(this.ctx.sessionQuery.readSession(owner.id))
     if (history.kind === 'aborted') return
     const logged = history.value.events.some(event => (event.type === 'user/message' && event.data.id === noticeId) || (event.type === 'agent/inbox/spliced' && event.data.inserted.some(message => message.id === noticeId)))
+    if (verifyInput) {
+      const current = this.invalidatedReport(task, signal)
+      if (current !== task) {
+        await this.save(current)
+        await this.notify(current)
+        return
+      }
+    }
     if (!pending && !logged) {
       owner.followup({ ...createUserMessage({
         source: { kind: 'muse-coordination', form: 'notice', summary: boundContextSummary(`${task.title}: ${attempt.status}`),
@@ -673,14 +959,19 @@ export class SessionCoordinator extends TypertRemoteService {
       if (checkpoint.kind === 'aborted' || !checkpoint.value) return
     }
     if (this.unloading()) return
-    await this.save(revise(task, { notifiedStatus: attempt.status }))
+    await this.save(revise(task, { notifiedStatus: attempt.status,
+      ...(attempt.changedInputSeq === undefined ? {} : { notifiedInputSeq: attempt.changedInputSeq }) }))
   }
 
   private async recover(): Promise<void> {
     for (const [, task] of this.table.entries()) {
       const attempt = latest(task)
-      if (attempt.status === 'dispatching') {
-        try { await this.deliver(task) }
+      if (attempt.status === 'dispatching' || attempt.status === 'reconciling') {
+        try {
+          const delivered = attempt.status === 'reconciling' ? await this.deliverReconciliation(task) : await this.deliver(task)
+          const worker = this.ctx.agents.get(latest(delivered).sessionId)
+          if (worker !== undefined) await this.settleWorker(worker)
+        }
         catch (error) { await this.save(revise(task, { status: 'interrupted', issue: String(error) })) }
       } else if (reservesWorker(attempt)) {
         const worker = this.ctx.agents.get(attempt.sessionId)

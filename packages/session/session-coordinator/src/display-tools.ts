@@ -18,7 +18,7 @@ const reportSchema = {
         id: { type: 'string', required: true }, title: { type: 'string', required: true },
         revision: { type: 'integer', required: true }, sessionId: { type: 'string', required: true },
         cwd: { type: 'string', required: true },
-        status: { type: 'string', required: true, enum: ['dispatching', 'accepted', 'running', 'finishing', 'needs-report',
+        status: { type: 'string', required: true, enum: ['dispatching', 'reconciling', 'accepted', 'running', 'finishing', 'needs-report',
           'interrupted', 'stopping', 'stopped', 'completed', 'blocked', 'needs-input', 'failed'] },
         issue: { oneOf: [{ type: 'string' }, { type: 'null' }], required: true },
         report: { required: true, oneOf: [{ type: 'null' }, {

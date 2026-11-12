@@ -63,6 +63,23 @@ export async function apply(ctx: Context): Promise<void> {
       },
     }))
     scope.tools.register(defineTool({
+      name: 'coordinator_reconcile', description: 'Recover an inspected needs-report or interrupted task in its original idle worker. Read its complete latest history first and pass its last event seq. This requests verification and a structured report only; it never resends a human business command. Reuse request_key for retries.',
+      parameters: {
+        request_key: { type: 'string', required: true }, task_id: { type: 'string', required: true },
+        expected_revision: { type: 'integer', required: true }, expected_worker_seq: { type: 'integer', required: true },
+        instructions: { type: 'string', required: true }, reason: { type: 'string', required: true },
+      }, output,
+      async execute(args, exec) {
+        return JSON.stringify(await service.reconcile(caller(exec.agent), {
+          key: args.request_key, taskId: brandString<CoordinationTaskId>(args.task_id),
+          expectedRevision: args.expected_revision, expectedWorkerSeq: args.expected_worker_seq,
+          instructions: args.instructions, reason: args.reason,
+        }))
+      },
+      presentCall: () => ({ card: 'generic', title: 'Task reconciliation', kind: 'edit' }),
+      presentResult: (_args, { content }) => ({ card: 'generic', title: 'Task reconciliation', content, kind: 'edit' }),
+    }))
+    scope.tools.register(defineTool({
       name: 'coordinator_tasks', description: 'Read all tasks owned by this Main Session, including durable acceptance, report, file and interruption receipts.',
       parameters: {}, output,
       async execute(_args, exec) {

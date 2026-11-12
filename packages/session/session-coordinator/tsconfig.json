@@ -70,6 +70,12 @@
     },
     {
       "path": "../../skill/skill"
+    },
+    {
+      "path": "../session-projection"
+    },
+    {
+      "path": "../working-directory"
     }
   ]
 }

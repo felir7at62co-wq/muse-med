@@ -3671,8 +3671,8 @@ export interface JsonRpcConfig {
 
 ## `@deepseek-ai/dsh-session-coordinator`
 
-- `inject`: `agents` · `sessions` · `sessionQuery` · `sessionController` · `workspaceController` · `storageDomain` · `workspaceRegistry` · `jobs` · `typert`
-- `source`: [`packages/session/session-coordinator/src/index.ts:35`](../packages/session/session-coordinator/src/index.ts)
+- `inject`: `agents` · `sessions` · `sessionQuery` · `sessionController` · `workspaceController` · `storageDomain` · `workspaceRegistry` · `jobs` · `typert` · `tools` · `sessionProjections`
+- `source`: [`packages/session/session-coordinator/src/index.ts:47`](../packages/session/session-coordinator/src/index.ts)
 
 ```ts config-catalog
 /** Deployment choices for the optional coordination plugin. */

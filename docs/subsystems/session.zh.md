@@ -1174,6 +1174,14 @@ async read(main: Agent, sessionId: SessionId, fromSeq: number): Promise<string>
 async dispatch(main: Agent, request: DispatchRequest): Promise<CoordinationTask>
 
 /**
+ * Ask an inspected original worker to verify existing results without replaying human business commands.
+ * @param main - Exact live owner Main Agent.
+ * @param request - Idempotent recovery request with task and complete worker-history revisions.
+ * @returns retained successor assignment; an uncertain delivery remains interrupted for inspection.
+ */
+async reconcile(main: Agent, request: ReconcileRequest): Promise<CoordinationTask>
+
+/**
  * List the local owner's task records without activating their Agents. This Remote surface requires global owner access.
  * @param sessionId - Main Session whose assignments to read.
  * @returns current and previous revisions, including exact worker and artifact references.

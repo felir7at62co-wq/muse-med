@@ -6,7 +6,7 @@ import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
 import type { Assignment, CoordinationTask, CoordinationTaskId } from './types.ts'
 
-const status = z.enum(['dispatching', 'accepted', 'running', 'finishing', 'needs-report', 'interrupted',
+const status = z.enum(['dispatching', 'reconciling', 'accepted', 'running', 'finishing', 'needs-report', 'interrupted',
   'stopping', 'stopped', 'completed', 'blocked', 'needs-input', 'failed'])
 const report = z.object({
   outcome: z.enum(['completed', 'blocked', 'needs-input', 'failed']), summary: z.string(),
@@ -17,12 +17,23 @@ const assignment = z.object({
   revision: z.number().int().positive(), key: z.string().min(1), requestHash: z.string().regex(/^[a-f0-9]{64}$/u),
   instructions: z.string().min(1),
   reason: z.string().min(1), sourceSeq: z.number().int().nonnegative(),
+  reconciliation: z.object({ throughSeq: z.number().int().nonnegative(), humanSeq: z.number().int().nonnegative(),
+    humanMessageId: z.string().transform(value => brandString<MessageId>(value)) }).optional(),
   messageId: z.string().transform(value => brandString<MessageId>(value)),
   briefId: z.string().transform(value => brandString<MessageId>(value)),
-  forwardedIds: z.array(z.string().transform(value => brandString<MessageId>(value))).min(1),
+  forwardedIds: z.array(z.string().transform(value => brandString<MessageId>(value))),
   sessionId: z.string().transform(SessionId), createSession: z.boolean(), cwd: z.string(), sourceCwd: z.string().nullable(),
   videoKey: z.string().nullable(), status, report: report.nullable(), issue: z.string().nullable(),
   noticeId: z.string().transform(value => brandString<MessageId>(value)), notifiedStatus: status.nullable(),
+  changedInputSeq: z.number().int().nonnegative().optional(), notifiedInputSeq: z.number().int().nonnegative().optional(),
+}).superRefine((value, refinement) => {
+  if (value.reconciliation === undefined && (value.forwardedIds.length === 0 || value.status === 'reconciling')) {
+    refinement.addIssue({ code: 'custom', message: 'Ordinary assignments require forwarded human input' })
+  }
+  if (value.reconciliation !== undefined && (value.reconciliation.humanMessageId !== value.messageId
+    || value.reconciliation.humanSeq > value.reconciliation.throughSeq || value.forwardedIds.length !== 0)) {
+    refinement.addIssue({ code: 'custom', message: 'Reconciliation must retain its existing human input anchor without forwarding it' })
+  }
 })
 const taskSchema: z.ZodType<CoordinationTask> = z.object({
   id: z.string().transform(value => brandString<CoordinationTaskId>(value)),
@@ -32,7 +43,7 @@ const taskSchema: z.ZodType<CoordinationTask> = z.object({
 
 /** Authoritative assignments; a failed or unknown write prevents dispatch. */
 export const coordinationDomain = defineDomain({
-  name: 'muse_coordination', version: 1, layout: 'per-record',
+  name: 'muse_coordination', version: 2, compatibleVersions: [1], layout: 'per-record',
   tables: {
     tasks: domainTable<CoordinationTaskId, CoordinationTask>(taskSchema),
     entry: domainTable<'main', ReturnType<typeof SessionId>>(z.string().transform(SessionId)),
@@ -56,7 +67,7 @@ export function latest(task: CoordinationTask): Assignment {
  * @returns true until stopped or explicitly reported and settled.
  */
 export function reservesWorker(attempt: Assignment): boolean {
-  return ['dispatching', 'accepted', 'running', 'finishing', 'needs-report', 'interrupted', 'stopping'].includes(attempt.status)
+  return ['dispatching', 'reconciling', 'accepted', 'running', 'finishing', 'needs-report', 'interrupted', 'stopping'].includes(attempt.status)
 }
 
 /**

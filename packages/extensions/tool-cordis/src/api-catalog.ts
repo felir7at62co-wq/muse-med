@@ -3697,6 +3697,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'authoritative task; acceptance is not execution completion.',
       },
       {
+        signature: 'async reconcile(main: Agent, request: ReconcileRequest): Promise<CoordinationTask>',
+        description: 'Ask an inspected original worker to verify existing results without replaying human business commands.',
+        parameters: [{ name: 'main', description: 'Exact live owner Main Agent.' }, { name: 'request', description: 'Idempotent recovery request with task and complete worker-history revisions.' }],
+        returns: 'retained successor assignment; an uncertain delivery remains interrupted for inspection.',
+      },
+      {
         signature: '@Remote list(sessionId: SessionId): CoordinationTask[]',
         description: 'List the local owner\'s task records without activating their Agents. This Remote surface requires global owner access.',
         parameters: [{ name: 'sessionId', description: 'Main Session whose assignments to read.' }],
@@ -6909,11 +6915,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Assignment',
-    declaration: 'export interface Assignment {\n    readonly revision: number;\n    readonly key: string;\n    readonly requestHash: string;\n    readonly instructions: string;\n    readonly reason: string;\n    readonly sourceSeq: number;\n    readonly messageId: MessageId;\n    readonly briefId: MessageId;\n    readonly forwardedIds: readonly MessageId[];\n    readonly sessionId: SessionId;\n    readonly createSession: boolean;\n    readonly cwd: string;\n    readonly sourceCwd: string | null;\n    readonly videoKey: string | null;\n    readonly status: AssignmentStatus;\n    readonly report: WorkerReport | null;\n    readonly issue: string | null;\n    readonly noticeId: MessageId;\n    readonly notifiedStatus: AssignmentStatus | null;\n}',
+    declaration: 'export interface Assignment {\n    readonly revision: number;\n    readonly key: string;\n    readonly requestHash: string;\n    readonly instructions: string;\n    readonly reason: string;\n    readonly sourceSeq: number;\n    readonly reconciliation?: {\n        readonly throughSeq: number;\n        readonly humanSeq: number;\n        readonly humanMessageId: MessageId;\n    } | undefined;\n    readonly messageId: MessageId;\n    readonly briefId: MessageId;\n    readonly forwardedIds: readonly MessageId[];\n    readonly sessionId: SessionId;\n    readonly createSession: boolean;\n    readonly cwd: string;\n    readonly sourceCwd: string | null;\n    readonly videoKey: string | null;\n    readonly status: AssignmentStatus;\n    readonly report: WorkerReport | null;\n    readonly issue: string | null;\n    readonly noticeId: MessageId;\n    readonly notifiedStatus: AssignmentStatus | null;\n    readonly changedInputSeq?: number | undefined;\n    readonly notifiedInputSeq?: number | undefined;\n}',
   },
   {
     name: 'AssignmentStatus',
-    declaration: 'export type AssignmentStatus = \'dispatching\' | \'accepted\' | \'running\' | \'finishing\' | \'needs-report\' | \'interrupted\' | \'stopping\' | \'stopped\' | \'completed\' | \'blocked\' | \'needs-input\' | \'failed\';',
+    declaration: 'export type AssignmentStatus = \'dispatching\' | \'reconciling\' | \'accepted\' | \'running\' | \'finishing\' | \'needs-report\' | \'interrupted\' | \'stopping\' | \'stopped\' | \'completed\' | \'blocked\' | \'needs-input\' | \'failed\';',
   },
   {
     name: 'AssistantMessage',
@@ -9650,6 +9656,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'RecommendationDetails',
     declaration: 'export type RecommendationDetails = {\n    readonly status: \'available\';\n    readonly title: LocalizedText;\n    readonly description: LocalizedText;\n    readonly enabled: boolean;\n} | {\n    readonly status: \'refused\';\n    readonly reason: \'unknown\' | \'unavailable\' | \'not-live-root\' | \'closing\';\n};',
+  },
+  {
+    name: 'ReconcileRequest',
+    declaration: 'export interface ReconcileRequest {\n    readonly key: string;\n    readonly taskId: CoordinationTaskId;\n    readonly expectedRevision: number;\n    readonly expectedWorkerSeq: number;\n    readonly instructions: string;\n    readonly reason: string;\n}',
   },
   {
     name: 'RecurringScheduleRecord',

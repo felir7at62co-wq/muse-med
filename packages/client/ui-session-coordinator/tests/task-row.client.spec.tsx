@@ -52,6 +52,14 @@ it('moves the badge to a retry target and reflects its explicit status, never a 
   expect(screen.queryByText('执行会话已完成')).toBeNull()
 })
 
+it('keeps reconciliation visible as work in progress instead of a completed report', () => {
+  const reconciling: CoordinationTask = { ...task, attempts: [{ ...task.attempts[0]!, status: 'reconciling' }] }
+  const view = render(<TaskRowStatus {...props({ status: 'live', value: [reconciling], failure: undefined })} />)
+  expect(screen.getByText('准备核对')).toBeTruthy()
+  expect(view.container.querySelector('[data-task-status="reconciling"][data-working]')).toBeTruthy()
+  expect(screen.queryByText('执行会话已完成')).toBeNull()
+})
+
 it('keeps multiple task statuses available to assistive technology and prioritizes attention', () => {
   const second: CoordinationTask = { ...task, id: brandString<CoordinationTaskId>('task-2'), title: '第三集', createdAt: 2,
     attempts: [{ ...task.attempts[0]!, status: 'blocked' }] }
