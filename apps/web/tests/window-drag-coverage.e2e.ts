@@ -258,7 +258,9 @@ describe('web e2e: macOS window drag coverage', () => {
           observer.observe(root, { attributes: true, attributeFilter: ['class'] })
           button.click()
         })
-        const painted = await new Promise<ReturnType<typeof position>>(resolve => requestAnimationFrame(() => resolve(position())))
+        const painted = await new Promise<ReturnType<typeof position>>((resolve) => {
+          requestAnimationFrame(() => { resolve(position()) })
+        })
         return { before, fading, painted }
       })
       expect(positions.before.hittable).toBe(true)
