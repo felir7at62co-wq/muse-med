@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { Suspense, type ReactNode } from 'react'
+import { Suspense, useLayoutEffect, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VideoTimeline } from '../src/client/VideoTimeline.tsx'
 import type { VideoTimelineProps } from '../src/client/VideoTimeline.tsx'
@@ -330,6 +330,38 @@ it('ignores a queued resize observation after the timeline has unmounted', () =>
   expect(observer.disconnect).toHaveBeenCalledOnce()
   expect(() => { act(() => { observer.notify() }) }).not.toThrow()
   expect(input.onSeek).not.toHaveBeenCalled()
+})
+
+it('ignores a real resize after DOM removal and before passive observer cleanup', () => {
+  const input = props(), added = vi.spyOn(window, 'addEventListener'), removed = vi.spyOn(window, 'removeEventListener')
+  const duringLayout: { detached: boolean; listenerRemoved: boolean; observerDisconnected: boolean }[] = []
+  function Parent({ visible }: { visible: boolean }) {
+    useLayoutEffect(() => {
+      if (visible) return
+      duringLayout.push({ detached: !scroll.isConnected,
+        listenerRemoved: removed.mock.calls.some(([type, callback]) => type === 'resize' && callback === resize),
+        observerDisconnected: vi.mocked(observer.disconnect).mock.calls.length > 0 })
+      window.dispatchEvent(new Event('resize'))
+    }, [visible])
+    return visible ? <VideoTimeline {...input} /> : null
+  }
+  const view = render(<Parent visible />), scroll = view.getByRole('group')
+  geometry(scroll)
+  const observer = observers[0]!, resize = added.mock.calls.find(([type]) => type === 'resize')?.[1]
+  expect(resize).toBeDefined()
+  const measure = vi.fn(() => 622)
+  Object.defineProperty(scroll, 'scrollWidth', { configurable: true, get: measure })
+  act(() => { window.dispatchEvent(new Event('resize')) })
+  expect(measure).toHaveBeenCalledOnce()
+  measure.mockClear()
+  view.rerender(<Parent visible={false} />)
+  expect(duringLayout).toEqual([{ detached: true, listenerRemoved: false, observerDisconnected: false }])
+  expect(observer.disconnect).toHaveBeenCalledOnce()
+  expect(removed.mock.calls.filter(([type, callback]) => type === 'resize' && callback === resize)).toHaveLength(1)
+  act(() => { window.dispatchEvent(new Event('resize')) })
+  expect(measure).not.toHaveBeenCalled()
+  expect(input.onSeek).not.toHaveBeenCalled()
+  expect(observers).toHaveLength(1)
 })
 
 it('releases an active pointer when Suspense hides the timeline and accepts a fresh gesture after reveal', async () => {
