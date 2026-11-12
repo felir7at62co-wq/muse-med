@@ -30,6 +30,7 @@
     "paths": {
       "@deepseek-ai/dsh-muse-market/activation": ["./packages/host/muse-market/src/activation.ts"],
       "@deepseek-ai/dsh-muse-market/cloud": ["./packages/host/muse-market/src/cloud.ts"],
+      "@deepseek-ai/dsh-muse-market/cloud-host": ["./packages/host/muse-market/src/cloud-host.ts"],
       "@deepseek-ai/dsh-muse-market/types": ["./packages/host/muse-market/src/types.ts"],
       "@deepseek-ai/dsh-muse-market/package": ["./packages/host/muse-market/src/package.ts"],
       "@deepseek-ai/dsh-skill/name": ["./packages/skill/skill/src/name.ts"],
@@ -39,6 +40,7 @@
       "@deepseek-ai/dsh-feishu-settings/client": ["./packages/host/feishu-settings/src/client/index.ts"],
       "@deepseek-ai/dsh-tool-jubian/client": ["./packages/jubian/tool-jubian/src/client/index.ts"],
       "@deepseek-ai/dsh-tool-jubian/episode-delivery": ["./packages/jubian/tool-jubian/src/episode-delivery.ts"],
+      "@deepseek-ai/dsh-tool-jubian/generation-binding": ["./packages/jubian/tool-jubian/src/generation-binding.ts"],
       "@deepseek-ai/dsh-desktop-host/computer-use": ["./apps/desktop-host/src/computer-use.ts"],
       "@deepseek-ai/dsh-desktop-host/native-preset": ["./apps/desktop-host/src/native-preset.ts"],
       "@deepseek-ai/dsh-desktop-host/delegation-policy": ["./apps/desktop-host/src/delegation-policy.ts"],

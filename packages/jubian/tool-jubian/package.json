@@ -94,10 +94,10 @@
     "@deepseek-ai/dsh-atomic-write": "workspace:*",
     "@deepseek-ai/dsh-typert-protocol": "workspace:*",
     "zod": "^4.4.3",
-    "@deepseek-ai/dsh-brand": "workspace:*",
-    "@deepseek-ai/dsh-workspace": "workspace:*"
+    "@deepseek-ai/dsh-brand": "workspace:*"
   },
   "peerDependencies": {
+    "@deepseek-ai/dsh-workspace": "workspace:*",
     "@deepseek-ai/dsh-muse-account": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-credentials": "workspace:*",
@@ -114,12 +114,14 @@
     "@deepseek-ai/dsh-working-directory": "workspace:*"
   },
   "devDependencies": {
+    "@deepseek-ai/dsh-workspace": "workspace:*",
     "@deepseek-ai/dsh-muse-account": "workspace:*",
     "@deepseek-ai/dsh-agent": "workspace:*",
     "@deepseek-ai/dsh-agent-loop": "workspace:*",
     "@deepseek-ai/dsh-jobs-local": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
     "@deepseek-ai/dsh-session-projection": "workspace:*",
+    "@deepseek-ai/dsh-session-persistence": "workspace:*",
     "@deepseek-ai/dsh-session-persistence-jsonl": "workspace:*",
     "@deepseek-ai/dsh-tool-jobs": "workspace:*",
     "@deepseek-ai/cordis": "workspace:~",

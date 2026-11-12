@@ -4,13 +4,153 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { access, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { setTimeout as setTimeout$1 } from "node:timers/promises";
 import { lookup } from "node:dns";
 import { request } from "node:http";
 import { request as request$1 } from "node:https";
 import { BlockList, isIP } from "node:net";
 import { fileURLToPath } from "node:url";
 import { BUNDLED_SKILL_RANK } from "@deepseek-ai/dsh-skill";
-//#region src/style.ts
+/** Whether an exclusive create found an existing lock. */
+async function isLockContention(error, lockPath) {
+	const code = error?.code;
+	if (code === "EEXIST") return true;
+	if (code !== "EPERM") return false;
+	try {
+		await lstat(lockPath);
+		return true;
+	} catch {
+		return false;
+	}
+}
+/** Whether the holder a `<pid>\n` record names is proven gone: a signal probe finds no such process. */
+function holderExited(record) {
+	if (!/^\d+\n$/.test(record)) return false;
+	const pid = Number(record.trim());
+	if (pid === 0 || pid > 2147483647) return false;
+	if (pid === process.pid) return false;
+	try {
+		process.kill(pid, 0);
+		return false;
+	} catch (error) {
+		return error.code === "ESRCH";
+	}
+}
+/** The lock file's content, or undefined when it cannot be read. */
+async function readLockRecord(lockPath) {
+	try {
+		return await readFile(lockPath, "utf8");
+	} catch (error) {
+		return;
+	}
+}
+/**
+* Remove the lock when its recorded holder exited. Contenders that read the
+* same record serialize on a claim file named after it. Under the claim, the
+* claimant re-reads the lock and probes its PID again, and removes it only
+* when it still holds that record and that PID is still gone: the record's
+* holder can no longer release it, and no other contender can remove it
+* without the claim, so a removal never deletes a lock another contender
+* acquired after the dead holder's, including one whose holder reused the PID.
+* @returns Whether this call removed the dead holder's lock.
+*/
+async function takeOverExitedLock(lockPath) {
+	const record = await readLockRecord(lockPath);
+	if (record === void 0 || !holderExited(record)) return false;
+	const claim = `${lockPath}.takeover-${createHash("sha256").update(record).digest("hex").slice(0, 16)}`;
+	try {
+		await writeFile(claim, `${process.pid}\n`, {
+			mode: 384,
+			flag: "wx"
+		});
+	} catch (error) {
+		const code = error.code;
+		if (code === "EEXIST" || code === "EPERM") return false;
+		throw error;
+	}
+	try {
+		if (await readLockRecord(lockPath) !== record || !holderExited(record)) return false;
+		try {
+			await rm(lockPath, { force: true });
+		} catch (error) {
+			return false;
+		}
+		return true;
+	} finally {
+		await rm(claim, { force: true }).catch((error) => {});
+	}
+}
+/**
+* Retry cadence for a contended lock. These stay robustness invariants of the
+* cross-process write protocol rather than deployment tunables: they govern how
+* often a contender asks, which no caller has a reason to vary.
+*/
+const LOCK_RETRY_INITIAL_MS = 20;
+const LOCK_RETRY_MAX_MS = 200;
+/**
+* How long a contender waits when the caller states no limit — sized for the
+* render-and-rename cycle every call site had when this package was written.
+* Expiry fails the contender rather than guessing whether the existing lock
+* still has an owner. How long is *worth* waiting is a property of the
+* operation the lock holder runs, which is why {@link FileLockOptions.waitMs}
+* exists; the value here is the floor for an operation that does file work
+* alone.
+*/
+const DEFAULT_LOCK_WAIT_MS = 2e3;
+/**
+* Hold the cross-process writer lock for `filename` around one operation. The
+* lock is a `wx`-created sibling (`<filename>.lock`); paired with the
+* rename-based commit of {@link writeFileAtomic}, readers stay lock-free and
+* only writers contend. `EEXIST` is contention directly; an `EPERM` is
+* contention only when a fresh `lstat` confirms the lock path exists, covering
+* Windows exclusive-create behavior. Windows retries one unconfirmed EPERM
+* because the holder can release before the probe; a repeated unconfirmed
+* permission error is rethrown. The lock records its holder's PID. A contender
+* removes the lock and retries at once when no process with that PID exists
+* (`ESRCH`); any other lock, including one whose holder exists under another
+* user (`EPERM`) or whose record is incomplete, is waited for. Contention backs
+* off exponentially and times out after the deadline. A holder whose PID a
+* live process reused keeps its lock until an operator removes it. Takeover
+* proves only that the recorded process exited: an operation that starts other
+* writers must stop them with it or leave its successor a way to find them.
+* PIDs are compared on the contender's host, so writers on other hosts or in
+* other PID namespaces sharing the file are unsupported and could both hold
+* the lock. The parent directory must exist.
+* @param filename - the file whose writers this lock serializes.
+* @param operation - the read-render-commit cycle to run while holding the lock.
+* @param options - acquisition options; omitted waits {@link DEFAULT_LOCK_WAIT_MS}.
+* @returns the operation's result; the lock releases on both outcomes.
+*/
+async function withFileLock(filename, operation, options) {
+	const lockPath = `${filename}.lock`;
+	const deadline = Date.now() + (options?.waitMs ?? DEFAULT_LOCK_WAIT_MS);
+	let delay = LOCK_RETRY_INITIAL_MS;
+	let retriedUnconfirmedPermissionError = false;
+	for (;;) {
+		options?.signal?.throwIfAborted();
+		try {
+			await writeFile(lockPath, `${process.pid}\n`, {
+				mode: 384,
+				flag: "wx"
+			});
+			break;
+		} catch (error) {
+			if (!await isLockContention(error, lockPath)) {
+				if (process.platform !== "win32" || error?.code !== "EPERM" || retriedUnconfirmedPermissionError) throw error;
+				retriedUnconfirmedPermissionError = true;
+			} else if (await takeOverExitedLock(lockPath)) continue;
+		}
+		if (Date.now() >= deadline) throw new Error(`atomic-write: timed out waiting for the writer lock at ${lockPath}`);
+		await setTimeout$1(delay, void 0, { signal: options?.signal });
+		delay = Math.min(delay * 2, LOCK_RETRY_MAX_MS);
+	}
+	try {
+		options?.signal?.throwIfAborted();
+		return await operation();
+	} finally {
+		await rm(lockPath, { force: true });
+	}
+}
 /**
 * Card style presets: the user-chosen half of a card's look. The base
 * contract (fragment rules, CSP, size, theme-variable use, the 11px floor,
@@ -239,8 +379,6 @@ const STYLE_FILES_PATH = "/api/dsh-visualize/style-files";
 function styleIdFrom(value) {
 	return typeof value === "string" && STYLE_IDS.includes(value) ? value : DEFAULT_STYLE;
 }
-//#endregion
-//#region src/fragment.ts
 /**
 * Pure fragment contract shared by the tool (validation at execute time), the
 * browser card (meta narrowing at render time), and the specs. No I/O and no
@@ -414,8 +552,6 @@ function imagesField(images) {
 function summaryField(summary) {
 	return typeof summary === "string" && summary.trim().length > 0 ? { summary: summary.trim() } : {};
 }
-//#endregion
-//#region src/storage.ts
 /**
 * Where a card's settled fragment lives on disk, and how an `update` finds it
 * again.
@@ -763,7 +899,8 @@ async function handleImageRequest(root, request) {
 /**
 * Write a plugin-owned file through a sibling temporary file and a rename, so
 * a reader never sees half of it. The rename replaces a symlink at `path`
-* rather than writing through it.
+* rather than writing through it. Writers of the same path share the host
+* atomic-write lock; cancellation also interrupts lock acquisition.
 * @param path - absolute file path; missing parent directories are created private.
 * @param content - the new text, or raw bytes.
 * @param signal - optional cancellation; abort before rename leaves the previous file intact.
@@ -774,20 +911,22 @@ async function writeFileAtomic(path, content, signal) {
 		recursive: true,
 		mode: 448
 	});
-	const temp = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
-	try {
-		signal?.throwIfAborted();
-		await writeFile(temp, content, {
-			encoding: "utf8",
-			mode: 384,
-			flag: "wx"
-		});
-		signal?.throwIfAborted();
-		await rename(temp, path);
-	} catch (error) {
-		if (error.code !== "EEXIST") await rm(temp, { force: true }).catch(() => {});
-		throw error;
-	}
+	await withFileLock(path, async () => {
+		const temp = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+		try {
+			signal?.throwIfAborted();
+			await writeFile(temp, content, {
+				encoding: "utf8",
+				mode: 384,
+				flag: "wx"
+			});
+			signal?.throwIfAborted();
+			await rename(temp, path);
+		} catch (error) {
+			if (error.code !== "EEXIST") await rm(temp, { force: true }).catch(() => {});
+			throw error;
+		}
+	}, signal === void 0 ? void 0 : { signal });
 }
 /**
 * Shorten an absolute store path for display: the OS home becomes `~`, which
@@ -831,8 +970,6 @@ function workspaceFiles(ctx, exec) {
 		}
 	};
 }
-//#endregion
-//#region src/shell.ts
 /** CDN origins a fragment may load static resources from. */
 const RESOURCE_ORIGINS = [
 	"https://cdnjs.cloudflare.com",
@@ -862,8 +999,6 @@ const RESOURCE_SOURCES = [
 	"base-uri 'none'",
 	"form-action 'none'"
 ].join("; ");
-//#endregion
-//#region src/lint.ts
 /**
 * Fragment linter: the inline contract the `visualize` skill states, enforced
 * as a table of coded rules whose findings go back to the model verbatim.
@@ -2523,8 +2658,6 @@ function countWord(src, word) {
 	}
 	return count;
 }
-//#endregion
-//#region src/images.ts
 /**
 * Images a card cannot load itself. The frame CSP admits images only from
 * `data:`, `blob:` and the CDN allowlist, and the frame cannot fetch, so a
@@ -3059,8 +3192,6 @@ function imageReport(images, failures) {
 	const lines = failures.map((failure) => `- ${JSON.stringify(failure.src)}: ${failure.reason}`);
 	return [embedded, head].filter((part) => part.length > 0).join(" ") + "\n" + lines.join("\n");
 }
-//#endregion
-//#region src/style-guide.ts
 /**
 * The soft half of a card style: the prose the model reads before it writes
 * a card. The skill provider appends one "Active card style" section to the
@@ -3170,8 +3301,6 @@ async function activeStyleSection(style, locations) {
 function styleToolNote(style) {
 	return ` Cards use the user's "${style}" card style: its guide is appended to the visualize skill, or read it from ${styleGuidePath(style)} together with any user style file (${join("<DSH_HOME>", "visualize", GLOBAL_STYLE_FILE)}, then ${join("<workspace>", WORKSPACE_STYLE_FILE)}).`;
 }
-//#endregion
-//#region src/skill.ts
 /**
 * Bundled `visualize` skill provider: the fragment-authoring contract the
 * model loads before its first `visualize` call. Mirrors the official
@@ -3335,8 +3464,6 @@ function placeAgainstBase(findings, patched, base, maxBytes) {
 function findingKey(finding, at, src, from = at) {
 	return `${finding.code}\u0000${finding.severity}\u0000${at}\u0000${src.slice(from, from + finding.length)}`;
 }
-//#endregion
-//#region src/tool.ts
 const DESCRIPTION = `Show the user an interactive HTML visualization, rendered as a live card in the conversation. \`create\` (the default) takes the whole markup in \`fragment\`: literal inline HTML only (no <!doctype>, <html>, <head>, or <body> — the card supplies the document, stylesheet, and theme). To correct a card you already rendered, call \`update\` with its \`path\` and one exact \`old_str\`/\`new_str\` replacement instead of re-sending the whole fragment. \`mode: "page"\` builds a full standalone page instead of a chat card: the conversation shows a launcher with a live thumbnail, and the user opens the page in its own browser tab. The card appears while you generate; a copy of the finished fragment is saved outside the project, per session. Load the \`visualize\` skill for the authoring contract before your first call. If this session has no skill tool, read the same contract from ${SKILL_BODY_PATH} (its relative paths resolve against ${SKILL_RESOURCE_DIR}) with a file or shell tool; do not search for it anywhere else.`;
 /** Why images cannot reach the card on a host without the image route. */
 const NO_IMAGE_ROUTE = "this dsh host cannot deliver images to cards (the image route needs dsh 0.1.7 or later)";
@@ -3667,8 +3794,6 @@ function contentHash(text) {
 	}
 	return (hash >>> 0).toString(16).padStart(8, "0");
 }
-//#endregion
-//#region src/style-setting.ts
 /**
 * The `style` setting as the host delivers it. The field is declared
 * volatile, which is what lets the host's settings forms (dsh-settings) edit
@@ -3704,8 +3829,6 @@ function readStyle(setting) {
 	if (typeof setting === "object" && setting !== null && typeof setting.get === "function") return styleIdFrom(setting.get());
 	return styleIdFrom(setting);
 }
-//#endregion
-//#region src/style-files.ts
 /**
 * The user's style files as the settings page edits them: the global file
 * (`<DSH_HOME>/visualize/style.md`) and one workspace file per registered
@@ -3921,8 +4044,6 @@ async function handleStyleFiles(host, request) {
 		throw error;
 	}
 }
-//#endregion
-//#region src/self-repair.ts
 /**
 * Same-turn self-repair: the lint gate only speaks when the model calls
 * `visualize`, so a turn can still end with a card the user cannot use. At
@@ -4314,8 +4435,6 @@ function observe(turns, session, event) {
 		default: return;
 	}
 }
-//#endregion
-//#region src/index.ts
 /** Cordis plugin name. */
 const name = "dsh-visualize";
 /** Required services: the tool registry, the skill registry, and the fs seam. */
@@ -4441,5 +4560,4 @@ function declineGeneratedSettingsPage(ctx) {
 		scope.effect(() => configure({ auto: false }, ctx.fiber), "dsh-visualize: settings page policy");
 	});
 }
-//#endregion
 export { Config, STYLE_FILES_PATH, STYLE_IDS, VISUALIZE_TOOL_NAME, apply, inject, name, readStyle, validateFragment, visualizeMetaFrom };

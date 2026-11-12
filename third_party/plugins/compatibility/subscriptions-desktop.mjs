@@ -50,7 +50,7 @@ export function applySubscriptionsDesktopCompatibility(directory) {
   writeFileSync(file, source)
   cpSync(new URL('./subscriptions-legacy-alias.mjs', import.meta.url), join(directory, 'src/muse-legacy-alias.mjs'))
   cpSync(new URL('./subscriptions-recovery.mjs', import.meta.url), join(directory, 'src/muse-recovery.mjs'))
-  edit(directory, 'src/providers/codex.ts', '917b6ecbd536cde8e03cdd4af2b28d2c901af3de30f710f5a3f7ad790b6924cb',
+  edit(directory, 'src/providers/codex.ts', '8dc6a9776a2177086d90461ede0ff42c85c38f6882dd87233330e88ca6468443',
     'export class CodexAdapter extends LlmAdapter {',
     'export class CodexAdapter extends LlmAdapter {\n  override readonly supportsRequiredImageInput = true')
   edit(directory, 'src/providers/account-preferences.ts', '1e65de90f88bd4ff2f89958e10b65e5d74fd3082edb36037d3a5bc9273a0e6a5',

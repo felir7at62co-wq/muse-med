@@ -7,9 +7,9 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import z from '@deepseek-ai/schemastery'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { apply, Config } from '../src/index.ts'
-import { readStyle, styleFieldSchema, type StyleSetting } from '../src/style-setting.ts'
+import { readStyle, styleFieldSchema } from '../src/style-setting.ts'
 import { PAGE_CONFIG_GLOBAL, STYLE_FILES_PATH, type StyleId } from '../src/style.ts'
 
 /** A stand-in for the Loader's volatile reference. */
@@ -24,7 +24,7 @@ function host(services: Record<string, unknown> = {}) {
   const providers: (() => { get: (c: unknown, o: unknown) => Promise<{ content: string }> })[] = []
   const listeners = new Map<string, ((...args: unknown[]) => void)[]>()
   const effects: unknown[] = []
-  const ctx = {
+  const ctx = new Context().extend({
     get: (name: string) => name in services ? services[name] : undefined,
     tools: {
       register(definition: { description: string; execute: (args: unknown, exec: unknown) => Promise<unknown> }) {
@@ -47,7 +47,7 @@ function host(services: Record<string, unknown> = {}) {
       resolve: async (path: string) => ({ displayPath: path, path }),
       writeText: async () => ({ version: 1 }),
     },
-  } as unknown as Context
+  })
   const emit = (name: string, ...args: unknown[]) => listeners.get(name)?.forEach(listener => listener(...args))
   return { ctx, tools, providers, emit, effects }
 }
@@ -56,10 +56,10 @@ const exec = { agent: { session: { header: { cwd: '/w' } } }, signal: new AbortC
 
 describe('style setting', () => {
   it('parses to a live reference that defaults to whale and rejects unknown ids', () => {
-    const parsed = Config({} as never) as unknown as { style: StyleSetting }
+    const parsed = Config({})
     expect(typeof (parsed.style as { get?: unknown }).get).toBe('function')
     expect(readStyle(parsed.style)).toBe('whale')
-    expect(readStyle((Config({ style: 'sketch' } as never) as unknown as { style: StyleSetting }).style)).toBe('sketch')
+    expect(readStyle(Config({ style: 'sketch' }).style)).toBe('sketch')
     expect(() => Config({ style: 'neon' } as never)).toThrow()
   })
 

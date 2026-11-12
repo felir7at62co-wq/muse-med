@@ -7,7 +7,6 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
 import { LlmRuntime } from '@deepseek-ai/dsh-llm'
-import { CodexAdapter } from '../src/providers/codex.js'
 import { saveAccountSession } from '../src/auth/store.js'
 import { catalogStore } from '../src/providers/catalog-store.js'
 import { createFakeConnection } from './fake-connection.js'
@@ -113,15 +112,25 @@ test('slow refresh runs never overlap and the next interval starts after complet
   } finally { release(); stop() }
 })
 
-test('registered plugin refreshes at startup and hourly, while menus and disposal add no requests', async t => {
+test('registered plugin refreshes at startup and hourly, while menus and disposal add no requests', { timeout: 10_000 }, async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now })
+  const scheduled = [Promise.withResolvers<void>(), Promise.withResolvers<void>()]
+  let scheduleCount = 0
+  const schedule = globalThis.setTimeout.bind(globalThis)
+  t.mock.method(globalThis, 'setTimeout', (callback: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    const timer = schedule(callback, delay, ...args)
+    if (delay === CATALOG_REFRESH_INTERVAL_MS) scheduled[scheduleCount++]?.resolve()
+    return timer
+  })
   const home = await mkdtemp(join(tmpdir(), 'hourly-catalog-'))
   const previous = process.env.DSH_HOME
   process.env.DSH_HOME = home
-  const prototype = CodexAdapter.prototype as unknown as { fetchCatalog: () => Promise<unknown[]> }
-  const original = prototype.fetchCatalog
   let requests = 0
-  prototype.fetchCatalog = async () => { requests++; return [{ id: 'cached', name: 'Refreshed', contextWindow: 1000 }] }
+  t.mock.method(globalThis, 'fetch', async (input: RequestInfo | URL) => {
+    assert.match(String(input), /\/codex\/models/)
+    requests++
+    return new Response(JSON.stringify({ models: [{ slug: 'cached', display_name: 'Refreshed', context_window: 1000 }] }))
+  })
   const ctx = new Context()
   const llm = new LlmRuntime(ctx)
   const connection = createFakeConnection()
@@ -130,10 +139,9 @@ test('registered plugin refreshes at startup and hourly, while menus and disposa
   try {
     await saveAccountSession('codex', 'c', { accessToken: 'c', refreshToken: 'c', expiresAt: now + 86_400_000, accountId: 'c' })
     await catalogStore('codex').save({ at: now - 360_000, models: [{ id: 'cached', name: 'Cached', contextWindow: 1000 }] })
-    runtime = ctx.plugin(plugin, { providers: ['codex'] })
-    for (let i = 0; i < 500 && requests === 0; i++) await settle()
+    runtime = ctx.plugin(plugin, { providers: ['codex'], codexClientVersion: '0.100.0' })
+    await scheduled[0]!.promise
     assert.equal(requests, 1, 'plugin startup must schedule discovery without opening a menu')
-    for (let i = 0; i < 30; i++) await settle()
     t.mock.timers.tick(6 * 60_000)
     for (let i = 0; i < 10; i++) {
       assert.equal((await llm.listModels('codex'))[0].id, 'cached')
@@ -141,16 +149,7 @@ test('registered plugin refreshes at startup and hourly, while menus and disposa
     }
     assert.equal(requests, 1, 'six-minute-old cached menu reads do not fetch')
     t.mock.timers.tick(54 * 60_000)
-    for (let i = 0; i < 500 && requests < 2; i++) await settle()
-    // The hour is counted from when the job's first run COMPLETES, and that
-    // run does real file I/O (auth and catalog stores) the fixed settle
-    // budget above cannot bound on a loaded CI runner; if it finished during
-    // the six-minute menu-read window the timer lands a few minutes past the
-    // hour. Allow that bounded slack instead of a second full hour.
-    for (let extra = 0; extra < 10 && requests < 2; extra++) {
-      t.mock.timers.tick(60_000)
-      for (let i = 0; i < 50 && requests < 2; i++) await settle()
-    }
+    await scheduled[1]!.promise
     assert.equal(requests, 2, 'the hourly job must actually be registered by the plugin')
     await runtime.dispose()
     t.mock.timers.tick(CATALOG_REFRESH_INTERVAL_MS)
@@ -158,7 +157,6 @@ test('registered plugin refreshes at startup and hourly, while menus and disposa
     assert.equal(requests, 2)
   } finally {
     await runtime?.dispose()
-    prototype.fetchCatalog = original
     if (previous === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = previous
     await rm(home, { recursive: true, force: true })
   }

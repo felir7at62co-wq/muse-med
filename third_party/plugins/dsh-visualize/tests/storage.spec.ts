@@ -1,8 +1,8 @@
 import { mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { join, relative } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { visualizeTool } from '../src/tool.ts'
 import { ownedPath, sessionSegment, workspacePath } from '../src/storage.ts'
 
@@ -24,7 +24,7 @@ function host(options: { homePath?: boolean; homeDirectory?: string; files?: Rec
   const files = options.files ?? {}
   const seam: { resolved: string[]; written: Record<string, string>; policies: unknown[] } = { resolved: [], written: {}, policies: [] }
   const policy = { mode: 'workspace-write', workspaceRoot: workspace }
-  const ctx = {
+  const ctx = new Context().extend({
     get: (name: string) => {
       if (name === 'dshHomePath') return options.homePath === false ? undefined : (...segments: string[]) => join(options.homeDirectory ?? home, ...segments)
       if (name === 'sandboxPolicy') return { resolve: () => policy }
@@ -46,7 +46,7 @@ function host(options: { homePath?: boolean; homeDirectory?: string; files?: Rec
         return { version: 1 }
       },
     },
-  } as unknown as Context
+  })
   return { ctx, seam, policy }
 }
 
@@ -58,7 +58,8 @@ describe('card storage', () => {
     const tool = visualizeTool(ctx, 10_000)
     const created = await tool.execute({ fragment: '<p>p99 480ms</p>', title: 'Lab' }, exec('sess-1')) as { path: string }
 
-    expect(created.path).toMatch(new RegExp(`^${home}/visualize/sessions/sess-1/lab-[0-9a-f]{8}\\.whale\\.html$`))
+    expect(dirname(created.path)).toBe(join(home, 'visualize', 'sessions', 'sess-1'))
+    expect(basename(created.path)).toMatch(/^lab-[0-9a-f]{8}\.whale\.html$/u)
     expect(await readFile(created.path, 'utf8')).toBe('<p>p99 480ms</p>')
     expect(seam.resolved).toEqual([])
     expect(await readdir(workspace)).toEqual([])
@@ -127,7 +128,7 @@ describe('card storage', () => {
     await expect(tool.execute({ fragment: '<p>replacement</p>', title: 'New' }, exec('sess-b')))
       .rejects.toThrow(/current session store/u)
     await expect(tool.execute(
-      { action: 'update', path: join(aliasDirectory, foreign.path.split('/').at(-1)!), title: 'Lab', old_str: 'secret', new_str: 'changed' },
+      { action: 'update', path: join(aliasDirectory, basename(foreign.path)), title: 'Lab', old_str: 'secret', new_str: 'changed' },
       exec('sess-b'),
     )).rejects.toThrow(/current session store/u)
     expect(await readFile(foreign.path, 'utf8')).toBe('<p>secret</p>')
@@ -246,7 +247,7 @@ describe('card storage', () => {
       expect(new Set(results.map(r => r.path)).size).toBe(1)
       expect(await readFile(results[0]!.path, 'utf8')).toBe('<p>same</p>')
       // No temp file is left behind.
-      expect(await readdir(join(home, 'visualize', 'sessions', 'sess-5'))).toEqual([results[0]!.path.split('/').at(-1)])
+      expect(await readdir(join(home, 'visualize', 'sessions', 'sess-5'))).toEqual([basename(results[0]!.path)])
     } finally {
       vi.restoreAllMocks()
     }
@@ -257,12 +258,12 @@ describe('legacy workspace cards', () => {
   /** A host whose fs seam really reads the disk, as the official local backend does. */
   function diskHost() {
     const resolved: string[] = []
-    const ctx = {
+    const ctx = new Context().extend({
       get: (name: string) => (name === 'sandboxPolicy' ? { resolve: () => ({ mode: 'workspace-write', workspaceRoot: workspace }) } : undefined),
       fs: {
         resolve: async (path: string, options: { cwd?: string }) => {
           resolved.push(path)
-          const absolute = path.startsWith('/') ? path : join(options.cwd!, path)
+          const absolute = isAbsolute(path) ? path : join(options.cwd!, path)
           return { displayPath: path, path: absolute }
         },
         readText: async (target: { path: string }) => await readFile(target.path, 'utf8'),
@@ -271,7 +272,7 @@ describe('legacy workspace cards', () => {
           return { version: 1 }
         },
       },
-    } as unknown as Context
+    })
     return { tool: visualizeTool(ctx, 10_000), resolved }
   }
 

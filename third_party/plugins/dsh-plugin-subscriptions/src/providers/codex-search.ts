@@ -1,4 +1,6 @@
 /** Codex-backed provider for DSH's native web_search capability. */
+import type { FetchResponse } from '../http.js'
+import type { FetchFn } from './common.js'
 import { randomUUID } from 'node:crypto'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
 import { WebError } from '@deepseek-ai/dsh-web'
@@ -22,7 +24,7 @@ export interface CodexWebSearchOptions {
    * instead of denying the host's tool.
    */
   enabled?: () => boolean
-  fetchFn?: typeof fetch
+  fetchFn?: FetchFn
   requestId?: () => string
   retryBaseMs?: number
 }
@@ -68,7 +70,7 @@ export class CodexWebSearchProvider implements WebSearchProvider {
     const retryBaseMs = this.options.retryBaseMs ?? RETRY_BASE_MS
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       throwIfAborted(signal)
-      let response: Response
+      let response: FetchResponse
       try {
         response = await fetchFn(CODEX_SEARCH_URL, {
           method: 'POST',
@@ -104,7 +106,10 @@ export class CodexWebSearchProvider implements WebSearchProvider {
         throw new WebError(`Codex Web Search returned HTTP ${response.status}`, 'CODEX_SEARCH_UPSTREAM')
       }
       const text = await boundedText(response, signal)
-      try { return JSON.parse(text) as unknown } catch (cause) {
+      try {
+        const parsed: unknown = JSON.parse(text)
+        return parsed
+      } catch (cause) {
         throw new WebError('Codex Web Search returned invalid JSON', 'CODEX_SEARCH_RESPONSE', { cause })
       }
     }
@@ -146,7 +151,7 @@ function httpUrl(value: string): string | undefined {
     return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.href : undefined
   } catch { return undefined }
 }
-async function discard(response: Response): Promise<void> {
+async function discard(response: FetchResponse): Promise<void> {
   try { await response.body?.cancel() } catch { /* best effort */ }
 }
 function throwIfAborted(signal?: AbortSignal): void {
@@ -164,7 +169,7 @@ function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
     signal?.addEventListener('abort', onAbort, { once: true })
   })
 }
-async function boundedText(response: Response, signal?: AbortSignal): Promise<string> {
+async function boundedText(response: FetchResponse, signal?: AbortSignal): Promise<string> {
   const declared = Number(response.headers.get('content-length'))
   if (Number.isFinite(declared) && declared > MAX_RESPONSE_BYTES) {
     await discard(response)

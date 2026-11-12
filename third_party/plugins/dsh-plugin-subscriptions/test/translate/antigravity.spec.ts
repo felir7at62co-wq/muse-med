@@ -1,5 +1,6 @@
 import { strict as assert } from 'node:assert'
 import { test } from 'node:test'
+import { ToolCallId } from '../../src/compat.js'
 import { toAntigravityContents } from '../../src/translate/antigravity.js'
 
 const MODEL = 'gemini-3.8-flash-tiered'
@@ -11,23 +12,23 @@ type Messages = Parameters<typeof toAntigravityContents>[0]
  * back the response the adapter would put on the wire.
  */
 function responseFor(text: string, isError = false): unknown {
-  const messages = [
+  const messages: Messages = [
     {
       role: 'assistant',
-      content: [{ type: 'tool-call', id: 'c1', name: 'tool', arguments: '{}' }],
+      content: [{ type: 'tool-call', id: ToolCallId('c1'), name: 'tool', arguments: '{}' }],
     },
     {
       role: 'user',
       content: [
         {
           type: 'tool-result',
-          toolCallId: 'c1',
+          toolCallId: ToolCallId('c1'),
           content: [{ type: 'text', text }],
           isError,
         },
       ],
     },
-  ] as unknown as Messages
+  ]
   for (const entry of toAntigravityContents(messages, MODEL)) {
     for (const part of entry.parts) {
       if (part.functionResponse !== undefined) return part.functionResponse.response
@@ -72,22 +73,22 @@ test('non-JSON tool results keep their existing envelope', () => {
 })
 
 test('multiple tool results in one turn stay Struct compatible', () => {
-  const messages = [
+  const messages: Messages = [
     {
       role: 'assistant',
       content: [
-        { type: 'tool-call', id: 'c1', name: 'first', arguments: '{}' },
-        { type: 'tool-call', id: 'c2', name: 'second', arguments: '{}' },
+        { type: 'tool-call', id: ToolCallId('c1'), name: 'first', arguments: '{}' },
+        { type: 'tool-call', id: ToolCallId('c2'), name: 'second', arguments: '{}' },
       ],
     },
     {
       role: 'user',
       content: [
-        { type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: '{"ok":1}' }] },
-        { type: 'tool-result', toolCallId: 'c2', content: [{ type: 'text', text: '[1,2,3]' }] },
+        { type: 'tool-result', toolCallId: ToolCallId('c1'), content: [{ type: 'text', text: '{"ok":1}' }] },
+        { type: 'tool-result', toolCallId: ToolCallId('c2'), content: [{ type: 'text', text: '[1,2,3]' }] },
       ],
     },
-  ] as unknown as Messages
+  ]
   const responses: unknown[] = []
   for (const entry of toAntigravityContents(messages, MODEL)) {
     for (const part of entry.parts) {

@@ -203,9 +203,8 @@ describe('turn cards view', () => {
     const host = document.createElement('div')
     document.body.append(host)
     const root = createRoot(host)
-    const Entry = TurnCards as unknown as ComponentType<Record<string, unknown>>
     act(() => {
-      root.render(<Entry turn={turnWith(cards)} seq={10} useVisualizeFolds={<S,>(pick: (value: boolean) => S) => pick(folds)} />)
+      root.render(<TurnCards turn={turnWith(cards)} seq={10} useVisualizeFolds={<S,>(pick: (value: boolean) => S) => pick(folds)} />)
     })
     const titles = [...host.querySelectorAll('iframe')].map(frame => frame.title)
     act(() => { root.unmount() })

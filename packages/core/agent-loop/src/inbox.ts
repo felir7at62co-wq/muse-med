@@ -7,6 +7,7 @@
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {
   AgentEventDispatch,
   Inbox as InboxContract,
@@ -100,15 +101,20 @@ export const inboxProjectionDefinition = {
   wire: {
     // Pending messages round-trip the session log as lossless JSON. Claims expose
     // only the identities and positions needed to follow later queue restoration.
-    viewSchema: z.object({ 'next-turn': z.array(z.custom<UserMessage>()),
-      'next-step': z.array(z.custom<UserMessage>()),
+    viewSchema: z.object({ 'next-turn': z.array(z.custom<JsonValue>()),
+      'next-step': z.array(z.custom<JsonValue>()),
       activeClaim: z.object({ turn: z.number().int().nonnegative(), step: z.number().int().positive(),
         nextStep: z.array(z.custom<MessageId>()).readonly(), nextTurn: z.array(z.custom<MessageId>()).readonly() }).optional(),
-    }) as unknown as z.ZodType<InboxWireState>,
-    view: (state: InboxState) => ({ 'next-turn': state['next-turn'], 'next-step': state['next-step'],
+    }).transform(({ activeClaim, ...pending }): InboxWireState => (
+      activeClaim === undefined ? pending : { ...pending, activeClaim }
+    )),
+    view: (state: InboxState): InboxWireState => ({
+      // Session accepts these messages only after validating lossless JSON.
+      'next-turn': state['next-turn'] as typeof state['next-turn'] & readonly JsonValue[],
+      'next-step': state['next-step'] as typeof state['next-step'] & readonly JsonValue[],
       ...state.claim === undefined ? {} : { activeClaim: { turn: state.claim.turn, step: state.claim.step,
         nextStep: state.claim.nextStep.map(message => message.id), nextTurn: state.claim.nextTurn.map(message => message.id) } },
-    }) as unknown as InboxWireState,
+    }),
   },
   stateVersion: 2,
 } satisfies ProjectionDefinition<'inbox', InboxState>

@@ -4,6 +4,7 @@
  * harness streaming contract.
  */
 
+import type { FetchBody } from '../http.js'
 import { randomUUID } from 'node:crypto'
 import { ToolCallId } from '../compat.js'
 import { EMPTY_RESPONSE_CODE, LlmError } from '@deepseek-ai/dsh-llm'
@@ -71,7 +72,7 @@ function toolResultValue(block: ResolvedToolResultBlock): Record<string, unknown
   const text = block.content.map(part => part.type === 'text' ? part.text : '').join('')
   let parsed: unknown
   try {
-    parsed = JSON.parse(text) as unknown
+    parsed = JSON.parse(text)
   } catch {
     return { output: text, ...block.isError === true ? { isError: true } : {} }
   }
@@ -184,7 +185,7 @@ export function toAntigravityContents(messages: readonly TranslatableMessage[], 
           callNames.set(String(block.id), block.name)
           let args: unknown
           try {
-            args = JSON.parse(block.arguments) as unknown
+            args = JSON.parse(block.arguments)
           } catch {
             args = {}
           }
@@ -423,7 +424,7 @@ export class AntigravityStreamTranslator {
 
 /** Consume Antigravity's SSE response into the DSH streaming contract. */
 export async function* streamAntigravity(
-  stream: ReadableStream<Uint8Array>,
+  stream: FetchBody,
   onActivity?: () => void,
 ): AsyncGenerator<StreamChunk> {
   const translator = new AntigravityStreamTranslator()

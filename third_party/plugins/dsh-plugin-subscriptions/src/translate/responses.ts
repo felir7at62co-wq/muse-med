@@ -5,6 +5,7 @@
  * state machine ({@link ResponsesStreamTranslator}) so tests need no streams.
  */
 
+import type { FetchBody } from '../http.js'
 import {
   CONTEXT_WINDOW_EXCEEDED_CODE,
   EMPTY_RESPONSE_CODE,
@@ -501,7 +502,7 @@ export class ResponsesStreamTranslator {
  * @returns the chunk stream; throws when the stream ends before `response.completed`.
  */
 export async function* streamResponses(
-  stream: ReadableStream<Uint8Array>,
+  stream: FetchBody,
   onActivity?: () => void,
   transform?: (event: ResponsesStreamEvent) => ResponsesStreamEvent,
 ): AsyncGenerator<StreamChunk> {

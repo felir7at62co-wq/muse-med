@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFi
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { visualizeTool } from '../src/tool.ts'
 import { visualizeMetaFrom } from '../src/fragment.ts'
 import { handleImageRequest, inside, realpathOfDeepest } from '../src/storage.ts'
@@ -31,7 +31,7 @@ afterEach(async () => {
 
 /** Host context: a real home, the session sandbox policy, and an fs seam over the real disk. */
 function host() {
-  return {
+  return new Context().extend({
     get: (name: string) => {
       if (name === 'dshHomePath') return (...segments: string[]) => join(home, ...segments)
       if (name === 'sandboxPolicy') return { resolve: () => ({ mode: 'workspace-write', workspaceRoot: workspace }) }
@@ -50,7 +50,7 @@ function host() {
       },
       readBytes: async (target: { targetKey: string }) => new Uint8Array(await readFile(target.targetKey)),
     },
-  } as unknown as Context
+  })
 }
 
 /** A URL fetcher that serves one PNG per URL and counts calls. */

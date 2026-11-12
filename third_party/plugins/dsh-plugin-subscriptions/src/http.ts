@@ -14,18 +14,45 @@
  * browser/system proxy and is outside this module's reach.
  */
 import { ProxyAgent, fetch as undiciFetch } from 'undici'
+import type { RequestInfo as ProxyRequestInfo, RequestInit as ProxyRequestInit } from 'undici'
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { getDefaultAutoSelectFamilyAttemptTimeout, setDefaultAutoSelectFamilyAttemptTimeout } from 'node:net'
 import { dirname } from 'node:path'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 
-/**
- * undici's own fetch, typed to the DOM fetch signature: its bundled types are
- * stricter (Request requires `duplex`, `RequestInit.body` is non-null) and
- * incompatible with the DOM shapes the provider code passes. The runtime
- * object is the same Web-fetch implementation Node uses.
- */
-const dispatchFetch = undiciFetch as unknown as typeof fetch
+/** Response members shared by the host and proxy fetch implementations. */
+export interface FetchResponse {
+  readonly ok: boolean
+  readonly status: number
+  readonly statusText: string
+  readonly headers: {
+    get(name: string): string | null
+    forEach(callback: (value: string, key: string) => void): void
+  }
+  readonly body: FetchBody | null
+  text(): Promise<string>
+  json(): Promise<unknown>
+  arrayBuffer(): Promise<ArrayBuffer>
+}
+
+/** Byte-reader operations used by streaming subscription responses. */
+export interface FetchBody {
+  getReader(): {
+    read(): Promise<{ done: true; value: Uint8Array | undefined } | { done: false; value: Uint8Array }>
+    cancel(): Promise<void>
+    releaseLock(): void
+  }
+  cancel(): Promise<void>
+}
+
+/** Request options retained unchanged for the host and proxy fetch implementations. */
+export type FetchInit = RequestInit
+
+// Undici declares its own Web request types; callers retain the existing Node
+// fetch inputs, and consumers use only the response operations shared by both.
+function dispatchFetch(input: RequestInfo | URL, init: RequestInit & { dispatcher: ProxyAgent }): Promise<FetchResponse> {
+  return undiciFetch(input as ProxyRequestInfo, init as ProxyRequestInit)
+}
 
 /** Stored proxy configuration (the proxy.json shape). */
 export interface ProxyConfig {
@@ -397,8 +424,11 @@ export async function proxySetConfig(input: ProxyInput): Promise<ProxyConfigView
  * ProxyAgent dispatcher always comes from the same undici build the request
  * is issued with — a mismatched dispatcher can be silently ignored by the
  * host's global fetch.
+ * @param input - destination accepted by the existing Node fetch route.
+ * @param init - request options forwarded unchanged to the selected fetch implementation.
+ * @returns the host or proxy response with the operations subscription callers consume.
  */
-export async function proxiedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+export async function proxiedFetch(input: RequestInfo | URL, init: FetchInit = {}): Promise<FetchResponse> {
   await ensureReady()
   let dispatcher: ProxyAgent | undefined
   if (current.enabled && agent !== undefined) {
@@ -412,8 +442,7 @@ export async function proxiedFetch(input: RequestInfo | URL, init: RequestInit =
     if (!matchesBypass(hostname, current.bypass)) dispatcher = agent
   }
   if (dispatcher === undefined) return fetch(input, init)
-  const proxied = { ...init, dispatcher } as RequestInit
-  return dispatchFetch(input, proxied)
+  return dispatchFetch(input, { ...init, dispatcher })
 }
 
 /**
@@ -464,7 +493,7 @@ export async function proxyTestConnection(target = DEFAULT_PROXY_TEST_URL, draft
       ? { method: 'GET', dispatcher: probeAgent, signal: AbortSignal.timeout(DEFAULT_PROXY_TEST_TIMEOUT_MS) }
       : { method: 'GET', signal: AbortSignal.timeout(DEFAULT_PROXY_TEST_TIMEOUT_MS) }
     const response = probeAgent !== undefined
-      ? await dispatchFetch(parsed.toString(), init as RequestInit)
+      ? await undiciFetch(parsed.toString(), init)
       : await fetch(parsed.toString(), init)
     // Drain so the connection can be released; the body is irrelevant.
     void response.arrayBuffer().catch(() => undefined)

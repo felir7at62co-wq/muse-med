@@ -12,28 +12,33 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { PAGE_CONFIG_GLOBAL, STYLES, type StyleId } from '../src/style.ts'
+import { PartialArguments } from '@deepseek-ai/dsh-util-values'
 import { VisualizeCard } from '../src/client/VisualizeCard.tsx'
 
 const FRAGMENT = '<div id="lab">hi</div>'
 
 /** Render one toolview block and return the srcdoc of its frame. */
-function render(block: unknown): string {
+function render(block: Parameters<typeof VisualizeCard>[0]['block']): string {
   const container = document.createElement('div')
   document.body.append(container)
-  const props = { callId: 'call-1', block } as unknown as Parameters<typeof VisualizeCard>[0]
-  act(() => createRoot(container).render(<VisualizeCard {...props} />))
+  act(() => createRoot(container).render(<VisualizeCard callId="call-1" block={block} />))
   return container.querySelector('iframe')?.getAttribute('srcdoc') ?? ''
 }
 
-const running = { argsRaw: JSON.stringify({ fragment: FRAGMENT }) }
+const running = {
+  phase: 'start' as const, callId: 'call-1', name: 'visualize', turn: 1, step: 1, time: 0, subCalls: [],
+  argsRaw: JSON.stringify({ fragment: FRAGMENT }), args: PartialArguments.fromText(JSON.stringify({ fragment: FRAGMENT })),
+}
 
 /** A settled call with persisted meta in `style`. */
 function settled(style: StyleId, args: Record<string, unknown>) {
   return {
-    kind: 'result',
+    kind: 'tool-result' as const,
+    seq: 1, time: 0, callId: 'call-1', name: 'visualize', callTime: 0, subCalls: [],
+    args: PartialArguments.fromText(JSON.stringify(args)),
     isError: false,
     content: [],
-    call: { argsRaw: JSON.stringify(args) },
+    call: { name: 'visualize', argsRaw: JSON.stringify(args) },
     meta: { kind: 'visualize', fragment: FRAGMENT, title: 'Lab', mode: 'inline', path: '', style },
   }
 }

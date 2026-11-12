@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import {
   DEFAULT_IMAGE_LIMITS,
   isPublicAddress,
@@ -123,7 +123,7 @@ describe('workspace images', () => {
     await rm(base, { recursive: true, force: true })
   })
 
-  const read = (fs: object = diskFs()) => workspaceImageReader({ fs } as unknown as Context, workspace)
+  const read = (fs: object = diskFs()) => workspaceImageReader(new Context().extend({ fs }), workspace)
   const run = async (fragment: string, options: Partial<ResolveOptions> = {}) => await resolveCardImages(fragment, {
     readFile: read(),
     fetchUrl: noFetch,

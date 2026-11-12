@@ -243,8 +243,6 @@ interface FetchRouteCompat {
   readonly fetch: (request: Request) => Promise<Response>
 }
 
-type FetchRegisterCompat = (route: FetchRouteCompat) => () => Promise<void>
-
 /** Connection `client-request` envelope, as the browser rpc caller sends it. */
 interface ClientRequestEnvelope {
   type: 'client-request'
@@ -662,10 +660,9 @@ export function registerAuthRpc(
         return failure(error)
       }
     }
-    const register = connection.fetch.register as unknown as FetchRegisterCompat
     for (const endpoint of SUBSCRIPTIONS_AUTH_ENDPOINTS) {
       ctx.effect(
-        () => register(fetchRouteFor(endpoint, handler)),
+        () => connection.fetch.register(fetchRouteFor(endpoint, handler)),
         `dsh-plugin-subscriptions: /api/${SUBSCRIPTIONS_AUTH_PREFIX}${endpoint} route`,
       )
     }

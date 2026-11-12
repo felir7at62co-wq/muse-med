@@ -1,7 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
-import type { ProviderPreferences, SubagentSpeedTier, SubscriptionTool } from '../provider-settings.js'
+import type { ProviderPreferences, SubagentSpeedTier, SubscriptionTool } from '../provider-settings-types.js'
 import type { SubscriptionProvider } from './SubscriptionsSection.js'
 import { callSubscriptionsAuth } from './subscriptions-rpc.js'
 import type { AccountCatalogRow } from './account-preferences.js'

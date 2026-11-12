@@ -3,10 +3,12 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { readFile } from 'node:fs/promises'
 import { pathToFileURL, fileURLToPath } from 'node:url'
-import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { applyLoopbackServerEffect } from '../loopback-fixture-server.mjs'
-import { importSnapshotModule } from '../muse-fixture-import.mjs'
+import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
 import { apply as mountPreset } from '../muse-editing-tool-catalog/editing-preset-fixture.mjs'
+
+const { loadOverlayPatches } = await importSnapshotPackage('@deepseek-ai/dsh-app-boot',
+  new URL('../../../apps/desktop-host/package.json', import.meta.url))
 
 const { PiAiAdapter, resolveProfiles } = await importSnapshotModule(
   new URL('../../../packages/llm/llm-pi-ai/src/index.ts', import.meta.url),

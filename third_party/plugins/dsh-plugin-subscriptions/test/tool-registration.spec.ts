@@ -1,10 +1,10 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { registerWithAlias, TOOL_ALIASES } from '../src/tools/registration.js'
-import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
 
 function definition(name: string): ToolDefinition {
-  return { name, description: name, parameters: {}, output: { schema: { type: 'string' }, render: () => [] }, execute: async () => 'ok' } as unknown as ToolDefinition
+  return defineTool({ name, description: name, parameters: {}, output: { schema: { type: 'string' }, render: () => [] }, execute: async () => 'ok' })
 }
 
 function registry(occupied: string[]) {

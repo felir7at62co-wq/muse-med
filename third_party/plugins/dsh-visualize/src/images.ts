@@ -331,7 +331,7 @@ export function workspaceImageReader(ctx: Context, root: string | undefined): Fi
     const base = resolvePath(root)
     const lexical = resolvePath(base, path)
     if (!inside(base, lexical)) throw new ImageError('outside the workspace; only files inside the workspace can be embedded')
-    const fs = ctx.fs as unknown as Partial<BinaryFs> | undefined
+    const fs: Partial<BinaryFs> | undefined = ctx.fs
     if (typeof fs?.resolve !== 'function' || typeof fs.contains !== 'function'
       || typeof fs.stat !== 'function' || typeof fs.readBytes !== 'function') {
       throw new ImageError('this dsh host cannot read binary workspace files; save the image somewhere with an https URL instead')

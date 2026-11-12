@@ -1,4 +1,5 @@
 /** Account scheduling shared by image generation and editing, independent of chat catalogs/quota. */
+import type { FetchResponse } from '../http.js'
 import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { AccountTokenManager } from './accounts.js'
 import { httpLlmError } from './common.js'
@@ -15,7 +16,7 @@ export interface ImageAccountRequest<S extends ImageSession> {
   /** Session object identity provides bounded-lifetime affinity, also across generate/edit. */
   owner?: object | undefined
   rateLimitReset: RateLimitResetReader
-  send: (session: S) => Promise<Response>
+  send: (session: S) => Promise<FetchResponse>
 }
 
 export class ImageAccountPool {
@@ -31,7 +32,7 @@ export class ImageAccountPool {
     this.sticky = new WeakMap()
   }
 
-  async request<S extends ImageSession>(request: ImageAccountRequest<S>): Promise<Response> {
+  async request<S extends ImageSession>(request: ImageAccountRequest<S>): Promise<FetchResponse> {
     const { provider, tokens, signal, owner, send, rateLimitReset } = request
     signal.throwIfAborted()
     const accounts = await tokens.list()

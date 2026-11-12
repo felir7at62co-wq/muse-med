@@ -4,6 +4,7 @@
  * the Anthropic Messages API with the Claude Code identity headers.
  */
 
+import type { FetchResponse } from '../http.js'
 import { execFileSync } from 'node:child_process'
 import { EMPTY_RESPONSE_CODE, errorChain, LlmAdapter, LlmError, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
@@ -860,7 +861,7 @@ export class ClaudeAdapter extends LlmAdapter {
     return undefined
   }
 
-  private async request(options: GenerateOptions, session: ClaudeSession, signal: AbortSignal): Promise<Response> {
+  private async request(options: GenerateOptions, session: ClaudeSession, signal: AbortSignal): Promise<FetchResponse> {
     const messages = await resolveImages(options.messages, this.options.resolveAttachments?.(), signal, CLAUDE_IMAGE_LIMIT)
     if (hostSupportsImageOffload()) {
       const offloadImages = requiredImageOffloadCount(messages, CLAUDE_REQUEST_IMAGE_BUDGET)

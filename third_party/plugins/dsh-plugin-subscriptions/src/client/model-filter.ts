@@ -1,5 +1,5 @@
 import type { AccountCatalogRow } from './account-preferences.js'
-import type { SubagentSpeedTier } from '../provider-settings.js'
+import type { SubagentSpeedTier } from '../provider-settings-types.js'
 
 /** What the model editor shows for the current filter state. */
 export type ModelListState = 'provider-empty' | 'filter-empty' | 'rows'

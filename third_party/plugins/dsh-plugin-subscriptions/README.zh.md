@@ -309,6 +309,8 @@ DSH `v0.1.3-alpha.1` 新增宿主统一代理支持。建议在启动环境或 `
 
 ## 开发
 
+离线传输检查使用自行创建的本机回环目标与 CONNECT 代理，核对请求体、响应头、HTTP 错误及 SSE 字节。提供方测试使用独立 Session 和完整 Agent 记录，不驱动模型回合。
+
 ```sh
 pnpm install   # 开发基线：已发布的 DSH 0.2.1-rc.2 依赖
 pnpm build     # tsc(lib/)+ tsdown(lib/client.js 浏览器 bundle)
