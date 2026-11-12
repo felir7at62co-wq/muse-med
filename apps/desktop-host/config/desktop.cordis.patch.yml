@@ -250,10 +250,11 @@
           drama_project: [项目设定, 项目圣经, 人物关系, 画幅, 分辨率]
           manuscript_revision: [稿件版本, 原稿对照, 修改对比, 剧本差异, 精修核对]
           source_recover: [恢复来源, 原始工具结果, 回读历史工具, 完整读取]
+          skill_catalog: [技能目录, 技能清单, 查找技能, 搜索技能]
           jubian_storyboard: [视频卡, 写卡, 修改分镜卡, 制作卡片, 去字幕, 擦除烧录字幕]
           jubian_asset: [角色素材, 场景素材, 道具素材, 上传素材, 素材查询]
           jubian_video: [视频生成, 制作视频, 生成任务, 视频任务查询]
-          jubian_video_review: [视频复核, 接受视频候选, 拒绝视频候选, 复核生成结果]
+          jubian_video_review: [视频质检报告, 查看视频审核, 视频复核, 质检结果]
           drama_render: [剪辑, 成片, 渲染, 合成视频, 交付检查, 台词覆盖, 字幕布局]
           muse_production: [制作任务, 制作编排, 资产生成, 生成成本, 制作进度]
           jubian_catalog: [剧变模型, 模型报价, 剧本目录, 分集列表]
@@ -281,7 +282,6 @@
           screenplay_export_docx: [Word, docx, 导出剧本, 剧本文档]
           load_workspace_dependencies: [Word, docx, Office, 文档处理, 工作间依赖]
           muse_skill_evolution: [技能进化, 技能学习, 经验复盘, 技能提案, 技能版本, 撤回技能]
-          skill_catalog: [技能目录, 搜索技能, 查询技能, 查找技能]
 
         capabilities:
           - id: interaction
@@ -319,7 +319,7 @@
           - id: knowledge
             title: 技能、MCP 与项目资料
             description: 管理学习技能与版本，读取已连接的 MCP 资源与项目资料。
-            tools: [source_recover, read_mcp_resource, list_mcp_resources, list_mcp_resource_templates, muse_skill_evolution, skill_catalog]
+            tools: [source_recover, skill_catalog, read_mcp_resource, list_mcp_resources, list_mcp_resource_templates, muse_skill_evolution]
           - id: coordination
             title: 子任务与跟进
             description: 委派子任务、查看执行状态、管理后台工作并安排定时跟进。

@@ -29,3 +29,11 @@ it('does not present failed, pending or stale media as detected shots', () => {
   expect(assembleTimeline([a], [{ ...analysis(a), state: 'failed' }]).shots).toEqual([])
   expect(assembleTimeline([a], []).duration).toBe(0)
 })
+
+it('keeps later source coordinates stable when a completed analysis has no duration', () => {
+  const a = source('first'), b = source('second')
+  const result = assembleTimeline([a, b], [{ ...analysis(a), durationSeconds: null, shots: [] }, analysis(b)])
+  expect(result.duration).toBe(6)
+  expect(result.offsets[b.id]).toBe(0)
+  expect(result.shots.map(shot => [shot.startSeconds, shot.endSeconds])).toEqual([[0, 2], [2, 6]])
+})

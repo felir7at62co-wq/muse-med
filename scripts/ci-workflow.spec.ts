@@ -1244,15 +1244,16 @@ describe('Runtime and LLM e2e Blacksmith routing', () => {
 })
 
 describe('bubblewrap preparation script', () => {
-  it('pins bubblewrap to a recorded Launchpad build and excludes Ubuntu pool downloads', () => {
+  it('pins bubblewrap to a recorded Launchpad build with one official transport fallback', () => {
     const script = readFileSync(resolve(root, 'scripts/prepare-ci-bubblewrap.sh'), 'utf8')
     const url = /^readonly BUBBLEWRAP_URL="([^"]+)"$/mu.exec(script)?.[1]
 
     expect(url).toMatch(
       /^https:\/\/launchpad\.net\/ubuntu\/\+source\/bubblewrap\/[^/]+\/\+build\/\d+\/\+files\/bubblewrap_[^/]+_amd64\.deb$/u,
     )
-    // Ubuntu removes superseded versions from its live package pool.
-    expect(script).not.toMatch(/https?:\/\/[^/'"\s]+\/ubuntu(?:-ports)?\/pool\//u)
+    const fallback = /^readonly BUBBLEWRAP_FALLBACK_URL="([^"]+)"$/mu.exec(script)?.[1]
+    expect(fallback).toBe('https://archive.ubuntu.com/ubuntu/pool/main/b/bubblewrap/bubblewrap_${BUBBLEWRAP_VERSION}_amd64.deb')
+    expect(script).toContain('readonly BUBBLEWRAP_SHA256=\'db4d572a7927bfd34cc9b8e24b56983efa8e0483d03da6c810f6caae081dcc36\'')
   })
 })
 

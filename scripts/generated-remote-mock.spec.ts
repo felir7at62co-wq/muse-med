@@ -4,15 +4,16 @@ import { generatedRemoteMockPlugin } from './generated-remote-mock.ts'
 
 describe('owning generated Remote mocks', () => {
   it.each([
-    ['@deepseek-ai/dsh-muse-account/remote', 'packages/client/ui-muse-account'],
-    ['@deepseek-ai/dsh-feishu-settings/remote', 'packages/host/feishu-settings'],
-  ])('resolves %s only for its two owning importers', (remote, directory) => {
+    ['@deepseek-ai/dsh-muse-account/remote', 'packages/client/ui-muse-account', 'browser-plugin.client.spec.tsx'],
+    ['@deepseek-ai/dsh-muse-market/remote', 'packages/client/ui-muse-market', 'market-mount.client.spec.tsx'],
+    ['@deepseek-ai/dsh-feishu-settings/remote', 'packages/host/feishu-settings', 'browser-plugin.client.spec.tsx'],
+  ])('resolves %s only for its two owning importers', (remote, directory, spec) => {
     const resolver = generatedRemoteMockPlugin(process.cwd())
     const owner = join(process.cwd(), directory, 'src/client/index.ts')
     const virtual = resolver.resolveId(remote, owner)
     expect(virtual).toBeDefined()
     expect(resolver.resolveId(remote, `${owner}?source-test`)).toBe(virtual)
-    expect(resolver.resolveId(remote, join(process.cwd(), directory, 'tests/browser-plugin.client.spec.tsx'))).toBe(virtual)
+    expect(resolver.resolveId(remote, join(process.cwd(), directory, 'tests', spec))).toBe(virtual)
     expect(resolver.resolveId(remote, owner.replaceAll('/', '\\'))).toBe(virtual)
     expect(resolver.resolveId(remote, undefined)).toBeUndefined()
     expect(resolver.resolveId(remote, `${owner}.unrelated`)).toBeUndefined()

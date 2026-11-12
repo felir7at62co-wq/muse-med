@@ -105,6 +105,8 @@ it.each([
   ['复核生成结果', 'jubian_video_review'],
   ['搜索技能目录', 'skill_catalog'],
   ['找一下背景音乐', 'drama_bgm'],
+  ['搜索技能', 'skill_catalog'],
+  ['查看视频审核', 'jubian_video_review'],
 ])('finds %s from actual registered descriptions and configured aliases', (query, expected) => {
   const schemas = new Map(catalog.flatMap(entry => entry.schemas).map(schema => [schema.name, schema]))
   const index = new ToolSearchIndex([...schemas.values()].map(schema => ({ ...schema, keywords: config.keywords?.[schema.name] ?? [] })),

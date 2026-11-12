@@ -53,4 +53,11 @@ describe('portable cloud JSON readers', () => {
     expect(() => parseMarketAccountId('a'.repeat(32))).toThrow('invalid-account')
     expect(() => parseMarketUploadRequestId('attempt/key')).toThrow('invalid-request-id')
   })
+
+  it.each([null, [], { id: 'b'.repeat(32), title: '' },
+    { id: 'b'.repeat(32), title: 'Writing team', privatePath: '/private/team' }])(
+    'rejects an invalid publishing membership %#', (membership) => {
+      expect(() => parseMarketIdentity({ accountId: 'd'.repeat(16), publishers: [membership], admin: false }))
+        .toThrow('invalid-response')
+    })
 })

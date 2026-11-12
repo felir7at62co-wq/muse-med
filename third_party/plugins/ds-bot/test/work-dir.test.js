@@ -486,7 +486,7 @@ test('a model the user picks while the fresh part is made reaches the fresh part
     await select(request)
     if (request.sessionId !== 's1' || selected.length > 1) return
     // The user switches models after the fresh part got the old one, before it is the Bot's.
-    void env.call('update-bot', { id: 'b', model: 'deepseek/v4-pro' })
+    assert.equal((await env.call('update-bot', { id: 'b', model: 'deepseek/v4-pro' })).ok, true)
     await until(() => env.state().bots.b.model === 'deepseek/v4-pro')
   }
   assert.equal((await env.call('update-bot', { id: 'b', workDir: env.project })).ok, true)

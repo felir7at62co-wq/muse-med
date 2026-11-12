@@ -68,6 +68,8 @@ When an Assistant attempt retires without a visible message, Chat hides its alre
 
 Text and reasoning contribute to Assistant visibility only when they contain a non-whitespace character. Streaming appends reuse each block's visibility; block replacement and finalized messages recalculate it while preserving the original text.
 
+Chat routes Inbox, user-message, request-header, command, compaction, retry and terminal-notice Definitions through their declared event types. Their match handlers do no work for live Assistant chunks.
+
 <a id="command-and-failure-rows"></a>
 ## Command and failure rows
 

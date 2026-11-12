@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ConversationMatch, ConversationNodeContext, ConversationNodeDefinition, RequestPromptInspector,
+  ConversationMatch, ConversationNodeContext, ConversationNodeDefinition, ConversationNodeDefinitionInput, RequestPromptInspector,
   SystemPromptState, SystemPromptInspector,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ChatNode } from '../contract/chat-nodes.ts'
@@ -95,13 +95,15 @@ export function systemMessageDefinition(inspect: SystemPromptInspector): Convers
  * uiConversation service (a client bundle cannot value-import it).
  * @returns the Chat request-prompt Definition.
  */
-export function requestPromptDefinition(inspect: RequestPromptInspector): ConversationNodeDefinition<RequestPromptState> {
+export function requestPromptDefinition(inspect: RequestPromptInspector): ConversationNodeDefinitionInput<RequestPromptState> {
   return {
     kind: 'request-prompt',
     target: 'chat',
-    match: event => event.type === 'request/header'
-      ? { id: String(event.seq), role: 'start' }
-      : null,
+    match: {
+      'request/header': event => event.type === 'request/header'
+        ? { id: String(event.seq), role: 'start' }
+        : null,
+    },
     start: (context, match, reader) => {
       if (match.event.type !== 'request/header') {
         throw new Error('request-prompt start requires request/header')

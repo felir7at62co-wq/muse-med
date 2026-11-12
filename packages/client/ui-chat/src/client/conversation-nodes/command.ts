@@ -1,6 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  CommandNode, CompactionSummaryNode, ConversationMatch, ConversationNodeContext, ConversationNodeDefinition,
+  CommandNode, CompactionSummaryNode, ConversationMatch, ConversationNodeContext,
+  ConversationNodeDefinition, ConversationNodeDefinitionInput,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { CompactionCheckpointSource } from '@deepseek-ai/dsh-compaction/checkpoint'
 import type {} from '@deepseek-ai/dsh-compaction/types'
@@ -170,29 +171,38 @@ export function updateCompactionState<State extends CompactionEvidence>(
   return state
 }
 
+const matchCommand: ConversationNodeDefinition<CommandState>['match'] = (event) => {
+  if (event.type === 'command/run') {
+    return { id: String(event.data.commandId), role: 'start' }
+  }
+  if (event.type === 'command/done') {
+    return { id: String(event.data.commandId), role: 'update' }
+  }
+  const checkpoint = compactSource(event)
+  if (checkpoint?.sourceCommandId !== undefined) {
+    return { id: String(checkpoint.sourceCommandId), role: 'update' }
+  }
+  if (event.type === 'compaction/start'
+    || event.type === 'compaction/summary'
+    || event.type === 'compaction/end') {
+    if (event.data.sourceCommandId !== undefined) {
+      return { id: String(event.data.sourceCommandId), role: 'update' }
+    }
+  }
+  return null
+}
+
 /** Slash-command lifecycle, including integrated manual compaction, Definition. */
-export const commandDefinition: ConversationNodeDefinition<CommandState> = {
+export const commandDefinition: ConversationNodeDefinitionInput<CommandState> = {
   kind: 'command',
   target: 'chat',
-  match: (event) => {
-    if (event.type === 'command/run') {
-      return { id: String(event.data.commandId), role: 'start' }
-    }
-    if (event.type === 'command/done') {
-      return { id: String(event.data.commandId), role: 'update' }
-    }
-    const checkpoint = compactSource(event)
-    if (checkpoint?.sourceCommandId !== undefined) {
-      return { id: String(checkpoint.sourceCommandId), role: 'update' }
-    }
-    if (event.type === 'compaction/start'
-      || event.type === 'compaction/summary'
-      || event.type === 'compaction/end') {
-      if (event.data.sourceCommandId !== undefined) {
-        return { id: String(event.data.sourceCommandId), role: 'update' }
-      }
-    }
-    return null
+  match: {
+    'command/run': matchCommand,
+    'command/done': matchCommand,
+    'user/message': matchCommand,
+    'compaction/start': matchCommand,
+    'compaction/summary': matchCommand,
+    'compaction/end': matchCommand,
   },
   start: (_context, match) => ({ command: commandFromRun(match) }),
   update: (context, match) => {

@@ -174,7 +174,6 @@
         "scripts/snapshot-spill-locators.ts",
         "snapshots/session/headless.snapshot.ts",
         "snapshots/session/muse-fixture-import.mjs",
-        "snapshots/session/muse-visualize/normalize.ts",
         "snapshots/session/subagent-child-question-rejection/assertions.ts"
       ],
       "allowedOutputs": [
@@ -599,7 +598,6 @@
         "snapshots/session/muse-jianying-draft/draft-fixture.mjs",
         "snapshots/session/muse-jianying-draft/session.v4.jsonl",
         "snapshots/session/muse-jianying-draft/snapshot.yml",
-        "snapshots/session/muse-jianying-draft/workspace.expected/drafts/.empty",
         "snapshots/session/muse-jianying-draft/workspace.expected/drafts/candidate-95/draft_content.json",
         "snapshots/session/muse-jianying-draft/workspace.expected/drafts/candidate-95/muse-review.json",
         "snapshots/session/muse-jianying-draft/workspace.expected/request.json",
@@ -624,7 +622,6 @@
         "snapshots/session/muse-video-inspect/cordis.yml",
         "snapshots/session/muse-video-inspect/session.v4.jsonl",
         "snapshots/session/muse-video-inspect/snapshot.yml",
-        "snapshots/session/muse-visualize/normalize.ts",
         "snapshots/session/product-subagent-codex/cordis.snapshot.yml",
         "snapshots/session/product-subagent-codex/cordis.yml",
         "snapshots/session/product-subagent-codex/session.v2.jsonl",
@@ -1180,7 +1177,6 @@
         "packages/test-support/session-snapshot/tests/fixtures/skill-root-isolation.ts",
         "snapshots/session/headless.snapshot.ts",
         "snapshots/session/muse-fixture-import.mjs",
-        "snapshots/session/muse-visualize/normalize.ts",
         "snapshots/session/subagent-child-question-rejection/assertions.ts"
       ],
       "allowedOutputs": [
@@ -1337,7 +1333,6 @@
         "snapshots/session/muse-selected-account-models/system-prompt.expected.md",
         "snapshots/session/muse-selected-account-models/tool-schemas.expected.json",
         "snapshots/session/muse-selected-account-models/writer.expected.jsonl",
-        "snapshots/session/muse-visualize/normalize.ts",
         "snapshots/session/pi-ai-first-turn-context/context-check.mjs",
         "snapshots/session/pi-ai-first-turn-context/cordis.snapshot.yml",
         "snapshots/session/pi-ai-first-turn-context/cordis.yml",
@@ -1735,7 +1730,6 @@
         "snapshots/session/loopback-fixture-server.mjs",
         "snapshots/session/muse-fixture-import.mjs",
         "snapshots/session/muse-skill-panel-import.mjs",
-        "snapshots/session/muse-visualize/normalize.ts",
         "snapshots/session/subagent-child-question-rejection/assertions.ts",
         "third_party/plugins/muse-lvpaopao/scripts/build.mjs",
         "third_party/plugins/muse-lvpaopao/scripts/native-resources.mjs"
@@ -2040,7 +2034,6 @@
         "snapshots/session/muse-visualize/README.zh.md",
         "snapshots/session/muse-visualize/cordis.snapshot.yml",
         "snapshots/session/muse-visualize/cordis.yml",
-        "snapshots/session/muse-visualize/normalize.ts",
         "snapshots/session/muse-visualize/replay.override.json",
         "snapshots/session/muse-visualize/session.v4.jsonl",
         "snapshots/session/muse-visualize/snapshot.yml",
@@ -3258,7 +3251,6 @@
         ".github/workflows/linux-snapshot-capture.yml",
         "packages/test-support/session-snapshot/tests/fixtures/compaction-working-directory.ts",
         "snapshots/session/headless.snapshot.ts",
-        "snapshots/session/muse-visualize/normalize.ts",
         "snapshots/session/subagent-child-question-rejection/assertions.ts"
       ],
       "allowedOutputs": [
@@ -3311,7 +3303,6 @@
         "snapshots/session/compaction-summary-headroom/session.v4.jsonl",
         "snapshots/session/compaction-summary-headroom/snapshot.yml",
         "snapshots/session/headless.snapshot.ts",
-        "snapshots/session/muse-visualize/normalize.ts",
         "snapshots/session/subagent-child-question-rejection/assertions.ts"
       ],
       "expectedManifests": {

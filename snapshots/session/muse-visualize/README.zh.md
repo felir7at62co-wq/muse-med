@@ -7,3 +7,5 @@
 回放使用专用的 `snapshot-visualize` 模型提供方，没有真实 API 回退路径。源码回放使用保留的源码；`DSH_EXAMPLE_MODE=lib` 使用保留且已审查的 `lib/index.js`。将 `MUSE_VISUALIZE_PACKAGE` 设为已审查并解包的插件目录，可以改用其中构建后的入口。运行时文件、资源和明确的 Host peer 链接都放在测试私有 home 中，不读取个人样式文件或账号。
 
 `apps/web/tests/muse-visualize.e2e.ts` 使用相同的原生 Session 数据打开已打包的客户端，检查滑块交互和刷新、两个会话的隔离，并验证图卡提示只填入草稿，保留用户已有草稿和附件。浏览器截图和验收回执保存在 `.artifacts/visualize-browser-ui/` 下。
+
+精确请求预算的期望值根据已分配的工作目录和 Session id 展开已提交的提示词、工具定义及工具文本。运行时上下文路径保留解析后的目录，可视化存储路径保留所配置 home 的写法，包括 Windows 路径别名。夹具销毁时恢复临时 home 环境变量，规范录制文件保持不变。
