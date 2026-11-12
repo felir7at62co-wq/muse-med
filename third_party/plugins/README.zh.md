@@ -55,6 +55,8 @@ Market 的 HTTP 界面不适用于无端口的桌面传输。归档的 Codex 构
 
 默认 Desktop 源码清单选择 [dsh-plugin-subscriptions](dsh-plugin-subscriptions/README.md)，其 MIT 发行版固定于 [sources.json](sources.json)。私有构建覆盖层将保留的 Host 和 Client 入口适配到已审核的 DSH 运行时；已安装用户 profile 与凭据不作为构建输入。旧 `dsh-codex-subscription` 源码仍保留，默认 Desktop 构建不选用它。
 
+订阅用量入口通过构建覆盖层使用每实例独立的 CSS 锚点，不再依赖已移除的 `useAnchoredPosition` 基础组件。Client 产物检查会实际挂载有账号和无账号的入口，并验证面板关闭与卸载。
+
 订阅运行产物仅导出 JavaScript，不发布 TypeScript 声明文件。保留的上游 TypeScript 源码保持不变。归档恢复构建保留旧 Codex native-CLI 子代理路径；替换插件使用普通 DSH 子代理。旧画板、PSD、标注与增强偏好不直接迁移。
 
 [订阅迁移指南](../../docs/upgrade-guide/v0.2.2-rc.1/muse-subscriptions/guide.zh.md)说明账号存储、保留的会话历史，以及旧增强预览与标注数据。导入失败会持久记录 `manual-login-required`，要求用户主动登录；标记无法保存时，状态明确提示重启后可能重试自动导入。新供应商注册、图片附件、真实账号访问和成功推理分别验收；只有压缩包不能证明这些结果。

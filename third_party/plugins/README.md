@@ -55,6 +55,8 @@ Market's HTTP UI is not suitable for the portless Desktop carrier. The archived 
 
 The default Desktop source inventory selects [dsh-plugin-subscriptions](dsh-plugin-subscriptions/README.md) at the MIT release pinned in [sources.json](sources.json). Its private build overlay adapts the retained Host and Client entries to the reviewed DSH runtime; installed user profiles and credentials are not build inputs. The previous `dsh-codex-subscription` source remains disabled for default Desktop builds.
 
+The subscription usage dock uses per-instance CSS anchors in its staging overlay. It does not depend on the removed `useAnchoredPosition` primitive. The built Client check mounts the dock with and without accounts and covers panel dismissal and unload.
+
 The subscription runtime artifact exports JavaScript only; it does not publish TypeScript declaration files. The retained upstream TypeScript source remains unchanged. Archived recovery builds retain the old Codex native-CLI subagent path; the replacement uses ordinary DSH subagents. Old canvas, PSD, annotations and enhancement preferences are not directly migrated.
 
 The [subscription migration guide](../../docs/upgrade-guide/v0.2.2-rc.1/muse-subscriptions/guide.md) covers account stores, retained Session history and the old enhanced preview and annotation data. Failed imports persist `manual-login-required` for explicit login; if the marker cannot be saved, status warns that automatic import may retry after restart. New provider registration, image attachments, real account access and successful inference require separate verification; a package archive alone establishes none of these outcomes.
