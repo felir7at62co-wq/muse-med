@@ -63,7 +63,6 @@
     "src/episode-delivery.ts",
     "src/episode-digest.ts",
     "src/episode-delivery-job.ts",
-    "src/episode-file-digest.ts",
     "src/episode-execution.ts",
     "src/approved-episode-plan.ts",
     "src/episode-delivery-service.ts",
