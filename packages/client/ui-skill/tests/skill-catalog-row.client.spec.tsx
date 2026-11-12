@@ -85,6 +85,17 @@ describe('SkillCatalogRow', () => {
     expect(screen.getByRole('status').textContent).toBe('查询完成')
   })
 
+  it.each([
+    { kind: 'skill-catalog' },
+    { kind: 'skill-catalog', count: 1 },
+    { kind: 'skill-catalog', count: 1, totalMatched: 1 },
+  ])('keeps incomplete historical paging metadata out of the displayed count: %j', (meta) => {
+    const view = render(<SkillCatalogRow {...props(settled({ meta }))} />)
+    expect(screen.getByRole('status').textContent).toBe('查询完成')
+    expect(view.container.textContent).not.toContain('本页')
+    expect(view.container.textContent).not.toContain('private-session')
+  })
+
   it('provides the same directory keys in every supported dictionary', () => {
     const keys = Object.keys(zh).filter(key => key.startsWith('catalog.')).sort()
     expect(keys).toHaveLength(12)
