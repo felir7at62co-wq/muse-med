@@ -1,0 +1,6 @@
+# These SDK scenarios disable shell tools and exercise only native Skill operations.
+# Keep the unused Windows runner's diagnostic Skill out of their bounded catalogs.
+- id: sandbox
+  config:
+    runnerCommand: !!js "process.platform === 'win32' ? ['sdk-market-unused-runner'] : []"
+    runnerFailureSignatures: !!js "process.platform === 'win32' ? ['sdk-market-unused-runner-failure'] : []"
