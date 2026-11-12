@@ -59,7 +59,7 @@ export interface WorkingDirectoryGuard {
   readonly directory: string
   /** Aborts on release, owner cancellation, Session change, or service disposal. */
   readonly signal: AbortSignal
-  /** Release this guard and abort its signal. */
+  /** Release this guard and abort its signal; repeated calls do not affect later guards. */
   release(): void
 }
 
@@ -163,9 +163,8 @@ export class WorkingDirectoryService extends Service {
    */
   ensure(agent: Agent, signal?: AbortSignal): Promise<string> {
     return this.serialize(agent, signal, async (control) => {
-      const current = this.get(agent.session)
       const guard = this.guards.get(agent.session)
-      if (guard !== undefined && guard.directory !== current) { guard.release(); throw new Error('working-directory: guarded directory changed') }
+      const current = guard?.directory ?? this.get(agent.session)
       const target = await this.ctx.fs.resolve(current, { signal: control })
       const info = await this.ctx.fs.stat(target, control)
       control.throwIfAborted()
@@ -235,15 +234,15 @@ export class WorkingDirectoryService extends Service {
         if (released) return
         released = true
         signal.removeEventListener('abort', release)
-        if (this.guards.get(agent.session) === state) this.guards.delete(agent.session)
+        this.guards.delete(agent.session)
         controller.abort(new Error('working-directory: guard released'))
         void detachOwner()
       }
       const state: ActiveDirectoryGuard = { agent, directory: current, release }
+      control.throwIfAborted()
       const detachOwner = agent.ctx.effect(() => release, 'working-directory.guard')
       this.guards.set(agent.session, state)
       signal.addEventListener('abort', release, { once: true })
-      if (signal.aborted) release()
       return { directory: current, signal: controller.signal, release }
     })
     const lifetime = AbortSignal.any([signal, this.lifecycle.signal])
