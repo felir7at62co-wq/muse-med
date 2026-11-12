@@ -22,6 +22,7 @@ export function generatedRemoteMockPlugin(repositoryRoot: string) {
     ]],
     ['@deepseek-ai/dsh-session-video/remote', [
       'packages/client/ui-session-video/src/client/index.ts',
+      'packages/client/ui-session-video/tests/browser-plugin.client.spec.ts',
       'packages/client/ui-session-video/tests/locales.client.spec.ts',
     ]],
   ]

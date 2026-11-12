@@ -8,7 +8,8 @@ describe('owning generated Remote mocks', () => {
     ['@deepseek-ai/dsh-muse-market/remote', 'packages/client/ui-muse-market', 'tests/market-mount.client.spec.tsx'],
     ['@deepseek-ai/dsh-feishu-settings/remote', 'packages/host/feishu-settings', 'tests/browser-plugin.client.spec.tsx'],
     ['@deepseek-ai/dsh-session-video/remote', 'packages/client/ui-session-video', 'tests/locales.client.spec.ts'],
-  ])('resolves %s only for its two owning importers', (remote, directory, testFile) => {
+    ['@deepseek-ai/dsh-session-video/remote', 'packages/client/ui-session-video', 'tests/browser-plugin.client.spec.ts'],
+  ])('resolves %s only for its registered owning importers', (remote, directory, testFile) => {
     const resolver = generatedRemoteMockPlugin(process.cwd())
     const owner = join(process.cwd(), directory, 'src/client/index.ts')
     const virtual = resolver.resolveId(remote, owner)
