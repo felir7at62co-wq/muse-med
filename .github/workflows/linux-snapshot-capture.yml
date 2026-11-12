@@ -7,8 +7,9 @@ on:
       - .github/workflows/linux-snapshot-capture-plan.json
       - scripts/prepare-ci-bubblewrap.sh
       - snapshots/session/headless.snapshot.ts
-      - snapshots/session/managed-subagent-assertions.ts
-      - snapshots/session/subagent-child-question-rejection/assertions.ts
+      - snapshots/session/muse-jianying-draft/draft-fixture.mjs
+      - snapshots/session/muse-visualize/visualize-fixture.mjs
+      - snapshots/sdk/account-provider-signout/snapshot.yml
 
 permissions:
   contents: read
@@ -23,24 +24,38 @@ jobs:
       github.event.pull_request.number == 154
       && github.event.pull_request.head.ref == 'fix/muse-ci-baseline-20261111'
       && github.event.pull_request.head.repo.full_name == github.repository
-    name: Capture 81 headless owners in eight ordered phases
+    name: Capture ${{ matrix.group }} owner outputs
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        group:
+          - remaining-pins-and-consumers
+          - remaining-legacy-writers
+          - remaining-current-writers
+          - retained-tools-writers
+          - session-product-budget
     env:
       DSH_TELEMETRY_DISABLED: '1'
       DSH_EXAMPLE_MODE: lib
       DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
       DSH_SNAPSHOT_MAX_WORKERS: '1'
+      SNAPSHOT_CAPTURE_GROUP: ${{ matrix.group }}
       DEEPSEEK_API_KEY: ''
       OPENAI_API_KEY: ''
     steps:
+      - name: Match normal replay temporary storage
+        shell: bash
+        run: echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
 
       - uses: pnpm/action-setup@v5.0.0
         with:
-          dest: ${{ runner.temp }}/snapshot-capture-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
+          dest: ${{ runner.temp }}/snapshot-capture-pnpm-${{ matrix.group }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - uses: actions/setup-node@v7.0.0
         with:
@@ -53,6 +68,7 @@ jobs:
         run: pnpm run build:artifacts
 
       - name: Prepare approved production fixture dependencies
+        if: ${{ matrix.group == 'remaining-current-writers' || matrix.group == 'session-product-budget' }}
         run: |
           set -euo pipefail
           node scripts/prepare-skill-panel-snapshot.mjs
@@ -113,65 +129,53 @@ jobs:
           import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs'
           import { createRequire } from 'node:module'
           import { dirname, isAbsolute, join, resolve, sep } from 'node:path'
+          import { tmpdir } from 'node:os'
           import { execFileSync } from 'node:child_process'
           const { load } = createRequire(resolve('apps/desktop/package.json'))('js-yaml')
           const plan = JSON.parse(readFileSync('.github/workflows/linux-snapshot-capture-plan.json', 'utf8'))
           assert.equal(plan.version, 1); assert.equal(plan.temporary, true)
           assert.equal(plan.repository, 'felir7at62co-wq/muse-med'); assert.equal(plan.pullRequest, 154)
           assert.equal(plan.headBranch, 'fix/muse-ci-baseline-20261111')
-          assert.deepEqual(plan.totals, { groups: 8, owners: 81, refreshTests: 81, replayTests: 82, outputs: 214 })
-          assert.equal(plan.execution, 'ordered-single-job')
-          const approvedIds = ['headless-current-pin-owners', 'headless-managed-async-review', 'headless-ptc-borrowers',
-            'headless-muse-product-1', 'headless-muse-product-2', 'headless-runtime-1', 'headless-runtime-2', 'headless-runtime-3']
+          assert.deepEqual(plan.totals, { groups: 5, tests: 81, replayTests: 82, outputs: 214 })
+          const approvedIds = ['remaining-pins-and-consumers', 'remaining-legacy-writers', 'remaining-current-writers',
+            'retained-tools-writers', 'session-product-budget']
           assert.deepEqual(plan.groups.map(group => group.id), approvedIds)
-          assert.equal(plan.groups.reduce((n, group) => n + group.expectedRefreshTests, 0), 81)
-          assert.equal(plan.groups.reduce((n, group) => n + group.expectedReplayTests, 0), 82)
+          assert.equal(plan.groups.reduce((n, group) => n + group.expectedTests, 0), 81)
+          assert.equal(plan.groups.reduce((n, group) => n + group.replay.expectedTests, 0), 82)
           assert.equal(plan.groups.reduce((n, group) => n + group.allowedOutputs.length, 0), 214)
-          const unique = values => [...new Set(values)].sort()
-          const allowedOutputs = unique(plan.groups.flatMap(group => group.allowedOutputs))
-          const expectedManifests = {}
-          for (const group of plan.groups) {
-            assert.equal(group.phases.length, 1)
-            assert.equal(group.phases[0].id, group.id)
-            assert.equal(group.expectedRefreshTests, group.owners.length)
-            assert.equal(group.phases[0].passedSuffixes.length, group.expectedRefreshTests)
-            assert.equal(group.replay.passedSuffixes.length, group.expectedReplayTests)
-            for (const [path, metadata] of Object.entries(group.expectedManifests)) {
-              if (Object.hasOwn(expectedManifests, path)) assert.deepEqual(expectedManifests[path], metadata)
-              expectedManifests[path] = metadata
-            }
-          }
-          const replaySuffixes = plan.groups.flatMap(group => group.replay.passedSuffixes)
-          const spec = {
-            id: 'headless-81-ordered', profile: 'headless', config: 'vitest.snapshot.config.ts',
-            suites: ['snapshots/session/headless.snapshot.ts'], owners: plan.groups.flatMap(group => group.owners),
-            inventoryDirectories: unique(plan.groups.flatMap(group => group.inventoryDirectories)),
-            extraInputs: unique(plan.groups.flatMap(group => group.extraInputs)), allowedOutputs,
-            phases: plan.groups.flatMap(group => group.phases),
-            replay: { filter: '(?:' + replaySuffixes.join('|') + ')$', passedSuffixes: replaySuffixes },
-            newOutputs: unique(plan.groups.flatMap(group => group.newOutputs)),
-            expectedInputInventory: unique(plan.groups.flatMap(group => group.expectedInputInventory))
-              .filter(path => !allowedOutputs.includes(path)),
-            expectedManifests,
-            expectedCanonicalPaths: unique(plan.groups.flatMap(group => group.expectedCanonicalPaths)),
-            expectedRefreshTests: 81, expectedReplayTests: 82,
+          assert.equal(new Set(plan.groups.flatMap(group => group.allowedOutputs)).size, 214, 'Cross-group output overlap')
+          assert.equal(process.env.TMPDIR, process.env.RUNNER_TEMP, 'Capture and normal CI must use runner-owned temporary storage')
+          assert.equal(resolve(tmpdir()), resolve(process.env.RUNNER_TEMP))
+          const spec = plan.groups.find(group => group.id === process.env.SNAPSHOT_CAPTURE_GROUP)
+          if (spec === undefined) throw new Error('Unexpected capture group')
+          for (const path of ['snapshots/session/headless.snapshot.ts', 'snapshots/session/working-budget-oracle.ts',
+            'snapshots/session/managed-subagent-assertions.ts', 'snapshots/session/subagent-child-question-rejection/assertions.ts',
+            'snapshots/session/muse-session-product/budget.ts']) {
+            assert.ok(spec.extraInputs.includes(path), `Required capture helper missing: ${path}`)
           }
           const safePath = path => typeof path === 'string' && !isAbsolute(path) && !path.includes('\\')
             && !/[\0\r\n]/u.test(path) && path.split('/').every(part => part !== '' && part !== '.' && part !== '..')
           for (const path of [...spec.inventoryDirectories, ...spec.extraInputs, ...spec.allowedOutputs, ...spec.suites]) assert.ok(safePath(path), `Unsafe capture path: ${path}`)
           assert.equal(spec.config, 'vitest.snapshot.config.ts')
-          assert.equal(spec.expectedRefreshTests, spec.owners.length)
+          assert.equal(spec.expectedTests, spec.owners.length)
           assert.equal(new Set(spec.owners.map(owner => owner.name)).size, spec.owners.length)
           assert.equal(new Set(spec.allowedOutputs).size, spec.allowedOutputs.length)
-          assert.equal(spec.phases.reduce((n, phase) => n + phase.passedSuffixes.length, 0), spec.expectedRefreshTests)
+          assert.equal(spec.phases.reduce((n, phase) => n + phase.passedSuffixes.length, 0), spec.expectedTests)
           assert.deepEqual(spec.phases.flatMap(phase => phase.owners).sort(), spec.owners.map(owner => owner.name).sort())
           assert.deepEqual(spec.phases.flatMap(phase => phase.outputs).sort(), [...spec.allowedOutputs].sort())
-          assert.equal(spec.replay.passedSuffixes.length, spec.expectedReplayTests)
-          assert.equal(spec.allowedOutputs.length, 214)
-          assert.deepEqual(spec.replay.passedSuffixes.filter(suffix => suffix.includes(' from retained ')),
-            [' tool-call-turn from retained V3 input through dsh --profile headless'])
-          assert.ok(plan.frozenExternalPins.every(directory => spec.inventoryDirectories.includes(directory)))
-          assert.ok(spec.allowedOutputs.every(path => !plan.frozenExternalPins.some(directory => path.startsWith(directory + '/'))))
+          const replayOwners = [...spec.owners.map(owner => owner.name),
+            ...(spec.id === 'remaining-pins-and-consumers' ? ['tool-call-turn from retained V3 input'] : [])]
+          const suffix = name => ` ${name} through dsh --profile headless`
+          const filter = names => ` (${names.join('|')}) through dsh --profile headless$`
+          assert.equal(spec.replay.passedSuffixes.length, spec.replay.expectedTests)
+          assert.deepEqual(spec.replay.passedSuffixes, replayOwners.map(suffix))
+          assert.equal(spec.replay.filter, filter(replayOwners))
+          for (const phase of spec.phases) {
+            assert.deepEqual(phase.passedSuffixes, phase.owners.map(suffix))
+            assert.equal(phase.filter, filter(phase.owners))
+          }
+          if (spec.id === 'retained-tools-writers') assert.deepEqual(spec.owners.map(owner => owner.name),
+            ['muse-manuscript-user-revisions', 'muse-manuscript-user-revisions-pwsh'])
           const inventory = directory => {
             const stat = lstatSync(directory)
             if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Input directory must be owned: ${directory}`)
@@ -187,14 +191,18 @@ jobs:
           for (const [path, expected] of Object.entries(spec.expectedManifests)) assert.deepEqual(load(readFileSync(path, 'utf8')), expected, `Manifest drifted: ${path}`)
           for (const owner of spec.owners) {
             const manifest = load(readFileSync(`${owner.dir}/snapshot.yml`, 'utf8'))
-            if (['muse-manuscript-user-revisions', 'muse-manuscript-user-revisions-pwsh'].includes(owner.name)) {
-              assert.deepEqual(manifest.sessionFormat, { version: 4, coverage: ['retired-tools'] })
+            assert.equal(manifest.session, undefined)
+            if (['subagent-agent-preset', 'subagent-no-message-tool'].includes(owner.name)) {
+              assert.equal(manifest.replay?.override, true, `Managed child replay required: ${owner.name}`)
+              assert.ok(spec.expectedInputInventory.includes(`${owner.dir}/replay.override.json`))
+            }
+            if (spec.id === 'retained-tools-writers') {
+              assert.deepEqual(manifest.sessionFormat, { version: 4, coverage: ['retired-tools'] }, `Exact retired input required: ${owner.name}`)
               assert.equal(manifest.writerOutput, undefined)
             } else {
               assert.equal(manifest.writerOutput, true, `Retained writer required: ${owner.name}`)
               assert.equal(manifest.sessionFormat, undefined)
             }
-            assert.equal(manifest.session, undefined)
             assert.equal(manifest.profile, spec.profile)
           }
           for (const path of spec.allowedOutputs) {
@@ -391,8 +399,7 @@ jobs:
           writeFileSync(join(directory, 'evidence.json'), JSON.stringify({
             head: state.head, group: spec.id, platform: process.platform, arch: process.arch, node: process.version,
             owners: spec.owners.map(owner => owner.name), config: spec.config, suites: spec.suites,
-            refreshPhases: spec.phases, replayFilter: spec.replay.filter,
-            expectedRefreshTests: spec.expectedRefreshTests, expectedReplayTests: spec.expectedReplayTests,
+            refreshPhases: spec.phases, replayFilter: spec.replay.filter, expectedTests: spec.expectedTests,
             refreshOutcome: process.env.REFRESH_OUTCOME, replayOutcome: process.env.REPLAY_OUTCOME,
             refreshExitCode: process.env.REFRESH_EXIT_CODE, replayExitCode: process.env.REPLAY_EXIT_CODE,
             sandboxProbe: state.sandboxProbe, canonicalPaths: spec.expectedCanonicalPaths,
@@ -407,7 +414,7 @@ jobs:
         if: ${{ !cancelled() && steps.baseline.outcome == 'success' }}
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: linux-snapshot-capture-headless-81-${{ github.sha }}
+          name: linux-snapshot-capture-${{ matrix.group }}-${{ github.sha }}
           path: ${{ runner.temp }}/muse-linux-snapshot-capture/
           if-no-files-found: error
           retention-days: 3

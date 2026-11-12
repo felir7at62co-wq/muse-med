@@ -9,6 +9,7 @@
   },
   "include": [
     "snapshots/session/working-budget-oracle.ts",
+    "snapshots/session/muse-session-product/budget.ts",
     "apps/web/tests/muse-skill-market.e2e.ts",
     "apps/web/tests/jubian-episode-delivery.e2e.ts",
     "apps/web/tests/jubian-video-recovery.e2e.ts",
@@ -56,6 +57,8 @@
     "apps/web/tests/auto-review-approval.e2e.ts",
     "apps/web/tests/auto-review-denial.e2e.ts",
     "apps/web/tests/scaffold-generation.spec.ts",
+    "apps/web/tests/scaffold-generation.e2e.ts",
+    "apps/web/tests/fixtures/writer-output.ts",
     "apps/web/tests/default-model.e2e.ts",
     "apps/web/tests/model-menu-observer.e2e.ts",
     "apps/web/tests/github-ready-review.e2e.ts",

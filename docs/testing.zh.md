@@ -50,7 +50,7 @@ Windows 覆盖率检查[验证 FFmpeg/ffprobe](../scripts/prepare-ci-ffmpeg.ts)�
 
 ## 测试子进程启动模式
 
-- CI 与已有构建产物的测试通道通过共享双模式启动器，从构建后的 `lib/` 运行每个 profile 或 Cordis 配置子进程。不要为这些子进程手写 `--import tsx`。
+- 构建产物测试通道通过共享启动器从 `lib/` 启动 profile 与 Cordis 配置子进程，不手写 `--import tsx`。Desktop Host 在 `test` 中选择 `src`，在 `test:expected` 中选择 `lib`。
 - 不加载 Cordis 的协议与操作系统 fixture 直接通过 Node 运行使用可擦除语法的 `.ts` 文件，不经过 tsx 或根路径映射。
 - 只有测试对象本身是源码路径解析时，才可以选择 `src`；在测试中写明这一约定。
 

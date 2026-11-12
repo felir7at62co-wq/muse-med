@@ -78,8 +78,25 @@ export const en = {
   'error.museInvalidInput': 'Check the feedback and submit again; your draft is retained',
 } satisfies Record<MessageFeedbackKey, string>
 
+/** Fixed English copy for fields that do not yet have a translation. */
+const englishFallback = {
+  'dialog.museHint': en['dialog.museHint'],
+  'dialog.museDiagnostics': en['dialog.museDiagnostics'],
+  'toast.museSubmitted': en['toast.museSubmitted'],
+  'error.museSignIn': en['error.museSignIn'],
+  'error.museAccountChanged': en['error.museAccountChanged'],
+  'error.museUnconfirmed': en['error.museUnconfirmed'],
+  'error.museRejected': en['error.museRejected'],
+  'error.museRateLimited': en['error.museRateLimited'],
+  'error.museUnavailable': en['error.museUnavailable'],
+  'error.museInvalidInput': en['error.museInvalidInput'],
+}
+
+
+
 /** Japanese copy, checked against the English keys. */
 export const ja = {
+  ...englishFallback,
   ...en,
   'action.like': '良い回答',
   'action.likeActive': '評価を取り消す',
@@ -115,6 +132,7 @@ export const ja = {
 
 /** Spanish dictionary, checked against the English keys. */
 export const es = {
+  ...englishFallback,
   ...en,
   'action.like': 'buena respuesta',
   'action.likeActive': 'Eliminar calificación',
@@ -150,6 +168,7 @@ export const es = {
 
 /** French dictionary, checked against the English keys. */
 export const fr = {
+  ...englishFallback,
   ...en,
   'action.like': 'Bonne réponse',
   'action.likeActive': 'Supprimer la note',
@@ -185,6 +204,7 @@ export const fr = {
 
 /** German dictionary, checked against the English keys. */
 export const de = {
+  ...englishFallback,
   ...en,
   'action.like': 'Gute Resonanz',
   'action.likeActive': 'Bewertung entfernen',
@@ -220,6 +240,7 @@ export const de = {
 
 /** Russian dictionary, checked against the English keys. */
 export const ru = {
+  ...englishFallback,
   ...en,
   'action.like': 'Хороший ответ',
   'action.likeActive': 'Удалить оценку',
@@ -255,6 +276,7 @@ export const ru = {
 
 /** Portuguese dictionary, checked against the English keys. */
 export const pt = {
+  ...englishFallback,
   ...en,
   'action.like': 'Boa resposta',
   'action.likeActive': 'Remover avaliação',

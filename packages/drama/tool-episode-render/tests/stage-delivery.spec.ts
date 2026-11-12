@@ -295,6 +295,14 @@ async function reviewedFixture(strict = false, separate = false) {
 }
 
 describe('stageEpisodeDelivery', () => {
+  it('rejects independent audio presented as an untreated source', async () => {
+    const f = await reviewedFixture(true, true)
+    await changeJson(f.reviewPath, (review) => { review.subtitle_cleanup = 'not_required' })
+    await expect(verifySelectedSourceReviews(f.paths, [{ shot: 1, package: 1, video: f.shot, audio: f.audio }],
+      true, true, verifiedSourceQaFixture)).rejects.toThrow('独立原声音轨缺少可验证的原片复验')
+    await expectNoDelivery(f)
+  })
+
   it.each([false, true])('recognizes the parent short-drama project when staging an episode subdirectory (local config: %s)', async (localConfig) => {
     const f = await fixture(undefined, undefined, undefined, true)
     await writePlaceholder(join(f.projectRoot, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933 }))

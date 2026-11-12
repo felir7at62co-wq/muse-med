@@ -130,7 +130,9 @@ vi.mock('../src/hongguo-runtime.ts', () => ({
 }))
 vi.mock('../src/settings.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/settings.ts')>(),
-  readDesktopSettings: () => ({ updates: { allowTestAuthPopupWindow: false }, network: { useSystemResolver: false } }),
+  readDesktopSettings: (): import('../src/settings.ts').DesktopSettings => ({
+    updates: { allowTestAuthPopupWindow: false }, network: { useSystemResolver: false },
+  }),
 }))
 vi.mock('../src/login-shell-environment.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../src/login-shell-environment.ts')>(),

@@ -50,7 +50,7 @@ Windows coverage [qualifies FFmpeg/ffprobe](../scripts/prepare-ci-ffmpeg.ts).
 
 ## Test subprocess launch modes
 
-- CI and build-having test lanes run every profile or Cordis-config subprocess from built `lib/` through the shared dual-mode launcher. Do not hand-write `--import tsx` for these subprocesses.
+- Built-artifact lanes launch profile and Cordis-config subprocesses from `lib/` through the shared launcher, never hand-written `--import tsx`. Desktop Host selects `src` in `test` and `lib` in `test:expected`.
 - Protocol and operating-system fixtures that do not load Cordis run erasable `.ts` directly with Node, without tsx or the root paths map.
 - Only a test whose subject is source-path resolution may select `src`; state that contract in the test.
 

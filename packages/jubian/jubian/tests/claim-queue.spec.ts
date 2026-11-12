@@ -18,7 +18,7 @@ describe('ledger operation queue', () => {
     }).catch((error: unknown) => error)
     let second: Promise<string> | undefined
     try {
-      await entered.promise
+      await Promise.race([entered.promise, first])
       second = withLedgerQueue(root, async () => { events.push('second entered'); return 'saved' })
       release.resolve(undefined)
       expect(await first).toBe(failure)
@@ -41,13 +41,16 @@ describe('ledger operation queue', () => {
     const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
     const events: string[] = []
     let first: Promise<void> | undefined, second: Promise<void> | undefined
-    Object.defineProperty(process, 'platform', { value: 'win32' })
     try {
+      Object.defineProperty(process, 'platform', { ...descriptor, value: 'win32' })
       first = withLedgerQueue(join(root, 'LEDGER'), async () => {
         events.push('first entered'); entered.resolve(undefined); await release.promise; events.push('first finished')
       })
-      await entered.promise
+      await Promise.race([entered.promise, first])
       second = withLedgerQueue(join(root, 'ledger'), async () => { events.push('second entered') })
+      // An independent queue drains runnable operations while the first remains blocked.
+      await withLedgerQueue(join(root, 'sentinel'), async () => {})
+      expect(events).toEqual(['first entered'])
       release.resolve(undefined); await Promise.all([first, second])
       expect(events).toEqual(['first entered', 'first finished', 'second entered'])
     } finally {
@@ -65,12 +68,12 @@ describe('ledger operation queue', () => {
     const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
     const events: string[] = []
     let first: Promise<void> | undefined, second: Promise<void> | undefined
-    Object.defineProperty(process, 'platform', { ...descriptor, value: 'linux' })
     try {
+      Object.defineProperty(process, 'platform', { ...descriptor, value: 'linux' })
       first = withLedgerQueue(join(root, 'LEDGER'), async () => {
         events.push('first entered'); entered.resolve(undefined); await release.promise; events.push('first finished')
       })
-      await entered.promise
+      await Promise.race([entered.promise, first])
       second = withLedgerQueue(join(root, 'ledger'), async () => { events.push('second entered') })
       await expect.poll(() => events).toContain('second entered')
       expect(events).not.toContain('first finished')

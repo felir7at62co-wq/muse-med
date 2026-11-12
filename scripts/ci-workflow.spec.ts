@@ -315,47 +315,39 @@ describe('CI workflow', () => {
   it('limits temporary Linux capture to the reviewed cohorts and immutable inputs', () => {
     const job = workflowJob(loadWorkflow('.github/workflows/linux-snapshot-capture.yml'), 'capture')
     const plan = loadWorkflow('.github/workflows/linux-snapshot-capture-plan.json')
-    if (!Array.isArray(job.steps) || !Array.isArray(plan.groups)) {
+    if (!Array.isArray(job.steps) || !Array.isArray(plan.groups) || !isRecord(job.strategy) || !isRecord(job.strategy.matrix)) {
       throw new TypeError('Snapshot capture must declare its ordered cohorts and plan')
     }
     expect(plan).toMatchObject({ version: 1, temporary: true, repository: 'felir7at62co-wq/muse-med',
-      pullRequest: 154, headBranch: 'fix/muse-ci-baseline-20261111', execution: 'ordered-single-job',
-      totals: { groups: 8, owners: 81, refreshTests: 81, replayTests: 82, outputs: 214 } })
+      pullRequest: 154, headBranch: 'fix/muse-ci-baseline-20261111', totals: { groups: 5, tests: 81, replayTests: 82, outputs: 214 } })
     const groups = plan.groups.filter(isRecord)
-    expect(groups).toHaveLength(8)
-    expect(plan.groups).toHaveLength(8)
-    expect(groups.map(group => [group.id, group.expectedRefreshTests, group.expectedReplayTests,
+    expect(groups).toHaveLength(5)
+    expect(plan.groups).toHaveLength(5)
+    expect(groups.map(group => [group.id, group.expectedTests,
       Array.isArray(group.allowedOutputs) ? group.allowedOutputs.length : -1])).toEqual([
-      ['headless-current-pin-owners', 6, 7, 11], ['headless-managed-async-review', 11, 11, 49],
-      ['headless-ptc-borrowers', 11, 11, 25], ['headless-muse-product-1', 12, 12, 34],
-      ['headless-muse-product-2', 8, 8, 22], ['headless-runtime-1', 12, 12, 23],
-      ['headless-runtime-2', 12, 12, 27], ['headless-runtime-3', 9, 9, 23],
+      ['remaining-pins-and-consumers', 18, 25], ['remaining-legacy-writers', 17, 48],
+      ['remaining-current-writers', 43, 132], ['retained-tools-writers', 2, 6], ['session-product-budget', 1, 3],
     ])
-    expect(job).not.toHaveProperty('strategy')
-    expect(job['timeout-minutes']).toBe(30)
-    expect(plan.frozenExternalPins).toEqual([
-      'snapshots/session/cordis-inspect-jsdoc', 'snapshots/session/dynamic-tool-updates',
-      'snapshots/session/muse-editing-skill', 'snapshots/session/persistent-pwsh-tool-turn',
-      'snapshots/session/ptc-turn', 'snapshots/session/text-turn',
-    ])
-    const outputs = groups.flatMap(group => Array.isArray(group.allowedOutputs) ? Array.from<unknown>(group.allowedOutputs) : [])
-    expect(outputs).toHaveLength(214)
-    expect(new Set(outputs).size).toBe(214)
+    expect(job.strategy.matrix.group).toEqual(groups.map(group => group.id))
+    if (!isRecord(job.env)) throw new TypeError('Capture environment must be declared')
+    expect(job.env).not.toHaveProperty('TMPDIR')
+    for (const value of Object.values(job.env)) {
+      if (typeof value === 'string') expect(value).not.toMatch(/\$\{\{\s*runner\b/u)
+    }
+    const steps = job.steps.filter(isRecord)
+    const temporaryStorage = steps.findIndex(step => step.name === 'Match normal replay temporary storage')
+    expect(temporaryStorage).toBe(0)
+    expect(steps[temporaryStorage]).toEqual({ name: 'Match normal replay temporary storage', shell: 'bash',
+      run: 'echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"' })
     const allOwners: string[] = []
     for (const group of groups) {
       if (!Array.isArray(group.owners) || !Array.isArray(group.phases) || !isRecord(group.replay)
         || !isRecord(group.expectedManifests) || !Array.isArray(group.inventoryDirectories)
-        || !Array.isArray(group.extraInputs)) throw new TypeError('Incomplete closed capture cohort')
-      expect(group.phases).toHaveLength(1)
-      const phase: unknown = group.phases[0]
-      if (!isRecord(phase) || !Array.isArray(phase.passedSuffixes) || !Array.isArray(group.replay.passedSuffixes)) {
-        throw new TypeError('Every capture phase needs exact refresh and replay suffixes')
-      }
-      expect(phase.id).toBe(group.id)
-      expect(phase.passedSuffixes).toHaveLength(Number(group.expectedRefreshTests))
-      expect(group.replay.passedSuffixes).toHaveLength(Number(group.expectedReplayTests))
-      expect(phase.passedSuffixes.some(suffix => typeof suffix === 'string' && suffix.includes(' from retained '))).toBe(false)
+        || !Array.isArray(group.extraInputs) || !Array.isArray(group.expectedInputInventory)
+        || !Array.isArray(group.replay.passedSuffixes)) throw new TypeError('Incomplete closed capture cohort')
+      expect(group.replay.passedSuffixes).toHaveLength(group.id === 'remaining-pins-and-consumers' ? 19 : Number(group.expectedTests))
       expect(group.extraInputs).toContain('snapshots/session/managed-subagent-assertions.ts')
+      expect(group.extraInputs).toContain('snapshots/session/muse-session-product/budget.ts')
       for (const owner of group.owners) {
         if (!isRecord(owner) || typeof owner.name !== 'string' || typeof owner.dir !== 'string') {
           throw new TypeError('Every capture owner needs an exact name and directory')
@@ -370,11 +362,17 @@ describe('CI workflow', () => {
           expect(manifest).toMatchObject({ writerOutput: true })
           expect(manifest).not.toHaveProperty('sessionFormat')
         }
+        if (['subagent-agent-preset', 'subagent-no-message-tool'].includes(owner.name)) {
+          expect(manifest).toMatchObject({ replay: { override: true } })
+          expect(group.expectedInputInventory).toContain(owner.dir + '/replay.override.json')
+        }
       }
     }
     expect(allOwners).toHaveLength(81)
     expect(new Set(allOwners).size).toBe(81)
-    const steps = job.steps.filter(isRecord)
+    const outputs = groups.flatMap(group => Array.isArray(group.allowedOutputs) ? Array.from<unknown>(group.allowedOutputs) : [])
+    expect(outputs).toHaveLength(214)
+    expect(new Set(outputs).size).toBe(214)
     const runFor = (name: string): string => {
       const step = steps.find(value => value.name === name)
       if (typeof step?.run !== 'string') throw new TypeError('Missing snapshot capture step: ' + name)
@@ -385,9 +383,11 @@ describe('CI workflow', () => {
     expect(baseline).toContain('assert.deepEqual(protectedPaths, spec.expectedInputInventory')
     expect(baseline).toContain('spec.expectedCanonicalPaths')
     expect(baseline).toContain('spec.expectedManifests')
-    expect(baseline).toContain('expectedRefreshTests: 81, expectedReplayTests: 82')
-    expect(baseline).toContain(' from retained V3 input through dsh --profile headless')
-    expect(baseline).toContain('plan.frozenExternalPins.every')
+    expect(baseline).toContain('Cross-group output overlap')
+    expect(baseline).toContain('Required capture helper missing:')
+    expect(baseline).toContain('Managed child replay required:')
+    expect(baseline).toContain('tool-call-turn from retained V3 input')
+    expect(baseline).toContain("{ version: 4, coverage: ['retired-tools'] }")
     const refresh = runFor('Refresh approved phases and freeze each completed pin')
     expect(refresh).toContain('report.numPassedTests, phase.passedSuffixes.length')
     expect(refresh).toContain('report.numFailedTests, 0')

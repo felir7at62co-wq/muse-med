@@ -3,9 +3,9 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
-import { runLoaderSmoke, LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
+import { runLoaderSmoke, resolveExampleMode, LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
 
-it.each(['src', 'lib'] as const)('retains Word comments and earlier requirements through %s tools and independent review', async (mode) => {
+it.each([resolveExampleMode()])('retains Word comments and earlier requirements through %s tools and independent review', async (mode) => {
   const patch = fileURLToPath(new URL('./fixtures/manuscript-notes/cordis.yml', import.meta.url))
   const result = await runLoaderSmoke({ label: 'manuscript notes', tempDirPrefix: 'manuscript-notes-loader-',
     binScript: fileURLToPath(new URL('../../cli/src/bin.ts', import.meta.url)), configPath: patch,

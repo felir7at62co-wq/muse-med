@@ -290,6 +290,42 @@ it('disposal waits for an active GitHub check to stop', async () => {
   expect(pnpm).not.toHaveBeenCalled()
 })
 
+/** Own the refusing proxy so Git rewrites and pnpm's Node fetches cannot reach the public host. */
+async function refusingRepositoryProxy(): Promise<{ requests: string[]; proxyUrl: string }> {
+  const requests: string[] = []
+  const sockets = new Set<Socket>()
+  const proxy = createServer((_request, response) => {
+    response.writeHead(401, { 'WWW-Authenticate': 'Basic realm="fixture"' })
+    response.end()
+  })
+  proxy.on('connection', (socket) => {
+    sockets.add(socket)
+    socket.once('close', () => { sockets.delete(socket) })
+  })
+  proxy.on('connect', (request, socket) => {
+    requests.push(request.url ?? '')
+    socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+  })
+  onTestFinished(async () => {
+    for (const socket of sockets) socket.destroy()
+    await new Promise<void>((resolve, reject) => { proxy.close((error) => { if (error) reject(error); else resolve() }) })
+  })
+  proxy.listen(0, '127.0.0.1')
+  await once(proxy, 'listening')
+  const address = proxy.address()
+  if (address === null || typeof address === 'string') throw new Error('proxy did not bind a TCP port')
+  return { requests, proxyUrl: `http://127.0.0.1:${String(address.port)}` }
+}
+
+/** Own pnpm's child store environment, YAML fetch policy and npmrc network destinations. */
+function configureRepositoryTransport(dir: string, proxyUrl: string, env: Record<string, string>): void {
+  const store = join(dir, 'store')
+  env.PNPM_CONFIG_STORE_DIR = store
+  writeFileSync(join(dir, '.npmrc'), `https-proxy=${proxyUrl}\nproxy=${proxyUrl}\nno-proxy=\n`)
+  const workspace = join(dir, 'pnpm-workspace.yaml')
+  writeFileSync(workspace, `${readFileSync(workspace, 'utf8').trimEnd()}\nstoreDir: ${JSON.stringify(store)}\nfetchRetries: 0\nfetchTimeout: 5000\nupdateNotifier: false\n`)
+}
+
 it.each(['github:acme/connected', 'https://github.com/acme/connected.git', 'git+ssh://git@github.com/acme/connected.git'])(
   'installs %s through real Git and pnpm with configured repository transport', async (spec) => {
     const pnpm = fileURLToPath(new URL('../../../../apps/desktop/node_modules/pnpm/bin/pnpm.mjs', import.meta.url))
@@ -309,49 +345,79 @@ it.each(['github:acme/connected', 'https://github.com/acme/connected.git', 'git+
     writeFileSync(join(repository, 'cordis.patch.yml'), '[]\n')
     await git(['add', '.'])
     await git(['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-m', 'fixture bundle'])
-    const requests: string[] = []
-    const sockets = new Set<Socket>()
-    const proxy = createServer((_request, response) => {
-      response.writeHead(401, { 'WWW-Authenticate': 'Basic realm="fixture"' })
-      response.end()
-    })
-    proxy.on('connection', (socket) => {
-      sockets.add(socket)
-      socket.once('close', () => { sockets.delete(socket) })
-    })
-    proxy.on('connect', (request, socket) => {
-      requests.push(request.url ?? '')
-      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
-    })
-    onTestFinished(async () => {
-      for (const socket of sockets) socket.destroy()
-      await new Promise<void>((resolve, reject) => { proxy.close((error) => { if (error) reject(error); else resolve() }) })
-    })
-    proxy.listen(0, '127.0.0.1')
-    await once(proxy, 'listening')
-    const address = proxy.address()
-    if (address === null || typeof address === 'string') throw new Error('proxy did not bind a TCP port')
-    const proxyUrl = `http://127.0.0.1:${String(address.port)}`
+    const commit = (await git(['rev-parse', 'HEAD'])).stdout.trim()
+    const { requests, proxyUrl } = await refusingRepositoryProxy()
     writeFileSync(env.GIT_CONFIG_GLOBAL, `[url "${pathToFileURL(repository).href}"]\n insteadOf = ssh://git@github.com/acme/connected.git\n insteadOf = git@github.com:acme/connected.git\n insteadOf = https://github.com/acme/connected.git\n[url "${proxyUrl}/"]\n insteadOf = https://github.com/\n[http]\n proxy =\n`)
-    // pnpm 12 uses canonical HTTPS for hosted repositories; its archive probe uses Node rather than Git.
-    // Git's private configuration and the proxy must therefore isolate both request paths.
+    // Pinned pnpm first probes public visibility with Node HTTPS. A refused probe keeps Git resolution,
+    // so the private Git rewrite supplies the package instead of an anonymous hosted archive.
     const manifest = readProfileManifest('test', dir)
     delete manifest.dependencies
     writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest))
-    const policy = parseDocument(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8'))
-    policy.set('updateNotifier', false)
-    writeFileSync(join(dir, 'pnpm-workspace.yaml'), String(policy))
-    writeFileSync(join(dir, '.npmrc'), `store-dir=${join(dir, 'store').replaceAll('\\', '/')}\nhttps-proxy=${proxyUrl}\nproxy=${proxyUrl}\nnoproxy=\nfetch-retries=0\nfetch-timeout=5000\n`)
+    configureRepositoryTransport(dir, proxyUrl, env)
     const result = await manager.installBundle(spec, { enabled: false })
     expect(result.error).toBeUndefined()
     expect(result).toMatchObject({ changed: true, bundle: name, packageResult: { exitCode: 0 } })
     expect(readProfileManifest('test', dir).dependencies).toHaveProperty(name)
-    // The fixture denies HTTPS at the repository probe, before an archive fetch.
-    // Check the observed repository host as well as the real configured Git install.
-    expect(requests).toContain('github.com:443')
-    expect(requests.every(host => ['github.com:443', 'registry.npmjs.org:443'].includes(host))).toBe(true)
+    expect([...new Set(requests)]).toEqual(['github.com:443'])
+    const lock = JSON.stringify(parse(readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8')))
+    expect(lock).toContain('"type":"git"')
+    expect(lock).toContain(`"commit":"${commit}"`)
+    expect(lock).not.toContain('"tarball":')
+    expect(existsSync(join(dir, 'store'))).toBe(true)
+    expect(readFileSync(join(dir, 'node_modules', name, 'cordis.patch.yml'), 'utf8')).toBe(readFileSync(join(repository, 'cordis.patch.yml'), 'utf8'))
   },
 )
+
+it('routes an explicit hosted archive through the configured proxy and cancels refused retries without changing the profile', async () => {
+  const pnpm = fileURLToPath(new URL('../../../../apps/desktop/node_modules/pnpm/bin/pnpm.mjs', import.meta.url))
+  const env = { GIT_CONFIG_GLOBAL: '', GIT_CONFIG_NOSYSTEM: '1' }
+  const { dir, profile } = await fixture('startup')
+  const { requests, proxyUrl } = await refusingRepositoryProxy()
+  env.GIT_CONFIG_GLOBAL = join(dir, 'git.config')
+  writeFileSync(env.GIT_CONFIG_GLOBAL, `[url "${proxyUrl}/"]\n insteadOf = https://github.com/\n insteadOf = ssh://git@github.com/\n insteadOf = git@github.com:\n[http]\n proxy =\n`)
+  configureRepositoryTransport(dir, proxyUrl, env)
+  const manifest = readFileSync(join(dir, 'package.json'), 'utf8')
+  const archive = `https://codeload.github.com/acme/connected/tar.gz/${'a'.repeat(40)}`
+  const cancellation = new AbortController()
+  const refused = Promise.withResolvers<undefined>()
+  let diagnostic = ''
+  const deadline = setTimeout(() => { cancellation.abort() }, 15_000)
+  const operation = operations.runProfilePnpm({
+    profile: 'test', dir, installAnchor: profile.installAnchor, cwd: profile.cwd, home: profile.home,
+  }, ['store', 'add', archive], {
+    command: process.execPath, args: ['--expose-internals', pnpm], env,
+    execution: 'service', outputBytes: 8192, idleTimeoutMs: 10_000, signal: cancellation.signal,
+    onOutput: (text) => {
+      diagnostic += text
+      if (diagnostic.includes(`HEAD ${archive} error`)) refused.resolve(undefined)
+    },
+  })
+  onTestFinished(async () => {
+    clearTimeout(deadline)
+    cancellation.abort()
+    await operation.catch(() => undefined)
+  })
+  try {
+    await Promise.race([refused.promise, operation.then((result) => {
+      throw new Error(`Archive command ended before the proxy rejection diagnostic: ${result.output}`)
+    })])
+    expect(cancellation.signal.aborted).toBe(false)
+    expect([...new Set(requests)]).toEqual(['codeload.github.com:443'])
+  } finally {
+    clearTimeout(deadline)
+    // The URL resolver's default retries are not this transport test's subject.
+    cancellation.abort()
+    await operation.catch(() => undefined)
+  }
+  const result = await operation
+  expect(result.timedOut, JSON.stringify({ requests, output: result.output })).not.toBe(true)
+  expect(result.exitCode, result.output).not.toBe(0)
+  expect(result.output).toContain(archive)
+  expect(result.output).toContain(`HEAD ${archive} error`)
+  expect(existsSync(join(dir, 'store'))).toBe(true)
+  expect(readFileSync(join(dir, 'package.json'), 'utf8')).toBe(manifest)
+  expect(existsSync(join(dir, 'pnpm-lock.yaml'))).toBe(false)
+}, 25_000)
 
 it.each(['missing package', 'invalid manifest', 'not a bundle', 'missing patch', 'invalid patch'])(
   'boots with %s, lists its error, and permits deselection without enabling the broken bundle', async (failure) => {
