@@ -57,7 +57,7 @@ jobs:
       - name: Check native standard-stream blocking before output consumption
         run: |
           mkdir -p .artifacts/ocr-native-diagnosis
-          pnpm exec vitest run packages/subprocess/subprocess-local/tests/linux-execve-stdio.spec.ts --maxWorkers=1 --no-file-parallelism 2>&1 | tee .artifacts/ocr-native-diagnosis/native-stdio.log
+          pnpm exec vitest run packages/subprocess/subprocess-local/tests/linux-execve.spec.ts packages/subprocess/subprocess-local/tests/linux-execve-stdio.spec.ts --maxWorkers=1 --no-file-parallelism --coverage --coverage.include=packages/subprocess/subprocess-local/src/linux-execve.ts --coverage.reportsDirectory=.artifacts/ocr-native-diagnosis/native-stdio-coverage 2>&1 | tee .artifacts/ocr-native-diagnosis/native-stdio.log
       - name: Capture the six original native probe cases
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:

@@ -1,9 +1,7 @@
 /** Lazy libc execve and descriptor bindings used by the one-shot Linux bootstrap. */
 
 import { getSystemErrorMessage, getSystemErrorName } from 'node:util'
-import { createHash, randomUUID } from 'node:crypto'
-import { constants, mkdirSync, writeFileSync } from 'node:fs'
-import { isAbsolute, join } from 'node:path'
+import { constants } from 'node:fs'
 import { SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
 import { createLazyRequire } from '@deepseek-ai/dsh-lazy-require'
 
@@ -29,8 +27,8 @@ const STANDARD_FILE_DESCRIPTORS = [0, 1, 2] as const
 const F_GETFD = 1
 const F_SETFD = 2
 const F_GETFL = 3
+const F_SETFL = 4
 const FD_CLOEXEC = 1
-const NATIVE_FD_DIAGNOSTICS = 'DSH_SUBPROCESS_NATIVE_FD_DIAGNOSTICS'
 
 let cachedExecve: LinuxExecve | undefined
 
@@ -49,6 +47,7 @@ function systemError(errno: number, syscall: string, path?: string): Error {
 
 /**
  * Load libc's execve and fcntl symbols on first use and retain the native bindings.
+ * Native targets inherit blocking standard streams; the optional control stream retains its status flags.
  * @returns a process-replacing execve operation that throws Node-style errors on failure.
  */
 export function loadLinuxExecve(): LinuxExecve {
@@ -73,20 +72,13 @@ export function loadLinuxExecve(): LinuxExecve {
         throw systemError(koffi.errno(), 'fcntl')
       }
     }
-    const diagnostics = process.env[NATIVE_FD_DIAGNOSTICS]
-    if (diagnostics !== undefined) {
-      if (!isAbsolute(diagnostics)) throw Error('Native descriptor diagnostic directory must be absolute')
-      const observed = descriptors.map((fd) => {
-        const statusFlags = nativeFcntl(fd, F_GETFL, 0)
-        const errno = statusFlags === -1 ? koffi.errno() : null
-        return { fd, statusFlags, errno, nonblocking: statusFlags === -1 ? null : (statusFlags & constants.O_NONBLOCK) !== 0 }
-      })
-      mkdirSync(diagnostics, { recursive: true })
-      writeFileSync(join(diagnostics, `${process.pid}-${randomUUID()}.json`), JSON.stringify({
-        pid: process.pid, ppid: process.ppid, node: process.version, executable: file,
-        argvLength: argv.length, argvSha256: createHash('sha256').update(JSON.stringify(argv)).digest('hex'),
-        timeMs: Date.now(), descriptors: observed,
-      }) + '\n', { flag: 'wx' })
+    for (const fd of STANDARD_FILE_DESCRIPTORS) {
+      const flags = nativeFcntl(fd, F_GETFL, 0)
+      if (flags === -1) throw systemError(koffi.errno(), 'fcntl')
+      if ((flags & constants.O_NONBLOCK) === 0) continue
+      if (nativeFcntl(fd, F_SETFL, flags & ~constants.O_NONBLOCK) === -1) {
+        throw systemError(koffi.errno(), 'fcntl')
+      }
     }
     nativeExecve(
       file,
