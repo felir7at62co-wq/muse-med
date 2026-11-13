@@ -1121,7 +1121,7 @@ it('reports real decoded PTS and preserves the visual frame selected at the requ
   expect(raw.evidence_algorithm).toBe('decoded-pts-spatial-v2')
   expect(raw.frames.map(frame => [frame.requested_seconds, frame.timestamp_seconds])).toEqual([[0, 0], [0.5, 0.4]])
   expect(firstImage).toBeDefined()
-  const { data } = await sharp(firstImage!).raw().toBuffer({ resolveWithObject: true })
+  const { data } = await sharp(firstImage).raw().toBuffer({ resolveWithObject: true })
   expect(data[0]).toBeLessThan(10)
 })
 

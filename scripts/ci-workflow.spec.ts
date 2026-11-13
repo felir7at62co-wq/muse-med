@@ -690,6 +690,28 @@ describe('CI workflow', () => {
     expect(observational?.env).toMatchObject({ DSH_GATE_FAIL_FAST: '' })
   })
 
+  it.each([
+    ['ci.yml', 'node-24-lint', 'LINUX', 'ubuntu-latest', 'dsh-ubuntu-24-04-16core'],
+    ['ci-windows.yml', 'windows-build', 'WINDOWS', 'windows-2025', 'dsh-windows-2025-16core'],
+    ['ci-windows.yml', 'windows-coverage', 'WINDOWS', 'windows-2025', 'dsh-windows-2025-16core'],
+    ['ci-windows.yml', 'windows-native-tests', 'WINDOWS', 'windows-2025', 'dsh-windows-2025-16core'],
+  ])('keeps %s / %s schedulable outside the upstream runner pool', (file, name, platform, hosted, upstream) => {
+    const selector = workflowJob(loadWorkflow(`.github/workflows/${file}`), name)['runs-on']
+    if (typeof selector !== 'string') throw new TypeError('Runner selector must be an expression')
+    const variable = `DSH_CI_FAILOVER_${platform}`
+    const evaluate = (repository: string, mode = '', login = 'maintainer'): unknown => evaluateRunsOn(selector, {
+      vars: { [variable]: mode }, fromJSON: JSON.parse,
+      github: { repository, event: { pull_request: { user: { login } } } },
+    })
+    expect(evaluate('deepseek-harness/deepseek-harness')).toBe(upstream)
+    for (const repository of ['felir7at62co-wq/muse-med', 'example/fork']) {
+      for (const mode of ['', 'hosted', 'unexpected']) expect(evaluate(repository, mode)).toBe(hosted)
+      expect(evaluate(repository, 'blacksmith')).toMatch(/^blacksmith-/)
+      expect(evaluate(repository, 'selfhosted')).toContain('self-hosted')
+      expect(evaluate(repository, 'selfhosted', 'dependabot[bot]')).toBe(hosted)
+    }
+  })
+
   it('runs the darwin unit parity inventory at the coverage lanes\' test budget', () => {
     const coverage = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-24-coverage')
     if (!isRecord(coverage.env) || typeof coverage.env.DSH_COVERAGE_TEST_TIMEOUT_MS !== 'string') {
