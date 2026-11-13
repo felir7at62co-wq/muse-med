@@ -460,11 +460,11 @@ it('passes an auxiliary model stream without a Session identity through the nati
   const before = h.agent.session.snapshotEvents()
   const chunks = []
   for await (const chunk of h.host.llm.stream({ provider: selection.provider, model: selection.model,
-    messages: [], purpose: 'summary' })) chunks.push(chunk)
+    messages: [], purpose: 'compaction' })) chunks.push(chunk)
   expect(chunks).toEqual(textResponse('Auxiliary text.'))
   expect(h.adapter.requests).toHaveLength(3)
   expect(h.adapter.requests[2]?.sessionId).toBeUndefined()
-  expect(h.adapter.requests[2]?.purpose).toBe('summary')
+  expect(h.adapter.requests[2]?.purpose).toBe('compaction')
   expect((await h.store.load(h.run.id))?.binding).toEqual(h.binding)
   expect(h.agent.session.snapshotEvents()).toEqual(before)
   expect(h.calls.filter(call => call.method === 'PUT')).toEqual([])
