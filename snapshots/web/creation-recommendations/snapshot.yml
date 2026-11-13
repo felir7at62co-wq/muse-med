@@ -3,6 +3,7 @@ scenario: creation-recommendations
 profile: web
 composition: web-creation-recommendations
 recording: authored
+writerOutput: true
 header:
   class: web-creation-recommendations
   pin: true
