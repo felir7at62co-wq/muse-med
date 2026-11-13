@@ -1,4 +1,4 @@
-/** Bind staged Deep View cards to live native root Sessions on the reviewed Host. */
+/** Bind staged Deep View cards to live native root Sessions using the maintained source inventory's reviewed bytes. */
 import { createHash } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -8,7 +8,7 @@ const sourceFiles = Object.freeze({
   'package.json': '5946ec40c81d14e3ec27842280b390f1c778d509b927c542c90d4075568b6be0',
   'src/host/install.js': '501dc0206b9fddd98b6c69f4a43ad9557ef823b0b5671ffe3f40e5fc8c7244a0',
   'test/fake-ctx.js': '776deb6c5c16e3553c2c5e612cce47aa71e7e4365e58f642a348e90a63615fb5',
-  'test/host.test.js': '98b86b92328698bcccd47b7cb4b796764aada3f9134e2960f0332ebd218678a1',
+  'test/host.test.js': 'aecfaad2fcbbca6062ac4235fa666aeac83993f8f572c71a843a72dbfaf7c70a',
 })
 
 /** Reviewed adaptation recorded in the packed plugin's SOURCE.json. */

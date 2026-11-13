@@ -87,7 +87,7 @@ Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence
 
 保留的 [Deep View](deep-view/README.md) 插件为普通 Muse 会话提供 `show_view`，支持表格、图表、选择和表单等结构化视图。交互回答通过所属 Session 返回；简单问题仍可使用原生 `ask_user_question`。源码固定记录公开 fork 与上游修订，构建器使用当前运行时验证其 Host 和浏览器入口。Bot 团队保持归档。
 
-[私有 Host 覆盖](compatibility/deep-view-host.mjs)将 Deep View 适配到已审阅 Host 的 Agent Registry API。只有 Registry 中确切的活跃根 Agent 可以创建交互卡片；回答投递前还会确认解析出的 Agent 对应请求中的 Session。暂存清单保留原有 DSH engine 范围，并显式接受已审阅的 Host 版本；原生兼容检查无需豁免。构建使用真实 Agent Registry 和 AgentLoop、隔离数据且不请求外部模型来验证这些检查；保留的上游文件及源码哈希保持不变。
+[私有 Host 覆盖](compatibility/deep-view-host.mjs)将 Deep View 适配到已审阅 Host 的 Agent Registry API。只有 Registry 中确切的活跃根 Agent 可以创建交互卡片；回答投递前还会确认解析出的 Agent 对应请求中的 Session。暂存清单保留原有 DSH engine 范围，并显式接受已审阅的 Host 版本；原生兼容检查无需豁免。覆盖层已审阅的输入摘要必须与维护中的源码清单一致。构建使用真实 Agent Registry 和 AgentLoop、隔离数据且不请求外部模型来验证这些检查；保留的上游文件及源码哈希保持不变。
 
 独立的 [Skill 进化插件](muse-skill-evolution/README.zh.md)复盘新完成的工具任务，创建自有技能并保留提案及回退版本。原生持久化复盘会话使用任务所选模型。其 README 说明复盘限制、正常模型用量及文件权限。
 

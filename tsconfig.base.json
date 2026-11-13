@@ -31,7 +31,6 @@
       "@deepseek-ai/dsh-tool-video-inspect/source-qa": ["./packages/perception/tool-video-inspect/src/source-qa-api.ts"],
       "@deepseek-ai/dsh-tool-episode-render/delivery": ["./packages/drama/tool-episode-render/src/delivery-api.ts"],
       "@deepseek-ai/dsh-tool-episode-render/source-qa": ["./packages/drama/tool-episode-render/src/source-qa-api.ts"],
-      "@deepseek-ai/dsh-tool-jubian/generation-binding": ["./packages/jubian/tool-jubian/src/generation-binding.ts"],
       "@deepseek-ai/dsh-session-coordinator": ["./packages/session/session-coordinator/src"],
       "@deepseek-ai/dsh-session-coordinator/*": ["./packages/session/session-coordinator/src/*"],
       "@deepseek-ai/dsh-client-ui-session-coordinator": ["./packages/client/ui-session-coordinator/src"],
