@@ -1,6 +1,6 @@
 /** `render`: the encode pipeline, its cache, its log, and the delivery verdict it returns. */
 
-import { copyFile, cp, mkdir, readFile, readdir, realpath, rename, rm } from 'node:fs/promises'
+import { copyFile, cp, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, relative } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDramaRender, captureEpisodeSourceReview } from '../src/index.ts'
@@ -12,11 +12,13 @@ import { renderEpisode, type RenderInput } from '../src/render.ts'
 import { writeSubtitleClock } from '../src/subtitle-clock.ts'
 import { verifySelectedSourceReviews } from '../src/approved-sources.ts'
 import * as approvedSources from '../src/approved-sources.ts'
+import * as renderResume from '../src/render-resume.ts'
 import { sourceQaFixture } from './source-qa-fixture.ts'
 import { createSourceQaStagedAccess, type SourceQaVerifier } from '../src/source-qa.ts'
 import type { RenderSettings } from '../src/types.ts'
 
 vi.mock('../src/approved-sources.ts', async original => ({ ...await original<typeof import('../src/approved-sources.ts')>() }))
+vi.mock('../src/render-resume.ts', async original => ({ ...await original<typeof import('../src/render-resume.ts')>() }))
 import {
   cleanup,
   decodeHandler,
@@ -284,6 +286,38 @@ async function render(
 }
 
 describe('renderEpisode', () => {
+  it('refuses an expected Host review digest under a policy that did not verify sources', async () => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared)
+    await expect(render(prepared, channel, false, undefined, { sourceQaExpectedSha: '0'.repeat(64) }))
+      .rejects.toThrow('Host 指定的源片审核未在严格交付策略下核验')
+    expect(channel.calls).toEqual([])
+  })
+
+  it('retains explicit staged Host requirements through the public render entry', async () => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared)
+    const stage = join(prepared.project, 'private-host-stage'); await mkdir(stage)
+    const access = createSourceQaStagedAccess(prepared.project, stage, [], new AbortController().signal)
+    await expect(runDramaRender({ method: 'render', project: prepared.project, episode: 2,
+      timeline: prepared.timeline, subtitleSrt: prepared.subtitle, lastShot: 2, bgm: prepared.bgm,
+      endingAudio: prepared.endingAudio, endingEffect: prepared.endingEffect, output: prepared.output },
+    { ...settings, channel: channel.channel }, undefined, source => source, access, '0'.repeat(64)))
+      .rejects.toThrow('Host 指定的源片审核未在严格交付策略下核验')
+    expect(channel.calls).toEqual([])
+  })
+
+  it('rejects source evidence replaced after review but before the resume input capture', async () => {
+    const prepared = await reviewedProject(), channel = renderChannel(prepared, { resume: true })
+    const file = prepared.artifacts[0]
+    if (file === undefined) throw Error('Missing review artifact')
+    const read = renderResume.readRenderResumeFile
+    const capture = vi.spyOn(renderResume, 'readRenderResumeFile').mockImplementation(async (...args) => {
+      if (args[0] === file) await writeFile(file, 'Evidence replaced after Host verification')
+      return read(...args)
+    })
+    try { await expect(render(prepared, channel, false, undefined, { resume: true, sourceQaVerifier: prepared.verifier }))
+      .rejects.toThrow('源片复验后文件发生变化') }
+    finally { capture.mockRestore() }
+  })
   it('refuses partial-episode resume before probing or encoding any source', async () => {
     const prepared = await preparedProject(), channel = renderChannel(prepared)
     await expect(render(prepared, channel, false, undefined, { resume: true, lastShot: 1 }))
