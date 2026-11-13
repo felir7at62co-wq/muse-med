@@ -3,20 +3,20 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/core/agent-output-continuation/README.md
 /:
-  en: e6189f7555e8b384
-  zh: b80557c410a144b9
+  en: f67e8f70a2ff4f71
+  zh: fbba9cb101499764
 /deepseek-ai-dsh-agent-output-continuation:
   en: fe8c44edbdada715
   zh: 20e2fbea2f747a0e
 /deepseek-ai-dsh-agent-output-continuation/summary:
-  en: 7d9027208f95fa5d
-  zh: 4e308fef84ad6c27
+  en: 46f84d0dd4a03cb7
+  zh: e7c9bdd608be879a
 /deepseek-ai-dsh-agent-output-continuation/table-of-contents:
   en: d4e9596852e22009
   zh: 4d182c78e0cf42f5
 /deepseek-ai-dsh-agent-output-continuation/use-this-package:
-  en: 9d37aa167442a6db
-  zh: 2df2720d96b0e6b1
+  en: a674addbb91fe67e
+  zh: 7c75235da0714034
 /deepseek-ai-dsh-agent-output-continuation/model-experience:
   en: 215e7ba838619b7b
   zh: a311da3843709f90
@@ -34,10 +34,25 @@
   zh: 89313e32dc12330d
 /deepseek-ai-dsh-agent-output-continuation/model-experience/continuation-after-a-settled-output-limited-response/kv-cache-effect:
   en: 261873ce2a4c069f
+  zh: 99ca6595b61f36db
+/deepseek-ai-dsh-agent-output-continuation/model-experience/recovery-after-a-stop-with-no-visible-reply:
+  en: 7572181a2c470b68
+  zh: 6561360248ce7a65
+/deepseek-ai-dsh-agent-output-continuation/model-experience/recovery-after-a-stop-with-no-visible-reply/what-the-model-sees:
+  en: e75ccf87ac8dce20
+  zh: 0b43264705113271
+/deepseek-ai-dsh-agent-output-continuation/model-experience/recovery-after-a-stop-with-no-visible-reply/what-the-model-sees/verbatim-silent-stop-instruction:
+  en: ce3f92e7c7b9586e
+  zh: 151411e84b8182a0
+/deepseek-ai-dsh-agent-output-continuation/model-experience/recovery-after-a-stop-with-no-visible-reply/token-effect:
+  en: baebfe34e5524078
+  zh: 6496d786903683dd
+/deepseek-ai-dsh-agent-output-continuation/model-experience/recovery-after-a-stop-with-no-visible-reply/kv-cache-effect:
+  en: 261873ce2a4c069f
   zh: 671718427a107686
 /deepseek-ai-dsh-agent-output-continuation/known-limitations-and-deferred-work:
-  en: 4b2a1a0a964d391e
-  zh: d639dc12fd1b0a96
+  en: af2715375cace339
+  zh: ee7c650ba3da5766
 /deepseek-ai-dsh-agent-output-continuation/known-limitations-and-deferred-work/dev-note:
   en: e67f633dc6fe7773
   zh: 8ec3e73528ddb1a6

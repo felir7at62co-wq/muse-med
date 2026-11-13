@@ -61,7 +61,7 @@ Press F12 (Fn+F12 on media-key keyboards), Command+Option+I on macOS, or Ctrl+Sh
 
 <a id="terminal-command"></a>
 
-Muse automatically [continues output-limited answers](../../packages/core/agent-output-continuation/README.md) in the same turn. The model output setting caps each individual request; progressing continuations have no default count cap. Cancellation and provider failures remain visible.
+Muse automatically [continues output-limited answers](../../packages/core/agent-output-continuation/README.md) in the same turn. The model output setting caps each individual request; progressing continuations have no default count cap. When a model stops after hidden reasoning with no visible reply and no tool call, Muse asks it again in the same turn, at most twice, instead of ending the turn with nothing shown. Cancellation and provider failures remain visible.
 
 New tasks offer **Short drama mode**. Other packaged presets remain registered for historical Session recovery and cannot be selected for new tasks.
 

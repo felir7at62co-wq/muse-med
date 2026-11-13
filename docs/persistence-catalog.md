@@ -5000,7 +5000,7 @@ One of:
 
 SHA-256: `293c550398048019297015e0b2e7e4779354085cd78ad567596823919ecce8b4`
 
-Sources: [`packages/core/agent-output-continuation/src/types.ts:16`](../packages/core/agent-output-continuation/src/types.ts)
+Sources: [`packages/core/agent-output-continuation/src/types.ts:18`](../packages/core/agent-output-continuation/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|

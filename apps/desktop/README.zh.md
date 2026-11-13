@@ -61,7 +61,7 @@ Desktop Host 的 Platform API 请求与更新策略请求用相同的 Platform �
 
 <a id="terminal-command"></a>
 
-Muse 会在同一轮次中[自动续写达到输出上限的回答](../../packages/core/agent-output-continuation/README.zh.md)。模型输出设置限制单次请求；有进展的续写默认没有次数上限。取消和提供方错误仍正常显示。
+Muse 会在同一轮次中[自动续写达到输出上限的回答](../../packages/core/agent-output-continuation/README.zh.md)。模型输出设置限制单次请求；有进展的续写默认没有次数上限。模型只做了隐藏推理、既没有可见回复也没有工具调用就停止时，Muse 会在同一轮次中再次请求，最多两次，而不是什么都不显示就结束轮次。取消和提供方错误仍正常显示。
 
 新建任务提供**短剧模式**。其他内置预设继续注册，用于恢复历史 Session，不能用于新建任务。
 

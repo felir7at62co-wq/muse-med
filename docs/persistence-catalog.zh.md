@@ -5002,7 +5002,7 @@ SHA-256: `3bd652ebfa8726b3ce3937a4f1bd2759e02f86b3a08a20f9e41a8513656fbc5f`
 
 SHA-256: `293c550398048019297015e0b2e7e4779354085cd78ad567596823919ecce8b4`
 
-来源：[`packages/core/agent-output-continuation/src/types.ts:16`](../packages/core/agent-output-continuation/src/types.ts)
+来源：[`packages/core/agent-output-continuation/src/types.ts:18`](../packages/core/agent-output-continuation/src/types.ts)
 
 | 属性 | 存在性 | 类型 |
 |---|---|---|

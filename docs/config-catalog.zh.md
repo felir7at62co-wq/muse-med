@@ -149,10 +149,10 @@ export interface Config {
 - `source`: [`packages/core/agent-output-continuation/src/index.ts:14`](../packages/core/agent-output-continuation/src/index.ts)
 
 ```ts config-catalog
-/** Deployment limits for continuing one output-limited turn. */
+/** Deployment limits for continuing one turn after an output limit or a silent stop. */
 export interface Config extends ContinuationConfig {}
 
-/** Deployment limits for continuing one output-limited turn. */
+/** Deployment limits for continuing one turn after an output limit or a silent stop. */
 export interface ContinuationConfig {
   /** Maximum additional model responses per turn; null (default) leaves progressing continuations uncapped. */
   maxContinuations?: number | null
@@ -162,6 +162,8 @@ export interface ContinuationConfig {
   repeatWindowChars?: number
   /** Characters from the exact response end included in continuation input; defaults to 1024. */
   continuationTailChars?: number
+  /** Additional model responses per turn after a normal stop with no visible text and no tool call; defaults to one, zero disables. */
+  maxSilentStopRecoveries?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-agent-output-continuation -->

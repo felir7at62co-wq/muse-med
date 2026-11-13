@@ -28,7 +28,8 @@
   config:
     models: []
 
-# Continue output-limited responses through normal requests and compaction.
+# Continue output-limited responses through normal requests and compaction, and ask again
+# when a response stops with hidden reasoning only: the user would otherwise receive nothing.
 - insert:
     - id: agent-output-continuation
       name: '@deepseek-ai/dsh-agent-output-continuation'
@@ -36,6 +37,7 @@
         maxContinuations: null
         maxNoProgressResponses: 2
         repeatWindowChars: 16384
+        maxSilentStopRecoveries: 2
 
 # A single object repeating one member 64 times cannot advance a tool call.
 # Discard malformed tool calls and allow one bounded response recovery per turn.
