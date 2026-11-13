@@ -51,7 +51,8 @@ it.each(['malformed arguments', 'mismatched binding model'] as const)(
         session.append('tool/call', { turn: 1, step: 1, callId, name: 'jubian_storyboard', arguments: argumentsText })
         session.append('tool/result', { turn: 1, step: 1, message: createToolResultMessage({ callId,
           content: [{ type: 'text', text: malformed ? 'Invalid JSON arguments' : 'Recorded submission' }], isError: malformed }),
-        ...(malformed ? {} : { meta: { [TOOL_BODY_META_KEY]: { generationWatchId: runId, submission: args, binding } } }) },
+        ...(malformed ? {} : { meta: { [TOOL_BODY_META_KEY]: { generationWatchId: runId, submission: args,
+          binding: { ...binding, model: { provider: binding.model.provider, model: binding.model.model } } } } }) },
         { surfaceOp: 'append' })
         session.append('step/end', { turn: 1, step: 1 })
         session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
