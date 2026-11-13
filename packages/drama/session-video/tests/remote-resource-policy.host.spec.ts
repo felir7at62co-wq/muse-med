@@ -11,7 +11,6 @@ import FileSystem from '@deepseek-ai/dsh-fs-local'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
 import Projections from '@deepseek-ai/dsh-session-projection'
-import Query from '@deepseek-ai/dsh-session-query'
 import Subprocess from '@deepseek-ai/dsh-subprocess-local'
 import { FaceModelEmitter, WorkspaceAnalyzer } from '@deepseek-ai/dsh-typert-generator'
 import type { TypertRemoteInfo } from '@deepseek-ai/dsh-typert-protocol'
@@ -19,6 +18,7 @@ import TypertRegistry, { type TypertContribution } from '@deepseek-ai/dsh-typert
 import { afterEach, beforeAll, expect, it, onTestFinished, vi } from 'vitest'
 import { provideBrowserCredentials } from '../../../api/gateway/tests/browser-credentials.ts'
 import { executableRemoteModule } from '../../../typert/generator/tests/remote-module.ts'
+import { TestSessionQueryEngine } from '../../../session-query/session-query/tests/test-service.ts'
 import SessionVideo from '../src/index.ts'
 
 declare module '@deepseek-ai/dsh-typert-protocol' {
@@ -52,7 +52,7 @@ async function fixture() {
   await ctx.plugin({ inject: [...connectionInject], apply: applyConnection }).await()
   await ctx.plugin(Sessions).await()
   await ctx.plugin(Projections).await()
-  await ctx.plugin(Query, {}).await()
+  await ctx.plugin(TestSessionQueryEngine).await()
   await ctx.plugin(FileSystem, { cwd: root }).await()
   await ctx.plugin(Attachments, { dshHome: root }).await()
   await ctx.plugin(Subprocess).await()
