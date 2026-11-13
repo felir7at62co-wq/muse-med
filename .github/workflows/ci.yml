@@ -419,6 +419,9 @@ jobs:
       - name: Run compatibility, snapshot, and artifact gates
         run: pnpm run check:ci:consumers
 
+      - name: Verify browser poll cancellation during update
+        run: node --import tsx/esm --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test third_party/plugins/ds-bot/test/browser-channel.test.js third_party/plugins/ds-bot/test/update-drain.test.js
+
 
   node-compat:
     if: github.event_name == 'pull_request'
@@ -604,6 +607,10 @@ jobs:
       - name: Run blocking Windows builds
         shell: pwsh
         run: pnpm run check:ci:windows-blocking
+      - name: Install Bot runtime dependencies
+        run: npm ci --prefix third_party/plugins/ds-bot --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund
+      - name: Verify browser poll cancellation during update
+        run: node --import tsx/esm --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test third_party/plugins/ds-bot/test/browser-channel.test.js third_party/plugins/ds-bot/test/update-drain.test.js
       - name: Run Windows observational gates on built artifacts
         id: observational
         continue-on-error: true
