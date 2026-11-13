@@ -579,7 +579,8 @@ export class PiAiAdapter extends LlmAdapter {
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
         ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
         signal: watchdog.signal,
-        fetch: captureResponse,
+        // pi-ai's Google Generative AI adapter throws on any custom fetch.
+        ...model.api === 'google-generative-ai' ? {} : { fetch: captureResponse },
         ...profile.googleThoughtSummaries?.has(model.id) ? { onPayload: requestGoogleThoughtSummaries } : {},
         headers: requestHeaders(profile.headers, options, model.baseUrl, this.config.prepareHeaders),
       })

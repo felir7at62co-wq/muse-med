@@ -46,7 +46,7 @@ const LEADING_HTTP_STATUS = /^[45]\d\d\b/
 // wrapper a bare `terminated`, so transport failures still require matching
 // terse words here. HTTP response facts are captured before this conversion; if
 // pi-ai forwards the original Error, classify transport on `code`/`cause` instead.
-function classifyPiAiError(message: string, status?: number): string {
+function classifyPiAiError(message: string, status?: number): BuiltinLlmFailureCode {
   // These are SDK-owned terminal protocol labels, not provider prose.
   if (message === 'Provider finish_reason: content_filter') return 'CONTENT_FILTER'
   if (message === 'Provider finish_reason: network_error') return 'TRANSPORT'

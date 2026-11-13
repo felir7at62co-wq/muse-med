@@ -130,7 +130,7 @@ Chat Completions 用量更新需要包含有限、非负的 `prompt_tokens` 或 
 
 已完成且非空的 `stop` 回复，在报告用量超过本地模型目录容量时仍按成功处理。用量继续用于估算上下文压力，不覆盖提供方的成功结束状态。提供方明确报告的上下文错误，以及空回复或零输出截断响应的用量判定，仍保留超限分类。
 
-pi-ai 不提供的路由需要 `api`、`baseURL` 与非空 `models` 列表；无法服务的 profile 会在写入处被拒绝，并点名路由与模型。失败携带稳定 code：无法使用的凭据以 `INVALID_CREDENTIAL` 失败并点名路由与引用，`apiKeyEnv` 引用解析为空的路由以 `MISSING_CREDENTIAL` 失败，未配置模型以 `UNKNOWN_MODEL` 失败，终止性提供方失败则区分 `QUOTA` 与暂时性 `RATE_LIMIT`。Adapter 会在 pi-ai 把 SDK 错误压成文本前捕获每次请求的 HTTP 状态、有效 `Retry-After` 和有长度限制的提供方请求 ID；状态会把 401/403 分类为 `AUTH`、429 分类为 `RATE_LIMIT`、5xx 分类为 `SERVER`。Host 可通过故障观察器只接收这些结构化事实以及路由、模型和错误类别；响应正文和其他任意标头不会进入观察器。`GenerateOptions.stop` 以 `UNSUPPORTED_OPTION` 被拒绝，因为 pi-ai 的通用流式 UI 无法跨提供方保证它。
+pi-ai 不提供的路由需要 `api`、`baseURL` 与非空 `models` 列表；无法服务的 profile 会在写入处被拒绝，并点名路由与模型。失败携带稳定 code：无法使用的凭据以 `INVALID_CREDENTIAL` 失败并点名路由与引用，`apiKeyEnv` 引用解析为空的路由以 `MISSING_CREDENTIAL` 失败，未配置模型以 `UNKNOWN_MODEL` 失败，终止性提供方失败则区分 `QUOTA` 与暂时性 `RATE_LIMIT`。Adapter 会在 pi-ai 把 SDK 错误压成文本前捕获每次请求的 HTTP 状态、有效 `Retry-After` 和有长度限制的提供方请求 ID；状态会把 401/403 分类为 `AUTH`、429 分类为 `RATE_LIMIT`、5xx 分类为 `SERVER`。`google-generative-ai` 路由例外：pi-ai 在该协议下拒绝自定义 fetch，其失败只按错误文本分类。Host 可通过故障观察器只接收这些结构化事实以及路由、模型和错误类别；响应正文和其他任意标头不会进入观察器。`GenerateOptions.stop` 以 `UNSUPPORTED_OPTION` 被拒绝，因为 pi-ai 的通用流式 UI 无法跨提供方保证它。
 
 Chat Completions 的终止原因 `finish_reason: content_filter` 返回不可重试的 `CONTENT_FILTER`；`network_error` 返回暂时性 `TRANSPORT`。只有 SDK 的精确协议标签才按此分类；未知终止原因仍为 `PI_AI_ERROR`，默认策略不重试。
 
@@ -285,7 +285,7 @@ pi-ai 事件变成 harness 的推理、文本、工具调用、用量与 finish 
 - **不支持 `GenerateOptions.stop`**——pi-ai 的通用流式选项无法跨提供方保证停止序列行为。
 - **对话更新支持只来自已安装的 pi-ai 目录**——原生系统与工具更新需要目录模型的对话中 compat 标志，profile 不能设置这些标志。手工声明的路由与未标记的模型会以用户角色提醒接收后续系统文本，并在每次请求开头接收完整的当前工具列表。
 - **图片只在 user 与工具结果消息中被接受**——system、developer 或 assistant 历史中的图片在两条转换路径上都会以 `UNSUPPORTED_CONTENT` 失败。
-- **提供方 HTTP 状态不可用**——pi-ai 错误事件不跨提供方暴露稳定 HTTP 状态，失败按错误文本分类。信息以 4xx 或 5xx 状态码开头时（Anthropic 与 OpenAI SDK 的错误即如此），状态码规则只读取该状态码。其他格式（如 `Mistral API error (<status>): <body>`）仍会匹配信息中任意位置引用的状态码；配额、限流与无效请求的措辞规则读取整条信息，因此网关在 5xx 响应体中转述上游的 `insufficient_quota` 或 `invalid_request_error` 时，会分类为不重试的 `QUOTA` 或 `INVALID_REQUEST`。
+- **文本分类只是回退**——只要 pi-ai 接受 adapter 的 fetch 包装（除 `google-generative-ai` 外的所有协议），失败就按捕获到的 HTTP 状态分类；捕获到 5xx 时，即使响应体转述配额或无效请求措辞也分类为 `SERVER`。没有捕获到状态时按错误文本分类：信息以 4xx 或 5xx 状态码开头时（Anthropic 与 OpenAI SDK 的错误即如此）只读取该状态码；其他格式（如 `Mistral API error (<status>): <body>`）会匹配信息中任意位置引用的状态码；配额、限流与无效请求的措辞规则读取整条信息，因此转述上游 `insufficient_quota` 或 `invalid_request_error` 的失败会分类为不重试的 `QUOTA` 或 `INVALID_REQUEST`。
 - **重试策略由提供方自有，而非 SDK 重试**——pi-ai SDK 重试保持禁用，因此持久 agent（智能体）步骤与 `llm/retry` 事件拥有每个可见尝试，直接 `ctx.llm.stream()` 调用仍是单次尝试。
 - **流式 JSON 工具调用参数避免逐 delta 重复解析**——安装的 pi-ai 带有 [`patches/@earendil-works__pi-ai@1.3.0.patch`](../../../patches/@earendil-works__pi-ai@1.3.0.patch)，它移除了每个流适配器中对整段累计参数 JSON 的逐 delta 重新解析（上游 [earendil-works/pi#9265](https://github.com/earendil-works/pi/issues/9265)）；未打补丁时，数 MB 的参数流会在事件循环上消耗 O(n²) CPU，并使进程内所有会话停滞。完成事件提供解析后的参数；Responses 可能在参数完成和输出项完成时分别解析。本适配器只读取 delta 字符串与最终参数。每次升级 pi-ai 时都要重新应用或撤销该补丁。
 - **仅含费用的 SSE 尾帧保留 token 用量**——Chat Completions 尾帧缺少 `prompt_tokens` 与 `completion_tokens` 时保留前一次计量。提供方费用事件仍向计费监听器公开。
