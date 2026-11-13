@@ -224,6 +224,25 @@ it('requires trusted project and Session attestation before returning a unique s
   } finally { await rm(root, { recursive: true, force: true }) }
 })
 
+it.each(['preview', 'project'] as const)('rejects a relative %s path before reading ownership or invoking the Host attestor', async (relative) => {
+  const root = await mkdtemp(join(tmpdir(), 'muse-watch-relative-owner-'))
+  try {
+    const store = new GenerationWatchStore(root), original = run(root, 'a', 'session', ['b'])
+    await store.claimAndCreate(original)
+    const pack = original.packs[0]!, attest = vi.fn(async () => true)
+    const paths = [join(root, original.id + '.json'), join(root, 'ownership.v1.json'), join(root, 'ownership.v2.json')]
+    const before = await Promise.all(paths.map(path => readFile(path)))
+    await expect(store.resolveVerifiedOwner(pack.key, relative === 'preview' ? 'preview.json' : pack.previewPath,
+      relative === 'project' ? 'project' : root, attest)).rejects.toThrow('Expected absolute project and preview paths')
+    expect(attest).not.toHaveBeenCalled()
+    expect(await Promise.all(paths.map(path => readFile(path)))).toEqual(before)
+    expect(await store.resolveVerifiedOwner(pack.key, pack.previewPath, root, attest)).toEqual({
+      runId: original.id, sessionId: original.sessionId, key: pack.key, previewPath: pack.previewPath,
+    })
+    expect(attest).toHaveBeenCalledOnce()
+  } finally { await rm(root, { recursive: true, force: true }) }
+})
+
 it('does not hold the ownership lock while attesting and rejects state changed during attestation', async () => {
   const root = await mkdtemp(join(tmpdir(), 'muse-watch-attestation-race-'))
   try {
