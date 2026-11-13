@@ -483,32 +483,53 @@ it('drains an admitted delivery failure during producer shutdown before releasin
 }, 20_000)
 
 it('refuses a concurrent owner and releases the admitted continuation when it becomes idle', async () => {
-  const h = await isolatedNativeDelivery(), leave = Promise.withResolvers<undefined>(), acquired = Promise.withResolvers<undefined>()
+  const h = await isolatedNativeDelivery(), leave = Promise.withResolvers<undefined>()
   const enter = Promise.withResolvers<undefined>()
+  const phases: string[] = []
+  const waitFor = async (phase: string) => vi.waitFor(() => {
+    expect(phases, `Waiting for ${phase}; observed ${JSON.stringify(phases)}`).toContain(phase)
+  }, { timeout: 5000 })
   onTestFinished(() => { leave.resolve(undefined); enter.resolve(undefined) })
-  const maintenance = h.agent.runMaintenance(async () => { await leave.promise })
+  const maintenance = h.agent.runMaintenance(async () => { phases.push('maintenance-entered'); await leave.promise })
   const authority = h.host.generationWorkspaceAuthority, acquire = authority.acquire.bind(authority)
   const leases: { lease: GenerationWorkspaceLease; release: ReturnType<typeof vi.spyOn> }[] = []
   const watching = vi.spyOn(authority, 'acquire').mockImplementation(async (...args) => {
     const lease = await acquire(...args)
     leases.push({ lease, release: vi.spyOn(lease, 'release') })
-    acquired.resolve(undefined)
+    phases.push('first-workspace-acquired')
     await enter.promise
+    phases.push('workspace-returned')
     return lease
   })
   onTestFinished(() => { watching.mockRestore() })
-  const first = h.send(), second = h.send()
-  const denied = expect(second).rejects.toThrow('already has an active continuation')
-  await acquired.promise
-  await denied
-  enter.resolve(undefined)
-  expect(await first).toBe('pending')
-  leave.resolve(undefined)
-  await maintenance; await h.agent.whenIdle()
-  watching.mockRestore()
-  expect(leases).toHaveLength(1)
-  for (const entry of leases) expect(entry.release).toHaveBeenCalled()
-  h.agent.model.select({ provider: 'mock', model: 'next-after-continuation' })
+  let first: ReturnType<typeof h.send> | undefined, second: ReturnType<typeof h.send> | undefined
+  try {
+    await waitFor('maintenance-entered')
+    first = h.send()
+    const firstResult = first.catch((error: unknown) => error)
+    await waitFor('first-workspace-acquired')
+    second = h.send()
+    const secondResult = second.then(value => ({ kind: 'resolved' as const, value }), (error: unknown) => ({ kind: 'rejected' as const, error }))
+      .finally(() => { phases.push('second-settled') })
+    await waitFor('second-settled')
+    const denied = await secondResult
+    expect(denied.kind).toBe('rejected')
+    if (denied.kind !== 'rejected' || !(denied.error instanceof Error)) throw new Error('The concurrent owner was not rejected with an Error')
+    expect(denied.error.message).toContain('already has an active continuation')
+    expect(phases).not.toContain('workspace-returned')
+    expect(leases).toHaveLength(1)
+    enter.resolve(undefined)
+    expect(await firstResult).toBe('pending')
+    leave.resolve(undefined)
+    await maintenance; await h.agent.whenIdle()
+    for (const entry of leases) expect(entry.release).toHaveBeenCalled()
+    h.agent.model.select({ provider: 'mock', model: 'next-after-continuation' })
+  } finally {
+    enter.resolve(undefined); leave.resolve(undefined)
+    await Promise.allSettled([first, second, maintenance])
+    await h.agent.whenIdle()
+    watching.mockRestore()
+  }
 }, 20_000)
 
 it('reuses a held continuation for another notice and preserves an explicitly selected reasoning effort', async () => {
@@ -567,9 +588,13 @@ it.each(['caller-abort', 'revoked-lease'] as const)('rejects an owner revoked af
 
 it('keeps a replacement held lease when an earlier cancelled delivery fails to persist', async () => {
   const h = await isolatedNativeDelivery(), caller = new AbortController(), leave = Promise.withResolvers<undefined>()
-  const secondAcquire = Promise.withResolvers<undefined>(), flushEntered = Promise.withResolvers<undefined>()
+  const phases: string[] = []
+  const waitFor = async (phase: string) => vi.waitFor(() => {
+    if (!phases.includes(phase)) throw new Error(`Missing ${phase}; observed ${JSON.stringify(phases)}`)
+  }, { timeout: 5000 })
+  const secondAcquire = Promise.withResolvers<undefined>()
   const flushExit = Promise.withResolvers<undefined>()
-  const publishFirst = Promise.withResolvers<undefined>(), secondEntered = Promise.withResolvers<undefined>()
+  const publishFirst = Promise.withResolvers<undefined>()
   onTestFinished(() => {
     leave.resolve(undefined); secondAcquire.resolve(undefined); flushExit.resolve(undefined); publishFirst.resolve(undefined)
   })
@@ -577,8 +602,15 @@ it('keeps a replacement held lease when an earlier cancelled delivery fails to p
   const authority = h.host.generationWorkspaceAuthority, acquire = authority.acquire.bind(authority)
   let calls = 0
   const acquisition = vi.spyOn(authority, 'acquire').mockImplementation(async (...args) => {
-    if (++calls === 2) { secondEntered.resolve(undefined); await secondAcquire.promise; return await acquire(...args) }
+    if (++calls === 2) {
+      phases.push('second-acquire-entered')
+      await secondAcquire.promise
+      const lease = await acquire(...args)
+      phases.push('second-workspace-acquired')
+      return lease
+    }
     const lease = await acquire(...args)
+    phases.push('first-workspace-acquired')
     await publishFirst.promise
     return lease
   })
@@ -587,31 +619,50 @@ it('keeps a replacement held lease when an earlier cancelled delivery fails to p
   const acquireBinding = GenerationBinding.acquireGenerationSessionBinding
   const binding = vi.spyOn(GenerationBinding, 'acquireGenerationSessionBinding').mockImplementation(async (...args) => {
     const lease = await acquireBinding(...args)
+    phases.push('execution-binding-ready')
     firstLeaseReady = true
     return lease
   })
   const failure = new Error('Earlier notice could not persist')
   const ack = vi.spyOn(h.host.sessions, 'flush').mockImplementation(async (...args) => {
-    if (firstLeaseReady && !captured) { captured = true; flushEntered.resolve(undefined); await flushExit.promise; throw failure }
+    if (firstLeaseReady && !captured) {
+      captured = true; phases.push('notice-flush-entered')
+      await flushExit.promise
+      throw failure
+    }
     return await flush(...args)
   })
   onTestFinished(() => { acquisition.mockRestore(); ack.mockRestore(); binding.mockRestore() })
   const first = h.deliver(h.agent.id, createGenerationWatchNotice('First result.'), caller.signal, undefined, undefined, h.run)
-  const firstResult = first.catch((error: unknown) => error)
-  const second = h.send()
-  await secondEntered.promise
-  publishFirst.resolve(undefined)
-  await flushEntered.promise
-  caller.abort(new Error('First caller cancelled'))
-  secondAcquire.resolve(undefined)
-  expect(await second).toBe('pending')
-  flushExit.resolve(undefined)
-  expect(await firstResult).toBe(failure)
-  expect(await h.send()).toBe('pending')
-  expect(calls).toBe(2)
-  leave.resolve(undefined); await maintenance; await h.agent.whenIdle()
-  acquisition.mockRestore(); ack.mockRestore(); binding.mockRestore()
-  h.agent.model.select({ provider: 'mock', model: 'after-replacement-idle' })
+  const firstResult = first.catch((error: unknown) => { phases.push(`first-rejected:${String(error)}`); return error })
+  let second: ReturnType<typeof h.send> | undefined
+  try {
+    // Observation I/O may reorder callers; pin the cancellable owner before starting its replacement.
+    await waitFor('first-workspace-acquired')
+    second = h.send()
+    const secondResult = second.then((value) => { phases.push('second-delivered'); return value }, (error: unknown) => {
+      phases.push(`second-rejected:${String(error)}`)
+      return error
+    })
+    await waitFor('second-acquire-entered')
+    publishFirst.resolve(undefined)
+    await waitFor('notice-flush-entered')
+    caller.abort(new Error('First caller cancelled'))
+    secondAcquire.resolve(undefined)
+    await waitFor('second-delivered')
+    expect(await secondResult).toBe('pending')
+    flushExit.resolve(undefined)
+    expect(await firstResult).toBe(failure)
+    expect(await h.send()).toBe('pending')
+    expect(calls).toBe(2)
+    leave.resolve(undefined); await maintenance; await h.agent.whenIdle()
+    h.agent.model.select({ provider: 'mock', model: 'after-replacement-idle' })
+  } finally {
+    publishFirst.resolve(undefined); secondAcquire.resolve(undefined); flushExit.resolve(undefined); leave.resolve(undefined)
+    caller.abort(new Error('Fixture release'))
+    await Promise.allSettled([first, second, maintenance])
+    acquisition.mockRestore(); ack.mockRestore(); binding.mockRestore()
+  }
 }, 20_000)
 
 it('withholds another authenticated original binding while a continuation is held', async () => {
