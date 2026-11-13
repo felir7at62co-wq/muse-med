@@ -44,10 +44,8 @@ describe('approved episode service', () => {
     const input = await selection(f)
     await f.service.admitEpisode(input)
     f.renderer.release()
-    await vi.waitFor(async () => {
-      const status = await f.service.episodeStatus(input)
-      expect(status.state).toBe('unknown')
-      expect(status.problem).toContain('Captured subtitle clock changed')
+    await expect.poll(async () => await f.service.episodeStatus(input)).toMatchObject({
+      state: 'unknown', problem: expect.stringContaining('Captured subtitle clock changed'),
     })
     expect(revalidate).toHaveBeenCalledOnce()
     const output = join(f.project, 'exports', `Muse-episode-01-${input.digest}.mp4`)
@@ -245,7 +243,7 @@ describe('approved episode service', () => {
     expect((await service.episodeStatus(input)).state).toBe('completed')
     expect((await service.episodeStatus(input)).canResume).toBe(true)
     await service.admitEpisode({ ...input, resume: true })
-    await vi.waitFor(async () => { const state = await service.episodeStatus(input); expect(state.state, state.problem).toBe('completed') })
+    await expect.poll(async () => await service.episodeStatus(input)).toMatchObject({ state: 'completed' })
     expect((await service.episodeStatus(input)).attempt).toBe(done.attempt)
     expect(f.renderer.encodes).toBe(1)
     expect(service.hasActiveWork()).toBe(false)
@@ -335,7 +333,7 @@ describe('approved episode service', () => {
     expect(cancelled).toMatchObject({ state: 'cancelled', canResume: true, attempt: second.attempt })
     expect(f.renderer.encodes).toBe(1)
     await f.service.admitEpisode({ ...secondInput, resume: true }); f.renderer.release()
-    await vi.waitFor(async () => { const state = await f.service.episodeStatus(secondInput); expect(state.state, state.problem).toBe('completed') })
+    await expect.poll(async () => await f.service.episodeStatus(secondInput)).toMatchObject({ state: 'completed' })
     expect((await f.service.episodeStatus(secondInput)).attempt).toBe(second.attempt)
     expect(f.renderer.encodes).toBe(2); expect(f.fetch).not.toHaveBeenCalled()
   })
