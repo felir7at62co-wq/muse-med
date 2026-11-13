@@ -152,11 +152,12 @@ describe('Muse updater mirror download retries', () => {
       expect(await f.coordinator.download(stable)).toMatchObject({ phase: 'error', failedOperation: 'download' })
       await expect(f.coordinator.install(stable)).rejects.toThrow(/not ready/u)
     }
-    expect(f.executor.downloads).toEqual([primary])
+    // Explicit retries recheck the original source; mismatched fallback bytes are never fetched.
+    expect(f.executor.downloads).toEqual([primary, primary, primary])
     f.responses.set(`${base}/download/v${stable}/latest.yml`, metadata(stable))
     f.executor.downloadResponses.set(fallback, 'inert updater fixture')
     expect(await f.coordinator.download(stable)).toMatchObject({ phase: 'ready', version: stable })
-    expect(f.executor.downloads).toEqual([primary, fallback])
+    expect(f.executor.downloads).toEqual([primary, primary, primary, primary, fallback])
     expect(await readFile(join(f.root, 'updater-cache', 'pending', filename), 'utf8')).toBe('inert updater fixture')
     await expect(JSON.stringify(f.states, null, 2) + '\n').toMatchFileSnapshot('./expected/update-mirror-retries.json')
   })

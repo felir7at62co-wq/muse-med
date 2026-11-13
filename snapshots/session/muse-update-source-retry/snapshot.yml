@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-update-source-retry
+profile: headless
+composition: muse-update-source-retry
+recording: authored
+header:
+  class: muse-update-source-retry
+  pin: true
+writerOutput: true
+workspace:
+  final: true

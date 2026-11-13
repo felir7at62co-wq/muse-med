@@ -1,0 +1,9 @@
+{
+  "initialOfferConfirmed": true,
+  "staleFallbackRefused": true,
+  "matchingFallbackSucceeded": true,
+  "recoveredPrimaryDownloads": 1,
+  "changedIdentityRejected": true,
+  "unverifiedDownloads": 0,
+  "installerInvocations": 0
+}
