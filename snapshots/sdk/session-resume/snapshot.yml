@@ -3,6 +3,7 @@ scenario: session-resume
 profile: sdk
 composition: default
 recording: authored
+writerOutput: true
 header:
   class: session-resume
   pin: true

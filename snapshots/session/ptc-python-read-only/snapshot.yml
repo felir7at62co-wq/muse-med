@@ -3,6 +3,7 @@ scenario: ptc-python-read-only
 profile: headless
 composition: ptc-python
 recording: authored
+writerOutput: true
 header:
   class: ptc-python
 platform: posix

@@ -3,5 +3,6 @@ scenario: todo-write
 profile: headless
 composition: default
 recording: live
+writerOutput: true
 header:
   class: default

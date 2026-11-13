@@ -3,5 +3,6 @@ scenario: fs-read
 profile: headless
 composition: default
 recording: live
+writerOutput: true
 header:
   class: default

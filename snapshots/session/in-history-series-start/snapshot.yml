@@ -3,6 +3,7 @@ scenario: in-history-series-start
 profile: headless
 composition: in-history-series-start
 recording: authored
+writerOutput: true
 header:
   class: in-history-series-start
   pin: true
