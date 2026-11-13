@@ -115,6 +115,66 @@ it('refuses a status response when the account changes while the request is in f
   await expect(client.get(brandString<MuseFeedbackId>(statusRecord.id))).rejects.toMatchObject({ code: 'account-changed' })
 })
 
+it('refuses malformed or signed-out status lookups before network access', async () => {
+  const { options } = await fixture(), fetcher = vi.fn<typeof fetch>()
+  const client = new MuseFeedbackClient({ ...options, fetcher })
+  await expect(client.get(brandString<MuseFeedbackId>('invalid'))).rejects.toMatchObject({ code: 'invalid-input' })
+  await rm(options.sessionFile)
+  await expect(client.get(brandString<MuseFeedbackId>(statusRecord.id))).rejects.toMatchObject({ code: 'sign-in-required' })
+  expect(fetcher).not.toHaveBeenCalled()
+})
+
+it.each([303, 401, 403, 404, 429, 500] as const)('maps receipt status HTTP %s to a bounded owner-safe error', async (status) => {
+  const { options } = await fixture(), fetcher = vi.fn<typeof fetch>(async () => new Response('private upstream detail', { status }))
+  await expect(new MuseFeedbackClient({ ...options, fetcher }).get(brandString<MuseFeedbackId>(statusRecord.id)))
+    .rejects.toMatchObject({ code: status === 303 || status === 401 ? 'sign-in-required'
+      : status === 403 || status === 404 ? 'not-found' : status === 429 ? 'rate-limited' : 'unavailable' })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+it.each(['network', 'json', 'secrets'] as const)('contains a private status %s failure', async (phase) => {
+  const { options } = await fixture()
+  const client = new MuseFeedbackClient({ ...options,
+    secrets: async () => { if (phase === 'secrets') throw Error('private credential storage detail'); return [] },
+    fetcher: async () => {
+      if (phase === 'network') throw Error('private gateway failure')
+      return phase === 'json' ? new Response('<html>login</html>') : Response.json(statusRecord)
+    },
+  })
+  await expect(client.get(brandString<MuseFeedbackId>(statusRecord.id))).rejects.toMatchObject({ code: 'unavailable', message: 'MUSE feedback: unavailable' })
+})
+
+it('rejects a status read if account ownership changes while loading redaction values', async () => {
+  const { options } = await fixture()
+  const client = new MuseFeedbackClient({ ...options, fetcher: async () => Response.json(statusRecord), secrets: async () => {
+    await writeMuseSession(options.sessionFile, { baseUrl: options.baseUrl, username: 'bob', cookie: '__Host-muse=bob-session' })
+    return []
+  } })
+  await expect(client.get(brandString<MuseFeedbackId>(statusRecord.id))).rejects.toMatchObject({ code: 'account-changed' })
+})
+
+it('reads an owner-scoped receipt through the real default HTTP transport', async () => {
+  const f = await fixture(), paths: string[] = []
+  const server = createServer((req, res) => {
+    paths.push(req.url ?? ''); expect(req.headers.cookie).toBe('__Host-muse=private-cookie-value')
+    res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(statusRecord))
+  })
+  await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve) })
+  try {
+    const address = server.address()
+    if (address === null || typeof address === 'string') throw Error('Missing HTTP address')
+    const baseUrl = `http://127.0.0.1:${address.port}`
+    await writeMuseSession(f.options.sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=private-cookie-value' })
+    const { fetcher: _fetcher, ...options } = f.options
+    expect(await new MuseFeedbackClient({ ...options, baseUrl }).get(brandString<MuseFeedbackId>(statusRecord.id)))
+      .toMatchObject({ id: statusRecord.id, status: 'reviewing', reply: 'Testing [redacted]' })
+    expect(paths).toEqual(['/api/muse.feedback/' + statusRecord.id])
+  } finally {
+    server.closeAllConnections()
+    await new Promise<void>((resolve, reject) => { server.close((error) => { if (error) reject(error); else resolve() }) })
+  }
+})
+
 it('accepts only a matching durable receipt and preserves seven-category and message identity without automatic excerpts', async () => {
   const { client, seen } = await fixture()
   expect(await client.submit(request)).toEqual({ id: 'a'.repeat(32), revision: 1 })
