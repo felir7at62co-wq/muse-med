@@ -16281,6 +16281,9 @@ importers:
       '@deepseek-ai/dsh-llm':
         specifier: workspace:*
         version: link:../../llm/llm
+      '@deepseek-ai/dsh-llm-replay':
+        specifier: workspace:*
+        version: link:../../test-support/llm-replay
       '@deepseek-ai/dsh-sdk-protocol':
         specifier: workspace:*
         version: link:../protocol

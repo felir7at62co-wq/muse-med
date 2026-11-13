@@ -223,11 +223,14 @@ it('distinguishes missing from malformed, over-budget and nonregular journal fil
   await expect(f.job.read()).rejects.toThrow(SyntaxError)
 })
 
-it('observes bounded state JSON and rejects missing-parent errors, malformed JSON and oversized files', async () => {
+it('observes bounded state JSON and rejects I/O errors, malformed JSON and oversized files', async () => {
   const f = await fixture(), path = join(f.root, 'state.json')
   expect(await readEpisodeStateSnapshot(path, 4)).toBeUndefined()
   await writeFile(path, '{}'); expect(await readEpisodeStateSnapshot(path, 2)).toEqual({})
-  await expect(readEpisodeStateSnapshot(join(path, 'nested.json'), 4)).rejects.toThrow()
+  const failure = Object.assign(new Error('State read denied'), { code: 'EACCES' })
+  const denied = vi.spyOn(files, 'open').mockRejectedValueOnce(failure)
+  try { await expect(readEpisodeStateSnapshot(path, 4)).rejects.toBe(failure) }
+  finally { denied.mockRestore() }
   await writeFile(path, '{'); await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow(SyntaxError)
   await writeFile(path, '12345'); await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow('bounded regular file')
   await expect(readEpisodeStateSnapshot(f.root, 4)).rejects.toThrow('bounded regular file')
@@ -422,7 +425,10 @@ it('refuses unowned running records and orphan historical drain evidence', async
 
 it('propagates real journal and candidate path errors instead of interpreting them as absence', async () => {
   const f = await fixture(); await f.job.admit(f.admission)
-  await expect(readEpisodeRecord(join(f.input, 'nested.json'), 16384)).rejects.toThrow()
+  const failure = Object.assign(new Error('Journal read denied'), { code: 'EACCES' })
+  const denied = vi.spyOn(files, 'open').mockRejectedValueOnce(failure)
+  try { await expect(readEpisodeRecord(join(f.job.attemptRoot, 'job.json'), 16384)).rejects.toBe(failure) }
+  finally { denied.mockRestore() }
   const execution = await f.execution(), stage = dirname(execution.candidatePath)
   await rm(stage, { recursive: true }); await writeFile(stage, 'not a directory')
   await expect(f.job.assertAdmission(execution.identity)).rejects.toThrow()

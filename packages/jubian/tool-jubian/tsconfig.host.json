@@ -62,6 +62,7 @@
     "src/video-recovery-config.ts",
     "src/episode-delivery.ts",
     "src/episode-delivery-job.ts",
+    "src/episode-file-hash.ts",
     "src/episode-execution.ts",
     "src/approved-episode-plan.ts",
     "src/episode-delivery-service.ts",
