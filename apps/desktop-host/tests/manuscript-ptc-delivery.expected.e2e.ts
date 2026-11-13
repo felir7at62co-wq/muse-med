@@ -3,9 +3,9 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
-import { runLoaderSmoke, LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
+import { runLoaderSmoke, resolveExampleMode, LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
 
-it.each(['src', 'lib'] as const)('delivers through actual PTC bindings in %s while review logging is delayed, then rebuilds its projection', async (mode) => {
+it.each([resolveExampleMode()])('delivers through actual PTC bindings in %s while review logging is delayed, then rebuilds its projection', async (mode) => {
   const patch = fileURLToPath(new URL('./fixtures/manuscript-final-delivery/ptc.cordis.yml', import.meta.url))
   const { stderr } = await runLoaderSmoke({
     label: `manuscript creation PTC delivery ${mode}`, tempDirPrefix: 'manuscript-ptc-delivery-',
