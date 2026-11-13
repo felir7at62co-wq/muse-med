@@ -13,6 +13,7 @@ jobs:
     timeout-minutes: 20
     env:
       DSH_TELEMETRY_DISABLED: '1'
+      DSH_COVERAGE_TEST_TIMEOUT_MS: '90000'
     steps:
       - name: Set runner-owned temporary paths
         run: |
@@ -45,16 +46,18 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           sudo apt-get update
-          sudo apt-get install --yes ffmpeg
+          sudo apt-get install --yes ffmpeg strace
           ffmpeg -version
           ffprobe -version
           node -e "const os=require('node:os'); console.log(JSON.stringify({node:process.version,v8:process.versions.v8,cpus:os.availableParallelism(),cpu:os.cpus()[0]?.model,memory:os.totalmem()}))"
       - name: Capture the six original native probe cases
         env:
           DSH_OCR_DIAGNOSTICS_DIR: ${{ runner.temp }}/ocr-native-evidence/single
+          DSH_SUBPROCESS_NATIVE_FD_DIAGNOSTICS: ${{ runner.temp }}/ocr-native-evidence/single/fd-flags
         run: |
           mkdir -p .artifacts/ocr-native-diagnosis
-          pnpm exec vitest run packages/perception/tool-video-inspect/tests/inspection.spec.ts --maxWorkers=1 --no-file-parallelism -t 'decodes the complete|fractional batch boundary' 2>&1 | tee .artifacts/ocr-native-diagnosis/single.log
+          mkdir -p "$DSH_OCR_DIAGNOSTICS_DIR"
+          strace -f -s 160 -e trace=write,writev,fcntl -o "$DSH_OCR_DIAGNOSTICS_DIR/strace.log" pnpm exec vitest run packages/perception/tool-video-inspect/tests/inspection.spec.ts --maxWorkers=1 --no-file-parallelism -t 'decodes the complete|fractional batch boundary' 2>&1 | tee .artifacts/ocr-native-diagnosis/single.log
       - name: Compare three independent instrumented owner processes
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: |
@@ -66,6 +69,7 @@ jobs:
           import { join } from 'node:path'
           const root = '.artifacts/ocr-native-diagnosis'
           await mkdir(root, { recursive: true })
+          await mkdir(join(process.env.RUNNER_TEMP, 'ocr-native-evidence'), { recursive: true })
           const run = async (worker) => {
             const log = join(root, 'worker-' + worker + '.log')
             const stream = createWriteStream(log, { flags: 'wx' })
@@ -75,8 +79,11 @@ jobs:
               '--maxWorkers=1', '--no-file-parallelism', '--coverage',
               '--coverage.include=packages/perception/tool-video-inspect/src/ocr.ts',
               '--coverage.reportsDirectory=' + join(root, 'coverage-' + worker)]
-            const child = spawn('pnpm', args, { stdio: ['ignore', 'pipe', 'pipe'],
-              env: { ...process.env, DSH_OCR_DIAGNOSTICS_DIR: join(process.env.RUNNER_TEMP, 'ocr-native-evidence', 'worker-' + worker) } })
+            const trace = join(process.env.RUNNER_TEMP, 'ocr-native-evidence', 'strace-worker-' + worker + '.log')
+            const child = spawn('strace', ['-f', '-s', '160', '-e', 'trace=write,writev,fcntl', '-o', trace, 'pnpm', ...args], { stdio: ['ignore', 'pipe', 'pipe'],
+              env: { ...process.env,
+                DSH_OCR_DIAGNOSTICS_DIR: join(process.env.RUNNER_TEMP, 'ocr-native-evidence', 'worker-' + worker),
+                DSH_SUBPROCESS_NATIVE_FD_DIAGNOSTICS: join(process.env.RUNNER_TEMP, 'ocr-native-evidence', 'worker-' + worker, 'fd-flags') } })
             child.stdout.pipe(stream, { end: false })
             child.stderr.pipe(stream, { end: false })
             let spawnError

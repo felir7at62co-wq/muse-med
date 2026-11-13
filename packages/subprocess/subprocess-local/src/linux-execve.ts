@@ -1,6 +1,9 @@
 /** Lazy libc execve and descriptor bindings used by the one-shot Linux bootstrap. */
 
 import { getSystemErrorMessage, getSystemErrorName } from 'node:util'
+import { createHash, randomUUID } from 'node:crypto'
+import { constants, mkdirSync, writeFileSync } from 'node:fs'
+import { isAbsolute, join } from 'node:path'
 import { SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
 import { createLazyRequire } from '@deepseek-ai/dsh-lazy-require'
 
@@ -25,7 +28,9 @@ type NativeFcntl = (fd: number, command: number, argument: number) => number
 const STANDARD_FILE_DESCRIPTORS = [0, 1, 2] as const
 const F_GETFD = 1
 const F_SETFD = 2
+const F_GETFL = 3
 const FD_CLOEXEC = 1
+const NATIVE_FD_DIAGNOSTICS = 'DSH_SUBPROCESS_NATIVE_FD_DIAGNOSTICS'
 
 let cachedExecve: LinuxExecve | undefined
 
@@ -67,6 +72,21 @@ export function loadLinuxExecve(): LinuxExecve {
       if (nativeFcntl(fd, F_SETFD, flags & ~FD_CLOEXEC) === -1) {
         throw systemError(koffi.errno(), 'fcntl')
       }
+    }
+    const diagnostics = process.env[NATIVE_FD_DIAGNOSTICS]
+    if (diagnostics !== undefined) {
+      if (!isAbsolute(diagnostics)) throw Error('Native descriptor diagnostic directory must be absolute')
+      const observed = descriptors.map((fd) => {
+        const statusFlags = nativeFcntl(fd, F_GETFL, 0)
+        const errno = statusFlags === -1 ? koffi.errno() : null
+        return { fd, statusFlags, errno, nonblocking: statusFlags === -1 ? null : (statusFlags & constants.O_NONBLOCK) !== 0 }
+      })
+      mkdirSync(diagnostics, { recursive: true })
+      writeFileSync(join(diagnostics, `${process.pid}-${randomUUID()}.json`), JSON.stringify({
+        pid: process.pid, ppid: process.ppid, node: process.version, executable: file,
+        argvLength: argv.length, argvSha256: createHash('sha256').update(JSON.stringify(argv)).digest('hex'),
+        timeMs: Date.now(), descriptors: observed,
+      }) + '\n', { flag: 'wx' })
     }
     nativeExecve(
       file,
