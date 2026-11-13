@@ -94,6 +94,26 @@ async function waitForReplyMarker(page: Page, marker: string, timeout = 30000) {
   }, { marker, first: FIRST, done: DONE }, { polling: 'raf', timeout })
 }
 
+async function waitForContinuationReady(page: Page, turns: number, draft: string): Promise<void> {
+  const ready = await page.waitForFunction(({ selector, turns, draft }) => {
+    const composer = Array.from(document.querySelectorAll('[data-composer-input][contenteditable="true"]')).at(-1)
+    return document.querySelectorAll(selector).length === turns
+      && composer?.checkVisibility({ checkVisibilityCSS: true }) === true
+      // Chromium renders the synthetic draft's trailing space as NBSP in contenteditable.
+      && document.activeElement === composer && composer.textContent?.replaceAll('\u00a0', ' ') === draft
+  }, { selector: TAIL, turns, draft }, { polling: 'raf' })
+  await ready.dispose()
+  await painted(page)
+}
+
+async function submitWithReplyObserver(page: Page) {
+  const [first] = await Promise.all([
+    waitForReplyMarker(page, FIRST),
+    page.keyboard.press('Enter'),
+  ])
+  return first
+}
+
 async function waitForTrajectory(page: Page, timeout = 30000): Promise<void> {
   // Selector retry backoff can delay observation after the view is already ready.
   const ready = await page.waitForFunction(() => {
@@ -162,6 +182,53 @@ it('waits for visible marker text in the latest Assistant step', async () => {
     await expect(waitForReplyMarker(page, DONE, 100)).rejects.toThrow('Timeout')
   } finally {
     await browser.close()
+  }
+})
+
+it('waits for the visible focused draft and complete loaded window before measuring a continuation', async () => {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage()
+    await page.setContent('<section style="visibility:hidden"><div data-chat-flow-key="9:turn-tail"></div><div data-composer-input contenteditable="true">stale</div></section>')
+    let completed = false
+    const ready = waitForContinuationReady(page, 2, 'draft ').then(() => { completed = true }, (error: unknown) => ({ error }))
+    await painted(page)
+    expect(completed).toBe(false)
+    await page.locator('section').evaluate(element => { element.style.visibility = 'visible' })
+    await painted(page)
+    expect(completed).toBe(false)
+    await page.locator('[data-composer-input]').focus()
+    await painted(page)
+    expect(completed).toBe(false)
+    await page.locator('[data-composer-input]').fill('draft ')
+    await painted(page)
+    expect(completed).toBe(false)
+    await page.locator('section').evaluate(element => {
+      const tail = document.createElement('div')
+      tail.setAttribute('data-chat-flow-key', '9:turn-tail:second')
+      element.append(tail)
+    })
+    const outcome = await ready
+    if (outcome !== undefined) throw outcome.error
+    expect(completed).toBe(true)
+  } finally { await browser.close() }
+})
+
+it('observes an intermediate reply before submission acknowledgement completes', async () => {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage()
+    await page.setContent('<div data-chat-flow-kind="assistant-step"></div>')
+    vi.spyOn(page.keyboard, 'press').mockImplementation(async () => {
+      await page.locator('[data-chat-flow-kind]').evaluate((element, first) => { element.textContent = first }, FIRST)
+      await painted(page)
+      await page.locator('[data-chat-flow-kind]').evaluate((element, text) => { element.textContent = text }, `${FIRST} ${DONE}`)
+    })
+    const first = await submitWithReplyObserver(page)
+    try { expect(await first.jsonValue()).toMatchObject({ first: true, done: false }) }
+    finally { await first.dispose() }
+  } finally {
+    try { await browser.close() } finally { vi.restoreAllMocks() }
   }
 })
 
@@ -388,7 +455,9 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
           await page.getByRole('tab', { name: 'Chat', exact: true }).click()
           await page.waitForFunction(({ selector, expected }) => document.querySelectorAll(selector).length === expected, { selector: TAIL, expected: HISTORY_TURNS })
           const composer = page.locator('[data-composer-input][contenteditable="true"]').last()
-          await composer.fill('Continue the synthetic review and summarize the validation. '.repeat(30))
+          const draft = 'Continue the synthetic review and summarize the validation. '.repeat(30)
+          await composer.fill(draft)
+          await waitForContinuationReady(page, HISTORY_TURNS, draft)
           const cdp = await page.context().newCDPSession(page)
           await cdp.send('Performance.enable')
           const beforeTask = await taskMs(cdp)
@@ -398,8 +467,7 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
           )
           await watchInputOverlap(composer)
           const started = performance.now()
-          await page.keyboard.press('Enter')
-          const firstMarker = await waitForReplyMarker(page, FIRST)
+          const firstMarker = await submitWithReplyObserver(page)
           const first = performance.now() - started
           // Keep focus across submission; mouse actionability must not delay the input probe.
           const input = await measure(page, async () => {
