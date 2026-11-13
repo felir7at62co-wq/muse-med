@@ -59,6 +59,61 @@ it('rejects an extra persisted key that is absent from its recorded run without 
   expect(await f.store.load(f.run.id)).toEqual(f.run)
 })
 
+it.each(['indexed-session', 'legacy-owner-run', 'legacy-owner-session', 'legacy-owner-preview', 'orphan-owner',
+  'duplicate-pack', 'duplicate-started-key', 'unknown-started-key', 'no-send-after-start', 'non-no-send-successor',
+  'successor-cycle', 'missing-successor', 'successor-session', 'successor-pack-count', 'successor-pack-identity'] as const)(
+  'rejects a persisted %s relationship and resumes reading after the original index is restored', async (relationship) => {
+    const f = await checkpoint()
+    await f.store.claimAndCreate(f.run)
+    const indexPath = join(f.root, 'watches', 'ownership.v2.json')
+    const legacyPath = join(f.root, 'watches', 'ownership.v1.json')
+    const originalIndex = await readFile(indexPath, 'utf8'), originalRun = await readFile(f.path)
+    const originalLegacy = await readFile(legacyPath)
+    const index = z.looseObject({
+      keys: z.record(z.string(), z.looseObject({ runId: z.string(), sessionId: z.string(), previewPath: z.string() })),
+      runs: z.record(z.string(), z.looseObject({ sessionId: z.string(),
+        packs: z.array(z.looseObject({ key: z.string(), previewPath: z.string() })),
+        startedKeys: z.array(z.string()), noSend: z.boolean(), successor: z.string().optional() })),
+    }).parse(JSON.parse(originalIndex))
+    const entry = index.runs[f.run.id]!, pack = f.run.packs[0]!, otherId = 'c'.repeat(64)
+    if (relationship.startsWith('legacy-owner-')) {
+      index.runs = Object.fromEntries(Object.entries(index.runs).filter(([id]) => id !== f.run.id))
+    }
+    switch (relationship) {
+      case 'indexed-session': entry.sessionId = 'another-session'; break
+      case 'legacy-owner-run': index.keys[pack.key]!.runId = otherId; break
+      case 'legacy-owner-session': index.keys[pack.key]!.sessionId = 'another-session'; break
+      case 'legacy-owner-preview': index.keys[pack.key]!.previewPath = join(f.root, 'other.json'); break
+      case 'orphan-owner': index.keys[otherId] = { runId: otherId, sessionId: f.run.sessionId, previewPath: pack.previewPath }; break
+      case 'duplicate-pack': index.runs[otherId] = { ...entry, packs: [...entry.packs, ...entry.packs] }; break
+      case 'duplicate-started-key': entry.startedKeys = [pack.key, pack.key]; break
+      case 'unknown-started-key': entry.startedKeys = [otherId]; break
+      case 'no-send-after-start': entry.startedKeys = [pack.key]; entry.noSend = true; break
+      case 'non-no-send-successor': entry.successor = otherId; break
+      case 'successor-cycle': entry.noSend = true; entry.successor = f.run.id; break
+      case 'missing-successor': entry.noSend = true; entry.successor = otherId; break
+      case 'successor-session':
+        entry.noSend = true; entry.successor = otherId
+        index.runs[otherId] = { ...entry, sessionId: 'another-session', successor: undefined }; break
+      case 'successor-pack-count':
+        entry.noSend = true; entry.successor = otherId
+        index.runs[otherId] = { ...entry, packs: [...entry.packs, ...entry.packs], successor: undefined }; break
+      case 'successor-pack-identity':
+        entry.noSend = true; entry.successor = otherId
+        index.runs[otherId] = { ...entry, packs: [{ key: 'd'.repeat(64), previewPath: join(f.root, 'other.json') }],
+          successor: undefined }; break
+    }
+    const invalidIndex = JSON.stringify(index)
+    await writeFile(indexPath, invalidIndex)
+    await expect(f.store.mayObserve(f.run.id)).rejects.toBeInstanceOf(GenerationWatchOwnershipConflict)
+    expect(await readFile(indexPath, 'utf8')).toBe(invalidIndex)
+    expect(await readFile(f.path)).toEqual(originalRun)
+    expect(await readFile(legacyPath)).toEqual(originalLegacy)
+    await writeFile(indexPath, originalIndex)
+    expect(await f.store.mayObserve(f.run.id)).toBe(false)
+    expect(await f.store.load(f.run.id)).toEqual(f.run)
+  })
+
 it('commits the same checkpoint after a public ownership claim without inventing a notice or changing its deadline', async () => {
   const f = await checkpoint()
   await f.store.claimOwnership(f.run)
