@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-The `drama/` group holds the short-drama pipeline's formats, operations, and settings. Its tools transcribe authorized media through the signed-in Muse account, reconcile remote assets, validate and compile shot scripts, turn explicit story segments into a measured BGM bed, and render medium-controlled episode delivery. `drama-settings` owns the durable tier, directory, delivery, and BGM-library settings plus their Web editor. Creative shot and music choices remain in the drama skills and agent workflow.
+The `drama/` group holds the short-drama pipeline's formats, operations, and settings. Its tools transcribe authorized media through the signed-in Muse account, reconcile remote assets, validate and compile shot scripts, turn explicit story segments into a measured BGM bed, and render medium-controlled episode delivery. `drama-settings` owns the durable directory, delivery-spec, BGM-library, image-standard, and per-series budget settings plus their Web editor. Creative shot and music choices remain in the drama skills and agent workflow.
 
 ## Table of Contents
 
@@ -33,6 +33,11 @@ The `drama/` group holds the short-drama pipeline's formats, operations, and set
 | [`tool-bgm-compose/`](tool-bgm-compose/README.md) | The model-facing `drama_bgm` tool: source analysis, deterministic crossfaded composition, no-clobber publication, and fixed WAV verification |
 | [`tool-episode-render/`](tool-episode-render/README.md) | The model-facing `drama_render` tool: the render-input layout, project-canvas delivery with subtitle and audio style, medium-controlled ending and watermark, and the post-render checks |
 | [`drama-settings/`](drama-settings/README.md) | The durable `drama` settings section every other row reads, plus its Web GUI surface: the Settings page and that page's read-only component list |
+| [`character-library/`](character-library/README.md) | Bounded Host-owned browsing, preview and recommendation for character references |
+| [`character-library-tos/`](character-library-tos/README.md) | Reviewed public character references read from fixed Volcengine TOS prefixes with bounded List, Head, and ranged Get operations |
+| [`tool-character-reference/`](tool-character-reference/README.md) | The model-facing `drama_character_references`, `drama_character_reference_view` and `drama_character_reference_project` tools: bounded character-reference search and verified image inspection, without exposing storage locations or granting use permission |
+| [`tool-drama-assets/`](tool-drama-assets/README.md) | The model-facing `drama_assets` tool: pre-spend reconciliation of the Jubian project's used assets against the manifest, the evidence the paid-call gate reads, and a recorded disposition per unregistered asset |
+| [`skills/`](skills/README.md) | Portable skill resources that search historical drama assets, maintain project state, and assemble confirmed whole-drama deliveries |
 
 -----
 

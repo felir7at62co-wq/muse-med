@@ -56,6 +56,9 @@ kind: "package-group"
 | [`ui-conversation/`](ui-conversation/README.zh.md) | 展示当前对话及其输入界面 | — |
 | [`ui-chat/`](ui-chat/README.zh.md) | 投影并渲染 Chat 对话 target | — |
 | [`ui-session-video/`](ui-session-video/README.zh.md) | 将会话视频收纳到同一幕布，通过镜头轨道查看并写入修改草稿 | — |
+| [`ui-muse-account/`](ui-muse-account/README.zh.md) | 桌面设置中的 Muse 账号登录和状态界面 | — |
+| [`ui-muse-market/`](ui-muse-market/README.zh.md) | 管理本地 Skill 版本与可选云端发布 | — |
+| [`ui-settings-agent-notes/`](ui-settings-agent-notes/README.zh.md) | Agent 笔记设置分区：浏览、搜索并就地编辑笔记 | — |
 | [`ui-approval/`](ui-approval/README.zh.md) | 展示批准请求并返回用户决策 | — |
 | [`ui-tool/`](ui-tool/README.zh.md) | 编排工具调用树与按工具键控的视图 | — |
 | [`ui-workflow-run/`](ui-workflow-run/README.zh.md) | 把持久工作流运行回放为嵌套对话折叠项 | — |

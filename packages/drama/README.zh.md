@@ -9,7 +9,7 @@ kind: "package-group"
 
 ## Summary
 
-`drama/` 组承载短剧流水线自己的格式、操作与设置。它的工具通过已登录的 Muse 账号转写获授权媒体、对账远端资产、校验并编译镜头脚本、把明确剧情段落合成为实测 BGM 底轨，并按固定样式渲染整集。`drama-settings` 持有档位、目录、交付与 BGM 库设置及其 Web 编辑页。镜头与音乐的创作选择仍归短剧 skill 和 Agent 工作流。
+`drama/` 组承载短剧流水线自己的格式、操作与设置。它的工具通过已登录的 Muse 账号转写获授权媒体、对账远端资产、校验并编译镜头脚本、把明确剧情段落合成为实测 BGM 底轨，并按固定样式渲染整集。`drama-settings` 持有目录、交付规格、BGM 库、图片规格与整剧预算设置及其 Web 编辑页。镜头与音乐的创作选择仍归短剧 skill 和 Agent 工作流。
 
 ## Table of Contents
 
@@ -33,6 +33,11 @@ kind: "package-group"
 | [`tool-bgm-compose/`](tool-bgm-compose/README.zh.md) | 模型可见的 `drama_bgm` 工具：源曲分析、确定性交叉淡化合成、无覆盖发布与固定 WAV 核验 |
 | [`tool-episode-render/`](tool-episode-render/README.zh.md) | 模型可见的 `drama_render` 工具：渲染输入布局、带字幕与音频样式的项目画布交付、按视觉类型确定片尾和水印，以及渲染后检查 |
 | [`drama-settings/`](drama-settings/README.zh.md) | 其它各行读取的持久 `drama` 设置段，以及它的 Web GUI 界面：设置页与页面上那份只读组件清单 |
+| [`character-library/`](character-library/README.zh.md) | 为人物参考提供有界、由 Host 管理的浏览、预览和推荐能力 |
+| [`character-library-tos/`](character-library-tos/README.zh.md) | 通过有界的 List、Head 和 Range Get，从火山引擎 TOS 的固定前缀读取经过审查的公共人物参考 |
+| [`tool-character-reference/`](tool-character-reference/README.zh.md) | 模型可见的 `drama_character_references`、`drama_character_reference_view` 与 `drama_character_reference_project` 工具：有界检索人物参考并查看经过校验的图片，不暴露存储位置，也不授予使用权限 |
+| [`tool-drama-assets/`](tool-drama-assets/README.zh.md) | 模型可见的 `drama_assets` 工具：付费生成前比对剧变项目已选用的资产与清单，写出付费钩子读取的证据，并逐条记录未登记资产的处置 |
+| [`skills/`](skills/README.zh.md) | 可迁移的技能资源：检索历史短剧资产、维护项目状态，并组装已确认的整剧交付 |
 
 -----
 

@@ -56,6 +56,9 @@ The kernel packages boot and serve the page; the UI feature packages present it.
 | [`ui-conversation/`](ui-conversation/README.md) | Presents the active conversation and its input surface | — |
 | [`ui-chat/`](ui-chat/README.md) | Projects and renders the Chat conversation target | — |
 | [`ui-session-video/`](ui-session-video/README.md) | Collects conversation videos into one curtain with a shot timeline and draft-edit actions | — |
+| [`ui-muse-account/`](ui-muse-account/README.md) | Muse account sign-in and status in Desktop Settings | — |
+| [`ui-muse-market/`](ui-muse-market/README.md) | Manages local Skill releases and optional cloud publication | — |
+| [`ui-settings-agent-notes/`](ui-settings-agent-notes/README.md) | Agent Notes Settings section: browse, search, and edit notes in place | — |
 | [`ui-approval/`](ui-approval/README.md) | Presents approval requests and returns user decisions | — |
 | [`ui-tool/`](ui-tool/README.md) | Composes Tool call trees and keyed per-Tool views | — |
 | [`ui-workflow-run/`](ui-workflow-run/README.md) | Replays durable workflow runs as nested chat disclosures | — |

@@ -61,7 +61,9 @@ kind: "package-group"
 | [`attachment/`](attachment/README.zh.md) | 持久附件标识、校验、本地内容寻址存储 |
 | [`spill/`](spill/README.zh.md) | spill 能力系列：存储 seam、本地实现、工具结果 spill 策略 |
 | [`todo/`](todo/README.zh.md) | 面向模型的 `todo_write` 工具 |
-| [`drama/`](drama/README.zh.md) | 短剧流水线门禁与编译器：面向模型的 `drama_shot` 工具 |
+| [`drama/`](drama/README.zh.md) | 短剧流水线：资产核对、分镜脚本、BGM 合成、分集渲染与设置 |
+| [`jubian/`](jubian/README.zh.md) | 剧变媒体任务与资产：传输、请求构造与面向模型的工具 |
+| [`perception/`](perception/README.zh.md) | BGM 情绪匹配与本地视频检查工具 |
 | [`plan/`](plan/README.zh.md) | Plan 协作状态，提供直接进入命令与经评审的退出 |
 | [`preset/`](preset/README.zh.md) | 由 preset `cordis.yml` 按会话组装 agent |
 | [`guard/`](guard/README.zh.md) | 循环卫生守卫：建议性重复调用提醒 + `tools/execute` 截止时间强制执行器 |

@@ -22,11 +22,12 @@ Find BGM candidates near a requested mood and download a selected public track t
 <a id="packages"></a>
 ## Packages
 
-The group currently provides one music-emotion package:
+The group provides a music-emotion package and a video-inspection package:
 
 | Package | Role |
 |---|---|
 | [`perception-bgm`](perception-bgm/README.md) | The `bgm_match` tool: candidate ranking, verified downloads, local index building, and single-track emotion analysis |
+| [`tool-video-inspect`](tool-video-inspect/README.md) | The `video_inspect` and `video_ocr` tools: local video metadata, bounded timestamped frames, and local text recognition from frames |
 
 <a id="related-documentation"></a>
 ## Related documentation

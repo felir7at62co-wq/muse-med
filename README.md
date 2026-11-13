@@ -18,7 +18,7 @@ Review the [safety notice](SAFETY.md) before running the project. Desktop develo
 
 The desktop preview combines script preparation, user-provided visual references, asset review, shot planning, BGM selection, and episode delivery in one short-drama preset. Reference images come from the user; Xiaohongshu access is not required or bundled. Reference review and user confirmation are skill-level workflow requirements, not an authorization check enforced by every paid tool.
 
-The Windows media payload is prepared for local rendering and Whisper transcription, with pinned OFL-licensed Noto fonts; it does not make online model providers, Jubian accounts, or public BGM downloads offline. Optional MERT analysis requires separately prepared model resources and is restricted to non-commercial use. The latest installer still requires fresh-profile and clean-machine qualification; unsigned test artifacts are not a signed public release. See the [desktop guide](apps/desktop/README.md) for runtime and credential limitations.
+The Windows media payload is prepared for local rendering, with pinned OFL-licensed subtitle and watermark fonts; it contains no local Whisper dependencies or models, and transcription defaults to signed-in cloud ASR. It does not make online model providers, Jubian accounts, or public BGM downloads offline. Optional MERT analysis requires separately prepared model resources and is restricted to non-commercial use. The latest installer still requires fresh-profile and clean-machine qualification; unsigned test artifacts are not a signed public release. See the [desktop guide](apps/desktop/README.md) for runtime and credential limitations.
 
 ## Run
 
@@ -57,7 +57,7 @@ pnpm muse:desktop
 pnpm muse:desktop:start
 ```
 
-`muse:web` serves the Web GUI against the muse product home (`$MUSE_HOME`, otherwise `~/.muse`) on port 327 by default, so it never collides with a plain `dsh web` on 3080; `--port` selects another port and `--dry-run` prepares the home and exits. `muse:desktop` builds the current source and launches the desktop shell, which uses the same home with a legacy `~/.muse-med` fallback; `muse:desktop:start` skips the build. `MUSE_MED_HOME` overrides the desktop home, while an inherited `DSH_HOME` or `MUSE_HOME` does not select it.
+`muse:web` serves the Web GUI against the muse product home (`$MUSE_HOME`, otherwise `~/.muse`) on port 327 by default, so it never collides with a plain `dsh web` on 3080; `--port` selects another port and `--dry-run` prepares the home and exits. `muse:desktop` builds the current source and launches the development desktop shell; `muse:desktop:start` skips the build. That shell keeps its state in `apps/desktop/.desktop-build/development/home` unless `DSH_HOME` or `MUSE_HOME` selects another location. The `~/.muse` product home, its legacy `~/.muse-med` fallback and the `MUSE_MED_HOME` override apply only to the packaged application, which ignores an inherited `DSH_HOME` or `MUSE_HOME`.
 
 ## Community and support
 

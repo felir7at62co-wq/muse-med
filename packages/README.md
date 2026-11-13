@@ -61,7 +61,9 @@ New packages join existing groups; new groups update their README and this table
 | [`attachment/`](attachment/README.md) | Durable attachment identity, validation, local content-addressed storage |
 | [`spill/`](spill/README.md) | Spill capability family: storage seam, local impl, tool-result spill policy |
 | [`todo/`](todo/README.md) | The model-facing `todo_write` tool |
-| [`drama/`](drama/README.md) | Short-drama pipeline gate and compiler: the model-facing `drama_shot` tool |
+| [`drama/`](drama/README.md) | Short-drama pipeline: asset checks, shot scripts, BGM composition, episode rendering, and settings |
+| [`jubian/`](jubian/README.md) | Jubian media tasks and assets: transport, request builders, and model-facing tools |
+| [`perception/`](perception/README.md) | BGM mood matching and local video inspection tools |
 | [`plan/`](plan/README.md) | Plan collaboration state with a direct entry command and reviewed exit |
 | [`preset/`](preset/README.md) | Per-session agent composition from preset `cordis.yml` files |
 | [`guard/`](guard/README.md) | Loop-hygiene guards: advisory repeat-call reminders + the `tools/execute` deadline enforcer |
