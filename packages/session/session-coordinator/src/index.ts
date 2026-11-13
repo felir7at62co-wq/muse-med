@@ -560,7 +560,7 @@ export class SessionCoordinator extends TypertRemoteService {
       }
       const files = events.flatMap(event => event.seq > input.seq && event.type === 'deliverables/presented' ? event.data.files : [])
       await this.ctx.sessions.flush(worker.session)
-      return this.save(revise(task, { status: 'finishing', report: {
+      return this.save(revise(task, { status: 'finishing', issue: null, report: {
         outcome, summary, files, throughSeq: events.reduce((_seq, event) => event.seq, input.seq),
       } }))
     })
@@ -638,9 +638,13 @@ export class SessionCoordinator extends TypertRemoteService {
   }
 
   private async settleRelated(agent: Agent): Promise<void> {
+    const seen = new Set<Agent>()
     for (const [, task] of this.table.entries()) {
+      if (!reservesWorker(latest(task))) continue
       const worker = this.ctx.agents.get(latest(task).sessionId)
-      if (worker !== undefined && this.executionTree(worker).includes(agent)) await this.settleWorker(worker)
+      if (worker === undefined || seen.has(worker)) continue
+      seen.add(worker)
+      if (this.executionTree(worker).includes(agent)) await this.settleWorker(worker)
     }
   }
 

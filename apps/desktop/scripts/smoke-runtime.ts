@@ -119,8 +119,11 @@ export function apply(ctx) {
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
     if (id === 'main-session') {
       if (ctx.agentTeams.isEnabled(handle.agent)) throw new Error('desktop runtime: Main Session unexpectedly enables Team work')
-      const routing = ['coordinator_sessions', 'coordinator_read', 'coordinator_dispatch', 'coordinator_tasks', 'coordinator_stop', 'ask_user_question']
-      if (routing.some(name => !names.has(name)) || [...names].some(name => !routing.includes(name))) {
+      const required = ['coordinator_sessions', 'coordinator_read', 'coordinator_dispatch', 'coordinator_reconcile', 'coordinator_tasks', 'coordinator_stop',
+        'coordinator_show_report', 'coordinator_display_skill', 'ask_user_question']
+      // Other plugins own these two display tools, so a composition may omit them.
+      const routing = [...required, 'show_view', 'visualize']
+      if (required.some(name => !names.has(name)) || [...names].some(name => !routing.includes(name))) {
         throw new Error('desktop runtime: Main Session routing tool roster differs')
       }
       const assembly = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })

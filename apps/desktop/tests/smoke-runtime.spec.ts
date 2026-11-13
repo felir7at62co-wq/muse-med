@@ -242,7 +242,8 @@ function fixture(packaged = false) {
       if (key === undefined) return []
       const shell = process.platform === 'win32' ? 'pwsh' : 'bash'
       return (key.preset === 'short-drama' ? [...names.filter(name => !['jubian_video', 'ask_user_question', 'todo_write', 'todo_update'].includes(name)), ...editingCapabilityNames, ...sourceCapabilityNames, 'tool_search', 'tool_context']
-        : key.preset === 'main-session' ? ['coordinator_sessions', 'coordinator_read', 'coordinator_dispatch', 'coordinator_tasks', 'coordinator_stop', 'ask_user_question']
+        : key.preset === 'main-session' ? ['coordinator_sessions', 'coordinator_read', 'coordinator_dispatch', 'coordinator_reconcile', 'coordinator_tasks', 'coordinator_stop',
+          'coordinator_show_report', 'coordinator_display_skill', 'ask_user_question']
           : key.preset === 'minimal' ? [shell]
             : key.preset === 'creation' ? ['read', 'skill', shell, 'present', 'audio_transcribe', 'video_contact_sheet', 'video_ocr',
               'drama_assets', 'drama_bgm', 'drama_render', 'drama_project', 'drama_draft_dir', 'jianying_draft', ...sourceCapabilityNames]
