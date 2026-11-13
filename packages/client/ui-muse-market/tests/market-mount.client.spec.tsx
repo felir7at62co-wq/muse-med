@@ -131,9 +131,12 @@ it('mounts the browser contribution and fences private and inventory callbacks u
   const injected = ctx.slots.entries('main')[0]?.inject?.() as MarketInjected | undefined
   if (!injected) throw Error('Shipped browser entry did not register the market panel')
   const before = injected.hooks.access.getSnapshot()
+  expect(injected.isCurrentAccess(before.revision)).toBe(true)
   ctx.emit('connection/reset')
   remote.listeners.get('muse-account/session-changed')?.()
   expect(injected.hooks.access.getSnapshot().revision).toBe(before.revision + 2)
+  expect(injected.isCurrentAccess(before.revision)).toBe(false)
+  expect(injected.isCurrentAccess(injected.hooks.access.getSnapshot().revision)).toBe(true)
   remote.listeners.get('muse-market/inventory-changed')?.()
   remote.listeners.get('muse-market/defaults-changed')?.()
   expect(injected.hooks.access.getSnapshot().inventoryRevision).toBe(2)

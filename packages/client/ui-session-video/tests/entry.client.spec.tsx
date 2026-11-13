@@ -2,7 +2,7 @@
 /** Native registration follows accepted settings and owns its traced Remote namespace. */
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
-import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { UiConversation } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -80,6 +80,15 @@ it('keeps settings mounted while disabling and remounting every optional contrib
   if (!overlay?.inject) throw Error('Enabled shelf has no Host operations')
   const injected = overlay.inject() as Partial<VideoInjected>
   if (!injected.listVideos || !injected.detectShots) throw Error('Shelf operations are incomplete')
+  const delivered = ctx.slots.entries('deliverables.video')[0]
+  const generated = ctx.slots.entries('conversation.chat.turnTail')[0]
+  if (!delivered?.select || !delivered.inject || !generated?.inject) throw Error('Video playback contributions are incomplete')
+  // Registry entries erase the named chain's input type.
+  const select = delivered.select as (props: Pick<PropsRuntime<'deliverables.video'>,
+    'sourceUrl' | 'label' | 'path' | 'seq' | 'index'>) => boolean
+  expect(select({ sourceUrl: '/delivered.mp4', label: 'Delivered video', path: 'delivered.mp4', seq: 1, index: 0 })).toBe(true)
+  expect(delivered.inject()).toBe(injected)
+  expect(generated.inject()).toBe(injected)
   const id = inventory([]).sessionId, controller = new AbortController()
   expect(injected.pixelsPerSecond).toBe(64)
   expect(await injected.listVideos(id, controller.signal)).toEqual(inventory([source()]))
