@@ -3672,7 +3672,7 @@ export interface JsonRpcConfig {
 ## `@deepseek-ai/dsh-session-coordinator`
 
 - `inject`: `agents` · `sessions` · `sessionQuery` · `sessionController` · `workspaceController` · `storageDomain` · `workspaceRegistry` · `jobs` · `typert` · `tools` · `sessionProjections`
-- `source`: [`packages/session/session-coordinator/src/index.ts:47`](../packages/session/session-coordinator/src/index.ts)
+- `source`: [`packages/session/session-coordinator/src/index.ts:60`](../packages/session/session-coordinator/src/index.ts)
 
 ```ts config-catalog
 /** Deployment choices for the optional coordination plugin. */
@@ -3683,8 +3683,12 @@ export interface Config {
   readonly workerPreset?: string
   /** Maximum returned Session search rows or report tasks. Defaults to 30. */
   readonly searchLimit?: number
-  /** History-page characters and combined serialized report content/metadata budget. Defaults to 24000. */
+  /** History-page characters, serialized task-list characters, and combined serialized report content/metadata budget. Defaults to 24000. */
   readonly readChars?: number
+  /** Maximum characters in each routing note (`instructions`, `reason`) Main writes for dispatch or reconciliation. Defaults to 120. */
+  readonly noteChars?: number
+  /** Maximum characters in a worker report summary. Defaults to 2000. */
+  readonly summaryChars?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-coordinator -->

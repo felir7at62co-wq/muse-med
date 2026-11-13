@@ -129,5 +129,55 @@ it('persists a structured report in a native keyless turn for replay after resta
     version: 1, owner: test.main.id, tasks: [], total: 0, truncated: false,
   } })
   expect(JSON.stringify(test.adapter.requests)).toContain('coordinator_show_report')
-  expect(JSON.stringify(test.adapter.requests)).toContain('关键进展')
+  expect(JSON.stringify(test.adapter.requests)).toContain('只负责路由')
+})
+
+it('lists unsettled tasks first within the configured limit for routing', async () => {
+  const test = await fixture({ limit: 1 })
+  const dispatched = await test.invoke('coordinator_dispatch', { request_key: request.key, title: request.title,
+    instructions: request.instructions, reason: request.reason, cwd: request.cwd })
+  const first = dispatched.content?.[0]
+  if (first?.type !== 'text') throw new Error('Dispatch returned no text')
+  const row = JSON.parse(first.text) as Record<string, unknown>
+  expect(row).toMatchObject({ revision: 1 })
+  expect(row).not.toHaveProperty('attempts')
+  const second = await test.service.dispatch(test.main, { ...request, key: 'second-goal' })
+  await test.service.stop(test.main.id, second.id, 1)
+  const abort = new AbortController()
+  try {
+    for await (const tasks of test.service.watch(test.main.id, AbortSignal.any([abort.signal, AbortSignal.timeout(15000)]))) {
+      if (tasks.some(task => task.id === second.id && latest(task).status === 'stopped')) break
+    }
+  } finally { abort.abort() }
+  const listed = await test.invoke('coordinator_tasks')
+  const text = listed.content?.[0]
+  if (text?.type !== 'text') throw new Error('Task list returned no text')
+  const report = JSON.parse(text.text) as { tasks: Record<string, unknown>[]; total: number; truncated: boolean }
+  expect(report).toMatchObject({ total: 2, truncated: true })
+  expect(report.tasks).toHaveLength(1)
+  expect(report.tasks[0]).toMatchObject({ id: row.id })
+  expect(report.tasks[0]).not.toHaveProperty('attempts')
+})
+
+it('counts presented files in routing rows and omits only a row that exceeds the character budget', async () => {
+  const test = await fixture({ readChars: 1500 })
+  const small = await test.service.dispatch(test.main, request)
+  const storyboard = await test.service.dispatch(test.main, { ...request, key: 'storyboard-goal', title: 'Storyboard' })
+  const worker = test.ctx.agents.get(latest(storyboard).sessionId)!
+  await worker.whenIdle()
+  const files = Array.from({ length: 150 }, (_, index) => ({ path: `/worker/storyboard/shots/${'s'.repeat(60)}-${index}.png` }))
+  worker.session.append('deliverables/presented', { turn: 1, callId: ToolCallId('present-shots'), files })
+  await test.service.report(worker, storyboard.id, 1, 'completed', 'Storyboard shots presented')
+  const oversized = await test.service.dispatch(test.main, { ...request, key: 'oversized-goal', title: 'x'.repeat(1500) })
+  const listed = await test.invoke('coordinator_tasks')
+  expect(listed.isError).not.toBe(true)
+  const text = listed.content?.[0]
+  if (text?.type !== 'text') throw new Error('Task list returned no text')
+  expect(text.text.length).toBeLessThanOrEqual(1500)
+  const list = JSON.parse(text.text) as { tasks: { id: string; report: Record<string, unknown> | null }[]; total: number; truncated: boolean }
+  expect(list).toMatchObject({ total: 3, truncated: true })
+  expect(list.tasks.map(task => task.id).sort()).toEqual([small.id, storyboard.id].sort())
+  expect(list.tasks.map(task => task.id)).not.toContain(oversized.id)
+  const row = list.tasks.find(task => task.id === storyboard.id)
+  expect(row?.report).toEqual({ outcome: 'completed', summary: 'Storyboard shots presented', fileCount: 150 })
 })

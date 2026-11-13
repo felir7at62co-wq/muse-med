@@ -81,8 +81,8 @@ async function assignment(test: Awaited<ReturnType<typeof fixture>>, direct = tr
     await inputSettled(test, worker, input.id)
   }
   const log = await test.ctx.sessionQuery.readSession(worker.id)
-  const request: ReconcileRequest = { key: 'inspect-2', taskId: task.id, expectedRevision: 1,
-    expectedWorkerSeq: log.events.at(-1)!.seq, instructions: 'Inspect existing results and report only.', reason: '接管用户追加要求后的回报' }
+  const request = { key: 'inspect-2', taskId: task.id, expectedRevision: 1,
+    expectedWorkerSeq: log.events.at(-1)!.seq, instructions: 'Inspect existing results and report only.', reason: '接管用户追加要求后的回报' } satisfies ReconcileRequest
   await expect(test.service.reconcile(test.main, { ...request, expectedRevision: 0 })).rejects.toMatchObject({ code: 'INVALID_ARGS' })
   return { task, worker, input, request }
 }
@@ -270,8 +270,10 @@ describe('original worker task reconciliation', () => {
     worker.followup(input)
     try {
       await started.promise
-      await waitStatus(test, 'interrupted')
-      await expect(test.service.reconcile(test.main, request)).rejects.toMatchObject({ code: 'INVALID_ARGS' })
+      const interrupted = await waitStatus(test, 'interrupted')
+      expect(latest(interrupted).issue).toContain('Wait for the next receipt')
+      await expect(test.service.reconcile(test.main, request)).rejects.toMatchObject({ code: 'INVALID_ARGS',
+        message: expect.stringContaining('Worker is still busy; wait for the next receipt and do not dispatch this work again') })
       expect(worker.status).toBe('running')
     } finally { release.resolve(undefined) }
     await worker.whenIdle()
@@ -575,5 +577,75 @@ describe('original worker task reconciliation', () => {
     const brief = log.events.find(event => event.type === 'user/message' && event.data.id === latest(continued).briefId)
     expect(JSON.stringify(brief)).toContain('/worker-source')
     expect(JSON.stringify(brief)).toContain('Human input sources')
+  })
+
+  it('reconciles from the recorded worker position when Main supplies none', async () => {
+    const test = await fixture()
+    const { task, worker, request } = await assignment(test)
+    const through = (await test.ctx.sessionQuery.readSession(worker.id)).events.at(-1)!.seq
+    const unchecked: ReconcileRequest = { key: request.key, taskId: task.id, expectedRevision: 1, instructions: request.instructions, reason: request.reason }
+    const first = await test.service.reconcile(test.main, unchecked)
+    expect(first.id).toBe(task.id)
+    const completed = await waitStatus(test, 'completed')
+    expect(latest(completed).revision).toBe(2)
+    expect(latest(completed).reconciliation?.throughSeq).toBe(through)
+    const repeated = await test.service.reconcile(test.main, unchecked)
+    expect(repeated.id).toBe(task.id)
+    expect(repeated.attempts).toHaveLength(2)
+  })
+
+  it('reconciles a producer-unconfirmed interruption without re-flagging the old settlement', async () => {
+    const test = await fixture()
+    const { task, worker, request } = await assignment(test, false)
+    test.ctx.jobs.start({ kind: 'bash', label: 'crashing producer', owner: worker.id,
+      run: () => ({ cancel() {}, done: Promise.reject(new Error('producer crashed')) }) })
+    await waitStatus(test, 'interrupted')
+    await test.main.whenIdle()
+    await test.service.reconcile(test.main, { key: 'inspect-after-job', taskId: task.id, expectedRevision: 1,
+      instructions: request.instructions, reason: request.reason })
+    expect(latest(await waitStatus(test, 'completed')).revision).toBe(2)
+  })
+
+  it('tells Main not to reconcile again when a reconciliation ends without a report', async () => {
+    const test = await fixture(false)
+    const { worker, request } = await assignment(test, false)
+    expect(latest(test.service.list(test.main.id)[0]!).issue).toContain('completion is unconfirmed')
+    await test.service.reconcile(test.main, request)
+    await worker.whenIdle()
+    let issue: string | null | undefined
+    const abort = new AbortController()
+    try {
+      for await (const tasks of test.service.watch(test.main.id, AbortSignal.any([abort.signal, AbortSignal.timeout(15000)]))) {
+        const attempt = latest(tasks[0]!)
+        if (attempt.revision === 2 && attempt.status === 'needs-report') { issue = attempt.issue; break }
+      }
+    } finally { abort.abort() }
+    expect(issue).toContain('tell the user and do not reconcile again automatically')
+    expect(JSON.stringify(test.adapter.requests)).toContain('不再自动核对')
+  })
+
+  it('keeps a recovered reconciliation accepted while its brief is still pending', async () => {
+    const test = await fixture()
+    const { task, worker, input, request } = await assignment(test)
+    const anchor = (await test.ctx.sessionQuery.readSession(worker.id)).events.find(event => event.type === 'user/message' && event.data.id === input.id)!
+    const brief = createUserMessage({ source: { kind: 'muse-coordination', form: 'relay', purpose: 'assignment', sender: test.main.id, taskId: task.id, revision: 2 },
+      content: [{ type: 'text', text: 'Pending report request' }] })
+    worker.send(brief, 'next-turn', false)
+    await test.ctx.sessions.flush(worker.session)
+    const through = (await test.ctx.sessionQuery.readSession(worker.id)).events.at(-1)!.seq
+    const original = latest(test.service.list(test.main.id)[0]!)
+    const stored: CoordinationTask = { ...task, attempts: [original, { ...original,
+      revision: 2, key: request.key, requestHash: 'a'.repeat(64), instructions: request.instructions, reason: request.reason,
+      briefId: brief.id, messageId: input.id, noticeId: createUserMessage({ source: { kind: 'user' }, content: [] }).id,
+      forwardedIds: [], createSession: false, status: 'accepted', report: null, issue: null, notifiedStatus: null,
+      reconciliation: { throughSeq: through, humanSeq: anchor.seq, humanMessageId: input.id },
+    }] }
+    await test.fiber.dispose()
+    test.pool.media.get('muse_coordination')!.tables.get('tasks')!.set(stored.id, stored)
+    await test.ctx.plugin(Coordinator, {})
+    await expect(test.ctx.sessionCoordinator.report(worker, task.id, 1, 'completed', 'stale')).rejects.toMatchObject({ code: 'INVALID_ARGS' })
+    expect(latest(test.ctx.sessionCoordinator.list(test.main.id)[0]!).status).toBe('accepted')
+    worker.wakePending?.(brief.id)
+    expect(latest(await waitStatus(test, 'completed')).revision).toBe(2)
   })
 })

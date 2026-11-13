@@ -17,7 +17,7 @@ export const inject = ['tools']
 export async function apply(ctx: Context): Promise<void> {
   const fiber = ctx.inject(['sessionCoordinator'], (scope) => {
     scope.tools.register(defineTool({
-      name: 'coordinator_report', description: 'Report only the exact current Main Session assignment and revision whose coordination brief this worker consumed. Never guess a newer revision. If human input changed, Main must inspect and reconcile it first. Use present for final files. Completion is published only after the turn and owned background jobs settle; it is not human acceptance.',
+      name: 'coordinator_report', description: 'Report only the exact current Main Session assignment and revision whose coordination brief this worker consumed. Never guess a newer revision. If human input changed, Main must reconcile it first. Use present for final files. Completion is published only after the turn and owned background jobs settle; it is not human acceptance. For needs-input, summary is the one question for the user and Main relays it; ask in this Session only when a tool requires the answer here. Keep summary short; put long content in presented files.',
       parameters: {
         task_id: { type: 'string', required: true }, revision: { type: 'integer', required: true },
         outcome: { type: 'string', required: true, enum: ['completed', 'blocked', 'needs-input', 'failed'] },

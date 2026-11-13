@@ -48,8 +48,8 @@ function caller(agent: Agent | undefined): Agent {
 export function installDisplayTools(ctx: Context, service: SessionCoordinator): void {
   ctx.tools.register(defineTool({
     name: 'coordinator_show_report',
-    description: 'Show an inline report card for this Main Session’s real tasks. Pass task_ids or omit for recent tasks. Status, revision, worker and presented files come from Host receipts, never model-supplied progress. Completion is not human acceptance.',
-    parameters: { task_ids: { type: 'array', items: { type: 'string' }, description: 'Owned task IDs. Empty selects recent tasks; the configured search limit applies.' } },
+    description: 'Show an inline report card for this Main Session’s real tasks. Pass task_ids or omit for unsettled tasks first, then recent ones. Status, revision, worker and presented files come from Host receipts, never model-supplied progress. Completion is not human acceptance.',
+    parameters: { task_ids: { type: 'array', items: { type: 'string' }, description: 'Owned task IDs. Empty selects unsettled tasks first, then recent ones; the configured search limit applies.' } },
     output: {
       schema: reportSchema,
       render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }],

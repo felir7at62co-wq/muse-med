@@ -21,8 +21,8 @@ import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
-import { coordinationDomain, latest, reservesWorker, revise } from './ledger.ts'
-import type { CoordinationTask, CoordinationTaskId, CoordinationReport, DispatchRequest, ReconcileRequest, WorkerReport } from './types.ts'
+import { coordinationDomain, latest, reportTask, reservesWorker, revise, routingTask } from './ledger.ts'
+import type { Assignment, CoordinationTask, CoordinationTaskId, CoordinationReport, DispatchRequest, ReconcileRequest, RoutingTaskList, WorkerReport } from './types.ts'
 import { ToolArgsError, ToolContextUnavailableError } from '@deepseek-ai/dsh-tools'
 import type { ToolExecution, ToolGuardDenial } from '@deepseek-ai/dsh-tools'
 
@@ -33,6 +33,19 @@ const reconciliationInputSchema = zod.object({
 })
 type ReconciliationInput = zod.infer<typeof reconciliationInputSchema>
 const reconciliationReads = new Set(['read', 'read_image', 'glob', 'grep', 'present', 'coordinator_report'])
+
+/**
+ * Find human-authored worker input consumed after an assignment's own input.
+ * @param attempt - Assignment whose anchor message and forwarded deliveries belong to the task.
+ * @param events - Worker Session log.
+ * @returns the first later human message, or undefined when the anchor is not consumed or no human input follows it.
+ */
+function laterHumanInput(attempt: Assignment, events: readonly SessionEvent[]): SessionEvent | undefined {
+  const anchor = events.find(event => event.type === 'user/message' && event.data.id === attempt.messageId)
+  if (anchor === undefined) return undefined
+  return events.find(event => event.seq > anchor.seq && event.type === 'user/message' && event.data.source.kind === 'user'
+    && !attempt.forwardedIds.includes(event.data.id))
+}
 
 export type * from './types.ts'
 
@@ -51,8 +64,12 @@ export interface Config {
   readonly workerPreset?: string
   /** Maximum returned Session search rows or report tasks. Defaults to 30. */
   readonly searchLimit?: number
-  /** History-page characters and combined serialized report content/metadata budget. Defaults to 24000. */
+  /** History-page characters, serialized task-list characters, and combined serialized report content/metadata budget. Defaults to 24000. */
   readonly readChars?: number
+  /** Maximum characters in each routing note (`instructions`, `reason`) Main writes for dispatch or reconciliation. Defaults to 120. */
+  readonly noteChars?: number
+  /** Maximum characters in a worker report summary. Defaults to 2000. */
+  readonly summaryChars?: number
 }
 
 /** Task router whose durable writes precede Session creation and message delivery. */
@@ -63,6 +80,7 @@ export class SessionCoordinator extends TypertRemoteService {
   static Config: z<Config> = z.object({
     mainPreset: z.string().default('main-session'), workerPreset: z.string().default('short-drama'),
     searchLimit: z.natural().min(1).default(30), readChars: z.natural().min(1).default(24000),
+    noteChars: z.natural().min(1).default(120), summaryChars: z.natural().min(1).default(2000),
   })
 
   private readonly config: Required<Config>
@@ -142,7 +160,7 @@ export class SessionCoordinator extends TypertRemoteService {
             const anchor = log.events.find(item => item.type === 'user/message' && item.data.id === attempt.messageId)
             if (anchor === undefined || event.seq <= anchor.seq) continue
             await this.publish(revise(task, { status: 'interrupted', report: null, changedInputSeq: event.seq,
-              issue: 'Worker received a later direct human request. Inspect its history and reconcile this task before reporting; the new work was not stopped.' }))
+              issue: 'Worker received a later direct human request; the new work was not stopped. Wait for the next receipt before calling coordinator_reconcile.' }))
           }
         })
       }
@@ -244,7 +262,7 @@ export class SessionCoordinator extends TypertRemoteService {
         excerpt: 'bestMatch' in row ? row.bestMatch.snippet : null })
     }
     return JSON.stringify({ sessions: candidates, limit: this.config.searchLimit,
-      guidance: 'Read candidate history before reuse. Archived Sessions are reference-only. Busy Sessions require a fresh worker.' })
+      guidance: 'Check a candidate summary before reuse. Archived Sessions are reference-only. Busy Sessions require a fresh worker.' })
   }
 
   /**
@@ -267,7 +285,7 @@ export class SessionCoordinator extends TypertRemoteService {
       return [{ seq: event.seq, type: event.type, text: text.slice(0, limit), truncated: text.length > limit }]
     })
     return JSON.stringify({ session: snapshot.session, title: (await this.ctx.sessionQuery.readTitle(sessionId))?.title ?? '',
-      excerpts, guidance: 'These are source excerpts, not a semantic completeness assessment. Read the cited event positions and earlier requirements before reuse.' })
+      excerpts, guidance: 'These are truncated source excerpts, not complete requirements; dispatch forwards the human messages verbatim.' })
   }
 
   /**
@@ -297,8 +315,9 @@ export class SessionCoordinator extends TypertRemoteService {
 
   /**
    * Record and deliver one new goal or an explicit revision, reusing an identical key.
+   * A new key whose `instructions` or `reason` exceeds `noteChars` fails before any intent is recorded.
    * @param main - Exact routing Agent.
-   * @param request - Agent-selected existing or fresh ordinary worker and original requirements.
+   * @param request - Agent-selected existing or fresh ordinary worker and bounded routing notes.
    * @returns authoritative task; acceptance is not execution completion.
    */
   async dispatch(main: Agent, request: DispatchRequest): Promise<CoordinationTask> {
@@ -319,6 +338,7 @@ export class SessionCoordinator extends TypertRemoteService {
         if (attempt.requestHash !== requestHash) throw new Error('Dispatch key already names different work')
         return latest(existing).status === 'dispatching' ? this.deliver(existing) : existing
       }
+      this.requireNotes(request)
       const source = (await this.ctx.sessionQuery.readSession(main.id)).events.findLast(event => event.type === 'user/message' && event.data.source.kind === 'user')
       if (source === undefined) throw new Error('A human request is required before dispatch')
       const previous = request.taskId === undefined ? undefined : this.owned(main.id, request.taskId)
@@ -326,7 +346,7 @@ export class SessionCoordinator extends TypertRemoteService {
       if (previous !== undefined && reservesWorker(latest(previous))) throw new Error('Stop or settle the current assignment before revising it')
       const target = request.sessionId ?? SessionId(`session-${randomUUID()}`)
       const createSession = request.sessionId === undefined
-      const targetHeader = createSession ? undefined : await this.requireReusable(target, main.id)
+      const targetHeader = createSession ? undefined : await this.requireReusable(target, main.id, 'Target is busy; create a fresh Session instead')
       const cwd = targetHeader?.cwd ?? request.cwd ?? main.session.header.cwd
       if (targetHeader !== undefined && request.cwd !== undefined && request.cwd !== targetHeader.cwd) throw new Error('Existing worker directory cannot be changed by dispatch')
       if (cwd === undefined) throw new Error('A worker requires an explicit working directory')
@@ -360,21 +380,23 @@ export class SessionCoordinator extends TypertRemoteService {
   }
 
   /**
-   * Ask an inspected original worker to verify existing results without replaying human business commands.
+   * Ask the original quiescent worker to verify existing results without replaying human business commands.
+   * The coordinator records the worker's current log position; a supplied `expectedWorkerSeq` must equal it.
+   * A new key whose `instructions` or `reason` exceeds `noteChars` fails before any intent is recorded.
    * @param main - Exact live owner Main Agent.
-   * @param request - Idempotent recovery request with task and complete worker-history revisions.
-   * @returns retained successor assignment; an uncertain delivery remains interrupted for inspection.
+   * @param request - Idempotent recovery request with the expected task revision and bounded routing notes.
+   * @returns retained successor assignment; an uncertain delivery remains interrupted.
    */
   async reconcile(main: Agent, request: ReconcileRequest): Promise<CoordinationTask> {
     await this.requireMain(main)
     return this.serial(async () => {
       if ([request.key, request.instructions, request.reason].some(value => value.trim() === '')
-        || !Number.isSafeInteger(request.expectedWorkerSeq) || request.expectedWorkerSeq < 0
+        || (request.expectedWorkerSeq !== undefined && (!Number.isSafeInteger(request.expectedWorkerSeq) || request.expectedWorkerSeq < 0))
         || !Number.isSafeInteger(request.expectedRevision) || request.expectedRevision < 1) {
         throw new ToolArgsError(['Reconciliation needs a nonempty key, instructions, reason, and valid expected revisions'])
       }
       const requestHash = createHash('sha256').update(JSON.stringify({ kind: 'reconcile', key: request.key,
-        taskId: request.taskId, expectedRevision: request.expectedRevision, expectedWorkerSeq: request.expectedWorkerSeq,
+        taskId: request.taskId, expectedRevision: request.expectedRevision, expectedWorkerSeq: request.expectedWorkerSeq ?? null,
         instructions: request.instructions, reason: request.reason })).digest('hex')
       const existing = this.list(main.id).find(task => task.attempts.some(attempt => attempt.key === request.key))
       if (existing !== undefined) {
@@ -383,18 +405,23 @@ export class SessionCoordinator extends TypertRemoteService {
         }
         return latest(existing).status === 'reconciling' ? this.deliverReconciliation(existing) : existing
       }
+      this.requireNotes(request)
       const previous = this.owned(main.id, request.taskId)
       const attempt = latest(previous)
       if (attempt.revision !== request.expectedRevision) throw new ToolArgsError(['Task revision changed; read tasks again'])
       if (!['needs-report', 'interrupted'].includes(attempt.status)) {
         throw new ToolArgsError(['Only needs-report or interrupted assignments can be reconciled'])
       }
-      await this.requireReusable(attempt.sessionId, main.id)
+      await this.requireReusable(attempt.sessionId, main.id, 'Worker is still busy; wait for the next receipt and do not dispatch this work again')
       const resolved = await this.ctx.sessionController.resolveAgent(attempt.sessionId)
       if ('error' in resolved) throw resolved.error
       await this.ctx.sessions.flush(resolved.agent.session)
       const log = await this.ctx.sessionQuery.readSession(attempt.sessionId)
-      if (log.events.at(-1)?.seq !== request.expectedWorkerSeq) throw new ToolArgsError(['Worker history changed; read its complete history again'])
+      const throughSeq = log.events.at(-1)?.seq
+      if (throughSeq === undefined) throw new ToolContextUnavailableError('Worker history is unavailable')
+      if (request.expectedWorkerSeq !== undefined && throughSeq !== request.expectedWorkerSeq) {
+        throw new ToolArgsError(['Worker history advanced past expected_worker_seq; retry without it once the worker is idle'])
+      }
       const human = log.events.findLast(event => event.type === 'user/message' && event.data.source.kind === 'user')
       if (human?.type !== 'user/message' || human.data.source.kind !== 'user' || 'principal' in human.data.source) {
         throw new ToolContextUnavailableError('Reconciliation requires a retained local owner input in the original worker')
@@ -408,7 +435,7 @@ export class SessionCoordinator extends TypertRemoteService {
         noticeId: createUserMessage({ content: [], source: { kind: 'user' } }).id,
         sessionId: attempt.sessionId, createSession: false, cwd: attempt.cwd, sourceCwd: main.session.header.cwd ?? null,
         videoKey: attempt.videoKey, status: 'reconciling', report: null, issue: null, notifiedStatus: null,
-        reconciliation: { throughSeq: request.expectedWorkerSeq, humanSeq: human.seq, humanMessageId: human.data.id },
+        reconciliation: { throughSeq, humanSeq: human.seq, humanMessageId: human.data.id },
       }] }
       await this.humanInputs(task)
       await this.save(task)
@@ -434,35 +461,49 @@ export class SessionCoordinator extends TypertRemoteService {
   /**
    * Capture an owner-verified report without accepting model-authored status or files.
    * @param main - Actual live Main Agent with a local owner request.
-   * @param taskIds - Exact owned goals; omission or an empty list selects recent goals.
+   * @param taskIds - Exact owned goals; omission or an empty list selects unsettled goals first, then recent ones.
    * @returns Complete task facts bounded by searchLimit and the combined readChars model-result/metadata budget.
    */
   async displayReport(main: Agent, taskIds: readonly CoordinationTaskId[] = []): Promise<CoordinationReport> {
     await this.requireMain(main)
     if (taskIds.length > this.config.searchLimit) throw new ToolArgsError(['task_ids exceeds the configured report limit'])
     if (new Set(taskIds).size !== taskIds.length) throw new ToolArgsError(['task_ids must be unique'])
-    const selected = taskIds.length === 0
-      ? this.list(main.id).sort((a, b) => b.createdAt - a.createdAt)
-      : taskIds.map(id => this.owned(main.id, id))
+    const selected = taskIds.length === 0 ? this.routingOrder(main.id) : taskIds.map(id => this.owned(main.id, id))
     let report: CoordinationReport = { version: 1, owner: main.id, total: selected.length, truncated: selected.length > 0, tasks: [] }
     const fits = (value: CoordinationReport): boolean => JSON.stringify(value).length
       + JSON.stringify({ museCoordinationReport: value }).length <= this.config.readChars
     if (!fits(report)) throw new ToolArgsError(['The empty report exceeds the configured readChars budget'])
     for (const task of selected.slice(0, this.config.searchLimit)) {
-      const attempt = latest(task)
-      const item = { id: task.id, title: task.title, revision: attempt.revision, sessionId: attempt.sessionId,
-        cwd: attempt.cwd, status: attempt.status, issue: attempt.issue,
-        report: attempt.report === null ? null : { ...attempt.report, files: attempt.report.files.map(file => ({
-          path: file.path, ...(file.description === undefined ? {} : { description: file.description }),
-        })) } }
-      const next = { ...report, tasks: [...report.tasks, item], truncated: report.tasks.length + 1 < selected.length }
+      const next = { ...report, tasks: [...report.tasks, reportTask(task)], truncated: report.tasks.length + 1 < selected.length }
       if (!fits(next)) {
-        if (report.tasks.length === 0) throw new ToolArgsError(['The task report exceeds the configured readChars budget; inspect its source through coordinator_read'])
+        if (report.tasks.length === 0) throw new ToolArgsError(['The task report exceeds the configured readChars budget'])
         break
       }
       report = next
     }
     return report
+  }
+
+  /**
+   * List Main's tasks for routing, unsettled first and then newest, one latest-revision row each.
+   * Rows count presented files instead of listing them; a row that does not fit the remaining `readChars` budget is omitted.
+   * @param main - Actual live Main Agent with a local owner request.
+   * @returns at most `searchLimit` rows whose serialized list fits `readChars`, with the owned task total and an omission flag.
+   */
+  async tasks(main: Agent): Promise<RoutingTaskList> {
+    await this.requireMain(main)
+    const selected = this.routingOrder(main.id)
+    let list: RoutingTaskList = { tasks: [], total: selected.length, truncated: selected.length > this.config.searchLimit }
+    if (JSON.stringify(list).length > this.config.readChars) throw new ToolArgsError(['The empty task list exceeds the configured readChars budget'])
+    for (const task of selected.slice(0, this.config.searchLimit)) {
+      const next = { ...list, tasks: [...list.tasks, routingTask(task)] }
+      list = JSON.stringify(next).length <= this.config.readChars ? next : { ...list, truncated: true }
+    }
+    return list
+  }
+
+  private routingOrder(owner: SessionId): CoordinationTask[] {
+    return this.list(owner).sort((a, b) => Number(reservesWorker(latest(b))) - Number(reservesWorker(latest(a))) || b.createdAt - a.createdAt)
   }
 
   /**
@@ -489,7 +530,9 @@ export class SessionCoordinator extends TypertRemoteService {
 
   /**
    * Request one task's cancellation, retaining stopping until its Agent and jobs settle.
-   * This owner-only Remote operation never cancels an unrelated worker assignment.
+   * This owner-only Remote operation never cancels an unrelated worker assignment: a busy worker that consumed
+   * a later human-authored message keeps running and the task becomes interrupted. Runtime continuations of the
+   * assignment, such as subagent settlement messages, are cancelled with it.
    * @param sessionId - Owning Main Session.
    * @param taskId - Exact owned goal.
    * @param revision - Assignment revision shown to the user.
@@ -513,11 +556,9 @@ export class SessionCoordinator extends TypertRemoteService {
       if ('error' in resolved) throw resolved.error
       const worker = resolved.agent
       for (const id of [attempt.briefId, ...attempt.forwardedIds]) worker.inbox.remove(id)
-      const lastInput = (await this.ctx.sessionQuery.readSession(worker.id)).events.findLast(event => event.type === 'user/message')
-      const hasActivity = this.busy(worker.id)
-      if (hasActivity && lastInput?.type === 'user/message'
-        && ![attempt.briefId, ...attempt.forwardedIds].includes(lastInput.data.id)) {
-        return this.save(revise(task, { status: 'interrupted', issue: 'Worker is processing another input; it was not cancelled' }))
+      const log = await this.ctx.sessionQuery.readSession(worker.id)
+      if (this.busy(worker.id) && laterHumanInput(attempt, log.events) !== undefined) {
+        return this.save(revise(task, { status: 'interrupted', issue: 'Worker is processing a later direct human request; it was not cancelled' }))
       }
       const descendants = await this.descendantIds(worker)
       worker.cancel({ kind: 'user' }, { keepInbox: true })
@@ -538,12 +579,15 @@ export class SessionCoordinator extends TypertRemoteService {
    * @param taskId - Goal named in its assignment.
    * @param revision - Consumed revision.
    * @param outcome - Explicit business result, not inferred from idle.
-   * @param summary - Worker account supported by its native tool log.
+   * @param summary - Worker account supported by its native tool log, at most `summaryChars` characters; for `needs-input`, the question for the user.
    * @returns task in finishing state; completion is published after quiescence.
    */
   report(worker: Agent, taskId: CoordinationTaskId, revision: number, outcome: WorkerReport['outcome'], summary: string): Promise<CoordinationTask> {
     return this.serial(async () => {
       if (this.ctx.agents.get(worker.id) !== worker) throw new ToolContextUnavailableError('Report requires the current live worker instance')
+      if (summary.length > this.config.summaryChars) {
+        throw new ToolArgsError([`summary exceeds ${this.config.summaryChars} characters; keep it short and put long content in presented files`])
+      }
       const task = this.table.get(taskId)
       if (task === undefined || latest(task).sessionId !== worker.id || latest(task).revision !== revision
         || !reservesWorker(latest(task)) || latest(task).status === 'stopping') throw new ToolArgsError(['No current assignment belongs to this worker'])
@@ -648,7 +692,8 @@ export class SessionCoordinator extends TypertRemoteService {
     }
   }
 
-  private async requireReusable(id: SessionId, mainId: SessionId) {
+  /** @param busyMessage - Caller-specific next step reported when the Session or its execution tree is busy. */
+  private async requireReusable(id: SessionId, mainId: SessionId, busyMessage: string) {
     const snapshot = await this.ctx.sessionQuery.readSession(id)
     const selected = snapshot.events.findLast(event => event.type === 'agent-preset/selected')
     const preset = selected?.type === 'agent-preset/selected' ? selected.data.agentPreset : snapshot.session.agentPreset
@@ -656,7 +701,7 @@ export class SessionCoordinator extends TypertRemoteService {
       || this.ctx.workspaceRegistry.archivedSessionIds.includes(id)) throw new ToolArgsError(['Target is not an available ordinary execution Session'])
     const worker = this.ctx.agents.get(id)
     if (this.busy(id) || worker !== undefined && (await this.descendantIds(worker)).some(child => this.liveJobs(child).length > 0)) {
-      throw new ToolArgsError(['Target is busy; create a fresh Session instead'])
+      throw new ToolArgsError([busyMessage])
     }
     return snapshot.session
   }
@@ -706,6 +751,12 @@ export class SessionCoordinator extends TypertRemoteService {
       if (event.type === 'working-directory/change') directory = event.data.cwd
     }
     return directory
+  }
+
+  private requireNotes(request: { readonly instructions: string; readonly reason: string }): void {
+    if ([request.instructions, request.reason].some(value => value.length > this.config.noteChars)) {
+      throw new ToolArgsError([`instructions and reason are routing notes of at most ${this.config.noteChars} characters each; the human messages are already forwarded verbatim`])
+    }
   }
 
   private reconciliationGuard(exec: Readonly<ToolExecution>): ToolGuardDenial | undefined {
@@ -761,7 +812,7 @@ export class SessionCoordinator extends TypertRemoteService {
     }
     worker.followup({ ...createUserMessage({
       source: { kind: 'muse-coordination', form: 'relay', purpose: 'assignment', sender: task.owner, taskId: task.id, revision: attempt.revision },
-      content: [{ type: 'text', text: `Main Session reconciliation ${task.id}, revision ${attempt.revision}.\nGoal: ${task.title}\nReason: ${attempt.reason}\nInspection instructions: ${attempt.instructions}\nVerified existing human input: message ${reconciliation.humanMessageId}, seq ${reconciliation.humanSeq}; inspected history through seq ${reconciliation.throughSeq}. The human message remains in this original Session and is not being resent.\nOnly inspect the existing work and report its actual state. Do not repeat downloads, generation, writing or any other business action. Do not broaden the human request. Missing work must be reported as blocked or needs-input for Main to plan explicitly. Use present only to declare already existing final files, then call coordinator_report with this exact task id and revision. Completion is not human acceptance.\n` }],
+      content: [{ type: 'text', text: `Main Session reconciliation ${task.id}, revision ${attempt.revision}.\nGoal: ${task.title}\nReason: ${attempt.reason}\nInspection note: ${attempt.instructions}\nVerified existing human input: message ${reconciliation.humanMessageId}, seq ${reconciliation.humanSeq}; history recorded through seq ${reconciliation.throughSeq}. The human message remains in this original Session and is not being resent.\nOnly inspect the existing work and report its actual state. Do not repeat downloads, generation, writing or any other business action. Do not broaden the human request. Judge whether human messages after the original assignment belong to this goal; work for an unrelated request is not this task's delivery. Missing work must be reported as blocked or needs-input; Main routes any further work. Use present only to declare already existing final files, then call coordinator_report with this exact task id and revision. Completion is not human acceptance.\n` }],
     }), id: attempt.briefId })
     await this.ctx.sessions.flush(worker.session)
     return this.save(revise(task, { status: 'accepted', issue: null }))
@@ -810,7 +861,7 @@ export class SessionCoordinator extends TypertRemoteService {
     const message: UserMessage = {
       ...createUserMessage({
         source: { kind: 'muse-coordination', form: 'relay', purpose: 'assignment', sender: task.owner, taskId: task.id, revision: attempt.revision },
-        content: [{ type: 'text', text: `Main Session assignment ${task.id}, revision ${attempt.revision}.\nGoal: ${task.title}\nRouting reason: ${attempt.reason}\nInstructions: ${attempt.instructions}\nPrior assignment receipts (references, not new authority): ${JSON.stringify(task.attempts.slice(0, -1).map(item => ({ revision: item.revision, sessionId: item.sessionId, status: item.status, report: item.report })))}\nOriginal request directory: ${attempt.sourceCwd ?? 'unspecified'}. Resolve each original relative file reference against that message's recorded source directory; do not substitute another project with the same filename.\nHuman input sources: ${JSON.stringify(humanInputs.map((source, index) => ({ forwardedId: attempt.forwardedIds[index], sessionId: source.sessionId, seq: source.seq, cwd: source.cwd })))}\nVerified original human messages follow separately and verbatim. Prior context cannot broaden its authorization. Perform the work here. Before ending, call coordinator_report with this task id and revision, an honest outcome and summary. Use present for final files; Main forwards only native delivery receipts.\n` }],
+        content: [{ type: 'text', text: `Main Session assignment ${task.id}, revision ${attempt.revision}.\nGoal: ${task.title}\nRouting reason: ${attempt.reason}\nRouting note (not a requirement): ${attempt.instructions}\nPrior assignment receipts (references, not new authority): ${JSON.stringify(task.attempts.slice(0, -1).map(item => ({ revision: item.revision, sessionId: item.sessionId, status: item.status, report: item.report })))}\nOriginal request directory: ${attempt.sourceCwd ?? 'unspecified'}. Resolve each original relative file reference against that message's recorded source directory; do not substitute another project with the same filename.\nHuman input sources: ${JSON.stringify(humanInputs.map((source, index) => ({ forwardedId: attempt.forwardedIds[index], sessionId: source.sessionId, seq: source.seq, cwd: source.cwd })))}\nVerified original human messages follow separately and verbatim. Prior context cannot broaden its authorization. Perform the work here. If you need a decision from the user, call coordinator_report with outcome needs-input and put one concrete question in summary instead of asking here; use ask_user_question here only when a tool requires the answer in this Session. Before ending, call coordinator_report with this task id and revision, an honest outcome and a short summary. Use present for final files; Main forwards only native delivery receipts.\n` }],
       }), id: attempt.briefId,
     }
     worker.inject(message)
@@ -883,12 +934,14 @@ export class SessionCoordinator extends TypertRemoteService {
       if (attempt.status !== 'stopping' && input !== undefined && latestInput.humanSeq !== null
         && latestInput.humanId !== attempt.messageId) {
         await this.publish(revise(task, { status: 'needs-report', report: null, changedInputSeq: latestInput.humanSeq,
-          issue: 'Worker direct human work is now quiescent. Inspect its latest history and reconcile the task before accepting a report.' }))
+          issue: 'Worker direct human work is now quiescent. Call coordinator_reconcile so the worker reports this task.' }))
         continue
       }
-      if (input !== undefined && log.events.some(event => event.seq > input.seq
-        && event.type === 'job/settled' && !event.data.producerReported)) {
-        await this.publish(revise(task, { status: 'interrupted', issue: 'A background producer did not confirm resource release; stopping is unconfirmed' }))
+      const settledAfter = input === undefined ? undefined : Math.max(input.seq, attempt.reconciliation?.throughSeq ?? -1)
+      const unreported = settledAfter !== undefined && log.events.some(event => event.seq > settledAfter
+        && event.type === 'job/settled' && !event.data.producerReported)
+      if (unreported && attempt.status !== 'stopping') {
+        await this.publish(revise(task, { status: 'interrupted', issue: 'A background producer did not confirm resource release; reconcile or stop this task' }))
         continue
       }
       const report = attempt.report
@@ -898,10 +951,15 @@ export class SessionCoordinator extends TypertRemoteService {
         await this.publish(revise(task, { status: 'interrupted', issue: 'A delegated execution failed after the worker report; inspect and report again' }))
         continue
       }
-      if (attempt.status === 'stopping') await this.publish(revise(task, { status: 'stopped' }))
-      else if (attempt.report !== null) await this.publish(revise(task, { status: attempt.report.outcome }), signal)
-      else if (!worker.inbox.nextTurn.some(message => message.id === attempt.messageId)) {
-        await this.publish(revise(task, { status: 'needs-report', issue: 'Worker is idle without a structured task report; completion is unconfirmed' }))
+      if (attempt.status === 'stopping') {
+        await this.publish(revise(task, { status: 'stopped',
+          ...(unreported ? { issue: 'Stopped, but a background producer did not confirm resource release.' } : {}) }))
+      } else if (attempt.report !== null) await this.publish(revise(task, { status: attempt.report.outcome }), signal)
+      else if (![...worker.inbox.nextTurn, ...worker.inbox.nextStep].some(message => message.id === attempt.briefId
+        || message.id === attempt.messageId || attempt.forwardedIds.includes(message.id))) {
+        await this.publish(revise(task, { status: 'needs-report', issue: attempt.reconciliation === undefined
+          ? 'Worker is idle without a structured task report; completion is unconfirmed'
+          : 'Worker is idle without a structured task report after reconciliation; tell the user and do not reconcile again automatically' }))
       }
     }
   }
@@ -916,9 +974,11 @@ export class SessionCoordinator extends TypertRemoteService {
       issue: 'Worker became unavailable before its report was published; inspect before continuing.' })
     const state = this.reconciliationInput.stateOf(worker.session)
     if (state.humanId === attempt.messageId) return task
-    return revise(task, { status: this.busy(worker.id) ? 'interrupted' : 'needs-report', report: null,
+    const busy = this.busy(worker.id)
+    return revise(task, { status: busy ? 'interrupted' : 'needs-report', report: null,
       ...(state.humanSeq === null ? {} : { changedInputSeq: state.humanSeq }),
-      issue: 'Worker input changed before report publication. Inspect its latest history and reconcile this task.' })
+      issue: busy ? 'Worker input changed before report publication and the worker is still busy; wait for the next receipt.'
+        : 'Worker input changed before report publication; call coordinator_reconcile so the worker reports this task.' })
   }
 
   private async publish(task: CoordinationTask, signal?: AbortSignal): Promise<void> {
@@ -957,7 +1017,7 @@ export class SessionCoordinator extends TypertRemoteService {
         source: { kind: 'muse-coordination', form: 'notice', summary: boundContextSummary(`${task.title}: ${attempt.status}`),
           purpose: 'receipt', sender: attempt.sessionId, taskId: task.id, revision: attempt.revision },
         content: [{ type: 'text', text: JSON.stringify({ taskId: task.id, title: task.title, revision: attempt.revision, workerSessionId: attempt.sessionId, status: attempt.status, report: attempt.report, issue: attempt.issue,
-          instruction: 'Relay the verified outcome and files to the user. Worker completion is not human acceptance. Route further work to execution Sessions.' }) }],
+          instruction: 'Relay the verified outcome and files to the user. For needs-input, relay the summary question verbatim as plain text, not a card, and dispatch the revision after the user replies. Worker completion is not human acceptance. Route further work to execution Sessions.' }) }],
       }), id: noticeId })
       const checkpoint = await this.optional(this.ctx.sessions.flush(owner.session))
       if (checkpoint.kind === 'aborted' || !checkpoint.value) return
@@ -967,22 +1027,28 @@ export class SessionCoordinator extends TypertRemoteService {
       ...(attempt.changedInputSeq === undefined ? {} : { notifiedInputSeq: attempt.changedInputSeq }) }))
   }
 
+  /** Each task recovers independently; a failure is logged and leaves that task's stored status unchanged. */
   private async recover(): Promise<void> {
-    for (const [, task] of this.table.entries()) {
-      const attempt = latest(task)
-      if (attempt.status === 'dispatching' || attempt.status === 'reconciling') {
-        try {
-          const delivered = attempt.status === 'reconciling' ? await this.deliverReconciliation(task) : await this.deliver(task)
-          const worker = this.ctx.agents.get(latest(delivered).sessionId)
-          if (worker !== undefined) await this.settleWorker(worker)
-        }
-        catch (error) { await this.save(revise(task, { status: 'interrupted', issue: String(error) })) }
-      } else if (reservesWorker(attempt)) {
-        const worker = this.ctx.agents.get(attempt.sessionId)
-        if (worker !== undefined) await this.settleWorker(worker)
-        else await this.publish(revise(task, { status: 'interrupted', issue: 'App restarted. Inspect the retained worker receipts before continuing; no generation was resubmitted.' }))
-      } else await this.notify(task)
+    for (const [id, task] of this.table.entries()) {
+      try { await this.recoverTask(task) }
+      catch (error) { this.ctx.logger.error('session-coordinator: recovery of %s failed: %s', id, String(error)) }
     }
+  }
+
+  private async recoverTask(task: CoordinationTask): Promise<void> {
+    const attempt = latest(task)
+    if (attempt.status === 'dispatching' || attempt.status === 'reconciling') {
+      try {
+        const delivered = attempt.status === 'reconciling' ? await this.deliverReconciliation(task) : await this.deliver(task)
+        const worker = this.ctx.agents.get(latest(delivered).sessionId)
+        if (worker !== undefined) await this.settleWorker(worker)
+      }
+      catch (error) { await this.save(revise(task, { status: 'interrupted', issue: String(error) })) }
+    } else if (reservesWorker(attempt)) {
+      const worker = this.ctx.agents.get(attempt.sessionId)
+      if (worker !== undefined) await this.settleWorker(worker)
+      else await this.publish(revise(task, { status: 'interrupted', issue: 'App restarted. Inspect the retained worker receipts before continuing; no generation was resubmitted.' }))
+    } else await this.notify(task)
   }
 
   private unloading(): boolean { return this.lifetime.signal.aborted }

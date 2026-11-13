@@ -5,26 +5,28 @@ import { join } from 'node:path'
 import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import { executeModelToolFixture, executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentActivation, SubagentResult } from '@deepseek-ai/dsh-subagent'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { JubianVideoSelection } from '@deepseek-ai/dsh-tool-jubian'
+import { brandString } from '@deepseek-ai/dsh-brand'
 import { toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
+import Coordinator, { type Config } from '../src/index.ts'
 import { latest } from '../src/ledger.ts'
-import type { AssignmentStatus, CoordinationTask, DispatchRequest } from '../src/types.ts'
+import type { AssignmentStatus, CoordinationTask, CoordinationTaskId, DispatchRequest } from '../src/types.ts'
 import { manuscriptTaskRequest } from '../../../../apps/desktop-host/src/manuscript-task-intent.ts'
 import { setup, textResponse } from './fixture.ts'
 
-async function fixture(script: Parameters<typeof setup>[1] = Array.from({ length: 30 }, () => textResponse('ack'))) {
+async function fixture(script: Parameters<typeof setup>[1] = Array.from({ length: 30 }, () => textResponse('ack')), config: Config = {}) {
   const root = await mkdtemp(join(tmpdir(), 'dsh-coordination-'))
   const cleanup: { ctx?: Awaited<ReturnType<typeof setup>>['ctx'] } = {}
   onTestFinished(async () => {
     if (cleanup.ctx !== undefined) await cleanup.ctx.fiber.dispose()
     await rm(root, { recursive: true, force: true })
   })
-  const test = await setup(root, script)
+  const test = await setup(root, script, undefined, config)
   cleanup.ctx = test.ctx
   const main = await test.makeAgent('main', 'main-session')
   main.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '只改第2集，原文是 current.docx，交付 candidate.docx，第3集不要动。' }] }))
@@ -265,7 +267,6 @@ describe('routing-only Main Session', () => {
     await test.main.whenIdle()
     const before = test.adapter.requests.length
     await test.fiber.dispose()
-    const { default: Coordinator } = await import('../src/index.ts')
     await test.ctx.plugin(Coordinator, {})
     expect(test.ctx.sessionCoordinator.list(test.main.id).map(item => item.id)).toEqual([task.id])
     const stream = test.ctx.sessionCoordinator.watch(test.main.id, AbortSignal.timeout(15000))
@@ -368,6 +369,160 @@ describe('routing-only Main Session', () => {
     expect(humanIntent.request?.text).toContain('第3集不要动')
     expect(humanIntent.request?.text).toContain('current.docx')
     expect(humanIntent.continuations.map(item => item.text)).toEqual(['继续，候选稿保持同一人物关系'])
+  })
+
+  it('rejects a routing note longer than the configured limit before recording intent', async () => {
+    const test = await fixture(undefined, { noteChars: 20 })
+    const before = test.ctx.agents.list().length
+    await expect(test.service.dispatch(test.main, { ...request, instructions: 'x'.repeat(21) }))
+      .rejects.toMatchObject({ name: 'ToolArgsError', code: 'INVALID_ARGS' })
+    expect(test.service.list(test.main.id)).toEqual([])
+    expect(test.ctx.agents.list()).toHaveLength(before)
+    const task = await test.service.dispatch(test.main, { ...request, instructions: 'x'.repeat(20) })
+    expect(latest(task).instructions).toBe('x'.repeat(20))
+  })
+
+  it('cancels the assigned work when its latest input is a runtime continuation rather than later human input', async () => {
+    const test = await fixture()
+    const task = await test.service.dispatch(test.main, request)
+    await waitStatus(test, 'needs-report')
+    const worker = test.ctx.agents.get(latest(task).sessionId)!
+    worker.session.append('user/message', createUserMessage({
+      source: { kind: 'subagent-settled', form: 'notice', summary: 'helper completed', stopReason: 'completed', senderSessionId: SessionId('helper') },
+      content: [{ type: 'text', text: 'helper done' }],
+    }), { surfaceOp: 'append' })
+    const done = Promise.withResolvers<JobOutcome>()
+    let cancellations = 0
+    const job = test.ctx.jobs.start({ kind: 'bash', label: 'assigned follow-up work', owner: worker.id,
+      run: () => ({ cancel() { cancellations++ }, done: done.promise }) })
+    try {
+      const result = await test.service.stop(test.main.id, task.id, 1)
+      expect(latest(result).status).toBe('stopping')
+      expect(cancellations).toBe(1)
+    } finally {
+      done.resolve({ status: 'killed' })
+      await test.ctx.jobs.wait(job, 15000, worker.id)
+    }
+    expect(latest(await waitStatus(test, 'stopped')).status).toBe('stopped')
+  })
+
+  it('ends a stopped task whose producer did not report and allows its revision', async () => {
+    const test = await fixture()
+    const task = await test.service.dispatch(test.main, request)
+    await waitStatus(test, 'needs-report')
+    const worker = test.ctx.agents.get(latest(task).sessionId)!
+    test.ctx.jobs.start({ kind: 'bash', label: 'crashing producer', owner: worker.id,
+      run: () => ({ cancel() {}, done: Promise.reject(new Error('producer crashed')) }) })
+    const interrupted = await waitStatus(test, 'interrupted')
+    expect(latest(interrupted).issue).toContain('did not confirm')
+    await test.main.whenIdle()
+    await test.service.stop(test.main.id, task.id, 1)
+    const stopped = await waitStatus(test, 'stopped')
+    expect(latest(stopped).issue).toContain('did not confirm')
+    const revised = await test.service.dispatch(test.main, { ...request, key: 'goal-1-after-stop', taskId: task.id, expectedRevision: 1 })
+    expect(revised.attempts).toHaveLength(2)
+  })
+
+  it('recovers every task when one task cannot be recovered', async () => {
+    const test = await fixture()
+    const task = await test.service.dispatch(test.main, request)
+    await waitStatus(test, 'needs-report')
+    await test.main.whenIdle()
+    const current = test.service.list(test.main.id).find(item => item.id === task.id)!
+    await test.fiber.dispose()
+    const stored = test.pool.media.get('muse_coordination')!.tables.get('tasks')!
+    const broken: CoordinationTask = { ...current, id: brandString<CoordinationTaskId>('task-0-broken'), owner: SessionId('missing-main'),
+      attempts: [{ ...latest(current), status: 'completed', notifiedStatus: null }] }
+    const orphan: CoordinationTask = { ...current, id: brandString<CoordinationTaskId>('task-1-orphan'),
+      attempts: [{ ...latest(current), key: 'orphan', sessionId: SessionId('gone-worker'), status: 'running', notifiedStatus: null }] }
+    stored.set(broken.id, broken)
+    stored.set(orphan.id, orphan)
+    await test.ctx.plugin(Coordinator, {})
+    const abort = new AbortController()
+    try {
+      for await (const tasks of test.ctx.sessionCoordinator.watch(test.main.id, AbortSignal.any([abort.signal, AbortSignal.timeout(15000)]))) {
+        const recovered = tasks.find(item => item.id === orphan.id)
+        if (recovered !== undefined && latest(recovered).status === 'interrupted') {
+          expect(latest(recovered).issue).toContain('App restarted')
+          return
+        }
+      }
+      throw new Error('The orphaned task was not recovered')
+    } finally { abort.abort() }
+  })
+
+  it('rejects a worker summary longer than the configured limit', async () => {
+    const test = await fixture(undefined, { summaryChars: 30 })
+    const task = await test.service.dispatch(test.main, request)
+    const worker = test.ctx.agents.get(latest(task).sessionId)!
+    await worker.whenIdle()
+    await expect(test.service.report(worker, task.id, 1, 'completed', 'x'.repeat(31))).rejects.toMatchObject({ code: 'INVALID_ARGS' })
+    expect(latest(test.service.list(test.main.id)[0]!).status).not.toBe('finishing')
+    const reported = await test.service.report(worker, task.id, 1, 'completed', 'x'.repeat(30))
+    expect(latest(reported).report?.summary).toBe('x'.repeat(30))
+  })
+
+  it('lets an assigned worker ask a question whose answer a tool verifies in that Session', async () => {
+    const test = await fixture()
+    let executions = 0
+    test.ctx.tools.register(defineTool({ name: 'ask_user_question', description: 'Test question',
+      parameters: { questions: { type: 'array', required: true, items: { type: 'object', additionalProperties: true, properties: {} } } },
+      output: { schema: { type: 'string' }, render: (_args, value) => [{ type: 'text', text: value }] },
+      async execute() { executions++; return 'answered' } }))
+    const task = await test.service.dispatch(test.main, request)
+    await waitStatus(test, 'needs-report')
+    const worker = test.ctx.agents.get(latest(task).sessionId)!
+    const asked = await executeModelToolFixture(test.ctx, { agent: worker, name: 'ask_user_question',
+      arguments: { questions: [{ id: `content-listening-${'a'.repeat(64)}`, question: '是否已完整试听？', options: [{ label: '是' }, { label: '否' }] }] },
+      callId: ToolCallId('worker-question'), signal: new AbortController().signal })
+    expect(asked.isError).not.toBe(true)
+    expect(executions).toBe(1)
+    const log = await test.ctx.sessionQuery.readSession(worker.id)
+    const brief = log.events.find(event => event.type === 'user/message' && event.data.id === latest(task).briefId)
+    expect(JSON.stringify(brief)).toContain('outcome needs-input')
+  })
+
+  it('forwards the user reply to a needs-input question when Main revises the task in the same worker', async () => {
+    const test = await fixture([
+      textResponse('main'),
+      (options) => {
+        const message = options.messages.findLast(item => item.role === 'user' && item.source?.kind === 'muse-coordination')
+        if (message?.source?.kind !== 'muse-coordination') throw new Error('Assignment missing')
+        return toolCallResponse('question', 'coordinator_report', { task_id: message.source.taskId, revision: message.source.revision, outcome: 'needs-input', summary: '用A方案还是B方案？' })
+      },
+      ...Array.from({ length: 30 }, () => textResponse('ack')),
+    ])
+    const task = await test.service.dispatch(test.main, request)
+    const asked = await waitStatus(test, 'needs-input')
+    expect(latest(asked).report?.summary).toBe('用A方案还是B方案？')
+    await test.main.whenIdle()
+    const owner = await test.ctx.sessionQuery.readSession(test.main.id)
+    const receipt = owner.events.find(event => event.type === 'user/message' && event.data.source.kind === 'muse-coordination')
+    expect(JSON.stringify(receipt)).toContain('plain text, not a card')
+    test.main.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '用B方案' }] }))
+    await test.main.whenIdle()
+    const revised = await test.service.dispatch(test.main, { ...request, key: 'goal-1-answer', taskId: task.id, expectedRevision: 1,
+      sessionId: latest(task).sessionId })
+    const worker = test.ctx.agents.get(latest(revised).sessionId)!
+    expect(worker.id).toBe(latest(task).sessionId)
+    await worker.whenIdle()
+    const log = await test.ctx.sessionQuery.readSession(worker.id)
+    const input = log.events.find(event => event.type === 'user/message' && event.data.id === latest(revised).messageId)
+    expect(JSON.stringify(input)).toContain('用B方案')
+  })
+
+  it('forwards only the latest Main human message to a fresh worker and says so in the routing prompt', async () => {
+    const test = await fixture()
+    test.main.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '开始写第4集' }] }))
+    await test.main.whenIdle()
+    const task = await test.service.dispatch(test.main, { ...request, key: 'episode-4' })
+    const worker = test.ctx.agents.get(latest(task).sessionId)!
+    await worker.whenIdle()
+    const log = await test.ctx.sessionQuery.readSession(worker.id)
+    const humans = JSON.stringify(log.events.filter(event => event.type === 'user/message' && event.data.source.kind === 'user'))
+    expect(humans).toContain('开始写第4集')
+    expect(humans).not.toContain('第3集不要动')
+    expect(JSON.stringify(test.adapter.requests)).toContain('更早的消息不会转发')
   })
 
 })

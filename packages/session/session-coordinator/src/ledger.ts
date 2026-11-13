@@ -4,7 +4,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
-import type { Assignment, CoordinationTask, CoordinationTaskId } from './types.ts'
+import type { Assignment, CoordinationTask, CoordinationTaskId, ReportTask, RoutingTask } from './types.ts'
 
 const status = z.enum(['dispatching', 'reconciling', 'accepted', 'running', 'finishing', 'needs-report', 'interrupted',
   'stopping', 'stopped', 'completed', 'blocked', 'needs-input', 'failed'])
@@ -78,4 +78,31 @@ export function reservesWorker(attempt: Assignment): boolean {
  */
 export function revise(task: CoordinationTask, changes: Partial<Assignment>): CoordinationTask {
   return { ...task, attempts: [...task.attempts.slice(0, -1), { ...latest(task), ...changes }] }
+}
+
+/**
+ * Project a task onto Main's routing row for its latest revision.
+ * @param task - Validated task record.
+ * @returns latest revision facts with presented files counted instead of listed.
+ */
+export function routingTask(task: CoordinationTask): RoutingTask {
+  const attempt = latest(task)
+  return { id: task.id, title: task.title, revision: attempt.revision, sessionId: attempt.sessionId,
+    cwd: attempt.cwd, status: attempt.status, issue: attempt.issue,
+    report: attempt.report === null ? null
+      : { outcome: attempt.report.outcome, summary: attempt.report.summary, fileCount: attempt.report.files.length } }
+}
+
+/**
+ * Project a task onto its latest-revision report row for report cards.
+ * @param task - Validated task record.
+ * @returns latest revision facts; report files keep only path and optional description.
+ */
+export function reportTask(task: CoordinationTask): ReportTask {
+  const attempt = latest(task)
+  return { id: task.id, title: task.title, revision: attempt.revision, sessionId: attempt.sessionId,
+    cwd: attempt.cwd, status: attempt.status, issue: attempt.issue,
+    report: attempt.report === null ? null : { ...attempt.report, files: attempt.report.files.map(file => ({
+      path: file.path, ...(file.description === undefined ? {} : { description: file.description }),
+    })) } }
 }
