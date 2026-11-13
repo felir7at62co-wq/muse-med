@@ -9,9 +9,10 @@ env:
   DSH_TELEMETRY_DISABLED: "1"
   DSH_EXAMPLE_MODE: lib
   DSH_GATE_CONCURRENCY: "2"
+  DSH_SNAPSHOT: replay
 jobs:
   replay:
-    name: Linux Goal writer harvest and replay (diagnostic only)
+    name: Linux fixed writers, Web readiness and Python transport (diagnostic only)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
@@ -21,7 +22,7 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 2
+          fetch-depth: 3
       - uses: pnpm/action-setup@v5.0.0
       - uses: actions/setup-node@v7.0.0
         with:
@@ -30,7 +31,7 @@ jobs:
         run: |-
           set -euo pipefail
           mkdir -p .artifacts/goal-writer
-          git diff --exit-code 4f84ffd971e8646e0aa4d24a4441fff71dd08c79 HEAD -- . ':!.github/workflows/muse-goal-writer-diagnostic.yml' ':!snapshots/web/goal-multi-turn-actions/snapshot.yml'
+          git diff --exit-code 4f84ffd971e8646e0aa4d24a4441fff71dd08c79 HEAD -- . ':!.github/workflows/muse-goal-writer-diagnostic.yml' ':!snapshots/web/goal-multi-turn-actions/snapshot.yml' ':!snapshots/web/goal-multi-turn-actions/writer.expected.jsonl' ':!apps/web/tests/message-actions.e2e.ts' ':!apps/web/tests/plugin-install-registry.e2e.ts' ':!packages/experimental/ptc-runtime-python/tests/runtime.spec.ts'
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git rev-parse HEAD > .artifacts/goal-writer/head.txt
           git rev-parse 'HEAD^{tree}' > .artifacts/goal-writer/source-tree.txt
@@ -42,54 +43,89 @@ jobs:
           import { createHash } from 'node:crypto'
           import { readFileSync, writeFileSync } from 'node:fs'
           import { resolve } from 'node:path'
-          const owner='snapshots/web/goal-multi-turn-actions/'
-          const output=owner+'writer.expected.jsonl'
           const artifact='.artifacts/goal-writer/'
+          const output='snapshots/web/goal-multi-turn-actions/writer.expected.jsonl'
+          const writerDigest='ddb5a4c67661b2181f9a623a1587a887d21c14faa107ba9d2bea941913b49915'
+          const pythonOwner='packages/experimental/ptc-runtime-python/tests/runtime.spec.ts'
+          const pythonSuite='PythonPtcRuntime — hostile peer'
+          const pythonTitle='caps the unknown-binding preview for a huge forged name'
+          const goalOwner='apps/web/tests/goal-multi-turn-actions.e2e.ts'
+          const webOwners={
+            [goalOwner]: ['keeps actions on both completed Goal turn tails','keeps a closed fixture inventory'],
+            'apps/web/tests/message-actions.e2e.ts': ['enables branch only on the completed transcript tail','keeps an action tooltip above the sticky composer','matches the conversation aria golden with IconActions and clocks','persists performance detail and hides statistics in Compact','forks through the settled-message and session-row actions','forks an unopened current-format Session from its sidebar row','guides only a migration-required sidebar fork to opening its source','issued zero model calls and kept a closed inventory'],
+            'apps/web/tests/plugin-install-registry.e2e.ts': ['selects the fastest responding registry https://registry.npmjs.org/, remembers it, and falls back after a registry failure','selects the fastest responding registry https://registry.npmmirror.com/, remembers it, and falls back after a registry failure'],
+          }
           const hash=path=>createHash('sha256').update(readFileSync(path)).digest('hex')
           const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim()
+          const normalized=path=>path.replaceAll('\\','/')
           const mode=process.argv[2]
           if(mode==='freeze') {
-            const paths=git('ls-files','--',owner,'apps/web/tests/goal-multi-turn-actions.e2e.ts','apps/web/tests/scaffold.ts').split('\n').filter(Boolean)
-            assert.equal(paths.includes(output),false,'the writer must be harvested from the actual replay')
-            assert.equal(paths.filter(path=>/\/session(?:\.v\d+)?\.jsonl$/.test(path)).length,3,'all three retained canonical generations must remain')
-            assert.match(readFileSync(owner+'snapshot.yml','utf8'),/^writerOutput: true$/m)
+            const roots=['snapshots','apps/web/tests/expected/plugin-install-registry',...Object.keys(webOwners),'apps/web/tests/scaffold.ts','apps/web/tests/terminal-command-browser.ts',pythonOwner]
+            const paths=execFileSync('git',['ls-files','-z','--',...roots],{encoding:'utf8',maxBuffer:8*1024*1024}).split('\0').filter(Boolean)
+            assert.ok(paths.includes(output),'the previously harvested writer must be committed')
+            assert.equal(hash(output),writerDigest,'use exactly the independently reviewed real writer')
+            assert.equal(paths.filter(path=>/^snapshots\/web\/goal-multi-turn-actions\/session(?:\.v\d+)?\.jsonl$/.test(path)).length,3)
             writeFileSync(artifact+'protected-before.json',JSON.stringify(Object.fromEntries(paths.map(path=>[path,hash(path)])),null,2)+'\n')
           } else if(mode==='guard') {
             const before=JSON.parse(readFileSync(artifact+'protected-before.json','utf8'))
-            for(const [path,digest] of Object.entries(before)) assert.equal(hash(path),digest,'existing fixture or source changed: '+path)
-            assert.equal(git('diff','--','snapshots','apps/web/tests/goal-multi-turn-actions.e2e.ts','apps/web/tests/scaffold.ts'),'','refresh must not change canonical, UI or test source')
-            assert.equal(git('ls-files','--others','--exclude-standard','--','snapshots'),output,'only the harvested root writer may be added')
-            const digest=hash(output)
-            const stage=process.argv[3]
-            if(stage==='replay') assert.equal(digest,readFileSync(artifact+'harvested-writer.sha256','utf8').trim(),'replay must not mutate its writer oracle')
-            else assert.equal(stage,'harvest')
-            writeFileSync(artifact+stage+'-guard.json',JSON.stringify({accepted:true,protectedFiles:Object.keys(before).length,writerSha256:digest},null,2)+'\n')
-            if(stage==='harvest') writeFileSync(artifact+'harvested-writer.sha256',digest+'\n')
+            for(const [path,digest] of Object.entries(before)) assert.equal(hash(path),digest,'protected fixture or source changed: '+path)
+            assert.equal(git('diff','--','snapshots','apps/web/tests',pythonOwner),'','replay must preserve original fixtures and sources')
+            assert.equal(git('ls-files','--others','--exclude-standard','--','snapshots'),'','replay must not add a canonical or writer fixture')
+            assert.equal(hash(output),writerDigest)
+            writeFileSync(artifact+process.argv[3]+'-guard.json',JSON.stringify({accepted:true,protectedFiles:Object.keys(before).length,writerSha256:writerDigest},null,2)+'\n')
+          } else if(mode==='collection') {
+            const listed=JSON.parse(readFileSync(artifact+'python-collected.json','utf8'))
+            assert.equal(listed.length,1,'the actual unit filter must select exactly one case')
+            assert.equal(listed[0].name,pythonSuite+' > '+pythonTitle)
+            assert.equal(normalized(listed[0].file),normalized(resolve(pythonOwner)))
+            writeFileSync(artifact+'python-collection-acceptance.json',JSON.stringify({accepted:true,selected:listed},null,2)+'\n')
           } else {
-            assert.equal(mode,'report')
-            const stage=process.argv[3]
-            const result=JSON.parse(readFileSync(artifact+stage+'.json','utf8'))
+            assert.ok(mode==='web'||mode==='python')
+            const result=JSON.parse(readFileSync(artifact+mode+'.json','utf8'))
             assert.equal(result.success,true)
             assert.equal(result.numFailedTests,0)
             assert.equal(result.numFailedTestSuites,0)
             assert.equal(result.numTodoTests,0)
-            assert.equal(result.testResults.length,1,'exactly the intended full owner must execute')
-            const file=result.testResults[0]
-            assert.equal(file.name.replaceAll('\\','/'),resolve('apps/web/tests/goal-multi-turn-actions.e2e.ts').replaceAll('\\','/'))
-            assert.equal(file.status,'passed')
-            const passed=file.assertionResults.filter(test=>test.status==='passed')
-            const skipped=file.assertionResults.filter(test=>test.status==='skipped')
-            assert.deepEqual(passed.map(test=>test.title).sort(),['keeps a closed fixture inventory','keeps actions on both completed Goal turn tails'])
-            assert.deepEqual(skipped.map(test=>test.title),['records the two-round Goal through the real model'])
-            assert.equal(file.assertionResults.length,3)
-            assert.equal(result.numPassedTests,2)
-            assert.equal(result.numPendingTests,1)
+            const all=result.testResults.flatMap(file=>file.assertionResults)
+            const passed=all.filter(test=>test.status==='passed')
+            assert.equal(result.numPassedTests,passed.length)
             for(const test of passed) {
               assert.deepEqual(test.failureMessages,[])
               assert.equal(typeof test.duration,'number')
               assert.ok(Number.isFinite(test.duration)&&test.duration>=0)
             }
-            writeFileSync(artifact+stage+'-acceptance.json',JSON.stringify({accepted:true,passed:2,recordOnlySkipped:1,tests:passed.map(test=>({title:test.title,status:test.status,duration:test.duration}))},null,2)+'\n')
+            let receipt
+            if(mode==='web') {
+              assert.deepEqual(result.testResults.map(file=>normalized(file.name)).sort(),Object.keys(webOwners).map(file=>normalized(resolve(file))).sort())
+              for(const [path,titles] of Object.entries(webOwners)) {
+                const file=result.testResults.find(file=>normalized(file.name)===normalized(resolve(path)))
+                assert.equal(file.status,'passed')
+                assert.deepEqual(file.assertionResults.filter(test=>test.status==='passed').map(test=>test.title).sort(),[...titles].sort())
+                const skipped=file.assertionResults.filter(test=>test.status==='skipped')
+                assert.deepEqual(skipped.map(test=>test.title),path===goalOwner?['records the two-round Goal through the real model']:[])
+                assert.equal(file.assertionResults.length,titles.length+skipped.length)
+              }
+              assert.equal(result.numPassedTests,12)
+              assert.equal(result.numTotalTests,13)
+              assert.equal(result.numPendingTests,1)
+              receipt={owners:3,passed:12,recordOnlySkipped:1}
+            } else {
+              assert.equal(result.testResults.length,1)
+              const file=result.testResults[0]
+              assert.equal(normalized(file.name),normalized(resolve(pythonOwner)))
+              assert.equal(file.status,'passed')
+              assert.equal(result.numPassedTests,1)
+              assert.equal(passed.length,1)
+              assert.equal(passed[0].title,pythonTitle)
+              assert.equal(passed[0].fullName,pythonSuite+' '+pythonTitle)
+              assert.deepEqual(passed[0].ancestorTitles,[pythonSuite])
+              const excluded=all.filter(test=>test!==passed[0])
+              assert.ok(excluded.every(test=>test.status==='skipped'),'nonselected cases must remain filtered and unexecuted')
+              assert.equal(result.numPendingTests,excluded.length)
+              assert.equal(result.numTotalTests,all.length)
+              receipt={selectedPassed:1,selectedSkipped:0,filteredNotExecuted:excluded.length}
+            }
+            writeFileSync(artifact+mode+'-acceptance.json',JSON.stringify({accepted:true,...receipt,tests:passed.map(test=>({title:test.title,status:test.status,duration:test.duration}))},null,2)+'\n')
           }
           NODE
           node .artifacts/goal-writer/check.mjs freeze
@@ -102,28 +138,39 @@ jobs:
       - name: Install Chromium and system dependencies
         run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
       - name: Build the official product and test entrypoints
+        id: build
         env:
           DSH_BUILD_CLIENT_PROFILE: official
         run: |-
           set -euo pipefail
           pnpm run build 2>&1 | tee .artifacts/goal-writer/build.log
-      - name: Harvest the actual current writer through the original full owner
-        env:
-          DSH_SNAPSHOT: refresh
+      - name: Replay all original cases from the three Web owners
+        id: web
         run: |-
           set -euo pipefail
-          node node_modules/vitest/vitest.mjs run --config vitest.web.config.ts apps/web/tests/goal-multi-turn-actions.e2e.ts --maxWorkers=1 --no-file-parallelism --reporter=default --reporter=json --outputFile.json=.artifacts/goal-writer/harvest.json 2>&1 | tee .artifacts/goal-writer/harvest.log
-          node .artifacts/goal-writer/check.mjs report harvest
-          node .artifacts/goal-writer/check.mjs guard harvest
+          node node_modules/vitest/vitest.mjs run --config vitest.web.config.ts apps/web/tests/goal-multi-turn-actions.e2e.ts apps/web/tests/message-actions.e2e.ts apps/web/tests/plugin-install-registry.e2e.ts --maxWorkers=1 --no-file-parallelism --reporter=default --reporter=json --outputFile.json=.artifacts/goal-writer/web.json 2>&1 | tee .artifacts/goal-writer/web.log
+          node .artifacts/goal-writer/check.mjs web
+          node .artifacts/goal-writer/check.mjs guard web
+      - name: Verify the exact Python unit selection before execution
+        id: python_selection
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |-
+          set -euo pipefail
+          node node_modules/vitest/vitest.mjs list --config vitest.config.ts packages/experimental/ptc-runtime-python/tests/runtime.spec.ts --testNamePattern '^PythonPtcRuntime — hostile peer caps the unknown-binding preview for a huge forged name$' --json .artifacts/goal-writer/python-collected.json --maxWorkers=1 --no-file-parallelism 2>&1 | tee .artifacts/goal-writer/python-collection.log
+          node .artifacts/goal-writer/check.mjs collection
+      - name: Run only the existing huge-frame Python unit case
+        id: python
+        if: ${{ !cancelled() && steps.python_selection.outcome == 'success' }}
+        run: |-
+          set -euo pipefail
+          node node_modules/vitest/vitest.mjs run --config vitest.config.ts packages/experimental/ptc-runtime-python/tests/runtime.spec.ts --testNamePattern '^PythonPtcRuntime — hostile peer caps the unknown-binding preview for a huge forged name$' --maxWorkers=1 --no-file-parallelism --reporter=default --reporter=json --outputFile.json=.artifacts/goal-writer/python.json 2>&1 | tee .artifacts/goal-writer/python.log
+          node .artifacts/goal-writer/check.mjs python
+          node .artifacts/goal-writer/check.mjs guard python
+      - name: Confirm all original fixture and source hashes after execution
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: |-
+          node .artifacts/goal-writer/check.mjs guard final
           cp snapshots/web/goal-multi-turn-actions/writer.expected.jsonl .artifacts/goal-writer/writer.expected.jsonl
-      - name: Replay independently against the harvested writer with all original assertions
-        env:
-          DSH_SNAPSHOT: replay
-        run: |-
-          set -euo pipefail
-          node node_modules/vitest/vitest.mjs run --config vitest.web.config.ts apps/web/tests/goal-multi-turn-actions.e2e.ts --maxWorkers=1 --no-file-parallelism --reporter=default --reporter=json --outputFile.json=.artifacts/goal-writer/replay.json 2>&1 | tee .artifacts/goal-writer/replay.log
-          node .artifacts/goal-writer/check.mjs report replay
-          node .artifacts/goal-writer/check.mjs guard replay
       - name: Preserve raw diagnostic evidence
         if: always()
         uses: actions/upload-artifact@v6
