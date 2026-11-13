@@ -30,6 +30,7 @@ import { configurationFixture } from '../../../settings/settings/tests/configura
 import { GenerationWatchStore, type GenerationWatchRun } from '../src/generation-watch-store.ts'
 import { createGenerationWatchNotice, deliverGenerationWatchNotice, registerGenerationWatchDelivery } from '../src/generation-watch-delivery.ts'
 import * as Jubian from '../src/index.ts'
+import { createNativeGenerationDelivery } from '../src/generation-watch-native-delivery.ts'
 import { bodyHash } from '../src/write.ts'
 
 // Each test owns isolated storage; the real process handoff scanner has separate tests.
@@ -271,7 +272,8 @@ it('wakes an idle owner after provider completion from the normal video submissi
 
 type AdapterScript = ConstructorParameters<typeof MockAdapter>[0]
 
-async function originalVideoFixture(script: AdapterScript, reasoningEffort?: ReasoningEffortId, initialDispatch = false) {
+async function originalVideoFixture(script: AdapterScript, reasoningEffort?: ReasoningEffortId, initialDispatch = false,
+  method: 'submit_video' | 'generate' = 'submit_video') {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-generation-native-loader-')))
   let host: Context | undefined
   let finished = false
@@ -347,7 +349,7 @@ async function originalVideoFixture(script: AdapterScript, reasoningEffort?: Rea
     await ledger.settle(idempotencyKey, { outcome: 'accepted', httpStatus: 200, applicationCode: 200, responseSha256: null })
   }
   const adapter = new MockAdapter([toolCallResponse('original-submit', 'jubian_storyboard',
-    { method: 'submit_video', preview_path, idempotency_key: idempotencyKey }), textResponse('Provider is generating the pack.'), ...script],
+    { method, preview_path, idempotency_key: idempotencyKey }), textResponse('Provider is generating the pack.'), ...script],
   reasoningEffort === undefined ? undefined : { efforts: [{ id: reasoningEffort, name: 'High' }] })
   host.llm.registerAdapter(['mock'], adapter)
   const agent = await host.agentLoop.create(SessionId('original-loader-owner'), { ...selection,
@@ -361,12 +363,142 @@ async function originalVideoFixture(script: AdapterScript, reasoningEffort?: Rea
   const workspace = host.workspaceRegistry.get(run.binding.workspaceId)
   expect(workspace?.sessionIds).toContain(agent.id)
   return { root, host, agent, adapter, store, run, binding: run.binding, bytes, calls, dispatchOrder,
-    originalRequest: { method: 'submit_video', preview_path, idempotency_key: idempotencyKey },
+    originalRequest: { method, preview_path, idempotency_key: idempotencyKey },
     complete: () => { finished = true },
-    reopen: async (durableInboxClaims = true) => {
-      await host?.fiber.dispose(); host = await watchHost(root, true, durableInboxClaims); return host
+    reopen: async (durableInboxClaims = true, generationWatch = true) => {
+      await host?.fiber.dispose(); host = await watchHost(root, generationWatch, durableInboxClaims); return host
     } }
 }
+
+async function parkedNativeDelivery() {
+  const h = await originalVideoFixture([textResponse('Do not continue before Host restart.')])
+  const entered = Promise.withResolvers<undefined>()
+  const maintenance = h.agent.runMaintenance(signal => new Promise<void>((resolve) => {
+    entered.resolve(undefined)
+    signal.addEventListener('abort', () => { resolve() }, { once: true })
+  }))
+  await entered.promise
+  h.complete()
+  await vi.waitFor(async () => {
+    const run = await h.store.load(h.run.id)
+    expect(run?.notice?.id).toEqual(expect.any(String))
+    expect(h.agent.inbox.nextTurn.some(message => message.id === run?.notice?.id)).toBe(true)
+  })
+  const host = await h.reopen(true, false)
+  await maintenance
+  const saved = await h.store.load(h.run.id)
+  if (saved?.notice === undefined) throw new Error('Expected the parked original notice')
+  const projection = await registerGenerationWatchDelivery(host)
+  const deliver = createNativeGenerationDelivery(host, projection)
+  const resolved = await host.sessionController.resolveAgent(saved.sessionId)
+  if ('error' in resolved) throw resolved.error
+  expect(projection.stateOf(resolved.agent.session).notices[saved.notice.id]).toBe('guard-rejected')
+  return { h, host, saved, notice: saved.notice, projection, deliver, agent: resolved.agent }
+}
+
+it('retains a parked native notice when the original Session flush fails and resumes it once on retry', async () => {
+  const f = await parkedNativeDelivery()
+  const adapter = new MockAdapter([textResponse('Continue after the source persisted.')])
+  f.host.llm.registerAdapter(['mock'], adapter)
+  const flushing = vi.spyOn(f.host.sessions, 'flush').mockResolvedValueOnce(false)
+  try {
+    await expect(f.deliver(f.saved.sessionId, f.notice, new AbortController().signal, undefined, undefined, f.saved))
+      .rejects.toThrow('Original video submission did not persist')
+  } finally { flushing.mockRestore() }
+  expect(adapter.requests).toEqual([])
+  expect(f.agent.inbox.nextTurn).toEqual([])
+  expect(await f.deliver(f.saved.sessionId, f.notice, new AbortController().signal, undefined, undefined, f.saved)).toBe('pending')
+  await f.agent.whenIdle()
+  expect(await f.deliver(f.saved.sessionId, f.notice, new AbortController().signal, undefined, undefined, f.saved)).toBe('settled')
+  expect(adapter.requests).toHaveLength(1)
+  expect(f.agent.session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.id === f.notice.id)).toHaveLength(1)
+  expect(f.h.calls.filter(call => call.method === 'PUT')).toEqual([])
+})
+
+it('releases the held native binding when enqueue persistence fails', async () => {
+  const f = await parkedNativeDelivery()
+  const adapter = new MockAdapter(['hang'])
+  f.host.llm.registerAdapter(['mock'], adapter)
+  const flush = f.host.sessions.flush.bind(f.host.sessions), followup = f.agent.followup.bind(f.agent)
+  let failEnqueueFlush = false
+  const enqueue = vi.spyOn(f.agent, 'followup').mockImplementation((message) => {
+    followup(message)
+    failEnqueueFlush = message.id === f.notice.id
+  })
+  const flushing = vi.spyOn(f.host.sessions, 'flush').mockImplementation((session) => {
+    if (session === f.agent.session && failEnqueueFlush) { failEnqueueFlush = false; return Promise.resolve(false) }
+    return flush(session)
+  })
+  try {
+    await expect(f.deliver(f.saved.sessionId, f.notice, new AbortController().signal, undefined, undefined, f.saved))
+      .rejects.toThrow('Session persistence did not acknowledge the generation watch notice')
+  } finally { flushing.mockRestore(); enqueue.mockRestore() }
+  await f.agent.whenIdle()
+  expect(() => { f.agent.model.select({ provider: 'mock', model: 'after-failed-delivery' }) }).not.toThrow()
+  expect(f.agent.model.current()?.model).toBe('after-failed-delivery')
+  expect(f.h.calls.filter(call => call.method === 'PUT')).toEqual([])
+})
+
+it('records the generate alias with its original native submission evidence', async () => {
+  const h = await originalVideoFixture([], undefined, false, 'generate')
+  const result = h.agent.session.snapshotEvents().find(event => event.type === 'tool/result'
+    && event.data.message.toolCallId === ToolCallId('original-submit'))
+  if (result?.type !== 'tool/result') throw new Error('Missing aliased original submission result')
+  expect(result.data.message.isError).not.toBe(true)
+  expect(result.data.meta).toMatchObject({ [TOOL_BODY_META_KEY]: {
+    generationWatchId: h.run.id, submission: h.originalRequest, binding: h.binding,
+  } })
+  expect(h.originalRequest.method).toBe('generate')
+  expect(h.run.binding).toEqual(h.binding)
+  expect(h.run.packs).toMatchObject([{ key: h.originalRequest.idempotency_key,
+    previewPath: h.originalRequest.preview_path, taskId: 42 }])
+  expect(h.calls.filter(call => call.method === 'PUT')).toEqual([])
+})
+
+it('passes an auxiliary model stream without a Session identity through the native watcher', async () => {
+  const h = await originalVideoFixture([textResponse('Auxiliary text.')])
+  const before = h.agent.session.snapshotEvents()
+  const chunks = []
+  for await (const chunk of h.host.llm.stream({ provider: selection.provider, model: selection.model,
+    messages: [], purpose: 'summary' })) chunks.push(chunk)
+  expect(chunks).toEqual(textResponse('Auxiliary text.'))
+  expect(h.adapter.requests).toHaveLength(3)
+  expect(h.adapter.requests[2]?.sessionId).toBeUndefined()
+  expect(h.adapter.requests[2]?.purpose).toBe('summary')
+  expect((await h.store.load(h.run.id))?.binding).toEqual(h.binding)
+  expect(h.agent.session.snapshotEvents()).toEqual(before)
+  expect(h.calls.filter(call => call.method === 'PUT')).toEqual([])
+})
+
+it('rechecks a settled native notice after a flush failure without starting another turn', async () => {
+  const h = await originalVideoFixture([textResponse('Existing result reviewed.')])
+  h.complete()
+  await vi.waitFor(async () => {
+    expect((await h.store.load(h.run.id))?.notice?.deliveredAt).toEqual(expect.any(Number))
+  })
+  await h.agent.whenIdle()
+  const saved = await h.store.load(h.run.id)
+  if (saved?.notice === undefined) throw new Error('Expected the completed original notice')
+  const host = await h.reopen(true, false)
+  const adapter = new MockAdapter([])
+  host.llm.registerAdapter(['mock'], adapter)
+  const projection = await registerGenerationWatchDelivery(host)
+  const deliver = createNativeGenerationDelivery(host, projection)
+  const resolved = await host.sessionController.resolveAgent(saved.sessionId)
+  if ('error' in resolved) throw resolved.error
+  const before = resolved.agent.session.snapshotEvents()
+  const flushing = vi.spyOn(host.sessions, 'flush').mockResolvedValueOnce(false)
+  try {
+    await expect(deliver(saved.sessionId, saved.notice, new AbortController().signal, undefined, undefined, saved))
+      .rejects.toThrow('Generation notice settlement did not persist')
+  } finally { flushing.mockRestore() }
+  for (let index = 0; index < 2; index++) {
+    expect(await deliver(saved.sessionId, saved.notice, new AbortController().signal, undefined, undefined, saved)).toBe('settled')
+  }
+  expect(resolved.agent.session.snapshotEvents()).toEqual(before)
+  expect(adapter.requests).toEqual([])
+  expect(h.calls.filter(call => call.method === 'PUT')).toEqual([])
+})
 
 it('retains the explicitly selected supported reasoning effort in submission evidence and the restored continuation', async () => {
   const high = ReasoningEffortId('high'), h = await originalVideoFixture([], high)
