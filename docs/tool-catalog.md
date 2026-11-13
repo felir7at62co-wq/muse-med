@@ -1672,7 +1672,7 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
 
 ### `audio_transcribe`
 
-使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；inspect 只查询原任务、不补传音轨，完成后发布文字、字词时间戳及说话人标签覆盖摘要；角色对齐读取 output_json，TXT/SRT 不含标签。status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；inspect 可用 wait_seconds 在工具内等待查询。收据不会自行刷新，用本工具回读，不能只循环读本地文件。需要先登录 Muse。
+使用当前 Muse 账号转写本地音频或视频。start 提交异步任务并返回收据；多集用 inputs 一次提交，工具逐集上传，上传繁忙或请求过频时按服务端提示等待，并沿用同一收据重试。inspect 只查询原任务、不补传音轨，完成后发布文字、字词时间戳及说话人标签覆盖摘要；角色对齐读取 output_json，TXT/SRT 不含标签。status 允许按服务端恢复指示补传同 ID 音轨，可能计费。长音频自动分段并合并时间轴；inspect 可用 wait_seconds 在工具内等待查询。收据不会自行刷新，用本工具回读，不能只循环读本地文件，也不要删除收据。需要先登录 Muse。
 
 ```json
 {
@@ -1693,7 +1693,14 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
     },
     "input": {
       "type": "string",
-      "description": "start 必填：获授权的本地音频或视频文件路径；相对路径以 project 为基准。"
+      "description": "start 单个输入（与 inputs 二选一）：获授权的本地音频或视频文件路径；相对路径以 project 为基准。"
+    },
+    "inputs": {
+      "type": "array",
+      "description": "start 多集输入（与 input 二选一，1–10 个）：获授权的本地音频或视频路径，相对路径以 project 为基准。按顺序逐集提交，每集一张收据；已有同用途收据的集沿用原收据，不重新计费，已完成或已失败的集需要重转时单独用 input。某集被拒或出错时停止，其余列入 not_started。",
+      "items": {
+        "type": "string"
+      }
     },
     "wait_seconds": {
       "type": "number",

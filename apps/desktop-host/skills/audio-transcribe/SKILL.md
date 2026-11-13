@@ -13,7 +13,7 @@ description: Use when 用户要把本地音频或视频里的语音转成文字�
 
 ## 云端运行
 
-先确认本地媒体和项目目录。已有分集文件时保留每集来源与收据，避免为批量转写先拼成跨集长片；可并行处理独立集数，回读各自结果，不能把一批完成当作全剧完成。Muse 账号必须已登录，服务器必须配置云端转写。`audio_transcribe` 的 `start` 会先检查时长，使用随包 FFmpeg 从音频或视频中提取 16 kHz 单声道 PCM WAV，保存包含任务 ID 的本地收据，再通过当前账号提交。只上传提取的音轨，不上传整段视频。云端转写会使用计费语音服务；仅在用户要求转写、项目已有相应授权时提交。
+先确认本地媒体和项目目录。已有分集文件时保留每集来源与收据，避免为批量转写先拼成跨集长片；多集由当前任务用一次 `start` 的 `inputs` 提交，工具逐集上传，遇 `upload_busy`、`request_rate` 按服务端提示等待并沿用同一收据重试；不要把提交拆给多个子任务各自 `start`，子任务只拿收据回读。逐集用各自 `receipt` 回读结果，不能把一批完成当作全剧完成。Muse 账号必须已登录，服务器必须配置云端转写。`audio_transcribe` 的 `start` 会先检查时长，使用随包 FFmpeg 从音频或视频中提取 16 kHz 单声道 PCM WAV，保存包含任务 ID 的本地收据，再通过当前账号提交。只上传提取的音轨，不上传整段视频。云端转写会使用计费语音服务；仅在用户要求转写、项目已有相应授权时提交。
 
 按实际用途设置 `purpose`：字幕生成或校时用 `subtitles`（极速识别）；音视频转小说或剧本用 `screenplay`（标准识别）。一般转写未指定用途时默认 `subtitles`。具体服务版本与资源由 Muse 服务器分配，不向用户索要提供方密钥或让用户选择资源。用途写入收据和所有音轨分段，查询与重试保持原用途；已有未完成任务不能改用途，先用原收据查清结果。同一原片确需另一用途时，应先判断现有结果能否复用；仅在用户明确授权额外计费转写后，显式传入新用途，创建独立版本收据，不改写或重投旧任务。省略用途时不会跨用途创建新付费任务。
 
@@ -27,7 +27,15 @@ description: Use when 用户要把本地音频或视频里的语音转成文字�
 {"method":"inspect","project":"<同一项目根目录>","receipt":"<start 返回的收据路径>","wait_seconds":20}
 ```
 
-限流的 `error_code` 区分 `queue_full`（队列满）、`upload_busy`（上传繁忙）、`request_rate`（账号请求频率）和 `provider_rate`（服务额度或提交频率）。有 `retry_after_seconds` 时按该秒数等待，再查询原收据。`inspect` 只查询原任务，绝不补传音轨；若已完成则发布本地转写结果。只有用户另行授权补传后才用 `status`，它先回读，确认原任务尚未受理后可能补传同 ID 音轨并计费；不更换 ID、用途或收据。`daily_quota` 先处理账号日额度，`sign-in-required` 先登录，`idempotency_conflict` 先核对原任务，不能直接重投。可用 `wait_seconds` 在单次调用内等待查询，最多 30 秒；返回未完成时按 `resume_status` 和实际诊断继续。收据是上次查询的快照，不会自行刷新；不能用 Bash 循环读收据代替 `inspect`。
+多集一次提交：
+
+```json
+{"method":"start","project":"<项目根目录>","inputs":["<第 1 集媒体>","<第 2 集媒体>"],"language":"zh","purpose":"screenplay"}
+```
+
+结果 `items` 与 `inputs` 同序，每集有自己的 `receipt`。已有同用途收据的集沿用原收据，不重新计费；已完成或已失败的集需要重转时单独用 `input`。某集被拒或出错时批次停止，其余列在 `not_started`。被拒的是 `upload_busy` 或 `request_rate` 时，按该集 `retry_after_seconds` 等待后把同一 `inputs` 原样再次 `start` 即可继续；`queue_full` 不要立即重发；其他错误按下文处理后再发。
+
+限流的 `error_code` 区分 `queue_full`（队列满）、`upload_busy`（上传繁忙）、`request_rate`（账号请求频率）和 `provider_rate`（服务额度或提交频率）。`inspect` 只查询原任务，绝不补传音轨；若已完成则发布本地转写结果。`status` 先回读，确认原任务尚未受理后可能补传同 ID 音轨并计费；不更换 ID、用途或收据。`upload_busy` 和 `request_rate` 已由工具在调用内等待重试；仍返回这两种，或 `inspect` 返回 `job-not-found` 时，云端尚未受理该音轨：有 `retry_after_seconds` 就先等待，再直接按 `resume_status` 调用 `status`。`queue_full` 同样未受理，但不要隔几秒就查询、调用 `status` 或重发；先处理别的集，或按下文队列与 OCR 分流。其他 `error_code` 有 `retry_after_seconds` 时按该秒数等待，再用 `inspect` 回读原收据；补传先经用户另行授权。不要删除或改写 `transcript/jobs/` 里的收据后重新 `start`，那会新建任务并可能重复计费。`daily_quota` 先处理账号日额度，`sign-in-required` 先登录，`idempotency_conflict` 先核对原任务，不能直接重投。可用 `wait_seconds` 在单次调用内等待查询，最多 30 秒；返回未完成时按 `resume_status` 和实际诊断继续。收据是上次查询的快照，不会自行刷新；不能用 Bash 循环读收据代替 `inspect`。
 
 先读取实际 `service_version`、`queued`、`error_code`、安全的 `provider_diagnostic` 和 `recovery`；旧任务未提供版本或诊断时只记未知，不由用途猜是 1.0、2.0 或极速。`processing` 本身不能证明提供方一直在识别，`uncertain` 更不能当成待处理结果反复盲等：
 
