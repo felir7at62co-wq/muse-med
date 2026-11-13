@@ -14,6 +14,23 @@ const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
 
 describe('CI workflow', () => {
+  it.each(['node-24-consumers', 'windows-build'])('%s blocks on browser poll cancellation after building the Host', (jobName) => {
+    const job = workflowJob(loadWorkflow('.github/workflows/ci.yml'), jobName)
+    if (!Array.isArray(job.steps)) throw new TypeError('Update cancellation checks require workflow steps')
+    const steps = job.steps.filter(isRecord)
+    const check = steps.findIndex(step => step.name === 'Verify browser poll cancellation during update')
+    expect(check).toBeGreaterThanOrEqual(0)
+    expect(steps[check]).not.toHaveProperty('continue-on-error')
+    expect(steps[check]?.run).toBe('node --import tsx/esm --import ./third_party/plugins/ds-bot/test/harness-resolve.mjs --test third_party/plugins/ds-bot/test/browser-channel.test.js third_party/plugins/ds-bot/test/update-drain.test.js')
+    const build = steps.findIndex(step => step.run === (jobName === 'windows-build'
+      ? 'pnpm run check:ci:windows-blocking' : 'pnpm run check:ci:consumers'))
+    expect(build).toBeGreaterThanOrEqual(0)
+    expect(check).toBeGreaterThan(build)
+    const dependencies = steps.findIndex(step => step.run === 'npm ci --prefix third_party/plugins/ds-bot --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund')
+    expect(dependencies).toBeGreaterThanOrEqual(0)
+    expect(check).toBeGreaterThan(dependencies)
+  })
+
   it('builds unsigned Muse installers on native runners without publication credentials', () => {
     const workflow = loadWorkflow('.github/workflows/muse-desktop.yml')
     expect(workflow.on).toEqual({ workflow_dispatch: { inputs: {

@@ -1,0 +1,11 @@
+version: 1
+scenario: muse-update-browser-drain
+profile: headless
+composition: muse-update-browser-drain
+recording: authored
+header:
+  class: muse-update-browser-drain
+  pin: true
+writerOutput: true
+workspace:
+  final: true
