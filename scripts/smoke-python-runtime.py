@@ -161,6 +161,8 @@ RECOVERY_SNAPSHOT_DIRECTORY = (
     Path(__file__).resolve().parent / "snapshots" / "python-sdk-single-exe" / "scheduler-recovery"
 )
 RECOVERY_SNAPSHOT_FILENAMES = ("result.json", "requests.json", "session.v4.jsonl")
+PROVIDER_FAILOVER_SNAPSHOT_DIRECTORY = ADVANCED_SNAPSHOT_ROOT / "muse-provider-failover"
+PROVIDER_FAILOVER_SNAPSHOT_FILENAMES = ("result.json",)
 SHUTDOWN_SNAPSHOT_DIRECTORY = (
     Path(__file__).resolve().parent / "snapshots" / "python-sdk-single-exe" / "factory-shutdown"
 )
@@ -858,7 +860,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--scenario",
-        choices=("all", "sdk-default", "sdk-custom", "sdk-minimal", "sdk-minimal-in-history", "sdk-dynamic-tools", "sdk-fs-search", "sdk-spawn-node", "sdk-mcp", "sdk-snapshot", "sdk-recovery", "sdk-restart", "sdk-shutdown", "sdk-profile-plugin", "sdk-plugin-manager", "sdk-office", "sdk-authoring", "sdk-live", "runner", "direct"),
+        choices=("all", "sdk-default", "sdk-custom", "sdk-minimal", "sdk-minimal-in-history", "sdk-dynamic-tools", "sdk-fs-search", "sdk-spawn-node", "sdk-mcp", "sdk-snapshot", "sdk-recovery", "sdk-provider-failover", "sdk-restart", "sdk-shutdown", "sdk-profile-plugin", "sdk-plugin-manager", "sdk-office", "sdk-authoring", "sdk-live", "runner", "direct"),
         default="all",
     )
     parser.add_argument("--exe", type=Path)
@@ -877,10 +879,10 @@ def main() -> None:
         parser.error("--scenario sdk-profile-plugin requires --installed-wheel")
     if args.installed_wheel:
         args.exe = assert_installed_wheel_environment()
-    if args.scenario in {"all", "sdk-custom", "sdk-minimal", "sdk-minimal-in-history", "sdk-dynamic-tools", "sdk-fs-search", "sdk-spawn-node", "sdk-snapshot", "sdk-recovery", "sdk-restart", "sdk-shutdown", "sdk-office", "sdk-authoring", "sdk-plugin-manager", "runner", "direct"} and args.exe is None:
-        parser.error("--exe is required for custom, minimal, dynamic-tools, fs-search, spawn-node, snapshot, recovery, restart, shutdown, office, runner, and direct scenarios")
-    if args.update_snapshots and args.scenario not in {"all", "sdk-minimal", "sdk-minimal-in-history", "sdk-dynamic-tools", "sdk-snapshot", "sdk-recovery", "sdk-restart", "sdk-shutdown", "sdk-authoring"}:
-        parser.error("--update-snapshots requires --scenario sdk-minimal, sdk-minimal-in-history, sdk-dynamic-tools, sdk-snapshot, sdk-recovery, sdk-restart, sdk-shutdown, sdk-authoring, or all")
+    if args.scenario in {"all", "sdk-custom", "sdk-minimal", "sdk-minimal-in-history", "sdk-dynamic-tools", "sdk-fs-search", "sdk-spawn-node", "sdk-snapshot", "sdk-recovery", "sdk-provider-failover", "sdk-restart", "sdk-shutdown", "sdk-office", "sdk-authoring", "sdk-plugin-manager", "runner", "direct"} and args.exe is None:
+        parser.error("--exe is required for custom, minimal, dynamic-tools, fs-search, spawn-node, snapshot, recovery, provider-failover, restart, shutdown, office, runner, and direct scenarios")
+    if args.update_snapshots and args.scenario not in {"all", "sdk-minimal", "sdk-minimal-in-history", "sdk-dynamic-tools", "sdk-snapshot", "sdk-recovery", "sdk-provider-failover", "sdk-restart", "sdk-shutdown", "sdk-authoring"}:
+        parser.error("--update-snapshots requires --scenario sdk-minimal, sdk-minimal-in-history, sdk-dynamic-tools, sdk-snapshot, sdk-recovery, sdk-provider-failover, sdk-restart, sdk-shutdown, sdk-authoring, or all")
     if args.exe is not None and not args.exe.is_file():
         parser.error(f"runtime executable does not exist: {args.exe}")
 
@@ -906,6 +908,13 @@ def main() -> None:
     if args.scenario == "sdk-shutdown":
         assert args.exe is not None
         smoke_sdk_shutdown_snapshot(args.exe.resolve(), args.update_snapshots)
+        return
+
+    if args.scenario in {"all", "sdk-provider-failover"}:
+        assert args.exe is not None
+        smoke_sdk_provider_failover(args.exe.resolve(), args.update_snapshots)
+    if args.scenario == "sdk-provider-failover":
+        print("smoke-python-runtime: sdk-provider-failover passed")
         return
 
     with MockModel() as model:
@@ -1940,6 +1949,90 @@ def smoke_sdk_snapshot(base_url: str, executable: Path, update_snapshots: bool) 
     """Exercise native and PTC calls in independent packaged-runtime compositions."""
     for mode in ("native", "ptc"):
         smoke_sdk_snapshot_mode(base_url, executable, update_snapshots, mode)
+
+
+def smoke_sdk_provider_failover(executable: Path, update_snapshots: bool) -> None:
+    """Replay the SDK owner's local Muse account A-to-B provider switch through Python."""
+    from deepseek_harness import DeepSeekHarness
+
+    owner = Path(__file__).resolve().parents[1] / "snapshots/sdk/muse-provider-failover"
+    replay = owner / "session.v4.jsonl"
+    patches = (owner / "cordis.yml", owner / "cordis.snapshot.yml")
+    prompt = "List the eight signed-in Muse account models and report the default model."
+    session_id = "python-sdk-muse-provider-failover"
+    with tempfile.TemporaryDirectory(prefix="dsh-python-muse-provider-failover-") as temporary:
+        root = Path(temporary).resolve()
+        home = root / "home"
+        environment = {
+            "DSH_HOME": str(home),
+            "DSH_EXAMPLE_MODE": "lib",
+            "DSH_SNAPSHOT": "replay",
+            "DSH_SNAPSHOT_FILE": str(replay),
+            "DSH_SNAPSHOT_PROVIDER_FAILOVER": "true",
+            "DSH_SNAPSHOT_EARLY_ACCOUNT_LOGIN": "true",
+            "DSH_TELEMETRY_DISABLED": "1",
+        }
+        launch_args = None
+        if executable.suffix == ".js":
+            node = shutil.which("node")
+            if node is None:
+                raise AssertionError("built CLI provider failover smoke requires Node")
+            launch_args = (node, str(executable), "--profile", "sdk", *(
+                argument for patch in patches for argument in ("--patch", str(patch))
+            ))
+        with DeepSeekHarness(
+            provider="muse-cloud-deepseek-official", model="deepseek-flash",
+            cwd=str(root), dsh_bin=str(executable), dsh_home=str(home),
+            patches=tuple(map(str, patches)), env=environment, _launch_args=launch_args,
+            initialize_timeout_seconds=60, request_timeout_seconds=120,
+        ) as harness:
+            result = harness.run(prompt, session_id=session_id)
+
+        logs = read_session_logs(home / "sessions")
+        if set(logs) != {session_id}:
+            raise AssertionError(f"provider failover expected one persisted Session: {sorted(logs)}")
+
+        def flow(records: list[dict[str, object]]) -> dict[str, object]:
+            headers = [
+                {"provider": event["data"]["header"]["config"]["provider"],
+                 "model": event["data"]["header"]["config"]["model"]}
+                for event in records if event.get("type") == "request/header"
+            ]
+            retries = [
+                {"provider": event["data"]["provider"], "retry": event["data"]["retry"],
+                 "code": event["data"]["failure"]["code"]}
+                for event in records if event.get("type") == "llm/retry"
+            ]
+            selections = [event["data"] for event in records if event.get("type") == "model/selection"]
+            assistant_sources = [event["data"]["message"]["source"] for event in records
+                                 if event.get("type") == "assistant/message"]
+            endings = [event["data"]["reason"] for event in records if event.get("type") == "turn/end"]
+            return {"requestModels": headers, "retries": retries, "selections": selections,
+                    "finalAssistant": {key: assistant_sources[-1][key] for key in ("provider", "model")},
+                    "turnReasons": endings}
+
+        observed = flow(result.events)
+        persisted = flow(logs[session_id])
+        if observed != persisted:
+            raise AssertionError(f"Python SDK events and persisted Session disagree: {observed} != {persisted}")
+        first = {"provider": "muse-cloud-deepseek-official", "model": "deepseek-flash"}
+        fallback = {"provider": "muse-cloud-yunying", "model": "gpt-6-sol"}
+        if observed["requestModels"] != [first, fallback] or observed["selections"] != [fallback]:
+            raise AssertionError(f"provider failover did not switch once from A to B: {observed}")
+        if observed["retries"] != [
+            {"provider": first["provider"], "retry": retry, "code": "SERVER"}
+            for retry in range(1, 6)
+        ]:
+            raise AssertionError(f"provider failover did not exhaust A's retry policy: {observed}")
+        if (observed["finalAssistant"] != fallback or observed["turnReasons"] != [{"kind": "completed"}]
+                or result.finish_reason != "completed" or result.final_response != "MUSE_ACCOUNT_MODELS_READY"):
+            raise AssertionError(f"provider failover did not complete on B: {observed}, {result.final_response}")
+
+        files = {"result.json": json.dumps({
+            "finalResponse": result.final_response, "finishReason": result.finish_reason, **observed,
+        }, indent=2, ensure_ascii=False) + "\n"}
+        compare_snapshot_files(files, update_snapshots, PROVIDER_FAILOVER_SNAPSHOT_DIRECTORY,
+                               PROVIDER_FAILOVER_SNAPSHOT_FILENAMES)
 
 
 def smoke_sdk_snapshot_mode(

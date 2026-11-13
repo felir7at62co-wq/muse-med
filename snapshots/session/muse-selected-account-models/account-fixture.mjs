@@ -51,6 +51,8 @@ export async function apply(ctx) {
   const direct = process.env.DSH_SNAPSHOT_DIRECT_ACCOUNT_ACCESS === 'true'
   const refusal = process.env.DSH_SNAPSHOT_SUPPLIER_REFUSAL === 'true'
   const contentRefusal = process.env.DSH_SNAPSHOT_CONTENT_REFUSAL === 'true'
+  const providerFailover = process.env.DSH_SNAPSHOT_PROVIDER_FAILOVER === 'true'
+  const earlyLogin = process.env.DSH_SNAPSHOT_EARLY_ACCOUNT_LOGIN === 'true'
   const officialGlm = process.env.DSH_SNAPSHOT_GLM_TOOL_STREAM === 'true'
   const pooledZhipu = process.env.DSH_SNAPSHOT_ZHIPU_POOL_RELAY === 'true'
   const leasedZhipu = process.env.DSH_SNAPSHOT_ZHIPU_POOL_DIRECT === 'true'
@@ -62,6 +64,8 @@ export async function apply(ctx) {
   assert.ok(!pooledZhipu || direct && officialGlm)
   assert.ok(!refusal || direct)
   assert.ok(!contentRefusal || direct && !refusal && !admissionFailure)
+  assert.ok(!providerFailover || !direct && !refusal && !contentRefusal && !admissionFailure)
+  assert.ok(!earlyLogin || providerFailover)
   const excludedProvider = process.env.DSH_SNAPSHOT_EXCLUDED_ACCOUNT_PROVIDER
   assert.ok(excludedProvider === undefined || excludedProvider === 'aa')
   const excludesStandaloneAa = excludedProvider === 'aa'
@@ -91,9 +95,12 @@ export async function apply(ctx) {
   assert.deepEqual({ provider: selection?.provider, model: selection?.model }, selectedModel)
   const directCompletion = direct && (!pooledZhipu || leasedZhipu)
   const completionPath = `${directCompletion ? '/supplier' : '/api/desktop-models'}/${selectedModel.provider.slice('muse-cloud-'.length)}/chat/completions`
+  const fallbackModel = { provider: 'muse-cloud-yunying', model: 'gpt-6-sol' }
+  const fallbackCompletionPath = `/api/desktop-models/${fallbackModel.provider.slice('muse-cloud-'.length)}/chat/completions`
   const script = recorded.filter(event => event.type === 'assistant/message').map(event => event.data.message)
   assert.equal(script.length, refusal || contentRefusal || admissionFailure ? 0 : 2)
   const requests = []
+  const fallbackRequests = []
   let admissionSubmissions = 0
   let supplierSubmissions = 0
   let baseUrl
@@ -152,13 +159,15 @@ export async function apply(ctx) {
           assert.equal(request.headers.cookie, '__Host-muse=snapshot-session')
           response.writeHead(200, { 'content-type': 'application/json' }); response.end('{"released":true}'); return
         }
-        if (request.url === completionPath) {
+        if (request.url === completionPath || providerFailover && request.url === fallbackCompletionPath) {
           supplierSubmissions++
           const payload = JSON.parse(body)
-          assert.equal(request.headers.authorization, directCompletion ? `Bearer supplier-fixture-${selectedModel.provider.slice('muse-cloud-'.length)}` : 'Bearer snapshot-session')
+          const fallback = providerFailover && request.url === fallbackCompletionPath
+          const routeModel = fallback ? fallbackModel : selectedModel
+          assert.equal(request.headers.authorization, directCompletion ? `Bearer supplier-fixture-${routeModel.provider.slice('muse-cloud-'.length)}` : 'Bearer snapshot-session')
           if (directCompletion) { assert.equal(request.headers.cookie, undefined); assert.equal(request.headers.origin, undefined) }
           else assert.equal(request.headers.origin, baseUrl)
-          assert.equal(payload.model, selectedModel.model)
+          assert.equal(payload.model, routeModel.model)
           if (officialGlm) {
             assert.equal(payload.max_tokens, 128000)
             assert.equal(payload.reasoning_effort, 'max')
@@ -168,14 +177,25 @@ export async function apply(ctx) {
             assert.equal(payload.max_tokens, 65536)
             assert.equal(payload.reasoning_effort, undefined)
             assert.equal(payload.thinking, undefined)
+          } else if (fallback) {
+            assert.equal(payload.max_tokens, 128000)
+            assert.equal(payload.reasoning_effort, 'low')
+            assert.equal(payload.thinking, undefined)
           } else {
             assert.equal(payload.max_tokens, 393216)
             assert.equal(payload.reasoning_effort, 'low')
             assert.deepEqual(payload.thinking, { type: 'enabled' })
           }
-          const message = script[requests.length]
-          if (!refusal && !contentRefusal) assert.ok(message)
           requests.push(payload)
+          if (providerFailover && !fallback) {
+            assert.ok(requests.length <= 6)
+            response.writeHead(503, { 'content-type': 'application/json', 'retry-after': '0.001' })
+            response.end('{"error":{"message":"Snapshot provider unavailable"}}')
+            return
+          }
+          const message = script[providerFailover ? fallbackRequests.length : requests.length - 1]
+          if (!refusal && !contentRefusal) assert.ok(message)
+          if (fallback) fallbackRequests.push(payload)
           if (contentRefusal) {
             assert.equal(payload.stream, true)
             response.writeHead(200, { 'content-type': 'text/event-stream' })
@@ -191,7 +211,7 @@ export async function apply(ctx) {
             response.end(JSON.stringify({ error: { message: 'Opaque supplier refusal' } }))
             return
           }
-          if (requests.length === 2) {
+          if ((providerFailover ? fallbackRequests.length : requests.length) === 2) {
             const result = payload.messages.find(message => message.role === 'tool')
             assert.ok(result?.content.includes('gemini-3.1-pro'))
             assert.ok(result?.content.includes('deepseek-v4-pro'))
@@ -281,12 +301,17 @@ export async function apply(ctx) {
   await mounted.await()
   const service = ctx.get('museAccount')
   assert.ok(service instanceof account.MuseAccountService)
-  ctx.on('agent/created', async () => {
+  const login = async () => {
     const attempt = await service.startBrowserLogin()
     assert.ok(!JSON.stringify(attempt).includes('s'.repeat(43)))
     const login = await service.checkBrowserLogin(attempt.id)
     assert.equal(login.state, 'signed-in')
-  })
+  }
+  if (earlyLogin) {
+    await login()
+    ctx.provide('snapshotProviderFailoverReady', { ready: true })
+  }
+  else ctx.on('agent/created', login)
   ctx.effect(() => ctx.tools.register(defineContentToolFixture({
     name: 'muse_selected_models', description: 'Read the signed-in Muse account model catalog.', parameters: {},
     async execute() {
@@ -383,10 +408,20 @@ export async function apply(ctx) {
   ctx.on('agent/turn-stopping', async ({ agent }) => {
     if (admissionFailure || contentRefusal) return
     if (rejected) throw rejected
-    assert.equal(requests.length, refusal ? 6 : 2)
+    assert.equal(requests.length, providerFailover ? 8 : refusal ? 6 : 2)
+    if (providerFailover) {
+      assert.equal(fallbackRequests.length, 2)
+      const events = agent.session.snapshotEvents()
+      assert.equal(events.filter(event => event.type === 'llm/retry').length, 5)
+      assert.equal(events.filter(event => event.type === 'assistant/attempt').length, 6)
+      assert.equal(events.filter(event => event.type === 'user/message' && event.data.source?.kind === 'user').length, 1)
+      assert.deepEqual(events.filter(event => event.type === 'model/selection').map(event => ({
+        provider: event.data.provider, model: event.data.model,
+      })), [fallbackModel])
+    }
     const config = agent.session.requestHeader()?.config
     assert.equal(config.reasoningEffort, officialGlm ? 'max' : preservesNewerDefault ? undefined : 'low')
-    assert.deepEqual({ provider: config.provider, model: config.model }, selectedModel)
+    assert.deepEqual({ provider: config.provider, model: config.model }, providerFailover ? fallbackModel : selectedModel)
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('snapshot-session'))
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('s'.repeat(43)))
     assert.ok(!JSON.stringify(agent.session.snapshotEvents()).includes('fixture-password'))

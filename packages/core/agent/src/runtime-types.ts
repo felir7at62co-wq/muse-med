@@ -168,7 +168,7 @@ export type PreStepDecision =
   }
 
 /** Action returned by a listener that owns model-request recovery. */
-export type RequestErrorAction = { kind: 'retry' } | undefined
+export type RequestErrorAction = { kind: 'retry' } | { kind: 'switch'; selection: ModelSelection } | undefined
 
 /** Why a session lifecycle began; seeded creates are `startup`, while persisted loads are `resume`. */
 export type SessionStartSource = 'startup' | 'resume' | 'clear' | 'compact'
@@ -401,10 +401,10 @@ declare module '@deepseek-ai/cordis' {
     */
     'agent/request'(this: Scoped<Agent>, payload: { agent: Agent; turn: number; step: number; signal: AbortSignal }, next: () => Promise<LlmCallConfig>): Promise<LlmCallConfig>
     /**
-     * Handle one failed model-request attempt before the loop retries or closes
-     * its step. A listener returns `{ kind: 'retry' }` without calling `next()`
-     * when it owns recovery, or calls `next()` to delegate. The default
-     * `undefined` leaves the failure terminal.
+     * Handle one recorded failed model-request attempt before its step closes.
+     * A listener returns `retry` to repeat the step, `switch` to select a
+     * different provider in a new step, or calls `next()` to delegate.
+     * The default `undefined` leaves the failure terminal.
      * @param payload.agent - the agent whose request failed.
      * @param payload.turn - the turn containing the failed request.
      * @param payload.step - the step containing the failed request attempt.
@@ -412,6 +412,10 @@ declare module '@deepseek-ai/cordis' {
      * @param payload.failure - serializable facts normalized at the final adapter boundary.
      * @param payload.retryPolicy - the policy of the adapter registration that served the failed request.
      * @param payload.signal - the turn abort signal.
+     * A `retry` repeats the same prepared step. A `switch` records a new
+     * provider selection and resumes in a fresh step with newly assembled tools
+     * and prompt; the driver ignores the proposed selection if the user changed
+     * the failed step's choice while recovery was pending.
      * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
      * @mode waterfall
      */

@@ -1,0 +1,56 @@
+{
+  "finalResponse": "MUSE_ACCOUNT_MODELS_READY",
+  "finishReason": "completed",
+  "requestModels": [
+    {
+      "provider": "muse-cloud-deepseek-official",
+      "model": "deepseek-flash"
+    },
+    {
+      "provider": "muse-cloud-yunying",
+      "model": "gpt-6-sol"
+    }
+  ],
+  "retries": [
+    {
+      "provider": "muse-cloud-deepseek-official",
+      "retry": 1,
+      "code": "SERVER"
+    },
+    {
+      "provider": "muse-cloud-deepseek-official",
+      "retry": 2,
+      "code": "SERVER"
+    },
+    {
+      "provider": "muse-cloud-deepseek-official",
+      "retry": 3,
+      "code": "SERVER"
+    },
+    {
+      "provider": "muse-cloud-deepseek-official",
+      "retry": 4,
+      "code": "SERVER"
+    },
+    {
+      "provider": "muse-cloud-deepseek-official",
+      "retry": 5,
+      "code": "SERVER"
+    }
+  ],
+  "selections": [
+    {
+      "provider": "muse-cloud-yunying",
+      "model": "gpt-6-sol"
+    }
+  ],
+  "finalAssistant": {
+    "provider": "muse-cloud-yunying",
+    "model": "gpt-6-sol"
+  },
+  "turnReasons": [
+    {
+      "kind": "completed"
+    }
+  ]
+}

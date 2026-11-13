@@ -427,11 +427,11 @@ type PreStepDecision =
   }
 ```
 
-`agent/request-error` runs after a failed model step closes and before its turn closes. Listeners can repair durable state or await policy work while the failed turn's signal is still live. A handling listener returns `{ kind: 'retry' }` without calling `next()`; the default `undefined` leaves the failure terminal.
+`agent/request-error` runs after a failed model attempt is recorded and before its step closes. Listeners can repair durable state or await policy work while the turn's signal is live. A handling listener returns `{ kind: 'retry' }` to repeat the same step or `{ kind: 'switch', selection }` to select another provider and continue in a fresh step without repeating accepted user input. The driver preserves a newer user selection and rejects a switch to the failed provider. The default `undefined` leaves the failure terminal.
 
 ```ts type-equiv
 /** Action returned by a listener that owns model-request recovery. */
-type RequestErrorAction = { kind: 'retry' } | undefined
+type RequestErrorAction = { kind: 'retry' } | { kind: 'switch'; selection: ModelSelection } | undefined
 ```
 
 `agent/pre-step` is the only waterfall listener chain before request derivation. `agent/turn-stopping` runs when a turn has no tool or steering continuation, before one final steering drain.
@@ -1130,14 +1130,14 @@ Source: [`packages/core/agent/src/runtime-types.ts`](../../packages/core/agent/s
 
 #### `agent/request-error` — waterfall
 
-Handle one failed model-request attempt before the loop retries or closes its step. A listener returns `{ kind: 'retry' }` without calling `next()` when it owns recovery, or calls `next()` to delegate. The default `undefined` leaves the failure terminal.
+Handle one recorded failed model-request attempt before its step closes. A listener returns `retry` to repeat the step, `switch` to select a different provider in a new step, or calls `next()` to delegate. The default `undefined` leaves the failure terminal.
 
 ```ts cordis-catalog
 /**
- * Handle one failed model-request attempt before the loop retries or closes
- * its step. A listener returns `{ kind: 'retry' }` without calling `next()`
- * when it owns recovery, or calls `next()` to delegate. The default
- * `undefined` leaves the failure terminal.
+ * Handle one recorded failed model-request attempt before its step closes.
+ * A listener returns `retry` to repeat the step, `switch` to select a
+ * different provider in a new step, or calls `next()` to delegate.
+ * The default `undefined` leaves the failure terminal.
  * @param payload.agent - the agent whose request failed.
  * @param payload.turn - the turn containing the failed request.
  * @param payload.step - the step containing the failed request attempt.
@@ -1145,6 +1145,10 @@ Handle one failed model-request attempt before the loop retries or closes its st
  * @param payload.failure - serializable facts normalized at the final adapter boundary.
  * @param payload.retryPolicy - the policy of the adapter registration that served the failed request.
  * @param payload.signal - the turn abort signal.
+ * A `retry` repeats the same prepared step. A `switch` records a new
+ * provider selection and resumes in a fresh step with newly assembled tools
+ * and prompt; the driver ignores the proposed selection if the user changed
+ * the failed step's choice while recovery was pending.
  * Scope-filtered dispatch (`@deepseek-ai/dsh-scope`): agent-scoped listeners receive only that agent.
  * @mode waterfall
  */
