@@ -2,11 +2,11 @@
 import { Context } from '@deepseek-ai/cordis'
 import { ResourceRegistry } from '@deepseek-ai/dsh-client-resources/src/client/resources.ts'
 import { RemoteError, type RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, expect, it, onTestFinished, vi } from 'vitest'
 import type { EpisodeClient } from '../src/client/episode-directory.ts'
-import type { EpisodeDeliveryStatus, EpisodeHistory } from '../src/types.ts'
+import type { EpisodeDeliveryStatus, EpisodeHistory, EpisodeReadiness } from '../src/types.ts'
 import { registerEpisodeResources } from '../src/client/episode-resources.ts'
-import { attempt, episodeClientFixture, input, original, unadmitted } from './fixtures/episode-client.client.ts'
+import { attempt, episodeClientFixture, input, original, ready, unadmitted } from './fixtures/episode-client.client.ts'
 
 afterEach(() => { vi.useRealTimers() })
 
@@ -323,4 +323,86 @@ it.each(['readiness', 'history'] as const)('keeps a current %s Host failure fram
     expect(f.api.admitEpisode).not.toHaveBeenCalled()
     expect(f.notices).not.toHaveBeenCalled()
   } finally { pins.mockRestore() }
+})
+
+it('retains a rejected readiness Error message and retries only after another explicit check', async () => {
+  const error = new Error('Readiness RPC ended before the reply')
+  const query = vi.fn<EpisodeClient['episodeReadiness']>().mockRejectedValueOnce(error)
+    .mockResolvedValue({ ok: true, value: ready })
+  const f = episodeClientFixture({ episodeReadiness: query })
+  f.directory.check(input)
+  const source = f.resources.source(f.directory.state.getSnapshot().readinessAddress)
+  await vi.waitFor(() => {
+    expect(source.getSnapshot()).toMatchObject({ status: 'failed', value: undefined,
+      failure: { code: 'jubian-video-recovery/rejected', message: error.message } })
+  })
+  await f.directory.admit(); await f.directory.admit(true)
+  expect(f.directory.state.getSnapshot()).toMatchObject({ checked: false, displayedReadiness: null, target: null })
+  expect(f.api.episodeStatus).not.toHaveBeenCalled()
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+  expect(query).toHaveBeenCalledExactlyOnceWith({ projectDir: input.projectDir, episode: input.episode })
+  await f.waitReady()
+  expect(query).toHaveBeenCalledTimes(2)
+  expect(f.directory.state.getSnapshot()).toMatchObject({ checked: true, displayedReadiness: ready })
+  expect(f.api.episodeStatus).toHaveBeenCalledExactlyOnceWith(input)
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+  expect(f.notices).not.toHaveBeenCalled()
+})
+
+it('discards a late readiness success while another public pin keeps its retired provider alive', async () => {
+  const pending = Promise.withResolvers<RemoteResult<EpisodeReadiness>>()
+  const registered = vi.spyOn(ResourceRegistry.prototype, 'register')
+  onTestFinished(() => { registered.mockRestore() })
+  const query = vi.fn<EpisodeClient['episodeReadiness']>().mockReturnValueOnce(pending.promise)
+    .mockResolvedValue({ ok: true, value: ready })
+  const f = episodeClientFixture({ episodeReadiness: query })
+  const provider = registered.mock.calls.find(([entry]) => entry.protocol === 'jubian-episode-readiness')?.[0]
+  registered.mockRestore()
+  if (provider === undefined) throw new Error('Expected the actual registered readiness provider')
+  const originalOpen = provider.open.bind(provider), completed = Promise.withResolvers<undefined>()
+  const opened = vi.spyOn(provider, 'open').mockImplementation(async function* (address, context) {
+    try { yield* originalOpen(address, context) }
+    finally { completed.resolve(undefined) }
+  })
+  const pins = vi.spyOn(f.resources, 'pin'), extra = new AbortController()
+  try {
+    f.directory.check(input)
+    await vi.waitFor(() => { expect(query).toHaveBeenCalledTimes(1) })
+    const address = f.directory.state.getSnapshot().readinessAddress, source = f.resources.source(address)
+    const owner = pins.mock.calls.find(([pinned]) => pinned === address)?.[1]
+    const signal = opened.mock.calls.find(([pinned]) => pinned === address)?.[1].signal
+    if (owner === undefined || signal === undefined) throw new Error('Expected the real directory and provider signals')
+    f.resources.pin(address, extra.signal)
+    expect(pins.mock.calls.filter(([pinned]) => pinned === address).map(([, pin]) => pin)).toEqual([owner, extra.signal])
+    expect(signal).toBeInstanceOf(AbortSignal)
+    expect(signal).not.toBe(owner)
+    expect(signal.aborted).toBe(false)
+    f.directory.retireSelection('2')
+    const retired = f.directory.state.getSnapshot()
+    expect(owner.aborted).toBe(true)
+    expect(extra.signal.aborted).toBe(false)
+    expect(signal.aborted).toBe(false)
+    expect(f.directory.current('readiness', address)).toBe(false)
+    pending.resolve({ ok: true, value: ready })
+    await completed.promise
+    await f.directory.admit(); await f.directory.admit(true)
+    expect(source.getSnapshot()).toEqual({ status: 'loading', value: undefined, failure: undefined })
+    expect(f.directory.state.getSnapshot()).toBe(retired)
+    expect(retired).toMatchObject({ episodeText: '2', checked: false, displayedReadiness: null, target: null })
+    expect(f.api.episodeStatus).not.toHaveBeenCalled()
+    expect(f.api.admitEpisode).not.toHaveBeenCalled()
+    expect(f.notices).not.toHaveBeenCalled()
+    extra.abort()
+    expect(signal.aborted).toBe(true)
+    f.directory.retireSelection('1')
+    await f.waitReady()
+    expect(query).toHaveBeenCalledTimes(2)
+    expect(f.directory.state.getSnapshot()).toMatchObject({ checked: true, displayedReadiness: ready })
+    expect(f.api.admitEpisode).not.toHaveBeenCalled()
+  } finally {
+    extra.abort()
+    pending.resolve({ ok: true, value: ready })
+    await pending.promise
+    opened.mockRestore(); pins.mockRestore()
+  }
 })

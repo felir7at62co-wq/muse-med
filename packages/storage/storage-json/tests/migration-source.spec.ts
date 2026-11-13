@@ -69,6 +69,19 @@ describe('explicit JSON migration source', () => {
     await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toThrow('not a live JSON')
   })
 
+  it('refuses an in-flight migration read after its backend closes without changing the source', async () => {
+    const h = await harness(), path = await jsonUnitSourcePath(h.backend, descriptor)
+    const text = JSON.stringify({ unit: { name: 'workspace', version: 2 }, global: null,
+      tables: { workspaces: { first: { title: 'retained source' } } } })
+    await writeFile(path, text)
+    const reading = readJsonUnitSource(h.backend, descriptor)
+    const refused = expect(reading).rejects.toThrow('migration source JSON backend closed while reading')
+    await h.backend.close()
+    await refused
+    expect(await readFile(path, 'utf8')).toBe(text)
+    await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toThrow('not a live JSON')
+  })
+
   it('distinguishes a missing unit from a malformed or unsupported-version document', async () => {
     const h = await harness()
     const path = await jsonUnitSourcePath(h.backend, descriptor)
