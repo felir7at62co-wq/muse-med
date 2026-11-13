@@ -115,7 +115,8 @@ export class DesktopUpdateCoordinator {
 
   /**
    * Check metadata without downloading, joining any current check.
-   * @param manual - Whether a failed check must remain visible in the status indicator.
+   * @param manual - Whether a failed check must remain visible in the status indicator. A silent failure clears a
+   * no-longer-valid available offer.
    * @returns The check result, including a silent automatic failure when applicable.
    */
   async check(manual = false): Promise<DesktopUpdateState> {
@@ -123,10 +124,12 @@ export class DesktopUpdateCoordinator {
     if (this.downloadOperation !== undefined || this.installOperation !== undefined
       || this.downloadedInfo !== undefined) return this.current
     if (!manual && this.current.phase === 'error' && this.current.failedOperation === 'download') return this.current
+    const advertised = this.current
     this.checkOperation ??= Promise.resolve().then(() => this.doCheck())
       .finally(() => { this.checkOperation = undefined })
     const result = await this.checkOperation
     if (manual && result.phase === 'error') this.setState(result)
+    else if (result.phase === 'error' && advertised.phase === 'available' && this.current === advertised) this.setState({ phase: 'idle' })
     return result
   }
 
