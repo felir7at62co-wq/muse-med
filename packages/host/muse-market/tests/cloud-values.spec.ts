@@ -45,6 +45,10 @@ describe('portable cloud JSON readers', () => {
     expect(() => parseMarketIdentity({ ...identity, cookie: 'private' })).toThrow('invalid-response')
     expect(() => parseMarketIdentity({ ...identity, publishers: [...identity.publishers, ...identity.publishers] }))
       .toThrow('invalid-response')
+    for (const publishers of [[null], [{ id: 'b'.repeat(32), title: '' }],
+      [{ id: 'b'.repeat(32), title: 'Writing team', cookie: 'private' }]]) {
+      expect(() => parseMarketIdentity({ ...identity, publishers })).toThrow('invalid-response')
+    }
   })
 
   it('keeps local digest, publication, account and original attempt identities separate', () => {
