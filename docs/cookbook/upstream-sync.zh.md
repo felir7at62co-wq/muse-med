@@ -17,6 +17,7 @@ pnpm exec tsx scripts/upstream-sync-rehearsal.ts
 ## 2. Triage by owner
 
 ```sh
+mkdir -p .local/architecture
 pnpm exec tsx scripts/upstream-sync-triage.ts --out .local/architecture/triage-record.json --markdown .local/architecture/triage-record.md
 ```
 

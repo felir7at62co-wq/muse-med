@@ -226,7 +226,6 @@
     "test:snapshot:built": "node third_party/plugins/muse-lvpaopao/scripts/build.mjs && node scripts/prepare-subscriptions-snapshot.mjs && vitest run --config vitest.snapshot.config.ts",
     "muse:web": "node scripts/muse-web.mjs",
     "check:ci:windows-observational": "tsx scripts/run-gates.ts ci-windows-observational-ready",
-    "resolve-translation-pairing-conflicts": "tsx scripts/merge-translation-pairing.ts --resolve",
     "verify-running-build": "tsx scripts/verify-running-build.ts",
     "verify-plugin-entry-exports": "tsx scripts/verify-plugin-entry-exports.ts"
   },

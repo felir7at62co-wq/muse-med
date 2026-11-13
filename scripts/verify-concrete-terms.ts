@@ -47,7 +47,7 @@ export function findConcreteTermViolations(file: string, source: string): Concre
     return []
   }
   if (file === 'third_party/plugins/muse-hongguo-download/upstream/engine.cjs') {
-    if (createHash('sha256').update(source).digest('hex') !== '0317a3048117c293a9880d37b6ae38b52d9d888454c5156a8a66f7c9f4c4acef') {
+    if (createHash('sha256').update(source).digest('hex') !== 'c0e1d150e401e61af33a3f507700bc1c2b7fe6256b015c551c4487b53348d3c4') {
       throw new Error('verify-concrete-terms: pinned upstream Hongguo engine changed')
     }
     return []
