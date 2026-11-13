@@ -7,6 +7,7 @@ import { LlmAdapter, createUserMessage, ToolCallId, type GenerateOptions, type S
 import { SessionId } from '@deepseek-ai/dsh-session'
 import SkillRegistry, { type SkillProviderControl } from '@deepseek-ai/dsh-skill'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import type { ToolRunContext, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import * as ToolSkill from '../src/index.ts'
 
 const contexts: Context[] = []
@@ -61,6 +62,39 @@ async function invoke(ctx: Context, agent: Agent, args: object, name = 'skill_ca
 }
 
 describe('conditional bounded catalog ownership', () => {
+  it('rejects an oversized default page before registering directory tools', async () => {
+    const f = await fixture(), registered = f.ctx.tools.get('skill_catalog', f.agent)
+    expect(() => { ToolSkill.apply(f.ctx, { catalogPageSize: 101 }) }).toThrow('catalogPageSize must not exceed 100')
+    expect(f.ctx.tools.get('skill_catalog', f.agent)).toBe(registered)
+    await expect(fixture({ catalogPageSize: 101 })).rejects.toThrow('expected number <= 100')
+  })
+
+  it('requires an admitted owner and presents only valid directory metadata', async () => {
+    const f = await fixture(); f.add('first'); f.add('second'); f.add('third')
+    await run(f.agent)
+    const definition = f.ctx.tools.get('skill_catalog', f.agent)
+    if (definition === undefined) throw new Error('Expected registered directory')
+    const callId = ToolCallId('unadmitted-directory')
+    const context: ToolRunContext = { callId, rootCallId: callId, name: 'skill_catalog', arguments: {},
+      signal: new AbortController().signal, token: Symbol('unadmitted-directory') as ToolExecutionToken,
+      deferContext: () => {}, concludeTurn: () => {} }
+    await expect(definition.execute({}, context)).rejects.toThrow('requires an admitted Agent step')
+    expect(definition.presentCall?.({})).toEqual({ card: 'generic', title: 'Find skills', kind: 'read', rawInput: '' })
+    const failed = await invoke(f.ctx, f.agent, { limit: 0 })
+    expect(definition.presentResult?.({}, failed)).toEqual({ card: 'generic', title: 'Skill directory unavailable' })
+    const complete = await invoke(f.ctx, f.agent, { limit: 100 })
+    expect(definition.presentResult?.({}, complete)).toMatchObject({ card: 'generic', title: 'Skill directory',
+      content: [{ type: 'text', text: '3 of 3 matching skills' }] })
+    const invalid: (typeof complete.meta)[] = [undefined, null, [], 1, {}, { kind: 'other' },
+      { kind: 'skill-catalog', count: 'three', totalMatched: 3 }, { kind: 'skill-catalog', count: 3, totalMatched: 'three' }]
+    for (const meta of invalid) {
+      const view = { ...complete }
+      if (meta === undefined) delete view.meta
+      else view.meta = meta
+      expect(definition.presentResult?.({}, view)).toBeUndefined()
+    }
+  })
+
   it('keeps the untrimmed request tool set and catalog complete when a source meets its limit', async () => {
     const f = await fixture()
     f.add('first'); f.add('second'); f.add('custom', 'custom')
