@@ -1,8 +1,24 @@
 /** Record a real legacy browser-poll drain while the Headless Agent keeps its task. */
 import assert from 'node:assert/strict'
 import { readFile, writeFile } from 'node:fs/promises'
+import { createRequire, registerHooks } from 'node:module'
 import { join } from 'node:path'
-import { runBrowserUpdateDrainProbe } from '../../../third_party/plugins/ds-bot/test/update-drain-fixture.mjs'
+import { pathToFileURL } from 'node:url'
+
+const botRoot = new URL('../../../third_party/plugins/ds-bot/', import.meta.url).href
+const requireDesktop = createRequire(new URL('../../../apps/desktop-host/package.json', import.meta.url))
+// The packaged Bot receives these peers from Desktop; this fixture uses that same owner.
+const hooks = process.env.DSH_EXAMPLE_MODE === 'lib' ? registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (!context.parentURL?.startsWith(botRoot) || !specifier.startsWith('@deepseek-ai/')) return nextResolve(specifier, context)
+    return { url: pathToFileURL(requireDesktop.resolve(specifier)).href, shortCircuit: true }
+  },
+}) : undefined
+let runBrowserUpdateDrainProbe
+try {
+  const fixture = await import('../../../third_party/plugins/ds-bot/test/update-drain-fixture.mjs')
+  runBrowserUpdateDrainProbe = fixture.runBrowserUpdateDrainProbe
+} finally { hooks?.deregister() }
 
 export const name = 'snapshot-update-drain'
 export const inject = ['tools', 'agents', 'jobs']

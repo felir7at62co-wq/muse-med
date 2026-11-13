@@ -2,11 +2,20 @@
 import assert from 'node:assert/strict'
 import { once } from 'node:events'
 import { createServer } from 'node:http'
-import { HostConnectionService } from '@deepseek-ai/dsh-client-connection'
-import { installDesktopUpdateTaskControl } from '../../../../apps/desktop-host/src/update-tasks.ts'
-import { bridge } from '../../../../packages/client/connection/src/http-bridge.ts'
+import { importSnapshotModule } from '../../../../snapshots/session/muse-fixture-import.mjs'
 import { createBrowserChannel } from '../src/host/browser.js'
 import { install as installChannel } from '../src/host/channel.js'
+
+// The CI built snapshot subprocess runs plain Node; source tests use the tsx launcher.
+const { HostConnectionService } = await importSnapshotModule(
+  new URL('../../../../packages/client/connection/src/index.ts', import.meta.url),
+  new URL('../../../../packages/client/connection/lib/types/index.js', import.meta.url))
+const { installDesktopUpdateTaskControl } = await importSnapshotModule(
+  new URL('../../../../apps/desktop-host/src/update-tasks.ts', import.meta.url),
+  new URL('../../../../apps/desktop-host/lib/types/update-tasks.js', import.meta.url))
+const { bridge } = await importSnapshotModule(
+  new URL('../../../../packages/client/connection/src/http-bridge.ts', import.meta.url),
+  new URL('../../../../packages/client/connection/lib/types/http-bridge.js', import.meta.url))
 
 async function beforeDeadline(promise) {
   let timer
