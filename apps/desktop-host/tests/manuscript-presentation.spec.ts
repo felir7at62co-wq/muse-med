@@ -26,6 +26,19 @@ it('keeps synchronized action and speech as separate literal locations without d
   expect(manuscriptFormatReference().action_line).toContain('不按动作长短或是否同步说话机械拆分')
 })
 
+it('leaves a title, cast list or note above the first episode out of episode endings', () => {
+  const titled = evidence('《示例》分场剧本\n\n人物：甲、乙\n▲格式示例：动作行。\n\n第1集\n1-1 家 日 内\n▲甲走远。\n甲：最后一句。')
+  expect(titled.episodes.map(episode => episode.episode)).toEqual(['1'])
+  expect(titled.episode_count).toBe(1)
+  expect(titled.episodes[0]?.action_locations.findings.map(line => line.quote)).toEqual(['▲甲走远。'])
+  const cue = manuscriptEndingCue(titled, [], { maximumFindings: 40, maxTextCharacters: 200_000 })
+  expect(cue).toContain('第1集当前结尾')
+  expect(cue).not.toContain('unassigned')
+  const untitled = evidence('剧本梗概\n\n▲一个人走进屋。')
+  expect(untitled.episodes).toEqual([])
+  expect(manuscriptEndingCue(untitled, [], { maximumFindings: 40, maxTextCharacters: 200_000 })).toBe('')
+})
+
 it('reports marker absence as structure while retaining the actual final action and dialogue', () => {
   const report = evidence('第1集\n1-1 餐厅 日 内\n甲：我明白了。\n▲甲推门离开。\n1-2 门外 日 外\n▲乙站在门外。\n乙（低声）：他终于走了。\n【全剧终】')
   expect(report.episodes[0]?.ending).toMatchObject({ marker_status: 'not_found', marker_count: 0,

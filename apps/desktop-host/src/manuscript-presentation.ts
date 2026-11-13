@@ -1,6 +1,6 @@
 /** Literal episode endings and action locations; screenplay placement remains an editorial decision. */
 import { manuscriptDialogue } from './manuscript-advisories.ts'
-import type { ManuscriptScene } from './manuscript-scenes.ts'
+import { MANUSCRIPT_PREAMBLE_EPISODE, type ManuscriptScene } from './manuscript-scenes.ts'
 
 type Scene = ManuscriptScene & { path: string }
 interface Location { path: string; episode: string; scene: string; line: number; quote: string }
@@ -73,7 +73,7 @@ function endpoints<T extends Location>(all: readonly T[], materialLines: readonl
 
 /**
  * Return exact ending lines and action/parenthetical locations without rating suspense or moving text.
- * @param scenes - Complete current scenes in document order, including file paths.
+ * @param scenes - Complete current scenes in document order, including file paths; text before the first heading has no episode ending and is left out.
  * @param limits - Existing result-count and text budgets; omitted quotes remain explicitly counted.
  * @param changedLines - Optional saved-file lines limiting action locations and affected episodes.
  * @param endingEpisodes - Explicit current-file episode labels retaining endings for deletions with no new action line.
@@ -83,6 +83,7 @@ export function manuscriptPresentationEvidence(scenes: readonly Scene[], limits:
   changedLines?: ReadonlyMap<string, ReadonlySet<number>>, endingEpisodes?: ReadonlyMap<string, ReadonlySet<string>>) {
   const grouped = new Map<string, Scene[]>()
   for (const scene of scenes) {
+    if (scene.episode === MANUSCRIPT_PREAMBLE_EPISODE) continue
     const key = JSON.stringify([scene.path, scene.episode])
     grouped.set(key, [...grouped.get(key) ?? [], scene])
   }

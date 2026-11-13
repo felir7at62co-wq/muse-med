@@ -383,6 +383,25 @@ it('allocates the shared image budget to source-difference visual lines before a
   expect(packets.find(packet => packet.origin === 'source_timeline')?.actual_current_lines).toEqual([])
 })
 
+it('reports only episode scenes when a title precedes the first episode and stays silent when only that title changes', async () => {
+  const body = '第8集\n8-1 家 日 内\n甲：最后一句已转出的原声。'
+  const f = await fixture([toolCallResponse('save-titled', 'write', { file_path: 'EP08.md', content: `《示例》分场剧本\n\n人物：甲\n\n${body}` }),
+    textResponse('已保存。'),
+    toolCallResponse('retitle', 'write', { file_path: 'EP08.md', content: `《示例》分场剧本（修订）\n\n人物：甲、乙\n\n${body}` }),
+    textResponse('只改了标题。')])
+  const source = await f.addReview('第8集', 'titled-eight.mp4')
+  await replaceTranscript(f, source, [{ start: 10, end: 11, text: '最后一句已转出的原声。' }])
+  await f.run()
+  expect(f.evidence()).toHaveLength(1)
+  expect(f.evidence()[0]).toMatchObject({ changed_scenes: 1, returned_scenes: 1 })
+  expect(f.evidence()[0]?.scenes.map(scene => scene.manuscript.current.text)).toEqual(['8-1 家 日 内\n甲：最后一句已转出的原声。'])
+  expect(f.endingCues()[0]).toContain('第8集当前结尾')
+  expect(f.endingCues()[0]).not.toContain('unassigned')
+  await f.run('把标题改一下。')
+  expect(f.evidence()).toHaveLength(1)
+  expect(f.agent.session.deriveMessages().at(-1)?.content).toEqual([{ type: 'text', text: '只改了标题。' }])
+})
+
 it('keeps the last recorded ASR separate when a partial episode has no cached images or speech in its fixed closing window', async () => {
   const f = await fixture([toolCallResponse('save-partial-eight', 'write', { file_path: 'EP08.md',
     content: '第8集\n8-1 家 日 内\n甲：最后一句已转出的原声。' }), textResponse('交付已有材料。')])

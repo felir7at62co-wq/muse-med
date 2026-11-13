@@ -10,7 +10,7 @@ import { z } from 'zod'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import type { Config } from './manuscript-revisions.ts'
 import { isManuscript, readManuscript } from './manuscript-document.ts'
-import { manuscriptScenes, manuscriptTextHash, type ManuscriptScene } from './manuscript-scenes.ts'
+import { MANUSCRIPT_PREAMBLE_EPISODE, manuscriptScenes, manuscriptTextHash, type ManuscriptScene } from './manuscript-scenes.ts'
 import { manuscriptEndingCue, manuscriptPresentationEvidence } from './manuscript-presentation.ts'
 import { manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCandidates, manuscriptVideoReviewReader } from './manuscript-video-reads.ts'
 import { MANUSCRIPT_VIDEO_PRESENTATION, manuscriptPacketEventIds, manuscriptVideoPacketContent,
@@ -588,7 +588,7 @@ export class ManuscriptVideoEvidence {
         throw error
       }
       const scenes = manuscriptScenes(document.text)
-      if (scenes.every(scene => scene.episode === 'unassigned')) continue
+      if (scenes.every(scene => scene.episode === MANUSCRIPT_PREAMBLE_EPISODE)) continue
       const readRevisions = await readSourceRevisions(ctx, agent, document, scenes, this.config, signal)
       const mutation = this.mutations.get(agent.session)?.get(document.path)
       const currentMutation = mutation?.sha256 === manuscriptTextHash(document.text.replaceAll('\r\n', '\n')) ? mutation : undefined
@@ -671,8 +671,10 @@ export class ManuscriptVideoEvidence {
       })
       const priority = (entry: typeof locations[number]) => entry.location?.visual_queries.some(query => changedLines?.has(query.line)
         && query.time_candidates.length) ? 2 : sceneVisualQueries(entry.scene).some(query => changedLines?.has(query.line)) ? 1 : 0
+      // A title or cast list above the first episode cannot match an episode source; reporting it would only repeat the candidate list.
       const changed = locations
-        .filter(entry => !deliveredScenes.some(old => old.id === entry.scene.id && old.sha256 === entry.scene.sha256))
+        .filter(entry => entry.scene.episode !== MANUSCRIPT_PREAMBLE_EPISODE
+          && !deliveredScenes.some(old => old.id === entry.scene.id && old.sha256 === entry.scene.sha256))
         .sort((left, right) => priority(right) - priority(left))
       const invalidatedFrames = new Set(carried?.sha256 === document.sha256 ? [] : changed.flatMap(entry => entry.location?.windows
         .flatMap(window => window.frames.map(frame => `${entry.sources[0]?.review_id}/${frame.frame_id}`)) ?? []))

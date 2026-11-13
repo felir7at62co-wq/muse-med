@@ -14,6 +14,9 @@ export interface ManuscriptScene {
   sha256: string
 }
 
+/** Episode label of text before the first episode or scene heading: a title, cast list or note, never an episode of its own. */
+export const MANUSCRIPT_PREAMBLE_EPISODE = 'unassigned'
+
 /** @param text - Exact UTF-8 reading text. @returns Stable text digest, independent of file metadata. */
 export function manuscriptTextHash(text: string): string {
   return createHash('sha256').update(text).digest('hex')
@@ -22,11 +25,11 @@ export function manuscriptTextHash(text: string): string {
 /**
  * Partition every input line; an unrecognized manuscript remains one complete section.
  * @param text - Full reading text, never a preview.
- * @returns Ordered scene sections, retaining episode headings and hook lines.
+ * @returns Ordered scene sections, retaining episode headings and hook lines; text before the first heading carries {@link MANUSCRIPT_PREAMBLE_EPISODE}.
  */
 export function manuscriptScenes(text: string): ManuscriptScene[] {
   const lines = text.split('\n'), scenes: ManuscriptScene[] = []
-  let start = 0, episode = 'unassigned', heading = '全文', sceneEpisode = episode, sceneNumber = 'body', prefix = ''
+  let start = 0, episode: string = MANUSCRIPT_PREAMBLE_EPISODE, heading = '全文', sceneEpisode = episode, sceneNumber = 'body', prefix = ''
   const append = (end: number) => {
     const content = lines.slice(start, end).join('\n')
     if (content.trim()) scenes.push({ id: `${sceneEpisode}:${sceneNumber}`, episode: sceneEpisode, heading,
