@@ -35,6 +35,11 @@ it('switches source-local playback while preserving concatenated timeline ranges
   fireEvent.click(screen.getByRole('button', { name: /^Shot 1/u }))
   expect(instance.getSnapshot().selected).toBe(first.id)
   expect(screen.getByLabelText(first.label)).toBeTruthy()
+  fireEvent.keyDown(screen.getByRole('slider', { name: en.playhead }), { key: 'End' })
+  expect(instance.getSnapshot().selected).toBe(second.id)
+  const player = screen.getByLabelText(second.label)
+  fireEvent.loadedMetadata(player)
+  expect(player).toHaveProperty('currentTime', 4)
 })
 
 it('cancels its inventory request while another conversation view is active and remounts on return', async () => {
@@ -95,7 +100,7 @@ it.each(['rejected', 'failed-result'] as const)('retries an unverified detection
 it.each([true, false])('keeps a remote provider source playable when the optional local inventory refresh succeeds=%s', async (refresh) => {
   const remote: SessionVideoSource = { ...source(), status: 'remote-only', path: null,
     playbackUrl: 'https://media.example/video.mp4', remoteUrl: 'https://media.example/video.mp4' }
-  const { listVideos, instance } = await fixture([remote])
+  const { listVideos, instance, inputActions } = await fixture([remote])
   if (refresh) listVideos.mockResolvedValueOnce(inventory([source()]))
   else listVideos.mockRejectedValueOnce(Error('Local inventory unavailable'))
   fireEvent.click(screen.getByRole('button', { name: en.library }))
@@ -103,6 +108,27 @@ it.each([true, false])('keeps a remote provider source playable when the optiona
   expect(listVideos).toHaveBeenCalledTimes(2)
   expect(instance.getSnapshot().sources[0]?.status).toBe(refresh ? 'local' : 'remote-only')
   expect(screen.getByLabelText(remote.label).getAttribute('src')).toBe(refresh ? source().playbackUrl : remote.playbackUrl)
+  if (!refresh) {
+    fireEvent.click(screen.getByRole('button', { name: /^Shot 1/u }))
+    fireEvent.click(screen.getByRole('button', { name: en.redo }))
+    expect(inputActions.insertText).toHaveBeenCalledWith(expect.stringContaining(`Source: ${remote.id}`), expect.anything())
+  }
+})
+
+it('ignores a detector failure after its conversation view has left', async () => {
+  const { detectShots, panel, reference, instance } = await fixture()
+  const pending = Promise.withResolvers<SessionVideoAnalysis>()
+  detectShots.mockReturnValueOnce(pending.promise)
+  fireEvent.click(screen.getByRole('button', { name: en.library }))
+  await waitFor(() => { expect(detectShots).toHaveBeenCalledOnce() })
+  const signal = detectShots.mock.calls[0]![3]
+  panel.update({ activeView: 'trajectory' }, { session: reference })
+  expect(signal.aborted).toBe(true)
+  await act(async () => { pending.reject(Error('Cancelled detector settled late')) })
+  expect(instance.getSnapshot().analyses).toEqual({})
+  panel.update({ activeView: 'chat' }, { session: reference })
+  await screen.findByRole('button', { name: /^Shot 1/u })
+  expect(screen.queryByText(en.detectionFailed)).toBeNull()
 })
 
 it('shows the unavailable source in place without starting a detector for missing media coordinates', async () => {

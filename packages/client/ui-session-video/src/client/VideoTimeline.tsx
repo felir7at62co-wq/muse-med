@@ -88,8 +88,8 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
   if (ticks.at(-1) !== duration) ticks.push(duration)
 
   const updateEdges = useCallback(() => {
-    const scroll = scrollRef.current
-    if (scroll === null) return
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- Attached handlers share this scroll ref.
+    const scroll = scrollRef.current!
     const max = Math.max(0, scroll.scrollWidth - scroll.clientWidth)
     const before = max > 0 && scroll.scrollLeft > 0
     const after = max > 0 && scroll.scrollLeft < max
@@ -97,16 +97,16 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
   }, [])
 
   const seekAt = useCallback((clientX: number) => {
-    const track = trackRef.current
-    if (track === null) return
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- Pointer and click handlers run while the timeline track is attached.
+    const track = trackRef.current!
     const bounds = track.getBoundingClientRect()
     if (bounds.width <= 0) return
     onSeek(Math.max(0, Math.min(duration, (clientX - bounds.left) / bounds.width * duration)))
   }, [duration, onSeek])
 
   useLayoutEffect(() => {
-    const scroll = scrollRef.current
-    if (scroll === null) return
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- React attaches the always-rendered scroll element before layout effects.
+    const scroll = scrollRef.current!
     const x = PLAYHEAD_HALF_WIDTH + position * pixelsPerSecond
     const maximum = Math.max(0, scroll.scrollWidth - scroll.clientWidth)
     if (x - PLAYHEAD_HALF_WIDTH < scroll.scrollLeft) scroll.scrollLeft = Math.max(0, x - PLAYHEAD_HALF_WIDTH)
@@ -117,9 +117,10 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
   }, [position, pixelsPerSecond, width, updateEdges])
 
   useEffect(() => {
-    const scroll = scrollRef.current
-    const lane = laneRef.current
-    if (scroll === null || lane === null) return
+    // oxlint-disable typescript/no-non-null-assertion -- Both always-rendered elements are attached before this effect.
+    const scroll = scrollRef.current!
+    const lane = laneRef.current!
+    // oxlint-enable typescript/no-non-null-assertion
     const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(updateEdges)
     observer?.observe(scroll)
     observer?.observe(lane)
@@ -129,8 +130,8 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
 
   useLayoutEffect(() => {
     if (dragPointer === null) return
-    const owner = capture.current?.target
-    if (owner === undefined) return
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- A drag captures its owner before publishing its pointer id.
+    const owner = capture.current!.target
     const move = (event: globalThis.PointerEvent) => {
       const drag = capture.current
       if (event.pointerId !== dragPointer || drag?.pointerId !== dragPointer) return
