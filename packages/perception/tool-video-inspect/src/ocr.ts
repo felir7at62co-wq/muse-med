@@ -459,7 +459,8 @@ async function extractBatch(ctx: Context, config: Config, source: string, ffmpeg
   })
   const unique = [...new Map(selected.map(item => [item.frame.pts, item.frame])).values()]
   const selection = unique.map(frame => `eq(pts\\,${frame.pts})`).join('+')
-  const output = await Media.runMedia(ctx, [ffmpeg, '-nostdin', '-hide_banner', '-loglevel', 'info',
+  // Progress output can interrupt showinfo fields on stderr; these fields identify decoded evidence.
+  const output = await Media.runMedia(ctx, [ffmpeg, '-nostdin', '-nostats', '-hide_banner', '-loglevel', 'info',
     '-protocol_whitelist', 'file,pipe', '-ss', String(startUs / 1_000_000), '-noaccurate_seek', '-copyts', '-i', source,
     '-to', String(endUs / 1_000_000), '-map', '0:v:0', '-an', '-sn', '-dn',
     '-vf', `select=${selection},trim=end_frame=${unique.length},scale=w='min(${config.ocrFrameMaxDimension},iw)':h='min(${config.ocrFrameMaxDimension},ih)':force_original_aspect_ratio=decrease,showinfo`,
