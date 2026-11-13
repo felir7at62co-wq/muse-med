@@ -213,15 +213,26 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     const state = projection.stateOf(agent.session)
     return { loaded: state.loaded, pinned: state.pinned }
   }, core)
-  let cached: { fingerprint: string; index: ToolSearchIndex } | undefined
+  // A capability-scoped search reads the subset index and the full one, so one slot would thrash.
+  const INDEX_CACHE_SIZE = 4
+  const cache = new Map<string, ToolSearchIndex>()
   const indexFor = (tools: ToolSchema[]): ToolSearchIndex => {
     const fingerprint = JSON.stringify(tools)
-    if (cached?.fingerprint === fingerprint) return cached.index
+    const hit = cache.get(fingerprint)
+    if (hit !== undefined) {
+      cache.delete(fingerprint)
+      cache.set(fingerprint, hit)
+      return hit
+    }
     const index = new ToolSearchIndex(tools.map(tool => ({ ...tool,
       keywords: [...(keywords[tool.name] ?? []), ...capabilities.filter(capability =>
         capabilityMemberships(tool.name, [capability]).length > 0).flatMap(capability => [capability.id, capability.title])],
     })), ranking)
-    cached = { fingerprint, index }
+    cache.set(fingerprint, index)
+    if (cache.size > INDEX_CACHE_SIZE) {
+      const oldest = cache.keys().next()
+      if (!oldest.done) cache.delete(oldest.value)
+    }
     return index
   }
   const definition = defineTool({

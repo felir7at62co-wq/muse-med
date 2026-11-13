@@ -5083,8 +5083,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'restrict(filter: ToolRestriction): () => void',
-        description: 'Restrict global tools for the calling agent scope. Empty filters, unknown names, scope-local names, and reserved transport names fail. Restrictions intersect; scoped registrations remain visible.',
-        parameters: [{ name: 'filter', description: 'global-tool mask: `allow` (keep only) and/or `deny` (remove).' }],
+        description: 'Restrict global tools for the calling agent scope. Empty filters, unknown `allow`/`deny` names, scope-local names, and reserved transport names fail; `futureAllow`/`futureDeny` may name tools registered later. Restrictions intersect; scoped registrations remain visible unless `includeOwn` is set.',
+        parameters: [{ name: 'filter', description: 'global-tool mask: `allow`/`futureAllow` (keep only) and/or `deny`/`futureDeny` (remove).' }],
         returns: 'the exact disposer that lifts this restriction.',
       },
       {
@@ -10931,7 +10931,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SkillSource',
-    declaration: 'export type SkillSource = \'project-dsh\' | \'project-agents\' | \'runtime\' | \'user-dsh\' | \'user-agents\' | \'custom\' | \'bundled\' | (string & {});',
+    declaration: 'export type SkillSource = \'project-muse\' | \'project-dsh\' | \'project-agents\' | \'runtime\' | \'user-muse\' | \'user-dsh\' | \'user-agents\' | \'custom\' | \'bundled\' | (string & {});',
   },
   {
     name: 'SkillSummary',

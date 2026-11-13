@@ -717,9 +717,10 @@ register(definition: ToolDefinition, options: ToolRegistrationOptions = {}): () 
 
 /**
  * Restrict global tools for the calling agent scope. Empty filters, unknown
- * names, scope-local names, and reserved transport names fail. Restrictions
- * intersect; scoped registrations remain visible.
- * @param filter - global-tool mask: `allow` (keep only) and/or `deny` (remove).
+ * `allow`/`deny` names, scope-local names, and reserved transport names fail;
+ * `futureAllow`/`futureDeny` may name tools registered later. Restrictions
+ * intersect; scoped registrations remain visible unless `includeOwn` is set.
+ * @param filter - global-tool mask: `allow`/`futureAllow` (keep only) and/or `deny`/`futureDeny` (remove).
  * @returns the exact disposer that lifts this restriction.
  */
 restrict(filter: ToolRestriction): () => void

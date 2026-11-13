@@ -264,8 +264,8 @@ export interface Config {
   /**
    * Directory holding the notes tree.
    *
-   * No schema default: the constructor resolves it so the stored root is
-   * absolute whatever form it arrived in, and a deployment that omits the key
+   * No schema default: the service stores `join(root)`, so a relative value
+   * resolves against the Host working directory, and a deployment that omits the key
    * fails at mount instead of silently reading a tree nobody named. That is the
    * loud half of the rule; the quiet half is that this is the deployment's own
    * choice, not the service's guess.
