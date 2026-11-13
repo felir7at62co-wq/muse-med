@@ -54,7 +54,12 @@ jobs:
           mkdir -m 700 -p "$RUNNER_TEMP/ocr-native-evidence/native-fd-flags"
           cc -std=c11 -Wall -Wextra -Werror -O2 "-DWITNESS_DIR=\"$RUNNER_TEMP/ocr-native-evidence/native-fd-flags\"" .github/diagnostics/ffprobe-fd-witness.c -o "$RUNNER_TEMP/ffprobe-fd-witness"
           "$RUNNER_TEMP/ffprobe-fd-witness" -version
+      - name: Check native standard-stream blocking before output consumption
+        run: |
+          mkdir -p .artifacts/ocr-native-diagnosis
+          pnpm exec vitest run packages/subprocess/subprocess-local/tests/linux-execve-stdio.spec.ts --maxWorkers=1 --no-file-parallelism 2>&1 | tee .artifacts/ocr-native-diagnosis/native-stdio.log
       - name: Capture the six original native probe cases
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           DSH_OCR_DIAGNOSTICS_DIR: ${{ runner.temp }}/ocr-native-evidence/single
           DSH_SUBPROCESS_NATIVE_FD_DIAGNOSTICS: ${{ runner.temp }}/ocr-native-evidence/single/fd-flags
@@ -72,6 +77,7 @@ jobs:
             ${{ runner.temp }}/ocr-native-evidence/single
             ${{ runner.temp }}/ocr-native-evidence/native-fd-flags
             .artifacts/ocr-native-diagnosis/single.log
+            .artifacts/ocr-native-diagnosis/native-stdio.log
       - name: Compare three independent instrumented owner processes
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         timeout-minutes: 8
