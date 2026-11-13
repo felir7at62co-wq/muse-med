@@ -27,6 +27,7 @@ export interface OperationHistoryReadResult {
  * Read only the bounded tails of the two owned history files, newest segment first.
  * Cancellation is observed between bounded records after yielding to Worker messages and stops subsequent I/O and parsing.
  * An already-issued OS read must settle before its handle closes.
+ * File identities and tail offsets retain exact integer precision.
  * @param directory - Desktop's operation history directory; unrelated files are never enumerated.
  * @param limits - Positive byte, record-size and record-count budgets.
  * @param signal - Caller-owned collection deadline or shutdown cancellation.
@@ -53,7 +54,7 @@ export async function readOperationHistory(
     try {
       await using handle = await open(join(directory, name), 'r')
       if (cancelled()) break
-      const fileStat = await handle.stat()
+      const fileStat = await handle.stat({ bigint: true })
       if (cancelled()) break
       if (!fileStat.isFile()) {
         unavailableFiles++
@@ -64,24 +65,25 @@ export async function readOperationHistory(
         truncated = true
         continue
       }
-      if (fileStat.size > 0 && (bytesRead >= limits.bytes || records.length >= limits.records)) {
+      if (fileStat.size > 0n && (bytesRead >= limits.bytes || records.length >= limits.records)) {
         truncated = true
         break
       }
 
-      const readLength = Math.min(fileStat.size, limits.bytes - bytesRead)
-      const readStart = fileStat.size - readLength
+      const remaining = BigInt(limits.bytes - bytesRead)
+      const readLength = Number(fileStat.size < remaining ? fileStat.size : remaining)
+      const readStart = fileStat.size - BigInt(readLength)
       const buffer = Buffer.alloc(readLength)
       let readOffset = 0
       while (readOffset < readLength && !cancelled()) {
-        const read = await handle.read(buffer, readOffset, Math.min(16 * 1024, readLength - readOffset), readStart + readOffset)
+        const read = await handle.read(buffer, readOffset, Math.min(16 * 1024, readLength - readOffset), readStart + BigInt(readOffset))
         bytesRead += read.bytesRead
         if (read.bytesRead === 0) break
         readOffset += read.bytesRead
       }
       if (readOffset > 0) seenFiles.add(identity)
       if (cancelled()) break
-      truncated ||= readStart > 0 || readOffset < readLength
+      truncated ||= readStart > 0n || readOffset < readLength
 
       // An unterminated last record can still be in flight; never parse it as a committed record.
       if (readOffset === 0) continue
@@ -91,7 +93,7 @@ export async function readOperationHistory(
         await setImmediate()
         if (cancelled()) break
         const previousLineEnd = lineEnd === 0 ? -1 : buffer.lastIndexOf(10, lineEnd - 1)
-        if (previousLineEnd < 0 && readStart > 0) {
+        if (previousLineEnd < 0 && readStart > 0n) {
           truncated = true
           break
         }
