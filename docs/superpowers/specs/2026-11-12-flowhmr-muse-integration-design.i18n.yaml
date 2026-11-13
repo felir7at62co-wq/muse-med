@@ -1,0 +1,52 @@
+# Bilingual-pair consistency record for 2026-11-12-flowhmr-muse-integration-design.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write docs/superpowers/specs/2026-11-12-flowhmr-muse-integration-design.md
+/flowhmr-windows-integration-design:
+  en: 0804f63db98e07b7
+  zh: 23855599a2bd240f
+/flowhmr-windows-integration-design/summary:
+  en: 1d71b63fa992d030
+  zh: 1106fea8ad88d86a
+/flowhmr-windows-integration-design/table-of-contents:
+  en: 18f72eef01ba3733
+  zh: f04c221966ec7dae
+/flowhmr-windows-integration-design/scope-and-completion-criteria:
+  en: d51a52402c3f403a
+  zh: 535a10c701dfe186
+/flowhmr-windows-integration-design/complete-feature-mapping:
+  en: b57ae0fd50bd1fa5
+  zh: b4289bacc875d6cc
+/flowhmr-windows-integration-design/user-flow-and-chat-cards:
+  en: d8c3561c13164575
+  zh: 15d283f55204c385
+/flowhmr-windows-integration-design/plugin-and-runtime-architecture:
+  en: dcacb25eb92c5ed2
+  zh: 3d9cc4e84555a4b8
+/flowhmr-windows-integration-design/tools-and-shared-parameters:
+  en: f3b91f126b83d34f
+  zh: 63441c316881f13a
+/flowhmr-windows-integration-design/tasks-recovery-and-artifacts:
+  en: b62b4d1b296b8084
+  zh: b4bd1dc1923a53db
+/flowhmr-windows-integration-design/models-and-capacity:
+  en: 8bcf677194ac913b
+  zh: 5a023b71136255e5
+/flowhmr-windows-integration-design/ready-at-installation-completion:
+  en: cd20dc9205871e30
+  zh: 156f1bb234ec5426
+/flowhmr-windows-integration-design/licensing-and-distribution-work:
+  en: ecef88f47c7a4499
+  zh: 162f512089ec4c5b
+/flowhmr-windows-integration-design/runtime-and-compatibility:
+  en: 3f86f0683e228607
+  zh: 59cf36f5f5fb955b
+/flowhmr-windows-integration-design/implementation-stages-and-acceptance:
+  en: 10554b5e38dce03e
+  zh: fe4234b0969f5ba2
+/flowhmr-windows-integration-design/risks-and-release-criteria:
+  en: b8ccf9b1e04a3a19
+  zh: f34650a028791bd5
+/flowhmr-windows-integration-design/dev-note:
+  en: 4b9cc38e78607869
+  zh: 2445a395833b3b5c

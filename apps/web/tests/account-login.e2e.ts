@@ -169,7 +169,7 @@ describe.skipIf(MODE === 'record')('web e2e: DeepSeek account UI by carrier', ()
     // fixture supplies only that outer boundary, using the actual Host attempt.
     opener.opened = (async () => {
       for await (const view of scaffold.ctx.deepseekAccount.watch(opener.controller.signal)) {
-        const attempt = view.attempt
+        const attempt = view.state.attempt
         if (attempt?.phase !== 'waiting-browser' || attempt.authorizeUrl === undefined) continue
         const destination = new URL(attempt.authorizeUrl)
         destination.searchParams.set('theme', await page.evaluate(() =>

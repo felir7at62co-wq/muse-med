@@ -73,7 +73,7 @@ describe('workflow host callback validation', () => {
       return completed
     })
     const disposed = vi.fn(async () => {})
-    vi.spyOn(ctx.subagents, 'startActivation').mockResolvedValue({ childId: SessionId('invalid-child'),
+    vi.spyOn(ctx.subagents, 'startActivation').mockResolvedValue({ childId: SessionId('invalid-child'), name: 'invalid-child',
       result: Promise.resolve({ output: [], structured: { other: 42 }, diagnostic: 'provider warning', stopReason: 'completed' }), dispose: disposed })
     const run = start()
     try {
