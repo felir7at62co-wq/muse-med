@@ -1,7 +1,7 @@
-import { mkdtemp, mkdir, open, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, open, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, it, onTestFinished, vi } from 'vitest'
+import { expect, it, onTestFailed, onTestFinished, vi } from 'vitest'
 import { readOperationHistory } from '../src/operation-history.ts'
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -27,6 +27,11 @@ it('collects recent complete records and reports malformed and incomplete entrie
   const path = await fixture()
   await writeFile(join(path, 'operations.jsonl'), line(1) + '{broken}\n' + line(2) + '{"incomplete":')
   await writeFile(join(path, 'operations.previous.jsonl'), line(0))
+  const segmentMetadata = await Promise.all(['operations.jsonl', 'operations.previous.jsonl'].map(async (name) => {
+    const value = await stat(join(path, name), { bigint: true })
+    return { dev: String(value.dev), ino: String(value.ino), size: String(value.size) }
+  }))
+  onTestFailed(() => { console.info('Operation history segment metadata', segmentMetadata) })
   const result = await readOperationHistory(path, limits, new AbortController().signal)
   expect(result.records).toEqual([record(2), record(1), record(0)])
   expect(result).toMatchObject({ invalidRecords: 1, truncated: true, cancelled: false, unavailableFiles: 0 })
@@ -113,7 +118,7 @@ it('contains truncation between stat and read and still collects the previous se
   await writeFile(join(path, 'operations.previous.jsonl'), line(1))
   const handle = await open(filename, 'r+')
   onTestFinished(async () => { await handle.close() })
-  const originalStat = await handle.stat()
+  const originalStat = await handle.stat({ bigint: true })
   const stat = vi.spyOn(handle, 'stat').mockImplementationOnce(async () => {
     await handle.truncate(0)
     return originalStat
