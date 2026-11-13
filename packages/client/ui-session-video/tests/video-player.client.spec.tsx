@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { SessionVideoSourceId } from '@deepseek-ai/dsh-session-video'
+import type { SessionVideoAnalysis, SessionVideoShotId } from '@deepseek-ai/dsh-session-video'
 import { VideoPlayer, type VideoPlayerProps } from '../src/client/VideoPlayer.tsx'
 import { en } from '../src/client/locales.ts'
 
@@ -26,6 +27,44 @@ function props(): VideoPlayerProps {
   analysis: undefined, shots: [], offset: 0, duration: 0, pixelsPerSecond: 48, zoom: 1, onZoom: vi.fn(),
   selectedShot: null, seekRequest: null,
   onSeek: vi.fn(), onSelectShot: vi.fn(), t: makeTranslate(en) }
+}
+
+function detected(input: VideoPlayerProps): SessionVideoAnalysis {
+  return { sourceId: input.source.id, sourceVersion: 'v1', state: 'ready', durationSeconds: 4, width: 320, height: 180,
+    method: 'ffmpeg-scene', threshold: 0.3, issue: null, shots: [
+      { id: brandString<SessionVideoShotId>('first-shot'), index: 1, startSeconds: 0, endSeconds: 2, thumbnail: null },
+      { id: brandString<SessionVideoShotId>('second-shot'), index: 2, startSeconds: 2, endSeconds: 4, thumbnail: null },
+    ] }
+}
+
+/** Drive detached thumbnail media through browser-owned readiness and seek events. */
+function thumbnailMedia(options: { manualMetadata?: boolean; failSeek?: boolean; noCanvas?: boolean } = {}) {
+  const source = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'src')
+  const clock = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime')
+  if (!source?.set || !clock?.set) throw Error('Media property setters are unavailable')
+  const observed: { element?: HTMLMediaElement } = {}
+  const seeks: number[] = []
+  vi.spyOn(HTMLMediaElement.prototype, 'src', 'set').mockImplementation(function (this: HTMLMediaElement, value) {
+    source.set?.call(this, value)
+    if (!this.isConnected) {
+      observed.element = this
+      if (!options.manualMetadata) queueMicrotask(() => { this.dispatchEvent(new Event('loadedmetadata')) })
+    }
+  })
+  vi.spyOn(HTMLMediaElement.prototype, 'currentTime', 'set').mockImplementation(function (this: HTMLMediaElement, time) {
+    clock.set?.call(this, time)
+    if (!this.isConnected) {
+      seeks.push(time)
+      queueMicrotask(() => { this.dispatchEvent(new Event(options.failSeek ? 'error' : 'seeked')) })
+    }
+  })
+  const draw = vi.fn<(...args: unknown[]) => void>()
+  const context: Pick<CanvasRenderingContext2D, 'drawImage'> = {
+    drawImage: (image: CanvasImageSource, ...coordinates: number[]) => { draw(image, ...coordinates) },
+  }
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(options.noCanvas ? null : context as CanvasRenderingContext2D)
+  vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/jpeg;base64,dGh1bWJuYWls')
+  return { element: () => observed.element, seeks, draw }
 }
 it('places compact playback controls after the real media, and releases its resource on unmount', () => {
   const view = render(<VideoPlayer {...props()} />)
@@ -151,4 +190,72 @@ it('replaces source media while retaining the active timeline and discarding the
   second.currentTime = 1.25
   fireEvent.timeUpdate(second)
   expect(playhead.getAttribute('aria-valuenow')).toBe('4.25')
+})
+
+it('captures actual source-local shot midpoints and supplies their thumbnails to the corresponding timeline rows', async () => {
+  const media = thumbnailMedia(), input = props(), analysis = detected(input)
+  const view = render(<VideoPlayer {...input} analysis={analysis} shots={analysis.shots} duration={4} />)
+  await act(async () => { await Promise.resolve() })
+  expect(media.seeks).toEqual([1, 3])
+  expect(media.draw).toHaveBeenCalledTimes(2)
+  expect(view.getByRole('button', { name: /^Shot 1/u }).style.getPropertyValue('--video-shot-thumbnail'))
+    .toBe('url("data:image/jpeg;base64,dGh1bWJuYWls")')
+  expect(view.getByRole('button', { name: /^Shot 2/u }).style.getPropertyValue('--video-shot-thumbnail'))
+    .toBe('url("data:image/jpeg;base64,dGh1bWJuYWls")')
+  view.unmount()
+  expect(media.element()?.hasAttribute('src')).toBe(false)
+})
+
+it.each([{ failSeek: true }, { noCanvas: true }])('keeps normal playback usable when optional thumbnail capture fails: %j', async (options) => {
+  const media = thumbnailMedia(options), input = props(), analysis = detected(input)
+  const view = render(<VideoPlayer {...input} analysis={analysis} shots={analysis.shots} duration={4} />)
+  await act(async () => { await Promise.resolve() })
+  expect(media.seeks).toEqual([1])
+  expect(media.draw).not.toHaveBeenCalled()
+  expect(view.queryByRole('alert')).toBeNull()
+  fireEvent.click(view.getByRole('button', { name: 'Play' }))
+  expect(playVideo).toHaveBeenCalledOnce()
+})
+
+it('does not seek or capture a thumbnail when the player unmounts just after metadata arrives', async () => {
+  const media = thumbnailMedia({ manualMetadata: true }), input = props()
+  const view = render(<VideoPlayer {...input} analysis={detected(input)} />)
+  const video = media.element()
+  if (!video) throw Error('Thumbnail media was not created')
+  await act(async () => { video.dispatchEvent(new Event('loadedmetadata')); view.unmount() })
+  expect(media.seeks).toEqual([])
+  expect(media.draw).not.toHaveBeenCalled()
+})
+
+it('cancels pending thumbnail readiness and preserves the original stored thumbnail after its deadline', async () => {
+  vi.useFakeTimers()
+  try {
+    const media = thumbnailMedia({ manualMetadata: true }), input = props(), analysis = detected(input)
+    const view = render(<VideoPlayer {...input} analysis={analysis} shots={analysis.shots} duration={4} />)
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000) })
+    expect(media.seeks).toEqual([])
+    expect(view.getByRole('button', { name: /^Shot 1/u }).style.getPropertyValue('--video-shot-thumbnail')).toBe('none')
+    expect(view.queryByRole('alert')).toBeNull()
+    view.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  } finally { vi.useRealTimers() }
+})
+
+it('applies a seek immediately once metadata is ready and follows native pause events', () => {
+  const input = props(), view = render(<VideoPlayer {...input} />)
+  const video = view.getByLabelText('Actual source') as HTMLVideoElement
+  Object.defineProperty(video, 'readyState', { configurable: true, value: 1 })
+  view.rerender(<VideoPlayer {...input} seekRequest={{ time: 1.5, revision: 1 }} />)
+  expect(video.currentTime).toBe(1.5)
+  fireEvent.play(video)
+  expect(view.getByRole('button', { name: 'Pause' })).toBeTruthy()
+  fireEvent.pause(video)
+  expect(view.getByRole('button', { name: 'Play' })).toBeTruthy()
+})
+
+it('keeps an unavailable source out of detached thumbnail processing', () => {
+  const input = props(), media = thumbnailMedia()
+  const view = render(<VideoPlayer {...input} source={{ ...input.source, playbackUrl: null }} analysis={detected(input)} />)
+  expect(view.getByLabelText('Actual source').getAttribute('src')).toBe('')
+  expect(media.element()).toBeUndefined()
 })

@@ -18,6 +18,10 @@ describe('portable cloud JSON readers', () => {
     { ...manifest, privatePath: '/private/author' },
     { ...manifest, skills: [{ ...manifest.skills[0], privatePath: '/private/author' }] },
     { ...manifest, kind: 'bot' },
+    { ...manifest, skills: [null] },
+    { ...manifest, skills: [{ name: 123, path: 'skills/123/SKILL.md' }] },
+    { ...manifest, skills: [{ name: 'has spaces', path: 'skills/has spaces/SKILL.md' }] },
+    { ...manifest, skills: [{ name: '../outside', path: 'skills/../outside/SKILL.md' }] },
   ])('rejects extra fields and retired payloads in a cloud manifest', (value) => {
     expect(() => parseMarketPublication({ ...publication, manifest: value }, limits))
       .toThrow('invalid-response')

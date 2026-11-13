@@ -27,6 +27,10 @@ describe('Skill publications', () => {
     expect(() => marketManifest({ ...manifest, ...change })).toThrow()
   })
 
+  it.each([{ title: '' }, { version: '../latest' }])('refuses incomplete or nonversioned release metadata %j', (change) => {
+    expect(() => marketManifest({ ...manifest, ...change })).toThrow('invalid-manifest')
+  })
+
   it('rejects undeclared, altered, missing and case-colliding archive entries', () => {
     const entries = unzipSync(createMarketPackage(manifest, resources, limits))
     const content = { ...entries, 'skills/fixture-skill/assets/sample.bin': Buffer.from('changed') }

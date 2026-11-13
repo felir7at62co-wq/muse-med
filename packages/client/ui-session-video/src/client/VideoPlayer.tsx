@@ -25,7 +25,7 @@ export interface VideoPlayerProps extends PropsLocale<'sessionVideo'> {
   readonly onSelectShot: (id: string) => void
 }
 
-/** Render one real media element and keep its lifecycle local.
+/** Render one real media element; effects and controls use its mounted ref.
  * @param props - Selected authorized source, detected cuts and controlled timeline.
  * @returns Player, compact play control and filmstrip.
  */
@@ -43,8 +43,8 @@ export function VideoPlayer({ source, analysis, shots, offset, duration, pixelsP
   const [thumbnails, setThumbnails] = useState<{ url: string | null; frames: Readonly<Record<string, string>> }>({ url: null, frames: {} })
   useEffect(() => { if (!active) { playAttempt.current++; player.current?.pause() } }, [active])
   useEffect(() => {
-    const video = player.current
-    if (!video) return
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- React attaches the always-rendered video before this effect runs.
+    const video = player.current!
     video.src = source.playbackUrl ?? ''
     video.load()
     return () => { playAttempt.current++; video.pause(); video.removeAttribute('src'); video.load() }
@@ -104,8 +104,8 @@ export function VideoPlayer({ source, analysis, shots, offset, duration, pixelsP
     </div>
     <div className={css.controls} data-muse-video-controls>
       <Button className={css.play} aria-label={t(playing ? 'pause' : 'play')} onClick={() => {
-        const video = player.current
-        if (video === null) return
+        // oxlint-disable-next-line typescript/no-non-null-assertion -- This mounted control shares the component's attached video ref.
+        const video = player.current!
         const attempt = ++playAttempt.current
         if (!video.paused) video.pause()
         else void video.play().catch((_error: unknown) => { if (playAttempt.current === attempt) updatePlayback({ failed: true }) })
