@@ -1,0 +1,121 @@
+name: Muse mobile offline dialog diagnostic
+on:
+  push:
+    branches:
+      - qa/mobile-offline-dialog-current-20261113
+permissions:
+  contents: read
+env:
+  DSH_TELEMETRY_DISABLED: "1"
+  DSH_EXAMPLE_MODE: lib
+  DSH_GATE_CONCURRENCY: "2"
+  DSH_SNAPSHOT: replay
+jobs:
+  replay:
+    name: Linux original multi-computer owner (diagnostic only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 8
+      - uses: pnpm/action-setup@v5.0.0
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "24"
+      - name: Freeze the failed public source and original inputs
+        run: |-
+          set -euo pipefail
+          mkdir -p .artifacts/mobile-offline-dialog
+          git diff --exit-code f72d6dd7a19483b94a66aee25366fc3e8a78f72e HEAD -- . ':!.github/workflows/muse-mobile-offline-dialog-diagnostic.yml' ':!apps/web/tests/muse-multi-computer.e2e.ts'
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git rev-parse HEAD > .artifacts/mobile-offline-dialog/head.txt
+          git rev-parse 'HEAD^{tree}' > .artifacts/mobile-offline-dialog/source-tree.txt
+          node --version > .artifacts/mobile-offline-dialog/node-version.txt
+          pnpm --version > .artifacts/mobile-offline-dialog/pnpm-version.txt
+          cat > .artifacts/mobile-offline-dialog/check.mjs <<'NODE'
+          import assert from 'node:assert/strict'
+          import { execFileSync } from 'node:child_process'
+          import { createHash } from 'node:crypto'
+          import { readFileSync, writeFileSync } from 'node:fs'
+          import { resolve } from 'node:path'
+          const artifact='.artifacts/mobile-offline-dialog/'
+          const owner='apps/web/tests/muse-multi-computer.e2e.ts'
+          const titles=['lists both computers and opens two complete Web profiles under independent mounts','opens the switch list without clearing the existing tab and its draft','keeps the other computer available and restores the original tab without clearing its draft']
+          const hash=path=>createHash('sha256').update(readFileSync(path)).digest('hex')
+          const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim()
+          const mode=process.argv[2]
+          if(mode==='freeze') {
+            const roots=['snapshots','apps/web/tests/expected/muse-multi-computer',owner,'apps/web/tests/scaffold.ts','apps/web/tests/support.ts','services/muse-accounts']
+            const paths=execFileSync('git',['ls-files','-z','--',...roots],{encoding:'utf8',maxBuffer:8*1024*1024}).split('\0').filter(Boolean)
+            assert.ok(paths.includes(owner))
+            assert.ok(paths.includes('apps/web/tests/expected/muse-multi-computer/navigation.json'))
+            const before=execFileSync('git',['show','f72d6dd7a19483b94a66aee25366fc3e8a78f72e:'+owner],{encoding:'utf8'})
+            const after=readFileSync(owner,'utf8')
+            assert.deepEqual(after.match(/\b\d[\d_]{2,}\b/g),before.match(/\b\d[\d_]{2,}\b/g),'all original timeouts, suite budgets and viewport values must remain')
+            assert.equal((after.match(/\bexpect\(/g)||[]).length,(before.match(/\bexpect\(/g)||[]).length,'all original assertions must remain')
+            writeFileSync(artifact+'protected-before.json',JSON.stringify(Object.fromEntries(paths.map(path=>[path,hash(path)])),null,2)+'\n')
+          } else if(mode==='guard') {
+            const before=JSON.parse(readFileSync(artifact+'protected-before.json','utf8'))
+            for(const [path,digest] of Object.entries(before)) assert.equal(hash(path),digest,'original fixture or source changed: '+path)
+            assert.equal(git('diff','--','snapshots','apps/web/tests','services/muse-accounts'),'','replay must preserve sources and all expected outputs')
+            assert.equal(git('ls-files','--others','--exclude-standard','--','snapshots','apps/web/tests/expected'),'','no new expectation file may be introduced')
+            writeFileSync(artifact+'input-guard.json',JSON.stringify({accepted:true,protectedFiles:Object.keys(before).length},null,2)+'\n')
+          } else {
+            assert.equal(mode,'report')
+            const result=JSON.parse(readFileSync(artifact+'results.json','utf8'))
+            assert.equal(result.success,true)
+            assert.equal(result.numFailedTests,0)
+            assert.equal(result.numFailedTestSuites,0)
+            assert.equal(result.numTodoTests,0)
+            assert.equal(result.numPendingTests,0,'no selected case may skip')
+            assert.equal(result.numTotalTests,3)
+            assert.equal(result.numPassedTests,3)
+            assert.equal(result.testResults.length,1)
+            const file=result.testResults[0]
+            assert.equal(file.name.replaceAll('\\','/'),resolve(owner).replaceAll('\\','/'))
+            assert.equal(file.status,'passed')
+            assert.equal(file.assertionResults.length,3)
+            assert.deepEqual(file.assertionResults.map(test=>test.title).sort(),[...titles].sort())
+            for(const test of file.assertionResults) {
+              assert.equal(test.status,'passed')
+              assert.deepEqual(test.ancestorTitles,['Muse multi-computer Web access'])
+              assert.deepEqual(test.failureMessages,[])
+              assert.equal(typeof test.duration,'number')
+              assert.ok(Number.isFinite(test.duration)&&test.duration>=0)
+            }
+            writeFileSync(artifact+'acceptance.json',JSON.stringify({accepted:true,owner,passed:3,skipped:0,tests:file.assertionResults.map(test=>({title:test.title,status:test.status,duration:test.duration}))},null,2)+'\n')
+          }
+          NODE
+          node .artifacts/mobile-offline-dialog/check.mjs freeze
+      - name: Install immutable dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Install the existing pinned community test toolchain
+        run: pnpm --dir third_party/plugins/toolchain install --frozen-lockfile --ignore-scripts
+      - name: Prepare the existing CI sandbox
+        run: bash scripts/prepare-ci-bubblewrap.sh
+      - name: Install Chromium and system dependencies
+        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
+      - name: Build the exact common production source
+        env:
+          DSH_BUILD_CLIENT_PROFILE: official
+        run: |-
+          set -euo pipefail
+          pnpm run build 2>&1 | tee .artifacts/mobile-offline-dialog/build.log
+      - name: Run all three original multi-computer cases
+        run: |-
+          set -euo pipefail
+          node node_modules/vitest/vitest.mjs run --config vitest.web.config.ts apps/web/tests/muse-multi-computer.e2e.ts --maxWorkers=1 --no-file-parallelism --reporter=default --reporter=json --outputFile.json=.artifacts/mobile-offline-dialog/results.json 2>&1 | tee .artifacts/mobile-offline-dialog/stdout.log
+          node .artifacts/mobile-offline-dialog/check.mjs report
+          node .artifacts/mobile-offline-dialog/check.mjs guard
+      - name: Preserve the exact diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: mobile-offline-dialog-${{ github.sha }}
+          path: .artifacts/mobile-offline-dialog
+          if-no-files-found: error
