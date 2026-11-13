@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import { join } from 'node:path'
@@ -21,10 +21,33 @@ async function fixture() {
   const market = ctx.get('museMarket')
   if (!market) throw new Error('Local market service did not load')
   cleanups.push(async () => { await marketFiber.dispose(); unregister(); await ctx.fiber.dispose() })
-  return { ...value, market, skills, marketFiber, unregister }
+  return { ...value, ctx, market, skills, marketFiber, unregister }
 }
 
 describe('local publication service', () => {
+  it('refuses relative storage configuration before acquiring a service', async () => {
+    const ctx = new Context(); cleanups.push(() => ctx.fiber.dispose())
+    expect(() => new MuseMarket(ctx, { root: 'relative', ...limits })).toThrow('invalid-storage')
+  })
+
+  it('rejects noncanonical base64 and preserves storage failures and observer containment', async () => {
+    const f = await fixture()
+    await expect(f.market.importPackage('ZE==')).rejects.toMatchObject({ details: { code: 'invalid-archive' } })
+    const emit = f.ctx.emit.bind(f.ctx)
+    const notification = vi.spyOn(f.ctx, 'emit').mockImplementation((...args) => {
+      if (args[0] === 'muse-market/inventory-changed') throw Error('Observer failed')
+      emit(...args)
+    })
+    try { expect(await f.market.prepare(metadata, f.skill.name)).toHaveProperty('enabled', false) }
+    finally { notification.mockRestore() }
+    const snapshot = vi.spyOn(f.skills, 'snapshot').mockRejectedValueOnce(new Error('Registry unavailable'))
+    try { await expect(f.market.sources()).rejects.toMatchObject({ details: { code: 'storage-unavailable' } }) }
+    finally { snapshot.mockRestore() }
+    f.unregister()
+    const unregister = f.skills.register({ name: 'no-hint', description: 'No optional usage hint.', content: 'Content.', source: 'fixture' })
+    try { expect(await f.market.sources()).toEqual({ skills: [{ name: 'no-hint', description: 'No optional usage hint.' }], complete: true }) }
+    finally { unregister() }
+  })
   it('prepares, deduplicates, exports and removes through the actual service while the registry stays unchanged', async () => {
     const value = await fixture(), before = await value.skills.list()
     expect(await value.market.sources()).toEqual({

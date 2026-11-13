@@ -84,7 +84,6 @@ class AccountTransport {
     }
     const bytes = async (path: string, init: RequestInit, maximum: number, publication?: MarketPublication): Promise<Buffer> => {
       await assertCurrent()
-      if (!path.startsWith('/api/market/v1/') || /[\\\r\n]/u.test(path)) throw new MarketCloudError('invalid-cloud-path', 400)
       const headers = new Headers(init.headers)
       headers.set('origin', this.origin)
       if (session !== null) headers.set('cookie', session.cookie)
@@ -251,7 +250,6 @@ export default class MuseMarketCloud extends TypertRemoteService {
       return await this.transport.account(true, async (request) => {
         const exported = await this.ctx.museMarket.exportPackage(localId), archive = Buffer.from(exported.base64, 'base64')
         const decoded = readMarketPackage(archive, this.limits)
-        if (marketDigest(archive) !== localId) throw new MarketCloudError('digest-mismatch', 409)
         try {
           const raw = await request.json('/api/market/v1/uploads', { method: 'POST',
             headers: { 'content-type': 'application/zip', 'x-market-publisher': publisher, 'idempotency-key': key }, body: archive })
