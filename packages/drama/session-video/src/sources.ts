@@ -70,7 +70,7 @@ function json(value: unknown, bounds: SourceBounds): Record<string, unknown> | u
  * @param previous - Validated projection state before this event.
  * @param event - Exact durable event and coordinate.
  * @param bounds - Source and tool-result parsing limits.
- * @returns The same state for irrelevant events, otherwise the next bounded state.
+ * @returns The same state for irrelevant events, otherwise the next bounded state with labels derived from each recorded coordinate.
  */
 export function foldVideoSources(previous: VideoSourceState, event: { seq: number; type: string; data: unknown },
   bounds: SourceBounds): VideoSourceState {
@@ -78,7 +78,7 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
   if (!data) return previous
   let state = previous
   let ownsSources = false
-  const add = (source: Omit<VideoCandidate, 'key' | 'label' | 'eventSeq'>): void => {
+  const add = (source: Omit<VideoCandidate, 'key' | 'label' | 'eventSeq'>, labelPath: string): void => {
     if (!ownsSources) {
       state = { ...state, sources: [...state.sources], issues: [...state.issues] }
       ownsSources = true
@@ -89,12 +89,11 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
       return
     }
     const index = state.sources.filter(item => item.eventSeq === event.seq).length
-    const path = source.path ?? source.attachment?.name ?? source.remoteUrl ?? 'video'
-    const label = path.includes('\\') ? win32.basename(path) : basename(path.split('?')[0] ?? path)
+    const label = labelPath.includes('\\') ? win32.basename(labelPath) : basename(labelPath.replace(/\?.*$/s, ''))
     state.sources.push({ ...source, key: `${event.seq}:${index}`, eventSeq: event.seq, label })
   }
   const local = (path: string, origin: VideoCandidate['origin'], callId: string | null = null, presentedIndex: number | null = null): void => {
-    if (videoPath(path)) add({ origin, path, callId, presentedIndex, remoteUrl: null, attachment: null })
+    if (videoPath(path)) add({ origin, path, callId, presentedIndex, remoteUrl: null, attachment: null }, path)
   }
   if (event.type === 'deliverables/presented' && Array.isArray(data.files)) {
     data.files.forEach((file, index) => { const path = record(file)?.path; if (typeof path === 'string') local(path, 'presented', null, index) })
@@ -104,7 +103,7 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
       if (item?.type === 'file') {
         const parsed = attachmentSchema.safeParse(item.attachment)
         if (parsed.success && videoPath(parsed.data.name)) add({ origin: 'attachment', path: null, callId: null,
-          presentedIndex: null, remoteUrl: null, attachment: parsed.data })
+          presentedIndex: null, remoteUrl: null, attachment: parsed.data }, parsed.data.name)
       } else if (item?.type === 'text' && typeof item.text === 'string') {
         // Desktop file chips serialize with the shared @path / @"quoted path" grammar.
         for (const match of item.text.matchAll(/(?:^|\s)@(?:"([^"\r\n]+)"|([^\s]+))/gu)) {
@@ -151,7 +150,7 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
         if (!row || typeof row.video_url !== 'string' || typeof row.status !== 'string'
           || !['succeeded', 'completed', 'success'].includes(row.status.toLowerCase())) continue
         if (subtasks && (call.taskId === null || row.parent_task_id !== call.taskId)) continue
-        add({ origin: 'generated', path: null, callId: call.id, presentedIndex: null, remoteUrl: row.video_url, attachment: null })
+        add({ origin: 'generated', path: null, callId: call.id, presentedIndex: null, remoteUrl: row.video_url, attachment: null }, row.video_url)
       }
     }
   }

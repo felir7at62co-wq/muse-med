@@ -89,6 +89,8 @@ kind: "package-reference"
 
 冷视图先选已记录版本，已执行但未绑定的 Session 返回空集合，其余读取当前默认值。显式分支仅在捕获默认值时执行 `await`，保留已绑定与旧 Session 路径的同步时序，并避免 V8 覆盖率误计汇合后的路径。
 
+账本解析和默认值捕获使用同一项安装记录检查，在提交任何 Session 选择前拒绝缺失的发行包。文件读取在 Windows 上选择只读标志，在 POSIX 上增加禁止跟随链接和非阻塞标志。
+
 </details>
 
 <a id="further-exploration"></a>

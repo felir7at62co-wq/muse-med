@@ -78,6 +78,17 @@ describe('explicit activation storage', () => {
     expect(selected[0]?.release.id).toBe(value.first.release.id)
   })
 
+  it('refuses a missing durable default before committing a Session selection', async () => {
+    const value = await fixture()
+    const bytes = Buffer.from(JSON.stringify({ version: 2, activationRevision: 1,
+      installations: [value.first, value.second], defaults: { 'fixture-skill': '0'.repeat(64) } }) + '\n')
+    await writeFile(value.ledger, bytes)
+    let committed = false
+    await expect(value.local.captureDefaults(() => { committed = true })).rejects.toThrow('invalid-ledger')
+    expect(committed).toBe(false)
+    expect(await readFile(value.ledger)).toEqual(bytes)
+  })
+
   it('refuses an oversized successor before backup or ledger writes', async () => {
     const value = await directory(); cleanups.push(value.cleanup)
     const root = join(value.root, 'market'), local = new MuseMarketLocal({ root, limits })

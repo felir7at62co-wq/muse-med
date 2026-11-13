@@ -89,6 +89,8 @@ The archive reader returns a validated one-Skill manifest, complete resources an
 
 Cold views select recorded releases first, then an empty set for executed unbound Sessions, otherwise current defaults. The explicit branches `await` only default capture, preserving the synchronous bound and legacy paths and avoiding V8 coverage miscounts at their shared continuation.
 
+Ledger parsing and default capture reject missing installed releases through the same membership check before committing any Session selection. File reads select read-only flags for Windows and add no-follow and nonblocking flags on POSIX.
+
 </details>
 
 <a id="further-exploration"></a>

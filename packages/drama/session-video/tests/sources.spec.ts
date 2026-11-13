@@ -91,6 +91,22 @@ describe('recorded video inventory', () => {
     expect(result.complete).toBe(false)
   })
 
+  it('labels each source from its recorded coordinate and omits provider URL queries', () => {
+    const user = foldVideoSources(empty(), { seq: 1, type: 'user/message', data: { content: [
+      { type: 'text', text: '@"shots/local take.mp4"' },
+      { type: 'file', attachment: { attachmentId: `sha256:${'b'.repeat(64)}`, name: '上传.webm', bytes: 20 } },
+    ] } }, bounds)
+    const call = foldVideoSources(user, { seq: 2, type: 'tool/call', data: {
+      callId: 'sources', name: 'jubian_video', arguments: {} } }, bounds)
+    const result = foldVideoSources(call, { seq: 3, type: 'tool/result', data: { message: {
+      toolCallId: 'sources', content: [{ type: 'text', text: JSON.stringify({ sources: { sources: [{
+        status: 'succeeded', video_url: 'https://101.aigc.jubianai.net/remote.mp4?download=1',
+      }] } }) }],
+    } } }, bounds)
+    expect(result.sources.map(source => source.label)).toEqual(['local take.mp4', '上传.webm', 'remote.mp4'])
+    expect(result.sources[2]?.remoteUrl).toBe('https://101.aigc.jubianai.net/remote.mp4?download=1')
+  })
+
   it('settles failed video calls without accepting their apparent successful output', () => {
     const call = foldVideoSources(empty(), { seq: 1, type: 'tool/call', data: {
       callId: 'cut', name: 'ffmpeg_cut', arguments: {} } }, bounds)
