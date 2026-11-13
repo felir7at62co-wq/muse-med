@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { readFile, writeFile } from 'node:fs/promises'
 import { join, sep } from 'node:path'
+import { homedir } from 'node:os'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { apply as mountPreset } from '../muse-editing-tool-catalog/editing-preset-fixture.mjs'
 import { importSnapshotModule } from '../muse-fixture-import.mjs'
@@ -84,14 +85,16 @@ export async function apply(ctx) {
     assert.equal(created.kind, 'visualize')
     assert.equal(updated.kind, 'visualize')
     assert.equal(created.path, updated.path)
+    const createdPath = created.path.startsWith('~/') ? join(homedir(), created.path.slice(2)) : created.path
+    const updatedPath = updated.path.startsWith('~/') ? join(homedir(), updated.path.slice(2)) : updated.path
     const homePath = ctx.get('dshHomePath')
     assert.equal(typeof homePath, 'function')
-    assert.ok(created.path.startsWith(homePath('visualize', 'sessions') + sep),
+    assert.ok(createdPath.startsWith(homePath('visualize', 'sessions') + sep),
       JSON.stringify({ path: created.path, home: homePath('visualize'), cwd, sessionId: agent.session.id }))
     assert.ok(created.fragment.includes('预算方案 V1'))
     assert.ok(updated.fragment.includes('预算方案 V2'))
     assert.ok(!updated.fragment.includes('预算方案 V1'))
-    assert.equal(await readFile(updated.path, 'utf8'), updated.fragment)
+    assert.equal(await readFile(updatedPath, 'utf8'), updated.fragment)
     assert.ok(skillRead && createRead && updateRead)
     const header = events.find(event => event.type === 'request/header')
     assert.ok(header.data.header.tools.some(tool => tool.name === 'visualize'))

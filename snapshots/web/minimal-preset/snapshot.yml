@@ -3,6 +3,7 @@ scenario: minimal-preset
 profile: web
 composition: web-minimal
 recording: authored
+writerOutput: true
 header:
   class: web-minimal
   pin: true

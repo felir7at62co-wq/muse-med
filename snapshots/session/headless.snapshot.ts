@@ -23,6 +23,7 @@ import {
   assertSessionFixtureVersion,
   captureExpectedWorkspaceSnapshot,
   captureWorkspaceSnapshot,
+  EMPTY_WORKSPACE_MARKER,
   fixtureContext,
   formatSystemPromptSnapshot,
   formatToolSchemasSnapshot,
@@ -677,7 +678,9 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<P
   const source = join(scenario.dir, 'workspace')
   if (existsSync(source)) {
     for (const entry of await readdir(source)) {
-      await cp(join(source, entry), join(cwd, entry), { recursive: true, verbatimSymlinks: true })
+      await cp(join(source, entry), join(cwd, entry), {
+        recursive: true, verbatimSymlinks: true, filter: path => basename(path) !== EMPTY_WORKSPACE_MARKER,
+      })
     }
   }
   const setup = scenario.manifest.workspace?.setup
@@ -1545,6 +1548,17 @@ async function verifyChildOutputLimitRejection(scenario: HeadlessScenario, actua
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('seeds an empty draft directory without copying its Git marker as workspace content', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-empty-seed-'))
+    try {
+      const scenario = scenarioByName.get('muse-jianying-draft')
+      if (scenario === undefined) throw new Error('Missing Jianying draft owner')
+      await seedWorkspace(scenario, cwd)
+      expect(await readdir(join(cwd, 'drafts'))).toEqual([])
+      expect(await readFile(join(scenario.dir, 'workspace/drafts', EMPTY_WORKSPACE_MARKER), 'utf8')).toBe('')
+    } finally { await rm(cwd, { recursive: true, force: true }) }
+  })
+
   it('Lvpaopao expected workspace expands only saved media paths and keeps original keys', () => {
     const cwd = join(tmpdir(), 'lvpaopao-workspace-oracle')
     const prefix = '{{cwd}}/downloads/lvpaopao/lvpaopao-84817d56f3ed4113d52398c7/episodes/0001/episode-0001.mp4'
@@ -3008,7 +3022,7 @@ describe('headless recorded-session snapshots', () => {
         for (const [index, content] of expected.entries()) {
           expect(sessionHeaderVersion(content, writerSnapshotName(index))).toBeLessThanOrEqual(SESSION_FORMAT_VERSION)
         }
-        expect(await fixtureSessions(scenario), 'historical replay input remains unchanged').toEqual(fixtures)
+        expect(await fixtureSessions(scenario, fixtureFiles), 'historical replay input remains unchanged').toEqual(fixtures)
       }
       const outputLog = expected[0]
       if (outputLog === undefined) throw new Error(`${scenario.name}: CLI projection has no primary session`)
