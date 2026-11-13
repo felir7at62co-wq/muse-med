@@ -16,6 +16,19 @@ async function input(name: string, cwd: string): Promise<WorkingBudgetOracleInpu
 }
 
 describe('recorded working-budget expectations', () => {
+  it('prices native visualization paths from the tool display policy while keeping the working directory absolute', async () => {
+    const original = await input('muse-visualize', '/home/runner/work/dsh-log-snap-B54lk8')
+    const native = { ...original,
+      pathDisplays: new Map([['{{cwd}}/.dsh/visualize/sessions/{{session:1}}/',
+        '~/work/dsh-log-snap-B54lk8/.dsh/visualize/sessions/session-00000000-0000-4000-8000-000000000001/']]) }
+    const measured = deriveWorkingBudgetExpectations(native)
+    expect([...measured.values()]).toEqual([9546, 13536, 13825, 13975])
+    const absolute = deriveWorkingBudgetExpectations(original)
+    expect([...absolute.values()].slice(0, 2)).toEqual([...measured.values()].slice(0, 2))
+    expect(absolute).not.toEqual(measured)
+    expect(() => { assertWorkingBudgetExpectations(absolute, measured) }).toThrow('differs from expected-input estimate')
+  })
+
   it('prices the same recorded inputs at each replay directory before path redaction', async () => {
     const short = await input('muse-creation-source-id-recovery', '/tmp/replay')
     const long = { ...short, cwd: '/tmp/a-much-longer-workspace-parent/another-directory/replay' }

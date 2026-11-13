@@ -50,6 +50,8 @@ export async function apply(ctx) {
   ctx.on('llm/stream', async function* (options, next) {
     assert.equal(options.provider, 'snapshot-visualize')
     assert.equal(options.model, 'local-fixture')
+    assert.match(options.sessionId, /^session-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u,
+      'Private card paths retain the shipped Headless Session id length')
     assert.ok(options.tools.some(tool => tool.name === 'visualize'), 'Visualization must be available without search')
     assert.ok(options.tools.some(tool => tool.name === 'skill'))
     const agent = ctx.agents.get(options.sessionId)

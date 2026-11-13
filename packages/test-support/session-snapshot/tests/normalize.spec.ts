@@ -27,6 +27,15 @@ const ctx: NormalizeContext = {
 }
 
 describe('normalizeStdout', () => {
+  it('recognizes an explicitly supplied home-relative workspace without redacting a sibling path', () => {
+    const cwd = '/home/runner/work/visualization', display = '~/work/visualization'
+    const value = JSON.stringify({ saved: display + '/.dsh/card.html', sibling: display + '-other/card.html',
+      arguments: JSON.stringify({ path: display + '/.dsh/card.html' }) })
+    const normalized: unknown = JSON.parse(normalizeStdout(value, { sessionIds: [], cwd, cwdAliases: [display] }))
+    expect(normalized).toEqual({ saved: '{{cwd}}/.dsh/card.html', sibling: display + '-other/card.html',
+      arguments: JSON.stringify({ path: '{{cwd}}/.dsh/card.html' }) })
+  })
+
   it.each([1, 2])('redacts a Windows workspace quoted through %i JSON layers without caller-supplied escaped aliases', (layers) => {
     const cwd = String.raw`D:\Temp\acp-workspace`
     const alias = String.raw`D:\TEMP\ACP-WORKSPACE`

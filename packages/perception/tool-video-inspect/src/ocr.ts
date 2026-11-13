@@ -405,8 +405,11 @@ async function extractBatch(ctx: Context, config: Config, source: string, ffmpeg
   let probeStart = startUs / 1_000_000
   let sourceFrames: SourceFrame[] = []
   for (;;) {
+    // A complete zero-origin scan omits the empty '%' interval, which can return no frames.
+    const intervalArgs = probeStart === 0 && probeEnd >= sourceDuration ? []
+      : ['-read_intervals', `${probeStart === 0 ? '' : probeStart}%${probeEnd >= sourceDuration ? '' : probeEnd}`]
     const probe = await Media.runMedia(ctx, [ffprobe, '-v', 'error', '-protocol_whitelist', 'file,pipe',
-      '-select_streams', 'v:0', '-read_intervals', `${probeStart === 0 ? '' : probeStart}%${probeEnd >= sourceDuration ? '' : probeEnd}`,
+      '-select_streams', 'v:0', ...intervalArgs,
       '-show_entries', 'format=start_time:stream=start_time:frame=best_effort_timestamp,best_effort_timestamp_time,duration_time,pkt_duration_time', '-of', 'json', source],
     policy, signal, { timeoutMs: config.ocrCommandTimeoutMs, graceMs: config.graceMs, maxBytes: config.maxOcrBatchImageBytes })
     const parsed: unknown = JSON.parse(Buffer.from(probe.bytes).toString('utf8'))

@@ -9,7 +9,7 @@ import { assertVideoObservationReportArtifacts, normalizeVideoObservationReportH
 import { chmod, cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -220,7 +220,8 @@ function contextOf(logs: readonly string[]): NormalizeContext {
   return {
     sessionIds: headers.flatMap(header => typeof header.id === 'string' ? [header.id] : []),
     cwd,
-    cwdAliases: [cwd.replaceAll('\\', '/'), JSON.stringify(cwd).slice(1, -1)],
+    cwdAliases: [cwd.replaceAll('\\', '/'), JSON.stringify(cwd).slice(1, -1),
+      ...cwd.startsWith(homedir() + sep) ? ['~' + cwd.slice(homedir().length)] : []],
   }
 }
 
@@ -1142,6 +1143,7 @@ const workspaceSensitiveBudgetScenarios = new Set([
   'muse-short-drama-draft-ending',
   'muse-small-window-compaction',
   'muse-time-context',
+  'muse-visualize',
   'muse-working-budget-stop',
 ])
 
@@ -1167,7 +1169,12 @@ async function workspaceBudgetExpected(
     readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'),
   ])
   const schemas = parseToolSchemasSnapshot(schemaText)
-  const input = { log: expectedLog, prompt, schemas: [schemas.initial, ...schemas.changes], cwd }
+  const displayCwd = cwd.startsWith(homedir() + sep) ? '~' + cwd.slice(homedir().length) : cwd
+  const pathDisplays = scenario.name === 'muse-visualize'
+    // Headless creates session-<UUID>; its private card path needs the original 44-character price.
+    ? new Map([['{{cwd}}/.dsh/visualize/sessions/{{session:1}}/',
+      join(displayCwd, '.dsh', 'visualize', 'sessions', 'session-00000000-0000-4000-8000-000000000001') + sep]]) : undefined
+  const input = { log: expectedLog, prompt, schemas: [schemas.initial, ...schemas.changes], cwd, pathDisplays }
   const counts = deriveWorkingBudgetExpectations(input)
   const shadowed = deriveShadowedBudgetExpectations(input)
   const measured = new Map<number, unknown>()
