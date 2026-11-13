@@ -42,7 +42,7 @@ An e2e assertion re-runs the command or re-reads the file externally; a keyword 
 - A guard only guards if the regression fails it. For a plugin without `inject` (bundle/composition plugins), a Loader smoke stays green when a default export replaces the required named exports — add an explicit `expect('default' in mod).toBe(false)` plus an `unwrapExports` round-trip assertion, and prove it: introduce the regression, watch red, revert.
 - "Real entry path" means the published artifact: a package `bin` runs built `lib/bin.js` under plain `node`, exposing failures tsx masks (settle races, module resolution, swallowed load failures). The same applies to non-index runtime entries (the Node program bootstrap `lib/process.js`) and singleton modules shared across bundles (`packages/sdk/server/tests/built-scope-carrier.e2e.ts`). Keep the built-artifact smokes green (`packages/examples/*/tests/built-bin.e2e.ts`, `packages/ptc-runtime/ptc-runtime-node/tests/built-lib.e2e.ts`), and assert a genuinely-missing config exits non-zero.
 
-Windows coverage [qualifies FFmpeg/ffprobe](../scripts/prepare-ci-ffmpeg.ts) and exports its absolute decoder path through `GITHUB_ENV` for managed recovery tests.
+Windows [coverage](../scripts/prepare-ci-ffmpeg.ts) sets `MUSE_RECOVERY_TEST_FFMPEG`.
 
 ## Test resolution: source plane only
 
