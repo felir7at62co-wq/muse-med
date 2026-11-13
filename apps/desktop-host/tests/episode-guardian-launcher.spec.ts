@@ -32,7 +32,7 @@ it('retains only declared OS facts and overrides both Harness homes privately', 
   vi.stubEnv('HTTP_PROXY', 'http://private.invalid'); vi.stubEnv('DEEPSEEK_API_KEY', 'secret')
   const env = guardianEnvironment('/private/worker', process.platform)
   expect(env).toMatchObject({ MUSE_HOME: '/private/worker', DSH_HOME: '/private/worker', ELECTRON_RUN_AS_NODE: '1',
-    DSH_TELEMETRY_DISABLED: '1', XDG_CONFIG_HOME: '/private/worker/config' })
+    DSH_TELEMETRY_DISABLED: '1', XDG_CONFIG_HOME: join('/private/worker', 'config') })
   for (const key of ['MUSE_FONTS_DIR', 'NODE_OPTIONS', 'HTTP_PROXY', 'DEEPSEEK_API_KEY']) expect(env[key]).toBeUndefined()
   expect(process.env.MUSE_HOME).toBe('/personal/muse')
 })

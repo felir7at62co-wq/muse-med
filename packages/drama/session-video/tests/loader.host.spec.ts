@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { boot } from '@deepseek-ai/dsh-app-boot'
 import Sessions, { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
@@ -131,7 +131,7 @@ it('reports executable failure and source mutation without caching invented cut 
   resolve.mockRestore()
   const original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
   vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
-    if (String(spec.argv[0]).endsWith('ffmpeg')) appendFileSync(f.file, 'fixture-version-change')
+    if (basename(String(spec.argv[0])).replace(/\.exe$/iu, '') === 'ffmpeg') appendFileSync(f.file, 'fixture-version-change')
     return original(spec)
   })
   const changed = await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)
@@ -169,7 +169,7 @@ it('cancels and joins a running process before another detection uses the slot',
   let child: ReturnType<Context['subprocess']['spawn']> | undefined
   const original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
   const spawn = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
-    if (String(spec.argv[0]).endsWith('ffmpeg')) {
+    if (basename(String(spec.argv[0])).replace(/\.exe$/iu, '') === 'ffmpeg') {
       child = original({ ...spec, argv: [process.execPath, '-e', 'setInterval(() => {}, 1000)'] })
       started.resolve(undefined)
       return child
@@ -178,12 +178,18 @@ it('cancels and joins a running process before another detection uses the slot',
   })
   const controller = new AbortController()
   const pending = f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, controller.signal)
-  await started.promise
-  expect((await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)).issue).toContain('busy')
-  controller.abort(new Error('fixture cancelled during command'))
-  await expect(pending).rejects.toThrow('fixture cancelled during command')
-  await child?.waitForExit()
-  spawn.mockRestore()
+  const rejected = expect(pending).rejects.toThrow('fixture cancelled during command')
+  try {
+    await Promise.race([started.promise, pending.then(() => { throw Error('Detection finished before the held media process started') })])
+    expect((await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)).issue).toContain('busy')
+    controller.abort(new Error('fixture cancelled during command'))
+    await rejected
+  } finally {
+    controller.abort(new Error('fixture cancelled during command'))
+    await Promise.allSettled([pending, rejected])
+    await child?.waitForExit()
+    spawn.mockRestore()
+  }
   expect((await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)).state).toBe('ready')
 })
 
