@@ -13,6 +13,12 @@
   config:
     includeDefaultRoots: false
 
+- id: tool-bash
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true
+
 # This probe uses file tools, never a shell runner or its platform-specific diagnosis skill.
 - id: sandbox
   config:
