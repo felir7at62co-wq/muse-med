@@ -209,8 +209,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       if (args.request.method === 'fork_refinement' || (args.request.method === 'init_story_faithful' || args.request.method === 'fork_story_faithful')) {
         const request = args.request
         if (!args.request.authorization_quote.trim()) throw Error('refinement_human_authorization: 请引用真实用户的明确授权。')
-        const users = refinementUsers?.stateOf(session)
-        if (users === undefined) throw Error('refinement_human_authorization: 真实用户消息投影尚未就绪。')
+        // oxlint-disable-next-line typescript/no-non-null-assertion -- Enabled extension schemas require this awaited projection.
+        const users = refinementUsers!.stateOf(session)
         authorization = captureRefinementAuthorization(users, messages, actor, request.authorization_quote, request.consent_assessment)
         latestUserSeq = users.users.at(-1)?.seq
         if ((args.request.method === 'init_story_faithful' || args.request.method === 'fork_story_faithful') && authorization.seq !== latestUserSeq) throw Error('story_human_authorization: 新作品必须引用最新真实用户请求，不能复用研发或历史作品授权。')
