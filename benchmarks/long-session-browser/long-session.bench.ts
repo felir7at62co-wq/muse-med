@@ -78,6 +78,11 @@ function expectInputOverlap(value: boolean): void {
   expect(value).toBe(true)
 }
 
+function recordSampleBeforeOverlap(sample: Readonly<Record<string, unknown>>, inputOverlapped: boolean): void {
+  console.log(JSON.stringify(sample))
+  expectInputOverlap(inputOverlapped)
+}
+
 async function waitForReplyMarker(page: Page, marker: string, timeout = 30000) {
   return page.waitForFunction(({ marker, first, done }) => {
     const reply = Array.from(document.querySelectorAll('[data-chat-flow-kind="assistant-step"]')).at(-1)
@@ -93,6 +98,21 @@ async function waitForReplyMarker(page: Page, marker: string, timeout = 30000) {
     return false
   }, { marker, first: FIRST, done: DONE }, { polling: 'raf', timeout })
 }
+
+it('retains completed phase diagnostics when input overlap fails', () => {
+  const sample = {
+    benchmark: 'long-session-browser/sample', streamTask: 1000, streamWall: 2200,
+    heapMb: 80, nodes: 24000, firstObservation: { first: true, done: true },
+    witness: JSON.stringify({ trusted: true, first: true, done: true }), inputTiming: { atMs: 2200 },
+  }
+  const logged = vi.spyOn(console, 'log').mockImplementation(() => {})
+  try {
+    expect(() => recordSampleBeforeOverlap(sample, false)).toThrow()
+    expect(logged).toHaveBeenCalledExactlyOnceWith(JSON.stringify(sample))
+  } finally {
+    logged.mockRestore()
+  }
+})
 
 async function waitForContinuationReady(page: Page, turns: number, draft: string): Promise<void> {
   const ready = await page.waitForFunction(({ selector, turns, draft }) => {
@@ -477,8 +497,9 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
           const inputOverlapped = await composer.getAttribute('data-benchmark-input-overlap') === 'true'
           const firstObservation = await firstMarker.jsonValue()
           await firstMarker.dispose()
-          console.log(JSON.stringify({ benchmark: 'long-session-browser/input', sample, first, input, firstObservation, witness: await composer.getAttribute('data-benchmark-input-witness'), inputTiming: await composer.getAttribute('data-benchmark-input-timing') }))
-          expectInputOverlap(inputOverlapped)
+          const witness = await composer.getAttribute('data-benchmark-input-witness')
+          const inputTiming = await composer.getAttribute('data-benchmark-input-timing')
+          console.log(JSON.stringify({ benchmark: 'long-session-browser/input', sample, first, input, firstObservation, witness, inputTiming }))
           await (await waitForReplyMarker(page, DONE)).dispose()
           const settlement = await settled
           if (!settlement.ok) throw settlement.error
@@ -491,7 +512,7 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
           const heap = metrics.find(metric => metric.name === 'JSHeapUsedSize')
           if (heap === undefined) throw new Error('Chromium heap metric missing')
           samples.push({ open, page: Math.max(...pages), trajectory, first, streamTask, streamWall, input, inputOverlapped, heapMb: heap.value / 1048576, nodes: await page.locator('*').count() })
-          console.log(JSON.stringify({ benchmark: 'long-session-browser/sample', sample, initialTurns, pages, ...samples.at(-1) }))
+          recordSampleBeforeOverlap({ benchmark: 'long-session-browser/sample', sample, initialTurns, pages, ...samples.at(-1), firstObservation, witness, inputTiming }, inputOverlapped)
           await watchInputOverlap(composer)
           await composer.click()
           await page.keyboard.type('!')
