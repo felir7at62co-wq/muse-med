@@ -14,6 +14,7 @@ import { capabilityMemberships } from '../../../packages/core/tool-discovery/src
 import { ToolSearchIndex } from '../../../packages/core/tool-discovery/src/search.ts'
 import * as Qimao from '../../../third_party/plugins/muse-qimao-data/src/index.js'
 import * as Douyin from '../../../third_party/plugins/muse-douyin-download/src/index.js'
+import * as HongguoSearch from '../../../third_party/plugins/muse-hongguo-search/src/index.js'
 import { registerLvpaopaoCatalog } from './fixtures/lvpaopao-catalog.mjs'
 import { config, patchPath } from './fixtures/discovery-config.ts'
 
@@ -124,6 +125,31 @@ it('recalls the registered Douyin task controls without making them resident', a
       expect(index.search(query, config.maxResults ?? 8).map(result => result.name), query).toContain(expected)
       expect(config.alwaysLoad).not.toContain(expected)
       expect(capabilityMemberships(expected, config.capabilities ?? [])).toContain('data-sourcing')
+    }
+  } finally {
+    await ctx.fiber.dispose()
+  }
+})
+
+it('keeps the Hongguo downloader resident and recalls its title lookup for complete Douyin short dramas', async () => {
+  const ctx = new Context()
+  try {
+    await ctx.plugin(Prompt)
+    await ctx.plugin(Tools)
+    await ctx.plugin(HongguoSearch)
+    const schemas = new Map([...catalog.flatMap(entry => entry.schemas), ...ctx.tools.schemas()].map(schema => [schema.name, schema]))
+    expect(schemas.has('hongguo_search')).toBe(true)
+    const index = new ToolSearchIndex([...schemas.values()].map(schema => ({ ...schema, keywords: config.keywords?.[schema.name] ?? [] })),
+      { k1: config.k1 ?? 1.2, b: config.b ?? 0.75 })
+    expect(config.alwaysLoad).toContain('hongguo_download')
+    expect(capabilityMemberships('hongguo_download', config.capabilities ?? [])).toContain('data-sourcing')
+    for (const query of ['按剧名找短剧', '抖音短剧剧名']) {
+      expect(index.search(query, config.maxResults ?? 8).map(result => result.name), query).toContain('hongguo_search')
+    }
+    for (const name of ['hongguo_search', 'hongguo_download_info', 'hongguo_download_task']) {
+      expect(config.alwaysLoad, name).not.toContain(name)
+      expect(capabilityMemberships(name, config.capabilities ?? []), name).toContain('data-sourcing')
+      expect(config.keywords?.[name]?.length, name).toBeGreaterThan(0)
     }
   } finally {
     await ctx.fiber.dispose()

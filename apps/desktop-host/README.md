@@ -29,7 +29,7 @@ The private Host supplies the Muse compositions used by the [Desktop application
 
 The Host package retains `lib/workspace-owned-storage.js` beside `lib/index.js` for the Desktop module override. Other ownership and composition helpers remain in their owning bundles and also have standalone entries when declared in the publication manifest. The build configuration covers every declared standalone `lib/*.js` file. Package admission requires the independent storage entry before a profile can boot.
 
-The Desktop tool-discovery policy keeps routine file, command, image, video-inspection, search, interaction and task tools resident. Specialized screenplay, asset, production, collection and delivery tools load through tool search when needed; registration and execution permissions remain unchanged. Bot-only definitions and preference services are absent from the default product.
+The Desktop tool-discovery policy keeps routine file, command, image, video-inspection, search, interaction and task tools resident, together with the Hongguo series downloader. Specialized screenplay, asset, production, collection and delivery tools load through tool search when needed; registration and execution permissions remain unchanged. Bot-only definitions and preference services are absent from the default product.
 
 Desktop enables the existing [Open In controls](../../packages/client/ui-open-in-app/README.md) with their standard compact appearance for opening files in associated applications and showing their location in the system file manager.
 
@@ -119,7 +119,7 @@ Muse opens the retained Main Session on startup when access is available and no 
 
 The product directory includes project settings, image overviews, native Jianying drafts, draft-root lookup, manuscript comparisons, Office delivery and connected knowledge sources. Skill catalog queries belong to the knowledge group, and video review reports belong to production. Chinese aliases cover common production requests without retaining every tool schema. Authorized deferred tools outside configured groups appear under the runtime's uncategorized group. Keyless tests compare shipped preset declarations with registered schemas; connected MCP tools, user overlays and dynamic registrations still depend on the active runtime.
 
-Specialized project, manuscript, production, delivery, model-catalog and asset tools remain discoverable when registered in the current preset; `video_inspect` stays resident. Skill-directory search belongs to knowledge, and video-review reports belong to production; both support Chinese search while remaining deferred. Their original permissions and operation effects still apply. Visibility does not make optional reviews mandatory or authorize generation.
+Specialized project, manuscript, production, delivery, model-catalog and asset tools remain discoverable when registered in the current preset; `video_inspect` and `hongguo_download` stay resident. Hongguo title search, episode-catalog and download-task tools stay deferred; their Chinese search aliases also match requests for complete short dramas seen on Douyin. Skill-directory search belongs to knowledge, and video-review reports belong to production; both support Chinese search while remaining deferred. Their original permissions and operation effects still apply. Visibility does not make optional reviews mandatory or authorize generation.
 
 ## Short-drama identity
 

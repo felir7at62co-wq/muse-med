@@ -232,7 +232,7 @@
     - id: tool-discovery
       name: '@deepseek-ai/dsh-tool-discovery'
       config:
-        alwaysLoad: [coordinator_sessions, coordinator_read, coordinator_dispatch, coordinator_tasks, coordinator_stop, coordinator_report, coordinator_show_report, coordinator_display_skill, read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, show_view, visualize, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect]
+        alwaysLoad: [coordinator_sessions, coordinator_read, coordinator_dispatch, coordinator_tasks, coordinator_stop, coordinator_report, coordinator_show_report, coordinator_display_skill, read, read_image, write, edit, glob, grep, bash, pwsh, skill, present, ask_user_question, show_view, visualize, muse_feedback_submit, muse_feedback_status, todo_write, todo_update, job_output, job_list, job_kill, schedule_create, schedule_list, schedule_edit, schedule_view, create_goal, get_goal, update_goal, subagent, subagent_fork, send_message, interrupt_agent, list_agents, list_subagent_models, workflow, exit_plan_mode, web_search, web_fetch, video_inspect, hongguo_download]
         excludeFromSearch: [ask_user_question, show_view, visualize, coordinator_show_report, coordinator_display_skill]
         maxResults: 8
         maxDescriptionChars: 320
@@ -283,6 +283,10 @@
           douyin_data: [抖音数据, 抖音作品数据, 抖音链接数据, 抖音播放量, 抖音点赞, 抖音评论数, 抖音互动数据]
           douyin_download: [抖音下载, 下载视频, 抖音后台下载, 下载队列]
           douyin_download_task: [抖音下载任务, 抖音下载进度, 抖音断点恢复, 恢复抖音下载, 取消抖音下载]
+          hongguo_search: [红果搜索, 搜红果短剧, 按剧名找短剧, 红果剧集编号, 抖音短剧剧名]
+          hongguo_download: [红果下载, 下载红果短剧, 下载短剧全集, 抖音短剧下载, 抖音完整短剧]
+          hongguo_download_info: [红果分集目录, 红果集数, 核对红果剧集]
+          hongguo_download_task: [红果下载任务, 红果下载进度, 红果后台下载, 恢复红果下载, 取消红果下载]
           screenplay_export_docx: [Word, docx, 导出剧本, 剧本文档]
           load_workspace_dependencies: [Word, docx, Office, 文档处理, 工作间依赖]
           muse_skill_evolution: [技能进化, 技能学习, 经验复盘, 技能提案, 技能版本, 撤回技能]

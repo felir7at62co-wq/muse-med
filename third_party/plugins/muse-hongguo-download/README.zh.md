@@ -43,6 +43,8 @@ description: "使用固定版本的 GPL 引擎和 Muse 会话权限下载红果�
 
 模型看到目录集数、真实文件路径、校验值和安全错误。下载回执区分 `requestedQuality` 与各集实测的 `width`、`height`、`quality`、`videoCodec`。旧已验证文件缺少测量记录时返回 `null`，不会用请求画质编造尺寸；只有来源和画质标识匹配才允许复用。结果不含媒体直链、签名、匿名设备信息或解密密钥。工具结果进入普通会话日志；只查目录不会下载媒体。
 
+`hongguo_download` 的工具描述同时告知模型：抖音上有的完整短剧也用本工具下载，先用 `hongguo_search` 按剧名取得 `seriesId`，再下载全集或指定集，不逐条下载抖音视频。Muse Desktop 将 `hongguo_download` 设为常驻；目录、任务与合并工具按需通过工具搜索加载。
+
 <a id="known-limitations-and-deferred-work"></a>
 ## 已知限制与延后工作
 

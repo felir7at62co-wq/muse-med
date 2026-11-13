@@ -22,7 +22,7 @@ const patches = loadOverlayPatches('muse-med', fileURLToPath(new URL('../../desk
 const row = patches.flatMap(patch => patch.insert ?? []).find(entry => entry.id === 'tool-discovery')
 if (row?.config === undefined) throw new Error('Desktop discovery configuration is missing')
 const config = row.config as Discovery.Config
-const core = ['read', 'write', 'bash', 'read_image', 'video_inspect', 'ask_user_question', 'show_view', 'visualize', 'muse_feedback_submit', 'muse_feedback_status', 'present', 'todo_write', 'todo_update']
+const core = ['read', 'write', 'bash', 'read_image', 'video_inspect', 'hongguo_download', 'ask_user_question', 'show_view', 'visualize', 'muse_feedback_submit', 'muse_feedback_status', 'present', 'todo_write', 'todo_update']
 const professional = ['drama_shot', 'manuscript_revision', 'drama_project', 'source_recover', 'muse_production',
   'jubian_catalog', 'jubian_organize', 'jubian_find', 'drama_character_reference_project',
   'drama_character_references', 'drama_character_reference_view', 'drama_render', 'douyin_data', 'douyin_download']

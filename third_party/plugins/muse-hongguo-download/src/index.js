@@ -24,7 +24,7 @@ export function apply(ctx, config = {}) {
       name: method === 'info' ? 'hongguo_download_info' : 'hongguo_download',
       description: method === 'info'
         ? '通过 jackotom/hongguo-drama 开源引擎读取红果系列的真实分集目录。不返回签名地址或密钥；目录完整不表示视频已下载。'
-        : '使用 jackotom/hongguo-drama 引擎下载红果短剧。quality 可选1080p、720p、auto；省略采用插件默认画质（通常1080p），固定画质不可用时停止，不自动降级；auto沿来源兼容优先规则选源。回执分别记录requestedQuality和实际尺寸、画质；更高分辨率保留原样，不放大冒充高清。seriesIds 为十进制字符串；省略 episodes 下载全集，指定则仅下这些集。下载经过容器、尺寸、完整解码和SHA256校验。已验证文件及进度保留，重复同一请求及画质可续下。只读权限拒绝写入，工作区权限仅写工作区，完全权限可写显式外部绝对目录。遇到来源拒绝停止，不盲目重试；ByteVC2 通过内置组件转换为 H.264/AAC 后完整校验；缺少解码组件时停止。不返回媒体直链、签名、设备信息或解密密钥。部分完成不可称为全集。',
+        : '使用 jackotom/hongguo-drama 引擎下载红果短剧。抖音上有的完整短剧也用本工具下载：按剧名用 hongguo_search 取得 seriesId 后下载全集或指定集，不逐条下载抖音视频。quality 可选1080p、720p、auto；省略采用插件默认画质（通常1080p），固定画质不可用时停止，不自动降级；auto沿来源兼容优先规则选源。回执分别记录requestedQuality和实际尺寸、画质；更高分辨率保留原样，不放大冒充高清。seriesIds 为十进制字符串；省略 episodes 下载全集，指定则仅下这些集。下载经过容器、尺寸、完整解码和SHA256校验。已验证文件及进度保留，重复同一请求及画质可续下。只读权限拒绝写入，工作区权限仅写工作区，完全权限可写显式外部绝对目录。遇到来源拒绝停止，不盲目重试；ByteVC2 通过内置组件转换为 H.264/AAC 后完整校验；缺少解码组件时停止。不返回媒体直链、签名、设备信息或解密密钥。部分完成不可称为全集。',
       parameters: { type: 'object', additionalProperties: false, required: ['seriesIds'], properties: {
         seriesIds: { type: 'array', items: { type: 'string', pattern: '^[0-9]+$' }, minItems: 1, maxItems: client.config.maxSeries },
         ...(method === 'download' ? { episodes: { type: 'array', items: { type: 'integer', minimum: 1 }, uniqueItems: true, minItems: 1 },

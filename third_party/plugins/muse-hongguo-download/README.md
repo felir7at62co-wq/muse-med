@@ -41,6 +41,8 @@ If process exit cannot be confirmed, `cleanup_unconfirmed` retains private stagi
 
 The model sees directory counts, actual output paths, checksums and safe errors. Download receipts distinguish `requestedQuality` from each episode's measured `width`, `height`, `quality` and `videoCodec`. Older verified files without those measurements report `null`; the requested quality never supplies invented dimensions. Only matching source and quality identities permit reuse. Media URLs, signatures, anonymous device identities and decryption keys are excluded. Tool results enter the normal Session transcript; observing the catalog does not download media.
 
+The `hongguo_download` description also tells the model that complete short dramas available on Douyin are downloaded with this tool: look the title up through `hongguo_search` for its `seriesId`, then download the whole series or selected episodes instead of fetching Douyin videos one by one. Muse Desktop keeps `hongguo_download` resident; the catalog, task and merge tools load through tool search.
+
 ## Known Limitations and Deferred Work
 
 ByteVC2 requires the bundled Librempeg decoder; missing or incompatible components stop the operation. Converted files pass the same full-decoding and checksum checks as ordinary downloads; original transfer checksums remain separate. Sources can change or deny requests; an upstream refusal stops lookup. The integration has not qualified every title, episode, region or platform. Legacy checkpoints are retained but not reused across a different engine identity or quality. The combined plugin is GPL-3.0; corresponding upstream and bundled dependency source accompanies it.
