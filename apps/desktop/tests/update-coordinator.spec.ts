@@ -247,6 +247,51 @@ describe('desktop update mirrors', () => {
     expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'ready' })
   })
 
+  it.each([false, true])('clears an advertised version after a silent failed check with mirrors=%s and can recover', async (mirrors) => {
+    const f = fixture(undefined, mirrors ? mirrorSources : [])
+    const info = mirrors ? mirrorInfo : { version: '1.1.0-rc.2' }
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: info })
+    expect(await f.coordinator.check()).toMatchObject({ phase: 'available', version: info.version })
+    f.checkForUpdates.mockRejectedValue(Object.assign(new Error('offline'), { code: 'ETIMEDOUT' }))
+    expect(await f.coordinator.check()).toMatchObject({ phase: 'error', failedOperation: 'check' })
+    expect(f.checkForUpdates).toHaveBeenCalledTimes(mirrors ? 3 : 2)
+    expect(f.coordinator.state).toEqual({ phase: 'idle' })
+    await expect(f.coordinator.download(info.version)).rejects.toThrow(/no checked update/u)
+    expect(f.downloadUpdate).not.toHaveBeenCalled()
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: info })
+    expect(await f.coordinator.check(true)).toMatchObject({ phase: 'available', version: info.version })
+    expect(await f.coordinator.download(info.version)).toMatchObject({ phase: 'ready', version: info.version })
+  })
+
+  it.each([false, true])('retains a visible manual check error when joining automatic failure, manual first=%s', async (manualFirst) => {
+    const f = fixture()
+    await f.coordinator.check()
+    const pending = Promise.withResolvers<CheckResult | null>()
+    f.checkForUpdates.mockImplementationOnce(() => pending.promise)
+    const first = f.coordinator.check(manualFirst)
+    const second = f.coordinator.check(!manualFirst)
+    pending.reject(new Error('offline'))
+    expect(await first).toMatchObject({ phase: 'error', failedOperation: 'check' })
+    expect(await second).toMatchObject({ phase: 'error', failedOperation: 'check' })
+    expect(f.coordinator.state).toMatchObject({ phase: 'error', failedOperation: 'check' })
+  })
+
+  it('requires a fresh confirmation when a later successful mirror check selects another version', async () => {
+    const f = fixture(undefined, mirrorSources)
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    await f.coordinator.check()
+    f.checkForUpdates.mockRejectedValue(Object.assign(new Error('offline'), { code: 'ETIMEDOUT' }))
+    await f.coordinator.check()
+    expect(f.coordinator.state).toEqual({ phase: 'idle' })
+    const newer = { ...mirrorInfo, version: '1.1.0-rc.3' }
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: newer })
+    expect(await f.coordinator.check(true)).toMatchObject({ phase: 'available', version: newer.version })
+    await expect(f.coordinator.download(mirrorInfo.version)).rejects.toThrow(/confirmation is stale/u)
+    expect(f.downloadUpdate).not.toHaveBeenCalled()
+    f.downloadUpdate.mockImplementation(async () => { f.events.emit('update-downloaded', newer); return ['verified-package'] })
+    expect(await f.coordinator.download(newer.version)).toMatchObject({ phase: 'ready', version: newer.version })
+  })
+
   it('retains checksum rejection without trying another source', async () => {
     const f = fixture(undefined, mirrorSources)
     f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: mirrorInfo })
