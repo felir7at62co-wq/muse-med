@@ -74,7 +74,7 @@ it('rechecks complete package and original evidence through supplied staged file
   await writeFile(reviewPath, JSON.stringify({ ...review, review_frames: [receipt] }))
   const read = Fs.readFile
   vi.spyOn(Fs, 'readFile').mockImplementation(async (...args) => {
-    if (String(args[0]) === receipt) await writeFile(receipt, JSON.stringify({ ...download, note: 'changed during verification' }))
+    if (args[0] === receipt) await writeFile(receipt, JSON.stringify({ ...download, note: 'changed during verification' }))
     return await read(...args)
   })
   await expect(verifySelectedSourceReviews(paths, [row], true, true, verifiedSourceQaFixture)).rejects.toThrow('审核证据在核验期间已变化')

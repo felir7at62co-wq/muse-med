@@ -44,9 +44,8 @@ describe('approved episode service', () => {
     const input = await selection(f)
     await f.service.admitEpisode(input)
     f.renderer.release()
-    await expect.poll(async () => await f.service.episodeStatus(input)).toMatchObject({
-      state: 'unknown', problem: expect.stringContaining('Captured subtitle clock changed'),
-    })
+    await expect.poll(async () => await f.service.episodeStatus(input)).toMatchObject({ state: 'unknown' })
+    expect((await f.service.episodeStatus(input)).problem).toContain('Captured subtitle clock changed')
     expect(revalidate).toHaveBeenCalledOnce()
     const output = join(f.project, 'exports', `Muse-episode-01-${input.digest}.mp4`)
     await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
