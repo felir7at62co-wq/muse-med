@@ -1,7 +1,18 @@
 import { getSystemErrorMessage, getSystemErrorName } from 'node:util'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const O_NONBLOCK = 2048
+
+beforeEach(() => {
+  // The native Linux constant is absent on Windows; this accompanies the fake Linux libc.
+  vi.doMock('node:fs', async () => {
+    const fs = await vi.importActual<typeof import('node:fs')>('node:fs')
+    return { ...fs, constants: { ...fs.constants, O_NONBLOCK } }
+  })
+})
 
 afterEach(() => {
+  vi.doUnmock('node:fs')
   vi.doUnmock('@deepseek-ai/dsh-lazy-require')
   vi.resetModules()
 })
@@ -11,7 +22,8 @@ describe('Linux libc execve binding', () => {
   it.each([undefined, 'pipe'] as const)('preserves inherited stdio with control %s and reports execve errno', async (control) => {
     const nativeExecve = vi.fn(() => -1)
     const nativeFcntl = vi.fn((fd: number, command: number) => {
-      if (command === 2) return 0
+      if (command === 2 || command === 4) return 0
+      if (command === 3) return fd === 7 ? O_NONBLOCK : [2, O_NONBLOCK | 1026, O_NONBLOCK | 2][fd]
       return fd === 7 ? 1 : [1, 0, 5][fd]
     })
     const func = vi.fn((declaration: string) => declaration.includes('execve')
@@ -45,6 +57,11 @@ describe('Linux libc execve binding', () => {
       [2, 1, 0],
       [2, 2, 4],
       ...control === 'pipe' ? [[7, 1, 0], [7, 2, 0]] : [],
+      [0, 3, 0],
+      [1, 3, 0],
+      [1, 4, 1026],
+      [2, 3, 0],
+      [2, 4, 2],
     ])
     expect(nativeExecve).toHaveBeenCalledExactlyOnceWith(
       '/missing/tool',
@@ -107,6 +124,30 @@ describe('Linux libc execve binding', () => {
     expect(nativeFcntl.mock.calls).toEqual([
       [0, 1, 0],
       [0, 2, 0],
+    ])
+    expect(nativeExecve).not.toHaveBeenCalled()
+    expect(errno).toHaveBeenCalledOnce()
+  })
+
+  it.each([3, 4])('reports fcntl status operation %s failure before execve', async (failedCommand) => {
+    const nativeExecve = vi.fn()
+    const nativeFcntl = vi.fn((_fd: number, command: number) => {
+      if (command === failedCommand) return -1
+      if (command === 3) return O_NONBLOCK | 2
+      return 0
+    })
+    const func = vi.fn((declaration: string) => declaration.includes('execve') ? nativeExecve : nativeFcntl)
+    const errno = vi.fn(() => 5)
+    vi.doMock('@deepseek-ai/dsh-lazy-require', () => ({
+      createLazyRequire: () => () => ({ errno, load: () => ({ func }) }),
+    }))
+    const { loadLinuxExecve } = await import('../src/linux-execve.ts')
+    expect(() => loadLinuxExecve()('/bin/tool', ['tool'], {})).toThrow(expect.objectContaining({
+      code: getSystemErrorName(-5), errno: -5, syscall: 'fcntl',
+    }))
+    expect(nativeFcntl.mock.calls).toEqual([
+      [0, 1, 0], [1, 1, 0], [2, 1, 0], [0, 3, 0],
+      ...failedCommand === 4 ? [[0, 4, 2]] : [],
     ])
     expect(nativeExecve).not.toHaveBeenCalled()
     expect(errno).toHaveBeenCalledOnce()
