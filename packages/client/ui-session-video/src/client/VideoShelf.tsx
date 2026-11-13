@@ -127,7 +127,10 @@ function VideoShelfContents(props: PropsRuntime<'conversation.content.overlay'> 
           {present && <div className={css.contents}>
             {source === undefined ? <p className={css.status} role="status">{t(loadError ? 'unavailable' : 'empty')}</p> : <>
               {source.playbackUrl !== null ? <VideoPlayer active={open} source={source} analysis={analyses[source.id]} t={t}
-                shots={timeline.shots} offset={timeline.offsets[source.id]}
+                shots={timeline.shots} offset={
+                  // oxlint-disable-next-line typescript/no-non-null-assertion -- assembleTimeline assigns every listed source an offset.
+                  timeline.offsets[source.id]!
+                }
                 duration={timeline.duration} pixelsPerSecond={pixelsPerSecond} zoom={zoom} onZoom={setZoom}
                 selectedShot={selection} seekRequest={seek} onSeek={seekTo} onSelectShot={selectShot} />
                 : <p className={css.status} role="alert">{t('unavailable')}</p>}
