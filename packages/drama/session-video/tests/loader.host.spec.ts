@@ -9,6 +9,8 @@ import { boot } from '@deepseek-ai/dsh-app-boot'
 import Sessions, { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import Projections from '@deepseek-ai/dsh-session-projection'
 import Query from '@deepseek-ai/dsh-session-query'
+import * as JsonlPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
+import { FsError } from '@deepseek-ai/dsh-fs'
 import FileSystem from '@deepseek-ai/dsh-fs-local'
 import Attachments from '@deepseek-ai/dsh-attachment-local'
 import Subprocess from '@deepseek-ai/dsh-subprocess-local'
@@ -34,16 +36,12 @@ afterEach(async () => {
   if (errors.length) throw new AggregateError(errors, 'Session video fixture cleanup failed')
 })
 
-async function fixture(overrides: Partial<Config> = {}) {
-  const root = mkdtempSync(join(tmpdir(), 'session-video-loader-')); roots.push(root)
-  const file = join(root, 'three-shots.mp4')
-  execFileSync('ffmpeg', ['-v', 'error', '-nostdin', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=10:d=1',
-    '-f', 'lavfi', '-i', 'color=c=white:s=64x64:r=10:d=1', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=10:d=1',
-    '-filter_complex_threads', '1', '-filter_complex', '[0:v][1:v][2:v]concat=n=3:v=1:a=0', '-c:v', 'libx264', '-threads', '1', '-pix_fmt', 'yuv420p', file])
+async function openFixture(root: string, overrides: Partial<Config> = {}, persistenceRoot?: string) {
   const routes = new Map<string, { fetch(request: Request): Response | Promise<Response> }>()
   const configPath = join(root, 'cordis.yml')
   writeFileSync(configPath, JSON.stringify([
     { name: 'cordis:sessions' }, { name: 'cordis:projections' }, { name: 'cordis:query' },
+    ...(persistenceRoot === undefined ? [] : [{ name: 'cordis:history', config: { root: persistenceRoot, compression: 'none' } }]),
     { name: 'cordis:fs', config: { cwd: root } }, { name: 'cordis:attachments', config: { dshHome: root } },
     { name: 'cordis:subprocess' }, { name: 'cordis:policy', config: { mode: 'danger-full-access', workspaceRoot: root } },
     { id: 'video', name: 'cordis:video', config: { analysisWidth: 64, ...overrides } },
@@ -53,9 +51,19 @@ async function fixture(overrides: Partial<Config> = {}) {
       routes.set(route.path, route); return () => routes.delete(route.path)
     } } } as never)
     Object.assign(host.loader.builtins, { sessions: Sessions, projections: Projections, query: Query, fs: FileSystem,
-      attachments: Attachments, subprocess: Subprocess, policy: SandboxPolicy, video: SessionVideo })
+      attachments: Attachments, subprocess: Subprocess, policy: SandboxPolicy, video: SessionVideo, history: JsonlPersistence })
   })
   contexts.push(ctx)
+  return { ctx, routes }
+}
+
+async function fixture(overrides: Partial<Config> = {}) {
+  const root = mkdtempSync(join(tmpdir(), 'session-video-loader-')); roots.push(root)
+  const file = join(root, 'three-shots.mp4')
+  execFileSync('ffmpeg', ['-v', 'error', '-nostdin', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=10:d=1',
+    '-f', 'lavfi', '-i', 'color=c=white:s=64x64:r=10:d=1', '-f', 'lavfi', '-i', 'color=c=black:s=64x64:r=10:d=1',
+    '-filter_complex_threads', '1', '-filter_complex', '[0:v][1:v][2:v]concat=n=3:v=1:a=0', '-c:v', 'libx264', '-threads', '1', '-pix_fmt', 'yuv420p', file])
+  const { ctx, routes } = await openFixture(root, overrides)
   const session = ctx.sessions.create(SessionId('fixture-session'), { meta: { cwd: root } })
   const signal = new AbortController().signal
   const user = (text: string) => session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text }] }), { surfaceOp: 'append' })
@@ -559,4 +567,50 @@ it('keeps provider-only playback unavailable until detection has saved a local s
     expect(await response.text()).toBe(method === 'HEAD' ? '' : 'Local video unavailable')
   }
   expect(fetch).not.toHaveBeenCalled(); expect(read).not.toHaveBeenCalled(); expect(spawn).not.toHaveBeenCalled()
+})
+
+it('lists a real persisted cold Session after reopening without a live owner or header cwd', async () => {
+  const f = await fixture(), history = join(f.root, 'history'), id = SessionId('persisted-video-session')
+  await f.ctx.plugin(JsonlPersistence, { root: history, compression: 'none' })
+  const session = f.ctx.sessions.create(id)
+  session.append('user/message', createUserMessage({ source: { kind: 'user' },
+    content: [{ type: 'text', text: '@three-shots.mp4' }] }), { surfaceOp: 'append' })
+  const before = readFileSync(f.file)
+  const writer = await f.ctx.sessionPersistence.create(session.header, { inheritedEventCount: session.inheritedEventCount })
+  try { await writer.append(session.snapshotEvents()) } finally { await writer.close() }
+  await f.ctx.fiber.dispose()
+  const { ctx } = await openFixture(f.root, {}, history)
+  const query = vi.spyOn(ctx.sessionQuery, 'readSession'), resolve = vi.spyOn(ctx.fs, 'resolve')
+  expect(ctx.sessions.get(id)).toBeUndefined()
+  const inventory = await ctx.sessionVideo.list(id, f.signal)
+  expect(query).toHaveBeenCalledExactlyOnceWith(id)
+  expect(inventory).toMatchObject({ sessionId: id, complete: true, issues: [] })
+  expect(inventory.sources).toHaveLength(1)
+  expect(inventory.sources[0]).toMatchObject({ status: 'local', path: f.file, issue: null })
+  expect(inventory.sources[0]?.playbackUrl).toContain('api/session-video?')
+  expect(resolve.mock.calls[0]?.[0]).toBe('three-shots.mp4')
+  expect(resolve.mock.calls[0]?.[1]?.cwd).toBe(f.root)
+  expect(resolve.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal)
+  expect(ctx.sessions.get(id)).toBeUndefined()
+  expect(readFileSync(f.file)).toEqual(before)
+})
+
+it('reports one standard filesystem refusal without analyzing and recovers from the unchanged source', async () => {
+  const f = await fixture()
+  f.user('@three-shots.mp4')
+  const before = readFileSync(f.file), target = await f.ctx.fs.resolve(f.file, { cwd: f.root, signal: f.signal })
+  const refusal = new FsError('The recorded video cannot be read', 'FS_PERMISSION_DENIED')
+  const stat = vi.spyOn(f.ctx.fs, 'stat').mockRejectedValueOnce(refusal), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  const unavailable = await f.ctx.sessionVideo.list(f.session.id, f.signal)
+  expect(stat).toHaveBeenCalledOnce()
+  expect(stat.mock.calls[0]?.[0].targetKey).toBe(target.targetKey)
+  expect(unavailable.sources).toHaveLength(1)
+  expect(unavailable.sources[0]).toMatchObject({ status: 'missing', version: null, playbackUrl: null, issue: refusal.message })
+  expect(spawn).not.toHaveBeenCalled()
+  expect(readFileSync(f.file)).toEqual(before)
+  stat.mockRestore()
+  const restored = await f.ctx.sessionVideo.list(f.session.id, f.signal)
+  expect(restored.sources[0]).toMatchObject({ id: unavailable.sources[0]?.id, status: 'local', path: f.file, issue: null })
+  expect(spawn).not.toHaveBeenCalled()
+  expect(readFileSync(f.file)).toEqual(before)
 })

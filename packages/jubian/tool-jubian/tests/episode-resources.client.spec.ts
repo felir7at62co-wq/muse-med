@@ -254,3 +254,73 @@ it('stops before scheduling another status poll when its observer and directory 
     pins.mockRestore()
   }
 })
+
+it.each([
+  { label: 'readiness with history JSON', route: 'readiness', kind: 'history', digest: true },
+  { label: 'history with status JSON', route: 'history', kind: 'status', digest: true },
+  { label: 'status with readiness JSON', route: 'status', kind: 'readiness', digest: true },
+  { label: 'status without an original digest', route: 'status', kind: 'status', digest: false },
+] as const)('rejects $label through its actual registered resource descriptor before Remote work', async ({ route, kind, digest }) => {
+  const f = episodeClientFixture(), ctx = new Context(), resources = new ResourceRegistry(ctx), controller = new AbortController()
+  ctx.effect(() => ctx.provide('resources', resources))
+  const registrations = vi.spyOn(resources, 'register')
+  let unregister = () => {}
+  try {
+    unregister = registerEpisodeResources(ctx, f.api, f.directory, 1000)
+    const protocol = 'jubian-episode-' + route
+    const provider = registrations.mock.calls.find(([registered]) => registered.protocol === protocol)?.[0]
+    if (provider === undefined) throw new Error('Expected the actual registered episode resource descriptor')
+    const address = 'dsh-resource://' + protocol + '/' + encodeURIComponent(JSON.stringify({
+      projectDir: input.projectDir, episode: input.episode, epoch: 1, revision: 1, kind,
+      ...(digest ? { digest: input.digest } : {}),
+    }))
+    const before = f.directory.state.getSnapshot(), frames: RemoteResult<unknown>[] = []
+    for await (const frame of provider.open(address, { signal: controller.signal })) frames.push(frame)
+    expect(frames).toEqual([])
+    expect(f.directory.state.getSnapshot()).toBe(before)
+    expect(f.api.episodeReadiness).not.toHaveBeenCalled()
+    expect(f.api.episodeHistory).not.toHaveBeenCalled()
+    expect(f.api.episodeStatus).not.toHaveBeenCalled()
+    expect(f.api.admitEpisode).not.toHaveBeenCalled()
+    expect(f.notices).not.toHaveBeenCalled()
+    await f.waitReady()
+    expect(f.api.episodeReadiness).toHaveBeenCalledTimes(1)
+    expect(f.directory.state.getSnapshot().checked).toBe(true)
+  } finally {
+    controller.abort(); unregister(); registrations.mockRestore()
+    await ctx.fiber.dispose()
+  }
+})
+
+it.each(['readiness', 'history'] as const)('keeps a current %s Host failure frame without granting admission or dispatching follow-up work', async (kind) => {
+  const error = new RemoteError('jubian-video-recovery/rejected', kind + ' could not be checked', {})
+  const f = kind === 'readiness'
+    ? episodeClientFixture({ episodeReadiness: vi.fn<EpisodeClient['episodeReadiness']>(async () => ({ ok: false, error })) })
+    : episodeClientFixture({ episodeHistory: vi.fn<EpisodeClient['episodeHistory']>(async () => ({ ok: false, error })) })
+  const pins = vi.spyOn(f.resources, 'pin')
+  try {
+    if (kind === 'readiness') f.directory.check(input)
+    else f.directory.history(input)
+    const address = f.directory.state.getSnapshot()[kind === 'readiness' ? 'readinessAddress' : 'historyAddress']
+    const source = f.resources.source(address)
+    const signal = pins.mock.calls.find(([pinned]) => pinned === address)?.[1]
+    if (signal === undefined) throw new Error('Expected the actual directory resource hold')
+    expect(signal).toBeInstanceOf(AbortSignal)
+    expect(signal.aborted).toBe(false)
+    expect(f.directory.current(kind, address)).toBe(true)
+    await vi.waitFor(() => { expect(source.getSnapshot().status).toBe('failed') })
+    expect(source.getSnapshot()).toEqual({ status: 'failed', value: undefined, failure: error })
+    expect(source.getSnapshot().failure).toBe(error)
+    expect(signal.aborted).toBe(false)
+    expect(f.directory.current(kind, address)).toBe(true)
+    expect(f.directory.state.getSnapshot()).toMatchObject({ checked: false, target: null,
+      displayedReadiness: null, displayedHistory: null, statusAddress: '' })
+    expect(kind === 'readiness' ? f.api.episodeReadiness : f.api.episodeHistory)
+      .toHaveBeenCalledExactlyOnceWith({ projectDir: input.projectDir, episode: input.episode })
+    expect(kind === 'readiness' ? f.api.episodeHistory : f.api.episodeReadiness).not.toHaveBeenCalled()
+    expect(f.api.episodeStatus).not.toHaveBeenCalled()
+    await f.directory.admit(); await f.directory.admit(true)
+    expect(f.api.admitEpisode).not.toHaveBeenCalled()
+    expect(f.notices).not.toHaveBeenCalled()
+  } finally { pins.mockRestore() }
+})

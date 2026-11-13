@@ -279,3 +279,32 @@ it('suppresses a rejected admission reply after selection retirement without ano
     await admission
   }
 })
+
+it('does not pin a new check after a synchronous state observer disconnects its connection', async () => {
+  const f = episodeClientFixture()
+  await f.waitReady()
+  let disconnected = 0
+  const unsubscribe = f.directory.state.subscribe(() => {
+    const state = f.directory.state.getSnapshot()
+    if (disconnected !== 0 || state.checked || !state.connected) return
+    disconnected++
+    f.disconnect()
+  })
+  try {
+    f.directory.check(input)
+    expect(disconnected).toBe(1)
+    expect(f.directory.state.getSnapshot()).toMatchObject({ connected: false, checked: false, readinessAddress: '', statusAddress: '' })
+    expect(f.api.episodeReadiness).toHaveBeenCalledTimes(1)
+    expect(f.api.episodeStatus).toHaveBeenCalledTimes(1)
+    await f.directory.admit()
+    expect(f.api.admitEpisode).not.toHaveBeenCalled()
+    expect(f.notices).not.toHaveBeenCalled()
+  } finally { unsubscribe() }
+  const disconnect = f.connect()
+  try {
+    await f.waitReady()
+    expect(f.api.episodeReadiness).toHaveBeenCalledTimes(2)
+    expect(f.directory.state.getSnapshot()).toMatchObject({ connected: true, checked: true })
+    expect(f.api.admitEpisode).not.toHaveBeenCalled()
+  } finally { disconnect() }
+})
