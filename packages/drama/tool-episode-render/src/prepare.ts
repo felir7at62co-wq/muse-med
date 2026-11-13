@@ -541,7 +541,7 @@ export async function preparedSubtitleClockInputs(project: string, episode: stri
       return row?.shot !== clip.shot || row.start_us !== clip.startUs || row.duration_us !== clip.durationUs
     })) throw new Error('生成字幕缺少与当前音轨及时间线一致的准备记录。')
   }
-  await verifyPreparedSubtitleClock(subtitlePath, paths, timeline, undefined, signal, document)
+  await verifyPreparedSubtitleClock(subtitlePath, paths, timeline, undefined, signal, prepared)
   const shots = rows.map((row) => {
     const video = resolve(paths.videoDir, shotFileName(row.shot))
     return { shot: row.shot, video, audio: row.audio === row.video ? video : resolveAgainst(project, row.audio) }
