@@ -35,7 +35,7 @@ function thumbnailProps(count = 2): VideoPlayerProps & { analysis: SessionVideoA
     startSeconds: index * 2, endSeconds: (index + 1) * 2, thumbnail: null,
   }))
   return { ...input, shots, duration: count * 2, analysis: {
-    sourceId: input.source.id, sourceVersion: input.source.version, state: 'ready', durationSeconds: count * 2,
+    sourceId: brandString<SessionVideoSourceId>(input.source.id), sourceVersion: input.source.version, state: 'ready', durationSeconds: count * 2,
     width: 1920, height: 1080, shots, method: 'ffmpeg-scene', threshold: 0.3, issue: null,
   } }
 }
