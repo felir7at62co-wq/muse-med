@@ -2180,6 +2180,9 @@ describe('headless recorded-session snapshots', () => {
             DSH_SNAPSHOT_SPILL_ROOT: spillRoot,
             DSH_SNAPSHOT_SPILL_LOCATOR_ROOT: locatorRoot,
             DSH_SNAPSHOT_FILE: fixturePath,
+            ...(scenario.name === 'subagent-acp-diagnostic' ? {
+              DSH_ACP_DIAGNOSTIC_SERVER: join(repoRoot, 'packages/subagent/subagent-acp/tests/mock-acp-server.ts'),
+            } : {}),
             ...(replaying && fixtureFiles.length > 1
               ? { DSH_SNAPSHOT_CHILD_FILES: fixtureFiles.slice(1).map(file => join(scenario.dir, file)).join(delimiter) }
               : {}),

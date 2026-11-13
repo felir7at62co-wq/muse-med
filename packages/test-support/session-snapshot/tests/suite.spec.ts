@@ -24,6 +24,7 @@ import {
 } from '../src/index.ts'
 import {
   assertChildSystemPromptSnapshot,
+  assertWriterOutputInventory,
   assertUniqueSnapshotContents,
   claimSharedSnapshot,
   fixtureContext,
@@ -142,9 +143,25 @@ if (!BOOTSTRAP) {
 const refreshDir = mkdtempSync(join(tmpdir(), 'acp-snap-refresh-suite-'))
 cpSync(REPLAY_DIR, refreshDir, { recursive: true })
 staleRefreshFixtures(refreshDir)
+const writerDir = mkdtempSync(join(tmpdir(), 'acp-snap-writer-suite-'))
+cpSync(REPLAY_DIR, writerDir, { recursive: true })
+const writerInputs = new Map<string, string>()
+const replayObservations = new Map<string, { logs: number; cwd: string }>()
+const writerScenarios = REPLAY_SCENARIOS.map((scenario): Scenario => {
+  if (!scenario.hasModelTurn && scenario.comparesLog !== true) return scenario
+  const dir = join(writerDir, scenario.name)
+  const manifest = join(dir, 'snapshot.yml')
+  writeFileSync(manifest, readFileSync(manifest, 'utf8') + 'writerOutput: true\n')
+  for (const file of ['session.jsonl', 'session.v3.jsonl', 'session.1.v3.jsonl']) {
+    try { writerInputs.set(join(dir, file), readFileSync(join(dir, file), 'utf8')) }
+    catch (error) { if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error }
+  }
+  return { ...scenario, writerOutput: true }
+})
 afterAll(async () => {
   if (!BOOTSTRAP) await rm(recordDir, { recursive: true, force: true })
   await rm(refreshDir, { recursive: true, force: true })
+  await rm(writerDir, { recursive: true, force: true })
 })
 
 function staleRefreshFixtures(dir: string): void {
@@ -183,6 +200,42 @@ describe('defineAcpSnapshotSuite: record mode', () => {
 
 describe('defineAcpSnapshotSuite: refresh mode', () => {
   defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: refreshDir, scenarios: REPLAY_SCENARIOS, mode: 'refresh' })
+})
+
+describe('defineAcpSnapshotSuite: separate writer outputs', { concurrent: false }, () => {
+  describe('refresh', () => {
+    defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: writerDir, scenarios: writerScenarios, mode: 'refresh' })
+  })
+  describe('replay', () => {
+    defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: writerDir, scenarios: writerScenarios, mode: 'replay',
+      onReplayResult: async (name, logs, context) => { replayObservations.set(name, { logs: logs.length, cwd: context.cwd }) },
+    })
+  })
+  it('preserves every canonical generation while creating parent and child outputs', () => {
+    for (const [path, content] of writerInputs) expect(readFileSync(path, 'utf8')).toBe(content)
+    expect(readFileSync(join(writerDir, 'plain-turn', 'writer.1.expected.jsonl'), 'utf8')).toContain('{{session:2}}')
+    expect([...replayObservations.keys()].sort()).toEqual(writerScenarios.map(scenario => scenario.name).sort())
+    expect(replayObservations.get('plain-turn')?.logs).toBe(2)
+    expect(typeof replayObservations.get('plain-turn')?.cwd).toBe('string')
+  })
+  it('rejects absent, extra and changed writer outputs', async () => {
+    const dir = join(writerDir, 'plain-turn')
+    const primary = join(dir, 'writer.expected.jsonl')
+    const saved = readFileSync(primary, 'utf8')
+    try {
+      rmSync(primary)
+      await expect(assertWriterOutputInventory(dir, true)).rejects.toThrow('writer output inventory')
+      writeFileSync(primary, saved)
+      writeFileSync(join(dir, 'writer.2.expected.jsonl'), saved)
+      await expect(assertWriterOutputInventory(dir, true)).rejects.toThrow('writer output inventory')
+      rmSync(join(dir, 'writer.2.expected.jsonl'))
+      writeFileSync(primary, saved.replace('{{session:1}}', 'unredacted-session-id'))
+      await expect(assertWriterOutputInventory(dir, true)).rejects.toThrow('writer identity fixed point')
+    } finally {
+      writeFileSync(primary, saved)
+      rmSync(join(dir, 'writer.2.expected.jsonl'), { force: true })
+    }
+  })
 })
 
 describe('defineAcpSnapshotSuite: refresh write-back', () => {
@@ -710,6 +763,12 @@ describe('scenarioSkipped', () => {
   it('skips a retained historical generation while recording but replays and refreshes it', () => {
     expect(scenarioSkipped(retained, true, 'linux')).toBe(true)
     expect(scenarioSkipped(retained, false, 'linux')).toBe(false)
+  })
+
+  it('skips writer-output owners while recording but replays and refreshes them', () => {
+    const writer: Scenario = { name: 'writer', hasModelTurn: true, recorded: true, writerOutput: true }
+    expect(scenarioSkipped(writer, true, 'linux')).toBe(true)
+    expect(scenarioSkipped(writer, false, 'linux')).toBe(false)
   })
 
   it('skips posixOnly scenarios on Windows and nowhere else', () => {
