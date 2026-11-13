@@ -73,6 +73,7 @@ ffmpeg_gif { input: E:\videos\raw.mp4, duration: 3, width: 480 }
 - **No shell**: every argument is passed as its own argv element — user input cannot inject commands
 - **Runs on the official DSH subprocess service**: the timeout AbortSignal now really drives tree-scoped termination (SIGTERM → kill; taskkill /T on Windows), zero runtime dependencies
 - **No accidental overwrites**: existing outputs get auto-suffixed; output == input is rejected
+- **Output folders**: a missing parent folder of the output path is created, so ffmpeg does not fail with "No such file or directory"
 - **Timeout clamps**: per-operation 10s - 2h; probes additionally capped at 60s
 - **Input validation**: time formats, preset enums, crf/fps/scale ranges are validated up front; directory inputs are rejected and extension-less frame-sequence outputs are auto-fixed
 
@@ -80,7 +81,7 @@ ffmpeg_gif { input: E:\videos\raw.mp4, duration: 3, width: 480 }
 
 ```bash
 pnpm install
-pnpm test       # build + 102 tests, including a real-ffmpeg end-to-end suite (auto-skipped without ffmpeg)
+pnpm test       # build + 103 tests, including a real-ffmpeg end-to-end suite (auto-skipped without ffmpeg)
 ```
 
 ## License
@@ -89,4 +90,5 @@ MIT
 
 ## Changelog
 
+- **Unreleased**: the parent folder of `output` is created when missing (`ffmpeg_extract` used to fail when extracting frames into a new folder). 103 tests.
 - **0.4.3 (2026-09-18)**: 修复抽帧数到旧帧/清单截断、取消被当成功、取消文案丢原因、`+2dB` 被拒; 音轨提取非 AAC 自动转 AAC、concat 混合音轨可用、ffprobe 截断明确报错. 测试 102 项. 

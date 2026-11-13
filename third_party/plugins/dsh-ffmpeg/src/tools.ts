@@ -99,6 +99,13 @@ function stringArray(args: Record<string, unknown>, key: string): string[] {
 }
 
 /** 已取消则抛出取消原因；作为 await 前后的统一取消检查。 */
+/** 解析输出路径并建好其父目录：目录缺失时 ffmpeg 只报 “No such file or directory”，看不出是目录问题。 */
+function prepareOutputPath(input: string, explicit: string | undefined, suffix: string, ext: string, overwrite: boolean): string {
+  const output = resolveOutputPath(input, explicit, suffix, ext, overwrite)
+  mkdirSync(dirname(output), { recursive: true })
+  return output
+}
+
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted === true) throw signal.reason
 }
@@ -271,7 +278,7 @@ export function buildFfmpegTools(config: ResolvedFfmpegConfig, runner: ProcessRu
         if (duration <= 0) throw new Error('duration 必须大于 0。')
       }
       const reencode = args.reencode === true
-      const output = resolveOutputPath(input, optionalString(args, 'output'), '.cut', extname(input) || '.mp4', cfg.overwrite)
+      const output = prepareOutputPath(input, optionalString(args, 'output'), '.cut', extname(input) || '.mp4', cfg.overwrite)
       await runChecked(runner, cutArgs(cfg.ffmpegPath, { input, start, duration, output, overwrite: cfg.overwrite, reencode }), timeout, 'ffmpeg 剪辑', exec?.signal)
       return { output, start, duration, reencode }
     },
@@ -301,7 +308,7 @@ export function buildFfmpegTools(config: ResolvedFfmpegConfig, runner: ProcessRu
       const absolute = inputs.map(assertInputFile)
       const reencode = args.reencode === true
       const firstExt = extname(absolute[0]) || '.mp4'
-      const output = resolveOutputPath(absolute[0], optionalString(args, 'output'), '.concat', firstExt, cfg.overwrite)
+      const output = prepareOutputPath(absolute[0], optionalString(args, 'output'), '.concat', firstExt, cfg.overwrite)
       if (!reencode) {
         const listPath = join(tmpdir(), 'dsh-ffmpeg-concat-' + Date.now() + '-' + randomUUID().slice(0, 8) + '.txt')
         writeFileSync(listPath, concatListContent(absolute), 'utf8')
@@ -371,7 +378,7 @@ export function buildFfmpegTools(config: ResolvedFfmpegConfig, runner: ProcessRu
         if (!/^-?\d+:-?\d+$/.test(scaleRaw)) throw new Error('scale 格式必须是 宽:高，如 1920:1080 或 -2:720。')
         scale = scaleRaw
       }
-      const output = resolveOutputPath(input, optionalString(args, 'output'), '.encoded', extname(input) || '.mp4', cfg.overwrite)
+      const output = prepareOutputPath(input, optionalString(args, 'output'), '.encoded', extname(input) || '.mp4', cfg.overwrite)
       await runChecked(runner, encodeArgs(cfg.ffmpegPath, { input, output, preset, crf, fps, scale, overwrite: cfg.overwrite }), timeout, 'ffmpeg 转码', exec?.signal)
       return { output, preset, crf: crf ?? 'preset', fps: fps ?? null, scale: scale ?? null }
     },
@@ -397,7 +404,7 @@ export function buildFfmpegTools(config: ResolvedFfmpegConfig, runner: ProcessRu
       const args = asRecord(rawArgs)
       const input = assertInputFile(requiredString(args, 'input', '输入视频'))
       const subtitlePath = assertInputFile(requiredString(args, 'subtitle', '字幕文件'))
-      const output = resolveOutputPath(input, optionalString(args, 'output'), '.sub', extname(input) || '.mp4', cfg.overwrite)
+      const output = prepareOutputPath(input, optionalString(args, 'output'), '.sub', extname(input) || '.mp4', cfg.overwrite)
       await runChecked(runner, subtitleArgs(cfg.ffmpegPath, { input, subtitle: subtitlePath, output, overwrite: cfg.overwrite }), timeout, 'ffmpeg 字幕', exec?.signal)
       return { output, mode: 'burn' }
     },
@@ -435,11 +442,11 @@ export function buildFfmpegTools(config: ResolvedFfmpegConfig, runner: ProcessRu
       const streamIndex = typeof args.streamIndex === 'number' && Number.isInteger(args.streamIndex) && args.streamIndex >= 0 ? args.streamIndex : 0
       let output: string
       if (what === 'audio') {
-        output = resolveOutputPath(input, optionalString(args, 'output'), '.audio', '.m4a', cfg.overwrite)
+        output = prepareOutputPath(input, optionalString(args, 'output'), '.audio', '.m4a', cfg.overwrite)
       } else if (what === 'frame') {
-        output = resolveOutputPath(input, optionalString(args, 'output'), '.frame', '.png', cfg.overwrite)
+        output = prepareOutputPath(input, optionalString(args, 'output'), '.frame', '.png', cfg.overwrite)
       } else if (what === 'subtitle') {
-        output = resolveOutputPath(input, optionalString(args, 'output'), '.subtitle', '.srt', cfg.overwrite)
+        output = prepareOutputPath(input, optionalString(args, 'output'), '.subtitle', '.srt', cfg.overwrite)
       } else {
         const explicit = optionalString(args, 'output')
         if (explicit !== undefined) {
@@ -452,6 +459,7 @@ export function buildFfmpegTools(config: ResolvedFfmpegConfig, runner: ProcessRu
         } else {
           output = join(dirname(input), sanitizeName(basename(input, extname(input))) + '-%03d.png')
         }
+        mkdirSync(dirname(output), { recursive: true })
       }
       const spec = { input, what: what as ExtractWhat, output, overwrite: cfg.overwrite, start, duration, fps, streamIndex }
       try {
@@ -501,7 +509,7 @@ export function buildFfmpegTools(config: ResolvedFfmpegConfig, runner: ProcessRu
       const fps = typeof fpsRaw === 'number' && Number.isInteger(fpsRaw) ? Math.min(30, Math.max(1, fpsRaw)) : 10
       const widthRaw = args.width
       const width = typeof widthRaw === 'number' && Number.isInteger(widthRaw) ? Math.min(1280, Math.max(64, widthRaw)) : 480
-      const output = resolveOutputPath(input, optionalString(args, 'output'), '.gif', '.gif', cfg.overwrite)
+      const output = prepareOutputPath(input, optionalString(args, 'output'), '.gif', '.gif', cfg.overwrite)
       // 调色板属于内部临时产物，不能借用用户输出旁的可预测路径；否则 -y 与
       // finally 清理都可能覆盖/删除用户原有的 <output>.palette.png。
       const paletteDir = mkdtempSync(join(tmpdir(), 'dsh-ffmpeg-gif-'))
@@ -613,7 +621,7 @@ export function buildFfmpegTools(config: ResolvedFfmpegConfig, runner: ProcessRu
       // 先探测：确认有没有音轨，避免对无声文件构建音频滤镜报错
       const probeResult = await runChecked(runner, probeArgs(cfg.ffprobePath, input), Math.min(timeout, 60000), 'ffprobe', exec?.signal)
       const hasAudio = parseProbeJson(probeResult.stdout).audio.length > 0
-      const output = resolveOutputPath(input, optionalString(args, 'output'), '.adjust', extname(input) || '.mp4', cfg.overwrite)
+      const output = prepareOutputPath(input, optionalString(args, 'output'), '.adjust', extname(input) || '.mp4', cfg.overwrite)
       await runChecked(runner, adjustArgs(cfg.ffmpegPath, { input, output, overwrite: cfg.overwrite, speed, volume, mute, rotate, hasAudio }), timeout, 'ffmpeg 调整', exec?.signal)
       const ops: string[] = []
       if (speed !== undefined) ops.push('倍速 x' + speed)
