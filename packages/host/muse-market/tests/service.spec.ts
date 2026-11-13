@@ -36,7 +36,7 @@ describe('local publication service', () => {
     const emit = f.ctx.emit.bind(f.ctx)
     const notification = vi.spyOn(f.ctx, 'emit').mockImplementation((...args) => {
       if (args[0] === 'muse-market/inventory-changed') throw Error('Observer failed')
-      emit(...args)
+      Reflect.apply(emit, undefined, args)
     })
     try { expect(await f.market.prepare(metadata, f.skill.name)).toHaveProperty('enabled', false) }
     finally { notification.mockRestore() }

@@ -68,7 +68,10 @@ it.each(['policy', 'secret'] as const)('rejects POSIX permission bits on the %s 
     const metadata = await lstat(...args)
     if (args[0] === f.policyFile || args[0] === f.secretFile) {
       const unsafe = args[0] === (target === 'policy' ? f.policyFile : f.secretFile)
-      metadata.mode = metadata.mode & ~0o777 | (unsafe ? 0o622 : 0o600)
+      const permissions = unsafe ? 0o622 : 0o600
+      metadata.mode = typeof metadata.mode === 'number'
+        ? metadata.mode & ~0o777 | permissions
+        : metadata.mode & ~0o777n | BigInt(permissions)
     }
     return metadata
   })

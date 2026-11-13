@@ -43,8 +43,8 @@ describe('activation-owned Session Skill views', () => {
     const f = await fixture(), blank = await f.harness.create(SessionId('bind-before-step'))
     const step = (agent: Agent, signal = new AbortController().signal) => agent.ctx.waterfall('agent/pre-step', {
       agent, messages: [], turn: 1, step: 1, signal, modelSelection: { provider: 'fixture', model: 'fixture' },
-    }, async () => ({ kind: 'accept' as const, messages: [] }))
-    expect(await step(blank)).toEqual({ kind: 'accept', messages: [] })
+    }, async () => ({ kind: 'enter' as const, messages: [] }))
+    expect(await step(blank)).toEqual({ kind: 'enter', messages: [] })
     expect((await f.service.binding({ sessionId: blank.id })).phase).toBe('bound')
     await step(blank)
     expect(blank.session.snapshotEvents().filter(event => event.type === 'muse-market/bound')).toHaveLength(1)
@@ -73,7 +73,7 @@ describe('activation-owned Session Skill views', () => {
     const emit = f.ctx.emit.bind(f.ctx)
     const notification = vi.spyOn(f.ctx, 'emit').mockImplementation((...args) => {
       if (args[0] === 'muse-market/defaults-changed' || args[0] === 'skills/change') throw Error('Observer failed')
-      emit(...args)
+      Reflect.apply(emit, undefined, args)
     })
     try { expect(await f.service.setDefault({ skillName: 'fixture-skill', expected: f.first.release.id, target: null }))
       .toEqual({ revision: 2, defaults: [] }) } finally { notification.mockRestore() }
