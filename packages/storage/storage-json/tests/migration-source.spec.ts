@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, realpath, rename, rm, utimes, writeFile } from 'node:fs/promises'
 import * as Files from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -16,6 +16,35 @@ async function harness() {
   const backend = new JsonStorageBackend(root)
   onTestFinished(() => backend.close())
   return { root, backend }
+}
+
+async function sourceDocument() {
+  const h = await harness(), path = await jsonUnitSourcePath(h.backend, descriptor)
+  const text = JSON.stringify({ unit: { name: 'workspace', version: 2 }, global: null, tables: { workspaces: {} } })
+  await writeFile(path, text)
+  return { ...h, path, text }
+}
+
+/** Put the real file change between the handle's read and its following identity check. */
+function afterSourceRead(path: string, change: () => Promise<void>) {
+  let seen: Files.FileHandle | undefined
+  vi.spyOn(Files, 'open').mockImplementation(async (...args) => {
+    const handle = await nativeFiles.open(...args)
+    if (String(args[0]) !== path) return handle
+    onTestFinished(() => handle.close())
+    seen = handle
+    const read = handle.readFile.bind(handle)
+    vi.spyOn(handle, 'readFile').mockImplementationOnce(async (options) => {
+      const text = await read(options)
+      await change()
+      return text
+    })
+    return handle
+  })
+  return async () => {
+    if (seen === undefined) throw new Error('Migration did not open the selected source')
+    await expect(seen.stat()).rejects.toMatchObject({ code: 'EBADF' })
+  }
 }
 
 describe('explicit JSON migration source', () => {
@@ -62,6 +91,7 @@ describe('explicit JSON migration source', () => {
     await writeFile(path, JSON.stringify({ unit: { name: 'workspace', version: 99 }, global: null, tables: {} }))
     await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toThrow('not accepted')
   })
+
   it('keeps an absent configured root absent while resolving its source identity', async () => {
     const h = await harness(), root = join(h.root, 'not-created'), backend = new JsonStorageBackend(root)
     onTestFinished(() => backend.close())
@@ -79,4 +109,36 @@ describe('explicit JSON migration source', () => {
     await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toBe(denied)
   })
 
+  it.each(['replacement', 'size', 'mtime'] as const)('rejects a real source %s while its handle is being read', async (kind) => {
+    const h = await sourceDocument()
+    const closed = afterSourceRead(h.path, async () => {
+      if (kind === 'replacement') {
+        await rename(h.path, `${h.path}.old`)
+        await writeFile(h.path, h.text)
+      } else if (kind === 'size') await writeFile(h.path, `${h.text}\n`)
+      else await utimes(h.path, new Date(0), new Date(0))
+    })
+    await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toThrow('changed while reading')
+    await closed()
+    expect(await readFile(h.path, 'utf8')).toBe(kind === 'size' ? `${h.text}\n` : h.text)
+  })
+
+  // Windows chmod does not provide this POSIX permission/ctime transition.
+  it.skipIf(process.platform === 'win32')('rejects a POSIX permission change with unchanged bytes and mtime', async () => {
+    const h = await sourceDocument(), before = await nativeFiles.stat(h.path, { bigint: true })
+    const closed = afterSourceRead(h.path, async () => { await chmod(h.path, Number(before.mode) ^ 0o100) })
+    await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toThrow('changed while reading')
+    const after = await nativeFiles.stat(h.path, { bigint: true })
+    expect(after.mtimeNs).toBe(before.mtimeNs)
+    expect(after.ctimeNs).not.toBe(before.ctimeNs)
+    expect(await readFile(h.path, 'utf8')).toBe(h.text)
+    await closed()
+  })
+
+  it('rejects backend closure during the read and still closes the real file handle', async () => {
+    const h = await sourceDocument(), closed = afterSourceRead(h.path, () => h.backend.close())
+    await expect(readJsonUnitSource(h.backend, descriptor)).rejects.toThrow('backend closed while reading')
+    await closed()
+    expect(await readFile(h.path, 'utf8')).toBe(h.text)
+  })
 })
