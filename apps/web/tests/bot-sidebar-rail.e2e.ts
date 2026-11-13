@@ -16,6 +16,15 @@ import { REPO_ROOT } from './support.ts'
 const SOURCE = fileURLToPath(new URL('./fixtures/plugins/fixture-bot-sidebar-rail/', import.meta.url))
 const ARTIFACTS = join(REPO_ROOT, '.artifacts', 'sidebar-rail')
 
+function watchSidebarCrashes(page: Page): string[] {
+  const errors: string[] = []
+  // Slot supervision can replace a failed Bot entry with the native Workspace region without a pageerror.
+  page.on('console', (message) => {
+    if (message.text().startsWith("slot entry crashed in 'sidebar.workspaces':")) errors.push(message.text())
+  })
+  return errors
+}
+
 async function markPlatform(page: Page, platform: 'web' | 'darwin' | 'windows'): Promise<void> {
   await page.addInitScript(({ value, snapshot }) => {
     if (value !== 'web') {
@@ -89,6 +98,7 @@ async function geometry(page: Page) {
       return target !== null && element.contains(target)
     }
     const toggle = sidebar.querySelector('button[aria-label="Open sidebar"]')
+    const opener = document.querySelector('[data-sidebar-opener]')
     const controls = [...rail?.querySelectorAll(':scope > button') ?? []]
     const list = rail?.querySelector('.bt-list')
     return { sidebar: rect(sidebar), main: rect(main), rail: rail === null ? null : rect(rail),
@@ -99,6 +109,7 @@ async function geometry(page: Page) {
       viewportWidth: innerWidth, pageWidth: document.documentElement.scrollWidth,
       viewportHeight: innerHeight, pageHeight: document.documentElement.scrollHeight,
       collapsed: frame.hasAttribute('data-sidebar-collapsed'), retained: frame.hasAttribute('data-sidebar-rail'),
+      drawer: frame.hasAttribute('data-sidebar-drawer'), openerHit: hit(opener),
     }
   })
 }
@@ -219,6 +230,7 @@ it.each(['web', 'darwin', 'windows'] as const)(
       try {
         await markPlatform(page, platform)
         const tripwire = watchConsole(page)
+        const sidebarCrashes = watchSidebarCrashes(page)
         await page.goto(scaffold.authenticatedUrl)
         await page.locator('.bt-side').waitFor()
         const collapseSamples = await sampleMotion(page)
@@ -238,11 +250,26 @@ it.each(['web', 'darwin', 'windows'] as const)(
           })
         })
         await page.setViewportSize({ width: 390, height: 600 })
-        await expect.poll(async () => (await geometry(page)).sidebar.width).toBe(56)
+        await expect.poll(async () => {
+          const info = await geometry(page)
+          return info.collapsed && (platform === 'windows' ? info.sidebar.width === 56
+            : info.drawer && info.sidebar.right <= 0 && info.openerHit)
+        }).toBe(true)
+        const responsive = await geometry(page)
+        expect(responsive.drawer).toBe(platform !== 'windows')
+        expect(responsive.pageWidth).toBe(responsive.viewportWidth)
+        if (platform !== 'windows') {
+          expect(responsive.sidebar.width).toBe(expandedWidth)
+          expect(responsive.main.left).toBe(0)
+          expect(responsive.main.width).toBe(390)
+        }
         expect(await page.locator('html').getAttribute('data-resize-track-transition'), 'responsive collapse stays immediate').toBe('false')
         await page.emulateMedia({ reducedMotion: 'reduce' })
         await page.setViewportSize({ width: 1280, height: 800 })
-        await expect.poll(async () => (await geometry(page)).sidebar.width).toBe(expandedWidth)
+        await expect.poll(async () => {
+          const info = await geometry(page)
+          return info.viewportWidth === 1280 && !info.drawer && !info.collapsed && info.sidebar.width === expandedWidth
+        }).toBe(true)
         await collapse(page)
         const reducedExpand = await sampleMotion(page)
         const reducedCollapse = await sampleMotion(page)
@@ -256,12 +283,14 @@ it.each(['web', 'darwin', 'windows'] as const)(
         expect(interruptedSamples.at(-1)!.width).toBe(56)
         const all = [...collapseSamples, ...expandSamples, ...interruptedSamples, ...reducedExpand, ...reducedCollapse]
         expect(all.every(sample => sample.visibleControls > 0), platform).toBe(true)
-        expect(all.every(sample => Math.abs(sample.mainLeft - sample.width) <= 1), platform).toBe(true)
+        expect(all.every(sample => Math.abs(Math.round(sample.mainLeft * 100)
+          - Math.round(sample.width * 100)) <= 100), platform).toBe(true)
         if (platform === 'darwin') expect(all.every(sample => sample.toggleHit), 'macOS reopen remains clickable').toBe(true)
         expect(reducedExpand.slice(1).every(sample => sample.width === expandedWidth), 'reduced-motion expand is immediate').toBe(true)
         expect(reducedCollapse.slice(1).every(sample => sample.width === 56), 'reduced-motion collapse is immediate').toBe(true)
         expect(tripwire.pageErrors).toEqual([])
         expect(tripwire.warnings).toEqual([])
+        expect(sidebarCrashes).toEqual([])
       } finally { await page.close() }
     } finally {
       try { await browser?.close() }
@@ -287,6 +316,7 @@ it('retains painted desktop rails and restores classic presentation when the she
         try {
           await markPlatform(page, platform)
           const tripwire = watchConsole(page)
+          const sidebarCrashes = watchSidebarCrashes(page)
           await page.goto(scaffold.authenticatedUrl)
           await page.locator('.bt-side').waitFor()
           await collapse(page)
@@ -318,21 +348,56 @@ it('retains painted desktop rails and restores classic presentation when the she
           await expect.poll(async () => (await geometry(page)).sidebar.width).toBeGreaterThan(56)
           await collapse(page)
           await page.setViewportSize({ width: 390, height: 600 })
-          await expect.poll(async () => (await geometry(page)).viewportWidth).toBe(390)
+          await expect.poll(async () => {
+            const info = await geometry(page)
+            return info.viewportWidth === 390 && info.drawer === (platform !== 'windows')
+              && info.collapsed && (info.drawer ? info.sidebar.right <= 0 && info.openerHit : info.sidebar.width === 56)
+          }).toBe(true)
           const narrow = await geometry(page)
-          expect(narrow.sidebar.width).toBe(56)
-          expect(narrow.buttonHit).toBe(true)
-          expect(narrow.main.left).toBeGreaterThanOrEqual(narrow.sidebar.right)
+          if (narrow.drawer) {
+            expect(narrow.sidebar.width).toBeGreaterThan(56)
+            expect(narrow.main.left).toBe(0)
+            expect(narrow.main.width).toBe(narrow.viewportWidth)
+            await page.locator('[data-sidebar-opener]').click()
+            await page.locator('.bt-side [data-bot-id="chief"]').waitFor()
+            await page.locator('html').evaluate((element) => { element.removeAttribute('data-fixture-bot-selected') })
+            await page.locator('.bt-side [data-bot-id="chief"]').click()
+            expect(await page.locator('html').getAttribute('data-fixture-bot-selected')).toBe('chief')
+            await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).filter({ visible: true }).first().click()
+            await expect.poll(async () => {
+              const info = await geometry(page)
+              return info.collapsed && info.sidebar.right <= 0 && info.openerHit
+            }).toBe(true)
+          } else {
+            expect(narrow.sidebar.width).toBe(56)
+            expect(narrow.buttonHit).toBe(true)
+            expect(narrow.main.left).toBeGreaterThanOrEqual(narrow.sidebar.right)
+          }
           expect(narrow.pageWidth).toBe(narrow.viewportWidth)
           await page.getByRole('button', { name: 'Leave fixture Bot mode', exact: true }).click()
-          await expect.poll(async () => (await geometry(page)).sidebar.width).toBe(platform === 'web' ? 56 : 0)
+          await expect.poll(async () => (await geometry(page)).rail).toBeNull()
           const classic = await geometry(page)
           expect(classic.rail).toBeNull()
-          expect(classic.retained).toBe(platform === 'web')
+          expect(classic.retained).toBe(false)
+          expect(classic.drawer).toBe(platform !== 'windows')
+          if (classic.drawer) {
+            expect(classic.sidebar.right).toBeLessThanOrEqual(0)
+            expect(classic.openerHit).toBe(true)
+          } else expect(classic.sidebar.width).toBe(0)
           expect(classic.pageWidth).toBe(classic.viewportWidth)
-          expected.push(`${platform}/${colorScheme}: ${JSON.stringify({ wide: result, narrow, classic })}`)
+          await page.setViewportSize({ width: 1280, height: 800 })
+          await expect.poll(async () => {
+            const info = await geometry(page)
+            return !info.drawer && info.collapsed && info.sidebar.width === (platform === 'web' ? 56 : 0)
+          }).toBe(true)
+          const restored = await geometry(page)
+          expect(restored.rail).toBeNull()
+          expect(restored.main.left).toBe(restored.sidebar.right)
+          expect(restored.pageWidth).toBe(restored.viewportWidth)
+          expected.push(`${platform}/${colorScheme}: ${JSON.stringify({ wide: result, narrow, classic, restored })}`)
           expect(tripwire.pageErrors).toEqual([])
           expect(tripwire.warnings).toEqual([])
+          expect(sidebarCrashes).toEqual([])
         } catch (error) {
           try { await page.screenshot({ path: join(ARTIFACTS, `${platform}-${colorScheme}-failure.png`) }) }
           catch (screenshotError) {
