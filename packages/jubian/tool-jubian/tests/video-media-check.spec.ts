@@ -14,11 +14,10 @@ vi.mock('@deepseek-ai/dsh-jubian-api', async original => ({
   ...await original<typeof import('@deepseek-ai/dsh-jubian-api')>(), downloadMedia: vi.fn(),
 }))
 
-const ffmpeg = process.env.MUSE_RECOVERY_TEST_FFMPEG ?? process.env.DSH_FFMPEG_PATH
+const ffmpeg = process.env.MUSE_RECOVERY_TEST_FFMPEG ?? process.env.DSH_FFMPEG_PATH ?? 'ffmpeg'
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
 
 async function fixture(audio = true, duration = '0.3') {
-  if (ffmpeg === undefined) throw new Error('Set MUSE_RECOVERY_TEST_FFMPEG to the bundled native decoder')
   const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-managed-decoder-')))
   const ctx = new Context()
   onTestFinished(async () => { try { await ctx.fiber.dispose() } finally { await rm(root, { recursive: true, force: true }) } })
@@ -37,7 +36,7 @@ async function fixture(audio = true, duration = '0.3') {
   return { root, ctx, path, decoder }
 }
 
-it.skipIf(ffmpeg === undefined)('decodes exact video and audio tracks and refuses missing tracks or malformed input', async () => {
+it('decodes exact video and audio tracks and refuses missing tracks or malformed input', async () => {
   const f = await fixture()
   expect(await decodeVideoFile(f.path, f.decoder, new AbortController().signal)).toEqual({ video: true, audio: true })
   const silent = await fixture(false)
@@ -47,7 +46,7 @@ it.skipIf(ffmpeg === undefined)('decodes exact video and audio tracks and refuse
   expect(await decodeVideoFile(corrupt, f.decoder, new AbortController().signal)).toEqual({ video: false, audio: false })
 })
 
-it.skipIf(ffmpeg === undefined)('does not settle cancellation before the actual managed decoder range drains', async () => {
+it('does not settle cancellation before the actual managed decoder range drains', async () => {
   const f = await fixture(true, '10')
   const entered = Promise.withResolvers<undefined>(), joined = Promise.withResolvers<undefined>()
   const release = Promise.withResolvers<undefined>()
@@ -80,7 +79,7 @@ it.skipIf(ffmpeg === undefined)('does not settle cancellation before the actual 
   expect(probe).toHaveBeenCalledTimes(1)
 })
 
-it.skipIf(ffmpeg === undefined)('reports a deadline-cut decode as failed after its native process exits', async () => {
+it('reports a deadline-cut decode as failed after its native process exits', async () => {
   const f = await fixture(true, '10')
   const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
   vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation(spec => spawn({ ...spec, argv: [spec.argv[0]!, '-re', ...spec.argv.slice(1)] }))
@@ -89,7 +88,7 @@ it.skipIf(ffmpeg === undefined)('reports a deadline-cut decode as failed after i
 })
 
 
-it.skipIf(ffmpeg === undefined)('downloads exact bytes, decodes both tracks and removes its captured temporary input', async () => {
+it('downloads exact bytes, decodes both tracks and removes its captured temporary input', async () => {
   const f = await fixture()
   const bytes = await readFile(f.path), sha256 = 'sha256:' + createHash('sha256').update(bytes).digest('hex')
   vi.mocked(downloadMedia).mockResolvedValueOnce({ bytes, sha256, kind: 'video', media_type: 'video/mp4' })
@@ -101,7 +100,7 @@ it.skipIf(ffmpeg === undefined)('downloads exact bytes, decodes both tracks and 
   await expect(lstat(capture)).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
-it.skipIf(ffmpeg === undefined).each(['spawn-failure', 'lost-observation', 'false-join'] as const)(
+it.each(['spawn-failure', 'lost-observation', 'false-join'] as const)(
   'retains input only when native decoder teardown is unconfirmed: %s', async (mode) => {
     const f = await fixture(), bytes = await readFile(f.path)
     vi.mocked(downloadMedia).mockResolvedValueOnce({ bytes, sha256: 'sha256:fixture', kind: 'video', media_type: 'video/mp4' })
@@ -130,7 +129,7 @@ it.skipIf(ffmpeg === undefined).each(['spawn-failure', 'lost-observation', 'fals
   },
 )
 
-it.skipIf(ffmpeg === undefined).each(['failure', 'deadline', 'cancel'] as const)(
+it.each(['failure', 'deadline', 'cancel'] as const)(
   'joins a real native range when the provider rejects its outcome: %s', async (mode) => {
     const f = await fixture(true, '10'), cancellation = new AbortController(), entered = Promise.withResolvers<undefined>()
     const spawn = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
