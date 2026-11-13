@@ -19,6 +19,8 @@ Windows 原声草稿按画幅选择片尾：只有 `9:16` 在整集末尾追加�
 
 保留已有草稿；名称冲突时为新候选选择唯一 `name_prefix`，不得删除或覆盖旧草稿。
 
+Windows 原声生成对同根目录、同名请求互斥；生成期间保护活动素材目录及明确保留的素材文件，原生执行和回读结束后解除，不是永久保护。恢复时不得强删锁、移动活动素材目录或手改 `root_meta_info.json`；先等本次实际退出，或另用唯一新名生成候选。可读的草稿身份或正文源时窗不一致时失败并保留文件；证据缺失或不可解读时保持未验证，不签发本集交付凭据。详见[恢复与保存校验](references/io-contract.md#recovery-and-saved-verification)；这些检查不替代剪映中裁剪、保存、关闭和重开的人工验收，不自动修复旧稿。
+
 草稿对白与纯配乐可读取 `project_config.json.project_bible.delivery.audio: {master_gain?, bgm_gain?}`，prepare 写入时间线后以快照为准。快照存在 `audio` 节（包括 `{}`）时整节优先，不从项目补缺字段；缺字段保留 SDK 原默认 1，缺整个节才读取项目。增益参数为 0–8 有限线性数值，零静音；Muse 草稿通过部署 `maxBgmGain: 1` 对 BGM 增益封顶，不放大已衰减的配乐，独立脚本默认上限 8。没有显式配置的旧请求仍为 1/1。与正式成片匹配时显式指定两项，不假定正式渲染的部署默认也适用于草稿。片尾音增益和字幕 SDK 样式不随项目音频字段改变。
 
 源视频可能已有对白烧录字。Windows 原声与旧独立音轨路径沿[源画面文字与字幕叠加流程](../tweet-drama-background-render/SKILL.md#源画面文字与字幕叠加)抽样 OCR 与画面预览，并用 `drama_render subtitle_overlay` 或实际 `render` 的字幕处理报告确定叠加集合。保留烧录字时，将工具返回的 `resolved_srt` 作为请求的 `subtitle_srt`，把对应 `decision_report` 绝对路径传为 `subtitle_overlay_report`；请求中的 timeline 和视频必须与该报告同源，不得再传回全部原 SRT。工具核对 SRT 与所选视频字节，保存报告并返回不可编辑范围。识别不确定只提示、预览和保留候选，不自动付费去字。Windows 原声模式同样接受有依据的叠加报告，并保留烧录字幕不可编辑的提示；只有报告确认全部原字幕都由源画面保留时才允许空的叠加 SRT。

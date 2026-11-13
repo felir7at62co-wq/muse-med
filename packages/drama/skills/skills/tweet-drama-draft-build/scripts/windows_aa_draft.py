@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from contextlib import ExitStack
 from fractions import Fraction
 from urllib.parse import unquote
 
@@ -29,6 +30,8 @@ sys.path.insert(0, str(CORE_SCRIPTS))
 from video_bans import check_videos, find_project
 from draft_inputs import audio_gains, body_clock, draft_style, bgm_import, product_subtitle_cues, write_product_subtitles
 from generate_draft_request import attach_episode_source_receipt, read_subtitle_overlay_report, verify_draft_subtitle_clock
+from draft_stage_guard import BuildLease, DraftStageGuard
+from draft_integrity import DraftIntegrityUnavailable, verify_saved_identity, verify_embedded_source_ranges
 
 _policy_spec = importlib.util.spec_from_file_location(
     'aa_delivery_policy', SCRIPT_ROOT.parents[1] / 'tweet-drama-background-render/scripts/delivery_policy.py')
@@ -262,8 +265,8 @@ def project_native_timeline(plan: dict) -> None:
     plan['native_duration_us'] = frame_time(end_frame)
 
 
-def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
-    """Validate an embedded-audio episode and retain byte-identical selected inputs."""
+def resolve_draft_target(request: dict, drafts_dir: str) -> tuple[Path, Path, int, str]:
+    """Validate the target before acquiring its nonblocking generation lease."""
     if not isinstance(request, dict) or request.get('audio_mode') != 'embedded' or 'audio' in request:
         raise ValueError('The AA backend requires audio_mode=embedded and no independent audio input')
     project, root = Path(request['project']), Path(drafts_dir)
@@ -279,6 +282,12 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
     name = prefix + str(episode).zfill(2)
     if re.match(r'(?i)^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)', name):
         raise ValueError('Windows-reserved draft name')
+    return project, root, episode, name
+
+
+def prepare_plan(request: dict, drafts_dir: str, *, lifetime: ExitStack | None = None) -> tuple[dict, Path]:
+    """Retain selected inputs; the generator owns guards through native exit and readback."""
+    project, root, episode, name = resolve_draft_target(request, drafts_dir)
     draft_path = root / name
     if draft_path.exists():
         raise ValueError('Draft already exists; choose a new name_prefix')
@@ -336,6 +345,7 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
     parent = project / 'editing/draft-materials'
     parent.mkdir(parents=True, exist_ok=True)
     stage = Path(tempfile.mkdtemp(prefix=f'ep{episode:02d}-aa-', dir=parent))
+    guard = lifetime.enter_context(DraftStageGuard(stage)) if lifetime is not None else None
     hashes = []
 
     def retain(source: Path, relative: str) -> Path:
@@ -343,6 +353,8 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
         destination.parent.mkdir(parents=True, exist_ok=True)
         digest = file_hash(source)
         shutil.copy2(source, destination)
+        if guard is not None:
+            guard.protect_file(destination)
         if file_hash(destination) != digest or file_hash(source) != digest:
             raise ValueError(f'Selected input changed during retention: {source}')
         hashes.append({'source': str(source), 'retained': str(destination), 'sha256': digest})
@@ -370,6 +382,8 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
         videos.append({'shot': row['shot'], 'path': str(retained), 'original': str(original),
                        'width': measured['width'], 'height': measured['height'],
                        'source_sha256': file_hash(retained), 'start_us': row['start_us'],
+                       'source_duration_us': measured['duration_us'],
+                       'video_duration_us': measured.get('video_duration_us') or measured['duration_us'],
                        'duration_us': row['duration_us'], 'has_audio': measured['audio']})
     plan = {'schema_version': 1, 'audio_mode': 'embedded', 'name': name, 'ref': 'local://' + name,
             'ratio': ratio,
@@ -447,6 +461,13 @@ def prepare_plan(request: dict, drafts_dir: str) -> tuple[dict, Path]:
             retain(note, 'subtitles.srt' + suffix)
             warnings.append(f'所选字幕仍有待核说明：{note}')
     project_native_timeline(plan)
+    for video, native in zip(plan['videos'], plan['native_videos']):
+        # duration_us rounds upward only to transport a frame without CLI flooring.
+        # Compare actual frame time against ffprobe's nearest integer microsecond.
+        frame_duration = Fraction((native['end_frame'] - native['start_frame']) * 1_000_000, NATIVE_FRAME_RATE)
+        if frame_duration > video['video_duration_us'] + Fraction(1, 2):
+            raise ValueError(f'镜头 {video["shot"]} 的原生 30fps 时窗超出完整源视频时长；'
+                             '未创建草稿，保留原素材。请核对时间线并选择源视频内可用的完整帧时窗，不延长源时段或改速绕过。')
     (stage / 'aa-plan.json').write_text(json.dumps(plan, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return plan, stage
 
@@ -683,8 +704,37 @@ def verify_readback(plan: dict, result: dict) -> dict:
 
 
 def generate_request(request: dict, drafts_dir: str) -> dict:
-    """Build one native Windows candidate and preserve readback and recovery evidence."""
-    plan, stage = prepare_plan(request, drafts_dir)
+    """Keep this draft's lease and materials until native execution and saved checks settle."""
+    _, root, _, name = resolve_draft_target(request, drafts_dir)
+    with BuildLease(root, name), ExitStack() as lifetime:
+        plan, stage = prepare_plan(request, drafts_dir, lifetime=lifetime)
+        return generate_candidate(request, drafts_dir, plan, stage)
+
+
+def verify_saved_candidate(plan: dict, result: dict, verification: dict) -> list[str]:
+    """Reject readable inconsistencies; report opaque evidence as explicitly unverified."""
+    warnings = []
+    try:
+        verify_saved_identity(Path(plan['draft_path']), Path(plan['drafts_dir']), result['draft_id'])
+        verification['saved_identity'] = {'status': 'verified'}
+    except DraftIntegrityUnavailable as error:
+        verification['saved_identity'] = {'status': 'unverified'}
+        warnings.append(str(error))
+    try:
+        content = json.loads((Path(plan['draft_path']) / 'draft_content.json').read_text(encoding='utf-8-sig'))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        verification['embedded_source_ranges'] = {'status': 'unverified'}
+        warnings.append(f'保存的正文源时窗不可读取，尚未验收：{error}。请保留草稿和素材，勿手动改写索引。')
+    else:
+        durations = {row['path']: row['source_duration_us'] for row in plan['videos']}
+        video_durations = {row['path']: row['video_duration_us'] for row in plan['videos']}
+        verify_embedded_source_ranges(content, durations.keys(), durations, source_window_durations=video_durations)
+        verification['embedded_source_ranges'] = {'status': 'verified'}
+    return warnings
+
+
+def generate_candidate(request: dict, drafts_dir: str, plan: dict, stage: Path) -> dict:
+    """Save one guarded native candidate without repairing or replacing existing projects."""
     configured = os.environ.get('MUSE_JIANYING_POWERSHELL')
     system_root = os.environ.get('SystemRoot')
     if not system_root and not configured:
@@ -702,7 +752,8 @@ def generate_request(request: dict, drafts_dir: str) -> dict:
     if invocation.returncode or result.get('ok') is not True:
         raise ValueError(f'AA draft failed; keep {receipt} for recovery: {result.get("error", invocation.stderr[-3000:])}')
     verification = verify_readback(plan, result)
-    warnings = list(dict.fromkeys([*plan['warnings'], *result.get('warnings', []), *verification['warnings']]))
+    saved_warnings = verify_saved_candidate(plan, result, verification)
+    warnings = list(dict.fromkeys([*plan['warnings'], *result.get('warnings', []), *verification['warnings'], *saved_warnings]))
     if verification['timeline_timing']['max_endpoint_offset_us']:
         warnings.append('原视频文件保留且未变速；原生时间线按 30fps 映射连续片段，实际最大边界偏差为 '
                         f'{verification["timeline_timing"]["max_endpoint_offset_us"] / 1000:g} ms，'
@@ -717,18 +768,23 @@ def generate_request(request: dict, drafts_dir: str) -> dict:
               'next': '原生草稿已保存并回读；实际剪映打开、重开、字幕与声音仍需验收。'}
     if 'subtitle_overlay' in plan:
         review['subtitle_overlay'] = plan['subtitle_overlay']
-    review_path.write_text(json.dumps(review, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     candidate = {'episode': str(request['episode']).zfill(2), 'name': plan['name'],
                  'path': plan['draft_path'], 'id': result['draft_id'], 'success': True, 'error': '',
                  'quality': 'needs_review', 'warnings': warnings, 'review_path': str(review_path)}
     native_sources = (native_source_path(row['attributes']['source']) for row in extract_nodes(result['full'])
                       if row.get('type') in ('video', 'audio'))
-    warning = attach_episode_source_receipt(
-        candidate, Path(plan['draft_path']), Path(drafts_dir), stage, request['episode'], plan['materials'],
-        stage / 'timeline.json', stage / 'subtitles.srt', {row['shot']: Path(row['path']) for row in plan['videos']},
-        native_sources=native_sources, path_decoder=native_source_path)
+    if all(verification[key]['status'] == 'verified' for key in ('saved_identity', 'embedded_source_ranges')):
+        warning = attach_episode_source_receipt(
+            candidate, Path(plan['draft_path']), Path(drafts_dir), stage, request['episode'], plan['materials'],
+            stage / 'timeline.json', stage / 'subtitles.srt', {row['shot']: Path(row['path']) for row in plan['videos']},
+            native_sources=native_sources, path_decoder=native_source_path)
+    else:
+        warning = '草稿已保存，但无法核对本集的交付凭据：身份或正文源时窗尚未验证；保留候选，不能归入交付目录。'
+        candidate['warnings'].append(warning)
     if warning is not None:
         warnings = candidate['warnings']
+    review['warnings'] = warnings
+    review_path.write_text(json.dumps(review, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     return {'success': True, 'backend': 'aa-jianying', 'drafts_created': 1,
             'drafts': [candidate],
             'materials_dir': str(stage), 'quality': 'needs_review', 'warnings': warnings,
