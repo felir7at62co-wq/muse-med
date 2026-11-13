@@ -7,6 +7,9 @@ import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-muse-market/remote'
 import type { TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
+import marketRemote from '@deepseek-ai/dsh-muse-market/remote'
+import * as BrowserEntry from '../src/client/index.ts'
+import * as HostEntry from '../src/index.ts'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { mountMuseMarket } from '../src/client/mount.ts'
 import type { MarketInjected } from '../src/client/market-actions.ts'
@@ -32,9 +35,10 @@ function MarketRoot({ renderSlot }: PropsRenderSlots<'main' | 'sidebar.panellist
 }
 
 class TracedRemote extends Service {
-  constructor(ctx: Context, private readonly calls: string[]) { super(ctx, 'remote') }
+  readonly listeners = new Map<string, () => void>()
+  constructor(ctx: Context, private readonly calls: string[], private readonly expected = contribution) { super(ctx, 'remote') }
   async $mount(value: TypertRemoteContribution): Promise<() => Promise<void>> {
-    expect(value).toBe(contribution)
+    expect(value).toBe(this.expected)
     const owner = this.ctx.plugin((scope) => {
       scope.provide('remote.museMarket', {
         sources: unused, prepare: unused, importPackage: unused, exportPackage: unused, removePackage: unused,
@@ -52,7 +56,10 @@ class TracedRemote extends Service {
     await owner
     return async () => { await owner.dispose() }
   }
-  $on(): () => void { return () => {} }
+  $on(event: string, listener: () => void): () => void {
+    this.listeners.set(event, listener)
+    return () => { this.listeners.delete(event) }
+  }
   get museMarket(): ClientRemote['museMarket'] { return this.ctx['remote.museMarket'] }
   get museMarketActivation(): ClientRemote['museMarketActivation'] { return this.ctx['remote.museMarketActivation'] }
   get museMarketCloud(): ClientRemote['museMarketCloud'] { return this.ctx['remote.museMarketCloud'] }
@@ -103,4 +110,30 @@ it('releases the mounted namespaces when UI initialization fails', async () => {
   expect(ctx.get('remote.museMarket')).toBeUndefined()
   expect(ctx.get('remote.museMarketActivation')).toBeUndefined()
   expect(ctx.get('remote.museMarketCloud')).toBeUndefined()
+})
+
+it('loads the shipped browser descriptors and fences private and inventory callbacks until disposal', async () => {
+  const ctx = new Context(), calls: string[] = []
+  onTestFinished(async () => { await ctx.fiber.dispose() })
+  await ctx.plugin(HostEntry).await()
+  await ctx.plugin(SlotRegistry).await()
+  ctx.provide('locale', new LocaleRuntime(ctx)); ctx.provide('layout', { selectPanel: () => {} })
+  ctx.slots.register({ name: 'root', children: {
+    main: { kind: 'keyed', scope: 'root' }, 'sidebar.panellist': { kind: 'list', scope: 'root' },
+    'settings.section': { kind: 'list', scope: 'root' }, 'shell.overlay': { kind: 'list', scope: 'root' },
+  } }, MarketRoot)
+  const remote = new TracedRemote(ctx, calls, marketRemote)
+  const dispose = await BrowserEntry.apply(ctx)
+  const injected = ctx.slots.entries('main')[0]?.inject?.() as MarketInjected | undefined
+  if (!injected) throw Error('Shipped browser entry did not register the market panel')
+  const before = injected.hooks.access.getSnapshot()
+  ctx.emit('connection/reset')
+  remote.listeners.get('muse-account/session-changed')?.()
+  expect(injected.hooks.access.getSnapshot().revision).toBe(before.revision + 2)
+  remote.listeners.get('muse-market/inventory-changed')?.()
+  remote.listeners.get('muse-market/defaults-changed')?.()
+  expect(injected.hooks.access.getSnapshot().inventoryRevision).toBe(2)
+  await dispose()
+  expect(remote.listeners.size).toBe(0)
+  expect(ctx.slots.entries('main')).toEqual([])
 })
