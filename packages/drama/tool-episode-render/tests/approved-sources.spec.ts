@@ -113,7 +113,7 @@ it.each([
   { kind: 'unverified sensitive content', error: /内容复核不完整/u },
   { kind: 'no frames', error: /缺少审核抽帧/u },
 ])('requires current package evidence in strict mode: $kind', async ({ kind, error }) => {
-  const project = await tempProject()
+  const project = await realpath(await tempProject())
   projects.push(project)
   const paths = episodePaths(project, '24')
   const packagePath = join(project, 'episode_packages', '24', 'package.json')
