@@ -647,6 +647,19 @@ describe('prepared subtitle source clock', () => {
     await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
   })
 
+  it.each([null, 'not a manifest', [], {}])
+  ('rejects a non-manifest JSON document before reading prepared metadata: %j', async (document) => {
+    const { project, paths, channel } = await preparedClockProject(false)
+    const bytes = JSON.stringify(document)
+    await writeFile(paths.sources, bytes, 'utf8')
+    const callsBefore = [...channel.calls]
+    await expect(preparedSubtitleClockInputs(project, '02', paths.timeline, paths.subtitle, undefined))
+      .rejects.toThrow('成片清单必须是')
+    expect(await readFile(paths.sources, 'utf8')).toBe(bytes)
+    expect(channel.calls).toEqual(callsBefore)
+    await expect(readFile(paths.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('rejects a prepared shot manifest that no longer matches the complete timeline', async () => {
     const { project, paths, channel } = await preparedClockProject(false)
     const timeline = await readTimeline(paths.timeline)

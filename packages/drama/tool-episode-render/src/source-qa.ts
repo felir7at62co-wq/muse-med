@@ -103,16 +103,18 @@ export function createSourceQaStagedAccess(project: string, stage: string, files
     }
     copies.add(fileKey(file.stagedPath))
   }
-  const logical = (file: string): string => {
+  const mappedFile = (file: string): SourceQaStagedFile => {
     const path = resolve(project, file)
     const mapped = originals.get(fileKey(path))
     if (mapped === undefined) throw new Error('Source QA stage has no captured mapping')
-    return mapped.originalPath
+    return mapped
   }
-  const inspect = async (path: string, collect: boolean): Promise<{ sha256: string; bytes?: Buffer }> => {
+  const logical = (file: string): string => mappedFile(file).originalPath
+  async function inspect(path: string, collect: true): Promise<{ sha256: string; bytes: Buffer }>
+  async function inspect(path: string, collect: false): Promise<{ sha256: string }>
+  async function inspect(path: string, collect: boolean): Promise<{ sha256: string; bytes?: Buffer }> {
     signal.throwIfAborted()
-    const file = originals.get(fileKey(logical(path)))
-    if (file === undefined) throw new Error('Source QA stage has no captured mapping')
+    const file = mappedFile(path)
     if (await realpath(stage) !== stage || await realpath(file.stagedPath) !== file.stagedPath) {
       throw new Error('Source QA stage file is not canonical')
     }
@@ -148,20 +150,13 @@ export function createSourceQaStagedAccess(project: string, stage: string, files
       return { sha256: digest, ...(collect ? { bytes: Buffer.concat(chunks) } : {}) }
     } finally { await handle.close() }
   }
-  return { project, logical, stagedPath: (path) => {
-    const file = originals.get(fileKey(logical(path)))
-    if (file === undefined) throw new Error('Source QA stage has no captured mapping')
-    return file.stagedPath
-  }, list: (directory) => {
+  return { project, logical, stagedPath: path => mappedFile(path).stagedPath, list: (directory) => {
     const target = resolve(project, directory)
     const names = listed.get(fileKey(target))
     if (names === undefined) throw new Error('Source QA stage has no captured directory snapshot')
     return [...names]
-  }, read: async (path) => {
-    const result = await inspect(path, true)
-    if (result.bytes === undefined) throw new Error('Source QA staged read returned no bytes')
-    return result.bytes
-  }, hash: async path => (await inspect(path, false)).sha256 }
+  }, read: async path => (await inspect(path, true)).bytes,
+  hash: async path => (await inspect(path, false)).sha256 }
 }
 
 type ObjectValue = Record<string, unknown>

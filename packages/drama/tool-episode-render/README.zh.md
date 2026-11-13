@@ -53,7 +53,7 @@ kind: "package-reference"
 
 上面的字体族是部署默认值，不是模型工具参数。两者都必须是非空白字符串，不能包含逗号或换行；无效值会被 Config 校验拒绝。项目可以按下文覆盖正文字幕字族，但不能覆盖水印字族。提供 Noto Sans CJK SC 的部署可将两个默认值设为 `Noto Sans CJK SC`。选择字族不会修改 `fontsDir` 或安装字体。旧版渲染在 libass 找不到字族时可能回退；启用 `subtitle_visual` 的交付要求实测字体选择与请求字族相符。需要标记与片尾时，拼接后统一烧录一份 ASS，因此片尾全程使用同一水印字体族。
 
-Host 调用方可提供 `SourceQaStagedAccess`，从私有捕获副本渲染，同时保留原项目路径作为证据身份。每次读取核对映射文件的字节；映射本身不授予批准。严格调用方必须提供真实 Session 核验器，并将所有者守卫保持到最终发布。[Desktop 守护者](../../../apps/desktop-host/README.zh.md#episode-execution-supervision)负责这一跨进程组合。
+Host 调用方可提供 `SourceQaStagedAccess`，从私有捕获副本渲染，同时保留原项目路径作为证据身份。缺少捕获映射时，在文件访问前拒绝。每次读取核对映射文件的字节；映射本身不授予批准。严格调用方必须提供真实 Session 核验器，并将所有者守卫保持到最终发布。[Desktop 守护者](../../../apps/desktop-host/README.zh.md#episode-execution-supervision)负责这一跨进程组合。
 
 库调用方可从包根入口导入 `ProcessChannel`、`MediaCommandOutcome` 和 `RenderSettings`，为 `runDramaRender` 提供自己持有的媒体通道。暂存音频与片尾辅助函数为已私有捕获的输入复用同一时间线和交付策略；调用方负责输入核验、取消和发布。
 

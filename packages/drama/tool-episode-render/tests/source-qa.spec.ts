@@ -84,6 +84,34 @@ it('reads only captured directory inventories and rejects evidence from another 
     .rejects.toThrow('暂存证据属于另一项目')
 })
 
+it('rejects relative or noncanonical stage roots before building any file mapping', async () => {
+  const f = await fixture(), project = await realpath(f.input.project)
+  const stage = join(project, 'private-stage'), signal = new AbortController().signal
+  for (const [root, privateRoot] of [
+    ['relative-project', stage], [project + '/./', stage],
+    [project, 'relative-stage'], [project, stage + '/./'],
+  ] as const) {
+    expect(() => createSourceQaStagedAccess(root, privateRoot, [], signal))
+      .toThrow('canonical absolute roots')
+  }
+})
+
+it('rejects malformed captured directory inventories before making a reader', async () => {
+  const f = await fixture(), project = await realpath(f.input.project)
+  const stage = join(project, 'private-stage'), signal = new AbortController().signal
+  const invalid = [
+    [{ originalPath: 'relative-directory', entries: [] }],
+    [{ originalPath: project + '/./', entries: [] }],
+    [{ originalPath: project, entries: [] }, { originalPath: project, entries: [] }],
+    ...[['entry', 'entry'], [''], ['.'], ['..'], ['parent/child'], ['parent\\child']]
+      .map(entries => [{ originalPath: project, entries }]),
+  ]
+  for (const directories of invalid) {
+    expect(() => createSourceQaStagedAccess(project, stage, [], signal, directories))
+      .toThrow('invalid directory snapshot')
+  }
+})
+
 it.each(['selected', 'original'] as const)('rejects saved source QA with an empty %s OCR declaration', async (source) => {
   const f = await fixture(source === 'original'), before = await evidenceBytes(f)
   const declaration = source === 'selected' ? f.qa.selected : f.qa.original
@@ -136,6 +164,9 @@ it('validates unmodified staged copies against original identities without treat
   if (media === undefined) throw new Error('Fixture media was not captured')
   expect(staged.stagedPath(media.originalPath)).toBe(media.stagedPath)
   expect(() => { staged.stagedPath(join(project, 'uncaptured-video.mp4')) }).toThrow('no captured mapping')
+  await expect(staged.read(media.originalPath)).resolves.toEqual(await readFile(media.stagedPath))
+  await expect(staged.read(join(project, 'uncaptured-video.mp4'))).rejects.toThrow('no captured mapping')
+  await expect(staged.hash(join(project, 'uncaptured-video.mp4'))).rejects.toThrow('no captured mapping')
   const verifier = vi.fn(verifiedSourceQaFixture)
   const original = await verifySourceQa({ ...f.input, verifier })
   const stagedResult = await verifySourceQa({ ...f.input, project, verifier, staged })

@@ -1,5 +1,5 @@
 /** Staged inputs retain the current renderer's audio clock and delivery policy. */
-import { readFile, realpath, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { prepareStagedEpisodeAudio, stagedEpisodeEndingAssets } from '../src/prepare.ts'
@@ -79,6 +79,18 @@ it('preserves an existing audio proof and refuses to encode over it', async () =
   })).rejects.toThrow('音轨核验输出已存在')
   expect(await readFile(target, 'utf8')).toBe('previously accepted voice')
   expect(channel.calls).toEqual([])
+})
+
+it('rejects an audio proof in an existing aliased directory before media work', async () => {
+  const input = await fixture(), channel = stubChannel([])
+  const directory = join(input.project, 'original-proof'), alias = join(input.project, 'aliased-proof')
+  await mkdir(directory)
+  await symlink(directory, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  await expect(prepareStagedEpisodeAudio({ ...input, proofOutputPath: join(alias, 'audio.wav') }, {
+    ffmpeg: 'ffmpeg', ffprobe: 'ffprobe', channel: channel.channel,
+  })).rejects.toThrow('音轨核验输出目录不是规范路径')
+  expect(channel.calls).toEqual([])
+  await expect(readFile(join(directory, 'audio.wav'))).rejects.toMatchObject({ code: 'ENOENT' })
 })
 
 it('propagates native audio failures instead of claiming a complete master', async () => {
