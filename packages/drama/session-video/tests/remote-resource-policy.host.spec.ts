@@ -52,7 +52,7 @@ async function fixture() {
   await ctx.plugin({ inject: [...connectionInject], apply: applyConnection }).await()
   await ctx.plugin(Sessions).await()
   await ctx.plugin(Projections).await()
-  await ctx.plugin(Query).await()
+  await ctx.plugin(Query, {}).await()
   await ctx.plugin(FileSystem, { cwd: root }).await()
   await ctx.plugin(Attachments, { dshHome: root }).await()
   await ctx.plugin(Subprocess).await()
