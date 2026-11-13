@@ -526,7 +526,6 @@ export async function preparedSubtitleClockInputs(project: string, episode: stri
     throw new Error(`${paths.sources}: 已准备分包清单不是合法 JSON。`, { cause: error })
   }
   const rows = parseShotManifest(document, paths.sources)
-  if (document === null || typeof document !== 'object') throw new Error('字幕来源清单无效')
   const prepared = document as { master_audio_sha256?: unknown; timeline_clips?: unknown }
   const clock = prepared.timeline_clips
   const hasSubtitleClock = await pathExists(subtitleClockPath(subtitlePath))

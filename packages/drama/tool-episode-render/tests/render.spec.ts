@@ -1,6 +1,6 @@
 /** `render`: the encode pipeline, its cache, its log, and the delivery verdict it returns. */
 
-import { copyFile, cp, mkdir, readFile, readdir, realpath, rename, rm } from 'node:fs/promises'
+import { copyFile, cp, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, relative } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDramaRender, captureEpisodeSourceReview } from '../src/index.ts'
@@ -281,6 +281,14 @@ async function render(
 }
 
 describe('renderEpisode', () => {
+  it('refuses a Host source-review digest when the delivery never requested strict source QA', async () => {
+    const prepared = await preparedProject(), channel = renderChannel(prepared)
+    await expect(render(prepared, channel, false, undefined, { sourceQaExpectedSha: 'a'.repeat(64) }))
+      .rejects.toThrow('Host 指定的源片审核未在严格交付策略下核验')
+    expect(channel.calls).toEqual([])
+    await expect(readFile(prepared.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('refuses partial-episode resume before probing or encoding any source', async () => {
     const prepared = await preparedProject(), channel = renderChannel(prepared)
     await expect(render(prepared, channel, false, undefined, { resume: true, lastShot: 1 }))
@@ -402,8 +410,9 @@ describe('renderEpisode', () => {
   })
 
   it('renders strict reviewed sources from private copies after originals are unavailable', async () => {
-    const original = await reviewedProject(), stage = await realpath(await tempProject())
-    temporary.push(stage)
+    const original = await reviewedProject(), stageRoot = await tempProject()
+    temporary.push(stageRoot)
+    const stage = await realpath(stageRoot)
     const originalRoot = await realpath(original.project)
     await cp(original.project, stage, { recursive: true })
     const files: { originalPath: string; stagedPath: string; sha256: string; bytes: number; aliases: string[] }[] = []
@@ -436,16 +445,69 @@ describe('renderEpisode', () => {
     const held = original.project + '-unavailable'
     await rename(original.project, held)
     try {
+      const args = { method: 'render' as const, project: stage, episode: 2, timeline: staged.timeline,
+        subtitleSrt: staged.subtitle, lastShot: 2, bgm: staged.bgm, endingAudio: staged.endingAudio,
+        endingEffect: staged.endingEffect, output: staged.output }
       const invalid = renderChannel(staged)
-      await expect(render(staged, invalid, false, undefined,
-        { sourceQaVerifier: verifier, sourceQaStage: access, sourceQaExpectedSha: '0'.repeat(64) }))
+      await expect(runDramaRender(args, { ...settings, channel: invalid.channel },
+        verifier, undefined, access, '0'.repeat(64)))
         .rejects.toThrow('暂存的源片审核事实与 Host 核验不一致')
       expect(invalid.calls).toEqual([])
       verifier.mockClear()
-      const result = await render(staged, renderChannel(staged), false, undefined,
-        { sourceQaVerifier: verifier, sourceQaStage: access, sourceQaExpectedSha: captured.sourceQaSha256 })
+      const channel = renderChannel(staged)
+      const result = await runDramaRender(args, { ...settings, channel: channel.channel },
+        verifier, undefined, access, captured.sourceQaSha256)
       expect(result.ok).toBe(true)
       expect(verifier).toHaveBeenCalledTimes(2)
+      expect(await readFile(result.output, 'utf8')).toBe('media')
+    } finally { await rename(held, original.project) }
+  })
+
+  it('renders a captured subtitle clock only with the matching private audio copies', async () => {
+    const original = await preparedProject(), stageRoot = await tempProject()
+    temporary.push(stageRoot)
+    const stage = await realpath(stageRoot)
+    const clips = [5_050_000, 109_683_332].map((durationUs, index) => {
+      const shot = index + 1, video = join(original.paths.videoDir, shotFileName(shot))
+      const audio = join(original.project, 'selected', `source-${String(shot)}.wav`)
+      return { source: { shot, video, audio }, video, audio, durationUs }
+    })
+    for (const clip of clips) await writePlaceholder(clip.audio, `selected voice ${String(clip.source.shot)}`)
+    await writePlaceholder(original.paths.sources, JSON.stringify({ shots: clips.map(clip => clip.source) }))
+    await writeSubtitleClock(original.subtitle, await readFile(original.subtitle, 'utf8'), '02', clips)
+    await cp(original.project, stage, { recursive: true })
+    const replace = (file: string): string => join(stage, relative(original.project, file))
+    const staged = { ...original, project: stage, paths: episodePaths(stage, '02'), timeline: replace(original.timeline),
+      subtitle: replace(original.subtitle), bgm: replace(original.bgm), endingAudio: replace(original.endingAudio),
+      endingEffect: replace(original.endingEffect), output: replace(original.output) }
+    const args = { method: 'render' as const, project: stage, episode: 2, timeline: staged.timeline,
+      subtitleSrt: staged.subtitle, lastShot: 2, bgm: staged.bgm, endingAudio: staged.endingAudio,
+      endingEffect: staged.endingEffect, output: staged.output }
+    const audioCopies = new Map(clips.map(clip => [clip.audio, replace(clip.audio)]))
+    const stagedAudio = (sourceAudio: string): string => {
+      const path = audioCopies.get(sourceAudio)
+      if (path === undefined) throw Error('Audio reference was not captured')
+      return path
+    }
+    const held = original.project + '-unavailable'
+    temporary.push(held)
+    await rename(original.project, held)
+    try {
+      for (const clip of clips) await expect(readFile(clip.audio)).rejects.toMatchObject({ code: 'ENOENT' })
+      const missing = renderChannel(staged)
+      await expect(runDramaRender(args, { ...settings, channel: missing.channel })).rejects.toMatchObject({ code: 'ENOENT' })
+      expect(missing.calls).toEqual([])
+      const wrong = renderChannel(staged)
+      await expect(runDramaRender(args, { ...settings, channel: wrong.channel }, undefined, () => staged.paths.masterAudio))
+        .rejects.toThrow(/生成字幕与当前集/u)
+      expect(wrong.calls).toEqual([])
+      await expect(readFile(staged.output)).rejects.toMatchObject({ code: 'ENOENT' })
+      const channel = renderChannel(staged)
+      const result = await runDramaRender(args, { ...settings, channel: channel.channel }, undefined, stagedAudio)
+      expect(result.ok).toBe(true)
+      expect(await readFile(result.output, 'utf8')).toBe('media')
+      for (const clip of clips) expect(await readFile(stagedAudio(clip.audio), 'utf8'))
+        .toBe(`selected voice ${String(clip.source.shot)}`)
     } finally { await rename(held, original.project) }
   })
 
@@ -499,10 +561,18 @@ describe('renderEpisode', () => {
 
   it('rejects a replaced prepared picture even when original source review remains current', async () => {
     const prepared = await reviewedProject(), channel = renderChannel(prepared)
-    await writePlaceholder(join(prepared.paths.videoDir, 'shot_001.mp4'), 'unreviewed copied picture')
+    const picture = join(prepared.paths.videoDir, 'shot_001.mp4'), original = await readFile(picture)
+    const captured = await captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, prepared.verifier)
+    if (captured === undefined) throw Error('Strict source review was not captured')
+    await writePlaceholder(picture, 'unreviewed copied picture')
+    for (const file of captured.files) expect(await fileSha256(file.path)).toBe(file.sha256)
+    await expect(captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, prepared.verifier))
+      .rejects.toThrow('镜头副本与已审看源片字节不符')
     await expect(render(prepared, channel, false, undefined, { sourceQaVerifier: prepared.verifier }))
       .rejects.toThrow('镜头副本与已审看源片字节不符')
     expect(channel.calls).toEqual([])
+    await writeFile(picture, original)
+    expect(await captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, prepared.verifier)).toEqual(captured)
   })
 
   it('refuses a review replaced during source evidence verification before rendering', async () => {
