@@ -8,7 +8,7 @@ import * as files from 'node:fs/promises'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { createEpisodeDeliveryJob, readEpisodeRecord, readEpisodeStateSnapshot, attemptIdentitySchema, executionIdentitySchema,
-  executionDrainSchema, runningExecutionSchema } from '../src/episode-delivery.ts'
+  executionDrainSchema, runningExecutionSchema, readEpisodeBytes } from '../src/episode-delivery.ts'
 import type { EpisodeExecutionId, RunningExecution, Sha256 } from '../src/episode-delivery.ts'
 import type { EpisodeExecutionAdmission } from '../src/episode-delivery-job.ts'
 import type { VideoRecoveryDigest } from '../src/types.ts'
@@ -16,6 +16,21 @@ import type { VideoRecoveryDigest } from '../src/types.ts'
 vi.mock('node:fs/promises', async original => ({ ...await original<typeof import('node:fs/promises')>() }))
 
 const hash = (value: string): Sha256 => brandString<Sha256>(createHash('sha256').update(value).digest('hex'))
+
+it('propagates a journal inspection failure without treating it as an absent record', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'episode-journal-read-')))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
+  const path = join(root, 'journal.json'), failure = Object.assign(Error('Journal inspection denied'), { code: 'EACCES' })
+  await writeFile(path, 'retained record')
+  const original = files.lstat
+  const inspection = vi.spyOn(files, 'lstat').mockImplementation(async (...args) => {
+    if (args[0] === path) throw failure
+    return await original(...args)
+  })
+  try { await expect(readEpisodeBytes(path, 1024)).rejects.toBe(failure) }
+  finally { inspection.mockRestore() }
+  expect(await readFile(path, 'utf8')).toBe('retained record')
+})
 
 async function fixture(recordBytes = 16384) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'episode-job-')))
