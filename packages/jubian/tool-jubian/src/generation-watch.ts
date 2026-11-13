@@ -220,8 +220,7 @@ export class GenerationWatchRuntime {
             await this.finishDispatchOwned(id, report, true)
             if (failures.length === 1) throw failures[0]
             if (failures.length > 1) throw new AggregateError(failures, 'Generation dispatch and checkpoint failed')
-            if (report === undefined) throw new Error('Generation dispatch returned no result')
-            return report
+            return report as Record<string, unknown>
           })
       } finally {
         this.dispatching.delete(id)
@@ -327,7 +326,7 @@ export class GenerationWatchRuntime {
     if (current.notice) {
       this.controller.signal.throwIfAborted()
       const outcome = await this.options.deliver(current.sessionId, current.recoveryNotice ?? current.notice,
-        this.controller.signal, current.groupOrigin, current.groupOrigin === undefined ? undefined : current.notice.id, current)
+        this.controller.signal, current.groupOrigin, undefined, current)
       if (outcome === 'pending') return
       if (outcome === 'interrupted' && current.recoveryNotice === undefined) {
         await this.options.store.put({ ...current, recoveryNotice: createGenerationWatchNotice(recoveryText(current.notice)) })
