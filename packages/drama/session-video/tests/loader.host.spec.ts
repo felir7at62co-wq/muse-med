@@ -581,3 +581,44 @@ it('hides non-Error executable lookup failures without caching a failed analysis
   expect(spawn).toHaveBeenCalledTimes(2)
   expect(readFileSync(f.file)).toEqual(before)
 })
+
+it('contains a string cancellation reason before playback without reading source bytes', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1 }), before = readFileSync(f.file)
+  const read = vi.spyOn(f.ctx.fs, 'readByteRange'), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  const caller = new AbortController(); caller.abort('Caller cancelled playback')
+  for (const method of ['GET', 'HEAD']) {
+    const response = await f.route.fetch(new Request(f.url, { method, signal: caller.signal }))
+    expect(response.status).toBe(499)
+    expect(await response.text()).toBe(method === 'HEAD' ? '' : 'Video unavailable')
+  }
+  expect(read).not.toHaveBeenCalled(); expect(spawn).not.toHaveBeenCalled()
+  const next = await f.route.fetch(new Request(f.url))
+  expect(next.status).toBe(200)
+  expect(Buffer.from(await next.arrayBuffer())).toEqual(before)
+  expect(readFileSync(f.file)).toEqual(before)
+})
+
+it('releases a playback slot when the caller cancels after real metadata returns before the body starts', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1 }), before = readFileSync(f.file)
+  const caller = new AbortController(), reason = new Error('Caller cancelled after metadata')
+  const read = vi.spyOn(f.ctx.fs, 'readByteRange'), spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  const stat = f.ctx.fs.stat.bind(f.ctx.fs)
+  let sourceStats = 0
+  const inspection = vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    const info = await stat(...args)
+    if (args[0].displayPath === f.source.path && ++sourceStats === 2) caller.abort(reason)
+    return info
+  })
+  try {
+    const response = await f.route.fetch(new Request(f.url, { signal: caller.signal }))
+    expect(sourceStats).toBe(2)
+    expect(caller.signal.reason).toBe(reason)
+    expect(response.status).toBe(200)
+    await expect(response.arrayBuffer()).rejects.toBe(reason)
+    expect(read).not.toHaveBeenCalled(); expect(spawn).not.toHaveBeenCalled()
+  } finally { inspection.mockRestore() }
+  const next = await f.route.fetch(new Request(f.url))
+  expect(next.status).toBe(200)
+  expect(Buffer.from(await next.arrayBuffer())).toEqual(before)
+  expect(readFileSync(f.file)).toEqual(before)
+})
