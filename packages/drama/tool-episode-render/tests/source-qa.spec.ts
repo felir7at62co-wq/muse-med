@@ -197,6 +197,21 @@ it('refuses ambiguous, missing, escaped or cancelled stage mappings', async () =
   await expect(access.hash(file.originalPath)).rejects.toThrow()
 })
 
+it('rejects an already incorrect same-length staged copy without modifying either file', async () => {
+  const f = await fixture(), project = await realpath(f.input.project), stage = join(project, 'private-stage')
+  await mkdir(stage)
+  const originalPath = await realpath(f.input.videoPath), original = await readFile(originalPath)
+  const stagedPath = join(stage, 'incorrect-copy'), stagedBytes = Buffer.alloc(original.length, 0x5a)
+  expect(stagedBytes).not.toEqual(original)
+  await writeFile(stagedPath, stagedBytes)
+  const access = createSourceQaStagedAccess(project, stage, [{ originalPath, stagedPath,
+    sha256: createHash('sha256').update(original).digest('hex'), bytes: original.length }], new AbortController().signal)
+  await expect(access.hash(originalPath)).rejects.toThrow('Source QA stage file changed')
+  await expect(access.read(originalPath)).rejects.toThrow('Source QA stage file changed')
+  expect(await readFile(originalPath)).toEqual(original)
+  expect(await readFile(stagedPath)).toEqual(stagedBytes)
+})
+
 it('refuses a staged file replaced by a symlink even when it names the original bytes', async () => {
   const f = await fixture(), project = await realpath(f.input.project), stage = join(project, 'private-stage')
   await mkdir(stage)
