@@ -1,5 +1,6 @@
 /** Keyless Loader coverage for automatic continuation after an original video receipt. */
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, onTestFinished, vi } from 'vitest'
@@ -26,7 +27,7 @@ import { MemoryCredentials } from '../../../credentials/credentials/tests/memory
 import * as JsonlSessionPersistence from '../../../session/session-persistence-jsonl/src/index.ts'
 import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
-import { GenerationWatchStore } from '../src/generation-watch-store.ts'
+import { GenerationWatchStore, type GenerationWatchRun } from '../src/generation-watch-store.ts'
 import { createGenerationWatchNotice, deliverGenerationWatchNotice, registerGenerationWatchDelivery } from '../src/generation-watch-delivery.ts'
 import * as Jubian from '../src/index.ts'
 import { bodyHash } from '../src/write.ts'
@@ -43,6 +44,42 @@ const video = 'https://jubian-aigc.tos-cn-beijing.volces.com/test/episode-43-pac
 const board = { id: 1, scriptId: 2708, isGenerate: 1, storyboardName: 'EP43-P1',
   modelConfig: JSON.stringify(model), storyboardMaterialList: [{ assetId: 'asset-lead', materialAssetId: 81285,
     fileName: 'Lead', materialKey: 'lead', materialType: 'image', materialUrl: image, sortOrder: 1 }] }
+
+it('retains a completed legacy watch without a native binding for manual review on Host startup', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-generation-legacy-watch-')))
+  const sessionId = SessionId('legacy-generation-owner'), key = 'a'.repeat(64)
+  const id = createHash('sha256').update(JSON.stringify([sessionId, [key]])).digest('hex')
+  const store = new GenerationWatchStore(join(root, 'watches'))
+  const original: GenerationWatchRun = { id, sessionId, createdAt: 0, deadlineAt: 1,
+    packs: [{ key, previewPath: join(root, 'legacy-preview.json'), taskId: 42,
+      outcome: { status: 'failed', detail: 'Historical provider task failed' } }],
+    notice: createGenerationWatchNotice('The historical task finished before native Session binding was recorded.') }
+  const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+    throw new Error('Historical notice recovery must not call a provider')
+  })
+  let host: Context | undefined
+  try {
+    await store.create(original)
+    const ownership = ['ownership.v1.json', 'ownership.v2.json'].map(name => join(root, 'watches', name))
+    const before = await Promise.all(ownership.map(path => readFile(path)))
+    host = await watchHost(root)
+    const adapter = new MockAdapter([textResponse('A legacy receipt must not start an automatic turn.')])
+    host.llm.registerAdapter(['mock'], adapter)
+    await vi.waitFor(async () => { expect((await store.load(id))?.reviewRequired).toBe(true) })
+    expect(await store.load(id)).toEqual({ ...original, reviewRequired: true })
+    expect(await store.listActive()).toEqual([])
+    expect(await Promise.all(ownership.map(path => readFile(path)))).toEqual(before)
+    expect(host.sessions.get(sessionId)).toBeUndefined()
+    expect(host.agents.get(sessionId)).toBeUndefined()
+    expect(adapter.requests).toEqual([])
+    expect(fetch).not.toHaveBeenCalled()
+  } finally {
+    try { await host?.fiber.dispose() } finally {
+      fetch.mockRestore()
+      await rm(root, { recursive: true, force: true })
+    }
+  }
+})
 
 it('preserves an actual generation notice and its model history with the producer absent', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'generation-notice-attribution-')))
@@ -95,7 +132,7 @@ it('preserves an actual generation notice and its model history with the produce
   }
 }, 20_000)
 
-async function watchHost(root: string, generationWatch = true): Promise<Context> {
+async function watchHost(root: string, generationWatch = true, durableInboxClaims = generationWatch): Promise<Context> {
   const { ctx } = await configurationFixture({ hmr: false, rows: [
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'executor', name: 'cordis:executor' },
@@ -103,7 +140,7 @@ async function watchHost(root: string, generationWatch = true): Promise<Context>
     { id: 'llm', name: 'cordis:llm' }, { id: 'sessions', name: 'cordis:sessions' },
     { id: 'projections', name: 'cordis:projections' }, { id: 'agents', name: 'cordis:agents' },
     { id: 'persistence', name: 'cordis:persistence', config: { root: join(root, 'sessions'), compression: 'none' } },
-    { id: 'loop', name: 'cordis:loop', config: { agents: [], durableInboxClaims: generationWatch } },
+    { id: 'loop', name: 'cordis:loop', config: { agents: [], durableInboxClaims } },
     { id: 'controller', name: 'cordis:controller' },
     { id: 'jubian', name: 'cordis:jubian', config: { baseUrl: 'https://watch.invalid', workspaceSecrets: false,
       ledgerRoot: join(root, 'ledger'), generationWatch, generationWatchRoot: join(root, 'watches'),
@@ -298,8 +335,65 @@ async function originalVideoFixture(script: AdapterScript) {
   expect(workspace?.sessionIds).toContain(agent.id)
   return { root, host, agent, adapter, store, run, binding: run.binding, bytes, calls,
     complete: () => { finished = true },
-    reopen: async () => { await host?.fiber.dispose(); host = await watchHost(root); return host } }
+    reopen: async (durableInboxClaims = true) => {
+      await host?.fiber.dispose(); host = await watchHost(root, true, durableInboxClaims); return host
+    } }
 }
+
+it('keeps the original notice pending without durable claims and resumes it once after the deployment enables them', async () => {
+  const h = await originalVideoFixture([textResponse('Must not run in the original Host.')])
+  const disabled = await h.reopen(false)
+  const blocked = new MockAdapter([textResponse('Must not run without durable inbox claims.')])
+  disabled.llm.registerAdapter(['mock'], blocked)
+  const scans = vi.spyOn(GenerationWatchStore.prototype, 'listActive')
+  let noticeId = ''
+  try {
+    h.complete()
+    await vi.waitFor(async () => {
+      const recorded = await h.store.load(h.run.id)
+      expect(recorded?.notice?.id).toEqual(expect.any(String))
+      noticeId = recorded!.notice!.id
+    })
+    const recordedScans = scans.mock.calls.length
+    await vi.waitFor(() => { expect(scans.mock.calls.length).toBeGreaterThan(recordedScans) })
+    const pending = await h.store.load(h.run.id)
+    expect(pending).toMatchObject({ id: h.run.id, sessionId: h.agent.id, binding: h.binding,
+      notice: { id: noticeId }, packs: [{ key: h.run.packs[0]!.key, previewPath: h.run.packs[0]!.previewPath, taskId: 42 }] })
+    expect(pending?.notice?.deliveredAt).toBeUndefined()
+    expect(pending?.reviewRequired).toBeUndefined()
+    expect(await h.store.listActive()).toHaveLength(1)
+    expect(disabled.agents.get(h.agent.id)).toBeUndefined()
+    expect(disabled.sessions.get(h.agent.id)).toBeUndefined()
+    expect(blocked.requests).toEqual([])
+    const reader = await disabled.sessionPersistence.open(h.agent.id, 'read')
+    try {
+      const { events } = await reader.read()
+      expect(events.some(event => event.type === 'user/message' && event.data.id === noticeId)).toBe(false)
+      expect(events.some(event => event.type === 'agent/inbox/spliced'
+        && event.data.inserted.some(message => message.id === noticeId))).toBe(false)
+    } finally { await reader.close() }
+    expect(h.calls.filter(call => call.method === 'PUT')).toEqual([])
+  } finally { scans.mockRestore() }
+
+  const restored = await h.reopen()
+  const adapter = new MockAdapter([textResponse('Continue from the same original video receipt.')])
+  restored.llm.registerAdapter(['mock'], adapter)
+  await vi.waitFor(async () => {
+    expect(adapter.requests).toHaveLength(1)
+    expect((await h.store.load(h.run.id))?.notice?.deliveredAt).toEqual(expect.any(Number))
+  })
+  const resolved = await restored.sessionController.resolveAgent(h.agent.id)
+  if ('error' in resolved) throw resolved.error
+  await resolved.agent.whenIdle()
+  const saved = await h.store.load(h.run.id)
+  expect(saved?.binding).toEqual(h.binding)
+  expect(saved?.notice?.id).toBe(noticeId)
+  expect(adapter.requests).toHaveLength(1)
+  expect(adapter.requests[0]).toMatchObject({ provider: selection.provider, model: selection.model, sessionId: h.agent.id })
+  expect(resolved.agent.session.snapshotEvents().filter(event => event.type === 'user/message' && event.data.id === noticeId)).toHaveLength(1)
+  expect(await h.store.listActive()).toEqual([])
+  expect(h.calls.filter(call => call.method === 'PUT')).toEqual([])
+})
 
 it('records an admitted failed continuation for review without scheduling another turn', async () => {
   const h = await originalVideoFixture([() => { throw new LlmError('Offline account quota exhausted', 'ACCOUNT_QUOTA') }])
