@@ -88,9 +88,9 @@ export function apply(ctx: Context, config: Config): void {
     parameters: {
       method: { type: 'string', required: true, enum: ['start', 'inspect', 'status'], description: 'start=提取音轨并提交；inspect=只回读原任务，绝不上传音轨，完成后发布本地结果；status=回读原收据，必要时按服务端恢复指示补传同 ID 音轨，可能计费。inspect_receipt 停止反复轮询，保留收据核对；限流按 retry_after_seconds 恢复。' },
       project: { type: 'string', required: true, description: '项目根目录，保存 transcript/jobs 收据及 transcript/raw 版本结果。' },
-      input: { type: 'string', description: 'start 必填：获授权的本地音频或视频文件路径。' },
+      input: { type: 'string', description: 'start 必填：获授权的本地音频或视频文件路径；相对路径以 project 为基准。' },
       wait_seconds: { type: 'number', description: 'inspect/status 在工具内持续只读查询的等待预算（0–30 秒），默认 0；单次网络请求另受请求超时约束。到时返回实际状态和下一次调用参数。' },
-      receipt: { type: 'string', description: 'inspect/status 必填：start 返回的 transcript/jobs 收据路径。' },
+      receipt: { type: 'string', description: 'inspect/status 必填：start 返回的 transcript/jobs 收据路径；相对路径以 project 为基准。' },
       language: { type: 'string', enum: ['zh', 'auto'], description: 'start 识别语种；默认 zh。' },
       purpose: { type: 'string', enum: ['subtitles', 'screenplay'], description: 'start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。inspect/status 沿用收据用途，不可更改同一任务用途。' },
     },

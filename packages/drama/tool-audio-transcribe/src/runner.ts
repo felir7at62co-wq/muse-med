@@ -360,7 +360,7 @@ async function publish(
 /**
  * Create a local receipt before any account-scoped billable submit.
  * @param projectPath - Authorized project root.
- * @param inputPath - Local media to read without changing it.
+ * @param inputPath - Local media to read without changing it; a relative path is resolved against the project root.
  * @param language - Provider recognition language.
  * @param account - Current Host account operations.
  * @param config - Local media limits and executable paths.
@@ -378,7 +378,7 @@ export async function startAudioTranscription(projectPath: string, inputPath: st
 async function startReceipt(projectPath: string, inputPath: string, language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig, media?: AudioMediaOperations, purpose?: MuseAsrPurpose, signal?: AbortSignal): Promise<AudioRunResult> {
   signal?.throwIfAborted()
   const resolvedPurpose = resolvePurpose(purpose)
-  const project = resolve(projectPath), source = resolve(inputPath)
+  const project = resolve(projectPath), source = resolve(project, inputPath)
   const identity = await account.status({})
   signal?.throwIfAborted()
   if (identity.state !== 'signed-in') throw new Error('Sign in to Muse Account before cloud transcription')
@@ -463,7 +463,7 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
 /**
  * Query an existing receipt and publish nonempty TXT/JSON only after complete recognition.
  * @param projectPath - Project containing the receipt and output directory.
- * @param receiptPath - Receipt previously returned by start.
+ * @param receiptPath - Receipt previously returned by start; a relative path is resolved against the project root.
  * @param account - Current Host account operations.
  * @param signal - Cancellation; stops further queries, recovery uploads, and publication.
  * @param allowResumeUpload - Whether the original job may resume an explicitly recoverable upload; inspect passes false.
@@ -492,8 +492,8 @@ export async function finishAudioTranscription(
   catch (error) {
     signal?.throwIfAborted()
     if (!(error instanceof MuseAsrError) || error.code === 'job-not-found') throw error
-    const file = resolve(receiptPath)
-    return portableResult(rejectedResult(resolve(projectPath), file, await readReceipt(file), error))
+    const project = resolve(projectPath), file = resolve(project, receiptPath)
+    return portableResult(rejectedResult(project, file, await readReceipt(file), error))
   }
 }
 
@@ -501,7 +501,7 @@ async function finishReceipt(
   projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal, allowResumeUpload = true, probe?: AudioMediaOperations['probe'],
 ): Promise<AudioRunResult> {
   signal?.throwIfAborted()
-  const project = resolve(projectPath), receiptFile = resolve(receiptPath), jobs = join(project, 'transcript', 'jobs')
+  const project = resolve(projectPath), receiptFile = resolve(project, receiptPath), jobs = join(project, 'transcript', 'jobs')
   if (dirname(receiptFile) !== jobs || !/^[\w.-]+-v\d+\.json$/.test(basename(receiptFile))) throw new Error('Receipt must be inside this project transcript/jobs directory')
   const receipt = await readReceipt(receiptFile)
   signal?.throwIfAborted()

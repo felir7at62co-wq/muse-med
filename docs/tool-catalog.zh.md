@@ -1697,7 +1697,7 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
     },
     "input": {
       "type": "string",
-      "description": "start 必填：获授权的本地音频或视频文件路径。"
+      "description": "start 必填：获授权的本地音频或视频文件路径；相对路径以 project 为基准。"
     },
     "wait_seconds": {
       "type": "number",
@@ -1705,7 +1705,7 @@ Source-unit identities, revisions, candidate digests, timestamps and rendered li
     },
     "receipt": {
       "type": "string",
-      "description": "inspect/status 必填：start 返回的 transcript/jobs 收据路径。"
+      "description": "inspect/status 必填：start 返回的 transcript/jobs 收据路径；相对路径以 project 为基准。"
     },
     "language": {
       "type": "string",

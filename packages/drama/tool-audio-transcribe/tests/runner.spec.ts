@@ -42,6 +42,20 @@ it('saves an account-bound receipt before submit and publishes versioned timed o
   expect(await readdir(join(fixture.project, 'transcript', 'raw'))).toEqual(['clip-v1.json', 'clip-v1.srt', 'clip-v1.txt'])
 })
 
+it('resolves a relative input and receipt against the project root instead of the process directory', async () => {
+  const fixture = await setup()
+  const media = { probe: async () => 45, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
+  const first = await startAudioTranscription(fixture.project, join('source', 'clip.mp4'), 'zh', fixture.account, config, media)
+  expect(first.status).toBe('processing')
+  expect(JSON.parse(await readFile(first.receipt, 'utf8'))).toMatchObject({ source: fixture.input })
+  expect((await startAudioTranscription(fixture.project, fixture.input, 'zh', fixture.account, config, media)).job_id).toBe(first.job_id)
+  expect(fixture.counts().submits).toBe(1)
+  fixture.setJob({ id: first.job_id, status: 'complete', segments: [{ start: 0, end: 1, text: '相对路径' }] })
+  const done = await finishAudioTranscription(fixture.project, join('transcript', 'jobs', 'clip-v1.json'), fixture.account)
+  expect(done.status).toBe('complete')
+  expect(done.receipt).toBe(first.receipt)
+})
+
 it('reports exhausted provider allowance and later publishes the same original task without submitting again', async () => {
   const fixture = await setup()
   const media = { probe: async () => 45, encode: async (_source: string, target: string) => { await writeFile(target, 'compressed audio') } }
