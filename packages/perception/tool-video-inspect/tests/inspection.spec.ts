@@ -138,21 +138,49 @@ it.each(['earlier time', 'different PTS', 'missing PTS'] as const)('rejects a de
   await elevenSecondVideo(h)
   const run = mockWindowsOcr(), recognize = run.getMockImplementation()!
   const batches: { diagnostic?: string; error?: string; fault: boolean }[] = []
-  const probes: { interval: string | undefined; frames?: number | undefined; first?: unknown; last?: unknown; error?: string }[] = []
+  const probes: {
+    interval: string | undefined
+    argv: readonly string[]
+    frames?: number | undefined
+    first?: unknown
+    last?: unknown
+    bytes?: number
+    json?: string
+    json_truncated?: boolean
+    diagnostic?: string
+    elapsed_ms?: number
+    error?: string
+    parse_error?: string
+  }[] = []
+  const resolutions: { executable: string; resolved?: string; error?: string }[] = []
+  const resolve = h.ctx.subprocess.resolveExecutable.bind(h.ctx.subprocess)
+  vi.spyOn(h.ctx.subprocess, 'resolveExecutable').mockImplementation(async (...args) => {
+    const record: typeof resolutions[number] = { executable: args[0] }
+    resolutions.push(record)
+    try { const resolved = await resolve(...args); record.resolved = resolved; return resolved }
+    catch (error) { record.error = String(error).slice(-4000); throw error }
+  })
   run.mockImplementation(async (...args) => {
     const batch: { diagnostic?: string; error?: string; fault: boolean } = { fault: false }
     const decoding = args[1].includes('mjpeg')
     const probing = args[1].includes('-select_streams')
     const intervalIndex = args[1].indexOf('-read_intervals')
-    const probe: typeof probes[number] = { interval: intervalIndex < 0 ? undefined : args[1][intervalIndex + 1] }
+    const probe: typeof probes[number] = { interval: intervalIndex < 0 ? undefined : args[1][intervalIndex + 1], argv: args[1] }
     if (decoding) batches.push(batch)
     if (probing) probes.push(probe)
     let output: Media.MediaOutput
+    const started = Date.now()
     try { output = await recognize(...args) }
     catch (error) { if (decoding) batch.error = String(error); if (probing) probe.error = String(error); throw error }
+    finally { if (probing) probe.elapsed_ms = Date.now() - started }
     if (probing) {
-      const frames = (JSON.parse(Buffer.from(output.bytes).toString('utf8')) as { frames?: readonly unknown[] }).frames
-      probe.frames = frames?.length; probe.first = frames?.[0]; probe.last = frames?.at(-1)
+      const json = Buffer.from(output.bytes).toString('utf8')
+      probe.bytes = output.bytes.byteLength; probe.json = json.slice(0, 65_536); probe.diagnostic = output.diagnostic.slice(-4000)
+      probe.json_truncated = json.length > 65_536
+      try {
+        const frames = (JSON.parse(json) as { frames?: readonly unknown[] }).frames
+        probe.frames = frames?.length; probe.first = frames?.[0]; probe.last = frames?.at(-1)
+      } catch (error) { probe.parse_error = String(error).slice(-4000) }
     }
     if (decoding) batch.diagnostic = output.diagnostic.slice(-4000)
     if (!args[1].includes('mjpeg') || args[1][args[1].indexOf('-ss') + 1] !== '9.6') return output
@@ -162,11 +190,11 @@ it.each(['earlier time', 'different PTS', 'missing PTS'] as const)('rejects a de
     return { ...output, diagnostic }
   })
   const result = await h.ocr({})
-  expect(result.value, JSON.stringify({ content: result.content, batches, probes })).toMatchObject({ scan_status: 'partial', coverage: {
+  expect(result.value, JSON.stringify({ content: result.content, batches, probes, resolutions })).toMatchObject({ scan_status: 'partial', coverage: {
     planned_frame_count: 28, processed_frame_count: 24, failed_frame_count: 4,
     failed_timestamps_seconds: [24 * 0.4, 25 * 0.4, 26 * 0.4, 27 * 0.4],
   } })
-  expect(batches.map(batch => batch.fault)).toEqual([false, true])
+  expect(batches.map(batch => batch.fault), JSON.stringify({ batches, probes, resolutions, result: result.value })).toEqual([false, true])
 }, 30_000)
 
 it('logs only encoded batch samples when FFmpeg reads ahead of a low-rate source', async () => {
