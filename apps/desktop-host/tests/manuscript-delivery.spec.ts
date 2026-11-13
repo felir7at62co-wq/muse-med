@@ -247,6 +247,20 @@ it('keeps the current writing task when a later continuation explicitly asks for
   expect(f.injected).toHaveLength(1)
 })
 
+it.each(['我的文件呢', '你给我文件', '把文件给我啊，混蛋', '现在把修改好的本子给我'])(
+  'keeps the writing task and reminds once when the user only asks where the file is: %s', async (request) => {
+    const f = await runtime()
+    human(f.session, '重写剧本，不要文件，只给聊天正文。')
+    await f.service.remind(f.agent, signal)
+    expect(f.injected).toHaveLength(0)
+    human(f.session, request)
+    await f.service.remind(f.agent, signal)
+    await f.service.remind(f.agent, signal)
+    expect(f.injected).toHaveLength(1)
+    expect(f.injected[0]!.content.filter(block => block.type === 'text').map(block => block.text).join('\n'))
+      .toContain('当前没有已核实的本机文件交付回执')
+  })
+
 it.each([
   '重写剧本，不需要生成文件，只给聊天正文。',
   '仅解释这段外部执行标签 code_stdout 的含义。',
