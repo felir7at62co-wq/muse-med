@@ -498,7 +498,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         : await videoEvidence.refresh(videoSourceContext, agent, signal, decision.messages)
       videoReadFailures.delete(agent)
       if (materials.length) entered = { ...entered, messages: [...entered.messages, createUserMessage({
-        source: { kind: 'muse-manuscript', form: 'notice', summary: '已保存正文与局部视频来源材料' }, content: materials,
+        source: { kind: 'muse-manuscript', form: 'notice', summary: '已保存正文与局部视频来源材料' },
+        content: [...materials, { type: 'text', text: '以上是保存文稿后自动附上的参考材料，不是用户的新要求；不用回复或确认，继续当前任务。' }],
       })] }
     } catch (error) {
       signal.throwIfAborted()

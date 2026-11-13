@@ -4,7 +4,7 @@ import { dirname, relative, resolve, sep } from 'node:path'
 import { diffLines } from 'diff'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { ContentBlock, ImageBlock, Message, ToolCallBlock } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, ImageBlock, Message, MessageId, ToolCallBlock } from '@deepseek-ai/dsh-llm'
 import { readVideoSourceTimeline, videoReviewSummaries, type VideoReviewSummary, type VideoSourceTimeline } from '@deepseek-ai/dsh-tool-video-inspect'
 import { z } from 'zod'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
@@ -12,6 +12,7 @@ import type { Config } from './manuscript-revisions.ts'
 import { isManuscript, readManuscript } from './manuscript-document.ts'
 import { MANUSCRIPT_PREAMBLE_EPISODE, manuscriptScenes, manuscriptTextHash, type ManuscriptScene } from './manuscript-scenes.ts'
 import { manuscriptEndingCue, manuscriptPresentationEvidence } from './manuscript-presentation.ts'
+import { manuscriptDeliveryIntent } from './manuscript-task-intent.ts'
 import { manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCandidates, manuscriptVideoReviewReader } from './manuscript-video-reads.ts'
 import { MANUSCRIPT_VIDEO_PRESENTATION, manuscriptPacketEventIds, manuscriptVideoPacketContent,
   planManuscriptSourceTail, planManuscriptVideoPackets, type ManuscriptPacketPlan, type PacketContext } from './manuscript-video-packets.ts'
@@ -135,6 +136,16 @@ function videoTaskSourcePaths(messages: readonly Message[], cwd: string, boundar
     }
   }
   return { paths, requireCurrentSource: boundary > firstUser }
+}
+
+/**
+ * Find the latest real human request that is not an explicit continuation such as “继续” or “我的文件呢”.
+ * @param messages - Logged and pending author messages.
+ * @returns Its index, or -1 when no real human message has started a request.
+ */
+function taskRequestIndex(messages: readonly Message[]): number {
+  return messages.findLastIndex(message => message.role === 'user' && message.source.kind === 'user'
+    && !manuscriptDeliveryIntent(message.content.flatMap(block => block.type === 'text' ? [block.text] : []).join('\n')).continuation)
 }
 
 /**
@@ -445,7 +456,8 @@ function observationLocations(location: ReturnType<typeof manuscriptSourceWindow
  * @param config - Deployment-controlled scene, image and source-read budgets.
  */
 export class ManuscriptVideoEvidence {
-  private readonly saved = new WeakMap<Agent, Set<string>>()
+  /** Successful tool paths with the human request that was current when each was saved. */
+  private readonly saved = new WeakMap<Agent, Map<string, MessageId | undefined>>()
   private readonly parsed = new WeakMap<Agent, MaterialCache>()
   private readonly mutations = new WeakMap<Session, Map<string, SavedMutation>>()
 
@@ -471,6 +483,7 @@ export class ManuscriptVideoEvidence {
 
   /**
    * Retain a successful tool result's actual path, including nested dispatches whose arguments are not top-level messages.
+   * The path is tagged with the latest real human request that is not an explicit continuation at save time.
    * @param agent - Owning author Session.
    * @param path - Actual successful write/edit result path.
    * @param mutation - Native LF-normalized mutation text, used only while its complete after text matches the saved file.
@@ -482,8 +495,9 @@ export class ManuscriptVideoEvidence {
     operation?: 'create' | 'update' | undefined
   }): Promise<void> {
     if (!isManuscript(path)) return
-    const paths = this.saved.get(agent) ?? new Set<string>()
-    paths.add(path)
+    const paths = this.saved.get(agent) ?? new Map<string, MessageId | undefined>(), messages = agent.session.deriveMessages()
+    const request = taskRequestIndex(messages)
+    paths.set(path, request < 0 ? undefined : messages[request]?.id)
     this.saved.set(agent, paths)
     const resolved = resolve(agent.session.header.cwd ?? '', path)
     let key: string
@@ -514,11 +528,14 @@ export class ManuscriptVideoEvidence {
 
   /**
    * Return local current-draft/source materials once per exact saved draft and source-material identity.
+   * Without an output declaration, only paths saved or registered since the latest real human request
+   * that is not an explicit continuation are read.
    * @param ctx - Current video provider and filesystem scope.
    * @param agent - Author Session supplying logged tool results and prior material receipts.
    * @param signal - Cancels source and manuscript reads.
    * @param pendingMessages - Current admitted inputs, which enter the log with this request.
-   * @returns Logged-message-ready blocks; no input is rewritten, approved or required for delivery.
+   * @returns Logged-message-ready blocks, only for saved current-task scenes with a single matched video source timeline
+   *   or a differing complete same-episode read; no input is rewritten, approved or required for delivery.
    */
   async refresh(ctx: Context, agent: Agent, signal: AbortSignal, pendingMessages: readonly Message[] = []): Promise<ContentBlock[]> {
     const cwd = agent.session.header.cwd
@@ -538,10 +555,13 @@ export class ManuscriptVideoEvidence {
     const prior = receipts(messages, cache)
     const outputBoundary = messages.findLastIndex(message => message.role === 'user' && message.source.kind === 'user'
       && declaredOutputs(message, cwd, cache).length > 0)
+    // Without an output declaration, the latest human request that is not an explicit continuation starts the task.
+    const taskStart = outputBoundary >= 0 ? outputBoundary : taskRequestIndex(messages)
+    const taskId = taskStart < 0 ? undefined : messages[taskStart]?.id
     const sourceScope = videoTaskSourcePaths(messages, cwd, outputBoundary, cache, sources)
     const automaticSources = sources.filter(source => source.follow_up.status === 'active' || sourceScope.paths.has(source.path))
     const transcriptCandidates = manuscriptVideoReadCandidates(ctx, agent.session)
-    const registered = registeredPaths(outputBoundary < 0 ? messages : messages.slice(outputBoundary), cwd, cache)
+    const registered = registeredPaths(taskStart < 0 ? messages : messages.slice(taskStart), cwd, cache)
     if (!automaticSources.length && !manuscriptTextReadSnapshots(ctx, agent.session)?.reads.length) return []
     const output: ContentBlock[] = [], declarations = new Map<string, { literal: string; basis: string; candidates: string[] }>()
     const offloaded = [...new Set(prior.flatMap(receipt => receipt.offloaded_frames ?? []))]
@@ -573,8 +593,8 @@ export class ManuscriptVideoEvidence {
           && message.content.some(block => block.type === 'text' && block.text === text))) output.push({ type: 'text', text })
       } else if (unique[0]) declarations.set(unique[0], declaration)
     }
-    const paths = [...new Set([...registered,
-      ...declarations.keys(), ...outputBoundary < 0 ? this.saved.get(agent) ?? [] : []])].filter(path => !ambiguities.has(path))
+    const saved = outputBoundary >= 0 ? [] : [...this.saved.get(agent) ?? []].flatMap(([path, task]) => task === taskId ? [path] : [])
+    const paths = [...new Set([...registered, ...declarations.keys(), ...saved])].filter(path => !ambiguities.has(path))
     if (paths.length > this.config.maxDocuments) throw Error('MANUSCRIPT_VIDEO_DOCUMENT_LIMIT: 已保存文稿路径超出配置，未扫描其他文件。')
     paths.sort((a, b) => (prior.findLast(entry => entry.path === a)?.returned_frames.length ?? 0)
       - (prior.findLast(entry => entry.path === b)?.returned_frames.length ?? 0))
@@ -671,16 +691,26 @@ export class ManuscriptVideoEvidence {
       })
       const priority = (entry: typeof locations[number]) => entry.location?.visual_queries.some(query => changedLines?.has(query.line)
         && query.time_candidates.length) ? 2 : sceneVisualQueries(entry.scene).some(query => changedLines?.has(query.line)) ? 1 : 0
-      // A title or cast list above the first episode cannot match an episode source; reporting it would only repeat the candidate list.
-      const changed = locations
-        .filter(entry => entry.scene.episode !== MANUSCRIPT_PREAMBLE_EPISODE
-          && !deliveredScenes.some(old => old.id === entry.scene.id && old.sha256 === entry.scene.sha256))
+      const episodeOf = (entry: typeof locations[number]) => manuscriptEpisodeNumber(entry.scene.episode)
+      const comparedEpisodes = new Set(readRevisions.reports.flatMap(report => report.status === 'compared' && report.hunks.length > 0
+        ? [report.episode] : []))
+      // A scene needs one video source timeline or a differing complete read of its episode; a preamble matches neither.
+      const pending = locations.filter(entry => entry.scene.episode !== MANUSCRIPT_PREAMBLE_EPISODE
+        && (entry.timeline !== undefined || comparedEpisodes.has(episodeOf(entry) ?? ''))
+        && !deliveredScenes.some(old => old.id === entry.scene.id && old.sha256 === entry.scene.sha256))
+      // A read-only episode returns one comparison entry; its other changed scenes are returned with it.
+      const changed = pending.filter((entry, index) => entry.timeline !== undefined
+        || pending.findIndex(other => other.timeline === undefined && episodeOf(other) === episodeOf(entry)) === index)
         .sort((left, right) => priority(right) - priority(left))
       const invalidatedFrames = new Set(carried?.sha256 === document.sha256 ? [] : changed.flatMap(entry => entry.location?.windows
         .flatMap(window => window.frames.map(frame => `${entry.sources[0]?.review_id}/${frame.frame_id}`)) ?? []))
       const carriedFrames = carried?.returned_frames.filter(frame => !invalidatedFrames.has(`${frame.review_id}/${frame.frame_id}`)) ?? []
       const selected = changed.slice(0, this.config.videoEvidenceMaxScenes)
       if (!selected.length) continue
+      const readOnlyEpisodes = new Set(selected.flatMap(entry => entry.timeline === undefined ? [episodeOf(entry)] : []))
+      const covered = pending.filter(entry => entry.timeline === undefined && !selected.includes(entry)
+        && readOnlyEpisodes.has(episodeOf(entry)))
+      const returned = [...selected, ...covered]
       const reports = []
       const returnedReadEpisodes = new Set<string>()
       const packetSources = new Map<string, {
@@ -691,9 +721,7 @@ export class ManuscriptVideoEvidence {
       const sourceEndings = new Map<string, ReturnType<typeof sourceEnding> & { episode: string; draft_path: string }>()
       const returnedFrames = [...carriedFrames]
       for (const [selectedIndex, entry] of selected.entries()) {
-        const index = scenes.indexOf(entry.scene)
-        const manuscript = { current: entry.scene, previous: scenes[index - 1] ?? null, next: scenes[index + 1] ?? null }
-        const episode = manuscriptEpisodeNumber(entry.scene.episode)
+        const episode = episodeOf(entry)
         const readRevision = episode === undefined ? undefined : readRevisions.reports.find(report => report.episode === episode)
         const readMaterial = episode === undefined || returnedReadEpisodes.has(episode) ? { read_source_revision_ref: episode }
           : { read_source_revision: readRevision }
@@ -701,11 +729,15 @@ export class ManuscriptVideoEvidence {
         const source = entry.sources.length === 1 ? entry.sources[0] : undefined
         const timeline = entry.timeline
         if (source === undefined || timeline === undefined) {
-          reports.push({ manuscript, ...readMaterial, source_alignment: entry.sources.length ? 'ambiguous_episode_sources'
+          reports.push({ manuscript_scene_refs: pending.filter(other => other.timeline === undefined && episodeOf(other) === episode)
+            .map(other => ({ id: other.scene.id, start_line: other.scene.startLine, end_line: other.scene.endLine })),
+          ...readMaterial, source_alignment: entry.sources.length ? 'ambiguous_episode_sources'
             : sourceScope.requireCurrentSource ? 'no_current_task_video_source' : 'no_matching_episode_source',
-          source_candidates: entry.sources.length ? entry.sources : automaticSources, semantic_assessment: 'not_performed' })
+          semantic_assessment: 'not_performed' })
           continue
         }
+        const index = scenes.indexOf(entry.scene)
+        const manuscript = { current: entry.scene, previous: scenes[index - 1] ?? null, next: scenes[index + 1] ?? null }
         const location = entry.location ?? manuscriptSourceWindows(entry.scene, timeline)
         const priorityScenes = selected.slice(selectedIndex).filter(candidate => priority(candidate) > 0).length
         const allowance = imageCapable ? priority(entry) > 0
@@ -787,37 +819,40 @@ export class ManuscriptVideoEvidence {
         presentation_version: MANUSCRIPT_VIDEO_PRESENTATION,
         read_source_identity_sha256: readRevisions.identity,
         source_material_sha256: sourceMaterialHash, source_identity_sha256: sourceIdentityHash, returned_frames: returnedFrames,
-        scene_versions: [...deliveredScenes.filter(old => !selected.some(entry => entry.scene.id === old.id)),
-          ...selected.map(entry => ({ id: entry.scene.id, sha256: entry.scene.sha256 }))] }
+        scene_versions: [...deliveredScenes.filter(old => !returned.some(entry => entry.scene.id === old.id)),
+          ...returned.map(entry => ({ id: entry.scene.id, sha256: entry.scene.sha256 }))] }
       const remainingImages = locations.filter(entry => entry.location !== undefined && entry.sources[0] !== undefined
         && manuscriptEvidenceFrames(entry.scene, entry.location, 1, new Set(returnedFrames
           .filter(frame => frame.review_id === entry.sources[0]?.review_id).map(frame => frame.frame_id))).length > 0)
-      const presentation = manuscriptPresentationEvidence(scenes.map(scene => ({ ...scene, path: document.path })),
+      const videoEpisodes = new Set(selected.flatMap(entry => entry.timeline === undefined ? [] : [entry.scene.episode]))
+      const videoScenes = scenes.flatMap(scene => videoEpisodes.has(scene.episode) ? [{ ...scene, path: document.path }] : [])
+      const presentation = manuscriptPresentationEvidence(videoScenes,
         { maximumFindings: this.config.maxRepeatFindings, maxTextCharacters: this.config.maxTextChars },
         changedLines === undefined ? undefined : new Map([[document.path, changedLines]]),
-        new Map([[document.path, new Set(selected.map(entry => entry.scene.episode))]]))
+        new Map([[document.path, videoEpisodes]]))
       const cue = manuscriptEndingCue(presentation, [...sourceEndings.values()].map(ending => ({
         episode: ending.episode, draft_path: ending.draft_path, last_asr: ending.last_recorded_asr,
         frames: ending.window.frame_refs })),
       { maximumFindings: this.config.maxRepeatFindings, maxTextCharacters: this.config.maxTextChars })
       const text = JSON.stringify({ manuscript_video_evidence: { advisory: true, semantic_assessment: 'not_performed', receipt,
         presentation_version: MANUSCRIPT_VIDEO_PRESENTATION,
-        presentation_evidence: presentation,
+        ...presentation.episodes.length ? { presentation_evidence: presentation } : {},
         changed_line_selection: changedSelection,
         output_association: declarations.get(document.path) ?? { basis: 'successful_tool_path' },
         image_delivery: 'cached_blocks_returned_not_admission_or_understanding',
         image_route: imageCapable ? 'image_capable' : 'text_only_or_unknown_no_images_returned',
-        changed_scenes: changed.length, returned_scenes: reports.length,
-        not_returned_scenes: changed.filter(entry => !selected.includes(entry)).length,
+        changed_scenes: pending.length, returned_scenes: returned.length,
+        not_returned_scenes: pending.filter(entry => !returned.includes(entry)).length,
         remaining_image_scenes: remainingImages.length,
         scope: 'saved_draft_changed_scenes_with_source_candidates', scenes: reports,
         notice: '当前稿、原句与缓存图仅供判断；引用和模型笔记不是独立事实。未返回范围未核对，不要求消成零或自动重跑；无审批、动作配额或交付限制。' } })
       const sourceContent = (includeIndexes: boolean) => [...packetSources.values()].flatMap(packetSource =>
         manuscriptVideoPacketContent({ ...packetSource, documentSha256: document.sha256,
           indexRows: includeIndexes ? packetSource.timeline.windows.reduce((total, window) => total + window.frames.length, 0) : 0 }))
-      let content: ContentBlock[] = [{ type: 'text', text: cue }, { type: 'text', text }, ...sourceContent(true)]
+      const lead: ContentBlock[] = [...cue ? [{ type: 'text' as const, text: cue }] : [], { type: 'text', text }]
+      let content: ContentBlock[] = [...lead, ...sourceContent(true)]
       if (Buffer.byteLength(JSON.stringify(content)) > this.config.videoEvidenceMaxBytes) {
-        content = [{ type: 'text', text: cue }, { type: 'text', text }, ...sourceContent(false)]
+        content = [...lead, ...sourceContent(false)]
       }
       if (Buffer.byteLength(JSON.stringify(content)) > this.config.videoEvidenceMaxBytes) {
         throw Error('MANUSCRIPT_VIDEO_RESULT_SIZE: 局部材料超出配置，未截断原句或声明核对完成。')

@@ -57,12 +57,7 @@ export async function apply(ctx) {
     const reports = agent.session.deriveMessages().flatMap(message => message.source.kind === 'muse-manuscript'
       ? message.content.flatMap(block => block.type === 'text' && block.text.startsWith('{"manuscript_video_evidence":')
         ? [JSON.parse(block.text).manuscript_video_evidence] : []) : [])
-    const sourceReports = reports.flatMap(report => report.scenes.flatMap(scene => scene.read_source_revision
-      ? [scene.read_source_revision] : []))
-    assert.ok(sourceReports.some(report => report.status === 'truncated'))
-    assert.ok(sourceReports.some(report => report.status === 'partial'))
-    assert.ok(sourceReports.every(report => !['compared', 'current_source_changed'].includes(report.status)))
-    assert.ok(sourceReports.every(report => report.hunks.length === 0 && report.comparison_source === undefined))
+    assert.deepEqual(reports, [], 'Partial or truncated reads without a video source send no saved-draft material')
     for (const id of ['call_write_preview', 'call_write_final', 'call_present']) assert.equal(result(id)?.message.isError, false)
     assert.ok(events.some(event => event.type === 'deliverables/presented'))
     const cwd = agent.session.header.cwd
