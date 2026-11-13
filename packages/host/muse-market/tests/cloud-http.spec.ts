@@ -93,6 +93,81 @@ it('authenticates the private gateway before reading a complete actor assertion'
   expect(await identity.json()).toEqual({ accountId: reader.id, publishers: [], admin: false })
 })
 
+it('rejects unsupported public catalog queries and authenticated unknown routes through real HTTP', async () => {
+  const f = await fixture()
+  for (const [path, actor, status, code] of [
+    ['/catalog?kind=bot', null, 400, 'skill-only'],
+    ['/catalog?mine=invalid', null, 400, 'invalid-query'],
+    ['/catalog?mine=true', null, 401, 'login-required'],
+    ['/releases/' + '0'.repeat(32), author, 404, 'not-found'],
+    ['/unknown', author, 404, 'not-found'],
+    ['/me', null, 401, 'login-required'],
+  ] as const) {
+    const response = await f.api(path, actor)
+    expect(response.status).toBe(status)
+    expect(await response.json()).toEqual({ error: code })
+  }
+  for (const path of ['/catalog?kind=', '/catalog?kind=skill&mine=false']) {
+    const response = await f.api(path, null)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ items: [] })
+  }
+})
+
+it('refuses malformed publisher and review JSON without committing a state change', async () => {
+  const f = await fixture(), publisher = await f.invite()
+  const upload = await f.api('/uploads', author, { method: 'POST', headers: {
+    'content-type': 'application/zip', 'x-market-publisher': publisher, 'idempotency-key': 'review-json-inputs',
+  }, body: archive() })
+  const draft = parseMarketPublication(await upload.json(), limits)
+  for (const [path, body, code] of [
+    ['/publishers', '{incomplete', 'invalid-json'], ['/publishers', '[]', 'invalid-request'],
+    ['/publishers', JSON.stringify({ title: 'Extra field', accountId: author.id, extra: true }), 'invalid-request'],
+    ['/unknown', '{}', 'invalid-request'],
+    [`/releases/${draft.id}/review`, JSON.stringify({ revision: 0, action: 'submit', note: '' }), 'invalid-request'],
+    [`/releases/${draft.id}/review`, JSON.stringify({ revision: 1, action: 'unknown', note: '' }), 'invalid-request'],
+    [`/releases/${draft.id}/review`, JSON.stringify({ revision: 1, action: 'submit', note: 1 }), 'invalid-request'],
+    [`/releases/${draft.id}/review`, JSON.stringify({ revision: 1, action: 'submit', note: '', extra: true }), 'invalid-request'],
+  ] as const) {
+    const response = await f.api(path, admin, { method: 'POST', headers: { 'content-type': 'application/json' }, body })
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ error: code })
+  }
+  const read = await f.api(`/releases/${draft.id}`, author)
+  expect(parseMarketPublication(await read.json(), limits)).toEqual(draft)
+})
+
+it('carries each explicit moderation action over HTTP with exact inspected revisions', async () => {
+  const f = await fixture(), publisher = await f.invite()
+  const upload = await f.api('/uploads', author, { method: 'POST', headers: {
+    'content-type': 'application/zip', 'x-market-publisher': publisher, 'idempotency-key': 'moderation-http-actions',
+  }, body: archive() })
+  let current = parseMarketPublication(await upload.json(), limits)
+  for (const [actor, action, status] of [
+    [author, 'submit', 'pending'], [admin, 'reject', 'rejected'], [author, 'submit', 'pending'],
+    [admin, 'approve', 'published'], [author, 'withdraw', 'withdrawn'],
+  ] as const) {
+    const response = await f.api(`/releases/${current.id}/review`, actor,
+      post({ revision: current.revision, action, note: 'Explicit review decision' }))
+    expect(response.status).toBe(200)
+    const next = parseMarketPublication(await response.json(), limits)
+    expect(next).toMatchObject({ id: current.id, revision: current.revision + 1, status })
+    current = next
+  }
+})
+
+it('returns a safe package refusal for an invalid uploaded ZIP and releases the upload slot', async () => {
+  const f = await fixture(), publisher = await f.invite()
+  const headers = { 'content-type': 'application/zip', 'x-market-publisher': publisher,
+    'idempotency-key': 'invalid-uploaded-package' }
+  const invalid = await f.api('/uploads', author, { method: 'POST', headers, body: Buffer.from('not a ZIP archive') })
+  expect(invalid.status).toBe(400)
+  expect(await invalid.json()).toEqual({ error: 'invalid-archive' })
+  const accepted = await f.api('/uploads', author, { method: 'POST',
+    headers: { ...headers, 'idempotency-key': 'valid-after-refusal' }, body: archive() })
+  expect(accepted.status).toBe(201)
+})
+
 it('reconciles a committed upload after its original HTTP response is deliberately unobserved', async () => {
   const f = await fixture(), publisher = await f.invite(), bytes = archive()
   const committed = Promise.withResolvers<Awaited<ReturnType<MuseMarketCatalog['upload']>>>()
