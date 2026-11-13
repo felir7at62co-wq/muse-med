@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import builtins
+import os
 import runpy
+import subprocess
+import sys
+import tempfile
+from queue import Queue
+from threading import Thread
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +18,100 @@ from PIL import Image, ImageDraw
 
 
 CHECKS = runpy.run_path(Path(__file__).resolve().parents[3] / "scripts/fixtures/office-render.py")
+
+
+@pytest.mark.parametrize("winerror", [32, 33])
+def test_workspace_cleanup_waits_for_a_transient_windows_sharing_violation(
+    monkeypatch: pytest.MonkeyPatch, winerror: int,
+) -> None:
+    error = PermissionError("native mapping still held")
+    error.winerror = winerror
+    calls = []
+
+    def cleanup() -> None:
+        calls.append("cleanup")
+        if len(calls) == 1:
+            raise error
+
+    delays = []
+    monkeypatch.setattr(CHECKS["time"], "sleep", delays.append)
+    CHECKS["_cleanup_workspace"](SimpleNamespace(cleanup=cleanup))
+    assert calls == ["cleanup", "cleanup"]
+    assert len(delays) == 1 and 0 < delays[0] <= 0.05
+
+
+@pytest.mark.parametrize("sharing", [False, True])
+def test_workspace_cleanup_reports_unrelated_or_persistent_failures(
+    monkeypatch: pytest.MonkeyPatch, sharing: bool,
+) -> None:
+    error = PermissionError("cleanup failed")
+    error.winerror = 32 if sharing else 5
+    clocks = iter([10, 16])
+    monkeypatch.setattr(CHECKS["time"], "monotonic", lambda: next(clocks))
+    delays = []
+    monkeypatch.setattr(CHECKS["time"], "sleep", delays.append)
+
+    def cleanup() -> None:
+        raise error
+
+    with pytest.raises(PermissionError) as raised:
+        CHECKS["_cleanup_workspace"](SimpleNamespace(cleanup=cleanup))
+    assert raised.value is error
+    assert delays == []
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows executable mapping and sharing behavior")
+def test_workspace_cleanup_retries_after_the_lock_owner_has_exited() -> None:
+    temporary = tempfile.TemporaryDirectory(prefix="dsh-office-lock-")
+    path = Path(temporary.name) / "mapped.exe"
+    path.write_bytes(b"locked native fixture")
+    child = subprocess.Popen([sys.executable, "-c", """
+import ctypes, sys
+from ctypes import wintypes
+kernel = ctypes.WinDLL('kernel32', use_last_error=True)
+kernel.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+                              wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+kernel.CreateFileW.restype = wintypes.HANDLE
+kernel.CloseHandle.argtypes = [wintypes.HANDLE]
+handle = kernel.CreateFileW(sys.argv[1], 0x80000000, 0, None, 3, 0, None)
+if handle == wintypes.HANDLE(-1).value:
+    raise ctypes.WinError(ctypes.get_last_error())
+print('locked', flush=True)
+try:
+    assert sys.stdin.readline() == 'release\\n'
+finally:
+    kernel.CloseHandle(handle)
+""", str(path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    ready: Queue[str] = Queue()
+    reader = Thread(target=lambda: ready.put(child.stdout.readline()))
+    reader.start()
+    calls = []
+    try:
+        assert ready.get(timeout=5) == "locked\n"
+        reader.join(timeout=5)
+        assert not reader.is_alive()
+
+        def cleanup() -> None:
+            calls.append("cleanup")
+            try:
+                temporary.cleanup()
+            except OSError:
+                child.stdin.write("release\n")
+                child.stdin.flush()
+                _, stderr = child.communicate(timeout=5)
+                assert child.returncode == 0, stderr
+                raise
+
+        CHECKS["_cleanup_workspace"](SimpleNamespace(cleanup=cleanup))
+        assert calls == ["cleanup", "cleanup"]
+        assert not path.parent.exists()
+    finally:
+        if child.poll() is None:
+            child.kill()
+        reader.join(timeout=5)
+        child.communicate(timeout=5)
+        assert not reader.is_alive()
+        temporary.cleanup()
 
 
 def test_fixture_load_does_not_require_pillow(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -483,8 +483,10 @@ describe('approved episode service', () => {
     f.renderer.mode = 'failed'
     const input = await selection(f), admitted = await f.service.admitEpisode(input)
     f.renderer.release()
-    await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('failed') })
-    expect(f.service.hasActiveWork()).toBe(false)
+    await vi.waitFor(async () => {
+      expect((await f.service.episodeStatus(input)).state).toBe('failed')
+      expect(f.service.hasActiveWork()).toBe(false)
+    })
     f.renderer.mode = 'retry-required'
     await f.service.admitEpisode({ ...input, resume: true })
     await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('unknown') })

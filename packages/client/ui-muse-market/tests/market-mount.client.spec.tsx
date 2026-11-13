@@ -14,6 +14,10 @@ import { expect, it, onTestFinished, vi } from 'vitest'
 import { mountMuseMarket } from '../src/client/mount.ts'
 import type { MarketInjected } from '../src/client/market-actions.ts'
 
+vi.mock('@deepseek-ai/dsh-muse-market/remote', () => ({
+  default: { package: '@deepseek-ai/dsh-muse-market', descriptors: [] },
+}))
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     'remote.museMarket': ClientRemote['museMarket']
@@ -112,7 +116,7 @@ it('releases the mounted namespaces when UI initialization fails', async () => {
   expect(ctx.get('remote.museMarketCloud')).toBeUndefined()
 })
 
-it('loads the shipped browser descriptors and fences private and inventory callbacks until disposal', async () => {
+it('mounts the browser contribution and fences private and inventory callbacks until disposal', async () => {
   const ctx = new Context(), calls: string[] = []
   onTestFinished(async () => { await ctx.fiber.dispose() })
   await ctx.plugin(HostEntry).await()

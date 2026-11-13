@@ -1,12 +1,11 @@
-/** The generated request-header schema retains the native reader's retired-field refusal. */
-import { resolve } from 'node:path'
-import { expect, it } from 'vitest'
+/** Current types, the checked schema snapshot and native admission reserve retired system text. */
+import { readFileSync } from 'node:fs'
+import { expect, expectTypeOf, it } from 'vitest'
+import type { EpochHeader } from '@deepseek-ai/dsh-session'
 import { assertV4RowAdmission } from '@deepseek-ai/dsh-session-format-v3-to-v4'
-import { extractPersistenceSchema } from './persistence-schema.ts'
-import { classifyPersistenceChange } from './persistence-changes.ts'
+import { classifyPersistenceChange, parsePersistenceSnapshot } from './persistence-changes.ts'
 import { canonicalizeSchema, schemaDigest } from './persistence-schema-model.ts'
 import type { SchemaNode } from './persistence-schema-model.ts'
-import { COVERAGE_TEST_TIMEOUT_ENV, coverageTestTimeoutOptions } from './coverage-partitions.ts'
 
 function property(nodes: readonly SchemaNode[], index: number, name: string): number {
   const node = nodes[index]
@@ -16,10 +15,10 @@ function property(nodes: readonly SchemaNode[], index: number, name: string): nu
   return field.type
 }
 
-it('requires compatibility review before request headers can carry retired system text', {
-  timeout: coverageTestTimeoutOptions(process.env[COVERAGE_TEST_TIMEOUT_ENV]).testTimeout ?? 60_000,
-}, () => {
-  const inventory = extractPersistenceSchema(resolve(import.meta.dirname, '..'))
+it('requires compatibility review before request headers can carry retired system text', () => {
+  expectTypeOf<EpochHeader['system']>().toEqualTypeOf<undefined>()
+  // verify-persistence-catalog compares this complete snapshot with the current source program.
+  const inventory = parsePersistenceSnapshot(readFileSync(new URL('../docs/persistence-schema.json', import.meta.url), 'utf8'))
   const before = inventory.roots.find(root => root.key === 'event:request/header')
   if (before === undefined) throw new Error('generated schema omits request/header')
   const nodes = [...before.schema.nodes]
