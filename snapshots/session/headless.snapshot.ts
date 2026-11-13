@@ -691,6 +691,18 @@ const WORKTREE_CHECKOUT_FILTER = "printf 'FILTERED CHECKOUT CONTENT\\n'"
 const WORKTREE_CHECKOUT_ATTRIBUTES = 'tracked.txt filter=dsh-snapshot-checkout\n'
 
 const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Promise<PreparedWorkspace | void>> = {
+  async 'muse-visualize'(cwd) {
+    const plugin = join(cwd, '.dsh/plugins/dsh-visualize')
+    const source = process.env.MUSE_VISUALIZE_PACKAGE ?? join(repoRoot, 'third_party/plugins/dsh-visualize')
+    await mkdir(plugin, { recursive: true })
+    for (const part of ['src', 'lib', 'assets', 'package.json']) await cp(join(source, part), join(plugin, part), { recursive: true })
+    await mkdir(join(plugin, 'node_modules/@deepseek-ai'), { recursive: true })
+    // Resolve each peer root before linking across the Windows temp and workspace volumes.
+    for (const peer of ['schemastery', 'dsh-tools', 'dsh-skill']) {
+      await symlink(await realpath(join(repoRoot, 'apps/desktop-host/node_modules/@deepseek-ai', peer)),
+        join(plugin, 'node_modules/@deepseek-ai', peer), 'junction')
+    }
+  },
   async 'muse-lvpaopao-series'(cwd, scenarioDir) {
     if (scenarioDir === undefined) throw new Error('Lvpaopao tasks require their complete expected workspace')
     const expectedRoot = join(cwd, '.snapshot-patches', 'expected-lvpaopao-tasks')

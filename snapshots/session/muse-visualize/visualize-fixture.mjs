@@ -1,7 +1,7 @@
 /** Real native visualization calls in the product's default short-drama preset. */
 import assert from 'node:assert/strict'
-import { cp, mkdir, readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { readFile, writeFile } from 'node:fs/promises'
+import { join, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { apply as mountPreset } from '../muse-editing-tool-catalog/editing-preset-fixture.mjs'
 import { importSnapshotModule } from '../muse-fixture-import.mjs'
@@ -33,12 +33,8 @@ export async function apply(ctx) {
     currentEvents.set(session.id, events)
   })
   const plugin = join(cwd, '.dsh', 'plugins', 'dsh-visualize')
-  await mkdir(plugin, { recursive: true })
-  const source = process.env.MUSE_VISUALIZE_PACKAGE
-    ?? fileURLToPath(new URL('../../../third_party/plugins/dsh-visualize/', import.meta.url))
-  for (const part of ['src', 'assets', 'package.json']) await cp(join(source, part), join(plugin, part), { recursive: true })
-  if (process.env.MUSE_VISUALIZE_PACKAGE) await cp(join(source, 'lib'), join(plugin, 'lib'), { recursive: true })
-  const entry = process.env.MUSE_VISUALIZE_PACKAGE ? 'lib/index.js' : 'src/index.ts'
+  const built = process.env.DSH_EXAMPLE_MODE === 'lib' || process.env.MUSE_VISUALIZE_PACKAGE !== undefined
+  const entry = built ? 'lib/index.js' : 'src/index.ts'
   const visualize = await import(pathToFileURL(join(plugin, entry)).href)
   await ctx.plugin(visualize, {}).await()
   await mountPreset(ctx, { presetId: 'short-drama', hidePlatformShellTools: true })
@@ -90,7 +86,7 @@ export async function apply(ctx) {
     assert.equal(created.path, updated.path)
     const homePath = ctx.get('dshHomePath')
     assert.equal(typeof homePath, 'function')
-    assert.ok(created.path.startsWith(homePath('visualize', 'sessions') + '/'),
+    assert.ok(created.path.startsWith(homePath('visualize', 'sessions') + sep),
       JSON.stringify({ path: created.path, home: homePath('visualize'), cwd, sessionId: agent.session.id }))
     assert.ok(created.fragment.includes('预算方案 V1'))
     assert.ok(updated.fragment.includes('预算方案 V2'))

@@ -17,7 +17,7 @@
               "type": "tool-call",
               "id": "call_visualize_update",
               "name": "visualize",
-              "arguments": "{\"action\":\"update\",\"title\":\"预算交互卡\",\"path\":\"{{fromRequest:saved copy at ([^)]+)}}\",\"old_str\":\"预算方案 V1\",\"new_str\":\"预算方案 V2\",\"mode\":\"inline\"}"
+              "arguments": "{\"action\":\"update\",\"title\":\"预算交互卡\",\"path\":\"{{fromRequestJson:saved copy at ([^)]+)}}\",\"old_str\":\"预算方案 V1\",\"new_str\":\"预算方案 V2\",\"mode\":\"inline\"}"
             }
           },
           {

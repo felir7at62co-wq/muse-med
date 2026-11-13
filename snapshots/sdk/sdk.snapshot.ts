@@ -1296,8 +1296,11 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       reconcileCatalogCreationTimes(ordered.map(log => log.content), 'validate')
       const actualContext = contextOf(ordered, cwd)
       if (!recording && !refreshing && process.env.CI === 'true') {
-        await writeReplayDiagnostics(join(corpusRoot, '../.artifacts/snapshot-replay/sdk', scenario.name),
-          ordered.map(log => log.content), actualContext)
+        const directory = join(corpusRoot, '../.artifacts/snapshot-replay/sdk', scenario.name)
+        await writeReplayDiagnostics(directory, ordered.map(log => log.content), actualContext)
+        await writeFile(join(directory, 'notifications.expected.jsonl'), normalizeNotifications(notifications, actualContext))
+        const finalResult = results.at(-1)
+        if (finalResult !== undefined) await writeFile(join(directory, 'result.expected.json'), normalizeResult(finalResult, actualContext))
       }
       if (scenario.name === 'command-attachments') {
         const parent = ordered[0]
