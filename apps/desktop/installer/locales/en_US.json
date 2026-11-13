@@ -1,6 +1,7 @@
 {
   "nsisLanguage": "ENGLISH",
   "strings": {
+    "INSTALLER_REBOOT_REQUIRED": "Installation finished. Restart Windows before opening Muse.",
     "INSTALLER_INSTALL": "Install now",
     "INSTALLER_FINISH": "Finish",
     "INSTALLER_NATIVE_PROGRESS": "Preparing installation… %d%%",
@@ -31,7 +32,14 @@
     "INSTALLER_EXTRACT_COLLAPSE": "Hide details",
     "INSTALLER_EXTRACT_SAVED": "The full report was saved to %s",
     "INSTALLER_EXTRACT_UNSAVED": "The full report could not be saved. Use Copy error details to keep it.",
-    "INSTALLER_EXTRACT_COPIED": "Error details were copied to the clipboard."
+    "INSTALLER_EXTRACT_COPIED": "Error details were copied to the clipboard.",
+    "INSTALLER_VC_MISSING": "The bundled Microsoft Visual C++ x64 prerequisite is missing. Installation cannot complete. Obtain a complete muse-med installer.",
+    "INSTALLER_VC_CONSENT": "muse-med requires Microsoft Visual C++ x64 Runtime 14.51.36247.0 or later. Install the bundled runtime now? This changes system components and requires administrator approval. No download is performed. Declining stops muse-med installation.",
+    "INSTALLER_VC_DENIED": "Microsoft Visual C++ x64 Runtime installation was not authorized. muse-med installation cannot complete.",
+    "INSTALLER_VC_EXIT_FAILED": "Microsoft Visual C++ x64 Runtime did not install successfully.",
+    "INSTALLER_VC_LAUNCH_FAILED": "Microsoft Visual C++ x64 Runtime could not be started or monitored. Administrator approval may have been denied.",
+    "INSTALLER_VC_REBOOT": "Microsoft Visual C++ x64 Runtime installed successfully but requires a Windows restart. Restart Windows before launching muse-med. Do not select Run muse-med on the finish page.",
+    "INSTALLER_VC_PRIOR_FAILED": "muse-med installation failed before the prerequisite check."
   },
   "uninstaller": {
     "welcome": "Welcome",

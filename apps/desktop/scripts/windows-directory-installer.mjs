@@ -15,7 +15,7 @@ function replaceOnce(source, before, after) {
 /**
  * Preserve upstream registration and uninstall UI while replacing payload installation.
  * @param {string} source - Pinned electron-builder installSection.nsh contents.
- * @returns {string} Section with staging before shutdown and directory promotion before registration.
+ * @returns {string} Section with staging before shutdown, promotion before registration, and trailing-separator-insensitive installation matching.
  */
 export function directoryInstallSection(source) {
   let result = source.replaceAll('\r\n', '\n')
@@ -27,6 +27,9 @@ export function directoryInstallSection(source) {
 !macroundef uninstallOldVersion
 !macro uninstallOldVersion ROOT_KEY
   !insertmacro readReg $R4 "\${ROOT_KEY}" "\${INSTALL_REGISTRY_KEY}" InstallLocation
+  Push $0
+  !insertmacro InstallerTrimDirectorySeparators $R4
+  Pop $0
   \${If} $R4 == $INSTDIR
     StrCpy $R0 0
     ClearErrors

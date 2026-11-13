@@ -1,6 +1,7 @@
 {
   "nsisLanguage": "RUSSIAN",
   "strings": {
+    "INSTALLER_REBOOT_REQUIRED": "Установка завершена. Перезапустите Windows перед открытием Muse.",
     "INSTALLER_INSTALL": "Установить сейчас",
     "INSTALLER_FINISH": "Готово",
     "INSTALLER_NATIVE_PROGRESS": "Подготовка установки… %d%%",
@@ -31,7 +32,14 @@
     "INSTALLER_EXTRACT_COLLAPSE": "Скрыть детали",
     "INSTALLER_EXTRACT_SAVED": "Полный отчет сохранен в %s.",
     "INSTALLER_EXTRACT_UNSAVED": "Полный отчет не удалось сохранить. Используйте Скопировать сведения об ошибке, чтобы сохранить их.",
-    "INSTALLER_EXTRACT_COPIED": "Подробности об ошибке скопированы в буфер обмена."
+    "INSTALLER_EXTRACT_COPIED": "Подробности об ошибке скопированы в буфер обмена.",
+    "INSTALLER_VC_MISSING": "Отсутствует входящий в комплект компонент Microsoft Visual C++ x64. Установка не может быть завершена. Получите полный установщик muse-med.",
+    "INSTALLER_VC_CONSENT": "muse-med требуется Microsoft Visual C++ x64 Runtime 14.51.36247.0 или новее. Установить входящий в комплект компонент сейчас? Это изменит системные компоненты и потребует разрешения администратора. Загрузка из сети не выполняется. Отказ остановит установку muse-med.",
+    "INSTALLER_VC_DENIED": "Установка Microsoft Visual C++ x64 Runtime не была разрешена. Установка muse-med не может быть завершена.",
+    "INSTALLER_VC_EXIT_FAILED": "Не удалось установить Microsoft Visual C++ x64 Runtime.",
+    "INSTALLER_VC_LAUNCH_FAILED": "Не удалось запустить или контролировать Microsoft Visual C++ x64 Runtime. Возможно, разрешение администратора было отклонено.",
+    "INSTALLER_VC_REBOOT": "Microsoft Visual C++ x64 Runtime установлен, но требуется перезапуск Windows. Перезапустите Windows перед запуском muse-med. Не выбирайте запуск muse-med на последней странице установки.",
+    "INSTALLER_VC_PRIOR_FAILED": "Установка muse-med завершилась с ошибкой до проверки необходимых компонентов."
   },
   "uninstaller": {
     "welcome": "Вас приветствует мастер удаления",

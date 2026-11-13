@@ -1,6 +1,7 @@
 {
   "nsisLanguage": "SIMPCHINESE",
   "strings": {
+    "INSTALLER_REBOOT_REQUIRED": "安装已完成。请先重启 Windows，再打开 Muse。",
     "INSTALLER_INSTALL": "立即安装",
     "INSTALLER_FINISH": "完成",
     "INSTALLER_NATIVE_PROGRESS": "正在准备安装… %d%%",
@@ -31,7 +32,14 @@
     "INSTALLER_EXTRACT_COLLAPSE": "隐藏详情",
     "INSTALLER_EXTRACT_SAVED": "完整错误报告已保存到 %s",
     "INSTALLER_EXTRACT_UNSAVED": "无法保存完整错误报告，请使用“复制错误信息”保留。",
-    "INSTALLER_EXTRACT_COPIED": "错误信息已复制到剪贴板。"
+    "INSTALLER_EXTRACT_COPIED": "错误信息已复制到剪贴板。",
+    "INSTALLER_VC_MISSING": "安装包缺少 Microsoft Visual C++ x64 运行库，无法完成安装。请获取完整的 muse-med 安装包。",
+    "INSTALLER_VC_CONSENT": "muse-med 需要 Microsoft Visual C++ x64 运行库 14.51.36247.0 或更高版本。现在安装随包提供的运行库吗？此操作会修改系统组件并请求管理员授权，不会联网下载。拒绝将停止 muse-med 安装。",
+    "INSTALLER_VC_DENIED": "未授权安装 Microsoft Visual C++ x64 运行库，无法完成 muse-med 安装。",
+    "INSTALLER_VC_EXIT_FAILED": "Microsoft Visual C++ x64 运行库安装失败。",
+    "INSTALLER_VC_LAUNCH_FAILED": "无法启动或等待 Microsoft Visual C++ x64 运行库安装。管理员授权可能已被拒绝。",
+    "INSTALLER_VC_REBOOT": "Microsoft Visual C++ x64 运行库安装成功，但需要重启 Windows。请重启后再启动 muse-med，不要勾选完成页的立即运行选项。",
+    "INSTALLER_VC_PRIOR_FAILED": "muse-med 安装在运行库检查之前已失败。"
   },
   "uninstaller": {
     "welcome": "欢迎",

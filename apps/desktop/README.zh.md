@@ -171,7 +171,7 @@ Desktop Host 为所有桌面会话只组合一次短剧设置和剧变工具；�
 
 升级文案完整展示版本号（包括预发布后缀），不额外添加 v 或 V。无可用更新时，弹窗标题显示检查结果，正文显示当前版本。
 
-Electron 根据应用语言选择类型化的八种[内置 Client 语言](../../packages/client/locale/README.zh.md)的 shell 文案，并回退到英文。macOS 应用包通过 `CFBundleLocalizations` 声明支持全部八种语言，让 macOS 根据用户的首选语言匹配初始应用语言。主界面仍优先使用已保存的 Client UI 语言偏好。Windows NSIS 安装器在 `installer/locales/` 下按语言保存独立 JSON 资源；打包从这些文件生成 NSIS 文案和安装器语言清单。全部内置语言资源的键、格式占位符和命令示例必须一致，`pnpm run check:i18n` 负责检查。原生安装器测试逐个构建并验证配置中的语言。账户平台页面和引导插图对中文以外的语言使用英文。在 Windows 上，主文档的语言会更新桌面菜单、恢复与更新提示。仓库 Client UI i18n 检查覆盖桌面端源码。
+Electron 根据应用语言选择类型化的八种[内置 Client 语言](../../packages/client/locale/README.zh.md)的 shell 文案，并回退到英文。macOS 应用包通过 `CFBundleLocalizations` 声明支持全部八种语言，让 macOS 根据用户的首选语言匹配初始应用语言。主界面仍优先使用已保存的 Client UI 语言偏好。Windows NSIS 安装器在 `installer/locales/` 下按语言保存独立 JSON 资源；打包从这些文件生成 NSIS 文案和安装器语言清单。每种语言还必须提供 NSIS 源码引用的全部文案，包括需要重启的提示。全部内置语言资源的键、格式占位符和命令示例必须一致，`pnpm run check:i18n` 负责检查。原生安装器测试逐个构建并验证配置中的语言。账户平台页面和引导插图对中文以外的语言使用英文。在 Windows 上，主文档的语言会更新桌面菜单、恢复与更新提示。仓库 Client UI i18n 检查覆盖桌面端源码。
 
 Windows 和 macOS 会在原生全屏切换及每次页面加载后向渲染器同步全屏状态，让浮层调整顶栏避让距离。
 

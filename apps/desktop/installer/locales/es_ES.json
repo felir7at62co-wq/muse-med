@@ -1,6 +1,7 @@
 {
   "nsisLanguage": "SPANISHINTERNATIONAL",
   "strings": {
+    "INSTALLER_REBOOT_REQUIRED": "La instalación ha finalizado. Reinicia Windows antes de abrir Muse.",
     "INSTALLER_INSTALL": "Instalar ahora",
     "INSTALLER_FINISH": "Finalizar",
     "INSTALLER_NATIVE_PROGRESS": "Preparando la instalación… %d%%",
@@ -31,7 +32,14 @@
     "INSTALLER_EXTRACT_COLLAPSE": "Ocultar detalles",
     "INSTALLER_EXTRACT_SAVED": "El informe completo se guardó en %s.",
     "INSTALLER_EXTRACT_UNSAVED": "No se pudo guardar el informe completo. Utilice Copiar detalles del error para conservarlo.",
-    "INSTALLER_EXTRACT_COPIED": "Los detalles del error se copiaron al portapapeles."
+    "INSTALLER_EXTRACT_COPIED": "Los detalles del error se copiaron al portapapeles.",
+    "INSTALLER_VC_MISSING": "Falta el componente Microsoft Visual C++ x64 incluido. No se puede completar la instalación. Obtén un instalador completo de muse-med.",
+    "INSTALLER_VC_CONSENT": "muse-med requiere Microsoft Visual C++ x64 Runtime 14.51.36247.0 o posterior. ¿Instalar ahora el componente incluido? Esto modifica componentes del sistema y requiere permiso de administrador. No se descargará nada. Rechazarlo detiene la instalación de muse-med.",
+    "INSTALLER_VC_DENIED": "No se autorizó la instalación de Microsoft Visual C++ x64 Runtime. No se puede completar la instalación de muse-med.",
+    "INSTALLER_VC_EXIT_FAILED": "Microsoft Visual C++ x64 Runtime no se instaló correctamente.",
+    "INSTALLER_VC_LAUNCH_FAILED": "No se pudo iniciar o supervisar Microsoft Visual C++ x64 Runtime. Es posible que se haya denegado el permiso de administrador.",
+    "INSTALLER_VC_REBOOT": "Microsoft Visual C++ x64 Runtime se instaló, pero requiere reiniciar Windows. Reinicia Windows antes de abrir muse-med. No selecciones abrir muse-med en la página final.",
+    "INSTALLER_VC_PRIOR_FAILED": "La instalación de muse-med falló antes de comprobar los requisitos."
   },
   "uninstaller": {
     "welcome": "Bienvenido",

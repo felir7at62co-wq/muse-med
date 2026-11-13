@@ -1,6 +1,7 @@
 {
   "nsisLanguage": "PORTUGUESEBR",
   "strings": {
+    "INSTALLER_REBOOT_REQUIRED": "A instalação foi concluída. Reinicie o Windows antes de abrir o Muse.",
     "INSTALLER_INSTALL": "Instale agora",
     "INSTALLER_FINISH": "Concluir",
     "INSTALLER_NATIVE_PROGRESS": "Preparando a instalação… %d%%",
@@ -31,7 +32,14 @@
     "INSTALLER_EXTRACT_COLLAPSE": "Ocultar detalhes",
     "INSTALLER_EXTRACT_SAVED": "O relatório completo foi salvo em %s",
     "INSTALLER_EXTRACT_UNSAVED": "Não foi possível salvar o relatório completo. Use Copiar detalhes do erro para mantê-lo.",
-    "INSTALLER_EXTRACT_COPIED": "Os detalhes do erro foram copiados para a área de transferência."
+    "INSTALLER_EXTRACT_COPIED": "Os detalhes do erro foram copiados para a área de transferência.",
+    "INSTALLER_VC_MISSING": "O componente Microsoft Visual C++ x64 incluído está ausente. Não é possível concluir a instalação. Obtenha um instalador completo do muse-med.",
+    "INSTALLER_VC_CONSENT": "O muse-med requer Microsoft Visual C++ x64 Runtime 14.51.36247.0 ou posterior. Instalar agora o componente incluído? Isso altera componentes do sistema e requer autorização de administrador. Nenhum download será feito. Recusar interrompe a instalação do muse-med.",
+    "INSTALLER_VC_DENIED": "A instalação do Microsoft Visual C++ x64 Runtime não foi autorizada. Não é possível concluir a instalação do muse-med.",
+    "INSTALLER_VC_EXIT_FAILED": "O Microsoft Visual C++ x64 Runtime não foi instalado corretamente.",
+    "INSTALLER_VC_LAUNCH_FAILED": "Não foi possível iniciar ou monitorar o Microsoft Visual C++ x64 Runtime. A autorização de administrador pode ter sido negada.",
+    "INSTALLER_VC_REBOOT": "O Microsoft Visual C++ x64 Runtime foi instalado, mas é necessário reiniciar o Windows. Reinicie o Windows antes de abrir o muse-med. Não selecione abrir o muse-med na página final.",
+    "INSTALLER_VC_PRIOR_FAILED": "A instalação do muse-med falhou antes da verificação dos requisitos."
   },
   "uninstaller": {
     "welcome": "Bem-vindo",
