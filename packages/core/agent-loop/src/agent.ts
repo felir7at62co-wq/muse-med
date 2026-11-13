@@ -139,7 +139,7 @@ export class ReactLoopAgent implements Agent {
     public readonly id: SessionId,
     public readonly options: AgentOptions,
     public readonly session: Session,
-    projections: LoopProjections,
+    private readonly projections: LoopProjections,
     lastTurn: number,
   ) {
     this.requestSurfaceGeneration = session.surface.contentGeneration
@@ -494,6 +494,7 @@ export class ReactLoopAgent implements Agent {
       if (firstAttempt && this.loopCtx.agentLoop.config.durableInboxClaims === true) this.inbox.settleClaim(turn, step)
       firstAttempt = false
       const request = this.buildRequest(config, preparedCall, assembly.tools, { turn, step }, startsRequestSeries, signal)
+      const modelSelectionState = this.projections.modelSelection()
       const live = new AssistantStreamAttempt(
         this.session.id,
         ++this.assistantAttemptCounter,
@@ -579,7 +580,8 @@ export class ReactLoopAgent implements Agent {
               throw new Error(`agent "${this.id}": request recovery must switch to a different provider`)
             }
             const current = this.model.current()
-            if (current?.provider === decision.selection.provider
+            if (this.projections.modelSelection() === modelSelectionState
+              && current?.provider === decision.selection.provider
               && current.model === decision.selection.model
               && current.reasoningEffort === decision.selection.reasoningEffort) {
               this.model.select(action.selection)
