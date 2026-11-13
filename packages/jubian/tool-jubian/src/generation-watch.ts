@@ -148,10 +148,13 @@ export class GenerationWatchRuntime {
       const candidate = { id, sessionId, createdAt,
         ...(binding === undefined ? {} : { binding }),
         deadlineAt: createdAt + this.options.watchTimeoutMs, packs: packs.map(pack => ({ ...pack })) }
-      const initial = predecessor === undefined
-        ? await this.options.store.claimAndCreate(candidate, this.controller.signal)
-        : await this.options.store.withRecoveryLease(predecessor, this.controller.signal, this.options.watchTimeoutMs,
+      let initial: boolean
+      if (predecessor === undefined) {
+        initial = await this.options.store.claimAndCreate(candidate, this.controller.signal)
+      } else {
+        initial = await this.options.store.withRecoveryLease(predecessor, this.controller.signal, this.options.watchTimeoutMs,
           async () => await this.options.store.retryUnsent(predecessor, candidate, this.controller.signal))
+      }
       this.controller.signal.throwIfAborted()
       if (!initial) {
         if (!await this.allRecorded(keys)) {
