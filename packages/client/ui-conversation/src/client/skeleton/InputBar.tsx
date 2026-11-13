@@ -275,6 +275,11 @@ export const InputBar = memo(function InputBar({
   }, [uploadDenied, locked, machineBusy, subagent, continuable, addFiles, attachments, imageLimits, showToast, t])
 
   const canAcceptDrop = !uploadDenied && (subagent === null || continuable) && !locked && !machineBusy && addFiles !== undefined
+  const workspaceDrop = useMemo(() => workspaceFileDrop === undefined ? undefined : {
+    type: workspaceFileDrop.type,
+    canAccept: subagent === null && !locked && !machineBusy,
+    onDrop: (ticket: string) => { void workspaceFileDrop.onDrop(ticket) },
+  }, [workspaceFileDrop, subagent, locked, machineBusy])
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const onPickFiles = (e: ChangeEvent<HTMLInputElement>): void => {
@@ -472,13 +477,7 @@ export const InputBar = memo(function InputBar({
           attachments,
           canAcceptDrop,
           onAddFiles: intakeFiles,
-          ...workspaceFileDrop === undefined ? {} : {
-            workspaceDrop: {
-              type: workspaceFileDrop.type,
-              canAccept: subagent === null && !locked && !machineBusy,
-              onDrop: (ticket: string) => { void workspaceFileDrop.onDrop(ticket) },
-            },
-          },
+          ...workspaceDrop === undefined ? {} : { workspaceDrop },
           onRemoveAttachment: (id) => { removeAttachment?.(id) },
           uploads,
           onRetryFile: (id) => { retryFileUpload?.(id) },

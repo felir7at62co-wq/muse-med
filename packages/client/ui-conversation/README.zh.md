@@ -70,9 +70,11 @@ Queue 预览启用空白折叠和文档边缘 trim，保留 emoji，并使用 CS
 <a id="shell-and-standard-props"></a>
 ## Shell 与标准 props
 
-Muse 桌面版的空白会话问候每字显示间隔为 105 毫秒，完整诗句停留 3.2 秒，每字擦除间隔为 45 毫秒，下一句开始前停留 550 毫秒。减少动态效果时显示完整静态诗句；组件卸载时释放定时器和偏好监听。
+Host 配置 `headerPresentation` 默认为 `standard`。插件可通过 `ctx.uiConversation.headerPresentations.register()` 注册可撤销的 `{ id, presentation }` 偏好。最后注册的偏好优先；卸载时恢复前一个注册或 Host 默认值，不替换聊天记录或输入框。可选的 Muse 视频界面为 Chat 使用 `floating`：当前 Session 标题在左上角单行显示并在过长时省略，更多视图按钮紧邻标题，原生操作保留在右上方。标题省略时，更多视图按钮仍可点击，并提供所有 View。标题与操作悬浮在不拦截指针的顶部渐隐遮罩上方，不占据垂直流空间；标签栏保持隐藏。其他 View 使用正常文档流中的标准顶栏，使其工具栏位于标题和标签栏下方。
 
-共享图片插槽属性将展示选择与持久化引用分开：`thumbnail` 请求完整缩放的附件列表缩略图，`compact` 请求裁剪的图片方块。每张图片可通过可选的 `label` 提供无障碍展示名称；加载和缓存标识仍使用原始附件引用。[ui-attachment](../ui-attachment/README.zh.md) 负责渲染与灯箱。
+Session 作用域的 `conversation.content.overlay` 列表接收解析后的 `activeView` id，无可用 View 时为 `null`。其绝对定位容器直接位于共享正文中，在滚动容器与 Chat 查询容器之外，继承实时内容宽度变量，且不创建层叠上下文。条目不占布局空间，自行管理面板层级、指针事件及 View 可见性；挂载到 body 的任务面板层级为 100，对话框为 1000。空白 Hero 不渲染该浮层列表。
+
+Muse 桌面版的空白会话问候每字显示间隔为 105 毫秒，完整诗句停留 3.2 秒，每字擦除间隔为 45 毫秒，下一句开始前停留 550 毫秒。减少动态效果时显示完整静态诗句；组件卸载时释放定时器和偏好监听。
 
 root 作用域的 hoc Slot `conversation.hero.frame` 在所有阶段都包裹滚动区，因此首页结束时各层不会让输入框重新挂载。它的所有者 props 提供 `hero`，仅在独立 Conversation 的空白首页时为 true。各层需让滚动区仍是 body 的直接 flex 子项，例如使用 `display: contents`。首页阶段，绘制背景的 Conversation 根元素隔离层叠上下文：层中负 `z-index` 的装饰画在该背景之上、所有 Conversation 内容之下，包括输入区的接管面板。其他阶段根元素不参与层叠隔离，未经 portal 的 Conversation 浮层仍能盖住悬浮在中栏上方的 AppFrame 元素。各层自行处理输入。没有占用者时，body 保持原样。
 
@@ -114,10 +116,6 @@ root 作用域的 `conversation.session.header.views.actions` list 有注册项�
 已认领的命令是草稿开头的一个原子 chip，认领与该 chip 同生共灭。删除参数和分隔空格不影响认领。光标到达 chip 边缘时，第一次 Backspace 或 Delete 选中整个 chip，再按一次才删除它并释放认领，参数保留为普通文字；按其他键、点击或移动光标会取消选中。在 chip 前插入文字或换行会把它还原为字面 token 并释放认领，撤销会连同认领一起恢复被删除的 chip。持久化的草稿记录 chip 的 token，刷新后命令目录解析出认领即重建 chip；在此之前先编辑了草稿则保留字面 token，Enter 仍会把它作为命令提交。所有命令和语言使用相同规则，包括 `/goal`、`/目标`、`/plan` 和 `/计划`。输入法组合输入期间，命令提示和普通占位文字持续隐藏，直到编辑器提交最终文字且对应输入为空时才重新显示。
 
 工作区选择使用 `uiWorkspace.openWorkspace` 准备目标并提交导航。草稿内容（包括结构化引用）和附件仅在该请求仍为当前请求、且没有在途提交时，通过它的同步准备回调搬移；后续导航、所有者释放或在途提交都会把原草稿留在它的 Session 中。
-
-Host 配置 `headerPresentation` 默认为 `standard`。插件可通过 `ctx.uiConversation.headerPresentations.register()` 注册可撤销的 `{ id, presentation }` 偏好。最后注册的偏好优先；卸载时恢复前一个注册或 Host 默认值，不替换聊天记录或输入框。可选的 Muse 视频界面为 Chat 使用 `floating`：当前 Session 标题在左上角单行显示并在过长时省略，更多视图按钮紧邻标题，原生操作保留在右上方。标题省略时，更多视图按钮仍可点击，并提供所有 View。标题与操作悬浮在不拦截指针的顶部渐隐遮罩上方，不占据垂直流空间；标签栏保持隐藏。其他 View 使用正常文档流中的标准顶栏，使其工具栏位于标题和标签栏下方。
-
-Session 作用域的 `conversation.content.overlay` 列表接收解析后的 `activeView` id，无可用 View 时为 `null`。其绝对定位容器直接位于共享正文中，在滚动容器与 Chat 查询容器之外，继承实时内容宽度变量，且不创建层叠上下文。条目不占布局空间，自行管理面板层级、指针事件及 View 可见性；挂载到 body 的任务面板层级为 100，对话框为 1000。空白 Hero 不渲染该浮层列表。
 
 本包占据 root 作用域 `main` 中的 `conversation` key。其 `main.conversation` 外壳将常驻的 `conversation.header` 放在可选 Session 的 `conversation.content` Component Factory 外。未选中 Session 时，头部仍承载根作用域导航；标题、操作和 View 标签保留在严格 Session 子组件中。Factory 拥有共享正文与 Composer，通过其标准 Hook 读取当前 Session，并公开 strict-Session `views` 与 root-scoped `widthControls` 两个局部位置。默认 adapter 渲染现有 `conversation.session` entry，主 occurrence 选择宽度拖拽条；嵌入式 occurrence 可以替换 `views`、省略拖拽条，且不渲染主 Header。共享正文与 Composer 注册 queue dock 和 Todo dock。Todo dock 在 composer 上方使用共享面板 elevation；其中的行分别以共享 idle、ongoing 与 done 标记表示待处理、进行中与已完成。`ctx.uiSession.provide()` 从同一个 Session binding 物化 Conversation 与 input source，并将 `inputActions` 作为稳定标准 prop 提供。
 

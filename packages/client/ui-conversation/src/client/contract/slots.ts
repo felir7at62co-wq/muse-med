@@ -86,7 +86,7 @@ export interface ComposerAttachmentsOwnerProps {
    * @param directories - members of `files` the drop source identified as directories.
    */
   onAddFiles: (files: readonly File[], directories?: ReadonlySet<File>) => void
-  /** Same-connection workspace drag intake; absent when the Host has no workspace file service. */
+  /** Same-connection workspace drag intake; absent without a Session. A drop without a Host workspace-file namespace inserts no references. */
   workspaceDrop?: {
     readonly type: string
     readonly canAccept: boolean
@@ -629,7 +629,7 @@ export interface ComposerBarInjected {
    * identified as directories.
    */
   addFiles: ((files: readonly File[], directories?: ReadonlySet<File>) => string | null) | undefined
-  /** Same-connection workspace drag intake; absent without a Session or workspace file capability. */
+  /** Same-connection workspace drag intake; absent without a Session. A drop without a Host workspace-file namespace resolves false. */
   workspaceFileDrop?: {
     readonly type: string
     /** @param ticket - opaque drag identity. @returns whether references were inserted. */

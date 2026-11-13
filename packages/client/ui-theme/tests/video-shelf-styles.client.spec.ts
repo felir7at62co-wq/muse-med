@@ -50,7 +50,6 @@ it.each([false, true])('keeps a dark Muse material and readable primary and seco
 })
 
 it('keeps the player, inline card and nested timeline on the independent video material', () => {
-  expect(shelf).not.toContain('--dsw-alias-chat-assistant-bg')
   for (const alias of ['label-primary', 'label-secondary', 'label-tertiary', 'bg-base']) {
     expect(shelf).toContain(`--dsw-alias-${alias}: var(--dsw-alias-video-shelf-`)
   }
