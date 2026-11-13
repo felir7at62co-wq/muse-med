@@ -1,8 +1,9 @@
 /** Real native visualization calls in the product's default short-drama preset. */
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { cp, mkdir, readFile, realpath, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import { existsSync, realpathSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { parse as parseYaml } from 'yaml'
@@ -159,6 +160,16 @@ export async function apply(ctx) {
       ?? fileURLToPath(new URL('../../../third_party/plugins/dsh-visualize/', import.meta.url))
     for (const part of ['src', 'assets', 'package.json']) await cp(join(source, part), join(plugin, part), { recursive: true })
     if (process.env.MUSE_VISUALIZE_PACKAGE) await cp(join(source, 'lib'), join(plugin, 'lib'), { recursive: true })
+    const manifest = JSON.parse(await readFile(join(plugin, 'package.json'), 'utf8'))
+    const requireHost = createRequire(new URL('../../../apps/desktop-host/package.json', import.meta.url))
+    // The private plugin lives outside the checkout, so stage its runtime Host peers.
+    for (const name of ['@deepseek-ai/schemastery', '@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-skill']) {
+      assert.ok(Object.hasOwn(manifest.peerDependencies, name))
+      const target = join(plugin, 'node_modules', name)
+      await mkdir(dirname(target), { recursive: true })
+      await symlink(dirname(requireHost.resolve(`${name}/package.json`)), target,
+        process.platform === 'win32' ? 'junction' : 'dir')
+    }
     entry = join(plugin, process.env.MUSE_VISUALIZE_PACKAGE ? 'lib/index.js' : 'src/index.ts')
   }
   const selectedEntry = await realpath(entry)
