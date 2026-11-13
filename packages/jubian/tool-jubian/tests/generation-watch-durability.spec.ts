@@ -7,9 +7,10 @@ import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm
 import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import { afterEach, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { createGenerationWatchNotice, deliverGenerationWatchNotice,
   registerGenerationWatchDelivery } from '../src/generation-watch-delivery.ts'
-import { GenerationWatchStore, type GenerationWatchRun } from '../src/generation-watch-store.ts'
+import { GenerationWatchOwnershipConflict, GenerationWatchStore, type GenerationWatchRun } from '../src/generation-watch-store.ts'
 
 const roots: string[] = []
 const hosts: Context[] = []
@@ -38,6 +39,24 @@ it.each(['ownership.v2.json', 'ownership.v1.json'])('propagates a corrupt %s wit
   expect(await f.store.load(f.run.id)).toBeUndefined()
   const absent = join(directory, name === 'ownership.v2.json' ? 'ownership.v1.json' : 'ownership.v2.json')
   await expect(readFile(absent)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('rejects an extra persisted key that is absent from its recorded run without rewriting either file', async () => {
+  const f = await checkpoint()
+  await f.store.claimAndCreate(f.run)
+  expect(await f.store.mayObserve(f.run.id)).toBe(false)
+  const indexPath = join(f.root, 'watches', 'ownership.v2.json')
+  const originalIndex = await readFile(indexPath, 'utf8'), originalRun = await readFile(f.path)
+  const index = z.looseObject({ keys: z.record(z.string(), z.unknown()) }).parse(JSON.parse(originalIndex))
+  index.keys['c'.repeat(64)] = { runId: f.run.id, sessionId: f.run.sessionId, previewPath: f.run.packs[0]!.previewPath }
+  const invalidIndex = JSON.stringify(index)
+  await writeFile(indexPath, invalidIndex)
+  await expect(f.store.mayObserve(f.run.id)).rejects.toBeInstanceOf(GenerationWatchOwnershipConflict)
+  expect(await readFile(indexPath, 'utf8')).toBe(invalidIndex)
+  expect(await readFile(f.path)).toEqual(originalRun)
+  await writeFile(indexPath, originalIndex)
+  expect(await f.store.mayObserve(f.run.id)).toBe(false)
+  expect(await f.store.load(f.run.id)).toEqual(f.run)
 })
 
 it('commits the same checkpoint after a public ownership claim without inventing a notice or changing its deadline', async () => {
