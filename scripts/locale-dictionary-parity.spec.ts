@@ -130,7 +130,7 @@ function dictionariesIn(file: string): Dictionary[] {
       const literal = unwrap(decl.initializer)
       if (literal === undefined || !ts.isObjectLiteralExpression(literal)) continue
       if (localeOf(decl.name.text) === undefined) continue
-      found.push({ file: rel, name: decl.name.text, keys: keysOf(literal), templates: templatesOf(literal) })
+      found.push({ file: rel, name: decl.name.text, keys: keysOf(literal, moduleConsts), templates: templatesOf(literal) })
     }
   }
 
@@ -176,7 +176,7 @@ function dictionariesIn(file: string): Dictionary[] {
         // The namespace expression's source text identifies the pair, so the
         // zh and en calls for one namespace meet and calls for different
         // namespaces stay apart.
-        found.push({ file: rel, name: `${tag.text}@register:${ns.getText(source)}`, keys: keysOf(dictionary), templates: templatesOf(dictionary) })
+        found.push({ file: rel, name: `${tag.text}@register:${ns.getText(source)}`, keys: keysOf(dictionary, moduleConsts), templates: templatesOf(dictionary) })
       }
     }
     if (ts.isArrayLiteralExpression(node) && node.elements.length >= 2) {
@@ -188,7 +188,7 @@ function dictionariesIn(file: string): Dictionary[] {
         if (tag === undefined || !ts.isStringLiteral(tag)) continue
         if (literal === undefined || !ts.isObjectLiteralExpression(literal)) continue
         if (!SHIPPED_LOCALE_IDS.some(id => id === tag.text)) continue
-        found.push({ file: rel, name: `${tag.text}@inline:${site}`, keys: keysOf(literal), templates: templatesOf(literal) })
+        found.push({ file: rel, name: `${tag.text}@inline:${site}`, keys: keysOf(literal, moduleConsts), templates: templatesOf(literal) })
       }
     }
     ts.forEachChild(node, visit)
@@ -209,14 +209,29 @@ function templatesOf(literal: ts.ObjectLiteralExpression): Readonly<Record<strin
   return templates
 }
 
-/** Declared property names of an object literal, sorted. */
-function keysOf(literal: ts.ObjectLiteralExpression): string[] {
-  const keys: string[] = []
+/** Unique property names, including module-local object spreads, sorted. */
+function keysOf(
+  literal: ts.ObjectLiteralExpression, locals: ReadonlyMap<string, ts.Expression>, ancestors = new Set<ts.Expression>(),
+): string[] {
+  if (ancestors.has(literal)) throw new Error('Circular local locale dictionary spread')
+  const visited = new Set([...ancestors, literal])
+  const keys = new Set<string>()
   for (const prop of literal.properties) {
+    if (ts.isSpreadAssignment(prop)) {
+      const expression = unwrap(prop.expression)
+      const spread = expression !== undefined && ts.isIdentifier(expression) && locals.has(expression.text)
+        ? unwrap(locals.get(expression.text)) : expression
+      if (spread !== undefined && ts.isObjectLiteralExpression(spread)) {
+        for (const key of keysOf(spread, locals, visited)) keys.add(key)
+      } else if (expression !== undefined && ts.isIdentifier(expression) && locals.has(expression.text)) {
+        throw new Error(`Cannot resolve local locale dictionary spread ${expression.text}`)
+      }
+      continue
+    }
     if (!ts.isPropertyAssignment(prop)) continue
-    if (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) keys.push(prop.name.text)
+    if (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) keys.add(prop.name.text)
   }
-  return keys.sort()
+  return [...keys].sort()
 }
 
 /** Look through `satisfies`/`as`/parenthesized wrappers to the literal. */
@@ -309,6 +324,35 @@ function registrationProblems(file: string): string[] {
 }
 
 describe('shipped locale dictionaries', () => {
+  it('counts nested local fallback keys and still detects a missing inherited key', () => {
+    const source = ts.createSourceFile('locales.ts', `
+      const base = { 'shared.one': 'one', 'shared.two': 'two' } satisfies Record<string, string>
+      const fallback = { ...base, 'shared.one': 'override' }
+      const translated = { ...fallback, own: 'translated' }
+      const incomplete = { 'shared.one': 'one', own: 'translated' }
+    `, ts.ScriptTarget.ESNext, true)
+    const locals = new Map<string, ts.Expression>()
+    for (const statement of source.statements) {
+      if (!ts.isVariableStatement(statement)) continue
+      for (const declaration of statement.declarationList.declarations) {
+        if (ts.isIdentifier(declaration.name) && declaration.initializer !== undefined) {
+          locals.set(declaration.name.text, declaration.initializer)
+        }
+      }
+    }
+    const readKeys = (name: string): string[] => {
+      const literal = unwrap(locals.get(name))
+      if (literal === undefined || !ts.isObjectLiteralExpression(literal)) throw new Error(`Missing test dictionary ${name}`)
+      return keysOf(literal, locals)
+    }
+    expect(readKeys('translated')).toEqual(['own', 'shared.one', 'shared.two'])
+    expect(readKeys('translated').filter(key => !readKeys('incomplete').includes(key))).toEqual(['shared.two'])
+    locals.set('base', ts.factory.createObjectLiteralExpression([ts.factory.createSpreadAssignment(ts.factory.createIdentifier('fallback'))]))
+    expect(() => readKeys('translated')).toThrow('Circular local locale dictionary spread')
+    locals.set('base', ts.factory.createCallExpression(ts.factory.createIdentifier('unresolved'), undefined, []))
+    expect(() => readKeys('translated')).toThrow('Cannot resolve local locale dictionary spread base')
+  })
+
   it('registers every shipped language alongside every object-form bilingual dictionary', () => {
     expect(sourceFiles().flatMap(registrationProblems)).toEqual([])
   })
