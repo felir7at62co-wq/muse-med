@@ -15,6 +15,17 @@ const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
 
 describe('CI workflow', () => {
+  it('qualifies locked Windows media executables before starting exhaustive coverage', () => {
+    const job = workflowJob(loadWorkflow('.github/workflows/ci-windows.yml'), 'windows-coverage')
+    if (!Array.isArray(job.steps)) throw new TypeError('Windows coverage must declare its prerequisites')
+    const prepare = job.steps.findIndex((step: unknown) => isRecord(step) && step.name === 'Prepare media test executables')
+    const coverage = job.steps.findIndex((step: unknown) => isRecord(step) && step.name === 'Run Windows coverage')
+    expect(prepare).toBeGreaterThanOrEqual(0)
+    expect(coverage).toBeGreaterThan(prepare)
+    expect(job.steps[prepare]).toEqual({ name: 'Prepare media test executables', shell: 'pwsh',
+      run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts' })
+  })
+
   it('builds unsigned Muse installers on native runners without publication credentials', () => {
     const workflow = loadWorkflow('.github/workflows/muse-desktop.yml')
     expect(workflow.on).toEqual({ workflow_dispatch: { inputs: {

@@ -38,7 +38,7 @@ Disposal removes the panel, navigation, dictionaries, feedback overlay and Remot
 <a id="understand-the-implementation"></a>
 ## Understand the implementation
 
-[Remote adapters](src/client/market-remote.ts) preserve all fifteen operation results and structured errors. [The controller](src/client/market-controller.ts) owns private request currency. The renderer owns the registered creator draft store; it contains user choices and original retry identities, not a replacement installation or cloud ledger. Components use framework hooks, derived slot props and existing Button, Modal and Toast primitives.
+[Remote adapters](src/client/market-remote.ts) preserve all fifteen operation results and structured errors. [The controller](src/client/market-controller.ts) owns private request currency. The renderer owns the registered creator draft store; it contains user choices and original retry identities, not a replacement installation or cloud ledger. Components use framework hooks, derived slot props and existing Button, Modal and Toast primitives. Market cards and source form controls follow the shared neutral hairline treatment in [Web styling](../../../docs/web-styling.md).
 
 <a id="further-exploration"></a>
 ## Further Exploration
