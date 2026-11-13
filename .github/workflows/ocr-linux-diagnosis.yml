@@ -13,9 +13,11 @@ jobs:
     timeout-minutes: 20
     env:
       DSH_TELEMETRY_DISABLED: '1'
-      NODE_COMPILE_CACHE: ${{ runner.temp }}/node-compile-cache
-      TMPDIR: ${{ runner.temp }}
     steps:
+      - name: Set runner-owned temporary paths
+        run: |
+          echo "NODE_COMPILE_CACHE=$RUNNER_TEMP/node-compile-cache" >> "$GITHUB_ENV"
+          echo "TMPDIR=$RUNNER_TEMP" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
