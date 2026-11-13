@@ -160,7 +160,8 @@ describe('parent-only override inheritance snapshot', () => {
           expect(context).not.toContain('terminal sessions')
         }
 
-        const context: NormalizeContext = { sessionIds: [sessionId, String(headerOf(child).id)], cwd }
+        const context: NormalizeContext = { sessionIds: [sessionId, String(headerOf(child).id)], cwd,
+          cwdAliases: [cwd.replaceAll('\\', '/'), JSON.stringify(cwd).slice(1, -1)] }
         const normalizedParent = normalizeSessionSnapshot(parent, context)
         const normalizedChild = normalizeSessionSnapshot(child, context)
         if (refreshing) {

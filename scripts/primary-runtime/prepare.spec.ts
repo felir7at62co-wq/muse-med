@@ -30,8 +30,8 @@ it.each(Object.entries(lock.targets))('records every locked wheel distribution a
   expect(Object.fromEntries(distributions)).toEqual(Object.fromEntries(declared))
 })
 
-it('records the shared locked distributions in the current SDK authoring output', () => {
-  const projection = JSON.parse(readFileSync(new URL('../snapshots/python-sdk-single-exe/authoring/model-visible.json', import.meta.url), 'utf8')) as {
+it.each(['model-visible.json', 'win-x64/model-visible.json'])('records the shared locked distributions in the SDK authoring output: %s', (file) => {
+  const projection = JSON.parse(readFileSync(new URL(`../snapshots/python-sdk-single-exe/authoring/${file}`, import.meta.url), 'utf8')) as {
     result: { pythonDistributions: Record<string, string> }
   }
   expect(projection.result.pythonDistributions).toEqual(lock.pythonPackages)

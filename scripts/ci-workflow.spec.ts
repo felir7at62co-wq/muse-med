@@ -15,6 +15,24 @@ const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
 
 describe('CI workflow', () => {
+  it('routes fork lint and Windows jobs to standard hosted runners without an enterprise pool', () => {
+    const linux = loadWorkflow('.github/workflows/ci.yml')
+    const windows = loadWorkflow('.github/workflows/ci-windows.yml')
+    for (const [workflow, jobName, upstream, fork] of [
+      [linux, 'node-24-lint', 'dsh-ubuntu-24-04-16core', 'ubuntu-24.04'],
+      [windows, 'windows-build', 'dsh-windows-2025-16core', 'windows-2025'],
+      [windows, 'windows-coverage', 'dsh-windows-2025-16core', 'windows-2025'],
+      [windows, 'windows-native-tests', 'dsh-windows-2025-16core', 'windows-2025'],
+    ] as const) {
+      const selector = workflowJob(workflow, jobName)['runs-on']
+      for (const [repository, expected] of [
+        ['deepseek-harness/deepseek-harness', upstream], ['contributor/harness', fork],
+      ]) {
+        expect(evaluateRunsOn(selector, { vars: {}, github: { repository } }), `${repository}: ${jobName}`).toBe(expected)
+      }
+    }
+  })
+
   it('builds unsigned Muse installers on native runners without publication credentials', () => {
     const workflow = loadWorkflow('.github/workflows/muse-desktop.yml')
     expect(workflow.on).toEqual({ workflow_dispatch: { inputs: {
