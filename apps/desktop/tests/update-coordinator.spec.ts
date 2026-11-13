@@ -155,6 +155,96 @@ describe('desktop update mirrors', () => {
     expect(f.downloadResult).toHaveBeenCalledExactlyOnceWith(true)
   })
 
+  it('rechecks the recovered primary on an explicit retry after rejecting an outdated fallback', async () => {
+    const f = fixture(undefined, mirrorSources)
+    let selected: DesktopUpdateSource | undefined
+    f.setFeedURL.mockImplementation((source) => { selected = source })
+    const stale = { ...mirrorInfo, version: '1.0.0' }
+    f.checkForUpdates.mockImplementation(async () => selected === mirrorSources[0]
+      ? { isUpdateAvailable: true, updateInfo: mirrorInfo }
+      : { isUpdateAvailable: false, updateInfo: stale })
+    await f.coordinator.check(true)
+    f.downloadUpdate.mockRejectedValueOnce(Object.assign(new Error('temporary unavailability'), { statusCode: 503 }))
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'error', failedOperation: 'download' })
+    expect(f.setFeedURL.mock.calls.map(call => call[0])).toEqual(mirrorSources)
+
+    const primaryChecksBeforeRetry = f.setFeedURL.mock.calls.filter(call => call[0] === mirrorSources[0]).length
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'ready', version: mirrorInfo.version })
+    expect(f.setFeedURL.mock.calls.filter(call => call[0] === mirrorSources[0])).toHaveLength(primaryChecksBeforeRetry + 1)
+    expect(f.downloadUpdate).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(['version', 'size', 'sha512'] as const)('rejects a changed primary %s during an explicit download retry', async (field) => {
+    const f = fixture(undefined, mirrorSources)
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    await f.coordinator.check(true)
+    f.downloadUpdate.mockRejectedValueOnce(Object.assign(new Error('temporary unavailability'), { statusCode: 503 }))
+    f.checkForUpdates.mockResolvedValueOnce({ isUpdateAvailable: false, updateInfo: { ...mirrorInfo, version: '1.0.0' } })
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'error', failedOperation: 'download' })
+
+    const changed = structuredClone(mirrorInfo)
+    if (field === 'version') changed.version = '1.2.0'
+    else if (field === 'size') changed.files[0]!.size++
+    else changed.files[0]!.sha512 = Buffer.alloc(64, 2).toString('base64')
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: changed })
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'error', failedOperation: 'download' })
+    expect(f.setFeedURL.mock.calls.at(-1)?.[0]).toBe(mirrorSources[0])
+    expect(f.downloadUpdate).toHaveBeenCalledOnce()
+    await expect(f.coordinator.install(mirrorInfo.version)).rejects.toThrow(/not ready/u)
+  })
+
+  it('joins concurrent retries into one freshly verified primary download', async () => {
+    const f = fixture(undefined, mirrorSources)
+    f.checkForUpdates.mockResolvedValueOnce({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    await f.coordinator.check(true)
+    f.downloadUpdate.mockRejectedValueOnce(Object.assign(new Error('temporary unavailability'), { statusCode: 503 }))
+    f.checkForUpdates.mockResolvedValueOnce({ isUpdateAvailable: false, updateInfo: { ...mirrorInfo, version: '1.0.0' } })
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'error', failedOperation: 'download' })
+
+    const verification = Promise.withResolvers<CheckResult | null>()
+    const verificationStarted = Promise.withResolvers<boolean>()
+    f.checkForUpdates.mockImplementationOnce(() => {
+      verificationStarted.resolve(true)
+      return verification.promise
+    })
+    const first = f.coordinator.download(mirrorInfo.version)
+    await verificationStarted.promise
+    const second = f.coordinator.download(mirrorInfo.version)
+    verification.resolve({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    expect(await Promise.all([first, second])).toEqual([
+      { phase: 'ready', version: mirrorInfo.version }, { phase: 'ready', version: mirrorInfo.version },
+    ])
+    expect(f.setFeedURL.mock.calls.map(call => call[0])).toEqual([mirrorSources[0], mirrorSources[1], mirrorSources[0]])
+    expect(f.downloadUpdate).toHaveBeenCalledTimes(2)
+  })
+
+  it('preserves retries for a single source without requiring mirror metadata', async () => {
+    const f = fixture(undefined, [mirrorSources[0]!])
+    f.downloadUpdate.mockRejectedValueOnce(Object.assign(new Error('temporary unavailability'), { statusCode: 503 }))
+    await f.coordinator.check(true)
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'error', failedOperation: 'download' })
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'ready', version: mirrorInfo.version })
+    expect(f.checkForUpdates).toHaveBeenCalledOnce()
+  })
+
+  it('requires a fresh check and confirmation before downloading a newer primary release', async () => {
+    const f = fixture(undefined, mirrorSources)
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: mirrorInfo })
+    await f.coordinator.check(true)
+    f.downloadUpdate.mockRejectedValueOnce(Object.assign(new Error('temporary unavailability'), { statusCode: 503 }))
+    f.checkForUpdates.mockResolvedValueOnce({ isUpdateAvailable: false, updateInfo: { ...mirrorInfo, version: '1.0.0' } })
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'error', failedOperation: 'download' })
+    const newer = { ...mirrorInfo, version: '1.2.0' }
+    f.checkForUpdates.mockResolvedValue({ isUpdateAvailable: true, updateInfo: newer })
+    expect(await f.coordinator.download(mirrorInfo.version)).toMatchObject({ phase: 'error', failedOperation: 'download' })
+    expect(f.downloadUpdate).toHaveBeenCalledOnce()
+    expect(await f.coordinator.check(true)).toEqual({ phase: 'available', version: newer.version })
+    await expect(f.coordinator.download(mirrorInfo.version)).rejects.toThrow(/confirmation is stale/u)
+    f.downloadUpdate.mockImplementation(async () => { f.events.emit('update-downloaded', newer); return ['verified-new-package'] })
+    expect(await f.coordinator.download(newer.version)).toEqual({ phase: 'ready', version: newer.version })
+    expect(f.quitAndInstall).not.toHaveBeenCalled()
+  })
+
   it.each(['version', 'size', 'sha512'] as const)('rejects fallback changes to %s after download confirmation', async (field) => {
     const f = fixture(undefined, mirrorSources)
     f.checkForUpdates.mockResolvedValueOnce({ isUpdateAvailable: true, updateInfo: mirrorInfo })
