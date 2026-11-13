@@ -168,13 +168,15 @@ describe.skipIf(webSnapshotMode() === 'record')('Muse multi-computer Web access'
 
   it('keeps the other computer available and restores the original tab without clearing its draft', async () => {
     await devices[0]!.tunnel.stop()
-    await tabs[0]!.getByRole('dialog', { name: 'Muse 连接状态' }).waitFor({ timeout: 15_000 })
-    expect(await tabs[0]!.getByRole('dialog').textContent()).toContain('剪辑电脑')
+    const connectionStatus = tabs[0]!.getByRole('dialog', { name: 'Muse 连接状态', exact: true })
+    await connectionStatus.waitFor({ timeout: 15_000 })
+    expect(await connectionStatus.textContent()).toContain('剪辑电脑')
     expect(await tabs[0]!.locator('[data-composer-input]').first().textContent()).toContain('电脑 1')
     await tabs[0]!.screenshot({ path: join(shotDir, '06-offline-preserves-draft.png') })
     await tabs[0]!.emulateMedia({ colorScheme: 'dark' })
     await tabs[0]!.setViewportSize({ width: 390, height: 844 })
-    const bounds = await tabs[0]!.getByRole('dialog').evaluate(element => ({
+    await expect.poll(() => tabs[0]!.getByRole('dialog', { name: '导航', exact: true, includeHidden: true }).count()).toBe(1)
+    const bounds = await connectionStatus.evaluate(element => ({
       left: element.getBoundingClientRect().left,
       right: element.getBoundingClientRect().right,
       width: innerWidth,
@@ -190,7 +192,7 @@ describe.skipIf(webSnapshotMode() === 'record')('Muse multi-computer Web access'
     expect(await tabs[1]!.locator('[data-composer-input]').first().textContent()).toContain('电脑 2')
     expect(new URL(tabs[0]!.url()).pathname).toContain(devices[0]!.deviceId)
     await account.connect(account.alice, profiles[0]!.baseUrl, hostCookies[0]!, devices[0]!.deviceId, { deviceName: '剪辑电脑', platform: 'win32' })
-    await tabs[0]!.getByRole('dialog', { name: 'Muse 连接状态' }).waitFor({ state: 'detached', timeout: 15_000 })
+    await connectionStatus.waitFor({ state: 'detached', timeout: 15_000 })
     expect(await tabs[0]!.locator('[data-composer-input]').first().textContent()).toContain('电脑 1')
     expect(new URL(tabs[0]!.url()).pathname).toContain(devices[0]!.deviceId)
     expect(errors).toEqual([])
