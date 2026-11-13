@@ -11,6 +11,7 @@
 
 import { existsSync } from 'node:fs'
 import { cp, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises'
+import { writeReplayDiagnostics } from '../replay-diagnostics.ts'
 import { tmpdir } from 'node:os'
 import { basename, delimiter, dirname, join, posix } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1294,6 +1295,10 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
       )
       reconcileCatalogCreationTimes(ordered.map(log => log.content), 'validate')
       const actualContext = contextOf(ordered, cwd)
+      if (!recording && !refreshing && process.env.CI === 'true') {
+        await writeReplayDiagnostics(join(corpusRoot, '../.artifacts/snapshot-replay/sdk', scenario.name),
+          ordered.map(log => log.content), actualContext)
+      }
       if (scenario.name === 'command-attachments') {
         const parent = ordered[0]
         if (parent === undefined) throw new Error('command attachments have no persisted Session')
@@ -1348,8 +1353,10 @@ describe('TypeScript SDK snapshots over the jsonrpc runtime', () => {
         expect(events.filter(event => event.type === 'user/message' && event.data.source.kind === 'goal')
           .map(event => event.data.source)).toMatchObject([{ round: 1, revision: 1 }, { round: 2, revision: 1 }])
         expect(events.filter(event => event.type === 'turn/start')).toHaveLength(3)
-        expect(events.filter(event => event.type === 'step/start')).toHaveLength(5)
-        expect(modelRequests).toHaveLength(5)
+        expect(events.filter(event => event.type === 'step/start')).toHaveLength(6)
+        expect(modelRequests).toHaveLength(6)
+        expect([2, 3].map(turn => events.filter(event => event.type === 'tool/call' && event.data.turn === turn)
+          .map(event => event.data.name))).toEqual([['get_goal'], ['get_goal', 'update_goal']])
         expect(JSON.stringify(modelRequests.at(-1)?.messages)).toContain('<goal_complete>')
         expect(events.findLast(event => event.type === 'assistant/message'))
           .toMatchObject({ data: { message: { content: [{ type: 'text', text: 'SDK_GOAL_DONE' }] } } })

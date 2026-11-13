@@ -425,6 +425,17 @@ describe('CI workflow', () => {
     }
   })
 
+  it('retains failed replay diagnostics outside committed expectations', () => {
+    const job = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-24-consumers')
+    if (!Array.isArray(job.steps)) throw new TypeError('the consumer job must declare steps')
+    const upload: unknown = job.steps.find((step: unknown) => isRecord(step) && step.name === 'Upload read-only Session replay diagnostics')
+    expect(upload).toMatchObject({
+      if: 'failure()', uses: 'actions/upload-artifact@v7.0.1',
+      with: { name: 'session-replay-diagnostics', path: '.artifacts/snapshot-replay', 'if-no-files-found': 'warn', 'retention-days': 3 },
+    })
+    expect(job.steps).toContainEqual({ name: 'Run compatibility, snapshot, and artifact gates', run: 'pnpm run check:ci:consumers' })
+  })
+
   it('keeps split native Windows PR jobs with failover in their own workflow, plus a master-only standby', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     const windowsWorkflow = loadWorkflow('.github/workflows/ci-windows.yml')

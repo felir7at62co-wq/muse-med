@@ -3,9 +3,11 @@ import assert from 'node:assert/strict'
 import { cp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { apply as mountPreset } from '../muse-editing-tool-catalog/editing-preset-fixture.mjs'
 import { importSnapshotModule } from '../muse-fixture-import.mjs'
+
+const { loadOverlayPatches } = await importSnapshotModule(new URL('../../../packages/boot/app-boot/src/index.ts', import.meta.url),
+  new URL('../../../packages/boot/app-boot/lib/index.js', import.meta.url))
 
 const Discovery = await importSnapshotModule(new URL('../../../packages/core/tool-discovery/src/index.ts', import.meta.url),
   new URL('../../../packages/core/tool-discovery/lib/index.js', import.meta.url))

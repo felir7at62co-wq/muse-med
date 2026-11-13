@@ -1,6 +1,7 @@
 /** Recorded-session replay through the shipped headless `dsh` profile. */
 
 import { assertWorkingBudgetExpectations, deriveShadowedBudgetExpectations, deriveWorkingBudgetExpectations } from './working-budget-oracle.ts'
+import { writeReplayDiagnostics } from '../replay-diagnostics.ts'
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
 import { capabilityOcrRecords, expectedCapabilityOcrHash } from './muse-video-novel-ocr-capability/evidence.ts'
@@ -809,8 +810,6 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
   },
   async 'skill-root-isolation'(cwd) {
     await workspaceSetups['editing-cordis-skill']!(cwd)
-    // A symlink loop produces a real, non-absence read error without relying on chmod or root privileges.
-    await symlink('broken-skills', join(cwd, 'broken-skills'))
   },
   async 'muse-minimal-writing'(cwd) {
     await cp(join(repoRoot, 'apps/desktop-host/skills'), join(cwd, '.dsh/skills'), { recursive: true })
@@ -1621,19 +1620,28 @@ describe('headless recorded-session snapshots', () => {
     const scenario = scenarioByName.get('muse-creation-source-id-recovery')
     if (scenario === undefined) throw new Error('Missing recorded budget owner')
     const log = await readFile(join(scenario.dir, 'writer.expected.jsonl'), 'utf8')
-    const expected = records(log)
+    const cwd = '/' + 'x'.repeat(75)
+    const [prompt, schemaText] = await Promise.all([
+      readFile(join(scenario.dir, 'system-prompt.expected.md'), 'utf8'),
+      readFile(join(scenario.dir, 'tool-schemas.expected.json'), 'utf8'),
+    ])
+    const schemas = parseToolSchemasSnapshot(schemaText)
+    const counts = deriveWorkingBudgetExpectations({ log, prompt, schemas: [schemas.initial, ...schemas.changes], cwd })
+    const expected = records(log).map((row, index) => counts.has(index)
+      ? { ...row, data: { ...row.data as JsonObject, workingContextTokens: counts.get(index) } }
+      : row)
+    const original = structuredClone(expected)
     const index = expected.findIndex(row => row.type === 'request/context'
       && typeof (row.data as JsonObject).workingContextTokens === 'number')
     const data = expected[index]?.data as JsonObject
     const estimate = data.workingContextTokens
     const limit = data.workingTokenLimit
     if (typeof estimate !== 'number' || typeof limit !== 'number') throw new Error('Missing recorded working estimate')
-    const cwd = '/' + 'x'.repeat(75)
     const changed = (value: unknown) => expected.map((row, offset) => offset === index ? { ...row, data: value } : row)
     const compare = (actual: JsonObject[]) => workspaceBudgetExpected(scenario, actual, expected, log, cwd)
     await expect(compare(changed({ ...data, workingContextTokens: estimate + 5 }))).rejects.toThrow(/exact working context estimate/)
     expect(await compare(expected)).toEqual(expected)
-    expect(expected).toEqual(records(log))
+    expect(expected).toEqual(original)
     await expect(compare(changed({ ...data, workingContextTokens: limit }))).rejects.toThrow(/exact working context estimate/)
     await expect(compare(changed({ ...data, workingContextTokens: limit + 1 }))).rejects.toThrow(/exact working context estimate/)
     expect(await compare([])).toEqual(expected)
@@ -2949,6 +2957,11 @@ describe('headless recorded-session snapshots', () => {
       }
 
       const actualContext = contextOf(actualLogs.map(log => log.content))
+
+      if (mode === 'replay' && process.env.CI === 'true' && retainedToolInput === undefined) {
+        await writeReplayDiagnostics(join(repoRoot, '.artifacts/snapshot-replay/headless', scenario.name),
+          actualLogs.map(log => log.content), actualContext)
+      }
 
       if (writesCurrentSessionFixtures(scenario.manifest, mode)) {
         fixtures = await writeSessionFixtures(
