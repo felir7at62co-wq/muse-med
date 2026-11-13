@@ -71,10 +71,9 @@ interface ResolvedSource {
 }
 
 function trimCache<T>(cache: Map<string, T>, maximum: number): void {
-  while (cache.size > maximum) {
-    const oldest = cache.keys().next()
-    if (oldest.done) return
-    cache.delete(oldest.value)
+  for (const oldest of cache.keys()) {
+    if (cache.size <= maximum) return
+    cache.delete(oldest)
   }
 }
 

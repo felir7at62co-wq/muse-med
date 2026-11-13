@@ -56,7 +56,17 @@ function makeHeaderProps(): HeaderLeadingControlsProps {
   }
 }
 
-function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts = [], panels = [], content, workspaceEntries = false }: {
+function mountShell({
+  collapsed = false,
+  width = 300,
+  drawer = false,
+  shortcuts = [],
+  panels = [],
+  content,
+  workspaceEntries = false,
+  fragment = false,
+  anchor = false,
+}: {
   collapsed?: boolean
   width?: number
   drawer?: boolean
@@ -64,6 +74,8 @@ function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts 
   panels?: readonly SidebarPanelMetadata[]
   content?: ReactNode
   workspaceEntries?: boolean
+  fragment?: boolean
+  anchor?: boolean
 } = {}) {
   const startSession = vi.fn()
   const toggleSidebar = vi.fn()
@@ -111,8 +123,12 @@ function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts 
       }) as SidebarRootComponentProps['renderSlot']}
     />
   )
-  const view = render(root())
+  const placed = () => anchor ? <div style={{ display: 'contents' }}>{root()}</div> : root()
+  const view = fragment
+    ? render(placed(), { container: document.createDocumentFragment() })
+    : render(placed())
   return {
+    container: view.container,
     startSession,
     toggleSidebar,
     trackEntryClick,
@@ -134,7 +150,7 @@ function mountShell({ collapsed = false, width = 300, drawer = false, shortcuts 
     },
     rerender(next: Partial<typeof current>) {
       current = { ...current, ...next }
-      view.rerender(root())
+      view.rerender(placed())
     },
   }
 }
@@ -444,6 +460,36 @@ describe('SidebarRoot shell', () => {
     shell.rerender({ collapsed: false, width: 300 })
     expect(shell.regionOwner().wide).toBe(true)
     expect(region.classList).toContain(css.wideIn)
+  })
+
+  it.each([
+    { drawer: false, expected: '317px' },
+    { drawer: true, expected: '320px' },
+  ])('uses the target content width before paint (drawer: $drawer)', ({ drawer, expected }) => {
+    const shell = mountShell({ drawer })
+    const column = screen.getByTestId('region').parentElement!.parentElement!
+    const outer = column.parentElement!
+    outer.style.borderLeft = '2px solid transparent'
+    outer.style.borderRight = '1px solid transparent'
+    shell.rerender({ width: 320 })
+    expect(column.style.getPropertyValue('--dsh-sidebar-expanded-width')).toBe(expected)
+  })
+
+  it('keeps an independent fragment composition at its supplied content width', () => {
+    const shell = mountShell({ fragment: true })
+    const column = shell.container.querySelector('[data-testid="region"]')!.parentElement!.parentElement!
+    expect(column.parentElement).toBeNull()
+    expect(column.style.getPropertyValue('--dsh-sidebar-expanded-width')).toBe('300px')
+  })
+
+  it('reads the enclosing column border through a boxless slot anchor', () => {
+    const shell = mountShell({ anchor: true })
+    const column = screen.getByTestId('region').parentElement!.parentElement!
+    const anchor = column.parentElement!
+    expect(anchor.style.display).toBe('contents')
+    anchor.parentElement!.style.borderRight = '1px solid transparent'
+    shell.rerender({ width: 320 })
+    expect(column.style.getPropertyValue('--dsh-sidebar-expanded-width')).toBe('319px')
   })
 
   it('keeps the macOS toggle in its visible strip until the compact presentation settles', () => {

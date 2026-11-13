@@ -15,8 +15,6 @@ import type { OnboardingChange } from './onboarding-contract.ts'
 import type { PlatformBridge } from './PlatformOverlay.tsx'
 import { ContactConfig, CONTACT_CONFIG_GLOBAL } from '../contact-config.ts'
 import { contactUrl } from './contact-url.ts'
-import { authorizeUrlWithTheme } from './authorize-url.ts'
-import { BrowserLogin } from './browser-login.ts'
 import { AccountOnboarding } from './AccountOnboarding.tsx'
 import { AccountPlatformHost, type AccountPlatformHostInjected } from './AccountPlatformHost.tsx'
 import { AccountMenu } from './AccountMenu.tsx'
@@ -43,7 +41,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Services required by account settings. */
 export const inject = ['slots', 'locale', 'remote', 'remote.account', 'remote.session', 'theme', 'configForms', 'remoteAccess']
-/** Register account UI in Desktop and plain Web clients. @param ctx - client plugin context. */
+/** Register account UI for Desktop; plain Web clients leave it absent. @param ctx - client plugin context. */
 export function apply(ctx: Context): void {
   const desktop = 'dshDesktop' in globalThis
   let snapshot: AccountSnapshot = {
@@ -58,9 +56,6 @@ export function apply(ctx: Context): void {
   const t = ctx.locale.bind('settings.account')
   const page = globalThis as Partial<Record<typeof CONTACT_CONFIG_GLOBAL, unknown>>
   const config = ContactConfig(page[CONTACT_CONFIG_GLOBAL] ?? {})
-  // Desktop main opens the authorization page natively; a plain browser opens it in a tab it owns.
-  const browser = new BrowserLogin(url => authorizeUrlWithTheme(url, ctx.theme.getTheme().active.colorScheme))
-  ctx.effect(() => () => { browser.dispose() }, 'account: pending browser window')
   const listeners = new Set<() => void>()
   const publish = (value: AccountSnapshot) => { snapshot = value; for (const listener of listeners) listener() }
   const avatar = new AccountAvatarLoader((value) => { publish({ ...snapshot, avatar: value }) })
@@ -115,7 +110,6 @@ export function apply(ctx: Context): void {
       revision++
       refreshing = undefined
       avatar.reset()
-      browser.dispose()
       const { loginFailed: _loginFailed, ...current } = snapshot
       publish({ ...current, view: undefined, details: undefined, avatar: undefined, failed: false, loginVisible: false })
       ctx.emit('account-ui/change', snapshot, true)
@@ -136,7 +130,6 @@ export function apply(ctx: Context): void {
         const initialize = view.status === 'credential-stored' && view.attempt?.phase === 'succeeded'
           && snapshot.view?.attempt?.phase !== 'succeeded'
         publish({ ...snapshot, view, details: undefined, avatar: undefined, failed: false })
-        browser.update(view)
         frame.accept()
         ctx.emit('account-ui/change', snapshot, reset)
         if (initialize) void (async () => {

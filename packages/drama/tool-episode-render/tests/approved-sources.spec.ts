@@ -40,6 +40,8 @@ it('rechecks complete package and original evidence through supplied staged file
   const snapshot = [{ originalPath: join(project, 'reviews'), entries: ['ep24-p01.json'] }]
   const access = createSourceQaStagedAccess(project, stage, files, signal, snapshot)
   const row = { shot: 1, package: 1, video, audio: video }
+  await expect(verifySelectedSourceReviews({ ...paths, project: join(project, 'another-project') }, [row],
+    true, true, verifiedSourceQaFixture, access)).rejects.toThrow('stage belongs to another project')
   const direct = await verifySelectedSourceReviews(paths, [row], true, true, verifiedSourceQaFixture)
   for (const original of [frame, receipt]) {
     expect(direct[0]?.sourceQa?.files).toContainEqual({ path: original, sha256: await fileSha256(original) })
@@ -90,6 +92,7 @@ it.each([
   { kind: 'verified erase with original sound' },
   { kind: 'manual erase', error: /正式去字幕结果/u },
   { kind: 'local fallback after both routes finished' },
+  { kind: 'local fallback from captured copies' },
   { kind: 'local fallback while paid route is unknown', error: /明确终态/u },
   { kind: 'local fallback with reused comparison frame', error: /独立的处理前后抽帧/u },
   { kind: 'wrong download bytes', error: /下载回执与本次选片/u },
@@ -98,7 +101,7 @@ it.each([
   { kind: 'unverified sensitive content', error: /内容复核不完整/u },
   { kind: 'no frames', error: /缺少审核抽帧/u },
 ])('requires current package evidence in strict mode: $kind', async ({ kind, error }) => {
-  const project = await tempProject()
+  const project = await realpath(await tempProject())
   projects.push(project)
   const paths = episodePaths(project, '24')
   const packagePath = join(project, 'episode_packages', '24', 'package.json')
@@ -161,6 +164,20 @@ it.each([
       ...(kind === 'local fallback after both routes finished' ? [originalFrame] : [])]
     for (const path of consumed) {
       expect(checked[0]?.sourceQa?.files).toContainEqual({ path: await realpath(path), sha256: await fileSha256(path) })
+    }
+    if (kind === 'local fallback from captured copies') {
+      const stage = join(project, 'private-stage')
+      await mkdir(stage)
+      const originals = [...new Set([video, audio, packagePath, reviewPath,
+        ...checked.flatMap(shot => shot.sourceQa?.files.map(file => file.path) ?? [])])]
+      const files = await Promise.all(originals.map(async (originalPath, index) => {
+        const bytes = await readFile(originalPath), stagedPath = join(stage, String(index))
+        await copyFile(originalPath, stagedPath)
+        return { originalPath, stagedPath, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') }
+      }))
+      const access = createSourceQaStagedAccess(project, stage, files, new AbortController().signal,
+        [{ originalPath: join(project, 'reviews'), entries: ['ep24-p01.json'] }])
+      await expect(verifySelectedSourceReviews(paths, [row], true, true, verifiedSourceQaFixture, access)).resolves.toEqual(checked)
     }
     const saved = await readFile(frame)
     await writeFile(frame, 'changed after verification')

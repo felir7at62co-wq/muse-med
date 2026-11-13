@@ -1,9 +1,9 @@
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import {
   assertPersistedSessionVersion,
   assertSessionFixtureVersion,
@@ -24,6 +24,7 @@ import {
 } from '../src/index.ts'
 import {
   assertChildSystemPromptSnapshot,
+  assertSessionSnapshotOutputs,
   assertUniqueSnapshotContents,
   claimSharedSnapshot,
   fixtureContext,
@@ -42,6 +43,7 @@ import {
   type SharedSnapshotClaim,
   stabilizeRefreshLog,
   stdoutExpectedVariants,
+  writerOutputFixtureFiles,
   systemPromptPrecedesRequests,
   unknownToolCallIds,
 } from '../src/suite.ts'
@@ -142,9 +144,25 @@ if (!BOOTSTRAP) {
 const refreshDir = mkdtempSync(join(tmpdir(), 'acp-snap-refresh-suite-'))
 cpSync(REPLAY_DIR, refreshDir, { recursive: true })
 staleRefreshFixtures(refreshDir)
+const writerDir = mkdtempSync(join(tmpdir(), 'acp-snap-writer-suite-'))
+cpSync(REPLAY_DIR, writerDir, { recursive: true })
+const writerOwners = new Set(['pin-turn', 'shared-pin', 'plain-turn'])
+const writerScenarios = REPLAY_SCENARIOS.map(scenario => writerOwners.has(scenario.name)
+  ? { ...scenario, writerOutput: true as const } : scenario)
+for (const owner of writerOwners) {
+  const fields = owner === 'shared-pin'
+    ? 'header:\n  class: shared\n  systemPromptSource: pin-turn\n  toolSchemasSource: pin-turn\n' : ''
+  writeFileSync(join(writerDir, owner, 'snapshot.yml'), `version: 1\nprofile: acp\nwriterOutput: true\n${fields}`)
+}
+const writerCanonical = new Map([...writerOwners].flatMap(owner => readdirSync(join(writerDir, owner))
+  .filter(file => parseSessionFixtureName(file) !== undefined)
+  .map(file => [join(owner, file), readFileSync(join(writerDir, owner, file), 'utf8')] as const)))
+const writerProtocol = new Map([...writerOwners].map(owner =>
+  [owner, readFileSync(join(writerDir, owner, 'stdout.expected.jsonl'), 'utf8')] as const))
 afterAll(async () => {
   if (!BOOTSTRAP) await rm(recordDir, { recursive: true, force: true })
   await rm(refreshDir, { recursive: true, force: true })
+  await rm(writerDir, { recursive: true, force: true })
 })
 
 function staleRefreshFixtures(dir: string): void {
@@ -183,6 +201,63 @@ describe('defineAcpSnapshotSuite: record mode', () => {
 
 describe('defineAcpSnapshotSuite: refresh mode', () => {
   defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: refreshDir, scenarios: REPLAY_SCENARIOS, mode: 'refresh' })
+})
+
+describe('defineAcpSnapshotSuite: independent writer refresh', () => {
+  let sharedSidecars: { path: string; bytes: string; mtimeMs: number }[] | undefined
+  afterEach(({ task }) => {
+    if (task.name.includes('snapshot: pin-turn matches')) {
+      sharedSidecars = ['system-prompt.expected.md', 'tool-schemas.expected.json'].map((file) => {
+        const path = join(writerDir, 'pin-turn', file)
+        return { path, bytes: readFileSync(path, 'utf8'), mtimeMs: statSync(path).mtimeMs }
+      })
+    }
+    if (task.name.includes('snapshot: shared-pin matches')) {
+      expect(sharedSidecars).toBeDefined()
+      for (const sidecar of sharedSidecars ?? []) {
+        expect(readFileSync(sidecar.path, 'utf8')).toBe(sidecar.bytes)
+        expect(statSync(sidecar.path).mtimeMs).toBe(sidecar.mtimeMs)
+      }
+    }
+  })
+  defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: writerDir, scenarios: writerScenarios, mode: 'refresh' })
+})
+
+describe('defineAcpSnapshotSuite: independent writer replay', () => {
+  defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: writerDir, scenarios: writerScenarios, mode: 'replay' })
+})
+
+describe('ACP independent writer output', () => {
+  it('preserves every canonical generation while refreshing all parent and child output roles', () => {
+    for (const [file, before] of writerCanonical) expect(readFileSync(join(writerDir, file), 'utf8')).toBe(before)
+    for (const [owner, before] of writerProtocol) {
+      expect(readFileSync(join(writerDir, owner, 'stdout.expected.jsonl'), 'utf8')).toBe(before)
+    }
+    const roles = sessionFixtureNames(readdirSync(join(writerDir, 'plain-turn')))
+    expect(writerOutputFixtureFiles(readdirSync(join(writerDir, 'plain-turn')), roles, true))
+      .toEqual(['writer.expected.jsonl', 'writer.1.expected.jsonl'])
+    expect(readFileSync(join(writerDir, 'plain-turn', 'writer.1.expected.jsonl'), 'utf8')).toContain('"parentSession"')
+  })
+
+  it('rejects missing, extra, malformed and undeclared independent output roles', () => {
+    const roles = ['session.v3.jsonl', 'session.1.v3.jsonl']
+    for (const files of [[], ['writer.expected.jsonl'], ['writer.expected.jsonl', 'writer.1.expected.jsonl', 'writer.2.expected.jsonl'],
+      ['writer.expected.jsonl', 'writer.0.expected.jsonl']]) {
+      expect(() => writerOutputFixtureFiles(files, roles, true)).toThrow('native writer oracle inventory')
+    }
+    expect(() => writerOutputFixtureFiles(['writer.expected.jsonl'], roles, false)).toThrow('native writer oracle inventory')
+    expect(writerOutputFixtureFiles([], roles, false)).toEqual([])
+  })
+
+  it('compares complete writer events and fails on changed model-visible fields or dropped roles', () => {
+    const dir = join(writerDir, 'plain-turn')
+    const logs = ['writer.expected.jsonl', 'writer.1.expected.jsonl'].map(file => readFileSync(join(dir, file), 'utf8'))
+    const context = fixtureContext(logs[0] as string)
+    expect(() => { assertSessionSnapshotOutputs(logs, context, logs) }).not.toThrow()
+    const changed = logs.map(log => log.replace('"model":"fake"', '"model":"unexpected"'))
+    expect(() => { assertSessionSnapshotOutputs(logs, context, changed) }).toThrow()
+    expect(() => { assertSessionSnapshotOutputs(logs, context, logs.slice(0, 1)) }).toThrow()
+  })
 })
 
 describe('defineAcpSnapshotSuite: refresh write-back', () => {
@@ -710,6 +785,12 @@ describe('scenarioSkipped', () => {
   it('skips a retained historical generation while recording but replays and refreshes it', () => {
     expect(scenarioSkipped(retained, true, 'linux')).toBe(true)
     expect(scenarioSkipped(retained, false, 'linux')).toBe(false)
+  })
+
+  it('skips an independent writer owner while recording but retains replay and refresh', () => {
+    const writer: Scenario = { name: 'writer', hasModelTurn: true, recorded: true, writerOutput: true }
+    expect(scenarioSkipped(writer, true, 'linux')).toBe(true)
+    expect(scenarioSkipped(writer, false, 'linux')).toBe(false)
   })
 
   it('skips posixOnly scenarios on Windows and nowhere else', () => {

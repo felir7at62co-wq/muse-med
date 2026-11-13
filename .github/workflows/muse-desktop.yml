@@ -141,6 +141,11 @@ jobs:
       - name: Prewarm locked Mac media sources
         if: matrix.target == 'mac-arm64'
         run: python -B apps/desktop/scripts/prewarm_macos_media_sources.py
+      - name: Check native macOS DMG identity and signature verification
+        if: matrix.target == 'mac-arm64'
+        run: |
+          mkdir -p "$RUNNER_TEMP/muse-candidate-update-native"
+          pnpm exec vitest run --config vitest.e2e.config.ts apps/desktop/tests/macos-update-package.e2e.ts --retry 0 --reporter=default --reporter=json --outputFile="$RUNNER_TEMP/muse-candidate-update-native/result.json"
       - name: Build and verify the assembled application
         run: pnpm --dir apps/desktop run package -- ${{ matrix.target }} --unsigned
       - name: Check bundled Host integrations against built dependencies

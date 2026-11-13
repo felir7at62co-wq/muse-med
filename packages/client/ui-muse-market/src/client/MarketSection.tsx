@@ -76,9 +76,7 @@ export function MarketPage({
     }
     finally { if (alive.current) setBusy(false) }
   }
-  const changeDefault = async (): Promise<void> => {
-    if (!selection) return
-    const { item, expected, disable } = selection
+  const changeDefault = async ({ item, expected, disable }: Selection): Promise<void> => {
     await run(async () => {
       const skillName = item.release.manifest.skills[0]?.name
       if (skillName === undefined) { reportOutcome('invalidPackage', true); return }
@@ -174,7 +172,7 @@ export function MarketPage({
     <Modal open={Boolean(selection)} title={t(selection?.disable ? 'disable' : 'useVersion')} closeLabel={t('close')}
       onClose={() => { if (!busy) setSelection(undefined) }}>
       {selection && <div className={css.form}><p>{selection.item.release.manifest.title} · {selection.item.release.manifest.version}</p>
-        <p>{t('defaultsHint')}</p><Button variant="primary" disabled={busy} onClick={() => { void changeDefault() }}>{t('confirm')}</Button></div>}
+        <p>{t('defaultsHint')}</p><Button variant="primary" disabled={busy} onClick={() => { void changeDefault(selection) }}>{t('confirm')}</Button></div>}
     </Modal>
   </section></div>
 }

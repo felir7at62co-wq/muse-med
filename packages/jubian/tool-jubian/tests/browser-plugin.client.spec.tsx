@@ -18,16 +18,18 @@ import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
 import { StaticRemoteAccess, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
-import type { RemoteResult, TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
+import { RemoteError, type RemoteResult, type TypertRemoteContribution } from '@deepseek-ai/dsh-typert-protocol'
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { ConnectionGeneration } from '@deepseek-ai/dsh-client-connection/client'
 import { brandString } from '@deepseek-ai/dsh-brand'
+import { ResourceRegistry } from '@deepseek-ai/dsh-client-resources/src/client/resources.ts'
 import type { VideoArtifactSha256, VideoRecoveryDigest, VideoRecoveryReview, VideoRecoveryStatus } from '../src/types.ts'
 import type { RecoveryClient } from '../src/client/recovery-directory.ts'
 import type { RecoveryToastInjected } from '../src/client/VideoRecoverySection.tsx'
 import { JubianTokenSection } from '../src/client/JubianTokenSection.tsx'
 import type { JubianTokenInjected } from '../src/client/JubianTokenSection.tsx'
 import { inject, mountJubianTokenSettings, NS } from '../src/client/mount.ts'
+import { episodeClientFixture, input, original, unadmitted } from './fixtures/episode-client.client.ts'
 
 usePinnedBrowserLanguages('zh-CN')
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
@@ -54,6 +56,7 @@ async function bench(face: {
   ctx.provide('remote', {
     $mount: mount,
     get jubianVideoRecovery(): unknown { const value: unknown = ctx.get('remote.jubianVideoRecovery'); return value },
+    get jubianEpisodeDelivery(): unknown { const value: unknown = ctx.get('remote.jubianEpisodeDelivery'); return value },
     get jubianToken(): unknown {
       const namespace: unknown = ctx.get('remote.jubianToken')
       return namespace
@@ -304,4 +307,58 @@ it.each(['absent', 'unauthorized'] as const)('does not offer a native folder cho
   expect(face.hooks.recoveryState.getSnapshot().pickerAvailable).toBe(false)
   await face.chooseRecoveryProject()
   expect(pick).not.toHaveBeenCalled()
+})
+
+it('binds explicit episode actions to the current connection and releases their resource providers on unload', async () => {
+  const b = await bench(), f = episodeClientFixture()
+  onTestFinished(() => b.ctx.fiber.dispose())
+  declare(b.slots)
+  const generation = createSnapshotStore<ConnectionGeneration | undefined>(undefined)
+  const resources = new ResourceRegistry(b.ctx)
+  b.ctx.provide('connection', { generation })
+  b.ctx.provide('resources', resources)
+  b.ctx.provide('remote.jubianEpisodeDelivery', f.api)
+  vi.mocked(f.api.episodeStatus).mockResolvedValue({ ok: true, value: { ...original, canResume: true } })
+    .mockResolvedValueOnce({ ok: true, value: unadmitted })
+  const dispose = await mountJubianTokenSettings(b.ctx, REMOTE, 1000)
+  const face = injectedOf(b.slots)
+  expect(face.hooks.episodeState.getSnapshot().connected).toBe(false)
+  generation.set({ id: 1, host: { home: '/home' } })
+  await vi.waitFor(() => { expect(face.hooks.episodeState.getSnapshot().connected).toBe(true) })
+  expect(f.api.episodeReadiness).not.toHaveBeenCalled()
+  face.setEpisodeText('1')
+  face.checkEpisode(input)
+  await vi.waitFor(() => { expect(face.hooks.episodeState.getSnapshot().displayedStatus?.state).toBe('not-admitted') })
+  await face.admitEpisode()
+  expect(f.api.admitEpisode).toHaveBeenCalledExactlyOnceWith(input)
+  await vi.waitFor(() => { expect(face.hooks.episodeState.getSnapshot().displayedStatus?.canResume).toBe(true) })
+  vi.mocked(f.api.admitEpisode).mockResolvedValueOnce({ ok: false,
+    error: new RemoteError('jubian-video-recovery/rejected', 'Original task cannot resume', {}) })
+  await vi.waitFor(() => {
+    expect(resources.source(face.hooks.episodeState.getSnapshot().statusAddress).getSnapshot().status).toBe('live')
+  })
+  await face.admitEpisode(true)
+  expect(f.api.admitEpisode).toHaveBeenCalledTimes(2)
+  expect(f.api.admitEpisode).toHaveBeenLastCalledWith({ ...input, resume: true })
+  const toast = b.slots.entries('shell.overlay')[0]!.inject!() as RecoveryToastInjected & Record<string, unknown>
+  expect(toast.hooks.recoveryNotice.getSnapshot()).toMatchObject({ kind: 'failed', reason: 'Original task cannot resume' })
+  face.loadEpisodeHistory(input)
+  await vi.waitFor(() => { expect(face.hooks.episodeState.getSnapshot().displayedHistory?.entries).toHaveLength(1) })
+  face.selectEpisodeOriginal(input, face.hooks.episodeState.getSnapshot().historyAddress)
+  await vi.waitFor(() => { expect(f.api.episodeStatus).toHaveBeenCalledTimes(4) })
+  face.refreshEpisode()
+  await vi.waitFor(() => { expect(f.api.episodeStatus).toHaveBeenCalledTimes(5) })
+  generation.set(undefined)
+  expect(face.hooks.episodeState.getSnapshot()).toMatchObject({ connected: false, target: input })
+  generation.set({ id: 2, host: { home: '/home' } })
+  await vi.waitFor(() => { expect(f.api.episodeStatus).toHaveBeenCalledTimes(6) })
+  await dispose()
+  expect(b.slots.entries('settings.section')).toHaveLength(0)
+  const state = face.hooks.episodeState.getSnapshot()
+  generation.set({ id: 3, host: { home: '/retired' } })
+  face.checkEpisode(input); face.refreshEpisode()
+  expect(face.hooks.episodeState.getSnapshot()).toBe(state)
+  expect(f.api.episodeStatus).toHaveBeenCalledTimes(6)
+  const release = resources.register({ protocol: 'jubian-episode-readiness', async *open() {} })
+  release()
 })

@@ -63,7 +63,7 @@ export async function installSourceQaState(ctx: Context): Promise<SourceQaStateR
         return { ...owner, ownReviews: { ...owner.ownReviews, [event.data.review.path]: event.data.review.id } }
       }
       const state = owner.issuance
-      const ownerNext = (issuance: IssuedEvidence): OwnedEvidence => issuance === state ? owner : { ...owner, issuance }
+      const ownerNext = (issuance: IssuedEvidence): OwnedEvidence => ({ ...owner, issuance })
       if (event.type === 'tool/call') {
         const name = toolName.safeParse(event.data.name)
         if (name.success) return ownerNext({ ...state, native: { ...state.native, [event.data.callId]: name.data } })

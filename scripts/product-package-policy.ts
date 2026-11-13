@@ -18,7 +18,7 @@ export interface ProductPackagePolicy {
 export const PRODUCT_PACKAGE_POLICY: Readonly<Record<string, ProductPackagePolicy>> = {
   'packages/bundle/muse-video-ui': {
     category: 'optional',
-    reason: 'Explicitly selected Muse video presentation bundle with reversible conversation bubbles and timelines.',
+    reason: 'Explicitly selected Web bundle that installs Muse video presentation and its recorded-video service together; Desktop directly mounts its constituents.',
   },
   'packages/guard/composition-guard': { category: 'optional', reason: 'Explicit profile-reload diagnostics for deployments that opt into tool-withdrawal notices.' },
   'packages/util/session-workspace': { category: 'optional', reason: 'Maintained Node plugin compatibility helpers for recorded initial session directories and trusted production-root checks; not effective-directory or sandbox authority.' },

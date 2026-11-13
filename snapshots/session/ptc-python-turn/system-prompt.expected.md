@@ -422,6 +422,31 @@ class SubagentForkOutput(TypedDict):
     kind: Literal["activation"]
     name: str
 
+class TodoUpdateArgs(TypedDict):
+    # Exact content of the existing task; surrounding whitespace is ignored.
+    task: str
+    # Actual task state: pending, in_progress, or completed.
+    status: Literal["pending", "in_progress", "completed"]
+    # Only with completed: on a new completion, start the first pending task if no task remains in_progress.
+    start_next: NotRequired[bool]
+    # Additional keys beyond those declared are allowed.
+
+class TodoUpdateOutputTodos(TypedDict):
+    content: str
+    status: Literal["pending", "in_progress", "completed"]
+
+class TodoUpdateOutputCounts(TypedDict):
+    pending: int
+    inProgress: int
+    completed: int
+
+class TodoUpdateOutput(TypedDict):
+    todos: list[TodoUpdateOutputTodos]
+    counts: TodoUpdateOutputCounts
+    current: list[str]
+    next: str | None
+    reminder: str
+
 class TodoWriteArgsTodos(TypedDict):
     # What the task is — a short imperative line.
     content: str

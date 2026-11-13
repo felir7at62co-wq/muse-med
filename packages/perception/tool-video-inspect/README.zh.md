@@ -58,6 +58,8 @@ kind: "package-reference"
 
 `video_ocr` 对请求的视频区间抽样，每批把数量和大小受限的 JPEG 交给一个已配置的本地 OCR bridge 进程，并在工作区创建原始 JSON 证据和带时间码的合并 TXT。每批先探测源片显示时间戳，选择每个请求时刻实际显示的画面；同一帧覆盖多个采样时复用该帧。探测会读到晚于本批最后采样的画面或真实文件末尾，以处理重排序帧；真正不可用或无法核实的采样仍计为失败覆盖。非零或未知时间轴起点的视频会被拒绝，因为完整审看尚无法核实相同时间基准；请保留原片并审看零起点副本。原始 JSON 记录 `evidence_algorithm: decoded-pts-spatial-v2`；严格来源审核遇到缺少该字段的旧文件时要求重新扫描。相同文字仅在连续采样且位置重叠时合并。原始证据保留每行文字、可用的词框、源时间码、扫描范围和保守分类。长时间、位置稳定且完全相同的文字可以标记为 `persistent_text_candidate`，这只表示视觉重复，不表示该文字不是剧情。两类文字都保留为内容候选并计入 `segment_count`，绝不静默删除；同一时间的多行文字保留 OCR 阅读顺序。
 
+解码帧的整数 PTS 及其有理数时间基必须与探测帧精确对应。探测秒值须按 FFprobe 精度匹配源 PTS 时钟；解码秒值须匹配已支持的 FFmpeg 六位有效数字或小数格式，包括亚秒和半偶舍入。非法十进制文本或不一致时钟证据均明确拒绝，返回时间戳仍保留规范的探测值。每次帧探测均指定不超过源时长的有限终点，最后一个窗口也不省略终点。合法的定位探测元数据仍无法证明采样覆盖时，最多另做一次零起点探测，在相同命令限制内补充帧上下文；其选中 PTS、时间基和 JPEG 证据仍须通过相同的严格解码核验，缺少覆盖就明确失败。
+
 成功结果包含 `raw_json_sha256`，即工具实际写入并回读的完整原始文件 SHA-256。Host 来源核对可将该摘要绑定到 Session 中真实成功的工具结果；修改文件或复制 JSON 不会产生新的工具签发记录。非 JSON 工具文本、失败或不匹配的嵌套结果不签发来源证据。缺少该绑定的旧结果需要实际重跑 OCR。
 
 ```json
@@ -87,7 +89,11 @@ kind: "package-reference"
 
 画面先进入规范化附件存储，再作为图片块返回。清单在当前工作区创建，不覆盖已有文件，之后回读核对。源文件版本发生变化时中止发布。原视频保持不变；结果不包含远程媒体链接或账号凭证。清单与附件各有唯一的存储所有者，因此不发布 invariant 配套模块。
 
-构建后的 `@deepseek-ai/dsh-tool-video-inspect/source-qa` 入口导出 `createVideoSourceQaVerifier`、`normalizeOcrText` 及核验器类型，与插件入口共享运行时 chunk，因此使用同一视频观察与来源签发投影。`createVideoSourceQaVerifier(ctx)` 为严格来源采用流程准备只读 Host 核验函数，调用方先独立核对媒体 SHA-256 与 OCR 内容。它要求真实发起 Session、成功且绑定摘要的 OCR 结果，以及当前已完整扫描、实际看图、逐帧记录且无疑点的持久视频观察，准确报告字节与真实返回路径必须一致。每份证据最多读取 64 MiB，并核文件系统版本；不会启动 OCR、抽帧或付费任务。同一 Session 恢复后，在工具主体签发记录存在时可复用原持久证据；缺少该记录的旧结果须重新扫描和 OCR。另一 Session 需自行实际本地审看与 OCR。这不使用旧采样收据，不改变已归档交付收据，也不认证剧情质量。
+构建后的 `@deepseek-ai/dsh-tool-video-inspect/source-qa` 入口导出 `createVideoObservationVerifier`、`createVideoSourceQaVerifier`、`normalizeOcrText` 及核验器类型，与插件入口共享运行时 chunk，因此使用同一视频观察与来源签发投影。
+
+`createVideoObservationVerifier(ctx)` 为当前 Session 的完整视频观察准备无需 OCR 的只读 Host 核验函数。插件启动时等待它，在所属插件生命周期内保留返回的 `VideoObservationVerifier`，再以 `(session, binding, signal)` 调用。其 `VideoObservationEvidenceBinding` 包含 `mediaPath`、调用方独立核实的 `mediaSha256`、`inspectionPath`、`inspectionSha256`、`sessionId` 和 `reviewId`。Host 要求每帧均已实际展示、记录观察且无未解决疑点，核对准确报告与持久观察、成功工具主体签发记录，并检测核验期间的源片或观察变化。不能用继承的观察替另一 Session 签发认可。它不读 OCR 文件、不调用媒体命令或模型。内容判断、必需时间区间和媒体 SHA-256 核对仍由消费方负责。
+
+`createVideoSourceQaVerifier(ctx)` 为严格来源采用流程准备只读 Host 核验函数，调用方先独立核对媒体 SHA-256 与 OCR 内容。它要求真实发起 Session、成功且绑定摘要的 OCR 结果，以及当前已完整扫描、实际看图、逐帧记录且无疑点的持久视频观察，准确报告字节与真实返回路径必须一致。每份证据最多读取 64 MiB，并核文件系统版本；不会启动 OCR、抽帧或付费任务。同一 Session 恢复后，在工具主体签发记录存在时可复用原持久证据；缺少该记录的旧结果须重新扫描和 OCR。另一 Session 需自行实际本地审看与 OCR。这不使用旧采样收据，不改变已归档交付收据，也不认证剧情质量。
 
 Host 消费方先在插件启动时等待 `createVideoReviewReader(ctx)`，并在自身生命周期内保留该领域读取函数。将它传给 `videoReviewSummaries(reader, session)`，以及 `readVideoSourceTimeline(ctx, session, id, options, signal, reader)` 的最后一个参数。读取函数保有私有投影句柄，其他注册卸载后仍有效。Host 消费方可用 `videoReviewSummaries` 读取当前已记录的视频身份与显式 ASR 引用，再以明确的来源区间和字节／图片预算调用 `readVideoSourceTimeline`。请求的已记录 `frameIds` 从附件缓存读取，以真实图片块与时间线一同返回；省略 ID 时仅返回文字。该读取校验视频版本与缓存图片，不可用的可选 ASR 返回诊断，不另选来源、不抽帧、不修改观察进度。缓存缺失、源版本变化、无效帧选择和完整结果超限仅使本次证据读取失败，不新增交付条件。消费方须将返回块接入普通有日志的上下文或工具结果路径。`buildVideoSourceTimeline` 对已读取材料提供同一纯归组逻辑。
 

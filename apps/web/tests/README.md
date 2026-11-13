@@ -14,7 +14,11 @@ On Linux, `--with-deps` installs dependencies through the system package manager
 
 Ordinary scenarios begin with no registered Workspace or Session and a durable marker recording a removed default Workspace, so explicit folder-selection scenarios retain control of their cwd. `launchWebScaffold({ firstUse: true })` leaves initialization eligible for startup scenarios.
 
+Plain Web opens credential setup directly after the welcome notice. Its scenarios check that account sign-in choices, account menus and bonus requests remain absent while exercising real Settings and credential persistence. Desktop cases declare their carrier before boot and retain the account-menu geometry, sign-in and bonus-notice assertions.
+
 The workspace file-reference recording supplies its historical two-skill catalog through an owned temporary skill directory, using the descriptors retained in the recorded Session and independent of personal or bundled skill roots. Its keyboard gesture collapses a selected draft at the end before inserting the next reference on macOS and Windows.
+
+[Tool details](tool-details.e2e.ts) checks each historical call against the unchanged recorded Session and exercises current Schedule cards through a separate real Host turn. The ended list row is a UI precondition; it does not assert that a scheduled task ran.
 
 [Muse personal models](muse-personal-models.e2e.ts) discovers a model from an owned local endpoint, saves its credential separately, and verifies settings rows, conversation selection, restart persistence and an adapter request. It boots the shipped desktop settings overlay without touching an installed Muse application.
 
@@ -25,6 +29,8 @@ Root-only recorded-session owners can preserve canonical replay inputs with [`wr
 Built-bundle jsdom cases share `installAssembledBootEnv`, which supplies non-matching media queries and restores browser globals after each test; real media-query behavior belongs to browser cases.
 
 Every scenario requires the whole client composition to activate. The product boot only warns about inactive entries outside its required list, but the `watchConsole` tripwire, the [real-host smoke](smoke-real.e2e.ts), and the [assembled jsdom boot](assembled-boot.ts) treat a `web boot: warning` as a failure. No scenario option relaxes this: an inactive plugin in a product composition is a defect to fix.
+
+The [Bot sidebar fixture](bot-sidebar-rail.e2e.ts) mounts the shipped navigation with a synthetic roster and empty Sessions. Its public navigation guard is cancelled on release. Narrow Web and macOS cases check the visible drawer, hit testing, keyboard focus and unreserved main column; Windows retains its rail. These geometry checks do not certify native Session operations.
 
 ## Completion observations
 

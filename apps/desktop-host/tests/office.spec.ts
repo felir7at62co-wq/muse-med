@@ -19,7 +19,7 @@ import { SessionQueryEngine } from '@deepseek-ai/dsh-session-query'
 import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { Config as DiscoveryConfig } from '@deepseek-ai/dsh-tool-discovery'
 import { ToolSearchIndex } from '../../../packages/core/tool-discovery/src/search.ts'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import * as desktopOffice from '../src/office.ts'
 
@@ -79,10 +79,12 @@ it.each([[undefined, true], ['advisory', true], [undefined, false]] as const)(
       for (const entry of ctx.loader.entries()) await entry.fiber?.await()
       const officeSkills = ['office', 'office-docx', 'office-pptx', 'office-xlsx']
       expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(officeSkills)
-      expect(ctx.tools.schemas().map(tool => tool.name).toSorted()).toEqual([
-        'manuscript_revision', ...(recoveryEnabled ? ['source_recover'] : []),
-        'jianying_draft', 'screenplay_export_docx',
-      ].toSorted())
+      await vi.waitFor(() => {
+        expect(ctx.tools.schemas().map(tool => tool.name).toSorted()).toEqual([
+          'manuscript_revision', ...(recoveryEnabled ? ['source_recover'] : []),
+          'jianying_draft', 'screenplay_export_docx',
+        ].toSorted())
+      })
       const discovery = loadOverlayPatches('desktop-office-discovery', fileURLToPath(new URL('../config/desktop.cordis.patch.yml', import.meta.url)))
         .flatMap(patch => patch.insert ?? []).find(row => row.id === 'tool-discovery')
       if (!discovery) throw new Error('Missing Desktop tool-discovery row')

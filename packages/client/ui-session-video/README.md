@@ -27,6 +27,8 @@ Review recorded videos directly in chat cards with a source selector, source-bou
 
 The independent [Muse video bundle](../../bundle/muse-video-ui/README.md) installs this presentation and its media service together.
 
+Video controls, status messages and shot-modification drafts follow the application's active language. Complete dictionaries are registered for Chinese, English, Japanese, Spanish, French, German, Russian and Portuguese.
+
 This package owns the optional chat video cards and Session video history. In **Settings → General → Video cards and timeline**, turn the presentation on or off without restarting or reloading the page. The accepted switch persists in the profile through the native configuration forms. Disabling removes the enhanced players and history action, restores native delivered-video playback, and pauses and releases preview media. Transcript identity, input drafts, attachments, recorded files and running Agent jobs remain owned by Muse. Re-enabling creates a fresh presentation scope without duplicate controls. The settings row remains available while the package is installed.
 
 The Muse Desktop composition mounts this UI and the [Session video service](../../drama/session-video/README.md). Ordinary Web profiles do not activate either package by default. A custom composition retains the canonical `ui-session-video` entry id for its live settings and needs both rows plus the native Chat, Deliverables, locale, renderer and Remote services.

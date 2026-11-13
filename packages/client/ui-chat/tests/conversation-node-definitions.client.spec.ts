@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import type {
   ChatConversationViewNode, ChatSnapshot,
 } from '@deepseek-ai/dsh-client-ui-chat/client'
@@ -7,7 +8,8 @@ import type {
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import {
   ConversationNodeAssembler,
-  type ConversationNodeDefinition,
+  ConversationEventRegistry,
+  type ConversationNodeDefinitionInput,
   type ConversationViewDefinition,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
@@ -35,7 +37,7 @@ import type {
   AssistantChatData, ChatNode, ManualCompactionChatData, RetryChatData, ToolChatData, TurnTailChatData,
 } from '../src/client/contract/chat-nodes.ts'
 
-const DEFINITIONS: readonly ConversationNodeDefinition[] = [
+const DEFINITIONS: readonly ConversationNodeDefinitionInput[] = [
   nextStepInboxDefinition,
   nextTurnInboxDefinition,
   messageDefinition,
@@ -54,14 +56,13 @@ const DEFINITIONS: readonly ConversationNodeDefinition[] = [
   turnTailDefinition,
 ]
 
-class TestEventDefinitions {
-  entries(): readonly ConversationNodeDefinition[] {
-    return DEFINITIONS
-  }
-
-  fallbackEntry(): ConversationNodeDefinition {
-    return unknownFallbackDefinition
-  }
+function eventDefinitions(): ConversationEventRegistry {
+  const ctx = new Context()
+  onTestFinished(async () => { await ctx.fiber.dispose() })
+  const registry = new ConversationEventRegistry(ctx)
+  for (const definition of DEFINITIONS) registry.register(definition)
+  registry.registerFallback(unknownFallbackDefinition)
+  return registry
 }
 
 class TestViewDefinitions {
@@ -153,7 +154,7 @@ function packedInputs(entries: readonly SessionLiveEventEntry[]): SessionEventLi
 }
 
 function assembler(entries: readonly SessionEventLikeEntry[] = [], hasMore = false): ConversationNodeAssembler {
-  const value = new ConversationNodeAssembler(new TestEventDefinitions(), new TestViewDefinitions())
+  const value = new ConversationNodeAssembler(eventDefinitions(), new TestViewDefinitions())
   value.replaceWindow(entries, hasMore)
   value.activateTarget('chat')
   return value
@@ -237,6 +238,33 @@ function toolResult(callId: string, text: string, isError = false) {
 }
 
 describe('built-in conversation node Definitions', () => {
+  it('keeps unrelated business matchers off live Assistant dispatch', () => {
+    const ctx = new Context()
+    onTestFinished(async () => { await ctx.fiber.dispose() })
+    const registry = new ConversationEventRegistry(ctx)
+    const handlers = [
+      nextStepInboxDefinition, nextTurnInboxDefinition, messageDefinition,
+      requestPromptDefinition(inspectRequestPrompt), commandDefinition,
+      compactionDefinition, retryDefinition, turnErrorDefinition, turnMaxTokensDefinition,
+    ].flatMap((definition) => {
+      const match = definition.match
+      if (typeof match === 'function') {
+        const handler = vi.fn(match)
+        registry.register({ ...definition, match: handler })
+        return [handler]
+      }
+      const entries = Object.entries(match).map(([type, handler]) => [type, vi.fn(handler)] as const)
+      registry.register({ ...definition, match: Object.fromEntries(entries) })
+      return entries.map(([, handler]) => handler)
+    })
+    const value = new ConversationNodeAssembler(registry, new TestViewDefinitions())
+    value.replaceWindow([], false)
+    for (let seq = 1; seq <= 64; seq++) {
+      appendAssistantChunk(value, seq, { type: 'text-delta', index: 0, text: 'streamed reply' })
+    }
+    for (const handler of handlers) expect(handler).not.toHaveBeenCalled()
+  })
+
   it.each(['replay', 'live', 'prepend'] as const)('shows ordinary Context and developer tool changes in Chat order (%s)', (mode) => {
     const entries = [
       at(0, 'request/header', { reason: 'initial', header: {
@@ -1085,12 +1113,15 @@ describe('built-in conversation node Definitions', () => {
     expect(processSource.getSnapshot()?.spec.answerAnchorSeq).toBe(44)
   })
 
-  it('reuses the open Turn-process projection across continuing Assistant chunks', () => {
+  it.each(['text-delta', 'reasoning-delta'] as const)('reuses the open Turn-process projection across continuing %s chunks', (type) => {
     const value = assembler([
       at(1, 'turn/start', { turn: 1 }),
       at(2, 'step/start', { turn: 1, step: 1 }),
       at(3, 'assistant/live-chunk', {
-        turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: 'first' },
+        turn: 1, step: 1, chunk: { type, index: 0, text: '  ' },
+      }),
+      at(4, 'assistant/live-chunk', {
+        turn: 1, step: 1, chunk: { type, index: 0, text: 'first' },
       }),
     ])
     const before = snapshot(value)
@@ -1098,13 +1129,14 @@ describe('built-in conversation node Definitions', () => {
     const processData = before.timeline.turns.get(1)?.data.get('turn-process')
     const assistantNode = node(before, 'assistant-step')
     if (assistantNode === undefined) throw new Error('Assistant node is unavailable')
+    expect(assistantNode.anchorSeq).toBe(4)
     const processSource = before.nodes.processSource(assistantNode.key)
     const processPresentation = processSource.getSnapshot()
     let processNotifications = 0
     processSource.subscribe(() => { processNotifications++ })
 
-    value.append(at(4, 'assistant/live-chunk', {
-      turn: 1, step: 1, chunk: { type: 'reasoning-delta', index: 0, text: ' second' },
+    value.append(at(5, 'assistant/live-chunk', {
+      turn: 1, step: 1, chunk: { type, index: 0, text: ' second' },
     }))
     value.flush()
 

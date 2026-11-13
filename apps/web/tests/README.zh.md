@@ -14,7 +14,11 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 
 普通场景以没有已登记 Workspace 或 Session、但持久化标记记录默认 Workspace 已被删除的状态启动，使显式文件夹选择场景自行决定 cwd。`launchWebScaffold({ firstUse: true })` 保留初始化资格，供启动场景使用。
 
+普通 Web 在欢迎提示后直接进入凭据设置。相关场景在使用真实设置页、核对凭据持久化的同时，检查账号登录选项、账号菜单和赠金请求均不存在。桌面场景在启动前声明载体，并保留账号菜单几何、登录和赠金通知断言。
+
 工作区文件引用录制将已录制 Session 保留的两个技能描述写入自有临时技能目录，以提供历史技能目录，不依赖个人或内置技能根目录。其键盘操作先选中草稿，再将选区折叠到末尾，使 macOS 和 Windows 都在同一位置插入下一个引用。
+
+[工具详情](tool-details.e2e.ts)逐一核对未改动的已录制 Session 中的历史调用，并通过单独的真实 Host 回合验证当前 Schedule 卡片。已结束的列表行是 UI 前置条件，不表示定时任务已运行。
 
 [Muse 自定义模型](muse-personal-models.e2e.ts)从测试自有的本地端点发现模型，单独保存凭据，并验证设置列表、对话选择、重启持久化与适配器请求。场景加载内置桌面设置覆盖层，不操作已安装的 Muse 应用。
 
@@ -25,6 +29,8 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 构建产物的 jsdom 用例共用 `installAssembledBootEnv`，提供不匹配的媒体查询，并在每项测试后恢复浏览器全局对象；真实媒体查询行为由浏览器用例验证。
 
 每个场景都要求整个客户端组合全部激活。产品启动只对必需名单外的未激活 entry 告警，但 `watchConsole` 绊线、[真实 Host 冒烟](smoke-real.e2e.ts)与[组装 jsdom 启动](assembled-boot.ts)把 `web boot: warning` 视为失败。没有任何场景选项放宽这一点：产品组合中出现未激活插件就是需要修复的缺陷。
+
+[Bot 侧栏夹具](bot-sidebar-rail.e2e.ts)以合成名单和空 Sessions 挂载内置导航，释放时取消其公开导航 guard。窄屏 Web 和 macOS 用例检查可见抽屉、命中、键盘焦点和不占侧栏列的主区；Windows 保留图标栏。这些几何检查不验证原生 Session 操作。
 
 ## 完成状态观察
 

@@ -80,9 +80,9 @@ Headless/ACP 与 SDK 适配器在规范化之前，将原始目录中的子创�
 
 ### 录制、回放与刷新
 
-Headless 或 SDK owner 可以声明 `writerOutput: true`，保留规范 replay 输入，并在 `writer.expected.jsonl` 及每个子会话的 `writer.<ordinal>.expected.jsonl` 中比较完整当前输出。refresh 更新这些输出比较基准及 owner 自有的 header 伴随文件；record 跳过该 owner。Headless 的 stdout 和 stderr 同样以当前输出比较基准为准，因此更新错误分类无需改写历史 replay 输入。SDK owner 保留 `notifications.expected.jsonl` 路径；只有显式声明 `sessionFormat` 的 owner 使用 `notifications.current.expected.jsonl`。此选项不声明历史迁移覆盖，不能与 `session` 或 `sessionFormat` 同时使用，ACP profile 也会拒绝它。replay 要求输出比较基准清单完全匹配，并比较每个规范化事件，不移除结构差异。
+Headless、SDK 或 ACP owner 可以声明 `writerOutput: true`，保留规范 replay 输入，并在 `writer.expected.jsonl` 及每个子会话的 `writer.<ordinal>.expected.jsonl` 中比较完整当前输出。refresh 更新这些输出比较基准及 owner 自有的 header 伴随文件；record 跳过该 owner。Headless 的 stdout 和 stderr 同样以当前输出比较基准为准，因此更新错误分类无需改写历史 replay 输入。SDK owner 保留 `notifications.expected.jsonl` 路径；只有显式声明 `sessionFormat` 的 owner 使用 `notifications.current.expected.jsonl`。ACP 在 writer refresh 期间也保持已有 stdout 协议比较基准只读，并且不会写入引用的 header 伴随文件。此选项不声明历史迁移覆盖，不能与 `session` 或 `sessionFormat` 同时使用。replay 要求输出比较基准清单完全匹配，并比较每个规范化事件，不移除结构差异。
 
-Web owner 也可以为其驱动的根 Session 声明 `writerOutput: true`。Web scaffold 会拒绝此选项下的规范子会话角色；Headless 和 SDK 对子会话的支持保持不变。refresh 更新 `writer.expected.jsonl` 及 owner 自有的 header 伴随文件，规范 replay 输入保持不变，record 写回也会禁用。replay 要求 writer 文件存在，并比较每个规范化的根会话事件；缺失、改变或多余的输出比较基准都会失败。header pin 继续将当前模型请求的提示词与工具 schema 同 owner 自有的伴随文件比较。Web borrower 继续使用源 owner 的 replay 输入，不能声明此选项。
+Web owner 也可以为其驱动的根 Session 声明 `writerOutput: true`。Web scaffold 会拒绝此选项下的规范子会话角色；Headless、SDK 和 ACP 对子会话的支持保持不变。refresh 更新 `writer.expected.jsonl` 及 owner 自有的 header 伴随文件，规范 replay 输入保持不变，record 写回也会禁用。replay 要求 writer 文件存在，并比较每个规范化的根会话事件；缺失、改变或多余的输出比较基准都会失败。header pin 继续将当前模型请求的提示词与工具 schema 同 owner 自有的伴随文件比较。Web borrower 继续使用源 owner 的 replay 输入，不能声明此选项。
 
 刷新在复用易变字段之前，会规范化每份完整的 Session 日志，使作业 id 在注册事件、工具输出和后续工具调用中保持相同的引用关系。
 

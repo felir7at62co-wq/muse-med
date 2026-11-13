@@ -260,6 +260,8 @@ describe('package dependency scope', () => {
     expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-session'])
       .toEqual(['SESSION_FORMAT_VERSION', 'appendPluginRecord', 'pluginRecordOf'])
     expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-timeout']).toEqual(['deadline'])
+    expect(PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports['@deepseek-ai/dsh-tools']).toEqual(['defineTool', 'TOOL_BODY_META_KEY'])
+    expect(PACKAGE_DEPENDENCY_POLICY.safeHostDependencyExports['@deepseek-ai/dsh-tools']).toBeUndefined()
   })
 
   it('discovers the Client directory, dsh.client declarations, and configured Host packages', () => {
@@ -1075,6 +1077,36 @@ describe('dependency sections', () => {
       'verify-package-dependencies: 1 managed Host runtime edge(s) remain in dependencies across 1 package(s):',
       '  @deepseek-ai/dsh-probe -> @deepseek-ai/dsh-runtime: @deepseek-ai/dsh-runtime#runtimeValue',
     ])
+  })
+
+  it.each([
+    ['@deepseek-ai/dsh-llm', 'MessageId'],
+    ['@deepseek-ai/dsh-scope', 'carrierKeyOf'],
+    ['@deepseek-ai/dsh-tools', 'TOOL_BODY_META_KEY'],
+  ])('retains message and scope identity plus tool metadata on shared peers: %s#%s', (specifier, exportName) => {
+    const sourcePath = 'packages/core/probe/src/index.ts'
+    const manifest: PackageDependencyManifest = { name: '@deepseek-ai/dsh-probe',
+      peerDependencies: { [CORDIS]: 'workspace:~', [specifier]: 'workspace:*' },
+      devDependencies: { [CORDIS]: 'workspace:~', [specifier]: 'workspace:*' } }
+    const subject: PackageDependencyFacts = { ...facts(manifest),
+      workspaceNames: new Set([CORDIS, specifier]),
+      allSourceUses: new Map([[specifier, [sourcePath]]]),
+      hostRuntimeSourceUses: new Map([[specifier, [sourcePath]]]),
+      hostRuntimeExportUses: [{ packageName: specifier, specifier, exportName, sourcePath, line: 1, column: 10,
+        sourceLine: `import { ${exportName} } from '${specifier}'` }],
+      peerRequiredHostDependencies: new Set([specifier]) }
+    expect(PACKAGE_DEPENDENCY_POLICY.safeHostDependencyExports[specifier]).not.toEqual(expect.arrayContaining([exportName]))
+    const reviewed = { safeHostDependencyExports: {}, peerRequiredHostExports: {
+      [specifier]: PACKAGE_DEPENDENCY_POLICY.peerRequiredHostExports[specifier]?.filter(name => name === exportName) ?? [] } }
+    expect(collectHostDependencyExportPolicyViolations([subject], subject.workspaceNames, reviewed)).toEqual([])
+    repairPackageDependencyManifest(subject)
+    expect(manifest.dependencies?.[specifier]).toBeUndefined()
+    expect(manifest.peerDependencies?.[specifier]).toBe('workspace:*')
+    expect(manifest.devDependencies?.[specifier]).toBe('workspace:*')
+    const unknown = { ...subject, hostRuntimeExportUses: subject.hostRuntimeExportUses.map(value => ({
+      ...value, exportName: 'unreviewedRuntimeExport' })) }
+    expect(collectHostDependencyExportPolicyViolations([unknown], subject.workspaceNames, reviewed))
+      .toContainEqual(expect.stringContaining('is not classified as safe or peer-required'))
   })
 
   it('reports an unapproved Host runtime export without rewriting its dependency section', () => {

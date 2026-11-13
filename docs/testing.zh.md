@@ -42,15 +42,15 @@ e2e 断言应重新运行命令或从外部重新读取文件；对 agent 自身
 - 一个守卫只有在回归能让它失败时才有效。对于没有 `inject` 的插件（bundle/组合插件），Loader 冒烟测试在默认导出替换必需的具名导出时仍然绿着——需要添加显式的 `expect('default' in mod).toBe(false)` 加 `unwrapExports` 往返断言，并证明它有效：引入回归、观察变红、回退。
 - 「真实入口路径」指已发布的产物：包的 `bin` 所运行的是构建后的 `lib/bin.js`，并由普通 `node` 执行，从而暴露 tsx 会掩盖的失败（结算竞态、模块解析、被吞掉的加载失败）。同样的规则适用于非 index 运行时入口（Node 程序 bootstrap `lib/process.js`），也适用于多个 bundle 共享的单例模块（`packages/sdk/server/tests/built-scope-carrier.e2e.ts`）。保持构建产物冒烟测试绿色（`packages/examples/*/tests/built-bin.e2e.ts`、`packages/ptc-runtime/ptc-runtime-node/tests/built-lib.e2e.ts`），并断言真正缺失的配置以非零状态退出。
 
-Windows 覆盖率检查[验证 FFmpeg/ffprobe](../scripts/prepare-ci-ffmpeg.ts)。
+Windows [覆盖率检查](../scripts/prepare-ci-ffmpeg.ts)设置 `MUSE_RECOVERY_TEST_FFMPEG`。
 
 ## 测试解析：仅限源码
 
-- Vitest 通过 `tsconfig.base.json` 将工作区包的裸导入解析到 `src`；构建后的 `lib/` 可能重复加载单例（[布局](development.zh.md#typescript-project-layout)）。只有显式的 `lib` 子进程和构建产物冒烟测试使用产物。仓库本地 JavaScript 插件在根开发依赖中声明构建后的 peer 包，不会激活它们。工作区构建后，`test:snapshot:built` 会重新编译绿泡泡再回放。
+- Vitest 通过 `tsconfig.base.json` 将工作区导入解析到 `src`；构建后的 `lib/` 可能重复加载单例（[布局](development.zh.md#typescript-project-layout)）。只有显式的 `lib` 子进程和构建产物冒烟测试使用产物。本地 JavaScript 插件在根开发依赖中声明构建后的 peer 包，不会激活它们。`test:snapshot:built` 准备编译后的绿泡泡、订阅插件和 Skill/MCP 面板包，供普通 Node 回放。
 
 ## 测试子进程启动模式
 
-- CI 与已有构建产物的测试通道通过共享双模式启动器，从构建后的 `lib/` 运行每个 profile 或 Cordis 配置子进程。不要为这些子进程手写 `--import tsx`。
+- 构建产物测试通道通过共享启动器从 `lib/` 启动 profile 与 Cordis 配置子进程，不手写 `--import tsx`。Desktop Host 在 `test` 中选择 `src`，在 `test:expected` 中选择 `lib`。
 - 不加载 Cordis 的协议与操作系统 fixture 直接通过 Node 运行使用可擦除语法的 `.ts` 文件，不经过 tsx 或根路径映射。
 - 只有测试对象本身是源码路径解析时，才可以选择 `src`；在测试中写明这一约定。
 

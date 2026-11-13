@@ -7,8 +7,10 @@ import { freezeMessage, MessageId, type UserMessage } from '@deepseek-ai/dsh-llm
 import Sessions, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import { afterEach, expect, it, vi } from 'vitest'
-import { createGenerationWatchNotice, deliverGenerationWatchNotice, registerGenerationWatchDelivery } from '../src/generation-watch-delivery.ts'
-import { GenerationWatchStore, type GenerationWatchRun } from '../src/generation-watch-store.ts'
+import { z } from 'zod'
+import { createGenerationWatchNotice, deliverGenerationWatchNotice,
+  registerGenerationWatchDelivery } from '../src/generation-watch-delivery.ts'
+import { GenerationWatchOwnershipConflict, GenerationWatchStore, type GenerationWatchRun } from '../src/generation-watch-store.ts'
 
 const roots: string[] = []
 const hosts: Context[] = []
@@ -27,6 +29,147 @@ async function checkpoint() {
   return { root, store, run, path: join(root, 'watches', `${run.id}.json`) }
 }
 
+it.each(['ownership.v2.json', 'ownership.v1.json'])('propagates a corrupt %s without replacing it or creating a watch', async (name) => {
+  const f = await checkpoint(), directory = join(f.root, 'watches'), path = join(directory, name)
+  await mkdir(directory, { recursive: true })
+  const original = Buffer.from('{"truncated":')
+  await writeFile(path, original)
+  await expect(f.store.claimAndCreate(f.run)).rejects.toBeInstanceOf(SyntaxError)
+  expect(await readFile(path)).toEqual(original)
+  expect(await f.store.load(f.run.id)).toBeUndefined()
+  const absent = join(directory, name === 'ownership.v2.json' ? 'ownership.v1.json' : 'ownership.v2.json')
+  await expect(readFile(absent)).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+it('rejects an extra persisted key that is absent from its recorded run without rewriting either file', async () => {
+  const f = await checkpoint()
+  await f.store.claimAndCreate(f.run)
+  expect(await f.store.mayObserve(f.run.id)).toBe(false)
+  const indexPath = join(f.root, 'watches', 'ownership.v2.json')
+  const originalIndex = await readFile(indexPath, 'utf8'), originalRun = await readFile(f.path)
+  const index = z.looseObject({ keys: z.record(z.string(), z.unknown()) }).parse(JSON.parse(originalIndex))
+  index.keys['c'.repeat(64)] = { runId: f.run.id, sessionId: f.run.sessionId, previewPath: f.run.packs[0]!.previewPath }
+  const invalidIndex = JSON.stringify(index)
+  await writeFile(indexPath, invalidIndex)
+  await expect(f.store.mayObserve(f.run.id)).rejects.toBeInstanceOf(GenerationWatchOwnershipConflict)
+  expect(await readFile(indexPath, 'utf8')).toBe(invalidIndex)
+  expect(await readFile(f.path)).toEqual(originalRun)
+  await writeFile(indexPath, originalIndex)
+  expect(await f.store.mayObserve(f.run.id)).toBe(false)
+  expect(await f.store.load(f.run.id)).toEqual(f.run)
+})
+
+it.each(['indexed-session', 'legacy-owner-run', 'legacy-owner-session', 'legacy-owner-preview', 'orphan-owner',
+  'duplicate-pack', 'duplicate-started-key', 'unknown-started-key', 'no-send-after-start', 'non-no-send-successor',
+  'successor-cycle', 'missing-successor', 'successor-session', 'successor-pack-count', 'successor-pack-identity'] as const)(
+  'rejects a persisted %s relationship and resumes reading after the original index is restored', async (relationship) => {
+    const f = await checkpoint()
+    await f.store.claimAndCreate(f.run)
+    const indexPath = join(f.root, 'watches', 'ownership.v2.json')
+    const legacyPath = join(f.root, 'watches', 'ownership.v1.json')
+    const originalIndex = await readFile(indexPath, 'utf8'), originalRun = await readFile(f.path)
+    const originalLegacy = await readFile(legacyPath)
+    const index = z.looseObject({
+      keys: z.record(z.string(), z.looseObject({ runId: z.string(), sessionId: z.string(), previewPath: z.string() })),
+      runs: z.record(z.string(), z.looseObject({ sessionId: z.string(),
+        packs: z.array(z.looseObject({ key: z.string(), previewPath: z.string() })),
+        startedKeys: z.array(z.string()), noSend: z.boolean(), successor: z.string().optional() })),
+    }).parse(JSON.parse(originalIndex))
+    const entry = index.runs[f.run.id]!, pack = f.run.packs[0]!, otherId = 'c'.repeat(64)
+    if (relationship.startsWith('legacy-owner-')) {
+      index.runs = Object.fromEntries(Object.entries(index.runs).filter(([id]) => id !== f.run.id))
+    }
+    switch (relationship) {
+      case 'indexed-session': entry.sessionId = 'another-session'; break
+      case 'legacy-owner-run': index.keys[pack.key]!.runId = otherId; break
+      case 'legacy-owner-session': index.keys[pack.key]!.sessionId = 'another-session'; break
+      case 'legacy-owner-preview': index.keys[pack.key]!.previewPath = join(f.root, 'other.json'); break
+      case 'orphan-owner': index.keys[otherId] = { runId: otherId, sessionId: f.run.sessionId, previewPath: pack.previewPath }; break
+      case 'duplicate-pack': index.runs[otherId] = { ...entry, packs: [...entry.packs, ...entry.packs] }; break
+      case 'duplicate-started-key': entry.startedKeys = [pack.key, pack.key]; break
+      case 'unknown-started-key': entry.startedKeys = [otherId]; break
+      case 'no-send-after-start': entry.startedKeys = [pack.key]; entry.noSend = true; break
+      case 'non-no-send-successor': entry.successor = otherId; break
+      case 'successor-cycle': entry.noSend = true; entry.successor = f.run.id; break
+      case 'missing-successor': entry.noSend = true; entry.successor = otherId; break
+      case 'successor-session':
+        entry.noSend = true; entry.successor = otherId
+        index.runs[otherId] = { ...entry, sessionId: 'another-session', successor: undefined }; break
+      case 'successor-pack-count':
+        entry.noSend = true; entry.successor = otherId
+        index.runs[otherId] = { ...entry, packs: [...entry.packs, ...entry.packs], successor: undefined }; break
+      case 'successor-pack-identity':
+        entry.noSend = true; entry.successor = otherId
+        index.runs[otherId] = { ...entry, packs: [{ key: 'd'.repeat(64), previewPath: join(f.root, 'other.json') }],
+          successor: undefined }; break
+    }
+    const invalidIndex = JSON.stringify(index)
+    await writeFile(indexPath, invalidIndex)
+    await expect(f.store.mayObserve(f.run.id)).rejects.toBeInstanceOf(GenerationWatchOwnershipConflict)
+    expect(await readFile(indexPath, 'utf8')).toBe(invalidIndex)
+    expect(await readFile(f.path)).toEqual(originalRun)
+    expect(await readFile(legacyPath)).toEqual(originalLegacy)
+    await writeFile(indexPath, originalIndex)
+    expect(await f.store.mayObserve(f.run.id)).toBe(false)
+    expect(await f.store.load(f.run.id)).toEqual(f.run)
+  })
+
+it('commits the same checkpoint after a public ownership claim without inventing a notice or changing its deadline', async () => {
+  const f = await checkpoint()
+  await f.store.claimOwnership(f.run)
+  expect(await f.store.load(f.run.id)).toBeUndefined()
+  await f.store.put(f.run)
+  expect(await f.store.load(f.run.id)).toEqual(f.run)
+  const restarted = new GenerationWatchStore(join(f.root, 'watches'))
+  expect(await restarted.load(f.run.id)).toEqual(f.run)
+  expect(await restarted.listActive()).toEqual([f.run])
+})
+
+it('keeps repeated same-key dispatch fences idempotent and refuses a later no-send claim', async () => {
+  const f = await checkpoint(), key = f.run.packs[0]?.key
+  if (key === undefined) throw new Error('Missing fixture preview key')
+  await f.store.claimAndCreate(f.run)
+  await f.store.markDispatchStarted(f.run.id, key)
+  await f.store.markDispatchStarted(f.run.id, key)
+  await expect(f.store.recordNoSend(f.run.id)).rejects.toThrow('ownership is ambiguous')
+  expect(await f.store.hasNoSend(f.run.id)).toBe(false)
+  expect(await f.store.load(f.run.id)).toEqual(f.run)
+})
+
+it('refuses a dispatch fence after a proven no-send receipt without rewriting the original checkpoint', async () => {
+  const f = await checkpoint(), key = f.run.packs[0]?.key
+  if (key === undefined) throw new Error('Missing fixture preview key')
+  await f.store.claimAndCreate(f.run)
+  await f.store.recordNoSend(f.run.id)
+  const before = await readFile(f.path)
+  await expect(f.store.markDispatchStarted(f.run.id, key)).rejects.toThrow('ownership is ambiguous')
+  expect(await f.store.hasNoSend(f.run.id)).toBe(true)
+  expect(await readFile(f.path)).toEqual(before)
+})
+
+it('rejects dispatch-state mutations for a missing run while retaining the registered original', async () => {
+  const f = await checkpoint(), missing = 'c'.repeat(64)
+  await f.store.create(f.run)
+  const before = await readFile(f.path)
+  await expect(f.store.markDispatchStarted(missing, 'b'.repeat(64))).rejects.toThrow('ownership is ambiguous')
+  await expect(f.store.recordNoSend(missing)).rejects.toThrow('ownership is ambiguous')
+  await expect(f.store.finishInitialDispatch(missing)).rejects.toThrow('ownership is ambiguous')
+  expect(await f.store.load(missing)).toBeUndefined()
+  expect(await f.store.load(f.run.id)).toEqual(f.run)
+  expect(await readFile(f.path)).toEqual(before)
+})
+
+it('refuses changed preview metadata for an already registered run without replacing its original checkpoint', async () => {
+  const f = await checkpoint()
+  await f.store.claimAndCreate(f.run)
+  const before = await readFile(f.path)
+  const changed: GenerationWatchRun = { ...f.run,
+    packs: f.run.packs.map(pack => ({ ...pack, previewPath: join(f.root, 'another.preview.json') })) }
+  await expect(f.store.claimAndCreate(changed)).rejects.toThrow('Generation watch run inputs changed')
+  expect(await f.store.load(f.run.id)).toEqual(f.run)
+  expect(await readFile(f.path)).toEqual(before)
+})
+
 it('refuses a valid checkpoint stored under another run identity', async () => {
   const f = await checkpoint()
   await f.store.create(f.run)
@@ -40,7 +183,8 @@ it('reports non-file checkpoints and does not hide an unreadable storage root', 
   await mkdir(f.path, { recursive: true })
   const report = vi.fn()
   await expect(f.store.listActive(report)).resolves.toEqual([])
-  expect(report).toHaveBeenCalledExactlyOnceWith(f.run.id, expect.objectContaining({ message: 'Generation watch checkpoint must be a regular file' }))
+  expect(report).toHaveBeenCalledExactlyOnceWith(f.run.id,
+    expect.objectContaining({ message: 'Generation watch checkpoint must be a regular file' }))
   await expect(f.store.listActive()).rejects.toThrow('regular file')
   const fileRoot = join(f.root, 'root-is-file')
   await writeFile(fileRoot, 'not a directory')

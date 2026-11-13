@@ -10,3 +10,4 @@ header:
   toolSchemasSource: session/agent-instructions
   changes: 1
   promptChanges: 1
+writerOutput: true

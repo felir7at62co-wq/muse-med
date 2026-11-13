@@ -7,3 +7,4 @@ header:
   class: sdk-desktop-ptc
   pin: true
   toolSchemasSource: session/ptc-turn
+writerOutput: true

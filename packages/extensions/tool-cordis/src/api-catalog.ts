@@ -5460,7 +5460,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   {
     key: 'workingDirectory',
     summary: 'One owner for each Session\'s effective directory and its model-visible changes.',
-    description: 'One owner for each Session\'s effective directory and its model-visible changes.',
+    description: 'One owner for each Session\'s effective directory and its model-visible changes. Agent and service disposal cancel queued operations and await in-flight filesystem work.',
     methods: [
       {
         signature: 'readonly defaultDirectory: string',

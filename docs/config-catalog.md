@@ -2617,7 +2617,7 @@ export type PiAiThinkingTokenBudgetField = NonNullable<OpenAICompletionsCompat['
 
 - `inject`: `llm`
 - `refs`: [`LlmModelBadge`](../packages/llm/llm/src/index.ts) · [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · [`SystemPromptUpdate`](../packages/llm/llm/src/index.ts) · [`ToolUpdate`](../packages/llm/llm/src/index.ts)
-- `source`: [`packages/test-support/llm-replay/src/index.ts:1115`](../packages/test-support/llm-replay/src/index.ts)
+- `source`: [`packages/test-support/llm-replay/src/index.ts:1159`](../packages/test-support/llm-replay/src/index.ts)
 
 ```ts config-catalog
 /** Plugin config: the {@link ReplayConfig} inputs, each defaulting to its `DSH_SNAPSHOT_*` env var in `apply`. */
@@ -4956,7 +4956,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-episode-render`
 
 - `inject`: `tools`
-- `source`: [`packages/drama/tool-episode-render/src/index.ts:92`](../packages/drama/tool-episode-render/src/index.ts)
+- `source`: [`packages/drama/tool-episode-render/src/index.ts:93`](../packages/drama/tool-episode-render/src/index.ts)
 
 ```ts config-catalog
 /**
@@ -5556,6 +5556,10 @@ export interface Config {
   actionShotSeconds?: number
   /** Effective spoken characters per second used for estimates; defaults to eight. */
   speechCharsPerSecond?: number
+  /** Advisory content ceiling for explicitly declared environment inserts; defaults to two seconds. */
+  emptyShotMaxSeconds?: number
+  /** Consecutive explicit close-up or fixed-camera plans reviewed for repetition; defaults to three. */
+  repetitiveShotThreshold?: number
   /** Strict blocks content failures; advisory returns suggestions and separate drafts. Defaults to strict. */
   reviewMode?: DramaShotReviewMode
   /** Read the calling session's video choice and recheck its last packaging review on changes; defaults to false. */

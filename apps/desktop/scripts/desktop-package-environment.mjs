@@ -23,12 +23,12 @@ const AMBIENT_RELEASE_SETTING = /^(?:DSH_DESKTOP_(?:APP_ID|AUTO_UPDATE_ENV|MANDA
 /**
  * Select local macOS test defaults without reading dotenv files or inheriting release settings.
  * @param {NodeJS.ProcessEnv} environment Parent environment, retained for build tools and networking.
- * @returns {NodeJS.ProcessEnv} Unsigned build environment with the standard application identifier and no update policy.
+ * @returns {NodeJS.ProcessEnv} Unsigned build environment with the Muse application identifier and no update policy.
  */
 export function localMacOSPackageEnvironment(environment = process.env) {
   return {
     ...Object.fromEntries(Object.entries(environment).filter(([name]) => !AMBIENT_RELEASE_SETTING.test(name))),
-    DSH_DESKTOP_APP_ID: 'com.deepseek.harness',
+    DSH_DESKTOP_APP_ID: 'cn.muse.med',
     DSH_DESKTOP_UNSIGNED: '1',
   }
 }

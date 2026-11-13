@@ -11,6 +11,10 @@
 # A unified diff needs one space to mark a blank context line.
 integrations/muse-kb/*.patch whitespace=-blank-at-eol
 
+# The reviewed optional-adapter patch stays byte-identical to its pinned hash;
+# a unified diff needs one space to mark a blank context line.
+third_party/optional-plugins/*/*.patch whitespace=-blank-at-eol
+
 # Preserve the pinned panel client's upstream whitespace in the source snapshot.
 third_party/plugins/dsh-skill-mcp-panel/src/client.ts whitespace=-blank-at-eol,-space-before-tab
 

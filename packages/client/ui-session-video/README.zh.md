@@ -27,9 +27,11 @@ kind: "package-reference"
 
 独立的 [Muse 视频插件包](../../bundle/muse-video-ui/README.zh.md)将此界面及其媒体服务一起安装。
 
-Muse Desktop 组合挂载此 UI 和[会话视频服务](../../drama/session-video/README.zh.md)。普通 Web profile 默认不启用这两个包。自定义组合保留用于实时设置的规范条目 ID `ui-session-video`，并需要同时挂载这两行，以及原生 Chat、Deliverables、语言、渲染器和 Remote 服务。
+视频控件、状态信息和镜头修改草稿遵循应用当前语言，完整注册中文、英语、日语、西班牙语、法语、德语、俄语和葡萄牙语词典。
 
 此包拥有可选的聊天视频卡片和会话视频历史。在**设置 → 通用 → 视频卡片与轨道**中，可随时启用或停用，无需重启或刷新页面。开关通过原生配置表单保存到配置档案。停用会移除增强播放器和历史入口，恢复原生已交付视频播放，并暂停、释放预览媒体。聊天记录的组件身份、输入草稿、附件、已录制文件和运行中的 Agent 任务仍由 Muse 拥有。再次启用会创建全新的界面作用域，不重复注册控件。只要安装了此包，设置行就会保留。
+
+Muse Desktop 组合挂载此 UI 和[会话视频服务](../../drama/session-video/README.zh.md)。普通 Web profile 默认不启用这两个包。自定义组合保留用于实时设置的规范条目 ID `ui-session-video`，并需要同时挂载这两行，以及原生 Chat、Deliverables、语言、渲染器和 Remote 服务。
 
 ```yaml
 - insert:

@@ -51,20 +51,20 @@
   en: 4cd8a8da6977928d
   zh: 9f624855a2edac37
 /muse-desktop/package/release-versions:
-  en: 5adc988ccc24df39
-  zh: 13fe94a28644c67d
+  en: da114c5d19cd89a6
+  zh: 3c8df7d1c0a3e277
 /muse-desktop/package/resuming-a-failed-run:
   en: 548a53cda22d92c5
   zh: 062a662b6ecdb8a0
 /muse-desktop/package/runtime-file-selection:
-  en: 1f0dc990d9632832
-  zh: 7c9babc0719a0a5e
+  en: f38370651919e047
+  zh: 27ca39e4b5f56871
 /muse-desktop/package/unsigned-installers:
-  en: 3196681c5db146e8
-  zh: ef7cee2487e484f0
+  en: a519f3d5bf152624
+  zh: 29122fcf68800506
 /muse-desktop/package/windows-installer-interface:
-  en: e5952120794f0f49
-  zh: 28d59be682c52ca8
+  en: 3aeba55580d4c0d7
+  zh: 2a14fd5ea472d726
 /muse-desktop/package/windows-ev-signing:
   en: 67ce5a22d029c969
   zh: 4129236adbe47010
@@ -84,8 +84,8 @@
   en: 8264b135871e8978
   zh: 0939aafb1b2961fc
 /muse-desktop/known-limitations:
-  en: e9714f4acccdf755
-  zh: 26ba3e47f90e31d6
+  en: 5574dd4fef5e9ed9
+  zh: b87c6fddb0b18cb0
 /muse-desktop/dev-note:
   en: 4c091063bcb6a15a
   zh: a099865aafe34ea5

@@ -88,7 +88,7 @@ const GENERIC_SKIPS: readonly GenericSkip[] = [
   { file: 'docs/upgrade-guide/v0.2.2-rc.1/subagent-interrupt-default/guide.zh.md', upstream: ['cordis'] },
   { file: 'apps/desktop-host/tests/preset-executors.spec.ts', upstream: ['cordis'] },
   { file: 'apps/desktop-host/tests/qimao-presets.spec.ts', upstream: ['cordis'] },
-  { file: 'apps/desktop-host/tests/source-research-presets.spec.ts', upstream: ['cordis'] },
+  { file: 'apps/desktop-host/tests/source-research-presets.expected.e2e.ts', upstream: ['cordis'] },
   { file: 'third_party/plugins/dsh-skill-mcp-panel/test-tool-filter.mjs', upstream: ['cordis'] },
   { file: 'packages/preset/agent-preset-registry/tests/display.spec.ts', upstream: ['cordis'] },
   { file: 'packages/preset/agent-preset-registry/tests/deprecated-id.spec.ts', upstream: ['cordis'] },
