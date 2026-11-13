@@ -187,6 +187,8 @@ it.each([{ interval: 0.5, count: 23, last: 11, legacyTime: false },
     const batches = run.mock.calls.filter(call => call[1].includes('mjpeg')).map(call => call[1])
     expect(batches.every(argv => argv[argv.indexOf('-vf') + 1]?.includes('select=eq'))).toBe(true)
     if (interval === 0.4) expect(batches[1]?.[batches[1].indexOf('-ss') + 1]).toBe('9.6')
+    expect(raw.frames.map(frame => Math.round(frame.timestamp_seconds * 1_000_000)))
+      .toEqual(Array.from({ length: count }, (_, index) => Math.round(Math.floor(index * interval * 24) / 24 * 1_000_000)))
   }, 30_000,
 )
 
@@ -544,7 +546,8 @@ async function setup(options: Partial<VideoInspect.Config> = {}) {
     provider, id: model, name: model, inputModalities: model === 'vision' ? ['text', 'image'] : ['text'],
   }))
   const driver = await mountAgentLoopTestHarness(ctx)
-  const config = VideoInspect.Config({ powershellPath: process.execPath, ...options })
+  const config = VideoInspect.Config({ powershellPath: process.execPath,
+    ffprobePath: process.env.DSH_OCR_NATIVE_FFPROBE ?? 'ffprobe', ...options })
   const video = ctx.plugin(VideoInspect, config)
   await video.await()
   const ffmpeg = await ctx.subprocess.resolveExecutable(config.ffmpegPath)
