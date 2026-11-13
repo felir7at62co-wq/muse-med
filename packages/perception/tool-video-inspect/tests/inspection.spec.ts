@@ -1,6 +1,6 @@
 /** Video inspection uses the real filesystem, attachment store and managed FFmpeg subprocesses. */
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
-import { mkdtemp, rm, readFile, appendFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, readFile, appendFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import * as Os from 'node:os'
@@ -60,6 +60,78 @@ async function elevenSecondVideo(h: Awaited<ReturnType<typeof setup>>) {
   { timeoutMs: 20_000, maxBytes: 1024, graceMs: 1000 })
 }
 
+function observeSourceProbes(h: Awaited<ReturnType<typeof setup>>, recognize: typeof Media.runMedia) {
+  const probes: {
+    interval: string | undefined
+    argv: readonly string[]
+    frames?: number | undefined
+    first?: unknown
+    last?: unknown
+    bytes?: number
+    json?: string
+    json_truncated?: boolean
+    diagnostic?: string
+    elapsed_ms?: number
+    error?: string
+    parse_error?: string
+  }[] = []
+  const resolutions: { executable: string; resolved?: string; error?: string }[] = []
+  const resolve = h.ctx.subprocess.resolveExecutable.bind(h.ctx.subprocess)
+  vi.spyOn(h.ctx.subprocess, 'resolveExecutable').mockImplementation(async (...args) => {
+    const record: typeof resolutions[number] = { executable: args[0] }
+    resolutions.push(record)
+    try { const resolved = await resolve(...args); record.resolved = resolved; return resolved }
+    catch (error) { record.error = String(error).slice(-4000); throw error }
+  })
+  return { probes, resolutions, recognize: async (...args: Parameters<typeof Media.runMedia>) => {
+    if (!args[1].includes('-select_streams')) return await recognize(...args)
+    const intervalIndex = args[1].indexOf('-read_intervals')
+    const probe: typeof probes[number] = { interval: intervalIndex < 0 ? undefined : args[1][intervalIndex + 1], argv: args[1] }
+    probes.push(probe)
+    let artifact: string | undefined
+    const persist = async (write: () => Promise<void>) => {
+      try { await write() } catch (error) { process.stderr.write('OCR_DIAGNOSTIC_CAPTURE_ERROR ' + String(error) + '\n') }
+    }
+    const diagnosticRoot = process.env.DSH_OCR_DIAGNOSTICS_DIR
+    if (diagnosticRoot !== undefined) await persist(async () => {
+      await mkdir(diagnosticRoot, { recursive: true })
+      const directory = await mkdtemp(join(diagnosticRoot, 'probe-'))
+      artifact = directory
+      const input = await readFile(h.input)
+      await Promise.all([
+        writeFile(join(directory, 'input.mp4'), input),
+        writeFile(join(directory, 'input.sha256'), createHash('sha256').update(input).digest('hex') + '\n'),
+        writeFile(join(directory, 'argv.json'), JSON.stringify({ case: expect.getState().currentTestName, argv: args[1],
+          source: h.input, sourceBytes: input.byteLength }, null, 2) + '\n'),
+      ])
+    })
+    const started = Date.now()
+    try {
+      const output = await recognize(...args), json = Buffer.from(output.bytes).toString('utf8')
+      if (artifact !== undefined) {
+        const directory = artifact
+        await persist(async () => {
+          await Promise.all([writeFile(join(directory, 'stdout.bin'), output.bytes), writeFile(join(directory, 'stderr.txt'), output.diagnostic)])
+        })
+      }
+      probe.bytes = output.bytes.byteLength; probe.json = json.slice(0, 65_536); probe.diagnostic = output.diagnostic.slice(-4000)
+      probe.json_truncated = json.length > 65_536
+      try {
+        const frames = (JSON.parse(json) as { frames?: readonly unknown[] }).frames
+        probe.frames = frames?.length; probe.first = frames?.[0]; probe.last = frames?.at(-1)
+      } catch (error) { probe.parse_error = String(error).slice(-4000) }
+      return output
+    } catch (error) { probe.error = String(error).slice(-4000); throw error }
+    finally {
+      probe.elapsed_ms = Date.now() - started
+      if (artifact !== undefined) {
+        const directory = artifact
+        await persist(async () => { await writeFile(join(directory, 'probe.json'), JSON.stringify(probe, null, 2) + '\n') })
+      }
+    }
+  } }
+}
+
 it.each([{ interval: 0.5, count: 23, last: 11, legacyTime: false },
   { interval: 0.4, count: 28, last: 10.791667, legacyTime: false },
   { interval: 0.4, count: 28, last: 10.791667, legacyTime: true }])(
@@ -67,7 +139,7 @@ it.each([{ interval: 0.5, count: 23, last: 11, legacyTime: false },
     const h = await setup({ ocrFrameIntervalSeconds: interval, ocrBatchFrames: 24 })
     await elevenSecondVideo(h)
     const run = mockWindowsOcr()
-    const recognize = run.getMockImplementation()!
+    const { recognize, probes, resolutions } = observeSourceProbes(h, run.getMockImplementation()!)
     const batchDiagnostics: {
       start_seconds: string | undefined
       frame_count: string | undefined
@@ -104,7 +176,7 @@ it.each([{ interval: 0.5, count: 23, last: 11, legacyTime: false },
     })
     const result = await h.ocr({ raw_json_path: 'qa/long.json', merged_text_path: 'qa/long.txt' })
     expect(result.isError, JSON.stringify(result.content)).toBe(false)
-    expect(result.value, JSON.stringify({ batches: batchDiagnostics })).toMatchObject({ scan_status: 'complete', coverage: {
+    expect(result.value, JSON.stringify({ result: result.value, batches: batchDiagnostics, probes, resolutions })).toMatchObject({ scan_status: 'complete', coverage: {
       planned_frame_count: count, processed_frame_count: count, failed_frame_count: 0, failed_timestamps_seconds: [],
     } })
     const raw = JSON.parse(await readFile(join(h.root, 'qa/long.json'), 'utf8')) as {
@@ -136,52 +208,16 @@ it('keeps a missing planned final sample partial rather than treating EOF as com
 it.each(['earlier time', 'different PTS', 'missing PTS'] as const)('rejects a decoded-frame mismatch at a fractional batch boundary: %s', async (fault) => {
   const h = await setup({ ocrFrameIntervalSeconds: 0.4, ocrBatchFrames: 24 })
   await elevenSecondVideo(h)
-  const run = mockWindowsOcr(), recognize = run.getMockImplementation()!
+  const run = mockWindowsOcr()
+  const { recognize, probes, resolutions } = observeSourceProbes(h, run.getMockImplementation()!)
   const batches: { diagnostic?: string; error?: string; fault: boolean }[] = []
-  const probes: {
-    interval: string | undefined
-    argv: readonly string[]
-    frames?: number | undefined
-    first?: unknown
-    last?: unknown
-    bytes?: number
-    json?: string
-    json_truncated?: boolean
-    diagnostic?: string
-    elapsed_ms?: number
-    error?: string
-    parse_error?: string
-  }[] = []
-  const resolutions: { executable: string; resolved?: string; error?: string }[] = []
-  const resolve = h.ctx.subprocess.resolveExecutable.bind(h.ctx.subprocess)
-  vi.spyOn(h.ctx.subprocess, 'resolveExecutable').mockImplementation(async (...args) => {
-    const record: typeof resolutions[number] = { executable: args[0] }
-    resolutions.push(record)
-    try { const resolved = await resolve(...args); record.resolved = resolved; return resolved }
-    catch (error) { record.error = String(error).slice(-4000); throw error }
-  })
   run.mockImplementation(async (...args) => {
     const batch: { diagnostic?: string; error?: string; fault: boolean } = { fault: false }
     const decoding = args[1].includes('mjpeg')
-    const probing = args[1].includes('-select_streams')
-    const intervalIndex = args[1].indexOf('-read_intervals')
-    const probe: typeof probes[number] = { interval: intervalIndex < 0 ? undefined : args[1][intervalIndex + 1], argv: args[1] }
     if (decoding) batches.push(batch)
-    if (probing) probes.push(probe)
     let output: Media.MediaOutput
-    const started = Date.now()
     try { output = await recognize(...args) }
-    catch (error) { if (decoding) batch.error = String(error); if (probing) probe.error = String(error); throw error }
-    finally { if (probing) probe.elapsed_ms = Date.now() - started }
-    if (probing) {
-      const json = Buffer.from(output.bytes).toString('utf8')
-      probe.bytes = output.bytes.byteLength; probe.json = json.slice(0, 65_536); probe.diagnostic = output.diagnostic.slice(-4000)
-      probe.json_truncated = json.length > 65_536
-      try {
-        const frames = (JSON.parse(json) as { frames?: readonly unknown[] }).frames
-        probe.frames = frames?.length; probe.first = frames?.[0]; probe.last = frames?.at(-1)
-      } catch (error) { probe.parse_error = String(error).slice(-4000) }
-    }
+    catch (error) { if (decoding) batch.error = String(error); throw error }
     if (decoding) batch.diagnostic = output.diagnostic.slice(-4000)
     if (!args[1].includes('mjpeg') || args[1][args[1].indexOf('-ss') + 1] !== '9.6') return output
     batch.fault = true

@@ -2,6 +2,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { platform } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { inspect } from 'node:util'
 import type { Context } from '@deepseek-ai/cordis'
 import type { FsVersion } from '@deepseek-ai/dsh-fs'
 import { defineTool, type ToolExecution } from '@deepseek-ai/dsh-tools'
@@ -598,6 +599,7 @@ export function applyVideoOcr(ctx: Context, config: Config, runtime: OcrRuntime)
                 start + offset * interval, batchPlan.length, interval, metadata.duration_seconds)
             }
             catch (error) {
+              process.stderr.write('OCR_NATIVE_EXTRACT_FAILURE ' + inspect({ source, start, offset, batchPlan, error }) + '\n')
               signal.throwIfAborted()
               if (error instanceof OcrTimestampOriginError) throw error
               failed.push(...batchPlan)

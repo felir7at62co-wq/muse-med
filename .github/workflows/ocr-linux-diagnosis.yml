@@ -1,0 +1,102 @@
+name: OCR native Linux diagnosis
+on:
+  push:
+    branches: [codex/ocr-linux-diagnosis-20261114]
+permissions:
+  contents: read
+concurrency:
+  group: ocr-native-diagnosis-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-probes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      DSH_TELEMETRY_DISABLED: '1'
+      NODE_COMPILE_CACHE: ${{ runner.temp }}/node-compile-cache
+      TMPDIR: ${{ runner.temp }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v5.0.0
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm-${{ github.run_id }}-${{ github.run_attempt }}
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+      - name: Configure pnpm cache
+        id: store
+        run: |
+          store_root="$HOME/.local/share/pnpm/store"
+          echo "PNPM_CONFIG_STORE_DIR=$store_root" >> "$GITHUB_ENV"
+          store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)
+          echo "path=$store_path" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v6.1.0
+        with:
+          path: ${{ steps.store.outputs.path }}
+          key: Linux-node-24-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            Linux-node-24-pnpm-
+      - name: Install immutable dependencies and native media
+        id: install
+        run: |
+          pnpm install --frozen-lockfile
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+          ffmpeg -version
+          ffprobe -version
+          node -e "const os=require('node:os'); console.log(JSON.stringify({node:process.version,v8:process.versions.v8,cpus:os.availableParallelism(),cpu:os.cpus()[0]?.model,memory:os.totalmem()}))"
+      - name: Capture the six original native probe cases
+        env:
+          DSH_OCR_DIAGNOSTICS_DIR: ${{ runner.temp }}/ocr-native-evidence/single
+        run: |
+          mkdir -p .artifacts/ocr-native-diagnosis
+          pnpm exec vitest run packages/perception/tool-video-inspect/tests/inspection.spec.ts --maxWorkers=1 --no-file-parallelism -t 'decodes the complete|fractional batch boundary' 2>&1 | tee .artifacts/ocr-native-diagnosis/single.log
+      - name: Compare three independent instrumented owner processes
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { spawn } from 'node:child_process'
+          import { createWriteStream } from 'node:fs'
+          import { mkdir, writeFile } from 'node:fs/promises'
+          import { once } from 'node:events'
+          import { join } from 'node:path'
+          const root = '.artifacts/ocr-native-diagnosis'
+          await mkdir(root, { recursive: true })
+          const run = async (worker) => {
+            const log = join(root, 'worker-' + worker + '.log')
+            const stream = createWriteStream(log, { flags: 'wx' })
+            const args = ['exec', 'vitest', 'run',
+              'packages/perception/tool-video-inspect/tests/inspection.spec.ts',
+              'packages/perception/tool-video-inspect/tests/ocr.spec.ts',
+              '--maxWorkers=1', '--no-file-parallelism', '--coverage',
+              '--coverage.include=packages/perception/tool-video-inspect/src/ocr.ts',
+              '--coverage.reportsDirectory=' + join(root, 'coverage-' + worker)]
+            const child = spawn('pnpm', args, { stdio: ['ignore', 'pipe', 'pipe'],
+              env: { ...process.env, DSH_OCR_DIAGNOSTICS_DIR: join(process.env.RUNNER_TEMP, 'ocr-native-evidence', 'worker-' + worker) } })
+            child.stdout.pipe(stream, { end: false })
+            child.stderr.pipe(stream, { end: false })
+            let spawnError
+            child.once('error', (error) => { spawnError = String(error) })
+            const [code, signal] = await new Promise(resolve => child.once('close', (...values) => resolve(values)))
+            const flushed = once(stream, 'finish')
+            stream.end()
+            await flushed
+            return { worker, code, signal, spawnError, log }
+          }
+          const settled = await Promise.allSettled([run(1), run(2), run(3)])
+          const results = settled.map((item, index) => item.status === 'fulfilled' ? item.value : { worker: index + 1, error: String(item.reason) })
+          await writeFile(join(root, 'process-results.json'), JSON.stringify(results, null, 2) + '\n')
+          console.log(JSON.stringify(results))
+          if (results.some(item => item.code !== 0 || item.signal || item.error || item.spawnError)) process.exitCode = 1
+          NODE
+      - name: Retain original probe bytes, source media and process logs
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: ocr-native-${{ github.sha }}
+          retention-days: 7
+          path: |
+            ${{ runner.temp }}/ocr-native-evidence
+            .artifacts/ocr-native-diagnosis
