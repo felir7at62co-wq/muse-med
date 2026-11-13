@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,8 +9,72 @@ import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId, type SessionHeader } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-tool-executor-ptc/types'
 import { expect, it, vi } from 'vitest'
-import { createGenerationWatchOwnerAttestor, createGenerationWatchOwnerResolver, createGenerationWatchSubmissionModelReader, recordedSubmissionModel } from '../src/generation-watch-attestor.ts'
+import { createGenerationWatchOwnerAttestor, createGenerationWatchOwnerResolver, createGenerationWatchSubmissionModelReader, recordedSubmissionBinding, recordedSubmissionModel } from '../src/generation-watch-attestor.ts'
+import { generationSessionBindingSchema } from '../src/generation-binding.ts'
 import { GenerationWatchStore } from '../src/generation-watch-store.ts'
+
+it.each(['malformed arguments', 'mismatched binding model'] as const)(
+  'keeps persisted submission evidence untrusted for %s', async (fault) => {
+    const { Context } = await import('@deepseek-ai/cordis')
+    const persistencePlugin = await import('@deepseek-ai/dsh-session-persistence-jsonl')
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-watch-json-evidence-')))
+    const ctx = new Context()
+    try {
+      await mkdir(join(root, 'video_tasks'))
+      await writeFile(join(root, 'project_config.json'), '{"jubian_script_id":1}')
+      const previewPath = join(root, 'video_tasks', 'preview.json')
+      await writeFile(previewPath, '{}')
+      const key = 'b'.repeat(64), runId = 'a'.repeat(64)
+      const ledger = new JubianLedger({ root: join(root, 'ledger') })
+      await ledger.begin({ idempotencyKey: key, method: 'storyboard_native_submit', scriptId: 1,
+        requestSha256: 'original', beforeTaskIds: [], videoPreviewPath: previewPath })
+      await ctx.plugin(persistencePlugin, { root: join(root, 'sessions'), compression: 'none' }).await()
+      for (const negative of [false, true]) {
+        const sessionId = SessionId(negative ? 'rejected-evidence' : 'original-evidence')
+        const header = { ...Session.create(sessionId).header, cwd: root }
+        const session = Session.create(sessionId, undefined, header), callId = ToolCallId('recorded-call')
+        const owner = { key, runId, sessionId, previewPath }
+        const args = { method: 'submit_video', idempotency_key: key, preview_path: previewPath }
+        const malformed = negative && fault === 'malformed arguments'
+        const argumentsText = malformed ? '{"method":' : JSON.stringify(args)
+        const binding = generationSessionBindingSchema.parse({ version: 1, authorityId: randomUUID(),
+          workspaceId: 'recorded-workspace', workspaceCreatedAt: '2026-11-13T00:00:00.000Z',
+          workspacePath: root, membershipEpoch: randomUUID(), sessionId, workingDirectory: root,
+          model: { provider: 'fixture', model: negative && fault === 'mismatched binding model' ? 'different-model' : 'fixture' } })
+        session.append('model/selection', { provider: 'fixture', model: 'fixture' })
+        session.append('turn/start', { turn: 1 })
+        session.append('step/start', { turn: 1, step: 1 })
+        session.append('request/header', { reason: 'initial', header: { config: { provider: 'fixture', model: 'fixture' } } })
+        session.append('assistant/message', { turn: 1, step: 1, stream: [], message: createMessage({ role: 'assistant',
+          content: [{ type: 'tool-call', id: callId, name: 'jubian_storyboard', arguments: argumentsText }],
+          source: { kind: 'model', provider: 'fixture', model: 'fixture' } }) }, { surfaceOp: 'append' })
+        session.append('tool/call', { turn: 1, step: 1, callId, name: 'jubian_storyboard', arguments: argumentsText })
+        session.append('tool/result', { turn: 1, step: 1, message: createToolResultMessage({ callId,
+          content: [{ type: 'text', text: malformed ? 'Invalid JSON arguments' : 'Recorded submission' }], isError: malformed }),
+        ...(malformed ? {} : { meta: { [TOOL_BODY_META_KEY]: { generationWatchId: runId, submission: args, binding } } }) },
+        { surfaceOp: 'append' })
+        session.append('step/end', { turn: 1, step: 1 })
+        session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+        const writer = await ctx.sessionPersistence.create(header)
+        try { await writer.append(session.snapshotEvents()); await writer.flush() } finally { await writer.close() }
+        const reader = await ctx.sessionPersistence.open(sessionId, 'read')
+        try {
+          const { events } = await reader.read()
+          const call = events.find(event => event.type === 'tool/call')
+          expect(call?.type === 'tool/call' && call.data.arguments).toBe(argumentsText)
+          expect(recordedSubmissionModel(events, reader.inheritedEventCount, owner))
+            .toEqual(malformed ? undefined : { provider: 'fixture', model: 'fixture' })
+          expect(recordedSubmissionBinding(events, reader.inheritedEventCount, owner)).toEqual(negative ? undefined : binding)
+        } finally { await reader.close() }
+        const attest = createGenerationWatchOwnerAttestor(ctx.sessionPersistence, ledger, async () => true)
+        expect(await attest(owner, root)).toBe(!malformed)
+      }
+    } finally {
+      await ctx.fiber.dispose()
+      await rm(root, { recursive: true, force: true })
+    }
+  },
+)
 
 it('attests the persisted original submission, project and ledger without opening an Agent', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-watch-attest-')))
