@@ -307,16 +307,19 @@ describe('renderEpisode', () => {
 
   it('rejects source evidence replaced after review but before the resume input capture', async () => {
     const prepared = await reviewedProject(), channel = renderChannel(prepared, { resume: true })
-    const file = prepared.artifacts[0]
-    if (file === undefined) throw Error('Missing review artifact')
+    const artifact = prepared.artifacts[0]
+    if (artifact === undefined) throw Error('Missing review artifact')
+    const file = await realpath(artifact)
+    const replacement = vi.fn(async () => { await writeFile(file, 'Evidence replaced after Host verification') })
     const read = renderResume.readRenderResumeFile
     const capture = vi.spyOn(renderResume, 'readRenderResumeFile').mockImplementation(async (...args) => {
-      if (args[0] === file) await writeFile(file, 'Evidence replaced after Host verification')
+      if (args[0] === file) await replacement()
       return read(...args)
     })
     try { await expect(render(prepared, channel, false, undefined, { resume: true, sourceQaVerifier: prepared.verifier }))
       .rejects.toThrow('源片复验后文件发生变化') }
     finally { capture.mockRestore() }
+    expect(replacement).toHaveBeenCalledOnce()
   })
   it('refuses partial-episode resume before probing or encoding any source', async () => {
     const prepared = await preparedProject(), channel = renderChannel(prepared)
