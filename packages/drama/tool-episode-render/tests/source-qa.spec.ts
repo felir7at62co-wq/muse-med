@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import { copyFile, mkdir, readFile, realpath, symlink, unlink, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { createSourceQaStagedAccess, verifySourceQa } from '../src/source-qa.ts'
 import { fileSha256 } from '../src/cache.ts'
 import { cleanup, tempProject, writePlaceholder } from './harness.ts'
@@ -26,6 +27,18 @@ async function fixture(clean = false) {
   return { input, selected, original, qa }
 }
 
+async function savedReview(f: Awaited<ReturnType<typeof fixture>>, qa: Record<string, unknown>) {
+  const path = join(f.input.project, 'review-declaration.json')
+  await writeFile(path, JSON.stringify({ ...f.input.review, source_qa: qa }))
+  return z.record(z.string(), z.unknown()).parse(JSON.parse(await readFile(path, 'utf8')))
+}
+
+async function evidenceBytes(f: Awaited<ReturnType<typeof fixture>>) {
+  const paths = [f.input.videoPath, f.input.originalPath, f.selected.declaration.ocr.path, f.selected.declaration.inspection.path,
+    ...f.original === undefined ? [] : [f.original.declaration.ocr.path, f.original.declaration.inspection.path]]
+  return await Promise.all([...new Set(paths)].map(async path => ({ path, bytes: await readFile(path) })))
+}
+
 it('accepts a fully inspected unchanged original without unnecessary before/after comparisons', async () => {
   const f = await fixture()
   const verifier = vi.fn(verifiedSourceQaFixture)
@@ -34,6 +47,43 @@ it('accepts a fully inspected unchanged original without unnecessary before/afte
   expect(qa.files).toHaveLength(3)
   expect(verifier).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
     mediaPath: await realpath(f.input.videoPath), mediaSha256: f.input.videoSha256, reviewId: 'review-selected' }))
+})
+
+it.each(['selected', 'original'] as const)('rejects saved source QA with an empty %s OCR declaration', async (source) => {
+  const f = await fixture(source === 'original'), before = await evidenceBytes(f)
+  const declaration = source === 'selected' ? f.qa.selected : f.qa.original
+  if (declaration === undefined) throw new Error('Expected the selected fixture source')
+  const review = await savedReview(f, { ...f.qa, [source]: { ...declaration, ocr: [] } })
+  const verifier = vi.fn(verifiedSourceQaFixture)
+  await expect(verifySourceQa({ ...f.input, review, verifier })).rejects.toThrow('复验缺少OCR文件。')
+  expect(verifier).toHaveBeenCalledTimes(source === 'selected' ? 0 : 1)
+  expect(await evidenceBytes(f)).toEqual(before)
+})
+
+it('rejects saved source QA without the original evidence for cleaned media', async () => {
+  const f = await fixture(true), before = await evidenceBytes(f)
+  const { original: _original, ...qa } = f.qa
+  const review = await savedReview(f, qa), verifier = vi.fn(verifiedSourceQaFixture)
+  await expect(verifySourceQa({ ...f.input, review, verifier })).rejects.toThrow('复验没有绑定本次实际源片。')
+  expect(verifier).toHaveBeenCalledOnce()
+  expect(await evidenceBytes(f)).toEqual(before)
+})
+
+it.each([
+  { label: 'no affected intervals', intervals: [], error: '清理片缺少实际处理时段。' },
+  { label: 'missing start', intervals: [{ end_seconds: 3 }], error: '处理时段超出当前源片。' },
+  { label: 'negative start', intervals: [{ start_seconds: -1, end_seconds: 3 }], error: '处理时段超出当前源片。' },
+  { label: 'nonpositive end', intervals: [{ start_seconds: 0, end_seconds: 0 }], error: '处理时段超出当前源片。' },
+  { label: 'empty interval', intervals: [{ start_seconds: 2, end_seconds: 2 }], error: '处理时段超出当前源片。' },
+  { label: 'reversed interval', intervals: [{ start_seconds: 3, end_seconds: 2 }], error: '处理时段超出当前源片。' },
+  { label: 'end beyond source', intervals: [{ start_seconds: 2, end_seconds: 6 }], error: '处理时段超出当前源片。' },
+])('rejects saved source QA with $label', async ({ intervals, error }) => {
+  const f = await fixture(true), before = await evidenceBytes(f)
+  const review = await savedReview(f, { ...f.qa, affected_intervals: intervals })
+  const verifier = vi.fn(verifiedSourceQaFixture)
+  await expect(verifySourceQa({ ...f.input, review, verifier })).rejects.toThrow(error)
+  expect(verifier).toHaveBeenCalledTimes(2)
+  expect(await evidenceBytes(f)).toEqual(before)
 })
 
 it('validates unmodified staged copies against original identities without treating the map as authorization', async () => {
