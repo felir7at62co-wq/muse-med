@@ -540,3 +540,44 @@ it('reports one standard filesystem refusal without analyzing and recovers from 
   expect(spawn).not.toHaveBeenCalled()
   expect(readFileSync(f.file)).toEqual(before)
 })
+
+it('hides non-Error filesystem failures and restores the unchanged recorded source', async () => {
+  const f = await fixture()
+  f.user('@three-shots.mp4')
+  const before = readFileSync(f.file), detail = 'private-provider-metadata-detail'
+  const stat = vi.spyOn(f.ctx.fs, 'stat').mockRejectedValueOnce(detail)
+  const spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  const unavailable = await f.ctx.sessionVideo.list(f.session.id, f.signal)
+  expect(stat).toHaveBeenCalledOnce()
+  expect(unavailable.sources).toMatchObject([{ status: 'missing', version: null, playbackUrl: null,
+    issue: 'Recorded video is unreadable' }])
+  expect(JSON.stringify(unavailable)).not.toContain(detail)
+  expect(spawn).not.toHaveBeenCalled()
+  expect(readFileSync(f.file)).toEqual(before)
+  stat.mockRestore()
+  const restored = await f.ctx.sessionVideo.list(f.session.id, f.signal)
+  expect(restored.sources[0]).toMatchObject({ id: unavailable.sources[0]?.id, status: 'local', path: f.file, issue: null })
+  expect(spawn).not.toHaveBeenCalled()
+  expect(readFileSync(f.file)).toEqual(before)
+})
+
+it('hides non-Error executable lookup failures without caching a failed analysis', async () => {
+  const f = await fixture()
+  f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]
+  if (!source?.version) throw Error('Expected a versioned recorded video')
+  const before = readFileSync(f.file), detail = 'private-provider-executable-detail'
+  const resolve = vi.spyOn(f.ctx.subprocess, 'resolveExecutable').mockRejectedValueOnce(detail)
+  const spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  const failed = await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version, f.signal)
+  expect(resolve).toHaveBeenCalledOnce()
+  expect(failed).toMatchObject({ state: 'failed', shots: [], durationSeconds: null, width: null, height: null,
+    issue: 'Video detection failed' })
+  expect(JSON.stringify(failed)).not.toContain(detail)
+  expect(spawn).not.toHaveBeenCalled()
+  expect(readFileSync(f.file)).toEqual(before)
+  resolve.mockRestore()
+  expect((await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version, f.signal)).state).toBe('ready')
+  expect(spawn).toHaveBeenCalledTimes(2)
+  expect(readFileSync(f.file)).toEqual(before)
+})
