@@ -33,7 +33,6 @@ export function MarketCreatorPage({
   const alive = useRef(true)
   useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
   const prepare = async (): Promise<void> => {
-    if (pending || !source || draft.uploadRequest) return
     setPending(true)
     try {
       const item = await actions.prepare({ ...metadata, requirements: metadata.requirements.filter(value => value.trim()),
@@ -43,13 +42,14 @@ export function MarketCreatorPage({
     finally { if (alive.current) setPending(false) }
   }
   const upload = async (): Promise<void> => {
-    const target = (identity?.publishers ?? []).find(row => row.id === publisher)
-    if (!selected || !target || !identity || pending) return
-    if (draft.uploadRequest && draft.uploadRequest.accountId !== identity.accountId) { reportOutcome('failed', true); return }
+    // oxlint-disable typescript/no-non-null-assertion -- Enabled uploads require this release and its current authorized publisher.
+    const item = selected!, account = identity!
+    const target = account.publishers.find(row => row.id === publisher)!
+    // oxlint-enable typescript/no-non-null-assertion
     const prior = draft.uploadRequest
-    const current = prior?.releaseId === selected.release.id && prior.publisherId === target.id ? prior : {
-      key: parseMarketUploadRequestId(randomUUID()), releaseId: selected.release.id,
-      publisherId: target.id, accountId: identity.accountId,
+    const current = prior?.releaseId === item.release.id && prior.publisherId === target.id ? prior : {
+      key: parseMarketUploadRequestId(randomUUID()), releaseId: item.release.id,
+      publisherId: target.id, accountId: account.accountId,
     }
     setDraft({ ...draft, uploadRequest: current }); setPending(true)
     try {
@@ -59,9 +59,10 @@ export function MarketCreatorPage({
     finally { if (alive.current) setPending(false) }
   }
   const exportSelected = async (): Promise<void> => {
-    if (!selected || pending) return
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- Export is rendered for the selected package and disabled while pending.
+    const item = selected!
     setPending(true)
-    try { downloadMarketFile(await actions.exportPackage(selected.release.id)); reportOutcome('done', false) }
+    try { downloadMarketFile(await actions.exportPackage(item.release.id)); reportOutcome('done', false) }
     catch (error) { reportOutcome(marketFailureOutcome(error), true) }
     finally { if (alive.current) setPending(false) }
   }

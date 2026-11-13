@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 /** Market journeys through the registered panel, retained store and operation feedback. */
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
-import { SlotTestRuntime } from '@deepseek-ai/dsh-client-test-runtime'
+import { SlotTestRuntime, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { parseMarketIdentity, parseMarketPublication } from '@deepseek-ai/dsh-muse-market/cloud-values'
 import type { MarketAccountId } from '@deepseek-ai/dsh-muse-market/cloud-values'
@@ -14,6 +14,7 @@ import { registerMuseMarket } from '../src/client/market-registration.tsx'
 import { createMarketOperations } from '../src/client/market-remote.ts'
 import { marketEn as copy } from '../src/client/market-locales.ts'
 import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
+import { MarketPublications } from '../src/client/MarketPublications.tsx'
 
 const publication = parseMarketPublication({ id: 'a'.repeat(32), publisherId: 'b'.repeat(32), publisher: 'Writing team',
   manifest: { formatVersion: 1, kind: 'skill', name: 'scene-review', title: 'Scene review', description: 'Review the original scene.',
@@ -25,7 +26,7 @@ const installation: MarketInstallation = { enabled: false, release: { id: brandS
   sha256: publication.sha256, bytes: publication.bytes, manifest: publication.manifest } }
 const identity = parseMarketIdentity({ accountId: 'd'.repeat(16), publishers: [{ id: publication.publisherId, title: publication.publisher }], admin: true })
 
-async function fixture() {
+function operations() {
   let local: MarketInstallation[] = []
   let defaults: Awaited<ReturnType<MarketActions['defaults']>> = { revision: 0, defaults: [] }
   const ops = {
@@ -51,6 +52,11 @@ async function fixture() {
     }),
     review: vi.fn<MarketActions['review']>().mockResolvedValue({ ...publication, status: 'pending', revision: 2 }),
   }
+  return ops
+}
+
+async function fixture() {
+  const ops = operations()
   const success = <Args extends unknown[], Result>(operation: (...args: Args) => Promise<Result>) => async (...args: Args) =>
     ({ ok: true as const, value: await operation(...args) })
   const remote = createMarketOperations({
@@ -81,6 +87,33 @@ async function fixture() {
 
 const click = (label: string) => { fireEvent.click(screen.getByRole('button', { name: label })) }
 const tab = (label: string) => { fireEvent.click(screen.getByRole('tab', { name: label })) }
+
+function publications(overrides: Partial<Parameters<typeof MarketPublications>[0]> = {}) {
+  const ops = operations(), current = { value: true }
+  const input = { accessRevision: 1, isCurrentAccess: () => current.value, items: [{ ...publication, status: 'draft' as const }],
+    identity, actions: ops, busy: false, onReplace: vi.fn(), onDetails: vi.fn(), onInstall: vi.fn(),
+    reportOutcome: vi.fn(), t: makeTranslate(copy), ...overrides }
+  const view = render(<MarketPublications {...input} />)
+  onTestFinished(() => { view.unmount() })
+  return { ops, current, input, view }
+}
+
+function OtherMarketPanel() { return <div data-market-other-panel /> }
+
+async function leaveMarket({ runtime, panel }: Pick<Awaited<ReturnType<typeof fixture>>, 'runtime' | 'panel'>) {
+  await runtime.mount({ inject: ['slots'], apply(ctx) {
+    ctx.slots.register({ name: 'main', key: 'other-market-test' }, OtherMarketPanel)
+  } })
+  panel.update({}, { entryKey: 'other-market-test' })
+  expect(panel.container.querySelector('[data-market-other-panel]')).toBeTruthy()
+}
+
+function fillCreator(form: HTMLElement) {
+  fireEvent.change(within(form).getByLabelText(copy.source), { target: { value: 'scene-review' } })
+  for (const field of ['name', 'title', 'description', 'version', 'license', 'category'] as const) {
+    fireEvent.change(within(form).getByLabelText(copy[`field.${field}`]), { target: { value: publication.manifest[field] } })
+  }
+}
 
 it('keeps installation disabled until a separate confirmed default change, then allows disabling and removal', async () => {
   const { ops } = await fixture()
@@ -140,10 +173,7 @@ it('prepares the selected local Skill and uploads a private draft without settin
   const { ops } = await fixture()
   tab(copy.publish)
   const form = await screen.findByRole('region', { name: copy.creator })
-  fireEvent.change(within(form).getByLabelText(copy.source), { target: { value: 'scene-review' } })
-  for (const field of ['name', 'title', 'description', 'version', 'license', 'category'] as const) {
-    fireEvent.change(within(form).getByLabelText(copy[`field.${field}`]), { target: { value: publication.manifest[field] } })
-  }
+  fillCreator(form)
   fireEvent.change(within(form).getByLabelText(copy['field.requirements']), { target: { value: 'Keep source.\n\nCheck dialogue.' } })
   fireEvent.change(within(form).getByLabelText(copy['field.examples']), { target: { value: 'Review one.\n' } })
   fireEvent.submit(within(form).getByRole('button', { name: copy.prepare }).closest('form')!)
@@ -342,4 +372,328 @@ it('installs a creator publication without implicitly activating it and cancels 
   await screen.findByText(copy.installedDone)
   expect(ops.installPublication).toHaveBeenCalledExactlyOnceWith(publication.id, publication.sha256)
   expect(ops.setDefault).not.toHaveBeenCalled()
+})
+
+it('admits publisher-owned review controls without admin authority and withholds them from other publishers', () => {
+  const { view, input } = publications({ identity: { ...identity, admin: false } })
+  expect(view.getByRole('button', { name: copy['review.submit'] })).toBeTruthy()
+  view.rerender(<MarketPublications {...input} identity={{ ...identity, admin: false, publishers: [] }} />)
+  expect(view.queryByRole('button', { name: copy['review.submit'] })).toBeNull()
+})
+
+it('refuses a review when access is revoked before the visible confirmation receives its click', () => {
+  const { ops, current, input } = publications()
+  click(copy['review.submit'])
+  current.value = false
+  click(copy.confirm)
+  expect(ops.review).not.toHaveBeenCalled()
+  expect(input.reportOutcome).not.toHaveBeenCalled()
+})
+
+it.each(['returned', 'rejected'] as const)('ignores a %s review after its access generation ends', async (result) => {
+  const { ops, current, input } = publications()
+  const pending = Promise.withResolvers<Awaited<ReturnType<MarketActions['review']>>>()
+  ops.review.mockReturnValueOnce(pending.promise)
+  click(copy['review.submit']); click(copy.confirm)
+  expect(screen.getByRole('button', { name: copy.confirm }).hasAttribute('disabled')).toBe(true)
+  click(copy.confirm)
+  expect(ops.review).toHaveBeenCalledOnce()
+  click(copy.close)
+  expect(screen.getByRole('dialog')).toBeTruthy()
+  current.value = false
+  await act(async () => {
+    if (result === 'returned') pending.resolve({ ...publication, status: 'pending' })
+    else pending.reject(Error('Review reply lost after sign-out'))
+  })
+  expect(input.onReplace).not.toHaveBeenCalled()
+  expect(input.reportOutcome).not.toHaveBeenCalled()
+  expect(ops.getPublication).not.toHaveBeenCalled()
+})
+
+it.each(['muse-market/access-changed', 'uncertain-review'])('handles the original %s refusal without repeating review', async (code) => {
+  const { ops, input } = publications()
+  ops.review.mockRejectedValueOnce({ code })
+  click(copy['review.submit']); click(copy.confirm)
+  if (code === 'muse-market/access-changed') {
+    await waitFor(() => { expect(screen.getByRole('button', { name: copy.confirm }).hasAttribute('disabled')).toBe(false) })
+    expect(ops.getPublication).not.toHaveBeenCalled()
+    expect(input.onReplace).not.toHaveBeenCalled()
+    expect(input.reportOutcome).not.toHaveBeenCalled()
+  } else {
+    await waitFor(() => { expect(input.reportOutcome).toHaveBeenCalledWith('reviewUnconfirmed', true) })
+    expect(ops.getPublication).toHaveBeenCalledExactlyOnceWith(publication.id)
+    expect(input.onReplace).toHaveBeenCalledWith(publication)
+  }
+  expect(ops.review).toHaveBeenCalledOnce()
+})
+
+it('ignores review readback and feedback after its original authority is withdrawn', async () => {
+  const { ops, current, input } = publications()
+  const pending = Promise.withResolvers<Awaited<ReturnType<MarketActions['getPublication']>>>()
+  ops.review.mockRejectedValueOnce({ details: { status: 409 } })
+  ops.getPublication.mockReturnValueOnce(pending.promise)
+  click(copy['review.submit']); click(copy.confirm)
+  await waitFor(() => { expect(ops.getPublication).toHaveBeenCalledOnce() })
+  current.value = false
+  await act(async () => { pending.resolve(publication) })
+  expect(input.onReplace).not.toHaveBeenCalled()
+  expect(input.reportOutcome).not.toHaveBeenCalled()
+})
+
+it('reports a preparation failure without selecting or uploading a local package', async () => {
+  const { ops } = await fixture()
+  ops.prepare.mockRejectedValueOnce({ details: { status: 409, code: 'invalid-manifest' } })
+  tab(copy.publish)
+  const form = await screen.findByRole('region', { name: copy.creator })
+  fillCreator(form)
+  fireEvent.submit(within(form).getByRole('button', { name: copy.prepare }).closest('form')!)
+  await screen.findByText(copy.invalidPackage)
+  expect(screen.getByLabelText(copy.chooseLocal)).toHaveProperty('value', '')
+  expect(ops.publishDraft).not.toHaveBeenCalled()
+})
+
+it('retains a prepared package when the creator form leaves before preparation completes', async () => {
+  const { ops } = await fixture()
+  const pending = Promise.withResolvers<MarketInstallation>()
+  ops.prepare.mockReturnValueOnce(pending.promise)
+  tab(copy.publish)
+  const form = await screen.findByRole('region', { name: copy.creator })
+  fillCreator(form)
+  fireEvent.submit(within(form).getByRole('button', { name: copy.prepare }).closest('form')!)
+  await waitFor(() => { expect(ops.prepare).toHaveBeenCalledOnce() })
+  tab(copy.installed)
+  await screen.findByText(copy.empty)
+  await act(async () => { pending.resolve(installation) })
+  await screen.findByRole('heading', { name: publication.manifest.title })
+  expect(ops.publishDraft).not.toHaveBeenCalled()
+})
+
+it('settles an upload after leaving its form without starting another publication read', async () => {
+  const { ops } = await fixture()
+  click(copy.install); await screen.findByRole('button', { name: copy.useVersion })
+  tab(copy.publish); await screen.findByRole('region', { name: copy.creator })
+  fireEvent.change(screen.getByLabelText(copy.chooseLocal), { target: { value: installation.release.id } })
+  fireEvent.change(screen.getByLabelText(copy.publisher), { target: { value: publication.publisherId } })
+  const pending = Promise.withResolvers<Awaited<ReturnType<MarketActions['publishDraft']>>>()
+  ops.publishDraft.mockReturnValueOnce(pending.promise)
+  click(copy.upload)
+  await waitFor(() => { expect(ops.publishDraft).toHaveBeenCalledOnce() })
+  tab(copy.installed); await screen.findByRole('button', { name: copy.remove })
+  const reads = ops.catalog.mock.calls.length
+  await act(async () => { pending.resolve({ ...publication, status: 'draft' }) })
+  await screen.findByText(copy.draftDone)
+  expect(ops.catalog).toHaveBeenCalledTimes(reads)
+})
+
+it('reports an export failure after leaving its creator form without restoring that form', async () => {
+  const { ops } = await fixture()
+  click(copy.install); await screen.findByRole('button', { name: copy.useVersion })
+  tab(copy.publish); await screen.findByRole('region', { name: copy.creator })
+  fireEvent.change(screen.getByLabelText(copy.chooseLocal), { target: { value: installation.release.id } })
+  const pending = Promise.withResolvers<Awaited<ReturnType<MarketActions['exportPackage']>>>()
+  ops.exportPackage.mockReturnValueOnce(pending.promise)
+  click(copy.export)
+  await waitFor(() => { expect(ops.exportPackage).toHaveBeenCalledOnce() })
+  tab(copy.installed); await screen.findByRole('button', { name: copy.remove })
+  await act(async () => { pending.reject({ details: { status: 409, code: 'invalid-archive' } }) })
+  await screen.findByText(copy.invalidPackage)
+  expect(screen.queryByRole('region', { name: copy.creator })).toBeNull()
+})
+
+it('closes discard confirmation safely when its upload has already completed', async () => {
+  const { ops } = await fixture()
+  click(copy.install); await screen.findByRole('button', { name: copy.useVersion })
+  tab(copy.publish); await screen.findByRole('region', { name: copy.creator })
+  fireEvent.change(screen.getByLabelText(copy.chooseLocal), { target: { value: installation.release.id } })
+  fireEvent.change(screen.getByLabelText(copy.publisher), { target: { value: publication.publisherId } })
+  const pending = Promise.withResolvers<Awaited<ReturnType<MarketActions['publishDraft']>>>()
+  ops.publishDraft.mockReturnValueOnce(pending.promise)
+  click(copy.upload); click(copy.discardUpload)
+  await act(async () => { pending.resolve({ ...publication, status: 'draft' }) })
+  await screen.findByText(copy.draftDone)
+  click(copy.confirm)
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(screen.queryByRole('button', { name: copy.retryUpload })).toBeNull()
+  expect(ops.publishDraft).toHaveBeenCalledOnce()
+})
+
+it('does not start cloud reads after leaving while a local inventory is pending', async () => {
+  const f = await fixture()
+  const pending = Promise.withResolvers<MarketInstallation[]>()
+  f.ops.installed.mockReturnValueOnce(pending.promise)
+  click(copy.refresh)
+  await waitFor(() => { expect(f.ops.installed).toHaveBeenCalledTimes(2) })
+  const reads = f.ops.catalog.mock.calls.length
+  await leaveMarket(f)
+  await act(async () => { pending.resolve([installation]) })
+  expect(f.ops.catalog).toHaveBeenCalledTimes(reads)
+  expect(f.panel.container.querySelector('[data-market-other-panel]')).toBeTruthy()
+})
+
+it('does not restore an obsolete failed inventory after a newer tab read succeeds', async () => {
+  const { ops } = await fixture()
+  const pending = Promise.withResolvers<MarketInstallation[]>()
+  ops.installed.mockReturnValueOnce(pending.promise)
+  click(copy.refresh)
+  await waitFor(() => { expect(ops.installed).toHaveBeenCalledTimes(2) })
+  tab(copy.installed); await screen.findByText(copy.empty)
+  await act(async () => { pending.reject(Error('Obsolete inventory failed')) })
+  expect(screen.queryByRole('alert')).toBeNull()
+  expect(screen.getByRole('tab', { name: copy.installed }).getAttribute('aria-selected')).toBe('true')
+})
+
+it('keeps stale source choices out of the next creator form while its new inventory is pending', async () => {
+  const { ops } = await fixture()
+  const old = Promise.withResolvers<Awaited<ReturnType<MarketActions['sources']>>>()
+  const fresh = Promise.withResolvers<Awaited<ReturnType<MarketActions['sources']>>>()
+  ops.sources.mockReturnValueOnce(old.promise)
+  click(copy.refresh)
+  await waitFor(() => { expect(ops.sources).toHaveBeenCalledTimes(2) })
+  tab(copy.installed); await screen.findByText(copy.empty)
+  await act(async () => { old.resolve({ complete: true, skills: [{ name: 'stale-source', description: 'Old inventory.' }] }) })
+  ops.sources.mockReturnValueOnce(fresh.promise)
+  tab(copy.publish)
+  const form = await screen.findByRole('region', { name: copy.creator })
+  expect(within(form).queryByRole('option', { name: 'stale-source' })).toBeNull()
+  expect(within(form).getByRole('option', { name: 'scene-review' })).toBeTruthy()
+  await act(async () => { fresh.resolve({ complete: true, skills: [{ name: 'scene-review', description: 'Current source.' }] }) })
+})
+
+it('keeps an unresolved default conflict available for dismissal and refuses dismissal during its write', async () => {
+  const { ops } = await fixture()
+  click(copy.install); await screen.findByRole('button', { name: copy.useVersion })
+  const pending = Promise.withResolvers<Awaited<ReturnType<MarketActions['setDefault']>>>()
+  ops.setDefault.mockReturnValueOnce(pending.promise)
+  ops.defaults.mockRejectedValueOnce(Error('Default read unavailable'))
+  click(copy.useVersion); click(copy.confirm); click(copy.close)
+  expect(screen.getByRole('dialog')).toBeTruthy()
+  await act(async () => { pending.reject({ details: { status: 409, code: 'default-conflict' } }) })
+  await screen.findByText(copy.defaultConflict)
+  expect(screen.getByRole('dialog')).toBeTruthy()
+  click(copy.close)
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(ops.setDefault).toHaveBeenCalledOnce()
+})
+
+it('does not reopen a default confirmation when conflict readback arrives after navigation', async () => {
+  const f = await fixture()
+  click(copy.install); await screen.findByRole('button', { name: copy.useVersion })
+  const pending = Promise.withResolvers<Awaited<ReturnType<MarketActions['defaults']>>>()
+  f.ops.setDefault.mockRejectedValueOnce({ details: { status: 409, code: 'default-conflict' } })
+  f.ops.defaults.mockReturnValueOnce(pending.promise)
+  click(copy.useVersion); click(copy.confirm)
+  await waitFor(() => { expect(f.ops.defaults).toHaveBeenCalledTimes(2) })
+  await leaveMarket(f)
+  await act(async () => { pending.resolve({ revision: 9, defaults: [] }) })
+  await screen.findByText(copy.defaultConflict)
+  expect(f.panel.container.querySelector('[data-market-other-panel]')).toBeTruthy()
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+it('confirms an update against the existing default while keeping the old local release', async () => {
+  const { ops } = await fixture()
+  const oldId = brandString<MarketReleaseId>('f'.repeat(64))
+  ops.installed.mockResolvedValue([{ ...installation, release: { ...installation.release, id: oldId, sha256: oldId } }])
+  ops.defaults.mockResolvedValue({ revision: 3, defaults: [{ skillName: 'scene-review', releaseId: oldId }] })
+  click(copy.refresh)
+  await screen.findByRole('button', { name: copy.installUpdate })
+  click(copy.installUpdate)
+  await screen.findByRole('button', { name: copy.useVersion })
+  click(copy.useVersion); click(copy.confirm)
+  await screen.findByText(copy.defaultDone)
+  expect(ops.setDefault).toHaveBeenCalledExactlyOnceWith({ skillName: 'scene-review', expected: oldId, target: installation.release.id })
+  expect(ops.removePackage).not.toHaveBeenCalled()
+})
+
+it('withdraws private publication details when their account generation changes', async () => {
+  const { ops, controller } = await fixture()
+  ops.catalog.mockResolvedValue([{ ...publication, status: 'draft' }])
+  tab(copy.publish); await screen.findByText(copy['publication.draft'])
+  click(copy.details); await screen.findByRole('dialog')
+  await act(async () => { controller.invalidateAccess() })
+  await waitFor(() => { expect(screen.queryByRole('dialog')).toBeNull() })
+  expect(ops.review).not.toHaveBeenCalled()
+})
+
+it('replaces only the reviewed publication while preserving a different draft', async () => {
+  const { ops } = await fixture()
+  const other = parseMarketPublication({ ...publication, id: 'e'.repeat(32), status: 'draft' }, { archiveBytes: 1024, recordBytes: 4096 })
+  ops.catalog.mockResolvedValue([{ ...publication, status: 'draft' }, other])
+  tab(copy.publish)
+  await waitFor(() => { expect(screen.getAllByText(copy['publication.draft'])).toHaveLength(2) })
+  const card = document.querySelector<HTMLElement>(`[data-market-publication="${publication.id}"]`)!
+  fireEvent.click(within(card).getByRole('button', { name: copy['review.submit'] })); click(copy.confirm)
+  await screen.findByText(copy['publication.pending'])
+  expect(screen.getAllByText(copy['publication.draft'])).toHaveLength(1)
+  expect(ops.review).toHaveBeenCalledExactlyOnceWith(publication.id, publication.revision, 'submit', '')
+})
+
+it.each(['discover', 'publish'] as const)('finishes a %s install after leaving without replacing the newly selected panel', async (surface) => {
+  const f = await fixture()
+  if (surface === 'publish') { tab(copy.publish); await screen.findByText(copy['publication.published']) }
+  const pending = Promise.withResolvers<Awaited<ReturnType<MarketActions['installPublication']>>>()
+  f.ops.installPublication.mockReturnValueOnce(pending.promise)
+  click(copy.install)
+  await waitFor(() => { expect(f.ops.installPublication).toHaveBeenCalledOnce() })
+  await leaveMarket(f)
+  await act(async () => { pending.resolve({ publication, installation }) })
+  await screen.findByText(copy.installedDone)
+  expect(f.panel.container.querySelector('[data-market-other-panel]')).toBeTruthy()
+  expect(f.ops.setDefault).not.toHaveBeenCalled()
+})
+
+it('finishes a default write after navigation without reopening its confirmation', async () => {
+  const f = await fixture()
+  click(copy.install); await screen.findByRole('button', { name: copy.useVersion })
+  const pending = Promise.withResolvers<Awaited<ReturnType<MarketActions['setDefault']>>>()
+  f.ops.setDefault.mockReturnValueOnce(pending.promise)
+  click(copy.useVersion); click(copy.confirm)
+  await waitFor(() => { expect(f.ops.setDefault).toHaveBeenCalledOnce() })
+  await leaveMarket(f)
+  await act(async () => { pending.resolve({ revision: 1, defaults: [{ skillName: 'scene-review', releaseId: installation.release.id }] }) })
+  await screen.findByText(copy.defaultDone)
+  expect(f.panel.container.querySelector('[data-market-other-panel]')).toBeTruthy()
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+it('settles a review after panel navigation without restoring its publication cards', async () => {
+  const f = await fixture()
+  f.ops.catalog.mockResolvedValue([{ ...publication, status: 'draft' }])
+  tab(copy.publish); await screen.findByText(copy['publication.draft'])
+  const pending = Promise.withResolvers<Awaited<ReturnType<MarketActions['review']>>>()
+  f.ops.review.mockReturnValueOnce(pending.promise)
+  click(copy['review.submit']); click(copy.confirm)
+  await waitFor(() => { expect(f.ops.review).toHaveBeenCalledOnce() })
+  await leaveMarket(f)
+  await act(async () => { pending.resolve({ ...publication, status: 'pending', revision: 2 }) })
+  await screen.findByText(copy.reviewDone)
+  expect(f.panel.container.querySelector('[data-market-other-panel]')).toBeTruthy()
+})
+
+it('finishes archive import and removal after leaving their installed views', async () => {
+  const first = await fixture()
+  tab(copy.installed); await screen.findByText(copy.empty)
+  const imported = Promise.withResolvers<MarketInstallation>()
+  first.ops.importPackage.mockReturnValueOnce(imported.promise)
+  const file = new File([new Uint8Array([0, 255, 1, 128])], 'scene.zip', { type: 'application/zip' })
+  Object.defineProperty(file, 'arrayBuffer', { value: async () => new Uint8Array([0, 255, 1, 128]).buffer })
+  fireEvent.change(screen.getByLabelText(copy.import), { target: { files: [file] } })
+  await waitFor(() => { expect(first.ops.importPackage).toHaveBeenCalledOnce() })
+  await leaveMarket(first)
+  await act(async () => { imported.resolve(installation) })
+  await screen.findByText(copy.installedDone)
+  expect(first.panel.container.querySelector('[data-market-other-panel]')).toBeTruthy()
+  await first.runtime.dispose()
+
+  const second = await fixture()
+  click(copy.install); await screen.findByRole('button', { name: copy.useVersion })
+  tab(copy.installed); await screen.findByRole('button', { name: copy.remove })
+  const removed = Promise.withResolvers<Awaited<ReturnType<MarketActions['removePackage']>>>()
+  second.ops.removePackage.mockReturnValueOnce(removed.promise)
+  click(copy.remove)
+  await waitFor(() => { expect(second.ops.removePackage).toHaveBeenCalledOnce() })
+  await leaveMarket(second)
+  await act(async () => { removed.resolve() })
+  await screen.findByText(copy.done)
+  expect(second.panel.container.querySelector('[data-market-other-panel]')).toBeTruthy()
 })

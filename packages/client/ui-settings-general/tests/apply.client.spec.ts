@@ -6,6 +6,9 @@
  * across Loader rebuilds of the declaring chain.
  */
 import { describe, expect, onTestFinished, vi } from 'vitest'
+import { act, render } from '@testing-library/react'
+import { createElement } from 'react'
+import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { ok, type RemoteMock } from '@deepseek-ai/dsh-remote-mock'
 import type { SettingsNamespaceView } from '@deepseek-ai/dsh-settings/types'
@@ -18,7 +21,9 @@ import type { DeveloperToolsRowInjected } from '../src/client/DeveloperToolsRow.
 import { HostReleasePrompt, type HostReleasePromptInjected } from '../src/client/HostReleasePrompt.tsx'
 import { CloseLabel, HeaderContent, TriggerContent } from '../src/client/chrome.tsx'
 import { GeneralSection } from '../src/client/GeneralSection.tsx'
+import type { SystemDnsInjected } from '../src/client/SystemDnsRow.tsx'
 import { SettingsDocumentAction } from '../src/client/SettingsDocumentAction.tsx'
+import { createSettingsShellStore } from '../src/client/shell-store.ts'
 import type { SettingsDocumentActionInjected } from '../src/client/SettingsDocumentAction.tsx'
 
 const SELF = '@deepseek-ai/dsh-client-ui-settings-general'
@@ -101,13 +106,54 @@ describe('ui-settings-general apply', () => {
 
   it('registers the system DNS control only for a Muse Desktop bridge', async ({ mock, start }) => {
     const status = vi.fn().mockResolvedValue({ saved: false, active: false })
-    vi.stubGlobal('dshDesktop', { protocolVersion: 1, productName: 'muse-med', systemDns: { status, set: vi.fn() } })
+    const set = vi.fn().mockResolvedValue({ saved: true, active: false })
+    vi.stubGlobal('dshDesktop', { protocolVersion: 1, productName: 'muse-med', systemDns: { status, set } })
     onTestFinished(() => { vi.unstubAllGlobals() })
     const { c } = await client(mock, start)
     expect(c.ctx.slots.entries('settings.general.item').filter(row => row.options.id === 'system-dns')).toHaveLength(1)
     expect(c.ctx.slots.entries('shell.overlay').filter(row => row.options.id === 'system-dns-toast')).toHaveLength(1)
     expect(status).toHaveBeenCalledExactlyOnceWith()
+    const row = c.ctx.slots.entries('settings.general.item').find(entry => entry.options.id === 'system-dns')!
+    const toast = c.ctx.slots.entries('shell.overlay').find(entry => entry.options.id === 'system-dns-toast')!
+    const rowValue: unknown = row.inject!()
+    const toastValue: unknown = toast.inject!()
+    const face = rowValue as SystemDnsInjected
+    expect((toastValue as SystemDnsInjected).hooks.systemDns).toBe(face.hooks.systemDns)
+    await vi.waitFor(() => { expect(face.hooks.systemDns.getSnapshot().loading).toBe(false) })
+    await face.setEnabled(true)
+    expect(set).toHaveBeenCalledExactlyOnceWith(true)
+    expect(face.hooks.systemDns.getSnapshot().notice).toBe('saved')
+    face.dismiss()
+    expect(face.hooks.systemDns.getSnapshot().notice).toBeNull()
+    await face.reload()
+    expect(status).toHaveBeenCalledTimes(2)
   }, COLD_BOOT_TIMEOUT_MS)
+
+  it('opens Settings through its registered command and closes only its foreground modal', async ({ mock, start }) => {
+    const { c } = await client(mock, start)
+    const register = vi.spyOn(c.ctx.shortcuts, 'register')
+    onTestFinished(() => { register.mockRestore() })
+    await c.reload(SELF)
+    const command = register.mock.calls.find(([entry]) => entry.id === 'settings.open')![0]
+    const entry = c.ctx.slots.entries('sidebar.settings')[0]!
+    const shell = (entry.store as ReturnType<typeof createSettingsShellStore>).create()
+    const opening = command.resolve({ modal: null, region: 'page', target: document.body })
+    expect(opening.status).toBe('handled')
+    if (opening.status !== 'handled') throw Error('Settings command did not resolve')
+    act(() => { opening.run() })
+    expect(shell.getSnapshot().open).toBe(true)
+    const close = vi.fn()
+    const modal = render(createElement(Modal, { open: true, title: 'Settings shortcut', closeLabel: 'Close', onClose: close }))
+    onTestFinished(() => { modal.unmount() })
+    const target = modal.getByRole('dialog')
+    expect(command.resolve({ modal: 'other', region: 'page', target })).toEqual({ status: 'blocked', reason: 'modal' })
+    expect(close).not.toHaveBeenCalled()
+    const closing = command.resolve({ modal: 'settings', region: 'page', target })
+    expect(closing.status).toBe('handled')
+    if (closing.status !== 'handled') throw Error('Settings close command did not resolve')
+    act(() => { closing.run() })
+    expect(close).toHaveBeenCalledOnce()
+  })
 
   it('fills the five seats of the shell it declares, with the locale-following General label', async ({ mock, start }) => {
     const { c } = await client(mock, start)
