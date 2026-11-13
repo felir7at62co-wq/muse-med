@@ -98,7 +98,8 @@ it.each([[undefined, true], ['advisory', true], [undefined, false]] as const)(
       const index = new ToolSearchIndex(documents,
         { k1: searchConfig.k1 ?? 1.2, b: searchConfig.b ?? 0.75 })
       for (const [query, tool] of [['生成可编辑草稿', 'jianying_draft'], ['导出剧本Word', 'screenplay_export_docx'],
-        ['精修核对原稿对照', 'manuscript_revision']] as const) {
+        ['精修核对原稿对照', 'manuscript_revision'], ['检查重复剧集', 'manuscript_revision'],
+        ['检查剧情衔接和前后矛盾', 'manuscript_revision']] as const) {
         expect(index.search(query, 1).map(result => result.name)).toEqual([tool])
       }
       const description = ctx.tools.schemas().find(tool => tool.name === 'screenplay_export_docx')?.description
