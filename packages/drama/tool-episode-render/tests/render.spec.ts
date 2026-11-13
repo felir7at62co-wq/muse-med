@@ -11,9 +11,12 @@ import { episodePaths, shotFileName } from '../src/paths.ts'
 import { renderEpisode, type RenderInput } from '../src/render.ts'
 import { writeSubtitleClock } from '../src/subtitle-clock.ts'
 import { verifySelectedSourceReviews } from '../src/approved-sources.ts'
+import * as approvedSources from '../src/approved-sources.ts'
 import { sourceQaFixture } from './source-qa-fixture.ts'
 import { createSourceQaStagedAccess, type SourceQaVerifier } from '../src/source-qa.ts'
 import type { RenderSettings } from '../src/types.ts'
+
+vi.mock('../src/approved-sources.ts', async original => ({ ...await original<typeof import('../src/approved-sources.ts')>() }))
 import {
   cleanup,
   decodeHandler,
@@ -461,6 +464,29 @@ describe('renderEpisode', () => {
     await writePlaceholder(prepared.paths.sources, JSON.stringify(prepared.manifest))
     await expect(captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, prepared.verifier))
       .rejects.toThrow('选源或审核已变化')
+  })
+
+  it('leaves ordinary rendering outside strict source capture without consulting Host evidence', async () => {
+    const prepared = await preparedProject(), verifier = vi.fn<SourceQaVerifier>()
+    await expect(captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, verifier)).resolves.toBeUndefined()
+    expect(verifier).not.toHaveBeenCalled()
+  })
+
+  it('refuses a changed local shot copy despite unchanged approved source records', async () => {
+    const prepared = await reviewedProject()
+    await writePlaceholder(join(prepared.paths.videoDir, shotFileName(1)), 'changed local shot copy')
+    await expect(captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, prepared.verifier))
+      .rejects.toThrow('镜头副本与已审看源片字节不符')
+  })
+
+  it('requires the review reader to supply actual Host verification callbacks before strict capture completes', async () => {
+    const prepared = await reviewedProject()
+    const reviews = await verifySelectedSourceReviews(prepared.paths, prepared.manifest.shots, true, true, prepared.verifier)
+    const read = vi.spyOn(approvedSources, 'verifySelectedSourceReviews').mockResolvedValue(reviews)
+    try {
+      await expect(captureEpisodeSourceReview(prepared.project, '02', prepared.timeline, settings, prepared.verifier))
+        .rejects.toThrow('Strict source review has no verified Session bindings')
+    } finally { read.mockRestore() }
   })
 
   it('binds all current source-review artifacts and independently reuses a strict candidate', async () => {
