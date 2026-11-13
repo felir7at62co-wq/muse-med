@@ -46,6 +46,8 @@ SVG 交付场景在连接警告失败时附带有界的 Host WebSocket 观察结
 
 插件管理器和 HMR 生命周期场景中的开关为 Host 的 profile 写入与 store 随后的 inventory 读取预留 `PLUGIN_TOGGLE_SETTLE_MS`（10 秒），这两步完成后才会重新发布 `aria-checked`；链路的实测值记录在该常量的 JSDoc 中。
 
+[安装取消场景](plugin-install-cancel.e2e.ts)分别检查 HTTP 响应丢失、关联的 Host 完成事件和已安装文件，并在释放脚手架前等待其路由任务结束。
+
 显式滚动使用 `support.ts` 的 `scrollIntoView`：旧元素脱离 DOM 时重新解析 locator，并在同一个浏览器任务中检查连接状态、执行原生滚动。各场景保留滚动后的可见性与几何断言。
 
 问答输入框的缩放断言等待 CSS 滚动时间线更新，使溢出、裁剪遮罩与展开按钮的可见性一致。
