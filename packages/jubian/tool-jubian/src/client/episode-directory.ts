@@ -41,7 +41,6 @@ export class EpisodeDirectory {
     displayedReadiness: null, displayedHistory: null, displayedStatus: null })
   private binding: { client: EpisodeClient; pin: (address: string, signal: AbortSignal) => void } | undefined
   private revision = 0
-  private selection = 0
   private operation: object | undefined
   private closed = false
   private readonly queries = new Map<EpisodeQueryKind, { address: string; controller: AbortController }>()
@@ -76,7 +75,7 @@ export class EpisodeDirectory {
    */
   retireSelection(episodeText = this.state.getSnapshot().episodeText): void {
     if (this.closed) return
-    this.selection++; this.operation = undefined; this.announced = undefined; this.releaseQueries()
+    this.operation = undefined; this.announced = undefined; this.releaseQueries()
     this.state.update((state) => { state.episodeText = episodeText; state.target = null; state.busy = false
       state.displayedReadiness = null; state.displayedHistory = null; state.displayedStatus = null })
   }
@@ -169,13 +168,12 @@ export class EpisodeDirectory {
     if (input === undefined || permission === undefined || !this.same(input, permission.input)
       || (resume ? !permission.status.canResume : this.ready === undefined || !this.same(input, this.ready)
         || permission.status.state !== 'not-admitted')) return
-    const binding = this.binding
-    if (binding === undefined) return
-    const operation = {}, selection = this.selection
+    const binding = this.binding as NonNullable<typeof this.binding>
+    const operation = {}
     this.operation = operation; this.permission = undefined; this.ready = undefined
     this.releaseQuery('status')
     this.state.update((state) => { state.target = { ...input }; state.busy = true; state.checked = false; state.statusAddress = '' })
-    const active = (): boolean => !this.closed && this.binding === binding && this.selection === selection && this.operation === operation
+    const active = (): boolean => !this.closed && this.binding === binding && this.operation === operation
     try {
       const result = await binding.client.admitEpisode({ ...input, ...(resume ? { resume: true as const } : {}) })
       if (!active()) return
