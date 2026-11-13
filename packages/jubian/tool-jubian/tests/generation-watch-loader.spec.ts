@@ -7,7 +7,7 @@ import { expect, it, onTestFinished, vi } from 'vitest'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { JubianLedger } from '@deepseek-ai/dsh-jubian'
-import Llm, { createUserMessage, LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
+import Llm, { createUserMessage, LlmError, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -271,12 +271,20 @@ it('wakes an idle owner after provider completion from the normal video submissi
 
 type AdapterScript = ConstructorParameters<typeof MockAdapter>[0]
 
-async function originalVideoFixture(script: AdapterScript) {
+async function originalVideoFixture(script: AdapterScript, reasoningEffort?: ReasoningEffortId, initialDispatch = false) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-generation-native-loader-')))
   let host: Context | undefined
   let finished = false
   const childHolder: { value?: Record<string, unknown> } = {}
   const calls: { method: string; path: string }[] = []
+  const dispatchOrder: { kind: 'fence' | 'put'; runId?: string; key?: string }[] = []
+  // oxlint-disable-next-line typescript/unbound-method -- The observation calls the real method with its Store receiver.
+  const markStarted = GenerationWatchStore.prototype.markDispatchStarted
+  const fence = initialDispatch ? vi.spyOn(GenerationWatchStore.prototype, 'markDispatchStarted').mockImplementation(function (this: GenerationWatchStore, id, key) {
+    const pending = markStarted.call(this, id, key)
+    void pending.then(() => { dispatchOrder.push({ kind: 'fence', runId: id, key }) }, () => {})
+    return pending
+  }) : undefined
   const bytes = Buffer.from('000000106674797069736f6d00000000', 'hex')
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const request = new URL(input instanceof Request ? input.url : input)
@@ -288,8 +296,15 @@ async function originalVideoFixture(script: AdapterScript) {
     if (request.hostname !== 'watch.invalid') throw new Error('Unexpected provider host')
     const path = request.pathname.replace(/^\/prod-api(?=\/)/u, '')
     calls.push({ method, path })
-    if (method === 'PUT') throw new Error('An original intent must never send another PUT')
     const answer = (data: unknown) => new Response(JSON.stringify({ code: 200, data }))
+    if (method === 'PUT') {
+      if (!initialDispatch || path !== '/aigc/storyboard') {
+        throw new Error('An original intent must never send another PUT')
+      }
+      dispatchOrder.push({ kind: 'put' })
+      childHolder.value = preparedChild
+      return answer(null)
+    }
     const taskStatus = finished ? 'succeeded' : 'submit'
     const task = { id: 42, scriptId: 2708, storyboardId: 1, taskType: 1, taskStatus }
     if (path === '/aigc/storyboard/1') return answer(board)
@@ -305,8 +320,15 @@ async function originalVideoFixture(script: AdapterScript) {
       resultList: finished ? [{ tosVideoUrl: video, firstResultId: 61 }] : [] }] })
     throw new Error(`Unexpected provider route: ${method} ${path}`)
   })
-  onTestFinished(async () => { await host?.fiber.dispose(); fetch.mockRestore(); await rm(root, { recursive: true, force: true }) })
+  onTestFinished(async () => {
+    try { await host?.fiber.dispose() } finally {
+      fence?.mockRestore(); fetch.mockRestore()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
   await mkdir(join(root, 'ledger'))
+  if (initialDispatch) await writeFile(join(root, 'ledger', 'authorization.json'), JSON.stringify({ version: 1,
+    projects: { '2708': { limit: '1000', unit: 'CNY', estimates: { storyboard_native_submit: '1' } } } }))
   await writeFile(join(root, 'project_config.json'), JSON.stringify({ jubian_script_id: 2708 }))
   host = await watchHost(root)
   const prepared = await executeToolFixture(host, { callId: ToolCallId('prepare-original'), name: 'jubian_storyboard',
@@ -316,15 +338,20 @@ async function originalVideoFixture(script: AdapterScript) {
   if (text?.type !== 'text') throw new Error('Expected native preview')
   const { preview_path, idempotencyKey } = JSON.parse(text.text) as { preview_path: string; idempotencyKey: string }
   const { payload } = JSON.parse(await readFile(preview_path, 'utf8')) as { payload: Record<string, unknown> }
-  childHolder.value = { id: 51, aigcVideoTaskId: 42, storyboardId: 1, resolution: '720p',
+  const preparedChild: Record<string, unknown> = { id: 51, aigcVideoTaskId: 42, storyboardId: 1, resolution: '720p',
     modelConfig: payload.modelConfig, imageMaterials: payload.storyboardMaterialList }
+  if (!initialDispatch) childHolder.value = preparedChild
   const ledger = new JubianLedger({ root: join(root, 'ledger') })
-  await ledger.begin({ idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit', requestSha256: bodyHash(payload) })
-  await ledger.settle(idempotencyKey, { outcome: 'accepted', httpStatus: 200, applicationCode: 200, responseSha256: null })
+  if (!initialDispatch) {
+    await ledger.begin({ idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit', requestSha256: bodyHash(payload) })
+    await ledger.settle(idempotencyKey, { outcome: 'accepted', httpStatus: 200, applicationCode: 200, responseSha256: null })
+  }
   const adapter = new MockAdapter([toolCallResponse('original-submit', 'jubian_storyboard',
-    { method: 'submit_video', preview_path, idempotency_key: idempotencyKey }), textResponse('Provider is generating the pack.'), ...script])
+    { method: 'submit_video', preview_path, idempotency_key: idempotencyKey }), textResponse('Provider is generating the pack.'), ...script],
+  reasoningEffort === undefined ? undefined : { efforts: [{ id: reasoningEffort, name: 'High' }] })
   host.llm.registerAdapter(['mock'], adapter)
-  const agent = await host.agentLoop.create(SessionId('original-loader-owner'), selection, { cwd: root })
+  const agent = await host.agentLoop.create(SessionId('original-loader-owner'), { ...selection,
+    ...(reasoningEffort === undefined ? {} : { reasoningEffort }) }, { cwd: root })
   await (await host.workspaceRegistry.create(root)).attachSession(agent.id)
   agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Continue EP43.' }], source: { kind: 'user' } }))
   await agent.whenIdle()
@@ -333,12 +360,65 @@ async function originalVideoFixture(script: AdapterScript) {
   if (run?.binding === undefined) throw new Error('The actual submission did not record its native binding: '+JSON.stringify(agent.session.snapshotEvents().filter(event => event.type === 'tool/result' || event.type === 'turn/end')))
   const workspace = host.workspaceRegistry.get(run.binding.workspaceId)
   expect(workspace?.sessionIds).toContain(agent.id)
-  return { root, host, agent, adapter, store, run, binding: run.binding, bytes, calls,
+  return { root, host, agent, adapter, store, run, binding: run.binding, bytes, calls, dispatchOrder,
+    originalRequest: { method: 'submit_video', preview_path, idempotency_key: idempotencyKey },
     complete: () => { finished = true },
     reopen: async (durableInboxClaims = true) => {
       await host?.fiber.dispose(); host = await watchHost(root, true, durableInboxClaims); return host
     } }
 }
+
+it('retains the explicitly selected supported reasoning effort in submission evidence and the restored continuation', async () => {
+  const high = ReasoningEffortId('high'), h = await originalVideoFixture([], high)
+  const submission = h.agent.session.snapshotEvents().find(event => event.type === 'tool/result'
+    && event.data.message.toolCallId === ToolCallId('original-submit'))
+  if (submission?.type !== 'tool/result') throw new Error('Missing original submission result')
+  expect(submission.data.meta).toMatchObject({ [TOOL_BODY_META_KEY]: {
+    generationWatchId: h.run.id, binding: { model: { ...selection, reasoningEffort: high } },
+  } })
+  expect(h.run.binding?.model).toEqual({ ...selection, reasoningEffort: high })
+  expect(h.adapter.requests.map(request => request.reasoningEffort)).toEqual([high, high])
+  const restored = await h.reopen()
+  const adapter = new MockAdapter([textResponse('Continue with the original selected reasoning effort.')],
+    { efforts: [{ id: high, name: 'High' }] })
+  restored.llm.registerAdapter(['mock'], adapter)
+  h.complete()
+  await vi.waitFor(async () => {
+    expect(adapter.requests).toHaveLength(1)
+    expect((await h.store.load(h.run.id))?.notice?.deliveredAt).toEqual(expect.any(Number))
+  })
+  const resolved = await restored.sessionController.resolveAgent(h.agent.id)
+  if ('error' in resolved) throw resolved.error
+  await resolved.agent.whenIdle()
+  expect(resolved.agent.model.current()).toEqual({ ...selection, reasoningEffort: high })
+  expect(adapter.requests).toHaveLength(1)
+  expect(adapter.requests[0]).toMatchObject({ ...selection, reasoningEffort: high, sessionId: h.agent.id })
+  expect((await h.store.load(h.run.id))?.binding).toEqual(h.binding)
+  expect(h.calls.filter(call => call.method === 'PUT')).toEqual([])
+})
+
+it('persists the real dispatch fence before the first offline provider submission and replays its original key without sending again', async () => {
+  const h = await originalVideoFixture([], undefined, true)
+  const submitted = h.agent.session.snapshotEvents().find(event => event.type === 'tool/result'
+    && event.data.message.toolCallId === ToolCallId('original-submit'))
+  if (submitted?.type !== 'tool/result') throw new Error('Missing first submission result')
+  expect(submitted.data.message.isError, JSON.stringify(submitted.data.message.content)).not.toBe(true)
+  expect(h.dispatchOrder).toEqual([{ kind: 'fence', runId: h.run.id, key: h.originalRequest.idempotency_key }, { kind: 'put' }])
+  expect(h.calls.filter(call => call.method === 'PUT')).toEqual([{ method: 'PUT', path: '/aigc/storyboard' }])
+  expect(await h.store.mayObserve(h.run.id)).toBe(true)
+  expect(await h.store.hasNoSend(h.run.id)).toBe(false)
+  expect(h.run.packs).toMatchObject([{ key: h.originalRequest.idempotency_key, taskId: 42 }])
+  const replay = await executeToolFixture(h.host, { callId: ToolCallId('replay-original-submit'), name: 'jubian_storyboard',
+    arguments: h.originalRequest, signal: new AbortController().signal, agent: h.agent })
+  expect(replay.isError, JSON.stringify(replay.content)).toBe(false)
+  expect(replay.value).toMatchObject({ generation_watch_id: h.run.id, replayed: true, task_id: '42' })
+  expect(h.dispatchOrder).toEqual([{ kind: 'fence', runId: h.run.id, key: h.originalRequest.idempotency_key }, { kind: 'put' }])
+  expect(h.calls.filter(call => call.method === 'PUT')).toEqual([{ method: 'PUT', path: '/aigc/storyboard' }])
+  const retained = await h.store.load(h.run.id)
+  expect(retained?.binding).toEqual(h.binding)
+  expect(retained?.packs).toMatchObject([{ key: h.originalRequest.idempotency_key, taskId: 42 }])
+  expect(await h.store.listAll()).toHaveLength(1)
+})
 
 it('keeps the original notice pending without durable claims and resumes it once after the deployment enables them', async () => {
   const h = await originalVideoFixture([textResponse('Must not run in the original Host.')])
