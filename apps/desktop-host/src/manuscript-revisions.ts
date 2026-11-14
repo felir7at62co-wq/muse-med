@@ -19,6 +19,7 @@ import { compareManuscriptLengths, measureManuscriptLength, type ManuscriptLengt
 import { isManuscriptGuidancePath, manuscriptGuidanceCandidates, manuscriptReadGuidanceCandidates } from './manuscript-advisories.ts'
 import { ManuscriptVideoEvidence, manuscriptDeclaredOutputs } from './manuscript-video-evidence.ts'
 import { installManuscriptVideoReads } from './manuscript-video-reads.ts'
+import { installManuscriptVideoReceipts } from './manuscript-video-receipts.ts'
 import { materialDocumentsSchema, readManuscriptMaterials } from './manuscript-materials.ts'
 import { videoSourceInputsSchema, videoSourceReviewUnchanged } from './manuscript-video-source-review.ts'
 import { CONTINUITY_REVIEW_PRESET, installManuscriptContinuityPreset, ManuscriptContinuity } from './manuscript-continuity.ts'
@@ -86,7 +87,11 @@ export interface Config {
   videoEvidenceMaxScenes: number
   /** Shared maximum actual images in one automatic refresh or explicit source comparison. */
   videoEvidenceMaxFrames: number
-  /** Maximum complete video material bytes returned in one refresh or comparison. */
+  /**
+   * Maximum complete draft-material bytes returned across all drafts in one automatic refresh, or in one comparison;
+   * a later draft that would exceed the remaining bytes waits for a later step, and a single draft over the limit
+   * reports MANUSCRIPT_VIDEO_RESULT_SIZE.
+   */
   videoEvidenceMaxBytes: number
   /** Maximum saved ASR bytes parsed while reading a video source. */
   videoEvidenceMaxTranscriptBytes: number
@@ -412,6 +417,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   ctx.on('session/event', (session, event) => { videoEvidence.observeReceipt(session, event) })
   ctx.inject(['fs', 'attachments', 'sandboxPolicy', 'sessionProjections'], async (scope) => {
     await installManuscriptVideoReads(scope, (message, cwd) => manuscriptDeclaredOutputs([message], cwd).length > 0, config)
+    await installManuscriptVideoReceipts(scope)
     scope.effect(() => {
       videoSourceContext = scope
       return () => { if (videoSourceContext === scope) videoSourceContext = undefined }

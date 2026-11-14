@@ -14,6 +14,7 @@ import { MANUSCRIPT_PREAMBLE_EPISODE, manuscriptScenes, manuscriptTextHash, type
 import { manuscriptEndingCue, manuscriptPresentationEvidence } from './manuscript-presentation.ts'
 import { manuscriptDeliveryIntent } from './manuscript-task-intent.ts'
 import { manuscriptReadText, manuscriptTextReadSnapshots, manuscriptVideoReadCandidates, manuscriptVideoReviewReader } from './manuscript-video-reads.ts'
+import { loggedManuscriptVideoReceipts, manuscriptVideoReceiptOf, type ManuscriptVideoReceipt } from './manuscript-video-receipts.ts'
 import { MANUSCRIPT_VIDEO_PRESENTATION, manuscriptPacketEventIds, manuscriptVideoPacketContent,
   planManuscriptSourceTail, planManuscriptVideoPackets, type ManuscriptPacketPlan, type PacketContext } from './manuscript-video-packets.ts'
 
@@ -30,15 +31,7 @@ interface MaterialCache {
   messages: Map<string, MessageMaterialCache>
   calls: Map<string, { block: ToolCallBlock; args: CallArguments | undefined }>
 }
-const receiptSchema = z.object({ path: z.string(), sha256: z.string(), evidence_key: z.string(),
-  presentation_version: z.string().optional(),
-  complete_lf_text_sha256: z.string().optional(),
-  source_material_sha256: z.string(),
-  source_identity_sha256: z.string().optional(),
-  read_source_identity_sha256: z.string().optional(),
-  returned_frames: z.array(z.object({ review_id: z.string(), frame_id: z.string() })),
-  scene_versions: z.array(z.object({ id: z.string(), sha256: z.string() })) })
-type Receipt = z.infer<typeof receiptSchema> & { offloaded_frames?: string[] }
+type Receipt = ManuscriptVideoReceipt & { offloaded_frames?: string[] }
 interface SavedMutation {
   sha256: string
   baselineText: string | null
@@ -98,17 +91,14 @@ function registeredPaths(messages: readonly Message[], cwd: string, cache: Mater
 function receipts(messages: readonly Message[], cache: MaterialCache): Receipt[] {
   return messages.flatMap(message => message.role !== 'user' || message.source.kind !== 'muse-manuscript' ? []
     : cachedMessage(message, cache).receipts ??= message.content.flatMap((block) => {
-      if (block.type !== 'text') return []
-      const result = z.object({ manuscript_video_evidence: z.object({ receipt: receiptSchema }) })
-        .safeParse(parsedJson(block.text))
-      if (!result.success) return []
+      const receipt = block.type === 'text' ? manuscriptVideoReceiptOf(block.text) : undefined
+      if (receipt === undefined) return []
       const offloaded = new Set<string>()
       let label: string | undefined
       for (const part of message.content) {
         if (part.type === 'text') label = /^VIDEO_FRAME (\S+) /u.exec(part.text)?.[1]
         if (part.type === 'image' && part.offloaded && label) offloaded.add(label)
       }
-      const receipt = result.data.manuscript_video_evidence.receipt
       return [{ ...receipt, ...offloaded.size ? { offloaded_frames: [...offloaded] } : {} }]
     }))
 }
@@ -473,10 +463,9 @@ export class ManuscriptVideoEvidence {
     const pending = this.mutations.get(session)
     if (pending === undefined || pending.size === 0) return
     for (const block of event.data.content) {
-      if (block.type !== 'text' || !block.text.startsWith('{"manuscript_video_evidence":')) continue
-      const parsed = z.object({ manuscript_video_evidence: z.object({ receipt: receiptSchema }) }).safeParse(parsedJson(block.text))
-      if (!parsed.success) continue
-      const receipt = parsed.data.manuscript_video_evidence.receipt, mutation = pending.get(receipt.path)
+      const receipt = block.type === 'text' ? manuscriptVideoReceiptOf(block.text) : undefined
+      if (receipt === undefined) continue
+      const mutation = pending.get(receipt.path)
       if (mutation !== undefined && mutation.sha256 === receipt.complete_lf_text_sha256) mutation.returned = true
     }
   }
@@ -527,7 +516,8 @@ export class ManuscriptVideoEvidence {
   }
 
   /**
-   * Return local current-draft/source materials once per exact saved draft and source-material identity.
+   * Return local current-draft/source materials once per exact saved draft and source-material identity in the Session log,
+   * including material later replaced by compaction.
    * Without an output declaration, only paths saved or registered since the latest real human request
    * that is not an explicit continuation are read.
    * @param ctx - Current video provider and filesystem scope.
@@ -536,6 +526,8 @@ export class ManuscriptVideoEvidence {
    * @param pendingMessages - Current admitted inputs, which enter the log with this request.
    * @returns Logged-message-ready blocks, only for saved current-task scenes with a single matched video source timeline
    *   or a differing complete same-episode read; no input is rewritten, approved or required for delivery.
+   *   Draft materials after the first returned draft stay within the remaining `videoEvidenceMaxBytes`; a draft that does
+   *   not fit waits for a later step without a receipt.
    */
   async refresh(ctx: Context, agent: Agent, signal: AbortSignal, pendingMessages: readonly Message[] = []): Promise<ContentBlock[]> {
     const cwd = agent.session.header.cwd
@@ -552,7 +544,8 @@ export class ManuscriptVideoEvidence {
     for (const id of cache.messages.keys()) if (!retained.has(id)) cache.messages.delete(id)
     for (const message of messages) for (const block of message.content) if (block.type === 'tool-call') retainedCalls.add(block.id)
     for (const id of cache.calls.keys()) if (!retainedCalls.has(id)) cache.calls.delete(id)
-    const prior = receipts(messages, cache)
+    // Logged receipts include material whose notice compaction later replaced.
+    const prior: Receipt[] = [...loggedManuscriptVideoReceipts(ctx, agent.session), ...receipts(pendingMessages, cache)]
     const outputBoundary = messages.findLastIndex(message => message.role === 'user' && message.source.kind === 'user'
       && declaredOutputs(message, cwd, cache).length > 0)
     // Without an output declaration, the latest human request that is not an explicit continuation starts the task.
@@ -564,7 +557,7 @@ export class ManuscriptVideoEvidence {
     const registered = registeredPaths(taskStart < 0 ? messages : messages.slice(taskStart), cwd, cache)
     if (!automaticSources.length && !manuscriptTextReadSnapshots(ctx, agent.session)?.reads.length) return []
     const output: ContentBlock[] = [], declarations = new Map<string, { literal: string; basis: string; candidates: string[] }>()
-    const offloaded = [...new Set(prior.flatMap(receipt => receipt.offloaded_frames ?? []))]
+    const offloaded = [...new Set(receipts(messages, cache).flatMap(receipt => receipt.offloaded_frames ?? []))]
     if (offloaded.length) {
       const text = JSON.stringify({ manuscript_video_image_delivery: { offloaded_frames: offloaded,
         status: 'returned_blocks_offloaded_not_confirmed_admitted', automatic_retry: 'not_required',
@@ -598,7 +591,8 @@ export class ManuscriptVideoEvidence {
     if (paths.length > this.config.maxDocuments) throw Error('MANUSCRIPT_VIDEO_DOCUMENT_LIMIT: 已保存文稿路径超出配置，未扫描其他文件。')
     paths.sort((a, b) => (prior.findLast(entry => entry.path === a)?.returned_frames.length ?? 0)
       - (prior.findLast(entry => entry.path === b)?.returned_frames.length ?? 0))
-    let remainingFrames = this.config.videoEvidenceMaxFrames
+    let remainingFrames = this.config.videoEvidenceMaxFrames, remainingBytes = this.config.videoEvidenceMaxBytes, returnedDocuments = 0
+    let deferred = false
     const returnedEvents = new Map<string, Set<string>>()
     for (const path of paths) {
       let document
@@ -851,11 +845,16 @@ export class ManuscriptVideoEvidence {
           indexRows: includeIndexes ? packetSource.timeline.windows.reduce((total, window) => total + window.frames.length, 0) : 0 }))
       const lead: ContentBlock[] = [...cue ? [{ type: 'text' as const, text: cue }] : [], { type: 'text', text }]
       let content: ContentBlock[] = [...lead, ...sourceContent(true)]
-      if (Buffer.byteLength(JSON.stringify(content)) > this.config.videoEvidenceMaxBytes) {
+      let size = Buffer.byteLength(JSON.stringify(content))
+      if (size > remainingBytes) {
+        // A later draft that does not fit gets no receipt, so a later refresh can return it; the deferral is stated.
+        if (returnedDocuments > 0) {
+          deferred = true
+          break
+        }
         content = [...lead, ...sourceContent(false)]
-      }
-      if (Buffer.byteLength(JSON.stringify(content)) > this.config.videoEvidenceMaxBytes) {
-        throw Error('MANUSCRIPT_VIDEO_RESULT_SIZE: 局部材料超出配置，未截断原句或声明核对完成。')
+        size = Buffer.byteLength(JSON.stringify(content))
+        if (size > remainingBytes) throw Error('MANUSCRIPT_VIDEO_RESULT_SIZE: 局部材料超出配置，未截断原句或声明核对完成。')
       }
       const current = await readManuscript(path, cwd, this.config, signal)
       if (current.sha256 !== document.sha256) throw Error('MANUSCRIPT_VIDEO_DRAFT_CHANGED: 文稿在局部证据读取期间变化，请以新版本为准。')
@@ -868,8 +867,11 @@ export class ManuscriptVideoEvidence {
         for (const eventId of manuscriptPacketEventIds(source.timeline, source.plans, new Set(source.images.keys()))) ids.add(eventId)
         returnedEvents.set(id, ids)
       }
+      remainingBytes -= size
+      returnedDocuments += 1
       output.push(...content)
     }
+    if (deferred) output.push({ type: 'text', text: '另有已保存稿件因本次材料字节上限未附参考材料，可在后续步骤附上；不用等待或确认，继续当前任务。' })
     return output
   }
 }

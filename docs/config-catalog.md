@@ -4774,7 +4774,7 @@ export interface Config {
 ## `@deepseek-ai/dsh-tool-audio-transcribe`
 
 - `inject`: `tools` · `museAccount`
-- `source`: [`packages/drama/tool-audio-transcribe/src/index.ts:16`](../packages/drama/tool-audio-transcribe/src/index.ts)
+- `source`: [`packages/drama/tool-audio-transcribe/src/index.ts:17`](../packages/drama/tool-audio-transcribe/src/index.ts)
 
 ```ts config-catalog
 /** Deployment media executables and bounded local staging. */
