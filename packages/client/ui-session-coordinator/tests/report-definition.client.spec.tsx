@@ -8,7 +8,7 @@ import { createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import { SessionSeq } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
-import type { SessionLiveEventEntry } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionListState, SessionLiveEventEntry } from '@deepseek-ai/dsh-api-session-controller/client'
 import { ConversationNodeAssembler } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ChatNode, ChatSnapshot } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { chatViewDefinition } from '@deepseek-ai/dsh-client-ui-chat/src/client/conversation-nodes/chat-snapshot-builder.ts'
@@ -63,6 +63,7 @@ describe('visible report conversation nodes', () => {
     expect(node.data.block.meta).toEqual({ museCoordinationReport: receipt })
     const props: Parameters<typeof ReportCardNode>[0] = { node, sessionId: SessionId('main'),
       useResource: () => ({ status: 'none', value: undefined, failure: undefined }),
+      useSessions: <T,>(select: (state: SessionListState) => T): T => select({ ids: [], byId: {}, phase: 'ready', projectionsBySession: {} }),
       t: makeTranslate(zh), openExecution: vi.fn(), openDelivery: vi.fn() }
     const view = render(<ReportCardNode {...props} />)
     expect(view.container.querySelector('[data-muse-coordination-report]')).toBeTruthy()

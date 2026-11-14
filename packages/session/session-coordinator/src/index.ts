@@ -22,7 +22,7 @@ import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { coordinationDomain, latest, reportTask, reservesWorker, revise, routingTask } from './ledger.ts'
-import type { Assignment, CoordinationTask, CoordinationTaskId, CoordinationReport, DispatchRequest, ReconcileRequest, RoutingTaskList, WorkerReport } from './types.ts'
+import type { Assignment, AssignmentStatus, CoordinationTask, CoordinationTaskId, CoordinationReport, DispatchRequest, ReconcileRequest, RoutingTaskList, WorkerReport } from './types.ts'
 import { ToolArgsError, ToolContextUnavailableError } from '@deepseek-ai/dsh-tools'
 import type { ToolExecution, ToolGuardDenial } from '@deepseek-ai/dsh-tools'
 
@@ -33,6 +33,8 @@ const reconciliationInputSchema = zod.object({
 })
 type ReconciliationInput = zod.infer<typeof reconciliationInputSchema>
 const reconciliationReads = new Set(['read', 'read_image', 'glob', 'grep', 'present', 'coordinator_report'])
+/** Latest statuses that count toward `maxWorkers`. */
+const slotStatuses: ReadonlySet<AssignmentStatus> = new Set(['reconciling', 'accepted', 'running', 'finishing', 'stopping'])
 
 /**
  * Find human-authored worker input consumed after an assignment's own input.
@@ -73,6 +75,13 @@ export interface Config {
   readonly noteChars?: number
   /** Maximum characters in a worker report summary. Defaults to 2000. */
   readonly summaryChars?: number
+  /**
+   * Maximum coordinator assignments executing at once (reconciling, accepted, running, finishing or stopping).
+   * While the limit is reached, a dispatch that creates a new worker waits as `dispatching` and starts in
+   * creation order when an assignment leaves those states. Dispatches to existing Sessions and reconciliations
+   * start at once and count toward the limit. Defaults to 3.
+   */
+  readonly maxWorkers?: number
 }
 
 /** Task router whose durable writes precede Session creation and message delivery. */
@@ -84,6 +93,7 @@ export class SessionCoordinator extends TypertRemoteService {
     mainPreset: z.string().default('main-session'), workerPreset: z.string().default('short-drama'),
     searchLimit: z.natural().min(1).default(30), readChars: z.natural().min(1).default(24000),
     noteChars: z.natural().min(1).default(120), summaryChars: z.natural().min(1).default(2000),
+    maxWorkers: z.natural().min(1).default(3),
   })
 
   private readonly config: Required<Config>
@@ -319,9 +329,11 @@ export class SessionCoordinator extends TypertRemoteService {
   /**
    * Record and deliver one new goal or an explicit revision, reusing an identical key.
    * A new key whose `instructions` or `reason` exceeds `noteChars` fails before any intent is recorded.
+   * A fresh worker is created only when `maxWorkers` permits and no older fresh-worker dispatch is waiting;
+   * otherwise the recorded intent waits as `dispatching` and starts automatically.
    * @param main - Exact routing Agent.
    * @param request - Agent-selected existing or fresh ordinary worker and bounded routing notes.
-   * @returns authoritative task; acceptance is not execution completion.
+   * @returns authoritative task; `dispatching` for a waiting fresh worker; acceptance is not execution completion.
    */
   async dispatch(main: Agent, request: DispatchRequest): Promise<CoordinationTask> {
     await this.requireMain(main)
@@ -339,7 +351,8 @@ export class SessionCoordinator extends TypertRemoteService {
         const attempt = existing.attempts.find(item => item.key === request.key)
         if (attempt === undefined) throw new Error('Dispatch key has no matching assignment')
         if (attempt.requestHash !== requestHash) throw new Error('Dispatch key already names different work')
-        return latest(existing).status === 'dispatching' ? this.deliver(existing) : existing
+        if (latest(existing).status !== 'dispatching' || (latest(existing).createSession && !this.startsNow(existing))) return existing
+        return this.deliver(existing)
       }
       this.requireNotes(request)
       const source = (await this.ctx.sessionQuery.readSession(main.id)).events.findLast(event => event.type === 'user/message' && event.data.source.kind === 'user')
@@ -374,6 +387,10 @@ export class SessionCoordinator extends TypertRemoteService {
       task = revise(task, { forwardedIds: originals.map((_input, index) => index === originals.length - 1
         ? messageId : createUserMessage({ content: [], source: { kind: 'user' } }).id) })
       await this.save(task)
+      if (createSession && !this.startsNow(task)) {
+        this.background(() => this.startNext())
+        return task
+      }
       try { return await this.deliver(task) }
       catch (error) {
         await this.save(revise(task, { status: 'interrupted', issue: String(error) }))
@@ -859,8 +876,9 @@ export class SessionCoordinator extends TypertRemoteService {
       await video.select(worker, attempt.videoKey, video.current(worker)?.revision ?? 0)
     }
     if (attempt.createSession) {
-      const main = this.ctx.agents.get(task.owner)
-      const model = main?.model.current()
+      const main = await this.ctx.sessionController.resolveAgent(task.owner)
+      if ('error' in main) throw main.error
+      const model = main.agent.model.current()
       if (model !== undefined) worker.model.select(model)
     }
     const message: UserMessage = {
@@ -1032,16 +1050,51 @@ export class SessionCoordinator extends TypertRemoteService {
       ...(attempt.changedInputSeq === undefined ? {} : { notifiedInputSeq: attempt.changedInputSeq }) }))
   }
 
-  /** Each task recovers independently; a failure is logged and leaves that task's stored status unchanged. */
+  /** Count assignments of every owner whose latest status holds a `maxWorkers` slot. */
+  private occupied(): number {
+    return [...this.table.entries()].filter(([, task]) => slotStatuses.has(latest(task).status)).length
+  }
+
+  /** Fresh-worker dispatch intents not yet delivered, oldest first. */
+  private waiting(): CoordinationTask[] {
+    return [...this.table.entries()].map(([, task]) => task)
+      .filter(task => latest(task).status === 'dispatching' && latest(task).createSession)
+      .sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+  }
+
+  private startsNow(task: CoordinationTask): boolean {
+    return this.waiting()[0]?.id === task.id && this.occupied() < this.config.maxWorkers
+  }
+
+  /** Deliver the oldest waiting fresh worker when a slot is free; a delivery failure publishes interrupted with the stop-then-dispatch step. */
+  private async startNext(): Promise<void> {
+    const head = this.waiting()[0]
+    if (head === undefined || this.occupied() >= this.config.maxWorkers) return
+    try { await this.deliver(head) }
+    catch (error) {
+      await this.publish(revise(head, { status: 'interrupted',
+        issue: `The waiting task could not start: ${String(error)}. Do not reconcile; stop this task, then dispatch it again.` }))
+    }
+    this.background(() => this.startNext())
+  }
+
+  /**
+   * Each task recovers independently; a failure is logged and leaves that task's stored status unchanged.
+   * Waiting fresh workers start afterwards within `maxWorkers`.
+   */
   private async recover(): Promise<void> {
     for (const [id, task] of this.table.entries()) {
       try { await this.recoverTask(task) }
       catch (error) { this.ctx.logger.error('session-coordinator: recovery of %s failed: %s', id, String(error)) }
     }
+    try { await this.startNext() }
+    catch (error) { this.ctx.logger.error('session-coordinator: starting a waiting task after recovery failed: %s', String(error)) }
   }
 
   private async recoverTask(task: CoordinationTask): Promise<void> {
     const attempt = latest(task)
+    if (attempt.status === 'dispatching' && attempt.createSession
+      && !(await this.ctx.sessionQuery.listSessions(this.lifetime.signal)).some(row => row.header.id === attempt.sessionId)) return
     if (attempt.status === 'dispatching' || attempt.status === 'reconciling') {
       try {
         const delivered = attempt.status === 'reconciling' ? await this.deliverReconciliation(task) : await this.deliver(task)
@@ -1076,9 +1129,13 @@ export class SessionCoordinator extends TypertRemoteService {
     })
   }
 
+  /** Persist a task; leaving a slot status schedules the next waiting fresh worker. */
   private async save(task: CoordinationTask): Promise<CoordinationTask> {
+    const before = this.table.get(task.id)
     await this.table.put(task.id, task)
     this.changed()
+    if (before !== undefined && slotStatuses.has(latest(before).status) && !slotStatuses.has(latest(task).status)
+      && !this.unloading() && this.waiting().length > 0) this.background(() => this.startNext())
     return task
   }
 

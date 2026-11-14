@@ -6,7 +6,7 @@ import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { executeModelToolFixture, executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
-import type { JobOutcome } from '@deepseek-ai/dsh-jobs'
+import type { JobId, JobOutcome } from '@deepseek-ai/dsh-jobs'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SubagentActivation, SubagentResult } from '@deepseek-ai/dsh-subagent'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
@@ -14,7 +14,7 @@ import { JubianVideoSelection } from '@deepseek-ai/dsh-tool-jubian'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import Coordinator, { type Config } from '../src/index.ts'
-import { latest } from '../src/ledger.ts'
+import { latest, revise } from '../src/ledger.ts'
 import type { AssignmentStatus, CoordinationTask, CoordinationTaskId, DispatchRequest } from '../src/types.ts'
 import { manuscriptTaskRequest } from '../../../../apps/desktop-host/src/manuscript-task-intent.ts'
 import { setup, textResponse } from './fixture.ts'
@@ -526,4 +526,268 @@ describe('routing-only Main Session', () => {
     expect(JSON.stringify(test.adapter.requests)).toContain('更早的消息不会转发')
   })
 
+  it('tells Main that a waiting dispatch is queued and that drafts an unfinished task edits belong to its revision', async () => {
+    const test = await fixture()
+    const requests = JSON.stringify(test.adapter.requests)
+    expect(requests).toContain('新建执行会话的派发返回 dispatching 表示同时执行的任务已满')
+    expect(requests).toContain('作为该任务的修订，不另开会话同时改')
+  })
+
+})
+
+type Fixture = Awaited<ReturnType<typeof fixture>>
+
+async function waitTask(test: Fixture, id: CoordinationTaskId, ready: (task: CoordinationTask) => boolean): Promise<CoordinationTask> {
+  const abort = new AbortController()
+  const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(15000)])
+  try {
+    for await (const tasks of test.ctx.sessionCoordinator.watch(test.main.id, signal)) {
+      const task = tasks.find(item => item.id === id)
+      if (task !== undefined && ready(task)) return task
+    }
+    throw new Error(`Task ${id} did not become ready: ${JSON.stringify(test.ctx.sessionCoordinator.list(test.main.id))}`)
+  } finally { abort.abort() }
+}
+
+const reaches = (...statuses: AssignmentStatus[]) => (task: CoordinationTask): boolean => statuses.includes(latest(task).status)
+
+/** While active, give each new non-Main Agent a job before its first step so its assignment holds a slot until released. */
+function holdWorkers(test: Fixture) {
+  const holds = new Map<SessionId, PromiseWithResolvers<{ job: JobId; done: PromiseWithResolvers<JobOutcome> }>>()
+  const hold = (id: SessionId) => {
+    let entry = holds.get(id)
+    if (entry === undefined) { entry = Promise.withResolvers(); holds.set(id, entry) }
+    return entry
+  }
+  const started = new Set<SessionId>()
+  const holder = {
+    active: true,
+    async release(id: SessionId): Promise<void> {
+      const { job, done } = await hold(id).promise
+      done.resolve({ status: 'completed' })
+      await test.ctx.jobs.wait(job, 15000, id)
+    },
+  }
+  test.ctx.on('agent/pre-step', async ({ agent }, next) => {
+    if (holder.active && agent !== test.main && !started.has(agent.id)) {
+      started.add(agent.id)
+      const done = Promise.withResolvers<JobOutcome>()
+      const job = test.ctx.jobs.start({ kind: 'bash', label: 'held worker', owner: agent.id,
+        run: () => ({ cancel() { done.resolve({ status: 'killed' }) }, done: done.promise }) })
+      hold(agent.id).resolve({ job, done })
+    }
+    return next()
+  })
+  return holder
+}
+
+const second: DispatchRequest = { ...request, key: 'goal-2', title: '修改第三集' }
+
+async function sessionExists(test: Fixture, id: SessionId): Promise<boolean> {
+  return (await test.ctx.sessionQuery.listSessions(new AbortController().signal)).some(row => row.header.id === id)
+}
+
+describe('worker limit', () => {
+  it.each([0, 1.5, -1])('rejects maxWorkers %s when the plugin loads', async (maxWorkers) => {
+    const test = await fixture()
+    await test.fiber.dispose()
+    await expect(test.ctx.plugin(Coordinator, { maxWorkers }).await()).rejects.toThrow()
+  })
+
+  it('starts three fresh workers at once by default and queues the fourth', async () => {
+    const test = await fixture()
+    const holder = holdWorkers(test)
+    const started: CoordinationTask[] = []
+    for (const episode of [1, 2, 3]) started.push(await test.service.dispatch(test.main, { ...request, key: `goal-${episode}`, title: `第${episode}集` }))
+    expect(started.map(task => latest(task).status)).toEqual(['accepted', 'accepted', 'accepted'])
+    holder.active = false
+    const fourth = await test.service.dispatch(test.main, { ...request, key: 'goal-4', title: '第4集' })
+    expect(latest(fourth).status).toBe('dispatching')
+    for (const task of started) await holder.release(latest(task).sessionId)
+    expect(latest(await waitTask(test, fourth.id, reaches('needs-report'))).status).toBe('needs-report')
+  })
+
+  it('waits for a free slot before creating a fresh worker, deduplicates the waiting key and delivers it once', async () => {
+    const test = await fixture(undefined, { maxWorkers: 1 })
+    const holder = holdWorkers(test)
+    const first = await test.service.dispatch(test.main, request)
+    holder.active = false
+    const queued = await test.service.dispatch(test.main, second)
+    expect(latest(queued).status).toBe('dispatching')
+    expect(latest(queued).issue).toBeNull()
+    expect(test.ctx.agents.get(latest(queued).sessionId)).toBeUndefined()
+    expect(await sessionExists(test, latest(queued).sessionId)).toBe(false)
+    const repeated = await test.service.dispatch(test.main, second)
+    expect(repeated.id).toBe(queued.id)
+    expect(latest(repeated).status).toBe('dispatching')
+    expect(test.ctx.agents.get(latest(queued).sessionId)).toBeUndefined()
+    await holder.release(latest(first).sessionId)
+    const started = await waitTask(test, queued.id, reaches('needs-report'))
+    expect(latest(test.service.list(test.main.id).find(task => task.id === first.id)!).status).toBe('needs-report')
+    const log = await test.ctx.sessionQuery.readSession(latest(started).sessionId)
+    expect(log.events.filter(event => event.type === 'user/message' && event.data.id === latest(started).briefId)).toHaveLength(1)
+    const humans = log.events.filter(event => event.type === 'user/message' && event.data.source.kind === 'user')
+    expect(humans).toHaveLength(1)
+    expect(JSON.stringify(humans)).toContain('第3集不要动')
+  })
+
+  it('stops a waiting task without creating its worker and starts nothing when the slot frees', async () => {
+    const test = await fixture(undefined, { maxWorkers: 1 })
+    const holder = holdWorkers(test)
+    const first = await test.service.dispatch(test.main, request)
+    holder.active = false
+    const queued = await test.service.dispatch(test.main, second)
+    const stopped = await test.service.stop(test.main.id, queued.id, 1)
+    expect(latest(stopped).status).toBe('stopped')
+    expect(test.ctx.agents.get(latest(queued).sessionId)).toBeUndefined()
+    await test.main.whenIdle()
+    const owner = await test.ctx.sessionQuery.readSession(test.main.id)
+    const receipts = owner.events.filter(event => event.type === 'user/message' && event.data.source.kind === 'muse-coordination'
+      && event.data.source.taskId === queued.id)
+    expect(receipts).toHaveLength(1)
+    expect(JSON.stringify(receipts)).toContain('\\"status\\":\\"stopped\\"')
+    const agents = test.ctx.agents.list().length
+    await holder.release(latest(first).sessionId)
+    await waitTask(test, first.id, reaches('needs-report'))
+    await test.service.stop(test.main.id, queued.id, 1)
+    expect(test.ctx.agents.list()).toHaveLength(agents)
+    expect(latest(test.service.list(test.main.id).find(task => task.id === queued.id)!).status).toBe('stopped')
+  })
+
+  it('keeps a waiting task across a plugin restart and starts it with the Main model once a slot frees', async () => {
+    const test = await fixture(undefined, { maxWorkers: 1 })
+    test.main.model.select({ provider: 'mock', model: 'mock-main' })
+    const holder = holdWorkers(test)
+    const first = await test.service.dispatch(test.main, request)
+    holder.active = false
+    const queued = await test.service.dispatch(test.main, second)
+    expect(latest(queued).status).toBe('dispatching')
+    await test.fiber.dispose()
+    await test.ctx.plugin(Coordinator, { maxWorkers: 1 })
+    await expect(test.ctx.sessionCoordinator.stop(test.main.id, queued.id, 2)).rejects.toThrow(/revision/)
+    expect(latest(test.ctx.sessionCoordinator.list(test.main.id).find(task => task.id === queued.id)!).status).toBe('dispatching')
+    expect(test.ctx.agents.get(latest(queued).sessionId)).toBeUndefined()
+    await holder.release(latest(first).sessionId)
+    const started = await waitTask(test, queued.id, reaches('needs-report'))
+    const worker = test.ctx.agents.get(latest(started).sessionId)!
+    expect(worker.model.current()).toEqual(test.main.model.current())
+    expect(worker.model.current()?.model).toBe('mock-main')
+    const log = await test.ctx.sessionQuery.readSession(worker.id)
+    expect(log.events.filter(event => event.type === 'user/message' && event.data.id === latest(started).briefId)).toHaveLength(1)
+    expect(log.events.filter(event => event.type === 'user/message' && event.data.source.kind === 'user')).toHaveLength(1)
+  })
+
+  it('starts a waiting task during recovery when no task holds a slot', async () => {
+    const test = await fixture(undefined, { maxWorkers: 1 })
+    const holder = holdWorkers(test)
+    const first = await test.service.dispatch(test.main, request)
+    holder.active = false
+    const queued = await test.service.dispatch(test.main, second)
+    expect(latest(queued).status).toBe('dispatching')
+    const held = test.service.list(test.main.id).find(task => task.id === first.id)!
+    await test.fiber.dispose()
+    await holder.release(latest(first).sessionId)
+    await test.ctx.agents.get(latest(first).sessionId)!.whenIdle()
+    test.pool.media.get('muse_coordination')!.tables.get('tasks')!
+      .set(first.id, revise(held, { status: 'needs-report', notifiedStatus: 'needs-report' }))
+    await test.ctx.plugin(Coordinator, { maxWorkers: 1 })
+    const started = await waitTask(test, queued.id, reaches('needs-report'))
+    const log = await test.ctx.sessionQuery.readSession(latest(started).sessionId)
+    expect(log.events.filter(event => event.type === 'user/message' && event.data.id === latest(started).briefId)).toHaveLength(1)
+  })
+
+  it('delivers a waiting task whose worker was created before a restart while the only slot stays held', async () => {
+    const test = await fixture(undefined, { maxWorkers: 1 })
+    const holder = holdWorkers(test)
+    const first = await test.service.dispatch(test.main, request)
+    holder.active = false
+    const queued = await test.service.dispatch(test.main, second)
+    expect(latest(queued).status).toBe('dispatching')
+    await test.fiber.dispose()
+    const worker = await test.makeAgent(latest(queued).sessionId, 'short-drama', latest(queued).cwd)
+    await test.ctx.plugin(Coordinator, { maxWorkers: 1 })
+    try {
+      const started = await waitTask(test, queued.id, reaches('needs-report'))
+      expect(['accepted', 'running']).toContain(latest(test.ctx.sessionCoordinator.list(test.main.id).find(task => task.id === first.id)!).status)
+      expect(test.ctx.agents.get(worker.id)).toBe(worker)
+      const log = await test.ctx.sessionQuery.readSession(worker.id)
+      expect(log.events.filter(event => event.type === 'user/message' && event.data.id === latest(started).briefId)).toHaveLength(1)
+    } finally { await holder.release(latest(first).sessionId) }
+  })
+
+  it('starts dispatches to existing idle Sessions and reconciliations at once while the limit is full', async () => {
+    const test = await fixture(undefined, { maxWorkers: 1 })
+    const existing = await test.makeAgent('existing', 'specialist', '/other-workspace')
+    existing.followup(createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '既有项目设定与稿件' }] }))
+    await existing.whenIdle()
+    const reported = await test.service.dispatch(test.main, request)
+    await waitTask(test, reported.id, reaches('needs-report'))
+    const holder = holdWorkers(test)
+    const busy = await test.service.dispatch(test.main, second)
+    holder.active = false
+    try {
+      expect(latest(busy).status).toBe('accepted')
+      expect(latest(await test.service.dispatch(test.main, { ...request, key: 'goal-3', title: '第三项' })).status).toBe('dispatching')
+      const reused = await test.service.dispatch(test.main, { ...request, key: 'reuse', title: '复用', sessionId: existing.id })
+      expect(['accepted', 'running']).toContain(latest(reused).status)
+      const reconciled = await test.service.reconcile(test.main, { key: 'check-1', taskId: reported.id, expectedRevision: 1,
+        instructions: '核对已有结果', reason: '原执行会话已空闲' })
+      expect(['accepted', 'running']).toContain(latest(reconciled).status)
+    } finally { await holder.release(latest(busy).sessionId) }
+  })
+
+  it('starts waiting tasks in creation order', async () => {
+    const test = await fixture(undefined, { maxWorkers: 1 })
+    const holder = holdWorkers(test)
+    const first = await test.service.dispatch(test.main, request)
+    holder.active = false
+    const created: SessionId[] = []
+    test.ctx.on('agent/created', ({ agent }) => { created.push(agent.id) })
+    const queued: CoordinationTask[] = []
+    for (const episode of [2, 3, 4]) {
+      queued.push(await test.service.dispatch(test.main, { ...request, key: `goal-${episode}`, title: `第${episode}集` }))
+      await new Promise(resolve => setTimeout(resolve, 2))
+    }
+    expect(queued.map(task => latest(task).status)).toEqual(['dispatching', 'dispatching', 'dispatching'])
+    await holder.release(latest(first).sessionId)
+    for (const task of queued) await waitTask(test, task.id, reaches('needs-report'))
+    expect(created).toEqual(queued.map(task => latest(task).sessionId))
+  })
+
+  it('does not count needs-report or interrupted tasks toward the limit', async () => {
+    const test = await fixture(undefined, { maxWorkers: 1 })
+    const reported = await test.service.dispatch(test.main, request)
+    await waitTask(test, reported.id, reaches('needs-report'))
+    const next = await test.service.dispatch(test.main, second)
+    expect(latest(next).status).toBe('accepted')
+    await waitTask(test, next.id, reaches('needs-report'))
+    test.ctx.jobs.start({ kind: 'bash', label: 'crashing producer', owner: latest(next).sessionId,
+      run: () => ({ cancel() {}, done: Promise.reject(new Error('producer crashed')) }) })
+    await waitTask(test, next.id, reaches('interrupted'))
+    const third = await test.service.dispatch(test.main, { ...request, key: 'goal-3', title: '第三项' })
+    expect(latest(third).status).toBe('accepted')
+  })
+
+  it('publishes an interrupted receipt when a waiting task cannot start', async () => {
+    const test = await fixture(undefined, { maxWorkers: 1 })
+    const holder = holdWorkers(test)
+    const first = await test.service.dispatch(test.main, request)
+    holder.active = false
+    const queued = await test.service.dispatch(test.main, second)
+    const creation = vi.spyOn(test.ctx.sessionController, 'create').mockRejectedValue(new Error('worker creation unavailable'))
+    onTestFinished(() => { creation.mockRestore() })
+    await holder.release(latest(first).sessionId)
+    const failed = await waitTask(test, queued.id, task => latest(task).notifiedStatus === 'interrupted')
+    expect(latest(failed).issue).toBe('The waiting task could not start: Error: worker creation unavailable. Do not reconcile; stop this task, then dispatch it again.')
+    expect(test.ctx.agents.get(latest(queued).sessionId)).toBeUndefined()
+    await test.main.whenIdle()
+    const owner = await test.ctx.sessionQuery.readSession(test.main.id)
+    const receipts = owner.events.filter(event => event.type === 'user/message' && event.data.source.kind === 'muse-coordination'
+      && event.data.source.taskId === queued.id)
+    expect(JSON.stringify(receipts)).toContain('Do not reconcile; stop this task, then dispatch it again.')
+    creation.mockRestore()
+    expect(latest(await test.service.stop(test.main.id, queued.id, 1)).status).toBe('stopped')
+    const retried = await test.service.dispatch(test.main, { ...second, key: 'goal-2-retry', taskId: queued.id, expectedRevision: 1 })
+    expect(latest(retried).status).toBe('accepted')
+  })
 })

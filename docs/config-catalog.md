@@ -3672,7 +3672,7 @@ export interface JsonRpcConfig {
 ## `@deepseek-ai/dsh-session-coordinator`
 
 - `inject`: `agents` · `sessions` · `sessionQuery` · `sessionController` · `workspaceController` · `storageDomain` · `workspaceRegistry` · `jobs` · `typert` · `tools` · `sessionProjections`
-- `source`: [`packages/session/session-coordinator/src/index.ts:60`](../packages/session/session-coordinator/src/index.ts)
+- `source`: [`packages/session/session-coordinator/src/index.ts:62`](../packages/session/session-coordinator/src/index.ts)
 
 ```ts config-catalog
 /** Deployment choices for the optional coordination plugin. */
@@ -3683,12 +3683,22 @@ export interface Config {
   readonly workerPreset?: string
   /** Maximum returned Session search rows or report tasks. Defaults to 30. */
   readonly searchLimit?: number
-  /** History-page characters, serialized task-list characters, and combined serialized report content/metadata budget. Defaults to 24000. */
+  /**
+   * History-page characters, serialized task-list characters, and combined
+   * serialized report content/metadata budget. Defaults to 24000.
+   */
   readonly readChars?: number
   /** Maximum characters in each routing note (`instructions`, `reason`) Main writes for dispatch or reconciliation. Defaults to 120. */
   readonly noteChars?: number
   /** Maximum characters in a worker report summary. Defaults to 2000. */
   readonly summaryChars?: number
+  /**
+   * Maximum coordinator assignments executing at once (reconciling, accepted, running, finishing or stopping).
+   * While the limit is reached, a dispatch that creates a new worker waits as `dispatching` and starts in
+   * creation order when an assignment leaves those states. Dispatches to existing Sessions and reconciliations
+   * start at once and count toward the limit. Defaults to 3.
+   */
+  readonly maxWorkers?: number
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-coordinator -->
@@ -4783,7 +4793,10 @@ export interface Config {
   readonly pollIntervalMs: number
   /** Largest extracted audio chunk accepted for staging, in bytes. */
   readonly maxAudioBytes: number
-  /** Total delay one call spends waiting out upload_busy or request_rate refusals before offering the same staged upload again, in milliseconds; 0 returns the refusal at once. */
+  /**
+   * Total delay one call spends waiting out upload_busy or request_rate refusals
+   * before offering the same staged upload again, in milliseconds; 0 returns the refusal at once.
+   */
   readonly uploadRetryBudgetMs: number
   /** Largest number of files one batch start accepts. */
   readonly maxBatchInputs: number

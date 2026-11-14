@@ -25,11 +25,12 @@ const task: CoordinationTask = {
   }],
 }
 
-function props(preset = 'main-session', value = task) {
-  const sessions: SessionListState = { ids: [SessionId('main')], byId: { [SessionId('main')]: {
+function props(preset = 'main-session', value = task, workerListed = true) {
+  const worker = { id: SessionId('worker-1'), displayTitle: 'Worker', running: false, retainedBy: {}, blank: false, updatedAt: 1 }
+  const sessions: SessionListState = { ids: [SessionId('main'), ...workerListed ? [worker.id] : []], byId: { [SessionId('main')]: {
     id: SessionId('main'), displayTitle: 'Main', running: false, retainedBy: {}, blank: false, updatedAt: 1,
     projectionValues: { agentPreset: preset },
-  } }, phase: 'ready', projectionsBySession: {} }
+  }, ...workerListed ? { [worker.id]: worker } : {} }, phase: 'ready', projectionsBySession: {} }
   const useSessions = <T,>(select: (state: SessionListState) => T): T => select(sessions)
   const useResource = vi.fn(() => ({ status: 'live' as const, value: [value], failure: undefined }))
   return {
@@ -60,6 +61,15 @@ it('shows worker completion separately from acceptance and opens its native sour
   fireEvent.click(screen.getByText('candidate.docx'))
   expect(actions.openFile).toHaveBeenCalledWith('/worker/candidate.docx')
   expect(screen.queryByText('停止任务')).toBeNull()
+})
+
+it('offers no execution chat for a waiting task whose worker does not exist yet', () => {
+  const waiting = { ...task, attempts: [{ ...task.attempts[0]!, status: 'dispatching' as const, createSession: true, report: null, notifiedStatus: null }] }
+  const view = render(<TaskCards {...props('main-session', waiting, false)} />)
+  fireEvent.click(view.container.querySelector('summary')!)
+  expect(screen.getByText('等待开始')).toBeTruthy()
+  expect(screen.getByText('停止任务')).toBeTruthy()
+  expect(screen.queryByText('打开执行会话')).toBeNull()
 })
 
 it('opens task details and dismisses them with Escape or an outside click', () => {

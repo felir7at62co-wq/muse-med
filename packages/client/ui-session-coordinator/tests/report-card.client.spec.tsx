@@ -10,6 +10,7 @@ import { brandString } from '@deepseek-ai/dsh-brand'
 import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import type { ToolResultNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { ResourceSnapshot } from '@deepseek-ai/dsh-client-resources/client'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { Assignment, CoordinationReport, CoordinationTask, CoordinationTaskId, ReportTask } from '@deepseek-ai/dsh-session-coordinator/types'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import { ReportCard } from '../src/client/ReportCard.tsx'
@@ -32,9 +33,12 @@ function settled(meta: unknown = { museCoordinationReport: receipt }, overrides:
     content: [{ type: 'text', text: JSON.stringify(receipt) }], isError: false, subCalls: [], meta, ...overrides }
 }
 
-function props(block = settled(), resource = offline): Extract<Parameters<typeof ReportCard>[0], { phase: 'result' }> {
+function props(block = settled(), resource = offline, listed: readonly SessionId[] = [task.sessionId]): Extract<Parameters<typeof ReportCard>[0], { phase: 'result' }> {
+  const sessions: SessionListState = { ids: [...listed], phase: 'ready', projectionsBySession: {}, byId: Object.fromEntries(listed.map(id => [id,
+    { id, displayTitle: id, running: false, retainedBy: {}, blank: false, updatedAt: 1 }])) }
   return { phase: 'result', block, toolName: 'coordinator_show_report', sessionId: owner,
     useResource: (() => resource) as Parameters<typeof ReportCard>[0]['useResource'],
+    useSessions: <T,>(select: (state: SessionListState) => T): T => select(sessions),
     openExecution: vi.fn(), openDelivery: vi.fn(), t: makeTranslate(zh, commonZh) }
 }
 
@@ -127,6 +131,28 @@ describe('exact revision observations', () => {
     expect(screen.getByText('执行中')).toBeTruthy()
     expect(screen.queryByText(delivery.summary)).toBeNull()
     expect(screen.queryByText('candidate.docx')).toBeNull()
+  })
+
+  it('offers the execution chat only after the waiting task created it', () => {
+    const block = settled({ museCoordinationReport: { ...receipt, tasks: [{ ...task, status: 'dispatching' }] } })
+    const live = (status: 'dispatching' | 'stopped') => ({ status: 'live' as const, failure: undefined,
+      value: [current({ status, report: null, notifiedStatus: null, createSession: true })] })
+    const view = render(<ReportCard {...props(block, live('dispatching'), [])} />)
+    expect(screen.getByText('当前状态')).toBeTruthy()
+    expect(screen.getByText('等待开始')).toBeTruthy()
+    expect(screen.queryByText('打开执行会话')).toBeNull()
+    view.rerender(<ReportCard {...props(block, live('stopped'), [])} />)
+    expect(screen.getByText('当前状态')).toBeTruthy()
+    expect(screen.getByText('已停止')).toBeTruthy()
+    expect(screen.queryByText('打开执行会话')).toBeNull()
+    view.rerender(<ReportCard {...props(block, offline, [])} />)
+    expect(screen.getByText('历史回执')).toBeTruthy()
+    expect(screen.getByText('等待开始')).toBeTruthy()
+    expect(screen.queryByText('打开执行会话')).toBeNull()
+    const started = props(block)
+    view.rerender(<ReportCard {...started} />)
+    fireEvent.click(screen.getByText('打开执行会话'))
+    expect(started.openExecution).toHaveBeenCalledWith(task.sessionId)
   })
 
   it('does not expose another owner task with the same id', () => {

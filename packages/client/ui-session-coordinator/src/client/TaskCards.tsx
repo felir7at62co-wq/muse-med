@@ -22,8 +22,10 @@ type TaskViewProps = Pick<TaskCardsProps, 'sessionId' | 'activeView' | 'useSessi
   readonly useResource: (address: string) => ResourceSnapshot<CoordinationTask[]>
 }
 
-function TaskCard({ task, openSession, stop, openFile, t }: Pick<TaskCardsProps, 'openSession' | 'stop' | 'openFile' | 't'> & { task: CoordinationTask }) {
+function TaskCard({ task, useSessions, openSession, stop, openFile, t }: Pick<TaskCardsProps, 'useSessions' | 'openSession' | 'stop' | 'openFile' | 't'> & { task: CoordinationTask }) {
   const attempt = task.attempts.at(-1)
+  // Only a worker in the Host Session list opens: a waiting task, or one that stopped or failed before starting, has none.
+  const listed = useSessions(state => attempt !== undefined && state.ids.includes(attempt.sessionId))
   const [pending, setPending] = useState(false)
   const pendingRef = useRef(false)
   const detailsRef = useRef<HTMLDetailsElement>(null)
@@ -60,7 +62,7 @@ function TaskCard({ task, openSession, stop, openFile, t }: Pick<TaskCardsProps,
     </summary>
     <div className={css.panel}><p className={css.fullTitle}>{task.title}</p>
       <div className={css.actions}>
-        <button type="button" onClick={() => { openSession(attempt.sessionId) }}>{t('open')}</button>
+        {listed && <button type="button" onClick={() => { openSession(attempt.sessionId) }}>{t('open')}</button>}
         {canStop && <button type="button" disabled={pending} onClick={() => { void stopTask() }}>{t('stop')}</button>}
       </div>
       {attempt.report !== null && <p>{attempt.report.summary}</p>}
