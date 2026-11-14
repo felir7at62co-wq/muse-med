@@ -1138,6 +1138,8 @@ export function apply(ctx: Context, config: Config = {}): void {
       sourceQaScope = binding
       return () => {
         owner.abort(Error('SOURCE_QA_HOST_UNAVAILABLE: 源片复验服务已卸载。'))
+        /* v8 ignore else -- the disposer runs from this scope's own effect while Cordis serializes
+        fiber epochs, so a newer binding cannot be installed before the older disposer finishes. */
         if (sourceQaScope === binding) sourceQaScope = undefined
       }
     })
