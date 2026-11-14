@@ -89,6 +89,8 @@ kind: "package-reference"
 
 反复出镜的动物主体登记为 `type: "动物"` / `"animal"`，或保留 `type: "角色"` / `"character"` 并加 `subject_kind: "animal"`。即使有人的出镜名单，画面说明中的动物正式名与 aliases 仍会绑定；仅台词提及不会绑定。动物进入包的素材名与 key，仍检查官方确认、ID、URL 和适用集数；绑定的动物分类贯穿反复打包，即使声明身体状态也不计入人物人数，无需声明人的孕期、年龄或服装。角色行未写 `subject_kind` 时保留人的状态门禁；绑定器不根据名字猜物种。多个动物版本需用完整名或互不重叠的适用集数区分。
 
+身体状态声明保留在源文件中用于核对资产版本，生成的镜头画面正文与包提示词会移除这些字段行。选择符合本镜状态的正式外观版本，不把静态资产描述复制进动作或运镜字段。台词原文与实际动作保留。
+
 每个 preview 或 compile 包返回完整 `prompt`，保留镜头正文，补充明确的人物、场景和道具参考及自然收束要求。已有引用将登记别名归一为正式名，同一资产复用一个 key；缺少引用时使用 `asset_<jubian_asset_id>`。引用其他人物、错误父资产 key，或多个角色共用同一 key，会返回 `material_reference_mismatch`。`material_bindings` 按 key 首次出现顺序明确列出正式名、父资产 ID、material ID、URL 和参考范围；选源直接使用这些行，不拼接 `material_keys` 与 `material_names` 的下标。重复提及共用一个素材。重复完成提示词时，即使打包器不再持有原清单，每个镜头内每项资产的身份说明仍只保留一份。matched 输出第 5 版包含这些映射。单独 validate 可选；preview 和 compile 执行相同检查。
 
 完成提示词时逐镜声明选中的人物身份和人数上限，允许近景、局部入画和遮挡，不强迫所有人同框。重新编译时按当前选择重建已有的派生人数范围。无人镜保持无人，画外发声、来源场次人物表和其他镜头不增加人物。同一资产的脸部、服装和多视角属于同一人，跨镜复用也不新增人物。身份说明保留区分人物的面部特征和年龄感，同时尊重正文明确变化及选中的正式版本；道具说明沿用正式图的外形、结构、材质和颜色，不按泛名替换。这些是生成提示，编译器不查看像素，不发明胡须或材质，也不保证生成结果必然符合。
@@ -152,7 +154,7 @@ kind: "package-reference"
 
 ### 文件
 
-strict 编译写入 `prompts/<episode>.txt`、`matches/<episode>.matched.json`，以及含 `package.json`、`shot_script.txt`、`matched.json`、`episode.txt` 和本地绑定资产的 `episode_packages/<episode>/`。集号补成两位。提示词文件是不变的源文件副本；matched 镜头画面去掉时长字段，并包含补齐的素材引用。每个 `video_tasks` 行保存完整包 `prompt`、有序 `material_keys` 与对应的 `material_bindings`。分集正文或本地资产文件缺失会在写入前失败。结果列出全部写入路径、逐镜时长、包时长与有序素材键。advisory 编译写入前述独立检查文件，不要求或复制本地资产图到正式单集包。
+strict 编译写入 `prompts/<episode>.txt`、`matches/<episode>.matched.json`，以及含 `package.json`、`shot_script.txt`、`matched.json`、`episode.txt` 和本地绑定资产的 `episode_packages/<episode>/`。集号补成两位。提示词文件是用于编辑与审计的不变源文件副本，不是提交正文；matched 镜头画面去掉时长与身体状态字段，并包含补齐的素材引用。每个 `video_tasks` 行保存完整包 `prompt`、有序 `material_keys` 与对应的 `material_bindings`。分集正文或本地资产文件缺失会在写入前失败。结果列出全部写入路径、逐镜时长、包时长与有序素材键。advisory 编译写入前述独立检查文件，不要求或复制本地资产图到正式单集包。
 
 -----
 

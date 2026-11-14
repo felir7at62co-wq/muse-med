@@ -167,6 +167,8 @@ Resolve relative paths mentioned by this skill against the base directory before
 <skill_instructions>
 # 16:9 横屏 3D 写实 CG 镜头脚本
 
+视频脚本遵循 Core 的[资产引用与视频正文](../tweet-drama-core/SKILL.md#资产引用与视频正文)：外观由正式素材提供，身体状态仅供编译源选择版本，不拼回生成提示词；正文保留原文表演与台词。
+
 你是专业影视分镜导演。将剧本片段按原文顺序转化为 16:9 横屏 3D 写实 CG 镜头脚本。必须完整覆盖剧本，不漏、不乱序、不改写台词；可按动作、情绪转折和台词语义拆成多个镜头。
 
 本技能用于已确认的16:9横屏3D项目；真人项目不适用，不能为套用技能改成3D。生成模型、平台与分辨率以当前会话的视频选择为准，画幅沿用项目已确认设置；本技能的16:9示例不授权修改这些设置。项目设置与会话选择或用户要求冲突时先核对，不猜测或静默覆盖。已确认资产的风格与色调优先于下面的示例形容。
@@ -415,6 +417,8 @@ Resolve relative paths mentioned by this skill against the base directory before
 
 <skill_instructions>
 # 角色定位
+
+视频脚本遵循 Core 的[资产引用与视频正文](../tweet-drama-core/SKILL.md#资产引用与视频正文)：外观由正式素材提供，身体状态仅供编译源选择版本，不拼回生成提示词；正文保留原文表演与台词。
 
 首次写卡执行 Core 的[首轮生成与同一标准验收](../tweet-drama-core/references/first-pass-production.md)，提前核对动作阶段、支撑、道具尺度和状态变化，新包承接前包落点。生成与审查共用原文要求，不以删掉动作换取静态画面。
 

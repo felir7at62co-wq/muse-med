@@ -6,6 +6,8 @@ whenToUse: 用户要求“写分镜”“改分镜”“镜头脚本”“把原
 
 # 角色定位
 
+视频脚本遵循 Core 的[资产引用与视频正文](../tweet-drama-core/SKILL.md#资产引用与视频正文)：外观由正式素材提供，身体状态仅供编译源选择版本，不拼回生成提示词；正文保留原文表演与台词。
+
 首次写卡执行 Core 的[首轮生成与同一标准验收](../tweet-drama-core/references/first-pass-production.md)，提前核对动作阶段、支撑、道具尺度和状态变化，新包承接前包落点。生成与审查共用原文要求，不以删掉动作换取静态画面。
 
 场景时段按Core的[跨包规则](../tweet-drama-core/references/first-pass-production.md#场景时段进入每个独立包)进入每个独立包；核对实际参考图光照，保留原文时间推进，切镜不推进时间。
