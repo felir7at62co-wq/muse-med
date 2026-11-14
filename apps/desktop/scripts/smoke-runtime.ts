@@ -13,7 +13,6 @@ import { createPluginProfile } from '../src/project-manager.ts'
 import { readDesktopRuntime, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 import { isEntry } from '../../../scripts/release/process.ts'
 import { CREATION_SKILL_NAMES } from '../../desktop-host/src/creation-skills.ts'
-import { CONTINUITY_REVIEW_PRESET } from '../../desktop-host/src/manuscript-continuity.ts'
 
 const editingModelInput = JSON.parse(readFileSync(new URL('../tests/expected/editing-model-input.json', import.meta.url), 'utf8')) as {
   personaPrefix: string
@@ -92,7 +91,7 @@ export function apply(ctx) {
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
   const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
-  const declaredIds = [...ids, ${JSON.stringify(CONTINUITY_REVIEW_PRESET)}]
+  const declaredIds = [...ids, 'muse-manuscript-continuity-reviewer']
   const presets = await ctx.agentPresets.list()
   if (presets.length !== declaredIds.length || declaredIds.some(id => !presets.some(preset => preset.id === id))) {
     throw new Error('desktop runtime: product preset roster differs; expected ' + declaredIds.join(', ') + '; found ' + presets.map(preset => preset.id).join(', '))

@@ -6,7 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { buildFrameDoc, RESOURCE_ORIGINS, sanitizeCssValue } from '../src/shell.ts'
 import { PAGE_CONFIG_GLOBAL, STYLE_IDS, STYLES, styleIdFrom } from '../src/style.ts'
 import { apply } from '../src/index.ts'
-import { activeStyleSection, CUSTOM_STYLE_MAX_BYTES, readCustomStyles, styleFileLocations } from '../src/style-guide.ts'
+import { activeStyleSection, CUSTOM_STYLE_MAX_BYTES, readCustomStyles, styleFileLocations, styleGuidePath, styleToolNote } from '../src/style-guide.ts'
 import { visualizeSkillProvider } from '../src/skill.ts'
 import { visualizeTool } from '../src/tool.ts'
 
@@ -19,6 +19,14 @@ const host = {
 } as const
 
 describe('frame styles', () => {
+  it('uses portable style-file placeholders while preserving the native built-in guide path', () => {
+    for (const style of STYLE_IDS) {
+      const note = styleToolNote(style)
+      expect(note).toContain(`or read it from ${styleGuidePath(style)} together with any user style file`)
+      expect(note).toContain('(<DSH_HOME>/visualize/style.md, then <workspace>/.dsh/visualize-style.md).')
+    }
+  })
+
   it('leaves the default frame as it was without a style', () => {
     const plain = buildFrameDoc({ ...host })
     expect(buildFrameDoc({ ...host, style: 'whale' })).toBe(plain)

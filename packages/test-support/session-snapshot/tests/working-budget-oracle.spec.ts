@@ -45,7 +45,7 @@ describe('recorded working-budget expectations', () => {
       pathDisplays: new Map([['{{cwd}}/.dsh/visualize/sessions/{{session:1}}/',
         '~/work/dsh-log-snap-B54lk8/.dsh/visualize/sessions/session-00000000-0000-4000-8000-000000000001/']]) }
     const measured = deriveWorkingBudgetExpectations(native)
-    expect([...measured.values()]).toEqual([9635, 13625, 13914, 14064])
+    expect([...measured.values()]).toEqual([9634, 13624, 13913, 14063])
     const absolute = deriveWorkingBudgetExpectations(original)
     expect([...absolute.values()].slice(0, 2)).toEqual([...measured.values()].slice(0, 2))
     expect(absolute).not.toEqual(measured)

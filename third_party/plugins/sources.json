@@ -382,7 +382,7 @@
         },
         "lib/index.js": {
           "upstreamSha256": "00e961e047026887116be5b5097af4a933c023385700f787c50fbea00ca3a3d7",
-          "sha256": "aeeb7c13ed597b151fbd3c5451e7b7ba2b9bbb410070d671125922404ddd83cc"
+          "sha256": "3ca1758fe3536c3b56bfa5ce67108c2936a072fc911965f391cdd9069d0b8c1e"
         },
         "package.json": {
           "upstreamSha256": "8a174bf1598bd301666b358a517c0e000f7be615c16b64067b919b9572bdccb9",
@@ -522,11 +522,15 @@
         },
         "tests/style.spec.ts": {
           "upstreamSha256": "296aeb1cb837617cb8eda69595498dfbf902835100d3fbb9f2b8d3db072eb341",
-          "sha256": "cca72b0b1db93496e4932fb74b20c779fdd6c60022c19c1536d384362dd5012d"
+          "sha256": "b8b88637813a1f4cdb8bcce7115daf7e2562d4ff004cd2b0d914b2dd8cf14bfd"
         },
         "tsdown.config.ts": {
           "upstreamSha256": "080973eed62ca6fa1fc7a66ef02285264d5827ec4f853c5abc785cf5d8f7798a",
           "sha256": "8f7987a1091bf9f94eac1c6b1cdd333222aea26a7b0f91004267ba8fbe65539c"
+        },
+        "src/style-guide.ts": {
+          "upstreamSha256": "5762557fc0d709888a5b293f1bd019f1767bbc3bdf8e283a1a8062b0c090daff",
+          "sha256": "fd24bb4b765e895436d59fbfb5f46907ebeb0f57c66e20be233edcb7ea580786"
         }
       }
     }

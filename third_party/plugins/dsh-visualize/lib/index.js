@@ -3,7 +3,7 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { access, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { setTimeout as setTimeout$1 } from "node:timers/promises";
 import { lookup } from "node:dns";
 import { request } from "node:http";
@@ -3300,10 +3300,10 @@ async function activeStyleSection(style, locations) {
 * The sentence the tool description gains, so an agent that reads the
 * contract from disk (no skill tool) also finds the style guide.
 * @param style - the configured style id.
-* @returns a description suffix, starting with a space.
+* @returns a description suffix with portable placeholder paths and the native guide path, starting with a space.
 */
 function styleToolNote(style) {
-	return ` Cards use the user's "${style}" card style: its guide is appended to the visualize skill, or read it from ${styleGuidePath(style)} together with any user style file (${join("<DSH_HOME>", "visualize", GLOBAL_STYLE_FILE)}, then ${join("<workspace>", WORKSPACE_STYLE_FILE)}).`;
+	return ` Cards use the user's "${style}" card style: its guide is appended to the visualize skill, or read it from ${styleGuidePath(style)} together with any user style file (${posix.join("<DSH_HOME>", "visualize", GLOBAL_STYLE_FILE)}, then ${posix.join("<workspace>", ...WORKSPACE_STYLE_FILE.split(sep))}).`;
 }
 /**
 * Bundled `visualize` skill provider: the fragment-authoring contract the
