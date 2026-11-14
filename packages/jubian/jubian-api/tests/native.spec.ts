@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   assertImageReferenceConsistency, buildNativeVideoPreview, childrenOf, classifyExistingNativeMatches, classifyNewNativeCandidates,
@@ -38,6 +39,9 @@ const CATALOGUE = [{ id: 11, standardId: 11, modelId: 'doubao-seedance-2-0-26012
   videoStandards: [{ id: 91, ratio: '9:16', resolution: '720p', genNum: 1 }] },
 { id: 12, modelId: 'doubao-seedance-2-0-mini-260128', platformId: 'YU_DIAN', genTypes: [{ id: 7, type: 3 }],
   videoStandards: [{ id: 92, ratio: '9:16', resolution: '720p', genNum: 1 }] }]
+
+const HUAN_CHANG_CATALOGUE: unknown = JSON.parse(readFileSync(
+  new URL('./fixtures/catalogue-huanchang-20261114.json', import.meta.url), 'utf8'))
 
 const CHILD = { id: 972949, aigcVideoTaskId: 335343, storyboardId: 916953, taskStatus: 'succeeded',
   imageMaterials: MATERIALS, modelConfig: JSON.stringify(MODEL_CONFIG) }
@@ -241,7 +245,8 @@ describe('canonical hashing and wire reading', () => {
       .toBe('reconcile_conflict')
   })
 
-  it.each([['doubao-seedance-2-0-260128', 3], ['doubao-seedance-2-5-260628', 10]])
+  it.each([['doubao-seedance-2-0-260128', 3], ['doubao-seedance-2-5-260628', 10],
+    ['doubao-seedance-2.0', 3], ['doubao-seedance-2.5', 10]])
   ('refuses excess audio references for %s before producing a preview', (modelId, limit) => {
     const audio = Array.from({ length: limit + 1 }, (_, index) => ({ materialType: 'audio',
       materialUrl: `https://jubian-aigc.tos-cn-beijing.volces.com/prod/voice-${index}.wav`,
@@ -250,6 +255,18 @@ describe('canonical hashing and wire reading', () => {
       modelConfig: JSON.stringify({ ...MODEL_CONFIG, modelId,
         prompt: `${PROMPT} ${audio.map(item => `@[${item.fileName}](${item.materialKey})`).join(' ')}` }) }
     expect(() => validatedVideoMaterials(storyboard, ASSETS)).toThrow(`at most ${limit}`)
+  })
+
+  it.each([['doubao-seedance-2.0', 3], ['doubao-seedance-2.5', 10]])
+  ('accepts exactly the documented audio-reference limit for %s', (modelId, limit) => {
+    const audio = Array.from({ length: limit }, (_, index) => ({ materialType: 'audio',
+      materialUrl: `https://jubian-aigc.tos-cn-beijing.volces.com/prod/voice-${index}.wav`,
+      materialKey: `voice-${index}`, fileName: `voice-${index}`, sortOrder: index + 1, audioDuration: 1 }))
+    const storyboard = { ...STORYBOARD, storyboardMaterialList: [...MATERIALS, ...audio],
+      modelConfig: JSON.stringify({ ...MODEL_CONFIG, modelId,
+        prompt: `${PROMPT} ${audio.map(item => `@[${item.fileName}](${item.materialKey})`).join(' ')}` }) }
+    expect(validatedVideoMaterials(storyboard, ASSETS).materials.filter(item => item.materialType === 'audio'))
+      .toEqual(audio)
   })
 
   it('hashes key order independently', () => {
@@ -387,6 +404,35 @@ describe('model and identity readers', () => {
     expect(() => resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, modelId: 'absent-model' })).toThrow('No catalogue row')
     expect(() => resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, genNum: 2 })).toThrow()
     expect(() => resolveVideoModel(CATALOGUE, { ...MODEL_CONFIG, genType: 4 })).toThrow()
+  })
+
+  it.each([
+    ['doubao-seedance-2.0', 15, 92, 117, 451],
+    ['doubao-seedance-2.5', 30, 93, 114, 438],
+  ])('keeps live Huan Chang selectors while applying %s duration limits',
+    (modelId, maximum, standardId, modelGenerationTypeId, videoStandardId) => {
+      for (const duration of [4, maximum]) {
+        const selectors = { modelId, platformId: 'FZ_HUAN_CHANG', duration, standardId,
+          modelGenerationTypeId, videoStandardId, ratio: '9:16', resolution: '720p', genNum: 1, genType: 3 }
+        const config = { ...MODEL_CONFIG, ...selectors }
+        expect(resolveVideoModel(HUAN_CHANG_CATALOGUE, config)).toEqual(selectors)
+        const preview = buildNativeVideoPreview({ storyboard: { ...STORYBOARD, modelConfig: JSON.stringify(config) },
+          assets: ASSETS, models: HUAN_CHANG_CATALOGUE, createdAt: '2026-11-14T00:00:00.000Z' })
+        const prepared: unknown = JSON.parse(String(preview.payload.modelConfig))
+        expect(prepared).toMatchObject({ ...selectors, prompt: PROMPT, backupModelList: [] })
+        expect(validateNativeVideoPreview(preview)).toEqual(preview)
+      }
+      for (const duration of [1, 2, 3, maximum + 1, 4.5, NaN, Infinity, '4', null]) {
+        expect(() => validateVideoDuration(modelId, duration)).toThrow('Duration must be an integer')
+      }
+      expect(() => resolveVideoModel(HUAN_CHANG_CATALOGUE,
+        { ...MODEL_CONFIG, modelId, platformId: 'FZ_HUAN_CHANG', duration: maximum + 1, standardId }))
+        .toThrow('Duration must be an integer')
+    })
+
+  it('does not infer known limits from similar unregistered Seedance ids', () => {
+    expect(validateVideoDuration('doubao-seedance-2.5-unknown', 31)).toBe(31)
+    expect(validateVideoDuration('doubao-seedance-2.0-unknown', 16)).toBe(16)
   })
 
   it('reads a model signature only when every field is present', () => {

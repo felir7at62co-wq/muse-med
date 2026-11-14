@@ -183,8 +183,8 @@
         sessionVideoSelection: true
         generationWatch: true
         defaultVideoModel:
-          modelId: doubao-seedance-2-5-260628
-          platformId: FANG_ZHOU
+          modelId: doubao-seedance-2.5
+          platformId: FZ_HUAN_CHANG
           resolution: 480p
 
     # Account credentials travel through the authenticated Settings Remote call.

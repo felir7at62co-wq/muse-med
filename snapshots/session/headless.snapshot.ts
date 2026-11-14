@@ -548,6 +548,21 @@ async function prepareSubtitleOverlayExpectedWorkspace(cwd: string, scenarioDir:
   return expectedRoot
 }
 
+async function prepareHuanchangExpectedWorkspace(cwd: string, scenarioDir: string): Promise<string> {
+  const expectedRoot = join(cwd, '.snapshot-patches', 'expected-huanchang-workspace')
+  await cp(join(scenarioDir, 'workspace.expected'), expectedRoot, { recursive: true })
+  const file = join(expectedRoot, 'shot_reviews', '01', 'review.json')
+  const report = JSON.parse(await readFile(file, 'utf8')) as JsonObject
+  expect(report.script).toBe('{{cwd}}/shots.txt')
+  expect(report.assets_manifest).toBe('{{cwd}}/assets_manifest.json')
+  expect(report.written).toEqual(['{{cwd}}/shot_reviews/01/shot_script.txt', '{{cwd}}/shot_reviews/01/review.json'])
+  report.script = join(cwd, 'shots.txt')
+  report.assets_manifest = join(cwd, 'assets_manifest.json')
+  report.written = [join(cwd, 'shot_reviews', '01', 'shot_script.txt'), join(cwd, 'shot_reviews', '01', 'review.json')]
+  await writeFile(file, `${JSON.stringify(report, null, 2)}\n`)
+  return expectedRoot
+}
+
 function expandManuscriptDeliveryLedger(text: string, cwd: string, parentSession: string, owner: 'native' | 'ptc' | 'no-receipt' = 'native'): string {
   const ledger = JSON.parse(text) as JsonObject
   if (!Array.isArray(ledger.baselines)) throw new Error('manuscript delivery oracle requires baselines')
@@ -2195,6 +2210,24 @@ describe('headless recorded-session snapshots', () => {
           },
           inspect: async (cwd) => {
             actualLogs = await persistedSessions(cwd)
+            if (scenario.name === 'muse-shot-huanchang-video') {
+              const report = JSON.parse(await readFile(join(cwd, 'shot_reviews', '01', 'review.json'), 'utf8')) as JsonObject
+              expect(report).toMatchObject({ method: 'compile', review_mode: 'advisory', ok: true,
+                duration_budget: { source: 'session', max_submit_seconds: 30,
+                  selection: { model_id: 'doubao-seedance-2.5', platform_id: 'FZ_HUAN_CHANG', standard_id: 93,
+                    resolution: '480p', max_duration_seconds: 30, revision: 1 } },
+                summary: { packages: 1, content_seconds: 20, failures: 0 },
+                packages: [{ content_seconds: 20, submit_seconds: 21, natural_hold_seconds: 1 }],
+              })
+              expect(await readFile(join(cwd, 'shot_reviews', '01', 'shot_script.txt')))
+                .toEqual(await readFile(join(scenario.dir, 'workspace', 'shots.txt')))
+              const events = parseSessionLog(actualLogs[0]!.content)
+              expect(events.filter(event => event.type === 'jubian/video-selection')).toHaveLength(1)
+              const toolResults = events.flatMap(event => event.type === 'tool/result' ? [event.data.message] : [])
+              expect(toolResults).toHaveLength(1)
+              expect(toolResults[0]?.isError).toBe(false)
+              expectedWorkspaceRoot = await prepareHuanchangExpectedWorkspace(await realpath(cwd), scenario.dir)
+            }
             if (scenario.name === 'muse-core-display-source-lines') {
               const events = parseSessionLog(actualLogs[0]!.content)
               const calls = events.flatMap(event => event.type === 'tool/call' ? [event.data] : [])

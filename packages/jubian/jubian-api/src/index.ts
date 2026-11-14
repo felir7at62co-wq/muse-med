@@ -36,7 +36,7 @@ export { FAILED_STATUSES, NATIVE_MODEL_FIELDS, SUCCESS_STATUSES, assertImageRefe
   childrenOf, classifyExistingNativeMatches, classifyNewNativeCandidates, isRelatedTaskCandidate,
   matchesNativeEpisode, nativeEpisodeScope, nativeModelSignature, nativeObservablePrompt, nativeResultUrls,
   normalizedPrompt, readBackIdentity,
-  responseRecords, resolveVideoModel, validateVideoDuration, stableJson, stableSha256, storyboardMaterials,
+  responseRecords, resolveVideoModel, seedanceVideoVersion, validateVideoDuration, stableJson, stableSha256, storyboardMaterials,
   subjectIdentitySignature, submissionSemantics, taskIdOf, taskSemanticFields, taskStatusOf,
   terminalOutcome, validateNativeVideoPreview, validatedVideoMaterials, wireText } from './native.ts'
 export type { HydratedTask, NativeClaim, NativeClaimExpectation, NativeEpisodeScope, NativeOrderedAsset, NativePreviewInput,

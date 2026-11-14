@@ -135,6 +135,51 @@ it('names Seedance 2.0 and falls back to a configured model id when no display n
   expect(screen.getByRole('button', { name: 'Video model' }).textContent).toContain('new-catalogue-model')
 })
 
+it.each([
+  ['doubao-seedance-2.0', 'Seedance 2.0'],
+  ['doubao-seedance-2.5', 'Seedance 2.5'],
+  ['doubao-seedance-2.5-preview', 'doubao-seedance-2.5-preview'],
+])('names the exact configured Huanchang model %s without rewriting its identity', (modelId, label) => {
+  const f = fixture(true)
+  act(() => { f.store.update((state) => { state.defaultModel = {
+    modelId, platformId: 'FZ_HUAN_CHANG', resolution: '480p',
+  } }) })
+  expect(screen.getByRole('button', { name: 'Video model' }).textContent).toContain(label)
+  expect(f.store.getSnapshot().defaultModel).toEqual({ modelId, platformId: 'FZ_HUAN_CHANG', resolution: '480p' })
+  expect(f.select).not.toHaveBeenCalled()
+})
+
+it('selects Huanchang Seedance 2.5 and changes resolution using the same live catalogue identity', async () => {
+  const f = fixture(true)
+  const catalogue = [
+    { standardId: 92, modelId: 'doubao-seedance-2.0', maxDurationSeconds: 15 },
+    { standardId: 93, modelId: 'doubao-seedance-2.5', maxDurationSeconds: 30 },
+  ].flatMap(model => ['480p', '720p'].map(resolution => ({ ...model, key: `${model.standardId}:${resolution}`,
+    modelName: model.modelId, platformId: 'FZ_HUAN_CHANG', resolution, genTypes: [3], ratios: ['9:16'] })))
+  act(() => { f.store.update((state) => {
+    state.defaultModel = { modelId: 'doubao-seedance-2.5', platformId: 'FZ_HUAN_CHANG', resolution: '480p' }
+    state.options = catalogue
+  }) })
+  const trigger = screen.getByRole('button', { name: 'Video model' })
+  expect(trigger.textContent).toContain('Seedance 2.5')
+  expect(trigger.textContent).toContain('480p')
+  fireEvent.click(trigger)
+  fireEvent.click(await screen.findByRole('menuitem', { name: /Model.*Seedance 2.5/ }))
+  expect(await screen.findByText('FZ_HUAN_CHANG')).toBeDefined()
+  fireEvent.click(await screen.findByRole('menuitem', { name: /^Seedance 2\.5$/ }))
+  expect(f.select).toHaveBeenLastCalledWith('93:480p')
+  await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull() })
+  fireEvent.click(trigger)
+  fireEvent.click(await screen.findByRole('menuitem', { name: /Resolution.*480p/ }))
+  fireEvent.click(await screen.findByText('720p'))
+  expect(f.select.mock.calls).toEqual([['93:480p'], ['93:720p']])
+  expect(catalogue.find(option => option.key === '93:720p')).toMatchObject({
+    standardId: 93, modelId: 'doubao-seedance-2.5', platformId: 'FZ_HUAN_CHANG', resolution: '720p',
+  })
+  expect(f.store.getSnapshot().options).toEqual(catalogue)
+  await waitFor(() => { expect(screen.queryByRole('menu')).toBeNull() })
+})
+
 it('closes the menu when the same composer trigger is clicked again', async () => {
   const f = fixture()
   const trigger = screen.getByRole('button', { name: 'Video model' })

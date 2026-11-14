@@ -68,3 +68,35 @@ You are a delegated subagent: your permission scope was fixed when you were star
   ],
 }
 `;
+
+exports[`delivers the initialized Huanchang default to a fresh subagent through the loaded service > spawned child current video choice 1`] = `
+{
+  "choice": {
+    "genTypes": [
+      3,
+      4,
+    ],
+    "key": "93:480p",
+    "maxDurationSeconds": 30,
+    "modelId": "doubao-seedance-2.5",
+    "modelName": "doubao-seedance-2.5",
+    "platformId": "FZ_HUAN_CHANG",
+    "ratios": [
+      "16:9",
+      "9:16",
+      "adaptive",
+    ],
+    "resolution": "480p",
+    "revision": 1,
+    "standardId": 93,
+  },
+  "contexts": [
+    "本会话的视频生成设置：doubao-seedance-2.5；分辨率 480p；通道 FZ_HUAN_CHANG；modelId=doubao-seedance-2.5；standardId=93。单次生成时长上限 30 秒；上限不代表推荐包长。后续生成以此会话选择为准；读取剧变项目不改变此选择，也不修改项目默认值。仅同步本次要生成的视频卡并回读，保留提示词与素材。若原视频包超过新上限，使用 jubian_video_model 的 duration_conflict 询问用户保留模型重新拆包，或选择可容纳原包的模型；同批合并询问，不截断对白。已提交任务保持原配置。",
+    "Current runtime context. This snapshot supersedes earlier runtime-context snapshots.
+
+本会话的视频生成设置：doubao-seedance-2.5；分辨率 480p；通道 FZ_HUAN_CHANG；modelId=doubao-seedance-2.5；standardId=93。单次生成时长上限 30 秒；上限不代表推荐包长。后续生成以此会话选择为准；读取剧变项目不改变此选择，也不修改项目默认值。仅同步本次要生成的视频卡并回读，保留提示词与素材。若原视频包超过新上限，使用 jubian_video_model 的 duration_conflict 询问用户保留模型重新拆包，或选择可容纳原包的模型；同批合并询问，不截断对白。已提交任务保持原配置。
+
+You are a delegated subagent: your permission scope was fixed when you were started and cannot be widened from inside this session — operations that require approval are rejected automatically. When the task needs access beyond that scope, do not retry the denied operation; state the limitation in your reply so the delegating agent can handle it.",
+  ],
+}
+`;

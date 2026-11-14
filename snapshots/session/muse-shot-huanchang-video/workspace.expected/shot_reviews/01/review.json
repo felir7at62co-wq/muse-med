@@ -1,0 +1,106 @@
+{
+  "method": "compile",
+  "review_mode": "advisory",
+  "duration_budget": {
+    "source": "session",
+    "max_submit_seconds": 30,
+    "selection": {
+      "model_id": "doubao-seedance-2.5",
+      "model_name": "doubao-seedance-2.5",
+      "platform_id": "FZ_HUAN_CHANG",
+      "standard_id": 93,
+      "resolution": "480p",
+      "max_duration_seconds": 30,
+      "revision": 1
+    }
+  },
+  "ok": true,
+  "script": "{{cwd}}/shots.txt",
+  "assets_manifest": "{{cwd}}/assets_manifest.json",
+  "assets_checked": true,
+  "shots": [
+    {
+      "shot": 1,
+      "line": 2,
+      "voice_type": "dialogue",
+      "speaker": "王总",
+      "text": "等一下……我想把这句话说完。",
+      "effective_chars": 11,
+      "duration_seconds": 20,
+      "duration_source": "declared",
+      "offscreen": false,
+      "characters_field": "王总",
+      "scene": "后厨",
+      "props_field": "",
+      "bindings": [
+        {
+          "name": "后厨",
+          "type": "场景",
+          "official": true,
+          "asset_id": "72001",
+          "material_id": "82001",
+          "url": "https://cdn.example.test/72001.png"
+        }
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "index": 1,
+      "shots": [
+        1
+      ],
+      "content_seconds": 20,
+      "content_duration_ms": 20000,
+      "submit_seconds": 21,
+      "natural_hold_seconds": 1,
+      "hold_instruction": "结尾保持自然反应、呼吸或动作收束，不新增台词",
+      "prompt": "真人短剧写实风格\n【镜头1】\n景别：近景\n运镜：相机固定，王总站在后厨水池前看向画外\n视角：相机视角平视\n主体状态追踪：\n【王总】-位置：【场景图视角后厨左侧洗碗池前靠近柜门处】；\n身体状态：【非孕期；青年；家常装】；\n动作状态：【双手撑着台面，肩膀发抖】；\n四层朝向链：【身体朝向画外方向，面部朝向那里，目光固定，眼神发紧】；\n手部状态：【双手撑在台面】，【无】；\n情绪状态：【眼周泛红，呼吸急促】；\n台词：王总：等一下……我想把这句话说完。\n出镜人物：王总\n核心场景：后厨\n无噪点，无跳帧，五官稳定不变形",
+      "material_keys": [],
+      "material_names": [],
+      "material_bindings": []
+    }
+  ],
+  "failures": [],
+  "warnings": [
+    {
+      "severity": "warning",
+      "code": "session_video_budget_ignored",
+      "line": 0,
+      "shot": 0,
+      "message": "max_submit_seconds=15 已忽略；分包能力以当前会话模型的30秒上限为准，不要求每包填满上限。"
+    },
+    {
+      "severity": "warning",
+      "code": "legacy_duration_mismatch",
+      "line": 16,
+      "shot": 1,
+      "message": "镜头1估算为2秒，采用声明的20秒。请试听确认语速、停顿与动作时间；估算不覆盖导演声明。"
+    },
+    {
+      "severity": "warning",
+      "code": "asset_binding_ambiguous",
+      "line": 2,
+      "shot": 1,
+      "message": "镜头1的 王总 是多个不同人物共用的别名：资产 王明（jubian_asset_id 71001 / material 81001）；资产 王强（jubian_asset_id 71002 / material 81002）。请使用本人正式名；不能靠服装、年龄或清单顺序推断身份。"
+    },
+    {
+      "severity": "warning",
+      "code": "material_reference_mismatch",
+      "line": 2,
+      "shot": 1,
+      "message": "镜头1资产「后厨」没有可核对的内联引用；检查草稿保留原文，不自动补写引用。"
+    }
+  ],
+  "written": [
+    "{{cwd}}/shot_reviews/01/shot_script.txt",
+    "{{cwd}}/shot_reviews/01/review.json"
+  ],
+  "summary": {
+    "shots": 1,
+    "packages": 1,
+    "content_seconds": 20,
+    "failures": 0,
+    "warnings": 4
+  }
+}

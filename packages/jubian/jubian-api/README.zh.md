@@ -118,7 +118,7 @@ const body = buildSubtitleEraseRequest('quzimuToB', {
 
 `resolveVideoModel(catalogue, intent)` 保留精确的 `modelId`、显式 `platformId`、生成类型和时长，宽高比与分辨率匹配不区分大小写。目录必须恰好匹配一项；缺失或歧义会失败，而不是改选其他模型或平台。返回的选择器刷新过期标准标识，并保留 `genNum=1`。原生准备流程使用实时分镜设置；按模型生成应使用 `prepare_video`/`submit_video`。
 
-`resolveVideoModel()` 和 `readStoryboard()` 将已保存的十进制时长字符串（含补零或首尾空白）规范为安全正整数；格式错误的字符串仍不能用于生成。`readStoryboard()` 保留原始提供方快照。`validateVideoDuration()` 校验数字类型的整数秒：精确 ID `doubao-seedance-2-0-260128` 使用 4–15 秒，`doubao-seedance-2-5-260628` 使用 4–30 秒。这些已记录的范围并非模型目录返回。其他型号接受正整数秒，不借用 Seedance 上限；上限未知本身不会阻止准备或提交，但仍必须精确匹配实时目录。原生预览冻结数字时长，项目、指纹与有序主体身份校验保持不变。
+`resolveVideoModel()` 和 `readStoryboard()` 将已保存的十进制时长字符串（含补零或首尾空白）规范为安全正整数；格式错误的字符串仍不能用于生成。`readStoryboard()` 保留原始提供方快照。`seedanceVideoVersion()` 仅将精确 ID `doubao-seedance-2-0-260128`、欢畅 `doubao-seedance-2.0` 识别为 2.0，将 `doubao-seedance-2-5-260628`、欢畅 `doubao-seedance-2.5` 识别为 2.5，其他 ID 返回 `null`。`validateVideoDuration()` 对这些 2.0 型号校验 4–15 整数秒，对这些 2.5 型号校验 4–30 整数秒；素材校验分别允许最多三条和十条音频引用。这些已记录的限制并非模型目录返回。其他型号接受正整数秒，不借用 Seedance 上限；上限未知本身不会阻止准备或提交，但仍必须精确匹配实时目录，请求中的模型及通道 ID 不会被改写。原生预览冻结数字时长，项目、指纹与有序主体身份校验保持不变。
 
 ### 下载媒体
 

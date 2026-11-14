@@ -19,8 +19,17 @@ import { configurationFixture } from '../../../settings/settings/tests/configura
 import * as Jubian from '../src/index.ts'
 import { videoSelectionContext } from '../src/video-session.ts'
 
-it('delivers a fresh subagent the parent video selection through the loaded service before its first request', async () => {
+it.each([
+  ['delivers a fresh subagent the parent video selection through the loaded service before its first request', false],
+  ['delivers the initialized Huanchang default to a fresh subagent through the loaded service', true],
+] as const)('%s', async (_title, huanchang) => {
   const catalogue = JSON.parse(await readFile(new URL('../../jubian-api/tests/fixtures/catalogue-20261016.json', import.meta.url), 'utf8')) as Record<string, unknown>
+  const recordedHuanchang: unknown = JSON.parse(await readFile(new URL('../../jubian-api/tests/fixtures/catalogue-huanchang-20261114.json', import.meta.url), 'utf8'))
+  if (!Array.isArray(recordedHuanchang)) throw new Error('Expected the recorded Huanchang catalogue rows')
+  const models = huanchang ? recordedHuanchang : catalogue['1']
+  const defaultModel = huanchang
+    ? { modelId: 'doubao-seedance-2.5', platformId: 'FZ_HUAN_CHANG', resolution: '480p' }
+    : { modelId: 'doubao-seedance-2-5-260628', platformId: 'FANG_ZHOU', resolution: '480p' }
   const { ctx, home } = await configurationFixture({ hmr: false, rows: [
     { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
     { id: 'credentials', name: 'cordis:credentials', config: { JUBIANAI_ADMIN_TOKEN: 'fixture-token' } },
@@ -30,7 +39,7 @@ it('delivers a fresh subagent the parent video selection through the loaded serv
     const address = url instanceof Request ? url.url : url.toString()
     requests.push(`${init?.method} ${address}`)
     if (init?.method !== 'GET' || !address.includes('getSelectList?taskType=1')) throw new Error('Unexpected provider write')
-    return new Response(JSON.stringify({ code: 200, data: catalogue['1'] }))
+    return new Response(JSON.stringify({ code: 200, data: models }))
   })
   try {
     await ctx.plugin(Llm); await ctx.plugin(SessionStore); await ctx.plugin(SessionProjections)
@@ -40,15 +49,17 @@ it('delivers a fresh subagent the parent video selection through the loaded serv
     await ctx.plugin(Subagents); await ctx.plugin(Spawn, { providerName: 'spawn' })
     const entry = await ctx.loader.create({ name: 'cordis:jubian', config: { ledgerRoot: home, workspaceSecrets: false,
       sessionVideoSelection: true,
-      defaultVideoModel: { modelId: 'doubao-seedance-2-5-260628', platformId: 'FANG_ZHOU', resolution: '480p' } } })
+      defaultVideoModel: defaultModel } })
     await ctx.loader.await()
     for (const row of ctx.loader.entries()) await row.fiber?.await()
     const adapter = new MockAdapter([textResponse('按继承的视频模型完成核对。')])
     ctx.llm.registerAdapter(['mock'], adapter)
     const parent = await ctx.agentLoop.create(SessionId('video-child-parent'), { provider: 'mock', model: 'mock' }, { cwd: home })
     const service = ctx.jubianVideoSelection
-    const choice = (await service.catalogue()).find(option => option.maxDurationSeconds === 15)!
-    const selected = await service.select(parent, choice.key, 0)
+    const selected = huanchang ? await service.initialize(parent)
+      : await service.select(parent, (await service.catalogue()).find(option => option.maxDurationSeconds === 15)!.key, 0)
+    if (selected === null) throw new Error('The default video selection was not initialized')
+    if (huanchang) expect(selected).toMatchObject({ ...defaultModel, key: '93:480p', standardId: 93, maxDurationSeconds: 30 })
     const before = requests.length
     const run = await ctx.subagents.startActivation({ provider: 'spawn', label: 'video model inheritance', delivery: 'caller',
       request: { parent, prompt: [{ type: 'text', text: '核对当前模型与时长。' }] }, signal: new AbortController().signal })
@@ -63,6 +74,11 @@ it('delivers a fresh subagent the parent video selection through the loaded serv
         .flatMap(message => message.content).flatMap(part => part.type === 'text' ? [part.text] : [])
       expect(contexts.join('\n')).toContain(videoSelectionContext(selected))
       expect({ choice: service.current(child), contexts }).toMatchSnapshot('spawned child current video choice')
+      if (huanchang) {
+        expect(child.session.snapshotEvents().filter(event => event.type === 'jubian/video-selection')
+          .map(event => event.data.selection)).toEqual([selected])
+        expect(requests.every(request => request.startsWith('GET '))).toBe(true)
+      }
     } finally { await run.dispose() }
     await ctx.loader.resolve(entry).fiber!.dispose()
     expect(ctx.sessionProjections.snapshot(parent.session, ['jubianVideoSelection']).values).toEqual({})
