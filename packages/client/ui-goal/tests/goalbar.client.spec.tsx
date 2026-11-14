@@ -177,6 +177,15 @@ describe('GoalBar', () => {
     expect(screen.queryByRole('button', { name: '暂停目标' })).toBeNull()
   })
 
+  it('active disarmed goal with a stop wait: the wait message is the strip tooltip beside resume', () => {
+    const actions = makeActions()
+    const message = 'Automatic resume limit (3) reached; last model error SERVER. Resume the goal to continue.'
+    render(<GoalBar goal={makeGoal()} activation="disarmed" wait={{ sequence: 1, reason: 'input', message }} {...actions} t={t} />)
+    expect(screen.getByText('待继续的目标').closest('[title]')?.getAttribute('title')).toBe(message)
+    fireEvent.click(screen.getByRole('button', { name: '恢复目标' }))
+    expect(actions.onResume).toHaveBeenCalledTimes(1)
+  })
+
   it('paused goal: "已暂停的目标" with a resume action after edit and clear', () => {
     const actions = makeActions()
     render(<GoalBar goal={makeGoal({ phase: 'paused' })} {...actions} t={t} />)

@@ -6,11 +6,12 @@
 import { isDeepStrictEqual } from 'node:util'
 import { FiberState } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 import type { Agent, PreStepDecision } from '@deepseek-ai/dsh-agent'
 import type { GoalMessageSource, GoalRef, GoalView, GoalWait, GoalWaitRequest } from '@deepseek-ai/dsh-goal'
 import { JobId } from '@deepseek-ai/dsh-jobs'
 import type { JobEvent } from '@deepseek-ai/dsh-jobs'
-import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { createUserMessage, LlmError } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageId, MessageSource } from '@deepseek-ai/dsh-llm'
 import type { Session, SessionEvent, UserMessage } from '@deepseek-ai/dsh-session'
 import type { ToolExecution } from '@deepseek-ai/dsh-tools'
@@ -22,6 +23,54 @@ export { renderGoalRoundPrompt } from './prompt.ts'
 
 export const name = 'goal-round-driver'
 export const inject = ['agents', 'goals', 'sessions', 'tools']
+
+/** Opt-in bounded continuation after an admitted goal round fails with a transient model error. */
+export interface TransientErrorResumeConfig {
+  /** Consecutive automatic resumes per goal revision; any completed goal round resets the count. */
+  maxAttempts: number
+  /** Milliseconds from the failed round's idle point to the resumed round. */
+  delayMs: number
+  /** `LlmFailure.code` values treated as transient. */
+  codes: string[]
+}
+
+/** Driver configuration; without `transientErrorResume` every turn error disarms continuation. */
+export interface Config {
+  /** Opt-in bounded resume after a transient model error; absent keeps every turn error a stop. */
+  transientErrorResume?: TransientErrorResumeConfig | undefined
+}
+
+/** Configuration accepted from cordis.yml, where `codes` falls back to its schema default. */
+export interface ConfigInput {
+  /** Opt-in bounded resume after a transient model error; absent keeps every turn error a stop. */
+  transientErrorResume?: (Omit<TransientErrorResumeConfig, 'codes'> & { codes?: string[] }) | undefined
+}
+
+/** Validate the driver configuration at plugin load. */
+export const Config: z<ConfigInput, Config> = z.object({
+  transientErrorResume: z.union([z.object({
+    maxAttempts: z.natural().min(1).required(),
+    // One day caps unit typos; the timer wait itself handles longer deadlines.
+    delayMs: z.natural().min(1).max(86_400_000).required(),
+    codes: z.array(z.string().min(1)).min(1).default(['SERVER', 'TIMEOUT', 'TRANSPORT', 'STREAM_CLOSED']),
+  }), z.const(undefined)]),
+})
+
+/** Resolved transient-resume policy with a lookup set for failure codes. */
+interface TransientResumePolicy {
+  readonly maxAttempts: number
+  readonly delayMs: number
+  readonly codes: ReadonlySet<string>
+}
+
+/** Resolve the opt-in policy, rejecting duplicate codes the schema accepts. */
+function resolveTransientErrorResume(config: Config): TransientResumePolicy | undefined {
+  const option = config.transientErrorResume
+  if (option === undefined) return undefined
+  const codes = new Set(option.codes)
+  if (codes.size !== option.codes.length) throw new Error('transientErrorResume.codes must not contain duplicates')
+  return { maxAttempts: option.maxAttempts, delayMs: option.delayMs, codes }
+}
 
 /** Identity reserved before a goal continuation enters the agent inbox. */
 interface RoundIdentity {
@@ -42,6 +91,8 @@ interface RoundAttempt extends RoundIdentity {
   phase: 'queued' | 'claimed' | 'admitted'
   cancelled: boolean
   stale: boolean
+  /** Transient model failure that ended the admitted round, when the opt-in resume applies. */
+  failure?: { readonly code: string }
 }
 
 /** Serialized process-local scheduling state for one exact Agent lifecycle. */
@@ -56,6 +107,8 @@ interface DriverState {
   requested: boolean
   run: Promise<void> | undefined
   stopping: boolean
+  /** Consecutive automatic resumes spent on one goal revision. */
+  transientResumes: { goalId: GoalRef['id']; revision: number; count: number } | undefined
 }
 
 /** Whether a source identifies an automatic, positive-numbered goal round. */
@@ -85,8 +138,13 @@ function renderThrown(value: unknown): string {
   return value instanceof Error ? value.message : String(value)
 }
 
-/** Install automatic same-session continuation and its race fences. */
-export function apply(ctx: Context): void {
+/**
+ * Install automatic same-session continuation and its race fences.
+ * @param ctx - plugin context with the agents, goals, sessions, and tools services.
+ * @param config - validated driver configuration.
+ */
+export function apply(ctx: Context, config: Config): void {
+  const transientResume = resolveTransientErrorResume(config)
   const states = new Map<Agent, DriverState>()
   // Releases drivers still joining subagents when the plugin unloads.
   const unloading = Promise.withResolvers<void>()
@@ -106,6 +164,7 @@ export function apply(ctx: Context): void {
       requested: false,
       run: undefined,
       stopping: false,
+      transientResumes: undefined,
     }
     states.set(agent, state)
     return state
@@ -234,13 +293,37 @@ export function apply(ctx: Context): void {
     if (attempt !== undefined) {
       state.attempt = undefined
       const goal = currentGoal(state)
-      if (attempt.completed && goal?.phase === 'active' && goal.activation === 'armed'
-        && goal.id === attempt.goalId && goal.revision === attempt.revision && goal.wait === undefined
-        && goal.roundsStarted < goal.maxGoalRounds) {
-        if (attempt.emptyJob !== undefined && !attempt.productiveTool) ctx.goals.wait(agent, goalRef(goal), attempt.emptyJob)
-        else if (!attempt.toolsSeen) ctx.goals.wait(agent, goalRef(goal), {
-          reason: 'no-tools', message: 'The last automatic round made no tool calls. Waiting for user input or resume.',
-        })
+      const current = goal !== undefined && goal.phase === 'active' && goal.activation === 'armed'
+        && goal.id === attempt.goalId && goal.revision === attempt.revision
+        && goal.roundsStarted < goal.maxGoalRounds
+      if (attempt.completed) {
+        state.transientResumes = undefined
+        if (current && goal.wait === undefined) {
+          if (attempt.emptyJob !== undefined && !attempt.productiveTool) ctx.goals.wait(agent, goalRef(goal), attempt.emptyJob)
+          else if (!attempt.toolsSeen) ctx.goals.wait(agent, goalRef(goal), {
+            reason: 'no-tools', message: 'The last automatic round made no tool calls. Waiting for user input or resume.',
+          })
+        }
+      } else if (attempt.failure !== undefined && transientResume !== undefined) {
+        const prior = state.transientResumes
+        const used = prior?.goalId === attempt.goalId && prior.revision === attempt.revision ? prior.count : 0
+        const { code } = attempt.failure
+        if (!current) disarm(state)
+        else if (used < transientResume.maxAttempts) {
+          state.transientResumes = { goalId: attempt.goalId, revision: attempt.revision, count: used + 1 }
+          // A wait the model recorded before the failure already defers the next round.
+          if (goal.wait === undefined) ctx.goals.wait(agent, goalRef(goal), {
+            reason: 'timer',
+            wakeAt: Date.now() + transientResume.delayMs,
+            message: `Goal round failed with model error ${code}; automatic resume ${used + 1}/${transientResume.maxAttempts} in ${Math.ceil(transientResume.delayMs / 1000)} s.`,
+          })
+        } else {
+          disarm(state)
+          if (goal.wait === undefined) ctx.goals.wait(agent, goalRef(goal), {
+            reason: 'input',
+            message: `Automatic resume limit (${transientResume.maxAttempts}) reached; last model error ${code}. Resume the goal to continue.`,
+          })
+        }
       }
       state.needsCheckpoint = true
       state.requested = true
@@ -391,8 +474,15 @@ export function apply(ctx: Context): void {
         }
       }))
     })
-    ctx.on('agent/error', ({ agent }) => {
+    ctx.on('agent/error', ({ agent, error }) => {
       const state = stateFor(agent)
+      const attempt = state.attempt
+      // turn/end records this same LlmFailure code; drive() settles the attempt at idle.
+      if (transientResume !== undefined && attempt?.phase === 'admitted' && !attempt.completed
+        && !attempt.cancelled && error instanceof LlmError && transientResume.codes.has(error.failure.code)) {
+        attempt.failure = { code: error.failure.code }
+        return
+      }
       disarm(state)
     })
 
@@ -406,6 +496,7 @@ export function apply(ctx: Context): void {
       state.attempt = undefined
       state.competingQueued = false
       state.needsCheckpoint = false
+      state.transientResumes = undefined
     })
     ctx.on('agent/status', ({ agent, status }) => {
       const state = stateFor(agent)

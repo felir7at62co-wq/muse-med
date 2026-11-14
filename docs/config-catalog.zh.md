@@ -1945,6 +1945,33 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-goal -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-goal-round-driver -->
+<a id="deepseek-aidsh-goal-round-driver"></a>
+
+## `@deepseek-ai/dsh-goal-round-driver`
+
+- `inject`: `agents` · `goals` · `sessions` · `tools`
+- `source`: [`packages/goal/goal-round-driver/src/index.ts:38`](../packages/goal/goal-round-driver/src/index.ts)
+
+```ts config-catalog
+/** Driver configuration; without `transientErrorResume` every turn error disarms continuation. */
+export interface Config {
+  /** Opt-in bounded resume after a transient model error; absent keeps every turn error a stop. */
+  transientErrorResume?: TransientErrorResumeConfig | undefined
+}
+
+/** Opt-in bounded continuation after an admitted goal round fails with a transient model error. */
+export interface TransientErrorResumeConfig {
+  /** Consecutive automatic resumes per goal revision; any completed goal round resets the count. */
+  maxAttempts: number
+  /** Milliseconds from the failed round's idle point to the resumed round. */
+  delayMs: number
+  /** `LlmFailure.code` values treated as transient. */
+  codes: string[]
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-goal-round-driver -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-guard-drama -->
 <a id="deepseek-aidsh-guard-drama"></a>
 
@@ -6411,7 +6438,6 @@ export interface Config {
 | `@deepseek-ai/dsh-experimental-tool-worktree` | `tools` · `worktrees` | [`packages/experimental/tool-worktree/src/index.ts`](../packages/experimental/tool-worktree/src/index.ts) |
 | `@deepseek-ai/dsh-fs-observation-policy` | — | [`packages/fs/fs-observation-policy/src/index.ts`](../packages/fs/fs-observation-policy/src/index.ts) |
 | `@deepseek-ai/dsh-fs-ssh` | `ssh` · `sandboxPolicy` | [`packages/ssh/fs-ssh/src/index.ts`](../packages/ssh/fs-ssh/src/index.ts) |
-| `@deepseek-ai/dsh-goal-round-driver` | `agents` · `goals` · `sessions` · `tools` | [`packages/goal/goal-round-driver/src/index.ts`](../packages/goal/goal-round-driver/src/index.ts) |
 | `@deepseek-ai/dsh-harness-dev-context` | `systemPrompt` · `sessionProjections` · `webApp` | [`packages/context/harness-dev-context/src/index.ts`](../packages/context/harness-dev-context/src/index.ts) |
 | `@deepseek-ai/dsh-host-directory-picker-auto` | `webServer` · `connection` · `loader` | [`packages/host/directory-picker-auto/src/index.ts`](../packages/host/directory-picker-auto/src/index.ts) |
 | `@deepseek-ai/dsh-host-directory-picker-native` | — | [`packages/host/directory-picker-native/src/index.ts`](../packages/host/directory-picker-native/src/index.ts) |

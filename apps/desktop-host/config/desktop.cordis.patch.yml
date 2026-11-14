@@ -8,6 +8,11 @@
     personaPrefix: ''
     includeHarnessIdentity: false
 
+# Unattended whole-series goals resume after a model outage that outlasts provider retries.
+- id: goal-round-driver
+  config:
+    transientErrorResume: { maxAttempts: 3, delayMs: 120000 }
+
 # New tasks use one unified creative Agent; legacy preset ids remain recoverable.
 - id: agent-preset-registry
   config:

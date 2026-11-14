@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-goal-round-driver` 会在同一会话内自动继续 active goal，但前提是 agent（智能体）已空闲、续行已启用、没有待处理的等待条件且配置的 Round 额度仍有剩余。每个 Round 都让模型获得另一次推进目标的机会；只有进入模型历史的 goal Round 才消耗额度，额度耗尽时会记录 blocker。驱动器本身没有配置：goal 定义 Round 上限，`dsh-tool-goal` 定义重复受阻后何时停止续行。若任务需要无人值守的多轮推进，应与 `dsh-goal` 和 `dsh-tool-goal` 一起挂载；若每一步都需要人工 steering（中途引导），则不要挂载。
+`dsh-goal-round-driver` 会在同一会话内自动继续 active goal，但前提是 agent（智能体）已空闲、续行已启用、没有待处理的等待条件且配置的 Round 额度仍有剩余。每个 Round 都让模型获得另一次推进目标的机会；只有进入模型历史的 goal Round 才消耗额度，额度耗尽时会记录 blocker。驱动器唯一的配置是可选启用的 `transientErrorResume`；goal 定义 Round 上限，`dsh-tool-goal` 定义重复受阻后何时停止续行。若任务需要无人值守的多轮推进，应与 `dsh-goal` 和 `dsh-tool-goal` 一起挂载；若每一步都需要人工 steering（中途引导），则不要挂载。
 
 ## 目录
 
@@ -31,7 +31,7 @@ kind: "package-reference"
 
 ### 组合方式
 
-把驱动器挂载在 goal 服务与 goal 工具旁边；驱动器本身不需要任何配置。
+把驱动器挂载在 goal 服务与 goal 工具旁边；它唯一的选项 `transientErrorResume` 未配置时关闭。
 
 ```yaml
 - id: goal
@@ -42,9 +42,14 @@ kind: "package-reference"
 
 - id: goal-round-driver
   name: '@deepseek-ai/dsh-goal-round-driver'
+  config:
+    # Optional; omit to keep every turn error a stop.
+    transientErrorResume: { maxAttempts: 3, delayMs: 120000 }
 ```
 
 `maxGoalRounds` 属于 goal 定义，面向模型的阻塞阈值属于 `dsh-tool-goal`；在驱动器中重复任一数值都可能产生分歧策略。
+
+`transientErrorResume` 让无人值守的 goal 挺过超出单次请求提供方重试时长的上游模型故障。它只作用于已准入、且以列出的 `LlmFailure.code` 结束的 goal Round（`codes`，默认 `SERVER`、`TIMEOUT`、`TRANSPORT` 与 `STREAM_CLOSED`）。这样的 Round 不会停用续行：驱动器记录一个 `timer` 等待，其消息写明错误代码和 `n/maxAttempts` 形式的尝试次数，下一 Round 在 `delayMs` 后启动；被接受的用户输入会提前解除该等待。失败 Round 中模型已记录的等待会保留，不再新增等待，但仍消耗一次尝试。完成一个 goal Round，或人工编辑、resume，都会重置计数。连续自动恢复 `maxAttempts` 次后，驱动器停用续行；失败的 Round 没有留下自己的等待时，再记录一个 `input` 等待，其消息说明停止原因；Web 端目标栏把这条消息作为提示文字显示。配置值错误（包括重复代码）会使插件加载失败。
 
 ### 每轮做什么
 
@@ -52,7 +57,7 @@ kind: "package-reference"
 
 ### 何时停止续行
 
-Round 只在整个 agent 进入 idle 时启动；加载了子 agent 服务时，还要等该 agent 仍在推进的后代全部结束后才启动；完成、暂停和阻塞会阻止续行；宿主发起的暂停还会中止正在运行的轮次，而模型在自己轮次内发起的暂停会正常结束。编辑只会通过修订栅栏使进行中的 Round 失效，驱动器会继续新修订。驱动器也会在以下情况自行停止：轮次因 max tokens 结束、持久性写入失败、agent 被取消、插件卸载，或 Round 上限耗尽——上限耗尽时它会以稳定代码 `round-limit` 记录一个 blocker。取消绝不会自动重启 Round：Round 已在进行的 goal 会在下一次 idle 时被暂停；与 goal 尝试无关的取消只会停用续行。Agent 被处置（例如进程正常关停，或重载拥有该 Agent 的插件）时，Round 以 `disposed` 原因中止，此时只停用续行，goal 保持 active，与插件卸载时一致；用户、父 Agent 与 hook 发起的取消仍会暂停它。agent 进入 idle 时仍在排队的 Round 提示会从收件箱移除，后续人类输入不会排在它后面等待；被取消的轮次属于其他工作时，续行会被停用而不是暂停。
+Round 只在整个 agent 进入 idle 时启动；加载了子 agent 服务时，还要等该 agent 仍在推进的后代全部结束后才启动；完成、暂停和阻塞会阻止续行；宿主发起的暂停还会中止正在运行的轮次，而模型在自己轮次内发起的暂停会正常结束。编辑只会通过修订栅栏使进行中的 Round 失效，驱动器会继续新修订。驱动器也会在以下情况自行停止：轮次因 max tokens 结束或以可选瞬时恢复范围之外的错误结束、持久性写入失败、agent 被取消、插件卸载，或 Round 上限耗尽——上限耗尽时它会以稳定代码 `round-limit` 记录一个 blocker。取消绝不会自动重启 Round：Round 已在进行的 goal 会在下一次 idle 时被暂停；与 goal 尝试无关的取消只会停用续行。Agent 被处置（例如进程正常关停，或重载拥有该 Agent 的插件）时，Round 以 `disposed` 原因中止，此时只停用续行，goal 保持 active，与插件卸载时一致；用户、父 Agent 与 hook 发起的取消仍会暂停它。agent 进入 idle 时仍在排队的 Round 提示会从收件箱移除，后续人类输入不会排在它后面等待；被取消的轮次属于其他工作时，续行会被停用而不是暂停。
 
 ### resume、fork 或卸载之后
 
@@ -73,6 +78,7 @@ Round 只在整个 agent 进入 idle 时启动；加载了子 agent 服务时，
 - **先预留，后准入。** idle 时驱动器为当前 `{ goalId, revision }` 预留 `roundsStarted + 1`，排入一条携带 goal 消息来源的 `<goal_round>` 提示词；只有进入步骤的 `user/message` 才会增加 `roundsStarted`。因陈旧而被拒绝的预留不会消耗 Round 编号。
 - **竞态防护。** `agent/pre-step` 监听器会在下游监听器前后验证完整的已领取记录与当前 goal，因此陈旧、已取消或竞争中的提示词会在其步骤进入前被拒绝。在预留前到达的人类工作会让自动工作让行，直到 agent 重新进入 idle。
 - **持久性检查点。** `goal/changed` 会产生持久性义务：排队工作前，驱动器会等待 `ctx.sessions.flush()`，并在等待后重新检查 goal revision 与竞争输入。通过 `agent/error` 到达的 flush 失败会停用续行，避免另一 Round 启动。
+- **瞬时错误分类。** 配置 `transientErrorResume` 后，`agent/error` 监听器会给已准入、未完成的 Round 标记 `LlmError` 代码，而不是停用续行；`turn/end` 记录同一代码。下一次 idle 处理该标记：记录定时等待、保留模型已记录的等待，或在次数耗尽、修订过期、达到 Round 上限时停用续行。该 agent 的其他错误报告（包括同一轮次的第二次报告）仍会停用续行。尝试计数只保存在进程内存中，按 goal id 与修订区分。
 - **fail-closed teardown。** Teardown 会关闭准入、停用所有活跃 goal 的续行、以 `parent` 原因取消进行中的工作，并在事件防护仍生效的情况下等待驱动器和 agent 完全停稳。
 
 ### 源码地图
@@ -107,7 +113,7 @@ Round 只在整个 agent 进入 idle 时启动；加载了子 agent 服务时，
 
 #### 模型看到的内容
 
-每个已准入 Round 都是一段保留的用户角色 `<goal_round>` 块，其中点明完整目标与正数 Round 编号。更早的用户消息、goal 状态快照、assistant 输出与工具记录仍保留在同一会话历史中。
+每个已准入 Round 都是一段保留的用户角色 `<goal_round>` 块，其中点明完整目标与正数 Round 编号。更早的用户消息、goal 状态快照、assistant 输出与工具记录仍保留在同一会话历史中。瞬时模型错误后恢复的 Round 使用相同提示词；冷却与停止消息是持久的 `goal/wait` 记录，只通过 `get_goal` 与 `update_goal` 的结果到达模型。
 
 #### Token 影响
 
@@ -128,7 +134,7 @@ Round 只在整个 agent 进入 idle 时启动；加载了子 agent 服务时，
 - **只在同一会话执行**——此包有意不 spawn 新 agent、不 fork 会话前缀，也不实现 Ralph 风格的独立尝试；该工作流属于单独的插件层。
 - **已接受队列的卸载竞态**——Cordis 插件卸载是异步的。已经被 agent inbox 接受的 goal 提示词可以在卸载开始前启动并消耗其 Round；teardown 随后会取消请求、停用 goal 的续行并等待完全停稳。不会再启动后续 Round。
 - **只有 Round 上限，不是资源预算**——token、货币、时间与提供方配额策略保持独立。对应的会话事件不会归属于 goal 消息，也不会映射为 goal 阻塞代码。
-- **异常情况不自动重试**——暂时性的提供方与持久化失败需要之后由用户授权 resume，而不会采用隐式重试策略。
+- **只有有界的瞬时恢复**——未配置 `transientErrorResume` 时，每次轮次错误都需要用户授权 resume。配置后，每个 goal 修订最多连续自动恢复 `maxAttempts` 次，每次恢复的 Round 都消耗一个 goal Round。冷却期间进程重启后，goal 保持停用续行，直到用户 resume；headless 单次运行在首次 idle 时退出，因此不受益。goal 消息进入历史之前发生的瞬时失败（例如 Round 首个步骤中失败的压缩请求）以及持久化失败仍会停用续行（[决策](../../../.agents/notes/implemented/architecture/2026-11-13-goal-transient-error-resume.zh.md)）。
 
 <a id="dev-note"></a>
 ### 开发备注
@@ -136,6 +142,6 @@ Round 只在整个 agent 进入 idle 时启动；加载了子 agent 服务时，
 <details>
 <summary>维护者的工作上下文——点击展开</summary>
 
-本开发备注是维护者的工作上下文，明确不具权威性。开放且未决的方向：异常失败重试策略与逐轮评估器认证；两者按设计都留在本包之外。
+本开发备注是维护者的工作上下文，明确不具权威性。开放且未决的方向：逐轮评估器认证，按设计留在本包之外。
 
 </details>
