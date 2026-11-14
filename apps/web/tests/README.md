@@ -24,6 +24,8 @@ The workspace file-reference recording supplies its historical two-skill catalog
 
 Same-day message goldens use the shared `WEB_FIXTURE_TIME`: seeded transcripts pass it as `createdAt` and pin the browser calendar with `pinBrowserClock`; scenarios that submit live messages also use `pinHostClock` and restore it after teardown. These clocks advance with real elapsed time while keeping native timers intact, so midnight does not change a scenario's date labels.
 
+The message-action fork scenario gives both helpers the same native `performance.timeOrigin + performance.now()` anchor. Host summaries and browser placeholders then share one elapsed timeline through reloads. Other callers omit this optional anchor and retain the document-local browser clock.
+
 Root-only recorded-session owners can preserve canonical replay inputs with [`writerOutput`](../../../packages/test-support/session-snapshot/README.md). The scaffold compares the driven root against a separate current-writer oracle and checks its exact inventory; it rejects child canonical roles for this Web option. Refresh may check the inventory before teardown harvests the root oracle; replay always requires it.
 
 Built-bundle jsdom cases share `installAssembledBootEnv`, which supplies non-matching media queries and restores browser globals after each test; real media-query behavior belongs to browser cases.

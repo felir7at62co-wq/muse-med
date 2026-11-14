@@ -1489,6 +1489,45 @@ describe('built-in conversation node Definitions', () => {
     expect(replacement?.data).toMatchObject({ blocks: [{ kind: 'text', text: 'Replacement reply' }] })
   })
 
+  it.each(['abandoned', 'settled'] as const)('refreshes the completed Turn footer after an attempt is %s', (outcome) => {
+    const attemptId = LlmAttemptId('closed-turn-attempt')
+    const value = assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+    ])
+    value.append({
+      type: 'transient',
+      event: {
+        type: 'assistant/live-chunk', seq: 2.5, time: 1_030,
+        data: {
+          attemptId, turn: 1, step: 1,
+          chunk: { type: 'text-delta', index: 0, text: 'Unsettled reply' },
+        },
+      },
+    })
+    value.append(at(4, 'step/end', { turn: 1, step: 1 }))
+    value.append(at(5, 'turn/end', { turn: 1, reason: { kind: 'completed' } }))
+    value.flush()
+    const before = node(snapshot(value), 'turn-tail')
+    expect(before?.data).toMatchObject({ closing: { blocks: [{ kind: 'text', text: 'Unsettled reply' }] } })
+
+    if (outcome === 'settled') {
+      const settlement = at(3, 'assistant/message', {
+        turn: 1, step: 1, message: assistantMessage('closed-turn-answer', 'Settled reply'),
+      }, { surfaceOp: 'append' })
+      if (settlement.event.type !== 'assistant/message') throw new Error('expected Assistant message')
+      value.settleAssistant(attemptId, { type: 'event', event: settlement.event })
+    } else value.settleAssistant(attemptId)
+    value.flush()
+
+    const after = node(snapshot(value), 'turn-tail')
+    expect(after?.key).toBe(before?.key)
+    expect(after?.data).toMatchObject(outcome === 'settled'
+      ? { closing: { blocks: [{ kind: 'text', text: 'Settled reply' }] }, branchUnavailable: false }
+      : { closing: null, branchUnavailable: true })
+    expect(node(snapshot(value), 'assistant-step')?.visibility).toBe(outcome === 'settled' ? 'visible' : 'hidden')
+  })
+
   it('omits first-token metrics after live settlement and after reopening the same history', () => {
     const attemptId = LlmAttemptId('settled-chat-timing')
     const starts = [
