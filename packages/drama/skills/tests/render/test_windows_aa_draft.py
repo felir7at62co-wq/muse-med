@@ -14,12 +14,33 @@ from unittest.mock import Mock, patch
 
 SCRIPTS = Path(__file__).resolve().parents[2] / 'skills/tweet-drama-draft-build/scripts'
 sys.path.insert(0, str(SCRIPTS))
+from draft_stage_guard import DraftBuildBusyError
 spec = importlib.util.spec_from_file_location('windows_aa_draft_tests', SCRIPTS / 'windows_aa_draft.py')
 aa = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(aa)
 
 
 class AaDraftTests(unittest.TestCase):
+    draft_id = '38DAFBEA-5802-46D7-9D29-AFB9C9BB967F'
+
+    def save_content(self, plan, *, problem=None):
+        output = Path(plan['draft_path'])
+        materials = [{'id': f'body-{row["shot"]}', 'path': row['path'],
+                      'duration': row.get('source_duration_us', 2_000_000)} for row in plan['videos']]
+        if problem == 'external-reference':
+            materials[0]['path'] = str(self.sources[0])
+        content = {'tracks': [{'type': 'video', 'segments': [
+            {'material_id': material['id'], 'speed': 1,
+             'source_timerange': {'start': 0, 'duration': row['duration_us']},
+             'target_timerange': {'start': row['start_us'], 'duration': row['duration_us']}}
+            for row, material in zip(plan['native_videos'], materials)]}], 'materials': {'videos': materials}}
+        (output / 'draft_content.json').write_text(json.dumps(content), encoding='utf-8')
+        if problem != 'missing-meta':
+            (output / 'draft_meta_info.json').write_text(json.dumps({'draft_id': self.draft_id}), encoding='utf-8')
+        (self.drafts / 'root_meta_info.json').write_text(json.dumps({'all_draft_store': [{
+            'draft_id': self.draft_id, 'draft_fold_path': str(output), 'draft_name': plan['name']}]}), encoding='utf-8')
+        return content
+
     def test_isolated_packaged_python_loads_adjacent_helpers(self):
         with tempfile.TemporaryDirectory() as work:
             request = Path(work) / 'invalid.json'
@@ -62,6 +83,142 @@ class AaDraftTests(unittest.TestCase):
 
     def plan(self):
         return aa.prepare_plan(self.request, str(self.drafts))
+
+    def native_save(self, arguments, *, problem=None):
+        plan = json.loads(Path(arguments[arguments.index('-PlanPath') + 1]).read_text(encoding='utf-8'))
+        output = Path(plan['draft_path'])
+        output.mkdir()
+        content = self.save_content(plan)
+        if problem == 'identity':
+            (self.drafts / 'root_meta_info.json').write_text(json.dumps({'all_draft_store': [{
+                'draft_id': 'E880056E-7A04-44D3-86E8-788E9978365E',
+                'draft_fold_path': str(output), 'draft_name': plan['name']}]}), encoding='utf-8')
+        elif problem == 'range':
+            content['tracks'][0]['segments'][0]['source_timerange']['start'] = 2_000_000
+            (output / 'draft_content.json').write_text(json.dumps(content), encoding='utf-8')
+        elif problem == 'opaque':
+            (output / 'draft_content.json').write_bytes(b'opaque native format')
+        result, _ = self.saved(plan)
+        if problem == 'material-duration':
+            result['material_readback']['resource_map'][0]['metadata']['duration_us'] = 3_000_000
+        elif problem == 'material-readback-missing':
+            del result['material_readback']
+        result.update(draft_id=self.draft_id, path=str(output), runtime={})
+        Path(arguments[arguments.index('-ResultPath') + 1]).write_text(json.dumps(result), encoding='utf-8')
+        return SimpleNamespace(returncode=0, stderr='')
+
+    def test_missing_video_stream_duration_uses_full_container_duration(self):
+        with patch.object(aa, 'probe', return_value={'duration_us': 2_000_000, 'video_duration_us': None,
+                'video': True, 'audio': True, 'width': 1920, 'height': 1080}):
+            plan, _ = self.plan()
+        self.assertEqual([row['source_duration_us'] for row in plan['videos']], [2_000_000] * 2)
+
+    def test_native_frame_rounding_cannot_extend_beyond_the_full_source(self):
+        timeline = json.loads(self.timeline.read_text())
+        timeline['clips'] = [{'shot': 1, 'start_us': 0, 'duration_us': 1_012_345},
+                             {'shot': 2, 'start_us': 1_012_345, 'duration_us': 1_012_345}]
+        timeline['body_end'] = 2.024690
+        self.timeline.write_text(json.dumps(timeline))
+        with patch.object(aa, 'probe', return_value={'duration_us': 1_012_345,
+                'video': True, 'audio': True, 'width': 1920, 'height': 1080}), \
+                patch.object(aa, 'native_run') as native, self.assertRaisesRegex(ValueError, '30fps'):
+            aa.generate_request(self.request, str(self.drafts))
+        native.assert_not_called()
+        self.assertFalse((self.drafts / 'AA-EP02').exists())
+        with aa.BuildLease(self.drafts, 'AA-EP02'):
+            pass
+
+    def test_whole_frames_use_actual_frame_time_instead_of_transport_ceiling(self):
+        timeline = json.loads(self.timeline.read_text())
+        timeline.update(clips=[{'shot': 1, 'start_us': 0, 'duration_us': 1_033_333}], body_end=1.033333)
+        self.timeline.write_text(json.dumps(timeline))
+        self.srt.write_text('1\n00:00:00,100 --> 00:00:00,900\n完整帧\n', encoding='utf-8')
+        def save(arguments):
+            result = self.native_save(arguments)
+            plan = json.loads(Path(arguments[arguments.index('-PlanPath') + 1]).read_text(encoding='utf-8'))
+            self.assertEqual(plan['native_videos'][0]['end_frame'], 31)
+            self.assertEqual(plan['native_videos'][0]['duration_us'], 1_033_334)
+            path = Path(plan['draft_path']) / 'draft_content.json'
+            content = json.loads(path.read_text(encoding='utf-8'))
+            content['tracks'][0]['segments'][0]['source_timerange']['duration'] = 1_033_333
+            path.write_text(json.dumps(content), encoding='utf-8')
+            return result
+        with patch.dict(aa.os.environ, {'MUSE_JIANYING_POWERSHELL': sys.executable}), \
+                patch.object(aa, 'probe', return_value={'duration_us': 1_033_333,
+                    'video_duration_us': 1_033_333, 'video': True, 'audio': True, 'width': 1920, 'height': 1080}), \
+                patch.object(aa, 'native_run', side_effect=save):
+            result = aa.generate_request({**self.request, 'videos': [str(self.sources[0])]}, str(self.drafts))
+        self.assertTrue(result['success'])
+        self.assertEqual(result['verification']['embedded_source_ranges'], {'status': 'verified'})
+        self.assertIn('episode_source_path', result['drafts'][0])
+
+    def assert_saved_problem_rejected(self, problem, message):
+        request = {**self.request, 'name_prefix': f'AA-{problem}-'}
+        with patch.dict(aa.os.environ, {'MUSE_JIANYING_POWERSHELL': sys.executable}), \
+                patch.object(aa, 'native_run', side_effect=lambda arguments: self.native_save(arguments, problem=problem)), \
+                self.assertRaisesRegex(ValueError, message):
+            aa.generate_request(request, str(self.drafts))
+        output = self.drafts / (request['name_prefix'] + '02')
+        self.assertTrue((output / 'draft_content.json').is_file())
+        self.assertFalse((output / 'muse-episode-source.json').exists())
+        with aa.BuildLease(self.drafts, output.name):
+            pass
+        self.assertEqual(self.sources[0].read_bytes(), b'original source 0')
+
+    def test_saved_identity_error_stops_without_repair(self):
+        self.assert_saved_problem_rejected('identity', '身份校验失败')
+
+    def test_saved_source_range_error_stops_without_repair(self):
+        self.assert_saved_problem_rejected('range', 'source_timerange')
+
+    def test_native_material_duration_mismatch_stops_without_repair(self):
+        self.assert_saved_problem_rejected('material-duration', '时长')
+
+    def test_native_material_readback_missing_stops_without_repair(self):
+        self.assert_saved_problem_rejected('material-readback-missing', '回读')
+
+    def test_opaque_saved_content_stays_unverified_without_delivery_receipt(self):
+        with patch.dict(aa.os.environ, {'MUSE_JIANYING_POWERSHELL': sys.executable}), \
+                patch.object(aa, 'native_run', side_effect=lambda arguments: self.native_save(arguments, problem='opaque')):
+            result = aa.generate_request(self.request, str(self.drafts))
+        self.assertTrue(result['success'])
+        self.assertEqual(result['verification']['saved_identity']['status'], 'verified')
+        self.assertEqual(result['verification']['embedded_source_ranges']['status'], 'unverified')
+        self.assertFalse(result['editor_open_verified'])
+        candidate = result['drafts'][0]
+        self.assertNotIn('episode_source_path', candidate)
+        review = json.loads(Path(candidate['review_path']).read_text(encoding='utf-8'))
+        self.assertEqual(review['warnings'], candidate['warnings'])
+        self.assertTrue(any('不能归入交付目录' in warning for warning in candidate['warnings']))
+
+    def test_executor_owns_name_and_stage_through_native_and_readback(self):
+        observed = []
+        def check_owner(plan):
+            with self.assertRaises(DraftBuildBusyError):
+                with aa.BuildLease(self.drafts, plan['name']):
+                    self.fail('second owner entered')
+            stage = Path(plan['videos'][0]['path']).parents[1]
+            if aa.os.name == 'nt':
+                with self.assertRaises(OSError):
+                    stage.rename(stage.with_name(stage.name + '-moved'))
+            observed.append(stage)
+        def save(arguments):
+            plan = json.loads(Path(arguments[arguments.index('-PlanPath') + 1]).read_text(encoding='utf-8'))
+            check_owner(plan)
+            return self.native_save(arguments)
+        verify = aa.verify_saved_candidate
+        def readback(plan, result, verification):
+            check_owner(plan)
+            return verify(plan, result, verification)
+        with patch.dict(aa.os.environ, {'MUSE_JIANYING_POWERSHELL': sys.executable}), \
+                patch.object(aa, 'native_run', side_effect=save), \
+                patch.object(aa, 'verify_saved_candidate', side_effect=readback):
+            result = aa.generate_request(self.request, str(self.drafts))
+        self.assertTrue(result['success'])
+        self.assertEqual(len(observed), 2)
+        with aa.BuildLease(self.drafts, 'AA-EP02'):
+            pass
+        observed[0].rename(observed[0].with_name(observed[0].name + '-after-exit'))
 
     def test_bgm_ceiling_keeps_embedded_source_gain_independent(self):
         timeline = json.loads(self.timeline.read_text())
@@ -146,7 +303,14 @@ class AaDraftTests(unittest.TestCase):
         rows.append({'id': 'subtitle-track', 'type': 'track', 'attributes': {'segments': list(subtitle_ids)}})
         timeline_rows = [row for row in rows if row.get('type') == 'track']
         full_rows = [row for row in rows if row.get('type') != 'track']
+        source_durations = {row['path']: row['source_duration_us'] for row in plan['videos']}
+        if 'ending_effect' in plan:
+            effect = plan['ending_effect']
+            source_durations[effect['path']] = effect['material_duration_us']
         result = {'ok': True, 'ref': plan['ref'], 'full': {'json_result': json.dumps(full_rows)},
+                  'material_readback': {'protocol': 'xmldraft', 'written': False, 'resource_map': [
+                      {'type': 'video', 'path': path, 'metadata': {'duration_us': duration}}
+                      for path, duration in source_durations.items()]},
                   'timeline': {'json_result': json.dumps(timeline_rows)},
                   'body_segment_ids': body_ids, 'subtitle_segment_ids': subtitle_ids,
                   'bgm_segment_id': None, 'ending_image_segment_id': None, 'ending_audio_segment_id': None}
@@ -251,10 +415,10 @@ class AaDraftTests(unittest.TestCase):
                     notice['attributes']['font_size'] = actual
                 rows.append(notice)
                 result.update(full=rows, watermark_segment_id='watermark',
-                              draft_id='watermark-fixture', runtime={'cli_version': 'fixture'})
+                              draft_id=self.draft_id, runtime={'cli_version': 'fixture'})
                 candidate = Path(plan['draft_path'])
                 candidate.mkdir()
-                (candidate / 'draft_content.json').write_bytes(b'{}\n')
+                self.save_content(plan)
                 receipt = Path(arguments[arguments.index('-ResultPath') + 1])
                 receipt.write_text(json.dumps(result), encoding='utf-8')
                 return subprocess.CompletedProcess(arguments, 0, '', '')
@@ -271,7 +435,7 @@ class AaDraftTests(unittest.TestCase):
                 candidate = result['drafts'][0]
                 self.assertTrue(candidate['success'])
                 self.assertEqual(candidate['quality'], 'needs_review')
-                self.assertEqual((Path(candidate['path']) / 'draft_content.json').read_bytes(), b'{}\n')
+                self.assertTrue((Path(candidate['path']) / 'draft_content.json').is_file())
                 review = json.loads(Path(candidate['review_path']).read_text(encoding='utf-8'))
                 self.assertEqual(review['status'], 'needs_review')
                 self.assertEqual(result['verification']['watermark_font_size']['status'], status)
@@ -406,22 +570,19 @@ class AaDraftTests(unittest.TestCase):
                     plan = json.loads(Path(arguments[arguments.index('-PlanPath') + 1]).read_text(encoding='utf-8'))
                     output = Path(plan['draft_path'])
                     output.mkdir()
-                    materials = [{'id': f'body-{row["shot"]}', 'path': row['path']} for row in plan['videos']]
-                    if problem == 'external-reference':
-                        materials[0]['path'] = str(self.sources[0])
-                    content = {'tracks': [{'type': 'video', 'segments': [
-                        {'material_id': row['id']} for row in materials]}], 'materials': {'videos': materials}}
-                    (output / 'draft_content.json').write_text(json.dumps(content), encoding='utf-8')
-                    if problem != 'missing-meta':
-                        (output / 'draft_meta_info.json').write_text('{"draft_id":"aa-fixture"}', encoding='utf-8')
+                    self.save_content(plan, problem=problem)
                     result, _ = self.saved(plan)
-                    result.update(draft_id='aa-fixture', path=str(output), runtime={})
+                    result.update(draft_id=self.draft_id, path=str(output), runtime={})
                     receipt = Path(arguments[arguments.index('-ResultPath') + 1])
                     receipt.write_text(json.dumps(result), encoding='utf-8')
                     return SimpleNamespace(returncode=0, stderr='')
 
                 with patch.dict(aa.os.environ, {'MUSE_JIANYING_POWERSHELL': sys.executable}), \
                         patch.object(aa, 'native_run', side_effect=run):
+                    if problem == 'external-reference':
+                        with self.assertRaisesRegex(ValueError, '正文视频'):
+                            aa.generate_request(request, str(self.drafts))
+                        continue
                     result = aa.generate_request(request, str(self.drafts))
                 self.assertTrue(result['success'])
                 draft = result['drafts'][0]
@@ -678,8 +839,10 @@ class AaDraftTests(unittest.TestCase):
             '滤色': SimpleNamespace(value=SimpleNamespace(resource_id='6758325170760323597'))}))
         with patch.object(aa, 'ending_image', side_effect=image), \
                 patch.dict(sys.modules, {'pyJianYingDraft': metadata}), \
-                patch.object(aa, 'probe', return_value={'duration_us': 1_020_000,
-                    'video_duration_us': 1_000_000, 'video': True, 'audio': True, 'width': 1080, 'height': 1920}):
+                patch.object(aa, 'probe', side_effect=lambda path, **options: {
+                    'duration_us': 2_000_000 if path.parent.name == 'video' else 1_020_000,
+                    'video_duration_us': 2_000_000 if path.parent.name == 'video' else 1_000_000,
+                    'video': True, 'audio': True, 'width': 1080, 'height': 1920}):
             plan, _ = self.plan()
         self.assertEqual(plan['ending_effect']['source_duration_us'], 1_000_000)
         self.assertEqual(plan['native_ending_effect']['duration_us'], 1_000_000)

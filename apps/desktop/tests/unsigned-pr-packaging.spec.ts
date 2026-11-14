@@ -15,6 +15,17 @@ function record(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>
 }
 
+it('runs draft ownership and saved-source regressions before dependency installation on both native targets', () => {
+  const workflow = record(load(readFileSync(new URL('../../../.github/workflows/muse-desktop.yml', import.meta.url), 'utf8')))
+  const steps = record(record(workflow.jobs).build).steps
+  if (!Array.isArray(steps)) throw new Error('Expected packaging steps')
+  const safety = steps.map((step: unknown) => record(step)).find(step => step.name === 'Check draft build ownership and saved source ranges')
+  expect(safety).toMatchObject({ 'working-directory': 'packages/drama/skills', env: { PYTHONUTF8: '1' } })
+  expect(safety).not.toHaveProperty('if')
+  expect(safety?.run).toBe('python -B -m unittest tests.render.test_windows_aa_draft tests.render.test_windows_aa_protocol tests.render.test_draft_stage_guard tests.render.test_draft_integrity')
+  expect(steps.indexOf(safety)).toBeLessThan(steps.findIndex((step: unknown) => record(step).name === 'Install immutable dependencies'))
+})
+
 it('builds the Host peers before qualifying download bundles on a clean checkout', () => {
   const workflow = record(load(readFileSync(new URL('../../../.github/workflows/muse-desktop.yml', import.meta.url), 'utf8')))
   const steps = record(record(workflow.jobs).build).steps

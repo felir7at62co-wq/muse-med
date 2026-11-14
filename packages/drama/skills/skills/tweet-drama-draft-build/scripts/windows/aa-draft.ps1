@@ -96,6 +96,17 @@ function Require-Flags([string[]] $Command, [string[]] $Flags) {
 function Format-Time([long] $Microseconds) { return ([string]$Microseconds + 'us') }
 function Format-Number([double] $Value) { return $Value.ToString('R', [Globalization.CultureInfo]::InvariantCulture) }
 function Resource-Path([string] $Path) { return ('local:///' + ([IO.Path]::GetFullPath($Path) -replace '\\','/')) }
+function File-Sha256([string] $Path) {
+  $stream = $null
+  $hasher = [Security.Cryptography.SHA256]::Create()
+  try {
+    $stream = [IO.File]::OpenRead($Path)
+    return ([BitConverter]::ToString($hasher.ComputeHash($stream))).Replace('-','').ToLowerInvariant()
+  } finally {
+    if ($null -ne $stream) { $stream.Dispose() }
+    $hasher.Dispose()
+  }
+}
 function Segment-Id([object] $Result) {
   $ids = @($Result.segment_ids)
   if ($ids.Count -ne 1 -or [string]::IsNullOrWhiteSpace([string]$ids[0])) { throw 'Jianying did not return exactly one new segment ID' }
@@ -104,6 +115,12 @@ function Segment-Id([object] $Result) {
 
 function Set-Volume([string] $Id, [string] $Kind, [double] $Gain) {
   Invoke-Step 'volume' @('draft',$Kind,'volume','--ref',$script:ref,'--seg-id',$Id,'--linear',(Format-Number $Gain)) | Out-Null
+}
+
+function Set-SourceDuration([string] $Name, [string] $Id, [object] $Video, [long] $Duration) {
+  Invoke-Step $Name @('draft','video','replace','--ref',$script:ref,'--seg-id',$Id,
+    '--resource',(Resource-Path $Video.path),'--source-start','0us','--source-duration',(Format-Time $Duration),
+    '--width',[string]$Video.width,'--height',[string]$Video.height,'--is-photo','false') | Out-Null
 }
 
 function Style-Text([string] $Id, [object] $Style, [switch] $Watermark) {
@@ -144,6 +161,8 @@ try {
   $version = Invoke-Native @('--version') -HelpText
   Require-Flags @('draft','project','create') @('--ref','--dir')
   Require-Flags @('draft','video','add') @('--ref','--resource','--start','--duration','--track','--width','--height')
+  Require-Flags @('draft','video','replace') @('--ref','--seg-id','--resource','--source-start','--source-duration','--width','--height','--is-photo')
+  Require-Flags @('draft','blueprint','sync') @('--ref','--include-tracks')
   Require-Flags @('draft','video','volume') @('--ref','--seg-id','--linear')
   Require-Flags @('draft','subtitle','add') @('--ref','--content','--start','--duration','--track')
   Require-Flags @('draft','text','style') @('--ref','--seg-id','--size','--color','--outline-width')
@@ -181,6 +200,7 @@ try {
     $added = Invoke-Step 'body-video' @('draft','video','add','--ref',$ref,'--resource',(Resource-Path $video.path),'--width',[string]$video.width,'--height',[string]$video.height,'--start',(Format-Time $video.start_us),'--duration',(Format-Time $video.duration_us),'--track','0')
     $id = Segment-Id $added
     $bodyIds.Add($id)
+    Set-SourceDuration 'body-source-duration' $id $video $video.source_duration_us
     Set-Volume $id 'video' $plan.audio.master_gain
   }
   $bgmId = $null
@@ -206,6 +226,7 @@ try {
   if ($null -ne $plan.ending_effect) {
     $added = Invoke-Step 'ending-effect' @('draft','video','add','--ref',$ref,'--resource',(Resource-Path $plan.native_ending_effect.path),'--width',[string]$plan.native_ending_effect.width,'--height',[string]$plan.native_ending_effect.height,'--start',(Format-Time $plan.native_body_end_us),'--duration',(Format-Time $plan.native_ending_effect.source_duration_us))
     $endingEffectId = Segment-Id $added
+    Set-SourceDuration 'ending-source-duration' $endingEffectId $plan.ending_effect $plan.ending_effect.material_duration_us
     Set-Volume $endingEffectId 'video' 0
     if ($plan.native_ending_effect.speed -ne 1) {
       Invoke-Step 'ending-effect-speed' @('draft','video','speed','--ref',$ref,'--seg-id',$endingEffectId,'--speed',(Format-Number $plan.native_ending_effect.speed)) | Out-Null
@@ -236,14 +257,15 @@ try {
   }
   $full = Invoke-Step 'readback-full' @('draft','extract','--ref',$ref,'--scope','full')
   $timeline = Invoke-Step 'readback-timeline' @('draft','extract','--ref',$ref,'--scope','timeline')
+  $materialReadback = Invoke-Step 'readback-materials' @('draft','blueprint','sync','--ref',$ref,'--include-tracks')
   if (-not (Test-Path -LiteralPath (Join-Path $draftPath 'draft_content.json') -PathType Leaf)) { throw 'Jianying did not save the project at the requested draft root' }
   Save-Result ([ordered]@{ ok = $true; state = 'saved'; backend = 'aa-jianying'; ref = $ref; path = $draftPath; draft_id = $created.draft_id;
-    runtime = @{ cli = $cli; version = $version; cli_sha256 = (Get-FileHash -LiteralPath $cli -Algorithm SHA256).Hash.ToLowerInvariant() };
+    runtime = @{ cli = $cli; version = $version; cli_sha256 = (File-Sha256 $cli) };
     body_segment_ids = $bodyIds.ToArray(); subtitle_segment_ids = $subtitleIds.ToArray();
     bgm_segment_id = $bgmId; ending_image_segment_id = $endingImageId; ending_audio_segment_id = $endingAudioId;
     ending_effect_segment_id = $endingEffectId;
     watermark_segment_id = $watermarkId;
-    full = $full; timeline = $timeline;
+    full = $full; timeline = $timeline; material_readback = $materialReadback;
     warnings = $warnings.ToArray(); events = $events.ToArray(); editor_open_verified = $false })
   exit 0
 } catch {
