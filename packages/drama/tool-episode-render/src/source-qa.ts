@@ -280,8 +280,7 @@ function observedFrames(evidence: Evidence, ids: unknown): ObjectValue[] {
   return ids.map(id => frames.find(frame => frame.id === id) ?? fail('文字判定引用了其他审看的帧。'))
 }
 
-function verifyTextDecisions(evidence: Evidence, declaration: ObjectValue): void {
-  const decisions = declaration.text_decisions === undefined ? [] : rows(declaration.text_decisions, '非对白文字判定')
+function verifyTextDecisions(evidence: Evidence, decisions: readonly ObjectValue[]): void {
   const segments = rows(evidence.ocr.segments, 'OCR文字时段')
   const frames = rows(evidence.ocr.frames, 'OCR原帧')
   const approved = new Set<number>()
@@ -369,7 +368,7 @@ async function evidenceSet(project: string, value: unknown, expectedMedia: strin
     if (typeof index !== 'number' || !Number.isSafeInteger(index) || index < 0 || index >= parts.length) fail('文字判定缺少有效OCR分段编号。')
   }
   for (const [index, part] of parts.entries()) {
-    verifyTextDecisions(part, { text_decisions: decisions.filter(decision => (decision.ocr_index ?? 0) === index) })
+    verifyTextDecisions(part, decisions.filter(decision => (decision.ocr_index ?? 0) === index))
   }
   return parts
 }

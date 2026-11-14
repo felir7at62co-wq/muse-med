@@ -46,7 +46,7 @@ Permission-picker assertions wait for rendered option rows before checking count
 
 Plugin-manager and HMR lifecycle switches wait up to `PLUGIN_TOGGLE_SETTLE_MS` (10 seconds) for the Host's profile write and the store's follow-up inventory read, the two steps that republish `aria-checked`; that constant's JSDoc records the measured chain.
 
-The [installation cancellation scenario](plugin-install-cancel.e2e.ts) checks lost HTTP delivery separately from the correlated Host completion and installed files. It joins its route tasks before releasing the scaffold.
+The [installation cancellation scenario](plugin-install-cancel.e2e.ts) drops the browser reply only after the correlated Host operation ends. It checks the unknown result and installed files, and releases pending route waits before joining them during teardown.
 
 Explicit scrolling uses `scrollIntoView` from `support.ts`: it resolves the locator again when its old element detaches and checks connection in the same browser task as native scrolling. Scenarios retain their visibility and geometry assertions after scrolling.
 

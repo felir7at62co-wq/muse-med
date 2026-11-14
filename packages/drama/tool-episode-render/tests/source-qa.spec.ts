@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { copyFile, mkdir, readFile, realpath, symlink, unlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, open, readFile, realpath, stat, symlink, unlink, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
@@ -210,6 +210,43 @@ it('rejects an already incorrect same-length staged copy without modifying eithe
   await expect(access.read(originalPath)).rejects.toThrow('Source QA stage file changed')
   expect(await readFile(originalPath)).toEqual(original)
   expect(await readFile(stagedPath)).toEqual(stagedBytes)
+})
+
+it('bounds collected staged evidence while still hashing an intact large source', async () => {
+  const project = await realpath(await tempProject())
+  projects.push(project)
+  const stage = join(project, 'private-stage'), originalPath = join(project, 'large-original.data')
+  await mkdir(stage)
+  const writer = await open(originalPath, 'wx')
+  try {
+    const block = Buffer.alloc(1024 * 1024, 0x61)
+    for (let index = 0; index < 64; index += 1) await writer.writeFile(block)
+    await writer.writeFile(Buffer.from('\n'))
+  } finally { await writer.close() }
+  const smallPath = join(project, 'small-original.json'), smallBytes = Buffer.from('{"review":"ordinary source evidence"}')
+  await writeFile(smallPath, smallBytes)
+  const files = await Promise.all([originalPath, smallPath].map(async (path, index) => {
+    const stagedPath = join(stage, `${index}.data`), original = await stat(path)
+    await copyFile(path, stagedPath)
+    const staged = await stat(stagedPath), sha256 = await fileSha256(path)
+    expect(original.isFile()).toBe(true)
+    expect(staged.isFile()).toBe(true)
+    expect(staged.size).toBe(original.size)
+    expect(await fileSha256(stagedPath)).toBe(sha256)
+    return { originalPath: path, stagedPath, sha256, bytes: original.size }
+  }))
+  expect(files[0]!.bytes).toBe(64 * 1024 * 1024 + 1)
+  const access = createSourceQaStagedAccess(project, stage, files, new AbortController().signal)
+  await expect(access.read(originalPath)).rejects.toThrow('Source QA evidence exceeds its read limit')
+  await expect(access.hash(originalPath)).resolves.toBe(files[0]!.sha256)
+  await expect(access.read(smallPath)).resolves.toEqual(smallBytes)
+  await expect(access.hash(smallPath)).resolves.toBe(files[1]!.sha256)
+  for (const file of files) {
+    expect((await stat(file.originalPath)).size).toBe(file.bytes)
+    expect((await stat(file.stagedPath)).size).toBe(file.bytes)
+    expect(await fileSha256(file.originalPath)).toBe(file.sha256)
+    expect(await fileSha256(file.stagedPath)).toBe(file.sha256)
+  }
 })
 
 it('refuses a staged file replaced by a symlink even when it names the original bytes', async () => {

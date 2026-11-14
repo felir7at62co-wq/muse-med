@@ -12,7 +12,7 @@ import css from './MuseModelCheck.module.css'
  * @param props - shared Models state and Settings navigation.
  * @returns a model setup prompt while a usable provider is missing.
  */
-export function MuseModelCheck({ controller, useModels, complete, openSection, t }: DeepSeekOnboardingDialogProps): ReactNode {
+export function MuseModelCheck({ controller, useModels, complete, openSection, onVisible, t }: DeepSeekOnboardingDialogProps): ReactNode {
   const state = useModels(snapshot => snapshot)
   const readiness = onboardingReadiness(state)
 
@@ -24,7 +24,7 @@ export function MuseModelCheck({ controller, useModels, complete, openSection, t
   }, [complete, readiness.kind])
 
   if (readiness.kind === 'loading' || readiness.kind === 'provider-ready') return null
-  return <OnboardingModal title={t('museModelTitle')} focusTitle>
+  return <OnboardingModal title={t('museModelTitle')} focusTitle onVisible={onVisible}>
     <p className={css.description}>{t(readiness.kind === 'unavailable' ? 'museModelCheckUnavailable' : 'museModelDescription')}</p>
     <div className={css.actions}>
       <Button variant="primary" onClick={() => { complete(); openSection('models') }}>{t('museModelOpenSettings')}</Button>
