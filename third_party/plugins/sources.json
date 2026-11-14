@@ -27,7 +27,7 @@
     "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
     "license": "MIT",
     "localModifications": {
-      "description": "Replace untyped provider and test casts with explicit compatible values; retain the existing subscription routes and operations.",
+      "description": "Replace untyped provider and test casts with explicit compatible values; retain the existing subscription routes and operations. Synchronize the rekeyed-account forced-refresh regression with a shared store-read barrier.",
       "files": {
         "package.json": {
           "upstreamSha256": "bb44046181887c8c83df8fc62e07f07073cb3b777970e2092e2ef1813ad75afb",
@@ -196,6 +196,10 @@
         "README.zh.md": {
           "upstreamSha256": "ff19ae27839a468898633f85b50151cb9ce90aa54d2b181380997d148d09d3af",
           "sha256": "d025d14d9c850d1021bcfc024873af841165fc6377aa09ea5b3eff2a93e96b4b"
+        },
+        "test/store.spec.ts": {
+          "upstreamSha256": "796b5d4d2d8fcfe9ed429c27f58e840f1fcb7e21e21285e48a1902a728461cf3",
+          "sha256": "36d50a7da6af7c57fdc2075b33ddd30529eb694e8fa9bd16f2364f581e05ee02"
         }
       }
     }
