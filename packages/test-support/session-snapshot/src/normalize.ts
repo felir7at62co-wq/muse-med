@@ -492,6 +492,7 @@ export function normalizeSessionSnapshot(
 /**
  * Normalize one scenario's primary and child logs with shared typed identity redaction.
  * Native-writer comparison strictly restores each input before tokenizing its own delivery generation.
+ * Complete validated graphs share identity allocation before prompt and schema bulk is removed.
  * @param rawLogs - primary-first persisted or projected session JSONL.
  * @param ctx - generated cwd spellings and other volatile run facts.
  * @param options - separator and native-writer comparison controls; identity relationships are preserved.

@@ -21,6 +21,8 @@ pnpm --dir third_party/plugins/toolchain run test:im
 
 运行保留的 DS Bot 源码测试前，先用 `npm ci --prefix third_party/plugins/ds-bot --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund` 安装其锁定的运行时依赖。测试解析器从当前已构建的仓库提供 Harness peer。
 
+订阅构建器向 Node 传入绝对路径的 TypeScript 预加载模块时使用文件 URL，Windows 上也遵循该规则。测试入口仍使用普通文件系统路径。
+
 [build.mjs](build.mjs) 按独立的[工具链锁文件](toolchain/pnpm-lock.yaml)执行冻结安装并禁用安装脚本，使用自身的工作区配置，避免自动安装由临时构建提供的四个 deep-view Host peer，再在临时目录中逐个编译和打包插件。`--only dsh-ffmpeg` 可选择单个源码目录。临时目录链接当前仓库已构建的 Host 包，不使用在线用户配置。子进程检查使用临时 Harness 主目录，并排除含凭据的环境变量和继承的 `NODE_PATH`，避免包管理器启动脚本将仅存在于工作区的依赖暴露给产物验收。启动器和 preload 选项保持不变。脚本先移除链接，再删除临时目录；源码目录不会产生构建输出或 `node_modules`。桥接的上游 JavaScript 源码本就位于 `lib`。
 
 每个压缩包保留上游许可证和 Codex 声明，按需添加所内嵌 Heroicons 的许可证，并在 `SOURCE.json` 记录上游固定版本、已审核的 Host/vendor 版本及工具链锁文件摘要。[Host 版本审核](compatibility/host-runtime.mjs)拒绝未审核的 Host 或 vendor 版本。产物清单禁用生命周期脚本、固定运行时依赖，并在 peer 候选中显式允许已审核的 Host 和 vendor 预发行版本。产物移除已退役的 `dsh-invariants` 依赖。构建覆盖不修改保留的清单与源码文件。
@@ -79,7 +81,7 @@ Muse 包装层和原生飞书插件显式声明 `sessions`、`sessionPersistence
 
 独立的 [Skill 进化插件](muse-skill-evolution/README.zh.md)复盘新完成的工具任务，创建自有技能并保留提案及回退版本。原生持久化复盘会话使用任务所选模型。其 README 说明复盘限制、正常模型用量及文件权限。
 
-保留的 [Visualize](dsh-visualize/README.md) 插件展示交互式 HTML 卡片及独立页面。桌面外壳拒绝 Blob 弹窗，因此页面视图在对话内展开；Web 可另开标签页。`visualize`、`show_view` 和原生 `ask_user_question` 保持常驻，并从 Tool Search 中排除。内置编写技能在 Muse 创作目录中可用。卡片按钮可以填入所属会话的输入框，由用户发送草稿；已有草稿和附件会保留。卡片更新限制在所属 Session 内。若文件提交后保存中断，错误回执分别说明片段和图片清单的状态；再次修改前应读取回执路径，不盲目重复旧替换。
+保留的 [Visualize](dsh-visualize/README.md) 插件展示交互式 HTML 卡片及独立页面。桌面外壳拒绝 Blob 弹窗，因此页面视图在对话内展开；Web 可另开标签页。`visualize`、`show_view` 和原生 `ask_user_question` 保持常驻，并从 Tool Search 中排除。内置编写技能在 Muse 创作目录中可用。卡片按钮可以填入所属会话的输入框，由用户发送草稿；已有草稿和附件会保留。卡片更新限制在所属 Session 内。操作系统主目录下的存储路径使用可跨平台解析的 `~/` 别名。Windows 原子保存仅对 `EPERM` 或 `EBUSY` 重命名错误重试，最多尝试五次，耗尽次数后保留原始错误。若文件提交后保存中断，错误回执分别说明片段和图片清单的状态；再次修改前应读取回执路径，不盲目重复旧替换。
 
 ### 已归档的 Muse Bot
 

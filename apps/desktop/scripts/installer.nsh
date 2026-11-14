@@ -4,15 +4,38 @@
 InstallDir "$LOCALAPPDATA\Programs\${APP_FILENAME}"
 
 ; customHeader runs after electron-builder registers the installer languages.
+; Other supported locales retain the reviewed English prerequisite fallback.
+!macro MuseVCDefaultStrings LANGUAGE
+  LangString MuseVCMissing ${LANGUAGE} "The bundled Microsoft Visual C++ x64 prerequisite is missing. Installation cannot complete. Obtain a complete muse-med installer."
+  LangString MuseVCConsent ${LANGUAGE} "muse-med requires Microsoft Visual C++ x64 Runtime 14.51.36247.0 or later. Install the bundled runtime now? This changes system components and requires administrator approval. No download is performed. Declining stops muse-med installation."
+  LangString MuseVCDenied ${LANGUAGE} "Microsoft Visual C++ x64 Runtime installation was not authorized. muse-med installation cannot complete."
+  LangString MuseVCExitFailed ${LANGUAGE} "Microsoft Visual C++ x64 Runtime did not install successfully (exit result: $2). muse-med installation cannot complete."
+  LangString MuseVCLaunchFailed ${LANGUAGE} "Microsoft Visual C++ x64 Runtime could not be started or monitored (status: $0, detail: $1). Administrator approval may have been denied. muse-med installation cannot complete."
+  LangString MuseVCReboot ${LANGUAGE} "Microsoft Visual C++ x64 Runtime installed successfully but requires a Windows restart. Restart Windows before launching muse-med. Do not select Run muse-med on the finish page."
+  LangString MuseVCPriorFailed ${LANGUAGE} "muse-med installation failed before the prerequisite check."
+!macroend
+
 !macro customHeader
   !ifdef LANG_ENGLISH
-  LangString MuseVCMissing ${LANG_ENGLISH} "The bundled Microsoft Visual C++ x64 prerequisite is missing. Installation cannot complete. Obtain a complete muse-med installer."
-  LangString MuseVCConsent ${LANG_ENGLISH} "muse-med requires Microsoft Visual C++ x64 Runtime 14.51.36247.0 or later. Install the bundled runtime now? This changes system components and requires administrator approval. No download is performed. Declining stops muse-med installation."
-  LangString MuseVCDenied ${LANG_ENGLISH} "Microsoft Visual C++ x64 Runtime installation was not authorized. muse-med installation cannot complete."
-  LangString MuseVCExitFailed ${LANG_ENGLISH} "Microsoft Visual C++ x64 Runtime did not install successfully (exit result: $2). muse-med installation cannot complete."
-  LangString MuseVCLaunchFailed ${LANG_ENGLISH} "Microsoft Visual C++ x64 Runtime could not be started or monitored (status: $0, detail: $1). Administrator approval may have been denied. muse-med installation cannot complete."
-  LangString MuseVCReboot ${LANG_ENGLISH} "Microsoft Visual C++ x64 Runtime installed successfully but requires a Windows restart. Restart Windows before launching muse-med. Do not select Run muse-med on the finish page."
-  LangString MuseVCPriorFailed ${LANG_ENGLISH} "muse-med installation failed before the prerequisite check."
+  !insertmacro MuseVCDefaultStrings ${LANG_ENGLISH}
+  !endif
+  !ifdef LANG_GERMAN
+  !insertmacro MuseVCDefaultStrings ${LANG_GERMAN}
+  !endif
+  !ifdef LANG_SPANISHINTERNATIONAL
+  !insertmacro MuseVCDefaultStrings ${LANG_SPANISHINTERNATIONAL}
+  !endif
+  !ifdef LANG_FRENCH
+  !insertmacro MuseVCDefaultStrings ${LANG_FRENCH}
+  !endif
+  !ifdef LANG_JAPANESE
+  !insertmacro MuseVCDefaultStrings ${LANG_JAPANESE}
+  !endif
+  !ifdef LANG_PORTUGUESEBR
+  !insertmacro MuseVCDefaultStrings ${LANG_PORTUGUESEBR}
+  !endif
+  !ifdef LANG_RUSSIAN
+  !insertmacro MuseVCDefaultStrings ${LANG_RUSSIAN}
   !endif
   !ifdef LANG_SIMPCHINESE
   LangString MuseVCMissing ${LANG_SIMPCHINESE} "安装包缺少 Microsoft Visual C++ x64 运行库，无法完成安装。请获取完整的 muse-med 安装包。"
@@ -97,7 +120,6 @@ muse_vc_failed:
 FunctionEnd
 !endif
 
-!macro customHeader
   !define /ifndef INSTALLER_STRINGS_FILE "${INSTALLER_BUILD_DIR}\strings.nsh"
   !include "${INSTALLER_STRINGS_FILE}"
   !ifdef BUILD_UNINSTALLER

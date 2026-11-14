@@ -143,11 +143,13 @@ function harness(options: {
   const controller = new ModelsSettingsStore(ctx, settingsSchema, new SettingsDescribeMirror(ctx))
   const openSection = vi.fn()
   const complete = vi.fn()
+  const onVisible = vi.fn()
   const unusedHook = (() => { throw new Error('unused standard hook') }) as never
   const props: DeepSeekOnboardingDialogProps = {
     automatic: true,
     stepId: 'deepseek-official',
     complete,
+    onVisible,
     openSection,
     renderSlot: (_name, _props, options) => options?.fallback,
     useSessions: unusedHook,
@@ -163,7 +165,7 @@ function harness(options: {
     t: key => en[key],
   }
   return {
-    controller, complete, openSection, props, mutate, set,
+    controller, complete, onVisible, openSection, props, mutate, set,
     configure: () => { fileConfigured = true },
   }
 }
@@ -179,7 +181,9 @@ describe('DeepSeekOnboardingDialog', () => {
   it('loads a credential-only modal, inerts the product, and focuses the key', async () => {
     const h = harness()
     render(<DeepSeekOnboardingDialog {...h.props} />)
+    expect(h.onVisible).not.toHaveBeenCalled()
     expect(await screen.findByRole('dialog', { name: en.onboardingTitle })).toBeTruthy()
+    expect(h.onVisible).toHaveBeenCalledOnce()
     expect(document.getElementById('root')?.inert).toBe(true)
     expect(screen.getByText(en.onboardingDescription)).toBeTruthy()
     const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
@@ -290,7 +294,10 @@ describe('DeepSeekOnboardingDialog', () => {
 
 it('offers account choice before reusing the existing API key editor', async () => {
   const h = harness()
-  h.props.renderSlot = (_name, owner: unknown) => <button onClick={(owner as { useApiKey: () => void }).useApiKey}>Choose API key</button>
+  h.props.renderSlot = (_name, owner: unknown) => {
+    expect(owner).toHaveProperty('onVisible', h.onVisible)
+    return <button onClick={(owner as { useApiKey: () => void }).useApiKey}>Choose API key</button>
+  }
   render(<DeepSeekOnboardingDialog {...h.props} />)
   await waitFor(() => { expect(screen.getByRole('button', { name: 'Choose API key' })).toBeTruthy() })
   fireEvent.click(screen.getByRole('button', { name: 'Choose API key' }))
@@ -332,6 +339,7 @@ it('finishes the Muse model step when a provider is already usable', async () =>
   render(<MuseModelCheck {...h.props} />)
   await waitFor(() => { expect(h.complete).toHaveBeenCalledOnce() })
   expect(screen.queryByRole('dialog')).toBeNull()
+  expect(h.onVisible).not.toHaveBeenCalled()
 })
 
 it('offers a fresh model check after the provider catalog was unavailable', async () => {

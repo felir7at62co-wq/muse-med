@@ -6,3 +6,5 @@ recording: authored
 writerOutput: true
 header:
   class: default
+replay:
+  override: true

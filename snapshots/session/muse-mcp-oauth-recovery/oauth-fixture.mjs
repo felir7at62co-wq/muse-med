@@ -5,8 +5,10 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { McpManagerGateway } from '../../../third_party/plugins/dsh-skill-mcp-panel/src/mcp/gateway.ts'
-import { oauthFile } from '../../../third_party/plugins/dsh-skill-mcp-panel/src/oauth.ts'
+import { importSkillPanelSnapshot } from '../muse-skill-panel-import.mjs'
+
+const { McpManagerGateway } = await importSkillPanelSnapshot('mcp/gateway')
+const { oauthFile } = await importSkillPanelSnapshot('oauth')
 
 /** Loader plugin name. */
 export const name = 'snapshot-mcp-oauth-recovery'

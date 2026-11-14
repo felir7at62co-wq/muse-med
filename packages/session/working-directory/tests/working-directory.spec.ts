@@ -137,6 +137,20 @@ describe('Session working directories', () => {
     expect(f.harness.claim(f.agent, 'next-step', 1)).toEqual([])
   })
 
+  it('releases operation effects after success and rejection while a directory guard retains its own effect', async () => {
+    await using f = await fixture()
+    const operations = () => f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.operation')
+    await f.ctx.workingDirectory.ensure(f.agent)
+    expect(operations()).toEqual([])
+    await expect(f.ctx.workingDirectory.set(f.agent, 'missing')).rejects.toThrow('directory does not exist')
+    expect(operations()).toEqual([])
+    const guard = await f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)
+    expect(operations()).toEqual([])
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.guard')).toHaveLength(1)
+    guard.release()
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.guard')).toEqual([])
+  })
+
   it('provides required user context instead of a system-prompt directory, including recovery during assembly', async () => {
     await using f = await fixture()
     const child = join(f.root, 'temporary')
@@ -285,32 +299,63 @@ describe('Session working directories', () => {
     }
   })
 
-  it('refuses an Agent disposed during directory inspection without publishing a change', async () => {
+  it.each(['ensure', 'set', 'guard', 'assemble'] as const)('aborts and drains an Agent-owned %s before its disposal completes', async (operation) => {
     await using f = await fixture()
+    const handle = await f.ctx.agents.create({ sessionId: SessionId('directory-disposal-owner'), meta: { cwd: f.root } })
+    const { agent } = handle
     await mkdir(join(f.root, 'child'))
-    const entered = Promise.withResolvers<undefined>()
+    const errors = vi.spyOn(f.ctx.logger, 'error').mockImplementation(() => {})
+    const entered = Promise.withResolvers<AbortSignal>()
+    const aborted = Promise.withResolvers<undefined>()
     const release = Promise.withResolvers<undefined>()
     const stat = f.ctx.fs.stat.bind(f.ctx.fs)
-    const probe = vi.spyOn(f.ctx.fs, 'stat').mockImplementationOnce(async (target) => {
+    const probe = vi.spyOn(f.ctx.fs, 'stat').mockImplementationOnce(async (target, signal) => {
       const info = await stat(target)
-      entered.resolve(undefined)
+      if (signal === undefined) throw new Error('directory probe requires a cancellation signal')
+      signal.addEventListener('abort', () => { aborted.resolve(undefined) }, { once: true })
+      entered.resolve(signal)
       await release.promise
       return info
     })
-    const pending = f.ctx.workingDirectory.set(f.agent, 'child')
-    const rejection = expect(pending).rejects.toThrow('inactive context')
+    const directories = f.ctx.workingDirectory
+    const pending = operation === 'ensure' ? directories.ensure(agent)
+      : operation === 'set' ? directories.set(agent, 'child')
+        : operation === 'guard' ? directories.guard(agent, f.root, new AbortController().signal)
+          : f.ctx.systemPrompt.assemble({ agent, scope: agent })
+    const rejection = expect(pending).rejects.toThrow('working-directory: Agent disposed')
+    let queued: Promise<string> | undefined
+    let queuedRejection: Promise<void> | undefined
+    let disposal: Promise<void> | undefined
     try {
-      await entered.promise
-      await f.agent.ctx.fiber.dispose()
+      const signal = await entered.promise
+      queued = directories.set(agent, 'child')
+      queuedRejection = expect(queued).rejects.toThrow('working-directory: Agent disposed')
+      let disposed = false
+      disposal = handle.dispose().then(() => { disposed = true })
+      expect(await Promise.race([
+        aborted.promise.then(() => 'aborted'),
+        disposal.then(() => 'disposed'),
+      ])).toBe('aborted')
+      expect(signal.aborted).toBe(true)
+      expect(disposed).toBe(false)
       release.resolve(undefined)
       await rejection
-      expect(f.agent.session.snapshotEvents().filter(event => event.type === 'working-directory/change')).toEqual([])
-      await expect(f.ctx.workingDirectory.ensure(f.agent)).rejects.toThrow('inactive context')
+      await queuedRejection
+      await disposal
+      expect(disposed).toBe(true)
+      expect(agent.session.snapshotEvents().filter(event => event.type === 'working-directory/change')).toEqual([])
+      expect(f.ctx.agents.get(agent.id)).toBeUndefined()
+      await expect(directories.ensure(agent)).rejects.toThrow('inactive context')
       expect(probe).toHaveBeenCalledOnce()
+      const sibling = await f.harness.create(SessionId('live-directory-sibling'), {}, { cwd: f.root })
+      expect(renderContextSnapshot(await f.ctx.systemPrompt.assemble({ agent: sibling, scope: sibling })))
+        .toContain(`Current working directory: ${JSON.stringify(f.root)}.`)
+      expect(errors).not.toHaveBeenCalled()
     } finally {
       release.resolve(undefined)
-      await Promise.allSettled([pending, rejection])
+      await Promise.allSettled([pending, rejection, queued, queuedRejection, disposal])
       probe.mockRestore()
+      errors.mockRestore()
     }
   })
 
@@ -359,6 +404,94 @@ describe('Session working directories', () => {
 })
 
 describe('Session directory guard', () => {
+  it.each(['release', 'abort'] as const)('keeps a replacement guard held when an old %s handle is released again', async (ending) => {
+    await using f = await fixture()
+    await mkdir(join(f.root, 'other'))
+    const owner = new AbortController()
+    const previous = await f.ctx.workingDirectory.guard(f.agent, f.root, owner.signal)
+    if (ending === 'release') previous.release()
+    else owner.abort(new Error('previous owner finished'))
+    expect(previous.signal.aborted).toBe(true)
+    const nextOwner = new AbortController()
+    const next = await f.ctx.workingDirectory.guard(f.agent, f.root, nextOwner.signal)
+    previous.release()
+    owner.abort()
+    previous.release()
+    expect(next.signal.aborted).toBe(false)
+    await expect(f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)).rejects.toThrow('already held')
+    await expect(f.ctx.workingDirectory.set(f.agent, 'other')).rejects.toThrow('guarded directory cannot change')
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.guard')).toHaveLength(1)
+    nextOwner.abort(new Error('replacement owner finished'))
+    expect(next.signal.aborted).toBe(true)
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.guard')).toEqual([])
+    next.release()
+    await expect(f.ctx.workingDirectory.set(f.agent, 'other')).resolves.toBe(join(f.root, 'other'))
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.operation')).toEqual([])
+  })
+
+  it.each(['before', 'after'] as const)('drains guard ownership when its native signal ends %s acquisition', async (ending) => {
+    await using f = await fixture()
+    const owner = new AbortController(), reason = new Error('guard owner finished')
+    if (ending === 'before') {
+      owner.abort(reason)
+      await expect(f.ctx.workingDirectory.guard(f.agent, f.root, owner.signal)).rejects.toBe(reason)
+    } else {
+      const guard = await f.ctx.workingDirectory.guard(f.agent, f.root, owner.signal)
+      owner.abort(reason)
+      expect(guard.signal.aborted).toBe(true)
+    }
+    await expect(f.ctx.workingDirectory.ensure(f.agent)).resolves.toBe(f.root)
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.guard')).toEqual([])
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.operation')).toEqual([])
+    const replacement = await f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)
+    replacement.release()
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.guard')).toEqual([])
+    expect(f.agent.session.snapshotEvents().filter(event => event.type === 'working-directory/change')).toEqual([])
+  })
+
+  it('releases only the guard belonging to an Agent disposal notification', async () => {
+    await using f = await fixture()
+    const sibling = await f.harness.create(SessionId('guard-disposal-sibling'), {}, { cwd: f.root })
+    const guard = await f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)
+    f.ctx.emit('agent/disposed', { agent: sibling })
+    expect(guard.signal.aborted).toBe(false)
+    f.ctx.emit('agent/disposed', { agent: f.agent })
+    expect(guard.signal.aborted).toBe(true)
+    const replacement = await f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)
+    replacement.release()
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.guard')).toEqual([])
+  })
+
+  it('refuses to acquire a directory that disappeared and leaves recovery available', async () => {
+    await using f = await fixture()
+    const child = join(f.root, 'vanished-before-guard')
+    await mkdir(child)
+    await f.ctx.workingDirectory.set(f.agent, child)
+    await rm(child, { recursive: true })
+    await expect(f.ctx.workingDirectory.guard(f.agent, child, new AbortController().signal))
+      .rejects.toThrow('guarded directory unavailable or changed')
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.guard')).toEqual([])
+    await expect(f.ctx.workingDirectory.ensure(f.agent)).resolves.toBe(f.root)
+  })
+
+  it('wraps untyped cancellation and provider failures without retaining a guard', async () => {
+    await using f = await fixture()
+    const owner = new AbortController()
+    owner.abort('caller finished')
+    await expect(f.ctx.workingDirectory.guard(f.agent, f.root, owner.signal))
+      .rejects.toMatchObject({ message: 'working-directory: guard cancelled', cause: 'caller finished' })
+    const stat = vi.spyOn(f.ctx.fs, 'stat').mockRejectedValueOnce('directory provider disconnected')
+    try {
+      await expect(f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal))
+        .rejects.toMatchObject({ message: 'working-directory: guard failed', cause: 'directory provider disconnected' })
+    } finally {
+      stat.mockRestore()
+    }
+    const next = await f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal)
+    next.release()
+    expect(f.agent.ctx.fiber.getEffects().filter(effect => effect.label === 'working-directory.guard')).toEqual([])
+  })
+
   it('keeps the selected directory through reentrant ensure and refuses user changes until released', async () => {
     await using f = await fixture()
     await mkdir(join(f.root, 'other'))

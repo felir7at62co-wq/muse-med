@@ -195,7 +195,15 @@ jobs:
           exit "$sandbox_status"
 
       - name: Prepare media test executables
-        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ffmpeg
+          decoder="$(command -v ffmpeg)"
+          [[ "$decoder" == /* ]]
+          test -f "$decoder"
+          test -x "$decoder"
+          "$decoder" -version
+          printf 'MUSE_RECOVERY_TEST_FFMPEG=%s\n' "$decoder" >> "$GITHUB_ENV"
 
       - name: Run exhaustive coverage
         run: pnpm run check:ci:coverage
@@ -218,7 +226,8 @@ jobs:
           || vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-ubuntu-24-04-16core' }}
+          || github.repository == 'deepseek-harness/deepseek-harness' && 'dsh-ubuntu-24-04-16core'
+          || 'ubuntu-24.04' }}
     name: node 24 / lint
     env:
       # Shared hosts expose host CPUs, not an isolated allocation.

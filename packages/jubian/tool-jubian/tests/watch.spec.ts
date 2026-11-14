@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { JubianClient } from '@deepseek-ai/dsh-jubian'
 import type { JubianRequest, JubianResponse } from '@deepseek-ai/dsh-jubian'
-import { watchJob, resolveWatchConfig, watchArgs } from '../src/watch.ts'
+import { observe, watchJob, resolveWatchConfig, watchArgs } from '../src/watch.ts'
 import type { WatchArgs } from '../src/watch.ts'
 
 const args = { task_id: 42, stage: 'upscale' as const }
@@ -35,6 +35,23 @@ function start(client: JubianClient, input = args) {
 }
 
 describe('jubian watcher', () => {
+  it('leaves an unfinished operation unresolved without admitting a background poller', async () => {
+    const { client, calls } = provider(() => task('processing'))
+    expect(await observe(client, args, new AbortController().signal)).toBeUndefined()
+    expect(calls).toEqual([{ path: '/admin/aigc/video/task/42', method: 'GET' }])
+  })
+
+  it('returns verified outputs from a one-shot observation without a background poller', async () => {
+    const { client, calls } = provider(path => path.includes('/sub/list')
+      ? { total: 1, rows: [child()] } : task())
+    const result = await observe(client, args, new AbortController().signal)
+    expect(result?.status).toBe('completed')
+    const parsed: unknown = JSON.parse(result!.result!)
+    expect(parsed).toMatchObject({ task_id: 42, stage: 'upscale',
+      outputs: [{ subtask_id: 51, video_url: 'https://cdn.example/51.mp4' }] })
+    expect(calls).toHaveLength(2)
+  })
+
   it('accepts a parsed watch identity and refuses a nonobject child page', async () => {
     expect(watchArgs(args)).toBe(args)
     vi.useFakeTimers()

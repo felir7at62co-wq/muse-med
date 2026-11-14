@@ -64,7 +64,8 @@ function fixture() {
     // A recovery URL is a readiness signal; sibling HMR work must settle first.
     '    void scope.get("loader").await().then(() => {',
     '      if (disposed || !scope.get("webServer") || !scope.get("connection")) return',
-    '      writeFileSync(config.url, scope.connection.authenticatedUrl(`http://127.0.0.1:${scope.webServer.port}`))',
+    '      writeFileSync(config.url + ".tmp", scope.connection.authenticatedUrl(`http://127.0.0.1:${scope.webServer.port}`))',
+    '      renameSync(config.url + ".tmp", config.url)',
     '    })',
     '  })',
     '}',

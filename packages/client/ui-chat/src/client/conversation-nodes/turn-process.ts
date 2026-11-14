@@ -208,6 +208,7 @@ function processSpec(state: TurnProcessState, turn: TurnLocation): TurnProcessSp
 }
 
 function updateProcessState(state: TurnProcessState, event: ConversationEvent): TurnProcessState {
+  if (event.type === 'assistant/live-chunk' && state.assistantStartByStep.has(event.data.step)) return state
   let current = state
   if (event.type === 'assistant/message'
     && event.surfaceOp === 'append'

@@ -625,6 +625,93 @@ it('closes a removed source by its provider-resolved saved path without changing
   expect(stat.mock.calls.every(([target]) => target.displayPath === h.root)).toBe(true)
 })
 
+it('retains an unresolvable old review when another source has no saved review and still accepts its ID', async () => {
+  const h = await fixture(), directory = join(h.root, 'retired-project'), oldSource = join(directory, 'episode-80.mp4')
+  await mkdir(directory)
+  await copyFile(h.input, oldSource)
+  await h.run(h.call('scan', { file_path: oldSource }), undefined)
+  const saved = reviewsOf(h.readReviews, h.agent.session), before = saved[oldSource]!
+  expect(before).toBeDefined()
+  await rm(directory, { recursive: true, force: true })
+  await writeFile(directory, 'The former source directory is now a regular file.')
+  await expect(h.ctx.fs.resolve(oldSource, { cwd: h.root })).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: h.input } }, undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_REQUIRED')
+  expect(reviewsOf(h.readReviews, h.agent.session)).toBe(saved)
+  expect(saved[oldSource]).toBe(before)
+  await h.run({ name: 'video_inspect', args: { method: 'status', review_id: before.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)).toBe(saved)
+  await h.run({ name: 'video_inspect', args: { method: 'close', review_id: before.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)[oldSource]).toEqual({ ...before, follow_up: { status: 'closed' } })
+})
+
+it('accepts matching file path and review ID without changing saved evidence', async () => {
+  const h = await fixture()
+  await h.run(h.call('scan'), undefined)
+  const before = h.review(), saved = reviewsOf(h.readReviews, h.agent.session)
+  await h.run({ name: 'video_inspect', args: { method: 'status', file_path: h.input, review_id: before.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  const output = z.object({ review_id: z.string() }).loose().parse(JSON.parse(
+    h.results().at(-1)!.content.filter(block => block.type === 'text')[0]!.text))
+  expect(output.review_id).toBe(before.id)
+  expect(reviewsOf(h.readReviews, h.agent.session)).toBe(saved)
+  expect(h.review()).toBe(before)
+})
+
+it('finds a saved review through a stable native directory alias without decoding it again', async () => {
+  const h = await fixture(), directory = join(h.root, 'physical'), alias = join(h.root, 'stable-alias')
+  const physical = join(directory, 'episode-80.mp4')
+  await mkdir(directory)
+  await copyFile(h.input, physical)
+  await symlink(directory, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  try {
+    await h.run(h.call('scan', { file_path: physical }), undefined)
+    const before = reviewsOf(h.readReviews, h.agent.session)[physical]!
+    expect(before).toBeDefined()
+    const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
+    await h.run({ name: 'video_inspect', args: { method: 'close', file_path: join(alias, 'episode-80.mp4') } }, undefined)
+    expect(h.results().at(-1)?.isError).toBe(false)
+    expect(reviewsOf(h.readReviews, h.agent.session)).toEqual({ [physical]: { ...before, follow_up: { status: 'closed' } } })
+    expect(spawn).not.toHaveBeenCalled()
+  } finally { await unlink(alias) }
+})
+
+it('requires a review ID for recovered records behind stable native directory aliases', async () => {
+  const h = await fixture(), directory = join(h.root, 'physical')
+  const physical = join(directory, 'episode-80.mp4'), aliases: string[] = []
+  await mkdir(directory)
+  await copyFile(h.input, physical)
+  try {
+    for (const name of ['saved-alias', 'query-alias']) {
+      const alias = join(h.root, name)
+      await symlink(directory, alias, process.platform === 'win32' ? 'junction' : 'dir')
+      aliases.push(alias)
+    }
+    await h.run(h.call('scan', { file_path: physical }), undefined)
+    const first = reviewsOf(h.readReviews, h.agent.session)[physical]!
+    expect(first).toBeDefined()
+    const secondPath = join(aliases[0]!, 'episode-80.mp4')
+    const second = { ...first, id: VideoReviewId('recovered-stable-provider-alias'), path: secondPath }
+    saveReview(h.readReviews, h.agent.session, second)
+    const recovered = reviewsOf(h.readReviews, h.agent.session), queryPath = join(aliases[1]!, 'episode-80.mp4')
+    const spawn = vi.spyOn(h.ctx.subprocess, 'spawn')
+    await h.run({ name: 'video_inspect', args: { method: 'close', file_path: queryPath } }, undefined)
+    expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SELECTOR')
+    expect(h.results().at(-1)?.isError).toBe(true)
+    expect(reviewsOf(h.readReviews, h.agent.session)).toBe(recovered)
+    expect(recovered[physical]).toBe(first)
+    expect(recovered[secondPath]).toEqual(second)
+    await h.run({ name: 'video_inspect', args: { method: 'close', file_path: queryPath, review_id: first.id } }, undefined)
+    expect(h.results().at(-1)?.isError).toBe(false)
+    expect(reviewsOf(h.readReviews, h.agent.session)).toEqual({
+      [physical]: { ...first, follow_up: { status: 'closed' } }, [secondPath]: second,
+    })
+    expect(spawn).not.toHaveBeenCalled()
+  } finally { for (const alias of aliases.toReversed()) await unlink(alias) }
+})
+
 it.skipIf(process.platform === 'win32')('passes symlink-parent traversal to the filesystem provider before probing the source', async () => {
   const h = await fixture(), physical = join(h.root, 'physical', 'episode-80.mp4')
   await mkdir(join(h.root, 'physical', 'nested'), { recursive: true })

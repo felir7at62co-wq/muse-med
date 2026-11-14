@@ -27,7 +27,7 @@ it.skipIf(!existsSync(CLI))('retains full required V1 bindings and V2 blank/fres
     await symlink(join(ROOT, 'packages/test-support/llm-replay'), join(scope, 'dsh-llm-replay'), process.platform === 'win32' ? 'junction' : 'dir')
     const harness = new DeepSeekHarness({
       dshBin: CLI, profile: 'sdk', dshHome: home, cwd, processCwd: cwd,
-      patches: [join(CASE, 'cordis.snapshot.yml')],
+      patches: [join(CASE, 'cordis.snapshot.yml'), join(import.meta.dirname, 'fixtures/market-runtime.cordis.patch.yml')],
       provider: 'deepseek-official', model: 'deepseek-v4-flash',
       initializeTimeoutMs: 110_000, requestTimeoutMs: 110_000,
       env: { ...process.env, DEEPSEEK_API_KEY: '', DSH_TELEMETRY_DISABLED: '1', DSH_EXAMPLE_MODE: 'lib',
@@ -36,6 +36,7 @@ it.skipIf(!existsSync(CLI))('retains full required V1 bindings and V2 blank/fres
     })
     try {
       const result = await harness.run(INPUT)
+      expect(result.finishReason, JSON.stringify(result.events.filter(event => event.type === 'turn/end'))).toBe('completed')
       const bindings = result.events.filter(isMarketBinding)
       expect(bindings).toHaveLength(1)
       const firstRequest = result.events.find(event => event.type === 'request/header')

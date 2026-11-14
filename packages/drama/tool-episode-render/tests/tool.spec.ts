@@ -191,7 +191,7 @@ it('uses the available Host proof scope and refuses to reuse it after its provid
       scope.provide('sandboxPolicy', {} as never)
       scope.provide('sessionProjections', {} as never)
     } })
-    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => { expect(create).toHaveBeenCalledTimes(1) })
     await vi.waitFor(async () => {
       await expect(tool.execute(args, runContext())).rejects.toThrow('Host proof delegation completed')
     })
@@ -200,8 +200,9 @@ it('uses the available Host proof scope and refuses to reuse it after its provid
     verify.mockImplementationOnce(async (_session, _binding, signal) => {
       entered.resolve(undefined)
       await new Promise<void>((_resolve, reject) => {
-        if (signal.aborted) reject(signal.reason)
-        else signal.addEventListener('abort', () => { reject(signal.reason) }, { once: true })
+        const rejectAbort = (): void => { reject(signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason))) }
+        if (signal.aborted) rejectAbort()
+        else signal.addEventListener('abort', rejectAbort, { once: true })
       })
     })
     const pending = tool.execute(args, runContext())
@@ -216,7 +217,7 @@ it('uses the available Host proof scope and refuses to reuse it after its provid
       scope.provide('sandboxPolicy', {} as never)
       scope.provide('sessionProjections', {} as never)
     } })
-    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => { expect(create).toHaveBeenCalledTimes(2) })
     await vi.waitFor(async () => {
       await expect(tool.execute(args, runContext())).rejects.toThrow('Host proof delegation completed')
     })

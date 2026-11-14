@@ -15,6 +15,23 @@ const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
 
 describe('CI workflow', () => {
+  it.each([
+    ['ci.yml', 'node-24-lint', 'ubuntu-24.04', 'dsh-ubuntu-24-04-16core'],
+    ['ci-windows.yml', 'windows-build', 'windows-2025', 'dsh-windows-2025-16core'],
+    ['ci-windows.yml', 'windows-coverage', 'windows-2025', 'dsh-windows-2025-16core'],
+    ['ci-windows.yml', 'windows-native-tests', 'windows-2025', 'dsh-windows-2025-16core'],
+  ])('uses available downstream runners for %s %s without changing the upstream pool', (file, jobName, downstream, upstream) => {
+    const selector = workflowJob(loadWorkflow(`.github/workflows/${file}`), jobName)['runs-on']
+    for (const [repository, expected] of [
+      ['felir7at62co-wq/muse-med', downstream],
+      ['deepseek-harness/deepseek-harness', upstream],
+    ]) {
+      expect(evaluateRunsOn(selector, { vars: {}, fromJSON: JSON.parse,
+        github: { repository, event: { pull_request: { user: { login: 'maintainer' } } } },
+      })).toBe(expected)
+    }
+  })
+
   it('builds unsigned Muse installers on native runners without publication credentials', () => {
     const workflow = loadWorkflow('.github/workflows/muse-desktop.yml')
     expect(workflow.on).toEqual({ workflow_dispatch: { inputs: {
@@ -309,6 +326,32 @@ describe('CI workflow', () => {
       name: 'Save coverage duration history', if: '${{ !cancelled() }}',
     }))
     expect(wine.steps).toContainEqual(expect.objectContaining({ name: 'Shut down wineserver', if: 'always()' }))
+  })
+
+  it('qualifies and probes both Windows coverage media executables before running coverage', () => {
+    const coverage = workflowJob(loadWorkflow('.github/workflows/ci-windows.yml'), 'windows-coverage')
+    if (!Array.isArray(coverage.steps)) throw new TypeError('Windows coverage must define steps')
+    const steps = coverage.steps.filter(isRecord)
+    const install = steps.findIndex(step => step.name === 'Install (immutable)')
+    const prepare = steps.findIndex(step => step.name === 'Prepare media test executables')
+    const verify = steps.findIndex(step => step.name === 'Verify media test executables')
+    const run = steps.findIndex(step => step.run === 'pnpm run check:ci:coverage')
+    expect(install).toBeGreaterThanOrEqual(0)
+    expect(prepare).toBeGreaterThan(install)
+    expect(verify).toBeGreaterThan(prepare)
+    expect(run).toBeGreaterThan(verify)
+    expect(steps[prepare]).toEqual({
+      name: 'Prepare media test executables', shell: 'pwsh', run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts',
+    })
+    expect(steps[verify]).toEqual({
+      name: 'Verify media test executables', shell: 'pwsh', run: [
+        "foreach ($name in @('ffmpeg', 'ffprobe')) {",
+        '  $binary = (Get-Command $name -CommandType Application -ErrorAction Stop).Source',
+        '  & $binary -version',
+        '  if ($LASTEXITCODE -ne 0) { throw "$name version probe failed: $LASTEXITCODE" }',
+        '}', '',
+      ].join('\n'),
+    })
   })
 
   it.each([
@@ -1158,15 +1201,16 @@ describe('Runtime and LLM e2e Blacksmith routing', () => {
 })
 
 describe('bubblewrap preparation script', () => {
-  it('pins bubblewrap to a recorded Launchpad build and excludes Ubuntu pool downloads', () => {
+  it('pins bubblewrap to a recorded Launchpad build with one official transport fallback', () => {
     const script = readFileSync(resolve(root, 'scripts/prepare-ci-bubblewrap.sh'), 'utf8')
     const url = /^readonly BUBBLEWRAP_URL="([^"]+)"$/mu.exec(script)?.[1]
 
     expect(url).toMatch(
       /^https:\/\/launchpad\.net\/ubuntu\/\+source\/bubblewrap\/[^/]+\/\+build\/\d+\/\+files\/bubblewrap_[^/]+_amd64\.deb$/u,
     )
-    // Ubuntu removes superseded versions from its live package pool.
-    expect(script).not.toMatch(/https?:\/\/[^/'"\s]+\/ubuntu(?:-ports)?\/pool\//u)
+    const fallback = /^readonly BUBBLEWRAP_FALLBACK_URL="([^"]+)"$/mu.exec(script)?.[1]
+    expect(fallback).toBe('https://archive.ubuntu.com/ubuntu/pool/main/b/bubblewrap/bubblewrap_${BUBBLEWRAP_VERSION}_amd64.deb')
+    expect(script).toContain('readonly BUBBLEWRAP_SHA256=\'db4d572a7927bfd34cc9b8e24b56983efa8e0483d03da6c810f6caae081dcc36\'')
   })
 })
 

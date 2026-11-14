@@ -219,7 +219,7 @@ async function respond(
   served: string[],
 ): Promise<void> {
   const path = new URL(request.url ?? '/', 'http://127.0.0.1').pathname
-  const relative = normalize(decodeURIComponent(path)).replace(/^\/+/, '')
+  const relative = normalize(decodeURIComponent(path)).replace(/^[/\\]+/, '').replaceAll('\\', '/')
   served.push(relative)
   try {
     const body = await readFile(overrides.get(relative) ?? join(DIST_ROOT, relative))
@@ -349,7 +349,7 @@ async function bootPreview(site: Site, manifest: ImageManifest, browser: Browser
     const continueButton = page.getByRole('button', { name: 'Continue' })
     await continueButton.waitFor({ timeout: HERO_TIMEOUT_MS })
     await continueButton.click()
-    await page.getByRole('button', { name: 'Add API Key', exact: true }).click()
+    expect(await page.getByRole('button', { name: 'Add API Key', exact: true }).count()).toBe(0)
     const configureLater = page.getByRole('button', { name: 'Configure later' })
     await configureLater.waitFor({ timeout: 30_000 })
     await configureLater.click()

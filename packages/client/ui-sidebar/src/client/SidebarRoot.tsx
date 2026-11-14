@@ -187,7 +187,7 @@ export function SidebarRoot({
   // away): drawn while it is inside, and for SCROLLBAR_LINGER_MS after it
   // leaves. A pointer that returns within that window cancels the pending
   // hide rather than restarting from a hidden bar.
-  const column = useRef<HTMLDivElement>(null)
+  const column = useRef<HTMLDivElement | null>(null)
   const sidebarFocus = useRef<Element | null>(null)
   useModalLayer(column, drawer && !collapsed, toggleSidebar)
   useLayoutEffect(() => {
@@ -280,7 +280,18 @@ export function SidebarRoot({
 
   return (
     <div
-      ref={column}
+      ref={(element) => {
+        column.current = element
+        if (element === null || !wide) return
+        let parent = element.parentElement
+        // Slot anchors have no box; the enclosing column owns the border.
+        while (parent !== null && window.getComputedStyle(parent).display === 'contents') parent = parent.parentElement
+        const parentStyle = window.getComputedStyle(parent ?? element)
+        // The target track includes its outer border; the browsing region does not.
+        const border = drawer ? 0
+          : (Number.parseFloat(parentStyle.borderLeftWidth) || 0) + (Number.parseFloat(parentStyle.borderRightWidth) || 0)
+        element.style.setProperty('--dsh-sidebar-expanded-width', `${lastWideWidth.current - border}px`)
+      }}
       data-desktop-rail={desktopRail || undefined}
       data-sidebar-opening={!collapsed && everCollapsed.current || undefined}
       onFocusCapture={(event) => { sidebarFocus.current = event.target }}

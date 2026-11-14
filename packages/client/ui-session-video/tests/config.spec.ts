@@ -20,6 +20,11 @@ describe('Session video page configuration', () => {
     expect(readSessionVideoConfig()).toEqual({ enabled: false, pixelsPerSecond: 80 })
   })
 
+  it('retains the default timeline scale when only the presentation switch is saved', () => {
+    vi.stubGlobal(SESSION_VIDEO_CONFIG_GLOBAL, { enabled: false })
+    expect(readSessionVideoConfig()).toEqual({ enabled: false, pixelsPerSecond: 48 })
+  })
+
   it.each([null, [], '80', { pixelsPerSecond: '80' }, { pixelsPerSecond: 0 }, { enabled: 'false' }])(
     'rejects malformed bootstrap configuration %j before UI registration', (value) => {
       vi.stubGlobal(SESSION_VIDEO_CONFIG_GLOBAL, value)

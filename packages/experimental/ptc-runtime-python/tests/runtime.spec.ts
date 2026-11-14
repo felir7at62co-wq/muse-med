@@ -3758,7 +3758,12 @@ describe('PythonPtcRuntime — hostile peer', () => {
         'import os, json',
         'x = await tools.echo({"ping": True})',
         'name = "n" * 100000',
-        'os.write(3, json.dumps({"type":"call","id":1,"global":"tools","name":name,"args":{}}).encode() + b"\\n")',
+        'frame = json.dumps({"type":"call","id":1,"global":"tools","name":name,"args":{}}).encode() + b"\\n"',
+        // A large fd-3 write may return short; finish the forged frame before
+        // the bootstrap appends its done frame, as in the other large-frame fixtures.
+        'view = memoryview(frame)',
+        'while view:',
+        '    view = view[os.write(3, view):]',
         'return x',
       ].join('\n'),
       bindings: tools({

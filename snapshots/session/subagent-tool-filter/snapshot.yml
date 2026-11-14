@@ -11,3 +11,5 @@ header:
   childSystemPrompts: [1]
   childToolSchemas: [1]
 writerOutput: true
+replay:
+  override: true

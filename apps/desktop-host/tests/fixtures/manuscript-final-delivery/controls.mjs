@@ -1,7 +1,7 @@
 /** Independent Loader controls for delivery intent, shell writes and Session/turn isolation. */
 import assert from 'node:assert/strict'
 import { readFile, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { importSnapshotModule, importSnapshotPackage } from '../../../../../snapshots/session/muse-fixture-import.mjs'
 import { manuscriptDocx } from './docx.mjs'
 
@@ -19,6 +19,7 @@ const faulty = await readFile(new URL('../manuscript-continuity/case-a.md', impo
 const words = { accepted: manuscriptDocx(accepted), faulty: manuscriptDocx(faulty) }
 const PROVIDER = 'manuscript-delivery-controls-fixture'
 const MODEL = 'selected-creative-model'
+const shellTool = process.platform === 'win32' ? 'pwsh' : 'bash'
 const mode = process.env.MUSE_DELIVERY_CONTROL
 const modes = ['report', 'translation', 'format', 'mixed', 'shell', 'session-isolation', 'cancel-followup', 'new-input']
 assert.ok(modes.includes(mode), `Unknown delivery control ${mode}`)
@@ -55,7 +56,8 @@ function declare(path, note = '草稿：尚未进行最终剧情复核。') {
 
 function pythonWord(bytes) {
   const payload = Buffer.from(bytes).toString('base64')
-  return { command: `python3 -c "import base64; from pathlib import Path; Path('shell.docx').write_bytes(base64.b64decode('${payload}'))"`,
+  const python = process.platform === 'win32' ? 'python' : 'python3'
+  return { command: `${python} -c "import base64; from pathlib import Path; Path('shell.docx').write_bytes(base64.b64decode('${payload}'))"`,
     description: 'Write the actual Word file through Python, outside filesystem tool hooks' }
 }
 
@@ -72,14 +74,14 @@ function actions(root) {
     { id: 'mixed-present', name: 'present', args: () => present('final.docx', label(root, 'mixed-declare')) },
   ]
   if (mode === 'shell') return [
-    { id: 'python-word', name: 'bash', args: pythonWord(words.accepted) },
+    { id: 'python-word', name: shellTool, args: pythonWord(words.accepted) },
     { id: 'python-without-history', name: 'present', args: present('shell.docx'), error: 'MANUSCRIPT_DELIVERY_REQUIRED' },
     { id: 'python-review', name: 'manuscript_revision', args: { action: 'continuity', task: '核对最终Word真实正文，保持实际读取范围。', documents: [
       { role: 'current', path: 'current.md' }, { role: 'candidate', path: 'shell.docx' },
     ] } },
     { id: 'python-reviewed', name: 'manuscript_revision', args: { action: 'delivery', candidate_paths: ['shell.docx'], delivery_mode: 'reviewed' } },
     { id: 'python-present', name: 'present', args: () => present('shell.docx', label(root, 'python-reviewed')) },
-    { id: 'python-rewrite', name: 'bash', args: pythonWord(words.faulty) },
+    { id: 'python-rewrite', name: shellTool, args: pythonWord(words.faulty) },
     { id: 'python-stale', name: 'present', args: () => present('shell.docx', label(root, 'python-reviewed')), error: 'MANUSCRIPT_DELIVERY_STALE' },
     { id: 'python-draft', name: 'manuscript_revision', args: declare('shell.docx', '草稿：最终Word已重写，旧核验不适用。') },
     { id: 'python-draft-present', name: 'present', args: () => present('shell.docx', label(root, 'python-draft')) },
@@ -114,7 +116,7 @@ class ControlsAdapter extends LlmAdapter {
           try { return JSON.parse(block.text) } catch (error) { assert.ok(error instanceof SyntaxError); return null }
         }).find(value => value?.materials && value.target)
       assert.ok(materialMessage)
-      assert.equal(materialMessage.target.path.endsWith('/shell.docx'), true)
+      assert.equal(materialMessage.target.path.endsWith(`${sep}shell.docx`), true)
       yield* call('structured_output', { status: 'consistent', findings: [], unknowns: [] }, 'python-structured-result')
       return
     }

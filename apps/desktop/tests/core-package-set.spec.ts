@@ -72,6 +72,7 @@ describe('desktop core package set', () => {
       'node-pty': true, koffi: true, 'fs-ext': true,
       '@deepseek-ai/dsh-subprocess-local': true,
       '@google/genai': false, protobufjs: false, 'node-addon-require-builtin': false,
+      '@whiskeysockets/baileys@7.0.0-rc14': false, 'tos-crc64-js': false,
     })
   })
 

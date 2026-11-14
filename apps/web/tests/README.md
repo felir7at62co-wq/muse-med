@@ -14,15 +14,23 @@ On Linux, `--with-deps` installs dependencies through the system package manager
 
 Ordinary scenarios begin with no registered Workspace or Session and a durable marker recording a removed default Workspace, so explicit folder-selection scenarios retain control of their cwd. `launchWebScaffold({ firstUse: true })` leaves initialization eligible for startup scenarios.
 
+Plain Web opens credential setup directly after the welcome notice. Its scenarios check that account sign-in choices, account menus and bonus requests remain absent while exercising real Settings and credential persistence. Desktop cases declare their carrier before boot and retain the account-menu geometry, sign-in and bonus-notice assertions.
+
 The workspace file-reference recording supplies its historical two-skill catalog through an owned temporary skill directory, using the descriptors retained in the recorded Session and independent of personal or bundled skill roots. Its keyboard gesture collapses a selected draft at the end before inserting the next reference on macOS and Windows.
+
+[Tool details](tool-details.e2e.ts) checks each historical call against the unchanged recorded Session and exercises current Schedule cards through a separate real Host turn. The ended list row is a UI precondition; it does not assert that a scheduled task ran.
 
 [Muse personal models](muse-personal-models.e2e.ts) discovers a model from an owned local endpoint, saves its credential separately, and verifies settings rows, conversation selection, restart persistence and an adapter request. It boots the shipped desktop settings overlay without touching an installed Muse application.
 
 Same-day message goldens use the shared `WEB_FIXTURE_TIME`: seeded transcripts pass it as `createdAt` and pin the browser calendar with `pinBrowserClock`; scenarios that submit live messages also use `pinHostClock` and restore it after teardown. These clocks advance with real elapsed time while keeping native timers intact, so midnight does not change a scenario's date labels.
 
+The message-action fork scenario gives both helpers the same native `performance.timeOrigin + performance.now()` anchor. Host summaries and browser placeholders then share one elapsed timeline through reloads. Other callers omit this optional anchor and retain the document-local browser clock.
+
 Root-only recorded-session owners can preserve canonical replay inputs with [`writerOutput`](../../../packages/test-support/session-snapshot/README.md). The scaffold compares the driven root against a separate current-writer oracle and checks its exact inventory; it rejects child canonical roles for this Web option. Refresh may check the inventory before teardown harvests the root oracle; replay always requires it.
 
 Built-bundle jsdom cases share `installAssembledBootEnv`, which supplies non-matching media queries and restores browser globals after each test; real media-query behavior belongs to browser cases.
+
+The [Bot sidebar fixture](bot-sidebar-rail.e2e.ts) mounts the shipped navigation with a synthetic roster and empty Sessions. Its public navigation guard is cancelled on release. Narrow Web and macOS cases check the visible drawer, hit testing, keyboard focus and unreserved main column; Windows retains its rail. These geometry checks do not certify native Session operations.
 
 ## Completion observations
 
@@ -39,6 +47,8 @@ Permission-picker assertions wait for rendered option rows before checking count
 [Idle-submission handoff](idle-submission-handoff.e2e.ts) waits up to the scaffold's 30-second turn-completion budget for Host frames and browser placement. Vitest owns scaffold teardown so a replay-consumption error does not replace the failed scenario assertion.
 
 Plugin-manager and HMR lifecycle switches wait up to `PLUGIN_TOGGLE_SETTLE_MS` (10 seconds) for the Host's profile write and the store's follow-up inventory read, the two steps that republish `aria-checked`; that constant's JSDoc records the measured chain.
+
+The [installation cancellation scenario](plugin-install-cancel.e2e.ts) drops the browser reply only after the correlated Host operation ends. It checks the unknown result and installed files, and releases pending route waits before joining them during teardown.
 
 Explicit scrolling uses `scrollIntoView` from `support.ts`: it resolves the locator again when its old element detaches and checks connection in the same browser task as native scrolling. Scenarios retain their visibility and geometry assertions after scrolling.
 

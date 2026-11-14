@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { Dir } from 'node:fs'
 import { mkdir, readFile, readdir, rename, stat, symlink, unlink, writeFile } from 'node:fs/promises'
 import * as files from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { PeerId } from '@deepseek-ai/dsh-typert-protocol'
@@ -251,7 +251,7 @@ it('closes its directory and refuses completion when its caller retires during m
     return handle
   })
   const metadata = vi.spyOn(library, 'readEpisodeBytes').mockImplementation(async (...args) => {
-    if (args[0].endsWith('/intent.json')) { entered.resolve(undefined); await release.promise }
+    if (args[0].endsWith(sep + 'intent.json')) { entered.resolve(undefined); await release.promise }
     return read(...args)
   })
   const scoped = f.ctx.extend({ invocation: {
@@ -272,7 +272,7 @@ it('joins metadata reads during parent disposal and never starts work from histo
   const f = await completed(), read = library.readEpisodeBytes, entered = Promise.withResolvers<undefined>()
   const release = Promise.withResolvers<undefined>()
   const spy = vi.spyOn(library, 'readEpisodeBytes').mockImplementation(async (...args) => {
-    if (args[0].endsWith('/intent.json')) { entered.resolve(undefined); await release.promise }
+    if (args[0].endsWith(sep + 'intent.json')) { entered.resolve(undefined); await release.promise }
     return read(...args)
   })
   const operation = f.service.episodeHistory(f.planInput), rejected = expect(operation).rejects.toThrow('provider disposed')

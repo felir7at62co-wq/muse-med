@@ -59,7 +59,7 @@ The validated schema in [`src/index.ts`](src/index.ts) owns accepted ranges. Rai
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-A private Session projection retains bounded source coordinates and supported unsettled tool calls. Filesystem hydration supplies current availability and versions without changing Session history. Source identities bind the Session to an exact recorded coordinate; shot identities also bind the source version and interval endpoints. Successful analyses are reused only while the current file version matches the cached version.
+A private Session projection retains bounded source coordinates and supported unsettled tool calls. Display labels come from the recorded local path, attachment name, or provider URL without its query. Filesystem hydration supplies current availability and versions without changing Session history. Source identities bind the Session to an exact recorded coordinate; shot identities also bind the source version and interval endpoints. Successful analyses are reused only while the current file version matches the cached version. Analysis and download caches evict their oldest inserted entries when they exceed the configured limit.
 
 The service obtains execution paths through the filesystem provider and uses the Session sandbox policy for subprocesses. It checks file versions again after detection and around playback reads. Plugin disposal cancels operations and streams, joins subprocesses and pending reads, and removes the playback route. The processing helpers return complete results or explicit errors; they do not truncate successful shot lists.
 

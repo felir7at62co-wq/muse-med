@@ -223,7 +223,7 @@
     "verify-product-use": "tsx scripts/verify-product-use.ts",
     "muse:desktop": "pnpm --filter @deepseek-ai/dsh-desktop run dev",
     "muse:desktop:start": "pnpm --filter @deepseek-ai/dsh-desktop run start",
-    "test:snapshot:built": "node third_party/plugins/muse-lvpaopao/scripts/build.mjs && node scripts/prepare-subscriptions-snapshot.mjs && vitest run --config vitest.snapshot.config.ts",
+    "test:snapshot:built": "node third_party/plugins/muse-lvpaopao/scripts/build.mjs && node scripts/prepare-subscriptions-snapshot.mjs && node scripts/prepare-skill-panel-snapshot.mjs && vitest run --config vitest.snapshot.config.ts",
     "muse:web": "node scripts/muse-web.mjs",
     "check:ci:windows-observational": "tsx scripts/run-gates.ts ci-windows-observational-ready",
     "resolve-translation-pairing-conflicts": "tsx scripts/merge-translation-pairing.ts --resolve",

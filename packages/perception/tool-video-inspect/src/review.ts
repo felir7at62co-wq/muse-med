@@ -250,7 +250,8 @@ export async function applyCompleteReview(ctx: Context, config: Config,
           const savedTarget = await ctx.fs.resolve(selected.path, { cwd: policy.workspaceRoot, signal })
           if (suppliedTarget.targetKey !== savedTarget.targetKey) throw Error('VIDEO_REVIEW_SELECTOR: file_path与review_id不指向同一保存记录。')
         }
-        let snapshot = selected ?? (suppliedTarget === undefined ? undefined : saved[suppliedTarget.displayPath])
+        let snapshot = selected
+        if (suppliedTarget !== undefined) snapshot ??= saved[suppliedTarget.displayPath]
         if (snapshot === undefined && suppliedTarget !== undefined) {
           const matching: VideoReview[] = []
           for (const review of Object.values(saved)) {

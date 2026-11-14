@@ -6,3 +6,4 @@ recording: live
 header:
   class: sdk-default
   pin: true
+writerOutput: true

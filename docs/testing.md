@@ -42,15 +42,15 @@ An e2e assertion re-runs the command or re-reads the file externally; a keyword 
 - A guard only guards if the regression fails it. For a plugin without `inject` (bundle/composition plugins), a Loader smoke stays green when a default export replaces the required named exports — add an explicit `expect('default' in mod).toBe(false)` plus an `unwrapExports` round-trip assertion, and prove it: introduce the regression, watch red, revert.
 - "Real entry path" means the published artifact: a package `bin` runs built `lib/bin.js` under plain `node`, exposing failures tsx masks (settle races, module resolution, swallowed load failures). The same applies to non-index runtime entries (the Node program bootstrap `lib/process.js`) and singleton modules shared across bundles (`packages/sdk/server/tests/built-scope-carrier.e2e.ts`). Keep the built-artifact smokes green (`packages/examples/*/tests/built-bin.e2e.ts`, `packages/ptc-runtime/ptc-runtime-node/tests/built-lib.e2e.ts`), and assert a genuinely-missing config exits non-zero.
 
-Windows coverage [qualifies FFmpeg/ffprobe](../scripts/prepare-ci-ffmpeg.ts).
+Windows [coverage](../scripts/prepare-ci-ffmpeg.ts) sets `MUSE_RECOVERY_TEST_FFMPEG`.
 
 ## Test resolution: source plane only
 
-- Vitest maps bare workspace imports to `src` through `tsconfig.base.json`; built `lib/` can duplicate singletons ([layout](development.md#typescript-project-layout)). Only explicit `lib` subprocesses and built smokes consume artifacts. Repository-local JavaScript plugins declare built peers as root development dependencies without activating them. After workspace builds, `test:snapshot:built` recompiles Lvpaopao for replay.
+- Vitest resolves workspace imports to `src` through `tsconfig.base.json`; built `lib/` may duplicate singletons ([layout](development.md#typescript-project-layout)). Only explicit `lib` subprocesses and built smokes consume artifacts. Local JavaScript plugins declare built peers as root development dependencies without activation. `test:snapshot:built` prepares compiled Lvpaopao, subscription and Skill/MCP panel packages for plain-Node replay.
 
 ## Test subprocess launch modes
 
-- CI and build-having test lanes run every profile or Cordis-config subprocess from built `lib/` through the shared dual-mode launcher. Do not hand-write `--import tsx` for these subprocesses.
+- Built-artifact lanes launch profile and Cordis-config subprocesses from `lib/` through the shared launcher, never hand-written `--import tsx`. Desktop Host selects `src` in `test` and `lib` in `test:expected`.
 - Protocol and operating-system fixtures that do not load Cordis run erasable `.ts` directly with Node, without tsx or the root paths map.
 - Only a test whose subject is source-path resolution may select `src`; state that contract in the test.
 

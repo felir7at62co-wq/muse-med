@@ -18,7 +18,6 @@ import { DesktopMandatoryUpdateWindow } from '../../lib/types/mandatory-update-w
 import { DesktopUpdateOverlays } from '../../lib/types/update-overlay.js'
 import { DesktopUpdatePreparationError } from '../../lib/types/update-error.js'
 import { DesktopUpdateHttpExecutor } from '../../lib/types/update-http-executor.js'
-import { DesktopUpdateOverlays } from '../../lib/types/update-overlay.js'
 import { qualifyUpdateDialogs } from './update-dialogs.mjs'
 
 const root = process.env.DSH_LOCAL_UPDATE_TEST_ROOT
@@ -273,6 +272,7 @@ async function main() {
         assert.ok(window)
         const contents = process.platform === 'win32' ? await mandatoryFrame(parent)
           : parent.contentView.children.at(-1).webContents
+        const captureContents = process.platform === 'win32' ? parent.webContents : contents
         assert.equal(window.isModal(), false)
         assert.equal(parent.isEnabled(), true)
         contents.on('console-message', event => { console.log('mandatory renderer:', event.message) })
@@ -329,7 +329,7 @@ async function main() {
         await until(`document.getElementById('update').textContent === ${JSON.stringify(messages.mandatoryContinue)} && !document.getElementById('update').disabled`)
         assert.equal(f.installations.length, 0)
         let capture
-        try { capture = await contents.capturePage() }
+        try { capture = await captureContents.capturePage() }
         catch (error) { screenshot = { captured: false, reason: String(error) } }
         if (capture !== undefined) {
           await writeFile(join(root, 'mandatory-update.png'), capture.toPNG())
@@ -352,7 +352,7 @@ async function main() {
             assert.equal(await contents.executeJavaScript("document.getElementById('technical-details-label').click(); document.getElementById('technical-details').open"), true)
           }
           const name = expanded ? 'mandatory-error-expanded.png' : 'mandatory-error-collapsed.png'
-          await writeFile(join(root, name), (await contents.capturePage()).toPNG())
+          await writeFile(join(root, name), (await captureContents.capturePage()).toPNG())
           dialogScreenshots.push(name)
         }
         assert.equal(policy.state.blocking, true)

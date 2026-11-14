@@ -6,3 +6,4 @@ recording: authored
 header:
   class: web-minimal
   pin: true
+writerOutput: true

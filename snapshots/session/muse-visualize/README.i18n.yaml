@@ -3,5 +3,5 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write snapshots/session/muse-visualize/README.md
 /native-visualization-cards:
-  en: 40e968b77d10b023
-  zh: 787aef67d16687e0
+  en: d67c8c23a055419d
+  zh: 06faffd6a4437e93

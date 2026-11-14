@@ -160,15 +160,25 @@ describe('Desktop workspace successor ownership', () => {
       fileURLToPath(new URL('./fixtures/workspace-owned-process.ts', import.meta.url)), h.dir, h.root, 'crash-before-publish'], {
       cwd: process.cwd(), stdio: ['pipe', 'pipe', 'pipe'],
     })
-    let stderr = ''
+    const closed = once(child, 'close')
+    void closed.catch(() => {})
+    let stderr = '', output = '', reachedPublication = false
     child.stderr.on('data', (chunk) => { stderr += String(chunk) })
+    child.stdout.on('data', (chunk) => {
+      output += String(chunk)
+      if (!reachedPublication && output.includes('WORKSPACE_BEFORE_PUBLICATION\n')) {
+        reachedPublication = true
+        child.kill('SIGKILL')
+      }
+    })
     const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
-      const timer = setTimeout(() => { reject(new Error('migration child did not exit')) }, 5000)
+      const timer = setTimeout(() => { reject(new Error(`migration child did not exit: ${stderr}`)) }, 5000)
       child.once('exit', (code, signal) => { clearTimeout(timer); resolve({ code, signal }) })
       child.once('error', (error) => { clearTimeout(timer); reject(error) })
     })
-    onTestFinished(() => { child.kill('SIGKILL') })
+    onTestFinished(async () => { child.kill('SIGKILL'); await closed })
     const { code, signal } = await exit
+    expect(reachedPublication).toBe(true)
     expect({ code, signal }, stderr).toEqual({ code: null, signal: 'SIGKILL' })
     await expect(stat(h.root)).rejects.toMatchObject({ code: 'ENOENT' })
     expect((await readdir(h.dir)).some(name => name.startsWith('.owned.v1-migration-'))).toBe(true)

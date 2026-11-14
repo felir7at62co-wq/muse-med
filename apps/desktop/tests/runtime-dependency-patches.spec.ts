@@ -8,9 +8,16 @@ import { stageRuntimeDependencyPatches, verifyRuntimeDependencyPatches } from '.
 
 const roots: string[] = []
 const original = 'export const original = true;\n'
-const patched = 'function hasTokenUsage(usage) { return true; }\nif (hasTokenUsage(chunk.usage)) {}\nif (!hasTokenUsage(chunk.usage) && hasTokenUsage(choice.usage)) {}\n'
-const patch = `diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js\n--- a/dist/api/openai-completions.js\n+++ b/dist/api/openai-completions.js\n@@ -1 +1,3 @@\n-${original.trimEnd()}\n+${patched.trimEnd().replaceAll('\n', '\n+')}\n`
-const selector = '@earendil-works/pi-ai@0.87.1'
+const patched = [
+  'const tokenValues = [chunk.usage?.prompt_tokens, chunk.usage?.completion_tokens];',
+  'const hasTokenUsage = tokenValues.some(value => value !== undefined) && tokenValues.every(value => value === undefined || (typeof value === "number" && Number.isFinite(value) && value >= 0));',
+  'if (hasTokenUsage) {}',
+  'const choiceTokenValues = [choice.usage?.prompt_tokens, choice.usage?.completion_tokens];',
+  'const hasChoiceTokenUsage = choiceTokenValues.some(value => value !== undefined) && choiceTokenValues.every(value => value === undefined || (typeof value === "number" && Number.isFinite(value) && value >= 0));',
+  'if (!hasTokenUsage && hasChoiceTokenUsage) {}',
+].join('\n') + '\n'
+const patch = `diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js\n--- a/dist/api/openai-completions.js\n+++ b/dist/api/openai-completions.js\n@@ -1 +1,${patched.trimEnd().split('\n').length} @@\n-${original.trimEnd()}\n+${patched.trimEnd().replaceAll('\n', '\n+')}\n`
+const selector = '@earendil-works/pi-ai@1.3.0'
 
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 
@@ -23,7 +30,7 @@ function fixture() {
   write(join(repository, 'patches/pi-ai.patch'), patch)
   write(join(repository, 'patches/build-only.patch'), 'build-only patch not used by the production closure\n')
   write(join(repository, 'packages/llm/llm-pi-ai/package.json'), '{}\n')
-  write(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai/package.json'), '{"name":"@earendil-works/pi-ai","version":"0.87.1"}\n')
+  write(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai/package.json'), '{"name":"@earendil-works/pi-ai","version":"1.3.0"}\n')
   write(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js'), patched)
   write(join(project, 'pnpm-workspace.yaml'), 'packages:\n  - .\nallowBuilds: {}\n')
   return { root, repository, project }
@@ -42,10 +49,26 @@ it('carries exact patch bytes and changes the workspace identity when a patch ch
   expect(readFileSync(join(project, 'pnpm-workspace.yaml'), 'utf8')).not.toBe(first)
 })
 
+it('accepts the installed reviewed workspace patch and rejects equal but unguarded copies', () => {
+  const { repository, project } = fixture()
+  const entry = 'dist/api/openai-completions.js'
+  const active = readFileSync(resolve('packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai', entry), 'utf8')
+  const reference = join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai', entry)
+  const installed = join(project, 'node_modules/@earendil-works/pi-ai', entry)
+  write(reference, active)
+  write(installed, active)
+  expect(() => { verifyRuntimeDependencyPatches(repository, project) }).not.toThrow()
+  const unsafe = active.replaceAll('Number.isFinite(value)', 'true')
+  expect(unsafe).not.toBe(active)
+  write(reference, unsafe)
+  write(installed, unsafe)
+  expect(() => { verifyRuntimeDependencyPatches(repository, project) }).toThrow('reference lacks the reviewed token-usage patch')
+})
+
 it('applies the patch during a real offline pnpm production install and refuses stale frozen locks', () => {
   const { root, repository, project } = fixture()
   const packageRoot = join(root, 'fixture-package')
-  write(join(packageRoot, 'package/package.json'), '{"name":"@earendil-works/pi-ai","version":"0.87.1"}\n')
+  write(join(packageRoot, 'package/package.json'), '{"name":"@earendil-works/pi-ai","version":"1.3.0"}\n')
   write(join(packageRoot, 'package/dist/api/openai-completions.js'), original)
   const archive = join(root, 'pi-ai.tgz')
   execFileSync('tar', ['-czf', archive, '-C', packageRoot, 'package'])

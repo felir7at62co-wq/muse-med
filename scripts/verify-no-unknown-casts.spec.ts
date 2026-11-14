@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { countUnknownCasts, findUnknownCasts, scanUnknownCasts, verifyNoUnknownCasts } from './verify-no-unknown-casts.ts'
+import { retainedPluginSourcePrefixes } from './retained-plugin-sources.ts'
 
 const roots: string[] = []
 const baselinePath = 'scripts/no-unknown-casts.baseline.json'
@@ -236,18 +237,18 @@ describe('unknown assertion source discovery', () => {
     expect(verifyNoUnknownCasts(root)).toBe(0)
   })
 
-  it.each(['dsh-feishu', 'dsh-im'])('excludes only the pinned %s source directory while checking owned adapters and neighboring plugins', (plugin) => {
+  it.each(retainedPluginSourcePrefixes)('excludes only pinned %s while checking owned adapters and neighboring plugins', (prefix) => {
     const root = fixture()
-    write(root, `third_party/plugins/${plugin}/src/index.ts`, assertion)
-    write(root, `third_party/plugins/${plugin}/tests/bridge.spec.ts`, assertion)
+    write(root, `${prefix}src/index.ts`, assertion)
+    write(root, `${prefix}tests/bridge.spec.ts`, assertion)
     git(root, 'add', '.')
     expect(scanUnknownCasts(root)).toEqual([])
     expect(verifyNoUnknownCasts(root)).toBe(0)
     const owned = [
-      `third_party/plugins/compatibility/${plugin}-owned.ts`,
-      `third_party/plugins/checks/${plugin}-owned.mts`,
-      `third_party/plugins/${plugin}-owned/src/index.ts`,
-      `third_party/plugins/${plugin}.ts`,
+      `${prefix.slice(0, -1)}-owned/src/index.ts`,
+      `${prefix.slice(0, -1)}.ts`,
+      'third_party/plugins/compatibility/owned.ts',
+      'third_party/plugins/checks/owned.mts',
     ]
     for (const file of owned) write(root, file, assertion)
     expect(scanUnknownCasts(root).map(cast => cast.file)).toEqual(owned.toSorted())

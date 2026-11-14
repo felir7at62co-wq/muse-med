@@ -72,14 +72,16 @@
   border-left: 0;
 }
 
-/* Covered content stays laid out but cannot receive keyboard focus. */
-:has(> .navigator.fill) > :not(.navigator) {
+/* Covered content stays laid out but cannot receive keyboard focus. The face
+   marks only navigator hosts, so unrelated transcript edits do not invalidate
+   every document subtree through an unscoped :has(). */
+:global([data-files-navigator-host]):has(> .navigator.fill) > :not(.navigator) {
   visibility: hidden;
 }
 
 /* navigator-layout `FULLSCREEN_QUERY`: every layout fills the row. */
 @media (width < 768px) {
-  :has(> .navigator:not(.wholePage)) > :not(.navigator) {
+  :global([data-files-navigator-host]):has(> .navigator:not(.wholePage)) > :not(.navigator) {
     visibility: hidden;
   }
 

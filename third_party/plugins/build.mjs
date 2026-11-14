@@ -5,6 +5,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, 
 import { dirname, join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { parseArgs } from 'node:util'
+import { pathToFileURL } from 'node:url'
 import { applyMuseBotDesktopCompatibility, museBotDesktopCompatibility } from './compatibility/muse-bot-desktop.mjs'
 import { applyMcpDesktopCompatibility, mcpDesktopCompatibility } from './compatibility/mcp-desktop.mjs'
 import { applyBridgeDesktopCompatibility, bridgeDesktopCompatibility } from './compatibility/bridge-desktop.mjs'
@@ -130,11 +131,11 @@ for (const name of selectedSources) {
       writeFileSync(join(directory, '.muse-tsdown.ts'), `import configs from './tsdown.prepare.config.ts'\nexport default configs.map((config, index) => ({ ...config, ...(index === 0 ? { entry: { upstream: 'src/index.ts', 'muse-accounts': 'src/providers/accounts.ts', 'muse-image-tool': 'src/tools/image-generate.ts' } } : {}), sourcemap: false, clean: false }))\n`)
       run([tsdown, '--config', '.muse-tsdown.ts'], directory)
       finishSubscriptionsDesktopCompatibility(directory)
-      run(['--import', join(repository, 'node_modules/tsx/dist/esm/index.mjs'), '--test',
+      run(['--import', pathToFileURL(join(repository, 'node_modules/tsx/dist/esm/index.mjs')).href, '--test',
         ...['subscriptions-migration', 'subscriptions-legacy-alias', 'subscriptions-recovery'].map(test => `third_party/plugins/compatibility/${test}.test.mjs`)], repository, {
         DSH_HOME: join(staging, 'compatibility-home'), TSX_TSCONFIG_PATH: join(repository, 'tsconfig.base.json'),
       })
-      run(['--import', join(repository, 'node_modules/tsx/dist/esm/index.mjs'), '--test', '--test-concurrency=1',
+      run(['--import', pathToFileURL(join(repository, 'node_modules/tsx/dist/esm/index.mjs')).href, '--test', '--test-concurrency=1',
         ...['request-body', 'sse-lifecycle', 'translate', 'store', 'accounts', 'account-replay', 'image-pool', 'tools', 'tool-registration', 'rpc', 'models', 'codex-search'].map(test => `test/${test}.spec.ts`)], directory)
       cpSync(join(sourceRoot, 'checks/subscriptions-host-loader.mjs'), join(directory, '.muse-subscriptions-host.test.mjs'))
       run(['--test', '.muse-subscriptions-host.test.mjs'], directory)

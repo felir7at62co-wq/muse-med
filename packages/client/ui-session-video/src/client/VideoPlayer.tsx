@@ -43,8 +43,8 @@ export function VideoPlayer({ source, analysis, shots, offset, duration, pixelsP
   const [thumbnails, setThumbnails] = useState<{ url: string | null; frames: Readonly<Record<string, string>> }>({ url: null, frames: {} })
   useEffect(() => { if (!active) { playAttempt.current++; player.current?.pause() } }, [active])
   useEffect(() => {
-    const video = player.current
-    if (!video) return
+    // This unconditional video is mounted before React commits its effect.
+    const video = player.current as HTMLVideoElement
     video.src = source.playbackUrl ?? ''
     video.load()
     return () => { playAttempt.current++; video.pause(); video.removeAttribute('src'); video.load() }

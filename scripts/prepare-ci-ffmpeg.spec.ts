@@ -19,6 +19,7 @@ vi.mock('node:child_process', async (original) => {
 
 let root: string | undefined
 let pathFile: string
+let environmentFile: string
 let fixture: Buffer
 let probeOutput: string
 let failCommand: number | undefined
@@ -27,7 +28,9 @@ let commandCount: number
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), 'dsh-ci-media-test-'))
   pathFile = join(root, 'github-path')
+  environmentFile = join(root, 'github-env')
   await writeFile(pathFile, 'original-path\n')
+  await writeFile(environmentFile, 'ORIGINAL_ENV=retained\n')
   fixture = await readFile(new URL('./tests/fixtures/ci-ffmpeg/complete.zip', import.meta.url))
   probeOutput = JSON.stringify({ streams: [{ codec_name: 'h264' }, { codec_name: 'aac' }] })
   failCommand = undefined
@@ -57,13 +60,15 @@ function parent(): string {
 
 async function expectUnpublished(): Promise<void> {
   expect(await readFile(pathFile, 'utf8')).toBe('original-path\n')
-  expect(await readdir(parent())).toEqual(['github-path'])
+  expect(await readFile(environmentFile, 'utf8')).toBe('ORIGINAL_ENV=retained\n')
+  expect(await readdir(parent())).toEqual(['github-env', 'github-path'])
 }
 
 describe('Windows CI FFmpeg preparation', () => {
   it('qualifies exact private executables and media streams before publishing their path', async () => {
-    const bin = await prepareCiFfmpeg(parent(), pathFile, resource())
+    const bin = await prepareCiFfmpeg(parent(), pathFile, resource(), environmentFile)
     expect(await readFile(pathFile, 'utf8')).toBe(`original-path\n${bin}\n`)
+    expect(await readFile(environmentFile, 'utf8')).toBe(`ORIGINAL_ENV=retained\nMUSE_RECOVERY_TEST_FFMPEG=${join(bin, 'ffmpeg.exe')}\n`)
     expect(bin).toMatch(/dsh-ci-ffmpeg-[^/\\]+[/\\]runtime[/\\]ffmpeg[/\\]bin$/)
     expect(await readdir(bin)).toEqual(['ffmpeg.exe', 'ffprobe.exe'])
     const calls = commands.execute.mock.calls
@@ -83,7 +88,7 @@ describe('Windows CI FFmpeg preparation', () => {
     if (failure === 'checksum') locked.sha256 = '0'.repeat(64)
     if (failure === 'size') locked.bytes += 1
     if (failure === 'HTTP') vi.mocked(globalThis.fetch).mockResolvedValue(new Response(null, { status: 406 }))
-    await expect(prepareCiFfmpeg(parent(), pathFile, locked)).rejects.toThrow(/checksum|size|HTTP 406/)
+    await expect(prepareCiFfmpeg(parent(), pathFile, locked, environmentFile)).rejects.toThrow(/checksum|size|HTTP 406/)
     expect(commands.execute).not.toHaveBeenCalled()
     await expectUnpublished()
   })
@@ -94,13 +99,13 @@ describe('Windows CI FFmpeg preparation', () => {
     { name: 'unsafe.zip', error: /invalid relative path: \.\.\/escaped\.txt/ },
   ])('rejects $name before publishing a partial runtime', async ({ name, error }) => {
     fixture = await readFile(new URL(`./tests/fixtures/ci-ffmpeg/${name}`, import.meta.url))
-    await expect(prepareCiFfmpeg(parent(), pathFile, resource())).rejects.toThrow(error)
+    await expect(prepareCiFfmpeg(parent(), pathFile, resource(), environmentFile)).rejects.toThrow(error)
     await expectUnpublished()
   })
 
   it.each([1, 2, 3, 4])('keeps executable failure %s blocking and removes the private runtime', async (command) => {
     failCommand = command
-    await expect(prepareCiFfmpeg(parent(), pathFile, resource())).rejects.toThrow('media executable failed')
+    await expect(prepareCiFfmpeg(parent(), pathFile, resource(), environmentFile)).rejects.toThrow('media executable failed')
     expect(commands.execute).toHaveBeenCalledTimes(command)
     await expectUnpublished()
   })
@@ -112,13 +117,13 @@ describe('Windows CI FFmpeg preparation', () => {
     '{"streams":[{"codec_name":"aac"},{"codec_name":"aac"}]}',
   ])('refuses unexpected ffprobe streams %s', async (output) => {
     probeOutput = output
-    await expect(prepareCiFfmpeg(parent(), pathFile, resource())).rejects.toThrow('did not produce H264/AAC')
+    await expect(prepareCiFfmpeg(parent(), pathFile, resource(), environmentFile)).rejects.toThrow('did not produce H264/AAC')
     await expectUnpublished()
   })
 
   it('removes qualified media when publishing the path fails', async () => {
     const missingPathFile = join(parent(), 'absent', 'github-path')
-    await expect(prepareCiFfmpeg(parent(), missingPathFile, resource())).rejects.toThrow(/ENOENT/)
+    await expect(prepareCiFfmpeg(parent(), missingPathFile, resource(), environmentFile)).rejects.toThrow(/ENOENT/)
     await expectUnpublished()
   })
 
@@ -132,7 +137,7 @@ describe('Windows CI FFmpeg preparation', () => {
       await completion
       throw new Error('media executable failed')
     })
-    const pending = prepareCiFfmpeg(parent(), pathFile, resource())
+    const pending = prepareCiFfmpeg(parent(), pathFile, resource(), environmentFile)
     const rejected = expect(pending).rejects.toThrow('media executable failed')
     try {
       await started
@@ -145,5 +150,19 @@ describe('Windows CI FFmpeg preparation', () => {
       release?.()
       await Promise.allSettled([pending, rejected])
     }
+  })
+
+  it.each(['missing', 'directory'] as const)('rejects a %s recovery export destination before publishing a decoder', async (kind) => {
+    const invalid = kind === 'missing' ? join(parent(), 'absent-env') : parent()
+    await expect(prepareCiFfmpeg(parent(), pathFile, resource(), invalid))
+      .rejects.toThrow(kind === 'missing' ? /ENOENT/ : 'not a regular file')
+    expect(globalThis.fetch).not.toHaveBeenCalled()
+    await expectUnpublished()
+  })
+
+  it('retains PATH-only preparation for callers that do not request recovery export', async () => {
+    const bin = await prepareCiFfmpeg(parent(), pathFile, resource())
+    expect(await readFile(pathFile, 'utf8')).toBe(`original-path\n${bin}\n`)
+    expect(await readFile(environmentFile, 'utf8')).toBe('ORIGINAL_ENV=retained\n')
   })
 })

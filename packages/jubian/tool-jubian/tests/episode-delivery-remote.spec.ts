@@ -182,7 +182,8 @@ it('looks up the committed original after a lost response without reposting admi
 it('cancels the admitted original without retargeting it when A project selection changes through Remote', async () => {
   const f = await fixture(), input = admission(f.planInput, await f.readiness())
   const admitted = await f.admit(input)
-  await f.renderer.entered
+  await f.renderer.armed
+  expect(f.renderer.encodes).toBe(1)
   const other = join(f.root, 'other-project')
   await mkdir(other)
   await writeFile(join(other, 'project_config.json'), '{"jubian_script_id":2}\n')

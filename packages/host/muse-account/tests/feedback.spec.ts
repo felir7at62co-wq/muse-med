@@ -115,6 +115,53 @@ it('refuses a status response when the account changes while the request is in f
   await expect(client.get(brandString<MuseFeedbackId>(statusRecord.id))).rejects.toMatchObject({ code: 'account-changed' })
 })
 
+it('rejects an invalid status ID or signed-out lookup before sending a request', async () => {
+  const { options } = await fixture()
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json(statusRecord))
+  const client = new MuseFeedbackClient({ ...options, fetcher })
+  await expect(client.get(brandString<MuseFeedbackId>('invalid'))).rejects.toMatchObject({ code: 'invalid-input' })
+  await rm(options.sessionFile)
+  await expect(client.get(brandString<MuseFeedbackId>(statusRecord.id))).rejects.toMatchObject({ code: 'sign-in-required' })
+  expect(fetcher).not.toHaveBeenCalled()
+})
+
+it.each([
+  [303, 'sign-in-required'], [401, 'sign-in-required'], [403, 'not-found'],
+  [404, 'not-found'], [429, 'rate-limited'], [500, 'unavailable'],
+] as const)('maps status lookup HTTP %s without repeating the request', async (status, code) => {
+  const { options } = await fixture()
+  const fetcher = vi.fn<typeof fetch>(async () => new Response('{}', { status }))
+  await expect(new MuseFeedbackClient({ ...options, fetcher }).get(brandString<MuseFeedbackId>(statusRecord.id)))
+    .rejects.toMatchObject({ code })
+  expect(fetcher).toHaveBeenCalledTimes(1)
+})
+
+it('keeps failed status transport, JSON and secret readers private', async () => {
+  const { options } = await fixture()
+  const clients = [
+    new MuseFeedbackClient({ ...options, fetcher: async () => { throw Error('private transport detail') } }),
+    new MuseFeedbackClient({ ...options, fetcher: async () => new Response('not JSON') }),
+    new MuseFeedbackClient({ ...options, fetcher: async () => Response.json(statusRecord),
+      secrets: async () => { throw Error('private credential detail') } }),
+  ]
+  for (const client of clients) {
+    await expect(client.get(brandString<MuseFeedbackId>(statusRecord.id)))
+      .rejects.toMatchObject({ code: 'unavailable', message: 'MUSE feedback: unavailable' })
+  }
+})
+
+it('uses the default status transport and rechecks account ownership after reading secrets', async () => {
+  const { options } = await fixture()
+  const transport = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json(statusRecord))
+  const { fetcher: _fetcher, ...defaults } = options
+  const client = new MuseFeedbackClient({ ...defaults, secrets: async () => {
+    await writeMuseSession(options.sessionFile, { baseUrl: options.baseUrl, cookie: '__Host-muse=bob', username: 'bob' })
+    return []
+  } })
+  await expect(client.get(brandString<MuseFeedbackId>(statusRecord.id))).rejects.toMatchObject({ code: 'account-changed' })
+  expect(transport).toHaveBeenCalledTimes(1)
+})
+
 it('accepts only a matching durable receipt and preserves seven-category and message identity without automatic excerpts', async () => {
   const { client, seen } = await fixture()
   expect(await client.submit(request)).toEqual({ id: 'a'.repeat(32), revision: 1 })

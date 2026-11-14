@@ -511,6 +511,62 @@ describe('gate graph validation', () => {
     },
   )
 
+  it.each([undefined, '3'])('builds CLI and Web artifacts before standalone coverage with partitions %s', async (partitions) => {
+    for (const platform of ['linux', 'win32'] as const) {
+      const gates = withPlatform(platform, () => withEnv('DSH_COVERAGE_PARTITIONS', partitions, () =>
+        withPnpmEntrypoint(() => gatesForMode('ci-coverage'))))
+      const build = gates.find(subject => subject.id === 'build')
+      expect(build).toMatchObject({
+        displayCommand: 'pnpm run build:artifacts',
+        args: ['/private/pnpm.cjs', 'run', 'build:artifacts'],
+        env: { DSH_BUILD_CLIENT_PROFILE: 'official' },
+      })
+      expect(gates.filter(subject => subject.id === 'build')).toHaveLength(1)
+      // build:artifacts owns the native addon as well as CLI and Web outputs.
+      expect(gates.some(subject => subject.id === 'native-system')).toBe(false)
+      let built = false
+      const results = await runGates(gates, 8, async (subject) => {
+        if (subject.id === 'build') { await Promise.resolve(); built = true }
+        if (subject.id === 'coverage' || subject.id === 'coverage-exempt-heavy') {
+          expect(built).toBe(true)
+          expect(subject.needs).toContain('build')
+          expect(subject.allowFailure).not.toBe(true)
+        }
+        return resultFor(subject)
+      })
+      expect(results.every(result => result.status === 'passed')).toBe(true)
+    }
+  })
+
+  it.each(['linux', 'win32'] as const)('does not start either %s coverage reader after an artifact build failure', async (platform) => {
+    const gates = withPlatform(platform, () => withPnpmEntrypoint(() => gatesForMode('ci-coverage')))
+    const started: string[] = []
+    const results = await runGates(gates, 8, async (subject) => {
+      started.push(subject.id)
+      return resultFor(subject, subject.id === 'build' ? 'failed' : 'passed')
+    })
+    expect(results.find(result => result.gate.id === 'build')?.status).toBe('failed')
+    for (const id of ['coverage', 'coverage-exempt-heavy']) {
+      expect(started).not.toContain(id)
+      expect(results.find(result => result.gate.id === id)?.status).toBe('skipped')
+    }
+    if (platform === 'win32') expect(started).toContain('electron-install')
+  })
+
+  it.each(['ci-primary', 'ci-linux-primary', 'ci-windows-complete'] as const)('reuses the existing build for %s coverage in a closed dependency graph', async (mode) => {
+    const gates = withPnpmEntrypoint(() => gatesForMode(mode))
+    expect(gates.filter(subject => subject.id === 'build')).toHaveLength(1)
+    expect(gates.filter(subject => subject.displayCommand === 'pnpm run build:artifacts')).toHaveLength(0)
+    expect(gates.some(subject => subject.id === 'native-system')).toBe(false)
+    let built = false
+    const results = await runGates(gates, 8, async (subject) => {
+      if (subject.id === 'build') { await Promise.resolve(); built = true }
+      if (subject.id === 'coverage' || subject.id === 'coverage-exempt-heavy') expect(built).toBe(true)
+      return resultFor(subject)
+    })
+    expect(results.every(result => result.status === 'passed')).toBe(true)
+  })
+
   it('keeps native Windows coverage blocking and behind the complete build', () => {
     const complete = withPnpmEntrypoint(() => gatesForMode('ci-windows-complete'))
     const observational = withPnpmEntrypoint(() => gatesForMode('ci-windows-observational-ready'))
@@ -560,7 +616,7 @@ describe('gate graph validation', () => {
 
     expect(scripts['check:ci:windows-observational-ready']).toBe('tsx scripts/run-gates.ts ci-windows-observational-ready')
     expect(scripts['check:ci:windows-observational']).toBe(scripts['check:ci:windows-observational-ready'])
-    const completeOnly = new Set(['build', 'windows-site', 'native-system', 'coverage', 'coverage-exempt-heavy'])
+    const completeOnly = new Set(['build', 'windows-site', 'coverage', 'coverage-exempt-heavy'])
     const shared = complete.filter(gate => !completeOnly.has(gate.id))
     expect(ready.map(gate => gate.id).sort()).toEqual([...shared.map(gate => gate.id), 'docs-site-build'].sort())
     expect(ready.some(gate => gate.id === 'build')).toBe(false)
@@ -1006,6 +1062,7 @@ describe('Node 24 lane ownership', () => {
       expect.arrayContaining([
         'apps/cli/tests/profiles/headless/tests/source-tool.built.e2e.ts',
         'apps/desktop/tests/acl-skill.built.e2e.ts',
+        'apps/desktop/tests/episode-code-asar.built.e2e.ts',
         'apps/desktop/tests/attention-audio.e2e.ts',
         'apps/desktop/tests/completion-notice.e2e.ts',
         'packages/subprocess/subprocess-local/tests/spawn-runner-built.e2e.ts',

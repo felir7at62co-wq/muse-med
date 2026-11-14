@@ -2,7 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
+import * as AtomicWrite from '@deepseek-ai/dsh-atomic-write'
 import { withLedgerQueue } from '../src/claim-queue.ts'
 
 describe('ledger operation queue', () => {
@@ -17,7 +18,7 @@ describe('ledger operation queue', () => {
     }).catch((error: unknown) => error)
     let second: Promise<string> | undefined
     try {
-      await entered.promise
+      await Promise.race([entered.promise, first])
       second = withLedgerQueue(root, async () => { events.push('second entered'); return 'saved' })
       release.resolve(undefined)
       expect(await first).toBe(failure)
@@ -32,17 +33,24 @@ describe('ledger operation queue', () => {
 
   it('uses one Windows queue for ledger paths with different casing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'jubian-queue-'))
+    // This case tests the in-process queue key. The native lock and path rules
+    // belong to the actual filesystem, whose platform is not changed by this stub.
+    const lock = vi.spyOn(AtomicWrite, 'withFileLock').mockImplementation(async (_path, run) => await run())
+    onTestFinished(() => { lock.mockRestore() })
     const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
     const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
     const events: string[] = []
     let first: Promise<void> | undefined, second: Promise<void> | undefined
-    Object.defineProperty(process, 'platform', { value: 'win32' })
     try {
-      first = withLedgerQueue(root.toUpperCase(), async () => {
+      Object.defineProperty(process, 'platform', { ...descriptor, value: 'win32' })
+      first = withLedgerQueue(join(root, 'LEDGER'), async () => {
         events.push('first entered'); entered.resolve(undefined); await release.promise; events.push('first finished')
       })
-      await entered.promise
-      second = withLedgerQueue(root.toLowerCase(), async () => { events.push('second entered') })
+      await Promise.race([entered.promise, first])
+      second = withLedgerQueue(join(root, 'ledger'), async () => { events.push('second entered') })
+      // An independent queue drains runnable operations while the first remains blocked.
+      await withLedgerQueue(join(root, 'sentinel'), async () => {})
+      expect(events).toEqual(['first entered'])
       release.resolve(undefined); await Promise.all([first, second])
       expect(events).toEqual(['first entered', 'first finished', 'second entered'])
     } finally {
@@ -53,23 +61,26 @@ describe('ledger operation queue', () => {
   })
 
   it('keeps differently cased POSIX ledger operations independent', async () => {
-    const root = join(tmpdir(), `Ledger-${randomUUID()}`)
+    const root = await mkdtemp(join(tmpdir(), `Ledger-${randomUUID()}`))
+    const lock = vi.spyOn(AtomicWrite, 'withFileLock').mockImplementation(async (_path, run) => await run())
+    onTestFinished(() => { lock.mockRestore() })
     const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
     const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
     const events: string[] = []
     let first: Promise<void> | undefined, second: Promise<void> | undefined
-    Object.defineProperty(process, 'platform', { ...descriptor, value: 'linux' })
     try {
-      first = withLedgerQueue(root.toUpperCase(), async () => {
+      Object.defineProperty(process, 'platform', { ...descriptor, value: 'linux' })
+      first = withLedgerQueue(join(root, 'LEDGER'), async () => {
         events.push('first entered'); entered.resolve(undefined); await release.promise; events.push('first finished')
       })
-      await entered.promise
-      second = withLedgerQueue(root.toLowerCase(), async () => { events.push('second entered') })
+      await Promise.race([entered.promise, first])
+      second = withLedgerQueue(join(root, 'ledger'), async () => { events.push('second entered') })
       await expect.poll(() => events).toContain('second entered')
       expect(events).not.toContain('first finished')
     } finally {
       release.resolve(undefined); await Promise.allSettled([...(first ? [first] : []), ...(second ? [second] : [])])
       Object.defineProperty(process, 'platform', descriptor)
+      await rm(root, { recursive: true, force: true })
     }
   })
 })

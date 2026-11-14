@@ -9,6 +9,11 @@ import { expect, it } from 'vitest'
 import { launchWebScaffold, captureStableAria, compareOrRefreshGolden, webSnapshotMode, watchConsole, type WebScaffold } from './scaffold.ts'
 import { ZH_BROWSER_LOCALE } from './support.ts'
 
+type WithheldInstallReply = {
+  delivery: { kind: 'received'; status: number } | { kind: 'transport-failed'; error: unknown }
+  abortError: unknown
+}
+
 async function invalidInputStyles(page: Page, input: Locator) {
   const styles = []
   try {
@@ -68,6 +73,9 @@ it('cancels installation, retries and highlights the enabled plugin at 40% alpha
     const delivery = Promise.withResolvers<undefined>()
     const cancellationReply = Promise.withResolvers<undefined>()
     const loseActiveReply = Promise.withResolvers<undefined>()
+    const unknownReplies: Promise<WithheldInstallReply>[] = []
+    let stopObservingInstall: (() => void) | undefined
+    const unknownTerminal = Promise.withResolvers<'terminal' | 'teardown'>()
     try {
       const profile = join(scaffold.harnessHome, 'profiles', 'scaffold')
       const manifestPath = join(profile, 'package.json')
@@ -262,12 +270,48 @@ it('cancels installation, retries and highlights the enabled plugin at 40% alpha
       }
       await panel.getByRole('button', { name: '添加插件', exact: true }).click()
       await dialog.getByRole('textbox').fill('recovered-package')
-      installBundleRoute = async (route) => {
-        await route.fetch()
-        await route.abort('failed')
+      const recoveredInstall: { started: string[]; terminal: object[] } = { started: [], terminal: [] }
+      stopObservingInstall = scaffold.ctx.on('plugin-manager/operation', (operation) => {
+        if (operation.reason !== 'install' || operation.target !== 'recovered-package') return
+        if (operation.phase === 'started') recoveredInstall.started.push(operation.id)
+        else if (recoveredInstall.started.includes(operation.id)) {
+          recoveredInstall.terminal.push(operation)
+          unknownTerminal.resolve('terminal')
+        }
+      })
+      installBundleRoute = (route) => {
+        const reply = (async () => {
+          let delivery: WithheldInstallReply['delivery'], abortError: unknown
+          try {
+            const response = await route.fetch()
+            delivery = { kind: 'received', status: response.status() }
+          } catch (error) {
+            delivery = { kind: 'transport-failed', error }
+          } finally {
+            // This scene loses a reply only after its Host operation has ended.
+            await unknownTerminal.promise
+            abortError = await route.abort('failed').then(() => undefined, (error: unknown) => error)
+          }
+          return { delivery, abortError }
+        })()
+        unknownReplies.push(reply)
+        return reply.then(() => undefined)
       }
       await dialog.getByRole('button', { name: '安装', exact: true }).click()
       await dialog.getByText('未能获取安装结果', { exact: true }).waitFor()
+      expect(unknownReplies).toHaveLength(1)
+      const unknownReply = unknownReplies[0]
+      if (unknownReply === undefined) throw new Error('The final browser install request was not observed')
+      const { delivery: unknownDelivery, abortError } = await unknownReply
+      expect(abortError).toBeUndefined()
+      if (unknownDelivery.kind === 'received') expect(unknownDelivery.status).toBe(200)
+      else expect(unknownDelivery.error instanceof Error).toBe(true)
+      expect(recoveredInstall.started).toHaveLength(1)
+      expect(recoveredInstall.terminal).toEqual([expect.objectContaining({
+        id: recoveredInstall.started[0], phase: 'settled', reason: 'install', target: 'recovered-package',
+        application: 'applied', changed: true, version: '1.0.0',
+      })])
+      expect(recoveredInstall.terminal[0]).not.toHaveProperty('errorCode')
       await compareOrRefreshGolden(fileURLToPath(new URL('./expected/plugin-install-cancel/unknown.expected.md', import.meta.url)),
         await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd), webSnapshotMode())
       expect(JSON.parse(await readFile(manifestPath, 'utf8'))).toMatchObject({ dependencies: { 'recovered-package': '1.0.0' } })
@@ -279,7 +323,10 @@ it('cancels installation, retries and highlights the enabled plugin at 40% alpha
       delivery.resolve(undefined)
       cancellationReply.resolve(undefined)
       loseActiveReply.resolve(undefined)
-      await browser.close()
+      unknownTerminal.resolve('teardown')
+      try { await browser.close() } finally {
+        try { await Promise.all(unknownReplies) } finally { stopObservingInstall?.() }
+      }
     }
   } finally {
     await scaffold?.close()

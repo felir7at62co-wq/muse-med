@@ -425,7 +425,7 @@ function sharedHygieneGates(): Gate[] {
 }
 
 function ciPrimaryGates(): Gate[] {
-  const coverage = coverageGates()
+  const coverage = coverageGates(process.platform, { ownsBuild: false })
   return [
     ...ciSharedStaticGates(),
     typertContractsGate(),
@@ -605,10 +605,7 @@ function ciWindowsBlockingGates(): Gate[] {
 }
 
 function ciWindowsCompleteGates(): Gate[] {
-  const coverage = coverageGates('win32').map(gate => gate.id === 'electron-install' ? gate : {
-    ...gate,
-    needs: [...new Set(['build', ...(gate.needs ?? [])])],
-  })
+  const coverage = coverageGates('win32', { ownsBuild: false })
   const coverageAfter = coverage.map(gate => gate.id)
   const observational = ciWindowsObservationalGates()
     // Coverage owns Electron preparation. The required production site replaces
@@ -711,7 +708,10 @@ function coverageWorkerArgs(): { instrumented: string[]; exempt: string[] } {
   }
 }
 
-function coverageGates(platform: NodeJS.Platform = process.platform): Gate[] {
+function coverageGates(
+  platform: NodeJS.Platform = process.platform,
+  { ownsBuild = true }: { ownsBuild?: boolean } = {},
+): Gate[] {
   const electron = platform === 'win32' ? [electronInstallGate()] : []
   const workers = coverageWorkerArgs()
   const partitions = parseCoveragePartitionCount(process.env[COVERAGE_PARTITIONS_ENV])
@@ -732,9 +732,13 @@ function coverageGates(platform: NodeJS.Platform = process.platform): Gate[] {
       streamOutput: true,
     })
   return [
-    pnpmScript('native-system', 'build:native-system'),
+    // Loader smokes exercise the shipped CLI in lib mode, and Web scaffold
+    // tests load built Host/Client modules and dist. Source resolution for the
+    // instrumented parent does not produce those child-process artifacts.
+    // Larger aggregates supply their existing build, including the native addon.
+    ...ownsBuild ? [ciArtifactBuildGate()] : [],
     ...electron,
-    { ...instrumented, needs: ['native-system', ...electron.map(gate => gate.id)] },
+    { ...instrumented, needs: ['build', ...electron.map(gate => gate.id)] },
     pnpmExec('coverage-exempt-heavy', [
       'vitest',
       'run',
@@ -742,7 +746,7 @@ function coverageGates(platform: NodeJS.Platform = process.platform): Gate[] {
       ...workers.exempt,
     ], {
       label: 'test:coverage-exempt-heavy',
-      needs: ['native-system'],
+      needs: ['build'],
     }),
   ]
 }
@@ -915,6 +919,7 @@ function builtBinSmokeGate(needs: string[] = ['build', 'electron-install']): Gat
     'apps/cli/tests/profiles/headless/tests/source-tool.built.e2e.ts',
     'apps/cli/tests/built-bin.e2e.ts',
     'apps/desktop/tests/acl-skill.built.e2e.ts',
+    'apps/desktop/tests/episode-code-asar.built.e2e.ts',
     'apps/desktop/tests/attention-audio.e2e.ts',
     'apps/desktop/tests/completion-notice.e2e.ts',
     'packages/host/directory-picker-native/tests/built-worker.e2e.ts',

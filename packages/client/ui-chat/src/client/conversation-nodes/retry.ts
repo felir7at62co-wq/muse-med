@@ -1,6 +1,6 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  ConversationLocation, ConversationMatch, ConversationNodeDefinition, ModelRetryNode,
+  ConversationLocation, ConversationMatch, ConversationNodeDefinition, ConversationNodeDefinitionInput, ModelRetryNode,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-llm-retry/types'
 import type { RetryChatData } from '../contract/chat-nodes.ts'
@@ -37,21 +37,26 @@ function isClosed(location: ConversationLocation): boolean {
     || ((location.kind === 'step' || location.kind === 'turn') && location.turn.status === 'closed')
 }
 
+const matchRetry: ConversationNodeDefinition<RetryState>['match'] = (event) => {
+  if (event.type === 'llm/retry') {
+    const retryId: unknown = event.data.retryId
+    if (typeof retryId !== 'string' || retryId === '') return null
+    return { id: retryId, role: event.data.retry === 1 ? 'start' : 'update' }
+  }
+  if (event.type === 'llm/retry-started') {
+    const retryId: unknown = event.data.retryId
+    return typeof retryId === 'string' && retryId !== '' ? { id: retryId, role: 'update' } : null
+  }
+  return null
+}
+
 /** Producer-correlated model retry chain Definition. */
-export const retryDefinition: ConversationNodeDefinition<RetryState> = {
+export const retryDefinition: ConversationNodeDefinitionInput<RetryState> = {
   kind: 'model-retry',
   target: 'chat',
-  match: (event) => {
-    if (event.type === 'llm/retry') {
-      const retryId: unknown = event.data.retryId
-      if (typeof retryId !== 'string' || retryId === '') return null
-      return { id: retryId, role: event.data.retry === 1 ? 'start' : 'update' }
-    }
-    if (event.type === 'llm/retry-started') {
-      const retryId: unknown = event.data.retryId
-      return typeof retryId === 'string' && retryId !== '' ? { id: retryId, role: 'update' } : null
-    }
-    return null
+  match: {
+    'llm/retry': matchRetry,
+    'llm/retry-started': matchRetry,
   },
   start: (_context, match) => {
     const node = scheduledNode(match)

@@ -30,7 +30,7 @@ const LISTING_DEADLINE_MS = 8_000
 /** Objects one listing page may return. */
 const LISTING_PAGE_SIZE = 1000
 
-/** Artifact name electron-builder writes for one build, on either platform; unsigned and unnotarized builds add a suffix. */
+/** Artifact names for current builds and earlier unsigned or unnotarized builds with a filename suffix. */
 const ARTIFACT = /(?:^|\/)muse-med-(?<version>.+)-(?:mac|win)-(?:arm64|x64)(?:-unsigned|-unnotarized)?\.(?:exe|dmg|zip)$/u
 
 /** Inputs that decide which versions are already taken. */
