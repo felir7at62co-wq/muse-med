@@ -8,10 +8,81 @@ import { ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId, type SessionHeader } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-tool-executor-ptc/types'
-import { expect, it, vi } from 'vitest'
+import { expect, it, onTestFinished, vi } from 'vitest'
 import { createGenerationWatchOwnerAttestor, createGenerationWatchOwnerResolver, createGenerationWatchSubmissionModelReader, recordedSubmissionBinding, recordedSubmissionModel } from '../src/generation-watch-attestor.ts'
 import { generationSessionBindingSchema } from '../src/generation-binding.ts'
 import { GenerationWatchStore } from '../src/generation-watch-store.ts'
+
+async function persistedArgumentEvidence() {
+  const { Context } = await import('@deepseek-ai/cordis')
+  const persistencePlugin = await import('@deepseek-ai/dsh-session-persistence-jsonl')
+  const directory = await mkdtemp(join(tmpdir(), 'muse-watch-argument-reader-')), ctx = new Context()
+  onTestFinished(async () => { try { await ctx.fiber.dispose() } finally { await rm(directory, { recursive: true, force: true }) } })
+  const root = await realpath(directory)
+  await mkdir(join(root, 'video_tasks'))
+  await writeFile(join(root, 'project_config.json'), '{"jubian_script_id":1}')
+  const previewPath = join(root, 'video_tasks', 'preview.json'), key = 'b'.repeat(64), runId = 'a'.repeat(64)
+  await writeFile(previewPath, '{}')
+  const ledger = new JubianLedger({ root: join(root, 'ledger') })
+  await ledger.begin({ idempotencyKey: key, method: 'storyboard_native_submit', scriptId: 1,
+    requestSha256: 'original', beforeTaskIds: [], videoPreviewPath: previewPath })
+  await ctx.plugin(persistencePlugin, { root: join(root, 'sessions'), compression: 'none' }).await()
+  return { ctx, root, ledger, previewPath, key, runId }
+}
+
+it.each(['null', 'array', 'missing method', 'generate'] as const)(
+  'reads persisted %s arguments without inferring a different submission', async (kind) => {
+    const f = await persistedArgumentEvidence(), sessionId = SessionId('argument-evidence'), callId = ToolCallId('argument-call')
+    const owner = { key: f.key, runId: f.runId, sessionId, previewPath: f.previewPath }
+    const header = { ...Session.create(sessionId).header, cwd: f.root }, session = Session.create(sessionId, undefined, header)
+    const valid = kind === 'generate'
+    const submission = { method: 'generate', idempotency_key: f.key, preview_path: f.previewPath }
+    const args = kind === 'null' ? null : kind === 'array' ? [] : valid ? submission
+      : { idempotency_key: f.key, preview_path: f.previewPath }
+    const argumentsText = JSON.stringify(args)
+    session.append('model/selection', { provider: 'fixture', model: 'fixture' })
+    session.append('turn/start', { turn: 1 })
+    session.append('step/start', { turn: 1, step: 1 })
+    session.append('request/header', { reason: 'initial', header: { config: { provider: 'fixture', model: 'fixture' } } })
+    session.append('assistant/message', { turn: 1, step: 1, stream: [], message: createMessage({ role: 'assistant',
+      content: [{ type: 'tool-call', id: callId, name: 'jubian_storyboard', arguments: argumentsText }],
+      source: { kind: 'model', provider: 'fixture', model: 'fixture' } }) }, { surfaceOp: 'append' })
+    session.append('tool/call', { turn: 1, step: 1, callId, name: 'jubian_storyboard', arguments: argumentsText })
+    session.append('tool/result', { turn: 1, step: 1, message: createToolResultMessage({ callId,
+      content: [{ type: 'text', text: valid ? 'Recorded submission' : 'Invalid submit arguments' }], isError: !valid }),
+    ...(valid ? { meta: { [TOOL_BODY_META_KEY]: { generationWatchId: f.runId, submission } } } : {}) }, { surfaceOp: 'append' })
+    session.append('step/end', { turn: 1, step: 1 })
+    session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+    const writer = await f.ctx.sessionPersistence.create(header)
+    try { await writer.append(session.snapshotEvents()); await writer.flush() } finally { await writer.close() }
+    const reader = await f.ctx.sessionPersistence.open(sessionId, 'read')
+    try {
+      const { events } = await reader.read(), call = events.find(event => event.type === 'tool/call')
+      expect(call?.type === 'tool/call' && call.data.arguments).toBe(argumentsText)
+      expect(recordedSubmissionModel(events, reader.inheritedEventCount, owner))
+        .toEqual(valid ? { provider: 'fixture', model: 'fixture' } : undefined)
+    } finally { await reader.close() }
+    const verifyHost = vi.fn(async () => true)
+    expect(await createGenerationWatchOwnerAttestor(f.ctx.sessionPersistence, f.ledger, verifyHost)(owner, f.root)).toBe(valid)
+    expect(await createGenerationWatchSubmissionModelReader(f.ctx.sessionPersistence, f.ledger, verifyHost)(owner, f.root))
+      .toEqual(valid ? { provider: 'fixture', model: 'fixture' } : undefined)
+    if (valid) {
+      expect(verifyHost).toHaveBeenCalledTimes(4)
+      expect(verifyHost).toHaveBeenCalledWith(sessionId, expect.objectContaining({ id: sessionId, cwd: f.root }), f.root, f.root)
+    } else expect(verifyHost).not.toHaveBeenCalled()
+  },
+)
+
+it('withholds the submitting model when the original Session was never persisted', async () => {
+  const f = await persistedArgumentEvidence(), sessionId = SessionId('never-persisted-submitter')
+  const owner = { key: f.key, runId: f.runId, sessionId, previewPath: f.previewPath }, before = await f.ledger.find(f.key)
+  const verifyHost = vi.fn(async () => true)
+  expect(await f.ctx.sessionPersistence.stat(sessionId)).toBeUndefined()
+  expect(await createGenerationWatchSubmissionModelReader(f.ctx.sessionPersistence, f.ledger, verifyHost)(owner, f.root)).toBeUndefined()
+  expect(await f.ctx.sessionPersistence.stat(sessionId)).toBeUndefined()
+  expect(verifyHost).not.toHaveBeenCalled()
+  expect(await f.ledger.find(f.key)).toEqual(before)
+})
 
 it.each(['malformed arguments', 'mismatched binding model'] as const)(
   'keeps persisted submission evidence untrusted for %s', async (fault) => {

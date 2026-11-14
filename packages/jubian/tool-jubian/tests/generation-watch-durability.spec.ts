@@ -29,6 +29,36 @@ async function checkpoint() {
   return { root, store, run, path: join(root, 'watches', `${run.id}.json`) }
 }
 
+it('reads an original v1 ownership record and retains its checkpoint when publishing the current index', async () => {
+  const f = await checkpoint()
+  await f.store.create(f.run)
+  const legacy = join(f.root, 'legacy-watch'), orphan = join(f.root, 'orphan-watch')
+  await mkdir(legacy); await mkdir(orphan)
+  const checkpointBytes = await readFile(f.path), v1 = await readFile(join(f.root, 'watches', 'ownership.v1.json'))
+  const legacyCheckpoint = join(legacy, `${f.run.id}.json`), legacyIndex = join(legacy, 'ownership.v1.json')
+  await writeFile(legacyCheckpoint, checkpointBytes)
+  await writeFile(legacyIndex, v1)
+  const restored = new GenerationWatchStore(legacy)
+  await expect(readFile(join(legacy, 'ownership.v2.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(await restored.mayObserve(f.run.id)).toBe(true)
+  expect(await restored.load(f.run.id)).toEqual(f.run)
+  expect(await restored.claimAndCreate(f.run)).toBe(false)
+  expect(await restored.mayObserve(f.run.id)).toBe(true)
+  expect(await readFile(legacyCheckpoint)).toEqual(checkpointBytes)
+  expect(await readFile(legacyIndex)).toEqual(v1)
+  expect(await readFile(f.path)).toEqual(checkpointBytes)
+  const current = z.object({ version: z.literal(2), runs: z.record(z.string(), z.unknown()) })
+    .parse(JSON.parse(await readFile(join(legacy, 'ownership.v2.json'), 'utf8')))
+  expect(current.runs[f.run.id]).toMatchObject({ sessionId: f.run.sessionId, packs: f.run.packs,
+    dispatchFinished: true, startedKeys: [], noSend: false })
+  const orphanIndex = join(orphan, 'ownership.v1.json')
+  await writeFile(orphanIndex, v1)
+  await expect(new GenerationWatchStore(orphan).claimAndCreate(f.run)).rejects.toBeInstanceOf(GenerationWatchOwnershipConflict)
+  expect(await readFile(orphanIndex)).toEqual(v1)
+  await expect(readFile(join(orphan, `${f.run.id}.json`))).rejects.toMatchObject({ code: 'ENOENT' })
+  await expect(readFile(join(orphan, 'ownership.v2.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
 it.each(['ownership.v2.json', 'ownership.v1.json'])('propagates a corrupt %s without replacing it or creating a watch', async (name) => {
   const f = await checkpoint(), directory = join(f.root, 'watches'), path = join(directory, name)
   await mkdir(directory, { recursive: true })
