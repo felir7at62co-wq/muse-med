@@ -79,9 +79,32 @@ it('withholds the submitting model when the original Session was never persisted
   const verifyHost = vi.fn(async () => true)
   expect(await f.ctx.sessionPersistence.stat(sessionId)).toBeUndefined()
   expect(await createGenerationWatchSubmissionModelReader(f.ctx.sessionPersistence, f.ledger, verifyHost)(owner, f.root)).toBeUndefined()
+  expect(await createGenerationWatchOwnerAttestor(f.ctx.sessionPersistence, f.ledger, verifyHost)(owner, f.root)).toBe(false)
   expect(await f.ctx.sessionPersistence.stat(sessionId)).toBeUndefined()
   expect(verifyHost).not.toHaveBeenCalled()
   expect(await f.ledger.find(f.key)).toEqual(before)
+})
+
+it.each(['preview', 'project'] as const)('refuses a relative %s path before reading ownership evidence', async (kind) => {
+  const f = await persistedArgumentEvidence(), sessionId = SessionId('relative-owner-path')
+  const owner = { key: f.key, runId: f.runId, sessionId, previewPath: kind === 'preview' ? 'preview.json' : f.previewPath }
+  const verifyHost = vi.fn(async () => true)
+  const open = vi.spyOn(f.ctx.sessionPersistence, 'open')
+  const attest = createGenerationWatchOwnerAttestor(f.ctx.sessionPersistence, f.ledger, verifyHost)
+  expect(await attest(owner, kind === 'project' ? 'relative-project' : f.root)).toBe(false)
+  expect(open).not.toHaveBeenCalled()
+  expect(verifyHost).not.toHaveBeenCalled()
+})
+
+it('withholds the model recorded by a persisted subagent Session', async () => {
+  const f = await persistedArgumentEvidence(), sessionId = SessionId('subagent-submitter')
+  const header: SessionHeader = { ...Session.create(sessionId).header, origin: 'subagent', cwd: f.root }
+  const writer = await f.ctx.sessionPersistence.create(header)
+  try { await writer.flush() } finally { await writer.close() }
+  const verifyHost = vi.fn(async () => true)
+  const owner = { key: f.key, runId: f.runId, sessionId, previewPath: f.previewPath }
+  expect(await createGenerationWatchSubmissionModelReader(f.ctx.sessionPersistence, f.ledger, verifyHost)(owner, f.root)).toBeUndefined()
+  expect(verifyHost).not.toHaveBeenCalled()
 })
 
 it.each(['malformed arguments', 'mismatched binding model'] as const)(

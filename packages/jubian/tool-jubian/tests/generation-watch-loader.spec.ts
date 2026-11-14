@@ -167,6 +167,31 @@ async function watchHost(root: string, generationWatch = true, durableInboxClaim
   return ctx
 }
 
+it('rejects a native watcher notice without an acquired execution binding before requesting a model', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-generation-unbound-notice-')))
+  const host = await watchHost(root)
+  const adapter = new MockAdapter([textResponse('An unbound notice must not reach this model.')])
+  host.llm.registerAdapter(['mock'], adapter)
+  try {
+    const agent = await host.agentLoop.create(SessionId('unbound-native-notice'), selection, { cwd: root })
+    const message = createUserMessage({ content: [{ type: 'text', text: 'Continue the saved result.' }],
+      source: { kind: 'jubian-generation-watch', form: 'notice', summary: 'Unbound generation notice' } })
+    agent.followup(message)
+    await agent.whenIdle()
+    const events = agent.session.snapshotEvents()
+    expect(adapter.requests).toEqual([])
+    expect(events.some(event => event.type === 'user/message' && event.data.id === message.id)).toBe(false)
+    expect(events.filter(event => event.type === 'turn/end').map(event => event.data.reason))
+      .toMatchObject([{ kind: 'error' }])
+    expect(JSON.stringify(events.filter(event => event.type === 'turn/end')))
+      .toContain('original native execution binding is not held')
+    expect(agent.inbox.nextTurn.map(item => item.id)).toEqual([message.id])
+    expect(await new GenerationWatchStore(join(root, 'watches')).listAll()).toEqual([])
+  } finally {
+    try { await host.fiber.dispose() } finally { await rm(root, { recursive: true, force: true }) }
+  }
+})
+
 it('wakes an idle owner after provider completion from the normal video submission tool', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-generation-loader-')))
   const ledgerRoot = join(root, 'ledger')

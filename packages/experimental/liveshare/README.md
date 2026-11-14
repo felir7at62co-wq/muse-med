@@ -124,7 +124,7 @@ The optional `share-access-state` frame and authenticated request-list response 
 
 Viewer streams belong to their opening actor. Notifications and control projections expose only the source and that actor’s children; interactive approvals and questions remain on the Host. `forkLineage` is a LiveShare-owned UI projection, not a grant. The per-Session grants of the reader's access snapshot decide whether the page offers prompt and stop, independently of display lineage.
 
-The external Liveshare server's service, stores, OAuth provider, and deployment remain separately owned. Owner-only tests live here; tests that start both complete products remain with the upper Liveshare server integration.
+The external Liveshare server's service, stores, OAuth provider, and deployment remain separately owned. Owner-only tests live here; tests that start both complete products remain with the upper Liveshare server integration. Credential-horizon fixtures derive past and future expiry from their start time while retaining real HTTP and timers.
 
 The source-only viewer tests generate Remote modules in a private Node subprocess using the current workspace aliases, then consume them in the instrumented viewer. Generation reports complete output and exit status, rejects missing files, and joins the child before staging cleanup; the UI assertions and their deadlines remain unchanged.
 
