@@ -666,7 +666,8 @@
   overflow: hidden;
 }
 
-.fading .regionArea {
+.fading .regionArea,
+.root[data-sidebar-opening] .regionArea {
   width: calc(var(--dsh-sidebar-expanded-width) - var(--dsh-sidebar-inline-padding));
 }
 

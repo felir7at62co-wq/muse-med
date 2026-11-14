@@ -59,7 +59,7 @@ export interface WorkingDirectoryGuard {
   readonly directory: string
   /** Aborts on release, owner cancellation, Session change, or service disposal. */
   readonly signal: AbortSignal
-  /** Release this guard and abort its signal. */
+  /** Release this guard and abort its signal; repeated calls do not affect later guards. */
   release(): void
 }
 
@@ -69,7 +69,10 @@ interface ActiveDirectoryGuard {
   release(): void
 }
 
-/** One owner for each Session's effective directory and its model-visible changes. */
+/**
+ * One owner for each Session's effective directory and its model-visible changes.
+ * Agent and service disposal cancel queued operations and await in-flight filesystem work.
+ */
 export class WorkingDirectoryService extends Service {
   static inject = ['fs', 'sessionProjections', 'systemPrompt']
 
@@ -160,9 +163,8 @@ export class WorkingDirectoryService extends Service {
    */
   ensure(agent: Agent, signal?: AbortSignal): Promise<string> {
     return this.serialize(agent, signal, async (control) => {
-      const current = this.get(agent.session)
       const guard = this.guards.get(agent.session)
-      if (guard !== undefined && guard.directory !== current) { guard.release(); throw new Error('working-directory: guarded directory changed') }
+      const current = guard?.directory ?? this.get(agent.session)
       const target = await this.ctx.fs.resolve(current, { signal: control })
       const info = await this.ctx.fs.stat(target, control)
       control.throwIfAborted()
@@ -232,15 +234,15 @@ export class WorkingDirectoryService extends Service {
         if (released) return
         released = true
         signal.removeEventListener('abort', release)
-        if (this.guards.get(agent.session) === state) this.guards.delete(agent.session)
+        this.guards.delete(agent.session)
         controller.abort(new Error('working-directory: guard released'))
         void detachOwner()
       }
       const state: ActiveDirectoryGuard = { agent, directory: current, release }
+      control.throwIfAborted()
       const detachOwner = agent.ctx.effect(() => release, 'working-directory.guard')
       this.guards.set(agent.session, state)
       signal.addEventListener('abort', release, { once: true })
-      if (signal.aborted) release()
       return { directory: current, signal: controller.signal, release }
     })
     const lifetime = AbortSignal.any([signal, this.lifecycle.signal])
@@ -299,15 +301,37 @@ export class WorkingDirectoryService extends Service {
 
   private serialize<T>(agent: Agent, signal: AbortSignal | undefined, action: (signal: AbortSignal) => Promise<T>): Promise<T> {
     const session = agent.session
-    const control = signal === undefined
-      ? this.lifecycle.signal
-      : AbortSignal.any([this.lifecycle.signal, signal])
+    const owner = new AbortController()
+    const control = AbortSignal.any(signal === undefined
+      ? [this.lifecycle.signal, owner.signal]
+      : [this.lifecycle.signal, owner.signal, signal])
     const operation = (this.pending.get(session) ?? Promise.resolve()).then(() => {
       control.throwIfAborted()
       agent.ctx.fiber.assertActive()
       return action(control)
     })
-    const settled = operation.finally(() => this.operations.delete(settled))
+    let detachOwner: (() => Promise<void> | void) | undefined
+    try {
+      detachOwner = agent.ctx.effect(() => () => {
+        owner.abort(new Error('working-directory: Agent disposed'))
+        // Cleanup joins the action, not the finalizer that releases this effect.
+        return operation.then(() => {}, () => {})
+      }, 'working-directory.operation')
+    } catch (error: unknown) {
+      owner.abort(error)
+    }
+    const finish = async (): Promise<T> => {
+      try {
+        return await operation
+      } finally {
+        try {
+          await detachOwner?.()
+        } finally {
+          this.operations.delete(settled)
+        }
+      }
+    }
+    const settled = finish()
     this.operations.add(settled)
     this.pending.set(session, settled.then(() => {}, () => {}))
     return settled

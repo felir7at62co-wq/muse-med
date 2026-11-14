@@ -69,7 +69,10 @@ export function prepareDesktopSmokeSkills(home: string): DesktopSmokeSkillLayout
  * @param root - Prepared product package root.
  * @param home - Disposable smoke product home containing a separate workspace.
  * @returns ESM plugin source checking current product tools, technical skills, retired resources,
- * native skill locations, and completed Agent disposal. Historical editing resolves to short-drama.
+ * native skill locations, the tool-free private reviewer, and completed Agent disposal.
+ * Operation errors retain their preset, Agent identity and cause; teardown preserves prior failures.
+ * Preset/instance/phase diagnostics retain foreign stacks and bounded lifecycle observations.
+ * Historical editing resolves to short-drama; only ordinary presets are mounted in the preset loop.
  */
 export function desktopSmokePluginSource(root: string, home: string): string {
   return `
@@ -77,8 +80,33 @@ import { Context } from '@deepseek-ai/cordis'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { existsSync, realpathSync, writeFileSync } from 'node:fs'
 import { join, relative, isAbsolute } from 'node:path'
+import { getCallSites, inspect } from 'node:util'
+async function smokeOperation(preset, index, operation, action, sessionId = 'desktop-product-smoke-' + preset + '-' + index) {
+  try {
+    return await action()
+  } catch (error) {
+    throw new Error('desktop runtime: preset ' + preset + ', agent ' + (index + 1) + ' (' + sessionId + '), ' + operation + ' failed', { cause: error })
+  }
+}
+async function disposeSmokeAgents(preset, handles, primaryFailure) {
+  const failures = []
+  for (let index = handles.length - 1; index >= 0; index--) {
+    const handle = handles[index]
+    try {
+      await smokeOperation(preset, index, 'dispose', () => handle.dispose(), handle.agent.id)
+    } catch (error) {
+      failures.push(error)
+    }
+  }
+  if (failures.length > 0) {
+    throw new AggregateError(primaryFailure === undefined ? failures : [primaryFailure.error, ...failures],
+      'desktop runtime: preset ' + preset + ' lifecycle failed')
+  }
+}
 export const inject = ['agentPresets', 'agents', 'agentLoop', 'systemPrompt', 'tools', 'skills', 'credentials', 'webServer', 'museAccount', 'toolDiscovery']
 export function apply(ctx) {
+  const callerFiber = ctx.fiber
+  const callerAgents = ctx.agents
   ctx.effect(() => ctx.webServer.register({ kind: 'exact', path: '/desktop-product-smoke', handler: async (_request, response) => {
   if (!(ctx instanceof Context)) throw new Error('desktop runtime: external plugin loaded another Cordis instance')
   const root = ${JSON.stringify(root)}
@@ -88,12 +116,182 @@ export function apply(ctx) {
   const editingModelInput = ${JSON.stringify(editingModelInput)}
   const creationSkillNames = new Set(${JSON.stringify(CREATION_SKILL_NAMES)})
   const creationUserSources = new Set(['custom', 'user-muse', 'user-dsh', 'user-agents', 'project-muse', 'project-dsh', 'project-agents'])
+  const failureText = error => error && error.stack ? error.stack : String(error)
+  const withContext = (error, preset, index, phase, sessionId) => {
+    const operation = { create: 'create and mount', 'assemble-initial': 'assemble initial prompt',
+      'assemble-loaded': 'assemble loaded tools', 'assemble-released': 'assemble released tools',
+      'skills-list': 'list skills' }[phase] ?? (phase.startsWith('skills-get:') ? 'load skill ' + phase.slice(11) : phase)
+    const ownerId = sessionId ?? 'desktop-product-smoke-' + preset + '-' + index
+    const failure = new Error('desktop runtime: preset=' + preset + ' index=' + index + ' phase=' + phase + '; preset ' + preset + ', agent ' + (index + 1) + ' (' + ownerId + '), ' + operation + ' failed', { cause: error })
+    failure.stack += '\\nCaused by: ' + failureText(error)
+    return failure
+  }
+  const identities = new WeakMap()
+  const birthUIDs = new WeakMap()
+  let nextIdentity = 0
+  const identity = value => {
+    if ((typeof value !== 'object' || value === null) && typeof value !== 'function') return null
+    if (!identities.has(value)) identities.set(value, ++nextIdentity)
+    return identities.get(value)
+  }
+  const describeFiber = fiber => {
+    if (fiber === undefined) return null
+    const uid = fiber.uid
+    if (typeof uid === 'number' && !birthUIDs.has(fiber)) birthUIDs.set(fiber, uid)
+    return { identity: identity(fiber), birthUID: birthUIDs.get(fiber) ?? null, uid,
+      state: fiber.state, label: fiber.runtime?.name ?? null }
+  }
+  const tracked = []
+  const firstRecords = []
+  const lastRecords = []
+  const observerErrors = []
+  let droppedRecords = 0, droppedObserverErrors = 0, sequence = 0
+  let location = { preset: null, index: -1, phase: 'request' }
+  const observerError = (event, error) => {
+    let message = 'Observer failure could not be rendered'
+    let renderingFailed = false
+    try { message = String(failureText(error)).slice(0, 4096) } catch { renderingFailed = true }
+    if (observerErrors.length < 8) observerErrors.push({ event, ...location, message, renderingFailed })
+    else droppedObserverErrors++
+  }
+  const disposalCallSites = () => {
+    try {
+      const aliases = ${JSON.stringify([[pathToFileURL(home).href + '/', '<home>/'], [pathToFileURL(root).href + '/', '<runtime>/']])}
+      return getCallSites(48, { sourceMap: false }).map(frame => {
+        let file = frame.scriptName
+        for (const [prefix, alias] of aliases) {
+          if (file.startsWith(prefix)) { file = alias + file.slice(prefix.length); break }
+        }
+        return { fn: frame.functionName.slice(0, 96), file: file.slice(0, 320),
+          line: frame.lineNumber, column: frame.columnNumber }
+      })
+    } catch (error) { observerError('getCallSites', error); return [] }
+  }
+  const abortReason = reason => {
+    let summary = 'Abort reason unavailable', stack
+    try {
+      const message = reason?.message
+      summary = (typeof message === 'string' ? message : String(reason)).slice(0, 512)
+    } catch (error) { observerError('abort-reason-summary', error) }
+    try {
+      const value = reason?.stack
+      if (typeof value === 'string') stack = value.slice(0, 4096)
+    } catch (error) { observerError('abort-reason-stack', error) }
+    return { summary, ...(stack === undefined ? {} : { stack }) }
+  }
+  const appendRecord = record => {
+    record.sequence = ++sequence
+    if (firstRecords.length < 128) firstRecords.push(record)
+    else {
+      lastRecords.push(record)
+      if (lastRecords.length > 384) { lastRecords.shift(); droppedRecords++ }
+    }
+  }
+  const trackedState = (registries, currentAgents) => tracked.map(row => ({
+    preset: row.preset, index: row.index, agentIdentity: identity(row.agent),
+    contextIdentity: identity(row.context), fiber: describeFiber(row.fiber),
+    ...(registries ? {
+      agentRegistryIdentity: identity(callerAgents[Symbol.for('cordis.original')] ?? callerAgents),
+      registeredAgentMatches: callerAgents.get(row.agent.id) === row.agent,
+      currentRegisteredAgentMatches: currentAgents.get(row.agent.id) === row.agent,
+    } : {}),
+  }))
+  const checkpoint = (event, preset, index, phase) => {
+    location = { preset, index, phase }
+    try {
+      const currentAgents = ctx.agents
+      appendRecord({ event, ...location, owner: describeFiber(callerFiber),
+        currentAgentRegistryIdentity: identity(currentAgents[Symbol.for('cordis.original')] ?? currentAgents),
+        tracked: trackedState(true, currentAgents) })
+    } catch (error) { observerError(event, error) }
+  }
+  const observe = (event, fiber, oldState) => {
+    try {
+      const description = describeFiber(fiber)
+      appendRecord({ event, ...location, fiber: description, oldState, owner: describeFiber(callerFiber),
+        tracked: trackedState(false),
+        ...(event === 'internal/plugin' && description.uid === null ? { disposalCallSites: disposalCallSites() } : {}),
+        ...(description.uid === null || event === 'internal/status'
+          ? { stack: new Error('Desktop lifecycle ' + event).stack?.slice(0, 4096) } : {}) })
+    } catch (error) { observerError(event, error) }
+  }
+  const observedAgents = new WeakSet(), signalReleases = []
+  const observeCreated = ({ agent, signal }) => {
+    try {
+      if (!agent.session.id.startsWith('desktop-product-smoke-') || signal === undefined || observedAgents.has(agent)) return
+      // Seven ordinary presets own two Agents each; the private reviewer owns one.
+      if (signalReleases.length >= 15) { observerError('agent-created-capacity', new Error('Smoke Agent observation limit reached')); return }
+      const context = agent.ctx, fiber = context.fiber, agentIdentity = identity(agent), contextIdentity = identity(context)
+      const alreadyAborted = signal.aborted
+      let recorded = false
+      const onAbort = () => {
+        try {
+          if (recorded) return
+          recorded = true
+          appendRecord({ event: 'agent-abort', ...location, agentIdentity, contextIdentity, alreadyAborted,
+            fiber: describeFiber(fiber), owner: describeFiber(callerFiber), reason: abortReason(signal.reason),
+            callSites: disposalCallSites() })
+        } catch (error) { observerError('agent-abort', error) }
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+      signalReleases.push(() => signal.removeEventListener('abort', onAbort))
+      observedAgents.add(agent)
+      if (alreadyAborted) onAbort()
+    } catch (error) { observerError('agent-created', error) }
+  }
+  const observerReleases = []
+  for (const event of ['internal/plugin', 'internal/status']) {
+    try { observerReleases.push(ctx.root.on(event, (fiber, oldState) => { observe(event, fiber, oldState) })) }
+    catch (error) { observerError('register-' + event, error) }
+  }
+  try { observerReleases.push(ctx.root.on('agent/created', observeCreated, { global: true })) }
+  catch (error) { observerError('register-agent/created', error) }
+  const rejectionText = (value, limit) => value.slice(0, 16384)
+    .replace(/(?:https?|wss?):[/][/][^\\s"'<>]+/giu, '[URL omitted]')
+    .replace(/[^\\n]*(?:authorization|set-cookie|cookie|password|api[_-]?key|access[_-]?token|refresh[_-]?token|secret)[ \\t]*[:=][^\\n]*/giu,
+      '[credential-bearing line omitted]')
+    .slice(0, limit)
+  const rejectionReason = reason => {
+    const result = { kind: typeof reason }
+    if (typeof reason === 'string') result.message = rejectionText(reason, 512)
+    if (reason === null || (typeof reason !== 'object' && typeof reason !== 'function')) return result
+    // Read only these own fields; V8 may expose Error.stack through an accessor.
+    for (const [key, limit] of [['name', 96], ['code', 96], ['message', 512], ['stack', 4096]]) {
+      try {
+        const field = Object.getOwnPropertyDescriptor(reason, key)
+        const value = key === 'stack' && typeof field?.get === 'function' ? field.get.call(reason) : field?.value
+        if (typeof value === 'string') result[key] = rejectionText(value, limit)
+      } catch { result.unreadable = true }
+    }
+    return result
+  }
+  let rejectionObserved = false, rejectionRegistered = false
+  const onUnhandledRejection = reason => {
+    try {
+      if (rejectionObserved) return
+      rejectionObserved = true
+      const record = { event: 'unhandled-rejection', ...location, reason: rejectionReason(reason), callSites: disposalCallSites() }
+      appendRecord(record)
+      try { console.log('Desktop unhandled rejection: ' + JSON.stringify(record)) }
+      catch { observerError('unhandled-rejection-output', new Error('Rejection diagnostic output failed')) }
+    } catch { observerError('unhandled-rejection', new Error('Rejection diagnostic could not be recorded')) }
+  }
+  try {
+    // The supported profile already owns fatal handling. Do not replace Node's default when it does not.
+    if (process.listenerCount('unhandledRejection') > 0) {
+      process.prependListener('unhandledRejection', onUnhandledRejection)
+      rejectionRegistered = true
+    }
+  } catch { observerError('register-unhandled-rejection', new Error('Rejection observation could not be registered')) }
+  let failed = false, failure
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
   const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
+  const reviewerId = 'muse-manuscript-continuity-reviewer'
+  const roster = [...ids, reviewerId]
   const presets = await ctx.agentPresets.list()
-  if (presets.length !== ids.length || ids.some(id => !presets.some(preset => preset.id === id))) {
-    throw new Error('desktop runtime: product preset roster differs; expected ' + ids.join(', ') + '; found ' + presets.map(preset => preset.id).join(', '))
+  if (presets.length !== roster.length || roster.some(id => !presets.some(preset => preset.id === id))) {
+    throw new Error('desktop runtime: product preset roster differs; expected ' + roster.join(', ') + '; found ' + presets.map(preset => preset.id).join(', '))
   }
   if (ctx.agentPresets.defaultId !== 'short-drama') throw new Error('desktop runtime: product default preset changed')
   if ((await ctx.agentPresets.resolve('editing')).id !== 'short-drama') {
@@ -101,22 +299,37 @@ export function apply(ctx) {
   }
   const inventory = await ctx.agentPresets.compositionInventory()
   for (const id of ids) {
+  const handles = []
+  const failures = []
+  let index = -1
+  let phase = 'resolve'
+  try {
   const preset = await ctx.agentPresets.resolve(id)
   const expected = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'presets', id, 'agent.cordis.yml')
   const composition = inventory.find(row => row.id === id)
   if (preset.broken !== undefined || !existsSync(expected) || composition === undefined || composition.rows.length === 0) {
     throw new Error('desktop runtime: preset is broken or missing from the product package: ' + id + '; ' + (preset.broken ?? 'composition absent'))
   }
-  const handles = []
-  try {
-    for (let index = 0; index < 2; index++) {
+    for (index = 0; index < 2; index++) {
+      phase = 'create'
+      checkpoint('before-create', id, index, phase)
       handles.push(await ctx.agents.create({
         sessionId: 'desktop-product-smoke-' + id + '-' + index, meta: { cwd, agentPreset: id },
         setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, id) },
       }))
+      try {
+        const agent = handles[index].agent
+        const context = agent.ctx
+        tracked.push({ preset: id, index, agent, context, fiber: context?.fiber })
+      } catch (error) { observerError('track-created-agent', error) }
+      checkpoint('after-create', id, index, phase)
     }
-    for (const handle of handles) {
+    for (const [handleIndex, handle] of handles.entries()) {
+    index = handleIndex
+    phase = 'tools'
+    checkpoint('before-tools', id, index, phase)
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
+    checkpoint('after-tools', id, index, phase)
     const retiredTools = ['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user']
     for (const name of retiredTools) if (names.has(name)) throw new Error('desktop runtime: archived Bot tool remains active: ' + name + ' in ' + id)
     for (const name of names) if (name.startsWith('mcp__muse-account__')) {
@@ -136,7 +349,10 @@ export function apply(ctx) {
           'tool_search', 'tool_context']
           : ['read', 'skill', shell, 'subagent']
     for (const name of required) if (!names.has(name)) throw new Error('desktop runtime: missing product tool ' + name + ' in ' + id + ' (visible: ' + [...names].sort().join(', ') + ')')
+    phase = 'assemble-initial'
+    checkpoint('before-assemble', id, index, phase)
     const modelInput = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+    checkpoint('after-assemble', id, index, phase)
     const modelNames = modelInput.tools.map(tool => tool.name)
     if (['ptc', 'creation', 'cordis'].includes(id)) {
       if (modelNames.length !== 1 || modelNames[0] !== 'run_code') {
@@ -180,6 +396,7 @@ export function apply(ctx) {
         throw new Error('desktop runtime: source tools must remain deferred before discovery')
       }
       const manage = async operation => {
+        phase = 'tool-context-' + operation
         const callId = ToolCallId(handle.agent.id + ':desktop-smoke-' + operation)
         const args = { operation, tools: deferredTools }
         const batch = await ctx.tools.execute({
@@ -194,14 +411,20 @@ export function apply(ctx) {
         if (result.isError) throw new Error('desktop runtime: tool_context ' + operation + ' failed')
       }
       await manage('load')
+      phase = 'assemble-loaded'
+      checkpoint('before-assemble', id, index, phase)
       const loaded = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+      checkpoint('after-assemble', id, index, phase)
       for (const [name, description] of Object.entries(editingModelInput.tools)) {
         if (loaded.tools.find(tool => tool.name === name)?.description !== description) {
           throw new Error('desktop runtime: editing model tool description changed after loading: ' + name)
         }
       }
       await manage('release')
+      phase = 'assemble-released'
+      checkpoint('before-assemble', id, index, phase)
       const released = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
+      checkpoint('after-assemble', id, index, phase)
       if (JSON.stringify(released.tools.map(tool => tool.name).sort()) !== JSON.stringify(initialNames)
         || deferredTools.some(name => ctx.toolDiscovery.state(handle.agent).loaded.includes(name))) {
         throw new Error('desktop runtime: releasing source tools did not restore initial model tools')
@@ -215,6 +438,7 @@ export function apply(ctx) {
     }
     const skillRegistry = id === 'creation' ? ctx.agentPresets.serviceFor(handle.agent, 'skills') : ctx.skills
     if (skillRegistry === undefined) throw new Error('desktop runtime: creation skill registry is not isolated')
+    phase = 'skills-list'
     const skills = await skillRegistry.list({ scope: handle.agent, cwd })
     if (id === 'creation') {
       for (const name of ['office-docx', 'office-xlsx', 'office-pptx']) {
@@ -248,6 +472,7 @@ export function apply(ctx) {
           || realpathSync.native(skill.path) !== realpathSync.native(expected)) {
           throw new Error('desktop runtime: missing shared Muse skill ' + name)
         }
+        phase = 'skills-get:' + name
         const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd })
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(loaded.path)
           || realpathSync.native(loaded.path) !== realpathSync.native(expected)) {
@@ -291,6 +516,7 @@ export function apply(ctx) {
         throw new Error('desktop runtime: custom or project skill selection differs in ' + id + ': ' + expected.name
           + '; actual=' + (skill?.path ?? 'missing') + '; expected=' + expected.path)
       }
+      phase = 'skills-get:' + expected.name
       const loaded = await skillRegistry.get(expected.name, { scope: handle.agent, cwd })
       if (!loaded?.path || !loaded.content?.trim() || realpathSync.native(loaded.path) !== realpathSync.native(expected.path)) {
         throw new Error('desktop runtime: custom or project skill could not load in ' + id + ': ' + expected.name)
@@ -318,6 +544,7 @@ export function apply(ctx) {
       }
       if (name === 'shot-script-creator-16-9-3d' || name === 'shot-script-creator-9-16') {
         const expected = join(bundled, name, 'SKILL.md')
+        phase = 'skills-get:' + name
         const loaded = await skillRegistry.get(name, { scope: handle.agent, cwd })
         if (!loaded?.content?.trim() || !loaded.path || !existsSync(expected) || !existsSync(loaded.path)
           || realpathSync.native(skill.path) !== realpathSync.native(expected)
@@ -327,17 +554,76 @@ export function apply(ctx) {
       }
     }
     }
+  } catch (error) {
+    checkpoint('failure', id, index, phase)
+    failures.push(withContext(error, id, index, phase, handles[index]?.agent.id))
   } finally {
-    for (const handle of handles.reverse()) await handle.dispose()
+    checkpoint('before-cleanup', id, index, phase)
+    for (index = handles.length - 1; index >= 0; index--) {
+      checkpoint('before-dispose', id, index, 'dispose')
+      try {
+        await handles[index].dispose()
+        checkpoint('after-dispose', id, index, 'dispose')
+      } catch (error) {
+        checkpoint('dispose-failure', id, index, 'dispose')
+        failures.push(withContext(error, id, index, 'dispose', handles[index].agent.id))
+      }
+    }
   }
+  if (failures.length === 1) throw failures[0]
+  if (failures.length > 1) {
+    const failure = new AggregateError(failures, 'desktop runtime: preset checks or cleanup failed')
+    failure.stack += '\\n' + failures.map(failureText).join('\\n')
+    throw failure
+  }
+  }
+  const reviewer = await ctx.agentPresets.resolve(reviewerId)
+  const reviewerComposition = inventory.find(row => row.id === reviewerId)
+  const reviewerModule = join(root, 'node_modules', '@deepseek-ai', 'dsh-desktop-host', 'lib', 'manuscript-continuity-preset.js')
+  if (reviewer.broken !== undefined || reviewerComposition === undefined || reviewerComposition.rows.length === 0
+    || !existsSync(reviewerModule)) {
+    throw new Error('desktop runtime: private continuity reviewer is broken or missing from the product package')
+  }
+  const reviewerHandle = await smokeOperation(reviewerId, 0, 'create and mount', () => ctx.agents.create({
+    sessionId: 'desktop-product-smoke-continuity-reviewer', meta: { cwd, agentPreset: reviewerId },
+    setup: async agentCtx => { await ctx.agentPresets.mount(agentCtx, reviewerId) },
+  }), 'desktop-product-smoke-continuity-reviewer')
+  let reviewerFailure
+  try {
+    if (ctx.tools.schemas(reviewerHandle.agent).length !== 0) {
+      throw new Error('desktop runtime: private continuity reviewer exposes ordinary tools')
+    }
+  } catch (error) {
+    reviewerFailure = { error }
+    throw error
+  } finally {
+    await disposeSmokeAgents(reviewerId, [reviewerHandle], reviewerFailure)
   }
   writeFileSync(join(home, '.desktop-product-smoke-complete'), 'ok\\n', { flag: 'wx' })
-  response.end('ok')
   } catch (error) {
-    writeFileSync(join(home, '.desktop-product-smoke-error'), String(error && error.stack ? error.stack : error), { flag: 'wx' })
-    response.statusCode = 500
-    response.end(String(error && error.stack ? error.stack : error))
+    failed = true
+    failure = error
+  } finally {
+    if (rejectionRegistered) {
+      try { process.removeListener('unhandledRejection', onUnhandledRejection) }
+      catch { observerError('unregister-unhandled-rejection', new Error('Rejection observation could not be removed')) }
+    }
+    for (const release of signalReleases) {
+      try { release() } catch (error) { observerError('unregister-abort', error) }
+    }
+    for (const release of observerReleases) {
+      try { await release() } catch (error) { observerError('unregister', error) }
+    }
   }
+  const diagnostic = '\\nDesktop lifecycle diagnostics: ' + JSON.stringify({
+    records: [...firstRecords, ...lastRecords], droppedRecords, observerErrors, droppedObserverErrors,
+  })
+  if (failed) {
+    const report = failureText(failure) + '\\n' + inspect(failure, { depth: 10, colors: false }) + diagnostic
+    writeFileSync(join(home, '.desktop-product-smoke-error'), report, { flag: 'wx' })
+    response.statusCode = 500
+    response.end(report)
+  } else response.end('ok' + diagnostic)
   } }))
 }
 `
@@ -507,7 +793,9 @@ export function apply(ctx) {
     clearTimeout(timer)
     // Preset contributors have settled only after Host readiness, not during fixture activation.
     const productSmoke = await fetch(new URL('/desktop-product-smoke', ready.url), { signal: AbortSignal.timeout(120_000) })
-    await productSmoke.text()
+    const productSmokeText = await productSmoke.text()
+    const diagnosticStart = productSmokeText.indexOf('\nDesktop lifecycle diagnostics: ')
+    if (diagnosticStart >= 0) console.log(productSmokeText.slice(diagnosticStart + 1))
     if (!productSmoke.ok || !existsSync(join(home, '.desktop-product-smoke-complete'))) {
       const failure = existsSync(join(home, '.desktop-product-smoke-error'))
         ? readFileSync(join(home, '.desktop-product-smoke-error'), 'utf8').trim()

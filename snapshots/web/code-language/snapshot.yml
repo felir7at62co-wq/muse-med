@@ -5,3 +5,4 @@ composition: web-default
 recording: live
 header:
   class: web-default
+writerOutput: true

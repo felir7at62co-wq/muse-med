@@ -32,7 +32,7 @@ kind: "package-reference"
 
 动作有争议时，巡检技能的`video_review_evidence.py`在新本地目录生成带现有音轨的连续区间、每页最多六帧的拼图，以及源文件和证据哈希。它依赖Pillow与本地FFmpeg/FFprobe，保留现有文件，不发起网络请求，媒体审核始终为待验。见其[输入输出规则](skills/tweet-drama-project-inspect/references/io-contract.md#motion-evidence-extraction)。
 
-[通用视频质量流程](skills/tweet-drama-core/references/production-quality.md)覆盖各项目的表演时间、场景与跨包连续性、实际准备提示词、基于证据的音画审核及局部返工。镜头脚本可用[编译器表演字段](../tool-shot-script/README.zh.md#script-and-timing)声明同步或串行的动作、发声与反应预算。未审核实际结果时，这些检查和指令不能证明生成音画质量。
+[通用视频质量流程](skills/tweet-drama-core/references/production-quality.md)覆盖表演时间、跨包连续性、实际准备提示词、摄影与表演复核及局部返工。镜头脚本可用[编译器表演字段](../tool-shot-script/README.zh.md#script-and-timing)声明同步或串行预算。自然眼睛与肤色、特写视线、情绪依据、景别、空镜及时间口径均对照实际提交和采用原片检查；有依据的剧情特效、长镜头与固定镜头可以保留。指导文字与文本预检不等于专用画面检测，未审核实际结果时不能证明媒体质量。
 
 [项目检查技能](skills/tweet-drama-project-inspect/SKILL.md)提供只读本地巡检`inspect_evidence.py <project>`。它核对收据源文件哈希和原始转写输出，给出复用候选，并提示明确宣称可交付却仍承认未听校的矛盾。可选`--episodes 1-7`按数量限制递归发现路径候选，保留集号歧义和部分扫描状态；未发现候选不代表从未制作。JSON输出是审核依据，不代表媒体通过、提供方实时健康或新增收费门禁；它不改项目文件，也不发起网络请求。
 
@@ -70,7 +70,7 @@ Windows 原声回读按 matched、mismatch 或 unverified 报告水印请求字�
 
 旧独立音轨草稿按项目明确的视觉类型交付：`animation_3d` 在正文结束，不添加水印或片尾轨；`photorealistic` 保留两秒可编辑定格，并在右下角用独立文字轨全程显示纯白无描边“内容由AI生成”。旧项目未注明类型时给出警告并保留后者行为，不去除源素材已有标记。[草稿输入要求](skills/tweet-drama-draft-build/references/io-contract.md)说明已含片尾的输入如何使用 `timeline.body_end`，避免重复追加。已存在的草稿目录保持原样。有独立对白轨且正文视频音量非零或未声明时，轨道检查提示可能重复对白，保留候选和可编辑对白。Windows 解码器启动返回 WinError 2 或 5 且没有 filename 时，在原错误说明后追加选中的可执行文件路径。
 
-项目 `delivery.draft_style` 独立保存剪映 UI 单位的字幕和水印设置，不与正式渲染像素混用。时间线已保存的非空节若缺少 `watermark`，继承项目水印节；正文字幕的选择规则不变。显式整节 `{}` 或 `watermark: {}` 将对应选择重置为默认。AI 水印默认使用 UI 字号 7，仍支持明确自定义其他字号。字体引用和明确回退记录在 `muse-review.json`，不下载字体或宣称已获许可。片尾覆盖视频静音，独立片尾音保留；它是视频图层，不是编辑器原生参数化特效。详见[草稿输入要求](skills/tweet-drama-draft-build/references/io-contract.md)。
+项目 `delivery.draft_style` 独立保存剪映 UI 单位的字幕和水印设置，不与正式渲染像素混用。时间线已保存的非空节若缺少 `watermark`，继承项目水印节；正文字幕的选择规则不变。显式整节 `{}` 或 `watermark: {}` 将对应选择重置为默认。AI 水印默认使用 UI 字号 7，仍支持明确自定义其他字号。产品竖屏草稿保留请求的产品字体。独立音轨草稿可把经过清单验证的随包字体及许可证保留到草稿内，无需安装系统字体；身份缺失、绑定不受支持或资源未验证时保留可编辑候选，返回 `success=false` 和 `quality=needs_repair`，记录于 `muse-review.json`，不下载字体或宣称已获许可。片尾覆盖视频静音，独立片尾音保留；它是视频图层，不是编辑器原生参数化特效。详见[草稿输入要求](skills/tweet-drama-draft-build/references/io-contract.md)。
 
 旧独立音轨路径中，全部正文素材均为视频，且各选定源时窗的实际画面时间戳确认其帧率恒定并与项目 fps 一致后，草稿生成将共享镜头边界和尾帧补齐放到完整项目帧上。正文、片尾和AI标识使用同一目标时钟，证据保留原正文时钟及取整差值。不改写源文件、对白、配乐或字幕时间。帧间隔不支持、依据不足、正文含非视频素材或镜头量化为零帧时，保留原微秒路径并给出审阅提示。保存文件的验证不能替代剪映中的打开、重开和导出。
 

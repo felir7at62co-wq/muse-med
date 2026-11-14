@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { redactSessionSnapshotIds } from '../src/identity.ts'
 
 const parentId = '11111111-1111-4111-8111-111111111111'
@@ -10,6 +10,38 @@ const otherId = '66666666-6666-4666-8666-666666666666'
 const proseUuid = '77777777-7777-4777-8777-777777777777'
 
 describe('session snapshot identity redaction', () => {
+  it('propagates unexpected argument parser failures while retaining malformed-JSON diagnostics', () => {
+    const args = JSON.stringify({ job_id: 'bash-aaaaaaaaaaaaaaaa' })
+    const raw = JSON.stringify({ type: 'tool/call', data: { name: 'job_output', arguments: args } })
+    const failure = new Error('controlled argument parser failure'), original = JSON.parse
+    const parse = vi.spyOn(JSON, 'parse').mockImplementation((text, reviver) => {
+      if (text === args) throw failure
+      const value: unknown = original(text, reviver)
+      return value
+    })
+    try { expect(() => redactSessionSnapshotIds([raw])).toThrow(failure) }
+    finally { parse.mockRestore() }
+  })
+
+  it('retains job references after projection removes job lifecycle rows without redacting unrelated job-like prose', () => {
+    const job = 'bash-aaaaaaaaaaaaaaaa', other = 'bash-bbbbbbbbbbbbbbbb'
+    const raw = [
+      { type: 'session', id: parentId },
+      { type: 'user/message', data: { text: `background job ${job} failed; keep ${other}` } },
+      { type: 'tool/call', data: { name: 'job_output', arguments: JSON.stringify({ job_id: job, wait: true }) } },
+      { type: 'tool/call', data: { name: 'job_cancel', arguments: JSON.stringify({ job_id: job }) } },
+      { type: 'tool/call', data: { name: 'other', arguments: JSON.stringify({ job_id: other }) } },
+      { type: 'tool/call', data: { name: 'job_output', arguments: 'invalid JSON' } },
+      { type: 'tool/call', data: { name: 'job_output', arguments: 1 } },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n'
+    const [output] = redactSessionSnapshotIds([raw])
+    expect(output).toContain('background job {{id:1}} failed')
+    expect(output).toContain(other)
+    expect(output).toContain('invalid JSON')
+    expect(output?.match(/\{\{id:1\}\}/g)).toHaveLength(3)
+    expect(redactSessionSnapshotIds([output!])).toEqual([output])
+  })
+
   it('preserves feedback versions and target relationships without redacting unrelated prose', () => {
     const source = [
       { type: 'session', id: parentId },

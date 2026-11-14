@@ -28,7 +28,21 @@ it.each(cases)('keeps delivery checks scoped for %s', async (mode, task) => {
     inspect: async (cwd) => {
       const actual: unknown = JSON.parse(await readFile(join(cwd, '_controls-probe.json'), 'utf8'))
       const expected: unknown = JSON.parse(await readFile(new URL('./expected/manuscript-delivery-controls.json', import.meta.url), 'utf8'))
-      expect(actual).toEqual(z.record(z.string(), z.unknown()).parse(expected)[mode])
+      let selected = z.record(z.string(), z.unknown()).parse(expected)[mode]
+      if (mode === 'shell' && process.platform === 'win32') {
+        const shell = z.object({ rootResults: z.array(z.object({
+          results: z.array(z.object({ id: z.string(), name: z.string() }).loose()),
+        }).loose()) }).loose().parse(selected)
+        const writes = shell.rootResults.flatMap(result => result.results)
+          .filter(result => result.id === 'python-word' || result.id === 'python-rewrite')
+        expect(writes.map(result => result.id)).toEqual(['python-word', 'python-rewrite'])
+        for (const write of writes) {
+          expect(write.name).toBe('bash')
+          write.name = 'pwsh'
+        }
+        selected = shell
+      }
+      expect(actual).toEqual(selected)
     },
   })
   expect(stderr).not.toContain('UNHANDLED')

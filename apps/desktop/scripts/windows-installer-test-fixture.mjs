@@ -1,5 +1,21 @@
 /** Private installer fixtures retain production checks and add deterministic reboot coverage. */
+import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+
+/** Prepare the actual launcher fixtures from both production NSIS sources.
+ * @param {string} appRoot - Absolute desktop application directory.
+ * @param {string} output - Existing locale-specific fixture directory.
+ * @returns {Promise<{ fixture: string, pages: string }>} Written include paths for the installer build.
+ */
+export async function prepareInstallerTestFixtures(appRoot, output) {
+  const fixtureSource = createInstallerTestSource(await readFile(join(appRoot, 'scripts', 'installer.nsh'), 'utf8'), appRoot)
+  const fixturePages = createInstallerTestPagesSource(await readFile(join(appRoot, 'installer', 'pages.nsh'), 'utf8'))
+  const fixture = join(output, 'installer.nsh')
+  const pages = join(output, 'pages.nsh')
+  await writeFile(fixture, fixtureSource)
+  await writeFile(pages, fixturePages)
+  return { fixture, pages }
+}
 
 /** Copy production checks while resolving their includes at their original locations.
  * @param {string} source - Production NSIS source.

@@ -371,13 +371,12 @@ describe('package payload constraints', () => {
     expect(checkWorkspaceManifest({ dir, manifest: other }))
       .toContainEqual(expect.stringContaining('package.json files must be'))
   })
-  it('requires the exact Desktop recovery, CUA worker and license payload', () => {
+  it('requires the exact Desktop Host runtime and license payload', () => {
     const dir = 'apps/desktop-host'
     const manifest = JSON.parse(readFileSync(new URL(`../${dir}/package.json`, import.meta.url), 'utf8')) as WorkspaceManifest['manifest']
     expect(checkWorkspaceManifest({ dir, manifest })).toEqual([])
     for (const files of [
-      ...['lib/source-recovery.js', 'licenses', 'lib/computer-use.js', 'lib/computer-input-worker.js']
-        .map(required => manifest.files!.filter(file => file !== required)),
+      ...manifest.files!.map(required => manifest.files!.filter(file => file !== required)),
       [...manifest.files!, 'lib/other.js'], [...manifest.files!, 'licenses/**'],
     ]) expect(checkWorkspaceManifest({ dir, manifest: { ...manifest, files } }))
       .toContainEqual(expect.stringContaining('package.json files must be'))

@@ -42,7 +42,21 @@ export default defineConfig({
     setupFiles: ['./scripts/test-proxy-environment.ts'],
     // Explicit Node app owners only: apps/web/tests/*.e2e.ts needs the built
     // frontend dist and runs under vitest.web.config.ts (the test:web job).
-    include: ['packages/*/*/tests/**/*.e2e.ts', 'apps/cli/tests/**/*.e2e.ts', 'apps/desktop/tests/**/*.e2e.ts'],
+    include: [
+      'packages/*/*/tests/**/*.e2e.ts', 'apps/cli/tests/**/*.e2e.ts', 'apps/desktop/tests/**/*.e2e.ts',
+      // Dual-entry Host scenarios: source under unit coverage, lib in mandatory built-bin smoke.
+      'apps/desktop-host/tests/manuscript-revision-basis.spec.ts',
+      'apps/desktop-host/tests/manuscript-continuity-submission.spec.ts',
+      'apps/desktop-host/tests/manuscript-ptc-delivery.spec.ts',
+      'apps/desktop-host/tests/hongguo-public-download-loader.spec.ts',
+      'apps/desktop-host/tests/manuscript-video-source-delivery.spec.ts',
+      'apps/desktop-host/tests/manuscript-cross-episode-loader.spec.ts',
+      'apps/desktop-host/tests/hongguo-search-loader.spec.ts',
+      'apps/desktop-host/tests/manuscript-video-source-binding-loader.spec.ts',
+      'apps/desktop-host/tests/manuscript-repetition-loader.spec.ts',
+      'apps/desktop-host/tests/manuscript-notes-loader.spec.ts',
+      'apps/desktop-host/tests/source-research-discovery.built.e2e.ts',
+    ],
     exclude: [
       '**/*.expected.e2e.ts',
       'apps/desktop/tests/douyin-user-action.browser.e2e.ts',

@@ -286,6 +286,10 @@
             "type": "number",
             "description": "1-based first line to return. Defaults to 1."
           },
+          "column": {
+            "type": "number",
+            "description": "1-based Unicode code point column in the first line. Use the continuation cursor for a partial line."
+          },
           "limit": {
             "type": "number",
             "description": "Maximum number of lines to return. Defaults to 2000."
@@ -407,8 +411,38 @@
       }
     },
     {
+      "name": "todo_update",
+      "description": "Update one existing task without resending the list; task must match its full text. Use status completed with start_next true to finish that task and start the first pending task when no other task is in progress. Repeating an already completed task does not advance again. Use todo_write to add, rename, remove, or reorder tasks. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Exact content of the existing task; surrounding whitespace is ignored."
+          },
+          "status": {
+            "type": "string",
+            "description": "Actual task state: pending, in_progress, or completed.",
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed"
+            ]
+          },
+          "start_next": {
+            "type": "boolean",
+            "description": "Only with completed: on a new completion, start the first pending task if no task remains in_progress."
+          }
+        },
+        "required": [
+          "task",
+          "status"
+        ]
+      }
+    },
+    {
       "name": "todo_write",
-      "description": "Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. Mark each todo `completed` as soon as it is done.",
+      "description": "Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. Use this tool to create or revise the whole plan; use todo_update for individual status changes. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -461,13 +495,14 @@
           },
           "action": {
             "type": "string",
-            "description": "edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count.",
+            "description": "edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. wait yields the foreground while keeping the goal active; resume on user input, watched job output, or a timer.",
             "enum": [
               "edit",
               "pause",
               "resume",
               "complete",
-              "blocked"
+              "blocked",
+              "wait"
             ]
           },
           "objective": {
@@ -481,6 +516,18 @@
           "blocked_reason": {
             "type": "string",
             "description": "Required only with action blocked: the concrete condition that persisted across rounds and blocks progress."
+          },
+          "wait_reason": {
+            "type": "string",
+            "description": "With action wait: describe what new information or event is needed."
+          },
+          "wake_after_seconds": {
+            "type": "number",
+            "description": "With action wait: optional positive whole seconds before continuing."
+          },
+          "job_id": {
+            "type": "string",
+            "description": "With action wait: optional owned job to watch for new output or settlement."
           }
         },
         "required": [
@@ -527,7 +574,7 @@
     },
     {
       "name": "workflow",
-      "description": "Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.\n\nScript-body hooks:\n- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf) it resolves to the validated object. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides.\n- `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. A stage throw drops that ITEM to `null` and skips its remaining stages.\n- `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`.\n- `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim.\n\nMisused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) end the whole script instead of producing `null`. The script has no filesystem, network, timer, or Node.js APIs; the agents do the work.",
+      "description": "Run a JavaScript workflow script that orchestrates subagents at scale. Use this for work that fans out across many independent pieces — an audit over many files, a migration, multi-angle research, adversarial verification of findings — where you write the orchestration as a script instead of delegating turn by turn.\n\nScript-body hooks:\n- `agent(prompt, opts?): Promise<any>` — run one subagent to completion. Without `opts.schema` it resolves to the child's final text; with `opts.schema` (an object-rooted JSON Schema using ONLY type/properties/required/additionalProperties/items/enum/const/oneOf — no pattern/format/numeric bounds) it resolves to the validated object, and the child must call its `structured_output` tool to report it: a `schema` call whose child answers in plain text resolves `null`. If the prompt text states its own return format, that text describes the payload, never the reporting channel. Resolves `null` when the child fails (filter with `.filter(Boolean)`). Other opts: `label` (display), `phase` (progress group), and independent `provider`/`model` LLM target overrides (either may be provided alone). Anything else (`effort`/`isolation`/`agentType`) is rejected loudly.\n- `pipeline(items, ...stages): Promise<any[]>` — run each item through the stages independently with NO barrier between stages (prefer this for multi-stage work). Each stage receives `(prev, item, index)`. An ordinary stage throw drops that ITEM to `null` and skips its remaining stages.\n- `parallel(thunks): Promise<any[]>` — run zero-argument functions concurrently and await ALL of them (a barrier; use only when a stage genuinely needs every prior result together). A throwing thunk resolves to `null`.\n- `phase(title)` — start a progress phase; `log(message)` — narrate progress; `args` — the tool call's `args` input, verbatim.\n\nMisused hooks (bad arguments, unknown options, unsupported schemas, tripped caps) end the whole script instead of producing `null`. The script has no filesystem, network, timer, or Node.js APIs; the agents do the work.",
       "parameters": {
         "type": "object",
         "properties": {

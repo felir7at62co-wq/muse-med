@@ -18,6 +18,7 @@ const packScript = resolve(import.meta.dirname, 'pack.ts')
 const tsxHook = pathToFileURL(require.resolve('tsx/esm')).href
 const pnpmEntry = join(dirname(require.resolve('pnpm')), 'bin/pnpm.cjs')
 const roots: string[] = []
+const ownedPacks = new Set<{ controller: AbortController; pending: ReturnType<typeof runGate> }>()
 const commit = 'abcdef0'
 
 function write(path: string, content: string): void {
@@ -69,7 +70,7 @@ async function runPack(root: string, args: string[] = []) {
   const controller = new AbortController()
   const timer = setTimeout(() => { controller.abort() }, 90_000)
   try {
-    const result = await runGate(packGate(root, args), controller.signal)
+    const result = await runOwnedPack(packGate(root, args), controller, timer)
     expect(result.error).toBeUndefined()
     expect(result.aborted).toBe(false)
     expect(result.signalCode).toBeNull()
@@ -80,6 +81,15 @@ async function runPack(root: string, args: string[] = []) {
   } finally {
     clearTimeout(timer)
   }
+}
+
+/** Keep each real process tree available to teardown until its exit is confirmed. */
+function runOwnedPack(gate: Gate, controller: AbortController, timer: ReturnType<typeof setTimeout>): ReturnType<typeof runGate> {
+  const pending = runGate(gate, controller.signal).finally(() => {
+    clearTimeout(timer)
+  })
+  ownedPacks.add({ controller, pending })
+  return pending
 }
 
 function stopped(pid: number): boolean {
@@ -110,8 +120,24 @@ function readyHookPids(root: string): number[] {
   return [ready.hook, ready.child]
 }
 
-afterEach(() => {
-  for (const root of roots.splice(0)) removeFixtureSafely(root)
+afterEach(async () => {
+  const active = [...ownedPacks], caseRoots = roots.splice(0)
+  ownedPacks.clear()
+  for (const owned of active) owned.controller.abort()
+  const settled = await Promise.allSettled(active.map(owned => owned.pending))
+  const errors: unknown[] = []
+  for (const result of settled) {
+    if (result.status === 'rejected') {
+      const reason: unknown = result.reason
+      errors.push(reason)
+    } else if (result.value.error !== undefined) errors.push(new Error(result.value.error))
+  }
+  if (errors.length) throw new AggregateError(errors, `Pack fixture processes did not settle; retained fixture roots: ${JSON.stringify(caseRoots)}`)
+  for (const root of caseRoots) {
+    try { removeFixtureSafely(root) }
+    catch (error) { errors.push(new Error(`Could not remove pack fixture ${root}`, { cause: error })) }
+  }
+  if (errors.length) throw new AggregateError(errors, 'Pack fixture removal failed')
 })
 
 describe('release pack CLI', () => {
@@ -214,7 +240,7 @@ describe('release pack CLI', () => {
       if (address === null || typeof address === 'string') throw new Error('pack coordinator has no TCP address')
       const gate = packGate(root, ['--concurrency', '2'])
       gate.env = { ...gate.env, DSH_PACK_COORDINATOR: `http://127.0.0.1:${address.port}` }
-      pending = runGate(gate, controller.signal)
+      pending = runOwnedPack(gate, controller, timer)
 
       await vi.waitFor(() => { expect(started).toHaveLength(2) }, { timeout: 30_000, interval: 25 })
       expect(active.size).toBe(2)
@@ -307,8 +333,8 @@ describe('release pack CLI', () => {
 
   it('validates every parallel tarball before recording the publish order', async () => {
     const root = fixture()
-    packageFixture(root, 'packages/util/alpha', '@deepseek-ai/alpha')
-    packageFixture(root, 'packages/util/zebra', '@deepseek-ai/zebra', { files: ['lib/index.js', 'src/index.ts'] })
+    packageFixture(root, 'packages/util/alpha', '@deepseek-ai/alpha', { scripts: {} })
+    packageFixture(root, 'packages/util/zebra', '@deepseek-ai/zebra', { files: ['lib/index.js', 'src/index.ts'], scripts: {} })
     write(join(root, 'packages/util/zebra/src/index.ts'), 'export const source = 1\n')
     write(join(root, 'apps/web/dist/index.html'), '<main></main>')
     writeClientBuildRecord(root, officialClientBuildEnvironment(root, { DSH_CLIENT_COMMIT_HASH: commit }))
@@ -324,7 +350,7 @@ describe('release pack CLI', () => {
   it.each(['dependencies', 'optionalDependencies', 'peerDependencies'])(
     'rejects nonexact DSH %s in the produced tarball before recording publication', async (section) => {
       const root = fixture()
-      packageFixture(root, 'packages/util/probe', '@deepseek-ai/dsh-probe', { [section]: { '@deepseek-ai/dsh-library': '^1.2.3' } })
+      packageFixture(root, 'packages/util/probe', '@deepseek-ai/dsh-probe', { [section]: { '@deepseek-ai/dsh-library': '^1.2.3' }, scripts: {} })
       write(join(root, 'apps/web/dist/index.html'), '<main></main>')
       writeClientBuildRecord(root, officialClientBuildEnvironment(root, { DSH_CLIENT_COMMIT_HASH: commit }))
       const result = await runPack(root, ['--family', 'dsh'])
@@ -352,7 +378,7 @@ describe('release pack CLI', () => {
     ].join('\n'))
     const controller = new AbortController()
     const timer = setTimeout(() => { controller.abort() }, 90_000)
-    const pending = runGate(packGate(root, ['--concurrency', '8']), controller.signal)
+    const pending = runOwnedPack(packGate(root, ['--concurrency', '8']), controller, timer)
     try {
       let pids: number[] = []
       await vi.waitFor(() => {

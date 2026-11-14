@@ -150,7 +150,7 @@ describe('installer preparation preserves application dependencies', () => {
       DSH_DESKTOP_TARGET_ARCH: 'x64',
       DSH_DESKTOP_UNSIGNED: '1',
     }, 'win32', 'x64')
-    expect(config.artifactName).toBe('muse-med-${version}-${os}-${arch}-unsigned.${ext}')
+    expect(config.artifactName).toBe('muse-med-${version}-${os}-${arch}.${ext}')
     expect(config.directories.output).toMatch(/unsigned-artifacts$/u)
   })
 

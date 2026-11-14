@@ -147,6 +147,11 @@ try {
   Require-Flags @('draft','video','volume') @('--ref','--seg-id','--linear')
   Require-Flags @('draft','subtitle','add') @('--ref','--content','--start','--duration','--track')
   Require-Flags @('draft','text','style') @('--ref','--seg-id','--size','--color','--outline-width')
+  $fontHelp = Invoke-Native @('draft','text','style','--help') -HelpText
+  $fontCapability = [ordered]@{ status = 'backendUnsupported'; requested = $plan.subtitle_font.requested;
+    help_font_lines = @($fontHelp -split "`r?`n" | Where-Object { $_ -match '(?i)font|字体' }) }
+  # Unimplemented font arguments must not be guessed from a family name or catalog ID.
+  if ($plan.subtitle_font.required) { $warnings.Add('Requested subtitle font has no verified native binding; editable candidate requires repair before delivery') }
   Require-Flags @('draft','text','translate') @('--ref','--seg-id','--x','--y')
   $configHelp = Invoke-Native @('draft','config','--help') -HelpText
   if ($configHelp -notmatch '--ratio') { throw 'Installed Jianying cannot set the draft aspect ratio' }
@@ -238,7 +243,7 @@ try {
   $timeline = Invoke-Step 'readback-timeline' @('draft','extract','--ref',$ref,'--scope','timeline')
   if (-not (Test-Path -LiteralPath (Join-Path $draftPath 'draft_content.json') -PathType Leaf)) { throw 'Jianying did not save the project at the requested draft root' }
   Save-Result ([ordered]@{ ok = $true; state = 'saved'; backend = 'aa-jianying'; ref = $ref; path = $draftPath; draft_id = $created.draft_id;
-    runtime = @{ cli = $cli; version = $version; cli_sha256 = (Get-FileHash -LiteralPath $cli -Algorithm SHA256).Hash.ToLowerInvariant() };
+    runtime = @{ cli = $cli; version = $version; cli_sha256 = (Get-FileHash -LiteralPath $cli -Algorithm SHA256).Hash.ToLowerInvariant(); font_capability = $fontCapability };
     body_segment_ids = $bodyIds.ToArray(); subtitle_segment_ids = $subtitleIds.ToArray();
     bgm_segment_id = $bgmId; ending_image_segment_id = $endingImageId; ending_audio_segment_id = $endingAudioId;
     ending_effect_segment_id = $endingEffectId;

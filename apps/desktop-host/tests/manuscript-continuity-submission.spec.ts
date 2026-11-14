@@ -3,9 +3,9 @@ import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, it } from 'vitest'
-import { runLoaderSmoke, LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
+import { runLoaderSmoke, resolveExampleMode, LOADER_SMOKE_TEST_TIMEOUT_MS } from '@deepseek-ai/dsh-loader-smoke'
 
-it.each(['src', 'lib'] as const)('rejects consistent plus unknowns in %s, then preserves those unknowns in the same reviewer', async (mode) => {
+it.each([resolveExampleMode()])('rejects consistent plus unknowns in %s, then preserves those unknowns in the same reviewer', async (mode) => {
   const patch = fileURLToPath(new URL('./fixtures/manuscript-submission-retry/cordis.yml', import.meta.url))
   const { stderr } = await runLoaderSmoke({
     label: `manuscript structured submission correction ${mode}`, tempDirPrefix: 'manuscript-submission-retry-',

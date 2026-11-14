@@ -36,8 +36,9 @@ it.each(languages)('selects %s from the browser, localizes metadata and persists
   await panel.getByText(metadata.meta.description, { exact: true }).waitFor()
   await compareOrRefreshGolden(fileURLToPath(new URL(`./expected/additional-locales/${id}.expected.md`, import.meta.url)),
     await captureStableAria(page, `[data-plugin-panel] li:has-text(${JSON.stringify(metadata.meta.title)})`, scaffold.workspaceCwd), webSnapshotMode())
-  await page.getByRole('button', { name: accountMenu, exact: true }).click()
-  await page.getByRole('menuitem', { name: settings, exact: true }).click()
+  const account = page.getByRole('button', { name: accountMenu, exact: true })
+  await account.or(page.getByRole('button', { name: settings, exact: true })).click()
+  if (await account.count() > 0) await page.getByRole('menuitem', { name: settings, exact: true }).click()
   const dialog = page.getByRole('dialog', { name: settings, exact: true })
   await dialog.getByText(language, { exact: true }).waitFor()
   await dialog.getByRole('button', { name: label, exact: true }).waitFor()

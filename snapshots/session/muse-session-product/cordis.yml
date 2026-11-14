@@ -1,3 +1,9 @@
+# This Jobs and MCP fixture runs no shell; keep its unused runner and skill catalog platform-neutral.
+- id: sandbox
+  config:
+    runnerCommand: [snapshot-unused-runner]
+    runnerFailureSignatures: [snapshot-unused-runner-failure]
+
 # Desktop's Web bundle keeps these Host-level tools disabled.
 - id: plan-mode
   disabled: true

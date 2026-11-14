@@ -11,6 +11,7 @@
     "INSTALLER_CHOOSE_PATH": "インストール先を選択",
     "INSTALLER_BROWSE": "参照",
     "INSTALLER_LAUNCH": "今すぐ起動",
+    "INSTALLER_REBOOT_REQUIRED": "インストールが完了しました。Muse を開く前に Windows を再起動してください。",
     "INSTALLER_LAUNCH_FAILED": "DeepSeek Harness を起動できませんでした。再試行するか、「今すぐ起動」のチェックを外してインストーラーを閉じてください。",
     "INSTALLER_UI_ERROR": "インストーラーのウィンドウを初期化できませんでした。閉じてから再試行してください。",
     "INSTALLER_THEME_ERROR": "/THEME=auto、/THEME=light、/THEME=dark のいずれかを指定してください。",

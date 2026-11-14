@@ -1,7 +1,183 @@
 {
   "patches": [
     {
+      "at": 1,
+      "entry": {
+        "kind": "chunks",
+        "chunks": [
+          {
+            "type": "block-start",
+            "index": 0,
+            "blockType": "tool-call"
+          },
+          {
+            "type": "tool-call-delta",
+            "index": 0,
+            "id": "goal-observe-round-1",
+            "name": "get_goal",
+            "argumentsDelta": ""
+          },
+          {
+            "type": "tool-call-delta",
+            "index": 0,
+            "id": "goal-observe-round-1",
+            "argumentsDelta": "{}"
+          },
+          {
+            "type": "block-end",
+            "index": 0,
+            "block": {
+              "type": "tool-call",
+              "id": "goal-observe-round-1",
+              "name": "get_goal",
+              "arguments": "{}"
+            }
+          },
+          {
+            "type": "usage",
+            "usage": {
+              "inputTokens": 10000,
+              "outputTokens": 32,
+              "totalTokens": 10032
+            }
+          },
+          {
+            "type": "finish",
+            "reason": {
+              "kind": "tool-calls"
+            },
+            "replayState": {
+              "response": {
+                "kind": "deepseek-messages",
+                "version": 1,
+                "model": "deepseek-v4-flash"
+              },
+              "blocks": [
+                {
+                  "type": "tool-call"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "at": 2,
+      "entry": {
+        "kind": "chunks",
+        "chunks": [
+          {
+            "type": "block-start",
+            "index": 0,
+            "blockType": "text"
+          },
+          {
+            "type": "text-delta",
+            "index": 0,
+            "text": "SDK_GOAL_PROGRESS"
+          },
+          {
+            "type": "block-end",
+            "index": 0,
+            "block": {
+              "type": "text",
+              "text": "SDK_GOAL_PROGRESS"
+            }
+          },
+          {
+            "type": "usage",
+            "usage": {
+              "inputTokens": 10000,
+              "outputTokens": 32,
+              "totalTokens": 10032
+            }
+          },
+          {
+            "type": "finish",
+            "reason": {
+              "kind": "stop"
+            },
+            "replayState": {
+              "response": {
+                "kind": "deepseek-messages",
+                "version": 1,
+                "model": "deepseek-v4-flash"
+              },
+              "blocks": [
+                {
+                  "type": "text"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
       "at": 3,
+      "entry": {
+        "kind": "chunks",
+        "chunks": [
+          {
+            "type": "block-start",
+            "index": 0,
+            "blockType": "tool-call"
+          },
+          {
+            "type": "tool-call-delta",
+            "index": 0,
+            "id": "commands-tool-2",
+            "name": "get_goal",
+            "argumentsDelta": ""
+          },
+          {
+            "type": "tool-call-delta",
+            "index": 0,
+            "id": "commands-tool-2",
+            "argumentsDelta": "{}"
+          },
+          {
+            "type": "block-end",
+            "index": 0,
+            "block": {
+              "type": "tool-call",
+              "id": "commands-tool-2",
+              "name": "get_goal",
+              "arguments": "{}"
+            }
+          },
+          {
+            "type": "usage",
+            "usage": {
+              "inputTokens": 10000,
+              "outputTokens": 32,
+              "totalTokens": 10032
+            }
+          },
+          {
+            "type": "finish",
+            "reason": {
+              "kind": "tool-calls"
+            },
+            "replayState": {
+              "response": {
+                "kind": "deepseek-messages",
+                "version": 1,
+                "model": "deepseek-v4-flash"
+              },
+              "blocks": [
+                {
+                  "type": "tool-call"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "at": 4,
       "entry": {
         "kind": "chunks",
         "chunks": [
@@ -55,6 +231,58 @@
               "blocks": [
                 {
                   "type": "tool-call"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "at": 5,
+      "entry": {
+        "kind": "chunks",
+        "chunks": [
+          {
+            "type": "block-start",
+            "index": 0,
+            "blockType": "text"
+          },
+          {
+            "type": "text-delta",
+            "index": 0,
+            "text": "SDK_GOAL_DONE"
+          },
+          {
+            "type": "block-end",
+            "index": 0,
+            "block": {
+              "type": "text",
+              "text": "SDK_GOAL_DONE"
+            }
+          },
+          {
+            "type": "usage",
+            "usage": {
+              "inputTokens": 10000,
+              "outputTokens": 32,
+              "totalTokens": 10032
+            }
+          },
+          {
+            "type": "finish",
+            "reason": {
+              "kind": "stop"
+            },
+            "replayState": {
+              "response": {
+                "kind": "deepseek-messages",
+                "version": 1,
+                "model": "deepseek-v4-flash"
+              },
+              "blocks": [
+                {
+                  "type": "text"
                 }
               ]
             }

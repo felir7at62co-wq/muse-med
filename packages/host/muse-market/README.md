@@ -85,6 +85,12 @@ The separate `./cloud-host` provider serves a private loopback store under a ded
 
 [The archive codec](src/package.ts) checks manifests and resource digests; [local storage](src/local.ts) owns immutable packages and atomic records. [The base service](src/index.ts) serializes publication operations. [Activation](src/activation.ts), [binding projection](src/session.ts) and [Skill provider](src/skills.ts) retain and resolve exact Session selections. [Cloud transport](src/cloud.ts) verifies remote metadata and archives; [the private server](src/server.ts) owns publisher membership, immutable blobs and revision-checked review transitions.
 
+The archive reader returns a validated one-Skill manifest, complete resources and `skillInstructions` for the required instruction file. Binding capture and Skill loading consume those verified bytes after checking the complete release identity. This decoder result adds no fields to stored manifests or Session bindings; deterministic ZIP resource order and bytes stay the same.
+
+Cold views select recorded releases first, then an empty set for executed unbound Sessions, otherwise current defaults. The explicit branches `await` only default capture, preserving the synchronous bound and legacy paths and avoiding V8 coverage miscounts at their shared continuation.
+
+Ledger parsing and default capture reject missing installed releases through the same membership check before committing any Session selection. File reads select read-only flags for Windows and add no-follow and nonblocking flags on POSIX. HTTP request limits count collected bytes; string chunks are encoded as UTF-8 before counting.
+
 </details>
 
 <a id="further-exploration"></a>

@@ -359,7 +359,7 @@ export class MuseMarketCatalog {
 
 /** Serve APIs only after the carrier validates the shared secret and actor assertion.
  * @param catalog - Open cloud catalog.
- * @param request - Owned undecoded HTTP request.
+ * @param request - Owned native HTTP request with binary or UTF-8 text chunks.
  * @param response - Owned HTTP response.
  * @param actor - Gateway assertion or null for public reads.
  * @param config - Explicit request and response budgets.
@@ -407,10 +407,9 @@ export async function handleMarket(catalog: MuseMarketCatalog, request: Incoming
     const maximum = path === '/uploads' ? config.limits.archiveBytes : config.jsonRequestBytes
     const chunks: Uint8Array[] = []
     let length = 0
-    for await (const chunk of request.iterator({ destroyOnReturn: false })) {
-      const input: unknown = chunk
-      const bytes = Buffer.isBuffer(input) ? input : typeof input === 'string' ? Buffer.from(input)
-        : input instanceof Uint8Array ? Buffer.from(input) : failure('invalid-request', 400)
+    const incoming: AsyncIterable<Buffer | string> = request.iterator({ destroyOnReturn: false })
+    for await (const input of incoming) {
+      const bytes = typeof input === 'string' ? Buffer.from(input) : input
       length += bytes.byteLength
       if (length > maximum) { request.resume(); failure('request-too-large', 413) }
       chunks.push(bytes)

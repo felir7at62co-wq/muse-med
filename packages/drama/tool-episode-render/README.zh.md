@@ -53,7 +53,7 @@ kind: "package-reference"
 
 上面的字体族是部署默认值，不是模型工具参数。两者都必须是非空白字符串，不能包含逗号或换行；无效值会被 Config 校验拒绝。项目可以按下文覆盖正文字幕字族，但不能覆盖水印字族。提供 Noto Sans CJK SC 的部署可将两个默认值设为 `Noto Sans CJK SC`。选择字族不会修改 `fontsDir` 或安装字体。旧版渲染在 libass 找不到字族时可能回退；启用 `subtitle_visual` 的交付要求实测字体选择与请求字族相符。需要标记与片尾时，拼接后统一烧录一份 ASS，因此片尾全程使用同一水印字体族。
 
-Host 调用方可提供 `SourceQaStagedAccess`，从私有捕获副本渲染，同时保留原项目路径作为证据身份。每次读取核对映射文件的字节；映射本身不授予批准。严格调用方必须提供真实 Session 核验器，并将所有者守卫保持到最终发布。[Desktop 守护者](../../../apps/desktop-host/README.zh.md#episode-execution-supervision)负责这一跨进程组合。
+Host 调用方可提供 `SourceQaStagedAccess`，从私有捕获副本渲染，同时保留原项目路径作为证据身份。缺少捕获映射时，在文件访问前拒绝。每次读取核对映射文件的字节；映射本身不授予批准。严格调用方必须提供真实 Session 核验器，并将所有者守卫保持到最终发布。[Desktop 守护者](../../../apps/desktop-host/README.zh.md#episode-execution-supervision)负责这一跨进程组合。
 
 库调用方可从包根入口导入 `ProcessChannel`、`MediaCommandOutcome` 和 `RenderSettings`，为 `runDramaRender` 提供自己持有的媒体通道。暂存音频与片尾辅助函数为已私有捕获的输入复用同一时间线和交付策略；调用方负责输入核验、取消和发布。
 
@@ -231,7 +231,7 @@ Host 调用方可提供 `SourceQaStagedAccess`，从私有捕获副本渲染，�
 
 `stage_delivery` 要求提供已准备的选源清单，并复核其中经审核的来源和原声切点。现有审核待定或拒绝，或另用的音源未获审核、已被禁用时，停止归档。审核通过的独立音源需要在草稿与成片中共用同一份独立原声。具有正整数 `jubian_script_id` 或 `project_bible.schema_version: 1` 的项目，归档前必须具备当前来源审核、声文覆盖、音画流边界实测和独立草稿轨道核查证据；项目或时间线缺少开关或将其设为 false 都不能关闭这些检查；工具使用该短剧项目下的集数子目录时也同样执行。没有短剧标记且无审核记录的项目，重新准备且只用视频自带音源后仍可归档为候选。`verify` 继续执行媒体技术检查。画面、对白和剪映播放需另做内容验收。
 
-启用 `delivery.require_source_review` 后，正式渲染和归档要求每包都有当前 `source_qa` 证据。`source_qa.version: 1` 包含 `selected`，清理片另含 `original` 和 `affected_intervals`。各源绑定 `media_path`、`media_sha256`、`ocr: {path, sha256}`（多次扫描时填写按顺序排列的引用数组）及 `inspection: {path, sha256, session_id, review_id}`。Host 核实真实成功的 OCR 执行和完整持久审看记录，缺少执行证据须重新检查。完整 OCR 覆盖及已观察帧必须对应当前源片。工具记录必须是 JSON 对象，整集汇总要求每个镜头都有证据。Host 核验作用域随其服务提供方释放，并在服务恢复后重新取得。每个仍存在的 OCR 时段都须有精确的 `text_decisions` 项，包含 `segment_index`（使用数组时还需从 0 开始的 `ocr_index`）、`text`、源片 `start_seconds` 和 `end_seconds`、`kind`（`non_dialogue_text` 或 `disclosure_watermark`）、`reason` 及 `observation_frame_ids`。文字分类仍是模型判断。清理片须在每个处理区间内有真实观察的处理前后帧，并保留原声。缺少时点时，优先用 `video_source_review`，或已启用完整审看模式的 `video_inspect`，附带对应时间补看。渲染指纹和归档回执绑定复验摘要与文件，换片、观察或判定变化后须重新验证。非严格工作预览沿用原行为。
+启用 `delivery.require_source_review` 后，正式渲染和归档要求每包都有当前 `source_qa` 证据。`source_qa.version: 1` 包含 `selected`，清理片另含 `original` 和 `affected_intervals`。各源绑定 `media_path`、`media_sha256`、`ocr: {path, sha256}`（多次扫描时填写非空的有序引用数组）及 `inspection: {path, sha256, session_id, review_id}`。Host 核实真实成功的 OCR 执行和完整持久审看记录，缺少执行证据须重新检查。完整 OCR 覆盖及已观察帧必须对应当前源片。工具记录必须是 JSON 对象，整集汇总要求每个镜头都有证据。Host 核验作用域随其服务提供方释放，并在服务恢复后重新取得。每个仍存在的 OCR 时段都须有精确的 `text_decisions` 项，包含 `segment_index`（使用数组时还需从 0 开始的 `ocr_index`）、`text`、源片 `start_seconds` 和 `end_seconds`、`kind`（`non_dialogue_text` 或 `disclosure_watermark`）、`reason` 及 `observation_frame_ids`。文字分类仍是模型判断。清理片须在每个处理区间内有真实观察的处理前后帧，并保留原声。缺少时点时，优先用 `video_source_review`，或已启用完整审看模式的 `video_inspect`，附带对应时间补看。渲染指纹和归档回执绑定复验摘要与文件，换片、观察或判定变化后须重新验证。非严格工作预览沿用原行为。
 
 缺少证据时，先对完整选源运行 `video_ocr`，使用 `frame_interval_seconds: 0.5`，必要时按 `next_start_seconds` 继续。较长源片将每次签发的文件按顺序放入 `ocr` 数组；相邻区间须无缺口地覆盖同一源片，每份文件均独立核验当前 Session 成功工具记录。文字判定使用从 0 开始的 `ocr_index`。缺少 `evidence_algorithm: decoded-pts-spatial-v2` 的旧 OCR 文件须重新扫描，源文件和 Session 数据不变。读回原始文字行和时段，再优先用完整伴随工具 `video_source_review`，仅在 `video_inspect` 已启用完整审看模式时使用它。执行 `scan`，通过 `timestamps_seconds` 补入相关OCR或处理区间中点。用 `next` 实际展示每张图片，再用 `observe` 记录实际内容。`ocr.path`、`ocr.sha256` 分别取自 `raw_json_path`、`raw_json_sha256`。审看路径、摘要、会话身份和审看身份分别取自 `observation_report`、`observation_report_sha256`、`observation_session_id`、`review_id`。保留工具原路径，包括嵌套项目外的会话缓存路径。将这些值写入 `reviews/ep<集号>-p<包号>.json` 的 `source_qa`；处理过画面时对原片重复执行。只为实际看过的非对白字写精确判定。随后重跑 `prepare`、带 `resume: true` 的正式 `render` 和 `stage_delivery`。这些证据操作沿用既有授权，无须再次确认。
 
@@ -248,6 +248,16 @@ Host 调用方可提供 `SourceQaStagedAccess`，从私有捕获副本渲染，�
 将 `project_bible.delivery.subtitle.require_speech_coverage` 设为 `true`，重跑 `prepare` 并以 `resume=true` 渲染，以生成严格归档所需证据。传入实际选定音频的 `speech_transcripts`，并在映射中加入 `display: {embedded: false, subtitle_sha256, video_sha256: [...]}`，声明外加 SRT 覆盖全部显示字幕，同时提供完整 SRT 和按镜号排列的全部选片 SHA-256。归档会拒绝已知叠加字幕以及未保存字幕来源回执的成片。字幕首尾可以按 SRT 的毫秒精度贴合已准备时间线中的画面切点，跨过切点则停止归档。归档读取当前同源词级证据，遇到证据不完整或未处理疑点时停止。只有绑定本次比对的 `keep` 或 `asr_error` 核听声明可处理相应声文疑点。候选回执记录本次比对的证据 SHA-256。源片内部的切镜、画面和对白质量仍需播放验收。无短剧标记的项目仍可选择是否启用声文检查。
 
 严格归档还要求实测音画流边界和新核查的独立音轨草稿。草稿回执绑定已核查的整集原声位置、静音的正文片段，以及可编辑字幕的文字和时间。
+
+短剧项目及明确要求源审查的流程，归档还读取 `_probe/delivery-config/film-reviews.json`。`films` 中对应记录须绑定当前成片路径和 SHA-256，设置 `reviewed: true`，`picture`、`audio`、`subtitle`、`spec` 均为 `ok`，且没有未决 `issues`。技术 `verify` 结果不能提供这项审查。
+
+`content_review.version: 1` 包含按选片顺序排列的 `sources`、最终 `output` 及 `audio`。每项画面记录当前 `source`、`sha256`、原片适用的 `shot`，以及实际完整视频观察工具给出的 `inspection: {path, sha256, session_id, review_id}`。`checks` 须用 `start_seconds`、`end_seconds`、`status: "ok"`、依据剧本的 `expected`、实际观察 `reason` 和至少两个不同的 `frame_ids`，覆盖完整时长的 `physical_logic` 与 `continuity`。每个检测到的观察帧都须在两项判断中被处理，最终分包接缝两侧均须有观察。物理逻辑依据所选剧情和媒介判断，包括有意安排的特效，不套用统一写实规则。Host 核对当前会话的真实工具发行、已展示图片、当前文件及未决观察疑点；这些记录支持判断，不证明语义检测绝对正确。
+
+`audio` 包含 `status: "ok"`、`session_id`、`question_call_id`，以及覆盖完整时长、状态为 `ok` 且有非空理由的 `pronunciation` 区间。回答必须来自实际 `ask_user_question` 调用，使用 `contentListeningQuestion` 返回的当前输出专属问题；只有明确选择已完成试听的选项才通过。ASR吻合、模型自写通过、待回答和带未决自定义备注的回答均不能替代。核验只读取已有回答，不自动提问或购买转写。只接受本会话继承前缀之后自行发出的问题和回答；恢复同一会话仍可使用原回答。Host 初始化须等待观察及试听读取器就绪并持有它们，才发布此核验。未绑定的普通编辑保留原行为。既有 `speech_coverage` 继续标出 ASR 与文本差异；声明某项为 `asr_error` 不能替代实际听校。当前短剧声音验收仍需实际听校证据，这项检查不是无人声学审查器，也不能证明已实现无人值守发音修复。
+
+短剧明确的字幕字体证据还须将 `muse-review.json`、随稿字体与许可证字节、每个非水印原生字幕跨度绑定到请求的受管字族。归档独立核对产品媒体清单和保存后的 `font.path` 引用，顶层 `delivery_ready` 标记不足以放行。候选回执以 `draft_font: {snapshot_path, snapshot_sha256}` 保留 `muse-original-draft-content.json`，它逐字节复制首次通过核验的原生 JSON，创建时不覆盖其他版本，摘要须匹配原始 `draft_content.json` 来源记录。用户后续在剪映编辑或保存当前草稿，不会改写这份原始证据；修改后的草稿需要另行验收，也不会改动已验 MP4。发布前再次核对原片、成片、审查、快照与字体摘要。未绑定短剧的通用工作保留原有字体行为。
+
+归档回执保留审查和观察文件摘要，最终文件展示及附件出口再次核对。替换源片或局部修复会使旧片审查与重新合成的成片审查失效。未验收作品保留工作候选并可继续独立任务，不能进入 `01_可交付视频` 或报告已经交付。
 
 逐镜编码缓存要求源字节哈希、可执行程序和完整编码参数（包括时长）一致。只有编码成功且输出非空才发布缓存身份；身份缺失或来源、设置变化时自动重编。`force` 仍可跳过复用。
 

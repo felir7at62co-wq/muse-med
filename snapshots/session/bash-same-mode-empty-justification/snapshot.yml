@@ -1,4 +1,5 @@
 version: 1
+writerOutput: true
 scenario: bash-same-mode-empty-justification
 profile: headless
 composition: default

@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Muse video interface",
-    "description": "Optional conversation bubbles, video shots and collection animation"
+    "title": "Видеоинтерфейс Muse",
+    "description": "Необязательный интерфейс с пузырьками диалога, шкалой видеосцен и анимацией сворачивания при прокрутке."
   }
 }

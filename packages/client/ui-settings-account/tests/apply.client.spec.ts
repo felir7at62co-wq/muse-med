@@ -85,6 +85,25 @@ it('keeps DeepSeek sign-in in Models without making it the Muse desktop account 
   expect(c.ctx.slots.entries('settings.models.sign-in')).toHaveLength(0)
 }, 60_000)
 
+it('keeps native sign-in from opening a second renderer authorization tab', async ({ start, mock }) => {
+  vi.stubGlobal('dshDesktop', {})
+  const open = vi.spyOn(window, 'open').mockReturnValue(null)
+  const c = await start(), actions = operations(c)
+  const waiting: AccountView = { ...view, attempt: { id: 'native-sign-in' as SignInAttemptId,
+    phase: 'waiting-browser', authorizeUrl: 'https://platform.deepseek.com/dsh/authorize?attempt=native-sign-in' } }
+  mock.remote.account.startSignIn.mockResolvedValueOnce(ok(waiting))
+  await actions.start()
+  expect(mock.remote.account.startSignIn).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en' }),
+    window.location.origin, 'desktop')
+  c.mock.streams.push('account/watch', waiting)
+  await vi.waitFor(() => { expect(actions.hooks.account.getSnapshot().view).toEqual(waiting) })
+  expect(actions.hooks.account.getSnapshot().loginVisible).toBe(true)
+  expect(open).not.toHaveBeenCalled()
+  await c.unload(SELF)
+  expect(actions.hooks.account.getSnapshot().view).toBeUndefined()
+  expect(open).not.toHaveBeenCalled()
+}, 60_000)
+
 withoutAccountAccess('opens no account stream and registers no account surface while the current Peer may not watch the account', async ({ start }) => {
   const c = await start()
   expect(c.mock.streams.end('account/watch')).toBe(0)

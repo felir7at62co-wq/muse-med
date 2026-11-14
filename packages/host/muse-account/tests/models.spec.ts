@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { createToolResultMessage, createUserMessage, LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createAssistantMessage, createToolResultMessage, createUserMessage, LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { MuseModels } from '../src/models.ts'
@@ -1399,4 +1399,40 @@ it.each([
   expect(defaultAfter.config).not.toHaveProperty('reasoningEffort')
   expect(defaultAfter.config).toEqual(defaultBefore.config)
   expect(providers).toEqual(originalProviders)
+})
+
+it.each([
+  ['volcengine-ark', 'deepseek-v4-1-flash-260910', 'deepseek'],
+  ['volcengine-ark', 'vendor/deepseek-v4.1-flash-261017', 'deepseek'],
+  ['alibaba-bailian', 'deepseek-v4.1-flash-1017', 'qwen'],
+  ['volcengine-ark', 'deepseek-v4-1-flash-other', 'default'],
+  ['alibaba-bailian', 'deepseek-v4.1-flash-other', 'default'],
+] as const)('uses the exact %s %s reasoning dialect without changing neighboring models', async (provider, model, dialect) => {
+  const server = await mockServer([{ events: textEvents }])
+  await writeMuseSession(sessionFile(), { baseUrl: server.url, username: 'alice', cookie: '__Host-muse=alice-session' })
+  models = new MuseModels(ctx, { baseUrl: server.url, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json({ providers: [{ id: provider, name: provider, models: [{
+      id: model, name: model, contextWindow: 128000, maxTokens: 8192,
+      input: ['text'], reasoningEfforts: { high: 'high' },
+    }] }] }) })
+  await models.refresh()
+  const route = `muse-cloud-${provider}`
+  const history = createAssistantMessage({ content: [{ type: 'text', text: 'Earlier answer' }],
+    source: { provider: route, model } })
+  expect((await assemble(ctx, { provider: route, model, reasoningEffort: ReasoningEffortId('high'), messages: [history] })).finish)
+    .toEqual({ kind: 'stop' })
+  expect(server.requests).toHaveLength(1)
+  const wire = server.requests[0]
+  expect(wire).toMatchObject({ model, max_tokens: 8192 })
+  if (dialect === 'deepseek') expect(wire).toHaveProperty('thinking.type', 'enabled')
+  else if (dialect === 'qwen') expect(wire).toHaveProperty('enable_thinking', true)
+  else {
+    expect(wire).not.toHaveProperty('thinking')
+    expect(wire).not.toHaveProperty('enable_thinking')
+  }
+  expect(wire).toHaveProperty('messages', expect.arrayContaining([expect.objectContaining({
+    role: 'assistant', content: 'Earlier answer', ...(dialect === 'default' ? {} : { reasoning_content: '' }),
+  })]))
+  expect(server.headers[0]?.authorization).toBe('Bearer alice-session')
+  expect(server.paths).toEqual([`/api/desktop-models/${provider}/chat/completions`])
 })

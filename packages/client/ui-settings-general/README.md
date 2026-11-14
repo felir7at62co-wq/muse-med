@@ -63,6 +63,8 @@ On a loopback browser, the shell renders **Open configuration file** only when t
 
 The onboarding ledger projects in ascending order and mounts exactly one step at a time. Registrants own durable completion, capability readiness, copy, mutations, and their visible wrapper, so independently registered flows cannot stack and the shell does not become a second configuration fact source. Visible steps own their dialog chrome and app-root `inert` lifecycle.
 
+The shell closes Settings when a step reports that its dialog is visible, or when the user explicitly opens onboarding. Selecting a hidden or loading step leaves an open Settings section in place. The [onboarding owner props](../ui-settings/README.md#filling-the-settings-slots) define the visibility notification.
+
 Access: the settings shell and the `settings.open` shortcut are registered only while the current Peer may call `settings/describe`. The owner always has access.
 
 -----

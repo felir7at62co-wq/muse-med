@@ -310,7 +310,7 @@ production 发布使用产品版本本身，不传 `--build-version`。其上传
 
 Muse 安装包将 TOS 首选源和 GitHub 备用源封装在 `muse-update-sources.json` 中。检查更新优先访问北京公开存储桶 `https://muse.tos-cn-beijing.volces.com/releases/feeds/<target>/`。更新目录或下载不可用时可以切换到 GitHub；只有已确认的版本、载荷大小和 SHA-512 都一致，下载才会继续。备用源检查失败或不匹配时，重试仍须重新验证，直到确认载荷身份一致；下载完成的元数据也必须匹配，才会允许安装。重新检查更新失败时会清除先前的目标。校验、磁盘和安装准备错误仍然报告失败。正式版本通过 GitHub 的正式 Latest 发布查找更新；预发布版本保留由自身版本选择的发现通道。辅助运行时发布必须排除在 Latest 之外。Muse 正式发布 Apple Silicon Mac 和 Windows x64 安装包，两个源使用相同的载荷元数据。没有该来源记录的旧包继续使用其已封装的 feed。
 
-未签名 CI 允许不使用发布者凭据的 ad-hoc 封装，在打包检查后将安装器、更新载荷、blockmap 和通道文件记录在 `unsigned-build.json` 中。手动触发接受 `target=win-x64`、`mac-arm64` 或 `all`；拉取请求保留双平台检查。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求真实产品版本、完整源码提交和已完成目标目录。不写 `--targets` 时要求双平台；`--targets win-x64` 只发布 Windows 二进制与更新 feed，Mac feed 保持不变。`--dry-run` 仅核对记录和本地哈希，不上传；公开下载字节通过核验后才更新通道。
+未签名 CI 允许不使用发布者凭据的 ad-hoc 封装，在打包检查后将安装器、更新载荷、blockmap 和通道文件记录在 `unsigned-build.json` 中。未签名构建在目标独立的 `unsigned-artifacts/` 目录中保留发布文件名，使记录、原生验收和发布计划选择同一组精确文件。手动触发接受 `target=win-x64`、`mac-arm64` 或 `all`；拉取请求保留双平台检查。[`publish-muse-tos.mjs`](scripts/publish-muse-tos.mjs) 要求真实产品版本、完整源码提交和已完成目标目录。不写 `--targets` 时要求双平台；`--targets win-x64` 只发布 Windows 二进制与更新 feed，Mac feed 保持不变。`--dry-run` 仅核对记录和本地哈希，不上传；公开下载字节通过核验后才更新通道。
 
 Windows CI 为构建工具选择 Node 26.13.0，并要求 Undici 8.6 或更新版本，以避开 [HTTP 解析器暂停时崩溃](https://github.com/nodejs/undici/issues/5360)；目标运行时按各自的发布锁准备。CI 仅对锁定的私有仓库下载使用鉴权，并将 Windows FFmpeg 放入媒体准备缓存；正常准备流程仍校验大小和 SHA-256。 安装验收通过 `--previous-release-cache` 使用鉴权预热的基线缓存，仍须匹配原安装包与清单的哈希。Windows 手动构建可设置 `export_candidate_to_tos`，绕过 Actions 产物存储。限定对象、有效两小时的 `MUSE_CI_TOS_CANDIDATE_UPLOAD` Secret 仅提供两个 PUT URL 和 AES-256-GCM 密钥。导出器排除图片，拒绝含已知环境秘密、上传凭据或常见密钥格式的文本证据，然后加密精确候选与验收文本；不写更新 feed，日志不含 URL 或密钥。构建前会检查网络连通性。每次 PUT 使用上传凭据剩余有效期；待传元数据先于密文写入，因此仅有元数据不代表传输完成。发布者须独立审阅、核验完整解密构建，再正式推广。
 
@@ -367,7 +367,7 @@ Desktop 在本地打包工作区包，并通过目标捆绑的 Node 和 pnpm 安
 
 [Office 转换提供方](../../packages/document/office-to-pdf/README.zh.md)携带目标已声明的原生引擎；kit 未声明匹配原生目标时携带 WASM 引擎。准备阶段在打包前拒绝缺少目标引擎的情况。完整 Office 依赖（CLI、JavaScript 库和选定引擎的可执行文件、数据、许可证及 notices）解包到 `resources/app.asar.unpacked/dsh/node_modules/` 下。Desktop Host 将引擎清单解析到这些物理目录，并向加载的技能提供独立 Node 和解包后 CLI 的绝对路径。Node 位于 `resources/runtime/primary-runtime/dependencies/node/bin/`；CLI 位于解包后的 `@deepseek-ai/libreoffice-kit/lib/cli.js`。macOS 上的原生辅助程序获得 [LibreOffice UNO 桥](https://github.com/LibreOffice/core/blob/master/sysui/desktop/macosx/hardened_runtime.xcent.in)所需的 JIT entitlement。
 
-[Host 冒烟检查](scripts/smoke-runtime.ts) 在隔离 home 中启动，等待 credentials Service 就绪但不提供凭据，并先挂载完整产品预设再转换输入，因此同时检查该预设的工具和随包技能。注册清单包含隐藏且仅供恢复的 `bot-coordinator`；检查其通用工具，拒绝任何组合中出现已归档的 Bot 工具，并对每个预设挂载和释放两次。账号和知识库工具保留完整授权定义，初始时延迟加载；记录到会话中的 `tool_context` 加载与收起调用会核对模型可见定义的原始描述，并还原初始工具集，不请求模型或账号 API。检查将产品 home 与带仓库标记的工作区分开，验证三类项目技能源及其优先级，并拒绝发现共享用户技能源。创作预设转发自定义和项目技能，同时排除未审核的运行时贡献。它要求统一的短剧编导身份、Word 交付指导及本地记忆工具，并检查已退役的编辑模式别名解析到短剧模式。启用的专业技能和镜头脚本技能必须能通过作用域内 registry 从打包路径读取非空正文；对白精修与分集设计还必须随包携带对应方法文档。已退役的 Host 技能保持停用。准备阶段必须读到 Agent 释放后的完成记录，不能仅凭 Host 就绪判定成功；启动 60 秒后仍未就绪即失败。运行时根清单提供预设发现所用的完整 CLI、Desktop Host 和源码插件依赖图。
+[Host 冒烟检查](scripts/smoke-runtime.ts) 在隔离 home 中启动，等待 credentials Service 就绪但不提供凭据，并先挂载完整产品预设再转换输入，因此同时检查该预设的工具和随包技能。注册清单包含隐藏且仅供恢复的 `bot-coordinator`；检查其通用工具，拒绝任何组合中出现已归档的 Bot 工具，并对每个预设挂载和释放两次。账号和知识库工具保留完整授权定义，初始时延迟加载；记录到会话中的 `tool_context` 加载与收起调用会核对模型可见定义的原始描述，并还原初始工具集，不请求模型或账号 API。检查将产品 home 与带仓库标记的工作区分开，验证三类项目技能源及其优先级，并拒绝发现共享用户技能源。创作预设转发自定义和项目技能，同时排除未审核的运行时贡献。它要求统一的短剧编导身份、Word 交付指导及本地记忆工具，并检查已退役的编辑模式别名解析到短剧模式。启用的专业技能和镜头脚本技能必须能通过作用域内 registry 从打包路径读取非空正文；对白精修与分集设计还必须随包携带对应方法文档。已退役的 Host 技能保持停用。准备阶段必须读到 Agent 释放后的完成记录，不能仅凭 Host 就绪判定成功；启动 60 秒后仍未就绪即失败。运行时根清单提供预设发现所用的完整 CLI、Desktop Host 和源码插件依赖图。失败报告在 inspect 生成的 cause 详情之外保留原始完整栈，避免共享栈帧被折叠。
 
 打包应用运行编译后的 JavaScript 和预生成的 Typert 元数据，不编译 TypeScript 插件。打包要求包含转写技能、五类默认写作技能（剧本精修、小说转剧本、对白打磨、分集设计和剧本格式）与独立 Word 导出辅助程序；其他已退役的 Host 技能仍被排除。源码级调试导航和编辑器声明仍可从开发包中获取。[复制规则测试](tests/runtime-file-policy.spec.ts)覆盖排除项和保留资源；[产物 smoke](tests/fixtures/runtime-payload-smoke.mjs) 在 Host smoke 和最终清单验证之前，使用内置 Node 执行。产物 smoke 解析搜索工具使用的 ripgrep 可执行文件，并验证文本搜索和文件枚举。本地红果检查创建临时设备，通过回环地址运行原 Java 签名器，加载所提供的 CPython 3.11 离线模块并检查 AES。它等待所有托管子进程退出并删除私有主目录，不访问视频平台。首次启动相互竞争时，只有目标中的每个不可变源码文件都通过验证，才会复用该目标；目标不存在或被修改时仍报告安装失败。Windows 签名构建在依赖签名后运行这些检查；其他构建在 `prepare:dsh` 中运行。 经过验证的包集合选中 Codex provider 时，[Codex 检查](scripts/verify-codex-runtime.ts)要求源码固定的 provider、CLI 及声明的目标平台包全部位于产物内部，再使用内置 Node 在隔离主目录中执行 `--version`。已选中 provider 的可选下载缺失或可执行文件版本不符都会使准备失败。不含 Codex 的包集合不要求其源码清单或运行时。冻结的生产安装阶段为 pnpm 的完整 tarball 响应体设置有界的 30 分钟 `fetch-timeout`。锁文件元数据解析保留 pnpm 的默认截止时间和重试。构建者可将 `DSH_DESKTOP_FETCH_TIMEOUT_MS` 设为不超过 2,147,483,647 的正整数毫秒数；其他继承的 npm 配置仍被排除。[Host smoke](scripts/smoke-runtime.ts) 使用捆绑的 Python 创建 DOCX、XLSX 和 PPTX 输入，通过真实 Office 提供方逐一转换并检查 PDF 输出。每个组装后的应用（包括目录包和 Windows 未签名构建）都会针对 ASAR 重复产物和 Host 检查。归档完整性检查将归档内完整描述符与准备结果比对，并核对归档和解包目录中的文件内容与清单、归档内文件记录的执行标志，以及解包文件的物理权限。转换失败会在写入发布记录前终止打包；macOS DMG/ZIP 构建在公证前执行这些检查。
 
@@ -381,7 +381,7 @@ Windows 发布验收还需在 Desktop 构建后手动运行[目录和替换检�
 pwsh -NoProfile -File apps/desktop/scripts/smoke-windows.ps1 -Makensis $Makensis -SevenZip $SevenZip -PluginDir $PluginDir -FrameLibrary apps/desktop/.desktop-build/targets/win-x64/installer-ui/window-frame.dll
 ```
 
-Windows 安装器在启动时和选定目标目录后检查应用是否正在运行，通过检查后才将新版本解压到安装目录旁边。通过同卷目录改名替换前，安装器会再次检查。运行中的应用会阻止安装；更新启动允许等待应用退出，最长十秒。同路径升级在替换成功前保留旧目录；解压失败时旧版不变，替换失败时尝试恢复旧目录。安装器在启动前清理旧版备份。强制结束安装器或断电可能留下 `.new-*` 或 `.old-*` 目录；不同安装位置或安装范围迁移仍使用 electron-builder 的旧卸载器流程。
+Windows 安装器在启动时和选定目标目录后检查应用是否正在运行，通过检查后才将新版本解压到安装目录旁边。通过同卷目录改名替换前，安装器会再次检查。运行中的应用会阻止安装；更新启动允许等待应用退出，最长十秒。注册位置按去掉尾部分隔符的规范化完整路径比较。同路径升级在替换成功前保留旧目录；解压失败时旧版不变，替换失败时尝试恢复旧目录。安装器在启动前清理旧版备份。强制结束安装器或断电可能留下 `.new-*` 或 `.old-*` 目录；不同安装位置或安装范围迁移仍使用 electron-builder 的旧卸载器流程。
 
 解压失败时，安装器会把 7-Zip 的结果和完整错误输出写入更新缓存目录 `%LOCALAPPDATA%\<按包名派生>-updater\installer-logs\extract-failure-<时间戳>.log`（当前为 `@deepseek-aidsh-desktop-updater`），并在弹窗中显示首条错误行和 **复制错误信息** 按钮；静默安装只写入报告。未签名的 Windows 构建（`DSH_DESKTOP_UNSIGNED=1`）将 `muse-med-<版本>-win-x64.exe` 写入该 target 的 `unsigned-artifacts/` 目录而非发布目录，因此未签名构建不会被误当作发布产物。
 
@@ -472,6 +472,8 @@ macOS 支持同一个显式 `--unsigned` 标志：`pnpm run package:desktop:mac:
 
 ad-hoc macOS 构建包含封装在签名内、绑定版本的手动更新标记。更新沿用配置的主源和备用源，选择完全匹配架构的 DMG，验证 SHA-512 和大小，再以只读方式挂载，验证应用标识、发布版本、可执行文件架构及完整代码签名，不执行其中的应用。用户另行确认后，更新器复验文件字节，沿用既有任务停止保护，打开已校验的 DMG 并退出 Muse。请将 Muse 拖入“应用程序”并替换原应用，复制完成后重新打开；账号数据、会话和设置保存在应用之外。稍后更新会保留运行任务，校验或安装包打开失败仍保留重试与 Host 恢复。这一路径不会自动替换应用，也不会把 ad-hoc 签名当成发布者身份认证。Developer ID 构建继续使用 Squirrel 的原生签名验证。[升级指南](../../docs/upgrade-guide/v0.2.1-alpha.1/desktop-manual-mac-update/guide.zh.md)说明了早期未封装签名安装包的迁移方式。
 
+macOS 原生打包任务在组装候选安装包之前，使用私有 DMG 检查生产校验器。检查要求应用标识和版本准确匹配、资源完整且可执行文件架构正确；失败会停止打包，不自动重试。
+
 ### Windows 安装界面
 
 Windows 安装器将视频资源保留在主压缩载荷中。独立的预压缩文件收集已禁用，因为该遍历会跳过 `node_modules`，包括 `ending_effect.mp4` 等解包技能资源。
@@ -482,7 +484,7 @@ Windows 安装程序使用原生 NSIS 页面，提供亮暗配色、系统阴影
 
 Windows 打包使用 Visual C++ Build Tools 和 Windows SDK 编译 x86 Win32/GDI+ 辅助库；签名构建通过已配置的 Windows 签名器对该库签名。准备钩子在所有平台上均由 electron-builder 继续负责收集生产依赖。
 
-在有交互式桌面的 Windows x64 上，从仓库根目录运行 `pnpm --dir apps/desktop run test:installer`，可将小型原生测试载荷接入正式安装配置并执行验证。每次运行使用独立产品身份，依次验证仅英文和仅中文的安装器变体，并根据实际显示的欢迎页按钮选择测试文案。两个变体均安装到私有目录并在测试后卸载；截图和结果保留在 `.desktop-build/installer-tests/` 下。检查包含末尾带分隔符的已登记路径升级、磁盘根目录拒绝、需要重启时拒绝启动，以及自动重新打开后的失败清理。夹具只准备经哈希锁定的 Microsoft x64 运行库安装程序，记录准备前后的 64 位注册表版本；准备要求重启 Windows 时会停止测试。其私有 NSIS 副本提供确定性的重启场景，正式安装器没有测试开关。可选的 `--signed` 标志使用下文的 Windows EV 配置，在嵌入前对测试程序和辅助库签名；它不会启用更新源。
+在有交互式桌面的 Windows x64 上，从仓库根目录运行 `pnpm --dir apps/desktop run test:installer`，可将小型原生测试载荷接入正式安装配置并执行验证。每次运行使用独立产品身份，依次验证仅英文和仅中文的安装器变体，并根据实际显示的欢迎页按钮选择测试文案。两个变体均安装到私有目录并在测试后卸载；截图和结果保留在 `.desktop-build/installer-tests/` 下。检查包含末尾带分隔符的已登记路径升级、磁盘根目录拒绝、需要重启时拒绝启动，以及自动重新打开后的失败清理。夹具只准备经哈希锁定的 Microsoft x64 运行库安装程序，记录准备前后的 64 位注册表版本；准备要求重启 Windows 时会停止测试。每种语言的私有 NSIS 包含文件与页面回调会一同准备，再由安装器构建读取。私有包含文件提供确定性的重启场景，正式安装器没有测试开关。可选的 `--signed` 标志使用下文的 Windows EV 配置，在嵌入前对测试程序和辅助库签名；它不会启用更新源。
 
 私有页面副本记录 Finish 回调进入、启动方式和结果，以及外层页面离开调用的返回。测试先验证正常勾选启动，再验证文件缺失后的重试；发送 Enter 前等待失败的页面离开调用实际返回。Finish 仍要求托管和原生观察均在十秒内确认退出。测试将经过审查的诊断源码只编译一次，在私有输出目录生成唯一 DLL；独立观察进程加载该确切文件，DLL 及源码／程序集哈希保留在测试产物中。失败收据结合实际令牌提升状态、私有应用启动标记，以及观察进程采集的安装器自身窗口和支持 COM 的数值线程等待链。观察进程在查询等待链前记录部分证据；超过五秒时测试会终止观察进程并等待其退出。不采集进程内存、环境变量或命令行。Windows CI 负责执行这些原生检查。
 
@@ -665,7 +667,7 @@ node apps/desktop/node_modules/pnpm/bin/pnpm.mjs --dir apps/desktop run test:upd
 - MUSE 知识库和云端语音依赖已启用的网关接口及服务器管理的 ASR 额度。服务不可用时会报错；桌面版没有用户 ASR 凭据设置页，也不会自动回退到离线识别。
 
 - 发布签名、公证、更新托管和跨上一版本的已安装产物验证需要生产发布环境。
-- 依赖包含 lifecycle script 的桌面插件，只有其包名进入桌面项目经过评审的 `allowBuilds` 策略后才能安装。生产和开发项目明确禁用 TOS CRC 包的构建脚本，因为其发布包已包含编译好的 JavaScript 运行时。它们还跳过精确版本 `@whiskeysockets/baileys@7.0.0-rc14` 的 preinstall：该脚本只检查 Node ≥20，桌面版固定的 Node 运行时已满足要求，且包内带有编译好的 JavaScript。其他 Baileys 版本仍须重新评审。
+- 依赖包含 lifecycle script 的桌面插件，只有其包名进入桌面项目经过评审的 `allowBuilds` 策略后才能安装。私有生产安装明确禁用精确版本 `tos-crc64-js@0.0.1` 的构建脚本，因为其发布包已包含编译好的 JavaScript 运行时。它还跳过精确版本 `@whiskeysockets/baileys@7.0.0-rc14` 的 preinstall：该脚本只检查 Node ≥20，桌面版固定的 Node 运行时已满足要求，且包内带有编译好的 JavaScript。其他 TOS CRC 和 Baileys 版本仍须重新评审。开发和用户 profile 保留既有插件构建策略；生产安装的决定不会授予插件执行脚本的权限。
 - 独立产品不迁移现有 DSH 会话或凭据，用户在产品内配置自己的账号。显式把 `MUSE_MED_HOME` 指向已有 DSH home 会退出数据隔离，这不构成数据迁移。
 - 在 Electron win32-arm64 宿主上，未打包启动现在可以成功，但载荷仍为 x64：`packages/skill/tool-workspace-dependencies/src/index.ts` 的架构校验会把载荷记录的架构与宿主 `process.arch` 比较，因此 `load_workspace_dependencies` 工具仍可能拒绝 primary runtime。
 

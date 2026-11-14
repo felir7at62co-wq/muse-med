@@ -2,6 +2,8 @@
 import { isSkillName } from '@deepseek-ai/dsh-skill/name'
 import type { MarketManifest, MarketMetadata } from './types.ts'
 
+type ValidatedMarketManifest = Omit<MarketManifest, 'skills'> & { readonly skills: readonly [MarketManifest['skills'][number]] }
+
 /** A publication refusal with a stable, credential-free diagnostic code. */
 export class MarketError extends Error {
   constructor(readonly code: string) { super(code) }
@@ -58,7 +60,7 @@ export function marketMetadata(value: unknown): MarketMetadata {
  * @param value - Untrusted archive or record JSON.
  * @returns The supported immutable manifest.
  */
-export function marketManifest(value: unknown): MarketManifest {
+export function marketManifest(value: unknown): ValidatedMarketManifest {
   const metadata = marketMetadata(value)
   if (!marketRecord(value) || value.formatVersion !== 1 || value.kind !== 'skill' || value.plugins !== undefined
     || !Array.isArray(value.skills) || value.skills.length !== 1) throw new MarketError('skill-only')

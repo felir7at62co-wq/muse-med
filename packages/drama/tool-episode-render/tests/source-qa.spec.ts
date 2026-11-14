@@ -1,7 +1,8 @@
 import { join } from 'node:path'
-import { copyFile, mkdir, readFile, realpath, symlink, unlink, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, open, readFile, realpath, stat, symlink, unlink, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { afterEach, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import { createSourceQaStagedAccess, verifySourceQa } from '../src/source-qa.ts'
 import { fileSha256 } from '../src/cache.ts'
 import { cleanup, tempProject, writePlaceholder } from './harness.ts'
@@ -26,6 +27,18 @@ async function fixture(clean = false) {
   return { input, selected, original, qa }
 }
 
+async function savedReview(f: Awaited<ReturnType<typeof fixture>>, qa: Record<string, unknown>) {
+  const path = join(f.input.project, 'review-declaration.json')
+  await writeFile(path, JSON.stringify({ ...f.input.review, source_qa: qa }))
+  return z.record(z.string(), z.unknown()).parse(JSON.parse(await readFile(path, 'utf8')))
+}
+
+async function evidenceBytes(f: Awaited<ReturnType<typeof fixture>>) {
+  const paths = [f.input.videoPath, f.input.originalPath, f.selected.declaration.ocr.path, f.selected.declaration.inspection.path,
+    ...f.original === undefined ? [] : [f.original.declaration.ocr.path, f.original.declaration.inspection.path]]
+  return await Promise.all([...new Set(paths)].map(async path => ({ path, bytes: await readFile(path) })))
+}
+
 it('accepts a fully inspected unchanged original without unnecessary before/after comparisons', async () => {
   const f = await fixture()
   const verifier = vi.fn(verifiedSourceQaFixture)
@@ -34,6 +47,106 @@ it('accepts a fully inspected unchanged original without unnecessary before/afte
   expect(qa.files).toHaveLength(3)
   expect(verifier).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
     mediaPath: await realpath(f.input.videoPath), mediaSha256: f.input.videoSha256, reviewId: 'review-selected' }))
+})
+
+it('accepts an omitted text decision list when complete OCR found no text', async () => {
+  const f = await fixture()
+  const { text_decisions: _decisions, ...selected } = f.qa.selected
+  const verifier = vi.fn(verifiedSourceQaFixture)
+  const result = await verifySourceQa({ ...f.input, verifier,
+    review: { ...f.input.review, source_qa: { ...f.qa, selected } } })
+  expect(result.files).toHaveLength(3)
+  expect(verifier).toHaveBeenCalledOnce()
+})
+
+it('rejects an empty OCR inventory before accepting Host execution evidence', async () => {
+  const f = await fixture(), verifier = vi.fn(verifiedSourceQaFixture)
+  await expect(verifySourceQa({ ...f.input, verifier,
+    review: { ...f.input.review, source_qa: { ...f.qa, selected: { ...f.qa.selected, ocr: [] } } } }))
+    .rejects.toThrow('复验缺少OCR文件')
+  expect(verifier).not.toHaveBeenCalled()
+})
+
+it('rejects cleaned footage without the original source evidence', async () => {
+  const f = await fixture(true)
+  await expect(verifySourceQa({ ...f.input,
+    review: { ...f.input.review, source_qa: { ...f.qa, original: null } } }))
+    .rejects.toThrow('复验没有绑定本次实际源片')
+})
+
+it('reads only captured directory inventories and rejects evidence from another project', async () => {
+  const f = await fixture(), project = await realpath(f.input.project)
+  const staged = createSourceQaStagedAccess(project, join(project, 'private-stage'), [], new AbortController().signal,
+    [{ originalPath: project, entries: ['selected-ocr.json', 'selected-observation.json'] }])
+  expect(staged.list(project)).toEqual(['selected-ocr.json', 'selected-observation.json'])
+  expect(() => staged.list('not-captured')).toThrow('no captured directory snapshot')
+  await expect(verifySourceQa({ ...f.input, project: join(project, 'another-project'), staged }))
+    .rejects.toThrow('暂存证据属于另一项目')
+})
+
+it('rejects relative or noncanonical stage roots before building any file mapping', async () => {
+  const f = await fixture(), project = await realpath(f.input.project)
+  const stage = join(project, 'private-stage'), signal = new AbortController().signal
+  for (const [root, privateRoot] of [
+    ['relative-project', stage], [project + '/./', stage],
+    [project, 'relative-stage'], [project, stage + '/./'],
+  ] as const) {
+    expect(() => createSourceQaStagedAccess(root, privateRoot, [], signal))
+      .toThrow('canonical absolute roots')
+  }
+})
+
+it('rejects malformed captured directory inventories before making a reader', async () => {
+  const f = await fixture(), project = await realpath(f.input.project)
+  const stage = join(project, 'private-stage'), signal = new AbortController().signal
+  const invalid = [
+    [{ originalPath: 'relative-directory', entries: [] }],
+    [{ originalPath: project + '/./', entries: [] }],
+    [{ originalPath: project, entries: [] }, { originalPath: project, entries: [] }],
+    ...[['entry', 'entry'], [''], ['.'], ['..'], ['parent/child'], ['parent\\child']]
+      .map(entries => [{ originalPath: project, entries }]),
+  ]
+  for (const directories of invalid) {
+    expect(() => createSourceQaStagedAccess(project, stage, [], signal, directories))
+      .toThrow('invalid directory snapshot')
+  }
+})
+
+it.each(['selected', 'original'] as const)('rejects saved source QA with an empty %s OCR declaration', async (source) => {
+  const f = await fixture(source === 'original'), before = await evidenceBytes(f)
+  const declaration = source === 'selected' ? f.qa.selected : f.qa.original
+  if (declaration === undefined) throw new Error('Expected the selected fixture source')
+  const review = await savedReview(f, { ...f.qa, [source]: { ...declaration, ocr: [] } })
+  const verifier = vi.fn(verifiedSourceQaFixture)
+  await expect(verifySourceQa({ ...f.input, review, verifier })).rejects.toThrow('复验缺少OCR文件。')
+  expect(verifier).toHaveBeenCalledTimes(source === 'selected' ? 0 : 1)
+  expect(await evidenceBytes(f)).toEqual(before)
+})
+
+it('rejects saved source QA without the original evidence for cleaned media', async () => {
+  const f = await fixture(true), before = await evidenceBytes(f)
+  const { original: _original, ...qa } = f.qa
+  const review = await savedReview(f, qa), verifier = vi.fn(verifiedSourceQaFixture)
+  await expect(verifySourceQa({ ...f.input, review, verifier })).rejects.toThrow('复验没有绑定本次实际源片。')
+  expect(verifier).toHaveBeenCalledOnce()
+  expect(await evidenceBytes(f)).toEqual(before)
+})
+
+it.each([
+  { label: 'no affected intervals', intervals: [], error: '清理片缺少实际处理时段。' },
+  { label: 'missing start', intervals: [{ end_seconds: 3 }], error: '处理时段超出当前源片。' },
+  { label: 'negative start', intervals: [{ start_seconds: -1, end_seconds: 3 }], error: '处理时段超出当前源片。' },
+  { label: 'nonpositive end', intervals: [{ start_seconds: 0, end_seconds: 0 }], error: '处理时段超出当前源片。' },
+  { label: 'empty interval', intervals: [{ start_seconds: 2, end_seconds: 2 }], error: '处理时段超出当前源片。' },
+  { label: 'reversed interval', intervals: [{ start_seconds: 3, end_seconds: 2 }], error: '处理时段超出当前源片。' },
+  { label: 'end beyond source', intervals: [{ start_seconds: 2, end_seconds: 6 }], error: '处理时段超出当前源片。' },
+])('rejects saved source QA with $label', async ({ intervals, error }) => {
+  const f = await fixture(true), before = await evidenceBytes(f)
+  const review = await savedReview(f, { ...f.qa, affected_intervals: intervals })
+  const verifier = vi.fn(verifiedSourceQaFixture)
+  await expect(verifySourceQa({ ...f.input, review, verifier })).rejects.toThrow(error)
+  expect(verifier).toHaveBeenCalledTimes(2)
+  expect(await evidenceBytes(f)).toEqual(before)
 })
 
 it('validates unmodified staged copies against original identities without treating the map as authorization', async () => {
@@ -47,6 +160,13 @@ it('validates unmodified staged copies against original identities without treat
     return { originalPath, stagedPath, aliases: [spelling], sha256: createHash('sha256').update(data).digest('hex'), bytes: data.length }
   }))
   const staged = createSourceQaStagedAccess(project, stageRoot, files, new AbortController().signal)
+  const media = files[0]
+  if (media === undefined) throw new Error('Fixture media was not captured')
+  expect(staged.stagedPath(media.originalPath)).toBe(media.stagedPath)
+  expect(() => { staged.stagedPath(join(project, 'uncaptured-video.mp4')) }).toThrow('no captured mapping')
+  await expect(staged.read(media.originalPath)).resolves.toEqual(await readFile(media.stagedPath))
+  await expect(staged.read(join(project, 'uncaptured-video.mp4'))).rejects.toThrow('no captured mapping')
+  await expect(staged.hash(join(project, 'uncaptured-video.mp4'))).rejects.toThrow('no captured mapping')
   const verifier = vi.fn(verifiedSourceQaFixture)
   const original = await verifySourceQa({ ...f.input, verifier })
   const stagedResult = await verifySourceQa({ ...f.input, project, verifier, staged })
@@ -75,6 +195,58 @@ it('refuses ambiguous, missing, escaped or cancelled stage mappings', async () =
   expect(() => access.logical(f.selected.declaration.ocr.path)).toThrow('no captured mapping')
   controller.abort()
   await expect(access.hash(file.originalPath)).rejects.toThrow()
+})
+
+it('rejects an already incorrect same-length staged copy without modifying either file', async () => {
+  const f = await fixture(), project = await realpath(f.input.project), stage = join(project, 'private-stage')
+  await mkdir(stage)
+  const originalPath = await realpath(f.input.videoPath), original = await readFile(originalPath)
+  const stagedPath = join(stage, 'incorrect-copy'), stagedBytes = Buffer.alloc(original.length, 0x5a)
+  expect(stagedBytes).not.toEqual(original)
+  await writeFile(stagedPath, stagedBytes)
+  const access = createSourceQaStagedAccess(project, stage, [{ originalPath, stagedPath,
+    sha256: createHash('sha256').update(original).digest('hex'), bytes: original.length }], new AbortController().signal)
+  await expect(access.hash(originalPath)).rejects.toThrow('Source QA stage file changed')
+  await expect(access.read(originalPath)).rejects.toThrow('Source QA stage file changed')
+  expect(await readFile(originalPath)).toEqual(original)
+  expect(await readFile(stagedPath)).toEqual(stagedBytes)
+})
+
+it('bounds collected staged evidence while still hashing an intact large source', async () => {
+  const project = await realpath(await tempProject())
+  projects.push(project)
+  const stage = join(project, 'private-stage'), originalPath = join(project, 'large-original.data')
+  await mkdir(stage)
+  const writer = await open(originalPath, 'wx')
+  try {
+    const block = Buffer.alloc(1024 * 1024, 0x61)
+    for (let index = 0; index < 64; index += 1) await writer.writeFile(block)
+    await writer.writeFile(Buffer.from('\n'))
+  } finally { await writer.close() }
+  const smallPath = join(project, 'small-original.json'), smallBytes = Buffer.from('{"review":"ordinary source evidence"}')
+  await writeFile(smallPath, smallBytes)
+  const files = await Promise.all([originalPath, smallPath].map(async (path, index) => {
+    const stagedPath = join(stage, `${index}.data`), original = await stat(path)
+    await copyFile(path, stagedPath)
+    const staged = await stat(stagedPath), sha256 = await fileSha256(path)
+    expect(original.isFile()).toBe(true)
+    expect(staged.isFile()).toBe(true)
+    expect(staged.size).toBe(original.size)
+    expect(await fileSha256(stagedPath)).toBe(sha256)
+    return { originalPath: path, stagedPath, sha256, bytes: original.size }
+  }))
+  expect(files[0]!.bytes).toBe(64 * 1024 * 1024 + 1)
+  const access = createSourceQaStagedAccess(project, stage, files, new AbortController().signal)
+  await expect(access.read(originalPath)).rejects.toThrow('Source QA evidence exceeds its read limit')
+  await expect(access.hash(originalPath)).resolves.toBe(files[0]!.sha256)
+  await expect(access.read(smallPath)).resolves.toEqual(smallBytes)
+  await expect(access.hash(smallPath)).resolves.toBe(files[1]!.sha256)
+  for (const file of files) {
+    expect((await stat(file.originalPath)).size).toBe(file.bytes)
+    expect((await stat(file.stagedPath)).size).toBe(file.bytes)
+    expect(await fileSha256(file.originalPath)).toBe(file.sha256)
+    expect(await fileSha256(file.stagedPath)).toBe(file.sha256)
+  }
 })
 
 it('refuses a staged file replaced by a symlink even when it names the original bytes', async () => {

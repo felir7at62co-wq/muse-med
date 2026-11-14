@@ -56,6 +56,9 @@ it('logs only safe structured facts for provider failures', async () => {
       'Muse model request failed: provider="muse-cloud-zhipu-official" model="glm-5.3-flashx"'
       + ' code="NETWORK" status=unavailable requestId=null',
     )
+    await owner.dispose()
+    options.onProviderFailure({ provider: 'muse-cloud-zhipu-official', model: 'glm-5.3-flashx', code: 'NETWORK' })
+    expect(warn).toHaveBeenCalledTimes(2)
   } finally { await owner.dispose(); await context.fiber.dispose() }
 })
 

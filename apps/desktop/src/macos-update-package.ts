@@ -99,9 +99,14 @@ export async function verifyMacOSUpdatePackage(candidate: MacOSUpdatePackage): P
     const application = join(mount, 'muse-med.app')
     if (!(await lstat(application)).isDirectory()) throw new Error('desktop macOS update: disk image application is missing or linked')
     const plist = join(application, 'Contents', 'Info.plist')
-    const identity = await execute('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleIdentifier', '-c', 'Print :CFBundleShortVersionString', plist])
-    if (identity.stdout.trim() !== `${candidate.appId}\n${candidate.version}`) {
-      throw new Error('desktop macOS update: application identity or version differs from the confirmed release')
+    const identity = await execute('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleIdentifier', plist])
+    const version = await execute('/usr/libexec/PlistBuddy', ['-c', 'Print :CFBundleShortVersionString', plist])
+    const actualId = identity.stdout.trim(), actualVersion = version.stdout.trim()
+    if (actualId !== candidate.appId || actualVersion !== candidate.version) {
+      const field = (value: string): string => /^[A-Za-z0-9.+-]{1,128}$/u.test(value) ? value : '<invalid>'
+      throw new Error('desktop macOS update: application identity or version differs from the confirmed release'
+        + `; observed id=${field(actualId)}, version=${field(actualVersion)}`
+        + `; expected id=${field(candidate.appId)}, version=${field(candidate.version)}`)
     }
     await execute('/usr/bin/lipo', [join(application, 'Contents', 'MacOS', 'muse-med'), '-verify_arch',
       candidate.arch === 'arm64' ? 'arm64' : 'x86_64'])

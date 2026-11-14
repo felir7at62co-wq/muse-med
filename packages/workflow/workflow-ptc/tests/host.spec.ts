@@ -63,6 +63,25 @@ async function setup(execute?: (bindings: HostBindings, spec: PtcRunSpec) => Pro
 }
 
 describe('workflow host callback validation', () => {
+  it('marks a completed child with a missing required property as an invalid artifact', async () => {
+    const schema = { type: 'object', properties: { answer: { type: 'number' } }, required: ['answer'] }
+    const { ctx, start } = await setup(async (bindings) => {
+      const child = await bindings.startChild!({ prompt: 'answer', schema })
+      expect(await bindings.childResult!(child)).toEqual({ output: [], structured: { other: 42 }, diagnostic: 'provider warning',
+        stopReason: 'completed', artifactFailure: 'the structured result is missing the required property "answer"' })
+      await bindings.disposeChild!(child)
+      return completed
+    })
+    const disposed = vi.fn(async () => {})
+    vi.spyOn(ctx.subagents, 'startActivation').mockResolvedValue({ childId: SessionId('invalid-child'),
+      result: Promise.resolve({ output: [], structured: { other: 42 }, diagnostic: 'provider warning', stopReason: 'completed' }), dispose: disposed })
+    const run = start()
+    try {
+      await expect(run.result).resolves.toMatchObject({ stopReason: 'completed' })
+      expect(disposed).toHaveBeenCalledOnce()
+    } finally { await run.dispose() }
+  })
+
   it('runs an unconfined provider under full access without forwarding a sandbox policy', async () => {
     const { runtime, parent, start } = await setup(async (_bindings, spec) => {
       expect(spec.sandboxPolicy).toBeUndefined()

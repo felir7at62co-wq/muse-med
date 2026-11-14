@@ -41,7 +41,7 @@ class DraftSubtitleTimingTests(unittest.TestCase):
             self.assertEqual(source.read_bytes(), before)
             self.assertEqual(len(cues), 1)
             self.assertEqual((cues[0]['start_us'], cues[0]['end_us']), (100_000, 8_000_000))
-            self.assertIn('这是第一段台词 这是第二段台词 后面还有一段台词', output.read_text())
+            self.assertIn('这是第一段台词 这是第二段台词 后面还有一段台词', output.read_text(encoding='utf-8'))
 
     def test_product_cue_uses_shared_punctuation_policy_without_inventing_times(self):
         with tempfile.TemporaryDirectory() as temporary:

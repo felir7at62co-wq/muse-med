@@ -8,6 +8,10 @@ These retained source snapshots record Muse community-plugin dependencies. [sour
 
 Entries with `desktop: false` in the source inventory and archived `ds-bot` source are omitted from default builds. `dsh-plugin-subscriptions` supplies the active subscription bundle; the old Codex pin and source remain for explicit recovery builds. Desktop packaging independently selects its package closure and does not copy every available tarball. `--only dsh-plugin-subscriptions` selects the current subscription artifact; `--only dsh-codex-subscription` selects the archived compatibility path.
 
+The unknown-assertion gate uses the [file-origin lock](../../scripts/retained-plugin-origins.json), not directory exemptions, for reviewed upstream files. Immutable files must match their pinned content hash. Maintained files also require their declared hashes and exact original text; only assertion operators and types mapped one-to-one through unchanged lines retain upstream ownership. New or changed assertion lines, unlisted files, and owned adapters remain checked. The five original-text fixtures retain the pinned Visualize [BSD-3-Clause license](dsh-visualize/LICENSE); pin updates require review of the source hashes and originals together. Source, pin, lock, original-text and license paths are checked component by component; ancestor symlinks and junctions, non-files and paths outside the canonical repository are rejected even when their content hashes match.
+
+The older Feishu and IM source exclusions remain separate from this file-origin mechanism.
+
 ## Build
 
 Use an installed checkout with the current Host and Client packages already built. From the repository root:
@@ -20,6 +24,8 @@ pnpm --dir third_party/plugins/toolchain run test:im
 ```
 
 Before running retained DS Bot source tests, install its locked runtime dependencies with `npm ci --prefix third_party/plugins/ds-bot --omit=dev --ignore-scripts --legacy-peer-deps --no-audit --no-fund`. The test resolver supplies the Harness peers from the built checkout.
+
+The subscription builder passes absolute TypeScript preload modules to Node as file URLs, including on Windows. Test entry paths remain ordinary filesystem paths.
 
 [build.mjs](build.mjs) installs the separate [toolchain lock](toolchain/pnpm-lock.yaml) with frozen resolution and install scripts disabled, using its own workspace configuration to omit automatic installation of the four deep-view Host peers supplied by staging, then compiles and packs each plugin serially in temporary staging. `--only dsh-ffmpeg` selects one source directory. Staging links to this checkout's built Host packages, never a live profile. Child checks use a temporary Harness home and omit credential-bearing environment variables and inherited `NODE_PATH`, so a package-manager shim cannot expose workspace-only dependencies to artifact qualification. Launcher and preload options remain unchanged. The helper removes its links before deleting staging; source directories receive no generated output or `node_modules`. The bridge's upstream JavaScript source already lives in `lib`.
 
@@ -79,7 +85,7 @@ The retained [Deep View](deep-view/README.md) plugin provides `show_view` in ord
 
 The independent [Skill evolution plugin](muse-skill-evolution/README.md) reviews newly completed tool-assisted work, creates owned Skills and retains proposals and rollback versions. Native persisted review Sessions use the task's selected model route. Its README owns review limits, normal model usage and file permissions.
 
-The retained [Visualize](dsh-visualize/README.md) plugin renders interactive HTML cards and standalone pages. Desktop expands page views in the conversation because its shell rejects Blob popups; Web can open a separate tab. `visualize`, `show_view` and native `ask_user_question` remain resident and are omitted from Tool Search. The bundled authoring Skill is available in Muse's creative catalogs. Card buttons may fill the owning conversation's composer; the user sends the draft. Existing drafts and attachments are retained. Card updates stay within the owning Session. If saving stops after a file commit, the error receipt distinguishes the fragment and image manifest; inspect the reported path before another correction rather than repeating an old replacement blindly.
+The retained [Visualize](dsh-visualize/README.md) plugin renders interactive HTML cards and standalone pages. Desktop expands page views in the conversation because its shell rejects Blob popups; Web can open a separate tab. `visualize`, `show_view` and native `ask_user_question` remain resident and are omitted from Tool Search. The bundled authoring Skill is available in Muse's creative catalogs. Card buttons may fill the owning conversation's composer; the user sends the draft. Existing drafts and attachments are retained. Card updates stay within the owning Session. Store paths below the OS home use a portable `~/` alias. Windows atomic saves retry only `EPERM` or `EBUSY` renames, at most five attempts, and retain the original failure when exhausted. If saving stops after a file commit, the error receipt distinguishes the fragment and image manifest; inspect the reported path before another correction rather than repeating an old replacement blindly.
 
 ### Archived Muse Bot
 

@@ -1,9 +1,10 @@
 import { SHIPPED_LOCALE_IDS } from '../../../scripts/shipped-locales.ts'
 import { createRequire } from 'node:module'
 /** Per-language installer resources feed both the packaging language list and the NSIS compiler. */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { globSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { expect, it, onTestFinished } from 'vitest'
 import { readInstallerLocales, renderInstallerStrings } from '../scripts/installer-locales.mjs'
 
@@ -23,9 +24,25 @@ it('generates Japanese NSIS strings from the same files that select packaged lan
   expect(source).toContain('LangString INSTALLER_INSTALL ${LANG_JAPANESE} "今すぐインストール"')
   expect(source).toContain('LangString INSTALLER_NATIVE_PROGRESS ${LANG_JAPANESE} "インストールを準備しています… %d%%"')
   expect(source).toContain('!ifdef LANG_JAPANESE\n')
-  expect(source.match(/^LangString /gmu)).toHaveLength(248)
+  expect(source.match(/^LangString /gmu)).toHaveLength(256)
   const japanese = locales.filter(locale => locale.id === 'ja_JP')
   expect(renderInstallerStrings(japanese)).not.toContain('${LANG_ENGLISH}')
+})
+
+it('declares every product NSIS string reference in each generated installer language', () => {
+  const appRoot = fileURLToPath(new URL('../', import.meta.url))
+  const files = globSync(['installer/**/*.nsh', 'scripts/installer*.nsh'], { cwd: appRoot })
+  expect(files.length).toBeGreaterThan(0)
+  const keys = [...new Set(files.flatMap(file => [...readFileSync(join(appRoot, file), 'utf8')
+    .matchAll(/\$\((INSTALLER_[A-Z0-9_]+)\)/gu)].map(match => match[1]!)))].sort()
+  expect(keys).toContain('INSTALLER_REBOOT_REQUIRED')
+  for (const locale of readInstallerLocales()) {
+    const source = renderInstallerStrings([locale])
+    for (const key of keys) {
+      expect(locale.strings[key], `${locale.id}: ${key}`).toEqual(expect.any(String))
+      expect(source).toContain(`LangString ${key} \${LANG_${locale.nsisLanguage}}`)
+    }
+  }
 })
 
 it.each(['en_US', 'zh_CN', 'ja_JP', 'es_ES', 'fr_FR', 'de_DE', 'ru_RU', 'pt_BR'])('rejects a missing %s configuration', (id) => {

@@ -1,5 +1,6 @@
 /** Real owned jobs pause and resume a selected-video batch using local, fully decodable media fixtures. */
 import assert from 'node:assert/strict'
+import { addAbortListener } from 'node:events'
 import { basename } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
@@ -25,6 +26,17 @@ const jsonResult = message => {
   return JSON.parse(text)
 }
 
+/** Wait for the real job-output dispatch without retaining a cancelled transport. */
+async function waitForOutputDispatch(ready, signal) {
+  if (signal === undefined) return ready
+  signal.throwIfAborted()
+  const cancelled = Promise.withResolvers()
+  const listener = addAbortListener(signal, () => cancelled.reject(signal.reason))
+  try { await Promise.race([ready, cancelled.promise]) }
+  finally { listener[Symbol.dispose]() }
+  signal.throwIfAborted()
+}
+
 /** Loader identity for task-owned download recovery. */
 export const name = 'snapshot-douyin-background'
 /** The shipped registry, controllers, Session persistence, and policy remain real. */
@@ -41,6 +53,21 @@ export async function apply(ctx) {
   let resumed = false
   let requestCount = 0
   let rejected
+  const outputDispatches = [Promise.withResolvers(), Promise.withResolvers()]
+  const expectedJobs = []
+  let outputCount = 0
+  ctx.effect(() => () => { for (const ready of outputDispatches) ready.resolve() })
+  ctx.on('tools/execute', (exec, next) => {
+    if (exec.agent?.session.id === ownerId && exec.name === 'job_output') {
+      const args = exec.arguments
+      assert.ok(args !== null && typeof args === 'object' && 'job_id' in args && 'wait' in args)
+      assert.equal(args.wait, true)
+      assert.equal(args.job_id, expectedJobs[outputCount])
+      assert.ok(outputCount < outputDispatches.length)
+      outputDispatches[outputCount++].resolve()
+    }
+    return next()
+  })
 
   class PublicTransport extends Service {
     constructor(scope) { super(scope, 'subprocess') }
@@ -55,6 +82,9 @@ export async function apply(ctx) {
       publicCalls.push(url)
       let text
       const done = (async () => {
+        // The recorded ordering covers a caller waiting on a still-running job.
+        // Let that actual dispatch release the producer instead of racing HTTP.
+        await waitForOutputDispatch(outputDispatches[resumed ? 1 : 0].promise, spec.signal)
         const result = url === urls[1] && !resumed
           ? { status: 'blocked', message: 'LOGIN_OR_VERIFICATION_REQUIRED' }
           : await mediaReceipt({ session: { header: { cwd: spec.cwd } } }, url)
@@ -103,6 +133,7 @@ export async function apply(ctx) {
         if (requestCount === 2) {
           const accepted = jsonResult(results[0])
           assert.equal(accepted.status, 'queued')
+          expectedJobs.push(accepted.downloadTask.jobId)
           call = ['job_output', { job_id: accepted.downloadTask.jobId, wait: true, timeout_ms: 10000 }]
         }
         if (requestCount === 3) call = ['douyin_download_task', { action: 'status', taskId: jsonResult(results[0]).downloadTask.id }]
@@ -117,6 +148,7 @@ export async function apply(ctx) {
           const accepted = jsonResult(results[3])
           assert.equal(accepted.status, 'queued')
           assert.notEqual(accepted.downloadTask.jobId, jsonResult(results[0]).downloadTask.jobId)
+          expectedJobs.push(accepted.downloadTask.jobId)
           call = ['job_output', { job_id: accepted.downloadTask.jobId, wait: true, timeout_ms: 10000 }]
         }
         if (requestCount === 6) call = ['douyin_download_task', { action: 'status', taskId: jsonResult(results[0]).downloadTask.id }]
@@ -175,6 +207,7 @@ export async function apply(ctx) {
     if (rejected) throw rejected
     assert.equal(agent.session.id, ownerId)
     assert.equal(requestCount, 7)
+    assert.equal(outputCount, 2)
     assert.deepEqual(publicCalls, [urls[0], urls[1], urls[1]])
     assert.deepEqual(nativeCalls, [urls[1]])
     const results = agent.session.snapshotEvents().filter(event => event.type === 'tool/result')

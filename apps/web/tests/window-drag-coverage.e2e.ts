@@ -241,10 +241,12 @@ describe('web e2e: macOS window drag coverage', () => {
       const positions = await toggle.evaluate(async (button) => {
         if (!(button instanceof HTMLButtonElement)) throw new Error('Sidebar toggle is not a button')
         const root = button.closest('[class*="topStrip"]')!.parentElement!
-        const position = () => ({
-          left: button.getBoundingClientRect().left - root.getBoundingClientRect().left,
-          transform: getComputedStyle(button).transform,
-        })
+        const position = () => {
+          const box = button.getBoundingClientRect()
+          const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+          return { left: box.left - root.getBoundingClientRect().left, width: box.width, height: box.height,
+            hittable: hit !== null && button.contains(hit) }
+        }
         const before = position()
         // Observe the class change before the 150ms fade can settle under host contention.
         const fading = await new Promise<ReturnType<typeof position>>((resolve) => {
@@ -256,10 +258,14 @@ describe('web e2e: macOS window drag coverage', () => {
           observer.observe(root, { attributes: true, attributeFilter: ['class'] })
           button.click()
         })
-        return { before, fading }
+        const painted = await new Promise<ReturnType<typeof position>>((resolve) => {
+          requestAnimationFrame(() => { resolve(position()) })
+        })
+        return { before, fading, painted }
       })
-      expect(positions.before.transform).toBe('matrix(1, 0, 0, 1, 4, 0)')
+      expect(positions.before.hittable).toBe(true)
       expect(positions.fading).toEqual(positions.before)
+      expect(positions.painted).toEqual(positions.before)
       expect(tripwire.pageErrors).toEqual([])
     } finally {
       await page.close()

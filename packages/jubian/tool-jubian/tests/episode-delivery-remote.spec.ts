@@ -16,6 +16,7 @@ import { afterEach, expect, it, onTestFailed, onTestFinished, vi } from 'vitest'
 import { z } from 'zod'
 import type { EpisodeAdmissionInput, EpisodeReadinessInput, VideoArtifactSha256 } from '../src/types.ts'
 import { createEpisodeDeliveryFixture } from './fixtures/episode-delivery.ts'
+import * as EpisodeDelivery from '../src/episode-delivery.ts'
 
 vi.mock('node:fs/promises', async original => ({ ...await original<typeof import('node:fs/promises')>() }))
 const actualFiles = await vi.importActual<typeof import('node:fs/promises')>('node:fs/promises')
@@ -182,7 +183,8 @@ it('looks up the committed original after a lost response without reposting admi
 it('cancels the admitted original without retargeting it when A project selection changes through Remote', async () => {
   const f = await fixture(), input = admission(f.planInput, await f.readiness())
   const admitted = await f.admit(input)
-  await f.renderer.entered
+  await f.renderer.armed
+  expect(f.renderer.encodes).toBe(1)
   const other = join(f.root, 'other-project')
   await mkdir(other)
   await writeFile(join(other, 'project_config.json'), '{"jubian_script_id":2}\n')
@@ -198,6 +200,40 @@ it('cancels the admitted original without retargeting it when A project selectio
   expect((await f.status(input)).output).toBeUndefined()
   await expect(readdir(join(other, 'exports'))).rejects.toMatchObject({ code: 'ENOENT' })
   expect(f.renderer.calls).toBe(1)
+})
+
+it('keeps the admitted original unknown when project selection changes before renderer arming through Remote', async () => {
+  const f = await fixture(), input = admission(f.planInput, await f.readiness())
+  const keys = await f.originalKeys(), staging = Promise.withResolvers<undefined>()
+  const hashFile = EpisodeDelivery.hashEpisodeFile
+  vi.spyOn(EpisodeDelivery, 'hashEpisodeFile').mockImplementation(async (path, signal) => {
+    if (basename(path) === 'source.mp4') {
+      staging.resolve(undefined)
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) resolve()
+        else signal.addEventListener('abort', () => { resolve() }, { once: true })
+      })
+    }
+    return hashFile(path, signal)
+  })
+  const admitted = await f.admit(input)
+  await staging.promise
+  expect(f.renderer.calls).toBe(1)
+  expect(f.renderer.encodes).toBe(0)
+  const other = join(f.root, 'other-project')
+  await mkdir(other)
+  await writeFile(join(other, 'project_config.json'), '{"jubian_script_id":2}\n')
+  expect(valueOf(await f.aCall('configure', { input: { enabled: false, projectDir: other } })))
+    .toMatchObject({ projectDir: other })
+  await expect.poll(async () => (await f.status(input)).state).toBe('unknown')
+  expect(await f.status(input)).toMatchObject({ projectDir: f.project, attempt: admitted.attempt,
+    state: 'unknown', canResume: false, problem: 'Approved source cancelled: configuration-changed' })
+  expect((await f.status(input)).output).toBeUndefined()
+  expect(await f.admit({ ...input, resume: true })).toMatchObject({ attempt: admitted.attempt, state: 'unknown', canResume: false })
+  await expect(readdir(join(other, 'exports'))).rejects.toMatchObject({ code: 'ENOENT' })
+  expect(f.renderer.calls).toBe(1)
+  expect(f.renderer.encodes).toBe(0)
+  expect(await f.originalKeys()).toEqual(keys)
 })
 
 it('uses only original lookup after a durable intent returns a Remote error and an earlier read saw no admission', async () => {

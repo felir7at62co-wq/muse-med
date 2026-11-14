@@ -36,6 +36,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { access, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
@@ -451,7 +452,8 @@ export async function handleImageRequest(root: string | undefined, request: Requ
 /**
  * Write a plugin-owned file through a sibling temporary file and a rename, so
  * a reader never sees half of it. The rename replaces a symlink at `path`
- * rather than writing through it.
+ * rather than writing through it. Windows sharing conflicts retry only the
+ * rename, at most five attempts; other failures retain their original error.
  * @param path - absolute file path; missing parent directories are created private.
  * @param content - the new text, or raw bytes.
  * @param signal - optional cancellation; abort before rename leaves the previous file intact.
@@ -461,14 +463,23 @@ export async function writeFileAtomic(path: string, content: string | Uint8Array
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
   // Unique per write, not per millisecond: concurrent creates of the same
   // content-addressed card would otherwise share one temp file, and the
-  // second rename would find it already moved. With distinct temps both
-  // renames land, and identical bytes make the last one a no-op.
+  // second rename would find it already moved. Each rename owns its temp.
   const temp = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
   try {
     signal?.throwIfAborted()
     await writeFile(temp, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
     signal?.throwIfAborted()
-    await rename(temp, path)
+    for (let attempt = 0; ; attempt++) {
+      signal?.throwIfAborted()
+      try {
+        await rename(temp, path)
+        break
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (process.platform !== 'win32' || (code !== 'EPERM' && code !== 'EBUSY') || attempt >= 4) throw error
+        await delay(20 * (attempt + 1), undefined, { signal })
+      }
+    }
   } catch (error) {
     // EEXIST means the name was taken and the file is not ours to remove.
     if ((error as NodeJS.ErrnoException).code !== 'EEXIST') await rm(temp, { force: true }).catch(() => {})
@@ -484,7 +495,7 @@ export async function writeFileAtomic(path: string, content: string | Uint8Array
  */
 function displayOf(path: string): string {
   const home = homedir()
-  return path.startsWith(`${home}${sep}`) ? `~${path.slice(home.length)}` : path
+  return path.startsWith(`${home}${sep}`) ? `~/${path.slice(home.length + 1).split(sep).join('/')}` : path
 }
 
 /**

@@ -94,6 +94,14 @@ async function waitForReplyMarker(page: Page, marker: string, timeout = 30000) {
   }, { marker, first: FIRST, done: DONE }, { polling: 'raf', timeout })
 }
 
+function startFirstReplyObservation(page: Page, timeout = 30000) {
+  // Catch immediately: submission may fail before the caller awaits the observation.
+  return waitForReplyMarker(page, FIRST, timeout).then(
+    value => ({ value }),
+    (error: unknown) => ({ error }),
+  )
+}
+
 async function waitForTrajectory(page: Page, timeout = 30000): Promise<void> {
   // Selector retry backoff can delay observation after the view is already ready.
   const ready = await page.waitForFunction(() => {
@@ -163,6 +171,43 @@ it('waits for visible marker text in the latest Assistant step', async () => {
   } finally {
     await browser.close()
   }
+})
+
+it('observes the first visible prefix before a delayed submission response without accepting completed input overlap', async () => {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage()
+    await page.setContent('<div data-chat-flow-kind="assistant-step"></div>')
+    const observed = startFirstReplyObservation(page)
+    await page.evaluate(async ({ first, done }) => {
+      const reply = document.querySelector('[data-chat-flow-kind="assistant-step"]')!
+      reply.textContent = first
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+      reply.textContent += done
+    }, { first: FIRST, done: DONE })
+    const early = await observed
+    if ('error' in early) throw early.error
+    expect(await early.value.jsonValue()).toMatchObject({ first: true, done: false })
+    await early.value.dispose()
+    const late = await startFirstReplyObservation(page)
+    if ('error' in late) throw late.error
+    const observation = await late.value.jsonValue()
+    if (observation === false) throw Error('Reply observation did not resolve to a visible marker')
+    expect(observation).toMatchObject({ first: true, done: true })
+    expect(() => expectInputOverlap(observation.first && !observation.done)).toThrow()
+    await late.value.dispose()
+  } finally { await browser.close() }
+})
+
+it('joins a prearmed observation when its page closes before the reply', async () => {
+  const browser = await chromium.launch({ headless: true })
+  try {
+    const page = await browser.newPage()
+    const observed = startFirstReplyObservation(page)
+    await page.close()
+    const outcome = await observed
+    expect(outcome).toHaveProperty('error')
+  } finally { await browser.close() }
 })
 
 it('waits for visible Trajectory controls and records rather than unrelated table rows', async () => {
@@ -356,6 +401,7 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
         await seedSession(scaffold, history, SESSION_ID)
         console.log(JSON.stringify({ benchmark: 'long-session-browser/fixture', bytes: Buffer.byteLength(history) }))
         const browser = await chromium.launch({ headless: true })
+        let firstMarkerWaiting: ReturnType<typeof startFirstReplyObservation> | undefined
         try {
           const page = await newEnglishPage(browser)
           const consoleWatch = watchConsole(page)
@@ -397,19 +443,33 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
             (error: unknown) => ({ ok: false as const, error }),
           )
           await watchInputOverlap(composer)
+          // Observe before dispatching Enter so an early prefix is not first sampled after completion.
+          firstMarkerWaiting = startFirstReplyObservation(page)
           const started = performance.now()
           await page.keyboard.press('Enter')
-          const firstMarker = await waitForReplyMarker(page, FIRST)
+          const entered = performance.now()
+          const firstWaitStarted = performance.now()
+          const firstMarkerOutcome = await firstMarkerWaiting
+          if ('error' in firstMarkerOutcome) throw firstMarkerOutcome.error
+          const firstMarker = firstMarkerOutcome.value
+          const firstWaitCompleted = performance.now()
           const first = performance.now() - started
+          let typingStarted = 0, typingCompleted = 0
           // Keep focus across submission; mouse actionability must not delay the input probe.
           const input = await measure(page, async () => {
+            typingStarted = performance.now()
             await page.keyboard.type('next synthetic question')
+            typingCompleted = performance.now()
             await expect.poll(() => composer.textContent()).toBe('next synthetic question')
           })
           const inputOverlapped = await composer.getAttribute('data-benchmark-input-overlap') === 'true'
           const firstObservation = await firstMarker.jsonValue()
           await firstMarker.dispose()
-          console.log(JSON.stringify({ benchmark: 'long-session-browser/input', sample, first, input, firstObservation, witness: await composer.getAttribute('data-benchmark-input-witness'), inputTiming: await composer.getAttribute('data-benchmark-input-timing') }))
+          console.log(JSON.stringify({ benchmark: 'long-session-browser/input', sample, first, input, firstObservation,
+            nodeTiming: { started, entered, firstWaitStarted, firstWaitCompleted, typingStarted, typingCompleted,
+              enterMs: entered - started, firstWaitMs: firstWaitCompleted - firstWaitStarted,
+              firstToTypingMs: typingStarted - firstWaitCompleted, typingMs: typingCompleted - typingStarted },
+            witness: await composer.getAttribute('data-benchmark-input-witness'), inputTiming: await composer.getAttribute('data-benchmark-input-timing') }))
           expectInputOverlap(inputOverlapped)
           await (await waitForReplyMarker(page, DONE)).dispose()
           const settlement = await settled
@@ -434,6 +494,8 @@ it('opens, pages, navigates and streams into a 240-turn browser history', async 
           expect(consoleWatch.warnings).toEqual([])
         } catch (error) { failures.push(error) } finally {
           await browser.close().catch((error: unknown) => failures.push(error))
+          // Page closure cancels any outstanding wait and releases its handles; join the caught outcome.
+          await firstMarkerWaiting
         }
       } catch (error) { failures.push(error) } finally {
         await scaffold.close().catch((error: unknown) => failures.push(error))
