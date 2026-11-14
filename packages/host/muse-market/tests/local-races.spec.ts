@@ -131,14 +131,16 @@ describe('local publication races', () => {
     // the trailing resource, which is why no clock finer than either probe is required.
     for (const pause of ['ops:30', 'ops:120', 'timer'] as const) {
       await writeFile(cached, original)
-      const verifying = local.verify(installed.release)
+      // Settle the verification's own refusal as soon as it happens: the rewrite below runs
+      // while the reader is still inside the walk, so its rejection must not stay unobserved.
+      const verifying = local.verify(installed.release).then(() => 'served', (error: unknown) => error)
       if (pause === 'timer') await new Promise((resolve) => { setTimeout(resolve, 0) })
       else await settle(value.scratch, Number(pause.slice('ops:'.length)))
       await writeFile(cached, mutated)
-      try { await verifying } catch (error) {
-        if (!(error instanceof MarketError)) throw error
-        refusals.push(error.code)
-      }
+      const outcome = await verifying
+      if (outcome === 'served') continue
+      if (!(outcome instanceof MarketError)) throw outcome
+      refusals.push(outcome.code)
     }
     expect(refusals).toContain('modified-installation')
     await writeFile(cached, original)
