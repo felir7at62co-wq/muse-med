@@ -114,7 +114,7 @@ function zeroCounts(): Record<Category, number> {
 }
 
 /** Complete per-episode counts; the two table counts are present only with a character table. */
-export interface TranscriptCoverageCounts {
+export type TranscriptCoverageCounts = {
   dialogue_lines: number
   asr_segments: number
   asr_covered_in_order: number
@@ -141,8 +141,12 @@ export interface TranscriptCoverageEpisode extends TranscriptCoverageFindings {
   draft: { path: string; file_sha256: string; lines: ManuscriptMaterialRange }
   /** `segments` counts rows in the file, including rows without comparable text. */
   asr: (SourceIdentity & { segments: number }) | null
-  ocr: { files: (SourceIdentity & { video_path: string; scan_status: 'complete' | 'partial' | 'failed' })[]
-    scanned_seconds: number; duration_seconds: number; segments: number } | null
+  ocr: {
+    files: (SourceIdentity & { video_path: string; scan_status: 'complete' | 'partial' | 'failed' })[]
+    scanned_seconds: number
+    duration_seconds: number
+    segments: number
+  } | null
   status: 'measured' | 'not_measured'
   reason: 'edit_limit' | null
   counts: TranscriptCoverageCounts | null
@@ -157,8 +161,13 @@ export interface TranscriptCoverageResult {
   state: 'transcript_coverage'
   advisory: true
   semantic_assessment: 'not_performed'
-  matching: { basis: 'nfkc_letters_numbers_numerals_folded'; min_similarity: number; min_gap_chars: number
-    homophones: 'not_detected'; same_source: 'not_verified' }
+  matching: {
+    basis: 'nfkc_letters_numbers_numerals_folded'
+    min_similarity: number
+    min_gap_chars: number
+    homophones: 'not_detected'
+    same_source: 'not_verified'
+  }
   totals: Record<string, number>
   names: {
     speakers_outside_table: { label: string; near: string[]; episodes: string[]; line_count: number }[]
@@ -173,8 +182,12 @@ interface DraftLine { number: number; text: string; line: ScreenplayLine }
 interface Dialogue { number: number; quote: string; speaker: string; norm: TranscriptText }
 interface Unit { start: number; end: number; text: string; norm: TranscriptText }
 interface Segment extends Unit { id: string }
-interface Measured { counts: TranscriptCoverageCounts; findings: TranscriptCoverageFindings; last_supported_line: number | null
-  last_asr_segment_covered: boolean | null }
+interface Measured {
+  counts: TranscriptCoverageCounts
+  findings: TranscriptCoverageFindings
+  last_supported_line: number | null
+  last_asr_segment_covered: boolean | null
+}
 
 async function readSourceJson(path: string, cwd: string, maxFileBytes: number,
   signal: AbortSignal): Promise<SourceIdentity & { value: unknown }> {
@@ -461,7 +474,8 @@ export async function measureTranscriptCoverage(sources: TranscriptSources, tabl
     not_measured: all.filter(episode => episode.counts === null).length, without_asr: all.filter(episode => episode.asr === null).length,
     with_ocr: all.filter(episode => episode.ocr !== null).length }
   for (const episode of all) {
-    for (const [key, value] of Object.entries(episode.counts ?? {})) totals[key] = (totals[key] ?? 0) + value
+    const counts: Record<string, number> = episode.counts ?? {}
+    for (const [key, value] of Object.entries(counts)) totals[key] = (totals[key] ?? 0) + value
   }
   const result: TranscriptCoverageResult = { state: 'transcript_coverage', advisory: true, semantic_assessment: 'not_performed',
     matching: { basis: 'nfkc_letters_numbers_numerals_folded', min_similarity: limits.transcriptMinSimilarity,
