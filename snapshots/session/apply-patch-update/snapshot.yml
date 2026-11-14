@@ -3,6 +3,7 @@ scenario: apply-patch-update
 profile: headless
 composition: apply-patch
 recording: live
+writerOutput: true
 header:
   class: apply-patch
   pin: true

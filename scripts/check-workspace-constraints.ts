@@ -90,9 +90,9 @@ const appPackageFiles: Readonly<Record<string, readonly string[]>> = {
     'lib/source-recovery.js', 'lib/retired-bot.js', 'licenses', 'lib/computer-use.js',
     'lib/computer-input-worker.js', 'lib/delegation-policy.js',
     'lib/approved-episode-render.js', 'lib/episode-render-worker.js',
-    'lib/workspace-owned-storage.js', 'lib/workspace-owner-lease.js',
-    'lib/workspace-storage-composition.js', 'lib/workspace-handoff.js',
-    'lib/workspace-process-snapshot.js', 'lib/generation-loop-composition.js', 'lib/episode-source-authority.js',
+    'lib/workspace-owned-storage.js', 'lib/workspace-owner-lease.js', 'lib/workspace-storage-composition.js',
+    'lib/workspace-handoff.js', 'lib/workspace-process-snapshot.js', 'lib/generation-loop-composition.js',
+    'lib/episode-source-authority.js',
   ],
   // Sourcemaps stay out by payload policy; the worker-preview surface
   // (dist/preview.html and dist/preview/) backs opt-in experimental
@@ -680,12 +680,14 @@ function checkDramaSkillsResourceManifest(manifest: PackageManifest): string[] {
     const nestedResource = resource !== undefined
       && /^(?:agents|assets|references|scripts)\/(?:[a-zA-Z0-9_-]+\/)*[a-zA-Z0-9_.-]+\.(?:md|yaml|py|json|mp3|mp4|txt)$/u.test(resource)
     const windowsDraftBridge = file === 'skills/tweet-drama-draft-build/scripts/windows/aa-draft.ps1'
+    const characterDeliveryReference = file === 'skills/tweet-drama-asset-vision-check/references/images/character-delivery-layout.png'
     const styleReference = match?.[1] === 'anime-3d-assets' && resource !== undefined
       && ['references/images/female-quality-reference.png', 'references/images/male-quality-layout.png',
         'references/images/rejected-cartoon.png', 'references/images/rejected-flat-cg.png',
         'references/images/target-quality.png'].includes(resource)
-    const deliveryLayoutReference = file === 'skills/tweet-drama-asset-vision-check/references/images/character-delivery-layout.png'
-    if (match?.[1] === undefined || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference || deliveryLayoutReference || windowsDraftBridge)) {
+    if (match?.[1] === undefined
+      || !(resource === 'SKILL.md' || resource === 'requirements.txt' || nestedResource || styleReference
+        || characterDeliveryReference || windowsDraftBridge)) {
       errors.push(`${label}: resource package file must be a declared skill resource: ${file}`)
       continue
     }

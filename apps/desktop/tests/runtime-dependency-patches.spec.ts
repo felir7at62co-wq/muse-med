@@ -8,9 +8,10 @@ import { stageRuntimeDependencyPatches, verifyRuntimeDependencyPatches } from '.
 
 const roots: string[] = []
 const original = 'export const original = true;\n'
-const patched = 'function hasTokenUsage(usage) { return true; }\nif (hasTokenUsage(chunk.usage)) {}\nif (!hasTokenUsage(chunk.usage) && hasTokenUsage(choice.usage)) {}\n'
-const patch = `diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js\n--- a/dist/api/openai-completions.js\n+++ b/dist/api/openai-completions.js\n@@ -1 +1,3 @@\n-${original.trimEnd()}\n+${patched.trimEnd().replaceAll('\n', '\n+')}\n`
-const selector = '@earendil-works/pi-ai@0.87.1'
+const patched = readFileSync(resolve('packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js'), 'utf8')
+const patchBody = patched.endsWith('\n') ? patched.slice(0, -1) : patched
+const patch = `diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js\n--- a/dist/api/openai-completions.js\n+++ b/dist/api/openai-completions.js\n@@ -1 +1,${patchBody.split('\n').length} @@\n-${original.trimEnd()}\n+${patchBody.replaceAll('\n', '\n+')}\n${patched.endsWith('\n') ? '' : '\\ No newline at end of file\n'}`
+const selector = '@earendil-works/pi-ai@1.3.0'
 
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }) })
 
@@ -23,7 +24,7 @@ function fixture() {
   write(join(repository, 'patches/pi-ai.patch'), patch)
   write(join(repository, 'patches/build-only.patch'), 'build-only patch not used by the production closure\n')
   write(join(repository, 'packages/llm/llm-pi-ai/package.json'), '{}\n')
-  write(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai/package.json'), '{"name":"@earendil-works/pi-ai","version":"0.87.1"}\n')
+  write(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai/package.json'), '{"name":"@earendil-works/pi-ai","version":"1.3.0"}\n')
   write(join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js'), patched)
   write(join(project, 'pnpm-workspace.yaml'), 'packages:\n  - .\nallowBuilds: {}\n')
   return { root, repository, project }
@@ -45,7 +46,7 @@ it('carries exact patch bytes and changes the workspace identity when a patch ch
 it('applies the patch during a real offline pnpm production install and refuses stale frozen locks', () => {
   const { root, repository, project } = fixture()
   const packageRoot = join(root, 'fixture-package')
-  write(join(packageRoot, 'package/package.json'), '{"name":"@earendil-works/pi-ai","version":"0.87.1"}\n')
+  write(join(packageRoot, 'package/package.json'), '{"name":"@earendil-works/pi-ai","version":"1.3.0"}\n')
   write(join(packageRoot, 'package/dist/api/openai-completions.js'), original)
   const archive = join(root, 'pi-ai.tgz')
   execFileSync('tar', ['-czf', archive, '-C', packageRoot, 'package'])
@@ -85,6 +86,10 @@ it('rejects invalid patch declarations and an unpatched workspace reference', ()
   }
   const reference = join(repository, 'packages/llm/llm-pi-ai/node_modules/@earendil-works/pi-ai')
   writeFileSync(join(reference, 'dist/api/openai-completions.js'), original)
+  expect(() => { verifyRuntimeDependencyPatches(repository, project) }).toThrow('reference lacks the reviewed token-usage patch')
+  const invalidGuard = patched.replaceAll('Number.isFinite(value)', 'true')
+  writeFileSync(join(reference, 'dist/api/openai-completions.js'), invalidGuard)
+  write(join(project, 'node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js'), invalidGuard)
   expect(() => { verifyRuntimeDependencyPatches(repository, project) }).toThrow('reference lacks the reviewed token-usage patch')
   rmSync(reference, { recursive: true })
   write(join(repository, 'node_modules/@earendil-works/pi-ai/package.json'), '{}\n')

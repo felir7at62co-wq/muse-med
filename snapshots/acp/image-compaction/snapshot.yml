@@ -3,6 +3,7 @@ scenario: image-compaction
 profile: acp
 composition: image-compaction
 recording: authored
+writerOutput: true
 header:
   class: image-compaction
   pin: true

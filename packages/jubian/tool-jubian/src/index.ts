@@ -393,7 +393,13 @@ const VIDEO_SOURCES_SCHEMA = {
 } as const
 
 /** Existing storyboard results retain the original key when serializer changes require reconciliation. */
-const storyboardOutput = (generationBindings: WeakMap<object, GenerationSessionBinding>) => ({
+type GenerationPresentation = {
+  binding: GenerationSessionBinding
+  submission: { method: string; video_previews: { preview_path: string; idempotency_key: string }[] }
+    | { method: string; preview_path: string; idempotency_key: string } | undefined
+}
+
+const storyboardOutput = (generationBindings: WeakMap<object, GenerationPresentation>) => ({
   schema: { type: 'object', additionalProperties: true, properties: {
     verified_free: { type: 'boolean', enum: [true], description: '本次仅免费去字幕请求已核实零价，或原 key 已有已核实的零价凭据；完成状态须另行回读。' },
     existing_video_sources: VIDEO_SOURCES_SCHEMA,
@@ -419,22 +425,13 @@ const storyboardOutput = (generationBindings: WeakMap<object, GenerationSessionB
   preserveBodyMeta: true,
   presentationMeta: (args: unknown, value: Record<string, unknown>) => {
     if (typeof value.generation_watch_id !== 'string') return undefined
-    const binding = args !== null && typeof args === 'object' ? generationBindings.get(args) : undefined
-    if (binding === undefined) return undefined
+    const captured = args !== null && typeof args === 'object' ? generationBindings.get(args) : undefined
+    if (captured?.submission === undefined) return undefined
+    const { binding, submission } = captured
     const { reasoningEffort } = binding.model
     const bindingMetadata = { ...binding, model: { provider: binding.model.provider, model: binding.model.model,
       ...(reasoningEffort === undefined ? {} : { reasoningEffort }) } }
-    const input = args as MethodArgs
-    if (input.method === 'submit_video_batch' && input.video_previews !== undefined) {
-      return { generationWatchId: value.generation_watch_id, binding: bindingMetadata, submission: { method: input.method,
-        video_previews: input.video_previews.map(item => ({ preview_path: item.preview_path, idempotency_key: item.idempotency_key })) } }
-    }
-    if ((input.method === 'submit_video' || input.method === 'generate')
-      && typeof input.preview_path === 'string' && typeof input.idempotency_key === 'string') {
-      return { generationWatchId: value.generation_watch_id, binding: bindingMetadata, submission: { method: input.method,
-        preview_path: input.preview_path, idempotency_key: input.idempotency_key } }
-    }
-    return undefined
+    return { generationWatchId: value.generation_watch_id, binding: bindingMetadata, submission }
   },
 } as const)
 
@@ -586,7 +583,7 @@ function characterReferenceAuthorityFor(
  * @param config - Optional ledger location, origin, timeout and image-route values.
  */
 export async function apply(ctx: Context, config: Config = {}): Promise<void> {
-  const generationBindings = new WeakMap<object, GenerationSessionBinding>()
+  const generationBindings = new WeakMap<object, GenerationPresentation>()
   const episodeUi = EpisodeUiConfig.parse({ episodePollIntervalMs: config.episodePollIntervalMs })
   if (config.sessionVideoSelection !== undefined && typeof config.sessionVideoSelection !== 'boolean') {
     throw new Error('sessionVideoSelection must be a boolean')
@@ -1221,10 +1218,18 @@ export async function apply(ctx: Context, config: Config = {}): Promise<void> {
           const report = enrollment.initial ? await watch.executeDispatch(enrollment.id, submit) : await dispatch(() =>
             Promise.reject(new Error('The original video dispatch is already owned; reconcile its original key instead of submitting again')))
           captured.lease.assertCurrent()
-          const result = { ...report, generation_watch_id: enrollment.id,
-            ...(enrollment.groupExchangeId === undefined ? {} : { generation_watch_group_exchange_id: enrollment.groupExchangeId }) }
-          if (enrollment.initial) generationBindings.set(args, captured.binding)
-          return result
+          const result = { ...report, generation_watch_id: enrollment.id }
+          if (enrollment.initial) {
+            generationBindings.set(args, { binding: captured.binding,
+              submission: method === 'submit_video_batch'
+                ? { method: input.method, video_previews: (input.video_previews as NonNullable<MethodArgs['video_previews']>).map(item => ({
+                  preview_path: item.preview_path, idempotency_key: item.idempotency_key })) }
+                : input.preview_path === undefined ? undefined
+                  : { method: input.method, preview_path: input.preview_path, idempotency_key: input.idempotency_key as string } })
+            return result
+          } else {
+            return result
+          }
         } finally { captured.lease.release() }
       })(args)
     },

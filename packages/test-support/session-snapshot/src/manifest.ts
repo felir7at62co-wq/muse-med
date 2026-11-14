@@ -122,7 +122,7 @@ export interface SnapshotManifest {
   session?: SnapshotSessionReference
   /** Historical generation retained by an owner instead of tracking the current writer. */
   sessionFormat?: SnapshotSessionFormatManifest
-  /** Headless, SDK, or root-only Web owner compares separate writer output while preserving canonical replay inputs. */
+  /** Headless, SDK, ACP, or root-only Web owner compares separate writer output while preserving canonical replay inputs. */
   writerOutput?: true
 }
 
@@ -415,9 +415,9 @@ export function parseSnapshotManifest(source: string, path = 'snapshot.yml'): Sn
 
     if (root.writerOutput !== undefined) {
       if (root.writerOutput !== true) throw new Error('manifest.writerOutput must be true when present')
-      if ((root.profile !== 'headless' && root.profile !== 'sdk' && root.profile !== 'web')
+      if ((root.profile !== 'headless' && root.profile !== 'sdk' && root.profile !== 'acp' && root.profile !== 'web')
         || session !== undefined || sessionFormat !== undefined) {
-        throw new Error('manifest.writerOutput requires a headless, sdk, or web Session owner without sessionFormat')
+        throw new Error('manifest.writerOutput requires a headless, sdk, acp, or web Session owner without sessionFormat')
       }
     }
 

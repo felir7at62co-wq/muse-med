@@ -102,7 +102,9 @@ describe('VideoTimeline', () => {
     expect(input.onSeek).toHaveBeenLastCalledWith(3)
     fireEvent.click(last, { detail: 1, clientX: 231 })
     expect(input.onSeek).toHaveBeenLastCalledWith(6)
-    expect(input.onSelectShot).toHaveBeenCalledTimes(2)
+    fireEvent.click(last, { detail: 1, clientX: 0, clientY: 40 })
+    expect(input.onSeek).toHaveBeenLastCalledWith(0)
+    expect(input.onSelectShot).toHaveBeenCalledTimes(3)
   })
 
   it('seeks ruler and gap clicks using the scrolled lane position, clamped to media endpoints', () => {
@@ -161,6 +163,8 @@ describe('VideoTimeline', () => {
     expect(document.activeElement).toBe(slider)
     expect(input.onSeek).not.toHaveBeenCalled()
     expect(capture.set).toHaveBeenCalledWith(1)
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 111 })
+    expect(input.onSeek).not.toHaveBeenCalled()
     fireEvent.pointerDown(slider, { pointerId: 2, button: 0, clientX: 300 })
     fireEvent.pointerMove(window, { pointerId: 2, clientX: 260 })
     fireEvent.pointerUp(window, { pointerId: 2, clientX: 260 })
@@ -257,6 +261,31 @@ describe('VideoTimeline', () => {
     fireEvent.resize(window)
     view.unmount()
     fireEvent.resize(window)
+  })
+
+  it('keeps ruler ticks readable when the timeline scale needs the next decimal interval', () => {
+    const view = render(<VideoTimeline {...props({ pixelsPerSecond: 8, duration: 13 })} />)
+    expect(view.getByText('00:10')).toBeTruthy()
+    expect(view.getByText('00:13')).toBeTruthy()
+    expect(view.getByRole('slider').getAttribute('aria-valuemax')).toBe('13')
+  })
+
+  it('does not seek an unmeasurable track or release capture already lost by the browser', () => {
+    const input = props()
+    const view = render(<VideoTimeline {...input} />)
+    const lane = geometry(view.getByRole('group'))
+    const track = lane.querySelector<HTMLElement>('[style*="width:"]')!
+    track.getBoundingClientRect = () => new DOMRect(0, 0, 0, 42)
+    fireEvent.click(lane, { clientX: 120 })
+    expect(input.onSeek).not.toHaveBeenCalled()
+    const slider = view.getByRole('slider')
+    const capture = pointerCapture(slider)
+    fireEvent.pointerDown(slider, { pointerId: 1, clientX: 111, button: 0 })
+    capture.pointers.delete(1)
+    fireEvent.lostPointerCapture(slider, { pointerId: 1 })
+    expect(capture.release).not.toHaveBeenCalled()
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 211 })
+    expect(input.onSeek).not.toHaveBeenCalled()
   })
 })
 

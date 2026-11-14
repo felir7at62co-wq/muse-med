@@ -75,7 +75,7 @@ The Muse wrapper and native Feishu plugin explicitly declare `sessions` and `ses
 
 ### Ordinary-session cards
 
-The retained [Deep View](deep-view/README.md) plugin provides `show_view` in ordinary Muse conversations. Its structured views include tables, charts, choices and forms. Interactive answers return through the owning Session; native `ask_user_question` remains available for simple questions. The source pin records the public fork and upstream revision, and the builder qualifies its Host and browser entry against the current runtime. Bot teams remain archived.
+The retained [Deep View](deep-view/README.md) plugin provides `show_view` in ordinary Muse conversations. Its structured views include tables, charts, choices and forms. Private pending state creates its directory on first load; a file ancestor returns a storage error without caching empty state. Interactive answers return through the owning Session; native `ask_user_question` remains available for simple questions. The source pin records the public fork and upstream revision, and the builder qualifies its Host and browser entry against the current runtime. Bot teams remain archived.
 
 The independent [Skill evolution plugin](muse-skill-evolution/README.md) reviews newly completed tool-assisted work, creates owned Skills and retains proposals and rollback versions. Native persisted review Sessions use the task's selected model route. Its README owns review limits, normal model usage and file permissions.
 

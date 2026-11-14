@@ -125,6 +125,18 @@ function deterministicChunks(alphabet: readonly string[], count: number): string
 }
 
 describe('LocalPtySession incremental output compatibility', () => {
+  it.each([0, 1, 2, 3, 4, 5, 8, 17, 32])('returns the eager UTF-8 suffix with a %i-byte read limit', (maxReadBytes) => {
+    const texts = ['', 'ASCII', '0123456789abcdef'.repeat(5), 'a\nb\nc\n', 'é界😀tail', '\ud800x\udfff', '\ud83d\ude00tail']
+    for (const text of texts) {
+      const { session } = fixture({ scrollbackMaxBytes: 128, maxReadBytes })
+      // TextDecoder replaces lone surrogates; these reads also exercise the retained UTF-16 strings.
+      session['scrollback'].append(text)
+      const reference = new ReferenceBuffer(128, 10_000)
+      reference.append(text)
+      expect(session.read({})).toEqual(referenceRead(reference, maxReadBytes))
+    }
+  })
+
   it('retains the exact tail across the default 4 MiB scrollback limit while consuming active output', async () => {
     const limit = 4 * 1024 * 1024
     const { producer, session } = fixture({ maxReadBytes: limit })

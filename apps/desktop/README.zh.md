@@ -361,7 +361,7 @@ pnpm run package:desktop:win:x64:unsigned -- --only S12
 
 ### 运行时文件筛选
 
-私有生产安装项目以内容寻址文件名携带仓库已审阅的依赖补丁，补丁变化会使锁文件配置失效。此生产子集允许构建期补丁未被使用。复制运行时模块前，打包流程要求实际 PI-AI completion 实现与工作区已审阅的补丁依赖逐字节一致；缺少 Token 用量保护时停止打包。记录最终 unsigned build 时，再次比较 ASAR 内实际模块的字节。
+私有生产安装项目以内容寻址文件名携带仓库已审阅的依赖补丁，补丁变化会使锁文件配置失效。此生产子集允许构建期补丁未被使用。复制运行时模块前，打包流程要求实际 PI-AI completion 实现与工作区已审阅的补丁依赖逐字节一致；缺少 Token 用量保护时停止打包。顶层及 choice 用量必须至少有一个有限非负计数，且不能包含无效计数；仅含计费字段的尾帧保留前一次测量值。记录最终 unsigned build 时，再次比较 ASAR 内实际模块的字节。
 
 Desktop 在本地打包工作区包，并通过目标捆绑的 Node 和 pnpm 安装外部依赖。[Desktop 文件策略](scripts/runtime-file-policy.ts)随后在签名和完整性封装前过滤不可变的 `resources/app.asar/dsh/node_modules` 副本。它排除 `.gitkeep` 空目录标记、TypeScript 声明、已识别的 JavaScript/CSS/TypeScript source map、TypeScript 构建缓存、Domino 测试目录、选定的原生编译器输出和其他平台的 node-pty 预构建文件。它保留运行时 JavaScript、原生模块及其 DLL/EXE 辅助文件、WASM、未知资源、许可证和 notices。依赖清单在完整性封装前经过 electron-builder 的元数据清理，确保归档保持已记录的字节。该策略不修改 npm tarball、捆绑的包管理器或用户安装的插件文件。
 

@@ -261,5 +261,38 @@ export const en = {
   failed: 'Could not complete: {reason}',
 } satisfies Record<JubianLocaleKey, string>
 
-/** Independent English fallback dictionaries for Japanese, Spanish, French, German, Russian and Portuguese. */
-export const ja = { ...en }, es = { ...en }, fr = { ...en }, de = { ...en }, ru = { ...en }, pt = { ...en }
+/** English fallback for Japanese interface copy. */
+export const ja = {
+  ...en,
+  ...recoveryEn,
+} satisfies Record<keyof typeof en, string>
+
+/** English fallback for Spanish interface copy. */
+export const es = {
+  ...en,
+  ...recoveryEn,
+} satisfies Record<keyof typeof en, string>
+
+/** English fallback for French interface copy. */
+export const fr = {
+  ...en,
+  ...recoveryEn,
+} satisfies Record<keyof typeof en, string>
+
+/** English fallback for German interface copy. */
+export const de = {
+  ...en,
+  ...recoveryEn,
+} satisfies Record<keyof typeof en, string>
+
+/** English fallback for Russian interface copy. */
+export const ru = {
+  ...en,
+  ...recoveryEn,
+} satisfies Record<keyof typeof en, string>
+
+/** English fallback for Portuguese interface copy. */
+export const pt = {
+  ...en,
+  ...recoveryEn,
+} satisfies Record<keyof typeof en, string>

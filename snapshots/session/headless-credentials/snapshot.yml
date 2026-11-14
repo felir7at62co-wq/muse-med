@@ -3,5 +3,6 @@ scenario: headless-credentials
 profile: headless
 composition: advanced
 recording: authored
+writerOutput: true
 header:
   class: advanced

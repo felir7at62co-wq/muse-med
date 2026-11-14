@@ -1,4 +1,4 @@
-/** Private confined binary sink; its source is bundled with the importing Host module. */
+/** Confined binary sink; managed Host readers return verification facts through its private control pipe. */
 export const MEDIA_FILE_HELPER = String.raw`
 import { createWriteStream } from 'node:fs';
 import { Socket } from 'node:net';
@@ -7,10 +7,7 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 import { createInterface } from 'node:readline';
-const run = promisify(execFile);
 const spec = JSON.parse(process.argv[1]);
 const parent = join(spec.cwd, ...spec.directory.split('/'));
 const staging = join(parent, '.import-' + spec.nonce);
@@ -52,7 +49,7 @@ try {
     delete process.env.DSH_SUBPROCESS_CONTROL;
     controlInput = new Socket({ fd: spec.controlFd, readable: true, writable: true, allowHalfOpen: true });
     controls = createInterface({ input: controlInput, crlfDelay: Infinity });
-    const instruction = (async () => { for await (const line of controls) return line; return ''; })();
+    const instructions = controls[Symbol.asyncIterator]();
     await mkdir(staging, { mode: 0o700 });
     let bytes = 0;
     const hash = createHash('sha256');
@@ -63,25 +60,22 @@ try {
     }});
     await pipeline(process.stdin, bound, createWriteStream(temporary, { flags: 'wx', mode: 0o600 }));
     if (bytes !== spec.bytes || hash.digest('hex') !== spec.sha256) throw Error('FILE_INCOMPLETE');
-    const options = { maxBuffer: spec.maxOutputBytes, windowsHide: true };
-    const probe = await run(spec.ffprobe, ['-v', 'error', '-protocol_whitelist', 'file,pipe', '-show_entries',
-      'format=format_name,duration:stream=codec_type,width,height', '-of', 'json', temporary], options);
-    const metadata = JSON.parse(probe.stdout);
-    const video = metadata.streams?.find(stream => stream.codec_type === 'video');
-    const durationSeconds = Number(metadata.format?.duration);
-    const imageFormat = String(metadata.format?.format_name ?? '').split(',').some(name => name.endsWith('_pipe')
-      || ['image2', 'gif', 'apng', 'ico', 'heif', 'avif'].includes(name));
-    if (!video || !Number.isSafeInteger(video.width) || video.width <= 0 || !Number.isSafeInteger(video.height)
-      || video.height <= 0 || video.width * video.height > spec.maxPixels
-      || (spec.kind === 'video' && imageFormat)
-      || (spec.kind === 'image' && !imageFormat && Number.isFinite(durationSeconds) && durationSeconds > 0)
-      || (spec.kind === 'video' && (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > spec.maxDurationSeconds))) throw Error('INVALID_MEDIA');
-    await run(spec.ffmpeg, ['-nostdin', '-v', 'error', '-xerror', '-protocol_whitelist', 'file,pipe', '-i', temporary,
-      '-map', '0:v:0', '-map', '0:a?', '-f', 'null', '-'], options);
-    const facts = { bytes, sha256: spec.sha256, kind: spec.kind, width: video.width, height: video.height,
+    emit({ phase: 'received' });
+    const verification = await instructions.next();
+    if (verification.done || verification.value.length > spec.maxOutputBytes) throw Error('NOT_COMMITTED');
+    const accepted = JSON.parse(verification.value);
+    if (!accepted || typeof accepted !== 'object' || accepted.bytes !== bytes || accepted.sha256 !== spec.sha256
+      || accepted.kind !== spec.kind || accepted.fullDecodeVerified !== true
+      || !Number.isSafeInteger(accepted.width) || accepted.width <= 0
+      || !Number.isSafeInteger(accepted.height) || accepted.height <= 0
+      || accepted.width * accepted.height > spec.maxPixels) throw Error('INVALID_MEDIA');
+    const durationSeconds = accepted.durationSeconds;
+    if (spec.kind === 'video' && (!Number.isFinite(durationSeconds) || durationSeconds <= 0
+      || durationSeconds > spec.maxDurationSeconds)) throw Error('INVALID_MEDIA');
+    const facts = { bytes, sha256: spec.sha256, kind: spec.kind, width: accepted.width, height: accepted.height,
       ...(spec.kind === 'video' ? { durationSeconds } : {}), fullDecodeVerified: true };
     emit({ phase: 'verified', ...facts });
-    const decision = await instruction;
+    const decision = (await instructions.next()).value;
     controls.close(); controlInput.destroy();
     if (decision !== 'commit') throw Error('NOT_COMMITTED');
     if (await realpath(parent) !== parent || await realpath(staging) !== staging) throw Error('WORKSPACE_INVALID');

@@ -7,7 +7,6 @@
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
-import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {
   AgentEventDispatch,
   Inbox as InboxContract,
@@ -16,6 +15,9 @@ import type {
   InboxWireState,
 } from '@deepseek-ai/dsh-agent'
 import { z } from 'zod'
+import { isJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
+
+const inboxWireMessage = z.custom<JsonValue>(isJsonValue, { error: 'Inbox wire messages must be lossless JSON' })
 
 /** Wire validation for pending agent input reconstructed from durable inbox splices. */
 export const inboxProjectionSchema = z.object({
@@ -101,17 +103,16 @@ export const inboxProjectionDefinition = {
   wire: {
     // Pending messages round-trip the session log as lossless JSON. Claims expose
     // only the identities and positions needed to follow later queue restoration.
-    viewSchema: z.object({ 'next-turn': z.array(z.custom<JsonValue>()),
-      'next-step': z.array(z.custom<JsonValue>()),
+    viewSchema: z.object({ 'next-turn': z.array(inboxWireMessage),
+      'next-step': z.array(inboxWireMessage),
       activeClaim: z.object({ turn: z.number().int().nonnegative(), step: z.number().int().positive(),
         nextStep: z.array(z.custom<MessageId>()).readonly(), nextTurn: z.array(z.custom<MessageId>()).readonly() }).optional(),
-    }).transform(({ activeClaim, ...pending }): InboxWireState => (
-      activeClaim === undefined ? pending : { ...pending, activeClaim }
-    )),
+    }).transform(({ activeClaim, ...pending }): InboxWireState => ({
+      ...pending, ...activeClaim === undefined ? {} : { activeClaim },
+    })) satisfies z.ZodType<InboxWireState>,
     view: (state: InboxState): InboxWireState => ({
-      // Session accepts these messages only after validating lossless JSON.
-      'next-turn': state['next-turn'] as typeof state['next-turn'] & readonly JsonValue[],
-      'next-step': state['next-step'] as typeof state['next-step'] & readonly JsonValue[],
+      'next-turn': state['next-turn'].map(message => inboxWireMessage.parse(message)),
+      'next-step': state['next-step'].map(message => inboxWireMessage.parse(message)),
       ...state.claim === undefined ? {} : { activeClaim: { turn: state.claim.turn, step: state.claim.step,
         nextStep: state.claim.nextStep.map(message => message.id), nextTurn: state.claim.nextTurn.map(message => message.id) } },
     }),

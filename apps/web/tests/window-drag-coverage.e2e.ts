@@ -231,9 +231,10 @@ describe('web e2e: macOS window drag coverage', () => {
     return { page, tripwire }
   }
 
-  it('keeps the macOS sidebar toggle stationary as its expanded content starts fading', async () => {
+  it.each([false, true])('moves the macOS toggle with its column and retains clickable controls (reduced motion: %s)', async (reduced) => {
     const { page, tripwire } = await desktopPage()
     try {
+      await page.emulateMedia({ reducedMotion: reduced ? 'reduce' : 'no-preference' })
       const open = page.getByRole('button', { name: 'Open sidebar', exact: true })
       if (await open.isVisible()) await open.click()
       const toggle = page.getByRole('button', { name: 'Collapse sidebar', exact: true })
@@ -241,25 +242,69 @@ describe('web e2e: macOS window drag coverage', () => {
       const positions = await toggle.evaluate(async (button) => {
         if (!(button instanceof HTMLButtonElement)) throw new Error('Sidebar toggle is not a button')
         const root = button.closest('[class*="topStrip"]')!.parentElement!
-        const position = () => ({
-          left: button.getBoundingClientRect().left - root.getBoundingClientRect().left,
-          transform: getComputedStyle(button).transform,
-        })
-        const before = position()
-        // Observe the class change before the 150ms fade can settle under host contention.
-        const fading = await new Promise<ReturnType<typeof position>>((resolve) => {
-          const observer = new MutationObserver(() => {
-            if (![...root.classList].some(name => name.includes('fading'))) return
-            observer.disconnect()
-            resolve(position())
+        const sidebar = root.closest('[data-slot="sidebar"]')!.parentElement!
+        const frame = sidebar.parentElement!
+        const position = () => {
+          const bounds = button.getBoundingClientRect()
+          const origin = root.getBoundingClientRect()
+          const transform = new DOMMatrixReadOnly(getComputedStyle(button).transform)
+          const hit = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)
+          const controlHit = [...document.querySelectorAll<HTMLButtonElement>(
+            'button[aria-label="Open sidebar"],button[aria-label="Collapse sidebar"]',
+          )].some((control) => {
+            const box = control.getBoundingClientRect()
+            const target = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+            return box.width > 0 && box.height > 0 && target !== null && control.contains(target)
           })
-          observer.observe(root, { attributes: true, attributeFilter: ['class'] })
-          button.click()
-        })
-        return { before, fading }
+          return { rootWidth: origin.width, rightInset: origin.right - bounds.right,
+            x: transform.m41, y: transform.m42, height: bounds.height,
+            wide: ![...root.classList].some(name => name.includes('collapsed')),
+            hit: hit !== null && button.contains(hit), controlHit }
+        }
+        const motion = async (trigger: HTMLButtonElement) => {
+          const samples = [position()]
+          trigger.click()
+          await new Promise<void>((resolve, reject) => {
+            const started = performance.now()
+            let settled = 0
+            const paint = (now: number) => {
+              samples.push(position())
+              const moving = frame.getAnimations({ subtree: true }).some(animation =>
+                animation.effect?.getTiming().iterations !== Infinity && animation.playState === 'running')
+              settled = moving || frame.hasAttribute('data-animating') ? 0 : settled + 1
+              if (settled >= 4) resolve()
+              else if (now - started > 5000) reject(new Error('macOS sidebar motion did not settle'))
+              else requestAnimationFrame(paint)
+            }
+            requestAnimationFrame(paint)
+          })
+          return samples
+        }
+        const collapse = await motion(button)
+        const collapsedWidth = sidebar.getBoundingClientRect().width
+        const reopen = document.querySelector<HTMLButtonElement>('[data-sidebar-opener]')
+        if (reopen === null) throw new Error('Collapsed macOS window controls are missing')
+        const reopenBounds = reopen.getBoundingClientRect()
+        const reopenHit = document.elementFromPoint(reopenBounds.left + reopenBounds.width / 2, reopenBounds.top + reopenBounds.height / 2)
+        const reopenClickable = reopenHit !== null && reopen.contains(reopenHit)
+        const expand = await motion(reopen)
+        return { before: collapse[0]!, after: expand.at(-1)!, collapse, expand, collapsedWidth, reopenClickable,
+          sameToggle: root.querySelector('[data-sidebar-toggle]') === button }
       })
-      expect(positions.before.transform).toBe('matrix(1, 0, 0, 1, 4, 0)')
-      expect(positions.fading).toEqual(positions.before)
+      expect(positions.before.x).toBe(0)
+      expect(positions.before.y).toBe(0)
+      expect(positions.collapsedWidth).toBe(0)
+      expect(positions.reopenClickable).toBe(true)
+      expect(positions.sameToggle).toBe(true)
+      expect(positions.after).toEqual(positions.before)
+      for (const [direction, samples] of [['collapse', positions.collapse], ['expand', positions.expand]] as const) {
+        const wide = samples.filter(sample => sample.wide)
+        expect(wide.every(sample => sample.x === 0 && sample.y >= 0 && sample.y <= 36), JSON.stringify(wide)).toBe(true)
+        for (const sample of samples) expect(sample.height).toBeCloseTo(sample.wide ? 28 : 36, 3)
+        if (direction === 'collapse') expect(samples.every(sample => sample.controlHit)).toBe(true)
+        if (reduced) expect(samples.every(sample => sample.y === 0)).toBe(true)
+        else expect(wide.some(sample => sample.y > 0)).toBe(true)
+      }
       expect(tripwire.pageErrors).toEqual([])
     } finally {
       await page.close()

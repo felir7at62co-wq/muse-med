@@ -7,7 +7,8 @@ import { createToolResultMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools'
 import { expect, it, onTestFinished } from 'vitest'
-import { installSourceQaState, sourceQaStateOf } from '../src/source-qa-state.ts'
+import { installSourceQaState, sourceQaStateOf, sourceQaOwnsReview } from '../src/source-qa-state.ts'
+import { VideoReviewId } from '../src/review-state.ts'
 
 async function fixture() {
   const ctx = new Context()
@@ -37,6 +38,21 @@ it('restores compact successful native OCR and observation issuance from the sam
   expect(expected.native).toEqual({})
   const restored = Session.create(h.session.id, h.session.snapshotEvents(), h.session.header)
   expect(sourceQaStateOf(h.readSourceQa, restored)).toEqual(expected)
+})
+
+it('owns only the exact source review started by this Session and retains ownership after progress updates', async () => {
+  const h = await fixture(), id = VideoReviewId('owned-source-review'), path = 'source.mp4'
+  expect(sourceQaOwnsReview(h.readSourceQa, h.session, id, path)).toBe(false)
+  h.session.append('video/review', { kind: 'start', review: { id, path, episode: 'episode-1', source_version: 'v1',
+    duration: 1, scanned_until: 0, scan_complete: false, frames: [] } })
+  expect(sourceQaOwnsReview(h.readSourceQa, h.session, id, path)).toBe(true)
+  expect(sourceQaOwnsReview(h.readSourceQa, h.session, 'another-review', path)).toBe(false)
+  expect(sourceQaOwnsReview(h.readSourceQa, h.session, id, 'other.mp4')).toBe(false)
+  h.session.append('video/review', { kind: 'update', path, id, frames: [], frame_count: 0,
+    scanned_until: 1, scan_complete: true })
+  expect(sourceQaOwnsReview(h.readSourceQa, h.session, id, path)).toBe(true)
+  const restored = Session.create(h.session.id, h.session.snapshotEvents(), h.session.header)
+  expect(sourceQaOwnsReview(h.readSourceQa, restored, id, path)).toBe(true)
 })
 
 it('ignores errors, other tool names, incomplete reviews and old OCR without the complete artifact hash', async () => {

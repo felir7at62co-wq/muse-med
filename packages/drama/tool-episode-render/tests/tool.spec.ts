@@ -200,8 +200,12 @@ it('uses the available Host proof scope and refuses to reuse it after its provid
     verify.mockImplementationOnce(async (_session, _binding, signal) => {
       entered.resolve(undefined)
       await new Promise<void>((_resolve, reject) => {
-        if (signal.aborted) reject(signal.reason as Error)
-        else signal.addEventListener('abort', () => { reject(signal.reason as Error) }, { once: true })
+        const abort = () => {
+          const reason: unknown = signal.reason
+          reject(reason instanceof Error ? reason : new Error('Verifier aborted', { cause: reason }))
+        }
+        if (signal.aborted) abort()
+        else signal.addEventListener('abort', abort, { once: true })
       })
     })
     const pending = tool.execute(args, runContext())

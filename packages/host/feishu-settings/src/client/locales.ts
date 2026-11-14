@@ -114,5 +114,9 @@ export const en = {
   'readOnly': 'This composition mounts no Feishu bridge row, so this page cannot store credentials.',
 } satisfies Record<FeishuLocaleKey, string>
 
-/** Independent English fallback dictionaries for Japanese, Spanish, French, German, Russian and Portuguese. */
-export const ja = { ...en }, es = { ...en }, fr = { ...en }, de = { ...en }, ru = { ...en }, pt = { ...en }
+/** Separate English dictionaries for fallback locales. */
+function englishCopy(): typeof en { return { ...en } }
+
+/** English fallbacks for Japanese, Spanish, French, German, Russian and Portuguese. */
+export const ja = englishCopy(), es = englishCopy(), fr = englishCopy(),
+  de = englishCopy(), ru = englishCopy(), pt = englishCopy()

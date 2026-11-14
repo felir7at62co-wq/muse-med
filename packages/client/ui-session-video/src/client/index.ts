@@ -8,7 +8,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import remote from '@deepseek-ai/dsh-session-video/remote'
 import { createVideoStore } from './store.ts'
-import { NS, en, zh } from './locales.ts'
+import { NS, en, zh, ja, es, fr, de, ru, pt } from './locales.ts'
 import { VideoShelf, VideoShelfSpacer } from './VideoShelf.tsx'
 import { DeliveredVideoCard, GeneratedVideoCards } from './InlineVideoCard.tsx'
 import type { VideoInjected } from './face.ts'
@@ -28,7 +28,7 @@ export const inject = ['slots', 'locale', 'remote', 'configForms', 'uiConversati
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const disposeRemote = await ctx.remote.$mount(remote)
   const plugin = ctx.inject(['slots', 'locale', 'remote.sessionVideo'], (scope) => {
-    scope.effect(() => scope.locale.register(NS, { zh, en, ja: en, es: en, fr: en, de: en, ru: en, pt: en }), 'session-video: dictionaries')
+    scope.effect(() => scope.locale.register(NS, { zh, en, ja, es, fr, de, ru, pt }), 'session-video: dictionaries')
     const config = readSessionVideoConfig()
     const form = scope.configForms.get<{ enabled: boolean }>(SETTINGS_ENTRY)
     const runtime = new PresentationRuntime(async () => {

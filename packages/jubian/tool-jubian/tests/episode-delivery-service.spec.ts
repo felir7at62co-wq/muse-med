@@ -1,6 +1,6 @@
 /** Real service admission, source ownership and publication with a controlled local renderer. */
 import { chmod, cp, mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join, sep } from 'node:path'
 import * as Files from 'node:fs/promises'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { PeerId } from '@deepseek-ai/dsh-typert-protocol'
@@ -44,11 +44,8 @@ describe('approved episode service', () => {
     const input = await selection(f)
     await f.service.admitEpisode(input)
     f.renderer.release()
-    await vi.waitFor(async () => {
-      const status = await f.service.episodeStatus(input)
-      expect(status.state).toBe('unknown')
-      expect(status.problem).toContain('Captured subtitle clock changed')
-    })
+    await expect.poll(async () => await f.service.episodeStatus(input)).toMatchObject({ state: 'unknown' })
+    expect((await f.service.episodeStatus(input)).problem).toContain('Captured subtitle clock changed')
     expect(revalidate).toHaveBeenCalledOnce()
     const output = join(f.project, 'exports', `Muse-episode-01-${input.digest}.mp4`)
     await expect(stat(output)).rejects.toMatchObject({ code: 'ENOENT' })
@@ -131,8 +128,15 @@ describe('approved episode service', () => {
       expect((await stat(statePath)).ino).not.toBe(before.ino)
       proceed.resolve(undefined)
       const result = await observation
-      if ('error' in result) throw result.error
-      expect(result.status).toMatchObject({ state: 'completed', attempt: admitted.attempt, canResume: false })
+      if (process.platform === 'win32') {
+        expect(result).toHaveProperty('error')
+        if (!('error' in result)) throw new Error('Expected strict Windows path-identity refusal')
+        expect(result.error).toMatchObject({ message: 'Episode journal changed while opening' })
+        expect(await f.service.episodeStatus(input)).toMatchObject({ state: 'completed', attempt: admitted.attempt, canResume: false })
+      } else {
+        if ('error' in result) throw result.error
+        expect(result.status).toMatchObject({ state: 'completed', attempt: admitted.attempt, canResume: false })
+      }
       expect(f.renderer.calls).toBe(1); expect(f.renderer.encodes).toBe(1)
       expect(f.fetch).not.toHaveBeenCalled()
     } finally { proceed.resolve(undefined); await observation; spy.mockRestore() }
@@ -238,7 +242,7 @@ describe('approved episode service', () => {
     expect((await service.episodeStatus(input)).state).toBe('completed')
     expect((await service.episodeStatus(input)).canResume).toBe(true)
     await service.admitEpisode({ ...input, resume: true })
-    await vi.waitFor(async () => { const state = await service.episodeStatus(input); expect(state.state, state.problem).toBe('completed') })
+    await expect.poll(async () => await service.episodeStatus(input)).toMatchObject({ state: 'completed' })
     expect((await service.episodeStatus(input)).attempt).toBe(done.attempt)
     expect(f.renderer.encodes).toBe(1)
     expect(service.hasActiveWork()).toBe(false)
@@ -274,7 +278,7 @@ describe('approved episode service', () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f), actualHash = library.hashEpisodeFile
     const spy = vi.spyOn(library, 'hashEpisodeFile').mockImplementation(async (path, signal) => {
       const version = await actualHash(path, signal)
-      if (path.includes('/publish-')) await chmod(path, 0o400)
+      if (basename(path).startsWith('publish-')) await chmod(path, 0o400)
       return version
     })
     try {
@@ -291,7 +295,7 @@ describe('approved episode service', () => {
     const controller = new AbortController()
     let holding: Promise<void> | undefined
     const spy = vi.spyOn(atomic, 'withFileLock').mockImplementation(async (path, action, options) => {
-      if (path.endsWith('/intent.json') && target === '') {
+      if (basename(path) === 'intent.json' && target === '') {
         target = path
         holding = originalLock(path, async () => { entered(); await held }, options)
         await locked
@@ -328,7 +332,7 @@ describe('approved episode service', () => {
     expect(cancelled).toMatchObject({ state: 'cancelled', canResume: true, attempt: second.attempt })
     expect(f.renderer.encodes).toBe(1)
     await f.service.admitEpisode({ ...secondInput, resume: true }); f.renderer.release()
-    await vi.waitFor(async () => { const state = await f.service.episodeStatus(secondInput); expect(state.state, state.problem).toBe('completed') })
+    await expect.poll(async () => await f.service.episodeStatus(secondInput)).toMatchObject({ state: 'completed' })
     expect((await f.service.episodeStatus(secondInput)).attempt).toBe(second.attempt)
     expect(f.renderer.encodes).toBe(2); expect(f.fetch).not.toHaveBeenCalled()
   })
@@ -476,8 +480,10 @@ describe('approved episode service', () => {
     f.renderer.mode = 'failed'
     const input = await selection(f), admitted = await f.service.admitEpisode(input)
     f.renderer.release()
-    await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('failed') })
-    expect(f.service.hasActiveWork()).toBe(false)
+    await vi.waitFor(async () => {
+      expect((await f.service.episodeStatus(input)).state).toBe('failed')
+      expect(f.service.hasActiveWork()).toBe(false)
+    })
     f.renderer.mode = 'retry-required'
     await f.service.admitEpisode({ ...input, resume: true })
     await vi.waitFor(async () => { expect((await f.service.episodeStatus(input)).state).toBe('unknown') })
@@ -541,7 +547,7 @@ describe('approved episode service', () => {
     const locked = Promise.withResolvers<undefined>(), secondWaiting = Promise.withResolvers<undefined>()
     let count = 0, owner: Promise<void> | undefined
     const spy = vi.spyOn(atomic, 'withFileLock').mockImplementation(async (path, run, options) => {
-      if (path.endsWith('/intent.json')) {
+      if (basename(path) === 'intent.json') {
         count++
         if (count === 1) {
           owner = originalLock(path, async () => { locked.resolve(undefined); await held.promise }, options)
@@ -565,7 +571,7 @@ describe('approved episode service', () => {
     let changed = false
     const spy = vi.spyOn(atomic, 'writeFileAtomic').mockImplementation(async (...args) => {
       await write(...args)
-      if (!changed && args[0].endsWith('/state.json') && String(args[1]).includes('"queued"')) {
+      if (!changed && basename(args[0]) === 'state.json' && String(args[1]).includes('"queued"')) {
         changed = true
         for (const name of await readdir(f.ledger.root)) {
           if (!name.endsWith('.ndjson')) continue
@@ -606,7 +612,7 @@ describe('approved episode service', () => {
     let held = false
     const spy = vi.spyOn(library, 'readEpisodeStateSnapshot').mockImplementation(async (...args) => {
       const value = await read(...args)
-      if (!held && args[0].endsWith('/state.json') && z.object({ state: z.string() }).safeParse(value).data?.state === 'running') {
+      if (!held && basename(args[0]) === 'state.json' && z.object({ state: z.string() }).safeParse(value).data?.state === 'running') {
         held = true; entered.resolve(undefined); await release.promise
       }
       return value
@@ -636,13 +642,13 @@ describe('approved episode service', () => {
     let held = false
     const writeSpy = vi.spyOn(atomic, 'writeFileAtomic').mockImplementation(async (...args) => {
       await write(...args)
-      if (args[0].endsWith('/state.json') && String(args[1]).includes('"queued"')) {
+      if (basename(args[0]) === 'state.json' && String(args[1]).includes('"queued"')) {
         queued.resolve(undefined); await releaseClaim.promise
       }
     })
     const readSpy = vi.spyOn(library, 'readEpisodeStateSnapshot').mockImplementation(async (...args) => {
       const value = await read(...args)
-      if (!held && args[0].endsWith('/state.json') && z.object({ state: z.string() }).safeParse(value).data?.state === 'queued') {
+      if (!held && basename(args[0]) === 'state.json' && z.object({ state: z.string() }).safeParse(value).data?.state === 'queued') {
         held = true; stateRead.resolve(undefined); await releaseRead.promise
       }
       return value
@@ -669,7 +675,7 @@ describe('approved episode service', () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f), lstat = Files.lstat
     const denial = Object.assign(new Error('Attempt directory inspection denied'), { code: 'EACCES' })
     const spy = vi.spyOn(Files, 'lstat').mockImplementation(async (...args) => {
-      if (String(args[0]).includes('/.muse/episode-delivery/')) throw denial
+      if (String(args[0]).includes(`${sep}.muse${sep}episode-delivery${sep}`)) throw denial
       return lstat(...args)
     })
     try { await expect(f.service.episodeStatus(input)).rejects.toBe(denial) }
@@ -679,7 +685,7 @@ describe('approved episode service', () => {
     const f = await createEpisodeDeliveryFixture(), input = await selection(f), hashFile = library.hashEpisodeFile
     let reads = 0
     const spy = vi.spyOn(library, 'hashEpisodeFile').mockImplementation(async (path, signal) => {
-      if (path.includes('/original-') && ++reads === 2) await writeFile(path, 'changed source before staging')
+      if (basename(path).startsWith('original-') && ++reads === 2) await writeFile(path, 'changed source before staging')
       return hashFile(path, signal)
     })
     try {

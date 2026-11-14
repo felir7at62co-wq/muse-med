@@ -3,5 +3,6 @@ scenario: workspace-file-drop
 profile: web
 composition: web-default
 recording: authored
+writerOutput: true
 header:
   class: web-default

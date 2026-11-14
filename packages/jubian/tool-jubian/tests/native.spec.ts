@@ -2019,7 +2019,7 @@ describe('submit_video_batch', () => {
       idempotency_key: String(preview.idempotencyKey) })) }
   }
 
-  it('never treats an initially recorded batch key as a fresh paid request after it disappears', async () => {
+  it.each(['missing', 'replaced'] as const)('refuses an initially recorded batch key after its record is %s', async (change) => {
     const { provider, items } = await batch()
     for (const item of items) {
       const preview = JSON.parse(await readFile(item.preview_path, 'utf8')) as NativeVideoPreview
@@ -2029,11 +2029,14 @@ describe('submit_video_batch', () => {
     const originalFind = ledger.find.bind(ledger)
     let reads = 0
     const find = vi.spyOn(ledger, 'find').mockImplementation(async (key) => {
-      reads++
-      return reads <= items.length ? originalFind(key) : undefined
+      const initial = ++reads <= items.length
+      const record = await originalFind(key)
+      if (initial || record === undefined) return record
+      return change === 'missing' ? undefined : { ...record, record_id: 'replacement-' + record.record_id }
     })
     try {
-      await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items })).rejects.toThrow('No recorded video submission')
+      await expect(submitVideoBatchMethod(clientFor(provider), ledger, { items }))
+        .rejects.toThrow(change === 'missing' ? 'No recorded video submission' : 'Recorded video submission identity changed')
     } finally { find.mockRestore() }
     expect(provider.calls).toEqual([])
     expect(await ledger.records()).toHaveLength(items.length)

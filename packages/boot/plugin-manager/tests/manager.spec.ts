@@ -343,7 +343,8 @@ it.each(['github:acme/connected', 'https://github.com/acme/connected.git', 'git+
     expect(result.error).toBeUndefined()
     expect(result).toMatchObject({ changed: true, bundle: name, packageResult: { exitCode: 0 } })
     expect(readProfileManifest('test', dir).dependencies).toHaveProperty(name)
-    expect(requests).toContain('codeload.github.com:443')
+    expect(requests.some(target => target === 'github.com:443' || target === 'codeload.github.com:443')).toBe(true)
+    expect(requests.every(target => /^(?:api\.|codeload\.)?github\.com:443$/u.test(target))).toBe(true)
   },
 )
 

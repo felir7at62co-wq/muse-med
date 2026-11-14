@@ -137,7 +137,7 @@ async function undispatchedCancellation() {
   const ready = await f.service.episodeReadiness({ projectDir: f.project, episode: 2 })
   if (ready.digest === null) throw new Error(ready.issues.join('; '))
   const input = { projectDir: f.project, episode: 2, digest: ready.digest }
-  await f.service.admitEpisode(f.input); await f.renderer.entered
+  await f.service.admitEpisode(f.input); await f.renderer.armed
   const admitted = await f.service.admitEpisode(input)
   if (admitted.attempt === null) throw new Error('Second episode was not admitted')
   await f.recovery.configure({ enabled: false, projectDir: f.project })
@@ -270,13 +270,17 @@ it.each(['removed', 'foreign identity'] as const)('observes a receipt %s between
 })
 
 it('propagates a completed-output lstat error without treating it as a missing file', async () => {
-  const f = await completed(), exports = join(f.project, 'exports'), retained = exports + '.retained'
-  await rename(exports, retained); await symlink('exports', exports)
+  const f = await completed(), lstat = files.lstat
+  const failure = Object.assign(new Error('Completed output read denied'), { code: 'EACCES' })
+  const denied = vi.spyOn(files, 'lstat').mockImplementation(async (...args) => {
+    if (args[0] === f.outputPath) throw failure
+    return lstat(...args)
+  })
   try {
-    await expect(f.service.episodeStatus(f.input)).rejects.toMatchObject({ code: 'ELOOP' })
-    expect(await readFile(join(retained, f.outputPath.slice(exports.length + 1)))).toEqual(f.outputBytes)
+    await expect(f.service.episodeStatus(f.input)).rejects.toBe(failure)
+    expect(await readFile(f.outputPath)).toEqual(f.outputBytes)
     expect(f.renderer.calls).toBe(1); expect(f.renderer.encodes).toBe(1)
-  } finally { await unlink(exports); await rename(retained, exports) }
+  } finally { denied.mockRestore() }
   await f.preserved()
 })
 

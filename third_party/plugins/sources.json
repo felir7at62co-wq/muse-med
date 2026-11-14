@@ -334,7 +334,7 @@
         },
         "src/host/pending.js": {
           "upstreamSha256": "cb3fbf96070970e9f6c33e846a51ee710cf001420334b98ef6d6438187c25a4e",
-          "sha256": "28cc1b021177711cacd124332449131037c36c4bb794be43ff65341272690aa1"
+          "sha256": "34204505b07ee03b31794d5360bd362f2d5a5544f3e9af33066751ca4baea53e"
         },
         "src/react/styles.js": {
           "upstreamSha256": "312c3c294ed74af30e2783e355aba228efd6b3fb3a6665e03c00f223c8274118",
@@ -354,7 +354,7 @@
         },
         "test/pending.test.js": {
           "upstreamSha256": null,
-          "sha256": "0df1f7fb3566d526fa63f24ef283ccc6ca2a0b16e98cc1ce2fa2a6eb80673edd"
+          "sha256": "b6a8732bd54e2cd0f1e0ef42fe79c2cb923183bb135b0b7212ed80d5d3bb14d7"
         },
         "test/render.test.js": {
           "upstreamSha256": "0eedc0168749a6da5e016674c8c2d53bb07233ede04d76d73c675cc67dc342e9",

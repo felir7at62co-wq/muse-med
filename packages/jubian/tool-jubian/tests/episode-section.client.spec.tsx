@@ -12,7 +12,7 @@ import type { EpisodeDeliveryStatus } from '../src/types.ts'
 import { EpisodeExportSection, type EpisodeSectionProps } from '../src/client/EpisodeExportSection.tsx'
 import { RecoveryDirectory } from '../src/client/recovery-directory.ts'
 import { en } from '../src/client/locales.ts'
-import { episodeClientFixture, input, original, ready } from './fixtures/episode-client.client.ts'
+import { episodeClientFixture, input, original, ready, attempt } from './fixtures/episode-client.client.ts'
 
 afterEach(cleanup)
 const delivered: EpisodeDeliveryStatus = { ...original, state: 'completed', canResume: false,
@@ -35,7 +35,7 @@ function fixture(overrides: Parameters<typeof episodeClientFixture>[0] = {}) {
     selectEpisodeOriginal: (value, address) => { f.directory.selectOriginal(value, address) },
     refreshEpisode: () => { f.directory.refresh() }, admitEpisode: resume => f.directory.admit(resume) }
   render(<EpisodeExportSection {...props} />)
-  return { ...f, props }
+  return { ...f, props, recovery }
 }
 
 it('makes no readiness request on mount or episode edits, and checks only an explicit valid number', async () => {
@@ -129,4 +129,75 @@ it('keeps cached history visible after reconnect but requires explicit fresh dis
   expect(f.api.episodeHistory).toHaveBeenCalledTimes(2)
   fireEvent.click(screen.getByRole('button', { name: en.episodeSelect }))
   await waitFor(() => { expect(f.api.episodeStatus).toHaveBeenCalledWith(input) })
+})
+
+it('keeps actions disabled when the edited project differs from the accepted recovery project', () => {
+  const f = fixture()
+  act(() => { f.recovery.state.update((state) => { state.projectDir = '/another-project' }) })
+  for (const label of [en.episodeCheck, en.episodeHistory, en.episodeExport, en.episodeRefresh]) {
+    const button = screen.getByRole('button', { name: label })
+    expect(button.hasAttribute('disabled')).toBe(true)
+    fireEvent.click(button)
+  }
+  expect(f.api.episodeReadiness).not.toHaveBeenCalled()
+  expect(f.api.episodeHistory).not.toHaveBeenCalled()
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+  act(() => { f.recovery.state.update((state) => { state.status = null }) })
+  expect(screen.getByRole('button', { name: en.episodeCheck }).hasAttribute('disabled')).toBe(true)
+})
+
+it('shows source issues from a blocked readiness check without enabling export', async () => {
+  const issue = 'A source video is missing.'
+  const f = fixture({ episodeReadiness: vi.fn<EpisodeClient['episodeReadiness']>(async () => ({ ok: true,
+    value: { ...ready, ready: false, digest: null, shots: 0, issues: [issue] } })) })
+  fireEvent.click(screen.getByRole('button', { name: en.episodeCheck }))
+  await screen.findByText(en.episodeBlocked)
+  expect(screen.getByText(issue)).toBeTruthy()
+  expect(screen.getByRole('button', { name: en.episodeExport }).hasAttribute('disabled')).toBe(true)
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+})
+
+it('shows a loading check and an explicit failure without treating the missing result as permission', async () => {
+  const pending = Promise.withResolvers<Awaited<ReturnType<EpisodeClient['episodeReadiness']>>>()
+  const f = fixture({ episodeReadiness: vi.fn<EpisodeClient['episodeReadiness']>(() => pending.promise) })
+  fireEvent.click(screen.getByRole('button', { name: en.episodeCheck }))
+  await waitFor(() => { expect(screen.getByRole('region', { name: en.episodeTitle }).getAttribute('aria-busy')).toBe('true') })
+  await act(async () => { pending.reject(Error('Readiness unavailable')) })
+  await screen.findByText(en.episodeCheckFailed)
+  expect(screen.getByRole('button', { name: en.episodeExport }).hasAttribute('disabled')).toBe(true)
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
+})
+
+it('reports empty, truncated and unreadable history without inventing a selectable original', async () => {
+  const f = fixture({ episodeHistory: vi.fn<EpisodeClient['episodeHistory']>(async () => ({ ok: true,
+    value: { projectDir: input.projectDir, episode: input.episode, entries: [],
+      truncated: true, unreadableRecords: 2, scannedEntries: 2 } })) })
+  fireEvent.click(screen.getByRole('button', { name: en.episodeHistory }))
+  await screen.findByText(en.episodeHistoryEmpty)
+  expect(screen.getByText(en.episodeHistoryTruncated)).toBeTruthy()
+  expect(screen.getByText(makeTranslate(en)('episodeHistoryUnreadable', { count: 2 }))).toBeTruthy()
+  expect(screen.queryByRole('button', { name: en.episodeSelect })).toBeNull()
+  expect(f.api.episodeStatus).not.toHaveBeenCalled()
+})
+
+it('shows a discovery failure without selecting an earlier record', async () => {
+  const f = fixture({ episodeHistory: vi.fn<EpisodeClient['episodeHistory']>(async () => { throw Error('History unavailable') }) })
+  fireEvent.click(screen.getByRole('button', { name: en.episodeHistory }))
+  await screen.findByText(en.episodeHistoryFailed)
+  expect(screen.queryByRole('button', { name: en.episodeSelect })).toBeNull()
+  expect(f.api.episodeStatus).not.toHaveBeenCalled()
+})
+
+it('distinguishes an unrecorded historical state and displays the selected original failure', async () => {
+  const f = fixture({ episodeHistory: vi.fn<EpisodeClient['episodeHistory']>(async () => ({ ok: true,
+    value: { projectDir: input.projectDir, episode: input.episode,
+      entries: [{ attempt, digest: input.digest, recordedState: null }], truncated: false, unreadableRecords: 0, scannedEntries: 1 } })),
+  episodeStatus: vi.fn<EpisodeClient['episodeStatus']>(async () => ({ ok: true,
+    value: { ...original, state: 'failed', problem: 'The original encoder exited.' } })) })
+  fireEvent.click(screen.getByRole('button', { name: en.episodeHistory }))
+  await screen.findByText(en.episodeRecordedUnknown)
+  fireEvent.click(screen.getByRole('button', { name: en.episodeSelect }))
+  await screen.findByText('The original encoder exited.')
+  expect(screen.getByRole('status').textContent).toBe(en.episodeFailed)
+  expect(f.api.admitEpisode).not.toHaveBeenCalled()
 })

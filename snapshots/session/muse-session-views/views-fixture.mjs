@@ -1,11 +1,14 @@
 /** Native Session views use the real authenticated HTTP reply route. */
 import assert from 'node:assert/strict'
-import { writeFile } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadOverlayPatches } from '@deepseek-ai/dsh-app-boot'
 import { readViewReply } from '../../../third_party/plugins/deep-view/src/core/reply.js'
+import { createPendingStore } from '../../../third_party/plugins/deep-view/src/host/pending.js'
 import { importSnapshotModule } from '../muse-fixture-import.mjs'
+
+const { loadOverlayPatches } = await importSnapshotModule(new URL('../../../packages/boot/app-boot/src/index.ts', import.meta.url),
+  new URL('../../../packages/boot/app-boot/lib/index.js', import.meta.url))
 
 const Discovery = await importSnapshotModule(new URL('../../../packages/core/tool-discovery/src/index.ts', import.meta.url),
   new URL('../../../packages/core/tool-discovery/lib/index.js', import.meta.url))
@@ -21,6 +24,16 @@ export const inject = ['connection', 'webServer', 'agents', 'sessions', 'tools']
  * @returns {Promise<void>} Completion after production tool residency is active.
  */
 export async function apply(ctx) {
+  const blocker = join(process.cwd(), 'blocked-view-home')
+  await writeFile(blocker, 'original', { flag: 'wx', mode: 0o600 })
+  const pendingStore = createPendingStore(join(blocker, 'private'))
+  try {
+    await assert.rejects(pendingStore.load())
+    assert.equal(await readFile(blocker, 'utf8'), 'original')
+  } finally {
+    await pendingStore.close()
+    await rm(blocker)
+  }
   const row = loadOverlayPatches('native-view-residency', fileURLToPath(new URL(
     '../../../apps/desktop-host/config/desktop.cordis.patch.yml', import.meta.url,
   ))).flatMap(patch => patch.insert ?? []).find(entry => entry.id === 'tool-discovery')
@@ -102,7 +115,7 @@ export async function apply(ctx) {
     await writeFile(join(process.cwd(), 'view-proof.json'), JSON.stringify({
       calls: calls.map(event => event.data.callId), answerMessages: answers.length, selection,
       authenticatedReplyRequests: replyRequests, unauthenticatedRejected, pendingClosed: true, modelReadAnswer: observed,
-      botToolsUsed: false,
+      botToolsUsed: false, blockedHomeRejected: true,
       firstRequestIncludesView: true, discoveryCalls: calls.filter(event => ['tool_search', 'tool_context'].includes(event.data.name)).length,
     }, null, 2) + '\n', { flag: 'wx', mode: 0o600 })
   })

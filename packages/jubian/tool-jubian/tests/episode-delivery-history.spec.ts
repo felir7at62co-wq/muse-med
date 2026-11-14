@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import type { Dir } from 'node:fs'
 import { mkdir, readFile, readdir, rename, stat, symlink, unlink, writeFile } from 'node:fs/promises'
 import * as files from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { PeerId } from '@deepseek-ai/dsh-typert-protocol'
@@ -243,7 +243,8 @@ it.each(['link', 'directory', 'read-denied', 'oversized'] as const)('retains ori
 
 it('closes its directory and refuses completion when its caller retires during metadata IO', async () => {
   const f = await completed(), read = library.readEpisodeBytes, open = files.opendir
-  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>(), controller = new AbortController()
+  const release = Promise.withResolvers<undefined>(), controller = new AbortController()
+  let entered = false
   let observedDirectory: Dir | undefined
   const directory = vi.spyOn(files, 'opendir').mockImplementation(async (...args) => {
     const handle = await open(...args)
@@ -251,7 +252,7 @@ it('closes its directory and refuses completion when its caller retires during m
     return handle
   })
   const metadata = vi.spyOn(library, 'readEpisodeBytes').mockImplementation(async (...args) => {
-    if (args[0].endsWith('/intent.json')) { entered.resolve(undefined); await release.promise }
+    if (basename(args[0]) === 'intent.json') { entered = true; await release.promise }
     return read(...args)
   })
   const scoped = f.ctx.extend({ invocation: {
@@ -261,24 +262,29 @@ it('closes its directory and refuses completion when its caller retires during m
   } }).jubianEpisodeDelivery
   const operation = scoped.episodeHistory(f.planInput), rejected = expect(operation).rejects.toThrow('History observer retired')
   try {
-    await entered.promise; expect(f.service.hasActiveWork()).toBe(false)
+    await vi.waitFor(() => { expect(entered).toBe(true) }, { timeout: 5000 })
+    expect(f.service.hasActiveWork()).toBe(false)
     controller.abort(new Error('History observer retired')); release.resolve(undefined); await rejected
     if (observedDirectory === undefined) throw new Error('History did not open its actual directory')
     await expect(observedDirectory.read()).rejects.toMatchObject({ code: 'ERR_DIR_CLOSED' })
-  } finally { release.resolve(undefined); await Promise.allSettled([operation, rejected]); metadata.mockRestore(); directory.mockRestore() }
+  } finally {
+    controller.abort(); release.resolve(undefined); await Promise.allSettled([operation, rejected])
+    metadata.mockRestore(); directory.mockRestore()
+  }
 })
 
 it('joins metadata reads during parent disposal and never starts work from historical labels', async () => {
-  const f = await completed(), read = library.readEpisodeBytes, entered = Promise.withResolvers<undefined>()
+  const f = await completed(), read = library.readEpisodeBytes
+  let entered = false
   const release = Promise.withResolvers<undefined>()
   const spy = vi.spyOn(library, 'readEpisodeBytes').mockImplementation(async (...args) => {
-    if (args[0].endsWith('/intent.json')) { entered.resolve(undefined); await release.promise }
+    if (basename(args[0]) === 'intent.json') { entered = true; await release.promise }
     return read(...args)
   })
   const operation = f.service.episodeHistory(f.planInput), rejected = expect(operation).rejects.toThrow('provider disposed')
   let disposed = false
   try {
-    await entered.promise
+    await vi.waitFor(() => { expect(entered).toBe(true) }, { timeout: 5000 })
     const disposal = f.ctx.fiber.dispose().then(() => { disposed = true })
     expect(disposed).toBe(false); release.resolve(undefined)
     await Promise.all([rejected, disposal])

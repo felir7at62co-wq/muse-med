@@ -1,7 +1,6 @@
-// Real-composition acceptance for DeepSeek account sign-in from a plain browser. The
-// scaffold boots the shipped Web Loader tree, so the real account provider drives
-// auth_init, the loopback OAuth callback, and auth_exchange against a loopback Platform
-// double, while a real Chromium follows the tab the Web UI preopens.
+// Real-composition acceptance for the Desktop account renderer's copy-link fallback.
+// The shipped provider drives auth_init, the loopback callback and auth_exchange against
+// a loopback Platform double; Chromium opens the link copied by the actual sign-in dialog.
 import { createServer, type Server } from 'node:http'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -96,7 +95,7 @@ async function mockPlatform() {
   }
 }
 
-describe.skipIf(MODE === 'record')('web e2e: DeepSeek account sign-in in a plain browser', () => {
+describe.skipIf(MODE === 'record')('web e2e: DeepSeek account sign-in from the Desktop renderer', () => {
   let root: string | undefined
   let scaffold: WebScaffold
   let browser: Browser
@@ -118,28 +117,44 @@ describe.skipIf(MODE === 'record')('web e2e: DeepSeek account sign-in in a plain
     if (root !== undefined) await rm(root, { recursive: true, force: true })
   })
 
-  it('signs in through a themed tab and recovers both avatars on a later Settings entry', async () => {
+  it('signs in through the copied themed link and recovers both avatars on a later Settings entry', async () => {
     const context = await browser.newContext({ viewport: { width: 1440, height: 960 }, locale: 'en-US', colorScheme: 'dark' })
     onTestFinished(() => context.close())
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(scaffold.authenticatedUrl).origin })
     const page = await context.newPage()
+    await page.addInitScript(() => { Object.defineProperty(globalThis, 'dshDesktop', { value: { protocolVersion: 1 } }) })
     const console = watchConsole(page)
     onTestFailed(() => saveFailureShot(page, 'web-e2e-account-login'))
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     const menu = page.getByRole('button', { name: 'Account menu', exact: true })
     await menu.click()
-    const tab = context.waitForEvent('page')
     await page.getByRole('menuitem', { name: 'Sign in', exact: true }).click()
-    const authorization = await tab
+    const previousClipboard = await page.evaluate(() => navigator.clipboard.readText())
+    let copied: string
+    try {
+      await page.getByRole('button', { name: 'Copy sign-in link', exact: true }).click()
+      await page.getByRole('button', { name: 'Link copied', exact: true }).waitFor()
+      copied = await page.evaluate(() => navigator.clipboard.readText())
+    } finally {
+      await page.evaluate(async ({ previous, prefix }) => {
+        if ((await navigator.clipboard.readText()).startsWith(prefix)) await navigator.clipboard.writeText(previous)
+      }, { previous: previousClipboard, prefix: `${platform.origin}/dsh/authorize?` })
+    }
+    expect(context.pages()).toHaveLength(1)
+    const authorization = await context.newPage()
+    await authorization.goto(copied)
     await authorization.waitForURL(url => url.pathname === '/dsh/authorized', { timeout: 30_000 })
     expect(await authorization.evaluate(() => window.opener === null)).toBe(true)
     await expect.poll(() => menu.textContent(), { timeout: 30_000 }).toBe('Web User')
 
     const pageOrigin = new URL(scaffold.authenticatedUrl).origin
     expect(platform.inits).toHaveLength(1)
-    expect(platform.inits[0]).toMatchObject({ login_source: 'web', redirect_uri: `${pageOrigin}/oauth/callback` })
+    expect(platform.inits[0]).toMatchObject({ login_source: 'desktop', redirect_uri: `${pageOrigin}/oauth/callback` })
     const [authorize, authorized] = platform.pages.map(href => new URL(href))
     expect(authorize?.searchParams.get('theme')).toBe('dark')
-    expect(authorized?.searchParams.get('login_source')).toBe('web')
+    expect(authorized?.searchParams.get('login_source')).toBe('desktop')
+    expect(await readFile(join(scaffold.harnessHome, '.credentials.yaml'), 'utf8')).toContain(TOKEN)
+    expect(await page.content()).not.toContain(TOKEN)
     await expect.poll(platform.avatarRequests).toBe(1)
     await menu.locator('[data-avatar-status="failed"]').waitFor()
     expect(await menu.locator('img').count()).toBe(0)

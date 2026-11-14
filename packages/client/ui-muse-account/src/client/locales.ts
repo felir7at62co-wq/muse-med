@@ -77,5 +77,9 @@ export const en = {
   'error.generic': 'The operation did not complete. Try again.',
 } satisfies Record<MuseAccountLocaleKey, string>
 
-/** Independent English fallback dictionaries for Japanese, Spanish, French, German, Russian and Portuguese. */
-export const ja = { ...en }, es = { ...en }, fr = { ...en }, de = { ...en }, ru = { ...en }, pt = { ...en }
+/** Separate English dictionaries for fallback locales. */
+function englishCopy(): typeof en { return { ...en } }
+
+/** English fallbacks for Japanese, Spanish, French, German, Russian and Portuguese. */
+export const ja = englishCopy(), es = englishCopy(), fr = englishCopy(),
+  de = englishCopy(), ru = englishCopy(), pt = englishCopy()

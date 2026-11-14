@@ -1,6 +1,7 @@
 /** Owner-local handling of complete-review artifacts whose bytes include volatile Session identities. */
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
+import { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools'
 
 type Row = Record<string, unknown>
 const HASH = /^[a-f0-9]{64}$/u
@@ -15,7 +16,7 @@ function rows(log: string): Row[] {
 }
 function pairs(records: readonly Row[]) {
   const calls = new Set<string>()
-  const reports: { path: string; digest: string; body: Row; block: Row; meta: Row }[] = []
+  const reports: { path: string; digest: string; body: Row; block: Row; metas: Row[] }[] = []
   for (const row of records) {
     const data = row.data
     if (!object(data)) continue
@@ -35,7 +36,16 @@ function pairs(records: readonly Row[]) {
         || meta.observationReport !== body.observation_report || meta.sha256 !== body.observation_report_sha256
         || meta.reviewId !== body.review_id || meta.sessionId !== body.observation_session_id
         || typeof body.observation_report_sha256 !== 'string') throw Error('Video-review report tool/meta identity or digest mismatch')
-      reports.push({ path: body.observation_report, digest: body.observation_report_sha256, body, block, meta })
+      const metas = [meta]
+      const preserved = object(data.meta) && object(data.meta[TOOL_BODY_META_KEY])
+        ? data.meta[TOOL_BODY_META_KEY].videoReviewEvidence : undefined
+      if (preserved !== undefined) {
+        if (!object(preserved) || ['observationReport', 'sha256', 'reviewId', 'sessionId'].some(key => preserved[key] !== meta[key])) {
+          throw Error('Video-review preserved body metadata identity or digest mismatch')
+        }
+        metas.push(preserved)
+      }
+      reports.push({ path: body.observation_report, digest: body.observation_report_sha256, body, block, metas })
     }
   }
   return reports
@@ -73,7 +83,7 @@ export function normalizeVideoObservationReportHashes(logs: readonly string[]): 
       }
       report.body.observation_report_sha256 = identity.token
       report.block.text = JSON.stringify(report.body)
-      report.meta.sha256 = identity.token
+      for (const meta of report.metas) meta.sha256 = identity.token
     }
     return records.map(row => JSON.stringify(row)).join('\n') + (log.endsWith('\n') ? '\n' : '')
   })

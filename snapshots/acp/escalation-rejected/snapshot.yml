@@ -3,6 +3,7 @@ scenario: escalation-rejected
 profile: acp
 composition: acp-default
 recording: live
+writerOutput: true
 header:
   class: acp-default
 permission: workspace-write

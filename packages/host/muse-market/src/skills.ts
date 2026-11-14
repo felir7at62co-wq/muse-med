@@ -33,9 +33,10 @@ export function createMarketSkillProvider(
       if (entry === undefined) throw new MarketError('bound-release-unavailable')
       options.signal?.throwIfAborted()
       const parsed = readMarketPackage(await local.verify(entry.release), storage.limits)
-      const member = entry.release.manifest.skills[0]
-      const bytes = member === undefined ? undefined : parsed.files[member.path]
-      if (member === undefined || bytes === undefined) throw new MarketError('bound-release-unavailable')
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- readMarketPackage requires one Skill and its instruction file.
+      const member = parsed.manifest.skills[0]!
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- The validated archive contains every declared instruction member.
+      const bytes = parsed.files[member.path]!
       const path = join(storage.root, 'packages', entry.release.id, ...member.path.split('/'))
       options.signal?.throwIfAborted()
       const loaded = marketSkill(new TextDecoder('utf-8', { fatal: true }).decode(bytes), entry.skill.name)

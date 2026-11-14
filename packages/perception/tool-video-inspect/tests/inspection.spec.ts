@@ -60,12 +60,57 @@ async function elevenSecondVideo(h: Awaited<ReturnType<typeof setup>>) {
   { timeoutMs: 20_000, maxBytes: 1024, graceMs: 1000 })
 }
 
-it.each([{ interval: 0.5, count: 23, last: 11 }, { interval: 0.4, count: 28, last: 10.791667 }])(
-  'decodes the complete $interval-second plan through the final real frame and fractional batch boundary', async ({ interval, count, last }) => {
+function observeSourceProbes(h: Awaited<ReturnType<typeof setup>>, recognize: typeof Media.runMedia) {
+  const probes: {
+    interval: string | undefined
+    argv: readonly string[]
+    frames?: number | undefined
+    first?: unknown
+    last?: unknown
+    bytes?: number
+    json?: string
+    json_truncated?: boolean
+    diagnostic?: string
+    elapsed_ms?: number
+    error?: string
+    parse_error?: string
+  }[] = []
+  const resolutions: { executable: string; resolved?: string; error?: string }[] = []
+  const resolve = h.ctx.subprocess.resolveExecutable.bind(h.ctx.subprocess)
+  vi.spyOn(h.ctx.subprocess, 'resolveExecutable').mockImplementation(async (...args) => {
+    const record: typeof resolutions[number] = { executable: args[0] }
+    resolutions.push(record)
+    try { const resolved = await resolve(...args); record.resolved = resolved; return resolved }
+    catch (error) { record.error = String(error).slice(-4000); throw error }
+  })
+  return { probes, resolutions, recognize: async (...args: Parameters<typeof Media.runMedia>) => {
+    if (!args[1].includes('-select_streams')) return await recognize(...args)
+    const intervalIndex = args[1].indexOf('-read_intervals')
+    const probe: typeof probes[number] = { interval: intervalIndex < 0 ? undefined : args[1][intervalIndex + 1], argv: args[1] }
+    probes.push(probe)
+    const started = Date.now()
+    try {
+      const output = await recognize(...args), json = Buffer.from(output.bytes).toString('utf8')
+      probe.bytes = output.bytes.byteLength; probe.json = json.slice(0, 65_536); probe.diagnostic = output.diagnostic.slice(-4000)
+      probe.json_truncated = json.length > 65_536
+      try {
+        const frames = (JSON.parse(json) as { frames?: readonly unknown[] }).frames
+        probe.frames = frames?.length; probe.first = frames?.[0]; probe.last = frames?.at(-1)
+      } catch (error) { probe.parse_error = String(error).slice(-4000) }
+      return output
+    } catch (error) { probe.error = String(error).slice(-4000); throw error }
+    finally { probe.elapsed_ms = Date.now() - started }
+  } }
+}
+
+it.each([{ interval: 0.5, count: 23, last: 11, legacyTime: false },
+  { interval: 0.4, count: 28, last: 10.791667, legacyTime: false },
+  { interval: 0.4, count: 28, last: 10.791667, legacyTime: true }])(
+  'decodes the complete $interval-second plan through the final frame (six-significant-digit diagnostics=$legacyTime)', async ({ interval, count, last, legacyTime }) => {
     const h = await setup({ ocrFrameIntervalSeconds: interval, ocrBatchFrames: 24 })
     await elevenSecondVideo(h)
     const run = mockWindowsOcr()
-    const recognize = run.getMockImplementation()!
+    const { recognize, probes, resolutions } = observeSourceProbes(h, run.getMockImplementation()!)
     const batchDiagnostics: {
       start_seconds: string | undefined
       frame_count: string | undefined
@@ -86,7 +131,9 @@ it.each([{ interval: 0.5, count: 23, last: 11 }, { interval: 0.4, count: 28, las
       batchDiagnostics.push(batch)
       const started = Date.now()
       try {
-        const output = await recognize(...args)
+        const native = await recognize(...args)
+        const output = legacyTime ? { ...native, diagnostic: native.diagnostic.replace(/\bpts_time:([\d.e+-]+)/gu,
+          (_match, time: string) => `pts_time:${Number(Number(time).toPrecision(6))}`) } : native
         batch.output_bytes = output.bytes.byteLength
         batch.timestamps_seconds = showinfoTimestamps(output.diagnostic)
         batch.stderr_tail = output.diagnostic.slice(-4000)
@@ -100,7 +147,7 @@ it.each([{ interval: 0.5, count: 23, last: 11 }, { interval: 0.4, count: 28, las
     })
     const result = await h.ocr({ raw_json_path: 'qa/long.json', merged_text_path: 'qa/long.txt' })
     expect(result.isError, JSON.stringify(result.content)).toBe(false)
-    expect(result.value, JSON.stringify({ batches: batchDiagnostics })).toMatchObject({ scan_status: 'complete', coverage: {
+    expect(result.value, JSON.stringify({ result: result.value, batches: batchDiagnostics, probes, resolutions })).toMatchObject({ scan_status: 'complete', coverage: {
       planned_frame_count: count, processed_frame_count: count, failed_frame_count: 0, failed_timestamps_seconds: [],
     } })
     const raw = JSON.parse(await readFile(join(h.root, 'qa/long.json'), 'utf8')) as {
@@ -111,6 +158,8 @@ it.each([{ interval: 0.5, count: 23, last: 11 }, { interval: 0.4, count: 28, las
     const batches = run.mock.calls.filter(call => call[1].includes('mjpeg')).map(call => call[1])
     expect(batches.every(argv => argv[argv.indexOf('-vf') + 1]?.includes('select=eq'))).toBe(true)
     if (interval === 0.4) expect(batches[1]?.[batches[1].indexOf('-ss') + 1]).toBe('9.6')
+    expect(raw.frames.map(frame => Math.round(frame.timestamp_seconds * 1_000_000)))
+      .toEqual(Array.from({ length: count }, (_, index) => Math.round(Math.floor(index * interval * 24) / 24 * 1_000_000)))
   }, 30_000,
 )
 
@@ -129,19 +178,32 @@ it('keeps a missing planned final sample partial rather than treating EOF as com
   } })
 }, 30_000)
 
-it('rejects an actually earlier timestamp at a fractional batch boundary', async () => {
+it.each(['earlier time', 'different PTS', 'missing PTS'] as const)('rejects a decoded-frame mismatch at a fractional batch boundary: %s', async (fault) => {
   const h = await setup({ ocrFrameIntervalSeconds: 0.4, ocrBatchFrames: 24 })
   await elevenSecondVideo(h)
-  const run = mockWindowsOcr(), recognize = run.getMockImplementation()!
+  const run = mockWindowsOcr()
+  const { recognize, probes, resolutions } = observeSourceProbes(h, run.getMockImplementation()!)
+  const batches: { diagnostic?: string; error?: string; fault: boolean }[] = []
   run.mockImplementation(async (...args) => {
-    const output = await recognize(...args)
-    return args[1].includes('mjpeg') && args[1][args[1].indexOf('-ss') + 1] === '9.6'
-      ? { ...output, diagnostic: output.diagnostic.replace(/pts_time:[\d.]+/u, 'pts_time:9.0') } : output
+    const batch: { diagnostic?: string; error?: string; fault: boolean } = { fault: false }
+    const decoding = args[1].includes('mjpeg')
+    if (decoding) batches.push(batch)
+    let output: Media.MediaOutput
+    try { output = await recognize(...args) }
+    catch (error) { if (decoding) batch.error = String(error); throw error }
+    if (decoding) batch.diagnostic = output.diagnostic.slice(-4000)
+    if (!args[1].includes('mjpeg') || args[1][args[1].indexOf('-ss') + 1] !== '9.6') return output
+    batch.fault = true
+    const diagnostic = fault === 'earlier time' ? output.diagnostic.replace(/pts_time:[\d.]+/u, 'pts_time:9.0')
+      : output.diagnostic.replace(/\bpts:\s*(-?\d+)/u, (_match, pts: string) => fault === 'missing PTS' ? '' : `pts:${Number(pts) + 1}`)
+    return { ...output, diagnostic }
   })
-  expect((await h.ocr({})).value).toMatchObject({ scan_status: 'partial', coverage: {
+  const result = await h.ocr({})
+  expect(result.value, JSON.stringify({ content: result.content, batches, probes, resolutions })).toMatchObject({ scan_status: 'partial', coverage: {
     planned_frame_count: 28, processed_frame_count: 24, failed_frame_count: 4,
     failed_timestamps_seconds: [24 * 0.4, 25 * 0.4, 26 * 0.4, 27 * 0.4],
   } })
+  expect(batches.map(batch => batch.fault), JSON.stringify({ batches, probes, resolutions, result: result.value })).toEqual([false, true])
 }, 30_000)
 
 it('logs only encoded batch samples when FFmpeg reads ahead of a low-rate source', async () => {
@@ -198,6 +260,48 @@ it.each([
   await expect(VideoInspect.apply(ctx, VideoInspect.Config(options))).rejects.toThrow(message)
 })
 
+it.each(['empty seek', 'advanced seek', 'short seek', 'missing final seek frame', 'unavailable source'] as const)('checks a zero-origin probe after an indexed seek skips a requested frame: %s', async (fault) => {
+  const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 2 })
+  const run = mockWindowsOcr(), recognize = run.getMockImplementation()!
+  const intervals: (string | undefined)[] = []
+  run.mockImplementation(async (...args) => {
+    if (!args[1].includes('-select_streams')) return await recognize(...args)
+    const index = args[1].indexOf('-read_intervals')
+    const interval = index < 0 ? undefined : args[1][index + 1]
+    intervals.push(interval)
+    const argv = [...args[1]]
+    if (interval?.startsWith('3%')) argv.splice(index, 2)
+    const output = await recognize(args[0], argv, args[2], args[3], args[4])
+    if (!interval?.startsWith('3%') && fault !== 'unavailable source') return output
+    const probe = JSON.parse(Buffer.from(output.bytes).toString('utf8')) as { frames: { best_effort_timestamp_time: string }[] }
+    probe.frames = fault === 'advanced seek' ? probe.frames.filter(frame => Number(frame.best_effort_timestamp_time) > 3)
+      : fault === 'short seek' ? probe.frames.filter(frame => Number(frame.best_effort_timestamp_time) < 3)
+        : fault === 'missing final seek frame' ? probe.frames.filter(frame => Number(frame.best_effort_timestamp_time) < 3.5) : []
+    return { ...output, bytes: Buffer.from(JSON.stringify(probe)) }
+  })
+  const result = await h.ocr({ start_seconds: 3, end_seconds: 4 })
+  expect(intervals).toEqual(['3%', undefined])
+  expect(result.value).toMatchObject({ scan_status: fault === 'unavailable source' ? 'failed' : 'complete',
+    coverage: { planned_frame_count: 2, processed_frame_count: fault === 'unavailable source' ? 0 : 2 } })
+}, 30_000)
+
+it('reads the complete source without the empty FFprobe interval that can omit every frame', async () => {
+  const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 24 })
+  const run = mockWindowsOcr(), recognize = run.getMockImplementation()!
+  run.mockImplementation(async (...args) => {
+    const index = args[1].indexOf('-read_intervals')
+    if (index >= 0 && args[1][index + 1] === '%') {
+      return { bytes: Buffer.from(JSON.stringify({ format: { start_time: '0' }, streams: [{ start_time: '0' }], frames: [] })), diagnostic: '' }
+    }
+    return await recognize(...args)
+  })
+  const result = await h.ocr({})
+  expect(result.value).toMatchObject({ scan_status: 'complete', coverage: { planned_frame_count: 8, processed_frame_count: 8, failed_frame_count: 0 } })
+  const probes = run.mock.calls.filter(call => call[1].includes('-select_streams'))
+  expect(probes).toHaveLength(1)
+  expect(probes[0]?.[1]).not.toContain('-read_intervals')
+}, 30_000)
+
 it('plans OCR to the real video EOF without changing container metadata or contact-sheet bounds', async () => {
   const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 2 })
   const container = await addAudioTail(h)
@@ -220,7 +324,7 @@ it('plans OCR to the real video EOF without changing container metadata or conta
   expect(raw.frames.map(frame => frame.requested_seconds)).toEqual([0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5])
   expect(raw.frames.every(frame => frame.timestamp_seconds < 4)).toBe(true)
   expect(run.mock.calls.filter(call => call[1].includes('mjpeg'))).toHaveLength(4)
-})
+}, 30_000)
 
 it('retains an internal decode failure as partial OCR coverage after selecting video EOF', async () => {
   const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 2 })
@@ -389,8 +493,10 @@ it('bounds complete bridge JSON before spawning a recognizer', async () => {
   run.mockImplementation(async (...args) => {
     if (!args[1].includes('image2pipe')) return await original(...args)
     const image = Buffer.concat([Buffer.from([0xff, 0xd8]), Buffer.alloc(256), Buffer.from([0xff, 0xd9])])
+    const filter = args[1][args[1].indexOf('-vf') + 1] ?? ''
+    const pts = Array.from(filter.matchAll(/eq\(pts\\,(\d+)\)/gu), match => Number(match[1]))
     return { bytes: Buffer.concat(Array.from({ length: 8 }, () => image)),
-      diagnostic: Array.from({ length: 8 }, (_, index) => `n:${index} pts:${index} pts_time:${index / 2}`).join('\n') }
+      diagnostic: pts.map((pts, index) => `n:${index} pts:${pts} pts_time:${index / 2}`).join('\n') }
   })
   expect((await h.ocr({ end_seconds: 4 })).value).toMatchObject({ scan_status: 'failed',
     failure_code: 'ocr_runtime_unavailable', coverage: { planned_frame_count: 8, processed_frame_count: 0, failed_frame_count: 8 } })
@@ -1184,7 +1290,7 @@ it.each(['duplicate timestamp', 'missing timestamp', 'unknown final duration'])
   const h = await setup({ ocrFrameIntervalSeconds: 0.5, ocrBatchFrames: 2 })
   const run = mockWindowsOcr(), original = run.getMockImplementation()!
   run.mockImplementation(async (...args) => {
-    if (!args[1].includes('-read_intervals')) return await original(...args)
+    if (!args[1].includes('-select_streams')) return await original(...args)
     const frame = { best_effort_timestamp: 0, best_effort_timestamp_time: '0', duration_time: '1' }
     const frames = variant === 'duplicate timestamp' ? [frame, { ...frame, best_effort_timestamp_time: '0.5' }]
       : variant === 'missing timestamp' ? [{ duration_time: '1' }] : [{ best_effort_timestamp: 0, best_effort_timestamp_time: '0' }]
@@ -1193,4 +1299,44 @@ it.each(['duplicate timestamp', 'missing timestamp', 'unknown final duration'])
   const result = await h.ocr({ end_seconds: 1, raw_json_path: `qa/${variant}.json`, merged_text_path: `qa/${variant}.txt` })
   expect(result.value).toMatchObject({ scan_status: 'failed', coverage: { processed_frame_count: 0, failed_frame_count: 2 } })
   expect(run.mock.calls.some(call => call[1].some(value => value.endsWith('ocr_bridge.ps1')))).toBe(false)
+})
+
+it.each([
+  { name: 'null document', value: null, origin: false },
+  { name: 'array document', value: [], origin: false },
+  { name: 'missing frames', value: { streams: [{}] }, origin: false },
+  { name: 'non-array frames', value: { frames: {}, streams: [{}] }, origin: false },
+  { name: 'missing streams', value: { frames: [] }, origin: false },
+  { name: 'non-array streams', value: { frames: [], streams: {} }, origin: false },
+  { name: 'empty streams', value: { frames: [], streams: [] }, origin: false },
+  { name: 'multiple streams', value: { frames: [], streams: [{}, {}] }, origin: false },
+  { name: 'missing format origin', value: { frames: [], streams: [{ start_time: '0' }] }, origin: true },
+])('refuses incomplete FFprobe timestamp records before invoking OCR: $name', async ({ value, origin }) => {
+  const h = await setup({ ocrBatchFrames: 2 })
+  const run = mockWindowsOcr(), original = run.getMockImplementation()!
+  run.mockImplementation(async (...args) => args[1].includes('-select_streams')
+    ? { bytes: Buffer.from(JSON.stringify(value)), diagnostic: '' } : original(...args))
+  const result = await h.ocr({ end_seconds: 1 })
+  if (origin) {
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('非零或未知起点')
+  } else expect(result.value).toMatchObject({ scan_status: 'failed', coverage: { processed_frame_count: 0 } })
+  expect(run.mock.calls.some(call => call[1].some(value => value.endsWith('ocr_bridge.ps1')))).toBe(false)
+})
+
+it('uses legacy packet duration to verify the last displayed frame', async () => {
+  const h = await setup({ ocrBatchFrames: 2 })
+  const run = mockWindowsOcr(), original = run.getMockImplementation()!
+  run.mockImplementation(async (...args) => {
+    const output = await original(...args)
+    if (!args[1].includes('-select_streams')) return output
+    const probe = JSON.parse(Buffer.from(output.bytes).toString('utf8')) as { frames: Record<string, unknown>[] }
+    for (const frame of probe.frames) if ('duration_time' in frame) {
+      frame.pkt_duration_time = frame.duration_time
+      delete frame.duration_time
+    }
+    return { ...output, bytes: Buffer.from(JSON.stringify(probe)) }
+  })
+  expect((await h.ocr({ start_seconds: 3.9, end_seconds: 4 })).value).toMatchObject({ scan_status: 'complete',
+    coverage: { planned_frame_count: 1, processed_frame_count: 1 } })
 })

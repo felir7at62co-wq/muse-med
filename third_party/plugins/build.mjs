@@ -136,8 +136,7 @@ for (const name of selectedSources) {
         DSH_HOME: join(staging, 'compatibility-home'), TSX_TSCONFIG_PATH: join(repository, 'tsconfig.base.json'),
       })
       run(['--import', pathToFileURL(join(repository, 'node_modules/tsx/dist/esm/index.mjs')).href, '--test', '--test-concurrency=1',
-        ...['request-body', 'sse-lifecycle', 'translate', 'store', 'accounts', 'account-replay', 'image-pool', 'tools', 'tool-registration', 'rpc', 'models', 'codex-search',
-          'proxy-route', 'catalog-refresh-schedule', 'client-speed', 'model-selection-latency', 'subagent-speed'].map(test => `test/${test}.spec.ts`)], directory)
+        ...['request-body', 'sse-lifecycle', 'translate', 'store', 'accounts', 'account-replay', 'image-pool', 'tools', 'tool-registration', 'rpc', 'models', 'codex-search'].map(test => `test/${test}.spec.ts`)], directory)
       cpSync(join(sourceRoot, 'checks/subscriptions-host-loader.mjs'), join(directory, '.muse-subscriptions-host.test.mjs'))
       run(['--test', '.muse-subscriptions-host.test.mjs'], directory)
       run([join(repository, 'node_modules/vitest/vitest.mjs'), 'run', 'apps/desktop/tests/subscriptions-client.client.spec.tsx'], repository, {

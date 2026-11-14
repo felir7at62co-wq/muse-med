@@ -1,5 +1,6 @@
 /** Recorded writer inputs exercise exact portable budget oracles without changing their artifacts. */
 import { readFile } from 'node:fs/promises'
+import { win32 } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseToolSchemasSnapshot } from '@deepseek-ai/dsh-session-snapshot'
 import { assertWorkingBudgetExpectations, deriveShadowedBudgetExpectations, deriveWorkingBudgetExpectations } from '../../../../snapshots/session/working-budget-oracle.ts'
@@ -16,6 +17,66 @@ async function input(name: string, cwd: string): Promise<WorkingBudgetOracleInpu
 }
 
 describe('recorded working-budget expectations', () => {
+  it.each(['/tmp/replay', 'C:\\qa\\fixtures\\replay'])(
+    'prices both runtime directory and sandbox path quotes at %s', async (cwd) => {
+      const original = await input('muse-session-product', cwd)
+      const rows = original.log.split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
+      let expanded = false
+      for (const row of rows) {
+        if (row.type !== 'user/message') continue
+        const data = row.data as { content: { type: string; text?: string }[] }
+        for (const block of data.content) {
+          if (block.text?.startsWith('Current runtime context.') !== true) continue
+          expect(block.text).toContain('session workspace: "{{cwd}}"')
+          block.text = block.text.replaceAll('"{{cwd}}"', JSON.stringify(cwd))
+          expect(block.text).not.toContain('{{cwd}}')
+          expanded = true
+        }
+      }
+      expect(expanded).toBe(true)
+      const explicit = { ...original, log: rows.map(row => JSON.stringify(row)).join('\n') + '\n' }
+      expect(deriveWorkingBudgetExpectations(original)).toEqual(deriveWorkingBudgetExpectations(explicit))
+    },
+  )
+
+  it('prices native visualization paths from the tool display policy while keeping the working directory absolute', async () => {
+    const original = await input('muse-visualize', '/home/runner/work/dsh-log-snap-B54lk8')
+    const native = { ...original,
+      pathDisplays: new Map([['{{cwd}}/.dsh/visualize/sessions/{{session:1}}/',
+        '~/work/dsh-log-snap-B54lk8/.dsh/visualize/sessions/session-00000000-0000-4000-8000-000000000001/']]) }
+    const measured = deriveWorkingBudgetExpectations(native)
+    expect([...measured.values()]).toEqual([9635, 13625, 13914, 14064])
+    const absolute = deriveWorkingBudgetExpectations(original)
+    expect([...absolute.values()].slice(0, 2)).toEqual([...measured.values()].slice(0, 2))
+    expect(absolute).not.toEqual(measured)
+    expect(() => { assertWorkingBudgetExpectations(absolute, measured) }).toThrow('differs from expected-input estimate')
+  })
+
+  it('prices native Windows visualization asset paths and rejects changed guide paths or fields', async () => {
+    const original = await input('muse-visualize', 'E:\\222\\dsh-log-snap-ABC123')
+    const assets = '{{cwd}}/.dsh/plugins/dsh-visualize/assets/'
+    const card = ['{{cwd}}/.dsh/visualize/sessions/{{session:1}}/', win32.join(original.cwd,
+      '.dsh', 'visualize', 'sessions', 'session-00000000-0000-4000-8000-000000000001') + win32.sep] as const
+    const paths = new Map([
+      [assets + 'visualize-skill.md', win32.join(original.cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets', 'visualize-skill.md')],
+      [assets + 'styles/whale.md', win32.join(original.cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets', 'styles', 'whale.md')],
+      [assets, win32.join(original.cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets') + win32.sep], card,
+    ])
+    const expected = deriveWorkingBudgetExpectations({ ...original, pathDisplays: paths })
+    const portable = deriveWorkingBudgetExpectations({ ...original, pathDisplays: new Map([card]) })
+    expect([...expected.values()].map((count, index) => count - [...portable.values()][index]!)).toEqual([4, 4, 4, 4])
+    expect(() => { assertWorkingBudgetExpectations(portable, expected) }).toThrow('differs from expected-input estimate')
+    const wrongPaths = new Map(paths)
+    wrongPaths.set(assets + 'visualize-skill.md', win32.join(original.cwd, 'incorrect-guide-location'.repeat(4)))
+    const wrongPath = deriveWorkingBudgetExpectations({ ...original, pathDisplays: wrongPaths })
+    expect(() => { assertWorkingBudgetExpectations(wrongPath, expected) }).toThrow('differs from expected-input estimate')
+    const changedSchemas: unknown = JSON.parse(JSON.stringify(original.schemas).replace('visualize-skill.md', 'unexpected-guide.md'.repeat(4)))
+    if (!Array.isArray(changedSchemas) || !changedSchemas.every(Array.isArray)) throw new Error('Missing changed schema arrays')
+    const changedField = deriveWorkingBudgetExpectations({ ...original, schemas: changedSchemas, pathDisplays: paths })
+    expect(() => { assertWorkingBudgetExpectations(changedField, expected) }).toThrow('differs from expected-input estimate')
+    expect(original.log).toBe((await input('muse-visualize', original.cwd)).log)
+  })
+
   it('prices the same recorded inputs at each replay directory before path redaction', async () => {
     const short = await input('muse-creation-source-id-recovery', '/tmp/replay')
     const long = { ...short, cwd: '/tmp/a-much-longer-workspace-parent/another-directory/replay' }
@@ -28,24 +89,52 @@ describe('recorded working-budget expectations', () => {
     expect(() => { assertWorkingBudgetExpectations(first, second) }).toThrow('differs from expected-input estimate')
   })
 
-  it('rejects a one-token measurement error and a deleted model-visible input', async () => {
-    const original = await input('muse-creation-source-id-recovery', '/tmp/replay')
+  it.each(['muse-creation-source-id-recovery', 'muse-session-product'])(
+    'rejects a one-token measurement error and a deleted model-visible input in %s', async (name) => {
+      const original = await input(name, '/tmp/replay')
+      const expected = deriveWorkingBudgetExpectations(original)
+      const measured = new Map(expected)
+      const first = measured.entries().next().value
+      if (first === undefined) throw new Error('Missing recorded budget')
+      measured.set(first[0], first[1] + 1)
+      expect(() => { assertWorkingBudgetExpectations(measured, expected) }).toThrow('differs from expected-input estimate')
+      // The fixture's long task stays a valid logged message; removing its text must alter the exact price.
+      const lines = original.log.split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
+      const user = lines.find(row => row.type === 'user/message')
+      if (user === undefined) throw new Error('Missing recorded user input')
+      const data = user.data as { content: { type: string; text?: string }[] }
+      data.content = data.content.map(block => block.type === 'text' ? { ...block, text: '' } : block)
+      const withoutInput = deriveWorkingBudgetExpectations({ ...original, log: lines.map(row => JSON.stringify(row)).join('\n') + '\n' })
+      expect(withoutInput).not.toEqual(expected)
+      expect(() => { assertWorkingBudgetExpectations(expected, withoutInput) }).toThrow('differs from expected-input estimate')
+      expect(original.log).toBe((await input(name, '/tmp/replay')).log)
+    },
+  )
+
+  it('prices declaration changes from their exact recorded block fields', async () => {
+    const original = await input('muse-session-product', '/tmp/replay')
     const expected = deriveWorkingBudgetExpectations(original)
-    const measured = new Map(expected)
-    const first = measured.entries().next().value
-    if (first === undefined) throw new Error('Missing recorded budget')
-    measured.set(first[0], first[1] + 1)
-    expect(() => { assertWorkingBudgetExpectations(measured, expected) }).toThrow('differs from expected-input estimate')
-    // The fixture's long task stays a valid logged message; removing its text must alter the exact price.
-    const lines = original.log.split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
-    const user = lines.find(row => row.type === 'user/message')
-    if (user === undefined) throw new Error('Missing recorded user input')
-    const data = user.data as { content: { type: string; text?: string }[] }
-    data.content = data.content.map(block => block.type === 'text' ? { ...block, text: '' } : block)
-    const withoutInput = deriveWorkingBudgetExpectations({ ...original, log: lines.map(row => JSON.stringify(row)).join('\n') + '\n' })
-    expect(withoutInput).not.toEqual(expected)
-    expect(() => { assertWorkingBudgetExpectations(expected, withoutInput) }).toThrow('differs from expected-input estimate')
-    expect(original.log).toBe((await input('muse-creation-source-id-recovery', '/tmp/replay')).log)
+    const rows = original.log.split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
+    const row = rows.find(record => record.type === 'developer/message')
+    if (row === undefined) throw new Error('Missing tool declaration message')
+    const data = row.data as { message: { content: { type: string; toolName?: string }[] } }
+    const addition = data.message.content.find(block => block.type === 'tool-addition')
+    if (addition?.toolName === undefined) throw new Error('Missing tool addition')
+    addition.toolName = 'hongguo_detail'
+    const changed = deriveWorkingBudgetExpectations({ ...original, log: rows.map(record => JSON.stringify(record)).join('\n') + '\n' })
+    expect(() => { assertWorkingBudgetExpectations(expected, changed) }).toThrow('differs from expected-input estimate')
+    expect(original.log).toBe((await input('muse-session-product', '/tmp/replay')).log)
+  })
+
+  it('rejects normalized tool names that disagree with their complete schema sidecar', async () => {
+    const original = await input('muse-session-product', '/tmp/replay')
+    const rows = original.log.split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
+    const row = rows.find(record => record.type === 'request/header')
+    if (row === undefined) throw new Error('Missing request header')
+    const data = row.data as { header: { tools: string[] } }
+    data.header.tools.pop()
+    expect(() => deriveWorkingBudgetExpectations({ ...original, log: rows.map(record => JSON.stringify(record)).join('\n') + '\n' }))
+      .toThrow('tool inventory differs from its schema sidecar')
   })
 
   it('rejects even one wrong token in an expected compaction span', async () => {

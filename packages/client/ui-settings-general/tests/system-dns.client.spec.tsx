@@ -4,7 +4,7 @@ import { allowAllAccess, bindSnapshotSelector, contextMenuHook } from '@deepseek
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { afterEach, expect, it, vi } from 'vitest'
 import { SystemDnsRow, SystemDnsToast } from '../src/client/SystemDnsRow.tsx'
-import { SystemDnsSource, type SystemDnsPreference } from '../src/client/system-dns-source.ts'
+import { SystemDnsSource, type SystemDnsPreference, type SystemDnsSaveResult } from '../src/client/system-dns-source.ts'
 import { en } from '../src/client/locales.ts'
 
 const useResource = (() => ({ status: 'none' as const, value: undefined, failure: undefined, reload: () => {} })) as GlobalStandardProps['useResource']
@@ -120,4 +120,60 @@ it('ignores a pending write outcome after the plugin is disposed', async () => {
   await operation
   expect(source.store.getSnapshot().unknown).toBe(false)
   expect(source.store.getSnapshot().preference?.saved).toBe(false)
+})
+
+it('refuses writes until a preference is known and serializes writes against reload and another write', async () => {
+  const initial = Promise.withResolvers<SystemDnsPreference>()
+  const pending = Promise.withResolvers<SystemDnsSaveResult>()
+  const status = vi.fn().mockReturnValueOnce(initial.promise).mockResolvedValue({ saved: false, active: false })
+  const set = vi.fn().mockReturnValueOnce(pending.promise)
+  const source = new SystemDnsSource({ status, set })
+  await source.set(true)
+  expect(set).not.toHaveBeenCalled()
+  initial.resolve({ saved: false, active: false })
+  await waitFor(() => { expect(source.store.getSnapshot().loading).toBe(false) })
+  const save = source.set(true)
+  await source.set(false)
+  await source.load()
+  expect(set).toHaveBeenCalledExactlyOnceWith(true)
+  expect(status).toHaveBeenCalledOnce()
+  pending.resolve({ unknown: true })
+  await save
+  await source.set(false)
+  expect(set).toHaveBeenCalledOnce()
+  source.dispose()
+  const disposed = source.store.getSnapshot()
+  await source.load()
+  await source.set(false)
+  source.dismiss()
+  expect(source.store.getSnapshot()).toBe(disposed)
+  expect(status).toHaveBeenCalledOnce()
+  expect(set).toHaveBeenCalledOnce()
+})
+
+it.each(['read', 'write'] as const)('ignores a rejected %s after disposal without publishing an unknown result', async (operation) => {
+  const pending = Promise.withResolvers<SystemDnsPreference>()
+  const status = vi.fn().mockResolvedValueOnce({ saved: false, active: false })
+  const set = vi.fn().mockReturnValue(pending.promise)
+  const source = new SystemDnsSource({ status, set })
+  await waitFor(() => { expect(source.store.getSnapshot().loading).toBe(false) })
+  if (operation === 'read') status.mockReturnValueOnce(pending.promise)
+  const active = operation === 'read' ? source.load() : source.set(true)
+  source.dispose()
+  const disposed = source.store.getSnapshot()
+  pending.reject(Error('Desktop bridge ended'))
+  await active
+  expect(source.store.getSnapshot()).toBe(disposed)
+  expect(source.store.getSnapshot().notice).toBeNull()
+})
+
+it('dismisses a saved notice without changing the accepted preference or its sequence', async () => {
+  const source = new SystemDnsSource({ status: async () => ({ saved: false, active: false }),
+    set: async () => ({ saved: true, active: false }) })
+  await waitFor(() => { expect(source.store.getSnapshot().loading).toBe(false) })
+  await source.set(true)
+  const saved = source.store.getSnapshot()
+  source.dismiss()
+  expect(source.store.getSnapshot()).toEqual({ ...saved, notice: null })
+  source.dispose()
 })

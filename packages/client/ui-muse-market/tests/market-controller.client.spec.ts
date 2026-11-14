@@ -84,4 +84,39 @@ describe('market account request lifetimes', () => {
     await expect(controller.operations.installed()).rejects.toBeInstanceOf(MarketAccessChanged)
     stop()
   })
+
+  it('rejects local results arriving after disposal and refuses new private requests', async () => {
+    const pending = Promise.withResolvers<Awaited<ReturnType<MarketActions['installed']>>>()
+    const controller = new MarketController(operations({ installed: () => pending.promise }))
+    const read = expect(controller.operations.installed()).rejects.toBeInstanceOf(MarketAccessChanged)
+    controller.dispose()
+    controller.invalidateAccess(); controller.invalidateInventory()
+    pending.resolve([])
+    await read
+    await expect(controller.operations.catalog('', false)).rejects.toBeInstanceOf(MarketAccessChanged)
+    expect(controller.access.getSnapshot()).toEqual({ revision: 0 })
+  })
+
+  it('refreshes local inventory without revoking the verified account', async () => {
+    const controller = new MarketController(operations())
+    await controller.operations.identity()
+    controller.invalidateInventory(); controller.invalidateInventory()
+    expect(controller.access.getSnapshot()).toEqual({ revision: 0, inventoryRevision: 2, identity: account('a') })
+    controller.dispose()
+  })
+
+  it.each([
+    { error: null, revoke: true }, { error: { details: null }, revoke: true },
+    { error: { details: {} }, revoke: true }, { error: { details: { status: 400 } }, revoke: false },
+    { error: { details: { status: 409 } }, revoke: false },
+    { error: { details: { status: 409, code: 'account-changed' } }, revoke: true },
+  ])('revokes authority according to the structured remote failure $error', async ({ error, revoke }) => {
+    const controller = new MarketController(operations({ catalog: async () => { throw error } }))
+    await controller.operations.identity()
+    await expect(controller.operations.catalog('', true)).rejects.toBe(error)
+    expect(controller.access.getSnapshot().revision).toBe(revoke ? 1 : 0)
+    await expect(controller.operations.catalog('', true)).rejects.toBe(error)
+    expect(controller.access.getSnapshot().revision).toBe(revoke ? 1 : 0)
+    controller.dispose()
+  })
 })

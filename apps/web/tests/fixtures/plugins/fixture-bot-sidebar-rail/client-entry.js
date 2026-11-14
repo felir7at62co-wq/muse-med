@@ -19,7 +19,7 @@ export function apply(ctx) {
   const note = (id) => { document.documentElement.dataset.fixtureBotSelected = id }
   const actions = { toggleSidebar: () => ctx.layout.toggleSidebar(), openSession: note,
     openPalette: () => note('search'), openSettings: () => note('settings'), openNewChat: () => note('new'),
-    clearUnread() {}, landOn() {}, openMenu() {} }
+    prepareLanding: () => () => true, clearUnread() {}, landOn() {}, openMenu() {} }
   function Sidebar(props) {
     return h(TeamSidebar, { ...props, actions,
       useRoster: select => select(roster), useUi: select => select({ unread: {} }),

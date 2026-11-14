@@ -6,4 +6,6 @@
 
 回放使用专用的 `snapshot-visualize` 模型提供方，没有真实 API 回退路径。将 `MUSE_VISUALIZE_PACKAGE` 设为已审查并解包的插件目录，可以通过其中构建后的 `lib/index.js` 运行相同场景；默认使用保留的源码。运行时文件和资源都放在测试私有 home 中，不读取个人样式文件或账号。
 
+请求预算根据预期消息和 sidecar 在实际工作区中独立重算。私有图卡路径采用工具的 home 相对显示和已发布 Headless 的 `session-<UUID>` 长度；回放在模型请求前验证该 ID 格式。路径比较只识别已知工作区的绝对路径和 home 相对写法。
+
 `apps/web/tests/muse-visualize.e2e.ts` 使用相同的原生 Session 数据打开已打包的客户端，检查滑块交互和刷新、两个会话的隔离，并验证图卡提示只填入草稿，保留用户已有草稿和附件。浏览器截图和验收回执保存在 `.artifacts/visualize-browser-ui/` 下。

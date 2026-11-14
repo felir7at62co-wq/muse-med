@@ -3,12 +3,12 @@ import { constants, type Stats } from 'node:fs'
 import { lstat, open, stat } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { FileHandle } from 'node:fs/promises'
-import { hashEpisodeContents } from './episode-file-digest.ts'
 import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/cordis'
 import type { VideoArtifactSha256, VideoRecoveryDigest, EpisodeAttemptId, EpisodeExecutionId, EpisodeRendererGeneration } from './types.ts'
 import type { EpisodeDeliveryJob } from './episode-delivery-job.ts'
+import { hashEpisodeFileHandle } from './episode-file-hash.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -333,7 +333,7 @@ export async function hashEpisodeFile(path: string, signal: AbortSignal): Promis
     if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
       throw new Error('Episode input changed while opening')
     }
-    const { digest, bytes } = await hashEpisodeContents(file, signal)
+    const { sha256, bytes } = await hashEpisodeFileHandle(file, signal)
     const after = await file.stat(), current = await lstat(path)
     if (!current.isFile() || current.dev !== opened.dev || current.ino !== opened.ino
       || bytes !== opened.size || after.size !== opened.size || current.size !== opened.size
@@ -342,7 +342,7 @@ export async function hashEpisodeFile(path: string, signal: AbortSignal): Promis
       throw new Error('Episode input changed during hashing')
     }
     signal.throwIfAborted()
-    return { path, sha256: brandString<Sha256>(digest), bytes,
+    return { path, sha256: brandString<Sha256>(sha256), bytes,
       dev: current.dev, ino: current.ino, mtimeMs: current.mtimeMs, ctimeMs: current.ctimeMs }
   } finally { await file.close() }
 }

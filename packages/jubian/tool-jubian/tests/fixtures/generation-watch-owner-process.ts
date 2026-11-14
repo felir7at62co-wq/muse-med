@@ -4,7 +4,8 @@ import { GenerationWatchRuntime } from '../../src/generation-watch.ts'
 import { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { join } from 'node:path'
-import { appendFile } from 'node:fs/promises'
+import fs, { appendFile } from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import { bodyHash, writeUnderLedger } from '../../src/write.ts'
 
 const [root, mode, payload] = process.argv.slice(2)
@@ -57,13 +58,28 @@ async function runWorker(root: string, mode: string, payload: string): Promise<v
       process.send?.({ kind: enrollment.initial ? 'initial' : 'replay' }, () => { process.disconnect?.() })
       return
     }
-    if (mode === 'interrupt-create') {
-      Object.defineProperty(store, 'createCheckpoint', { value: async () => {
-        process.send?.({ kind: 'before-checkpoint' })
-        return await new Promise<GenerationWatchRun>(() => {})
-      } })
-      await store.claimAndCreate(JSON.parse(payload) as GenerationWatchRun)
-      throw new Error('The interrupted checkpoint unexpectedly completed')
+    if (mode === 'interrupt-create' || mode === 'observe-create') {
+      const run = JSON.parse(payload) as GenerationWatchRun
+      const checkpoint = join(root, `${run.id}.json`)
+      const rename = fs.rename
+      fs.rename = async (source, target) => {
+        if (target === checkpoint) {
+          await new Promise<void>((resolve) => {
+            process.once('message', () => { resolve() })
+            process.send?.({ kind: 'before-checkpoint' })
+          })
+        }
+        await rename(source, target)
+      }
+      syncBuiltinESMExports()
+      try {
+        const created = await store.claimAndCreate(run)
+        process.send?.({ kind: created ? 'created' : 'replayed' }, () => { process.disconnect?.() })
+      } finally {
+        fs.rename = rename
+        syncBuiltinESMExports()
+      }
+      return
     }
     if (mode === 'lease') {
       await store.withRecoveryLease(payload, new AbortController().signal, 5000, async () => {

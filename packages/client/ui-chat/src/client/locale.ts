@@ -422,20 +422,9 @@ export const en = {
   'clock.ymd': '{y}-{m}-{d}',
 } satisfies Record<ChatKey, string>
 
-const englishFallback = {
-  'chat.preparing': en['chat.preparing'],
-  'chat.preparingFor': en['chat.preparingFor'],
-  'chat.waitingForResponse': en['chat.waitingForResponse'],
-  'chat.waitingForResponseFor': en['chat.waitingForResponseFor'],
-  'chat.waitingForResponseStep': en['chat.waitingForResponseStep'],
-  'chat.receivingReasoning': en['chat.receivingReasoning'],
-  'chat.receivingReasoningFor': en['chat.receivingReasoningFor'],
-  'chat.receivingResponse': en['chat.receivingResponse'],
-  'chat.receivingResponseFor': en['chat.receivingResponseFor'],
-}
-
 /** Japanese copy, checked against the English keys. */
 export const ja = {
+  ...en,
   'message.stepProcess.thinking': 'リクエストを分析中',
   'message.stepProcess.read': 'ファイルを読み取り中',
   'message.stepProcess.readImage': '画像を読み取り中',
@@ -631,11 +620,11 @@ export const ja = {
   'json.truncated': '… 省略表示、全{total}文字',
   'clock.md': '{m}/{d}',
   'clock.ymd': '{y}-{m}-{d}',
-  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
 export const es = {
+  ...en,
   'message.stepProcess.thinking': 'Analizando la solicitud',
   'message.stepProcess.read': 'Leyendo archivos',
   'message.stepProcess.readImage': 'Leyendo imágenes',
@@ -831,11 +820,11 @@ export const es = {
   'json.truncated': '… truncado, caracteres {total} en total',
   'clock.md': '{m}/{d}',
   'clock.ymd': '{y}-{m}-{d}',
-  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
 export const fr = {
+  ...en,
   'message.stepProcess.thinking': 'Analyser la demande',
   'message.stepProcess.read': 'Lecture de fichiers',
   'message.stepProcess.readImage': 'Lire des images',
@@ -1031,11 +1020,11 @@ export const fr = {
   'json.truncated': '… tronqué, nombre total de caractères {total}',
   'clock.md': '{m}/{d}',
   'clock.ymd': '{y}-{m}-{d}',
-  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
 export const de = {
+  ...en,
   'message.stepProcess.thinking': 'Analyse der Anfrage',
   'message.stepProcess.read': 'Dateien lesen',
   'message.stepProcess.readImage': 'Bilder lesen',
@@ -1231,11 +1220,11 @@ export const de = {
   'json.truncated': '… gekürzt, {total} Zeichen insgesamt',
   'clock.md': '{m}/{d}',
   'clock.ymd': '{y}-{m}-{d}',
-  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
 export const ru = {
+  ...en,
   'message.stepProcess.thinking': 'Анализ запроса',
   'message.stepProcess.read': 'Чтение файлов',
   'message.stepProcess.readImage': 'Чтение изображений',
@@ -1431,11 +1420,11 @@ export const ru = {
   'json.truncated': '… усечено, всего символов {total}',
   'clock.md': '{m}/{d}',
   'clock.ymd': '{y}-{m}-{d}',
-  ...englishFallback,
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
 export const pt = {
+  ...en,
   'message.stepProcess.thinking': 'Analisando a solicitação',
   'message.stepProcess.read': 'Lendo arquivos',
   'message.stepProcess.readImage': 'Lendo imagens',
@@ -1631,5 +1620,4 @@ export const pt = {
   'json.truncated': '… truncado, {total} caracteres no total',
   'clock.md': '{m}/{d}',
   'clock.ymd': '{y}-{m}-{d}',
-  ...englishFallback,
 } satisfies Record<keyof typeof en, string>

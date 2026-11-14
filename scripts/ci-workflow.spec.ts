@@ -457,6 +457,17 @@ describe('CI workflow', () => {
     }
   })
 
+  it('retains failed replay diagnostics outside committed expectations', () => {
+    const job = workflowJob(loadWorkflow('.github/workflows/ci.yml'), 'node-24-consumers')
+    if (!Array.isArray(job.steps)) throw new TypeError('the consumer job must declare steps')
+    const upload: unknown = job.steps.find((step: unknown) => isRecord(step) && step.name === 'Upload read-only Session replay diagnostics')
+    expect(upload).toMatchObject({
+      if: 'failure()', uses: 'actions/upload-artifact@v7.0.1',
+      with: { name: 'session-replay-diagnostics', path: '.artifacts/snapshot-replay', 'if-no-files-found': 'warn', 'retention-days': 3 },
+    })
+    expect(job.steps).toContainEqual({ name: 'Run compatibility, snapshot, and artifact gates', run: 'pnpm run check:ci:consumers' })
+  })
+
   it('keeps split native Windows PR jobs with failover in their own workflow, plus a master-only standby', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     const windowsWorkflow = loadWorkflow('.github/workflows/ci-windows.yml')
@@ -720,6 +731,28 @@ describe('CI workflow', () => {
     // and exists to collect as much Windows-native evidence per run as
     // possible, so the first failure must not truncate the rest.
     expect(observational?.env).toMatchObject({ DSH_GATE_FAIL_FAST: '' })
+  })
+
+  it.each([
+    ['ci.yml', 'node-24-lint', 'LINUX', 'ubuntu-24.04', 'dsh-ubuntu-24-04-16core'],
+    ['ci-windows.yml', 'windows-build', 'WINDOWS', 'windows-2025', 'dsh-windows-2025-16core'],
+    ['ci-windows.yml', 'windows-coverage', 'WINDOWS', 'windows-2025', 'dsh-windows-2025-16core'],
+    ['ci-windows.yml', 'windows-native-tests', 'WINDOWS', 'windows-2025', 'dsh-windows-2025-16core'],
+  ])('keeps %s / %s schedulable outside the upstream runner pool', (file, name, platform, hosted, upstream) => {
+    const selector = workflowJob(loadWorkflow(`.github/workflows/${file}`), name)['runs-on']
+    if (typeof selector !== 'string') throw new TypeError('Runner selector must be an expression')
+    const variable = `DSH_CI_FAILOVER_${platform}`
+    const evaluate = (repository: string, mode = '', login = 'maintainer'): unknown => evaluateRunsOn(selector, {
+      vars: { [variable]: mode }, fromJSON: JSON.parse,
+      github: { repository, event: { pull_request: { user: { login } } } },
+    })
+    expect(evaluate('deepseek-harness/deepseek-harness')).toBe(upstream)
+    for (const repository of ['felir7at62co-wq/muse-med', 'example/fork']) {
+      for (const mode of ['', 'hosted', 'unexpected']) expect(evaluate(repository, mode)).toBe(hosted)
+      expect(evaluate(repository, 'blacksmith')).toMatch(/^blacksmith-/)
+      expect(evaluate(repository, 'selfhosted')).toContain('self-hosted')
+      expect(evaluate(repository, 'selfhosted', 'dependabot[bot]')).toBe(hosted)
+    }
   })
 
   it('runs the darwin unit parity inventory at the coverage lanes\' test budget', () => {

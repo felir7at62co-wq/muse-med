@@ -1,6 +1,6 @@
 // Private pending views and answer intents. A failed replacement retains the last
 // committed in-memory state; callers can retry without resurrecting removed cards.
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
 import { checkShownView } from '../core/views.js'
@@ -31,6 +31,7 @@ function validateRecord(record) {
 
 /**
  * Create a single-writer store whose mutations commit after an atomic file replacement.
+ * First load creates the private directory; a file ancestor is an error.
  * @param home Private directory holding pending.json.
  * @returns Detached reads, serialized writes and an asynchronous drain operation.
  */
@@ -45,6 +46,7 @@ export function createPendingStore(home) {
     if (views !== null) return
     if (loading === undefined) {
       loading = (async () => {
+        await mkdir(home, { recursive: true, mode: 0o700 })
         let text
         try { text = await readFile(path, 'utf8') } catch (error) {
           if (error?.code !== 'ENOENT') throw error

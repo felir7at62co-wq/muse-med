@@ -74,5 +74,9 @@ export const en = {
   missingRoot: '{root} does not exist; create it, or point the configuration at the notes directory.',
 } satisfies Record<AgentNotesLocaleKey, string>
 
-/** Independent English fallback dictionaries for Japanese, Spanish, French, German, Russian and Portuguese. */
-export const ja = { ...en }, es = { ...en }, fr = { ...en }, de = { ...en }, ru = { ...en }, pt = { ...en }
+/** Separate English dictionaries for fallback locales. */
+function englishCopy(): typeof en { return { ...en } }
+
+/** English fallbacks for Japanese, Spanish, French, German, Russian and Portuguese. */
+export const ja = englishCopy(), es = englishCopy(), fr = englishCopy(),
+  de = englishCopy(), ru = englishCopy(), pt = englishCopy()
