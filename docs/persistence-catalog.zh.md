@@ -503,7 +503,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
   | {
     /** Complete provider output before the backend's safe summary projection. */
     rawOutput: ContentBlock[]
-    /** Identifies exactly one call through this context's `ctx.llm.stream()`. */
+    /** Identifies the successful call through this context's `ctx.llm.stream()` that produced `rawOutput`; transient failures before it may have been retried. */
     llmStreamCall: true
   }
   | {

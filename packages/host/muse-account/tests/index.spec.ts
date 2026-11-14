@@ -105,6 +105,39 @@ it('rejects invalid model image budgets before activation', () => {
   }
 })
 
+it('rejects invalid model retry policies before activation', async () => {
+  expect(Config({ baseUrl }).modelRetryPolicy).toBeUndefined()
+  for (const modelRetryPolicy of [{ mode: 'sometimes' }, { mode: 'normal', maxRetries: -1 }, { mode: 'normal', maxRetries: 1.5 },
+    { mode: 'normal', retryableCodes: [] }, { mode: 'normal', backoff: { jitterRatio: 2 } }]) {
+    expect(() => { Reflect.apply(Config, undefined, [{ baseUrl, modelRetryPolicy }]) }).toThrow()
+  }
+  const fetcher = vi.fn<typeof fetch>(async () => Response.json(catalog))
+  vi.stubGlobal('fetch', fetcher)
+  for (const [modelRetryPolicy, message] of [
+    [{ mode: 'normal', backoff: { initialDelayMs: 70000, maxDelayMs: 60000 } },
+      'muse-account: modelRetryPolicy.backoff.initialDelayMs must be less than or equal to maxDelayMs'],
+    [{ mode: 'normal', maxRetry: 8 }, 'muse-account: modelRetryPolicy: unknown key "maxRetry"'],
+  ] as const) {
+    const { ctx, home, sessionFile } = await fixture()
+    await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=account-private' })
+    const config: Config = Reflect.apply(Config, undefined, [{ baseUrl, accountHome: home, modelRetryPolicy }])
+    await expect(apply(ctx, config)).rejects.toThrow(message)
+    expect(ctx.llm.listProviders().some(provider => provider.id.startsWith('muse-cloud-'))).toBe(false)
+  }
+  expect(fetcher).not.toHaveBeenCalled()
+})
+
+it('applies the configured retry policy to account model routes', async () => {
+  const { ctx, home, sessionFile } = await fixture()
+  await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=account-private' })
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => Response.json(catalog)))
+  await apply(ctx, Config({ baseUrl, accountHome: home,
+    modelRetryPolicy: { mode: 'normal', maxRetries: 8, backoff: { initialDelayMs: 2000, maxDelayMs: 60000 } } }))
+  await account(ctx).status({})
+  expect(ctx.llm.providerRetryPolicy('muse-cloud-studio'))
+    .toMatchObject({ mode: 'normal', maxRetries: 8, initialDelayMs: 2000, maxDelayMs: 60000, jitterRatio: 0.1 })
+})
+
 it('keeps company media opt-in and validates its destination and resource limits', async () => {
   expect(Config({ baseUrl })).toMatchObject({ mediaTools: false, mediaDirectory: 'source/media/company' })
   for (const mediaDirectory of ['../outside', '/absolute', 'source//media', 'source/../media', 'source\\media']) {

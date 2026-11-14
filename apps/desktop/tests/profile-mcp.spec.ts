@@ -105,6 +105,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
         excludedModelPrefixes: [], excludedProviderIds: ['aa'], hiddenProviderIds: ['yunying'],
         visibleModels: [{ providerId: 'yunying', modelId: 'gemini-3.1-pro' },
           { providerId: 'yunying', modelId: 'gpt-6.1-sol' }], requestTimeoutMs: 60000,
+        modelRetryPolicy: { mode: 'normal', maxRetries: 8, backoff: { initialDelayMs: 2000, maxDelayMs: 60000 } },
         excludedModels: [
           { providerId: 'yunying', modelId: 'claude-opus-5-5' },
           { providerId: 'yunying', modelId: 'claude-fable-5-1' },

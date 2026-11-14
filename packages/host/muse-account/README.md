@@ -110,6 +110,7 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `webSearch` | `false` | Register the `muse` search provider when the web service is present; Muse Desktop enables it. |
 | `searchRequestTimeoutMs` | 60,000 | Independent account-authorized search timeout in milliseconds, from 1,000 to 120,000. |
 | `modelRequestImageMaxBytes` | Adapter default (`20 MiB`) | Optional positive safe integer limiting accumulated base64 images per model request. Mount `compaction-image-offload` to log omission of the oldest image occurrences and retry; source attachments remain readable. This does not limit text output. |
+| `modelRetryPolicy` | Adapter default (normal, 5 retries, 0.5–10 s) | Optional provider `retryPolicy` for every account model route, validated at load. `dsh-llm-retry` applies it to failed steps and `compaction-basic` to summary requests. |
 | `feedbackTools` | `false` | Register explicit user submission and owner-scoped receipt-query tools; Muse Desktop enables them. |
 | `mediaTools` | `false` | Register four deferred company media tools; Desktop enables them. |
 | `mediaRequestTimeoutMs` | 60,000 | Metadata and receipt deadline in milliseconds, 1,000–120,000. |

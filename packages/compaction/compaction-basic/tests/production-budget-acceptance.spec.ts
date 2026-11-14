@@ -8,8 +8,8 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
 import type { Agent, AgentHandle } from '@deepseek-ai/dsh-agent'
-import { createMessage, createSystemMessage, createToolResultMessage, createUserMessage, LlmAdapter, LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
-import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
+import { createMessage, createSystemMessage, createToolResultMessage, createUserMessage, LlmAdapter, LlmError, resolveRetryPolicy, ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { GenerateOptions, LlmResolvedModelInfo, ResolvedRetryPolicy, StreamChunk } from '@deepseek-ai/dsh-llm'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { EpochHeader, SessionEvent } from '@deepseek-ai/dsh-session'
 import * as JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
@@ -82,6 +82,11 @@ class AcceptanceAdapter extends LlmAdapter {
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
     return Promise.resolve({ provider, id: model, name: model,
       context: { contextWindow: this.route.window }, defaultMaxTokens: this.route.output })
+  }
+
+  // Summary failures stay terminal so the unavailable-summary cases cover the fallback directly.
+  override providerRetryPolicy(): ResolvedRetryPolicy {
+    return resolveRetryPolicy({ mode: 'normal', maxRetries: 0 }, 'acceptance fixture retryPolicy')
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {

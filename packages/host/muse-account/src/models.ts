@@ -9,6 +9,7 @@ import type {
   LlmResolvedModelInfo,
   PreparedAdapterCall,
   GenerateOptions,
+  RetryPolicyConfig,
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import type { Agent, ModelSelection } from '@deepseek-ai/dsh-agent'
@@ -123,6 +124,8 @@ export interface MuseModelsOptions {
   readonly visibleModels?: readonly { providerId: string; modelId: string }[]
   /** Base64 image-byte budget resolved by the provider adapter; omission keeps its default. */
   readonly modelRequestImageMaxBytes?: number
+  /** Provider retry policy given to every account route; omission keeps the adapter default. */
+  readonly modelRetryPolicy?: RetryPolicyConfig
 }
 
 /** Own Muse registrations and repair defaults whose matching direct route has no credential. */
@@ -316,6 +319,7 @@ export class MuseModels {
         ...(provider.access === undefined ? { headers: { origin: this.options.baseUrl } } : {}),
         ...(this.options.modelRequestImageMaxBytes === undefined ? {}
           : { maxRequestImageBytes: this.options.modelRequestImageMaxBytes }),
+        ...(this.options.modelRetryPolicy === undefined ? {} : { retryPolicy: this.options.modelRetryPolicy }),
         models: allowedModels.map((model) => {
           const arkDeepSeek = provider.id === 'volcengine-ark'
             && /^deepseek-v4(?:-1|\.1)-flash-(?:260910|261017)$/.test(modelName(model.id))

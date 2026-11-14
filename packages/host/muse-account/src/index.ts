@@ -2,6 +2,8 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import Schema from '@deepseek-ai/schemastery'
+import { RetryPolicySchema, resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
+import type { RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { isAbsolute, join } from 'node:path'
 import { MuseAccountController } from './account.ts'
@@ -77,6 +79,8 @@ export interface Config {
   readonly searchRequestTimeoutMs: number
   /** Optional base64 image-byte budget per model request; omission keeps the adapter default. */
   readonly modelRequestImageMaxBytes?: number
+  /** Optional provider retry policy for every account model route; omission keeps the adapter default. */
+  readonly modelRetryPolicy?: RetryPolicyConfig
   /** Maximum time for one compressed-audio upload and gateway response. */
   readonly asrRequestTimeoutMs: number
   /** Maximum visible characters in each optional related request and answer excerpt. */
@@ -145,6 +149,7 @@ export const Config: Schema<Pick<Config, 'baseUrl'> & Partial<Omit<Config, 'base
   webSearch: Schema.boolean().default(false),
   searchRequestTimeoutMs: Schema.number().step(1).min(1_000).max(120_000).default(60_000),
   modelRequestImageMaxBytes: Schema.number().step(1).min(1).max(Number.MAX_SAFE_INTEGER),
+  modelRetryPolicy: RetryPolicySchema,
   asrRequestTimeoutMs: Schema.number().step(1).min(10_000).max(1_800_000).default(300_000),
   feedbackExcerptChars: Schema.number().step(1).min(100).max(1_200).default(1_000),
   feedbackTools: Schema.boolean().default(false),
@@ -180,6 +185,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const baseUrl = museGatewayOrigin(config.baseUrl)
   const accountHome = config.accountHome ?? dshHomePath('muse-account')
   if (!isAbsolute(accountHome)) throw new Error('muse-account: accountHome must be absolute')
+  // Cross-field and unknown-key errors otherwise surface only in the background catalog refresh.
+  if (config.modelRetryPolicy !== undefined) resolveRetryPolicy(config.modelRetryPolicy, 'muse-account: modelRetryPolicy')
   const controller = new MuseAccountController({
     baseUrl,
     sessionFile: join(accountHome, 'session.json'),
@@ -213,7 +220,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     excludedModelPrefixes: config.excludedModelPrefixes, excludedModels: config.excludedModels,
     excludedProviderIds: config.excludedProviderIds, hiddenProviderIds: config.hiddenProviderIds,
     visibleModels: config.visibleModels,
-    ...(config.modelRequestImageMaxBytes === undefined ? {} : { modelRequestImageMaxBytes: config.modelRequestImageMaxBytes }) })
+    ...(config.modelRequestImageMaxBytes === undefined ? {} : { modelRequestImageMaxBytes: config.modelRequestImageMaxBytes }),
+    ...(config.modelRetryPolicy === undefined ? {} : { modelRetryPolicy: config.modelRetryPolicy }) })
   let remote: MuseDesktopRemote | undefined
   if (config.remoteAccess) {
     const bridge = ctx.get('museDesktopBridge')

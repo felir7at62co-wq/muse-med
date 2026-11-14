@@ -110,6 +110,7 @@ Muse Desktop 在空白首启时先提供 MUSE 登录，再检查模型配置；�
 | `webSearch` | `false` | web 服务存在时注册 `muse` 搜索提供方；Muse Desktop 启用此项。 |
 | `searchRequestTimeoutMs` | 60,000 | 独立的账号授权搜索超时毫秒数，可设为 1,000 至 120,000。 |
 | `modelRequestImageMaxBytes` | 适配器默认值（`20 MiB`） | 每次模型请求累计 base64 图片字节上限，可设为正安全整数。挂载 `compaction-image-offload` 后记录最早图片的卸载并重试，来源附件仍可读取；不限制正文输出。 |
+| `modelRetryPolicy` | 适配器默认值（normal，重试 5 次，0.5–10 秒） | 每条账号模型路由的可选提供方 `retryPolicy`，加载时校验。`dsh-llm-retry` 将其用于失败的步骤，`compaction-basic` 将其用于摘要请求。 |
 | `feedbackTools` | `false` | 注册明确的用户反馈提交及本人收据查询工具；Muse 桌面启用。 |
 | `mediaTools` | `false` | 注册四个延迟加载的公司媒体工具；桌面默认启用。 |
 | `mediaRequestTimeoutMs` | 60,000 | 元数据与收据请求时限，范围 1,000–120,000 毫秒。 |

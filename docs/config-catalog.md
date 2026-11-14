@@ -2916,7 +2916,8 @@ export interface Config {
 ## `@deepseek-ai/dsh-muse-account`
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel` · `sessions`
-- `source`: [`packages/host/muse-account/src/index.ts:45`](../packages/host/muse-account/src/index.ts)
+- `refs`: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:47`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -2955,6 +2956,8 @@ export interface Config {
   readonly searchRequestTimeoutMs: number
   /** Optional base64 image-byte budget per model request; omission keeps the adapter default. */
   readonly modelRequestImageMaxBytes?: number
+  /** Optional provider retry policy for every account model route; omission keeps the adapter default. */
+  readonly modelRetryPolicy?: RetryPolicyConfig
   /** Maximum time for one compressed-audio upload and gateway response. */
   readonly asrRequestTimeoutMs: number
   /** Maximum visible characters in each optional related request and answer excerpt. */

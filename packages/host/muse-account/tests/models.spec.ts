@@ -1436,3 +1436,27 @@ it.each([
   expect(server.headers[0]?.authorization).toBe('Bearer alice-session')
   expect(server.paths).toEqual([`/api/desktop-models/${provider}/chat/completions`])
 })
+
+it('gives every account route the configured retry policy', async () => {
+  await login()
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog),
+    modelRetryPolicy: { mode: 'normal', maxRetries: 8, backoff: { initialDelayMs: 2000, maxDelayMs: 60000 } } })
+  await models.refresh()
+  const expected = { mode: 'normal', maxRetries: 8,
+    retryableCodes: ['EMPTY_RESPONSE', 'INVALID_TOOL_ARGUMENTS', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'],
+    initialDelayMs: 2000, maxDelayMs: 60000, jitterRatio: 0.1 }
+  for (const [provider, model] of [['muse-cloud-aa', 'gemini-3.8-flash'], ['muse-cloud-deepseek-official', 'deepseek-flash']] as const) {
+    expect(ctx.llm.providerRetryPolicy(provider)).toEqual(expected)
+    expect((await ctx.llm.prepareCall({ provider, model })).retryPolicy).toEqual(expected)
+  }
+  expect(ctx.llm.providerRetryPolicy('personal')).toMatchObject({ mode: 'normal', maxRetries: 5 })
+})
+
+it('keeps the adapter default retry policy when none is configured', async () => {
+  await login()
+  models = new MuseModels(ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000, fetcher: async () => Response.json(catalog) })
+  await models.refresh()
+  expect(ctx.llm.providerRetryPolicy('muse-cloud-studio'))
+    .toMatchObject({ mode: 'normal', maxRetries: 5, initialDelayMs: 500, maxDelayMs: 10000 })
+})

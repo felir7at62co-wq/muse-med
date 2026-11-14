@@ -30,7 +30,7 @@ class BudgetAdapter extends LlmAdapter {
     observed: Promise.withResolvers<undefined>(),
     release: Promise.withResolvers<undefined>(),
   }
-  summaryMode: 'success' | 'error' | 'empty' | 'wait-for-abort' | 'wait-for-abort-held' = 'success'
+  summaryMode: 'success' | 'error' | 'error-once' | 'empty' | 'wait-for-abort' | 'wait-for-abort-held' = 'success'
   ordinaryFailure: string | undefined
   replies: ('tool' | 'text')[] = []
   onOrdinary: (() => void) | undefined
@@ -39,6 +39,7 @@ class BudgetAdapter extends LlmAdapter {
     private readonly contextWindow = 10_000,
     private readonly alwaysRetry = false,
     private readonly omitOutputDefault = false,
+    private readonly summaryRetries = 0,
   ) { super() }
 
   override resolveModel(provider: string, model: string): Promise<LlmResolvedModelInfo> {
@@ -57,9 +58,10 @@ class BudgetAdapter extends LlmAdapter {
   }
 
   override providerRetryPolicy(): ResolvedRetryPolicy | undefined {
-    return this.alwaysRetry ? resolveRetryPolicy({ mode: 'always', backoff: {
-      initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0,
-    } }, 'working-context fixture retryPolicy') : undefined
+    const backoff = { initialDelayMs: 1, maxDelayMs: 1, jitterRatio: 0 }
+    return this.alwaysRetry ? resolveRetryPolicy({ mode: 'always', backoff }, 'working-context fixture retryPolicy')
+      // Terminal summary failures stay single-attempt unless a case opts into transient retries.
+      : resolveRetryPolicy({ mode: 'normal', maxRetries: this.summaryRetries, backoff }, 'working-context fixture retryPolicy')
   }
 
   override async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
@@ -67,6 +69,10 @@ class BudgetAdapter extends LlmAdapter {
       this.summaries.push(options)
       this.summaryEntered.resolve(undefined)
       if (this.summaryMode === 'error') throw new LlmError('summary unavailable', 'SERVER')
+      if (this.summaryMode === 'error-once') {
+        this.summaryMode = 'success'
+        throw new LlmError('summary gateway unavailable', 'SERVER')
+      }
       if (this.summaryMode === 'empty') {
         yield { type: 'finish', reason: { kind: 'stop' } }
         return
@@ -151,6 +157,7 @@ interface FixtureOptions {
   contextWindow?: number
   alwaysRetry?: boolean
   omitOutputDefault?: boolean
+  summaryRetries?: number
   durabilityListener?: boolean
   maxTokens?: number
 }
@@ -163,7 +170,7 @@ async function harness(config: BasicCompactionConfig = {}, options: FixtureOptio
   await ctx.plugin(TokenMeter)
   // Local acknowledgements exercise ordering; this fixture does not prove disk recovery.
   if (options.durabilityListener !== false) ctx.on('session/flush', () => undefined)
-  const adapter = new BudgetAdapter(options.contextWindow, options.alwaysRetry, options.omitOutputDefault)
+  const adapter = new BudgetAdapter(options.contextWindow, options.alwaysRetry, options.omitOutputDefault, options.summaryRetries)
   ctx.llm.registerAdapter(['mock'], adapter)
   if (options.alwaysRetry) await ctx.plugin(LlmRetry)
   const compactionFiber = await ctx.plugin(BasicCompactionEngine, {
@@ -497,6 +504,23 @@ describe('final working-context admission', () => {
     expect(request).toContain('继续下一段内容。')
     expect(agent.session.snapshotEvents().filter(event => event.type === 'compaction/summary')).toHaveLength(0)
     expect(agent.session.requestContext()).toMatchObject({ contextWindow: 1_000_000, workingTokenLimit: 475_000 })
+    expect(lastReason(agent)).toEqual({ kind: 'completed' })
+  })
+
+  it('retries a transient summary failure before retaining the 498K context', async () => {
+    const { agent, adapter } = await harness({ adaptiveBudget: true,
+      thresholdRatio: 0.45, headroomTokens: 16_384, retainTokens: 65_536, maxTokens: 16_384,
+      modelPolicies: [{ provider: 'mock', model: 'limited', workingTokenLimit: 475_000 }],
+    }, { seed: historySeed(true, undefined, undefined, 498_000), contextWindow: 1_000_000, maxTokens: 393_216, summaryRetries: 2 })
+    adapter.summaryMode = 'error-once'
+    await send(agent, '继续下一段内容。')
+    expect(adapter.summaries).toHaveLength(2)
+    expect(agent.session.snapshotEvents().filter(event => event.type === 'compaction/summary')).toHaveLength(1)
+    expect(adapter.requests).toHaveLength(1)
+    const request = JSON.stringify(adapter.requests[0]?.messages)
+    expect(request).toContain('CHECKPOINT: KEEP_POLICY')
+    expect(request).toContain('继续下一段内容。')
+    expect(request).not.toContain('OLD_CONTEXT_SENTINEL')
     expect(lastReason(agent)).toEqual({ kind: 'completed' })
   })
 
