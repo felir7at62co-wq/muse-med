@@ -349,6 +349,8 @@ describe('legacy workspace cards', () => {
     const underHome = join(home, '.dsh-visualize-spec-absent', 'ws')
     expect(await workspacePath(underHome, '~/.dsh-visualize-spec-absent/ws/viz/a.html')).toBe(join(underHome, 'viz', 'a.html'))
     expect(await workspacePath(underHome, '~/.dsh-visualize-spec-absent/other/a.html')).toBeUndefined()
+    expect(await workspacePath(underHome, join('~', '.dsh-visualize-spec-absent', 'ws', 'viz', 'a.html')))
+      .toBe(join(underHome, 'viz', 'a.html'))
   })
 
   it('refuses a non-.html file and a session without a workspace', async () => {
@@ -376,6 +378,8 @@ describe('ownedPath', () => {
   it('expands the ~ display form the result reports back to the store path', async () => {
     const root = join(homedir(), '.dsh-visualize-spec-absent', 'visualize')
     expect(await ownedPath(root, '~/.dsh-visualize-spec-absent/visualize/sessions/s/a.html'))
+      .toBe(join(root, 'sessions', 's', 'a.html'))
+    expect(await ownedPath(root, join('~', '.dsh-visualize-spec-absent', 'visualize', 'sessions', 's', 'a.html')))
       .toBe(join(root, 'sessions', 's', 'a.html'))
     expect(await ownedPath(root, 'viz/a.html')).toBeUndefined()
     expect(await ownedPath(root, join(root, 'sessions', 's', 'a.txt'))).toBeUndefined()

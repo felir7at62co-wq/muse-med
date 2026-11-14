@@ -19,7 +19,8 @@ interface RecordedCallProjection {
   readonly type: string
   readonly data: {
     readonly name?: string
-    readonly message?: { readonly content?: readonly { type: string; name?: string }[] }
+    readonly header?: { readonly tools?: readonly string[] | string }
+    readonly message?: { readonly content?: readonly { type: string; name?: string; toolName?: string }[] }
   }
 }
 
@@ -44,6 +45,35 @@ function requireShellDisabled(source: string): void {
     expect(rows.filter(row => row.id === id)).toEqual([{ id, disabled: true }])
   }
 }
+
+function requireShellFreeCatalog(source: string): void {
+  const records = source.trim().split('\n').map(line => JSON.parse(line) as RecordedCallProjection)
+  const tools = records.flatMap((record) => {
+    if (record.type === 'request/header') {
+      const names = record.data.header?.tools
+      return typeof names === 'string' ? [] : names ?? []
+    }
+    return record.type === 'developer/message'
+      ? record.data.message?.content?.filter(block => block.type === 'tool-addition')
+        .flatMap(block => block.toolName === undefined ? [] : [block.toolName]) ?? []
+      : []
+  })
+  expect(tools.length).toBeGreaterThan(0)
+  expect(tools.filter(name => name === 'bash' || name === 'pwsh')).toEqual([])
+}
+
+it.each(['', '.win32'])('keeps the %s parent inheritance catalog aligned with its shell-free composition', async (platform) => {
+  const root = new URL('../apps/cli/tests/profiles/headless/', import.meta.url)
+  requireShellDisabled(await readFile(new URL('subagent-inheritance-snapshot.patch.yml', root), 'utf8'))
+  requireShellFreeCatalog(await readFile(new URL(`tests/expected/subagent-inheritance/parent${platform}.expected.jsonl`, root), 'utf8'))
+})
+
+it.each(['bash', 'pwsh'])('rejects a disabled %s tool in either a request header or registry update', (name) => {
+  for (const record of [
+    { type: 'request/header', data: { header: { tools: [name] } } },
+    { type: 'developer/message', data: { message: { content: [{ type: 'tool-addition', toolName: name }] } } },
+  ]) expect(() => { requireShellFreeCatalog(JSON.stringify(record)) }).toThrow()
+})
 
 it.each(scenarios)('%s has no recorded shell calls and disables both platform shell tools', async (scenario) => {
   const directory = new URL(`../snapshots/session/${scenario}/`, import.meta.url)

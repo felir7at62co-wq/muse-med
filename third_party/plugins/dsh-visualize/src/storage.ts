@@ -145,9 +145,15 @@ export function cardStore(ctx: Context, exec: CardExec): CardStore {
   }
 }
 
+/** Expand the home prefix emitted by this host without treating POSIX backslashes as separators. */
+function expandHomePath(path: string): string {
+  return path === '~' || path.startsWith('~/') || (sep === '\\' && path.startsWith('~\\'))
+    ? join(homedir(), path.slice(1)) : path
+}
+
 /** Reject another session's store, including aliases through workspace symlinks. */
 async function addressesStore(root: string, workspace: string | undefined, path: string): Promise<boolean> {
-  const expanded = path === '~' || path.startsWith('~/') ? join(homedir(), path.slice(1)) : path
+  const expanded = expandHomePath(path)
   if (!isAbsolute(expanded) && (workspace === undefined || !isAbsolute(workspace))) return false
   const target = resolve(workspace ?? root, expanded)
   if (target === root || inside(root, target)) return true
@@ -180,8 +186,8 @@ async function assertSessionPath(root: string, segment: string, path: string): P
  */
 export async function workspacePath(root: string | undefined, path: string): Promise<string | undefined> {
   if (root === undefined || !isAbsolute(root)) return undefined
-  const tilde = path === '~' || path.startsWith('~/')
-  const expanded = tilde ? join(homedir(), path.slice(1)) : path
+  const expanded = expandHomePath(path)
+  const tilde = expanded !== path
   const base = resolve(root)
   const target = resolve(base, expanded)
   if (!inside(base, target) || !target.endsWith('.html')) return undefined
@@ -249,7 +255,7 @@ export function sessionSegment(id: string): string {
  * @returns the absolute store path, or undefined when it is not a store file.
  */
 export async function ownedPath(root: string, path: string): Promise<string | undefined> {
-  const expanded = path === '~' || path.startsWith('~/') ? join(homedir(), path.slice(1)) : path
+  const expanded = expandHomePath(path)
   if (!isAbsolute(expanded)) return undefined
   const target = resolve(expanded)
   if (!inside(root, target) || !target.endsWith('.html')) return undefined

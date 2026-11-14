@@ -620,9 +620,13 @@ function cardStore(ctx, exec) {
 		}
 	};
 }
+/** Expand the home prefix emitted by this host without treating POSIX backslashes as separators. */
+function expandHomePath(path) {
+	return path === "~" || path.startsWith("~/") || sep === "\\" && path.startsWith("~\\") ? join(homedir(), path.slice(1)) : path;
+}
 /** Reject another session's store, including aliases through workspace symlinks. */
 async function addressesStore(root, workspace, path) {
-	const expanded = path === "~" || path.startsWith("~/") ? join(homedir(), path.slice(1)) : path;
+	const expanded = expandHomePath(path);
 	if (!isAbsolute(expanded) && (workspace === void 0 || !isAbsolute(workspace))) return false;
 	const target = resolve(workspace ?? root, expanded);
 	if (target === root || inside(root, target)) return true;
@@ -648,8 +652,8 @@ async function assertSessionPath(root, segment, path) {
 */
 async function workspacePath(root, path) {
 	if (root === void 0 || !isAbsolute(root)) return void 0;
-	const tilde = path === "~" || path.startsWith("~/");
-	const expanded = tilde ? join(homedir(), path.slice(1)) : path;
+	const expanded = expandHomePath(path);
+	const tilde = expanded !== path;
 	const base = resolve(root);
 	const target = resolve(base, expanded);
 	if (!inside(base, target) || !target.endsWith(".html")) return void 0;
@@ -706,7 +710,7 @@ function sessionSegment(id) {
 * @returns the absolute store path, or undefined when it is not a store file.
 */
 async function ownedPath(root, path) {
-	const expanded = path === "~" || path.startsWith("~/") ? join(homedir(), path.slice(1)) : path;
+	const expanded = expandHomePath(path);
 	if (!isAbsolute(expanded)) return void 0;
 	const target = resolve(expanded);
 	if (!inside(root, target) || !target.endsWith(".html")) return void 0;

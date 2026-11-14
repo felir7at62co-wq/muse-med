@@ -382,7 +382,7 @@
         },
         "lib/index.js": {
           "upstreamSha256": "00e961e047026887116be5b5097af4a933c023385700f787c50fbea00ca3a3d7",
-          "sha256": "c0948a6c980528b69a9ab6334b606a099d337741d99bf2194a4ecb7c57f04904"
+          "sha256": "aeeb7c13ed597b151fbd3c5451e7b7ba2b9bbb410070d671125922404ddd83cc"
         },
         "package.json": {
           "upstreamSha256": "8a174bf1598bd301666b358a517c0e000f7be615c16b64067b919b9572bdccb9",
@@ -422,7 +422,7 @@
         },
         "src/storage.ts": {
           "upstreamSha256": "4f3ff4878ca81a7f4c87e97a4ce8bd0ba6e96b008f3b19d21f4d9e82612e1e18",
-          "sha256": "ef20125f524142ca523f1d9b353b96fd63e2dddb9b119fc77e4103c62436dad5"
+          "sha256": "141cf41a19425edc8767c064594156d510b83948420a362b340f20f6bc855730"
         },
         "src/tool.ts": {
           "upstreamSha256": "403dfd8dab2fd4b724b0938e0dd77bcfc00190afde15b94114ff4720484319f4",
@@ -450,7 +450,7 @@
         },
         "tests/storage.spec.ts": {
           "upstreamSha256": "a56c830a0b9adfbc6944f0b2c8c4468ccebece02dfef8103d979b83d9e0e365e",
-          "sha256": "b68725eb25c25b4f356c121bef1e3911a8b4d2c700b069fcadde814435e96632"
+          "sha256": "2e238d2bfd0a08b9527b6ba0ceedba46421bfb2c4c0d1fb4b5a4de9533fec201"
         },
         "tests/turn-cards.spec.tsx": {
           "upstreamSha256": "e7e359b505b17cab121843fbe9979e0a39fc9e7c12e5c013a8646eaf989f1ef0",
@@ -482,7 +482,7 @@
         },
         "tests/card-images.spec.ts": {
           "upstreamSha256": "bd04d320a71f8cbb2d2e60a7549f328f5af432e6b524082f658c538e75ef915e",
-          "sha256": "d522a11dc99489a474dcf27744b4555613c69fdf8328a4979d16ff3cf73ce834"
+          "sha256": "cac47c5c040240f02ca21343d3c88b79ef1d59755fa9e4d76db3db2595c65890"
         },
         "tests/images.spec.ts": {
           "upstreamSha256": "7ee33355102629464e1b7f2aa1f163796a258cb9b01c72bb23ed08ece0f11d4e",

@@ -1,6 +1,6 @@
 /** Recorded writer inputs exercise exact portable budget oracles without changing their artifacts. */
 import { readFile } from 'node:fs/promises'
-import { win32 } from 'node:path'
+import { resolve, win32 } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parseToolSchemasSnapshot } from '@deepseek-ai/dsh-session-snapshot'
 import { assertWorkingBudgetExpectations, deriveShadowedBudgetExpectations, deriveWorkingBudgetExpectations } from '../../../../snapshots/session/working-budget-oracle.ts'
@@ -17,7 +17,7 @@ async function input(name: string, cwd: string): Promise<WorkingBudgetOracleInpu
 }
 
 describe('recorded working-budget expectations', () => {
-  it.each(['/tmp/replay', 'C:\\qa\\fixtures\\replay'])(
+  it.each(['/tmp/replay', resolve('C:\\qa\\fixtures\\replay')])(
     'prices both runtime directory and sandbox path quotes at %s', async (cwd) => {
       const original = await input('muse-session-product', cwd)
       const rows = original.log.split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
@@ -53,17 +53,19 @@ describe('recorded working-budget expectations', () => {
   })
 
   it('prices native Windows visualization asset paths and rejects changed guide paths or fields', async () => {
-    const original = await input('muse-visualize', 'E:\\222\\dsh-log-snap-ABC123')
+    const windowsCwd = 'E:\\222\\dsh-log-snap-ABC123'
+    const original = await input('muse-visualize', resolve(windowsCwd))
     const assets = '{{cwd}}/.dsh/plugins/dsh-visualize/assets/'
-    const card = ['{{cwd}}/.dsh/visualize/sessions/{{session:1}}/', win32.join(original.cwd,
+    const card = ['{{cwd}}/.dsh/visualize/sessions/{{session:1}}/', win32.join(windowsCwd,
       '.dsh', 'visualize', 'sessions', 'session-00000000-0000-4000-8000-000000000001') + win32.sep] as const
     const paths = new Map([
-      [assets + 'visualize-skill.md', win32.join(original.cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets', 'visualize-skill.md')],
-      [assets + 'styles/whale.md', win32.join(original.cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets', 'styles', 'whale.md')],
-      [assets, win32.join(original.cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets') + win32.sep], card,
+      [assets + 'visualize-skill.md', win32.join(windowsCwd, '.dsh', 'plugins', 'dsh-visualize', 'assets', 'visualize-skill.md')],
+      [assets + 'styles/whale.md', win32.join(windowsCwd, '.dsh', 'plugins', 'dsh-visualize', 'assets', 'styles', 'whale.md')],
+      [assets, win32.join(windowsCwd, '.dsh', 'plugins', 'dsh-visualize', 'assets') + win32.sep], card,
     ])
     const expected = deriveWorkingBudgetExpectations({ ...original, pathDisplays: paths })
-    const portable = deriveWorkingBudgetExpectations({ ...original, pathDisplays: new Map([card]) })
+    const portable = deriveWorkingBudgetExpectations({ ...original, pathDisplays: new Map([...paths].map(([key, value]) =>
+      [key, key.startsWith(assets) ? key.replace('{{cwd}}', windowsCwd) : value])) })
     expect([...expected.values()].map((count, index) => count - [...portable.values()][index]!)).toEqual([4, 4, 4, 4])
     expect(() => { assertWorkingBudgetExpectations(portable, expected) }).toThrow('differs from expected-input estimate')
     const wrongPaths = new Map(paths)
