@@ -87,7 +87,7 @@ jobs:
         working-directory: packages/drama/skills
         env:
           PYTHONUTF8: '1'
-        run: python -B -m unittest tests.render.test_windows_aa_draft tests.render.test_draft_stage_guard tests.render.test_draft_integrity
+        run: python -B -m unittest tests.render.test_windows_aa_draft tests.render.test_windows_aa_protocol tests.render.test_draft_stage_guard tests.render.test_draft_integrity
       - name: Install immutable dependencies
         run: pnpm install --frozen-lockfile
       - name: Install model gateway dependencies

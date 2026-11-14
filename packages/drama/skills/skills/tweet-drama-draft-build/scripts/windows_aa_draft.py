@@ -31,7 +31,8 @@ from video_bans import check_videos, find_project
 from draft_inputs import audio_gains, body_clock, draft_style, bgm_import, product_subtitle_cues, write_product_subtitles
 from generate_draft_request import attach_episode_source_receipt, read_subtitle_overlay_report, verify_draft_subtitle_clock
 from draft_stage_guard import BuildLease, DraftStageGuard
-from draft_integrity import DraftIntegrityUnavailable, verify_saved_identity, verify_embedded_source_ranges
+from draft_integrity import (DraftIntegrityUnavailable, verify_saved_identity, verify_embedded_source_ranges,
+                             verify_native_material_durations)
 
 _policy_spec = importlib.util.spec_from_file_location(
     'aa_delivery_policy', SCRIPT_ROOT.parents[1] / 'tweet-drama-background-render/scripts/delivery_policy.py')
@@ -452,6 +453,7 @@ def prepare_plan(request: dict, drafts_dir: str, *, lifetime: ExitStack | None =
                                else min(video_duration, policy['ending_duration_us']))
             target_duration = policy['ending_duration_us'] if fit == 'stretch_to_window' else source_duration
             plan['ending_effect'] = {'path': str(retained), 'source_duration_us': source_duration,
+                                     'material_duration_us': measured['duration_us'],
                                      'width': measured['width'], 'height': measured['height'],
                                      'duration_us': target_duration, 'speed': source_duration / target_duration,
                                      'blend_resource_id': resource}
@@ -714,6 +716,12 @@ def generate_request(request: dict, drafts_dir: str) -> dict:
 def verify_saved_candidate(plan: dict, result: dict, verification: dict) -> list[str]:
     """Reject readable inconsistencies; report opaque evidence as explicitly unverified."""
     warnings = []
+    full_sources = {row['path']: row['source_duration_us'] for row in plan['videos']}
+    if 'ending_effect' in plan:
+        effect = plan['ending_effect']
+        full_sources[effect['path']] = effect['material_duration_us']
+    verify_native_material_durations(result.get('material_readback'), full_sources)
+    verification['material_source_durations'] = {'status': 'verified', 'sources': len(full_sources)}
     try:
         verify_saved_identity(Path(plan['draft_path']), Path(plan['drafts_dir']), result['draft_id'])
         verification['saved_identity'] = {'status': 'verified'}

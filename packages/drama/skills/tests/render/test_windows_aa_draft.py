@@ -99,6 +99,10 @@ class AaDraftTests(unittest.TestCase):
         elif problem == 'opaque':
             (output / 'draft_content.json').write_bytes(b'opaque native format')
         result, _ = self.saved(plan)
+        if problem == 'material-duration':
+            result['material_readback']['resource_map'][0]['metadata']['duration_us'] = 3_000_000
+        elif problem == 'material-readback-missing':
+            del result['material_readback']
         result.update(draft_id=self.draft_id, path=str(output), runtime={})
         Path(arguments[arguments.index('-ResultPath') + 1]).write_text(json.dumps(result), encoding='utf-8')
         return SimpleNamespace(returncode=0, stderr='')
@@ -166,6 +170,12 @@ class AaDraftTests(unittest.TestCase):
 
     def test_saved_source_range_error_stops_without_repair(self):
         self.assert_saved_problem_rejected('range', 'source_timerange')
+
+    def test_native_material_duration_mismatch_stops_without_repair(self):
+        self.assert_saved_problem_rejected('material-duration', '时长')
+
+    def test_native_material_readback_missing_stops_without_repair(self):
+        self.assert_saved_problem_rejected('material-readback-missing', '回读')
 
     def test_opaque_saved_content_stays_unverified_without_delivery_receipt(self):
         with patch.dict(aa.os.environ, {'MUSE_JIANYING_POWERSHELL': sys.executable}), \
@@ -293,7 +303,14 @@ class AaDraftTests(unittest.TestCase):
         rows.append({'id': 'subtitle-track', 'type': 'track', 'attributes': {'segments': list(subtitle_ids)}})
         timeline_rows = [row for row in rows if row.get('type') == 'track']
         full_rows = [row for row in rows if row.get('type') != 'track']
+        source_durations = {row['path']: row['source_duration_us'] for row in plan['videos']}
+        if 'ending_effect' in plan:
+            effect = plan['ending_effect']
+            source_durations[effect['path']] = effect['material_duration_us']
         result = {'ok': True, 'ref': plan['ref'], 'full': {'json_result': json.dumps(full_rows)},
+                  'material_readback': {'protocol': 'xmldraft', 'written': False, 'resource_map': [
+                      {'type': 'video', 'path': path, 'metadata': {'duration_us': duration}}
+                      for path, duration in source_durations.items()]},
                   'timeline': {'json_result': json.dumps(timeline_rows)},
                   'body_segment_ids': body_ids, 'subtitle_segment_ids': subtitle_ids,
                   'bgm_segment_id': None, 'ending_image_segment_id': None, 'ending_audio_segment_id': None}

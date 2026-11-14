@@ -66,7 +66,7 @@ Agent 按剧本与已确认项目要求准备角色、场景和道具需求。[�
 
 [草稿技能](skills/tweet-drama-draft-build/SKILL.md)通过同一工具选择 Windows `audio_mode: "embedded"`，保留视频原声和独立 BGM；未声明模式时兼容独立音轨请求。随包 aa剪映适配器使用已安装剪映的原生 CLI，检查实际能力，失败时明确报告而不换用其它渲染器。[云转写字幕指引](skills/tweet-drama-draft-build/references/cloud-subtitles.md)复用同源收据与实测时间戳，在派生文件中显式纠错并保留字词时间和原始证据。制作草稿本身不要求重新提交转写或编码预览。 Windows 原声模式仅为 `9:16` 添加片尾，`16:9` 在正文结束；原文件保留与原生帧落位偏差分别记录。
 
-Windows 原声回读按 matched、mismatch 或 unverified 报告水印请求字号与实际保存字号；缺失、非有限或不一致时保留候选并添加审阅提示，原有源文件、内容和时间检查继续生效。
+Windows 原声视频导入将探测的完整源时长与选定轨道区间分别登记，再回读原生素材记录；即使当前选段不足三秒，素材仍停留在原生三秒默认值也会失败。水印回读按 matched、mismatch 或 unverified 报告请求字号与实际保存字号；缺失、非有限或不一致时保留候选并添加审阅提示。
 
 Windows 原声生成对相同草稿根目录和名称的请求互斥，并在原生执行与回读期间保护活动素材目录及明确保留的素材文件。可读的身份或源时窗不一致时失败并保留文件；证据无法读取时维持未验证，不签发本集交付凭据。失败重试前见[恢复与保存校验](skills/tweet-drama-draft-build/references/io-contract.md#recovery-and-saved-verification)。
 
