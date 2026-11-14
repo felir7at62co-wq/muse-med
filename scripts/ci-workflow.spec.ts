@@ -15,6 +15,21 @@ const runnerPrivatePnpmDestination = /^\$\{\{ runner\.temp \}\}\/setup-pnpm-\$\{
 const nativeWindowsPnpmDestination = '${{ runner.temp }}/setup-pnpm-js-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}'
 
 describe('CI workflow', () => {
+  it('qualifies hash-locked Windows media executables before source coverage', () => {
+    const job = workflowJob(loadWorkflow('.github/workflows/ci-windows.yml'), 'windows-coverage')
+    if (!Array.isArray(job.steps)) throw new TypeError('Windows coverage must define steps')
+    const steps = job.steps.filter(isRecord)
+    const install = steps.findIndex(step => step.name === 'Install (immutable)')
+    const prepare = steps.findIndex(step => step.run === 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts')
+    const coverage = steps.findIndex(step => step.run === 'pnpm run check:ci:coverage')
+    expect(install).toBeGreaterThanOrEqual(0)
+    expect(prepare).toBeGreaterThan(install)
+    expect(coverage).toBeGreaterThan(prepare)
+    expect(steps[prepare]?.shell).toBe('pwsh')
+    expect(steps[prepare]).not.toHaveProperty('continue-on-error')
+    expect(steps[prepare]).not.toHaveProperty('if')
+  })
+
   it('uses ordinary hosted runners outside the upstream repository for lint and native Windows checks', () => {
     for (const [file, jobs, standard, upstream] of [
       ['ci.yml', ['node-24-lint'], 'ubuntu-24.04', 'dsh-ubuntu-24-04-16core'],
