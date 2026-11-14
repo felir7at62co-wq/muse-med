@@ -274,6 +274,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/workflow/workflow': { kind: 'indirect', reason: 'The service delegates parent and child model rendering to its consumer and engine.' },
   'packages/guard/drama-gate': { kind: 'none', reason: 'The gate only intercepts tools/pre-execute and refuses a pending call; it registers no tool, prompt section, or session event, so the model reads nothing but the ordinary tool result a denied call already produces.' },
   'packages/guard/argument-loop': { kind: 'none', reason: 'The stream guard throws a local failure without contributing model context, retry requests, or tools; the existing loop owns raw attempt and turn error records.' },
+  'packages/guard/prompt-usage': { kind: 'none', reason: 'The stream guard replaces a terminal stop with a local failure; the loop records the discarded reply as a log-only attempt, the route retry policy resends the same logged context, and the guard adds no model context, tools, or requests.' },
 }
 
 interface Failure {

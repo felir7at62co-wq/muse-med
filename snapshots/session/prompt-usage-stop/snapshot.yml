@@ -1,0 +1,11 @@
+version: 1
+scenario: prompt-usage-stop
+profile: headless
+composition: prompt-usage-stop
+recording: authored
+header:
+  class: default
+  pin: true
+writerOutput: true
+replay:
+  override: true

@@ -656,6 +656,7 @@
     { "path": "./packages/drama/drama-settings/tsconfig.host.json" },
     { "path": "./packages/perception/perception-bgm" },
     { "path": "./packages/guard/argument-loop" },
+    { "path": "./packages/guard/prompt-usage" },
     { "path": "./packages/host/feishu-settings/tsconfig.host.json" },
     { "path": "./packages/host/muse-account/tsconfig.host.json" },
     { "path": "./packages/host/muse-market" }

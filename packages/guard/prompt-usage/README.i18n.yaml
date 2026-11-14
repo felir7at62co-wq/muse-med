@@ -1,0 +1,49 @@
+# Bilingual-pair consistency record for README.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write packages/guard/prompt-usage/README.md
+/:
+  en: b65c6c3217799a9b
+  zh: 09d0107376696fbc
+/deepseek-ai-dsh-prompt-usage:
+  en: 795f74f7a6ccc7e0
+  zh: 1ecc421a086d5af8
+/deepseek-ai-dsh-prompt-usage/summary:
+  en: 2ad2b76f5959f28a
+  zh: 6b50241154fb9898
+/deepseek-ai-dsh-prompt-usage/table-of-contents:
+  en: d152484eb41ac6b4
+  zh: 205937b190ceb620
+/deepseek-ai-dsh-prompt-usage/use-this-package:
+  en: 4d82ee43a96fe968
+  zh: ad7b26a64b80899a
+/deepseek-ai-dsh-prompt-usage/use-this-package/when-to-choose-it:
+  en: 9b7ab11bcd68f886
+  zh: 345f2ecb3e228ac1
+/deepseek-ai-dsh-prompt-usage/use-this-package/minimal-configuration:
+  en: 34ae23bf67351727
+  zh: 3d66f224347eca36
+/deepseek-ai-dsh-prompt-usage/use-this-package/required-retry-wiring:
+  en: 9c503463a03b13e2
+  zh: 54c1d136b093bf39
+/deepseek-ai-dsh-prompt-usage/use-this-package/choosing-thresholds:
+  en: 66046c79ab9f82cc
+  zh: 8293be3b290925ac
+/deepseek-ai-dsh-prompt-usage/understand-the-implementation:
+  en: dc93498da2d8408f
+  zh: 50dbb113bc78fac7
+/deepseek-ai-dsh-prompt-usage/further-exploration:
+  en: 5e4106fb9187849a
+  zh: c46165ad4a44d1b6
+/deepseek-ai-dsh-prompt-usage/model-experience:
+  en: 4ba3da5c40743726
+  zh: 3dd93c735897ea00
+/deepseek-ai-dsh-prompt-usage/model-experience/kv-cache-effect:
+  en: 2ff99ecfeb3e76c2
+  zh: 538500146dac26de
+/deepseek-ai-dsh-prompt-usage/known-limitations-and-deferred-work:
+  en: 27636665dfa53487
+  zh: 72061f9fe8989da8
+/deepseek-ai-dsh-prompt-usage/known-limitations-and-deferred-work/dev-note:
+  en: e67f633dc6fe7773
+  zh: 4c879960b94cc733

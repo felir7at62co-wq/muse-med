@@ -293,7 +293,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 |---|---|---|
 | `@deepseek-ai/dsh-command-goal` | no | Human-facing slash command for persisted same-session goals |
 | `@deepseek-ai/dsh-goal` | yes | Event-sourced same-session goal state and lifecycle service for the DeepSeek Harness |
-| `@deepseek-ai/dsh-goal-round-driver` | no | Race-fenced same-session goal-round driver |
+| `@deepseek-ai/dsh-goal-round-driver` | yes | Race-fenced same-session goal-round driver |
 | `@deepseek-ai/dsh-tool-goal` | yes | Model-facing same-session goal tools with execution-time authority checks |
 
 ## guard
@@ -303,6 +303,7 @@ Every package below exports a Cordis plugin that a bundle patch can name in a Lo
 | `@deepseek-ai/dsh-argument-loop` | yes | Stop high-confidence repeated JSON members in streamed agent tool arguments without automatic tool replay |
 | `@deepseek-ai/dsh-composition-guard` | yes | Composition guard plugin: detects and reports a running session whose preset-provided tools were withdrawn by a live composition reload |
 | `@deepseek-ai/dsh-guard-drama` | yes | Drama-pipeline gate plugin: intercepts tool dispatch to enforce the short-drama pipeline's decidable hard rules |
+| `@deepseek-ai/dsh-prompt-usage` | yes | Discard a tool-less agent reply whose provider-reported prompt falls below the request's tool definitions and working estimate |
 | `@deepseek-ai/dsh-repeat-tool-reminder` | yes | Repeat-tool-call guard plugin: advisory reminders when an agent loops on identical tool calls |
 | `@deepseek-ai/dsh-tool-call-timeout-policy` | no | Tool-call timeout policy: a tools/execute wrapper that arms a per-tool deadline on exec.signal and returns TOOL_TIMEOUT when it wins |
 

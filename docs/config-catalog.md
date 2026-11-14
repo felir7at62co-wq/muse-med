@@ -3373,6 +3373,35 @@ export interface Config {
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-plugin-package-inventory-deepseek -->
 
+<!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-prompt-usage -->
+<a id="deepseek-aidsh-prompt-usage"></a>
+
+## `@deepseek-ai/dsh-prompt-usage`
+
+- `inject`: `llm` · `sessions` · `tokenMeter`
+- `source`: [`packages/guard/prompt-usage/src/index.ts:31`](../packages/guard/prompt-usage/src/index.ts)
+
+```ts config-catalog
+/** Deployment policy; there are no default routes or thresholds. */
+export interface Config {
+  /** Guarded routes with their own thresholds; mounting the plugin without routes fails at load. */
+  routes: RouteConfig[]
+}
+
+/** One guarded provider/model route as written in the mounting composition. */
+export interface RouteConfig {
+  /** Logical provider id of the request, exactly as the loop sends it. */
+  provider: string
+  /** Logical model id of the request, exactly as the loop sends it. */
+  model: string
+  /** Multiple of the request's tool-schema estimate the reported prompt must reach. */
+  minToolSchemaRatio: number
+  /** Fraction of the working-context estimate the reported prompt must reach; below 1. */
+  minEstimateRatio: number
+}
+```
+<!-- END GENERATED config-catalog:@deepseek-ai/dsh-prompt-usage -->
+
 <!-- BEGIN GENERATED config-catalog:@deepseek-ai/dsh-ptc-runtime-node -->
 <a id="deepseek-aidsh-ptc-runtime-node"></a>
 

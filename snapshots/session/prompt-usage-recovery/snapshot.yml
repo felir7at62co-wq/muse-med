@@ -1,0 +1,11 @@
+version: 1
+scenario: prompt-usage-recovery
+profile: headless
+composition: prompt-usage-recovery
+recording: authored
+header:
+  class: default
+  pin: true
+writerOutput: true
+replay:
+  override: true
