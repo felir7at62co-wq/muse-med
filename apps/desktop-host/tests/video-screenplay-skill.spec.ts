@@ -77,6 +77,7 @@ it('keeps whole-series transcription on a goal with subtitle OCR aligned to ASR'
   expect(series).toMatch(/人物表与分段协作.*每批写完用 `grep`.*已交付的集另存新版本/su)
   expect(series).toMatch(/`【下集钩子】` 只标在原片已有的悬念前.*不新增没有画面依据的 ▲/su)
   expect(series).toMatch(/每批汇报只写实际做过的核对.*`scan_status`.*`silent`/su)
+  expect(series).toMatch(/每批写完，用 `manuscript_revision` 的 `transcript_coverage` 逐集比对.*不代替 `source_fidelity`.*照录各集 `summary`/su)
 
   const ocrTool = await readFile(fileURLToPath(new URL('../../../packages/perception/tool-video-inspect/src/ocr.ts', import.meta.url)), 'utf8')
   for (const field of ['next_start_seconds', 'raw_json_path', 'merged_text_path', 'scan_status', 'persistent_text_candidate']) {

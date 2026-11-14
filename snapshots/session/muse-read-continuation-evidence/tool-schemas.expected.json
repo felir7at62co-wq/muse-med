@@ -201,7 +201,7 @@
     },
     {
       "name": "manuscript_revision",
-      "description": "支持Word/Markdown/文本。snapshot保留完整原件，history查历史；不自动选当前稿。notes用source_paths保留Word批注原文、旧稿定位及本轮完整真人要求，后续精修和独立审校可恢复；仅保留，不宣称批注已解决。materials读取显式current、reference和candidate正文。continuity使用当前模型在独立只读会话检查所选正文、所存要求和批注，返回原句及未知项，不自动改稿。cross_episode针对有可靠集标题的合并稿逐对核对完整相邻集的因果、人物知情、道具数值和尾钩承接，要求两边原句，明确未读边界；分散单集须先明确合并，不按文件名猜顺序。repeat_scan只扫描实际当前稿或候选稿内部的字面重复候选，不比较原稿与候选的相同段落；coverage不完整时不能称零重复。repetitions独立阅读完整选区，逐条判断字面候选并查换词重演，区分回忆、短接续与新信息，不自动删稿。source_fidelity用video_sources明确原片时间、缓存帧和目标正文行，在独立图像会话逐图及逐ASR段核对对应、遗漏、错误归属和事件顺序；返回video_source_review，只限抽样原帧与保存ASR，不称听过原音、身份或同源已验证。delivery按实际核对范围或草稿交付，将files[].label原样用作present描述；视频来源交付设source_mode:video；声明和呈现前后复验已采用的来源、稿件和所存要求，源疑点不能用普通文字审校清除。文件或所存要求变化需重新核验。compare/status对照返稿，review检查候选是否保留返稿修改，measure只统计同范围文字量，这些动作不作语义审校。",
+      "description": "支持Word/Markdown/文本。snapshot保留完整原件，history查历史；不自动选当前稿。notes用source_paths保留Word批注原文、旧稿定位及本轮完整真人要求，后续精修和独立审校可恢复；仅保留，不宣称批注已解决。materials读取显式current、reference和candidate正文。continuity使用当前模型在独立只读会话检查所选正文、所存要求和批注，返回原句及未知项，不自动改稿。cross_episode针对有可靠集标题的合并稿逐对核对完整相邻集的因果、人物知情、道具数值和尾钩承接，要求两边原句，明确未读边界；分散单集须先明确合并，不按文件名猜顺序。repeat_scan只扫描实际当前稿或候选稿内部的字面重复候选，不比较原稿与候选的相同段落；coverage不完整时不能称零重复。transcript_coverage按transcript_sources逐集把稿件与该集ASR的output_json、可选video_ocr原始JSON逐字对齐，统计按序／错序／未写入的ASR段、无来源或仅画面文字的台词、新增措辞、与画面文字不同的字和最后有来源台词之后的行；给characters时列出表外说话人和已知错写。只计量，查不出同音字，不拦截交付。repetitions独立阅读完整选区，逐条判断字面候选并查换词重演，区分回忆、短接续与新信息，不自动删稿。source_fidelity用video_sources明确原片时间、缓存帧和目标正文行，在独立图像会话逐图及逐ASR段核对对应、遗漏、错误归属和事件顺序；返回video_source_review，只限抽样原帧与保存ASR，不称听过原音、身份或同源已验证。delivery按实际核对范围或草稿交付，将files[].label原样用作present描述；视频来源交付设source_mode:video；声明和呈现前后复验已采用的来源、稿件和所存要求，源疑点不能用普通文字审校清除。文件或所存要求变化需重新核验。compare/status对照返稿，review检查候选是否保留返稿修改，measure只统计同范围文字量，这些动作不作语义审校。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -216,6 +216,7 @@
               "continuity",
               "cross_episode",
               "repeat_scan",
+              "transcript_coverage",
               "repetitions",
               "source_fidelity",
               "delivery",
@@ -241,7 +242,7 @@
           },
           "note": {
             "type": "string",
-            "description": "draft交付说明未核验范围或未解决项。"
+            "description": "draft交付说明未核验范围或未解决项；视频转写有transcript_coverage结果时照录各集summary。"
           },
           "task": {
             "type": "string",
@@ -341,6 +342,72 @@
                 "end_seconds",
                 "draft_lines",
                 "frame_ids"
+              ]
+            }
+          },
+          "transcript_sources": {
+            "type": "array",
+            "description": "transcript_coverage必填，每集一项：path为稿件，合稿用episode或lines指定一集；asr_path为该集audio_transcribe的output_json，无转写结果时省略；ocr_paths为该集video_ocr的raw_json_path。不按文件名配对。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "episode": {
+                  "type": "integer"
+                },
+                "lines": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "start": {
+                      "type": "integer"
+                    },
+                    "end": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "end"
+                  ]
+                },
+                "asr_path": {
+                  "type": "string"
+                },
+                "ocr_paths": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "path"
+              ]
+            }
+          },
+          "characters": {
+            "type": "array",
+            "description": "transcript_coverage可选：人物表定名；variants为ASR或旧稿出现过的错写。",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "variants": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "name"
               ]
             }
           },

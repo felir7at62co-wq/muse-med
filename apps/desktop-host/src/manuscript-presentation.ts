@@ -39,9 +39,12 @@ function material(location: Location): Material | undefined {
   return speech ? { ...location, kind: 'dialogue', parentheticals: speech.parentheticals } : undefined
 }
 
+/** A line-leading episode-ending marker such as `【下集钩子】`; the label is in capture group 1, 2 or 3. */
+export const MANUSCRIPT_HOOK_MARKER
+  = /^\s*(?:#{1,6}\s*)?(?:【(下集钩子|集尾钩子|结尾钩子|钩子|下集悬念)】|\[(下集钩子|集尾钩子|结尾钩子|钩子|下集悬念)\]|(下集钩子|集尾钩子|结尾钩子|下集悬念)\s*(?:[：:]|$))\s*/u
+
 function marker(location: Location) {
-  const pattern = /^\s*(?:#{1,6}\s*)?(?:【(下集钩子|集尾钩子|结尾钩子|钩子|下集悬念)】|\[(下集钩子|集尾钩子|结尾钩子|钩子|下集悬念)\]|(下集钩子|集尾钩子|结尾钩子|下集悬念)\s*(?:[：:]|$))\s*/u
-  const match = pattern.exec(location.quote), label = match?.[1] ?? match?.[2] ?? match?.[3]
+  const match = MANUSCRIPT_HOOK_MARKER.exec(location.quote), label = match?.[1] ?? match?.[2] ?? match?.[3]
   return match && label ? { ...location, marker: label,
     inline_content: location.quote.slice(match[0].length) } : undefined
 }
