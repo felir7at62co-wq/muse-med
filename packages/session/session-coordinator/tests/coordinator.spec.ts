@@ -440,7 +440,8 @@ describe('routing-only Main Session', () => {
     await test.ctx.plugin(Coordinator, {})
     const abort = new AbortController()
     try {
-      for await (const tasks of test.ctx.sessionCoordinator.watch(test.main.id, AbortSignal.any([abort.signal, AbortSignal.timeout(15000)]))) {
+      const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(15000)])
+      for await (const tasks of test.ctx.sessionCoordinator.watch(test.main.id, signal)) {
         const recovered = tasks.find(item => item.id === orphan.id)
         if (recovered !== undefined && latest(recovered).status === 'interrupted') {
           expect(latest(recovered).issue).toContain('App restarted')

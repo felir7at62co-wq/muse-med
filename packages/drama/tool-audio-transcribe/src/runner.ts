@@ -70,7 +70,11 @@ export interface AudioQueryOptions {
 
 /** Waiting allowance for gateway upload refusals that arrive with a retry delay. */
 export interface AudioUploadPacing {
-  /** Total delay one call may spend waiting out `upload_busy` and `request_rate` refusals before offering the same staged upload again, in milliseconds; one batch shares it, and a call without pacing does not retry. */
+  /**
+   * Total delay one call may spend waiting out `upload_busy` and `request_rate`
+   * refusals before offering the same staged upload again, in milliseconds;
+   * one batch shares it, and a call without pacing does not retry.
+   */
   readonly retryBudgetMs: number
 }
 
@@ -120,7 +124,8 @@ function uploadRetryBudget(pacing?: AudioUploadPacing): UploadRetryBudget {
  * @param purpose - Receipt purpose; undefined keeps legacy routing.
  * @param budget - Waiting allowance shared by the call; each retry subtracts its delay.
  * @param signal - Cancellation of the upload and of the wait, rejected with the caller's reason.
- * @returns The gateway job for the persisted ID; any other refusal, a missing or non-integer delay, or a delay above the remaining budget rejects unchanged.
+ * @returns The gateway job for the persisted ID; any other refusal, a missing or
+ * non-integer delay, or a delay above the remaining budget rejects unchanged.
  */
 async function submitStaged(account: AudioAccount, file: string, id: string, sha256: string, language: 'zh' | 'auto',
   purpose: MuseAsrPurpose | undefined, budget: UploadRetryBudget, signal?: AbortSignal): Promise<MuseAsrJob> {
@@ -457,7 +462,8 @@ async function publish(
  * @returns Durable job receipt and current gateway status.
  */
 export async function startAudioTranscription(projectPath: string, inputPath: string, language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig, media?: AudioMediaOperations, purpose?: MuseAsrPurpose, signal?: AbortSignal, pacing?: AudioUploadPacing): Promise<AudioRunResult> {
-  const { result } = await startReceipt(projectPath, inputPath, language, account, config, media, purpose, signal, uploadRetryBudget(pacing), false)
+  const { result } = await startReceipt(
+    projectPath, inputPath, language, account, config, media, purpose, signal, uploadRetryBudget(pacing), false)
   signal?.throwIfAborted()
   return portableResult(result)
 }
@@ -475,7 +481,9 @@ export async function startAudioTranscription(projectPath: string, inputPath: st
  * @param purpose - Transcription use, resolved to subtitles for a new task when omitted.
  * @param signal - Cancellation; rejects with its reason and returns no partial result.
  * @param pacing - Waiting allowance shared by every upload of the batch; omitted pacing returns refusals at once.
- * @returns Items in input order up to the first input whose own submission was refused or that failed locally, the inputs not started, and one polling note; a duplicate or non-file input rejects before any work.
+ * @returns Items in input order up to the first input whose own submission was refused
+ * or that failed locally, the inputs not started, and one polling note;
+ * a duplicate or non-file input rejects before any work.
  */
 export async function startAudioTranscriptionBatch(projectPath: string, inputPaths: readonly string[], language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig, media?: AudioMediaOperations, purpose?: MuseAsrPurpose, signal?: AbortSignal, pacing?: AudioUploadPacing): Promise<AudioBatchResult> {
   signal?.throwIfAborted()
@@ -513,7 +521,8 @@ export async function startAudioTranscriptionBatch(projectPath: string, inputPat
 }
 
 async function startReceipt(projectPath: string, inputPath: string, language: 'zh' | 'auto', account: AudioAccount, config: AudioRunnerConfig,
-  media: AudioMediaOperations | undefined, purpose: MuseAsrPurpose | undefined, signal: AbortSignal | undefined, budget: UploadRetryBudget, batch: boolean): Promise<ReceiptOutcome> {
+  media: AudioMediaOperations | undefined, purpose: MuseAsrPurpose | undefined,
+  signal: AbortSignal | undefined, budget: UploadRetryBudget, batch: boolean): Promise<ReceiptOutcome> {
   signal?.throwIfAborted()
   const resolvedPurpose = resolvePurpose(purpose)
   const project = resolve(projectPath), source = resolve(project, inputPath)
@@ -597,7 +606,10 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
     assertJobPurpose(job, receipt.purpose)
     assertJobService(job, receipt)
     await save(receiptPath, updatedReceipt(receipt, job), signal)
-    return { result: { status: job.status, receipt: receiptPath, job_id: id, ...purposeField(receipt.purpose), ...metadataFields(job) }, refused: false }
+    return {
+      result: { status: job.status, receipt: receiptPath, job_id: id, ...purposeField(receipt.purpose), ...metadataFields(job) },
+      refused: false,
+    }
   } catch (error) {
     const persisted = await stat(receiptPath).then(() => true, () => false)
     if (!persisted) await rm(mp3, { force: true })
@@ -618,7 +630,9 @@ async function startReceipt(projectPath: string, inputPath: string, language: 'z
  * @param allowResumeUpload - Whether the original job may resume an explicitly recoverable upload; inspect passes false.
  * @param options - Optional bounded read-only polling and verified legacy audio-duration probe.
  * @param pacing - Waiting allowance for a refused recovery upload; only the first query of a `status` call may upload.
- * @returns Current status, original-receipt polling parameters, and completed paths with observed speaker-label coverage; inspect of a task the gateway never accepted returns `job-not-found` with a `status` call under the same receipt.
+ * @returns Current status, original-receipt polling parameters, and completed paths
+ * with observed speaker-label coverage; inspect of a task the gateway never accepted
+ * returns `job-not-found` with a `status` call under the same receipt.
  */
 export async function finishAudioTranscription(
   projectPath: string, receiptPath: string, account: AudioAccount, signal?: AbortSignal,
@@ -626,7 +640,8 @@ export async function finishAudioTranscription(
 ): Promise<AudioRunResult> {
   if (options && (!Number.isFinite(options.waitMs) || options.waitMs < 0 || options.waitMs > 30_000
     || !Number.isFinite(options.pollIntervalMs) || options.pollIntervalMs <= 0)) throw new Error('Invalid transcription polling budget')
-  const { result } = await settleReceipt(projectPath, receiptPath, account, signal, allowResumeUpload, uploadRetryBudget(pacing), options?.probe, options)
+  const { result } = await settleReceipt(
+    projectPath, receiptPath, account, signal, allowResumeUpload, uploadRetryBudget(pacing), options?.probe, options)
   return portableResult(result)
 }
 
@@ -720,7 +735,8 @@ async function finishReceipt(
 
 async function startParts(project: string, source: string, sourceSha256: string, duration: number, chunkSeconds: number,
   stem: string, version: number, language: 'zh' | 'auto', purpose: MuseAsrPurpose, username: string, account: AudioAccount,
-  config: AudioRunnerConfig, media: AudioMediaOperations | undefined, signal: AbortSignal | undefined, budget: UploadRetryBudget): Promise<ReceiptOutcome> {
+  config: AudioRunnerConfig, media: AudioMediaOperations | undefined,
+  signal: AbortSignal | undefined, budget: UploadRetryBudget): Promise<ReceiptOutcome> {
   const id = randomUUID(), jobs = join(project, 'transcript', 'jobs'), receiptFile = join(jobs, `${stem}-v${version}.json`)
   const parts: AudioPart[] = []
   const staged: string[] = []
@@ -762,7 +778,9 @@ async function startParts(project: string, source: string, sourceSha256: string,
     return { result: { status, receipt: receiptFile, job_id: id, purpose, ...combinedMetadata(submittedJobs) }, refused: false }
   } catch (error) {
     signal?.throwIfAborted()
-    if (persisted && error instanceof MuseAsrError) return { result: rejectedResult(project, receiptFile, await readReceipt(receiptFile), error), refused: true }
+    if (persisted && error instanceof MuseAsrError) {
+      return { result: rejectedResult(project, receiptFile, await readReceipt(receiptFile), error), refused: true }
+    }
     throw error
   } finally {
     if (!persisted) await Promise.all(staged.map(file => rm(file, { force: true })))

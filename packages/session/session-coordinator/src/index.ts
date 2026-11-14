@@ -64,7 +64,10 @@ export interface Config {
   readonly workerPreset?: string
   /** Maximum returned Session search rows or report tasks. Defaults to 30. */
   readonly searchLimit?: number
-  /** History-page characters, serialized task-list characters, and combined serialized report content/metadata budget. Defaults to 24000. */
+  /**
+   * History-page characters, serialized task-list characters, and combined
+   * serialized report content/metadata budget. Defaults to 24000.
+   */
   readonly readChars?: number
   /** Maximum characters in each routing note (`instructions`, `reason`) Main writes for dispatch or reconciliation. Defaults to 120. */
   readonly noteChars?: number
@@ -503,7 +506,8 @@ export class SessionCoordinator extends TypertRemoteService {
   }
 
   private routingOrder(owner: SessionId): CoordinationTask[] {
-    return this.list(owner).sort((a, b) => Number(reservesWorker(latest(b))) - Number(reservesWorker(latest(a))) || b.createdAt - a.createdAt)
+    return this.list(owner).sort((a, b) =>
+      Number(reservesWorker(latest(b))) - Number(reservesWorker(latest(a))) || b.createdAt - a.createdAt)
   }
 
   /**
@@ -579,7 +583,8 @@ export class SessionCoordinator extends TypertRemoteService {
    * @param taskId - Goal named in its assignment.
    * @param revision - Consumed revision.
    * @param outcome - Explicit business result, not inferred from idle.
-   * @param summary - Worker account supported by its native tool log, at most `summaryChars` characters; for `needs-input`, the question for the user.
+   * @param summary - Worker account supported by its native tool log, at most
+   * `summaryChars` characters; for `needs-input`, the question for the user.
    * @returns task in finishing state; completion is published after quiescence.
    */
   report(worker: Agent, taskId: CoordinationTaskId, revision: number, outcome: WorkerReport['outcome'], summary: string): Promise<CoordinationTask> {

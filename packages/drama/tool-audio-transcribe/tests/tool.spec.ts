@@ -71,6 +71,7 @@ it('uses the Host account for start and preserves explicit language and purpose'
   }
   expect(tool.parameters).not.toHaveProperty('properties.cookie')
   expect(tool.parameters).not.toHaveProperty('properties.token')
+  // oxlint-disable-next-line typescript/unbound-method -- asserting the tool exposes no concurrency-safe method
   expect(tool.isConcurrencySafe).toBeUndefined()
 })
 

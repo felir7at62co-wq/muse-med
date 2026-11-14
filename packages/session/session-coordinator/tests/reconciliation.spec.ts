@@ -273,6 +273,7 @@ describe('original worker task reconciliation', () => {
       const interrupted = await waitStatus(test, 'interrupted')
       expect(latest(interrupted).issue).toContain('Wait for the next receipt')
       await expect(test.service.reconcile(test.main, request)).rejects.toMatchObject({ code: 'INVALID_ARGS',
+        // oxlint-disable-next-line typescript/no-unsafe-assignment -- asymmetric matcher is typed any
         message: expect.stringContaining('Worker is still busy; wait for the next receipt and do not dispatch this work again') })
       expect(worker.status).toBe('running')
     } finally { release.resolve(undefined) }
@@ -583,7 +584,9 @@ describe('original worker task reconciliation', () => {
     const test = await fixture()
     const { task, worker, request } = await assignment(test)
     const through = (await test.ctx.sessionQuery.readSession(worker.id)).events.at(-1)!.seq
-    const unchecked: ReconcileRequest = { key: request.key, taskId: task.id, expectedRevision: 1, instructions: request.instructions, reason: request.reason }
+    const unchecked: ReconcileRequest = {
+      key: request.key, taskId: task.id, expectedRevision: 1, instructions: request.instructions, reason: request.reason,
+    }
     const first = await test.service.reconcile(test.main, unchecked)
     expect(first.id).toBe(task.id)
     const completed = await waitStatus(test, 'completed')

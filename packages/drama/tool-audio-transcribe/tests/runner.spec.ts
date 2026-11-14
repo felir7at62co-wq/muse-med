@@ -1283,7 +1283,10 @@ it('submits a batch in input order and returns an unfinished receipt without ano
   const before = { encodes: f.calls.encodes.length, submits: f.calls.submits.length }
   const result = await startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, f.media)
   expect(result.items.map(item => item.input)).toEqual(f.inputs)
-  const items = result.items.map(item => { if (!('receipt' in item)) throw new Error(item.error); return item })
+  const items = result.items.map((item) => {
+    if (!('receipt' in item)) throw new Error(item.error)
+    return item
+  })
   expect(items.map(item => item.status)).toEqual(['processing', 'processing', 'processing'])
   expect(new Set(items.map(item => item.receipt)).size).toBe(3)
   expect(items[1]).toMatchObject({ receipt: existing.receipt, job_id: existing.job_id })
@@ -1439,10 +1442,13 @@ it('reports a non-Error media adapter rejection as the text of the stopping batc
 it('cancels a batch during extraction with the caller reason and keeps only finished receipts', async () => {
   const f = await episodes(3)
   const controller = new AbortController(), reason = new Error('stop batch')
-  const media = { ...f.media, encode: async (source: string, target: string, range?: { offset: number; duration: number }, signal?: AbortSignal) => {
-    await f.media.encode(source, target, range, signal)
-    if (basename(source) === 'ep2.mp4') { controller.abort(reason); signal?.throwIfAborted() }
-  } }
+  const media = {
+    ...f.media,
+    encode: async (source: string, target: string, range?: { offset: number; duration: number }, signal?: AbortSignal) => {
+      await f.media.encode(source, target, range, signal)
+      if (basename(source) === 'ep2.mp4') { controller.abort(reason); signal?.throwIfAborted() }
+    },
+  }
   await expect(startAudioTranscriptionBatch(f.project, f.inputs, 'zh', f.account, config, media, undefined, controller.signal)).rejects.toBe(reason)
   const files = await readdir(f.jobs)
   expect(files.filter(name => name.endsWith('.json'))).toEqual(['ep1-v1.json'])
@@ -1472,7 +1478,7 @@ it('returns a status call when inspect finds a task the gateway never accepted',
   const before = await readFile(start.receipt, 'utf8')
   const started = Date.now()
   const result = await finishAudioTranscription(f.project, start.receipt, f.account, undefined, false,
-    { waitMs: 30_000, pollIntervalMs: 1000, probe: f.media.probe })
+    { waitMs: 30_000, pollIntervalMs: 1000, probe: f.media.probe.bind(f.media) })
   expect(Date.now() - started).toBeLessThan(1000)
   expect(result).toMatchObject({ status: 'preparing', job_id: start.job_id, error_code: 'job-not-found',
     resume_status: { method: 'status', receipt: start.receipt } })

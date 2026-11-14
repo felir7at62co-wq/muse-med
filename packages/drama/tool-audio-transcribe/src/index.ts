@@ -28,7 +28,10 @@ export interface Config {
   readonly pollIntervalMs: number
   /** Largest extracted audio chunk accepted for staging, in bytes. */
   readonly maxAudioBytes: number
-  /** Total delay one call spends waiting out upload_busy or request_rate refusals before offering the same staged upload again, in milliseconds; 0 returns the refusal at once. */
+  /**
+   * Total delay one call spends waiting out upload_busy or request_rate refusals
+   * before offering the same staged upload again, in milliseconds; 0 returns the refusal at once.
+   */
   readonly uploadRetryBudgetMs: number
   /** Largest number of files one batch start accepts. */
   readonly maxBatchInputs: number

@@ -25,7 +25,8 @@ export function manuscriptTextHash(text: string): string {
 /**
  * Partition every input line; an unrecognized manuscript remains one complete section.
  * @param text - Full reading text, never a preview.
- * @returns Ordered scene sections, retaining episode headings and hook lines; text before the first heading carries {@link MANUSCRIPT_PREAMBLE_EPISODE}.
+ * @returns Ordered scene sections, retaining episode headings and hook lines;
+ * text before the first heading carries {@link MANUSCRIPT_PREAMBLE_EPISODE}.
  */
 export function manuscriptScenes(text: string): ManuscriptScene[] {
   const lines = text.split('\n'), scenes: ManuscriptScene[] = []

@@ -174,7 +174,11 @@ it('counts presented files in routing rows and omits only a row that exceeds the
   const text = listed.content?.[0]
   if (text?.type !== 'text') throw new Error('Task list returned no text')
   expect(text.text.length).toBeLessThanOrEqual(1500)
-  const list = JSON.parse(text.text) as { tasks: { id: string; report: Record<string, unknown> | null }[]; total: number; truncated: boolean }
+  const list = JSON.parse(text.text) as {
+    tasks: { id: string; report: Record<string, unknown> | null }[]
+    total: number
+    truncated: boolean
+  }
   expect(list).toMatchObject({ total: 3, truncated: true })
   expect(list.tasks.map(task => task.id).sort()).toEqual([small.id, storyboard.id].sort())
   expect(list.tasks.map(task => task.id)).not.toContain(oversized.id)

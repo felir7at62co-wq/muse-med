@@ -73,7 +73,8 @@ function endpoints<T extends Location>(all: readonly T[], materialLines: readonl
 
 /**
  * Return exact ending lines and action/parenthetical locations without rating suspense or moving text.
- * @param scenes - Complete current scenes in document order, including file paths; text before the first heading has no episode ending and is left out.
+ * @param scenes - Complete current scenes in document order, including file paths;
+ * text before the first heading has no episode ending and is left out.
  * @param limits - Existing result-count and text budgets; omitted quotes remain explicitly counted.
  * @param changedLines - Optional saved-file lines limiting action locations and affected episodes.
  * @param endingEpisodes - Explicit current-file episode labels retaining endings for deletions with no new action line.
