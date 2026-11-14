@@ -14,7 +14,7 @@ const ranges = {
   concurrency: [1, 8], retries: [0, 4],
   mediaProcessGraceMs: [1, 10000], bytevc2Concurrency: [1, 8], bytevc2Threads: [1, 16],
   decryptionConcurrency: [1, 4], maxDecryptionBytes: [1024, 1073741824], decryptionWorkerHeapMb: [32, 1024],
-  retryDelayMs: [0, 60000],
+  retryDelayMs: [0, 60000], sourceRetries: [0, 4], sourceRetryDelayMs: [0, 60000],
   signerStartupTimeoutMs: [100, 600000], signerHeapMb: [256, 4096],
   signerPollIntervalMs: [1, 1000], signerPortAttempts: [1, 16],
   deviceBootstrapTimeoutMs: [100, 300000],
@@ -46,7 +46,7 @@ const defaults = {
   requestTimeoutMs: 20000, downloadTimeoutMs: 600000, callTimeoutMs: 7200000,
   maxResponseBytes: 8388608, maxEpisodeBytes: 1073741824, maxSeries: 10, concurrency: 3, retries: 2,
   mediaProcessGraceMs: 1000,
-  retryDelayMs: 1500,
+  retryDelayMs: 1500, sourceRetries: 2, sourceRetryDelayMs: 2000,
 };
 
 /** Resolve all settings before calls; optional credentials are read only via their environment variable name. */

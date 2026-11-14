@@ -24,7 +24,7 @@ export interface HongguoDownloadConfig {
   javaExecutable?: string; signerStartupTimeoutMs?: number; signerHeapMb?: number;
   signerPollIntervalMs?: number; signerPortAttempts?: number;
   bootstrapDevices?: boolean; deviceBootstrapTimeoutMs?: number;
-  mediaUserAgent?: string; retryDelayMs?: number;
+  mediaUserAgent?: string; retryDelayMs?: number; sourceRetries?: number; sourceRetryDelayMs?: number;
   mediaRequestIntervalMs?: number; mediaIdleTimeoutMs?: number; mediaBatchSize?: number;
   mediaConnections?: number; mediaConnectionLimit?: number; mediaSegmentMinBytes?: number;
   emptySourceCooldownMs?: number; resumeSearchDepth?: number; resumeSearchEntries?: number;
@@ -45,7 +45,8 @@ export interface DownloadedEpisode {
 export interface DownloadFailure {
   ok: false; complete: false; code: string; message: string; sourceBackend?: 'v2';
   safeReason?: string; freeUsed?: number; freeLimit?: number;
-  upstreamCode?: number; sourceStage?: 'catalog' | 'video_model' | 'source_api'; retryable?: false;
+  upstreamCode?: number | string; sourceStage?: 'catalog' | 'video_model' | 'source_api'; retryable?: boolean;
+  sourceFailures?: { source: 'web' | 'app' | 'api'; code: string }[];
   httpStatus?: number; responseBytes?: number;
   path?: string; checkpoint?: string; cleanupPendingPath?: string; retainedEpisodeCount?: number; reusedEpisodeCount?: number;
   requestedQuality?: '1080p' | '720p' | 'auto';

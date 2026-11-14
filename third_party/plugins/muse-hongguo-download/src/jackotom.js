@@ -3,6 +3,39 @@ import { createRequire } from 'node:module';
 import { DownloadError } from './errors.js';
 const require = createRequire(import.meta.url);
 const revision = 'bb4aec994a1fc6336da55b269481ae2196124e8d';
+const sourceNames = { web: '网页', app: 'App', api: '旧接口' };
+
+/** Keep only enumerated upstream failure codes; upstream messages can carry request details. */
+function sourceFailures(info) {
+  const list = Array.isArray(info?.sources) ? info.sources : [];
+  return list.filter(item => Object.hasOwn(sourceNames, item?.source) && /^[A-Z][A-Z0-9_]{0,39}$/.test(String(item?.code ?? '')))
+    .slice(0, 6).map(item => ({ source: item.source, code: String(item.code) }));
+}
+
+/** Apply the upstream client's rule: timeouts, network failures and 5xx are transient; an App or device refusal is final. */
+function transientFailure(info, failures) {
+  if (info?.locked) return false;
+  if (failures.some(item => item.source === 'app' && /^(?:DEVICE_REGISTRATION_FAILED|HTTP_(?:403|429)|BUSINESS_REJECTED|SECURITY_BLOCKED)$/.test(item.code))) return false;
+  return info?.code === 'ETIMEDOUT' || failures.some(item => (item.source === 'web' && /^HTTP_(?:404|410)$/.test(item.code))
+    || /^(?:TIMEOUT|NETWORK_ERROR|HTTP_(?:408|5\d\d))$/.test(item.code));
+}
+
+function unavailable(info, failures, transient) {
+  const reason = failures.length ? `（${failures.map(item => `${sourceNames[item.source]}：${item.code}`).join('；')}）` : '';
+  return new DownloadError('source_unavailable', `红果未返回可用的完整分集片源${reason}；${transient ? '多次重试仍失败，可稍后用同一请求续下载' : '已停止请求'}，已验证文件保留`, {
+    sourceStage: 'video_model', retryable: transient,
+    ...(/^[A-Z][A-Z0-9_]{0,39}$/.test(String(info?.code ?? '')) ? { upstreamCode: String(info.code) } : {}),
+    ...(failures.length ? { sourceFailures: failures } : {}) });
+}
+
+function pause(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const done = () => { signal.removeEventListener('abort', stop); resolve(); };
+    const stop = () => { clearTimeout(timer); reject(signal.reason); };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener('abort', stop, { once: true });
+  });
+}
 
 /** Adapt the upstream catalog to Muse's validated download and recovery pipeline. */
 export class JackotomSource {
@@ -30,11 +63,16 @@ export class JackotomSource {
   async videoUrls(ids, signal, seriesId) {
     const engine = this.load(), result = new Map();
     for (const vid of ids) {
-      signal.throwIfAborted();
-      const info = await engine.fetchPlayUrlSingle(vid, seriesId, { quality: this.config.quality, signal });
-      signal.throwIfAborted();
-      if (!info?.url || info.locked || String(info.vid) !== vid) {
-        throw new DownloadError('source_unavailable', '红果未返回可用的完整分集片源；已停止请求，已验证文件保留', { sourceStage: 'video_model', retryable: false });
+      let info;
+      for (let attempt = 0; ; attempt++) {
+        signal.throwIfAborted();
+        // A retry bypasses the upstream 30-second play-info cache, as the upstream client does.
+        info = await engine.fetchPlayUrlSingle(vid, seriesId, { quality: this.config.quality, signal, ...(attempt ? { force: true } : {}) });
+        signal.throwIfAborted();
+        if (info?.url && !info.locked && String(info.vid) === vid) break;
+        const failures = sourceFailures(info), transient = !info?.url && transientFailure(info, failures);
+        if (!transient || attempt >= this.config.sourceRetries) throw unavailable(info, failures, transient);
+        await pause(this.config.sourceRetryDelayMs * (attempt + 1), signal);
       }
       if (this.config.quality !== 'auto' && Number(info.width) > 0 && Number(info.height) > 0
         && Math.min(Number(info.width), Number(info.height)) < (this.config.quality === '1080p' ? 1080 : 720)) {

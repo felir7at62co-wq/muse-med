@@ -43,3 +43,45 @@ test('ByteVC2 sources reach conversion only with an explicitly configured decode
   assert.equal(media.encryption, null);
   assert.equal(media.expectedWidth, 1080);
 });
+
+test('retries transient source failures with a fresh lookup and then succeeds', async () => {
+  const calls = [];
+  const engine = { fetchPlayUrlSingle: async (_vid, _id, options) => {
+    calls.push(options.force === true);
+    return calls.length < 3 ? { url: null, error: 'private detail', code: 'SOURCE_UNAVAILABLE', sources: [{ source: 'app', code: 'TIMEOUT', message: 'private' }] }
+      : { vid, url: 'https://a.qznovelvod.com/video', width: 1080, height: 1920 };
+  } };
+  const source = new JackotomSource(resolveConfig({ sourceRetryDelayMs: 0 }), engine);
+  assert.equal((await source.videoUrls([vid], signal(), id)).get(vid).url, 'https://a.qznovelvod.com/video');
+  assert.deepEqual(calls, [false, true, true]);
+});
+
+test('reports enumerated failure codes without retrying an explicit App refusal', async () => {
+  let calls = 0;
+  const engine = { fetchPlayUrlSingle: async () => { calls++; return { url: null, error: 'private signed URL', code: 'SOURCE_UNAVAILABLE',
+    sources: [{ source: 'web', code: 'PREVIEW_ONLY', message: 'private' }, { source: 'app', code: 'HTTP_429', message: 'private' }, { source: 'app', code: 'bad code' }] }; } };
+  const source = new JackotomSource(resolveConfig({ sourceRetryDelayMs: 0 }), engine);
+  await assert.rejects(source.videoUrls([vid], signal(), id), error => {
+    assert.equal(error.code, 'source_unavailable'); assert.equal(error.retryable, false); assert.equal(error.upstreamCode, 'SOURCE_UNAVAILABLE');
+    assert.deepEqual(error.sourceFailures, [{ source: 'web', code: 'PREVIEW_ONLY' }, { source: 'app', code: 'HTTP_429' }]);
+    assert.match(error.message, /网页：PREVIEW_ONLY；App：HTTP_429/); assert.ok(!error.message.includes('private'));
+    return true;
+  });
+  assert.equal(calls, 1);
+});
+
+test('marks a transient failure retryable after the configured retries are spent', async () => {
+  let calls = 0;
+  const engine = { fetchPlayUrlSingle: async () => { calls++; return { url: null, code: 'SOURCE_UNAVAILABLE', sources: [{ source: 'app', code: 'NETWORK_ERROR' }] }; } };
+  const source = new JackotomSource(resolveConfig({ sourceRetries: 1, sourceRetryDelayMs: 0 }), engine);
+  await assert.rejects(source.videoUrls([vid], signal(), id), { code: 'source_unavailable', retryable: true });
+  assert.equal(calls, 2);
+});
+
+test('cancellation during a retry wait stops further lookups', async () => {
+  const controller = new AbortController(); let calls = 0;
+  const engine = { fetchPlayUrlSingle: async () => { calls++; setTimeout(() => controller.abort(), 5); return { url: null, sources: [{ source: 'app', code: 'TIMEOUT' }] }; } };
+  const source = new JackotomSource(resolveConfig({ sourceRetryDelayMs: 60000 }), engine);
+  await assert.rejects(source.videoUrls([vid], controller.signal, id));
+  assert.equal(calls, 1);
+});
