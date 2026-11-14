@@ -109,7 +109,9 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
       expect(presetSource).toContain("watermarkFontFamily: !!js process.env.MUSE_WATERMARK_FONT_FAMILY || process.env.MUSE_FONT_FAMILY || 'Microsoft YaHei'")
     }
     const prompt = rows.find(row => row.id === 'persona')?.config?.prefix ?? ''
-    expect(prompt).toContain('你是 muse-med 短剧编导 Agent，由 deepseek-flash 驱动。')
+    expect(prompt).toContain('你是 muse-med 短剧编导 Agent。')
+    expect(prompt).not.toContain('deepseek-flash')
+    expect(prompt).toContain('在收到请求的这一轮调用 create_goal')
     expect(prompt).not.toContain('根据作品的媒介、题材与情绪体验，自主设计适合短剧的形象')
     expect(prompt).not.toContain('仿真人允许真人摄影质感与电影级玄幻生物、法术和虚构场景融合')
     expect(prompt).toContain('不套用人类面部与无面容三视图版式')
