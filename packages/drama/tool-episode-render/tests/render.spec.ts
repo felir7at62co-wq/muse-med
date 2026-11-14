@@ -525,6 +525,25 @@ describe('renderEpisode', () => {
       .rejects.toThrow('选源或审核已变化')
   })
 
+  // Real entry: `renderEpisode` resumed over a strict project. While the first source probe runs,
+  // the Host rewrites the shot's OCR record that the strict review had just bound. The resume
+  // request re-reads every source-QA file at publication time, and its digest no longer matches
+  // the reviewed evidence, so the render refuses before encoding anything.
+  it('refuses source-review evidence rewritten after capture while a resumed render re-reads it', async () => {
+    const prepared = await reviewedProject(), base = renderChannel(prepared, { resume: true })
+    const evidence = prepared.artifacts[0]
+    if (evidence === undefined) throw Error('Missing captured OCR evidence')
+    const probeOf = join(prepared.paths.videoDir, 'shot_001.mp4')
+    const channel = { calls: base.calls, channel: { run: async (command: string, args: readonly string[]) => {
+      const result = await base.channel.run(command, args)
+      if (command === 'ffprobe' && args.at(-1) === probeOf) await writePlaceholder(evidence, 'rewritten OCR evidence')
+      return result
+    } } }
+    await expect(render(prepared, channel, false, undefined, { resume: true, sourceQaVerifier: prepared.verifier }))
+      .rejects.toThrow('源片复验后文件发生变化')
+    await expect(readFile(prepared.output)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
+
   it('binds all current source-review artifacts and independently reuses a strict candidate', async () => {
     const prepared = await reviewedProject(), channel = renderChannel(prepared, { resume: true })
     const result = await render(prepared, channel, false, undefined, { resume: true, sourceQaVerifier: prepared.verifier })

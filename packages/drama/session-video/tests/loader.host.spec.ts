@@ -349,6 +349,46 @@ it('binds playback to its conversation and exact current file version', async ()
   expect(spawn).not.toHaveBeenCalled()
 })
 
+it('refuses playback whose real source changed before its own metadata read', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1 }), before = readFileSync(f.file)
+  const stat = f.ctx.fs.stat.bind(f.ctx.fs), read = vi.spyOn(f.ctx.fs, 'readByteRange')
+  let sourceStats = 0
+  const mutation = vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    if (args[0].displayPath === f.source.path && ++sourceStats === 2) appendFileSync(f.file, 'changed-before-metadata')
+    return stat(...args)
+  })
+  try {
+    const response = await f.route.fetch(new Request(f.url))
+    expect(sourceStats).toBe(2)
+    expect(response.status).toBe(409)
+    expect(await response.text()).toBe('Video source changed; reload it')
+    expect(read).not.toHaveBeenCalled()
+    expect(readFileSync(f.file)).toEqual(Buffer.concat([before, Buffer.from('changed-before-metadata')]))
+  } finally { mutation.mockRestore() }
+})
+
+it('aborts a playback body whose real source changed before its first byte read', async () => {
+  const f = await localPlayback({ maxPlaybackStreams: 1 }), before = readFileSync(f.file)
+  const stat = f.ctx.fs.stat.bind(f.ctx.fs), read = vi.spyOn(f.ctx.fs, 'readByteRange')
+  let sourceStats = 0
+  const mutation = vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    if (args[0].displayPath === f.source.path && ++sourceStats === 3) appendFileSync(f.file, 'changed-before-first-read')
+    return stat(...args)
+  })
+  try {
+    const response = await f.route.fetch(new Request(f.url))
+    expect(sourceStats).toBe(3)
+    expect(response.status).toBe(200)
+    await expect(response.arrayBuffer()).rejects.toThrow('Video changed during playback')
+    expect(read).not.toHaveBeenCalled()
+  } finally { mutation.mockRestore() }
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]
+  if (!source?.playbackUrl) throw Error('Expected current playback URL after a rejected first read')
+  const current = await f.route.fetch(new Request(new URL(source.playbackUrl, f.url)))
+  expect(current.status).toBe(200)
+  expect(Buffer.from(await current.arrayBuffer())).toEqual(Buffer.concat([before, Buffer.from('changed-before-first-read')]))
+})
+
 it('returns exact full, open and suffix byte ranges while HEAD performs no byte read', async () => {
   const f = await localPlayback({ playbackChunkBytes: 127 }), bytes = readFileSync(f.file)
   const read = vi.spyOn(f.ctx.fs, 'readByteRange')
