@@ -100,24 +100,40 @@ describe('cloud archive races', () => {
     expect(refusals).toContain('corrupt-storage')
   })
 
-  it('refuses a blob whose bytes change while the archive is being read', { timeout: 30_000 }, async () => {
+  it('refuses a blob whose bytes change while the archive is being read', { timeout: 60_000 }, async () => {
+    // The read keeps the opened handle's metadata for comparison after the payload is read,
+    // so a timestamp write must land between the opened-handle check and the trailing check.
+    // A fixed delay is a guess about filesystem speed: the read of a page-cached blob is
+    // sub-millisecond on Linux and milliseconds on Windows. Keep writing for as long as the
+    // read runs instead, over a payload large enough that the window spans several writes.
     const policy = { ...limits, archiveBytes: 16 * 1024 * 1024, expandedBytes: 16 * 1024 * 1024 }
     const archive = createMarketPackage(manifest,
-      { ...resources, 'skills/fixture-skill/assets/bulk.bin': randomBytes(4 * 1024 * 1024) }, policy)
+      { ...resources, 'skills/fixture-skill/assets/bulk.bin': randomBytes(10 * 1024 * 1024) }, policy)
     const f = await fixture(policy, archive), epoch = Date.now() - 60_000
     const refusals: string[] = []
-    for (let step = 1; step <= 10; step += 1) {
-      // Settle the read's own refusal as soon as it happens: the metadata write below runs
-      // while the reader is still inside it, so its rejection must not stay unobserved.
+    for (let round = 0; round < 10; round += 1) {
+      const stamp = new Date(epoch + round * 1000), state = { writing: true }
       const reading = attempt(f.store, f.publication.id).then(code => code, (error: unknown) => error)
-      // The retained blob is read in a few milliseconds; place the metadata write inside it,
-      // after the opened-handle check and before the trailing exact-length check.
-      await settle(f.scratch, 12 * step)
-      const stamp = new Date(epoch + step * 1000)
-      await utimes(f.blob, stamp, stamp)
+      // Let the path check and the opened-handle check run first: a write before them is a
+      // different refusal (the sibling case), not the one under test. Each round starts the
+      // writer a little later, so one round lands inside the payload read whatever the
+      // filesystem's latency turns out to be.
+      await settle(f.scratch, 4 + 6 * round)
+      const mutating = (async () => {
+        for (let write = 0; write < 2048 && state.writing; write += 1) {
+          try { await utimes(f.blob, stamp, stamp) } catch (error) {
+            // A platform that holds the read handle exclusively refuses the metadata write;
+            // that is the runtime answering, not a defect in the reader under test.
+            if (!swappable.has((error as NodeJS.ErrnoException).code ?? '')) throw error
+          }
+        }
+      })()
       const outcome = await reading
+      state.writing = false
+      await mutating
       if (typeof outcome !== 'string') throw outcome
       refusals.push(outcome)
+      if (outcome === 'corrupt-storage') break
     }
     expect(refusals).toContain('corrupt-storage')
   })
