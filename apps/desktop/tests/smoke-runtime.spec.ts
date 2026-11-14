@@ -721,6 +721,18 @@ it('fails missing tools and still disposes the created agent', async () => {
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
+it('records the preset, assembly stage and live agent state before failed-smoke disposal', async () => {
+  const f = fixture()
+  Object.assign(f.agent, { id: 'smoke-0', ctx: { fiber: { uid: 42, state: 2 } } })
+  f.ctx.systemPrompt.assemble.mockRejectedValueOnce(new Error('assembly failed'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('preset short-drama at assemble smoke-0')
+  const diagnostic = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(diagnostic).toContain('"uid":42,"state":2')
+  expect(diagnostic).toContain('assembly failed')
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
 it('rejects a short-drama preset without its source snapshot tool', async () => {
   const f = fixture()
   f.sourceCapabilityNames.splice(f.sourceCapabilityNames.indexOf('source_snapshot'), 1)
