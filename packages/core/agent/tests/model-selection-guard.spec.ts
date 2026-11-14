@@ -4,22 +4,45 @@ import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { describe, expect, it, onTestFinished } from 'vitest'
 import { AgentModel, modelSelectionProjectionDefinition } from '../src/model-selection.ts'
+import type { AgentOptions } from '../src/runtime-types.ts'
 
 const INITIAL = { provider: 'alpha', model: 'a0', reasoningEffort: ReasoningEffortId('high') }
-async function harness() {
+async function harness(options: AgentOptions = { ...INITIAL }) {
   const ctx = new Context()
   onTestFinished(() => ctx.fiber.dispose())
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
   const projection = await ctx.sessionProjections.register(modelSelectionProjectionDefinition)
   const session = ctx.sessions.create(SessionId('model-selection-guard'))
-  const options = { ...INITIAL }
   const model = new AgentModel(() => projection.stateOf(session), session, options)
   const owner = new AbortController()
   return { model, session, options, owner }
 }
 
 describe('original model selection guard', () => {
+  it('refuses an unselected model and invalidates a held fallback when its selection disappears', async () => {
+    const missing = await harness({})
+    expect(() => missing.model.guard(INITIAL, missing.owner.signal)).toThrow('does not match')
+    const h = await harness()
+    const guard = h.model.guard(INITIAL, h.owner.signal)
+    delete h.options.model
+    expect(() => { guard.assertCurrent() }).toThrow('guarded model changed')
+    expect(guard.signal.aborted).toBe(true)
+    expect(h.model.current()).toBeUndefined()
+  })
+
+  it('keeps a new owner held when an already released guard is released again', async () => {
+    const h = await harness()
+    const previous = h.model.guard(INITIAL, h.owner.signal)
+    previous.release()
+    const current = h.model.guard(INITIAL, new AbortController().signal)
+    previous.release()
+    expect(current.signal.aborted).toBe(false)
+    current.assertCurrent()
+    expect(() => { h.model.select({ ...INITIAL, model: 'other-model' }) }).toThrow('cannot change')
+    current.release()
+  })
+
   it('blocks route and explicit effort changes without logging or changing the selected model', async () => {
     const h = await harness()
     const guard = h.model.guard(INITIAL, h.owner.signal)

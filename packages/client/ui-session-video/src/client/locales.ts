@@ -36,3 +36,6 @@ export const en: Record<VideoKey, string> = {
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap { /** Conversation video shelf copy. */ sessionVideo: VideoKey }
 }
+
+/** English fallbacks for Japanese, Spanish, French, German, Russian and Portuguese. */
+export const ja = en, es = en, fr = en, de = en, ru = en, pt = en

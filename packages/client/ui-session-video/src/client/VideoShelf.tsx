@@ -77,15 +77,15 @@ function VideoShelfContents(props: PropsRuntime<'conversation.content.overlay'> 
   const timeline = assembleTimeline(sources, Object.values(analyses))
   const shot = timeline.shots.find(value => value.id === selection)
   const selectShot = (id: string) => {
-    const target = timeline.shots.find(value => value.id === id)
-    if (!target) return
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- The timeline emits ids from these same shots.
+    const target = timeline.shots.find(value => value.id === id)!
     actions.select(target.source.id); setSelection(id)
     setSeek({ time: target.localStart, revision: ++revision.current })
   }
   const seekTo = (time: number) => {
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- Seeks stay within the complete rendered ranges.
     const target = timeline.shots.find((value, index) => time >= value.startSeconds
-      && (time < value.endSeconds || index === timeline.shots.length - 1))
-    if (!target) return
+      && (time < value.endSeconds || index === timeline.shots.length - 1))!
     actions.select(target.source.id); setSelection(target.id)
     setSeek({ time: target.localStart + Math.min(time, target.endSeconds) - target.startSeconds, revision: ++revision.current })
   }
@@ -109,9 +109,10 @@ function VideoShelfContents(props: PropsRuntime<'conversation.content.overlay'> 
           data-open={open || undefined} aria-hidden={!open} ref={(element) => { if (element) element.inert = !open }}>
           <Tooltip label={t('selectShotToRedo')} disabled={shot !== undefined || !open} portal>
             <span><Button size="sm" disabled={shot === undefined} onClick={() => {
-              if (shot === undefined) return
-              const prompt = t('redoPrompt', { name: shot.source.label, source: shot.source.path ?? shot.source.id, id: shot.id,
-                start: shot.localStart.toFixed(3), end: shot.localEnd.toFixed(3) })
+              // oxlint-disable-next-line typescript/no-non-null-assertion -- Disabled until a rendered shot is selected.
+              const target = shot!
+              const prompt = t('redoPrompt', { name: target.source.label, source: target.source.path ?? target.source.id, id: target.id,
+                start: target.localStart.toFixed(3), end: target.localEnd.toFixed(3) })
               const span = { start: draftLength, end: draftLength, draftRev }
               if (inputActions.insertText(`\n\n${prompt}`, span)) inputActions.persistDraft()
             }}><IconRefreshOutlineRegular /><span className={css.redoLabel}>{t('redo')}</span></Button></span>
@@ -126,7 +127,10 @@ function VideoShelfContents(props: PropsRuntime<'conversation.content.overlay'> 
           {present && <div className={css.contents}>
             {source === undefined ? <p className={css.status} role="status">{t(loadError ? 'unavailable' : 'empty')}</p> : <>
               {source.playbackUrl !== null ? <VideoPlayer active={open} source={source} analysis={analyses[source.id]} t={t}
-                shots={timeline.shots} offset={timeline.offsets[source.id] ?? 0}
+                shots={timeline.shots} offset={
+                  // oxlint-disable-next-line typescript/no-non-null-assertion -- assembleTimeline assigns every listed source an offset.
+                  timeline.offsets[source.id]!
+                }
                 duration={timeline.duration} pixelsPerSecond={pixelsPerSecond} zoom={zoom} onZoom={setZoom}
                 selectedShot={selection} seekRequest={seek} onSeek={seekTo} onSelectShot={selectShot} />
                 : <p className={css.status} role="alert">{t('unavailable')}</p>}

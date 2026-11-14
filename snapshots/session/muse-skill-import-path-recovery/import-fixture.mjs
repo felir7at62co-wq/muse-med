@@ -5,8 +5,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { zipSync } from 'fflate'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import { SkillsViewerGateway } from '../../../third_party/plugins/dsh-skill-mcp-panel/src/index.ts'
-import { resolveImportTarget, validateImportPath } from '../../../third_party/plugins/dsh-skill-mcp-panel/src/skill-import.ts'
+import { importSnapshotModule } from '../muse-fixture-import.mjs'
+
+const { SkillsViewerGateway } = await importSnapshotModule(new URL('../../../third_party/plugins/dsh-skill-mcp-panel/src/index.ts', import.meta.url),
+  new URL('../../../.artifacts/skill-panel-snapshot-artifact/package/lib/index.js', import.meta.url))
+const { resolveImportTarget, validateImportPath } = await importSnapshotModule(new URL('../../../third_party/plugins/dsh-skill-mcp-panel/src/skill-import.ts', import.meta.url),
+  new URL('../../../.artifacts/skill-panel-snapshot-artifact/package/lib/skill-import.js', import.meta.url))
 
 /** Loader identity for the isolated skill import conversation. */
 export const name = 'snapshot-skill-import-path-recovery'

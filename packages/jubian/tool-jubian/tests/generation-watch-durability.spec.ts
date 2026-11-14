@@ -209,3 +209,85 @@ it('checks the binding before waking a queued notice after a lost guard record',
   expect(f.agent.wakePending).not.toHaveBeenCalled()
   expect(f.followup).not.toHaveBeenCalled()
 })
+
+it('tracks parked and filtered durable notices without changing unrelated messages', async () => {
+  const f = await delivery()
+  const ordinary = freezeMessage<UserMessage>({ ...f.message, id: MessageId(randomUUID()), source: { kind: 'user' } })
+  f.session.append('jubian/generation-notice-parked', { id: f.notice.id })
+  expect(f.projection?.stateOf(f.session).notices).toEqual({})
+  f.session.append('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [f.message, ordinary] })
+  f.session.append('jubian/generation-notice-parked', { id: f.notice.id })
+  f.session.append('jubian/generation-notice-parked', { id: f.notice.id })
+  expect(f.projection?.stateOf(f.session).notices[f.notice.id]).toBe('guard-rejected')
+  f.session.append('agent/inbox/spliced', { target: 'next-step', start: 0, removedCount: 1, inserted: [] })
+  f.session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [f.message] })
+  f.session.append('turn/start', { turn: 1 })
+  f.session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [ordinary.id], nextTurn: [f.message.id] })
+  f.session.append('agent/inbox/claim-filtered', { turn: 1, step: 1, discarded: [f.message.id, ordinary.id] })
+  f.session.append('agent/inbox/claim-settled', { turn: 1, step: 1 })
+  expect(f.projection?.stateOf(f.session)).toMatchObject({ notices: { [f.notice.id]: 'needs-review' }, durableClaim: null })
+})
+
+it.each(['duplicate', 'step-length', 'turn-length', 'step-order', 'turn-order', 'filter-missing',
+  'filter-turn', 'settle-missing', 'settle-turn', 'settle-step', 'settle-turn-message', 'splice-start',
+  'splice-count', 'splice-end'] as const)('rejects inconsistent persisted inbox history: %s', async (fault) => {
+  const f = await delivery()
+  const queued = (target: 'next-step' | 'next-turn') => {
+    f.session.append('agent/inbox/spliced', { target, start: 0, inserted: [f.message] })
+  }
+  const claim = (nextStep: MessageId[], nextTurn: MessageId[], turn = 1) => {
+    f.session.append('agent/inbox/claim', { turn, step: 1, nextStep, nextTurn })
+  }
+  if (fault === 'duplicate') { claim([], []); claim([], []) }
+  if (fault === 'step-length') claim([f.message.id], [])
+  if (fault === 'turn-length') claim([], [f.message.id])
+  if (fault === 'step-order') { queued('next-step'); claim([MessageId(randomUUID())], []) }
+  if (fault === 'turn-order') { queued('next-turn'); claim([], [MessageId(randomUUID())]) }
+  if (fault === 'filter-missing' || fault === 'filter-turn') {
+    if (fault === 'filter-turn') claim([], [])
+    f.session.append('agent/inbox/claim-filtered', { turn: 2, step: 1, discarded: [] })
+  }
+  if (fault.startsWith('settle-')) {
+    if (fault === 'settle-turn') claim([], [])
+    if (fault === 'settle-step') { queued('next-step'); claim([f.message.id], []) }
+    if (fault === 'settle-turn-message') { queued('next-turn'); claim([], [f.message.id]) }
+    f.session.append('agent/inbox/claim-settled', { turn: fault === 'settle-turn' ? 2 : 1, step: 1 })
+  }
+  if (fault.startsWith('splice-')) f.session.append('agent/inbox/spliced', {
+    target: 'next-turn', start: fault === 'splice-start' ? -1 : 0,
+    removedCount: fault === 'splice-count' ? -1 : fault === 'splice-end' ? 1 : 0, inserted: [],
+  })
+  expect(() => f.projection?.stateOf(f.session)).toThrow(/Generation watch|Invalid inbox/u)
+})
+
+it('retains a later turn claim and leaves an ordinary model failure available for review', async () => {
+  const f = await delivery()
+  f.session.append('turn/start', { turn: 2 })
+  f.session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [f.message] })
+  f.session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] })
+  f.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  expect(f.projection?.stateOf(f.session).claimed).toEqual({ [f.message.id]: 2 })
+  f.session.append('turn/end', { turn: 2, reason: { kind: 'error', error: { code: 'UNKNOWN', message: 'provider unavailable' } } })
+  expect(f.projection?.stateOf(f.session)).toMatchObject({ notices: { [f.message.id]: 'queued' }, claimed: {} })
+})
+
+it('rechecks ownership after a resumable queued binding is restored', async () => {
+  const f = await delivery()
+  f.agent.inbox.nextTurn.push(f.message)
+  f.session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [f.message] })
+  const verify = vi.fn(async () => true).mockResolvedValueOnce(true).mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+  await expect(deliverGenerationWatchNotice(f.ctx, f.session.id, f.notice, undefined, undefined, undefined,
+    verify, f.projection, async () => true)).resolves.toBe('needs-review')
+  expect(verify).toHaveBeenCalledTimes(3)
+  expect(f.agent.wakePending).not.toHaveBeenCalled()
+  expect(f.followup).not.toHaveBeenCalled()
+  expect(f.flush).not.toHaveBeenCalled()
+})
+
+it('refuses a controller result that names a different original Session', async () => {
+  const f = await delivery()
+  await expect(deliverGenerationWatchNotice(f.ctx, SessionId('different-owner'), f.notice, undefined, undefined, undefined,
+    async () => true, f.projection)).resolves.toBe('needs-review')
+  expect(f.followup).not.toHaveBeenCalled()
+  expect(f.flush).not.toHaveBeenCalled()
+})

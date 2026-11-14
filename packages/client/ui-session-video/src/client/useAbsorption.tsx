@@ -76,11 +76,13 @@ export function useAbsorption(ref: RefObject<HTMLElement | null>, options: Absor
 
   useLayoutEffect(() => {
     const source = ref.current
-    const layer = layerRef.current
-    const canvas = canvasRef.current
-    const material = materialRef.current
-    const hit = hitRef.current
-    if (source === null || frame === null || layer === null || canvas === null || material === null || hit === null) return
+    if (source === null || frame === null) return
+    // oxlint-disable typescript/no-non-null-assertion -- A selected frame commits all four portal elements before layout effects.
+    const layer = layerRef.current!
+    const canvas = canvasRef.current!
+    const material = materialRef.current!
+    const hit = hitRef.current!
+    // oxlint-enable typescript/no-non-null-assertion
     const scroll = source.closest<HTMLElement>('[data-conversation-scroll]') ?? frame.querySelector<HTMLElement>('[data-chat-scroll]')
     if (scroll === null) return
     const owner = frame.closest<HTMLElement>('[data-conversation-content]') ?? frame
@@ -114,7 +116,6 @@ export function useAbsorption(ref: RefObject<HTMLElement | null>, options: Absor
     }
     const paint = () => {
       pending = 0
-      if (disposed) return
       const nextAnchor = owner.querySelector<HTMLElement>('[data-muse-video-anchor]')
       if (nextAnchor !== anchor) { clearFusion(); anchor = nextAnchor; originalFusion = anchor?.style.getPropertyValue('--muse-video-fusion') ?? '' }
       if (anchor === null) {
@@ -162,7 +163,7 @@ export function useAbsorption(ref: RefObject<HTMLElement | null>, options: Absor
       const label = source.getAttribute('aria-label')
       hit.hidden = result.progress >= 0.86 || label === null
       if (label !== null) hit.setAttribute('aria-label', label)
-      const ratio = Math.min(window.devicePixelRatio || 1, 2)
+      const ratio = Math.min(window.devicePixelRatio, 2)
       canvas.width = Math.max(1, Math.ceil(frameRect.width * ratio))
       canvas.height = Math.max(1, Math.ceil(height * ratio))
       const context = canvas.getContext('2d')

@@ -23,6 +23,7 @@
 // (the plugin-row path discards the ReplayHandle; the direct install keeps
 // assertConsumed for the teardown fixture-consumption check).
 import { existsSync, readFileSync } from 'node:fs'
+import { writeReplayDiagnostics } from '../../../snapshots/replay-diagnostics.ts'
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -1293,6 +1294,12 @@ async function assertReplaySession(
     ?.split(harnessHome).join('{{harnessHome}}')
   const expectedSnapshot = normalizeSessionSnapshots([normalizeWebSessionVolatiles(expected)], expectedContext)[0]
     ?.split(harnessHome).join('{{harnessHome}}')
+  if (mode === 'replay' && process.env.CI === 'true') {
+    const directory = join(REPO_ROOT, '.artifacts/snapshot-replay/web', basename(fixtureDir))
+    const evidence = normalizeWebSessionVolatiles(actual).split(REPO_ROOT).join('{{sourceRoot}}')
+      .split(webUrl).join('{{webUrl}}').split(harnessHome).join('{{harnessHome}}')
+    await writeReplayDiagnostics(directory, [evidence], actualContext)
+  }
   expect(actualSnapshot, `${expectedPath}: persisted replay`).toBe(expectedSnapshot)
 
   if (manifest.header?.pin !== true) return

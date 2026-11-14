@@ -8,7 +8,7 @@ import * as files from 'node:fs/promises'
 import { expect, it, onTestFinished, vi } from 'vitest'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { createEpisodeDeliveryJob, readEpisodeRecord, readEpisodeStateSnapshot, attemptIdentitySchema, executionIdentitySchema,
-  executionDrainSchema, runningExecutionSchema } from '../src/episode-delivery.ts'
+  executionDrainSchema, runningExecutionSchema, readEpisodeBytes } from '../src/episode-delivery.ts'
 import type { EpisodeExecutionId, RunningExecution, Sha256 } from '../src/episode-delivery.ts'
 import type { EpisodeExecutionAdmission } from '../src/episode-delivery-job.ts'
 import type { VideoRecoveryDigest } from '../src/types.ts'
@@ -16,6 +16,115 @@ import type { VideoRecoveryDigest } from '../src/types.ts'
 vi.mock('node:fs/promises', async original => ({ ...await original<typeof import('node:fs/promises')>() }))
 
 const hash = (value: string): Sha256 => brandString<Sha256>(createHash('sha256').update(value).digest('hex'))
+
+async function observePosixState(...args: Parameters<typeof readEpisodeStateSnapshot>) {
+  const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')
+  if (descriptor === undefined) throw new Error('Expected process platform descriptor')
+  try {
+    Object.defineProperty(process, 'platform', { ...descriptor, value: 'linux' })
+    return await readEpisodeStateSnapshot(...args)
+  } finally { Object.defineProperty(process, 'platform', descriptor) }
+}
+
+it('reads absent and bounded POSIX state snapshots through actual descriptors on every host', async () => {
+  const f = await fixture(), path = join(f.root, 'posix-state.json')
+  expect(await observePosixState(path, 4)).toBeUndefined()
+  await writeFile(path, '{}')
+  expect(await observePosixState(path, 2)).toEqual({})
+  await writeFile(path, '{')
+  await expect(observePosixState(path, 4)).rejects.toThrow(SyntaxError)
+  await writeFile(path, '12345')
+  await expect(observePosixState(path, 4)).rejects.toThrow('bounded regular file')
+})
+
+it.each([
+  { name: 'non-Error rejection', failure: 'state open rejected', link: false },
+  { name: 'error without a code', failure: new Error('state open failed'), link: false },
+  { name: 'permission refusal', failure: Object.assign(new Error('state open denied'), { code: 'EACCES' }), link: false },
+  { name: 'no-follow link refusal', failure: Object.assign(new Error('state link refused'), { code: 'ELOOP' }), link: true },
+])('preserves POSIX state-open $name on every host', async ({ failure, link }) => {
+  const f = await fixture(), path = join(f.root, 'posix-state.json')
+  const open = files.open
+  const spy = vi.spyOn(files, 'open').mockImplementation(async (...args) => {
+    if (args[0] === path) throw failure
+    return open(...args)
+  })
+  try {
+    if (link) await expect(observePosixState(path, 4)).rejects.toThrow('bounded regular file')
+    else await expect(observePosixState(path, 4)).rejects.toBe(failure)
+  } finally { spy.mockRestore() }
+})
+
+it('closes a POSIX state descriptor rejected as nonregular before reading', async () => {
+  const f = await fixture(), path = join(f.root, 'posix-state.json')
+  await writeFile(path, '{}')
+  const open = files.open
+  let opened: Awaited<ReturnType<typeof open>> | undefined
+  const spy = vi.spyOn(files, 'open').mockImplementation(async (...args) => {
+    const handle = await open(...args)
+    if (args[0] === path) {
+      opened = handle
+      const stat = handle.stat.bind(handle)
+      Object.defineProperty(handle, 'stat', { value: async () => {
+        const info = await stat()
+        info.isFile = () => false
+        return info
+      } })
+    }
+    return handle
+  })
+  try {
+    await expect(observePosixState(path, 4)).rejects.toThrow('bounded regular file')
+    expect(opened?.fd).toBe(-1)
+  } finally { spy.mockRestore() }
+})
+
+it('refuses a directory staged as an episode input without admitting it', async () => {
+  const f = await fixture(), path = join(f.job.attemptRoot, 'input-directory')
+  await mkdir(path)
+  await expect(f.job.admit({ ...f.admission, inputs: [{ ...f.admission.inputs[0], path }] }))
+    .rejects.toThrow('regular file')
+  expect(await f.job.read()).toBeUndefined()
+  expect(await readFile(f.input, 'utf8')).toBe('approved source')
+})
+
+it('rejects a linked private job directory without changing its target', async () => {
+  const f = await fixture(), other = join(f.root, 'other-project')
+  await mkdir(other)
+  await symlink(f.job.attemptRoot, join(other, '.muse'), process.platform === 'win32' ? 'junction' : 'dir')
+  await expect(createEpisodeDeliveryJob({ ...f.options, projectDir: other })).rejects.toThrow('canonical and regular')
+  expect(await readFile(f.input, 'utf8')).toBe('approved source')
+})
+
+it('propagates a candidate inspection refusal without arming the execution', async () => {
+  const f = await fixture()
+  await f.job.admit(f.admission)
+  const execution = await f.execution(), failure = Object.assign(new Error('Candidate inspection denied'), { code: 'EACCES' })
+  const inspect = files.lstat
+  const spy = vi.spyOn(files, 'lstat').mockImplementation(async (...args) => {
+    if (args[0] === execution.candidatePath) throw failure
+    return inspect(...args)
+  })
+  try { await expect(f.job.assertAdmission(execution.identity)).rejects.toBe(failure) }
+  finally { spy.mockRestore() }
+  expect((await f.job.read())?.executionRef).toBeNull()
+  expect(await f.job.readExecution(execution.identity.execution)).toEqual(execution)
+})
+
+it('propagates a journal inspection failure without treating it as an absent record', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'episode-journal-read-')))
+  onTestFinished(() => rm(root, { recursive: true, force: true }))
+  const path = join(root, 'journal.json'), failure = Object.assign(Error('Journal inspection denied'), { code: 'EACCES' })
+  await writeFile(path, 'retained record')
+  const original = files.lstat
+  const inspection = vi.spyOn(files, 'lstat').mockImplementation(async (...args) => {
+    if (args[0] === path) throw failure
+    return await original(...args)
+  })
+  try { await expect(readEpisodeBytes(path, 1024)).rejects.toBe(failure) }
+  finally { inspection.mockRestore() }
+  expect(await readFile(path, 'utf8')).toBe('retained record')
+})
 
 async function fixture(recordBytes = 16384) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'episode-job-')))
@@ -223,11 +332,14 @@ it('distinguishes missing from malformed, over-budget and nonregular journal fil
   await expect(f.job.read()).rejects.toThrow(SyntaxError)
 })
 
-it('observes bounded state JSON and rejects missing-parent errors, malformed JSON and oversized files', async () => {
+it('observes bounded state JSON and rejects I/O errors, malformed JSON and oversized files', async () => {
   const f = await fixture(), path = join(f.root, 'state.json')
   expect(await readEpisodeStateSnapshot(path, 4)).toBeUndefined()
   await writeFile(path, '{}'); expect(await readEpisodeStateSnapshot(path, 2)).toEqual({})
-  await expect(readEpisodeStateSnapshot(join(path, 'nested.json'), 4)).rejects.toThrow()
+  const failure = Object.assign(new Error('State read denied'), { code: 'EACCES' })
+  const denied = vi.spyOn(files, 'open').mockRejectedValueOnce(failure)
+  try { await expect(readEpisodeStateSnapshot(path, 4)).rejects.toBe(failure) }
+  finally { denied.mockRestore() }
   await writeFile(path, '{'); await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow(SyntaxError)
   await writeFile(path, '12345'); await expect(readEpisodeStateSnapshot(path, 4)).rejects.toThrow('bounded regular file')
   await expect(readEpisodeStateSnapshot(f.root, 4)).rejects.toThrow('bounded regular file')
@@ -422,7 +534,10 @@ it('refuses unowned running records and orphan historical drain evidence', async
 
 it('propagates real journal and candidate path errors instead of interpreting them as absence', async () => {
   const f = await fixture(); await f.job.admit(f.admission)
-  await expect(readEpisodeRecord(join(f.input, 'nested.json'), 16384)).rejects.toThrow()
+  const failure = Object.assign(new Error('Journal read denied'), { code: 'EACCES' })
+  const denied = vi.spyOn(files, 'open').mockRejectedValueOnce(failure)
+  try { await expect(readEpisodeRecord(join(f.job.attemptRoot, 'job.json'), 16384)).rejects.toBe(failure) }
+  finally { denied.mockRestore() }
   const execution = await f.execution(), stage = dirname(execution.candidatePath)
   await rm(stage, { recursive: true }); await writeFile(stage, 'not a directory')
   await expect(f.job.assertAdmission(execution.identity)).rejects.toThrow()

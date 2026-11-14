@@ -21,6 +21,10 @@ import SubprocessLocal from '@deepseek-ai/dsh-subprocess-local'
 import SandboxPolicy from '@deepseek-ai/dsh-sandbox-policy'
 import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import { SandboxProvider } from '@deepseek-ai/dsh-sandbox'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 
 const homes: string[] = [], contexts: Context[] = []
 afterEach(async () => {
@@ -217,6 +221,26 @@ it('mounts the account service using the configured product home without an MCP 
     .rejects.toMatchObject({ code: 'muse-feedback/sign-in-required' })
 })
 
+it('mounts opt-in feedback tools in the same account service lifetime', async () => {
+  const { ctx, home } = await fixture()
+  await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime)
+  await apply(ctx, Config({ baseUrl, accountHome: home, feedbackTools: true, webSearch: true }))
+  expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(['muse_feedback_submit', 'muse_feedback_status'])
+})
+
+it('owns optional sandbox-backed media tool registrations with their providers', async () => {
+  const { ctx, home } = await fixture()
+  class UnavailableSandbox extends SandboxProvider {
+    confine(): Promise<never> { return Promise.reject(Error('No confinement backend installed')) }
+  }
+  await ctx.plugin(SystemPrompt); await ctx.plugin(ToolRuntime)
+  await ctx.plugin(FsLocal, { cwd: home }); await ctx.plugin(SubprocessLocal)
+  await ctx.plugin(SessionProjectionRegistry)
+  await ctx.plugin(SandboxPolicy, { mode: 'danger-full-access' }); await ctx.plugin(UnavailableSandbox)
+  await apply(ctx, Config({ baseUrl, accountHome: home, mediaTools: true }))
+  expect(ctx.tools.schemas().some(tool => tool.name === 'muse_media_import')).toBe(true)
+})
+
 it.each(['none', 'bridge', 'connection'] as const)('refuses remote access before its complete Host provider composition exists (%s)', async (part) => {
   const { ctx, home } = await fixture()
   if (part !== 'none') await host(ctx, part)
@@ -264,9 +288,11 @@ it('exchanges the real loopback Host token for a cookie and stops the account tu
   expect(stops).toEqual(tunnels)
 })
 
-it.each(['http', 'no-cookie'] as const)('keeps the saved account signed in after local Host bootstrap failure and can refresh again (%s)', async (failure) => {
+it.each(['http', 'no-cookie', 'not-listening'] as const)('keeps the saved account signed in after local Host bootstrap failure and can refresh again (%s)', async (failure) => {
   const { ctx, home, sessionFile } = await fixture()
   const { tunnels } = await host(ctx)
+  const port = ctx.webServer.port
+  const listening = failure === 'not-listening' ? vi.spyOn(ctx.webServer, 'port', 'get').mockReturnValue(undefined) : undefined
   await writeMuseSession(sessionFile, { baseUrl, username: 'alice', cookie: '__Host-muse=account-private' })
   let failed = true
   vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (input) => {
@@ -285,6 +311,7 @@ it.each(['http', 'no-cookie'] as const)('keeps the saved account signed in after
   )
   expect(tunnels).toHaveLength(0)
   failed = false
+  listening?.mockReturnValue(port)
   expect(await account(ctx).status({})).toMatchObject({ state: 'signed-in', username: 'alice' })
   expect(tunnels).toHaveLength(1)
 })

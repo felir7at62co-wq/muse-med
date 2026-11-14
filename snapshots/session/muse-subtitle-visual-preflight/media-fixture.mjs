@@ -102,8 +102,9 @@ export async function apply(ctx) {
     if (completed === 0) {
       assert.deepEqual(actual, { ok: false, failedChecks: ['subtitle_display_font'], encodedShots: [] })
       assert.equal(report.output, '')
-      assert.ok(calls.length > 0)
-      assert.ok(calls.every(call => call.args.some(arg => arg.includes('bbox=min_val=1'))))
+      const frameProbes = calls.filter(call => call.command === 'visual-preflight-ffmpeg')
+      assert.ok(frameProbes.length > 0)
+      assert.ok(frameProbes.every(call => call.args.some(arg => arg.includes('bbox=min_val=1'))), JSON.stringify(calls))
     } else {
       assert.equal(completed, 1)
       assert.deepEqual(actual, { ok: true, failedChecks: [], encodedShots: [1] })

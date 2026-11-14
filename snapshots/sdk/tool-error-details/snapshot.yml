@@ -3,6 +3,7 @@ scenario: tool-error-details
 profile: sdk
 composition: default
 recording: authored
+writerOutput: true
 header:
   class: native-then-ptc
   pin: true

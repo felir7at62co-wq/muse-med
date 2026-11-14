@@ -37,6 +37,7 @@ import {
   sessionFixtureName,
   sessionFixtureNames,
   sessionHeaderVersion,
+  writerSnapshotName,
 } from './session-files.ts'
 import {
   type CwdPathMode,
@@ -103,6 +104,8 @@ export interface Scenario {
   recorded: boolean
   /** Historical generation retained as a read-only migration fixture. */
   sessionFormat?: SnapshotSessionFormatManifest
+  /** Preserve canonical replay inputs and compare separate current-writer output per role. */
+  writerOutput?: true
   /**
    * Whether replay is driven by a hand-written `replay.override.json` sidecar
    * (a `ReplayOverrideDoc` that replaces or patches the script derived from
@@ -231,7 +234,7 @@ export function scenarioSkipped(
   platform: NodeJS.Platform = process.platform,
   hasPwsh?: boolean,
 ): boolean {
-  if (recording && (!scenario.recorded || scenario.sessionFormat !== undefined)) return true
+  if (recording && (!scenario.recorded || scenario.sessionFormat !== undefined || scenario.writerOutput === true)) return true
   if (scenario.posixOnly === true && platform === 'win32') return true
   return scenario.pwshOnly === true && hasPwsh !== true
 }
@@ -279,6 +282,8 @@ export interface SnapshotSuiteOptions {
    * caller owns; `pwshOnly` scenarios skip when this is not true).
    */
   hasPwsh?: boolean
+  /** Optional read-only replay observer, awaited before comparisons; failures fail the scenario. */
+  onReplayResult?: (scenario: string, logs: readonly HarvestedLog[], context: NormalizeContext) => Promise<void>
 }
 
 /** One scenario's generated claim on a shared snapshot file. */
@@ -1212,6 +1217,22 @@ export async function assertSessionFixtureStorage(dir: string, scenarioName: str
 }
 
 /**
+ * Require one normalized output oracle per selected role, or no output oracles for an ordinary owner.
+ * @param dir - Scenario directory containing canonical replay inputs and optional writer outputs.
+ * @param writerOutput - Whether the scenario owns separate current-writer output.
+ * @returns Completion after the inventory, prompt scrubbing and identity relationships are checked.
+ */
+export async function assertWriterOutputInventory(dir: string, writerOutput: boolean): Promise<void> {
+  const canonical = await sessionFixtures(dir)
+  const expected = writerOutput ? canonical.map((_, index) => writerSnapshotName(index)).sort() : []
+  const actual = (await readdir(dir)).filter(file => /^writer(?:\.[1-9]\d*)?\.expected\.jsonl$/u.test(file)).sort()
+  expect(actual, `${dir}: writer output inventory`).toEqual(expected)
+  const writers = await Promise.all(expected.map(file => readFile(join(dir, file), 'utf8')))
+  for (const writer of writers) expect(scrubSessionSnapshot(writer), `${dir}: writer scrub fixed point`).toBe(writer)
+  expect(redactSessionSnapshotIds(writers), `${dir}: writer identity fixed point`).toEqual(writers)
+}
+
+/**
  * Register the suite: one test per scenario (the expected-output and log comparisons and
  * the header and prompt uniformity guard) plus the fixture guard block (no orphan
  * scenario dirs, required files present, exactly one pin per header class,
@@ -1359,6 +1380,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           cwd: result.cwd,
           cwdAliases: result.cwdAliases,
         }
+        if (mode === 'replay') await options.onReplayResult?.(scenario.name, result.sessionLogs, ctx)
 
         const childSchemaPins = new Set(scenario.pinsChildToolSchemas ?? [])
         const childPromptPins = new Set(scenario.pinsChildSystemPrompts ?? [])
@@ -1368,7 +1390,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         const portableFixture = scenario.workspaceParent === undefined
           ? tokenizeSessionFixtureCwd
           : (log: string): string => log
-        const writesSessionFixtures = writesCurrentSessionFixtures(manifest, mode)
+        const writesSessionFixtures = (writesCurrentSessionFixtures(manifest, mode) || REFRESHING && manifest.writerOutput === true)
           && ((RECORDING && scenario.recorded && scenario.hasModelTurn) || (REFRESHING && comparesLog))
         if (writesSessionFixtures) {
           expect(result.sessionLogs.length, `${mode} produced no session log to harvest`).toBeGreaterThan(0)
@@ -1376,10 +1398,9 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
             expect(result.sessionLogs.length, `expected ${fixtureFiles.length} session logs (parent + children)`)
               .toBe(fixtureFiles.length)
           }
-          const outputFixtureFiles = result.sessionLogs.map((log, index) => sessionFixtureName(
-            index,
-            sessionHeaderVersion(log.content, `harvested Session ${index}`),
-          ))
+          const outputFixtureFiles = result.sessionLogs.map((log, index) => manifest.writerOutput === true
+            ? writerSnapshotName(index)
+            : sessionFixtureName(index, sessionHeaderVersion(log.content, `harvested Session ${index}`)))
           const existingFixtures = await Promise.all(outputFixtureFiles.map(async (_file, index) => {
             const file = fixtureFiles[index]
             if (file === undefined) return ''
@@ -1396,12 +1417,16 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
               ctx,
             ))))
             : result.sessionLogs.map(log => scrubSessionSnapshot(portableFixture(log.content)))
-          const outputFixtures = redactSessionSnapshotIds(stabilizeFixtureMessageIds(
-            reconcileCatalogCreationTimes(freshFixtures, 'preserve-headers'), existingFixtures,
-          ))
+          const outputFixtures = manifest.writerOutput === true
+            ? redactSessionSnapshotIds(result.sessionLogs.map(log => scrubSessionSnapshot(normalizeSessionLog(
+              log.content, { ...ctx, sessionIds: [] }, { identityMode: 'preserve' },
+            ))))
+            : redactSessionSnapshotIds(stabilizeFixtureMessageIds(
+              reconcileCatalogCreationTimes(freshFixtures, 'preserve-headers'), existingFixtures,
+            ))
           await Promise.all(outputFixtures.map((fixture, index) =>
             writeFile(join(dir, outputFixtureFiles[index] as string), fixture)))
-          fixtureFiles = outputFixtureFiles
+          if (manifest.writerOutput !== true) fixtureFiles = outputFixtureFiles
           if (scenario.pinsHeader === true) {
             const primary = result.sessionLogs[0] as HarvestedLog
             const prompts = normalizedSystemPrompts(primary.content, ctx)
@@ -1470,7 +1495,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           // The harvested logs (primary-first) must match their committed fixtures 1:1.
           expect(result.sessionLogs.length, 'this scenario must persist one log per session fixture').toBe(fixtureFiles.length)
           const harvested = result.sessionLogs.map(log => log.content)
-          const fixtures = await Promise.all(fixtureFiles.map(file => readFile(join(dir, file), 'utf8')))
+          const expectedFiles = manifest.writerOutput === true ? fixtureFiles.map((_, index) => writerSnapshotName(index)) : fixtureFiles
+          const fixtures = await Promise.all(expectedFiles.map(file => readFile(join(dir, file), 'utf8')))
           const fixtureContexts = fixtures.map(fixtureContext)
           const fixtureCtx: NormalizeContext = {
             sessionIds: fixtureContexts.flatMap(context => context.sessionIds),
@@ -1479,7 +1505,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           const actualSnapshots = normalizeSessionSnapshots(harvested, ctx, { nativeWriterOutput: true })
           const expectedSnapshots = normalizeSessionSnapshots(fixtures, fixtureCtx, { nativeWriterOutput: true })
           for (const [index, actual] of actualSnapshots.entries()) {
-            expect(actual, `${fixtureFiles[index]} mismatch`).toEqual(expectedSnapshots[index])
+            expect(actual, `${expectedFiles[index]} mismatch`).toEqual(expectedSnapshots[index])
           }
         }
 
@@ -1494,7 +1520,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         const schemaSource = schemaSourceByClass.get(classOf(scenario)) ?? pinningScenario
         const pinningDir = join(snapshotsDir, pinningScenario.name)
         const [pinningFixtureFile] = await sessionFixtures(pinningDir)
-        const pinnedFixture = await readFile(join(pinningDir, pinningFixtureFile as string), 'utf8')
+        const pinnedFixture = await readFile(join(pinningDir, pinningScenario.writerOutput === true ? writerSnapshotName(0) : pinningFixtureFile as string), 'utf8')
         const pinned = pinningHeaderPayloads(pinnedFixture, fixtureContext(pinnedFixture))
         const promptSnapshot = await readFile(
           join(snapshotsDir, promptSource.name, SYSTEM_PROMPT_SNAPSHOT),
@@ -1614,7 +1640,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
 
     it('every registered scenario has its required fixture files', async () => {
       // Every scenario needs input, stdout, a primary session fixture, and matching optional sidecars.
-      for (const { name, overridden, pinsNativeWindowsStdout, pinsChildToolSchemas, pinsChildSystemPrompts } of scenarios) {
+      for (const { name, overridden, writerOutput, pinsNativeWindowsStdout, pinsChildToolSchemas, pinsChildSystemPrompts } of scenarios) {
         const dir = join(snapshotsDir, name)
         const files = (await readdir(dir, { withFileTypes: true }))
           .filter(entry => entry.isFile())
@@ -1624,6 +1650,8 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         const manifest = parseSnapshotManifest(await readFile(manifestPath, 'utf8'), manifestPath)
         expect(manifest.profile, `${name}: manifest profile`).toBe(agent.profile ?? 'acp')
         expect(manifest.session, `${name}: ACP scenarios own their session`).toBeUndefined()
+        expect(manifest.writerOutput, `${name}: writer output registration`).toBe(writerOutput)
+        await assertWriterOutputInventory(dir, writerOutput === true)
         const childIndices = (pattern: RegExp): Set<number> => new Set(files
           .map(file => pattern.exec(file))
           .filter((match): match is RegExpExecArray => match !== null)
@@ -1673,7 +1701,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
         const schemaSource = schemaSourceByClass.get(classOf(scenario)) ?? scenario
         const fixtureDir = join(snapshotsDir, scenario.name)
         const [fixtureFile] = await sessionFixtures(fixtureDir)
-        const fixture = await readFile(join(fixtureDir, fixtureFile as string), 'utf8')
+        const fixture = await readFile(join(fixtureDir, scenario.writerOutput === true ? writerSnapshotName(0) : fixtureFile as string), 'utf8')
         const headers = pinningHeaderPayloads(fixture, fixtureContext(fixture))
         const promptSnapshot = await readFile(
           join(snapshotsDir, promptSource.name, SYSTEM_PROMPT_SNAPSHOT),

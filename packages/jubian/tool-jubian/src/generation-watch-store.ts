@@ -111,13 +111,6 @@ export type GenerationWatchGroupOrigin = z.infer<typeof generationWatchGroupOrig
 /** Host-owned run and checkpoint for the original submitting Session. */
 export type GenerationWatchRun = z.infer<typeof runSchema>
 
-function sameInputs(previous: GenerationWatchRun, next: GenerationWatchRun): boolean {
-  return previous.sessionId === next.sessionId && previous.packs.length === next.packs.length
-    && JSON.stringify(previous.binding) === JSON.stringify(next.binding)
-    && previous.packs.every(pack => next.packs.some(candidate => candidate.key === pack.key
-      && candidate.previewPath === pack.previewPath))
-}
-
 /** Original submitting identity returned only after Host attestation. */
 export interface GenerationWatchVerifiedOwner {
   runId: string
@@ -286,8 +279,9 @@ export class GenerationWatchStore {
       })) throw new GenerationWatchOwnershipConflict()
     }
     for (const [key, owner] of Object.entries(index.keys)) {
-      const entry = index.runs[owner.runId]
-      if (entry === undefined || entry.sessionId !== owner.sessionId
+      // readIndex requires every key owner to have an indexed run before validation.
+      const entry = index.runs[owner.runId] as OwnershipIndex['runs'][string]
+      if (entry.sessionId !== owner.sessionId
         || !entry.packs.some(pack => pack.key === key && pack.previewPath === owner.previewPath)) {
         throw new GenerationWatchOwnershipConflict()
       }
@@ -336,7 +330,7 @@ export class GenerationWatchStore {
       signal?.throwIfAborted()
       await this.saveIndex(index)
       if (!create || existing !== undefined) return false
-      await this.createCheckpoint(candidate)
+      await this.write(this.path(candidate.id), candidate)
       return true
     }, signal === undefined ? undefined : { signal })
   }
@@ -447,7 +441,6 @@ export class GenerationWatchStore {
     attest: GenerationWatchOwnerAttestor): Promise<GenerationWatchVerifiedOwner | undefined> {
     runId.parse(key)
     if (!isAbsolute(previewPath) || !isAbsolute(projectDir)) throw new Error('Expected absolute project and preview paths')
-    if (typeof attest !== 'function') throw new Error('A Host ownership attestor is required')
     const snapshot = async (): Promise<GenerationWatchVerifiedOwner | undefined> => {
       const path = join(this.root, 'ownership.v1.json')
       return await withFileLock(path, async () => {
@@ -499,21 +492,6 @@ export class GenerationWatchStore {
     return created
   }
 
-  private async createCheckpoint(run: GenerationWatchRun): Promise<GenerationWatchRun> {
-    const candidate = runSchema.parse(run)
-    await mkdir(this.root, { recursive: true, mode: 0o700 })
-    const path = this.path(candidate.id)
-    return await withFileLock(path, async () => {
-      const prior = await this.load(candidate.id)
-      if (prior === undefined) {
-        await this.write(path, candidate)
-        return candidate
-      }
-      if (!sameInputs(prior, candidate)) throw new Error('Generation watch run inputs changed')
-      return prior
-    })
-  }
-
   /**
    * Replace a run checkpoint after a Host-owned state transition.
    * @param run - Complete next value; frozen inputs and a published notice keep their identity.
@@ -531,7 +509,7 @@ export class GenerationWatchStore {
       await withFileLock(path, async () => {
         const prior = await this.load(candidate.id)
         if (prior !== undefined) {
-          if (!sameInputs(prior, candidate) || prior.createdAt !== candidate.createdAt || prior.deadlineAt !== candidate.deadlineAt) {
+          if (prior.createdAt !== candidate.createdAt || prior.deadlineAt !== candidate.deadlineAt) {
             throw new Error('Generation watch run inputs or deadline changed')
           }
           if (JSON.stringify(prior.groupOrigin) !== JSON.stringify(candidate.groupOrigin)) {

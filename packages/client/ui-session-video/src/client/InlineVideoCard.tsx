@@ -24,8 +24,8 @@ export function InlineVideoCard({ source, sourceUrl, label, actions, t }: Pick<V
     onCollect: (value) => { actions.collect(id, value) },
     onOpen: () => { if (source) actions.openSource(source.id) } })
   useEffect(() => {
-    const element = video.current
-    if (!element) return
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- A committed inline card always includes its video element.
+    const element = video.current!
     element.src = sourceUrl
     return () => { element.pause(); element.removeAttribute('src'); element.load() }
   }, [sourceUrl])

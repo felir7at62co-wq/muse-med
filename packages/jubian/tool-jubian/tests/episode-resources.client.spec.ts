@@ -84,3 +84,88 @@ it('rolls back earlier protocol registrations when a later public registration c
     replacement(); occupied()
   } finally { await ctx.fiber.dispose() }
 })
+
+it.each(['readiness', 'history'] as const)('publishes current %s failures without accepting display values', async (kind) => {
+  for (const fault of ['wire', 'error', 'plain'] as const) {
+    const reason = fault === 'plain' ? 'Episode query unavailable' : new Error('Episode query unavailable')
+    const readiness = vi.fn<EpisodeClient['episodeReadiness']>(), history = vi.fn<EpisodeClient['episodeHistory']>()
+    if (fault === 'wire') {
+      const failure = { ok: false as const, error: new RemoteError('jubian-video-recovery/rejected', 'Episode query unavailable', {}) }
+      readiness.mockResolvedValue(failure); history.mockResolvedValue(failure)
+    } else { readiness.mockRejectedValue(reason); history.mockRejectedValue(reason) }
+    const f = episodeClientFixture({ episodeReadiness: readiness, episodeHistory: history })
+    if (kind === 'readiness') f.directory.check(input)
+    else f.directory.history(input)
+    const source = f.resources.source(f.directory.state.getSnapshot()[`${kind}Address`])
+    await vi.waitFor(() => { expect(source.getSnapshot().status).toBe('failed') })
+    expect(source.getSnapshot().failure?.message).toBe('Episode query unavailable')
+    expect(f.directory.state.getSnapshot()[kind === 'readiness' ? 'displayedReadiness' : 'displayedHistory']).toBeNull()
+  }
+})
+
+it.each(['readiness', 'history', 'status'] as const)('suppresses a retired %s rejection while another subscriber retains its resource', async (kind) => {
+  const failure = new Error('Retired connection failed')
+  const readiness = Promise.withResolvers<Awaited<ReturnType<EpisodeClient['episodeReadiness']>>>()
+  const history = Promise.withResolvers<Awaited<ReturnType<EpisodeClient['episodeHistory']>>>()
+  const status = Promise.withResolvers<Awaited<ReturnType<EpisodeClient['episodeStatus']>>>()
+  const f = episodeClientFixture(kind === 'readiness' ? { episodeReadiness: () => readiness.promise }
+    : kind === 'history' ? { episodeHistory: () => history.promise } : { episodeStatus: () => status.promise })
+  if (kind === 'readiness') f.directory.check(input)
+  else {
+    f.directory.history(input)
+    if (kind === 'status') f.directory.selectOriginal(input, f.directory.state.getSnapshot().historyAddress)
+  }
+  const source = f.resources.source(f.directory.state.getSnapshot()[`${kind}Address`])
+  const release = source.subscribe(() => {})
+  f.directory.retireSelection('2')
+  if (kind === 'readiness') readiness.reject(failure)
+  else if (kind === 'history') history.reject(failure)
+  else status.reject(failure)
+  if (kind === 'readiness') await readiness.promise.catch(() => undefined)
+  else if (kind === 'history') await history.promise.catch(() => undefined)
+  else await status.promise.catch(() => undefined)
+  expect(source.getSnapshot().failure).toBeUndefined()
+  expect(f.notices).not.toHaveBeenCalled()
+  release()
+})
+
+it('does not accept a late history answer after its original selection retires', async () => {
+  const held = Promise.withResolvers<Awaited<ReturnType<EpisodeClient['episodeHistory']>>>()
+  const f = episodeClientFixture({ episodeHistory: () => held.promise })
+  f.directory.history(input)
+  const source = f.resources.source(f.directory.state.getSnapshot().historyAddress), release = source.subscribe(() => {})
+  f.directory.retireSelection('2')
+  held.resolve({ ok: true, value: { ...input, entries: [], truncated: false, unreadableRecords: 0, scannedEntries: 0 } })
+  await held.promise
+  expect(f.directory.state.getSnapshot().displayedHistory).toBeNull()
+  release()
+})
+
+it.each(['wrong-host-case', 'wrong-kind', 'missing-digest'] as const)('refuses a foreign status resource address: %s', (kind) => {
+  const f = episodeClientFixture()
+  const query = { kind: kind === 'wrong-kind' ? 'history' : 'status', projectDir: input.projectDir,
+    episode: input.episode, epoch: 0, revision: 1 }
+  const host = kind === 'wrong-host-case' ? 'JUBIAN-EPISODE-STATUS' : 'jubian-episode-status'
+  const address = `dsh-resource://${host}/${encodeURIComponent(JSON.stringify(query))}`
+  const release = f.resources.source(address).subscribe(() => {})
+  expect(f.api.episodeStatus).not.toHaveBeenCalled()
+  expect(f.notices).not.toHaveBeenCalled()
+  release()
+})
+
+it('joins a pending-status pause when its last resource holder disconnects during frame publication', async () => {
+  vi.useFakeTimers()
+  const f = episodeClientFixture({ episodeStatus: vi.fn<EpisodeClient['episodeStatus']>(async () => ({ ok: true,
+    value: { ...original, state: 'running' } })) })
+  f.directory.history(input); await vi.advanceTimersByTimeAsync(0)
+  f.directory.selectOriginal(input, f.directory.state.getSnapshot().historyAddress)
+  const source = f.resources.source(f.directory.state.getSnapshot().statusAddress)
+  let release = () => {}
+  release = source.subscribe(() => {
+    if (source.getSnapshot().status === 'live') { f.disconnect(); release() }
+  })
+  await vi.advanceTimersByTimeAsync(10000)
+  expect(f.api.episodeStatus).toHaveBeenCalledTimes(1)
+  expect(f.directory.state.getSnapshot().connected).toBe(false)
+  release()
+})

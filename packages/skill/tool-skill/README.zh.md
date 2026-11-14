@@ -139,7 +139,7 @@ A user may also invoke a skill directly; its <skill_content> block then appears 
 
 #### Token 影响
 
-重复输入成本随 skill 数量和 `catalogDescriptionMaxLength` 增长；当发现完整且列表为空，或工具被隐藏或遮蔽时，不会发送初始目录 token。每次条目或完整性变化都会添加一条保留的替换消息；发现不完整时会附带警告。
+重复输入成本随 skill 数量和 `catalogDescriptionMaxLength` 增长；当发现完整且列表为空，或工具被隐藏或遮蔽时，不会发送初始目录 token。目录更新作为保留的替换消息记录在 Session 日志中。
 
 #### KV Cache 影响
 

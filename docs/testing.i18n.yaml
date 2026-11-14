@@ -3,11 +3,11 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/testing.md
 /testing-policy:
-  en: de4c2e0d3a328b84
-  zh: 564a95654ce7493f
+  en: b634f44e94b8bd5f
+  zh: d823e0579ea48964
 /testing-policy/tiers:
-  en: 0d31b26d61f8f0c7
-  zh: 0d758e465d77e925
+  en: 05d47ecc3a1416be
+  zh: 29072bc4359b5299
 /testing-policy/how-specs-execute:
   en: 022c534e72e23142
   zh: c07a20994224f37c

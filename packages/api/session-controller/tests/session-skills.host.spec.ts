@@ -6,7 +6,8 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import SessionStore, { SESSION_FORMAT_VERSION, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
 import type {} from '@deepseek-ai/dsh-skill'
-import { describe, expect, it, vi } from 'vitest'
+import { scopeOf, scopeParentOf } from '@deepseek-ai/dsh-scope'
+import { describe, expect, it, onTestFinished, vi } from 'vitest'
 import { SessionSkillCatalog } from '../src/skill-catalog.ts'
 
 function observation(
@@ -49,6 +50,46 @@ async function context(): Promise<Context> {
 }
 
 describe('SessionSkillCatalog', () => {
+  it.each([
+    { fails: false, parented: false }, { fails: true, parented: false },
+    { fails: false, parented: true }, { fails: true, parented: true },
+  ])('disposes a cold view after listing: $fails failure / $parented preset', async ({ fails, parented }) => {
+    const ctx = await context()
+    onTestFinished(() => ctx.fiber.dispose())
+    const sessionId = SessionId('cold-prepared-view')
+    ctx.provide('sessionQuery', {
+      observeSession: () => Promise.resolve(observation(sessionId, { cwd: '/cold/project' })),
+    } as never)
+    let scope: object | undefined, active = 0, leaseDisposed = false
+    const parent = {}
+    if (parented) ctx.provide('agentPresets', { acquireScope: async () => ({ key: parent,
+      [Symbol.asyncDispose]: async () => { leaseDisposed = true } }) } as never)
+    ctx.on('session-skills/prepare-view', async (view) => {
+      expect(view.sessionId).toBe(sessionId)
+      const owned = view.context()
+      expect(view.context()).toBe(owned)
+      scope = scopeOf(owned)
+      expect(scope).toBeDefined()
+      if (scope === undefined) throw Error('Prepared view has no owned scope')
+      expect(scopeParentOf(scope)).toBe(parented ? parent : undefined)
+      owned.effect(() => { active++; return () => { active-- } })
+    })
+    const list = vi.fn(async (options: { cwd: string; scope?: object }) => {
+      expect(options).toMatchObject({ cwd: '/cold/project', scope })
+      expect(active).toBe(1)
+      if (fails) throw Error('Prepared catalog offline')
+      return []
+    })
+    ctx.provide('skills', { list } as never)
+    const operation = new SessionSkillCatalog(ctx).list({ sessionId }, new AbortController().signal)
+    if (fails) await expect(operation).rejects.toMatchObject({ code: 'gateway/internal' })
+    else await expect(operation).resolves.toEqual({ skills: [] })
+    expect(list).toHaveBeenCalledOnce()
+    expect(active).toBe(0)
+    expect(leaseDisposed).toBe(parented)
+    expect(ctx.agents.list()).toEqual([])
+  })
+
   it('reads a moved cold Session catalog from its recorded current directory without resuming an Agent', async () => {
     const ctx = await context()
     const sessionId = SessionId('cold-skills')

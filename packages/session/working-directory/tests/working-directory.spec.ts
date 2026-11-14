@@ -8,7 +8,10 @@ import { describe, expect, it, vi } from 'vitest'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import WorkingDirectory, { type Config as WorkingDirectoryConfig } from '@deepseek-ai/dsh-working-directory'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { modelSelectionProjectionDefinition } from '@deepseek-ai/dsh-agent'
+import { ReactLoopAgent } from '../../../core/agent-loop/src/agent.ts'
+import { inboxProjectionDefinition } from '../../../core/agent-loop/src/inbox.ts'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { renderContextSnapshot, renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import * as WorkingDirectoryTool from '@deepseek-ai/dsh-tool-working-directory'
@@ -35,6 +38,14 @@ async function fixture(config?: (root: string) => WorkingDirectoryConfig) {
     await rm(root, { recursive: true, force: true })
     throw error
   }
+}
+
+async function detachedAgent(f: Awaited<ReturnType<typeof fixture>>, id: string) {
+  const session = Session.create(SessionId(id), [], { ...f.agent.session.header, id: SessionId(id) })
+  const selection = await f.ctx.sessionProjections.register(modelSelectionProjectionDefinition)
+  const inbox = await f.ctx.sessionProjections.register(inboxProjectionDefinition)
+  return new ReactLoopAgent(f.ctx, session.id, {}, session,
+    { modelSelection: selection.readerFor(session), inbox: inbox.readerFor(session) }, 0)
 }
 
 describe('Session working directories', () => {
@@ -359,6 +370,47 @@ describe('Session working directories', () => {
 })
 
 describe('Session directory guard', () => {
+  it('revokes a guarded unpublished Session whose directory changes before its next inspection', async () => {
+    await using f = await fixture()
+    const other = join(f.root, 'other'); await mkdir(other)
+    const agent = await detachedAgent(f, 'unpublished-directory-owner')
+    const guard = await f.ctx.workingDirectory.guard(agent, f.root, new AbortController().signal)
+    agent.session.append('working-directory/change', { cwd: other })
+    await expect(f.ctx.workingDirectory.ensure(agent)).rejects.toThrow('guarded directory changed')
+    expect(guard.signal.aborted).toBe(true)
+  })
+
+  it('revokes a registered external Agent before its independently owned scope is disposed', async () => {
+    await using f = await fixture()
+    const agent = await detachedAgent(f, 'external-directory-owner')
+    const registration = f.ctx.agents.register(agent); await registration
+    const guard = await f.ctx.workingDirectory.guard(agent, f.root, new AbortController().signal)
+    await registration()
+    expect(f.ctx.agents.get(agent.id)).toBeUndefined(); expect(guard.signal.aborted).toBe(true)
+  })
+
+  it('rejects a guard when its Session changes during the filesystem observation', async () => {
+    await using f = await fixture()
+    const other = join(f.root, 'other'); await mkdir(other)
+    const stat = f.ctx.fs.stat.bind(f.ctx.fs)
+    const observe = vi.spyOn(f.ctx.fs, 'stat').mockImplementationOnce(async (...args) => {
+      const info = await stat(...args); f.agent.session.append('working-directory/change', { cwd: other }); return info
+    })
+    try { await expect(f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal))
+      .rejects.toThrow('guarded directory unavailable or changed') }
+    finally { observe.mockRestore() }
+  })
+
+  it('wraps opaque provider failures and cancellation reasons in Error instances', async () => {
+    await using f = await fixture()
+    const resolve = vi.spyOn(f.ctx.fs, 'resolve').mockRejectedValueOnce('opaque filesystem failure')
+    try { await expect(f.ctx.workingDirectory.guard(f.agent, f.root, new AbortController().signal))
+      .rejects.toMatchObject({ message: 'working-directory: guard failed', cause: 'opaque filesystem failure' }) }
+    finally { resolve.mockRestore() }
+    const owner = new AbortController(); owner.abort('opaque owner cancellation')
+    await expect(f.ctx.workingDirectory.guard(f.agent, f.root, owner.signal))
+      .rejects.toMatchObject({ message: 'working-directory: guard cancelled', cause: 'opaque owner cancellation' })
+  })
   it('keeps the selected directory through reentrant ensure and refuses user changes until released', async () => {
     await using f = await fixture()
     await mkdir(join(f.root, 'other'))

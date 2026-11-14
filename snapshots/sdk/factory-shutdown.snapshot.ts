@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { HarnessClient, TransportClosedError, type HarnessNotification } from '@deepseek-ai/dsh-sdk-client'
+import { writeReplayDiagnostics } from '../replay-diagnostics.ts'
 import {
   assertSessionFixtureVersion, formatSystemPromptSnapshot, latestPersistedSessionPaths,
   normalizeSessionSnapshot, normalizedSystemPrompts, normalizedToolSchemas, redactSessionSnapshotIds,
@@ -129,6 +130,11 @@ describe.skipIf(process.platform === 'win32')('SDK factory shutdown (POSIX SIGTE
         return event.type
       }).filter(type => !['turn/end', 'step/end', 'assistant/message'].includes(type))
       const projection = JSON.stringify({ exitCode: 0, lateAbortDelivered: true, closedTurns: ends, eventsBeforeClose: stableEvents }, null, 2) + '\n'
+      if (process.env.CI === 'true' && (process.env.DSH_SNAPSHOT ?? 'replay') === 'replay') {
+        const directory = fileURLToPath(new URL('../../.artifacts/snapshot-replay/sdk/factory-shutdown/', import.meta.url))
+        await writeReplayDiagnostics(directory, persisted, { cwd: root, sessionIds: persisted.map(log => String(rows(log)[0]?.['id'])) })
+        await writeFile(join(directory, 'result.expected.json'), projection)
+      }
       if (process.env.DSH_SNAPSHOT === 'refresh') {
         await mkdir(owner, { recursive: true })
         await writeFile(join(owner, 'writer.expected.jsonl'), snapshots[0] ?? '')

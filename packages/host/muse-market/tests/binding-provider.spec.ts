@@ -7,21 +7,36 @@ import { rename } from 'node:fs/promises'
 import { MuseMarketLocal } from '../src/local.ts'
 import { createMarketPackage } from '../src/package.ts'
 import { createMarketSkillProvider } from '../src/skills.ts'
-import { directory, limits, manifest, resources } from './fixtures.ts'
+import { marketBindingProjectionDefinition } from '../src/session.ts'
+import { directory, limits, manifest, resources, instructions } from './fixtures.ts'
 
 const cleanups: (() => Promise<void>)[] = []
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup() })
-async function fixture() {
+async function fixture(withUsageHint = true) {
   const value = await directory(); cleanups.push(value.cleanup)
   const storage = { root: join(value.root, 'market'), limits }, local = new MuseMarketLocal(storage)
   await local.ready()
-  const installed = await local.install(createMarketPackage(manifest, resources, limits))
+  const files = withUsageHint ? resources : { ...resources,
+    'skills/fixture-skill/SKILL.md': Buffer.from(instructions.replace('whenToUse: For local scene review.\n', '')) }
+  const installed = await local.install(createMarketPackage(manifest, files, limits))
   await local.initializeActivation()
   await local.setDefault({ skillName: 'fixture-skill', expected: null, target: installed.release.id })
   return { ...value, local, storage, installed, entries: await local.captureDefaults() }
 }
 
 describe('Session-bound market provider', () => {
+  it('retains a selected Skill without an optional usage hint through persisted binding and body loading', async () => {
+    const value = await fixture(false)
+    const restored = marketBindingProjectionDefinition.stateSchema.parse({ bound: true, requested: false, releases: value.entries })
+    expect(restored.releases[0]?.skill).not.toHaveProperty('whenToUse')
+    const provider = createMarketSkillProvider(value.local, value.storage, () => restored.releases, 'without-usage-hint')
+    const observed = await provider.list({})
+    const candidates = 'candidates' in observed ? observed.candidates : observed
+    const candidate = candidates[0]
+    if (!candidate) throw Error('Expected the selected Skill without a usage hint')
+    expect((await provider.get(candidate, {}))?.whenToUse).toBeUndefined()
+  })
+
   it('loads exact retained instructions and current metadata from the selected archive', async () => {
     const value = await fixture(), provider = createMarketSkillProvider(value.local, value.storage, () => value.entries, 'bound-fixture')
     const observed = await provider.list({})
@@ -62,5 +77,18 @@ describe('Session-bound market provider', () => {
     const candidates = 'candidates' in observed ? observed.candidates : observed
     if (candidates[0] === undefined) throw new Error('Expected one complete candidate')
     await expect(provider.get(candidates[0], {})).rejects.toThrow('bound-release-mismatch')
+  })
+
+  it('refuses a stale candidate when its exact release or Skill name is no longer selected', async () => {
+    const value = await fixture()
+    let selected = value.entries
+    const provider = createMarketSkillProvider(value.local, value.storage, () => selected, 'changing-selection')
+    const observed = await provider.list({})
+    const candidates = 'candidates' in observed ? observed.candidates : observed
+    const candidate = candidates[0]
+    if (!candidate) throw Error('Expected one retained candidate')
+    await expect(provider.get({ ...candidate, name: 'another-skill' }, {})).rejects.toThrow('bound-release-unavailable')
+    selected = []
+    await expect(provider.get(candidate, {})).rejects.toThrow('bound-release-unavailable')
   })
 })

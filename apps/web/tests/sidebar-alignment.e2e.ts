@@ -252,7 +252,7 @@ describe('web e2e: sidebar search alignment and row action targets', () => {
     { usedSearch: false, entry: 'search' },
     { usedSearch: true, entry: 'search' },
     { usedSearch: true, entry: 'toggle-with-query' },
-  ] as const)('lands the header at its final rail-to-wide geometry ($entry, prior search: $usedSearch)', async ({ usedSearch, entry }) => {
+  ] as const)('keeps header spacing stable while the column expands ($entry, prior search: $usedSearch)', async ({ usedSearch, entry }) => {
     onTestFailed(() => saveFailureShot(page, `web-e2e-sidebar-rail-${entry}-${String(usedSearch)}`))
     if (usedSearch) {
       await page.getByRole('button', { name: 'Search sessions', exact: true }).click()
@@ -267,6 +267,7 @@ describe('web e2e: sidebar search alignment and row action targets', () => {
       const header = button.closest<HTMLElement>('[class*="sectionHeader"]')
       const root = header?.parentElement
       if (header === null || root === null || root === undefined) throw new Error('Workspace header is missing')
+      const frame = root.closest('[data-slot="sidebar"]')!.parentElement!.parentElement!
       const railClass = root.className
       const measure = () => {
         const origin = root.getBoundingClientRect()
@@ -274,6 +275,7 @@ describe('web e2e: sidebar search alignment and row action targets', () => {
         const addBounds = button.getBoundingClientRect()
         const style = getComputedStyle(header)
         return {
+          rootWidth: origin.width,
           left: bounds.left - origin.left, right: bounds.right - origin.left,
           top: bounds.top - origin.top, height: bounds.height,
           // Search hides this cluster with its own animation; only compare the visible add control.
@@ -304,7 +306,7 @@ describe('web e2e: sidebar search alignment and row action targets', () => {
       const headerTransitions = header.getAnimations()
         .filter(animation => animation instanceof CSSTransition)
         .map(animation => animation.transitionProperty)
-      await Promise.all(root.getAnimations({ subtree: true })
+      await Promise.all(frame.getAnimations({ subtree: true })
         .filter(animation => animation.effect?.getTiming().iterations !== Infinity)
         .map(animation => animation.finished.then(() => undefined, () => undefined)))
       return {
@@ -315,7 +317,14 @@ describe('web e2e: sidebar search alignment and row action targets', () => {
     }, entry)
     expect(samples.headerTransitions).toEqual([])
     expect(samples.first.transitionDuration).toBe('0s')
-    expect(samples.first).toEqual(samples.last)
+    const spacing = ({ rootWidth, right, add, ...rest }: typeof samples.first) => ({
+      ...rest, rightInset: rootWidth - right,
+      add: add === null ? null : { rightInset: rootWidth - add.right, width: add.right - add.left },
+    })
+    expect(spacing(samples.first)).toEqual(spacing(samples.last))
+    expect(samples.last.rootWidth).toBeGreaterThan(56)
+    expect(samples.first.rootWidth).toBeLessThanOrEqual(samples.last.rootWidth)
+    expect(samples.last.right - samples.first.right).toBe(samples.last.rootWidth - samples.first.rootWidth)
     expect(samples.first).toMatchObject(entry !== 'toggle'
       ? { marginRight: 0, paddingLeft: 4, paddingRight: 4, gap: 0, searchExpanded: 'true' }
       : { marginRight: -4, paddingLeft: 12, paddingRight: 1, gap: 4, searchExpanded: 'false' })
@@ -415,7 +424,10 @@ describe('web e2e: sidebar search alignment and row action targets', () => {
     expect(tripwire.pageErrors).toEqual([])
   })
 
-  it.each([false, true])('keeps account footer geometry in wide and rail layouts (signed in: %s)', async (signedIn) => {
+  it.each([
+    { desktop: false, signedIn: false }, { desktop: false, signedIn: true },
+    { desktop: true, signedIn: false }, { desktop: true, signedIn: true },
+  ])('keeps the account footer on its owning carrier (Desktop: $desktop, signed in: $signedIn)', async ({ desktop, signedIn }) => {
     onTestFailed(() => saveFailureShot(page, `web-e2e-sidebar-account-${String(signedIn)}`))
     const account = scaffold.ctx.deepseekAccount
     const state: AccountView = {
@@ -435,9 +447,24 @@ describe('web e2e: sidebar search alignment and row action targets', () => {
         await new Promise<void>((resolve) => { signal.addEventListener('abort', () => { resolve() }, { once: true }) })
       }),
     ] : []
+    const progress = scaffold.ctx.settings.describe().find(row => row.ns === 'ui-settings-account')!.value as { step: string }
+    const previousStep = progress.step
     try {
-      if (signedIn) await page.reload({ waitUntil: 'load' })
+      if (desktop) {
+        await scaffold.ctx.settings.mutate('ui-settings-account', [{ op: 'set', path: ['step'], value: 'done' }])
+        await page.addInitScript(() => { Object.defineProperty(globalThis, 'dshDesktop', { value: { protocolVersion: 1 } }) })
+      }
+      await page.reload({ waitUntil: 'load' })
       const accountButton = page.getByRole('button', { name: 'Account menu', exact: true })
+      if (!desktop) {
+        await page.getByRole('button', { name: 'Settings', exact: true }).waitFor()
+        expect(await accountButton.count()).toBe(0)
+        await page.getByRole('button', { name: 'Collapse sidebar', exact: true }).click()
+        await expect.poll(() => page.locator('[data-slot="sidebar"] > [class*="collapsed"]').count()).toBe(1)
+        expect(await accountButton.count()).toBe(0)
+        expect(tripwire.pageErrors).toEqual([])
+        return
+      }
       await expect.poll(() => accountButton.getAttribute('data-signed-out')).toBe(String(!signedIn))
       const measure = () => accountButton.evaluate((element) => {
         const button = element.getBoundingClientRect()
@@ -478,8 +505,11 @@ describe('web e2e: sidebar search alignment and row action targets', () => {
       )
       expect(tripwire.pageErrors).toEqual([])
     } finally {
-      await page.close()
-      mocks.forEach((mock) => { mock.mockRestore() })
+      try { await page.close() }
+      finally {
+        mocks.forEach((mock) => { mock.mockRestore() })
+        if (desktop) await scaffold.ctx.settings.mutate('ui-settings-account', [{ op: 'set', path: ['step'], value: previousStep }])
+      }
     }
   })
 

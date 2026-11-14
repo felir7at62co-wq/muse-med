@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { createHash } from 'node:crypto'
 import { importSnapshotModule, importSnapshotPackage } from '../muse-fixture-import.mjs'
 
 const host = new URL('../../../apps/desktop-host/package.json', import.meta.url)
@@ -15,14 +16,13 @@ export const inject = ['tools', 'fs', 'sessionQuery', 'toolResultPruner']
 export async function apply(ctx) {
   await ctx.plugin(recovery)
   await ctx.plugin(present)
-  ctx.effect(() => {
-    // Keep the actual filesystem identity while making this fixture's model-facing source path stable.
-    const originalResolve = ctx.fs.resolve.bind(ctx.fs)
-    ctx.fs.resolve = async (path, options) => {
-      const target = await originalResolve(path, options)
-      return path === 'source.txt' ? { ...target, displayPath: 'source.txt' } : target
-    }
-    return () => { ctx.fs.resolve = originalResolve }
+  // Keep the real read and structured value; only its displayed path must be independent of the workspace.
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const decision = await next()
+    if (exec.name !== 'read' || exec.arguments.file_path !== 'source.txt' || result.isError || decision.kind !== 'accept') return decision
+    assert.ok(!Object.hasOwn(decision, 'content') && !Object.hasOwn(decision, 'value'))
+    return { ...decision, content: result.content.map(block => block.type === 'text'
+      ? { ...block, text: block.text.replace(/^<path>[^\n]*<\/path>/u, '<path>source.txt</path>') } : block) }
   })
   ctx.effect(() => {
     const original = globalThis.fetch
@@ -53,12 +53,16 @@ export async function apply(ctx) {
       return event.data.message.content.find(block => block.type === 'text')?.text
     }
     const raw = result('call_recovery_1')
+    assert.ok(raw.startsWith('<path>source.txt</path>'), 'the recovered bytes have a workspace-independent display path')
     const first = JSON.parse(result('call_recovery_2'))
     const second = JSON.parse(result('call_recovery_3'))
     assert.equal(first.next_offset, 100)
     assert.equal(second.offset, 100)
     assert.equal(second.next_offset, null)
     assert.equal(first.text + second.text, raw, 'pages reconstruct the complete recorded tool result')
+    const digest = createHash('sha256').update(raw).digest('hex')
+    assert.equal(first.text_sha256, digest)
+    assert.equal(second.text_sha256, digest)
     assert.equal(first.read_file_scope, 'complete')
     assert.equal(first.recorded_result, 'original_logged_event_not_verified_complete')
     assert.ok(events.some(event => event.type === 'compaction/prune'))

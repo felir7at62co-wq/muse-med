@@ -25,8 +25,9 @@ const replayOverride = join(fixtureDir, 'replay.override.json')
 // The released V3 child fixture replays through the V3-to-V4 migration, so its
 // tool results lift and its plugin sources move onto producer kinds.
 const childReplay = join(fixtureDir, 'child.replay.v3.jsonl')
-const parentExpected = join(fixtureDir, 'parent.expected.jsonl')
-const childExpected = join(fixtureDir, 'child.expected.jsonl')
+const platformTag = process.platform === 'win32' ? '.win32' : ''
+const parentExpected = join(fixtureDir, `parent${platformTag}.expected.jsonl`)
+const childExpected = join(fixtureDir, `child${platformTag}.expected.jsonl`)
 const configPath = fileURLToPath(new URL('../subagent-inheritance-snapshot.patch.yml', import.meta.url))
 const binScript = fileURLToPath(new URL('../../../../../../packages/test-support/loader-smoke/tests/fixtures/headless-driver.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../../../../tsconfig.json', import.meta.url))
@@ -160,7 +161,11 @@ describe('parent-only override inheritance snapshot', () => {
           expect(context).not.toContain('terminal sessions')
         }
 
-        const context: NormalizeContext = { sessionIds: [sessionId, String(headerOf(child).id)], cwd }
+        const spellings = [cwd, cwd.replaceAll('\\', '/'), cwd.replaceAll('/', '\\')]
+        const context: NormalizeContext = {
+          sessionIds: [sessionId, String(headerOf(child).id)], cwd,
+          cwdAliases: [...spellings, ...spellings.map(path => JSON.stringify(path).slice(1, -1))],
+        }
         const normalizedParent = normalizeSessionSnapshot(parent, context)
         const normalizedChild = normalizeSessionSnapshot(child, context)
         if (refreshing) {

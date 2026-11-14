@@ -3,6 +3,7 @@ scenario: goal-rounds
 profile: sdk
 composition: sdk-desktop
 recording: authored
+writerOutput: true
 header:
   class: sdk-desktop
 replay:

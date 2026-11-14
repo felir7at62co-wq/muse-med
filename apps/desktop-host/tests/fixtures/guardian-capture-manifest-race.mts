@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import { syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 const root = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'guardian-race-')))
 const base = fileURLToPath(new URL('../../../..', import.meta.url))
 const originalRead = fs.readFile
@@ -33,9 +33,9 @@ try {
     ['editing/01.srt','1\n00:00:00,000 --> 00:00:01,000\n台词\n'],['editing/mix.json','{"schema_version":1,"mode":"no_bgm","analysis_window_ms":50}'],
     ['editing/01-sources.json',sourceB],['video/01/shot_001.mp4','video'],['audio-a.wav','A-audio'],['audio-b.wav','B-audio']]
   await Promise.all(rows.map(([name, content]) => fs.writeFile(join(root,name),content)))
-  const { createConfiguredEpisodeRenderer } = await import(base+'/apps/desktop-host/src/approved-episode-render.ts')
-  const { inspectEpisodeFile } = await import(base+'/apps/desktop-host/src/episode-render-inputs.ts')
-  const { episodeFactsHash,parseEpisodeRendererConfig } = await import(base+'/apps/desktop-host/src/episode-render-descriptor.ts')
+  const { createConfiguredEpisodeRenderer } = await import(pathToFileURL(join(base, 'apps/desktop-host/src/approved-episode-render.ts')).href)
+  const { inspectEpisodeFile } = await import(pathToFileURL(join(base, 'apps/desktop-host/src/episode-render-inputs.ts')).href)
+  const { episodeFactsHash,parseEpisodeRendererConfig } = await import(pathToFileURL(join(base, 'apps/desktop-host/src/episode-render-descriptor.ts')).href)
   const signal = new AbortController().signal
   const items = [['project','project_config.json'],['plan','editing/01-episode-delivery.json'],['timeline','editing/01-timeline.json'],['subtitle','editing/01.srt'],['mix-profile','editing/mix.json']]
   const inputHashes = await Promise.all(items.map(async ([role, path]) => ({...await inspectEpisodeFile(join(root,path),signal),role})))

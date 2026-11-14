@@ -3,6 +3,7 @@ scenario: worktree
 profile: headless
 composition: worktree
 recording: authored
+writerOutput: true
 header:
   class: worktree
   pin: true

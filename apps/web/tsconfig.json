@@ -72,7 +72,7 @@
     "tests/voice-download.e2e.ts",
     "tests/prefix-proxy.ts",
     "tests/auto-review-fixture.ts",
-    "tests/scaffold-generation.spec.ts",
+    "tests/scaffold-generation.e2e.ts",
     "tests/scaffold-hermetic.e2e.ts",
     "tests/startup-rpc-budget.e2e.ts",
     "tests/minimal-preset.snapshot.ts",

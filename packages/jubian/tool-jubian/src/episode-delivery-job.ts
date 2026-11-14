@@ -1,5 +1,5 @@
 /** Project-owned episode admission and arm-before-running journal adapter. */
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstat, realpath, mkdir, open, link, unlink, readdir } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
@@ -11,6 +11,7 @@ import { attemptIdentitySchema, executionIdentitySchema, runningExecutionSchema,
 import type { AttemptIdentity, ExecutionIdentity, EpisodeApprovedSource, EpisodeExecutionId,
   RunningExecution, Sha256 } from './episode-delivery.ts'
 import type { VideoRecoveryDigest } from './types.ts'
+import { hashEpisodeFileHandle } from './episode-file-hash.ts'
 
 /** Actual staged inputs and the original human-approved source identities. */
 export interface EpisodeDeliveryAdmission {
@@ -147,20 +148,13 @@ async function hashFile(path: string, signal?: AbortSignal): Promise<{ sha256: s
     if (opened.dev !== before.dev || opened.ino !== before.ino || !opened.isFile()) {
       throw new Error('Episode input changed while opening')
     }
-    const hash = createHash('sha256'), buffer = Buffer.alloc(65536)
-    let bytes = 0
-    while (true) {
-      signal?.throwIfAborted()
-      const read = await file.read(buffer, 0, buffer.length, null)
-      if (read.bytesRead === 0) break
-      hash.update(buffer.subarray(0, read.bytesRead)); bytes += read.bytesRead
-    }
+    const { sha256, bytes } = await hashEpisodeFileHandle(file, signal)
     const after = await file.stat(), current = await lstat(path)
     if (bytes !== opened.size || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs
       || !current.isFile() || current.dev !== opened.dev || current.ino !== opened.ino) {
       throw new Error('Episode input changed during hashing')
     }
-    return { sha256: hash.digest('hex'), bytes,
+    return { sha256, bytes,
       version: { path, dev: current.dev, ino: current.ino, size: current.size, mtimeMs: current.mtimeMs, ctimeMs: current.ctimeMs } }
   } finally { await file.close() }
 }

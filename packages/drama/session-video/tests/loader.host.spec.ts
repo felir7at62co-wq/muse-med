@@ -1,11 +1,12 @@
 /** Real Loader, local filesystem, attachment storage and FFmpeg over synthetic media only. */
 import { execFileSync } from 'node:child_process'
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { boot } from '@deepseek-ai/dsh-app-boot'
-import Sessions, { SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
+import Sessions, { Session, SessionId, SessionLogOffset } from '@deepseek-ai/dsh-session'
+import * as Jsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import Projections from '@deepseek-ai/dsh-session-projection'
 import Query from '@deepseek-ai/dsh-session-query'
 import FileSystem from '@deepseek-ai/dsh-fs-local'
@@ -18,6 +19,7 @@ import SessionVideo, { type Config } from '../src/index.ts'
 import type { SessionVideoSourceId } from '../src/types.ts'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { sourceStateSchema } from '../src/sources.ts'
+import { remoteMethods } from '@deepseek-ai/dsh-typert-protocol'
 
 const roots: string[] = []
 const contexts: Context[] = []
@@ -131,7 +133,7 @@ it('reports executable failure and source mutation without caching invented cut 
   resolve.mockRestore()
   const original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
   vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
-    if (String(spec.argv[0]).endsWith('ffmpeg')) appendFileSync(f.file, 'fixture-version-change')
+    if (basename(String(spec.argv[0])).replace(/\.exe$/iu, '') === 'ffmpeg') appendFileSync(f.file, 'fixture-version-change')
     return original(spec)
   })
   const changed = await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)
@@ -169,7 +171,7 @@ it('cancels and joins a running process before another detection uses the slot',
   let child: ReturnType<Context['subprocess']['spawn']> | undefined
   const original = f.ctx.subprocess.spawn.bind(f.ctx.subprocess)
   const spawn = vi.spyOn(f.ctx.subprocess, 'spawn').mockImplementation((spec) => {
-    if (String(spec.argv[0]).endsWith('ffmpeg')) {
+    if (basename(String(spec.argv[0])).replace(/\.exe$/iu, '') === 'ffmpeg') {
       child = original({ ...spec, argv: [process.execPath, '-e', 'setInterval(() => {}, 1000)'] })
       started.resolve(undefined)
       return child
@@ -178,12 +180,18 @@ it('cancels and joins a running process before another detection uses the slot',
   })
   const controller = new AbortController()
   const pending = f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, controller.signal)
-  await started.promise
-  expect((await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)).issue).toContain('busy')
-  controller.abort(new Error('fixture cancelled during command'))
-  await expect(pending).rejects.toThrow('fixture cancelled during command')
-  await child?.waitForExit()
-  spawn.mockRestore()
+  const rejected = expect(pending).rejects.toThrow('fixture cancelled during command')
+  try {
+    await Promise.race([started.promise, pending.then(() => { throw Error('Detection finished before the held media process started') })])
+    expect((await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)).issue).toContain('busy')
+    controller.abort(new Error('fixture cancelled during command'))
+    await rejected
+  } finally {
+    controller.abort(new Error('fixture cancelled during command'))
+    await Promise.allSettled([pending, rejected])
+    await child?.waitForExit()
+    spawn.mockRestore()
+  }
   expect((await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)).state).toBe('ready')
 })
 
@@ -198,4 +206,269 @@ it('replays persisted source checkpoints when deployment inventory limits change
   const state = sourceStateSchema.parse(restored.checkpoint.sessionVideoSources?.val)
   expect(state.sources).toHaveLength(1)
   expect(state.complete).toBe(false)
+})
+
+it('declares each operation against the exact requested Session resource', async () => {
+  const f = await fixture()
+  for (const method of remoteMethods(f.ctx.sessionVideo)) {
+    const read = method.resources?.session
+    if (read === undefined) throw Error('Session video operation must declare its Session resource')
+    expect(read(f.session.id)).toBe(f.session.id)
+    expect(read(SessionId('different-session'))).toBe('different-session')
+  }
+})
+
+it('reads a persisted cold Session through the real query provider and rejects cancellation after the read', async () => {
+  const f = await fixture()
+  await f.ctx.plugin(Jsonl, { root: join(f.root, 'sessions'), compression: 'none' }).await()
+  const session = Session.create(SessionId('cold-video-session'))
+  session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'text', text: '@three-shots.mp4' }] }), { surfaceOp: 'append' })
+  const writer = await f.ctx.sessionPersistence.create(session.header)
+  try { await writer.append(session.snapshotEvents()); await writer.flush() } finally { await writer.close() }
+  expect(f.ctx.sessions.get(session.id)).toBeUndefined()
+  expect((await f.ctx.sessionVideo.list(session.id, f.signal)).sources[0]).toMatchObject({ status: 'local', path: f.file })
+  const controller = new AbortController(), read = f.ctx.sessionQuery.readSession.bind(f.ctx.sessionQuery)
+  const observe = vi.spyOn(f.ctx.sessionQuery, 'readSession').mockImplementation(async (...args) => {
+    const value = await read(...args); controller.abort(Error('Cold video caller left')); return value
+  })
+  try { await expect(f.ctx.sessionVideo.list(session.id, controller.signal)).rejects.toThrow('Cold video caller left') }
+  finally { observe.mockRestore() }
+})
+
+it.each(['duration', 'pixels'] as const)('refuses a real video exceeding the %s policy before cut detection', async (limit) => {
+  const f = await fixture(limit === 'duration' ? { maxDurationSeconds: 1 } : { maxSourcePixels: 1 })
+  f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!, spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  expect(await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal))
+    .toMatchObject({ state: 'failed', shots: [], issue: 'Video duration or dimensions exceed the configured detection limit' })
+  expect(spawn).toHaveBeenCalledTimes(1)
+})
+
+it('evicts old successful analyses while preserving original media bytes and revalidating later requests', async () => {
+  const f = await fixture({ maxCachedAnalyses: 1 })
+  copyFileSync(f.file, join(f.root, 'second.mp4')); f.user('@three-shots.mp4 @second.mp4')
+  const sources = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources, spawn = vi.spyOn(f.ctx.subprocess, 'spawn')
+  for (const source of [sources[0]!, sources[1]!, sources[0]!]) {
+    expect((await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal)).state).toBe('ready')
+  }
+  expect(spawn).toHaveBeenCalledTimes(6)
+  expect(readFileSync(f.file)).toEqual(readFileSync(join(f.root, 'second.mp4')))
+})
+
+it.each(['missing', 'directory', 'oversized', 'size-unavailable', 'unreadable', 'opaque-error'] as const)(
+  'reports the actual local source boundary: %s', async (kind) => {
+    const f = await fixture(kind === 'oversized' ? { maxSourceBytes: 1 } : {})
+    if (kind === 'missing') f.user('@missing.mp4')
+    else if (kind === 'directory') { mkdirSync(join(f.root, 'directory.mp4')); f.user('@directory.mp4') }
+    else f.user('@three-shots.mp4')
+    const stat = f.ctx.fs.stat.bind(f.ctx.fs)
+    if (kind === 'size-unavailable') vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+      const info = await stat(...args)
+      if (info === undefined) return info
+      const { size: _size, ...available } = info; return available
+    })
+    if (kind === 'unreadable' || kind === 'opaque-error') vi.spyOn(f.ctx.fs, 'resolve').mockRejectedValueOnce(kind === 'unreadable' ? Error('Filesystem unavailable') : 'opaque provider failure')
+    const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+    expect(source.status).toBe(kind === 'oversized' || kind === 'size-unavailable' ? 'unsupported' : 'missing')
+    expect(source.playbackUrl).toBeNull()
+    expect(source.issue).toBe(kind === 'unreadable' ? 'Filesystem unavailable' : kind === 'opaque-error' ? 'Recorded video is unreadable'
+      : kind === 'oversized' || kind === 'size-unavailable' ? 'Recorded video exceeds the configured byte limit' : 'Recorded video file is missing')
+  },
+)
+
+it.each(['host-path', 'world-path'] as const)('reports an uploaded file whose %s capability is unavailable', async (kind) => {
+  const f = await fixture(), attachment = await f.ctx.attachments.saveFile({ data: readFileSync(f.file), name: 'upload.mp4' })
+  f.session.append('user/message', createUserMessage({ source: { kind: 'user' }, content: [{ type: 'file', attachment }] }), { surfaceOp: 'append' })
+  if (kind === 'host-path') vi.spyOn(f.ctx.attachments, 'fileHostPath').mockReturnValue(undefined)
+  else vi.spyOn(f.ctx.fs, 'processPathFromHostPath').mockReturnValue(undefined)
+  expect((await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]).toMatchObject({ status: 'missing', issue: 'Stored video is unavailable in this filesystem' })
+})
+
+it('contains opaque execution failures without inventing cut ranges', async () => {
+  const f = await fixture(); f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  vi.spyOn(f.ctx.subprocess, 'resolveExecutable').mockRejectedValueOnce('opaque provider failure')
+  expect(await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal))
+    .toMatchObject({ state: 'failed', shots: [], issue: 'Video detection failed' })
+})
+
+it.each(['host-path', 'world-path'] as const)('refuses detection when downloaded media has no %s mapping', async (kind) => {
+  const f = await fixture()
+  f.tool('jubian_video', { method: 'subtasks', task_id: 7 }, { subtasks: { rows: [
+    { parent_task_id: 7, status: 'succeeded', video_url: 'https://101.aigc.jubianai.net/unmapped.mp4' },
+  ] } })
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => new Response(readFileSync(f.file))))
+  if (kind === 'host-path') vi.spyOn(f.ctx.attachments, 'fileHostPath').mockReturnValue(undefined)
+  else vi.spyOn(f.ctx.fs, 'processPathFromHostPath').mockReturnValue(undefined)
+  expect(await f.ctx.sessionVideo.detect(f.session.id, source.id, source.version!, f.signal))
+    .toMatchObject({ state: 'failed', shots: [], issue: 'Video is not available as a local source' })
+})
+
+async function playbackFixture(overrides: Partial<Config> = {}) {
+  const f = await fixture(overrides); f.user('@three-shots.mp4')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const route = f.routes.get('/api/session-video')
+  if (route === undefined) throw Error('Session video route did not mount')
+  return { ...f, source, route, play: (init: RequestInit = {}) => route.fetch(new Request(`http://localhost/${source.playbackUrl}`, init)) }
+}
+
+it('serves complete, open-ended, suffix and HEAD ranges as exact original bytes', async () => {
+  const f = await playbackFixture({ playbackChunkBytes: 7 }), bytes = readFileSync(f.file)
+  for (const [range, start, end] of [[null, 0, bytes.length - 1], ['bytes=5-', 5, bytes.length - 1],
+    ['bytes=-7', bytes.length - 7, bytes.length - 1], ['bytes=2-9999999', 2, bytes.length - 1]] as const) {
+    const response = await f.play(range === null ? {} : { headers: { range } })
+    expect(response.status).toBe(range === null ? 200 : 206)
+    expect(response.headers.get('content-length')).toBe(String(end - start + 1))
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(bytes.subarray(start, end + 1))
+  }
+  for (const range of [undefined, 'bytes=2-8']) {
+    const response = await f.play({ method: 'HEAD', ...(range === undefined ? {} : { headers: { range } }) })
+    expect(response.status).toBe(range === undefined ? 200 : 206)
+    expect(response.body).toBeNull()
+    expect(response.headers.get('content-length')).toBe(String(range === undefined ? bytes.length : 7))
+  }
+})
+
+it.each(['webm', 'mov'] as const)('preserves %s playback MIME without recoding its selected bytes', async (extension) => {
+  const f = await fixture(), name = `selected.${extension}`; copyFileSync(f.file, join(f.root, name)); f.user(`@${name}`)
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const response = await f.routes.get('/api/session-video')!.fetch(new Request(`http://localhost/${source.playbackUrl}`))
+  expect(response.headers.get('content-type')).toBe(extension === 'webm' ? 'video/webm' : 'video/quicktime')
+  expect(Buffer.from(await response.arrayBuffer())).toEqual(readFileSync(f.file))
+})
+
+it('refuses missing, duplicate or caller-selected playback paths before reading source bytes', async () => {
+  const f = await playbackFixture(), query = new URL(`http://localhost/${f.source.playbackUrl}`)
+  for (const [key, value] of [['sessionId', 'duplicate'], ['sourceId', f.source.id], ['version', f.source.version!], ['path', '/private'], ['url', 'https://private.test']] as const) {
+    const invalid = new URL(query); invalid.searchParams.append(key, value)
+    expect((await f.route.fetch(new Request(invalid))).status).toBe(400)
+  }
+  for (const key of ['sessionId', 'sourceId', 'version']) {
+    const invalid = new URL(query); invalid.searchParams.delete(key)
+    expect((await f.route.fetch(new Request(invalid))).status).toBe(400)
+  }
+  const invalid = new URL(query); invalid.searchParams.set('sourceId', 'not-a-source-id')
+  const head = await f.route.fetch(new Request(invalid, { method: 'HEAD' }))
+  expect(head.status).toBe(400); expect(head.body).toBeNull()
+})
+
+it('refuses malformed and unsatisfiable byte ranges with the exact complete length', async () => {
+  const f = await playbackFixture(), size = readFileSync(f.file).byteLength
+  for (const range of ['items=0-2', 'bytes=-', 'bytes=-0', 'bytes=9-2', `bytes=${size}-`, 'bytes=999999999999999999999999-']) {
+    const response = await f.play({ headers: { range } })
+    expect(response.status).toBe(416); expect(response.headers.get('content-range')).toBe(`bytes */${size}`)
+    expect(await response.text()).toBe('Invalid video range')
+  }
+})
+
+it('refuses stale, changed-at-preflight and empty local playback sources', async () => {
+  const f = await playbackFixture(), stat = f.ctx.fs.stat.bind(f.ctx.fs)
+  let calls = 0
+  const observe = vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    if (++calls === 2) appendFileSync(f.file, 'changed at preflight')
+    return stat(...args)
+  })
+  expect((await f.play()).status).toBe(409); observe.mockRestore()
+  expect((await f.play()).status).toBe(409)
+  writeFileSync(f.file, '')
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const response = await f.route.fetch(new Request(`http://localhost/${source.playbackUrl}`))
+  expect(response.status).toBe(404); expect(await response.text()).toBe('Video has no readable bytes')
+})
+
+it('refuses remote-only playback and contains opaque cold-session failures', async () => {
+  const f = await fixture(), route = f.routes.get('/api/session-video')!
+  f.tool('jubian_video', { method: 'subtasks', task_id: 7 }, { subtasks: { rows: [
+    { parent_task_id: 7, status: 'succeeded', video_url: 'https://101.aigc.jubianai.net/remote.mp4' },
+  ] } })
+  const source = (await f.ctx.sessionVideo.list(f.session.id, f.signal)).sources[0]!
+  const query = new URLSearchParams({ sessionId: f.session.id, sourceId: source.id, version: source.version! })
+  expect((await route.fetch(new Request(`http://localhost/api/session-video?${query}`))).status).toBe(404)
+  query.set('sessionId', 'cold-provider-failure')
+  vi.spyOn(f.ctx.sessionQuery, 'readSession').mockRejectedValueOnce('opaque provider failure')
+  const failed = await route.fetch(new Request(`http://localhost/api/session-video?${query}`))
+  expect(failed.status).toBe(404); expect(await failed.text()).toBe('Video unavailable')
+})
+
+it('reserves playback slots until cancellation joins an owned read', async () => {
+  const f = await playbackFixture({ maxPlaybackStreams: 1 })
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const read = f.ctx.fs.readByteRange.bind(f.ctx.fs)
+  const observe = vi.spyOn(f.ctx.fs, 'readByteRange').mockImplementationOnce(async (...args) => {
+    entered.resolve(undefined); await release.promise; return read(...args)
+  })
+  const response = await f.play()
+  try {
+    await entered.promise
+    expect((await f.play()).status).toBe(429)
+    let settled = false
+    const cancelled = response.body!.cancel().then(() => { settled = true })
+    expect(settled).toBe(false)
+    release.resolve(undefined); await cancelled
+    const next = await f.play(); expect(next.status).toBe(200); await next.arrayBuffer()
+  } finally { release.resolve(undefined); await response.body?.cancel(); observe.mockRestore() }
+})
+
+it.each(['before-read', 'after-read', 'truncate'] as const)('rejects real source mutation %s without streaming stale bytes', async (phase) => {
+  const f = await playbackFixture(), stat = f.ctx.fs.stat.bind(f.ctx.fs), read = f.ctx.fs.readByteRange.bind(f.ctx.fs)
+  let observations = 0
+  if (phase !== 'after-read') vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+    const info = await stat(...args)
+    if (++observations === 3) {
+      if (phase === 'truncate') { writeFileSync(f.file, ''); return info }
+      appendFileSync(f.file, 'mutated before read'); return stat(...args)
+    }
+    return info
+  })
+  else vi.spyOn(f.ctx.fs, 'readByteRange').mockImplementationOnce(async (...args) => {
+    const bytes = await read(...args); appendFileSync(f.file, 'mutated after read'); return bytes
+  })
+  const response = await f.play()
+  await expect(response.arrayBuffer()).rejects.toThrow('Video changed during playback')
+})
+
+it.each(['before-access', 'during-preflight', 'during-read'] as const)('settles request cancellation %s', async (phase) => {
+  const f = await playbackFixture(), controller = new AbortController(), read = f.ctx.fs.readByteRange.bind(f.ctx.fs)
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  if (phase === 'before-access') controller.abort('opaque caller cancellation')
+  if (phase === 'during-preflight') {
+    const stat = f.ctx.fs.stat.bind(f.ctx.fs); let calls = 0
+    vi.spyOn(f.ctx.fs, 'stat').mockImplementation(async (...args) => {
+      const info = await stat(...args); if (++calls === 2) controller.abort(Error('Caller left at preflight')); return info
+    })
+  }
+  if (phase === 'during-read') vi.spyOn(f.ctx.fs, 'readByteRange').mockImplementationOnce(async (...args) => {
+    entered.resolve(undefined); await release.promise; return read(...args)
+  })
+  const response = await f.play({ signal: controller.signal })
+  if (phase === 'before-access') { expect(response.status).toBe(499); expect(await response.text()).toBe('Video unavailable'); return }
+  const outcome = response.arrayBuffer().then(value => ({ value }), (error: unknown) => ({ error }))
+  try {
+    if (phase === 'during-read') { await entered.promise; controller.abort(Error('Caller left during read')) }
+    release.resolve(undefined)
+    expect(await outcome).toHaveProperty('error')
+  } finally { release.resolve(undefined); await outcome }
+})
+
+it('unloads only after aborting every playback stream and joining active reads', async () => {
+  const f = await playbackFixture(), entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const read = f.ctx.fs.readByteRange.bind(f.ctx.fs)
+  vi.spyOn(f.ctx.fs, 'readByteRange').mockImplementationOnce(async (...args) => {
+    entered.resolve(undefined); await release.promise; return read(...args)
+  })
+  const response = await f.play(), outcome = response.arrayBuffer().then(value => ({ value }), (error: unknown) => ({ error }))
+  await entered.promise
+  const fiber = [...f.ctx.loader.entries()].find(entry => entry.options.id === 'video')?.fiber
+  if (fiber === undefined) throw Error('Missing video owner')
+  let settled = false
+  const disposed = fiber.dispose().then(() => { settled = true })
+  try {
+    expect(settled).toBe(false)
+    release.resolve(undefined); await disposed
+    expect(await outcome).toHaveProperty('error'); expect(f.routes.size).toBe(0)
+    expect((await f.play()).status).toBe(499)
+  } finally { release.resolve(undefined); await disposed; await outcome }
 })

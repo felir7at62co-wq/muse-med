@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
+import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
@@ -22,10 +23,13 @@ describe.skipIf(MODE === 'record')('web e2e: compact Tool details', () => {
   let browser: Browser
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
+  let recordedCalls: { id: string; name: string }[]
 
   beforeAll(async () => {
     const fixture = await readFile(FIXTURE, 'utf8')
     expect(fixtureUserPrompts(fixture)).toEqual([PROMPT])
+    recordedCalls = parseSessionLog(fixture).flatMap(event => event.type === 'tool/call'
+      ? [{ id: event.data.callId, name: event.data.name }] : [])
     scaffold = await launchWebScaffold({})
     await seedSession(scaffold, fixture, SEED_ID)
     browser = await chromium.launch()
@@ -55,7 +59,7 @@ describe.skipIf(MODE === 'record')('web e2e: compact Tool details', () => {
     // turn-tail create card carries the same `data-tool` marker without being
     // one of the keyed call views this case walks.
     const rows = page.locator('[data-chat-call-id] [data-tool]')
-    expect(await rows.count()).toBe(50)
+    expect(await rows.count()).toBe(recordedCalls.length)
     for (const row of await rows.all()) {
       await row.getByRole('button', { expanded: false }).first().click()
       expect(await row.getByRole('listitem').count()).toBeGreaterThan(0)
@@ -68,21 +72,13 @@ describe.skipIf(MODE === 'record')('web e2e: compact Tool details', () => {
     await page.locator('[data-tool="create_goal"]').getByText('Awaiting continuation', { exact: true }).waitFor()
     const schema = page.locator('[data-tool="cordis_inspect_list"] pre').first()
     await expect.poll(() => schema.textContent()).toContain('"properties"')
-    const callIds = [
-      ...Array.from({ length: 3 }, (_, index) => `details-call-${index + 1}`),
-      // The authored schedule_update round sits beside its schedule_create sibling, and the rounds of the current
-      // Schedule tools follow them.
-      'details-call-3b',
-      ...['c', 'd', 'e', 'f', 'g'].map(suffix => `details-call-3${suffix}`),
-      ...Array.from({ length: 41 }, (_, index) => `details-call-${index + 4}`),
-    ]
-    const snapshots = await Promise.all(callIds.map(id =>
+    const snapshots = await Promise.all(recordedCalls.map(({ id }) =>
       captureStableAria(page, `[data-chat-call-id="${id}"] [data-tool]`, scaffold.workspaceCwd)))
     const snapshot = snapshots.join('\n')
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
     await page.setViewportSize({ width: 360, height: 800 })
     const cards = page.locator('[data-chat-call-id] [data-tool="schedule_create"]')
-    expect(await cards.count()).toBe(2)
+    expect(await cards.count()).toBe(recordedCalls.filter(call => call.name === 'schedule_create').length)
     for (const card of await cards.all()) {
       expect(await card.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
     }
