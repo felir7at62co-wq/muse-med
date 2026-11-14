@@ -495,6 +495,31 @@ it('passes an auxiliary model stream without a Session identity through the nati
   expect(h.calls.filter(call => call.method === 'PUT')).toEqual([])
 })
 
+it('rejects a different model while an actual native continuation holds its execution binding', async () => {
+  const f = await parkedNativeDelivery()
+  const adapter = new MockAdapter([textResponse('Continue using the original model.')])
+  f.host.llm.registerAdapter(['mock'], adapter)
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const maintenance = f.agent.runMaintenance(async () => { entered.resolve(undefined); await release.promise })
+  try {
+    await entered.promise
+    expect(await f.deliver(f.saved.sessionId, f.notice, new AbortController().signal, undefined, undefined, f.saved)).toBe('pending')
+    await expect((async () => {
+      for await (const _chunk of f.host.llm.stream({ sessionId: f.agent.id,
+        provider: selection.provider, model: 'different-model', messages: [] })) {
+        throw new Error('The changed model must not yield a chunk')
+      }
+    })()).rejects.toThrow('GENERATION_WATCH_BINDING_CHANGED: original model request changed')
+    expect(adapter.requests).toEqual([])
+    expect(f.agent.model.current()).toEqual(selection)
+    expect(f.h.calls.filter(call => call.method === 'PUT')).toEqual([])
+  } finally {
+    release.resolve(undefined)
+    await maintenance
+    await f.agent.whenIdle()
+  }
+})
+
 it('rechecks a settled native notice after a flush failure without starting another turn', async () => {
   const h = await originalVideoFixture([textResponse('Existing result reviewed.')])
   h.complete()
