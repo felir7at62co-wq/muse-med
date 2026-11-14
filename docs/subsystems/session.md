@@ -1163,17 +1163,22 @@ async read(main: Agent, sessionId: SessionId, fromSeq: number): Promise<string>
 
 /**
  * Record and deliver one new goal or an explicit revision, reusing an identical key.
+ * A new key whose `instructions` or `reason` exceeds `noteChars` fails before any intent is recorded.
+ * A fresh worker is created only when `maxWorkers` permits and no older fresh-worker dispatch is waiting;
+ * otherwise the recorded intent waits as `dispatching` and starts automatically.
  * @param main - Exact routing Agent.
- * @param request - Agent-selected existing or fresh ordinary worker and original requirements.
- * @returns authoritative task; acceptance is not execution completion.
+ * @param request - Agent-selected existing or fresh ordinary worker and bounded routing notes.
+ * @returns authoritative task; `dispatching` for a waiting fresh worker; acceptance is not execution completion.
  */
 async dispatch(main: Agent, request: DispatchRequest): Promise<CoordinationTask>
 
 /**
- * Ask an inspected original worker to verify existing results without replaying human business commands.
+ * Ask the original quiescent worker to verify existing results without replaying human business commands.
+ * The coordinator records the worker's current log position; a supplied `expectedWorkerSeq` must equal it.
+ * A new key whose `instructions` or `reason` exceeds `noteChars` fails before any intent is recorded.
  * @param main - Exact live owner Main Agent.
- * @param request - Idempotent recovery request with task and complete worker-history revisions.
- * @returns retained successor assignment; an uncertain delivery remains interrupted for inspection.
+ * @param request - Idempotent recovery request with the expected task revision and bounded routing notes.
+ * @returns retained successor assignment; an uncertain delivery remains interrupted.
  */
 async reconcile(main: Agent, request: ReconcileRequest): Promise<CoordinationTask>
 
@@ -1187,10 +1192,18 @@ async reconcile(main: Agent, request: ReconcileRequest): Promise<CoordinationTas
 /**
  * Capture an owner-verified report without accepting model-authored status or files.
  * @param main - Actual live Main Agent with a local owner request.
- * @param taskIds - Exact owned goals; omission or an empty list selects recent goals.
+ * @param taskIds - Exact owned goals; omission or an empty list selects unsettled goals first, then recent ones.
  * @returns Complete task facts bounded by searchLimit and the combined readChars model-result/metadata budget.
  */
 async displayReport(main: Agent, taskIds: readonly CoordinationTaskId[] = []): Promise<CoordinationReport>
+
+/**
+ * List Main's tasks for routing, unsettled first and then newest, one latest-revision row each.
+ * Rows count presented files instead of listing them; a row that does not fit the remaining `readChars` budget is omitted.
+ * @param main - Actual live Main Agent with a local owner request.
+ * @returns at most `searchLimit` rows whose serialized list fits `readChars`, with the owned task total and an omission flag.
+ */
+async tasks(main: Agent): Promise<RoutingTaskList>
 
 /**
  * Observe complete owner-only task snapshots; no model polling or wake loop.
@@ -1202,7 +1215,9 @@ async displayReport(main: Agent, taskIds: readonly CoordinationTaskId[] = []): P
 
 /**
  * Request one task's cancellation, retaining stopping until its Agent and jobs settle.
- * This owner-only Remote operation never cancels an unrelated worker assignment.
+ * This owner-only Remote operation never cancels an unrelated worker assignment: a busy worker that consumed
+ * a later human-authored message keeps running and the task becomes interrupted. Runtime continuations of the
+ * assignment, such as subagent settlement messages, are cancelled with it.
  * @param sessionId - Owning Main Session.
  * @param taskId - Exact owned goal.
  * @param revision - Assignment revision shown to the user.
@@ -1216,7 +1231,8 @@ async displayReport(main: Agent, taskIds: readonly CoordinationTaskId[] = []): P
  * @param taskId - Goal named in its assignment.
  * @param revision - Consumed revision.
  * @param outcome - Explicit business result, not inferred from idle.
- * @param summary - Worker account supported by its native tool log.
+ * @param summary - Worker account supported by its native tool log, at most
+ * `summaryChars` characters; for `needs-input`, the question for the user.
  * @returns task in finishing state; completion is published after quiescence.
  */
 report(worker: Agent, taskId: CoordinationTaskId, revision: number, outcome: WorkerReport['outcome'], summary: string): Promise<CoordinationTask>

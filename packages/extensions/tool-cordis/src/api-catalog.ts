@@ -3692,15 +3692,15 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async dispatch(main: Agent, request: DispatchRequest): Promise<CoordinationTask>',
-        description: 'Record and deliver one new goal or an explicit revision, reusing an identical key.',
-        parameters: [{ name: 'main', description: 'Exact routing Agent.' }, { name: 'request', description: 'Agent-selected existing or fresh ordinary worker and original requirements.' }],
-        returns: 'authoritative task; acceptance is not execution completion.',
+        description: 'Record and deliver one new goal or an explicit revision, reusing an identical key. A new key whose `instructions` or `reason` exceeds `noteChars` fails before any intent is recorded. A fresh worker is created only when `maxWorkers` permits and no older fresh-worker dispatch is waiting; otherwise the recorded intent waits as `dispatching` and starts automatically.',
+        parameters: [{ name: 'main', description: 'Exact routing Agent.' }, { name: 'request', description: 'Agent-selected existing or fresh ordinary worker and bounded routing notes.' }],
+        returns: 'authoritative task; `dispatching` for a waiting fresh worker; acceptance is not execution completion.',
       },
       {
         signature: 'async reconcile(main: Agent, request: ReconcileRequest): Promise<CoordinationTask>',
-        description: 'Ask an inspected original worker to verify existing results without replaying human business commands.',
-        parameters: [{ name: 'main', description: 'Exact live owner Main Agent.' }, { name: 'request', description: 'Idempotent recovery request with task and complete worker-history revisions.' }],
-        returns: 'retained successor assignment; an uncertain delivery remains interrupted for inspection.',
+        description: 'Ask the original quiescent worker to verify existing results without replaying human business commands. The coordinator records the worker\'s current log position; a supplied `expectedWorkerSeq` must equal it. A new key whose `instructions` or `reason` exceeds `noteChars` fails before any intent is recorded.',
+        parameters: [{ name: 'main', description: 'Exact live owner Main Agent.' }, { name: 'request', description: 'Idempotent recovery request with the expected task revision and bounded routing notes.' }],
+        returns: 'retained successor assignment; an uncertain delivery remains interrupted.',
       },
       {
         signature: '@Remote list(sessionId: SessionId): CoordinationTask[]',
@@ -3711,8 +3711,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       {
         signature: 'async displayReport(main: Agent, taskIds: readonly CoordinationTaskId[] = []): Promise<CoordinationReport>',
         description: 'Capture an owner-verified report without accepting model-authored status or files.',
-        parameters: [{ name: 'main', description: 'Actual live Main Agent with a local owner request.' }, { name: 'taskIds', description: 'Exact owned goals; omission or an empty list selects recent goals.' }],
+        parameters: [{ name: 'main', description: 'Actual live Main Agent with a local owner request.' }, { name: 'taskIds', description: 'Exact owned goals; omission or an empty list selects unsettled goals first, then recent ones.' }],
         returns: 'Complete task facts bounded by searchLimit and the combined readChars model-result/metadata budget.',
+      },
+      {
+        signature: 'async tasks(main: Agent): Promise<RoutingTaskList>',
+        description: 'List Main\'s tasks for routing, unsettled first and then newest, one latest-revision row each. Rows count presented files instead of listing them; a row that does not fit the remaining `readChars` budget is omitted.',
+        parameters: [{ name: 'main', description: 'Actual live Main Agent with a local owner request.' }],
+        returns: 'at most `searchLimit` rows whose serialized list fits `readChars`, with the owned task total and an omission flag.',
       },
       {
         signature: '@Remote({ mode: \'stream\' }) async *watch(sessionId: SessionId, signal: AbortSignal): AsyncIterable<CoordinationTask[]>',
@@ -3722,14 +3728,14 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote stop(sessionId: SessionId, taskId: CoordinationTaskId, revision: number): Promise<CoordinationTask>',
-        description: 'Request one task\'s cancellation, retaining stopping until its Agent and jobs settle. This owner-only Remote operation never cancels an unrelated worker assignment.',
+        description: 'Request one task\'s cancellation, retaining stopping until its Agent and jobs settle. This owner-only Remote operation never cancels an unrelated worker assignment: a busy worker that consumed a later human-authored message keeps running and the task becomes interrupted. Runtime continuations of the assignment, such as subagent settlement messages, are cancelled with it.',
         parameters: [{ name: 'sessionId', description: 'Owning Main Session.' }, { name: 'taskId', description: 'Exact owned goal.' }, { name: 'revision', description: 'Assignment revision shown to the user.' }],
         returns: 'durable stopping or stopped receipt.',
       },
       {
         signature: 'report(worker: Agent, taskId: CoordinationTaskId, revision: number, outcome: WorkerReport[\'outcome\'], summary: string): Promise<CoordinationTask>',
         description: 'Accept a report only from the exact worker that consumed this revision\'s input.',
-        parameters: [{ name: 'worker', description: 'Actual live reporting tool subject.' }, { name: 'taskId', description: 'Goal named in its assignment.' }, { name: 'revision', description: 'Consumed revision.' }, { name: 'outcome', description: 'Explicit business result, not inferred from idle.' }, { name: 'summary', description: 'Worker account supported by its native tool log.' }],
+        parameters: [{ name: 'worker', description: 'Actual live reporting tool subject.' }, { name: 'taskId', description: 'Goal named in its assignment.' }, { name: 'revision', description: 'Consumed revision.' }, { name: 'outcome', description: 'Explicit business result, not inferred from idle.' }, { name: 'summary', description: 'Worker account supported by its native tool log, at most `summaryChars` characters; for `needs-input`, the question for the user.' }],
         returns: 'task in finishing state; completion is published after quiescence.',
       },
     ],
@@ -9659,7 +9665,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ReconcileRequest',
-    declaration: 'export interface ReconcileRequest {\n    readonly key: string;\n    readonly taskId: CoordinationTaskId;\n    readonly expectedRevision: number;\n    readonly expectedWorkerSeq: number;\n    readonly instructions: string;\n    readonly reason: string;\n}',
+    declaration: 'export interface ReconcileRequest {\n    readonly key: string;\n    readonly taskId: CoordinationTaskId;\n    readonly expectedRevision: number;\n    readonly expectedWorkerSeq?: number;\n    readonly instructions: string;\n    readonly reason: string;\n}',
   },
   {
     name: 'RecurringScheduleRecord',
@@ -9868,6 +9874,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ReviewVerdict',
     declaration: 'export type ReviewVerdict = \'approved\' | \'changes-requested\' | \'commented\' | \'dismissed\';',
+  },
+  {
+    name: 'RoutingTask',
+    declaration: 'export interface RoutingTask {\n    readonly id: CoordinationTaskId;\n    readonly title: string;\n    readonly revision: number;\n    readonly sessionId: SessionId;\n    readonly cwd: string;\n    readonly status: AssignmentStatus;\n    readonly issue: string | null;\n    readonly report: {\n        readonly outcome: WorkerReport[\'outcome\'];\n        readonly summary: string;\n        readonly fileCount: number;\n    } | null;\n}',
+  },
+  {
+    name: 'RoutingTaskList',
+    declaration: 'export interface RoutingTaskList {\n    readonly tasks: readonly RoutingTask[];\n    readonly total: number;\n    readonly truncated: boolean;\n}',
   },
   {
     name: 'RpcId',
