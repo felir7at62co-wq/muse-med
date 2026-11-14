@@ -24,7 +24,7 @@ export interface HongguoDownloadConfig {
   javaExecutable?: string; signerStartupTimeoutMs?: number; signerHeapMb?: number;
   signerPollIntervalMs?: number; signerPortAttempts?: number;
   bootstrapDevices?: boolean; deviceBootstrapTimeoutMs?: number;
-  mediaUserAgent?: string; retryDelayMs?: number; sourceRetries?: number; sourceRetryDelayMs?: number;
+  mediaUserAgent?: string; retryDelayMs?: number; sourceRetries?: number; sourceRetryDelayMs?: number; deferredSourceCooldownMs?: number;
   mediaRequestIntervalMs?: number; mediaIdleTimeoutMs?: number; mediaBatchSize?: number;
   mediaConnections?: number; mediaConnectionLimit?: number; mediaSegmentMinBytes?: number;
   emptySourceCooldownMs?: number; resumeSearchDepth?: number; resumeSearchEntries?: number;

@@ -172,8 +172,8 @@ export class HongguoDownloadClient {
     });
   }
 
-  async mediaOptions(catalog, batch, mode, signal, source = this.source, quality = this.config.quality) {
-    if (mode === 'legacy') return source.videoUrls(batch.map(episode => episode.vid), signal, catalog.seriesId, { quality });
+  async mediaOptions(catalog, batch, mode, signal, source = this.source, quality = this.config.quality, deferred) {
+    if (mode === 'legacy') return source.videoUrls(batch.map(episode => episode.vid), signal, catalog.seriesId, { quality, ...(deferred ? { deferred } : {}) });
     if (mode === 'manifest') return new Map(batch.map(episode => [episode.vid, { url: episode.url, expectedBytes: episode.expectedBytes, sha256: episode.sha256 }]));
     const result = new Map();
     for (const episode of batch) {
@@ -367,8 +367,24 @@ export class HongguoDownloadClient {
             const missing = selected.filter(episode => !state.completed.some(item => item.seriesId === catalog.seriesId && item.vid === episode.vid));
             if (!missing.length) continue;
             const folder = await checkpoint.folder(folderName), batchSize = this.config.mediaBatchSize;
-            const prepare = offset => this.mediaOptions(catalog, missing.slice(offset, offset + batchSize), options.mode, workerSignal, source, options.quality)
+            // Open-engine episodes with transient lookup failures move to one retry pass after the rest of the series.
+            const deferred = options.mode === 'legacy' ? new Map() : null, later = [];
+            let deferredAt = 0;
+            const prepare = offset => this.mediaOptions(catalog, missing.slice(offset, offset + batchSize), options.mode, workerSignal, source, options.quality, deferred)
               .then(urls => ({ urls }), error => ({ error }));
+            const saveOne = async (episode, selectedMedia) => {
+              const media = { ...selectedMedia, quality: options.quality, requireQualityMetadata: options.mode !== 'legacy' };
+              const path = join(folder, `${String(episode.index).padStart(4, '0')}.mp4`);
+              const refresh = options.mode === 'legacy' ? async () => {
+                const refreshed = (await this.mediaOptions(catalog, [episode], options.mode, workerSignal, source, options.quality)).get(episode.vid);
+                return refreshed ? { ...refreshed, quality: options.quality, requireQualityMetadata: options.mode !== 'legacy' } : null;
+              } : null;
+              const saved = await this.saveEpisode(media, path, workerSignal, checkpoint.directory, refresh);
+              state.completed.push({ seriesId: catalog.seriesId, vid: episode.vid,
+                episode: { index: episode.index, title: episode.title, path, ...saved } }); downloaded++;
+              await persist();
+              await observer.onProgress?.(progress());
+            };
             pendingSource = prepare(0);
             for (let offset = 0; offset < missing.length; offset += batchSize) {
               const prepared = await pendingSource;
@@ -380,22 +396,32 @@ export class HongguoDownloadClient {
               const jobs = Array.from({ length: Math.min(this.config.concurrency, batch.length) }, async () => {
                 while (next < batch.length) {
                   workerSignal.throwIfAborted(); const episode = batch[next++], selectedMedia = urls.get(episode.vid);
+                  if (!selectedMedia && deferred?.has(episode.vid)) { later.push(episode); deferredAt = Date.now(); continue; }
                   if (!selectedMedia) throw new DownloadError('missing_episode_url', '来源没有返回某集媒体地址；已完成集保留供续下载');
-                  const media = { ...selectedMedia, quality: options.quality, requireQualityMetadata: options.mode !== 'legacy' };
-                  const path = join(folder, `${String(episode.index).padStart(4, '0')}.mp4`);
-                  const refresh = options.mode === 'legacy' ? async () => {
-                    const refreshed = (await this.mediaOptions(catalog, [episode], options.mode, workerSignal, source, options.quality)).get(episode.vid);
-                    return refreshed ? { ...refreshed, quality: options.quality, requireQualityMetadata: options.mode !== 'legacy' } : null;
-                  } : null;
-                  const saved = await this.saveEpisode(media, path, workerSignal, checkpoint.directory, refresh);
-                  state.completed.push({ seriesId: catalog.seriesId, vid: episode.vid,
-                    episode: { index: episode.index, title: episode.title, path, ...saved } }); downloaded++;
-                  await persist();
-                  await observer.onProgress?.(progress());
+                  await saveOne(episode, selectedMedia);
                 }
               });
               const settled = await Promise.allSettled(jobs.map(job => job.catch(error => { fail(error); throw error; })));
               if (settled.some(result => result.status === 'rejected')) throw firstFailure;
+            }
+            if (!later.length) continue;
+            await delay(Math.max(0, deferredAt + this.config.deferredSourceCooldownMs - Date.now()), undefined, { signal: workerSignal });
+            const unresolved = [];
+            for (const episode of later.sort((a, b) => a.index - b.index)) {
+              let selectedMedia;
+              try { selectedMedia = (await this.mediaOptions(catalog, [episode], options.mode, workerSignal, source, options.quality)).get(episode.vid); }
+              catch (error) {
+                if (!(error instanceof DownloadError) || error.code !== 'source_unavailable') throw error;
+                unresolved.push({ episode, error }); continue;
+              }
+              if (!selectedMedia) throw new DownloadError('missing_episode_url', '来源没有返回某集媒体地址；已完成集保留供续下载');
+              await saveOne(episode, selectedMedia);
+            }
+            if (unresolved.length) {
+              const { error } = unresolved[0];
+              throw new DownloadError('source_unavailable', `${error.message}；第 ${unresolved.map(item => item.episode.index).join('、')} 集延后重试仍未取到片源，其余集已下载`, {
+                sourceStage: error.sourceStage, retryable: unresolved.every(item => item.error.retryable === true),
+                upstreamCode: error.upstreamCode, sourceFailures: error.sourceFailures });
             }
           }
           active.throwIfAborted();

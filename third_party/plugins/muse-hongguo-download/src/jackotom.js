@@ -1,5 +1,6 @@
 /** Pinned upstream catalog and playback adapter; private playback data stays inside the plugin. */
 import { createRequire } from 'node:module';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { DownloadError } from './errors.js';
 const require = createRequire(import.meta.url);
 const revision = 'bb4aec994a1fc6336da55b269481ae2196124e8d';
@@ -12,12 +13,16 @@ function sourceFailures(info) {
     .slice(0, 6).map(item => ({ source: item.source, code: String(item.code) }));
 }
 
-/** Apply the upstream client's rule: timeouts, network failures and 5xx are transient; an App or device refusal is final. */
+/**
+ * Apply the upstream client's rule: timeouts, network failures and 5xx are transient; an App or device refusal is final.
+ * Empty play-info bodies are also transient: the same episode alternates between empty and playable across runs.
+ */
 function transientFailure(info, failures) {
   if (info?.locked) return false;
   if (failures.some(item => item.source === 'app' && /^(?:DEVICE_REGISTRATION_FAILED|HTTP_(?:403|429)|BUSINESS_REJECTED|SECURITY_BLOCKED)$/.test(item.code))) return false;
-  return info?.code === 'ETIMEDOUT' || failures.some(item => (item.source === 'web' && /^HTTP_(?:404|410)$/.test(item.code))
-    || /^(?:TIMEOUT|NETWORK_ERROR|HTTP_(?:408|5\d\d))$/.test(item.code));
+  const emptyOrMissing = item => item.code === 'EMPTY_RESPONSE' || item.source === 'web' && /^HTTP_(?:404|410)$/.test(item.code);
+  return info?.code === 'ETIMEDOUT' || failures.length > 0 && failures.every(emptyOrMissing)
+    || failures.some(item => emptyOrMissing(item) && item.source === 'web' || /^(?:TIMEOUT|NETWORK_ERROR|HTTP_(?:408|5\d\d))$/.test(item.code));
 }
 
 function unavailable(info, failures, transient) {
@@ -28,14 +33,6 @@ function unavailable(info, failures, transient) {
     ...(failures.length ? { sourceFailures: failures } : {}) });
 }
 
-function pause(ms, signal) {
-  return new Promise((resolve, reject) => {
-    const done = () => { signal.removeEventListener('abort', stop); resolve(); };
-    const stop = () => { clearTimeout(timer); reject(signal.reason); };
-    const timer = setTimeout(done, ms);
-    signal.addEventListener('abort', stop, { once: true });
-  });
-}
 
 /** Adapt the upstream catalog to Muse's validated download and recovery pipeline. */
 export class JackotomSource {
@@ -60,9 +57,14 @@ export class JackotomSource {
     return { seriesId: id, title: String(data.series_title || id), source: 'jackotom/hongguo-drama', episodeCount: rows.length,
       episodes: rows.map((row, index) => ({ index: index + 1, vid: String(row.vid), title: String(row.title || `第${index + 1}集`), durationSeconds: null })) };
   }
-  async videoUrls(ids, signal, seriesId) {
+  /**
+   * Resolve play info for each vid in order.
+   * @param options.deferred When given, a transient failure after retries is recorded under its vid and the lookup continues.
+   * @returns Resolved media by vid; deferred vids are absent.
+   */
+  async videoUrls(ids, signal, seriesId, options = {}) {
     const engine = this.load(), result = new Map();
-    for (const vid of ids) {
+    lookup: for (const vid of ids) {
       let info;
       for (let attempt = 0; ; attempt++) {
         signal.throwIfAborted();
@@ -71,8 +73,13 @@ export class JackotomSource {
         signal.throwIfAborted();
         if (info?.url && !info.locked && String(info.vid) === vid) break;
         const failures = sourceFailures(info), transient = !info?.url && transientFailure(info, failures);
-        if (!transient || attempt >= this.config.sourceRetries) throw unavailable(info, failures, transient);
-        await pause(this.config.sourceRetryDelayMs * (attempt + 1), signal);
+        if (!transient || attempt >= this.config.sourceRetries) {
+          const error = unavailable(info, failures, transient);
+          if (!transient || !options.deferred) throw error;
+          options.deferred.set(vid, error);
+          continue lookup;
+        }
+        await sleep(this.config.sourceRetryDelayMs * (attempt + 1), undefined, { signal });
       }
       if (this.config.quality !== 'auto' && Number(info.width) > 0 && Number(info.height) > 0
         && Math.min(Number(info.width), Number(info.height)) < (this.config.quality === '1080p' ? 1080 : 720)) {
