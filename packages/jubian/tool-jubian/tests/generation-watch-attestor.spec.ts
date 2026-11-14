@@ -302,6 +302,18 @@ it('reads the original evidence from a real JSONL Session without taking its wri
       expect(await changingReader({ key, runId, sessionId, previewPath }, root)).toBeUndefined()
       const deniedReader = createGenerationWatchSubmissionModelReader(ctx.sessionPersistence, ledger, async () => false)
       expect(await deniedReader({ key, runId, sessionId, previewPath }, root)).toBeUndefined()
+      // The reader snapshots the revision before and after attestation. When attestation
+      // itself observed one stable revision and the Session moved afterwards, the model is
+      // withheld: the evidence the verifier accepted is no longer the evidence on disk.
+      // stat is a provider double here because no product hook runs between the verifier's
+      // last read and the reader's closing read.
+      let driftingCalls = 0
+      const driftingRevisions = [1, 2, 2, 3]
+      const driftingReader = createGenerationWatchSubmissionModelReader({
+        stat: async () => ({ revision: driftingRevisions[Math.min(driftingCalls++, driftingRevisions.length - 1)] as number }),
+        open: async (id, access) => ctx.sessionPersistence.open(id, access),
+      }, ledger, async () => true)
+      expect(await driftingReader({ key, runId, sessionId, previewPath }, root)).toBeUndefined()
       const lookup = createGenerationWatchOwnerResolver(store, ctx.sessionPersistence, ledger, async () => true)
       expect(await lookup.resolve(key, previewPath, root)).toEqual({ key, runId, sessionId, previewPath })
       expect(await lookup.resolve(key, join(root, 'wrong'), root)).toBeUndefined()

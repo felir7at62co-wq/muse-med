@@ -1,5 +1,5 @@
 /** Keyless Loader coverage for automatic continuation after an original video receipt. */
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -7,8 +7,8 @@ import { expect, it, onTestFinished, vi } from 'vitest'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { JubianLedger } from '@deepseek-ai/dsh-jubian'
-import Llm, { createUserMessage, LlmError, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
-import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
+import Llm, { createUserMessage, LlmError, MessageId, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
+import SessionStore, { Session, SessionId, type SessionEvent, type SessionEventMap, type SessionEventType, type SurfaceEventType, type SurfaceIntent } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
@@ -25,6 +25,7 @@ import { createSessionTestController } from '../../../api/session-controller/tes
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
 import * as JsonlSessionPersistence from '../../../session/session-persistence-jsonl/src/index.ts'
+import { sessionDir } from '../../../session/session-persistence-jsonl/src/format.ts'
 import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
 import { GenerationWatchStore, type GenerationWatchRun } from '../src/generation-watch-store.ts'
@@ -45,6 +46,8 @@ const video = 'https://jubian-aigc.tos-cn-beijing.volces.com/test/episode-43-pac
 const board = { id: 1, scriptId: 2708, isGenerate: 1, storyboardName: 'EP43-P1',
   modelConfig: JSON.stringify(model), storyboardMaterialList: [{ assetId: 'asset-lead', materialAssetId: 81285,
     fileName: 'Lead', materialKey: 'lead', materialType: 'image', materialUrl: image, sortOrder: 1 }] }
+const secondBoard = { ...board, id: 2, storyboardName: 'EP43-P2',
+  modelConfig: JSON.stringify({ ...model, prompt: '@[Lead](lead) crosses a quiet alley.' }) }
 
 it('retains a completed legacy watch without a native binding for manual review on Host startup', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-generation-legacy-watch-')))
@@ -298,7 +301,7 @@ it('wakes an idle owner after provider completion from the normal video submissi
 type AdapterScript = ConstructorParameters<typeof MockAdapter>[0]
 
 async function originalVideoFixture(script: AdapterScript, reasoningEffort?: ReasoningEffortId, initialDispatch = false,
-  method: 'submit_video' | 'generate' = 'submit_video') {
+  method: 'submit_video' | 'generate' = 'submit_video', omitPreviewPath = false, secondStoryboard = false) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-generation-native-loader-')))
   let host: Context | undefined
   let finished = false
@@ -342,6 +345,7 @@ async function originalVideoFixture(script: AdapterScript, reasoningEffort?: Rea
       platformId: model.platformId, duration: 8, genNum: 1, genTypes: [{ id: 7, type: 3 }],
       videoStandards: [{ id: 91, ratio: '9:16', resolution: '720p', genNum: 1 }] }])
     if (path === '/admin/aigc/video/task/list') return answer(childHolder.value ? { total: 1, rows: [task] } : { total: 0, rows: [] })
+    if (path === '/aigc/storyboard/2' && secondStoryboard) return answer(secondBoard)
     if (path === '/admin/aigc/video/task/42') return answer(task)
     if (path === '/admin/aigc/video/task/sub/list' && childHolder.value) return answer({ total: 1, rows: [{ ...childHolder.value, taskStatus,
       resultList: finished ? [{ tosVideoUrl: video, firstResultId: 61 }] : [] }] })
@@ -368,13 +372,36 @@ async function originalVideoFixture(script: AdapterScript, reasoningEffort?: Rea
   const preparedChild: Record<string, unknown> = { id: 51, aigcVideoTaskId: 42, storyboardId: 1, resolution: '720p',
     modelConfig: payload.modelConfig, imageMaterials: payload.storyboardMaterialList }
   if (!initialDispatch) childHolder.value = preparedChild
+  let secondRequest: { preview_path: string; idempotency_key: string } | undefined
+  if (secondStoryboard) {
+    const secondPrepared = await executeToolFixture(host, { callId: ToolCallId('prepare-second'), name: 'jubian_storyboard',
+      arguments: { method: 'prepare_video', storyboard_id: 2, project_dir: root }, signal: new AbortController().signal })
+    expect(secondPrepared.isError, JSON.stringify(secondPrepared.content)).toBe(false)
+    const secondText = secondPrepared.content.find(block => block.type === 'text')
+    if (secondText?.type !== 'text') throw new Error('Expected the second native preview')
+    const parsedSecond = JSON.parse(secondText.text) as { preview_path: string; idempotencyKey: string }
+    const secondPayload = (JSON.parse(await readFile(parsedSecond.preview_path, 'utf8')) as {
+      payload: Record<string, unknown> }).payload
+    const secondLedger = new JubianLedger({ root: join(root, 'ledger') })
+    await secondLedger.begin({ idempotencyKey: parsedSecond.idempotencyKey, scriptId: 2708,
+      method: 'storyboard_native_submit', requestSha256: bodyHash(secondPayload) })
+    await secondLedger.settle(parsedSecond.idempotencyKey, { outcome: 'accepted', httpStatus: 200,
+      applicationCode: 200, responseSha256: null })
+    secondRequest = { preview_path: parsedSecond.preview_path, idempotency_key: parsedSecond.idempotencyKey }
+  }
   const ledger = new JubianLedger({ root: join(root, 'ledger') })
   if (!initialDispatch) {
     await ledger.begin({ idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit', requestSha256: bodyHash(payload) })
     await ledger.settle(idempotencyKey, { outcome: 'accepted', httpStatus: 200, applicationCode: 200, responseSha256: null })
   }
   const adapter = new MockAdapter([toolCallResponse('original-submit', 'jubian_storyboard',
-    { method, preview_path, idempotency_key: idempotencyKey }), textResponse('Provider is generating the pack.'), ...script],
+    omitPreviewPath ? { method, storyboard_id: 1, project_dir: root, idempotency_key: idempotencyKey }
+      : { method, preview_path, idempotency_key: idempotencyKey }),
+  textResponse('Provider is generating the pack.'),
+  ...(secondRequest === undefined ? [] : [toolCallResponse('second-submit', 'jubian_storyboard',
+    { method, preview_path: secondRequest.preview_path, idempotency_key: secondRequest.idempotency_key }),
+  textResponse('The second pack is generating.')]),
+  ...script],
   reasoningEffort === undefined ? undefined : { efforts: [{ id: reasoningEffort, name: 'High' }] })
   host.llm.registerAdapter(['mock'], adapter)
   const agent = await host.agentLoop.create(SessionId('original-loader-owner'), { ...selection,
@@ -387,7 +414,18 @@ async function originalVideoFixture(script: AdapterScript, reasoningEffort?: Rea
   if (run?.binding === undefined) throw new Error('The actual submission did not record its native binding: '+JSON.stringify(agent.session.snapshotEvents().filter(event => event.type === 'tool/result' || event.type === 'turn/end')))
   const workspace = host.workspaceRegistry.get(run.binding.workspaceId)
   expect(workspace?.sessionIds).toContain(agent.id)
-  return { root, host, agent, adapter, store, run, binding: run.binding, bytes, calls, dispatchOrder,
+  let secondRun: GenerationWatchRun | undefined
+  if (secondRequest !== undefined) {
+    agent.model.select({ provider: selection.provider, model: 'second-model' })
+    agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Submit the second pack.' }], source: { kind: 'user' } }))
+    await agent.whenIdle()
+    secondRun = (await store.listActive()).find(candidate => candidate.id !== run.id)
+    if (secondRun?.binding === undefined) {
+      throw new Error('The second submission did not record its own native binding: '
+        + JSON.stringify(agent.session.snapshotEvents().filter(event => event.type === 'tool/result' || event.type === 'turn/end')))
+    }
+  }
+  return { root, host, agent, adapter, store, run, binding: run.binding, bytes, calls, dispatchOrder, secondRun,
     originalRequest: { method, preview_path, idempotency_key: idempotencyKey },
     complete: () => { finished = true },
     reopen: async (durableInboxClaims = true, generationWatch = true) => {
@@ -727,6 +765,317 @@ it('preserves a completed download and reviews an admitted continuation interrup
   expect(resolved.agent.session.snapshotEvents().filter(event => event.type === 'tool/result'
     && event.data.message.toolCallId === ToolCallId('download-pack'))).toHaveLength(1)
   expect(h.calls.filter(call => call.method === 'PUT')).toHaveLength(0)
+}, 20_000)
+
+it('reuses one held native binding for a second notice of the same original Session', async () => {
+  const f = await parkedNativeDelivery()
+  f.host.llm.registerAdapter(['mock'], new MockAdapter([textResponse('Continue from the verified packs.')]))
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const maintenance = f.agent.runMaintenance(async () => { entered.resolve(undefined); await release.promise })
+  try {
+    await entered.promise
+    const signal = new AbortController().signal
+    expect(await f.deliver(f.saved.sessionId, f.notice, signal, undefined, undefined, f.saved)).toBe('pending')
+    const second = createGenerationWatchNotice('A second verified pack of the same run is ready.')
+    expect(await f.deliver(f.saved.sessionId, second, signal, undefined, undefined, f.saved)).toBe('pending')
+    const state = f.projection.stateOf(f.agent.session)
+    expect(state.notices[f.notice.id]).toBe('queued')
+    expect(state.notices[second.id]).toBe('queued')
+    expect(f.agent.inbox.nextTurn.map(message => message.id)).toEqual([f.notice.id, second.id])
+    expect(() => { f.agent.model.select({ provider: 'mock', model: 'another-model' }) }).toThrow('guarded model')
+    release.resolve(undefined)
+    await maintenance
+    await f.agent.whenIdle()
+    expect(f.h.calls.filter(call => call.method === 'PUT')).toEqual([])
+  } finally {
+    release.resolve(undefined)
+    await maintenance
+  }
+}, 20_000)
+
+it('refuses to start a native continuation while the Host is unloading', async () => {
+  const f = await parkedNativeDelivery()
+  const observed: string[] = []
+  let failure: unknown
+  const deliver = createNativeGenerationDelivery(f.host, f.projection)
+  f.host.effect(() => async () => {
+    try {
+      observed.push(await deliver(f.saved.sessionId, f.notice, new AbortController().signal, undefined, undefined, f.saved))
+    } catch (error: unknown) { failure = error }
+  })
+  await f.host.fiber.dispose()
+  expect(failure).toBeUndefined()
+  expect(observed).toEqual(['pending'])
+  expect(f.agent.session.snapshotEvents().filter(event => event.type === 'user/message'
+    && event.data.id === f.notice.id)).toEqual([])
+})
+
+it('refuses a notice whose original Session log is unavailable', async () => {
+  const f = await parkedNativeDelivery()
+  const detached = await realpath(await mkdtemp(join(tmpdir(), 'muse-native-notice-detached-')))
+  onTestFinished(async () => { await rm(detached, { recursive: true, force: true }) })
+  await cp(join(f.h.root, 'watches'), join(detached, 'watches'), { recursive: true })
+  const host = await watchHost(detached, false, true)
+  const store = new GenerationWatchStore(join(detached, 'watches'))
+  const saved = await store.load(f.saved.id)
+  if (saved?.notice === undefined) throw new Error('Expected the parked original notice')
+  const projection = await registerGenerationWatchDelivery(host)
+  const deliver = createNativeGenerationDelivery(host, projection)
+  await expect(deliver(saved.sessionId, saved.notice, new AbortController().signal, undefined, undefined, saved))
+    .rejects.toMatchObject({ code: 'session/not-found' })
+  expect(host.agents.get(saved.sessionId)).toBeUndefined()
+})
+
+it('stays pending while the original Session has no persisted revision', async () => {
+  const f = await parkedNativeDelivery()
+  const id = SessionId('unpersisted-native-watch')
+  const agent = await f.host.agentLoop.create(id, selection, { cwd: f.h.root })
+  expect(await f.host.sessions.flush(agent.session)).toBe(true)
+  const binding = f.saved.binding
+  if (binding === undefined) throw new Error('Expected the parked original binding')
+  const run = await f.h.store.create({ id: 'f'.repeat(64), sessionId: id, createdAt: 0, deadlineAt: 1,
+    packs: [{ key: 'e'.repeat(64), previewPath: join(f.h.root, 'unpersisted-preview.json'), taskId: 7 }],
+    binding: { ...binding, sessionId: id } })
+  await rm(sessionDir(join(f.h.root, 'sessions'), f.h.root, id), { recursive: true, force: true })
+  expect(await f.host.sessionPersistence.stat(id)).toBeUndefined()
+  expect(await f.deliver(id, createGenerationWatchNotice('Continue the unpersisted pack.'), new AbortController().signal,
+    undefined, undefined, run)).toBe('pending')
+  expect(await f.host.sessionPersistence.stat(id)).toBeUndefined()
+  expect(agent.session.snapshotEvents().some(event => event.type === 'user/message')).toBe(false)
+})
+
+it('stays pending while the Session log has no matching submission evidence', async () => {
+  const f = await parkedNativeDelivery()
+  const run = await f.h.store.create({ id: 'd'.repeat(64), sessionId: f.saved.sessionId, createdAt: 0, deadlineAt: 1,
+    packs: [{ key: 'c'.repeat(64), previewPath: join(f.h.root, 'unrecorded-preview.json'), taskId: 9 }],
+    binding: f.saved.binding })
+  expect(await f.deliver(f.saved.sessionId, createGenerationWatchNotice('Continue the unrecorded pack.'),
+    new AbortController().signal, undefined, undefined, run)).toBe('pending')
+  expect(f.agent.session.snapshotEvents().some(event => event.type === 'user/message'
+    && event.data.source.kind === 'jubian-generation-watch')).toBe(false)
+})
+
+it('forgets a rejected notice once another input waits for the next step', async () => {
+  const f = await parkedNativeDelivery()
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const maintenance = f.agent.runMaintenance(async () => { entered.resolve(undefined); await release.promise })
+  try {
+    await entered.promise
+    expect(await f.deliver(f.saved.sessionId, f.notice, new AbortController().signal, undefined, undefined, f.saved)).toBe('pending')
+    expect(f.projection.stateOf(f.agent.session).notices[f.notice.id]).toBe('queued')
+    expect(f.agent.inbox.remove(MessageId(f.notice.id))).toBe(true)
+    release.resolve(undefined)
+    await maintenance
+    await f.agent.whenIdle()
+    expect(f.agent.inbox.nextTurn).toEqual([])
+    const waiting = createUserMessage({ content: [{ type: 'text', text: 'Keep this instruction for the next step.' }],
+      source: { kind: 'user' } })
+    f.agent.inbox.append('next-step', waiting)
+    expect(await f.deliver(f.saved.sessionId, f.notice, new AbortController().signal, undefined, undefined, f.saved))
+      .toBe('needs-review')
+    expect(f.agent.inbox.nextStep.map(message => message.id)).toEqual([waiting.id])
+    expect(f.agent.inbox.nextTurn).toEqual([])
+    expect(f.projection.stateOf(f.agent.session).notices[f.notice.id]).toBe('queued')
+    expect(f.agent.session.snapshotEvents().filter(event => event.type === 'user/message'
+      && event.data.id === f.notice.id)).toEqual([])
+    const flushes: boolean[] = []
+    const realFlush = f.host.sessions.flush.bind(f.host.sessions)
+    const flushing = vi.spyOn(f.host.sessions, 'flush').mockImplementation(async (session) => {
+      const result = await realFlush(session)
+      flushes.push(result)
+      return result
+    })
+    try { await f.host.fiber.dispose() } finally { flushing.mockRestore() }
+    expect(flushes).toEqual([true])
+  } finally {
+    release.resolve(undefined)
+    await maintenance
+  }
+}, 20_000)
+
+async function deliveryOnlyHost(root: string): Promise<Context> {
+  const { ctx } = await configurationFixture({ hmr: false, rows: [
+    { id: 'prompt', name: 'cordis:prompt' }, { id: 'tools', name: 'cordis:tools' },
+    { id: 'executor', name: 'cordis:executor' },
+    { id: 'llm', name: 'cordis:llm' }, { id: 'sessions', name: 'cordis:sessions' },
+    { id: 'projections', name: 'cordis:projections' }, { id: 'agents', name: 'cordis:agents' },
+    { id: 'persistence', name: 'cordis:persistence', config: { root: join(root, 'sessions'), compression: 'none' } },
+    { id: 'loop', name: 'cordis:loop', config: { agents: [], durableInboxClaims: true } },
+    { id: 'controller', name: 'cordis:controller' },
+  ], builtins: {
+    prompt: SystemPrompt, tools: Tools, executor: NativeExecutor, llm: Llm, sessions: SessionStore,
+    projections: SessionProjections, agents: AgentRegistry, loop: AgentLoop, persistence: JsonlSessionPersistence,
+    controller: { inject: ['llm', 'sessions', 'sessionProjections', 'agents'], apply: async (scope: Context) => {
+      await createSessionTestController(scope, { cwd: root, defaultModelSelection: () => selection })
+    } },
+  } })
+  for (const entry of ctx.loader.entries()) await entry.fiber?.await()
+  return ctx
+}
+
+it('stays pending when a concurrent write changes the Session revision during the evidence read', async () => {
+  const f = await parkedNativeDelivery()
+  const opened = f.host.sessionPersistence.open.bind(f.host.sessionPersistence)
+  const racing = vi.spyOn(f.host.sessionPersistence, 'open').mockImplementation(async (id, access) => {
+    const handle = await opened(id, access)
+    if (access !== 'read') return handle
+    const read = handle.read.bind(handle)
+    Object.assign(handle, { read: async () => {
+      const result = await read()
+      f.agent.inbox.append('next-step', createUserMessage({ content: [{ type: 'text', text: 'Concurrent input.' }],
+        source: { kind: 'user' } }))
+      expect(await f.host.sessions.flush(f.agent.session)).toBe(true)
+      return result
+    } })
+    return handle
+  })
+  try {
+    expect(await f.deliver(f.saved.sessionId, f.notice, new AbortController().signal, undefined, undefined, f.saved)).toBe('pending')
+  } finally { racing.mockRestore() }
+  expect(f.agent.inbox.nextStep).toHaveLength(1)
+})
+
+it('stays pending when the Host holds no workspace authority', async () => {
+  const f = await parkedNativeDelivery()
+  const detached = await realpath(await mkdtemp(join(tmpdir(), 'muse-native-no-authority-')))
+  onTestFinished(async () => { await rm(detached, { recursive: true, force: true }) })
+  await cp(join(f.h.root, 'sessions'), join(detached, 'sessions'), { recursive: true })
+  const saved = await f.h.store.load(f.saved.id)
+  if (saved?.notice === undefined) throw new Error('Expected the parked original notice')
+  const host = await deliveryOnlyHost(detached)
+  const projection = await registerGenerationWatchDelivery(host)
+  const deliver = createNativeGenerationDelivery(host, projection)
+  try {
+    expect(host.get('generationWorkspaceAuthority')).toBeUndefined()
+    expect(host.get('agentLoop')?.config.durableInboxClaims).toBe(true)
+    expect(await deliver(saved.sessionId, saved.notice, new AbortController().signal, undefined, undefined, saved))
+      .toBe('pending')
+    expect(host.agents.get(saved.sessionId)).toBeDefined()
+    expect(host.sessions.get(saved.sessionId)?.snapshotEvents().some(event => event.type === 'user/message'
+      && event.data.id === saved.notice?.id)).toBe(false)
+  } finally { await host.fiber.dispose() }
+})
+
+it('releases the workspace lease when the caller cancels during acquisition', async () => {
+  const f = await parkedNativeDelivery()
+  const authority = f.host.generationWorkspaceAuthority
+  const acquire = authority.acquire.bind(authority)
+  const controller = new AbortController()
+  const cancelling = vi.spyOn(authority, 'acquire').mockImplementation(async (identity, signal) => {
+    const lease = await acquire(identity, signal)
+    controller.abort(new Error('Host cancelled the continuation'))
+    return lease
+  })
+  try {
+    await expect(f.deliver(f.saved.sessionId, f.notice, controller.signal, undefined, undefined, f.saved))
+      .rejects.toThrow('Host cancelled the continuation')
+  } finally { cancelling.mockRestore() }
+  expect(f.agent.session.snapshotEvents().filter(event => event.type === 'user/message'
+    && event.data.id === f.notice.id)).toEqual([])
+})
+
+it('releases one held binding when its in-flight continuation fails during Host shutdown', async () => {
+  const f = await parkedNativeDelivery()
+  f.host.llm.registerAdapter(['mock'], new MockAdapter(['hang']))
+  const resolve = f.host.sessionController.resolveAgent.bind(f.host.sessionController)
+  const authority = f.host.generationWorkspaceAuthority
+  const acquire = authority.acquire.bind(authority)
+  let acquired = false
+  let disposal: Promise<void> | undefined
+  const watchingAuthority = vi.spyOn(authority, 'acquire').mockImplementation(async (identity, signal) => {
+    const lease = await acquire(identity, signal)
+    acquired = true
+    return lease
+  })
+  const watching = vi.spyOn(f.host.sessionController, 'resolveAgent').mockImplementation(async (sessionId) => {
+    const found = await resolve(sessionId)
+    if (acquired) disposal ??= f.host.fiber.dispose()
+    return found
+  })
+  try {
+    await expect(f.deliver(f.saved.sessionId, f.notice, new AbortController().signal, undefined, undefined, f.saved))
+      .rejects.toThrow('Automatic continuation producer unloaded')
+  } finally { watching.mockRestore(); watchingAuthority.mockRestore() }
+  await disposal
+  expect(f.agent.session.snapshotEvents().filter(event => event.type === 'user/message'
+    && event.data.id === f.notice.id)).toEqual([])
+  expect(f.agent.inbox.nextTurn.map(message => message.id)).not.toContain(f.notice.id)
+  expect(f.h.calls.filter(call => call.method === 'PUT')).toEqual([])
+})
+
+it('reports a native parking failure when the Session refuses the receipt and its flush', async () => {
+  const f = await parkedNativeDelivery()
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const maintenance = f.agent.runMaintenance(async () => { entered.resolve(undefined); await release.promise })
+  try {
+    await entered.promise
+    expect(await f.deliver(f.saved.sessionId, f.notice, new AbortController().signal, undefined, undefined, f.saved)).toBe('pending')
+    const before = f.agent.session.snapshotEvents().filter(event => event.type === 'jubian/generation-notice-parked').length
+    const append = f.agent.session.append.bind(f.agent.session)
+    f.agent.session.append = <T extends SessionEventType>(type: T, data: SessionEventMap[T],
+      ...options: T extends SurfaceEventType ? [opts: SurfaceIntent<T>] : []): SessionEvent<T> => {
+      if (type === 'jubian/generation-notice-parked') throw new Error('Injected parked-receipt write failure')
+      return append(type, data, ...options)
+    }
+    const flushing = vi.spyOn(f.host.sessions, 'flush').mockResolvedValue(false)
+    try {
+      const disposal = f.host.fiber.dispose()
+      release.resolve(undefined)
+      await disposal
+    } finally { flushing.mockRestore(); f.agent.session.append = append }
+    expect(f.agent.session.snapshotEvents().filter(event => event.type === 'jubian/generation-notice-parked'))
+      .toHaveLength(before)
+    expect(f.agent.inbox.nextTurn.map(message => message.id)).not.toContain(f.notice.id)
+  } finally {
+    release.resolve(undefined)
+    await maintenance
+  }
+}, 20_000)
+
+it('records the original native submission without a projected preview path when the caller omits it', async () => {
+  const h = await originalVideoFixture([textResponse('Continue with the verified pack.')], undefined, true, 'submit_video', true)
+  const submitted = h.agent.session.snapshotEvents().find(event => event.type === 'tool/result'
+    && event.data.message.toolCallId === ToolCallId('original-submit'))
+  if (submitted?.type !== 'tool/result') throw new Error('Missing original submission result')
+  expect(submitted.data.message.isError).not.toBe(true)
+  // Current behavior: the tool-result projection needs an explicit preview_path, so an omitted
+  // argument loses generationWatchId/submission even though the tool body succeeded.
+  expect(submitted.data.meta).toBeUndefined()
+  expect(h.run.id).toMatch(/^[a-f0-9]{64}$/u)
+  expect(h.calls.filter(call => call.method === 'PUT')).toHaveLength(1)
+  expect(h.calls.filter(call => call.method === 'PUT')).toEqual([{ method: 'PUT', path: '/aigc/storyboard' }])
+})
+
+it('stays pending when the held binding names a different submission of the same Session', async () => {
+  const h = await originalVideoFixture([], undefined, false, 'submit_video', false, true)
+  const second = h.secondRun
+  if (second?.binding === undefined) throw new Error('Expected the second recorded submission')
+  expect(h.run.binding?.model).toEqual(selection)
+  expect(second.binding.model).toMatchObject({ provider: selection.provider, model: 'second-model' })
+  expect(second.sessionId).toBe(h.run.sessionId)
+  const host = await h.reopen(true, false)
+  host.llm.registerAdapter(['mock'], new MockAdapter([textResponse('Continue the verified pack.')]))
+  const projection = await registerGenerationWatchDelivery(host)
+  const deliver = createNativeGenerationDelivery(host, projection)
+  const resolved = await host.sessionController.resolveAgent(h.run.sessionId)
+  if ('error' in resolved) throw resolved.error
+  const held = createGenerationWatchNotice('Continue the second pack.')
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const maintenance = resolved.agent.runMaintenance(async () => { entered.resolve(undefined); await release.promise })
+  try {
+    await entered.promise
+    expect(await deliver(second.sessionId, held, new AbortController().signal, undefined, undefined, second)).toBe('pending')
+    const conflicting = createGenerationWatchNotice('Continue the first pack.')
+    expect(await deliver(h.run.sessionId, conflicting, new AbortController().signal, undefined, undefined, h.run))
+      .toBe('pending')
+    expect(resolved.agent.inbox.nextTurn.map(message => message.id)).toContain(held.id)
+    expect(resolved.agent.inbox.nextTurn.map(message => message.id)).not.toContain(conflicting.id)
+    expect(projection.stateOf(resolved.agent.session).notices[conflicting.id]).toBeUndefined()
+    expect(h.calls.filter(call => call.method === 'PUT')).toEqual([])
+  } finally {
+    release.resolve(undefined)
+    await maintenance
+  }
 }, 20_000)
 
 it('wakes the same unclaimed persisted notice after Host restart with its original native binding', async () => {

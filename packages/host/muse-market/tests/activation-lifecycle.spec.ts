@@ -3,6 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { agentEvents } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { SessionSkillCatalog } from '@deepseek-ai/dsh-api-session-controller/src/skill-catalog.ts'
@@ -129,6 +130,19 @@ describe('activation-owned Session Skill views', () => {
 
   it('allows an Agent to close before activation without retaining its provider', async () => {
     const f = await fixture(), agent = await f.harness.create(SessionId('market-close-first'))
+    expect(await f.skills.list({ scope: agent })).toHaveLength(1)
+    await agent.ctx.fiber.dispose()
+    expect(await f.skills.list({ scope: agent })).toEqual([])
+    await f.activation.dispose()
+  })
+
+  it('keeps the surviving provider after a second announcement of the same Agent replaced its control and was refused', async () => {
+    const f = await fixture(), agent = await f.harness.create(SessionId('market-reannounced'))
+    expect(await f.skills.list({ scope: agent })).toHaveLength(1)
+    // The scoped layer already owns this provider name, so the re-announcement is refused
+    // after the replacing control was installed and before it could own the registration.
+    await expect(agentEvents(f.ctx, agent).serial('agent/created', { source: 'resume' }))
+      .rejects.toThrow(/already registered/u)
     expect(await f.skills.list({ scope: agent })).toHaveLength(1)
     await agent.ctx.fiber.dispose()
     expect(await f.skills.list({ scope: agent })).toEqual([])

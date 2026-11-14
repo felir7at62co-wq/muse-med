@@ -1,9 +1,10 @@
 import { join } from 'node:path'
-import { copyFile, mkdir, open, readFile, realpath, stat, symlink, unlink, writeFile } from 'node:fs/promises'
+import { appendFile, copyFile, mkdir, open, readFile, realpath, stat, symlink, unlink, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
+import { Worker } from 'node:worker_threads'
 import { afterEach, expect, it, vi } from 'vitest'
 import { z } from 'zod'
-import { createSourceQaStagedAccess, verifySourceQa } from '../src/source-qa.ts'
+import { createSourceQaStagedAccess, verifySourceQa, type SourceQaVerifier } from '../src/source-qa.ts'
 import { fileSha256 } from '../src/cache.ts'
 import { cleanup, tempProject, writePlaceholder } from './harness.ts'
 import { sourceQaFixture, sourceQaOcrLine, verifiedSourceQaFixture } from './source-qa-fixture.ts'
@@ -197,6 +198,23 @@ it('refuses ambiguous, missing, escaped or cancelled stage mappings', async () =
   await expect(access.hash(file.originalPath)).rejects.toThrow()
 })
 
+// Real entry: `createSourceQaStagedAccess`, the public reader factory the Host calls with
+// its captured mapping (re-exported from src/index.ts). The second captured file claims the
+// first file's original spelling as one of its Host-resolved aliases, so that spelling would
+// name two different captured originals; the factory refuses the whole mapping.
+it('refuses an alias that contradicts another captured original identity', async () => {
+  const f = await fixture(), project = await realpath(f.input.project), stage = join(project, 'private-stage')
+  await mkdir(stage)
+  const media = await realpath(f.input.videoPath), ocr = await realpath(f.selected.declaration.ocr.path)
+  const mediaBytes = await readFile(media), ocrBytes = await readFile(ocr)
+  await Promise.all([writeFile(join(stage, 'media'), mediaBytes), writeFile(join(stage, 'ocr'), ocrBytes)])
+  const digest = (bytes: Buffer): string => createHash('sha256').update(bytes).digest('hex')
+  expect(() => createSourceQaStagedAccess(project, stage, [
+    { originalPath: media, stagedPath: join(stage, 'media'), sha256: digest(mediaBytes), bytes: mediaBytes.length },
+    { originalPath: ocr, stagedPath: join(stage, 'ocr'), sha256: digest(ocrBytes), bytes: ocrBytes.length, aliases: [media] },
+  ], new AbortController().signal)).toThrow('Source QA stage has an ambiguous alias')
+})
+
 it('rejects an already incorrect same-length staged copy without modifying either file', async () => {
   const f = await fixture(), project = await realpath(f.input.project), stage = join(project, 'private-stage')
   await mkdir(stage)
@@ -259,6 +277,72 @@ it('refuses a staged file replaced by a symlink even when it names the original 
   await unlink(stagedPath)
   await symlink(originalPath, stagedPath)
   await expect(access.hash(originalPath)).rejects.toThrow('not canonical')
+})
+
+// Real entry: the staged reader's own `hash` (src/index.ts re-exports the factory). The Host
+// appends to the private copy while the reader is streaming it, so the reader sees a byte
+// beyond the captured length instead of hashing a longer file: the read loop stops at the
+// `size > file.bytes` guard. The warm-up hash proves the mapping is otherwise sound, and the
+// append starts on a timer well after `lstat`, so no earlier identity guard can answer first.
+it('refuses a staged file that grows while its bytes are being read', async () => {
+  const project = await realpath(await tempProject())
+  projects.push(project)
+  const stage = join(project, 'private-stage'), originalPath = join(project, 'growing-original.data')
+  await mkdir(stage)
+  const bytes = Buffer.alloc(8 * 1024 * 1024, 0x62)
+  await writeFile(originalPath, bytes)
+  const stagedPath = join(stage, 'growing')
+  await copyFile(originalPath, stagedPath)
+  const file = { originalPath, stagedPath, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }
+  const access = createSourceQaStagedAccess(project, stage, [file], new AbortController().signal)
+  await expect(access.hash(originalPath)).resolves.toBe(file.sha256)
+  const appending = new Promise<void>((resolve, reject) => {
+    setTimeout(() => { appendFile(stagedPath, Buffer.alloc(2 * 1024 * 1024, 0x63)).then(() => { resolve() }, reject) }, 2)
+  })
+  await expect(access.hash(originalPath)).rejects.toThrow('Source QA stage file changed')
+  await appending
+})
+
+// Real entry: the staged reader's own `hash`. The Host replaces the private copy with another
+// file of identical bytes while the reader is between its identity probe and its open, so the
+// opened file is not the identity it just probed and the reader refuses instead of trusting a
+// digest from an unverified inode. Only a writer on a second thread can land in that window:
+// nothing in the reader's own continuation yields between the probe and the open, so a timer or
+// microtask cannot, and the replacement races a real concurrent writer.
+it('refuses a staged file whose identity is replaced between the probe and the open', async () => {
+  const project = await realpath(await tempProject())
+  projects.push(project)
+  const stage = join(project, 'private-stage'), originalPath = join(project, 'replaced-original.data')
+  await mkdir(stage)
+  const bytes = Buffer.alloc(1024, 0x51), stagedPath = join(stage, 'replaced'), spare = join(project, 'host-spare')
+  await writeFile(originalPath, bytes)
+  await writeFile(stagedPath, bytes)
+  const file = { originalPath, stagedPath, sha256: createHash('sha256').update(bytes).digest('hex'), bytes: bytes.length }
+  const access = createSourceQaStagedAccess(project, stage, [file], new AbortController().signal)
+  await expect(access.hash(originalPath)).resolves.toBe(file.sha256)
+  const renamer = new Worker(`
+    const { renameSync, writeFileSync } = require('node:fs')
+    const { workerData } = require('node:worker_threads')
+    const deadline = Date.now() + workerData.ms
+    while (Date.now() < deadline) {
+      try { writeFileSync(workerData.spare, workerData.bytes) } catch {}
+      try { renameSync(workerData.spare, workerData.target) } catch {}
+    }
+  `, { eval: true, workerData: { spare, target: stagedPath, bytes, ms: 8000 } })
+  try {
+    const deadline = Date.now() + 4000
+    let refused = false
+    let other: unknown
+    while (!refused && Date.now() < deadline) {
+      try { await access.hash(originalPath) }
+      catch (error) {
+        if ((error as Error).message === 'Source QA stage file changed') refused = true
+        else { other = error; break }
+      }
+    }
+    if (other !== undefined) throw other
+    expect(refused).toBe(true)
+  } finally { await renamer.terminate() }
 })
 
 it('requires an independent execution verifier even when every declared artifact looks complete', async () => {
@@ -455,6 +539,22 @@ it('verifies every separately issued OCR part covering a source in order', async
   const result = await verifySourceQa({ ...f.input, verifier })
   expect(verifier).toHaveBeenCalledTimes(2)
   expect(result.files).toHaveLength(4)
+})
+
+// Real entry: `verifySourceQa` with the Host verifier for a two-part OCR inventory. The Host
+// re-issues the FIRST part's report while it is still proving the SECOND part, so the final
+// `uniqueFiles` re-hash (the last step of the public entry) disagrees with the digest the
+// earlier part bound. Every per-part check has already passed by then, so only that last
+// re-hash can answer.
+it('refuses an earlier OCR part rewritten while a later part is verified', async () => {
+  const f = await segmentedFixture(), earlier = f.refs[0]!.path
+  const later = await realpath(f.second.declaration.ocr.path)
+  const verifier = vi.fn<SourceQaVerifier>(async (binding) => {
+    if (binding.ocrPath === later) await writeFile(earlier, 'rewritten earlier OCR segment')
+  })
+  await expect(verifySourceQa({ ...f.input, verifier }))
+    .rejects.toThrow('核实分段证据期间源片或复验文件已变化')
+  expect(verifier).toHaveBeenCalledTimes(2)
 })
 
 it.each(['gap', 'overlap', 'reversed', 'missing', 'different source', 'unissued', 'unscoped decision'])
