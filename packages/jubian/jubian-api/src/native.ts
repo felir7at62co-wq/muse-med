@@ -40,6 +40,21 @@ export const FAILED_STATUSES = ['failed', 'no_all_failed', 'cancelled', 'expired
 export const NATIVE_MODEL_FIELDS = ['platformId', 'modelId', 'standardId', 'genType',
   'modelGenerationTypeId', 'videoStandardId', 'duration', 'ratio', 'resolution', 'genNum'] as const
 
+/**
+ * Identify only the recorded Seedance model ids whose generation limits are known.
+ * @param modelId - Exact id retained from the live catalogue.
+ * @returns The known version, or null for every other id; never rewrites request selectors.
+ */
+export function seedanceVideoVersion(modelId: string): '2.0' | '2.5' | null {
+  switch (modelId) {
+    case 'doubao-seedance-2-0-260128':
+    case 'doubao-seedance-2.0': return '2.0'
+    case 'doubao-seedance-2-5-260628':
+    case 'doubao-seedance-2.5': return '2.5'
+    default: return null
+  }
+}
+
 /** One ordered trusted subject identity, as the provider records it on a child. */
 export interface SubjectIdentityItem {
   /** The trusted multimedia-library identity (`hsAssetId`), not the numeric parent. */
@@ -614,7 +629,7 @@ export function validatedVideoMaterials(storyboard: Record<string, unknown>, ass
   const audioMaterials = orderedMaterials.filter(material => material.materialType === 'audio')
     .map(material => ({ ...validateAudioMaterial(material) }))
   referenceAudioUrls(audioMaterials)
-  const maximumAudio = config.modelId === 'doubao-seedance-2-0-260128' ? 3 : 10
+  const maximumAudio = typeof config.modelId === 'string' && seedanceVideoVersion(config.modelId) === '2.0' ? 3 : 10
   if (audioMaterials.length > maximumAudio) invalid(`The selected SD model accepts at most ${maximumAudio} audio references`)
   const verifiedByKey = new Map([...enriched, ...audioMaterials].map(material => [String(material.materialKey), material]))
   return { materials: orderedMaterials.map(material =>
@@ -700,8 +715,8 @@ export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoP
 
 /**
  * Validate whole-second duration against an exact model's recorded capability.
- * The catalogue does not expose duration bounds. Seedance 2.0 retains its 4–15-second
- * limit; the user-confirmed 2.5 capability permits 4–30 seconds for this exact id.
+ * The catalogue does not expose duration bounds. Recorded Seedance 2.0 ids use
+ * 4–15 seconds and recorded 2.5 ids use 4–30 seconds, including Huan Chang aliases.
  * Other models require positive whole seconds without borrowing a Seedance limit;
  * model, platform, generation type and specification still resolve against the live catalogue.
  * @param modelId - Exact catalogue model id.
@@ -710,8 +725,8 @@ export function buildNativeVideoPreview(input: NativePreviewInput): NativeVideoP
  * @throws {JubianError} `CONTRACT_CHANGED` for nonnumeric, fractional or out-of-range duration.
  */
 export function validateVideoDuration(modelId: string, duration: unknown): number {
-  const maximum = modelId === 'doubao-seedance-2-0-260128' ? 15
-    : modelId === 'doubao-seedance-2-5-260628' ? 30 : null
+  const version = seedanceVideoVersion(modelId)
+  const maximum = version === '2.0' ? 15 : version === '2.5' ? 30 : null
   const minimum = maximum === null ? 1 : 4
   if (typeof duration !== 'number' || !Number.isSafeInteger(duration) || duration < minimum
     || (maximum !== null && duration > maximum)) {

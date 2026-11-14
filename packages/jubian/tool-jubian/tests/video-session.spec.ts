@@ -23,10 +23,14 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { SessionVideoSelection } from '../src/video-session-types.ts'
 
 const catalogue = JSON.parse(await readFile(new URL('../../jubian-api/tests/fixtures/catalogue-20261016.json', import.meta.url), 'utf8')) as Record<string, unknown[]>
+const huanchangCatalogue: unknown = JSON.parse(await readFile(new URL('../../jubian-api/tests/fixtures/catalogue-huanchang-20261114.json', import.meta.url), 'utf8'))
+if (!Array.isArray(huanchangCatalogue)) throw new Error('Expected the recorded Huanchang catalogue rows')
+const huanchangRows: readonly unknown[] = huanchangCatalogue
 const cleanup: Array<() => Promise<void>> = []
 afterEach(async () => { for (const dispose of cleanup.splice(0).reverse()) await dispose() })
 
-async function fixture(defaultModel?: { modelId: string; platformId: string; resolution: string }, enabled = true) {
+async function fixture(defaultModel?: { modelId: string; platformId: string; resolution: string }, enabled = true,
+  modelCatalogue: readonly unknown[] = catalogue['1']!) {
   const root = await mkdtemp(join(tmpdir(), 'muse-video-choice-'))
   cleanup.push(() => rm(root, { recursive: true, force: true }))
   const ctx = new Context()
@@ -48,7 +52,7 @@ async function fixture(defaultModel?: { modelId: string; platformId: string; res
     const body = typeof init?.body === 'string' ? JSON.parse(init.body) as Record<string, unknown> : undefined
     requests.push({ path, method: init?.method ?? 'GET', ...(body ? { body } : {}) })
     if (init?.method === 'PUT' && body) board = body
-    return new Response(JSON.stringify({ code: 200, data: path.includes('getSelectList') ? catalogue['1'] : path.includes('/list') ? { rows: [board], total: 1 } : board }), { status: 200 })
+    return new Response(JSON.stringify({ code: 200, data: path.includes('getSelectList') ? modelCatalogue : path.includes('/list') ? { rows: [board], total: 1 } : board }), { status: 200 })
   } })
   const ledger = new JubianLedger({ root })
   await ctx.plugin(JubianVideoSelection, { client, ledger, enabled, ...(defaultModel ? { defaultModel } : {}) })
@@ -137,6 +141,20 @@ it('offers every video catalogue model with exact resolution, channel and known 
   expect(options.find(option => option.modelId === 'doubao-seedance-2-5-260628')?.maxDurationSeconds).toBe(30)
   expect(options.some(option => option.maxDurationSeconds === null)).toBe(true)
   expect(() => videoOptions({})).toThrow()
+})
+
+it('retains the recorded Huanchang wire identities and recognizes only known Seedance capability aliases', () => {
+  const options = videoOptions(huanchangRows)
+  expect(options.map(option => [option.key, option.platformId, option.modelId, option.maxDurationSeconds])).toEqual([
+    ['92:480p', 'FZ_HUAN_CHANG', 'doubao-seedance-2.0', 15],
+    ['92:720p', 'FZ_HUAN_CHANG', 'doubao-seedance-2.0', 15],
+    ['93:480p', 'FZ_HUAN_CHANG', 'doubao-seedance-2.5', 30],
+    ['93:720p', 'FZ_HUAN_CHANG', 'doubao-seedance-2.5', 30],
+  ])
+  expect(options.find(option => option.key === '93:480p')).toMatchObject({ genTypes: [3, 4], ratios: ['16:9', '9:16', 'adaptive'] })
+  const unknown = videoOptions([{ id: 900, platformId: 'FZ_HUAN_CHANG', modelId: 'doubao-seedance-2.5-unknown',
+    modelName: 'Unverified model', videoStandards: [{ resolution: '480p', ratio: '9:16' }], genTypes: [{ type: 3 }] }])
+  expect(unknown[0]?.maxDurationSeconds).toBeNull()
 })
 
 it('persists only explicit choices, suppresses repeats and refuses concurrent stale selections', async () => {
@@ -294,6 +312,44 @@ it('checks every batch preview and permits original batch keys after a conversat
 })
 
 const defaults = { modelId: 'doubao-seedance-2-5-260628', platformId: 'FANG_ZHOU', resolution: '480p' }
+const huanchangDefaults = { modelId: 'doubao-seedance-2.5', platformId: 'FZ_HUAN_CHANG', resolution: '480p' }
+it('initializes the verified Huanchang default once and records its actual channel and duration in context', async () => {
+  const f = await fixture(huanchangDefaults, true, huanchangRows)
+  const [first, second] = await Promise.all([f.service.initialize(f.agent), f.service.initialize(f.agent)])
+  expect(first).toEqual(second)
+  expect(first).toMatchObject({ ...huanchangDefaults, key: '93:480p', standardId: 93, revision: 1, maxDurationSeconds: 30 })
+  expect(videoSelectionContext(first)).toContain('通道 FZ_HUAN_CHANG；modelId=doubao-seedance-2.5；standardId=93')
+  expect(videoSelectionContext(first)).toContain('单次生成时长上限 30 秒')
+  expect(f.agent.session.snapshotEvents().filter(event => event.type === 'jubian/video-selection').map(event => event.data.selection)).toEqual([first])
+  expect(f.inject).toHaveBeenCalledOnce()
+  expect(f.adapter.requests).toHaveLength(0)
+  expect(f.requests).toEqual([{ method: 'GET', path: '/model/charge/getSelectList' }])
+})
+
+it('preserves an explicit old-channel choice when the deployment default moves to Huanchang', async () => {
+  const f = await fixture(huanchangDefaults, true, [...catalogue['1']!, ...huanchangRows])
+  const oldChoice = (await f.service.catalogue()).find(option => option.modelId === defaults.modelId
+    && option.platformId === defaults.platformId && option.resolution === defaults.resolution)
+  if (oldChoice === undefined) throw new Error('The old-channel fixture choice is missing')
+  const selected = await f.service.select(f.agent, oldChoice.key, 0)
+  const before = { requests: f.requests.length, seq: f.agent.session.seq }
+  expect(await f.service.initialize(f.agent)).toEqual(selected)
+  expect(f.service.current(f.agent)).toEqual(selected)
+  expect(f.requests).toHaveLength(before.requests)
+  expect(f.agent.session.seq).toBe(before.seq)
+  expect(f.inject).toHaveBeenCalledOnce()
+})
+
+it('rejects an unavailable Huanchang default instead of falling back to the old channel', async () => {
+  const f = await fixture(huanchangDefaults)
+  await expect(f.service.initialize(f.agent)).rejects.toThrow('默认视频模型暂不可用')
+  expect(f.service.current(f.agent)).toBeNull()
+  expect(f.agent.session.snapshotEvents().some(event => event.type === 'jubian/video-selection')).toBe(false)
+  expect(f.inject).not.toHaveBeenCalled()
+  expect(f.adapter.requests).toHaveLength(0)
+  expect(f.requests).toEqual([{ method: 'GET', path: '/model/charge/getSelectList' }])
+})
+
 it('initializes the live default once without waking the model or submitting generation', async () => {
   const f = await fixture(defaults)
   const [a, b] = await Promise.all([f.service.initialize(f.agent), f.service.initialize(f.agent)])

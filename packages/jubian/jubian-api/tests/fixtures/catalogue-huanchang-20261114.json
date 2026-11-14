@@ -1,0 +1,260 @@
+[
+  {
+    "id": 92,
+    "modelId": "doubao-seedance-2.0",
+    "modelName": "doubao-seedance-2.0",
+    "platformId": "FZ_HUAN_CHANG",
+    "seriesId": 1,
+    "seriesName": "seedance系列",
+    "unitPrice": 35.42,
+    "unit": "元/百万tokens",
+    "genTypes": [
+      {
+        "id": 115,
+        "type": 1,
+        "modelId": "doubao-seedance-2.0"
+      },
+      {
+        "id": 116,
+        "type": 2,
+        "modelId": "doubao-seedance-2.0"
+      },
+      {
+        "id": 117,
+        "type": 3,
+        "modelId": "doubao-seedance-2.0"
+      },
+      {
+        "id": 118,
+        "type": 4,
+        "modelId": "doubao-seedance-2.0"
+      }
+    ],
+    "videoStandards": [
+      {
+        "id": 440,
+        "modelId": "doubao-seedance-2.0",
+        "resolution": "480p",
+        "quality": null,
+        "ratio": "16:9",
+        "height": 864,
+        "width": 496,
+        "frames": 24
+      },
+      {
+        "id": 441,
+        "modelId": "doubao-seedance-2.0",
+        "resolution": "480p",
+        "quality": null,
+        "ratio": "4:3",
+        "height": 752,
+        "width": 560,
+        "frames": 24
+      },
+      {
+        "id": 442,
+        "modelId": "doubao-seedance-2.0",
+        "resolution": "480p",
+        "quality": null,
+        "ratio": "1:1",
+        "height": 640,
+        "width": 640,
+        "frames": 24
+      },
+      {
+        "id": 443,
+        "modelId": "doubao-seedance-2.0",
+        "resolution": "480p",
+        "quality": null,
+        "ratio": "3:4",
+        "height": 560,
+        "width": 752,
+        "frames": 24
+      },
+      {
+        "id": 444,
+        "modelId": "doubao-seedance-2.0",
+        "resolution": "480p",
+        "quality": null,
+        "ratio": "9:16",
+        "height": 496,
+        "width": 864,
+        "frames": 24
+      },
+      {
+        "id": 445,
+        "modelId": "doubao-seedance-2.0",
+        "resolution": "480p",
+        "quality": null,
+        "ratio": "21:9",
+        "height": 992,
+        "width": 432,
+        "frames": 24
+      },
+      {
+        "id": 446,
+        "modelId": "doubao-seedance-2.0",
+        "resolution": "480p",
+        "quality": null,
+        "ratio": "adaptive",
+        "height": 864,
+        "width": 496,
+        "frames": 24
+      },
+      {
+        "id": 447,
+        "modelId": "doubao-seedance-2.0",
+        "resolution": "720p",
+        "quality": null,
+        "ratio": "16:9",
+        "height": 1280,
+        "width": 720,
+        "frames": 24
+      },
+      {
+        "id": 448,
+        "modelId": "doubao-seedance-2.0",
+        "resolution": "720p",
+        "quality": null,
+        "ratio": "4:3",
+        "height": 1112,
+        "width": 834,
+        "frames": 24
+      },
+      {
+        "id": 449,
+        "modelId": "doubao-seedance-2.0",
+        "resolution": "720p",
+        "quality": null,
+        "ratio": "1:1",
+        "height": 960,
+        "width": 960,
+        "frames": 24
+      },
+      {
+        "id": 450,
+        "modelId": "doubao-seedance-2.0",
+        "resolution": "720p",
+        "quality": null,
+        "ratio": "3:4",
+        "height": 834,
+        "width": 1112,
+        "frames": 24
+      },
+      {
+        "id": 451,
+        "modelId": "doubao-seedance-2.0",
+        "resolution": "720p",
+        "quality": null,
+        "ratio": "9:16",
+        "height": 720,
+        "width": 1280,
+        "frames": 24
+      },
+      {
+        "id": 452,
+        "modelId": "doubao-seedance-2.0",
+        "resolution": "720p",
+        "quality": null,
+        "ratio": "21:9",
+        "height": 1470,
+        "width": 630,
+        "frames": 24
+      },
+      {
+        "id": 453,
+        "modelId": "doubao-seedance-2.0",
+        "resolution": "720p",
+        "quality": null,
+        "ratio": "adaptive",
+        "height": 1112,
+        "width": 720,
+        "frames": 24
+      }
+    ]
+  },
+  {
+    "id": 93,
+    "modelId": "doubao-seedance-2.5",
+    "modelName": "doubao-seedance-2.5",
+    "platformId": "FZ_HUAN_CHANG",
+    "seriesId": 1,
+    "seriesName": "seedance系列",
+    "unitPrice": 59.29,
+    "unit": "元/百万tokens",
+    "genTypes": [
+      {
+        "id": 114,
+        "type": 3,
+        "modelId": "doubao-seedance-2.5"
+      },
+      {
+        "id": 113,
+        "type": 4,
+        "modelId": "doubao-seedance-2.5"
+      }
+    ],
+    "videoStandards": [
+      {
+        "id": 434,
+        "modelId": "doubao-seedance-2.5",
+        "resolution": "480p",
+        "quality": null,
+        "ratio": "16:9",
+        "height": 864,
+        "width": 496,
+        "frames": 24
+      },
+      {
+        "id": 435,
+        "modelId": "doubao-seedance-2.5",
+        "resolution": "480p",
+        "quality": null,
+        "ratio": "9:16",
+        "height": 496,
+        "width": 864,
+        "frames": 24
+      },
+      {
+        "id": 436,
+        "modelId": "doubao-seedance-2.5",
+        "resolution": "480p",
+        "quality": null,
+        "ratio": "adaptive",
+        "height": 864,
+        "width": 496,
+        "frames": 24
+      },
+      {
+        "id": 437,
+        "modelId": "doubao-seedance-2.5",
+        "resolution": "720p",
+        "quality": null,
+        "ratio": "16:9",
+        "height": 1280,
+        "width": 720,
+        "frames": 24
+      },
+      {
+        "id": 438,
+        "modelId": "doubao-seedance-2.5",
+        "resolution": "720p",
+        "quality": null,
+        "ratio": "9:16",
+        "height": 720,
+        "width": 1280,
+        "frames": 24
+      },
+      {
+        "id": 439,
+        "modelId": "doubao-seedance-2.5",
+        "resolution": "720p",
+        "quality": null,
+        "ratio": "adaptive",
+        "height": 1280,
+        "width": 720,
+        "frames": 24
+      }
+    ]
+  }
+]

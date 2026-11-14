@@ -135,7 +135,7 @@ it('retains shared resources and one drama budget namespace after the Desktop ho
         sessionVideoSelection: true,
         videoRecoverySettings: true,
         generationWatch: true,
-        defaultVideoModel: { modelId: 'doubao-seedance-2-5-260628', platformId: 'FANG_ZHOU', resolution: '480p' },
+        defaultVideoModel: { modelId: 'doubao-seedance-2.5', platformId: 'FZ_HUAN_CHANG', resolution: '480p' },
       } },
     ])
     expect(rows.filter(row => row.name === '@deepseek-ai/dsh-tool-audio-transcribe')).toEqual([])

@@ -4,7 +4,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { JubianClient, JubianLedger } from '@deepseek-ai/dsh-jubian'
-import { resolveVideoModel, stableJson } from '@deepseek-ai/dsh-jubian-api'
+import { resolveVideoModel, seedanceVideoVersion, stableJson } from '@deepseek-ai/dsh-jubian-api'
 import { Remote, RemoteError, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-user-questions'
@@ -25,7 +25,8 @@ function row(value: unknown): Row {
 function text(value: unknown): string { return typeof value === 'string' ? value : '' }
 function config(board: Row): Row { return row(typeof board.modelConfig === 'string' ? JSON.parse(board.modelConfig) : board.modelConfig) }
 function ceiling(modelId: string): number | null {
-  return modelId === 'doubao-seedance-2-0-260128' ? 15 : modelId === 'doubao-seedance-2-5-260628' ? 30 : null
+  const version = seedanceVideoVersion(modelId)
+  return version === '2.0' ? 15 : version === '2.5' ? 30 : null
 }
 /**
  * Parse all account video specifications without borrowing another model's limits.
