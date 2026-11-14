@@ -43,6 +43,47 @@ function observeRenderer(f: Awaited<ReturnType<typeof createEpisodeDeliveryFixtu
 }
 
 describe('approved episode service', () => {
+  it.each(['admitted', 'armed'] as const)('retains the %s job when its renderer fails before publishing a running record', async (phase) => {
+    const f = await createEpisodeDeliveryFixture(), capture = f.provider.capture.bind(f.provider)
+    const failure = new Error(`Controlled renderer failed after job ${phase}`)
+    let completedPhase = false
+    vi.spyOn(f.provider, 'capture').mockImplementation(async (input, signal) => {
+      const actual = await capture(input, signal)
+      return { ...actual, render: async (request, control) => {
+        const admit = request.job.admit.bind(request.job), arm = request.job.armExecution.bind(request.job)
+        const interrupted = phase === 'admitted'
+          ? vi.spyOn(request.job, 'admit').mockImplementation(async (admission) => {
+            await admit(admission); completedPhase = true; throw failure
+          })
+          : vi.spyOn(request.job, 'armExecution').mockImplementation(async (running) => {
+            await arm(running); completedPhase = true; throw failure
+          })
+        try { return await actual.render(request, control) } finally { interrupted.mockRestore() }
+      } }
+    })
+    const input = await selection(f), admitted = await f.service.admitEpisode(input)
+    if (admitted.attempt === null) throw new Error('Expected an admitted episode')
+    const state = phase === 'admitted' ? 'failed' : 'unknown'
+    await vi.waitFor(async () => {
+      expect(await f.service.episodeStatus(input)).toMatchObject({ state, problem: failure.message,
+        attempt: admitted.attempt, canResume: phase === 'admitted' })
+      expect(f.service.hasActiveWork()).toBe(phase === 'armed')
+    })
+    const root = join(f.project, '.muse', 'episode-delivery', admitted.attempt)
+    const jobBytes = await readFile(join(root, 'job.json'))
+    const job = library.parseEpisodeDeliveryJobRecord(JSON.parse(jobBytes.toString('utf8')))
+    if (phase === 'admitted') expect(job.executionRef).toBeNull()
+    else expect(job.executionRef).toMatchObject({ identity: { attempt: admitted.attempt } })
+    await expect(stat(join(root, 'execution.json'))).rejects.toMatchObject({ code: 'ENOENT' })
+    await expect(stat(join(f.project, 'exports'))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await f.service.admitEpisode(phase === 'armed' ? { ...input, resume: true } : input)).toMatchObject({ state,
+      attempt: admitted.attempt, canResume: phase === 'admitted' })
+    expect(await readFile(join(root, 'job.json'))).toEqual(jobBytes)
+    expect(completedPhase).toBe(true)
+    expect(f.renderer.calls).toBe(1); expect(f.renderer.encodes).toBe(0)
+    expect(f.fetch).not.toHaveBeenCalled()
+  })
+
   it('refuses publication when the captured renderer input revalidation fails', async () => {
     const f = await createEpisodeDeliveryFixture()
     const capture = f.provider.capture.bind(f.provider)

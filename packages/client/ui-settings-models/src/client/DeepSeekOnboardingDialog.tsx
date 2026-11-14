@@ -108,7 +108,7 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
   }
 
   const editor = (
-    <OnboardingModal title={t('onboardingTitle')}>
+    <OnboardingModal title={t('onboardingTitle')} onVisible={props.onVisible}>
       <p className={styles.description}>{t('onboardingDescription')}</p>
       <div className={styles.editor}>
         <ProviderEditor
@@ -133,5 +133,7 @@ export function DeepSeekOnboardingDialog(props: DeepSeekOnboardingDialogProps): 
       </div>
     </OnboardingModal>
   )
-  return apiKey ? editor : renderSlot('settings.models.sign-in', { complete, useApiKey: () => { setApiKey(true) } }, { fallback: editor })
+  return apiKey ? editor : renderSlot('settings.models.sign-in', {
+    complete, useApiKey: () => { setApiKey(true) }, onVisible: props.onVisible,
+  }, { fallback: editor })
 }
