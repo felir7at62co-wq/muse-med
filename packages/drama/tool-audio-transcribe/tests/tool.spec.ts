@@ -1,4 +1,5 @@
 /** Registered transcription calls keep account operations private and route receipt-bound requests. */
+import { resolve } from 'node:path'
 import * as NativeToolExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { executeModelToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { Context, symbols } from '@deepseek-ai/cordis'
@@ -17,7 +18,9 @@ vi.mock('../src/runner.ts', () => ({
   finishAudioTranscription: vi.fn(async () => ({ status: 'complete', receipt: 'project/transcript/jobs/source-v1.json', job_id: 'job' })),
 }))
 
+type Agent = NonNullable<Parameters<typeof executeModelToolFixture>[1]['agent']>
 const contexts: Context[] = []
+const workspace = resolve('/workspace')
 function originalAccount(service: AudioAccount): MuseAccountService {
   const original: unknown = Reflect.get(service, symbols.original)
   if (!(original instanceof MuseAccountService)) throw new Error('Expected a Cordis account service receiver')
@@ -48,8 +51,9 @@ async function fixture() {
   const account: unknown = ctx.get('museAccount')
   if (!(account instanceof MuseAccountService)) throw new Error('Muse account service was not mounted')
   let count = 0
+  const agent = { session: { header: { cwd: workspace } } } as Agent
   return { tool, config, account, call: (args: Record<string, unknown>) => executeModelToolFixture(ctx, {
-    callId: ToolCallId(`audio-${++count}`), name: 'audio_transcribe', arguments: args, signal: new AbortController().signal,
+    callId: ToolCallId(`audio-${++count}`), name: 'audio_transcribe', arguments: args, signal: new AbortController().signal, agent,
   }) }
 }
 
@@ -62,7 +66,7 @@ it('uses the Host account for start and preserves explicit language and purpose'
     const args = vi.mocked(startAudioTranscription).mock.calls.at(-1)
     if (!args) throw new Error('Expected a transcription start call')
     const [project, input, language, receiver, options, unused, purpose, signal, pacing] = args
-    expect([project, input, language, unused, purpose]).toEqual(['project', 'source.mp4',
+    expect([project, input, language, unused, purpose]).toEqual([resolve(workspace, 'project'), 'source.mp4',
       'language' in fields ? 'auto' : 'zh', undefined, 'purpose' in fields ? 'screenplay' : undefined])
     expect(originalAccount(receiver) === originalAccount(account)).toBe(true)
     expect(options).toBe(config)
@@ -83,7 +87,7 @@ it('routes inputs to one batch start with the configured upload pacing', async (
   const args = vi.mocked(startAudioTranscriptionBatch).mock.calls[0]
   if (!args) throw new Error('Expected a batch transcription start call')
   const [project, inputs, language, receiver, options, unused, purpose, signal, pacing] = args
-  expect([project, inputs, language, unused, purpose]).toEqual(['project', ['ep1.mp4', 'ep2.mp4'], 'zh', undefined, 'screenplay'])
+  expect([project, inputs, language, unused, purpose]).toEqual([resolve(workspace, 'project'), ['ep1.mp4', 'ep2.mp4'], 'zh', undefined, 'screenplay'])
   expect(originalAccount(receiver) === originalAccount(account)).toBe(true)
   expect(options).toBe(config)
   expect(signal).toBeInstanceOf(AbortSignal)
@@ -133,7 +137,7 @@ it('queries the original receipt and renders the canonical response', async () =
   const args = vi.mocked(finishAudioTranscription).mock.calls[0]
   if (!args) throw new Error('Expected a transcription status call')
   const [project, receipt, receiver, signal, allowResumeUpload] = args
-  expect([project, receipt]).toEqual(['project', 'original.json'])
+  expect([project, receipt]).toEqual([resolve(workspace, 'project'), 'original.json'])
   expect(originalAccount(receiver) === originalAccount(account)).toBe(true)
   expect(signal).toBeInstanceOf(AbortSignal)
   expect(allowResumeUpload).toBe(true)

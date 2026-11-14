@@ -40,7 +40,7 @@ Host 工具 `audio_transcribe` 通过已登录的 Muse 账号，把本地音频�
 
 `inspect` 查询网关从未受理的任务（例如首次上传被拒后）时，返回 `preparing`、`error_code: "job-not-found"`、指向同一收据 `status` 的 `resume_status`，以及不要删除收据的提示；不写入任何文件，也不上传。适用于未记录服务版本或恢复状态、暂存音轨仍在的 `prepared` 或 `uncertain` 收据，也适用于满足同样条件的分段，由 `diagnostic_job_id` 指明该段。无法恢复的缺失任务，即暂存音轨已过期、分段留存已过期，或收据已记录受理服务或恢复状态时，以 `job-not-found` 报错。
 
-相对的 `input` 和 `receipt` 以 `project` 为基准解析，不以 Host 进程目录为基准。`start` 探测素材，用 FFmpeg 提取 16 kHz 单声道 PCM WAV，在 `transcript/jobs/` 记录任务 ID 和音频摘要。Unix 上工具创建的转写目录权限为 0700，暂存音频、收据和转写产物权限为 0600。提交结果不明时保留收据；再次请求前先查询该收据。服务器确认任务不存在时，才能用原密钥和暂存音频 重试。完成后写 `transcript/raw/<素材名>-vN.txt` 、`.json` 与 `.srt`；无语音时只保留收据。离线 Python 技能仅在用户明确要求离线时使用。
+相对的 `project` 以当前会话工作区（会话 `cwd`）为基准解析，相对的 `input` 和 `receipt` 以 `project` 为基准解析；都不以 Host 进程目录为基准，会话没有工作区时相对 `project` 为参数错误。`start` 探测素材，用 FFmpeg 提取 16 kHz 单声道 PCM WAV，在 `transcript/jobs/` 记录任务 ID 和音频摘要。Unix 上工具创建的转写目录权限为 0700，暂存音频、收据和转写产物权限为 0600。提交结果不明时保留收据；再次请求前先查询该收据。服务器确认任务不存在时，才能用原密钥和暂存音频 重试。完成后写 `transcript/raw/<素材名>-vN.txt` 、`.json` 与 `.srt`；无语音时只保留收据。离线 Python 技能仅在用户明确要求离线时使用。
 
 取消调用会终止正在执行的媒体提取和 HTTP 请求，停止后续分段提交或查询，并等待已启动的工作结束。保存收据前取消会删除暂存音频；已有收据保留音频与原任务 ID，供之后明确调用 `status` 恢复。云端已受理的任务仍可能继续执行并计费。已经开始的本地写入会先结束，再返回取消结果；之后不再发布产物、替换收据或删除暂存音频。已经发布的文件会保留，供通过原收据恢复时核对。
 
@@ -79,7 +79,7 @@ Host 账号服务读取绑定网关源地址的已保存会话，把音频发送
 
 #### 模型看到什么
 
-[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-audio-transcribe)记录 start/status schema。结果包含状态、收据路径、任务 ID 和完成产物路径。完成回读另附说话人标签覆盖摘要，简短提示读取 `output_json` 并按时间码结合画面核对角色归属。通用持久化工具卡展示调用与结果。`queue_full` 结果在原样 JSON 前增加“Muse 转写队列已满，请稍后重试”，明确指向 Muse 自身队列，而非提供方容量；其他错误码保留原有输出。批量 start 返回按输入顺序排列的 `items`，每条是带 `input` 的单文件结果，或使批次停止的 `{input, error}`，另附 `not_started` 和一个共用的 `polling_note`；任一条目为 `queue_full` 时，队列提示只出现一次。`inspect` 查询从未受理的任务时返回 `job-not-found`、`status` 调用参数和不要删除收据的提示。媒体字节、账号 cookie、对象 URL 和提供方凭据不进入参数或结果；工具调用及返回路径仍属于 Session 数据。
+[工具目录](../../../docs/tool-catalog.zh.md#deepseek-aidsh-tool-audio-transcribe)记录 start/status schema。结果包含状态、收据路径、任务 ID 和完成产物路径。完成回读另附说话人标签覆盖摘要，简短提示读取 `output_json` 并按时间码结合画面核对角色归属。通用持久化工具卡展示调用与结果。`queue_full` 结果在原样 JSON 前增加“Muse 转写队列已满，请稍后重试”，明确指向 Muse 自身队列，而非提供方容量；其他错误码保留原有输出。批量 start 返回按输入顺序排列的 `items`，每条是带 `input` 的单文件结果，或使批次停止的 `{input, error}`，另附 `not_started` 和一个共用的 `polling_note`；任一条目为 `queue_full` 时，队列提示只出现一次。`screenplay` 用途结果为 `silent` 时，JSON 前附一条提示：服务判为无语音不能证明本集没有对白，应以 `video_ocr` 核对硬字幕、以 `video_inspect` 核对口型和画面；确有对白时用单个 `input` 并带 `purpose: "screenplay"` 重转一次，新建计费版本，因为批次只返回原有 silent 收据；重转仍为 silent 时不再重转，以字幕和画面为准；批量结果中只出现一次。`inspect` 查询从未受理的任务时返回 `job-not-found`、`status` 调用参数和不要删除收据的提示。媒体字节、账号 cookie、对象 URL 和提供方凭据不进入参数或结果；工具调用及返回路径仍属于 Session 数据。
 
 #### Token 影响
 

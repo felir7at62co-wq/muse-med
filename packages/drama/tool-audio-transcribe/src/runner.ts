@@ -493,7 +493,7 @@ export async function startAudioTranscriptionBatch(projectPath: string, inputPat
   for (const [index, source] of sources.entries()) {
     const regular = await stat(source).then(entry => entry.isFile(), () => false)
     signal?.throwIfAborted()
-    if (!regular) throw new Error(`Transcription input is not a file: ${inputPaths[index]}`)
+    if (!regular) throw new Error(`Transcription input is not a file: ${inputPaths[index]} (resolved to ${source})`)
   }
   const budget = uploadRetryBudget(pacing)
   const items: AudioBatchItem[] = []
@@ -676,7 +676,7 @@ async function finishReceipt(
 ): Promise<AudioRunResult> {
   signal?.throwIfAborted()
   const project = resolve(projectPath), receiptFile = resolve(project, receiptPath), jobs = join(project, 'transcript', 'jobs')
-  if (dirname(receiptFile) !== jobs || !/^[\w.-]+-v\d+\.json$/.test(basename(receiptFile))) throw new Error('Receipt must be inside this project transcript/jobs directory')
+  if (dirname(receiptFile) !== jobs || !/^[\w.-]+-v\d+\.json$/.test(basename(receiptFile))) throw new Error(`Receipt must be inside this project transcript/jobs directory: ${jobs}`)
   const receipt = await readReceipt(receiptFile)
   signal?.throwIfAborted()
   const identity = await account.status({})

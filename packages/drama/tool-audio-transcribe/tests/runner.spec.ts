@@ -579,7 +579,7 @@ it.each(['outside', 'basename', 'media'] as const)('rejects receipt %s paths wit
   const receipt = JSON.parse(await readFile(first.receipt, 'utf8')) as Record<string, unknown>
   if (kind === 'media') await writeFile(first.receipt, JSON.stringify({ ...receipt, mp3: f.input }))
   if (kind === 'basename') await writeFile(first.receipt, JSON.stringify({ ...receipt, stem: 'other' }))
-  await expect(finishAudioTranscription(f.project, kind === 'outside' ? f.input : first.receipt, f.account)).rejects.toThrow(kind === 'outside' ? 'inside this project' : 'paths do not match')
+  await expect(finishAudioTranscription(f.project, kind === 'outside' ? f.input : first.receipt, f.account)).rejects.toThrow(kind === 'outside' ? `inside this project transcript/jobs directory: ${join(f.project, 'transcript', 'jobs')}` : 'paths do not match')
   expect(f.counts().queries).toBe(0)
 })
 
@@ -1411,6 +1411,8 @@ it('rejects a missing or repeated batch input before probing or uploading anythi
   const f = await episodes(2)
   await expect(startAudioTranscriptionBatch(f.project, [f.inputs[0]!, join('source', 'missing.mp4')], 'zh', f.account, config, f.media))
     .rejects.toThrow(`Transcription input is not a file: ${join('source', 'missing.mp4')}`)
+  await expect(startAudioTranscriptionBatch(f.project, [f.inputs[0]!, join('source', 'missing.mp4')], 'zh', f.account, config, f.media))
+    .rejects.toThrow(`(resolved to ${join(f.project, 'source', 'missing.mp4')})`)
   await expect(startAudioTranscriptionBatch(f.project, [f.inputs[0]!, 'source'], 'zh', f.account, config, f.media))
     .rejects.toThrow('Transcription input is not a file: source')
   await expect(startAudioTranscriptionBatch(f.project, [f.inputs[0]!, f.inputs[1]!, join(f.project, f.inputs[0]!)], 'zh', f.account, config, f.media))

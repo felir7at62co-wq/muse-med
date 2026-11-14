@@ -1,4 +1,5 @@
 /** Model tool for account-bound cloud speech transcription of local media. */
+import { isAbsolute, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import Schema from '@deepseek-ai/schemastery'
@@ -99,6 +100,21 @@ const batchResult = { type: 'object', additionalProperties: false, properties: {
 // Both branches are closed objects with disjoint required fields, so a result matches exactly one branch.
 const outputSchema = { oneOf: [{ type: 'object', additionalProperties: false, properties: resultProperties }, batchResult] } as const
 
+/** Prepended to a screenplay-purpose result the service reported as silent; the gateway's recovery fields stay unchanged. */
+const SILENT_SCREENPLAY_NOTE = '剧本用途音轨被云端判为无语音（silent），不等于本集没有对白。先用 video_ocr 读硬字幕、用 video_inspect 核对口型和画面，不要只凭少量抽帧补写台词。确有对白时可用单个 input 并带 purpose: screenplay 再 start 重转一次（新版本，会计费；批量 inputs 只返回原 silent 收据）；重转仍为 silent 就以字幕和画面为准，不再重转。'
+
+/**
+ * Anchor a relative project root to the calling Session workspace, never to the Host process directory.
+ * @param project - Model-supplied project root.
+ * @param workspace - The calling Session's cwd, when it has one.
+ * @returns Absolute project root.
+ */
+function projectRoot(project: string, workspace: string | undefined): string {
+  if (isAbsolute(project)) return project
+  if (workspace === undefined) throw new ToolArgsError([`project "${project}" is relative but this Session has no workspace; pass an absolute project path`])
+  return resolve(workspace, project)
+}
+
 /**
  * Register one start/status tool; the Host account service keeps all credentials private.
  * @param ctx - Host context with the tool registry and MUSE account service.
@@ -119,24 +135,28 @@ export function apply(ctx: Context, config: Config): void {
       language: { type: 'string', enum: ['zh', 'auto'], description: 'start 识别语种；默认 zh。' },
       purpose: { type: 'string', enum: ['subtitles', 'screenplay'], description: 'start 用途：字幕校时用 subtitles（默认，极速）；音视频转小说或剧本用 screenplay（标准）。inspect/status 沿用收据用途，不可更改同一任务用途。' },
     },
-    output: { schema: outputSchema, render: (_args, value): ContentBlock[] => [
-      ...(('items' in value ? value.items.some(item => item.error_code === 'queue_full') : value.error_code === 'queue_full')
-        ? [{ type: 'text' as const, text: 'Muse 转写队列已满，请稍后重试' }] : []),
-      { type: 'text', text: JSON.stringify(value) },
-    ] },
+    output: { schema: outputSchema, render: (_args, value): ContentBlock[] => {
+      const results: readonly { status?: string; purpose?: string; error_code?: string }[] = 'items' in value ? value.items : [value]
+      return [
+        ...(results.some(item => item.error_code === 'queue_full') ? [{ type: 'text' as const, text: 'Muse 转写队列已满，请稍后重试' }] : []),
+        ...(results.some(item => item.status === 'silent' && item.purpose === 'screenplay') ? [{ type: 'text' as const, text: SILENT_SCREENPLAY_NOTE }] : []),
+        { type: 'text', text: JSON.stringify(value) },
+      ]
+    } },
     execute: async (args, exec) => {
+      const project = projectRoot(args.project, exec.agent?.session.header.cwd)
       const pacing = { retryBudgetMs: config.uploadRetryBudgetMs }
       if (args.method === 'start') {
         if (args.input !== undefined && args.inputs !== undefined) throw new ToolArgsError(['start accepts input or inputs, not both'])
         if (args.inputs !== undefined) {
           if (args.inputs.length === 0 || args.inputs.length > config.maxBatchInputs) throw new ToolArgsError([`inputs must list 1 to ${config.maxBatchInputs} files`])
-          return await startAudioTranscriptionBatch(args.project, args.inputs, args.language ?? 'zh', account, config, undefined, args.purpose, exec.signal, pacing)
+          return await startAudioTranscriptionBatch(project, args.inputs, args.language ?? 'zh', account, config, undefined, args.purpose, exec.signal, pacing)
         }
         if (!args.input) throw new ToolArgsError(['start requires input or inputs'])
-        return await startAudioTranscription(args.project, args.input, args.language ?? 'zh', account, config, undefined, args.purpose, exec.signal, pacing)
+        return await startAudioTranscription(project, args.input, args.language ?? 'zh', account, config, undefined, args.purpose, exec.signal, pacing)
       }
       if (!args.receipt) throw new Error('audio_transcribe inspect/status requires receipt')
-      return await finishAudioTranscription(args.project, args.receipt, account, exec.signal, args.method === 'status', { waitMs: (args.wait_seconds ?? 0) * 1000, pollIntervalMs: config.pollIntervalMs, probe: (source, signal) => probeMediaDuration(source, config, signal) }, pacing)
+      return await finishAudioTranscription(project, args.receipt, account, exec.signal, args.method === 'status', { waitMs: (args.wait_seconds ?? 0) * 1000, pollIntervalMs: config.pollIntervalMs, probe: (source, signal) => probeMediaDuration(source, config, signal) }, pacing)
     },
   }))
 }
