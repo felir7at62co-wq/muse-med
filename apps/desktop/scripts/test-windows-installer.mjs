@@ -56,6 +56,8 @@ try {
   })
   const { createElectronBuilderConfig } = await import('../electron-builder.config.mjs')
   const childOptions = { env: scrubWindowsSigningEnvironment(process.env), windowsHide: true, maxBuffer: 8 * 1024 * 1024 }
+  const fixtureSource = createInstallerTestSource(await readFile(join(appRoot, 'scripts', 'installer.nsh'), 'utf8'), appRoot)
+  const fixturePages = createInstallerTestPagesSource(await readFile(join(appRoot, 'installer', 'pages.nsh'), 'utf8'))
   const prerequisiteDirectory = join(payload, 'resources', 'runtime', 'media', 'prerequisites')
   await execute(process.execPath, ['--import', 'tsx/esm', join(appRoot, 'scripts', 'prepare-media-runtime.ts'),
     '--vc-redist-only', '--output', prerequisiteDirectory, '--cache', join(outputRoot, 'vc-redist-cache')], childOptions)
@@ -155,7 +157,7 @@ SectionEnd
         nsis: { ...config.nsis, guid, include, installerLanguages: [language] }, beforeBuild: undefined, afterPack: undefined, afterSign: undefined, artifactBuildCompleted: undefined },
     })
     if (process.argv.includes('--compile-only')) continue
-    const result = await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+    const result = await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
       join(appRoot, 'tests', uninstallOnly ? 'windows-uninstall-smoke.ps1' : 'windows-installer-smoke.ps1'),
       '-Installer', join(languageOutput, 'installer-test.exe'),
       '-ProductName', productName, '-RegistryKey', guid, '-OutputDirectory', languageOutput,
@@ -166,10 +168,11 @@ SectionEnd
       await mkdir(negativeOutput)
       let injectedFailure
       try {
-        await execute('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File',
+        await execute('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
           join(appRoot, 'tests', 'windows-installer-smoke.ps1'),
           '-Installer', join(languageOutput, 'installer-test.exe'),
           '-ProductName', productName, '-RegistryKey', guid, '-OutputDirectory', negativeOutput,
+          '-Language', language,
           '-FailAfterAutomaticRelaunch'], childOptions)
       } catch (error) { injectedFailure = error }
       const receipt = JSON.parse(await readFile(join(negativeOutput, 'cleanup-receipt.json'), 'utf8'))

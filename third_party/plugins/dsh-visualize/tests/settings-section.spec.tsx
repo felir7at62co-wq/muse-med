@@ -11,7 +11,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { PAGE_CONFIG_GLOBAL, STYLE_IDS, STYLES } from '../src/style.ts'
 import type { StyleFilesView } from '../src/style-files.ts'
 import { VisualizeSection, type StyleFilesClient, type StyleForm, type StyleFormSnapshot } from '../src/client/VisualizeSection.tsx'
@@ -177,6 +177,22 @@ describe('style files', () => {
     expect(root.textContent).toContain('<DSH_HOME>/visualize/style.md')
   })
 
+  it('accepts a complete saved style-file response', async () => {
+    const file = FILES.files[0]!
+    const client = styleFilesClient(async () => new Response(JSON.stringify(file)), () => 'http://h/')
+    expect(await client.save({ scope: 'global', text: file.text })).toEqual({ ok: true, file })
+  })
+
+  it.each([
+    null, {}, { ...FILES.files[0], scope: 'other' }, { ...FILES.files[0], bytes: '9' },
+    { ...FILES.files[0], path: undefined }, { ...FILES.files[0], blocked: 'unknown' },
+    { ...FILES.files[0], workspaceId: 1 }, { ...FILES.files[0], title: false },
+  ])('refuses an invalid successful style-file response: %j', async (body) => {
+    const client = styleFilesClient(async () => new Response(JSON.stringify(body)), () => 'http://h/')
+    expect(await client.save({ scope: 'global', text: 'x' }))
+      .toEqual({ ok: false, reason: 'Invalid style-file response' })
+  })
+
   it('treats a 404 as no route and reports a refused save', async () => {
     const notFound = vi.fn(async () => new Response('not found', { status: 404 }))
     expect(await styleFilesClient(notFound as never, () => 'http://h/app/').load()).toBeUndefined()
@@ -193,7 +209,7 @@ describe('settings registration', () => {
   /** A client context whose slot registry records registrations. */
   function client(services: Record<string, unknown>, declared: boolean) {
     const registered: { options: Record<string, unknown> }[] = []
-    const ctx = {
+    const ctx = new Context().extend({
       get: (name: string) => services[name],
       slots: {
         inject: (name: string, register: () => () => void) => {
@@ -204,7 +220,7 @@ describe('settings registration', () => {
           return () => {}
         },
       },
-    } as unknown as Context
+    })
     return { ctx, registered }
   }
 

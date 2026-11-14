@@ -3,5 +3,6 @@ scenario: live-interactions
 profile: web
 composition: web-default
 recording: live
+writerOutput: true
 header:
   class: web-default

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { visualizeTool } from '../src/tool.ts'
 
 /**
@@ -14,7 +14,7 @@ describe('visualizeTool sandbox policy', () => {
     const session = { header: { cwd: '/work/session' } }
     const policy = { mode: 'workspace-write', workspaceRoot: '/work/session' }
     const calls: { resolveRequest?: unknown; resolveCwd?: string | undefined; writePolicy?: unknown } = {}
-    const ctx = {
+    const ctx = new Context().extend({
       get: (name: string) => name === 'sandboxPolicy'
         ? { resolve: (request: unknown) => { calls.resolveRequest = request; return policy } }
         : undefined,
@@ -28,7 +28,7 @@ describe('visualizeTool sandbox policy', () => {
           return { version: 1 }
         },
       },
-    } as unknown as Context
+    })
 
     const tool = visualizeTool(ctx, 1000)
     const value = await tool.execute(
@@ -46,7 +46,7 @@ describe('visualizeTool sandbox policy', () => {
     const base = '<div id="lab"><p>p99 480ms</p></div>'
     const written: { path?: string; content?: string } = {}
     const reads: string[] = []
-    const ctx = {
+    const ctx = new Context().extend({
       get: () => undefined,
       fs: {
         resolve: async (path: string, options: { cwd?: string }) => ({ displayPath: `${options.cwd}/${path}`, path }),
@@ -60,7 +60,7 @@ describe('visualizeTool sandbox policy', () => {
           return { version: 1 }
         },
       },
-    } as unknown as Context
+    })
 
     const tool = visualizeTool(ctx, 1000)
     const value = await tool.execute(
@@ -92,7 +92,7 @@ describe('visualizeTool sandbox policy', () => {
     const files: Record<string, string> = {
       'viz/lab-0badf00d.html': '<div id="lab"><p>步 1 / 1</p><script>s="步 "+i</script></div>',
     }
-    const ctx = {
+    const ctx = new Context().extend({
       get: () => undefined,
       fs: {
         resolve: async (path: string, options: { cwd?: string }) => ({ displayPath: `${options.cwd}/${path}`, path }),
@@ -102,7 +102,7 @@ describe('visualizeTool sandbox policy', () => {
           return { version: 1 }
         },
       },
-    } as unknown as Context
+    })
 
     const tool = visualizeTool(ctx, 1000)
     const exec = { agent: { session: { header: { cwd: '/work/session' } } } } as never
@@ -121,14 +121,14 @@ describe('visualizeTool sandbox policy', () => {
   })
 
   it('fails loud on the arguments each action cannot run without', async () => {
-    const ctx = {
+    const ctx = new Context().extend({
       get: () => undefined,
       fs: {
         resolve: async (path: string, options: { cwd?: string }) => ({ displayPath: `${options.cwd}/${path}`, path }),
         readText: async () => '<div>x</div>',
         writeText: async () => ({ version: 1 }),
       },
-    } as unknown as Context
+    })
     const tool = visualizeTool(ctx, 1000)
     const exec = { agent: { session: { header: { cwd: '/work/session' } } } } as never
 
@@ -143,7 +143,7 @@ describe('visualizeTool sandbox policy', () => {
   })
 
   it('lets creates run in parallel but serialises updates against their base', () => {
-    const ctx = { get: () => undefined, fs: {} } as unknown as Context
+    const ctx = new Context().extend({ get: () => undefined, fs: {} })
     const tool = visualizeTool(ctx, 1000)
     expect(tool.isConcurrencySafe?.({ fragment: '<div>x</div>' })).toBe(true)
     expect(tool.isConcurrencySafe?.({
@@ -157,7 +157,7 @@ describe('visualizeTool sandbox policy', () => {
 
   it('still writes without a sandboxPolicy service in the composition', async () => {
     const calls: { writePolicy?: unknown } = {}
-    const ctx = {
+    const ctx = new Context().extend({
       get: () => undefined,
       fs: {
         resolve: async (path: string, options: { cwd?: string }) => ({ displayPath: `${options.cwd}/${path}` }),
@@ -166,7 +166,7 @@ describe('visualizeTool sandbox policy', () => {
           return { version: 1 }
         },
       },
-    } as unknown as Context
+    })
 
     const tool = visualizeTool(ctx, 1000)
     await tool.execute(

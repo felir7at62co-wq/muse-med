@@ -232,7 +232,7 @@ export class WorkingDirectoryService extends Service {
         if (released) return
         released = true
         signal.removeEventListener('abort', release)
-        if (this.guards.get(agent.session) === state) this.guards.delete(agent.session)
+        this.guards.delete(agent.session)
         controller.abort(new Error('working-directory: guard released'))
         void detachOwner()
       }
@@ -240,7 +240,6 @@ export class WorkingDirectoryService extends Service {
       const detachOwner = agent.ctx.effect(() => release, 'working-directory.guard')
       this.guards.set(agent.session, state)
       signal.addEventListener('abort', release, { once: true })
-      if (signal.aborted) release()
       return { directory: current, signal: controller.signal, release }
     })
     const lifetime = AbortSignal.any([signal, this.lifecycle.signal])

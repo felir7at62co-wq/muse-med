@@ -64,7 +64,7 @@ export function apply(ctx) {
       switch (spec.argv[0]) {
         case 'ffprobe':
           assert.equal(basename(spec.argv.at(-1)), 'fixture.mp4')
-          bytes = Buffer.from(JSON.stringify(spec.argv.includes('-read_intervals')
+          bytes = Buffer.from(JSON.stringify(spec.argv.includes('-select_streams')
             ? { format: { start_time: '0' }, streams: [{ start_time: '0' }],
               frames: [{ best_effort_timestamp: 0, best_effort_timestamp_time: '0', duration_time: '1' }] }
             : { format: { duration: '1' },
@@ -73,7 +73,7 @@ export function apply(ctx) {
         case 'ffmpeg':
           assert.equal(spec.argv[spec.argv.indexOf('-frames:v') + 1], '1')
           bytes = Buffer.from([0xff, 0xd8, 0xff, 0xd9])
-          diagnostic = '[showinfo] pts_time:0'
+          diagnostic = '[showinfo] pts:0 pts_time:0'
           // Entropy is deterministic only between the frame-output and bridge-input boundaries.
           frameEntropy = true
           break

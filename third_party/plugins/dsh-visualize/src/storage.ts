@@ -37,6 +37,7 @@ import { access, lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
 import { CARD_IMAGE_TYPES, type CardImage, type CardImageType } from './fragment.ts'
@@ -144,9 +145,15 @@ export function cardStore(ctx: Context, exec: CardExec): CardStore {
   }
 }
 
+/** Expand the home prefix emitted by this host without treating POSIX backslashes as separators. */
+function expandHomePath(path: string): string {
+  return path === '~' || path.startsWith('~/') || (sep === '\\' && path.startsWith('~\\'))
+    ? join(homedir(), path.slice(1)) : path
+}
+
 /** Reject another session's store, including aliases through workspace symlinks. */
 async function addressesStore(root: string, workspace: string | undefined, path: string): Promise<boolean> {
-  const expanded = path === '~' || path.startsWith('~/') ? join(homedir(), path.slice(1)) : path
+  const expanded = expandHomePath(path)
   if (!isAbsolute(expanded) && (workspace === undefined || !isAbsolute(workspace))) return false
   const target = resolve(workspace ?? root, expanded)
   if (target === root || inside(root, target)) return true
@@ -179,8 +186,8 @@ async function assertSessionPath(root: string, segment: string, path: string): P
  */
 export async function workspacePath(root: string | undefined, path: string): Promise<string | undefined> {
   if (root === undefined || !isAbsolute(root)) return undefined
-  const tilde = path === '~' || path.startsWith('~/')
-  const expanded = tilde ? join(homedir(), path.slice(1)) : path
+  const expanded = expandHomePath(path)
+  const tilde = expanded !== path
   const base = resolve(root)
   const target = resolve(base, expanded)
   if (!inside(base, target) || !target.endsWith('.html')) return undefined
@@ -248,7 +255,7 @@ export function sessionSegment(id: string): string {
  * @returns the absolute store path, or undefined when it is not a store file.
  */
 export async function ownedPath(root: string, path: string): Promise<string | undefined> {
-  const expanded = path === '~' || path.startsWith('~/') ? join(homedir(), path.slice(1)) : path
+  const expanded = expandHomePath(path)
   if (!isAbsolute(expanded)) return undefined
   const target = resolve(expanded)
   if (!inside(root, target) || !target.endsWith('.html')) return undefined
@@ -451,7 +458,8 @@ export async function handleImageRequest(root: string | undefined, request: Requ
 /**
  * Write a plugin-owned file through a sibling temporary file and a rename, so
  * a reader never sees half of it. The rename replaces a symlink at `path`
- * rather than writing through it.
+ * rather than writing through it. Writers of the same path share the host
+ * atomic-write lock; cancellation also interrupts lock acquisition.
  * @param path - absolute file path; missing parent directories are created private.
  * @param content - the new text, or raw bytes.
  * @param signal - optional cancellation; abort before rename leaves the previous file intact.
@@ -459,21 +467,19 @@ export async function handleImageRequest(root: string | undefined, request: Requ
 export async function writeFileAtomic(path: string, content: string | Uint8Array, signal?: AbortSignal): Promise<void> {
   signal?.throwIfAborted()
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-  // Unique per write, not per millisecond: concurrent creates of the same
-  // content-addressed card would otherwise share one temp file, and the
-  // second rename would find it already moved. With distinct temps both
-  // renames land, and identical bytes make the last one a no-op.
-  const temp = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
-  try {
-    signal?.throwIfAborted()
-    await writeFile(temp, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
-    signal?.throwIfAborted()
-    await rename(temp, path)
-  } catch (error) {
-    // EEXIST means the name was taken and the file is not ours to remove.
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') await rm(temp, { force: true }).catch(() => {})
-    throw error
-  }
+  await withFileLock(path, async () => {
+    const temp = `${path}.${process.pid}.${randomBytes(6).toString('hex')}.tmp`
+    try {
+      signal?.throwIfAborted()
+      await writeFile(temp, content, { encoding: 'utf8', mode: 0o600, flag: 'wx' })
+      signal?.throwIfAborted()
+      await rename(temp, path)
+    } catch (error) {
+      // EEXIST means the name was taken and the file is not ours to remove.
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') await rm(temp, { force: true }).catch(() => {})
+      throw error
+    }
+  }, signal === undefined ? undefined : { signal })
 }
 
 /**

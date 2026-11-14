@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import SessionQueryEngine from '@deepseek-ai/dsh-session-query'
@@ -6,7 +6,9 @@ import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { mountAgentLoopTestDependencies, mountAgentLoopTestHarness } from '@deepseek-ai/dsh-agent-loop-testkit'
 import { SessionSkillCatalog } from '@deepseek-ai/dsh-api-session-controller/src/skill-catalog.ts'
 import { join } from 'node:path'
-import { rename } from 'node:fs/promises'
+import { rename, writeFile } from 'node:fs/promises'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { ProjectionSnapshot } from '@deepseek-ai/dsh-session-projection'
 import * as Jsonl from '@deepseek-ai/dsh-session-persistence-jsonl'
 import MuseMarket from '../src/index.ts'
 import MuseMarketActivation from '../src/activation.ts'
@@ -37,6 +39,82 @@ async function fixture() {
 }
 
 describe('activation-owned Session Skill views', () => {
+  it('binds blank Sessions exactly once before a step, delegates and preserves legacy selections', async () => {
+    const f = await fixture(), blank = await f.harness.create(SessionId('bind-before-step'))
+    const step = (agent: Agent, signal = new AbortController().signal) => agent.ctx.waterfall('agent/pre-step', {
+      agent, messages: [], turn: 1, step: 1, signal, modelSelection: { provider: 'fixture', model: 'fixture' },
+    }, async () => ({ kind: 'enter' as const, messages: [] }))
+    expect(await step(blank)).toEqual({ kind: 'enter', messages: [] })
+    expect((await f.service.binding({ sessionId: blank.id })).phase).toBe('bound')
+    await step(blank)
+    expect(blank.session.snapshotEvents().filter(event => event.type === 'muse-market/bound')).toHaveLength(1)
+    const legacy = await f.harness.create(SessionId('legacy-before-step'))
+    legacy.session.append('request/header', { header: { config: { provider: 'fixture', model: 'fixture' } }, reason: 'initial' })
+    await step(legacy)
+    expect(await f.skills.list({ scope: legacy })).toEqual([])
+    expect(await f.service.binding({ sessionId: legacy.id })).toEqual({ phase: 'legacy', releases: [] })
+    const aborted = await f.harness.create(SessionId('cancelled-before-binding')), controller = new AbortController()
+    controller.abort(new Error('Caller left before admission'))
+    await expect(step(aborted, controller.signal)).rejects.toThrow('Caller left before admission')
+    expect((await f.service.binding({ sessionId: aborted.id })).phase).toBe('blank')
+  })
+
+  it('blocks removing any Session-bound release and permits an unused disabled release', async () => {
+    const f = await fixture(), session = f.ctx.sessions.create(SessionId('retained-selection'))
+    session.append('muse-market/bound', { releases: (await f.service.binding({ sessionId: session.id })).releases })
+    await f.service.setDefault({ skillName: 'fixture-skill', expected: f.first.release.id, target: null })
+    await expect(f.market.removePackage(f.first.release.id)).rejects.toMatchObject({ details: { code: 'release-in-use' } })
+    await f.market.removePackage(f.second.release.id)
+    expect(await f.market.installed()).toEqual([f.first])
+  })
+
+  it('keeps defaults committed when a notification observer throws and maps owner failures', async () => {
+    const f = await fixture()
+    const emit = f.ctx.emit.bind(f.ctx)
+    const notification = vi.spyOn(f.ctx, 'emit').mockImplementation((...args) => {
+      if (args[0] === 'muse-market/defaults-changed' || args[0] === 'skills/change') throw Error('Observer failed')
+      Reflect.apply(emit, undefined, args)
+    })
+    try { expect(await f.service.setDefault({ skillName: 'fixture-skill', expected: f.first.release.id, target: null }))
+      .toEqual({ revision: 2, defaults: [] }) } finally { notification.mockRestore() }
+    expect(await f.service.defaults()).toEqual({ revision: 2, defaults: [] })
+    await expect(f.service.binding({ sessionId: SessionId('missing-session') })).rejects.toMatchObject({ details: { code: 'activation-unavailable' } })
+    await writeFile(join(f.files.root, 'market', 'installations.json'), '{')
+    await expect(f.service.defaults()).rejects.toMatchObject({ details: { code: 'invalid-ledger' } })
+  })
+
+  it('serves blank and legacy cold views without leaving registrations after empty selections', async () => {
+    const f = await fixture(), catalog = new SessionSkillCatalog(f.ctx)
+    const blank = f.ctx.sessions.create(SessionId('cold-blank'))
+    expect((await catalog.list({ sessionId: blank.id }, new AbortController().signal)).skills).toHaveLength(1)
+    const legacy = f.ctx.sessions.create(SessionId('cold-legacy'))
+    legacy.append('request/header', { header: { config: { provider: 'fixture', model: 'fixture' } }, reason: 'initial' })
+    expect((await catalog.list({ sessionId: legacy.id }, new AbortController().signal)).skills).toEqual([])
+    await f.service.setDefault({ skillName: 'fixture-skill', expected: f.first.release.id, target: null })
+    expect((await catalog.list({ sessionId: blank.id }, new AbortController().signal)).skills).toEqual([])
+  })
+
+  it('refuses unavailable query projections and missing cold registration scopes', async () => {
+    const f = await fixture(), session = f.ctx.sessions.create(SessionId('projection-missing'))
+    const observe = f.ctx.sessionQuery.observeSession.bind(f.ctx.sessionQuery)
+    const missing = vi.spyOn(f.ctx.sessionQuery, 'observeSession').mockImplementation(async (...args) => {
+      const result = await observe(...args)
+      return { ...result, projections: { ...result.projections!, values: {} } }
+    })
+    try {
+      await expect(f.service.binding({ sessionId: session.id })).rejects.toMatchObject({ details: { code: 'binding-projection-unavailable' } })
+      await f.service.setDefault({ skillName: 'fixture-skill', expected: f.first.release.id, target: null })
+      await expect(f.market.removePackage(f.first.release.id)).rejects.toMatchObject({ details: { code: 'binding-projection-unavailable' } })
+    } finally { missing.mockRestore() }
+    const projections: ProjectionSnapshot = { values: {}, asOfSeq: -1 }
+    await expect(f.ctx.serial('session-skills/prepare-view', { sessionId: session.id, projections,
+      context: () => f.ctx, signal: new AbortController().signal })).rejects.toThrow('binding-projection-unavailable')
+    await f.service.setDefault({ skillName: 'fixture-skill', expected: null, target: f.first.release.id })
+    using observation = await observe(session.id)
+    if (observation.projections === undefined) throw Error('Missing actual projected observation')
+    await expect(f.ctx.serial('session-skills/prepare-view', { sessionId: session.id, projections: observation.projections,
+      context: () => f.ctx, signal: new AbortController().signal })).rejects.toThrow('binding-scope-unavailable')
+  })
   it('retires scoped providers on activation unload while the actual Agent remains alive', async () => {
     const f = await fixture(), agent = await f.harness.create(SessionId('market-live'))
     expect((await f.skills.get('fixture-skill', { scope: agent }))?.source).toBe('muse-market')

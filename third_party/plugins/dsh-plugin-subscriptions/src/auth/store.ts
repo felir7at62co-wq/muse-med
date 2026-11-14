@@ -238,7 +238,7 @@ function codexEmail(session: CodexSession): string | undefined {
 function codexUserKey(session: CodexSession): string | undefined {
   const key = accountKeyOf('codex', session)
   try {
-    const tuple = JSON.parse(key) as unknown
+    const tuple: unknown = JSON.parse(key)
     return Array.isArray(tuple) && tuple[1] === 'user' ? key : undefined
   } catch {
     return undefined
@@ -380,7 +380,7 @@ function parseStore(text: string, path: string): SessionMap {
         console.warn(`subscriptions auth store: legacy entry "${provider}" has no usable tokens; skipped`)
         continue
       }
-      const session = record as unknown as StoredSession
+      const session: StoredSession = { ...record }
       const key = provider === 'codex' ? (session as CodexSession).accountId : accountKeyOf(provider, session)
       ;(store as Record<string, unknown>)[provider] = { default: key, accounts: { [key]: session } }
       continue
@@ -397,7 +397,7 @@ function parseStore(text: string, path: string): SessionMap {
     const kept: Record<string, StoredSession> = {}
     for (const [account, session] of Object.entries(accounts)) {
       if (isValidSessionShape(session)) {
-        kept[account] = session as StoredSession
+        kept[account] = { ...session }
       } else {
         console.warn(
           `subscriptions auth store: entry "${provider}/${account}" has no usable accessToken/refreshToken/expiresAt; skipped`,
@@ -415,7 +415,8 @@ function parseStore(text: string, path: string): SessionMap {
 }
 
 /** Whether a value carries the fields every stored session needs (non-empty tokens). */
-function isValidSessionShape(value: unknown): boolean {
+function isValidSessionShape(value: unknown): value is Record<string, unknown>
+  & Pick<StoredSession, 'accessToken' | 'refreshToken' | 'expiresAt'> {
   if (typeof value !== 'object' || value === null) return false
   const entry = value as Record<string, unknown>
   return typeof entry.accessToken === 'string' && entry.accessToken.length > 0
@@ -532,11 +533,11 @@ export async function saveAccountSession<K extends ProviderId>(
     const entry = store[provider] as ProviderAccounts<SessionOf<K>> | undefined
     if (entry !== undefined) {
       account = resolveAccount(entry, account)
-      if (provider === 'codex') {
+      if (provider === 'codex' && store.codex !== undefined) {
         account = reconcileCodexIdentity(
-          entry as unknown as ProviderAccounts<CodexSession>,
-          session as unknown as CodexSession,
-        ) ?? accountKeyOf('codex', session as unknown as CodexSession)
+          store.codex,
+          session as CodexSession,
+        ) ?? accountKeyOf('codex', session)
       }
     }
     ;(store as Record<string, unknown>)[provider] = {

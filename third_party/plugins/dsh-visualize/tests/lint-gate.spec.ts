@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { FragmentLintGate, STOP_AFTER } from '../src/lint-gate.ts'
 import { visualizeTool } from '../src/tool.ts'
 
@@ -133,7 +133,7 @@ describe('FragmentLintGate', () => {
 /** A tool over an in-memory workspace that records writes. */
 function harness(files: Record<string, string> = {}) {
   const writes: string[] = []
-  const ctx = {
+  const ctx = new Context().extend({
     get: () => undefined,
     fs: {
       resolve: async (path: string, options: { cwd?: string }) => ({ displayPath: `${options.cwd}/${path}`, path }),
@@ -144,7 +144,7 @@ function harness(files: Record<string, string> = {}) {
         return { version: 1 }
       },
     },
-  } as unknown as Context
+  })
   const tool = visualizeTool(ctx, MAX)
   const exec = { agent: { session: { header: { cwd: '/w', id: 'session-1' } } } } as never
   return { tool, exec, writes, files }

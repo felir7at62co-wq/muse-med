@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { visualizeTool } from '../src/tool.ts'
 import { writeFileAtomic } from '../src/storage.ts'
@@ -80,7 +80,7 @@ describe('visualization save receipts', () => {
       receipt: { state: 'partial', path: created.path, fragment: 'saved', imageManifest: 'unchanged', reason: 'cancelled' },
     })
     expect(await readFile(created.path, 'utf8')).toBe('<p>new</p>')
-    expect(await readdir(join(home, 'visualize', 'sessions', 'sess-commit'))).toEqual([created.path.split('/').at(-1)])
+    expect(await readdir(join(home, 'visualize', 'sessions', 'sess-commit'))).toEqual([basename(created.path)])
   })
 
   it('retains a recoverable saved fragment and reports a failed second manifest commit', async () => {

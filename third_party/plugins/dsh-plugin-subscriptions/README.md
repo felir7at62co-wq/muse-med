@@ -317,6 +317,8 @@ This plugin only supplies model routes. Approval policy lives elsewhere:
 
 ## Develop
 
+Offline transport checks use owned loopback destinations and a CONNECT proxy to verify request bodies, response headers, HTTP errors and SSE bytes. Provider fixtures use detached Sessions and complete Agent records; they do not drive model turns.
+
 ```sh
 pnpm install   # development baseline: published DSH 0.2.1-rc.2 packages
 pnpm build     # tsc (lib/) + tsdown (lib/client.js browser bundle)

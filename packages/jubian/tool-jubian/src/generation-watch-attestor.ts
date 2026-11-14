@@ -197,21 +197,20 @@ function recordedSubmission(events: readonly SessionEvent[], inherited: number,
       }
     }
   }
-  if (found.length !== 1) return undefined
-  const candidate = found[0]
-  if (candidate === undefined || advertised.get(candidate.rootKey) !== 1 || calls.get(candidate.rootKey) !== 1
+  const candidate = found.length === 1 ? found[0] : undefined
+  if (candidate === undefined) return undefined
+  if (advertised.get(candidate.rootKey) !== 1 || calls.get(candidate.rootKey) !== 1
     || unscopedRootIds.has(candidate.rootId)) return undefined
   if (candidate.subKey === undefined) {
     if (results.get(candidate.rootKey) !== 1) return undefined
   } else {
     if (ends.get(candidate.subKey) !== 1) return undefined
     let current: string | undefined = candidate.subKey
-    const seen = new Set<string>()
     while (current !== undefined) {
-      const start = ptc.get(current)
-      if (seen.has(current) || start === undefined || start.rootKey !== candidate.rootKey || starts.get(current) !== 1
+      // A unique dispatch start can reference only an earlier registered parent.
+      const start: DispatchStart = ptc.get(current) as DispatchStart
+      if (starts.get(current) !== 1
         || (ends.get(current) ?? 0) > 1 || invalidDispatches.has(current) || unscopedSubIds.has(start.subId)) return undefined
-      seen.add(current)
       current = start.parentKey
     }
   }
@@ -286,7 +285,6 @@ export function createGenerationWatchSubmissionModelReader(persistence: Generati
  */
 export function createGenerationWatchOwnerAttestor(persistence: GenerationWatchSessionReader,
   ledger: JubianLedger, verifyHost: GenerationWatchHostVerifier): GenerationWatchOwnerAttestor {
-  if (typeof verifyHost !== 'function') throw new Error('A trusted Host ownership verifier is required')
   return async (owner, projectDir) => {
     if (!isAbsolute(owner.previewPath) || !isAbsolute(projectDir)) return false
     const project = await recoveryProject(projectDir)

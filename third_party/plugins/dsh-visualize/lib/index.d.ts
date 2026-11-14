@@ -1,7 +1,5 @@
 import z from "@deepseek-ai/schemastery";
 import { Context } from "@deepseek-ai/cordis";
-
-//#region src/style.d.ts
 /**
  * Card style presets: the user-chosen half of a card's look. The base
  * contract (fragment rules, CSP, size, theme-variable use, the 11px floor,
@@ -35,8 +33,6 @@ type StyleId = typeof STYLE_IDS[number];
  * which the settings page calls (style-files.ts).
  */
 declare const STYLE_FILES_PATH = "/api/dsh-visualize/style-files";
-//#endregion
-//#region src/style-setting.d.ts
 /** A live setting: the value read through its owner's reference. */
 interface LiveValue<T> {
   get(): T;
@@ -49,8 +45,6 @@ type StyleSetting = StyleId | LiveValue<StyleId | undefined>;
  * @returns a known style id; anything else reads as the default.
  */
 declare function readStyle(setting: StyleSetting | undefined): StyleId;
-//#endregion
-//#region src/fragment.d.ts
 /**
  * Wire name of the tool, the keyed toolview, and the streaming-preview match.
  * Lives in this pure module so the browser half can import it without pulling
@@ -110,8 +104,6 @@ interface CardImage {
  * @returns the narrowed descriptor, or `undefined` for the generic path.
  */
 declare function visualizeMetaFrom(meta: unknown): VisualizeMeta | undefined;
-//#endregion
-//#region src/lint.d.ts
 /**
  * Validate one fragment against the inline contract.
  * @param fragment - the markup the model sent.
@@ -120,8 +112,6 @@ declare function visualizeMetaFrom(meta: unknown): VisualizeMeta | undefined;
  * @throws Error listing every `error` finding; the tool surfaces it as `isError`.
  */
 declare function validateFragment(fragment: string, maxBytes: number): number;
-//#endregion
-//#region src/index.d.ts
 /** Cordis plugin name. */
 declare const name = "dsh-visualize";
 /** Required services: the tool registry, the skill registry, and the fs seam. */
@@ -151,7 +141,15 @@ interface Config {
   selfRepair?: boolean;
 }
 /** Schemastery configuration validated by the Loader. */
-declare const Config: z<Config>;
+declare const Config: z<Schemastery.ObjectS<NoInfer<{
+  maxFragmentBytes: z<number, number, "defined">;
+  style: z<"whale" | "editorial" | "paper" | "sketch" | "terminal", "whale" | "editorial" | "paper" | "sketch" | "terminal", "defined"> | z<"whale" | "editorial" | "paper" | "sketch" | "terminal", "whale" | "editorial" | "paper" | "sketch" | "terminal", "volatile-defined">;
+  selfRepair: z<boolean, boolean, "defined">;
+}>>, Schemastery.ObjectT<NoInfer<{
+  maxFragmentBytes: z<number, number, "defined">;
+  style: z<"whale" | "editorial" | "paper" | "sketch" | "terminal", "whale" | "editorial" | "paper" | "sketch" | "terminal", "defined"> | z<"whale" | "editorial" | "paper" | "sketch" | "terminal", "whale" | "editorial" | "paper" | "sketch" | "terminal", "volatile-defined">;
+  selfRepair: z<boolean, boolean, "defined">;
+}>>, "plain">;
 /**
  * Register the tool, the bundled skill provider, the page config, the
  * style-file route of the settings page, the image route, and the same-turn
@@ -160,5 +158,4 @@ declare const Config: z<Config>;
  * @param config - validated deployment configuration.
  */
 declare function apply(ctx: Context, config: Config): void;
-//#endregion
 export { Config, STYLE_FILES_PATH, STYLE_IDS, type StyleId, type StyleSetting, VISUALIZE_TOOL_NAME, type VisualizeMeta, type VisualizeMode, apply, inject, name, readStyle, validateFragment, visualizeMetaFrom };

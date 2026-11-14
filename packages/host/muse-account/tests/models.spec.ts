@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import LlmRuntime, { createToolResultMessage, createUserMessage, LlmAdapter, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createToolResultMessage, createUserMessage, LlmAdapter, LlmError, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { MuseModels } from '../src/models.ts'
@@ -16,9 +16,12 @@ import { mockServer, closeMockServers, textEvents } from '../../../llm/llm-pi-ai
 import { assemble } from '../../../llm/llm-pi-ai/tests/assemble.ts'
 import { writeMuseSession, readMuseSession, clearMuseSessionIfUnchanged } from '../src/session.ts'
 import { buildModelCatalog, modelAvailable } from '../../../api/session-controller/src/catalog.ts'
-import { agentEvents } from '@deepseek-ai/dsh-agent'
+import { agentEvents, modelSelectionProjectionDefinition } from '@deepseek-ai/dsh-agent'
+import { ReactLoopAgent } from '../../../core/agent-loop/src/agent.ts'
+import { inboxProjectionDefinition } from '../../../core/agent-loop/src/inbox.ts'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { directProviderFixture, oldSessionFixture as routingFixture, waitForIdle } from './model-routing-fixture.ts'
+import * as sessionStorage from '../src/session.ts'
 
 const suppliedCatalog = { providers: [
   { id: 'aa', name: 'aa', models: [{ id: 'gemini-3.8-flash', name: 'gemini-3.8-flash',
@@ -1132,6 +1135,113 @@ it('repairs a newly created Agent before its first request and keeps omitted eff
   expect(fresh.session.requestHeader()).toBeUndefined()
   expect(fresh.session.snapshotEvents().filter(event => event.type === 'model/selection').map(event => event.data))
     .toEqual([{ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }])
+})
+
+it.each(['active', 'disposed'] as const)('keeps a failed advertised-model read observable only while the catalog is %s', async (state) => {
+  const fixture = await oldSessionFixture(false); await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>(), failure = Error('Model metadata unavailable')
+  vi.spyOn(fixture.ctx.llm, 'listModels').mockImplementationOnce(async () => {
+    entered.resolve(undefined); await release.promise; throw failure
+  })
+  const outcome = models.refresh().then(value => ({ value }), (error: unknown) => ({ error }))
+  await entered.promise
+  let disposed: Promise<void> | undefined
+  try { if (state === 'disposed') disposed = models.dispose() } finally { release.resolve(undefined) }
+  if (state === 'active') expect(await outcome).toEqual({ error: failure })
+  else expect(await outcome).toEqual({ value: undefined })
+  await disposed
+  expect(fixture.agent.model.current()).toEqual(fixture.initialSelection)
+})
+
+it.each(['unsupported', 'active-error', 'disposed-error'] as const)('retains the direct selection after a %s resolution failure', async (state) => {
+  const fixture = await oldSessionFixture(false); await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const failure = state === 'unsupported' ? new LlmError('Requested effort is unavailable', 'UNSUPPORTED_REASONING_EFFORT') : Error('Resolution unavailable')
+  vi.spyOn(fixture.ctx.llm, 'resolveCallConfig').mockImplementationOnce(async () => {
+    entered.resolve(undefined); await release.promise; throw failure
+  })
+  const outcome = models.refresh().then(value => ({ value }), (error: unknown) => ({ error }))
+  await entered.promise
+  let disposed: Promise<void> | undefined
+  try { if (state === 'disposed-error') disposed = models.dispose() } finally { release.resolve(undefined) }
+  expect(await outcome).toEqual(state === 'active-error' ? { error: failure } : { value: undefined })
+  await disposed
+  expect(fixture.agent.model.current()).toEqual(fixture.initialSelection)
+})
+
+it('does not repair a newly announced Agent after account ownership has been disposed', async () => {
+  const fixture = await oldSessionFixture(false); await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  await models.refresh()
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const off = fixture.ctx.on('agent/created', async () => { entered.resolve(undefined); await release.promise }, { prepend: true })
+  const creating = fixture.driver.create(SessionId('creation-overlaps-disposal'), { provider: 'deepseek-official', model: 'deepseek-flash' }, { cwd: root })
+  try {
+    await entered.promise; await models.dispose(); release.resolve(undefined)
+    expect((await creating).model.current()).toEqual({ provider: 'deepseek-official', model: 'deepseek-flash' })
+  } finally { release.resolve(undefined); await creating; off() }
+})
+
+it('repairs an externally registered startup Agent using the account-owned cancellation signal', async () => {
+  const fixture = await oldSessionFixture(false); await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  await models.refresh()
+  const selection = await fixture.ctx.sessionProjections.register(modelSelectionProjectionDefinition)
+  const inbox = await fixture.ctx.sessionProjections.register(inboxProjectionDefinition)
+  const session = fixture.ctx.sessions.create(SessionId('registered-account-startup'))
+  const agent = new ReactLoopAgent(fixture.ctx, session.id, { provider: 'deepseek-official', model: 'deepseek-flash' }, session,
+    { modelSelection: selection.readerFor(session), inbox: inbox.readerFor(session) }, 0)
+  await fixture.ctx.agents.register(agent)
+  expect(agent.model.current()).toEqual({ provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' })
+})
+
+it('stops a pending credential lookup before reading model metadata after disposal', async () => {
+  const fixture = await oldSessionFixture(false); await login()
+  const section = fixture.ctx.settings.describe().find(row => String(row.ns) === 'agent-default-model')
+  if (section === undefined) throw Error('Missing default settings')
+  await fixture.ctx.settings.replace('agent-default-model', { provider: 'muse-cloud-deepseek-official', model: 'deepseek-flash' }, section.revision)
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const describe = fixture.ctx.credentials.describe.bind(fixture.ctx.credentials), list = vi.spyOn(fixture.ctx.llm, 'listModels')
+  vi.spyOn(fixture.ctx.credentials, 'describe').mockImplementationOnce(async (...args) => {
+    const value = await describe(...args); entered.resolve(undefined); await release.promise; return value
+  })
+  const refreshing = models.refresh(); await entered.promise
+  const disposed = models.dispose(); release.resolve(undefined)
+  await Promise.all([refreshing, disposed])
+  expect(list).not.toHaveBeenCalled(); expect(fixture.agent.model.current()).toEqual(fixture.initialSelection)
+})
+
+it.each(['dispose', 'account', 'agent'] as const)('preserves the direct route when %s changes before the final account read', async (owner) => {
+  const fixture = await oldSessionFixture(false); await login()
+  models = new MuseModels(fixture.ctx, { baseUrl, sessionFile: sessionFile(), requestTimeoutMs: 1000,
+    fetcher: async () => Response.json(suppliedCatalog) })
+  const resolve = fixture.ctx.llm.resolveCallConfig.bind(fixture.ctx.llm), read = sessionStorage.readMuseSession
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>(); let verifying = false
+  vi.spyOn(fixture.ctx.llm, 'resolveCallConfig').mockImplementation(async (...args) => {
+    const result = await resolve(...args); verifying = true; return result
+  })
+  vi.spyOn(sessionStorage, 'readMuseSession').mockImplementation(async (...args) => {
+    if (verifying) { verifying = false; entered.resolve(undefined); await release.promise }
+    return read(...args)
+  })
+  const outcome = models.refresh().then(value => ({ value }), (error: unknown) => ({ error }))
+  await entered.promise
+  let disposed: Promise<void> | undefined
+  try {
+    if (owner === 'dispose') disposed = models.dispose()
+    else if (owner === 'account') await login('bob')
+    else await fixture.ctx.agentLoop.shutdown()
+  } finally { release.resolve(undefined) }
+  expect(await outcome).toEqual({ value: undefined }); await disposed
+  expect(fixture.agent.session.snapshotEvents().filter(event => event.type === 'model/selection').at(-1)?.data).toEqual(fixture.initialSelection)
 })
 
 it('repairs only Agents covered by the account plugin scope', async () => {

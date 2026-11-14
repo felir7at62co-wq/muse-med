@@ -28,8 +28,9 @@ export async function createEpisodeDeliveryFixture() {
   let enter: () => void = () => {}, release: () => void = () => {}
   const entered = new Promise<void>((resolve) => { enter = resolve })
   const barrier = new Promise<void>((resolve) => { release = resolve })
+  const armed = Promise.withResolvers<undefined>()
   const providerLifetime = new AbortController()
-  const renderer = { calls: 0, encodes: 0, captures: 0, mode: 'complete' as 'complete' | 'unknown' | 'failed' | 'retry-required', entered,
+  const renderer = { calls: 0, encodes: 0, captures: 0, mode: 'complete' as 'complete' | 'unknown' | 'failed' | 'retry-required', entered, armed: armed.promise,
     release, dispose: () => { providerLifetime.abort(new Error('Controlled renderer disposed')) } }
   const digest = (value: string): Sha256 => brandString<Sha256>(createHash('sha256').update(value).digest('hex'))
   const provider: ApprovedEpisodeRenderer = {
@@ -71,6 +72,7 @@ export async function createEpisodeDeliveryFixture() {
         await input.job.assertAdmission(identity); await input.job.armExecution(running)
         renderer.encodes++
         await writeFileAtomic(join(input.job.attemptRoot, 'execution.json'), JSON.stringify(running), { mode: 0o600 })
+        armed.resolve(undefined)
         await Promise.race([barrier, new Promise<void>((resolve) => { if (signal.aborted) resolve(); else signal.addEventListener('abort', () => { resolve() }, { once: true }) })])
         if (renderer.mode === 'unknown') return { kind: 'unknown', previous: running, diagnostic: 'Controlled unknown guardian outcome' }
         if (signal.aborted) {

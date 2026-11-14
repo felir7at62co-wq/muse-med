@@ -1,6 +1,7 @@
 {
   "nsisLanguage": "GERMAN",
   "strings": {
+    "INSTALLER_REBOOT_REQUIRED": "Die Installation ist abgeschlossen. Starten Sie Windows neu, bevor Sie Muse öffnen.",
     "INSTALLER_INSTALL": "Jetzt installieren",
     "INSTALLER_FINISH": "Fertigstellen",
     "INSTALLER_NATIVE_PROGRESS": "Installation wird vorbereitet… %d%%",
@@ -31,7 +32,14 @@
     "INSTALLER_EXTRACT_COLLAPSE": "Details ausblenden",
     "INSTALLER_EXTRACT_SAVED": "Der vollständige Bericht wurde unter %s gespeichert",
     "INSTALLER_EXTRACT_UNSAVED": "Der vollständige Bericht konnte nicht gespeichert werden. Verwenden Sie „Fehlerdetails kopieren“, um sie beizubehalten.",
-    "INSTALLER_EXTRACT_COPIED": "Fehlerdetails wurden in die Zwischenablage kopiert."
+    "INSTALLER_EXTRACT_COPIED": "Fehlerdetails wurden in die Zwischenablage kopiert.",
+    "INSTALLER_VC_MISSING": "Die mitgelieferte Microsoft Visual C++ x64-Laufzeit fehlt. Die Installation kann nicht abgeschlossen werden. Laden Sie ein vollständiges muse-med-Installationsprogramm herunter.",
+    "INSTALLER_VC_CONSENT": "muse-med benötigt Microsoft Visual C++ x64 Runtime 14.51.36247.0 oder neuer. Die mitgelieferte Laufzeit jetzt installieren? Dies ändert Systemkomponenten und erfordert eine Administratorgenehmigung. Es wird nichts heruntergeladen. Eine Ablehnung beendet die muse-med-Installation.",
+    "INSTALLER_VC_DENIED": "Die Installation von Microsoft Visual C++ x64 Runtime wurde nicht genehmigt. muse-med kann nicht installiert werden.",
+    "INSTALLER_VC_EXIT_FAILED": "Microsoft Visual C++ x64 Runtime konnte nicht installiert werden.",
+    "INSTALLER_VC_LAUNCH_FAILED": "Microsoft Visual C++ x64 Runtime konnte nicht gestartet oder überwacht werden. Die Administratorgenehmigung wurde möglicherweise verweigert.",
+    "INSTALLER_VC_REBOOT": "Microsoft Visual C++ x64 Runtime wurde installiert, erfordert aber einen Windows-Neustart. Starten Sie Windows vor muse-med neu. Wählen Sie auf der Abschlussseite nicht den sofortigen Start von muse-med.",
+    "INSTALLER_VC_PRIOR_FAILED": "Die muse-med-Installation ist vor der Prüfung der Voraussetzungen fehlgeschlagen."
   },
   "uninstaller": {
     "welcome": "Willkommen",

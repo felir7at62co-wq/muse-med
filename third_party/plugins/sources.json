@@ -25,7 +25,184 @@
     "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
     "version": "0.9.12",
     "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
-    "license": "MIT"
+    "license": "MIT",
+    "localModifications": {
+      "description": "Replace untyped provider and test casts with explicit compatible values; retain the existing subscription routes and operations. Synchronize the rekeyed-account forced-refresh regression with a shared store-read barrier.",
+      "files": {
+        "package.json": {
+          "upstreamSha256": "bb44046181887c8c83df8fc62e07f07073cb3b777970e2092e2ef1813ad75afb",
+          "sha256": "17e185bbd8a69317ebcd9d8b000d913530f92ec8a1cb3d9c863c735cb37678ef"
+        },
+        "src/auth/rpc.ts": {
+          "upstreamSha256": "c42f62ffe08b163489b74b829457cb263dffb5ad054a7f9e0fd7d49e98275a39",
+          "sha256": "e62b46eec2c308f2a257d74815b9f485b6e0c1b24d8c238f907679683497c675"
+        },
+        "src/auth/store.ts": {
+          "upstreamSha256": "c261e171e6b74f5e5f35a434f45cf88f5282c87c4c29450a79c9aa1d93c3c696",
+          "sha256": "59567dd6b61ba8ae4fe90545ae65a15047bf1f7c179fd04b1167cbf49617b667"
+        },
+        "src/client/ProviderAccountManager.tsx": {
+          "upstreamSha256": "241994bafa5ec48b2f78fe26ed04a19eb404471a3bd948fa4f9a7eab2460a152",
+          "sha256": "78fc11ff4f2f7df1beb006537b0e2d73cc2e217953da75f25fa55e866af92c16"
+        },
+        "src/client/ProviderModelEditor.tsx": {
+          "upstreamSha256": "3a85f0aa34d5f463f85cb32af6f5288732031ad60272e13a9de4100c36a03079",
+          "sha256": "b37bc7819736994ca4d1970f666be84508dfbc335f368137e16787caaa342206"
+        },
+        "src/client/SpeedSelect.tsx": {
+          "upstreamSha256": "149b506897d229a66594e8c59df5771701bf8e9947f3fcb4e6883dd06cb0c954",
+          "sha256": "ea5bcf71a1852871d2cb418b086cd9b6ef66a2542d835c999e49c019548397aa"
+        },
+        "src/client/account-preferences.ts": {
+          "upstreamSha256": "2fd171227e1f9d8c21e8cc8bd80c8594e54b59ac0a59ab5ad55e007e9726837e",
+          "sha256": "a85e16fa7c8c08ba3cdb8bcbb2a2d48f40915840ac3704d74366a22b18e82324"
+        },
+        "src/client/index.ts": {
+          "upstreamSha256": "1ac7258c6bc86d7411fa1c2f953dc903a1c6519dd831a75ae1aa73d58e3747bb",
+          "sha256": "8e41ee657fe32b5332c529c7d7886c9f48995a5306ef05b38e60b483baa646ad"
+        },
+        "src/client/model-filter.ts": {
+          "upstreamSha256": "e0765273c192a65d157c9d44d0813f1c7152507810c4af578d6c51cb0a7d60ff",
+          "sha256": "2d68e330070830f9f4fe7a0d5dd330b7d8fb72849aef516881a8f6a2a60ed5fa"
+        },
+        "src/http.ts": {
+          "upstreamSha256": "1f442a8e193dbd16dfa188d7a226454b9c39051979fbed8159c5fd12e3d23c67",
+          "sha256": "ea477d37a350a617ca6a140b5d0935616e1b1a483413dee86255ce1a1da4adbb"
+        },
+        "src/provider-settings.ts": {
+          "upstreamSha256": "6cd2dc38f875b59942e4f58c4ef6b2020aeb6881623f144045de91399260d601",
+          "sha256": "20ec0d248e3ff23346622ca56889cec6f9b9b10a0f4580c4198d7097a053983d"
+        },
+        "src/providers/antigravity.ts": {
+          "upstreamSha256": "99d718565eca1ed419727cd830e4b38dbc46322770f14889d5fb7b11b3104e86",
+          "sha256": "884977d896755d8cae2013437a289a398dc66cc834e1ff88c8d8ea2106c1be3a"
+        },
+        "src/providers/claude.ts": {
+          "upstreamSha256": "6d66a4841b37d796c4e2f416722aeeffff082443ddcfaac05e9ac5ab6c898ab9",
+          "sha256": "334fb2fe5a31c73ae76949c8ecc85c0fabf6498192f290f308cf43abfa7edb33"
+        },
+        "src/providers/codex-search.ts": {
+          "upstreamSha256": "6e99ef061679d7c369cc02794a676a7b1ce6dd456d0d80094bf178dffc34fe68",
+          "sha256": "e60642f977a441e31c7888f3818708483a613e3bddd7e2e21e4f7f3b7b913c7a"
+        },
+        "src/providers/codex.ts": {
+          "upstreamSha256": "917b6ecbd536cde8e03cdd4af2b28d2c901af3de30f710f5a3f7ad790b6924cb",
+          "sha256": "8dc6a9776a2177086d90461ede0ff42c85c38f6882dd87233330e88ca6468443"
+        },
+        "src/providers/common.ts": {
+          "upstreamSha256": "8f9a1d846e34042ef888c69747ca2b2df6b92736a04736bdf4a44764df7aafdf",
+          "sha256": "19b18f5560280e5ff1bf4dbd80d1c8fba320d65465d28e8939503a2181c7dea6"
+        },
+        "src/providers/copilot.ts": {
+          "upstreamSha256": "bbe71a45ff0594917260a29047b526bd1fbeb45952449d296e24745c621a5c21",
+          "sha256": "15feb57245ceaa3b7047eca1d09d1eab24c034a426cd681ffd98c867bf7cbd89"
+        },
+        "src/providers/grok.ts": {
+          "upstreamSha256": "3c3391dc6ea852cfad444d630c00469849c9ffce6fec8d70c0fc852dd1ce480e",
+          "sha256": "a3a74571f8b84c202495a368493fe49a5d8390c2250c004c85d28eeb3dbccea3"
+        },
+        "src/providers/image-pool.ts": {
+          "upstreamSha256": "77da3d1031add56364a4258af0c0c10a02cbd3753d83621074908bacd408f47c",
+          "sha256": "0ea962bfffe96fade03d215b278ced555d9139b2745cdbec8b1641e08016ed7a"
+        },
+        "src/providers/rate-limit.ts": {
+          "upstreamSha256": "df403d645740543b0e799162377cc23c3d3deb431c9aec41b9b68077adbab1a4",
+          "sha256": "4e38c8f6ba95b133bbdbee782b8eb18b3115aaabb4805258a102a81d53757cee"
+        },
+        "src/tools/image-generate.ts": {
+          "upstreamSha256": "c02624ada8eddc2bd0f1b93387dbf53992fb19766c501683879b8d831fd17547",
+          "sha256": "ed59b6ceefef216a3357226717da6558ffcaec5516a33f886cc06950f2145c85"
+        },
+        "src/translate/anthropic.ts": {
+          "upstreamSha256": "18bfbc21b424beb0e78ee878ca7ecdf6e9794f4b936f2e910495d1269551a382",
+          "sha256": "22b0a824d3e262434976798af8d326c2c13394a81ccbee214b5be070c1f986c2"
+        },
+        "src/translate/antigravity.ts": {
+          "upstreamSha256": "69d5b87b413d558731d252eddf55866f863b4cb8d8ac86eb1852244bd2d6de43",
+          "sha256": "10e5421ebfd9a99e7bda8ea6b36af3c2c551a4ed25e058386db6b45304d11d04"
+        },
+        "src/translate/chat-completions.ts": {
+          "upstreamSha256": "867076d25e9978acc975761edd98a5fd69c1a7997c79253cb523626c389f6bd0",
+          "sha256": "7dc261b9d83f3f184c7044eba7c57210df6643146ff2337e89c56142c648421a"
+        },
+        "src/translate/responses.ts": {
+          "upstreamSha256": "aae627438a3aae215ce3d47d44b6cd1aee2695f9e2c05654612707d59faeaada",
+          "sha256": "19ac3568c5c71898f605f611baa1fa666417525db1106d20ea82130aee05ffb7"
+        },
+        "src/translate/sse.ts": {
+          "upstreamSha256": "e2f28a496e42d311fc43ba428ab1c375f34a068304ac9ab71afe9c8879df5150",
+          "sha256": "1cbf0eb1904c4e3227c66314ad448a25c405eff669613d6b1a96f3a45ef34ac3"
+        },
+        "test/catalog-refresh-schedule.spec.ts": {
+          "upstreamSha256": "4281ec8a870dc3a7dc5965b23c63b804a56f8e97bf659625bd50d6810f0f8279",
+          "sha256": "61905442ddd953b0153e11ee2f501636e8d1b8ac67b3e98eef9d104b236d916e"
+        },
+        "test/client-speed.spec.ts": {
+          "upstreamSha256": "4f2ff41424021e5d4a10a45a7044c818fae3ed19e0326746953d6b086312a60b",
+          "sha256": "e7b50abc3e1b5c28427c84da226c2985794459de72fc96fadcd9af621bfde01b"
+        },
+        "test/model-selection-latency.spec.ts": {
+          "upstreamSha256": "55ba69e7387983f12433f41dd70f0f4f96811156b6acb5345868371d7462880a",
+          "sha256": "313c250867d87557608eda47d70a852e9904c156c0dc6d5715ce5d38ca90cbd9"
+        },
+        "test/models.spec.ts": {
+          "upstreamSha256": "3f390126203784734ca916b1c47e582acde8db1464a5d8ccba8e776d9c9436a6",
+          "sha256": "c142ea35d94292cfab0b26b19a26cf7ed3445f7d2cd2e43a23731b846f57e680"
+        },
+        "test/subagent-speed.spec.ts": {
+          "upstreamSha256": "a2d78757f843a36124f80f2dcf8276adc29c32cfb582428411ffcac347b3684e",
+          "sha256": "d7c7762c2e9f371cfbcf8f75b1d92b0b1ce64fd7d4c741cfb60ccde1406d872e"
+        },
+        "test/subscription-usage-browser.fixture.tsx": {
+          "upstreamSha256": "d1e4b8ce5021412a9f33cb23905f117028db866da399ed610693b99a6dd55fb8",
+          "sha256": "945bffd9ce8f8b4338b400dca3a8e0554d42cdad04e18402d76c8856f0b2d854"
+        },
+        "test/tool-registration.spec.ts": {
+          "upstreamSha256": "8aa7fe4fa799494a98adf001ba2683a72966002fe4a5b62f58bc37a79ebad2a5",
+          "sha256": "3387822ce8f5eef80e5b40b010f50411e73735b1d710f74bb167fd0fb2a477f6"
+        },
+        "test/tools.spec.ts": {
+          "upstreamSha256": "a8b6e9b27830178ba396b101647bbcb3955994c6d5eee341bf10bde9547beb51",
+          "sha256": "37fcdf645bd05544ce5b80449a2f2fbc44411cafe6035563288577e7eae6c7ba"
+        },
+        "test/translate.spec.ts": {
+          "upstreamSha256": "5d4b2531ed5623e7694fe32d57911af3064ea6c6531debb23667f3ede0e274d4",
+          "sha256": "86cea46bb4d863db007d964a2ab25cee8112a55c3bd22f50da35a628465983f5"
+        },
+        "test/translate/antigravity.spec.ts": {
+          "upstreamSha256": "a30e05ccfbd438ed3dcbaed71c27a04674633b87e1de13bea659baf4a982a8bd",
+          "sha256": "42115356a38cd47961e886ef52d61fcc9119592dcca3daf6f25a48c0a64ed2fe"
+        },
+        "src/provider-settings-types.ts": {
+          "upstreamSha256": null,
+          "sha256": "c6d709299c29ef2c4fb8d3154791fc60220933cb20d95454fc5c90032c38b4f3"
+        },
+        "test/agent-fixture.ts": {
+          "upstreamSha256": null,
+          "sha256": "79c55a6915884f3b66f841aef554adf5a24ed5616c06a4284ee3b078aee4130b"
+        },
+        "test/proxy-route.spec.ts": {
+          "upstreamSha256": null,
+          "sha256": "79d0abc08737af07930a1a699c90692ee986194b069e44458690651e3022d5e5"
+        },
+        "pnpm-lock.yaml": {
+          "upstreamSha256": "900b65fb354f2344413d475dbf831cdeeedcd330f0d274acfecfe7f9629c793e",
+          "sha256": "1a0ff57c65a2899340b155902b62053d7ac42a9386d409c0730d8028c97d687b"
+        },
+        "README.md": {
+          "upstreamSha256": "0769b02fa3b954e1ee56ccac4f31b7e7e4a4684cf938335380476dae3d993a5e",
+          "sha256": "27440b08569a3b6738866e117918df0f2c92e907e6d62e8c2f1ec3181060f0e4"
+        },
+        "README.zh.md": {
+          "upstreamSha256": "ff19ae27839a468898633f85b50151cb9ce90aa54d2b181380997d148d09d3af",
+          "sha256": "d025d14d9c850d1021bcfc024873af841165fc6377aa09ea5b3eff2a93e96b4b"
+        },
+        "test/store.spec.ts": {
+          "upstreamSha256": "796b5d4d2d8fcfe9ed429c27f58e840f1fcb7e21e21285e48a1902a728461cf3",
+          "sha256": "36d50a7da6af7c57fdc2075b33ddd30529eb694e8fa9bd16f2364f581e05ee02"
+        }
+      }
+    }
   },
   "dsh-bridge": {
     "repository": "https://github.com/wenbin-wb/dsh-bridge",
@@ -161,7 +338,7 @@
         },
         "src/host/pending.js": {
           "upstreamSha256": "cb3fbf96070970e9f6c33e846a51ee710cf001420334b98ef6d6438187c25a4e",
-          "sha256": "28cc1b021177711cacd124332449131037c36c4bb794be43ff65341272690aa1"
+          "sha256": "34204505b07ee03b31794d5360bd362f2d5a5544f3e9af33066751ca4baea53e"
         },
         "src/react/styles.js": {
           "upstreamSha256": "312c3c294ed74af30e2783e355aba228efd6b3fb3a6665e03c00f223c8274118",
@@ -181,7 +358,7 @@
         },
         "test/pending.test.js": {
           "upstreamSha256": null,
-          "sha256": "0df1f7fb3566d526fa63f24ef283ccc6ca2a0b16e98cc1ce2fa2a6eb80673edd"
+          "sha256": "b6a8732bd54e2cd0f1e0ef42fe79c2cb923183bb135b0b7212ed80d5d3bb14d7"
         },
         "test/render.test.js": {
           "upstreamSha256": "0eedc0168749a6da5e016674c8c2d53bb07233ede04d76d73c675cc67dc342e9",
@@ -201,23 +378,23 @@
       "files": {
         "lib/client.js": {
           "upstreamSha256": "80f8c71122db3bd59e13b544a6fa5b795134c1301c7acdb1dca7e2ff342e54e9",
-          "sha256": "e07c1da0e81a8ad6323b4b40048396c19a343eda3705bfe7872bbc660b95ca48"
+          "sha256": "da5b14dd2ba1a38bdc55571f23d28fa5af6b31febb25cf6ae82e3ee8a79de7c3"
         },
         "lib/index.d.ts": {
           "upstreamSha256": "b11dc6126ae2a51937fe9c2aa13f7490fbf07a92152ebb3f282410398425ca03",
-          "sha256": "c86ffb39449dd6dc135be3383fe2dc7cc0fbe386161d0a1dada61f2067d5164a"
+          "sha256": "85ef7a02c38ed4a80a562fe1b8019668c2adc643f907e2fc1cf6e950d69879bb"
         },
         "lib/index.js": {
           "upstreamSha256": "00e961e047026887116be5b5097af4a933c023385700f787c50fbea00ca3a3d7",
-          "sha256": "dee5e8134b4148e3ee55651ddaa9e46e745b8035aa5d24ace2fd5c32c84059a4"
+          "sha256": "3ca1758fe3536c3b56bfa5ce67108c2936a072fc911965f391cdd9069d0b8c1e"
         },
         "package.json": {
           "upstreamSha256": "8a174bf1598bd301666b358a517c0e000f7be615c16b64067b919b9572bdccb9",
-          "sha256": "ccbcfd32844c875b20075c565c83442728b8cd76b823f27ea2ff6af69fbef634"
+          "sha256": "3ad54f30c454b31700917145dcfc062361b28f6d3d3d255a74a044781767cdbf"
         },
         "pnpm-lock.yaml": {
           "upstreamSha256": "2b21d7de7c93248f5a923303307f2b3aba17f1a438f706e1fd6514da60d2d5df",
-          "sha256": "78d90c6e4084fc58417c3b47ca1684f9b7e44a3cf9c81609ca3ec4f61efc40fd"
+          "sha256": "4b335a84600afb63605942ff9dd0b43b03985d9250facdabcc76407cfb93f032"
         },
         "src/client/StreamingPreview.tsx": {
           "upstreamSha256": "3432ae6beea5765dcc0174c99a57c981ed2fe50c63a1ced99b35d0e99faeb006",
@@ -245,11 +422,11 @@
         },
         "src/client/settings.tsx": {
           "upstreamSha256": "1e1da552b8fdc9d0c4d07b6793916cb9e6344b8b5ed8d81be58f15d7deebd139",
-          "sha256": "80f44ea0cfe8faff1d4523b27ca7dae9395b04760660f52d9ae6a69ae079ae20"
+          "sha256": "583adecc4beb881b89b9d38d5c6ba1adc0cdb108e950de2e0264238962d326f0"
         },
         "src/storage.ts": {
           "upstreamSha256": "4f3ff4878ca81a7f4c87e97a4ce8bd0ba6e96b008f3b19d21f4d9e82612e1e18",
-          "sha256": "930444fbffc3f26cc3e9bb7ce2dff5a00a6ceea6df5652e02031240fcc0ad7a5"
+          "sha256": "141cf41a19425edc8767c064594156d510b83948420a362b340f20f6bc855730"
         },
         "src/tool.ts": {
           "upstreamSha256": "403dfd8dab2fd4b724b0938e0dd77bcfc00190afde15b94114ff4720484319f4",
@@ -273,19 +450,91 @@
         },
         "tests/storage-commit.spec.ts": {
           "upstreamSha256": null,
-          "sha256": "8557d023dc4b329319502925e8a73b909b42b60f2839117d54a7a9e4db534203"
+          "sha256": "27fb3cc668dfbe7e45db3883ba94064d888c91b53eea69ed939fd7c430535ada"
         },
         "tests/storage.spec.ts": {
           "upstreamSha256": "a56c830a0b9adfbc6944f0b2c8c4468ccebece02dfef8103d979b83d9e0e365e",
-          "sha256": "c273778eef2e260c866a718657dc1196e97b7df6e6656be53d4551919fe40b8b"
+          "sha256": "2e238d2bfd0a08b9527b6ba0ceedba46421bfb2c4c0d1fb4b5a4de9533fec201"
         },
         "tests/turn-cards.spec.tsx": {
           "upstreamSha256": "e7e359b505b17cab121843fbe9979e0a39fc9e7c12e5c013a8646eaf989f1ef0",
-          "sha256": "674e074c47d7c49b324c4b3b81e9d9c281641593187f1b2e881a0d8b49bb314e"
+          "sha256": "13b6b355e251b92dcceba894cb51f59bb164280e36d678c52587ee9b1b9f97f5"
         },
         "tests/tool.spec.ts": {
           "upstreamSha256": "8947246170a19a9531096d234c83f7305a2e5a93023e2bbe75f15581b9e69514",
-          "sha256": "8de817a3e658d8ce6983516be51542310c5c372746d2f02781b4990595d681b3"
+          "sha256": "4207649aec1974fa1f1053043fc4d12e48cb3769d2a4e846f94d802d4771e3ac"
+        },
+        "src/client/card-state.ts": {
+          "upstreamSha256": "4cef2e748627b3e53fa1a1998bd7df3d1c469873097891688c752f0d0d059246",
+          "sha256": "a40d06f20c2da9cbb7494fe15876a59d58d1b5c47155f8af27a0bccdc01a5af0"
+        },
+        "src/images.ts": {
+          "upstreamSha256": "14c4cf6e5bcaeee7e6d237473a28649cf7aca7990a3c1f8b47bc21e5b0ecf1c8",
+          "sha256": "19fc4f2f1ceacc9d3fabee9e333014c4b904b48c237754dee7aca0f5978cbf12"
+        },
+        "src/index.ts": {
+          "upstreamSha256": "c54cff730cdde17c71dccdda1d21ccbb6badb54af646ca44a15bfa7ca0beafb8",
+          "sha256": "5e69445b0439da6cd4a6e49c8111d7d3c946cd499349cb0c6c5697c8b67c9385"
+        },
+        "src/self-repair.ts": {
+          "upstreamSha256": "e7b184d0bb7c39e3428ee25458aa829ffcdacef6f5708917191c0e9ad0114467",
+          "sha256": "f6ce303dbdb6b558b4e83db990a1b185e87cfc5d46fd1dc6ad5bfe628a2e1bf5"
+        },
+        "src/style-setting.ts": {
+          "upstreamSha256": "0554168e8fa04796fde2de4e97097484b8937a4f8bd0c691bbd995f60fc1281d",
+          "sha256": "9ee59321b713f35877c478bb74de3f152fc04ec59501830aecd840201883e85c"
+        },
+        "tests/card-images.spec.ts": {
+          "upstreamSha256": "bd04d320a71f8cbb2d2e60a7549f328f5af432e6b524082f658c538e75ef915e",
+          "sha256": "cac47c5c040240f02ca21343d3c88b79ef1d59755fa9e4d76db3db2595c65890"
+        },
+        "tests/images.spec.ts": {
+          "upstreamSha256": "7ee33355102629464e1b7f2aa1f163796a258cb9b01c72bb23ed08ece0f11d4e",
+          "sha256": "6c993f39d6fe27e04539b8ff3a9061dd95b99cf30e01442622a445b2e24a9ac1"
+        },
+        "tests/lint-gate.spec.ts": {
+          "upstreamSha256": "8dfe634cb7d0cf548a435ea8488bc6cf7094df8310a5b7c649561db3e749ff65",
+          "sha256": "0832066b9322ab190954753b77021644d6fe2f3df0553093e95332e855699b2d"
+        },
+        "tests/live-style.spec.tsx": {
+          "upstreamSha256": "bbfdf340310fed7a79e571f793031dfb56b9a0316813a45bb1f81ea93105c12d",
+          "sha256": "8b3b01b9b49b83fc30c80ffeed88d787906a251aac1c70f1c8b44108a55c89a2"
+        },
+        "tests/page-mode.spec.ts": {
+          "upstreamSha256": "127a4066530d10f64d0ee3f7b57fe345de36d8df4201b1b78d99914eafe4709e",
+          "sha256": "ac704ecce4f99e0369c2923e404f484c5c1230131e590a6f8a1f627bb09eb5da"
+        },
+        "tests/run-frame.ts": {
+          "upstreamSha256": "7a5a8d5a190e34fb584965d66f96be1482729f7668efcc398d4b0ee09ea1e759",
+          "sha256": "05e2cf5168812d915ea8005a858c6294436def57672eabee16d9b61217da0acb"
+        },
+        "tests/self-repair.spec.ts": {
+          "upstreamSha256": "fa0e33303336fe920a56821e2687d11eb86d2c608db50780065fe5c00229f17e",
+          "sha256": "93ba58c7311d668f2ee7926d08bac88285131839e25f90bd653b3287ca395da3"
+        },
+        "tests/settings-section.spec.tsx": {
+          "upstreamSha256": "00ed7861ceab89e1fffbef7815ca1651163ad1973fbc651a5526e2b7d58fd9e1",
+          "sha256": "07c8137b954683161611342a2fd75c71080af2212d7d2272b3dc7a39005db804"
+        },
+        "tests/stream-assembly.spec.ts": {
+          "upstreamSha256": "69a4939f3a2bf5e6dc04c66a7e998aba964fd1873f584cb114b5a40783b8f740",
+          "sha256": "1794832701e6b24eff40d80580f12b688ad0051406a545f9f30f8af86e288a63"
+        },
+        "tests/style-setting.spec.ts": {
+          "upstreamSha256": "d039d32e89b22c18a5b489a6bfe30c53fea551a61ff7087c264078eddc50ddb3",
+          "sha256": "3139d49a3ff5177eb9511088e6bc6d37f02a6583be5f61de510adaff65038ea7"
+        },
+        "tests/style.spec.ts": {
+          "upstreamSha256": "296aeb1cb837617cb8eda69595498dfbf902835100d3fbb9f2b8d3db072eb341",
+          "sha256": "b8b88637813a1f4cdb8bcce7115daf7e2562d4ff004cd2b0d914b2dd8cf14bfd"
+        },
+        "tsdown.config.ts": {
+          "upstreamSha256": "080973eed62ca6fa1fc7a66ef02285264d5827ec4f853c5abc785cf5d8f7798a",
+          "sha256": "8f7987a1091bf9f94eac1c6b1cdd333222aea26a7b0f91004267ba8fbe65539c"
+        },
+        "src/style-guide.ts": {
+          "upstreamSha256": "5762557fc0d709888a5b293f1bd019f1767bbc3bdf8e283a1a8062b0c090daff",
+          "sha256": "fd24bb4b765e895436d59fbfb5f46907ebeb0f57c66e20be233edcb7ea580786"
         }
       }
     }

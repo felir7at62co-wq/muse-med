@@ -1,6 +1,7 @@
 {
   "nsisLanguage": "JAPANESE",
   "strings": {
+    "INSTALLER_REBOOT_REQUIRED": "インストールが完了しました。Muse を開く前に Windows を再起動してください。",
     "INSTALLER_INSTALL": "今すぐインストール",
     "INSTALLER_FINISH": "完了",
     "INSTALLER_NATIVE_PROGRESS": "インストールを準備しています… %d%%",
@@ -31,7 +32,14 @@
     "INSTALLER_EXTRACT_COLLAPSE": "詳細を非表示",
     "INSTALLER_EXTRACT_SAVED": "完全なレポートを %s に保存しました",
     "INSTALLER_EXTRACT_UNSAVED": "完全なレポートを保存できませんでした。「エラーの詳細をコピー」で保存してください。",
-    "INSTALLER_EXTRACT_COPIED": "エラーの詳細をクリップボードにコピーしました。"
+    "INSTALLER_EXTRACT_COPIED": "エラーの詳細をクリップボードにコピーしました。",
+    "INSTALLER_VC_MISSING": "同梱の Microsoft Visual C++ x64 ランタイムが見つかりません。インストールを完了できません。完全な muse-med インストーラーを入手してください。",
+    "INSTALLER_VC_CONSENT": "muse-med には Microsoft Visual C++ x64 Runtime 14.51.36247.0 以降が必要です。同梱のランタイムを今すぐインストールしますか？システムコンポーネントが変更され、管理者の許可が必要です。ダウンロードは行いません。拒否すると muse-med のインストールは停止します。",
+    "INSTALLER_VC_DENIED": "Microsoft Visual C++ x64 Runtime のインストールが許可されませんでした。muse-med のインストールを完了できません。",
+    "INSTALLER_VC_EXIT_FAILED": "Microsoft Visual C++ x64 Runtime のインストールに失敗しました。",
+    "INSTALLER_VC_LAUNCH_FAILED": "Microsoft Visual C++ x64 Runtime を起動または監視できませんでした。管理者の許可が拒否された可能性があります。",
+    "INSTALLER_VC_REBOOT": "Microsoft Visual C++ x64 Runtime がインストールされましたが、Windows の再起動が必要です。muse-med を起動する前に Windows を再起動してください。完了画面ですぐに muse-med を起動する項目を選択しないでください。",
+    "INSTALLER_VC_PRIOR_FAILED": "必要条件の確認前に muse-med のインストールが失敗しました。"
   },
   "uninstaller": {
     "welcome": "アンインストール ウィザードへようこそ",

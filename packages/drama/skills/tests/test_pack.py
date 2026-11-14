@@ -18,7 +18,9 @@ class SkillArchive(unittest.TestCase):
         (self.root / "tests").mkdir()
         shutil.copyfile(Path(__file__).with_name("verify_pack.py"), self.root / "tests/verify_pack.py")
         self.guide = "skills/shots/references/director-format.md"
-        self.files = {"skills/shots/SKILL.md": b"# Shots\n", self.guide: b"# Director guide\n"}
+        self.image = "skills/shots/references/images/layout.png"
+        self.files = {"skills/shots/SKILL.md": b"# Shots\n", self.guide: b"# Director guide\n",
+                      self.image: b"\x89PNG\r\n\x1a\n\x00\xffbinary reference fixture"}
         for name, data in self.files.items():
             target = self.root / name
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -45,24 +47,30 @@ class SkillArchive(unittest.TestCase):
         return subprocess.run([sys.executable, str(self.root / "tests/verify_pack.py"), str(archive)],
                               capture_output=True, text=True, check=False)
 
-    def test_ships_guides_and_keeps_nested_tests_in_source(self):
+    def test_ships_guides_and_binary_references_and_keeps_nested_tests_in_source(self):
         self.assertEqual(self.verify().returncode, 0)
 
-    def test_rejects_an_unlisted_production_guide(self):
-        result = self.verify(listed=["skills/shots/SKILL.md"])
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("unlisted skill files", result.stderr)
-        self.assertIn(self.guide, result.stderr)
+    def test_rejects_an_unlisted_production_resource(self):
+        for resource in (self.guide, self.image):
+            with self.subTest(resource=resource):
+                result = self.verify(listed=[name for name in self.files if name != resource])
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unlisted skill files", result.stderr)
+                self.assertIn(resource, result.stderr)
 
-    def test_rejects_an_archive_missing_a_listed_guide(self):
-        result = self.verify(omitted=self.guide)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("archive differs from exact allowlist", result.stderr)
+    def test_rejects_an_archive_missing_a_listed_resource(self):
+        for resource in (self.guide, self.image):
+            with self.subTest(resource=resource):
+                result = self.verify(omitted=resource)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("archive differs from exact allowlist", result.stderr)
 
-    def test_rejects_a_stale_guide(self):
-        result = self.verify(stale=self.guide)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("stale archive member", result.stderr)
+    def test_rejects_a_stale_resource(self):
+        for resource in (self.guide, self.image):
+            with self.subTest(resource=resource):
+                result = self.verify(stale=resource)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("stale archive member", result.stderr)
 
     def test_rejects_tests_added_to_the_distribution(self):
         result = self.verify(listed=[*self.files, "skills/shots/tests/test_local.py"])

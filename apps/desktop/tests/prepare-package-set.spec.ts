@@ -191,6 +191,8 @@ describe('desktop package-set selection', () => {
       'package/lib/cli.js',
       'package/lib/retired-bot.js',
       'package/lib/delegation-policy.js',
+      'package/lib/approved-episode-render.js',
+      'package/lib/episode-render-worker.js',
       'package/config/desktop.cordis.patch.yml',
       'package/config/defaults.cordis.patch.yml',
       'package/presets/short-drama/agent.cordis.yml',
@@ -198,6 +200,8 @@ describe('desktop package-set selection', () => {
       'package/lib/native-preset.js',
       'package/lib/computer-use.js',
       'package/lib/computer-input-worker.js',
+      'package/lib/approved-episode-render.js',
+      'package/lib/episode-render-worker.js',
       ...['standard', 'ptc', 'minimal', 'cordis'].flatMap(id => [
         `package/presets/${id}/agent.cordis.yml`, `package/presets/${id}/preset.yml`,
       ]),

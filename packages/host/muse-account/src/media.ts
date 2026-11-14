@@ -137,6 +137,7 @@ export class MuseMediaClient {
 
   /**
    * Submit one cloud download with a stable account-owned key.
+   * Receipts identifying a job must acknowledge this request key.
    * @param request - Stable submission key and media target.
    * @param signal - Optional caller cancellation.
    * @returns Cloud receipt; no automatic retry is performed.
@@ -145,7 +146,7 @@ export class MuseMediaClient {
     const { requestId: key, ...target } = request
     return await this.run(signal, false, true, async (operation) => {
       const value = await this.call(operation, 'download_media', { ...target, request_id: key })
-      if ((value.job_id !== undefined || value.state !== 'failed') && value.request_id !== key) throw new MuseMediaError('invalid-response')
+      if (value.job_id !== undefined && value.request_id !== key) throw new MuseMediaError('invalid-response')
       return value
     })
   }

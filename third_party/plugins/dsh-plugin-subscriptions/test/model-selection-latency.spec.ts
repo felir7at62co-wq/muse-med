@@ -131,11 +131,9 @@ test('the installed plugin route resolves pooled models without waiting for anot
   const llm = new LlmRuntime(ctx)
   const connection = createFakeConnection()
   ctx.provide('connection', connection.connection)
-  const prototypes = [CodexAdapter.prototype, AntigravityAdapter.prototype] as unknown as { fetchCatalog: (...args: unknown[]) => Promise<unknown[]> }[]
-  const originals = prototypes.map(value => value.fetchCatalog)
   let release!: () => void
   const gate = new Promise<void>(resolve => { release = resolve })
-  for (const prototype of prototypes) prototype.fetchCatalog = async () => { await gate; return [] }
+  t.mock.method(globalThis, 'fetch', async () => { await gate; return new Response('{}') })
   const runtime = ctx.plugin(plugin, { providers: ['codex', 'antigravity'] })
   let selection: Promise<unknown> | undefined
   try {
@@ -160,7 +158,6 @@ test('the installed plugin route resolves pooled models without waiting for anot
     await selection?.catch(() => undefined)
     await pause(20)
     await runtime.dispose()
-    prototypes.forEach((value, index) => { value.fetchCatalog = originals[index] })
     if (previous === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = previous
     await rm(home, { recursive: true, force: true })
   }

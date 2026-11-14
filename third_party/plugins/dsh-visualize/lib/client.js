@@ -4004,6 +4004,15 @@ iframe { display: block; box-sizing: border-box; width: 100%; height: 100%; bord
 			const form = forms.get(ENTRY_ID);
 			return typeof form?.getSnapshot === "function" && typeof form.subscribe === "function" && typeof form.set === "function" ? form : void 0;
 		}
+		/** Validate one style-file record received from the authenticated HTTP route. */
+		function isStyleFileView(value) {
+			if (typeof value !== "object" || value === null) return false;
+			if (!("scope" in value) || value.scope !== "global" && value.scope !== "workspace") return false;
+			if (!("path" in value) || typeof value.path !== "string" || !("exists" in value) || typeof value.exists !== "boolean" || !("text" in value) || typeof value.text !== "string" || !("bytes" in value) || typeof value.bytes !== "number") return false;
+			if ("workspaceId" in value && value.workspaceId !== void 0 && typeof value.workspaceId !== "string") return false;
+			if ("title" in value && value.title !== void 0 && typeof value.title !== "string") return false;
+			return !("blocked" in value) || value.blocked === void 0 || value.blocked === "symlink" || value.blocked === "not-a-file" || value.blocked === "outside";
+		}
 		/**
 		* The style-file route over the page's own fetch, resolved against the
 		* document like the host's other `/api` routes, so a mounted app path keeps
@@ -4036,13 +4045,19 @@ iframe { display: block; box-sizing: border-box; width: 100%; height: 100%; bord
 							body: JSON.stringify(request)
 						});
 						const body = await response.json().catch(() => ({}));
-						if (response.ok) return {
-							ok: true,
-							file: body
-						};
+						if (response.ok) {
+							if (!isStyleFileView(body)) return {
+								ok: false,
+								reason: "Invalid style-file response"
+							};
+							return {
+								ok: true,
+								file: body
+							};
+						}
 						return {
 							ok: false,
-							reason: typeof body.message === "string" ? body.message : typeof body.error === "string" ? body.error : `HTTP ${response.status}`
+							reason: typeof body === "object" && body !== null ? "message" in body && typeof body.message === "string" ? body.message : "error" in body && typeof body.error === "string" ? body.error : `HTTP ${response.status}` : `HTTP ${response.status}`
 						};
 					} catch (error) {
 						return {

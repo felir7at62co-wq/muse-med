@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { apply } from '../src/index.ts'
 import {
   installSelfRepair,
@@ -19,11 +19,11 @@ type Listener = (...args: unknown[]) => unknown
 /** A host that records listeners and lets a test replay one session's turn. */
 function host(options: { version?: number; origin?: 'subagent'; steer?: boolean } = {}) {
   const listeners = new Map<string, Listener[]>()
-  const ctx = {
+  const ctx = new Context().extend({
     on(name: string, listener: Listener) {
       listeners.set(name, [...listeners.get(name) ?? [], listener])
     },
-  } as unknown as Context
+  })
   const session = { id: 's1', header: { id: 's1', version: options.version ?? 4, ...options.origin ? { origin: options.origin } : {} } }
   const steered: { content: { text: string }[]; source: Record<string, unknown>; role: string; id: string }[] = []
   const agent = {
@@ -257,14 +257,14 @@ describe('self-repair: when never to steer', () => {
   it('is not installed when the setting is off, and is by default', () => {
     const make = () => {
       const listeners: string[] = []
-      const ctx = {
+      const ctx = new Context().extend({
         get: () => undefined,
         tools: { register: () => () => {} },
         skills: { registerProvider: () => {} },
         on: (name: string) => { listeners.push(name) },
         inject: () => {},
         fiber: {},
-      } as unknown as Context
+      })
       return { ctx, listeners }
     }
     const off = make()

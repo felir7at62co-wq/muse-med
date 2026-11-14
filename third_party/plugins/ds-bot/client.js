@@ -20202,14 +20202,6 @@ function listedOpener({ list, open, refresh, current }) {
   return show2;
 }
 
-// src/client/phone-navigation.js
-function closePhoneSidebar(layout) {
-  if (window.innerWidth > 640) return;
-  const column = document.querySelector('[class*="_sidebarCol"]');
-  const frame = column?.parentElement;
-  if (frame && !frame.hasAttribute("data-sidebar-collapsed")) layout.toggleSidebar();
-}
-
 // src/client/index.js
 var inject = ["sessions", "uiWorkspace", "uiConversation", "slots", "theme", "layout"];
 function apply(ctx) {
@@ -20577,7 +20569,6 @@ function apply(ctx) {
   const show2 = listedOpener({ list: ctx.sessions.list, refresh: () => Promise.resolve(ctx.sessions.refresh?.()).catch(quietly("refresh sessions")), open: (target) => {
     expected2 = target;
     ctx.uiWorkspace.openSession(target);
-    closePhoneSidebar(ctx.layout);
   }, current: mainView });
   ctx.effect(() => () => show2.cancel(), "ds-bot: cancel pending conversation navigation");
   const ordinaryStarter = ordinarySessionStarter({

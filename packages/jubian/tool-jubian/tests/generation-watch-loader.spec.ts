@@ -3,12 +3,13 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promi
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, onTestFinished, vi } from 'vitest'
-import AgentRegistry from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { agentEvents } from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { JubianLedger } from '@deepseek-ai/dsh-jubian'
-import Llm, { createUserMessage, LlmError, ToolCallId } from '@deepseek-ai/dsh-llm'
+import Llm, { createMessage, createToolResultMessage, createUserMessage, LlmError, MessageId, ReasoningEffortId, ToolCallId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
+import { SessionPersistenceRevision } from '@deepseek-ai/dsh-session-persistence'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import WorkingDirectory from '@deepseek-ai/dsh-working-directory'
@@ -18,8 +19,9 @@ import * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 import WorkspaceRegistry from '@deepseek-ai/dsh-workspace'
 import * as WorkspaceOwned from '../../../../apps/desktop-host/src/workspace-owned-storage.ts'
 import Tools, { TOOL_BODY_META_KEY } from '@deepseek-ai/dsh-tools'
-import { executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
+import { defineContentToolFixture, executeToolFixture } from '@deepseek-ai/dsh-tool-testkit'
 import { Context } from '@deepseek-ai/cordis'
+import { RemoteError } from '@deepseek-ai/dsh-typert-protocol'
 import { createSessionTestController } from '../../../api/session-controller/tests/test-remote.ts'
 import { MockAdapter, textResponse, toolCallResponse } from '../../../core/agent-loop/tests/mock-adapter.ts'
 import { MemoryCredentials } from '../../../credentials/credentials/tests/memory.ts'
@@ -28,6 +30,9 @@ import * as NativeExecutor from '@deepseek-ai/dsh-tool-executor-native'
 import { configurationFixture } from '../../../settings/settings/tests/configuration-fixture.ts'
 import { GenerationWatchStore } from '../src/generation-watch-store.ts'
 import { createGenerationWatchNotice, deliverGenerationWatchNotice, registerGenerationWatchDelivery } from '../src/generation-watch-delivery.ts'
+import { createNativeGenerationDelivery, type NativeGenerationDelivery } from '../src/generation-watch-native-delivery.ts'
+import type { GenerationWorkspaceLease } from '../src/generation-binding.ts'
+import * as GenerationBinding from '../src/generation-binding.ts'
 import * as Jubian from '../src/index.ts'
 import { bodyHash } from '../src/write.ts'
 
@@ -234,7 +239,7 @@ it('wakes an idle owner after provider completion from the normal video submissi
 
 type AdapterScript = ConstructorParameters<typeof MockAdapter>[0]
 
-async function originalVideoFixture(script: AdapterScript) {
+async function originalVideoFixture(script: AdapterScript, reasoningEffort?: ReasoningEffortId) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'muse-generation-native-loader-')))
   let host: Context | undefined
   let finished = false
@@ -285,9 +290,11 @@ async function originalVideoFixture(script: AdapterScript) {
   await ledger.begin({ idempotencyKey, scriptId: 2708, method: 'storyboard_native_submit', requestSha256: bodyHash(payload) })
   await ledger.settle(idempotencyKey, { outcome: 'accepted', httpStatus: 200, applicationCode: 200, responseSha256: null })
   const adapter = new MockAdapter([toolCallResponse('original-submit', 'jubian_storyboard',
-    { method: 'submit_video', preview_path, idempotency_key: idempotencyKey }), textResponse('Provider is generating the pack.'), ...script])
+    { method: 'submit_video', preview_path, idempotency_key: idempotencyKey }), textResponse('Provider is generating the pack.'), ...script],
+  reasoningEffort === undefined ? undefined : { efforts: [{ id: reasoningEffort, name: 'High' }] })
   host.llm.registerAdapter(['mock'], adapter)
-  const agent = await host.agentLoop.create(SessionId('original-loader-owner'), selection, { cwd: root })
+  const agent = await host.agentLoop.create(SessionId('original-loader-owner'),
+    { ...selection, ...reasoningEffort === undefined ? {} : { reasoningEffort } }, { cwd: root })
   await (await host.workspaceRegistry.create(root)).attachSession(agent.id)
   agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Continue EP43.' }], source: { kind: 'user' } }))
   await agent.whenIdle()
@@ -300,6 +307,396 @@ async function originalVideoFixture(script: AdapterScript) {
     complete: () => { finished = true },
     reopen: async () => { await host?.fiber.dispose(); host = await watchHost(root); return host } }
 }
+
+async function isolatedNativeDelivery(script: AdapterScript = [textResponse('Continue the exact original operation.')],
+  setup?: (ctx: Context) => void, withoutAuthority = false, reasoningEffort?: ReasoningEffortId) {
+  const h = await originalVideoFixture(script, reasoningEffort)
+  const producer = [...h.host.loader.entries()].find(entry => entry.options.id === 'jubian')!
+  await producer.fiber!.dispose()
+  let deliver!: NativeGenerationDelivery
+  const owner = withoutAuthority ? h.host.isolate('generationWorkspaceAuthority') : h.host
+  const scope = owner.plugin({ name: 'isolated-generation-delivery',
+    inject: ['agents', 'agentLoop', 'tools', 'sessionProjections', 'sessionController', 'sessions', 'sessionPersistence', 'workingDirectory'],
+    apply: async (ctx: Context) => {
+      deliver = createNativeGenerationDelivery(ctx, await registerGenerationWatchDelivery(ctx))
+      setup?.(ctx)
+    } })
+  await scope.await()
+  return { ...h, scope, deliver,
+    send: (notice = createGenerationWatchNotice('Continue the original submitted task.')) =>
+      deliver(h.agent.id, notice, new AbortController().signal, undefined, undefined, h.run) }
+}
+
+it('refuses unbound, mismatched and archived native deliveries before resolving an Agent', async () => {
+  const h = await isolatedNativeDelivery(), notice = createGenerationWatchNotice('Original task.')
+  const resolve = vi.spyOn(h.host.sessionController, 'resolveAgent')
+  const signal = new AbortController().signal
+  expect(await h.deliver(h.agent.id, notice, signal)).toBe('needs-review')
+  expect(await h.deliver(SessionId('other'), notice, signal, undefined, undefined, h.run)).toBe('needs-review')
+  expect(await h.deliver(h.agent.id, notice, signal, undefined, 'old-receipt', h.run)).toBe('needs-review')
+  expect(await h.deliver(h.agent.id, notice, signal, { roomId: 'room', workerBotId: 'worker', requesterBotId: 'other',
+    requesterSessionId: 'other-session', exchangeId: 'exchange' }, undefined, h.run)).toBe('needs-review')
+  expect(resolve).not.toHaveBeenCalled()
+  await h.scope.dispose()
+  await expect(h.send()).rejects.toThrow('Automatic continuation producer unloaded')
+  resolve.mockRestore()
+}, 20_000)
+
+it('preserves native delivery when durable evidence is absent, changes revision or fails to flush', async () => {
+  const h = await isolatedNativeDelivery()
+  const flush = vi.spyOn(h.host.sessions, 'flush').mockResolvedValueOnce(false)
+  await expect(h.send()).rejects.toThrow('Original video submission did not persist')
+  flush.mockRestore()
+  const stat = vi.spyOn(h.host.sessionPersistence, 'stat').mockResolvedValueOnce(undefined)
+  expect(await h.send()).toBe('pending')
+  stat.mockRestore()
+  const observed = await h.host.sessionPersistence.stat(h.agent.id)
+  if (observed === undefined) throw new Error('Original durable Session is absent')
+  const changed = vi.spyOn(h.host.sessionPersistence, 'stat').mockResolvedValueOnce(observed)
+    .mockResolvedValueOnce({ ...observed, revision: SessionPersistenceRevision('changed-while-reading') })
+  expect(await h.send()).toBe('pending')
+  changed.mockRestore()
+  const notice = createGenerationWatchNotice('Resume only the original native execution.')
+  expect(await h.send(notice)).toBe('pending')
+  await h.agent.whenIdle()
+  expect(await h.send(notice)).toBe('settled')
+  const failedReceipt = vi.spyOn(h.host.sessions, 'flush').mockResolvedValueOnce(false)
+  await expect(h.send(notice)).rejects.toThrow('Generation notice settlement did not persist')
+  failedReceipt.mockRestore()
+  expect(h.adapter.requests).toHaveLength(3)
+}, 20_000)
+
+it('refuses a live execution whose durable submission binding no longer matches', async () => {
+  const h = await isolatedNativeDelivery(), notice = createGenerationWatchNotice('Original task.')
+  const changed = { ...h.run, binding: { ...h.binding, model: { provider: 'mock', model: 'different' } } }
+  expect(await h.deliver(h.agent.id, notice, new AbortController().signal, undefined, undefined, changed)).toBe('pending')
+  expect(h.adapter.requests).toHaveLength(2)
+}, 20_000)
+
+it('refuses admission as its actual producer enters unloading', async () => {
+  let admitted: Promise<string> | undefined
+  const h = await isolatedNativeDelivery(undefined, (ctx) => {
+    ctx.effect(() => () => { admitted = h.send() })
+  })
+  await h.scope.dispose()
+  expect(await admitted).toBe('pending')
+}, 20_000)
+
+it('refuses a generation notice reaching pre-step without a held native execution', async () => {
+  const h = await isolatedNativeDelivery()
+  h.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'Unbound automatic notice.' }],
+    source: { kind: 'jubian-generation-watch', form: 'notice', summary: 'Unbound fixture notice.' } }))
+  await h.agent.whenIdle()
+  const end = h.agent.session.snapshotEvents().filter(event => event.type === 'turn/end').at(-1)
+  expect(end?.data.reason.kind).toBe('error')
+  if (end?.data.reason.kind !== 'error') throw new Error('Unbound continuation was not rejected')
+  expect(end.data.reason.error.message).toContain('binding is not held')
+  expect(h.adapter.requests).toHaveLength(2)
+}, 20_000)
+
+it('checks held model dispatch and releases a delivery that fails while queued', async () => {
+  const h = await isolatedNativeDelivery(), entered = Promise.withResolvers<undefined>(), leave = Promise.withResolvers<undefined>()
+  onTestFinished(() => { leave.resolve(undefined) })
+  const maintenance = h.agent.runMaintenance(async () => { entered.resolve(undefined); await leave.promise })
+  await entered.promise
+  expect(await h.send()).toBe('pending')
+  const stream = async () => { for await (const chunk of h.host.llm.stream({ provider: 'mock', model: 'different',
+    messages: [], sessionId: h.agent.id })) void chunk }
+  await expect(stream()).rejects.toThrow('original model request changed')
+  const resolve = vi.spyOn(h.host.sessionController, 'resolveAgent').mockRejectedValueOnce(new Error('owner read failed'))
+  await expect(h.send()).rejects.toThrow('owner read failed')
+  resolve.mockRestore()
+  leave.resolve(undefined); await maintenance; await h.agent.whenIdle()
+}, 20_000)
+
+it('guards held pre-step selections and unscoped tool calls without changing their caller signal', async () => {
+  const h = await isolatedNativeDelivery(), release = Promise.withResolvers<undefined>()
+  onTestFinished(() => { release.resolve(undefined) })
+  const maintenance = h.agent.runMaintenance(async () => { await release.promise })
+  expect(await h.send()).toBe('pending')
+  await expect(agentEvents(h.host, h.agent).waterfall('agent/pre-step', { messages: [], turn: 2, step: 1,
+    signal: new AbortController().signal, modelSelection: { provider: 'mock', model: 'different' } }, async () => ({ kind: 'enter', messages: [] })))
+    .rejects.toThrow('original model changed')
+  const caller = new AbortController().signal
+  const unregister = h.host.effect(() => h.host.tools.register(defineContentToolFixture({ name: 'native_signal_probe', description: 'Read the invocation signal.',
+    parameters: {}, execute: async (_args, exec) => {
+      expect(exec.signal.aborted).toBe(false)
+      return [{ type: 'text', text: 'observed' }]
+    } })))
+  onTestFinished(async () => { await unregister() })
+  expect((await executeToolFixture(h.host, { callId: ToolCallId('without-agent'), name: 'native_signal_probe', arguments: {}, signal: caller })).isError).toBe(false)
+  const workspace = h.host.workspaceRegistry.get(h.binding.workspaceId)
+  if (workspace === undefined) throw new Error('Original workspace is absent')
+  await workspace.detachSession(h.agent.id)
+  const denied = await executeToolFixture(h.host, { callId: ToolCallId('revoked-owner'), name: 'native_signal_probe', arguments: {},
+    signal: caller, agent: h.agent })
+  expect(denied.isError).toBe(true)
+  expect(JSON.stringify(denied.content)).toContain('GENERATION_WATCH_BINDING_CHANGED')
+  release.resolve(undefined); await maintenance; await h.agent.whenIdle()
+}, 20_000)
+
+it('preserves pending delivery without a workspace owner capability or durable inbox claims', async () => {
+  const h = await isolatedNativeDelivery(undefined, undefined, true)
+  expect(await h.send()).toBe('pending')
+  const legacy = await watchHost(join(h.root, 'non-durable-host'), false)
+  onTestFinished(async () => { await legacy.fiber.dispose() })
+  const deliver = createNativeGenerationDelivery(legacy, await registerGenerationWatchDelivery(legacy))
+  expect(await deliver(h.agent.id, createGenerationWatchNotice('Original task.'), new AbortController().signal,
+    undefined, undefined, h.run)).toBe('pending')
+}, 20_000)
+
+it('propagates a stable Session resolution failure without starting a continuation', async () => {
+  const h = await isolatedNativeDelivery()
+  const failure = new RemoteError('session/not-found', 'Original Session is unavailable', { sessionId: h.agent.id })
+  const resolve = vi.spyOn(h.host.sessionController, 'resolveAgent').mockResolvedValueOnce({ error: failure })
+  await expect(h.send()).rejects.toBe(failure)
+  resolve.mockRestore()
+  expect(h.adapter.requests).toHaveLength(2)
+}, 20_000)
+
+it('drains an admitted delivery failure during producer shutdown before releasing its binding', async () => {
+  const h = await isolatedNativeDelivery(), release = Promise.withResolvers<undefined>()
+  onTestFinished(() => { release.resolve(undefined) })
+  const maintenance = h.agent.runMaintenance(async () => { await release.promise })
+  const entered = Promise.withResolvers<undefined>(), finish = Promise.withResolvers<undefined>()
+  onTestFinished(() => { finish.resolve(undefined) })
+  const flush = h.host.sessions.flush.bind(h.host.sessions)
+  const failure = new Error('Notice persistence unavailable during shutdown')
+  const ack = vi.spyOn(h.host.sessions, 'flush').mockImplementationOnce(flush).mockImplementationOnce(async () => {
+    entered.resolve(undefined)
+    await finish.promise
+    throw failure
+  })
+  const sending = h.send()
+  const rejected = expect(sending).rejects.toBe(failure)
+  await entered.promise
+  let stopped = false
+  const stopping = h.scope.dispose().then(() => { stopped = true })
+  await Promise.resolve()
+  expect(stopped).toBe(false)
+  finish.resolve(undefined)
+  await rejected
+  release.resolve(undefined)
+  await maintenance; await stopping
+  ack.mockRestore()
+  expect(h.agent.inbox.nextTurn).toHaveLength(0)
+}, 20_000)
+
+it('refuses a concurrent owner and releases the admitted continuation when it becomes idle', async () => {
+  const h = await isolatedNativeDelivery(), leave = Promise.withResolvers<undefined>()
+  const enter = Promise.withResolvers<undefined>()
+  const phases: string[] = []
+  const waitFor = async (phase: string) => vi.waitFor(() => {
+    expect(phases, `Waiting for ${phase}; observed ${JSON.stringify(phases)}`).toContain(phase)
+  }, { timeout: 5000 })
+  onTestFinished(() => { leave.resolve(undefined); enter.resolve(undefined) })
+  const maintenance = h.agent.runMaintenance(async () => { phases.push('maintenance-entered'); await leave.promise })
+  const authority = h.host.generationWorkspaceAuthority, acquire = authority.acquire.bind(authority)
+  const leases: { lease: GenerationWorkspaceLease; release: ReturnType<typeof vi.spyOn> }[] = []
+  const watching = vi.spyOn(authority, 'acquire').mockImplementation(async (...args) => {
+    const lease = await acquire(...args)
+    leases.push({ lease, release: vi.spyOn(lease, 'release') })
+    phases.push('first-workspace-acquired')
+    await enter.promise
+    phases.push('workspace-returned')
+    return lease
+  })
+  onTestFinished(() => { watching.mockRestore() })
+  let first: ReturnType<typeof h.send> | undefined, second: ReturnType<typeof h.send> | undefined
+  try {
+    await waitFor('maintenance-entered')
+    first = h.send()
+    const firstResult = first.catch((error: unknown) => error)
+    await waitFor('first-workspace-acquired')
+    second = h.send()
+    const secondResult = second.then(value => ({ kind: 'resolved' as const, value }), (error: unknown) => ({ kind: 'rejected' as const, error }))
+      .finally(() => { phases.push('second-settled') })
+    await waitFor('second-settled')
+    const denied = await secondResult
+    expect(denied.kind).toBe('rejected')
+    if (denied.kind !== 'rejected' || !(denied.error instanceof Error)) throw new Error('The concurrent owner was not rejected with an Error')
+    expect(denied.error.message).toContain('already has an active continuation')
+    expect(phases).not.toContain('workspace-returned')
+    expect(leases).toHaveLength(1)
+    enter.resolve(undefined)
+    expect(await firstResult).toBe('pending')
+    leave.resolve(undefined)
+    await maintenance; await h.agent.whenIdle()
+    for (const entry of leases) expect(entry.release).toHaveBeenCalled()
+    h.agent.model.select({ provider: 'mock', model: 'next-after-continuation' })
+  } finally {
+    enter.resolve(undefined); leave.resolve(undefined)
+    await Promise.allSettled([first, second, maintenance])
+    await h.agent.whenIdle()
+    watching.mockRestore()
+  }
+}, 20_000)
+
+it('reuses a held continuation for another notice and preserves an explicitly selected reasoning effort', async () => {
+  const h = await isolatedNativeDelivery([textResponse('Unscoped model request.'), textResponse('Continue both results.')],
+    undefined, false, ReasoningEffortId('high'))
+  const leave = Promise.withResolvers<undefined>()
+  onTestFinished(() => { leave.resolve(undefined) })
+  const maintenance = h.agent.runMaintenance(async () => { await leave.promise })
+  expect(h.binding.model.reasoningEffort).toBe('high')
+  const notice = createGenerationWatchNotice('Continue this existing submitted task.')
+  expect(await h.send(notice)).toBe('pending')
+  const queued = h.agent.inbox.nextTurn.find(message => message.id === notice.id)
+  if (queued === undefined) throw new Error('The automatic notice was not queued')
+  expect(h.agent.inbox.remove(MessageId(notice.id))).toBe(true)
+  h.agent.inbox.append('next-step', queued)
+  expect(await h.send(notice)).toBe('pending')
+  const changed = async () => { for await (const chunk of h.host.llm.stream({ ...selection, messages: [],
+    sessionId: h.agent.id, reasoningEffort: ReasoningEffortId('low') })) void chunk }
+  await expect(changed()).rejects.toThrow('original model request changed')
+  for await (const chunk of h.host.llm.stream({ ...selection, messages: [] })) void chunk
+  leave.resolve(undefined)
+  await maintenance; await h.agent.whenIdle()
+}, 20_000)
+
+it.each(['park', 'drain', 'flush'] as const)('releases the native binding after a shutdown %s failure', async (mode) => {
+  const h = await isolatedNativeDelivery(['hang'])
+  expect(await h.send()).toBe('pending')
+  await vi.waitFor(() => { expect(h.adapter.requests).toHaveLength(3) })
+  const fail = new Error(`Native shutdown ${mode} unavailable`)
+  const remove = mode === 'park' ? vi.spyOn(h.agent.inbox, 'remove').mockImplementationOnce(() => { throw fail }) : undefined
+  const idle = mode === 'drain' ? vi.spyOn(h.agent, 'whenIdle').mockRejectedValueOnce(fail) : undefined
+  const flush = mode === 'flush' ? vi.spyOn(h.host.sessions, 'flush').mockResolvedValueOnce(false) : undefined
+  const stopping = h.scope.dispose()
+  await stopping
+  remove?.mockRestore(); idle?.mockRestore(); flush?.mockRestore()
+  expect(h.agent.inbox.nextTurn).toHaveLength(0)
+  h.agent.model.select({ provider: 'mock', model: 'after-cleanup' })
+}, 20_000)
+
+it.each(['caller-abort', 'revoked-lease'] as const)('rejects an owner revoked after acquisition: %s', async (mode) => {
+  const h = await isolatedNativeDelivery(), caller = new AbortController()
+  const acquire = GenerationBinding.acquireGenerationSessionBinding
+  const acquiring = vi.spyOn(GenerationBinding, 'acquireGenerationSessionBinding').mockImplementation(async (...args) => {
+    const lease = await acquire(...args)
+    if (lease === undefined) throw new Error('The fixture requires an owned execution')
+    if (mode === 'caller-abort') caller.abort(new Error('Caller cancelled before publication'))
+    else lease.release()
+    return lease
+  })
+  onTestFinished(() => { acquiring.mockRestore() })
+  await expect(h.deliver(h.agent.id, createGenerationWatchNotice('Original task.'), caller.signal,
+    undefined, undefined, h.run)).rejects.toThrow(mode === 'caller-abort' ? 'Caller cancelled before publication' : 'binding released')
+  acquiring.mockRestore()
+  h.agent.model.select({ provider: 'mock', model: 'after-rejected-publication' })
+}, 20_000)
+
+it('keeps a replacement held lease when an earlier cancelled delivery fails to persist', async () => {
+  const h = await isolatedNativeDelivery(), caller = new AbortController(), leave = Promise.withResolvers<undefined>()
+  const phases: string[] = []
+  const waitFor = async (phase: string) => vi.waitFor(() => {
+    if (!phases.includes(phase)) throw new Error(`Missing ${phase}; observed ${JSON.stringify(phases)}`)
+  }, { timeout: 5000 })
+  const secondAcquire = Promise.withResolvers<undefined>()
+  const flushExit = Promise.withResolvers<undefined>()
+  const publishFirst = Promise.withResolvers<undefined>()
+  onTestFinished(() => {
+    leave.resolve(undefined); secondAcquire.resolve(undefined); flushExit.resolve(undefined); publishFirst.resolve(undefined)
+  })
+  const maintenance = h.agent.runMaintenance(async () => { await leave.promise })
+  const authority = h.host.generationWorkspaceAuthority, acquire = authority.acquire.bind(authority)
+  let calls = 0
+  const acquisition = vi.spyOn(authority, 'acquire').mockImplementation(async (...args) => {
+    if (++calls === 2) {
+      phases.push('second-acquire-entered')
+      await secondAcquire.promise
+      const lease = await acquire(...args)
+      phases.push('second-workspace-acquired')
+      return lease
+    }
+    const lease = await acquire(...args)
+    phases.push('first-workspace-acquired')
+    await publishFirst.promise
+    return lease
+  })
+  const flush = h.host.sessions.flush.bind(h.host.sessions)
+  let firstLeaseReady = false, captured = false
+  const acquireBinding = GenerationBinding.acquireGenerationSessionBinding
+  const binding = vi.spyOn(GenerationBinding, 'acquireGenerationSessionBinding').mockImplementation(async (...args) => {
+    const lease = await acquireBinding(...args)
+    phases.push('execution-binding-ready')
+    firstLeaseReady = true
+    return lease
+  })
+  const failure = new Error('Earlier notice could not persist')
+  const ack = vi.spyOn(h.host.sessions, 'flush').mockImplementation(async (...args) => {
+    if (firstLeaseReady && !captured) {
+      captured = true; phases.push('notice-flush-entered')
+      await flushExit.promise
+      throw failure
+    }
+    return await flush(...args)
+  })
+  onTestFinished(() => { acquisition.mockRestore(); ack.mockRestore(); binding.mockRestore() })
+  const first = h.deliver(h.agent.id, createGenerationWatchNotice('First result.'), caller.signal, undefined, undefined, h.run)
+  const firstResult = first.catch((error: unknown) => { phases.push(`first-rejected:${String(error)}`); return error })
+  let second: ReturnType<typeof h.send> | undefined
+  try {
+    // Observation I/O may reorder callers; pin the cancellable owner before starting its replacement.
+    await waitFor('first-workspace-acquired')
+    second = h.send()
+    const secondResult = second.then((value) => { phases.push('second-delivered'); return value }, (error: unknown) => {
+      phases.push(`second-rejected:${String(error)}`)
+      return error
+    })
+    await waitFor('second-acquire-entered')
+    publishFirst.resolve(undefined)
+    await waitFor('notice-flush-entered')
+    caller.abort(new Error('First caller cancelled'))
+    secondAcquire.resolve(undefined)
+    await waitFor('second-delivered')
+    expect(await secondResult).toBe('pending')
+    flushExit.resolve(undefined)
+    expect(await firstResult).toBe(failure)
+    expect(await h.send()).toBe('pending')
+    expect(calls).toBe(2)
+    leave.resolve(undefined); await maintenance; await h.agent.whenIdle()
+    h.agent.model.select({ provider: 'mock', model: 'after-replacement-idle' })
+  } finally {
+    publishFirst.resolve(undefined); secondAcquire.resolve(undefined); flushExit.resolve(undefined); leave.resolve(undefined)
+    caller.abort(new Error('Fixture release'))
+    await Promise.allSettled([first, second, maintenance])
+    acquisition.mockRestore(); ack.mockRestore(); binding.mockRestore()
+  }
+}, 20_000)
+
+it('withholds another authenticated original binding while a continuation is held', async () => {
+  const h = await isolatedNativeDelivery(), leave = Promise.withResolvers<undefined>()
+  onTestFinished(() => { leave.resolve(undefined) })
+  const maintenance = h.agent.runMaintenance(async () => { await leave.promise })
+  expect(await h.send()).toBe('pending')
+  const binding = { ...h.binding, model: { provider: 'mock', model: 'other-original-model' } }
+  const pack = { key: 'c'.repeat(64), previewPath: join(h.root, 'other-original-preview.json') }
+  const run = { ...h.run, id: 'd'.repeat(64), binding, packs: [pack] }
+  const recorded = Session.create(h.agent.id, undefined, h.agent.session.header), callId = ToolCallId('other-original-call')
+  const args = { method: 'submit_video', idempotency_key: pack.key, preview_path: pack.previewPath }
+  recorded.append('turn/start', { turn: 1 }); recorded.append('step/start', { turn: 1, step: 1 })
+  recorded.append('request/header', { reason: 'initial', header: { config: binding.model } })
+  recorded.append('assistant/message', { turn: 1, step: 1, stream: [], message: createMessage({ role: 'assistant',
+    content: [{ type: 'tool-call', id: callId, name: 'jubian_storyboard', arguments: JSON.stringify(args) }],
+    source: { kind: 'model', ...binding.model } }) }, { surfaceOp: 'append' })
+  recorded.append('tool/call', { turn: 1, step: 1, callId, name: 'jubian_storyboard', arguments: JSON.stringify(args) })
+  recorded.append('tool/result', { turn: 1, step: 1, message: createToolResultMessage({ callId, content: [], isError: false }),
+    meta: { [TOOL_BODY_META_KEY]: { generationWatchId: run.id, submission: args, binding } } }, { surfaceOp: 'append' })
+  const open = h.host.sessionPersistence.open.bind(h.host.sessionPersistence)
+  const reading = vi.spyOn(h.host.sessionPersistence, 'open').mockImplementationOnce(async (...args) => {
+    const handle = await open(...args)
+    const result = await handle.read()
+    vi.spyOn(handle, 'read').mockResolvedValue({ ...result, events: recorded.snapshotEvents() })
+    return handle
+  })
+  onTestFinished(() => { reading.mockRestore() })
+  expect(await h.deliver(h.agent.id, createGenerationWatchNotice('Other original result.'), new AbortController().signal,
+    undefined, undefined, run)).toBe('pending')
+  reading.mockRestore()
+  leave.resolve(undefined); await maintenance; await h.agent.whenIdle()
+  expect(h.adapter.requests).toHaveLength(3)
+}, 20_000)
 
 it('records an admitted failed continuation for review without scheduling another turn', async () => {
   const h = await originalVideoFixture([() => { throw new LlmError('Offline account quota exhausted', 'ACCOUNT_QUOTA') }])

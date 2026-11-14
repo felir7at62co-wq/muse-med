@@ -70,6 +70,7 @@ export function prepareDesktopSmokeSkills(home: string): DesktopSmokeSkillLayout
  * @param home - Disposable smoke product home containing a separate workspace.
  * @returns ESM plugin source checking current product tools, technical skills, retired resources,
  * native skill locations, and completed Agent disposal. Historical editing resolves to short-drama.
+ * Failures record the preset, assembly stage and Agent fiber states before disposal.
  */
 export function desktopSmokePluginSource(root: string, home: string): string {
   return `
@@ -91,9 +92,10 @@ export function apply(ctx) {
   try {
   if (typeof ctx.museAccount.feedback !== 'function') throw new Error('desktop runtime: Muse inbox feedback method is missing')
   const ids = ['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation']
+  const declaredIds = [...ids, 'muse-manuscript-continuity-reviewer']
   const presets = await ctx.agentPresets.list()
-  if (presets.length !== ids.length || ids.some(id => !presets.some(preset => preset.id === id))) {
-    throw new Error('desktop runtime: product preset roster differs; expected ' + ids.join(', ') + '; found ' + presets.map(preset => preset.id).join(', '))
+  if (presets.length !== declaredIds.length || declaredIds.some(id => !presets.some(preset => preset.id === id))) {
+    throw new Error('desktop runtime: product preset roster differs; expected ' + declaredIds.join(', ') + '; found ' + presets.map(preset => preset.id).join(', '))
   }
   if (ctx.agentPresets.defaultId !== 'short-drama') throw new Error('desktop runtime: product default preset changed')
   if ((await ctx.agentPresets.resolve('editing')).id !== 'short-drama') {
@@ -108,6 +110,7 @@ export function apply(ctx) {
     throw new Error('desktop runtime: preset is broken or missing from the product package: ' + id + '; ' + (preset.broken ?? 'composition absent'))
   }
   const handles = []
+  let stage = 'create agents'
   try {
     for (let index = 0; index < 2; index++) {
       handles.push(await ctx.agents.create({
@@ -116,6 +119,7 @@ export function apply(ctx) {
       }))
     }
     for (const handle of handles) {
+    stage = 'assemble ' + handle.agent.id
     const names = new Set(ctx.tools.schemas(handle.agent).map(tool => tool.name))
     const retiredTools = ['list_bots', 'message_bot', 'create_bot', 'update_bot', 'stop_bot', 'start_task', 'ask_user']
     for (const name of retiredTools) if (names.has(name)) throw new Error('desktop runtime: archived Bot tool remains active: ' + name + ' in ' + id)
@@ -194,6 +198,7 @@ export function apply(ctx) {
         if (result.isError) throw new Error('desktop runtime: tool_context ' + operation + ' failed')
       }
       await manage('load')
+      stage = 'assemble loaded tools ' + handle.agent.id
       const loaded = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
       for (const [name, description] of Object.entries(editingModelInput.tools)) {
         if (loaded.tools.find(tool => tool.name === name)?.description !== description) {
@@ -201,6 +206,7 @@ export function apply(ctx) {
         }
       }
       await manage('release')
+      stage = 'assemble released tools ' + handle.agent.id
       const released = await ctx.systemPrompt.assemble({ agent: handle.agent, scope: handle.agent })
       if (JSON.stringify(released.tools.map(tool => tool.name).sort()) !== JSON.stringify(initialNames)
         || deferredTools.some(name => ctx.toolDiscovery.state(handle.agent).loaded.includes(name))) {
@@ -327,6 +333,10 @@ export function apply(ctx) {
       }
     }
     }
+  } catch (error) {
+    const states = handles.map(handle => ({ id: handle.agent.id, uid: handle.agent.ctx?.fiber.uid, state: handle.agent.ctx?.fiber.state }))
+    throw new Error('desktop runtime: preset ' + id + ' at ' + stage + '; agents=' + JSON.stringify(states)
+      + '\\n' + String(error && error.stack ? error.stack : error))
   } finally {
     for (const handle of handles.reverse()) await handle.dispose()
   }

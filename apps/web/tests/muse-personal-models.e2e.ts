@@ -18,10 +18,12 @@ it('discovers a personal model in Muse, retains it after restart and selects it 
   let browser: Browser | undefined
   let server: Server | undefined
   const requests: { model: string; authorization?: string | undefined }[] = []
+  const listings: { url: string; authorization?: string | undefined }[] = []
   let continuationRequests = 0
   try {
     server = createServer((request, response) => {
       if (request.url === '/v1/models') {
+        listings.push({ url: request.url, authorization: request.headers.authorization })
         response.writeHead(200, { 'content-type': 'application/json' })
         response.end(JSON.stringify({ data: [{ id: 'personal-review-model', name: 'Personal Review Model', contextWindow: 262144, max_tokens: 32768 }] }))
         return
@@ -107,11 +109,13 @@ it('discovers a personal model in Muse, retains it after restart and selects it 
     await custom.getByLabel('Provider ID').fill('muse-personal-review')
     await custom.getByLabel('显示名称').fill('Personal Review')
     await custom.getByLabel('API 地址').fill(endpoint)
+    await custom.getByLabel('API 协议', { exact: true }).selectOption('openai-completions')
     await custom.getByLabel('API 密钥', { exact: true }).fill('synthetic-review-key')
     await custom.getByRole('button', { name: '获取可用模型', exact: true }).click()
-    const available = page.getByRole('dialog', { name: '选择要添加的模型', exact: true })
+    const available = page.getByRole('dialog', { name: '选择模型', exact: true })
     await available.getByRole('checkbox', { name: /personal-review-model/ }).check()
-    await available.getByRole('button', { name: '添加所选', exact: true }).click()
+    expect(listings).toEqual([{ url: '/v1/models', authorization: 'Bearer synthetic-review-key' }])
+    await available.getByRole('button', { name: '更新列表', exact: true }).click()
     expect(await custom.getByLabel('模型 ID 1').inputValue()).toBe('personal-review-model')
     await custom.getByRole('button', { name: '创建提供商', exact: true }).click()
     await dialog.getByRole('button', { name: '编辑 Personal Review (muse-personal-review)', exact: true }).waitFor()

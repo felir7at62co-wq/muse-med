@@ -5,10 +5,12 @@ import { createSpeedLoader } from '../src/client/SpeedSelect.js'
 
 test('Speed selector resolves a child default for the current model and rechecks model switches', async () => {
   const requests: unknown[] = []
-  const connection = { rpc: { call: async (_channel: string, _endpoint: string, payload: { model?: string }) => {
+  const connection: Pick<ConnectionHandle, 'rpc'> = { rpc: { call: async (_channel: string, _endpoint: string, payload: unknown) => {
     requests.push(payload)
-    return { ok: true, value: { tier: payload.model === 'fast-model' ? 'fast' : 'standard', fastModels: ['fast-model'] } }
-  } } } as unknown as ConnectionHandle
+    assert.ok(typeof payload === 'object' && payload !== null)
+    const model = 'model' in payload ? payload.model : undefined
+    return { ok: true, value: { tier: model === 'fast-model' ? 'fast' : 'standard', fastModels: ['fast-model'] } }
+  } } }
   let current = { provider: 'codex', model: 'fast-model' }
   const load = createSpeedLoader(connection, () => ({ directoryFor: id => {
     assert.equal(id, 'child')

@@ -179,6 +179,85 @@ function deliveredElements(container: HTMLElement) {
 function inputs(): AbsorptionOptions { return { id: 'real-video', onCollect: vi.fn(), onOpen: vi.fn() } }
 
 describe('useAbsorption', () => {
+  it('leaves a card outside a Chat frame or without a scroll owner in place', () => {
+    const input = inputs()
+    const outside = render(<Card {...input} />)
+    expect(outside.container.querySelector('[data-video-absorption]')).toBeNull()
+    expect(frames.size).toBe(0)
+    outside.unmount()
+    const withoutScroll = render(<div data-chat-frame><Card {...input} /></div>)
+    expect(withoutScroll.container.querySelector<HTMLElement>('[data-video-source]')?.style.visibility).toBe('')
+    expect(frames.size).toBe(0)
+    expect(resizeListeners).toHaveLength(0)
+    expect(input.onCollect).not.toHaveBeenCalled()
+  })
+
+  it('draws the approaching material without a neck and clips it inside a colored receiving bubble', () => {
+    setProgress(0.1)
+    const view = render(<Fixture {...inputs()} />)
+    const target = view.getByRole('button', { name: '视频气泡' })
+    target.style.backgroundColor = 'rgb(10, 20, 30)'
+    flushFrame()
+    expect(canvasContext.fillStyle).toBe('rgb(10, 20, 30)')
+    expect(canvasContext.bezierCurveTo).not.toHaveBeenCalled()
+    expect(canvasContext.rect).toHaveBeenCalled()
+    setProgress(0.9)
+    fireEvent.resize(window)
+    flushFrame()
+    expect(canvasContext.roundRect).toHaveBeenCalledWith(353, 63, 94, 34, 17)
+    expect(view.container.querySelector<HTMLElement>('[data-video-absorption]')?.dataset.phase).toBe('inside')
+  })
+
+  it('keeps the material when only the readable-frame snapshot lacks a canvas context', () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (this: HTMLCanvasElement) {
+      return this.isConnected ? browserContext as CanvasRenderingContext2D : null
+    })
+    setProgress(0.3)
+    const view = render(<Fixture {...inputs()} />)
+    const video = view.container.querySelector('video')!
+    Object.defineProperty(video, 'readyState', { configurable: true, value: 2 })
+    Object.defineProperty(video, 'videoWidth', { configurable: true, value: 1920 })
+    flushFrame()
+    expect(view.container.querySelector<HTMLElement>('[data-video-absorption]')?.hidden).toBe(false)
+    expect(canvasContext.fill).toHaveBeenCalled()
+    expect(canvasContext.drawImage).not.toHaveBeenCalled()
+  })
+
+  it('restores a collected card when its receiving anchor disappears', () => {
+    const input = inputs()
+    setProgress(1)
+    const view = render(<Fixture {...input} />)
+    flushFrame()
+    expect(input.onCollect).toHaveBeenLastCalledWith(true)
+    view.rerender(<Fixture {...input} hasAnchor={false} />)
+    fireEvent.resize(window)
+    flushFrame()
+    expect(input.onCollect).toHaveBeenLastCalledWith(false)
+    expect(view.container.querySelector<HTMLElement>('[data-video-source]')?.style.visibility).toBe('')
+    expect(view.container.querySelector<HTMLElement>('[data-video-absorption]')?.hidden).toBe(true)
+  })
+
+  it('restores the anchor material it borrowed and leaves a newer collector in control on teardown', () => {
+    const view = render(<Fixture {...inputs()} />)
+    const target = view.getByRole('button', { name: '视频气泡' })
+    target.style.setProperty('--muse-video-fusion', '0.2')
+    setProgress(0.5)
+    flushFrame()
+    expect(target.style.getPropertyValue('--muse-video-fusion')).toBe('1')
+    setProgress(0)
+    fireEvent.resize(window)
+    flushFrame()
+    expect(target.style.getPropertyValue('--muse-video-fusion')).toBe('0.2')
+    setProgress(0.5)
+    fireEvent.resize(window)
+    flushFrame()
+    target.setAttribute('data-muse-video-fusion-owner', 'newer-video')
+    target.style.setProperty('--muse-video-fusion', '0.7')
+    view.unmount()
+    expect(target.getAttribute('data-muse-video-fusion-owner')).toBe('newer-video')
+    expect(target.style.getPropertyValue('--muse-video-fusion')).toBe('0.7')
+  })
+
   it('collects into the conversation sibling anchor while retaining the portal in its Chat frame', () => {
     const view = render(<Fixture {...inputs()} siblingAnchor />)
     const card = view.container.querySelector<HTMLElement>('[data-video-source]')!

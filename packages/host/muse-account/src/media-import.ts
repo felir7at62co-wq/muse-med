@@ -45,10 +45,10 @@ const facts = z.object({ bytes: z.number().int().positive(), sha256: z.string().
 const fileIdentity = z.object({ dev: z.string().regex(/^\d+$/u), ino: z.string().regex(/^\d+$/u) })
 const publication = z.object({ media: fileIdentity, receipt: fileIdentity })
 const helperEvent = z.discriminatedUnion('phase', [
+  z.object({ phase: z.literal('received') }),
   facts.extend({ phase: z.literal('verified') }),
   facts.extend({ phase: z.literal('published'), path: z.string(), receipt: z.string(), publication }),
   z.object({ phase: z.literal('failed'), code: z.string() }),
-  z.object({ phase: z.literal('cleaned') }),
 ])
 
 /** Locally verified file suitable for the existing present tool and video inventory. */
@@ -159,7 +159,7 @@ export class MuseMediaImporter {
     }
     const root = await this.fs.resolve(policy.workspaceRoot, { signal })
     if (policy.mode === 'workspace-write' && !this.fs.contains(root, target)) throw new MuseMediaImportError('workspace-outside')
-    // Confinement is required for workspace-write publication, including helper descendants.
+    // Confinement is required before any workspace-write download or publication.
     if (policy.mode !== 'danger-full-access' && this.sandbox === undefined) throw new SandboxUnavailableError(policy.mode)
     return { cwd, policy }
   }
@@ -168,10 +168,13 @@ export class MuseMediaImporter {
     signal: AbortSignal): Promise<readonly string[]> {
     const node = await this.subprocess.resolveExecutable(this.options.nodePath, undefined, signal)
     const command = [node, '--input-type=module', '-e', MEDIA_FILE_HELPER, JSON.stringify({ ...spec, operation, controlFd: SUBPROCESS_CONTROL_FD })]
+    return await this.confine(command, policy, signal)
+  }
+
+  private async confine(command: readonly string[], policy: SandboxExecutionPolicy, signal: AbortSignal): Promise<readonly string[]> {
     if (policy.mode === 'danger-full-access') return command
-    const sandbox = this.sandbox
-    if (sandbox === undefined) throw new SandboxUnavailableError(policy.mode)
-    return (await sandbox.confine(command, { ...policy, mode: policy.mode }, signal)).argv
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- location rejects a missing backend before obtaining any transfer.
+    return (await this.sandbox!.confine(command, { ...policy, mode: policy.mode }, signal)).argv
   }
 
   private environment(): NodeJS.ProcessEnv {
@@ -180,6 +183,47 @@ export class MuseMediaImporter {
       if (/KEY|SECRET|TOKEN|PASSWORD|COOKIE|PROXY|NODE_OPTIONS|LD_PRELOAD|DYLD_/iu.test(key)) removed[key] = undefined
     }
     return removed
+  }
+
+  /** Managed readers avoid restricted Windows grandchildren's libuv named-pipe creation. */
+  private async media(argv: readonly string[], cwd: string, policy: SandboxExecutionPolicy, signal: AbortSignal): Promise<string> {
+    const command = await this.confine(argv, policy, signal)
+    const child = this.subprocess.spawn({ argv: command, cwd, signal,
+      graceMs: this.options.graceMs, env: this.environment(), stdio: { stdin: 'ignore',
+        stdout: { maxBytes: this.options.maxOutputBytes }, stderr: { maxBytes: this.options.maxOutputBytes } } })
+    try {
+      const outcome = await child.done
+      signal.throwIfAborted()
+      if (outcome.exitCode !== 0 || outcome.signal !== null) throw new MuseMediaImportError('invalid-media')
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- Successful spawn declares collected stdout and stderr.
+      const stdout = child.collected.stdout!.readFrom(0), stderr = child.collected.stderr!.readFrom(0)
+      if (stdout.lossy || stderr.lossy) throw new MuseMediaImportError('invalid-media')
+      return stdout.text
+    } finally { child.terminate(); await child.waitForExit() }
+  }
+
+  private async verify(spec: HelperSpec, policy: SandboxExecutionPolicy, signal: AbortSignal): Promise<z.infer<typeof facts>> {
+    const temporary = join(spec.cwd, ...spec.directory.split('/'), `.import-${spec.nonce}`, 'media')
+    const metadata = z.object({
+      streams: z.array(z.object({ codec_type: z.string(), width: z.number().int().positive().optional(),
+        height: z.number().int().positive().optional() })),
+      format: z.object({ format_name: z.string(), duration: z.union([z.string(), z.number()]).optional() }),
+    }).parse(JSON.parse(await this.media([spec.ffprobe, '-v', 'error', '-protocol_whitelist', 'file,pipe', '-show_entries',
+      'format=format_name,duration:stream=codec_type,width,height', '-of', 'json', temporary], spec.cwd, policy, signal)))
+    const video = metadata.streams.find(stream => stream.codec_type === 'video')
+    const durationSeconds = Number(metadata.format.duration)
+    const imageFormat = metadata.format.format_name.split(',').some(name => name.endsWith('_pipe')
+      || ['image2', 'gif', 'apng', 'ico', 'heif', 'avif'].includes(name))
+    if (video?.width === undefined || video.height === undefined || video.width * video.height > spec.maxPixels
+      || (spec.kind === 'video' && imageFormat)
+      || (spec.kind === 'image' && !imageFormat && Number.isFinite(durationSeconds) && durationSeconds > 0)
+      || (spec.kind === 'video' && (!Number.isFinite(durationSeconds) || durationSeconds <= 0 || durationSeconds > spec.maxDurationSeconds))) {
+      throw new MuseMediaImportError('invalid-media')
+    }
+    await this.media([spec.ffmpeg, '-nostdin', '-v', 'error', '-xerror', '-protocol_whitelist', 'file,pipe', '-i', temporary,
+      '-map', '0:v:0', '-map', '0:a?', '-f', 'null', '-'], spec.cwd, policy, signal)
+    return { bytes: spec.bytes, sha256: spec.sha256, kind: spec.kind, width: video.width, height: video.height,
+      ...spec.kind === 'video' ? { durationSeconds } : {}, fullDecodeVerified: true }
   }
 
   private async settle(spec: HelperSpec, operation: 'cleanup' | 'finalize', policy: SandboxExecutionPolicy,
@@ -202,15 +246,17 @@ export class MuseMediaImporter {
       signal, graceMs: this.options.graceMs, env: this.environment(), stdio: { stdin: 'pipe', stdout: 'pipe',
         stderr: { maxBytes: this.options.maxOutputBytes }, control: 'pipe' } })
     const ready = Promise.withResolvers<void>()
+    const received = Promise.withResolvers<void>()
     void ready.promise.catch((_error: unknown) => undefined)
+    void received.promise.catch((_error: unknown) => undefined)
     let published: z.infer<typeof facts> & { path: string; receipt: string } | undefined
     let error: MuseMediaImportError | undefined
     const output = (async () => {
-      if (child.stdout === undefined) throw new MuseMediaImportError('unavailable')
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- The subprocess provider exposes raw stdout for pipe mode.
+      const stdout: AsyncIterable<Buffer> = child.stdout!
       let text = '', bytes = 0
       const decoder = new TextDecoder('utf-8', { fatal: true })
-      for await (const chunk of child.stdout) {
-        if (!Buffer.isBuffer(chunk)) throw new MuseMediaImportError('invalid-media')
+      for await (const chunk of stdout) {
         bytes += chunk.byteLength
         if (bytes > this.options.maxOutputBytes) throw new MuseMediaImportError('invalid-media')
         text += decoder.decode(chunk, { stream: true })
@@ -219,9 +265,10 @@ export class MuseMediaImporter {
           if (line < 0) break
           const event = helperEvent.parse(JSON.parse(text.slice(0, line)))
           text = text.slice(line + 1)
-          if (event.phase === 'failed') { error = failure(event.code); ready.reject(error) }
+          if (event.phase === 'failed') { error = failure(event.code); ready.reject(error); received.reject(error) }
+          else if (event.phase === 'received') received.resolve()
           else if (event.phase === 'verified') ready.resolve()
-          else if (event.phase === 'published') {
+          else {
             spec.publication = event.publication
             published = { path: event.path, receipt: event.receipt, ...facts.parse(event) }
           }
@@ -234,10 +281,12 @@ export class MuseMediaImporter {
       if (error !== undefined) throw error
       if (outcome.exitCode !== 0 || outcome.signal !== null) throw new MuseMediaImportError('invalid-media')
     })
-    void completion.catch((error: unknown) => { ready.reject(error) })
+    void completion.catch((error: unknown) => { ready.reject(error); received.reject(error) })
     try {
       if (child.stdin === undefined || child.control === undefined) throw new MuseMediaImportError('unavailable')
       await pipeline(Readable.from(fileChunks(transfer.body)), child.stdin, { signal })
+      await received.promise
+      child.control.write(JSON.stringify(await this.verify(spec, location.policy, signal)) + '\n')
       await ready.promise
       await transfer.assertCurrent()
       const current = await this.location(agent, signal)

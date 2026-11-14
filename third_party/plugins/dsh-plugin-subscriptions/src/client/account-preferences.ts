@@ -1,4 +1,4 @@
-import type { AccountPreferences, ProviderPreferences } from '../provider-settings.js'
+import type { AccountPreferences, ProviderPreferences } from '../provider-settings-types.js'
 
 export interface AccountCatalogRow {
   key: string

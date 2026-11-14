@@ -16,6 +16,7 @@
  * @module dsh-plugin-subscriptions/providers/rate-limit
  */
 
+import type { FetchResponse } from '../http.js'
 import { resolveRetryPolicy } from '@deepseek-ai/dsh-llm'
 import type { ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
 
@@ -26,7 +27,7 @@ import type { ResolvedRetryPolicy } from '@deepseek-ai/dsh-llm'
  * @param now - the current epoch milliseconds, injected so parsing is testable.
  * @returns epoch milliseconds of the reset, or undefined when the provider said nothing.
  */
-export type RateLimitResetReader = (response: Response, body: string, now: number) => number | undefined
+export type RateLimitResetReader = (response: FetchResponse, body: string, now: number) => number | undefined
 
 /**
  * Extra time added to every provider-disclosed wait. Absorbs clock skew
@@ -140,7 +141,7 @@ export function resetInstantFromValue(value: unknown, now: number): number | und
  * @param now - the current epoch milliseconds.
  * @returns epoch milliseconds of the reset, or undefined when absent or unusable.
  */
-export function resetInstantFromHeader(response: Response, name: string, now: number): number | undefined {
+export function resetInstantFromHeader(response: FetchResponse, name: string, now: number): number | undefined {
   return resetInstantFromValue(response.headers.get(name), now)
 }
 
@@ -151,7 +152,7 @@ export function resetInstantFromHeader(response: Response, name: string, now: nu
  * @param now - the current epoch milliseconds.
  * @returns epoch milliseconds of the reset, or undefined when absent or unusable.
  */
-export function retryAfterInstant(response: Response, now: number): number | undefined {
+export function retryAfterInstant(response: FetchResponse, now: number): number | undefined {
   const raw = response.headers.get('retry-after')
   if (raw === null) return undefined
   const trimmed = raw.trim()
@@ -171,7 +172,8 @@ export function retryAfterInstant(response: Response, now: number): number | und
 export function jsonBody(body: string): unknown {
   if (body.length === 0) return undefined
   try {
-    return JSON.parse(body) as unknown
+    const parsed: unknown = JSON.parse(body)
+    return parsed
   } catch {
     // Only swallow body parsing: header-derived signals still apply.
     return undefined
@@ -263,7 +265,7 @@ const DIAGNOSTIC_HEADER = /rate-?limit|retry|reset|^x-codex-/i
  * @param body - the complete response body.
  * @returns a one-line diagnostic.
  */
-export function rateLimitDiagnostics(response: Response, body: string): string {
+export function rateLimitDiagnostics(response: FetchResponse, body: string): string {
   const headers: string[] = []
   response.headers.forEach((value, key) => {
     if (DIAGNOSTIC_HEADER.test(key)) headers.push(`${key}: ${value}`)

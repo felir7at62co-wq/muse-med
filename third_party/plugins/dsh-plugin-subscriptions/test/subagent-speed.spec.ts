@@ -6,7 +6,9 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
-import type { Agent } from '@deepseek-ai/dsh-agent'
+import { Session, SESSION_FORMAT_VERSION, SessionId, SessionLogOffset, type SessionHeader } from '@deepseek-ai/dsh-session'
+import { subscriptionAgent } from './agent-fixture.js'
+import type { SubscriptionSessionMeta } from './agent-fixture.js'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
 import type { AccountAwareAdapter } from '../src/providers/accounts.js'
 import { accountModelId } from '../src/providers/account-preferences.js'
@@ -46,16 +48,18 @@ test('main speed and per-model subagent defaults stay independent through RPC, r
     await new Promise(resolve => setTimeout(resolve, 50))
     assert.ok(connection.registered())
     const call = (endpoint: string, payload: unknown) => connection.handler(endpoint, payload, new AbortController().signal)
-    const register = (id: string, header: Record<string, unknown>, provider = 'codex') => {
-      const agent = { id, ctx, options: { provider }, session: { id, header: { id, ...header } } } as unknown as Agent
+    const register = (id: string, meta: Partial<SubscriptionSessionMeta>, provider = 'codex') => {
+      const header: SessionHeader = { version: SESSION_FORMAT_VERSION, id: SessionId(id), createdAt: Date.now(), isSeeded: false, ...meta }
+      const session = Session.create(SessionId(id), header.isSeeded ? [] : undefined, header, SessionLogOffset(0))
+      const agent = subscriptionAgent(id, ctx, { provider }, session)
       agents!.enter(agent, undefined)
     }
     if (agents) {
       register('parent', {}, 'claude')
-      register('child', { origin: 'subagent', parentSession: 'parent' })
-      register('nested', { origin: 'subagent', parentSession: 'child' })
-      register('restored-fork', { origin: 'subagent', parentSession: 'absent-parent', isSeeded: true })
-      register('ordinary-fork', { parentSession: 'parent', isSeeded: true })
+      register('child', { origin: 'subagent', parentSession: SessionId('parent') })
+      register('nested', { origin: 'subagent', parentSession: SessionId('child') })
+      register('restored-fork', { origin: 'subagent', parentSession: SessionId('absent-parent'), isSeeded: true })
+      register('ordinary-fork', { parentSession: SessionId('parent'), isSeeded: true })
     }
     const stream = async (id: string | undefined, expected: 'priority' | undefined, model = 'fast-model') => {
       const before = requests.length

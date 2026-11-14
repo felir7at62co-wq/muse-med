@@ -10,7 +10,7 @@
 // on rc.2; ui-renderer's augmentation carries it on the 0.1.2-alpha line).
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 // Type-only: pulls the shell's SlotMap merge (the 'settings.section' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls ui-conversation's SlotMap merge (the 'conversation.input.right' entry).
@@ -79,9 +79,7 @@ export function apply(ctx: ClientContext): void {
     document.head.appendChild(style)
     return () => style.remove()
   }, 'dsh-plugin-subscriptions: settings panel breathing room')
-  // The shell's Context merge types `connection` as the host handle; in the
-  // browser shell the same key holds the full client ConnectionHandle.
-  const connection = ctx.get('connection') as unknown as ConnectionHandle
+  const connection = ctx.get('connection') as ConnectionHandle
   const t = ctx.locale.bind(NS) as SubscriptionsSectionInjected['t']
   const injected = (): SubscriptionsSectionInjected => ({ rpc: connection.rpc, t })
   ctx.slots.inject('settings.section', () => ctx.slots.register({

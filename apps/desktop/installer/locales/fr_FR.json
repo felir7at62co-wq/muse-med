@@ -1,6 +1,7 @@
 {
   "nsisLanguage": "FRENCH",
   "strings": {
+    "INSTALLER_REBOOT_REQUIRED": "L’installation est terminée. Redémarrez Windows avant d’ouvrir Muse.",
     "INSTALLER_INSTALL": "Installer maintenant",
     "INSTALLER_FINISH": "Terminer",
     "INSTALLER_NATIVE_PROGRESS": "Préparation de l'installation… %d%%",
@@ -31,7 +32,14 @@
     "INSTALLER_EXTRACT_COLLAPSE": "Masquer les détails",
     "INSTALLER_EXTRACT_SAVED": "Le rapport complet a été enregistré dans %s",
     "INSTALLER_EXTRACT_UNSAVED": "Le rapport complet n'a pas pu être enregistré. Utilisez Copier les détails de l'erreur pour le conserver.",
-    "INSTALLER_EXTRACT_COPIED": "Les détails de l'erreur ont été copiés dans le presse-papiers."
+    "INSTALLER_EXTRACT_COPIED": "Les détails de l'erreur ont été copiés dans le presse-papiers.",
+    "INSTALLER_VC_MISSING": "Le composant Microsoft Visual C++ x64 fourni est manquant. L’installation ne peut pas aboutir. Obtenez un programme d’installation muse-med complet.",
+    "INSTALLER_VC_CONSENT": "muse-med nécessite Microsoft Visual C++ x64 Runtime 14.51.36247.0 ou ultérieur. Installer maintenant le composant fourni ? Cette opération modifie des composants système et nécessite l’autorisation d’un administrateur. Aucun téléchargement n’est effectué. Un refus arrête l’installation de muse-med.",
+    "INSTALLER_VC_DENIED": "L’installation de Microsoft Visual C++ x64 Runtime n’a pas été autorisée. L’installation de muse-med ne peut pas aboutir.",
+    "INSTALLER_VC_EXIT_FAILED": "L’installation de Microsoft Visual C++ x64 Runtime a échoué.",
+    "INSTALLER_VC_LAUNCH_FAILED": "Impossible de démarrer ou de surveiller Microsoft Visual C++ x64 Runtime. L’autorisation d’un administrateur a peut-être été refusée.",
+    "INSTALLER_VC_REBOOT": "Microsoft Visual C++ x64 Runtime est installé, mais Windows doit redémarrer. Redémarrez Windows avant de lancer muse-med. Ne sélectionnez pas le lancement de muse-med sur la page finale.",
+    "INSTALLER_VC_PRIOR_FAILED": "L’installation de muse-med a échoué avant la vérification des prérequis."
   },
   "uninstaller": {
     "welcome": "Bienvenue",

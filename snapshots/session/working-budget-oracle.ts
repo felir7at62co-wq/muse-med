@@ -1,4 +1,4 @@
-/** Exact text-only snapshot budgets from expected inputs expanded for one replay directory. */
+/** Exact text and tool-declaration snapshot budgets from inputs expanded for one replay directory. */
 import { deriveEventMessage, foldSurface } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-compaction'
 import type { EpochHeader, SessionEvent } from '@deepseek-ai/dsh-session'
@@ -16,6 +16,8 @@ export interface WorkingBudgetOracleInput {
   schemas: readonly (readonly unknown[])[]
   /** The isolated replay's actual directory, before path redaction. */
   cwd: string
+  /** Expected path prefixes whose owning tool publishes a different display spelling. */
+  pathDisplays?: ReadonlyMap<string, string>
 }
 
 function object(value: unknown, label: string): Record<string, unknown> {
@@ -28,6 +30,8 @@ function blockTokens(block: ContentBlock): number {
     case 'text':
     case 'reasoning': return 4 + Math.ceil(block.text.length / 4)
     case 'tool-call': return 4 + Math.ceil(block.name.length / 4) + Math.ceil(block.arguments.length / 4)
+    case 'tool-addition':
+    case 'tool-removal': return 4 + Math.ceil(JSON.stringify(block).length / 4)
     default: throw new Error(`Working-budget oracle needs an explicit request-price owner for ${block.type}`)
   }
 }
@@ -59,29 +63,34 @@ function toolsTokens(header: EpochHeader | undefined): number {
 
 // Preserve the lexical spacing of model-visible JSON tool results. Re-stringifying
 // their parsed objects changes their token price even when the values are identical.
-function expandText(value: string, cwd: string): string {
+function expandText(value: string, cwd: string, pathDisplays: ReadonlyMap<string, string> = new Map()): string {
   if (!value.includes('{{cwd}}')) return value
-  // The working-directory context owner quotes its path with JSON.stringify.
+  // Directory and sandbox-policy context quote their paths with JSON.stringify.
   const directoryContext = 'Current working directory: "{{cwd}}".'
   if (value.includes(directoryContext)) {
-    value = value.replaceAll(directoryContext, `Current working directory: ${JSON.stringify(cwd)}.`)
+    value = value.replaceAll('"{{cwd}}"', JSON.stringify(cwd))
     if (!value.includes('{{cwd}}')) return value
   }
   let parsed: unknown
   try { parsed = JSON.parse(value) }
-  catch (_error) { return value.replaceAll('{{cwd}}', cwd) }
-  if (parsed === null || typeof parsed !== 'object') return value.replaceAll('{{cwd}}', cwd)
+  catch (_error) { return expandPlainText(value, cwd, pathDisplays) }
+  if (parsed === null || typeof parsed !== 'object') return expandPlainText(value, cwd, pathDisplays)
   return value.replace(/"(?:[^"\\]|\\.)*"/gu, literal => {
     const text: string = JSON.parse(literal)
-    return JSON.stringify(expandText(text, cwd))
+    return JSON.stringify(expandText(text, cwd, pathDisplays))
   })
 }
 
-function expandValue(value: unknown, cwd: string): unknown {
-  if (typeof value === 'string') return expandText(value, cwd)
-  if (Array.isArray(value)) return value.map(item => expandValue(item, cwd))
+function expandPlainText(value: string, cwd: string, pathDisplays: ReadonlyMap<string, string>): string {
+  for (const [prefix, display] of pathDisplays) value = value.replaceAll(prefix, display)
+  return value.replaceAll('{{cwd}}', cwd)
+}
+
+function expandValue(value: unknown, cwd: string, pathDisplays: ReadonlyMap<string, string> | undefined): unknown {
+  if (typeof value === 'string') return expandText(value, cwd, pathDisplays)
+  if (Array.isArray(value)) return value.map(item => expandValue(item, cwd, pathDisplays))
   if (value !== null && typeof value === 'object') return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [key, expandValue(item, cwd)]),
+    Object.entries(value).map(([key, item]) => [key, expandValue(item, cwd, pathDisplays)]),
   )
   return value
 }
@@ -89,7 +98,7 @@ function expandValue(value: unknown, cwd: string): unknown {
 /**
  * Reconstruct each expected request prefix and price it before volatile paths are redacted.
  * Public Session folding applies every append, positional replacement and message projection.
- * This owner supports the current text-only recordings with sub-heuristic replay usage;
+ * This owner supports text and tool-declaration recordings with sub-heuristic replay usage;
  * routed binary prices and usage-calibrated recordings fail explicitly rather than guessing.
  * @param input - expected writer and sidecars plus the isolated directory.
  * @returns decoded current-writer events with expected paths and sidecars expanded.
@@ -116,14 +125,21 @@ function expectedEvents(input: WorkingBudgetOracleInput): SessionEvent[] {
       const header = object(data.header, 'Request header')
       const schemas = input.schemas[headerIndex++]
       if (schemas === undefined) throw new Error('Working-budget oracle is missing tool schemas')
-      if (header.tools === '{{tools}}') {
+      const toolNames = Array.isArray(header.tools) && header.tools.every(tool => typeof tool === 'string') ? header.tools : undefined
+      if (toolNames !== undefined) {
+        const expectedNames = schemas.map(schema => object(schema, 'Tool schema').name)
+        if (JSON.stringify(toolNames) !== JSON.stringify(expectedNames)) {
+          throw new Error('Working-budget tool inventory differs from its schema sidecar')
+        }
+      }
+      if (header.tools === '{{tools}}' || toolNames !== undefined) {
         if (schemas.length === 0) delete header.tools
         else header.tools = schemas
       }
     }
   }
   if (promptIndex !== prompts.length || headerIndex !== input.schemas.length) throw new Error('Working-budget oracle sidecar count differs from the expected writer')
-  const expanded = rows.map(row => JSON.stringify(expandValue(row, input.cwd))).join('\n') + '\n'
+  const expanded = rows.map(row => JSON.stringify(expandValue(row, input.cwd, input.pathDisplays))).join('\n') + '\n'
   const events = parseSessionLog(expanded)
   if (events.length !== rows.length - 1) throw new Error('Working-budget oracle requires one current-writer row per event')
   return events

@@ -178,6 +178,8 @@ interface ToolArgsMap {
     file_path: string;
     /** 1-based first line to return. Defaults to 1. */
     offset?: number;
+    /** 1-based Unicode code point column in the first line. Use the continuation cursor for a partial line. */
+    column?: number;
     /** Maximum number of lines to return. Defaults to 2000. */
     limit?: number;
   } & Record<string, JsonValue>;
@@ -275,7 +277,16 @@ interface ToolArgsMap {
     /** The task for the subagent. It already sees this conversation's completed turns, so build on them freely and state only what is new. */
     prompt: string;
   } & Record<string, JsonValue>;
-  /** Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. Mark each todo `completed` as soon as it is done. */
+  /** Update one existing task without resending the list; task must match its full text. Use status completed with start_next true to finish that task and start the first pending task when no other task is in progress. Repeating an already completed task does not advance again. Use todo_write to add, rename, remove, or reorder tasks. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery. */
+  todo_update: {
+    /** Exact content of the existing task; surrounding whitespace is ignored. */
+    task: string;
+    /** Actual task state: pending, in_progress, or completed. */
+    status: "pending" | "in_progress" | "completed";
+    /** Only with completed: on a new completion, start the first pending task if no task remains in_progress. */
+    start_next?: boolean;
+  } & Record<string, JsonValue>;
+  /** Record and update a task list to plan multi-step work and show progress; skip it for trivial single-step tasks. Add one todo per concrete step before you start. Use this tool to create or revise the whole plan; use todo_update for individual status changes. While work remains, keep the todos being worked on `in_progress`, several only when work runs in parallel. After each stage, verify its actual result and immediately update the completed task and the work now in progress. Keep unfinished or failed work pending or in_progress; do not wait until final delivery to update all tasks at once. Generation success does not complete editing, quality checks, or delivery. */
   todo_write: {
     /** The COMPLETE task list, replacing any previous list. */
     todos: ({
@@ -291,14 +302,20 @@ interface ToolArgsMap {
     goal_id: string;
     /** Exact positive revision returned by get_goal. */
     revision: number;
-    /** edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. */
-    action: "edit" | "pause" | "resume" | "complete" | "blocked";
+    /** edit, pause, and resume require a direct top-level human request. complete and blocked are also allowed during an automatic continuation of this goal; blocked is rejected before the configured minimum round count. wait yields the foreground while keeping the goal active; resume on user input, watched job output, or a timer. */
+    action: "edit" | "pause" | "resume" | "complete" | "blocked" | "wait";
     /** Replacement objective; valid only with action edit. */
     objective?: string;
     /** Replacement cap; valid only with action edit. */
     max_goal_rounds?: number;
     /** Required only with action blocked: the concrete condition that persisted across rounds and blocks progress. */
     blocked_reason?: string;
+    /** With action wait: describe what new information or event is needed. */
+    wait_reason?: string;
+    /** With action wait: optional positive whole seconds before continuing. */
+    wake_after_seconds?: number;
+    /** With action wait: optional owned job to watch for new output or settlement. */
+    job_id?: string;
   } & Record<string, JsonValue>;
   /** Fetch the content of a specific HTTP(S) URL and return it decoded to text. */
   web_fetch: {
@@ -388,6 +405,12 @@ interface ToolOutputMap {
       };
     };
     activation: "armed" | "disarmed";
+    wait?: {
+      reason: string;
+      message: string;
+      wakeAt?: number;
+      jobId?: string;
+    };
   };
   edit: {
     /** Canonical absolute path in the filesystem execution world. */
@@ -411,6 +434,12 @@ interface ToolOutputMap {
       };
     };
     activation: "armed" | "disarmed";
+    wait?: {
+      reason: string;
+      message: string;
+      wakeAt?: number;
+      jobId?: string;
+    };
   };
   glob: {
     root: string;
@@ -485,11 +514,18 @@ interface ToolOutputMap {
     /** Canonical absolute path in the filesystem execution world. */
     path: string;
     offset: number;
+    column?: number;
     lines: {
       number: number;
       text: string;
     }[];
     totalLines: number;
+    continuation?: {
+      offset: number;
+      column: number;
+    };
+    versionBefore?: string;
+    versionAfter?: string;
   };
   read_image: {
     /** Canonical absolute path in the filesystem execution world. */
@@ -1479,6 +1515,20 @@ interface ToolOutputMap {
     kind: "activation";
     subagentId: string;
   };
+  todo_update: {
+    todos: ({
+      content: string;
+      status: "pending" | "in_progress" | "completed";
+    })[];
+    counts: {
+      pending: number;
+      inProgress: number;
+      completed: number;
+    };
+    current: string[];
+    next: string | null;
+    reminder: string;
+  };
   todo_write: {
     todos: ({
       content: string;
@@ -1489,6 +1539,9 @@ interface ToolOutputMap {
       inProgress: number;
       completed: number;
     };
+    current: string[];
+    next: string | null;
+    reminder: string;
   };
   update_goal: {
     goal: null;
@@ -1506,6 +1559,12 @@ interface ToolOutputMap {
       };
     };
     activation: "armed" | "disarmed";
+    wait?: {
+      reason: string;
+      message: string;
+      wakeAt?: number;
+      jobId?: string;
+    };
   };
   web_fetch: {
     url: string;

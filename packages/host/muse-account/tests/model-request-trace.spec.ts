@@ -11,6 +11,46 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{1
 const header = 'x-muse-client-request-id'
 const finish: StreamChunk = { type: 'finish', reason: { kind: 'stop' } }
 
+it('keeps requests without a Session identity explicitly unattributed', async () => {
+  const records: MuseModelRequestMetadata[] = []
+  const trace = new MuseModelRequestTrace('https://company.test', value => records.push(value))
+  for await (const _chunk of trace.stream({ provider: 'muse-cloud-studio', model: 'writer', messages: [] }, async function* () {
+    yield finish
+  })) { /* Consume the actual optional-Session request. */ }
+  expect(records).toHaveLength(2)
+  expect(records.every(record => record.session_id === null)).toBe(true)
+})
+
+it('closes a valid adapter iterator that does not implement optional return', async () => {
+  const records: MuseModelRequestMetadata[] = []
+  const trace = new MuseModelRequestTrace('https://company.test', value => records.push(value))
+  const source: AsyncIterator<StreamChunk, unknown> = { next: async () => ({ done: false,
+    value: { type: 'text-delta', index: 0, text: 'private adapter text' } }) }
+  const iterator = trace.stream(options('no-return'), () => ({ [Symbol.asyncIterator]: () => source }))[Symbol.asyncIterator]()
+  await iterator.next()
+  if (!iterator.return) throw Error('Trace wrapper did not expose consumer closure')
+  expect(await iterator.return('closed')).toEqual({ done: true, value: 'closed' })
+  expect(records).toHaveLength(2)
+  expect(records.at(-1)?.outcome).toBe('consumer_closed')
+  expect(JSON.stringify(records)).not.toContain('private adapter text')
+})
+
+it.each([false, true])('preserves a thrown consumer error when the adapter lacks throw, return supported: %s', async (withReturn) => {
+  const records: MuseModelRequestMetadata[] = [], closed: unknown[] = []
+  const trace = new MuseModelRequestTrace('https://company.test', value => records.push(value))
+  const source: AsyncIterator<StreamChunk, unknown> = { next: async () => ({ done: false,
+    value: { type: 'text-delta', index: 0, text: 'private adapter text' } }) }
+  if (withReturn) source.return = async (value) => { closed.push(value); return { done: true, value } }
+  const iterator = trace.stream(options('no-throw'), () => ({ [Symbol.asyncIterator]: () => source }))[Symbol.asyncIterator]()
+  await iterator.next()
+  if (!iterator.throw) throw Error('Trace wrapper did not expose consumer errors')
+  const failure = Error('private consumer failure')
+  await expect(iterator.throw(failure)).rejects.toBe(failure)
+  expect(closed).toHaveLength(withReturn ? 1 : 0)
+  expect(records.at(-1)?.outcome).toBe('thrown')
+  expect(JSON.stringify(records)).not.toContain('private consumer failure')
+})
+
 it('attributes iterator creation and every interleaved generator resumption to its own request', async () => {
   const records: MuseModelRequestMetadata[] = [], seen: { session: string; id: string | null }[] = []
   const trace = new MuseModelRequestTrace('https://company.test', value => records.push(value))

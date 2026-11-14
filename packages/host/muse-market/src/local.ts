@@ -196,12 +196,13 @@ export class MuseMarketLocal {
     return await withFileLock(this.ledger, async () => {
       const state = this.activation(await this.state()), entries: MuseMarketBindingEntry[] = []
       for (const [name, id] of Object.entries(state.defaults)) {
-        const item = state.installations.find(row => row.release.id === id)
-        if (item === undefined) throw new MarketError('invalid-ledger')
+        // oxlint-disable-next-line typescript/no-non-null-assertion -- state() validates every default against an installed release.
+        const item = state.installations.find(row => row.release.id === id)!
         const parsed = readMarketPackage(await this.verify(item.release), this.config.limits)
-        const member = item.release.manifest.skills[0]
-        const bytes = member === undefined ? undefined : parsed.files[member.path]
-        if (bytes === undefined) throw new MarketError('missing-skill')
+        // oxlint-disable-next-line typescript/no-non-null-assertion -- Package validation requires exactly one Skill.
+        const member = item.release.manifest.skills[0]!
+        // oxlint-disable-next-line typescript/no-non-null-assertion -- The verified archive contains every declared instruction member.
+        const bytes = parsed.files[member.path]!
         const skill = marketSkill(new TextDecoder('utf-8', { fatal: true }).decode(bytes), name)
         entries.push({ release: item.release, skill: { name, description: skill.description, invocation: skill.invocation,
           ...(skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse }) } })
@@ -233,8 +234,8 @@ export class MuseMarketLocal {
         const path = prefix + entry.name, native = join(directory, entry.name)
         if (entry.isDirectory() && directories.has(path)) { await visit(native, path + '/'); continue }
         if (!entry.isFile() || path !== 'publication.zip' && files[path] === undefined) throw new MarketError('modified-installation')
-        const expected = path === 'publication.zip' ? archive : files[path]
-        if (expected === undefined) throw new MarketError('modified-installation')
+        // oxlint-disable-next-line typescript/no-non-null-assertion -- The preceding check rejects every unowned file.
+        const expected = path === 'publication.zip' ? archive : files[path]!
         const actual = await readMarketBytes(native, this.config.limits.expandedBytes)
         if (!actual.equals(expected)) throw new MarketError('modified-installation')
       }

@@ -3,6 +3,7 @@ scenario: plugin-recommendations
 profile: web
 composition: web-plugin-recommendations
 recording: authored
+writerOutput: true
 header:
   class: web-plugin-recommendations
   pin: true

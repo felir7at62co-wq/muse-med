@@ -337,7 +337,6 @@ export function apply(ctx: Context, config: Config = {}): void {
       }
       return decision
     }
-    const incomplete = false
     const eligible = snapshot.skills.filter(isModelInvocable)
     const bounded = limited && needsCatalogSelection(eligible, limits)
     const admissions = prepared.get(agent)
@@ -353,7 +352,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     const preferred = direct === undefined ? history.latestEntries?.map(entry => entry.name) ?? [] : invokedSkillNames([direct])
     const skills = bounded ? selectCatalogSkills(eligible, limits, intent, preferred) : eligible
     const entries = catalogSourceEntries(skills, catalogDescriptionMaxLength)
-    const digest = digestCatalogEntries(entries, incomplete, bounded)
+    const digest = digestCatalogEntries(entries, false, bounded)
     const existing = catalogMessage(decision.messages)
     if (history.visibleDigest === digest) {
       return existing === undefined
@@ -367,8 +366,8 @@ export function apply(ctx: Context, config: Config = {}): void {
         : { ...decision, messages: decision.messages.filter(message => message.id !== existing.message.id) }
     }
     const catalog = history.published
-      ? renderCatalogUpdate(entries, incomplete, bounded)
-      : renderCatalogMessage(entries, incomplete, bounded)
+      ? renderCatalogUpdate(entries, bounded)
+      : renderCatalogMessage(entries, bounded)
     return {
       ...decision,
       messages: existing === undefined
@@ -378,26 +377,22 @@ export function apply(ctx: Context, config: Config = {}): void {
   })
 }
 
-function renderCatalogMessage(entries: SkillCatalogSource['entries'], incomplete: boolean, bounded = false): UserMessage {
+/** Initial catalog publication requires complete discovery and at least one confirmed entry. */
+function renderCatalogMessage(entries: SkillCatalogSource['entries'], bounded = false): UserMessage {
   return createUserMessage({
     content: [{
       type: 'text',
       text: [
         '<system-reminder>',
-        entries.length === 0
-          ? 'No skills could be confirmed in this discovery attempt.'
-          : bounded
-            ? 'The following are selected skill summaries, not the complete permitted directory. Use skill_catalog to search or page all currently permitted names:'
-            : 'A skill is a reusable set of task-specific instructions. The following skills are available in this session:',
+        bounded
+          ? 'The following are selected skill summaries, not the complete permitted directory. Use skill_catalog to search or page all currently permitted names:'
+          : 'A skill is a reusable set of task-specific instructions. The following skills are available in this session:',
         '',
         '<available_skills>',
         ...renderCatalogEntries(entries),
         '</available_skills>',
         '',
-        ...incomplete ? [incompleteCatalogNotice(), ''] : [],
-        entries.length === 0
-          ? 'Wait for an updated catalog before calling the `skill` tool. Do not infer skill instructions from an empty catalog.'
-          : "If the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.",
+        "If the user names a skill, or the task clearly matches a skill's description, call the `skill` tool with the exact skill name before taking task actions. Load all applicable skills, then follow their full instructions. This catalog contains summaries only; do not infer or follow a skill's instructions until it has been loaded.",
         'A user may also invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool again for that skill.',
         '</system-reminder>',
       ].join('\n'),
@@ -406,18 +401,16 @@ function renderCatalogMessage(entries: SkillCatalogSource['entries'], incomplete
       kind: 'skill-catalog',
       form: 'catalog',
       entries,
-      ...incomplete ? { incomplete: true } : {},
       ...bounded ? { bounded: true } : {},
     },
   })
 }
 
-function renderCatalogUpdate(entries: SkillCatalogSource['entries'], incomplete: boolean, bounded = false): UserMessage {
+/** Replace a published catalog using the latest complete discovery result. */
+function renderCatalogUpdate(entries: SkillCatalogSource['entries'], bounded = false): UserMessage {
   const availability = entries.length === 0
     ? [
-      incomplete
-        ? 'No skills could be confirmed in this discovery attempt. Do not use names from earlier skill catalogs.'
-        : 'No skills are currently available through the `skill` tool. Do not use names from earlier skill catalogs.',
+      'No skills are currently available through the `skill` tool. Do not use names from earlier skill catalogs.',
       'A user may still invoke a skill directly; its <skill_content> block then appears in this conversation. Follow it, and do not call the `skill` tool for it.',
     ]
     : [
@@ -433,15 +426,12 @@ function renderCatalogUpdate(entries: SkillCatalogSource['entries'], incomplete:
         '<system-reminder>',
         bounded
           ? 'The selected skill summaries changed. This selection replaces earlier recommendations; use skill_catalog for the complete permitted directory:'
-          : incomplete
-            ? 'Skill discovery is incomplete. This catalog of currently available skills replaces every earlier available-skills list in this session:'
-            : 'The available skill catalog changed. This complete catalog replaces every earlier available-skills list in this session:',
+          : 'The available skill catalog changed. This complete catalog replaces every earlier available-skills list in this session:',
         '',
         '<available_skills>',
         ...renderCatalogEntries(entries),
         '</available_skills>',
         '',
-        ...incomplete ? [incompleteCatalogNotice(), ''] : [],
         ...availability,
         '</system-reminder>',
       ].join('\n'),
@@ -451,14 +441,9 @@ function renderCatalogUpdate(entries: SkillCatalogSource['entries'], incomplete:
       form: 'catalog',
       update: true,
       entries,
-      ...incomplete ? { incomplete: true } : {},
       ...bounded ? { bounded: true } : {},
     },
   })
-}
-
-function incompleteCatalogNotice(): string {
-  return 'Some skills could not be checked. Only confirmed skills are listed; a lower-priority definition of the same name may be selected when a preferred source is unavailable. Discovery will be retried on the next request.'
 }
 
 /**

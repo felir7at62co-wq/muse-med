@@ -80,6 +80,20 @@ export function styleFormOf(ctx: ClientContext): StyleForm | undefined {
     : undefined
 }
 
+/** Validate one style-file record received from the authenticated HTTP route. */
+function isStyleFileView(value: unknown): value is StyleFileView {
+  if (typeof value !== 'object' || value === null) return false
+  if (!('scope' in value) || (value.scope !== 'global' && value.scope !== 'workspace')) return false
+  if (!('path' in value) || typeof value.path !== 'string'
+    || !('exists' in value) || typeof value.exists !== 'boolean'
+    || !('text' in value) || typeof value.text !== 'string'
+    || !('bytes' in value) || typeof value.bytes !== 'number') return false
+  if ('workspaceId' in value && value.workspaceId !== undefined && typeof value.workspaceId !== 'string') return false
+  if ('title' in value && value.title !== undefined && typeof value.title !== 'string') return false
+  return !('blocked' in value) || value.blocked === undefined
+    || value.blocked === 'symlink' || value.blocked === 'not-a-file' || value.blocked === 'outside'
+}
+
 /**
  * The style-file route over the page's own fetch, resolved against the
  * document like the host's other `/api` routes, so a mounted app path keeps
@@ -105,9 +119,15 @@ export function styleFilesClient(fetchImpl: typeof fetch = fetch, base: () => st
           headers: { 'content-type': 'application/json', accept: 'application/json' },
           body: JSON.stringify(request),
         })
-        const body = await response.json().catch(() => ({})) as { message?: unknown; error?: unknown }
-        if (response.ok) return { ok: true, file: body as unknown as StyleFileView }
-        const reason = typeof body.message === 'string' ? body.message : typeof body.error === 'string' ? body.error : `HTTP ${response.status}`
+        const body: unknown = await response.json().catch(() => ({}))
+        if (response.ok) {
+          if (!isStyleFileView(body)) return { ok: false, reason: 'Invalid style-file response' }
+          return { ok: true, file: body }
+        }
+        const reason = typeof body === 'object' && body !== null
+          ? 'message' in body && typeof body.message === 'string' ? body.message
+            : 'error' in body && typeof body.error === 'string' ? body.error : `HTTP ${response.status}`
+          : `HTTP ${response.status}`
         return { ok: false, reason }
       } catch (error) {
         return { ok: false, reason: error instanceof Error ? error.message : String(error) }
@@ -139,7 +159,7 @@ function VisualizeSectionEntry({ useLocale, form, files }: SectionInjected) {
  * @param ctx - client root context.
  */
 export function registerSettingsSection(ctx: ClientContext): void {
-  const slots = ctx.slots as unknown as LooseSlots
+  const slots = ctx.slots as typeof ctx.slots & LooseSlots
   const files = styleFilesClient()
   slots.inject('settings.section', () => {
     const locale = localeOf(ctx)

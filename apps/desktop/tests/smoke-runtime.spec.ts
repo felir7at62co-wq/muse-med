@@ -211,7 +211,7 @@ function fixture(packaged = false) {
     effect(acquire: () => () => void) { return acquire() }
     agentPresets = {
       defaultId: 'short-drama',
-      list: vi.fn(async () => ids.map(id => ({ id }))),
+      list: vi.fn(async () => [...ids, 'muse-manuscript-continuity-reviewer'].map(id => ({ id }))),
       resolve: vi.fn(async (id: string) => ({ id: id === 'editing' ? 'short-drama' : id })),
       compositionInventory: vi.fn(async () => ids.map(id => ({ id, isDefault: id === 'short-drama', rows: [{ id: 'persona' }] }))),
       mount,
@@ -653,7 +653,7 @@ it('refuses a roster with additional presets before creating an agent', async ()
   expect(f.ctx.agents.create).not.toHaveBeenCalled()
 })
 
-it.each(['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation'])
+it.each(['short-drama', 'ptc', 'standard', 'minimal', 'cordis', 'bot-coordinator', 'creation', 'muse-manuscript-continuity-reviewer'])
 ('refuses a roster missing product preset %s before creating an agent', async (missing) => {
   const f = fixture()
   f.ctx.agentPresets.list.mockResolvedValue((await f.ctx.agentPresets.list()).filter(preset => preset.id !== missing))
@@ -717,6 +717,18 @@ it('fails missing tools and still disposes the created agent', async () => {
   const f = fixture()
   f.names.splice(f.names.indexOf('bgm_match'), 1)
   await expect(f.apply(f.ctx)).rejects.toThrow('missing product tool bgm_match')
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('records the preset, assembly stage and live agent state before failed-smoke disposal', async () => {
+  const f = fixture()
+  Object.assign(f.agent, { id: 'smoke-0', ctx: { fiber: { uid: 42, state: 2 } } })
+  f.ctx.systemPrompt.assemble.mockRejectedValueOnce(new Error('assembly failed'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('preset short-drama at assemble smoke-0')
+  const diagnostic = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(diagnostic).toContain('"uid":42,"state":2')
+  expect(diagnostic).toContain('assembly failed')
   expect(f.dispose).toHaveBeenCalledTimes(2)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })

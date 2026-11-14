@@ -3,6 +3,7 @@ scenario: bash-tool
 profile: sdk
 composition: sdk-default
 recording: live
+writerOutput: true
 header:
   class: sdk-default
   pin: true

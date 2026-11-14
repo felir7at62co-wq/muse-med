@@ -42,7 +42,7 @@ kind: "package-reference"
 <a id="the-navigator"></a>
 ## 导航栏
 
-用 `FileNavigatorInput` 渲染 `sidebar.files.navigator`：`{ useTabInfo, page, onOpen }`。必填的 `onOpen: (address: string) => void` 回调由容纳它的插件提供；导航栏构造文件地址，不决定落位。`page` 只控制呈现：`true` 时始终铺满文件页，`false` 时遵循预览所在分栏的偏好与可用宽度。
+用 `FileNavigatorInput` 渲染 `sidebar.files.navigator`：`{ useTabInfo, page, onOpen }`。必填的 `onOpen: (address: string) => void` 回调由容纳它的插件提供；导航栏构造文件地址，不决定落位。`page` 只控制呈现：`true` 时始终铺满文件页，`false` 时遵循预览所在分栏的偏好与可用宽度。导航栏将被覆盖内容的样式限定在其直接父元素内，包括调用方自定义的容器。导航栏在该父元素上管理 `data-files-navigator-row` 属性；最后一个实例卸载时，仅移除自身添加的属性，class 和预先存在的属性值均保持不变。
 
 导航栏画在横跨分栏的预览标题行下方，位于它与正文共用的那一行的右侧。在预览旁，是否显示由其分栏的记录决定：分栏默认隐藏，这一选择对分栏内的每个文件 tab 都有效，直到开关、Escape、工作区命令，或导航到被目录树遮住的预览改变它。自身没有记录的分栏（例如 tab 拖出后所在的浮窗）从隐藏、默认宽度开始。点击目录树以外的地方不会隐藏它；在另一分栏打开内容也不会隐藏它。在文件页上，目录树铺满标题行下方的整页，停靠与浮动时都一样，不显示分隔条，且始终显示：文件页不画开关，Escape 也不关闭它。文件页打开的文件沿用落定分栏自己的选择，尚未做过选择的分栏为隐藏。
 

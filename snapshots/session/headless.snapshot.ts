@@ -1,6 +1,7 @@
 /** Recorded-session replay through the shipped headless `dsh` profile. */
 
 import { assertWorkingBudgetExpectations, deriveShadowedBudgetExpectations, deriveWorkingBudgetExpectations } from './working-budget-oracle.ts'
+import { writeReplayDiagnostics } from '../replay-diagnostics.ts'
 import { startHttpMcpFixture } from '../../packages/mcp/mcp-client/tests/http-fixture.ts'
 import { expectedVisualSpeechHash, visualSpeechRecords } from './drama-subtitle-visual-review/evidence.ts'
 import { capabilityOcrRecords, expectedCapabilityOcrHash } from './muse-video-novel-ocr-capability/evidence.ts'
@@ -8,7 +9,7 @@ import { assertVideoObservationReportArtifacts, normalizeVideoObservationReportH
 import { chmod, cp, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -22,6 +23,7 @@ import {
   assertSessionFixtureVersion,
   captureExpectedWorkspaceSnapshot,
   captureWorkspaceSnapshot,
+  EMPTY_WORKSPACE_MARKER,
   fixtureContext,
   formatSystemPromptSnapshot,
   formatToolSchemasSnapshot,
@@ -218,7 +220,8 @@ function contextOf(logs: readonly string[]): NormalizeContext {
   return {
     sessionIds: headers.flatMap(header => typeof header.id === 'string' ? [header.id] : []),
     cwd,
-    cwdAliases: [cwd.replaceAll('\\', '/'), JSON.stringify(cwd).slice(1, -1)],
+    cwdAliases: [cwd.replaceAll('\\', '/'), JSON.stringify(cwd).slice(1, -1),
+      ...cwd.startsWith(homedir() + sep) ? ['~' + cwd.slice(homedir().length)] : []],
   }
 }
 
@@ -676,7 +679,9 @@ async function seedWorkspace(scenario: HeadlessScenario, cwd: string): Promise<P
   const source = join(scenario.dir, 'workspace')
   if (existsSync(source)) {
     for (const entry of await readdir(source)) {
-      await cp(join(source, entry), join(cwd, entry), { recursive: true, verbatimSymlinks: true })
+      await cp(join(source, entry), join(cwd, entry), {
+        recursive: true, verbatimSymlinks: true, filter: path => basename(path) !== EMPTY_WORKSPACE_MARKER,
+      })
     }
   }
   const setup = scenario.manifest.workspace?.setup
@@ -690,6 +695,18 @@ const WORKTREE_CHECKOUT_FILTER = "printf 'FILTERED CHECKOUT CONTENT\\n'"
 const WORKTREE_CHECKOUT_ATTRIBUTES = 'tracked.txt filter=dsh-snapshot-checkout\n'
 
 const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Promise<PreparedWorkspace | void>> = {
+  async 'muse-visualize'(cwd) {
+    const plugin = join(cwd, '.dsh/plugins/dsh-visualize')
+    const source = process.env.MUSE_VISUALIZE_PACKAGE ?? join(repoRoot, 'third_party/plugins/dsh-visualize')
+    await mkdir(plugin, { recursive: true })
+    for (const part of ['src', 'lib', 'assets', 'package.json']) await cp(join(source, part), join(plugin, part), { recursive: true })
+    await mkdir(join(plugin, 'node_modules/@deepseek-ai'), { recursive: true })
+    // Resolve each peer root before linking across the Windows temp and workspace volumes.
+    for (const peer of ['@deepseek-ai/schemastery', '@deepseek-ai/dsh-tools', '@deepseek-ai/dsh-skill']) {
+      await symlink(await realpath(join(repoRoot, 'apps/desktop-host/node_modules', peer)),
+        join(plugin, 'node_modules', peer), 'junction')
+    }
+  },
   async 'muse-lvpaopao-series'(cwd, scenarioDir) {
     if (scenarioDir === undefined) throw new Error('Lvpaopao tasks require their complete expected workspace')
     const expectedRoot = join(cwd, '.snapshot-patches', 'expected-lvpaopao-tasks')
@@ -809,8 +826,6 @@ const workspaceSetups: Record<string, (cwd: string, scenarioDir?: string) => Pro
   },
   async 'skill-root-isolation'(cwd) {
     await workspaceSetups['editing-cordis-skill']!(cwd)
-    // A symlink loop produces a real, non-absence read error without relying on chmod or root privileges.
-    await symlink('broken-skills', join(cwd, 'broken-skills'))
   },
   async 'muse-minimal-writing'(cwd) {
     await cp(join(repoRoot, 'apps/desktop-host/skills'), join(cwd, '.dsh/skills'), { recursive: true })
@@ -1125,9 +1140,11 @@ const workspaceSensitiveBudgetScenarios = new Set([
   'muse-editing-tool-catalog',
   'muse-resident-view',
   'muse-script-refinement',
+  'muse-session-product',
   'muse-short-drama-draft-ending',
   'muse-small-window-compaction',
   'muse-time-context',
+  'muse-visualize',
   'muse-working-budget-stop',
 ])
 
@@ -1153,7 +1170,18 @@ async function workspaceBudgetExpected(
     readFile(join(schemaOwner.dir, 'tool-schemas.expected.json'), 'utf8'),
   ])
   const schemas = parseToolSchemasSnapshot(schemaText)
-  const input = { log: expectedLog, prompt, schemas: [schemas.initial, ...schemas.changes], cwd }
+  const displayCwd = cwd.startsWith(homedir() + sep) ? '~' + cwd.slice(homedir().length) : cwd
+  const pathDisplays = scenario.name === 'muse-visualize'
+    // The tool publishes native asset paths and a home-shortened private card path.
+    ? new Map([
+      ['{{cwd}}/.dsh/plugins/dsh-visualize/assets/visualize-skill.md',
+        join(cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets', 'visualize-skill.md')],
+      ['{{cwd}}/.dsh/plugins/dsh-visualize/assets/styles/whale.md',
+        join(cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets', 'styles', 'whale.md')],
+      ['{{cwd}}/.dsh/plugins/dsh-visualize/assets/', join(cwd, '.dsh', 'plugins', 'dsh-visualize', 'assets') + sep],
+      ['{{cwd}}/.dsh/visualize/sessions/{{session:1}}/',
+      join(displayCwd, '.dsh', 'visualize', 'sessions', 'session-00000000-0000-4000-8000-000000000001') + sep]]) : undefined
+  const input = { log: expectedLog, prompt, schemas: [schemas.initial, ...schemas.changes], cwd, pathDisplays }
   const counts = deriveWorkingBudgetExpectations(input)
   const shadowed = deriveShadowedBudgetExpectations(input)
   const measured = new Map<number, unknown>()
@@ -1534,6 +1562,17 @@ async function verifyChildOutputLimitRejection(scenario: HeadlessScenario, actua
 }
 
 describe('headless recorded-session snapshots', () => {
+  it('seeds an empty draft directory without copying its Git marker as workspace content', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'dsh-empty-seed-'))
+    try {
+      const scenario = scenarioByName.get('muse-jianying-draft')
+      if (scenario === undefined) throw new Error('Missing Jianying draft owner')
+      await seedWorkspace(scenario, cwd)
+      expect(await readdir(join(cwd, 'drafts'))).toEqual([])
+      expect(await readFile(join(scenario.dir, 'workspace/drafts', EMPTY_WORKSPACE_MARKER), 'utf8')).toBe('')
+    } finally { await rm(cwd, { recursive: true, force: true }) }
+  })
+
   it('Lvpaopao expected workspace expands only saved media paths and keeps original keys', () => {
     const cwd = join(tmpdir(), 'lvpaopao-workspace-oracle')
     const prefix = '{{cwd}}/downloads/lvpaopao/lvpaopao-84817d56f3ed4113d52398c7/episodes/0001/episode-0001.mp4'
@@ -1621,19 +1660,28 @@ describe('headless recorded-session snapshots', () => {
     const scenario = scenarioByName.get('muse-creation-source-id-recovery')
     if (scenario === undefined) throw new Error('Missing recorded budget owner')
     const log = await readFile(join(scenario.dir, 'writer.expected.jsonl'), 'utf8')
-    const expected = records(log)
+    const cwd = '/' + 'x'.repeat(75)
+    const [prompt, schemaText] = await Promise.all([
+      readFile(join(scenario.dir, 'system-prompt.expected.md'), 'utf8'),
+      readFile(join(scenario.dir, 'tool-schemas.expected.json'), 'utf8'),
+    ])
+    const schemas = parseToolSchemasSnapshot(schemaText)
+    const counts = deriveWorkingBudgetExpectations({ log, prompt, schemas: [schemas.initial, ...schemas.changes], cwd })
+    const expected = records(log).map((row, index) => counts.has(index)
+      ? { ...row, data: { ...row.data as JsonObject, workingContextTokens: counts.get(index) } }
+      : row)
+    const original = structuredClone(expected)
     const index = expected.findIndex(row => row.type === 'request/context'
       && typeof (row.data as JsonObject).workingContextTokens === 'number')
     const data = expected[index]?.data as JsonObject
     const estimate = data.workingContextTokens
     const limit = data.workingTokenLimit
     if (typeof estimate !== 'number' || typeof limit !== 'number') throw new Error('Missing recorded working estimate')
-    const cwd = '/' + 'x'.repeat(75)
     const changed = (value: unknown) => expected.map((row, offset) => offset === index ? { ...row, data: value } : row)
     const compare = (actual: JsonObject[]) => workspaceBudgetExpected(scenario, actual, expected, log, cwd)
     await expect(compare(changed({ ...data, workingContextTokens: estimate + 5 }))).rejects.toThrow(/exact working context estimate/)
     expect(await compare(expected)).toEqual(expected)
-    expect(expected).toEqual(records(log))
+    expect(expected).toEqual(original)
     await expect(compare(changed({ ...data, workingContextTokens: limit }))).rejects.toThrow(/exact working context estimate/)
     await expect(compare(changed({ ...data, workingContextTokens: limit + 1 }))).rejects.toThrow(/exact working context estimate/)
     expect(await compare([])).toEqual(expected)
@@ -2160,6 +2208,9 @@ describe('headless recorded-session snapshots', () => {
             DSH_SNAPSHOT_SPILL_ROOT: spillRoot,
             DSH_SNAPSHOT_SPILL_LOCATOR_ROOT: locatorRoot,
             DSH_SNAPSHOT_FILE: fixturePath,
+            ...(scenario.name === 'subagent-acp-diagnostic' ? {
+              DSH_ACP_DIAGNOSTIC_SERVER: join(repoRoot, 'packages/subagent/subagent-acp/tests/mock-acp-server.ts'),
+            } : {}),
             ...(replaying && fixtureFiles.length > 1
               ? { DSH_SNAPSHOT_CHILD_FILES: fixtureFiles.slice(1).map(file => join(scenario.dir, file)).join(delimiter) }
               : {}),
@@ -2950,6 +3001,11 @@ describe('headless recorded-session snapshots', () => {
 
       const actualContext = contextOf(actualLogs.map(log => log.content))
 
+      if (mode === 'replay' && process.env.CI === 'true' && retainedToolInput === undefined) {
+        await writeReplayDiagnostics(join(repoRoot, '.artifacts/snapshot-replay/headless', scenario.name),
+          actualLogs.map(log => log.content), actualContext)
+      }
+
       if (writesCurrentSessionFixtures(scenario.manifest, mode)) {
         fixtures = await writeSessionFixtures(
           scenario,
@@ -2980,7 +3036,7 @@ describe('headless recorded-session snapshots', () => {
         for (const [index, content] of expected.entries()) {
           expect(sessionHeaderVersion(content, writerSnapshotName(index))).toBeLessThanOrEqual(SESSION_FORMAT_VERSION)
         }
-        expect(await fixtureSessions(scenario), 'historical replay input remains unchanged').toEqual(fixtures)
+        expect(await fixtureSessions(scenario, fixtureFiles), 'historical replay input remains unchanged').toEqual(fixtures)
       }
       const outputLog = expected[0]
       if (outputLog === undefined) throw new Error(`${scenario.name}: CLI projection has no primary session`)

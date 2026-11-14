@@ -1,7 +1,7 @@
 /** Win32 kernel ownership protocol, with deterministic native API doubles. */
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, toNamespacedPath } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
 
 const native = vi.hoisted(() => ({ create: vi.fn(() => 7), wait: vi.fn(() => 0), release: vi.fn(() => 1),
@@ -49,9 +49,9 @@ it('closes a contended mutex without releasing another process ownership', async
 it('publishes with write-through and explicitly selected replace semantics', async () => {
   Object.defineProperty(process, 'platform', { value: 'win32' })
   await publishWorkspacePath('/source', '/target', false)
-  expect(native.move).toHaveBeenLastCalledWith('/source', '/target', 8)
+  expect(native.move).toHaveBeenLastCalledWith(toNamespacedPath('/source'), toNamespacedPath('/target'), 8)
   await publishWorkspacePath('/source', '/target', true)
-  expect(native.move).toHaveBeenLastCalledWith('/source', '/target', 9)
+  expect(native.move).toHaveBeenLastCalledWith(toNamespacedPath('/source'), toNamespacedPath('/target'), 9)
   native.move.mockReturnValueOnce(0)
   await expect(publishWorkspacePath('/source', '/target', true)).rejects.toThrow('durable publication failed')
 })

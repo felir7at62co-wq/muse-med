@@ -3,6 +3,9 @@ scenario: subagent-dsh-sdk-diagnostic
 profile: sdk
 composition: sdk-dsh-sdk-diagnostic
 recording: live
+writerOutput: true
+replay:
+  override: true
 header:
   class: sdk-dsh-sdk-diagnostic
   pin: true

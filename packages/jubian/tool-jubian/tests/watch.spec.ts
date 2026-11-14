@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { JubianClient } from '@deepseek-ai/dsh-jubian'
 import type { JubianRequest, JubianResponse } from '@deepseek-ai/dsh-jubian'
-import { watchJob, resolveWatchConfig, watchArgs } from '../src/watch.ts'
+import { observe, watchJob, resolveWatchConfig, watchArgs } from '../src/watch.ts'
 import type { WatchArgs } from '../src/watch.ts'
 
 const args = { task_id: 42, stage: 'upscale' as const }
@@ -35,6 +35,18 @@ function start(client: JubianClient, input = args) {
 }
 
 describe('jubian watcher', () => {
+  it.each([false, true])('reads existing task completion without starting a poller: %s', async (ready) => {
+    const { client, calls } = provider(path => path.includes('/sub/list')
+      ? { total: 1, rows: [child()] } : task(ready ? 'succeeded' : 'processing'))
+    const result = await observe(client, args, new AbortController().signal)
+    if (ready) expect(result).toMatchObject({ status: 'completed' })
+    else expect(result).toBeUndefined()
+    expect(calls).toEqual([
+      { path: '/admin/aigc/video/task/42', method: 'GET' },
+      ...ready ? [{ path: '/admin/aigc/video/task/sub/list?pageNum=1&pageSize=1000', method: 'POST' }] : [],
+    ])
+  })
+
   it('accepts a parsed watch identity and refuses a nonobject child page', async () => {
     expect(watchArgs(args)).toBe(args)
     vi.useFakeTimers()

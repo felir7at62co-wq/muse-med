@@ -1,13 +1,14 @@
 /** Immutable episode identities, strict execution records and mutable state observations. */
 import { constants, type Stats } from 'node:fs'
-import { lstat, open } from 'node:fs/promises'
+import { lstat, open, stat } from 'node:fs/promises'
+import { dirname } from 'node:path'
 import type { FileHandle } from 'node:fs/promises'
-import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type {} from '@deepseek-ai/cordis'
 import type { VideoArtifactSha256, VideoRecoveryDigest, EpisodeAttemptId, EpisodeExecutionId, EpisodeRendererGeneration } from './types.ts'
 import type { EpisodeDeliveryJob } from './episode-delivery-job.ts'
+import { hashEpisodeFileHandle } from './episode-file-hash.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -220,6 +221,23 @@ async function readEpisodeHandle(file: FileHandle, opened: Stats, maxBytes: numb
   return buffer.subarray(0, count)
 }
 
+/** Refuse file ancestors when Windows reports ENOENT for their children. */
+async function assertMissingEpisodeParent(path: string, cause: Error): Promise<void> {
+  let parent = dirname(path)
+  for (;;) {
+    let info
+    try { info = await stat(parent) } catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error
+      const next = dirname(parent)
+      if (next === parent) throw error
+      parent = next
+      continue
+    }
+    if (!info.isDirectory()) throw new Error('Episode journal path has a non-directory parent', { cause })
+    return
+  }
+}
+
 /**
  * Read exact bounded regular bytes without treating invalid files as absent.
  * @param path - Captured local journal path.
@@ -231,7 +249,10 @@ export async function readEpisodeBytes(path: string, maxBytes: number, signal?: 
   signal?.throwIfAborted()
   let before
   try { before = await lstat(path) } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      await assertMissingEpisodeParent(path, error)
+      return undefined
+    }
     throw error
   }
   if (!before.isFile() || before.size > maxBytes) throw new Error('Episode journal must be a bounded regular file')
@@ -265,7 +286,10 @@ export async function readEpisodeStateSnapshot(path: string, maxBytes: number, s
   else {
     let file: FileHandle
     try { file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK) } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return undefined
+      if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+        await assertMissingEpisodeParent(path, error)
+        return undefined
+      }
       if (error instanceof Error && 'code' in error && error.code === 'ELOOP') {
         throw new Error('Episode state must be a bounded regular file', { cause: error })
       }
@@ -309,14 +333,7 @@ export async function hashEpisodeFile(path: string, signal: AbortSignal): Promis
     if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
       throw new Error('Episode input changed while opening')
     }
-    const hash = createHash('sha256'), buffer = Buffer.alloc(65536)
-    let bytes = 0
-    while (true) {
-      signal.throwIfAborted()
-      const read = await file.read(buffer, 0, buffer.length, null)
-      if (read.bytesRead === 0) break
-      hash.update(buffer.subarray(0, read.bytesRead)); bytes += read.bytesRead
-    }
+    const { sha256, bytes } = await hashEpisodeFileHandle(file, signal)
     const after = await file.stat(), current = await lstat(path)
     if (!current.isFile() || current.dev !== opened.dev || current.ino !== opened.ino
       || bytes !== opened.size || after.size !== opened.size || current.size !== opened.size
@@ -325,7 +342,7 @@ export async function hashEpisodeFile(path: string, signal: AbortSignal): Promis
       throw new Error('Episode input changed during hashing')
     }
     signal.throwIfAborted()
-    return { path, sha256: brandString<Sha256>(hash.digest('hex')), bytes,
+    return { path, sha256: brandString<Sha256>(sha256), bytes,
       dev: current.dev, ino: current.ino, mtimeMs: current.mtimeMs, ctimeMs: current.ctimeMs }
   } finally { await file.close() }
 }

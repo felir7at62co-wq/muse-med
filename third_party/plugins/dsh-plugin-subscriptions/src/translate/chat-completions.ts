@@ -6,6 +6,7 @@
  * translator, so tests need no streams.
  */
 
+import type { FetchBody } from '../http.js'
 import { EMPTY_RESPONSE_CODE, LlmError } from '@deepseek-ai/dsh-llm'
 import { ToolCallId } from '../compat.js'
 import type {
@@ -407,7 +408,7 @@ export class ChatCompletionsStreamTranslator {
  * @returns the chunk stream; throws when the stream ends before any finish chunk.
  */
 export async function* streamChatCompletions(
-  stream: ReadableStream<Uint8Array>,
+  stream: FetchBody,
   onActivity?: () => void,
 ): AsyncGenerator<StreamChunk> {
   const translator = new ChatCompletionsStreamTranslator()

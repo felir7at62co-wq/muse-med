@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-api-remotes/client'
-import type { AccountPreferences, PromptCacheTtlSetting, ProviderPreferences } from '../provider-settings.js'
+import type { AccountPreferences, PromptCacheTtlSetting, ProviderPreferences } from '../provider-settings-types.js'
 import type { SubscriptionProvider } from './SubscriptionsSection.js'
 import type { SubscriptionsKey } from './locales.js'
 import { callSubscriptionsAuth } from './subscriptions-rpc.js'

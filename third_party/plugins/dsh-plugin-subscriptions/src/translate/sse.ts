@@ -6,6 +6,8 @@
  * spec-strict framing the harness's own adapters use.
  */
 
+import type { FetchBody } from '../http.js'
+
 /** One parsed SSE event. */
 export interface SseEvent {
   /** Joined `data:` lines of the event. */
@@ -21,7 +23,7 @@ export interface SseEvent {
  * @returns events in arrival order.
  */
 export async function* parseSse(
-  stream: ReadableStream<Uint8Array>,
+  stream: FetchBody,
   onActivity?: () => void,
 ): AsyncGenerator<SseEvent> {
   const reader = stream.getReader()

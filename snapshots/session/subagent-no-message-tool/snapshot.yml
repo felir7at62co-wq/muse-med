@@ -3,6 +3,7 @@ scenario: subagent-no-message-tool
 profile: headless
 composition: subagent-no-message-tool
 recording: authored
+writerOutput: true
 header:
   class: subagent-no-message-tool
   pin: true

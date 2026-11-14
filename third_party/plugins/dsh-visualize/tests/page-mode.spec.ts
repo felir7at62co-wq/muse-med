@@ -5,7 +5,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { visualizeMetaFrom, visualizeMetaFromArgs, type VisualizeMeta } from '../src/fragment.ts'
 import { visualizeTool } from '../src/tool.ts'
 
@@ -21,7 +21,7 @@ const PAGE: VisualizeMeta = {
 
 /** Workspace-fallback host: no home path, an in-memory fs seam. */
 function host(files: Record<string, string> = {}) {
-  const ctx = {
+  const ctx = new Context().extend({
     get: () => undefined,
     fs: {
       resolve: async (path: string, options: { cwd?: string }) => ({ displayPath: `${options.cwd}/${path}`, path }),
@@ -31,7 +31,7 @@ function host(files: Record<string, string> = {}) {
         return { version: 1 }
       },
     },
-  } as unknown as Context
+  })
   const exec = { agent: { session: { header: { cwd: '/work' } } } } as never
   return { tool: visualizeTool(ctx, 10_000), exec, files }
 }

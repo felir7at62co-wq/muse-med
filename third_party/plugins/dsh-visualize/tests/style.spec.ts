@@ -2,11 +2,11 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { buildFrameDoc, RESOURCE_ORIGINS, sanitizeCssValue } from '../src/shell.ts'
 import { PAGE_CONFIG_GLOBAL, STYLE_IDS, STYLES, styleIdFrom } from '../src/style.ts'
 import { apply } from '../src/index.ts'
-import { activeStyleSection, CUSTOM_STYLE_MAX_BYTES, readCustomStyles, styleFileLocations } from '../src/style-guide.ts'
+import { activeStyleSection, CUSTOM_STYLE_MAX_BYTES, readCustomStyles, styleFileLocations, styleGuidePath, styleToolNote } from '../src/style-guide.ts'
 import { visualizeSkillProvider } from '../src/skill.ts'
 import { visualizeTool } from '../src/tool.ts'
 
@@ -19,6 +19,14 @@ const host = {
 } as const
 
 describe('frame styles', () => {
+  it('uses portable style-file placeholders while preserving the native built-in guide path', () => {
+    for (const style of STYLE_IDS) {
+      const note = styleToolNote(style)
+      expect(note).toContain(`or read it from ${styleGuidePath(style)} together with any user style file`)
+      expect(note).toContain('(<DSH_HOME>/visualize/style.md, then <workspace>/.dsh/visualize-style.md).')
+    }
+  })
+
   it('leaves the default frame as it was without a style', () => {
     const plain = buildFrameDoc({ ...host })
     expect(buildFrameDoc({ ...host, style: 'whale' })).toBe(plain)
@@ -127,7 +135,7 @@ describe('custom style files', () => {
 
   it('finds the global file under the host home and the workspace from the skill lookup', async () => {
     await writeStyles('From home.', 'From workspace.')
-    const ctx = { get: (name: string) => name === 'dshHomePath' ? (...s: string[]) => join(home, '..', ...s) : undefined } as unknown as Context
+    const ctx = new Context().extend({ get: (name: string) => name === 'dshHomePath' ? (...s: string[]) => join(home, '..', ...s) : undefined })
     expect(styleFileLocations(ctx, workspace).home).toBe(join(home, '..', 'visualize'))
     const provider = visualizeSkillProvider('sketch', cwd => ({ home, workspace: cwd }))
     const skill = await provider.get({} as never, { cwd: workspace })
@@ -143,13 +151,13 @@ describe('custom style files', () => {
 
 describe('card style meta', () => {
   it('records the configured style in the persisted meta', async () => {
-    const ctx = {
+    const ctx = new Context().extend({
       get: () => undefined,
       fs: {
         resolve: async (path: string, options: { cwd?: string }) => ({ displayPath: `${options.cwd}/${path}` }),
         writeText: async () => ({ version: 1 }),
       },
-    } as unknown as Context
+    })
     const tool = visualizeTool(ctx, 1000, 'terminal')
     const value = await tool.execute({ fragment: '<div id="lab">x</div>', title: 'Lab' }, { agent: { session: { header: { cwd: '/w' } } } } as never)
     const meta = tool.output!.presentationMeta!({} as never, value as never) as { style?: string }
@@ -161,12 +169,12 @@ describe('card style meta', () => {
 describe('page style config', () => {
   it('puts the configured style on every page the web server renders', () => {
     const listeners = new Map<string, (table: unknown[]) => void>()
-    const ctx = {
+    const ctx = new Context().extend({
       tools: { register() {} },
       skills: { registerProvider() {} },
       on: (name: string, listener: (table: unknown[]) => void) => listeners.set(name, listener),
       inject: () => {},
-    } as unknown as Context
+    })
     apply(ctx, { maxFragmentBytes: 1000, style: 'sketch' })
     const table: unknown[] = []
     listeners.get('webserver/index-inject')!(table)

@@ -1,8 +1,8 @@
 /**
  * tsdown preset for dsh-visualize: an ESM node half with declarations plus a
  * browser half (lib/client.js) wrapped for the harness client-plugin loader.
- * All @deepseek-ai packages are type-only imports (erased at build); the node
- * half keeps schemastery unbundled because the Loader validates the plugin's
+ * The node half bundles its atomic-write helper and keeps schemastery
+ * unbundled because the Loader validates the plugin's
  * `Config` schema and must see its own schemastery instance; the browser half
  * keeps the platform module table external (React, Cordis, loader seeds) and
  * bundles everything else inline.
@@ -34,11 +34,14 @@ export default [
     fixedExtension: false,
     dts: true,
     clean: true,
+    // Retained bundles must not encode the temporary build root in region labels.
+    inputOptions: { experimental: { attachDebugInfo: 'none' } },
     deps: {
       // schemastery stays unbundled because the Loader validates the plugin's
       // `Config` schema and must see its own schemastery instance; cordis is
       // type-only in this bundle.
       neverBundle: ['@deepseek-ai/schemastery', '@deepseek-ai/cordis'],
+      alwaysBundle: ['@deepseek-ai/dsh-atomic-write'],
     },
   },
   {

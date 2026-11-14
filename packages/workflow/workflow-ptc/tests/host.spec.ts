@@ -188,6 +188,23 @@ describe('workflow host callback validation', () => {
 })
 
 describe('workflow runtime outcomes', () => {
+  it('retains the child diagnostic independently of a declared return schema', async () => {
+    const diagnostic = 'The selected provider could not complete this child.'
+    const disposed = vi.fn(async () => {})
+    const { ctx, start } = await setup(async (bindings) => {
+      const child = await bindings.startChild!({ prompt: 'Read the selected source' })
+      expect(await bindings.childResult!(child)).toEqual({ output: [], stopReason: 'error', diagnostic })
+      await bindings.disposeChild!(child)
+      return completed
+    })
+    vi.spyOn(ctx.subagents, 'startActivation').mockResolvedValue({ childId: SessionId('diagnostic-child'),
+      result: Promise.resolve({ output: [], stopReason: 'error', diagnostic }), dispose: disposed })
+    const handle = start()
+    try { await expect(handle.result).resolves.toMatchObject({ stopReason: 'completed' }) }
+    finally { await handle.dispose() }
+    expect(disposed).toHaveBeenCalledOnce()
+  })
+
   it('collects child results without parent delivery and waits for child cleanup before settling', async () => {
     const disposing = Promise.withResolvers<undefined>()
     const released = Promise.withResolvers<undefined>()

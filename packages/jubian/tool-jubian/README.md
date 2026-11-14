@@ -567,6 +567,8 @@ The Client TypeScript project references `dsh-jubian`, which owns the shared pro
 
 Host calls to `dsh-tools`, `dsh-credentials`, `dsh-jubian`, and `dsh-jubian-api` resolve through peer dependencies. The deployment supplies shared transport and error constructors and one ledger queue per resolved root; installing independent package copies must not split those same-runtime reservations.
 
+Generation checkpoints and their ownership index share one writer lock. Creation publishes a checkpoint only after its original Session, keys, previews and binding are indexed; replacement preserves those inputs, deadlines and published notice identities. Owner attestation checks durable Session events against the provider ledger and rejects revisions or ownership changed during the Host verification. Managed media checks wait for decoder shutdown before removing captured inputs and retain those inputs when shutdown cannot be confirmed.
+
 ### Design philosophy
 
 The package is built on three decisions:

@@ -2,7 +2,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest'
 import { parseSnapshotManifest, writesCurrentSessionFixtures } from '../src/manifest.ts'
 
 describe('snapshot manifest', () => {
-  it.each(['headless', 'sdk', 'web'])('preserves a %s owner replay input while refreshing separate writer output', (profile) => {
+  it.each(['headless', 'sdk', 'acp', 'web'])('preserves a %s owner replay input while refreshing separate writer output', (profile) => {
     const manifest = parseSnapshotManifest(`version: 1\nprofile: ${profile}\nwriterOutput: true\n`)
     expectTypeOf(manifest.writerOutput).toEqualTypeOf<true | undefined>()
     expect(manifest.writerOutput).toBe(true)
@@ -14,14 +14,16 @@ describe('snapshot manifest', () => {
   it.each([
     'profile: headless\nwriterOutput: false',
     'profile: sdk\nwriterOutput: false',
-    'profile: acp\nwriterOutput: true',
+    'profile: acp\nwriterOutput: false',
     'profile: web\nwriterOutput: false',
     'profile: sdk-minimal\nwriterOutput: true',
     'profile: headless\nwriterOutput: true\nsession:\n  source: ../owner/session.jsonl',
     'profile: sdk\nwriterOutput: true\nsession:\n  source: ../owner/session.jsonl',
+    'profile: acp\nwriterOutput: true\nsession:\n  source: ../owner/session.jsonl',
     'profile: web\nwriterOutput: true\nsession:\n  source: ../owner/session.jsonl',
     'profile: headless\nwriterOutput: true\nsessionFormat:\n  version: 3\n  coverage: [adjacent-migration]',
     'profile: sdk\nwriterOutput: true\nsessionFormat:\n  version: 3\n  coverage: [adjacent-migration]',
+    'profile: acp\nwriterOutput: true\nsessionFormat:\n  version: 3\n  coverage: [adjacent-migration]',
     'profile: web\nwriterOutput: true\nsessionFormat:\n  version: 3\n  coverage: [adjacent-migration]',
   ])('rejects invalid writer output ownership: %s', (fields) => {
     expect(() => parseSnapshotManifest('version: 1\n' + fields + '\n')).toThrow('manifest.writerOutput')

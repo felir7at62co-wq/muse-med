@@ -1,7 +1,7 @@
 import { SHIPPED_LOCALE_IDS } from '../../../scripts/shipped-locales.ts'
 import { createRequire } from 'node:module'
 /** Per-language installer resources feed both the packaging language list and the NSIS compiler. */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, it, onTestFinished } from 'vitest'
@@ -16,6 +16,16 @@ function fixture(): string {
   return directory
 }
 
+it('provides every referenced installer message in each packaged language', () => {
+  const directory = new URL('../installer/', import.meta.url)
+  const files = readdirSync(directory).filter(name => name.endsWith('.nsh')).map(name => new URL(name, directory))
+  files.push(new URL('../scripts/installer.nsh', import.meta.url), new URL('../scripts/installer-directories.nsh', import.meta.url))
+  const keys = [...new Set(files.flatMap(file => [...readFileSync(file, 'utf8').matchAll(/\$\((INSTALLER_[A-Z_]+)\)/gu)]
+    .map(match => match[1])))]
+  expect(keys.length).toBeGreaterThan(0)
+  for (const locale of readInstallerLocales()) expect(Object.keys(locale.strings)).toEqual(expect.arrayContaining(keys))
+})
+
 it('generates Japanese NSIS strings from the same files that select packaged languages', () => {
   const locales = readInstallerLocales()
   expect(locales.map(locale => locale.id)).toEqual(['en_US', 'de_DE', 'es_ES', 'fr_FR', 'ja_JP', 'pt_BR', 'ru_RU', 'zh_CN'])
@@ -23,7 +33,7 @@ it('generates Japanese NSIS strings from the same files that select packaged lan
   expect(source).toContain('LangString INSTALLER_INSTALL ${LANG_JAPANESE} "今すぐインストール"')
   expect(source).toContain('LangString INSTALLER_NATIVE_PROGRESS ${LANG_JAPANESE} "インストールを準備しています… %d%%"')
   expect(source).toContain('!ifdef LANG_JAPANESE\n')
-  expect(source.match(/^LangString /gmu)).toHaveLength(248)
+  expect(source.match(/^LangString /gmu)).toHaveLength(312)
   const japanese = locales.filter(locale => locale.id === 'ja_JP')
   expect(renderInstallerStrings(japanese)).not.toContain('${LANG_ENGLISH}')
 })

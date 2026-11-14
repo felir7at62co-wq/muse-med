@@ -60,7 +60,7 @@ afterEach(() => {
 })
 
 describe('desktop core package set', () => {
-  it('grants build permission only to the reviewed native dependencies', () => {
+  it('grants lifecycle scripts only to reviewed dependencies', () => {
     const { root } = packageSetProject()
     createRuntimeProjectMetadata(root, { schemaVersion: 1, version: '1.2.3', hostProtocolVersion: DESKTOP_HOST_PROTOCOL_VERSION,
       nodeVersion: '24.17.0', pnpmVersion: '11.7.0' })
@@ -72,6 +72,7 @@ describe('desktop core package set', () => {
       'node-pty': true, koffi: true, 'fs-ext': true,
       '@deepseek-ai/dsh-subprocess-local': true,
       '@google/genai': false, protobufjs: false, 'node-addon-require-builtin': false,
+      '@whiskeysockets/baileys@7.0.0-rc14': true, 'tos-crc64-js@0.0.1': false,
     })
   })
 

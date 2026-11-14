@@ -38,8 +38,10 @@
     "@deepseek-ai/cordis": "workspace:~",
     "@deepseek-ai/dsh-experimental-translator": "workspace:*",
     "@deepseek-ai/dsh-llm": "workspace:*",
+    "@deepseek-ai/dsh-llm-replay": "workspace:*",
     "@deepseek-ai/dsh-sdk-protocol": "workspace:*",
     "@deepseek-ai/dsh-session": "workspace:*",
-    "@deepseek-ai/dsh-tool-skill": "workspace:*"
+    "@deepseek-ai/dsh-tool-skill": "workspace:*",
+    "@deepseek-ai/dsh-llm-replay": "workspace:*"
   }
 }

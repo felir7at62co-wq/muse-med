@@ -18,7 +18,7 @@
  */
 
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, posix, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Context } from '@deepseek-ai/cordis'
 import { storeRoot } from './storage.ts'
@@ -140,10 +140,10 @@ export async function activeStyleSection(style: StyleId, locations: StyleFileLoc
  * The sentence the tool description gains, so an agent that reads the
  * contract from disk (no skill tool) also finds the style guide.
  * @param style - the configured style id.
- * @returns a description suffix, starting with a space.
+ * @returns a description suffix with portable placeholder paths and the native guide path, starting with a space.
  */
 export function styleToolNote(style: StyleId): string {
   return ` Cards use the user's "${style}" card style: its guide is appended to the visualize skill, `
     + `or read it from ${styleGuidePath(style)} together with any user style file `
-    + `(${join('<DSH_HOME>', 'visualize', GLOBAL_STYLE_FILE)}, then ${join('<workspace>', WORKSPACE_STYLE_FILE)}).`
+    + `(${posix.join('<DSH_HOME>', 'visualize', GLOBAL_STYLE_FILE)}, then ${posix.join('<workspace>', ...WORKSPACE_STYLE_FILE.split(sep))}).`
 }

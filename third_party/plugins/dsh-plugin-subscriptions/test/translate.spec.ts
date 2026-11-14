@@ -8,6 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { LlmError, MessageId } from '@deepseek-ai/dsh-llm'
 import { ToolCallId } from '../src/compat.js'
+import { AttachmentId, type ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { CompatibleContentBlock as ContentBlock, CompatibleMessage as Message } from '../src/compat.js'
 import type { MessageSource, StreamChunk } from '@deepseek-ai/dsh-llm'
 import {
@@ -146,12 +147,12 @@ test('toResponsesInput: first-class tool images follow the function output', () 
 })
 
 test('resolveImages preserves first-class tool call ids', async () => {
-  const ref = { attachmentId: 'image-1', mediaType: 'image/png', bytes: 2, width: 1, height: 1 }
-  const result = {
+  const ref: ImageAttachmentRef = { attachmentId: AttachmentId('image-1'), mediaType: 'image/png', bytes: 2, width: 1, height: 1 }
+  const result: Message = {
     role: 'tool',
     toolCallId: 'call-image',
     content: [{ type: 'image', attachment: ref }],
-  } as unknown as Message
+  }
   const resolved = await resolveImages([result], {
     readImage: async () => ({ ref, data: new Uint8Array([104, 105]) }),
   } as never)

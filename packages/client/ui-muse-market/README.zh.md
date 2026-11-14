@@ -38,7 +38,7 @@ description: "管理本地 Skill 版本与可选云端发布，不改变账号�
 <a id="understand-the-implementation"></a>
 ## 理解实现
 
-[Remote 适配器](src/client/market-remote.ts)保留全部十五个操作结果及结构化错误。[控制器](src/client/market-controller.ts)负责私有请求代次。renderer 拥有所注册的创作者草稿 store；其中仅保存用户选择和原重试身份，不代替安装或云端账本。组件使用框架 hook、派生 slot props，以及现有 Button、Modal 与 Toast 原语。
+[Remote 适配器](src/client/market-remote.ts)保留全部十五个操作结果及结构化错误。[控制器](src/client/market-controller.ts)负责私有请求代次。renderer 拥有所注册的创作者草稿 store；其中仅保存用户选择和原重试身份，不代替安装或云端账本。组件使用框架 hook、派生 slot props，以及现有 Button、Modal 与 Toast 原语。市场卡片和来源表单控件遵循 [Web 样式](../../../docs/web-styling.zh.md)中的共享中性细边框规则。
 
 <a id="further-exploration"></a>
 ## 进一步阅读

@@ -59,11 +59,11 @@ export interface Config {
 }
 
 /** Schemastery configuration validated by the Loader. */
-export const Config: z<Config> = z.object({
+export const Config = z.object({
   maxFragmentBytes: z.natural().default(1_000_000),
   style: styleFieldSchema(),
   selfRepair: z.boolean().default(true).description('Same-turn self-repair · 同回合自我修复'),
-}) as unknown as z<Config>
+})
 
 /**
  * Register the tool, the bundled skill provider, the page config, the
@@ -80,7 +80,7 @@ export function apply(ctx: Context, config: Config): void {
   // setting changes; calls already read the style per call.
   let toolStyle = style()
   let disposeTool = ctx.tools.register(visualizeTool(ctx, config.maxFragmentBytes, style, images))
-  const events = ctx as unknown as { on(name: 'loader/volatile-update', listener: () => void): unknown }
+  const events = ctx as Context & { on(name: 'loader/volatile-update', listener: () => void): unknown }
   events.on('loader/volatile-update', () => {
     if (style() === toolStyle) return
     disposeTool()
@@ -114,7 +114,7 @@ interface GlobalRow {
  */
 function injectPageConfig(ctx: Context, style: () => StyleId): void {
   // The event is declared by the host web server, which this package does not depend on.
-  const events = ctx as unknown as { on(name: 'webserver/index-inject', listener: (table: GlobalRow[]) => void): unknown }
+  const events = ctx as Context & { on(name: 'webserver/index-inject', listener: (table: GlobalRow[]) => void): unknown }
   events.on('webserver/index-inject', (table) => {
     table.push({ kind: 'global', name: PAGE_CONFIG_GLOBAL, value: { style: style() } })
   })

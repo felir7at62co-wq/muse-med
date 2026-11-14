@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { join, resolve, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import type { Context } from '@deepseek-ai/cordis'
+import { Context } from '@deepseek-ai/cordis'
 import { visualizeTool } from '../src/tool.ts'
 import { visualizeMetaFrom } from '../src/fragment.ts'
 import { handleImageRequest, inside, realpathOfDeepest } from '../src/storage.ts'
@@ -31,7 +31,7 @@ afterEach(async () => {
 
 /** Host context: a real home, the session sandbox policy, and an fs seam over the real disk. */
 function host() {
-  return {
+  return new Context().extend({
     get: (name: string) => {
       if (name === 'dshHomePath') return (...segments: string[]) => join(home, ...segments)
       if (name === 'sandboxPolicy') return { resolve: () => ({ mode: 'workspace-write', workspaceRoot: workspace }) }
@@ -49,8 +49,9 @@ function host() {
         return info && { version: 'v', type: info.isFile() ? 'file' : 'directory', size: info.size }
       },
       readBytes: async (target: { targetKey: string }) => new Uint8Array(await readFile(target.targetKey)),
+      readText: async (target: { targetKey: string }) => await readFile(target.targetKey, 'utf8'),
     },
-  } as unknown as Context
+  })
 }
 
 /** A URL fetcher that serves one PNG per URL and counts calls. */
@@ -67,6 +68,10 @@ function fakeWeb() {
 const exec = { agent: { session: { id: 'sess-1', header: { cwd: '' } } }, signal: new AbortController().signal } as never
 
 type Value = { path: string; fragment: string; images?: { src: string; id: string; type: string; bytes: number }[]; imageReport?: string }
+
+function diskPath(path: string): string {
+  return path.startsWith(`~${sep}`) || path.startsWith('~/') ? join(homedir(), path.slice(2)) : path
+}
 
 function setup(delivery = true) {
   const web = fakeWeb()
@@ -89,7 +94,7 @@ describe('visualize with data-viz-src images', () => {
 
     // The fragment the model wrote is what the card stores and replays.
     expect(value.fragment).toBe(FRAGMENT)
-    expect(await readFile(value.path, 'utf8')).toBe(FRAGMENT)
+    expect(await readFile(diskPath(value.path), 'utf8')).toBe(FRAGMENT)
     expect(value.images!.map(i => [i.src, i.type, i.bytes])).toEqual([
       ['./figs/loss.png', 'image/png', FIGURE.byteLength],
       ['https://example.com/a.png', 'image/png', PNG.byteLength],
@@ -151,16 +156,18 @@ describe('visualize with data-viz-src images', () => {
     }
     const tool = visualizeTool(host(), 100_000, 'whale', { delivery: () => true, fetchUrl })
     const created = await tool.execute({ fragment: '<div id="lab"><h3>Loss</h3></div>', title: 'Lab' }, exec) as Value
-    const manifest = created.path.replace(/\.html$/u, '.images.json')
+    const manifest = diskPath(created.path).replace(/\.html$/u, '.images.json')
     const patch = { action: 'update', path: created.path, title: 'Lab', old_str: '<h3>Loss</h3>', new_str: '<img data-viz-src="https://example.com/a.png"><h3>Loss</h3>' }
 
     const cancel = new AbortController()
     const call = tool.execute(patch, { agent: { session: { id: 'sess-1', header: { cwd: '' } } }, signal: cancel.signal } as never)
-    await fetching
-    cancel.abort()
-    await expect(call).rejects.toThrow()
-    expect(await readFile(created.path, 'utf8')).toBe('<div id="lab"><h3>Loss</h3></div>')
-    await expect(stat(manifest)).rejects.toThrow()
+    try {
+      await Promise.race([fetching, call.then(() => { throw new Error('Update completed before its image fetch') })])
+      cancel.abort()
+      await expect(call).rejects.toThrow()
+      expect(await readFile(diskPath(created.path), 'utf8')).toBe('<div id="lab"><h3>Loss</h3></div>')
+      await expect(stat(manifest)).rejects.toThrow()
+    } finally { cancel.abort(); await Promise.allSettled([call]) }
 
     // The same patch, retried, still finds its old_str.
     hang = false
@@ -174,7 +181,7 @@ describe('visualize with data-viz-src images', () => {
     const { run, text } = setup(false)
     const value = await run({ fragment: FRAGMENT, title: 'Lab' })
     expect(value.images).toBeUndefined()
-    expect(await readFile(value.path, 'utf8')).toBe(FRAGMENT)
+    expect(await readFile(diskPath(value.path), 'utf8')).toBe(FRAGMENT)
     expect(text(value)).toContain('3 images could not be embedded')
     expect(text(value)).toContain('needs dsh 0.1.7 or later')
   })

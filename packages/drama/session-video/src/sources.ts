@@ -89,8 +89,10 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
       return
     }
     const index = state.sources.filter(item => item.eventSeq === event.seq).length
-    const path = source.path ?? source.attachment?.name ?? source.remoteUrl ?? 'video'
-    const label = path.includes('\\') ? win32.basename(path) : basename(path.split('?')[0] ?? path)
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- Each private caller supplies a local path, attachment or remote URL.
+    const path = source.path ?? source.attachment?.name ?? source.remoteUrl!
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- split always returns its first field, including for an empty address.
+    const label = path.includes('\\') ? win32.basename(path) : basename(path.split('?')[0]!)
     state.sources.push({ ...source, key: `${event.seq}:${index}`, eventSeq: event.seq, label })
   }
   const local = (path: string, origin: VideoCandidate['origin'], callId: string | null = null, presentedIndex: number | null = null): void => {
@@ -108,8 +110,9 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
       } else if (item?.type === 'text' && typeof item.text === 'string') {
         // Desktop file chips serialize with the shared @path / @"quoted path" grammar.
         for (const match of item.text.matchAll(/(?:^|\s)@(?:"([^"\r\n]+)"|([^\s]+))/gu)) {
-          const path = match[1] ?? match[2]
-          if (path !== undefined && !/^[a-z]+:\/\//i.test(path)) local(path, 'workspace')
+          // oxlint-disable-next-line typescript/no-non-null-assertion -- The pattern requires one nonempty quoted or unquoted path.
+          const path = match[1] ?? match[2]!
+          if (!/^[a-z]+:\/\//i.test(path)) local(path, 'workspace')
         }
       }
     }
@@ -121,13 +124,14 @@ export function foldVideoSources(previous: VideoSourceState, event: { seq: numbe
       taskId: typeof args?.task_id === 'number' ? args.task_id : null, mediaKind: typeof args?.media_kind === 'string' ? args.media_kind : null }] }
   } else if (event.type === 'tool/result') {
     const message = record(data.message)
-    const call = previous.calls.find(item => item.id === message?.toolCallId)
+    if (!message) return previous
+    const call = previous.calls.find(item => item.id === message.toolCallId)
     if (!call) return previous
     state = { ...previous, calls: previous.calls.filter(item => item !== call) }
-    if (message?.isError === true || !Array.isArray(message?.content)) return state
+    if (message.isError === true || !Array.isArray(message.content)) return state
     if (call.name === 'video_generate') {
       const name = record(data.meta)?.fileName
-      if (typeof name === 'string' && /^[\w.-]+\.mp4$/i.test(name) && name !== '..') {
+      if (typeof name === 'string' && /^[\w.-]+\.mp4$/i.test(name)) {
         local(join(dshHomePath('plugins', 'subscriptions', 'videos'), name), 'generated', call.id)
       }
     }
