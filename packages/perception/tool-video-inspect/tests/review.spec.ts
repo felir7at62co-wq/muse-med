@@ -625,6 +625,26 @@ it('closes a removed source by its provider-resolved saved path without changing
   expect(stat.mock.calls.every(([target]) => target.displayPath === h.root)).toBe(true)
 })
 
+it('ignores an unresolvable saved source while selecting one exact provider alias', async () => {
+  const h = await fixture(), missing = 'unresolvable-saved.mp4', alias = relative(h.root, h.input)
+  const fields = { episode: 'episode-1', source_version: 'recorded-source', duration: 80,
+    scanned_until: 0, scan_complete: false, frames: [] }
+  saveReview(h.readReviews, h.agent.session, { ...fields, id: VideoReviewId('unresolvable-saved'), path: missing })
+  saveReview(h.readReviews, h.agent.session, { ...fields, id: VideoReviewId('selected-alias'), path: alias })
+  const original = h.ctx.fs.resolve.bind(h.ctx.fs)
+  const resolve = vi.spyOn(h.ctx.fs, 'resolve').mockImplementation(async (path, options) => {
+    if (path === missing) throw Error('Saved source cannot be resolved')
+    return await original(path, options)
+  })
+  try {
+    await h.run({ name: 'video_inspect', args: { method: 'close', file_path: h.input } }, undefined)
+    expect(h.results().at(-1)?.isError).toBe(false)
+    const reviews = reviewsOf(h.readReviews, h.agent.session)
+    expect(reviews[alias]?.follow_up?.status).toBe('closed')
+    expect(reviews[missing]?.follow_up).toBeUndefined()
+  } finally { resolve.mockRestore() }
+})
+
 it.skipIf(process.platform === 'win32')('passes symlink-parent traversal to the filesystem provider before probing the source', async () => {
   const h = await fixture(), physical = join(h.root, 'physical', 'episode-80.mp4')
   await mkdir(join(h.root, 'physical', 'nested'), { recursive: true })

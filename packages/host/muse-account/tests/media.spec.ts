@@ -1,5 +1,5 @@
 /** Current-account media transport, bounded replies and owned stream lifecycle. */
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -41,14 +41,14 @@ function address(input: Parameters<typeof fetch>[0]): string {
   return typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
 }
 
-async function fixture(overrides: Partial<MuseMediaOptions> = {}, signedIn = true) {
+async function fixture(overrides: Partial<MuseMediaOptions> = {}, signedIn = true, globalFetch = false) {
   const directory = await mkdtemp(join(tmpdir(), 'muse-media-client-'))
   directories.push(directory)
   const sessionFile = join(directory, 'session.json')
   if (signedIn) await writeMuseSession(sessionFile, { baseUrl: origin, username: 'alice', cookie })
   const fetcher = vi.fn<typeof fetch>().mockImplementation(async (_url, init) => rpc(init))
   const client = new MuseMediaClient({ baseUrl: origin, sessionFile, requestTimeoutMs: 60000, fileTimeoutMs: 60000,
-    maxReplyBytes: 1048576, maxFileBytes: 536870912, fetcher, ...overrides })
+    maxReplyBytes: 1048576, maxFileBytes: 536870912, ...globalFetch ? {} : { fetcher }, ...overrides })
   clients.push(client)
   return { client, fetcher, sessionFile }
 }
@@ -56,6 +56,7 @@ async function fixture(overrides: Partial<MuseMediaOptions> = {}, signedIn = tru
 afterEach(async () => {
   await Promise.all(clients.splice(0).map(client => client.dispose()))
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })))
 })
 
@@ -94,6 +95,7 @@ it('retains a failed MCP tool receipt and submits each download only once with i
 it.each([
   [401, 'sign-in-required'], [403, 'company-access-required'], [404, 'not-found'],
   [409, 'request-conflict'], [429, 'rate-limited'], [503, 'unavailable'],
+  [400, 'invalid-input'], [413, 'invalid-input'], [415, 'invalid-input'], [422, 'invalid-input'],
 ])('maps HTTP %s to a fixed safe failure', async (status, code) => {
   const value = await fixture()
   value.fetcher.mockResolvedValueOnce(new Response('private error ' + cookie, { status, headers: { 'retry-after': '17' } }))
@@ -144,18 +146,131 @@ it('bounds whole reply bytes and rejects malformed UTF-8', async () => {
   await expect(other.client.status()).rejects.toMatchObject({ code: 'invalid-response' })
 })
 
-it('aborts a blocked body on deadline and does not retry an uncertain submission', async () => {
+it.each([
+  { data: [null, true, false, 0, 'unknown', { count: null }] },
+  { data: Array.from({ length: 1001 }, () => null), invalid: true },
+  { data: [{ cookie: 'private' }], invalid: true },
+  { data: Array.from({ length: 18 }).reduce<unknown>(value => ({ nested: value }), null), invalid: true },
+])('accepts only bounded public source material from the wire: %j', async ({ data, invalid }) => {
+  const value = await fixture()
+  value.fetcher.mockImplementationOnce(async (_url, init) => rpc(init, { ...result, data }))
+  const request = value.client.data('get_video', { platform: 'douyin', content_id: '123' })
+  if (invalid) await expect(request).rejects.toMatchObject({ code: 'invalid-response' })
+  else await expect(request).resolves.toMatchObject({ data })
+})
+
+it('refuses a numeric overflow parsed from a valid JSON number', async () => {
+  const value = await fixture()
+  value.fetcher.mockImplementationOnce(async (_url, init) => new Response(
+    JSON.stringify({ jsonrpc: '2.0', id: requestBody(init).id,
+      result: { isError: false, structuredContent: { ...result, data: 'NUMERIC_OVERFLOW' } } })
+      .replace('"NUMERIC_OVERFLOW"', '1e309'), { headers: { 'content-type': 'application/json' } },
+  ))
+  await expect(value.client.data('get_video', { platform: 'douyin', content_id: '123' }))
+    .rejects.toMatchObject({ code: 'invalid-response' })
+})
+
+it.each([
+  { state: 'ok', files: [] },
+  { state: 'ok', job_id: id },
+  { state: 'failed' },
+  { ...saved, state: 'partial', files: [] },
+  { ...saved, files: [saved.files[0], saved.files[0]] },
+  { ...saved, file_coverage: { ...saved.file_coverage, accepted: 2 } },
+])('refuses an incomplete or contradictory cloud receipt: %j', async (receipt) => {
+  const value = await fixture()
+  value.fetcher.mockImplementationOnce(async (_url, init) => rpc(init, receipt, receipt.state === 'failed'))
+  await expect(value.client.data('get_video', { platform: 'douyin', content_id: '123' }))
+    .rejects.toMatchObject({ code: 'invalid-response' })
+})
+
+it.each([
+  { receipt: saved, key: brandString<MuseMediaRequestId>('another-key') },
+  { receipt: { state: 'failed', code: 'not_found', job_id: id }, key: requestId },
+])('refuses a cloud download receipt that does not acknowledge its original request key: %j', async ({ receipt, key }) => {
+  const value = await fixture()
+  value.fetcher.mockImplementationOnce(async (_url, init) => rpc(init, receipt, receipt.state === 'failed'))
+  await expect(value.client.download({ platform: 'douyin', content_id: '123', requestId: key }))
+    .rejects.toMatchObject({ code: 'invalid-response' })
+})
+
+it.each([undefined, 'invalid-date', '0', '604801', '2026-11-01T00:00:05Z'])('bounds the server retry delay %s', async (header) => {
+  vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-11-01T00:00:00Z'))
+  const value = await fixture()
+  value.fetcher.mockResolvedValueOnce(new Response(null, { status: 429,
+    ...header === undefined ? {} : { headers: { 'retry-after': header } } }))
+  await expect(value.client.get(id)).rejects.toMatchObject({ code: 'rate-limited',
+    retryAfter: header?.endsWith('05Z') ? 5 : undefined })
+})
+
+it('keeps authentication redirects, consumed failure bodies and cancellation failures bounded', async () => {
+  const value = await fixture()
+  const consumed = new Response('Already consumed', { status: 503 }); await consumed.text()
+  const cancelled = vi.fn(() => { throw Error('Closed error body') })
+  const responses = [new Response(null, { status: 303 }), consumed,
+    new Response(new ReadableStream({ cancel: cancelled }), { status: 403 })]
+  for (const [index, response] of responses.entries()) {
+    value.fetcher.mockResolvedValueOnce(response)
+    await expect(value.client.get(id)).rejects.toMatchObject({
+      code: ['sign-in-required', 'unavailable', 'company-access-required'][index],
+    })
+  }
+  expect(cancelled).toHaveBeenCalledOnce()
+})
+
+it('distinguishes an unreadable account from an account changed while a request is active', async () => {
+  const unavailable = await fixture()
+  await writeFile(unavailable.sessionFile, '{incomplete')
+  await expect(unavailable.client.status()).rejects.toMatchObject({ code: 'unavailable' })
+  expect(unavailable.fetcher).not.toHaveBeenCalled()
+  const changed = await fixture()
+  changed.fetcher.mockImplementationOnce(async (_url, init) => {
+    await writeFile(changed.sessionFile, '{incomplete')
+    return rpc(init)
+  })
+  await expect(changed.client.data('get_video', { platform: 'douyin', content_id: '123' }))
+    .rejects.toMatchObject({ code: 'account-changed' })
+})
+
+it('uses the configured or default HTTP transport without resubmitting a failed connection', async () => {
+  const value = await fixture()
+  value.fetcher.mockRejectedValue(Error('Private network failure'))
+  await expect(value.client.status()).rejects.toMatchObject({ code: 'unavailable' })
+  await expect(value.client.download({ platform: 'douyin', content_id: '123', requestId }))
+    .rejects.toMatchObject({ code: 'unconfirmed' })
+  expect(value.fetcher).toHaveBeenCalledTimes(2)
+  const defaultTransport = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ ready: true,
+    limits: { requests_per_minute: 1, concurrent_requests: 1, downloads_per_day: 1, concurrent_downloads: 1 } }))
+  vi.stubGlobal('fetch', defaultTransport)
+  const fallback = await fixture({}, true, true)
+  await expect(fallback.client.status()).resolves.toMatchObject({ ready: true })
+  expect(defaultTransport).toHaveBeenCalledOnce()
+  expect(fallback.fetcher).not.toHaveBeenCalled()
+})
+
+it.each([
+  new Response(null, { headers: { 'content-type': 'application/json' } }),
+  new Response('{}'),
+  new Response('{}', { headers: { 'content-type': 'application/json', 'content-length': 'invalid' } }),
+  new Response('{}', { headers: { 'content-type': 'application/json', 'content-length': '1048577' } }),
+])('rejects an absent or wrongly declared JSON response body: %j', async (response) => {
+  const value = await fixture()
+  value.fetcher.mockResolvedValueOnce(response)
+  await expect(value.client.status()).rejects.toMatchObject({ code: 'invalid-response' })
+})
+
+it.each(['download', 'status'] as const)('aborts a blocked %s body on deadline without retrying', async (operation) => {
   const deadline = new AbortController()
   vi.spyOn(AbortSignal, 'timeout').mockReturnValue(deadline.signal)
   const value = await fixture()
   const entered = deferred<undefined>()
   const cancel = vi.fn()
   value.fetcher.mockImplementationOnce(async () => {
-    entered.resolve(undefined)
-    return new Response(new ReadableStream({ cancel }), { headers: { 'content-type': 'application/json' } })
+    return new Response(new ReadableStream({ pull: () => { entered.resolve(undefined) }, cancel }, { highWaterMark: 0 }),
+      { headers: { 'content-type': 'application/json' } })
   })
-  const pending = value.client.download({ platform: 'douyin', content_id: '1', requestId })
-  const assertion = expect(pending).rejects.toMatchObject({ code: 'unconfirmed' })
+  const pending = operation === 'download' ? value.client.download({ platform: 'douyin', content_id: '1', requestId }) : value.client.status()
+  const assertion = expect(pending).rejects.toMatchObject({ code: operation === 'download' ? 'unconfirmed' : 'timeout' })
   await entered.promise
   deadline.abort(new DOMException('Controlled deadline', 'TimeoutError'))
   await assertion
@@ -163,17 +278,17 @@ it('aborts a blocked body on deadline and does not retry an uncertain submission
   expect(value.fetcher).toHaveBeenCalledTimes(1)
 })
 
-it('honors caller cancellation before network and while reading a response', async () => {
+it.each([false, true])('honors caller cancellation before network and during a response, cleanup fails: %s', async (cleanupFails) => {
   const value = await fixture()
   const before = new AbortController()
   before.abort()
   await expect(value.client.status(before.signal)).rejects.toMatchObject({ code: 'cancelled' })
   expect(value.fetcher).not.toHaveBeenCalled()
   const caller = new AbortController(), entered = deferred<undefined>()
-  const cancel = vi.fn()
+  const cancel = vi.fn(() => { if (cleanupFails) throw Error('Response cleanup failed') })
   value.fetcher.mockImplementationOnce(async () => {
-    entered.resolve(undefined)
-    return new Response(new ReadableStream({ cancel }), { headers: { 'content-type': 'application/json' } })
+    return new Response(new ReadableStream({ pull: () => { entered.resolve(undefined) }, cancel }, { highWaterMark: 0 }),
+      { headers: { 'content-type': 'application/json' } })
   })
   const pending = value.client.status(caller.signal)
   const rejected = expect(pending).rejects.toMatchObject({ code: 'cancelled' })
@@ -259,6 +374,74 @@ it('requires complete stream consumption before returning a file callback result
   value.fetcher.mockResolvedValueOnce(Response.json(saved)).mockResolvedValueOnce(new Response('abc'))
   await expect(value.client.withFile(id, 'video.mp4', async () => 'not consumed')).rejects
     .toMatchObject({ code: 'file-incomplete' })
+})
+
+it('retains a partial cloud manifest while consuming its exact selected file', async () => {
+  const value = await fixture()
+  const partial = { ...saved, state: 'partial', file_coverage: { reported: 2, accepted: 1, rejected: 1,
+    complete: false, truncated: false } }
+  value.fetcher.mockResolvedValueOnce(Response.json(partial)).mockResolvedValueOnce(new Response('abc'))
+  await expect(value.client.withFile(id, 'video.mp4', async transfer => ({
+    state: transfer.job.state, text: await new Response(transfer.body).text(),
+  }))).resolves.toEqual({ state: 'partial', text: 'abc' })
+})
+
+it('refuses an oversized manifest before fetching bytes and an overlong stream before publication', async () => {
+  const bounded = await fixture({ maxFileBytes: 2 }), consume = vi.fn()
+  bounded.fetcher.mockResolvedValueOnce(Response.json(saved))
+  await expect(bounded.client.withFile(id, 'video.mp4', consume)).rejects.toMatchObject({ code: 'file-too-large' })
+  expect(bounded.fetcher).toHaveBeenCalledOnce()
+  expect(consume).not.toHaveBeenCalled()
+  const overflow = await fixture({ maxFileBytes: 8 })
+  overflow.fetcher.mockResolvedValueOnce(Response.json(saved)).mockResolvedValueOnce(new Response('abcd'))
+  await expect(overflow.client.withFile(id, 'video.mp4', async transfer => await new Response(transfer.body).text()))
+    .rejects.toMatchObject({ code: 'file-incomplete' })
+})
+
+it.each([undefined, 'invalid', '4'])('refuses an absent file body or mismatched byte declaration %s and closes it', async (length) => {
+  const value = await fixture(), cancelled = vi.fn()
+  const response = length === undefined ? new Response(null) : new Response(new ReadableStream({ cancel: cancelled }),
+    { headers: { 'content-length': length } })
+  value.fetcher.mockResolvedValueOnce(Response.json(saved)).mockResolvedValueOnce(response)
+  const consume = vi.fn()
+  await expect(value.client.withFile(id, 'video.mp4', consume))
+    .rejects.toMatchObject({ code: length === undefined ? 'invalid-response' : 'file-incomplete' })
+  expect(consume).not.toHaveBeenCalled()
+  expect(cancelled).toHaveBeenCalledTimes(length === undefined ? 0 : 1)
+})
+
+it('cancels a file at the consumer request and keeps a read failure authoritative during cleanup', async () => {
+  const cancelled = vi.fn(), value = await fixture()
+  value.fetcher.mockResolvedValueOnce(Response.json(saved))
+    .mockResolvedValueOnce(new Response(new ReadableStream({ cancel: cancelled })))
+  await expect(value.client.withFile(id, 'video.mp4', async (transfer) => { await transfer.body.cancel() }))
+    .rejects.toMatchObject({ code: 'file-incomplete' })
+  expect(cancelled).toHaveBeenCalledOnce()
+  value.fetcher.mockResolvedValueOnce(Response.json(saved)).mockResolvedValueOnce(new Response(new ReadableStream({
+    start(controller) { controller.error(Error('Private upstream stream error')) },
+  })))
+  await expect(value.client.withFile(id, 'video.mp4', async transfer => await new Response(transfer.body).text()))
+    .rejects.toMatchObject({ code: 'unavailable' })
+})
+
+it('joins an aborted pending file read even when upstream cancellation rejects', async () => {
+  const value = await fixture(), caller = new AbortController(), entered = deferred<undefined>()
+  const cancel = vi.fn(() => { throw Error('Disconnected source cancellation') })
+  value.fetcher.mockResolvedValueOnce(Response.json(saved)).mockResolvedValueOnce(new Response(new ReadableStream({
+    pull() { entered.resolve(undefined) }, cancel,
+  }, { highWaterMark: 0 })))
+  const operation = value.client.withFile(id, 'video.mp4', async transfer => await new Response(transfer.body).text(), caller.signal)
+  const rejected = expect(operation).rejects.toMatchObject({ code: 'cancelled' })
+  await entered.promise
+  caller.abort()
+  await rejected
+  expect(cancel).toHaveBeenCalledOnce()
+})
+
+it('keeps an unclassified HTTP rejection as unavailable', async () => {
+  const value = await fixture()
+  value.fetcher.mockResolvedValueOnce(new Response(null, { status: 418 }))
+  await expect(value.client.get(id)).rejects.toMatchObject({ code: 'unavailable' })
 })
 
 it('rejects unlisted files before requesting bytes and incomplete or oversized file transfers', async () => {

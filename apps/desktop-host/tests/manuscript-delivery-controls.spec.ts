@@ -27,7 +27,8 @@ it.each(cases)('keeps delivery checks scoped for %s', async (mode, task) => {
     tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)), sourceImport: 'tsx/esm', mode: 'src',
     inspect: async (cwd) => {
       const actual: unknown = JSON.parse(await readFile(join(cwd, '_controls-probe.json'), 'utf8'))
-      const expected: unknown = JSON.parse(await readFile(new URL('./expected/manuscript-delivery-controls.json', import.meta.url), 'utf8'))
+      const expectedText = await readFile(new URL('./expected/manuscript-delivery-controls.json', import.meta.url), 'utf8')
+      const expected: unknown = JSON.parse(expectedText.replaceAll('{{nativeShell}}', process.platform === 'win32' ? 'pwsh' : 'bash'))
       expect(actual).toEqual(z.record(z.string(), z.unknown()).parse(expected)[mode])
     },
   })

@@ -3,6 +3,7 @@ scenario: ptc-policy-change
 profile: headless
 composition: ptc-policy-change
 recording: authored
+writerOutput: true
 header:
   class: ptc-policy-change
   pin: true

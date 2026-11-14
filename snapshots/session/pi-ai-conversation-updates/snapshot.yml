@@ -3,6 +3,7 @@ scenario: pi-ai-conversation-updates
 profile: headless
 composition: pi-ai-conversation-updates
 recording: authored
+writerOutput: true
 header:
   class: pi-ai-conversation-updates
   pin: true

@@ -34,6 +34,19 @@ const WEB_SURFACE_PROMPT = fileURLToPath(new URL('./expected/web-runtime-context
 const TITLE_PROMPT_MARKER = 'Generate the session title from this JSON array of human messages'
 const authenticatedCookies = new Map<string, Promise<{ origin: string; cookie: string }>>()
 
+interface ExecutorProviderRequest {
+  system?: string
+  messages?: { role?: string; content?: { type?: string; text?: string }[] }[]
+  tools?: { name?: string }[]
+}
+
+/** Match the executor probe's own user text independently of auxiliary titles and tool availability. */
+function isExecutorProviderRequest(request: ExecutorProviderRequest, promptMarker: string): boolean {
+  return !JSON.stringify(request.messages ?? null).includes(TITLE_PROMPT_MARKER)
+    && request.messages?.some(message => message.role === 'user'
+      && message.content?.some(block => block.type === 'text' && block.text === promptMarker)) === true
+}
+
 /** Frame a complete text turn or an open block before a transport failure. */
 function messagesResponse(text: string, complete = true): string {
   const events: object[] = [
@@ -311,6 +324,34 @@ const notReady = UI_PLUGIN_DIRS.filter((dir) => {
 if (notReady.length > 0) console.warn(`[smoke-real] skipped — client bundles not ready: ${notReady.join(', ')}`)
 
 describe('dsh web keyless CLI smoke', () => {
+  it('captures the executor request after an auxiliary title arrives first', () => {
+    const promptMarker = 'WEB_EXECUTOR_CAPTURE_PROBE'
+    const title: ExecutorProviderRequest = { messages: [{ role: 'user', content: [
+      { type: 'text', text: `${TITLE_PROMPT_MARKER}:\n${JSON.stringify([{ text: promptMarker }])}` },
+      { type: 'text', text: promptMarker },
+    ] }] }
+    const main: ExecutorProviderRequest = { messages: [{ role: 'user', content: [{ type: 'text', text: promptMarker }] }] }
+    expect([title, main].find(request => isExecutorProviderRequest(request, promptMarker))).toBe(main)
+  })
+
+  it('captures an executor request with missing tools so its tool assertion rejects it', () => {
+    const promptMarker = 'WEB_EXECUTOR_CAPTURE_PROBE'
+    const main: ExecutorProviderRequest = { messages: [{ role: 'user', content: [{ type: 'text', text: promptMarker }] }] }
+    const captured = [main].find(request => isExecutorProviderRequest(request, promptMarker))
+    expect(captured).toBe(main)
+    expect(() => { expect(captured?.tools?.map(tool => tool.name)).toEqual(['run_code']) }).toThrow()
+  })
+
+  it('captures the executor request when its system contains a logged title request', () => {
+    const promptMarker = 'WEB_EXECUTOR_CAPTURE_PROBE'
+    const main: ExecutorProviderRequest = {
+      system: TITLE_PROMPT_MARKER,
+      messages: [{ role: 'user', content: [{ type: 'text', text: promptMarker }] }],
+    }
+    expect(isExecutorProviderRequest(main, promptMarker)).toBe(true)
+    expect(isExecutorProviderRequest({ messages: [{ role: 'user', content: [{ type: 'text', text: 'unrelated' }] }] }, promptMarker)).toBe(false)
+  })
+
   it('serves a usable app from three immutable plugin batches', async () => {
     requireDist()
     const sessionsDir = mkdtempSync(join(tmpdir(), 'dsh-web-keyless-'))
@@ -606,14 +647,9 @@ describe('dsh web keyless CLI smoke', () => {
   it.each(['native', 'ptc'] as const)('selects the %s executor through profile overlays and ignores the retired environment selector', async (mode) => {
     requireDist()
     const workspace = mkdtempSync(join(tmpdir(), 'dsh-web-ptc-'))
-
-    interface PtcModeProviderRequest {
-      system?: string
-      messages?: { role?: string; content?: { type?: string; text?: string }[] }[]
-      tools?: { name?: string }[]
-    }
-    let resolveProviderRequest!: (request: PtcModeProviderRequest) => void
-    const providerRequest = new Promise<PtcModeProviderRequest>((resolve) => {
+    const promptMarker = `WEB_EXECUTOR_${mode.toUpperCase()}_REQUEST`
+    let resolveProviderRequest!: (request: ExecutorProviderRequest) => void
+    const providerRequest = new Promise<ExecutorProviderRequest>((resolve) => {
       resolveProviderRequest = resolve
     })
     const provider = createServer((request, response) => {
@@ -621,7 +657,8 @@ describe('dsh web keyless CLI smoke', () => {
       request.setEncoding('utf8')
       request.on('data', (chunk: string) => { body += chunk })
       request.on('end', () => {
-        resolveProviderRequest(JSON.parse(body) as PtcModeProviderRequest)
+        const parsed = JSON.parse(body) as ExecutorProviderRequest
+        if (isExecutorProviderRequest(parsed, promptMarker)) resolveProviderRequest(parsed)
         response.writeHead(200, { 'content-type': 'text/event-stream' })
         response.end(messagesResponse('done'))
       })
@@ -657,7 +694,7 @@ describe('dsh web keyless CLI smoke', () => {
         requestId: randomUUID(),
         sessionId: created.sessionId,
         mode: 'queue',
-        content: [{ type: 'text', text: 'go' }],
+        content: [{ type: 'text', text: promptMarker }],
       } })
       const captured = await Promise.race([
         providerRequest,

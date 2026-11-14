@@ -539,7 +539,13 @@ const REPLAY_CHUNK_TYPES = new Set<StreamChunk['type']>([
 ])
 
 const FROM_REQUEST_OPEN = '{{fromRequest:'
+const FROM_REQUEST_JSON_OPEN = '{{fromRequestJson:'
 const FROM_REQUEST_CLOSE = '}}'
+
+/** Whether a scripted string contains a supported request placeholder. */
+function hasRequestPlaceholder(text: string): boolean {
+  return text.includes(FROM_REQUEST_OPEN) || text.includes(FROM_REQUEST_JSON_OPEN)
+}
 
 /** Collect every string leaf of one JSON-compatible value, in traversal order. */
 function collectStrings(value: unknown, out: string[]): void {
@@ -573,22 +579,27 @@ function resolveFromRequest(pattern: string, corpus: string): string {
   return last[1] ?? last[0]
 }
 
-/** Replace every `{{fromRequest:<pattern>}}` occurrence in one scripted string. */
+/** Substitute raw captures or JSON-string-escaped captures in one scripted string. */
 function substituteString(text: string, corpus: string): string {
   let result = ''
   let cursor = 0
   while (true) {
-    const open = text.indexOf(FROM_REQUEST_OPEN, cursor)
+    const rawOpen = text.indexOf(FROM_REQUEST_OPEN, cursor)
+    const jsonOpen = text.indexOf(FROM_REQUEST_JSON_OPEN, cursor)
+    const escaped = jsonOpen !== -1 && (rawOpen === -1 || jsonOpen < rawOpen)
+    const open = escaped ? jsonOpen : rawOpen
     if (open === -1) return result + text.slice(cursor)
-    let close = text.indexOf(FROM_REQUEST_CLOSE, open + FROM_REQUEST_OPEN.length)
+    const prefix = escaped ? FROM_REQUEST_JSON_OPEN : FROM_REQUEST_OPEN
+    let close = text.indexOf(FROM_REQUEST_CLOSE, open + prefix.length)
     if (close === -1) {
       throw new Error(`llm-replay: fromRequest placeholder is unterminated in ${JSON.stringify(text)}`)
     }
     // The last two braces of a consecutive `}` run terminate the placeholder,
     // so a pattern may end with a brace quantifier like `[0-9a-f]{4}`.
     while (text[close + FROM_REQUEST_CLOSE.length] === '}') close += 1
-    const pattern = text.slice(open + FROM_REQUEST_OPEN.length, close)
-    result += text.slice(cursor, open) + resolveFromRequest(pattern, corpus)
+    const pattern = text.slice(open + prefix.length, close)
+    const captured = resolveFromRequest(pattern, corpus)
+    result += text.slice(cursor, open) + (escaped ? JSON.stringify(captured).slice(1, -1) : captured)
     cursor = close + FROM_REQUEST_CLOSE.length
   }
 }
@@ -596,7 +607,7 @@ function substituteString(text: string, corpus: string): string {
 /** Deep-copy one JSON-compatible value with scripted placeholders resolved. */
 function substituteValue(value: unknown, corpus: string): unknown {
   if (typeof value === 'string') {
-    return value.includes(FROM_REQUEST_OPEN) ? substituteString(value, corpus) : value
+    return hasRequestPlaceholder(value) ? substituteString(value, corpus) : value
   }
   if (Array.isArray(value)) return value.map(item => substituteValue(item, corpus))
   if (value !== null && typeof value === 'object') {
@@ -617,12 +628,14 @@ function substituteValue(value: unknown, corpus: string): unknown {
  * placeholder, so a pattern may end with a brace quantifier but cannot
  * contain `}}` followed by further pattern content. Derived entries pass
  * through the same resolution as sidecar entries.
+ * `{{fromRequestJson:<regex>}}` uses the same matching rules and escapes the
+ * capture for embedding inside an existing JSON string literal, without adding quotes.
  * @param entry - the scripted entry about to replay.
  * @param messages - the live request messages searched by the placeholders.
  * @returns the entry itself when no placeholder appears, else a resolved deep copy.
  */
 export function resolveScriptedEntry(entry: ReplayEntry, messages: GenerateOptions['messages']): ReplayEntry {
-  if (!JSON.stringify(entry).includes(FROM_REQUEST_OPEN)) return entry
+  if (!hasRequestPlaceholder(JSON.stringify(entry))) return entry
   const leaves: string[] = []
   collectStrings(messages, leaves)
   return substituteValue(entry, leaves.join('\n')) as ReplayEntry

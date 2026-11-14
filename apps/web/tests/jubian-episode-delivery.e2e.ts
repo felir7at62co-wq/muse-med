@@ -167,11 +167,17 @@ it('keeps original episode tasks across reply loss, reload and offline receipt r
   const page = await newEnglishPage(browser), console = watchConsole(page)
   onTestFailed(() => saveFailureShot(page, 'jubian-episode-delivery'))
   let lose = true
+  let holdNextStatus: (() => Promise<void>) | undefined
   await page.route('**/api/jubianEpisodeDelivery/*', async (route) => {
     const method = new URL(route.request().url()).pathname.split('/').at(-1)
     if (method === 'episodeReadiness') counters.readiness++
     if (method === 'episodeHistory') counters.history++
-    if (method === 'episodeStatus') counters.status++
+    if (method === 'episodeStatus') {
+      counters.status++
+      const hold = holdNextStatus
+      holdNextStatus = undefined
+      await hold?.()
+    }
     if (method === 'admitEpisode') {
       counters.admission++
       if (lose) {
@@ -199,12 +205,23 @@ it('keeps original episode tasks across reply loss, reload and offline receipt r
   if (original === undefined) throw new Error('Committed task was not discoverable after lost reply')
   const target = { projectDir: f.project, episode: 1, digest: original.digest }
   expect(counters.admission).toBe(1); await expect.poll(() => renderer.encodes).toBe(1)
+  const heldStatus = Promise.withResolvers<undefined>(), releaseStatus = Promise.withResolvers<undefined>()
+  onTestFinished(() => { releaseStatus.resolve(undefined) })
+  holdNextStatus = async () => { heldStatus.resolve(undefined); await releaseStatus.promise }
+  await heldStatus.promise
   await page.clock.install()
   await page.clock.pauseAt(Date.now() + 1000)
+  const heldReads = counters.status
+  await page.clock.runFor(101)
+  expect(counters.status).toBe(heldReads)
+  releaseStatus.resolve(undefined)
   for (let i = 0; i < 2; i++) {
     const reads = counters.status
-    await page.clock.runFor(101)
-    await expect.poll(() => counters.status).toBeGreaterThan(reads)
+    // The next timer is registered after the preceding status response settles.
+    await expect.poll(async () => {
+      await page.clock.runFor(101)
+      return counters.status
+    }).toBeGreaterThan(reads)
   }
   await page.clock.resume()
   expect(counters.readiness).toBe(1)

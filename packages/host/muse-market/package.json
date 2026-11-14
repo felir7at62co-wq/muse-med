@@ -25,6 +25,7 @@
     },
     "./src/*": "./src/*",
     "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
     "./typert": {
       "types": "./lib/typert.host.d.ts",
       "default": "./lib/typert.host.js"
@@ -58,6 +59,7 @@
     "bundle": "tsdown"
   },
   "files": [
+    "locale/*.json",
     "lib/index.js",
     "lib/package.js",
     "lib/format.js",

@@ -250,20 +250,23 @@ export async function applyCompleteReview(ctx: Context, config: Config,
           const savedTarget = await ctx.fs.resolve(selected.path, { cwd: policy.workspaceRoot, signal })
           if (suppliedTarget.targetKey !== savedTarget.targetKey) throw Error('VIDEO_REVIEW_SELECTOR: file_path与review_id不指向同一保存记录。')
         }
-        let snapshot = selected ?? (suppliedTarget === undefined ? undefined : saved[suppliedTarget.displayPath])
+        let snapshot = selected
         if (snapshot === undefined && suppliedTarget !== undefined) {
-          const matching: VideoReview[] = []
-          for (const review of Object.values(saved)) {
-            try {
-              const target = await ctx.fs.resolve(review.path, { cwd: policy.workspaceRoot, signal })
-              if (target.targetKey === suppliedTarget.targetKey) matching.push(review)
-            } catch (_error: unknown) {
-              // An unresolvable saved source cannot identify the supplied path.
-              signal.throwIfAborted()
+          snapshot = saved[suppliedTarget.displayPath]
+          if (snapshot === undefined) {
+            const matching: VideoReview[] = []
+            for (const review of Object.values(saved)) {
+              try {
+                const target = await ctx.fs.resolve(review.path, { cwd: policy.workspaceRoot, signal })
+                if (target.targetKey === suppliedTarget.targetKey) matching.push(review)
+              } catch (_error: unknown) {
+                // An unresolvable saved source cannot identify the supplied path.
+                signal.throwIfAborted()
+              }
             }
+            if (matching.length > 1) throw Error('VIDEO_REVIEW_SELECTOR: file_path对应多个保存记录，请提供review_id。')
+            snapshot = matching[0]
           }
-          if (matching.length > 1) throw Error('VIDEO_REVIEW_SELECTOR: file_path对应多个保存记录，请提供review_id。')
-          snapshot = matching[0]
         }
         const savedDescription = (review: VideoReview): ReviewResult => ({ ...taskResult(review, 0),
           frames: [], frames_not_shown: review.frames.length, event_groups: [],

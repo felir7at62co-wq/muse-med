@@ -1,7 +1,7 @@
 import { join, basename } from 'node:path'
 import { copyFile, mkdir, realpath, writeFile } from 'node:fs/promises'
 import { afterEach, expect, it, vi } from 'vitest'
-import { verifySourceQa, summarizeSourceQa } from '../src/source-qa.ts'
+import { createSourceQaStagedAccess, verifySourceQa, summarizeSourceQa } from '../src/source-qa.ts'
 import { fileSha256 } from '../src/cache.ts'
 import { cleanup, tempProject, writePlaceholder } from './harness.ts'
 import { sourceQaFixture, sourceQaOcrLine, verifiedSourceQaFixture } from './source-qa-fixture.ts'
@@ -25,6 +25,26 @@ async function fixture(clean = false) {
   return { input, selected, original, qa }
 }
 type Fixture = Awaited<ReturnType<typeof fixture>>
+
+it.each(['missing original', 'empty OCR set', 'another staged project', 'selected artifact changed during original verification'] as const)
+('rejects incomplete cross-source evidence: %s', async (fault) => {
+  const f = await fixture(true)
+  if (fault === 'missing original') Reflect.set(f.qa, 'original', null)
+  if (fault === 'empty OCR set') Reflect.set(f.selected.declaration, 'ocr', [])
+  if (fault === 'another staged project') {
+    const other = join(f.input.project, 'other-project')
+    await mkdir(other)
+    const staged = createSourceQaStagedAccess(other, f.input.project, [], new AbortController().signal)
+    await expect(verifySourceQa({ ...f.input, staged })).rejects.toThrow('暂存证据属于另一项目')
+  } else if (fault === 'selected artifact changed during original verification') {
+    await expect(verifySourceQa({ ...f.input, verifier: async (binding) => {
+      await verifiedSourceQaFixture(binding)
+      if (binding.mediaPath === await realpath(f.input.originalPath)) {
+        await writeFile(f.selected.declaration.ocr.path, 'changed selected artifact')
+      }
+    } })).rejects.toThrow('核实分段证据期间源片或复验文件已变化')
+  } else await expect(verifySourceQa(f.input)).rejects.toThrow(fault === 'missing original' ? '没有绑定本次实际源片' : '缺少OCR文件')
+})
 
 function watermark(f: Fixture) {
   f.selected.ocr.frames[0]!.lines = [sourceQaOcrLine('内容由AI生成')]

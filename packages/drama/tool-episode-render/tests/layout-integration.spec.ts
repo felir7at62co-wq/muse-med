@@ -381,6 +381,11 @@ it.skipIf(!nativeAvailable)('refuses a real fallback font before body encoding a
   const owner = createMediaRunner(), family = 'Muse Fixture Missing Font Family'
   const input = await fixture({ ...visual, font_family: family },
     { ffmpegPath: ffmpeg, ffprobePath: ffprobe, fontsDir: fonts, subtitleFontFamily: family }, owner.dispose)
+  const source = join(input.root, 'video/01/shot_001.mp4')
+  const generated = await owner.runCommand(ffmpeg, ['-y', '-v', 'error', '-f', 'lavfi', '-i',
+    'testsrc2=size=320x180:rate=24:duration=1', '-f', 'lavfi', '-i',
+    'sine=frequency=440:sample_rate=48000:duration=1', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', source])
+  expect(generated.code, generated.stderr).toBe(0)
   const calls: (readonly string[])[] = []
   const toolkit: MediaToolkit = { ffmpeg, ffprobe, channel: { run: async (command, args) => {
     calls.push(args)
@@ -398,7 +403,8 @@ it.skipIf(!nativeAvailable)('refuses a real fallback font before body encoding a
   expect(await readFile(input.output)).toEqual(original)
   expect(await stat(input.output)).toMatchObject({ dev: before.dev, ino: before.ino })
   expect(calls.length).toBeGreaterThan(0)
-  expect(calls.every(args => args.some(argument => argument.includes('bbox=min_val=1')))).toBe(true)
+  expect(calls.filter(args => !args.includes('-show_streams')).every(args =>
+    args.some(argument => argument.includes('bbox=min_val=1')))).toBe(true)
 })
 
 it.skipIf(!nativeAvailable || !existsSync(join(fonts, 'ZhuqueFangsong-Regular.ttf'))).each([

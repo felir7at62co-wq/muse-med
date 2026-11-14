@@ -9,6 +9,7 @@ import {
   type Scenario,
   type SnapshotSuiteOptions,
 } from '@deepseek-ai/dsh-session-snapshot'
+import { writeReplayDiagnostics } from '../replay-diagnostics.ts'
 
 const corpusDir = fileURLToPath(new URL('./', import.meta.url))
 
@@ -59,6 +60,7 @@ const scenarios: Scenario[] = controllerCases.map((controller) => {
     ...controller,
     recorded: manifest.recording === 'live',
     ...(manifest.sessionFormat === undefined ? {} : { sessionFormat: manifest.sessionFormat }),
+    ...(manifest.writerOutput === true ? { writerOutput: true } : {}),
     ...(manifest.replay?.override === true ? { overridden: true } : {}),
     ...(manifest.header.pin === true ? { pinsHeader: true } : {}),
     ...(manifest.header.changes === undefined ? {} : { expectedHeaderChanges: manifest.header.changes }),
@@ -89,4 +91,9 @@ defineAcpSnapshotSuite({
   snapshotsDir: corpusDir,
   scenarios,
   mode: snapshotMode(process.env.DSH_SNAPSHOT),
+  ...process.env.CI === 'true' ? {
+    onReplayResult: async (name, logs, context) => writeReplayDiagnostics(
+      join(corpusDir, '../../.artifacts/snapshot-replay/acp', name), logs.map(log => log.content), context,
+    ),
+  } : {},
 })

@@ -99,7 +99,7 @@ parent agent 委托给进程内 subagent 的场景会为每个 Session 记录一
 
 ### 设计
 
-回放把选定的投影 Session generation 视为 fixture。一个 parser 补全投影 envelope，通过 `sessionFormatCatalog` 校验并迁移完整产物，再以一个结果返回当前 header、继承 cut 与事件列表。`deriveReplayScript` 按日志顺序展开每个 `assistant/message` 或 `assistant/attempt` 流，因此每个持久 settlement 都成为一条 `chunks` 条目；非空流缺少 `finish` 分片是 `stream()` 抛出异常的指纹，必须通过 override 伴随文件表达。携带 `llmStreamCall: true` 与完整 `rawOutput` 的 `compaction/summary` 会在该事件位置回放为一条规范成功流。脚本字符串可以内嵌 `{{fromRequest:<regex>}}`；流输出时每个 placeholder 针对 live request 的 string leaf 解析，取该 pattern 的最后一次 match，用其第一个 capture group（无 capture group 时用整个 match）原位替换。
+回放把选定的投影 Session generation 视为 fixture。一个 parser 补全投影 envelope，通过 `sessionFormatCatalog` 校验并迁移完整产物，再以一个结果返回当前 header、继承 cut 与事件列表。`deriveReplayScript` 按日志顺序展开每个 `assistant/message` 或 `assistant/attempt` 流，因此每个持久 settlement 都成为一条 `chunks` 条目；非空流缺少 `finish` 分片是 `stream()` 抛出异常的指纹，必须通过 override 伴随文件表达。携带 `llmStreamCall: true` 与完整 `rawOutput` 的 `compaction/summary` 会在该事件位置回放为一条规范成功流。脚本字符串可以内嵌 `{{fromRequest:<regex>}}`；流输出时每个 placeholder 针对 live request 的 string leaf 解析，取该 pattern 的最后一次 match，用其第一个 capture group（无 capture group 时用整个 match）原位替换。`{{fromRequestJson:<regex>}}` 遵循同样的匹配规则，并对捕获值执行 JSON 转义但不添加引号；包含 Windows 路径或引号的 JSON 工具参数字符串使用此形式。
 
 [已提交语料测试](tests/session-format-corpus.spec.ts) 通过真实 catalog 还原 `snapshots/`、`packages/` 与 `scripts/snapshots/python-sdk-single-exe/` 下每个带版本的 `session*.jsonl`，且不改变源字节。其[清单](tests/session-format-corpus-inventory.ts) 按路径、源代际、错误类型与精确原因固定有意拒绝的历史转换；拒绝消失或变化都会使测试失败。当前代际产物不能获得例外。不含 header 的快照 harness 协议示例具有独立的显式豁免。其他所有还原错误都携带产物路径并使测试失败；历史文件保持不变，原生当前 fixture 则由 owner 修正。
 

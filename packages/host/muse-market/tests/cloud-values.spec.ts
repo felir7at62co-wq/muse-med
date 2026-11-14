@@ -18,6 +18,10 @@ describe('portable cloud JSON readers', () => {
     { ...manifest, privatePath: '/private/author' },
     { ...manifest, skills: [{ ...manifest.skills[0], privatePath: '/private/author' }] },
     { ...manifest, kind: 'bot' },
+    { ...manifest, skills: [null] },
+    { ...manifest, skills: [{ name: 123, path: 'skills/123/SKILL.md' }] },
+    { ...manifest, skills: [{ name: 'has spaces', path: 'skills/has spaces/SKILL.md' }] },
+    { ...manifest, skills: [{ name: '../outside', path: 'skills/../outside/SKILL.md' }] },
   ])('rejects extra fields and retired payloads in a cloud manifest', (value) => {
     expect(() => parseMarketPublication({ ...publication, manifest: value }, limits))
       .toThrow('invalid-response')
@@ -41,6 +45,10 @@ describe('portable cloud JSON readers', () => {
     expect(() => parseMarketIdentity({ ...identity, cookie: 'private' })).toThrow('invalid-response')
     expect(() => parseMarketIdentity({ ...identity, publishers: [...identity.publishers, ...identity.publishers] }))
       .toThrow('invalid-response')
+    for (const publishers of [[null], [{ id: 'b'.repeat(32), title: '' }],
+      [{ id: 'b'.repeat(32), title: 'Writing team', cookie: 'private' }]]) {
+      expect(() => parseMarketIdentity({ ...identity, publishers })).toThrow('invalid-response')
+    }
   })
 
   it('keeps local digest, publication, account and original attempt identities separate', () => {

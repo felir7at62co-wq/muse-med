@@ -27,6 +27,29 @@ const ctx: NormalizeContext = {
 }
 
 describe('normalizeStdout', () => {
+  it('recognizes an explicitly supplied home-relative workspace without redacting a sibling path', () => {
+    const cwd = '/home/runner/work/visualization', display = '~/work/visualization'
+    const value = JSON.stringify({ saved: display + '/.dsh/card.html', sibling: display + '-other/card.html',
+      arguments: JSON.stringify({ path: display + '/.dsh/card.html' }) })
+    const normalized: unknown = JSON.parse(normalizeStdout(value, { sessionIds: [], cwd, cwdAliases: [display] }))
+    expect(normalized).toEqual({ saved: '{{cwd}}/.dsh/card.html', sibling: display + '-other/card.html',
+      arguments: JSON.stringify({ path: '{{cwd}}/.dsh/card.html' }) })
+  })
+
+  it.each([1, 2])('redacts a Windows workspace quoted through %i JSON layers without caller-supplied escaped aliases', (layers) => {
+    const cwd = String.raw`D:\Temp\acp-workspace`
+    const alias = String.raw`D:\TEMP\ACP-WORKSPACE`
+    const quote = (path: string): string => {
+      for (let layer = 0; layer < layers; layer++) path = JSON.stringify(path)
+      return path
+    }
+    const raw = JSON.stringify({ text: `Current working directory: ${quote(cwd)}.`, alias: quote(alias),
+      other: quote(cwd + '-other') })
+    const actual: unknown = JSON.parse(normalizeStdout(raw, { sessionIds: [], cwd, cwdAliases: [alias] }))
+    expect(actual).toEqual({ text: `Current working directory: ${quote('{{cwd}}')}.`, alias: quote('{{cwd}}'),
+      other: quote(cwd + '-other') })
+  })
+
   it('rewrites JSON-RPC ids to a stable first-seen sequence', () => {
     const raw = [
       JSON.stringify({ jsonrpc: '2.0', id: 42, method: 'initialize' }),

@@ -21,7 +21,8 @@
  */
 
 import type { Dirent } from 'node:fs'
-import { readdirSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
@@ -90,13 +91,15 @@ interface Dictionary {
 }
 
 /**
- * Keys of every top-level `export const <name> = { ... }` object literal whose
- * name identifies a locale dictionary, plus inline `register(ns, locale, {...})`
- * literals. Read from the AST so the gate never executes package code.
+ * Keys and templates from literal dictionaries, local aliases, relative imports,
+ * object spreads and parameterless functions containing one return expression.
+ * Read from the AST so the check never executes package code.
  * @param file - absolute path of a candidate module.
  * @returns discovered dictionaries, keyed by locale-bearing name.
  */
-function dictionariesIn(file: string): Dictionary[] {
+function dictionariesIn(file: string, ancestors: ReadonlySet<string> = new Set()): Dictionary[] {
+  if (ancestors.has(file)) throw new Error(`cannot verify cyclic dictionary import in ${relative(file)}`)
+  const visiting = new Set([...ancestors, file])
   const text = readFileSync(file, 'utf8')
   // Cheap pre-filter: parsing every package source is wasteful. The pattern
   // must admit every shape `localeOf` accepts, or a file would be skipped
@@ -113,7 +116,29 @@ function dictionariesIn(file: string): Dictionary[] {
   // e.g. a local dictionary variable rather than an inline literal — resolves
   // through here so the gate still verifies its symmetry.
   const moduleConsts = new Map<string, ts.Expression>()
+  const factoryReturns = new Map<string, ts.Expression>()
+  const imported = new Map<string, { file: string; name: string }>()
+  const importedFiles = new Map<string, Dictionary[]>()
   for (const statement of source.statements) {
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)
+      && statement.moduleSpecifier.text.startsWith('.') && statement.importClause?.phaseModifier !== ts.SyntaxKind.TypeKeyword) {
+      const bindings = statement.importClause?.namedBindings
+      if (bindings !== undefined && ts.isNamedImports(bindings)) {
+        for (const item of bindings.elements) {
+          if (!item.isTypeOnly) imported.set(item.name.text, {
+            file: resolve(dirname(file), statement.moduleSpecifier.text), name: item.propertyName?.text ?? item.name.text,
+          })
+        }
+      }
+    }
+    if (ts.isFunctionDeclaration(statement) && statement.name !== undefined && statement.parameters.length === 0
+      && statement.asteriskToken === undefined && !statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword)
+      && statement.body?.statements.length === 1) {
+      const returned = statement.body.statements[0]
+      if (returned !== undefined && ts.isReturnStatement(returned) && returned.expression !== undefined) {
+        factoryReturns.set(statement.name.text, returned.expression)
+      }
+    }
     if (!ts.isVariableStatement(statement)) continue
     for (const decl of statement.declarationList.declarations) {
       if (ts.isIdentifier(decl.name) && decl.initializer !== undefined) {
@@ -122,14 +147,58 @@ function dictionariesIn(file: string): Dictionary[] {
     }
   }
 
+  const resolveDictionary = (
+    node: ts.Expression | undefined, seen: ReadonlySet<ts.Node> = new Set(),
+  ): ts.ObjectLiteralExpression | undefined => {
+    const value = unwrap(node)
+    if (value === undefined || seen.has(value)) return undefined
+    const next = new Set([...seen, value])
+    if (ts.isIdentifier(value)) {
+      const local = moduleConsts.get(value.text)
+      if (local !== undefined) return resolveDictionary(local, next)
+      const owner = imported.get(value.text)
+      if (owner === undefined) return undefined
+      let dictionaries = importedFiles.get(owner.file)
+      if (dictionaries === undefined) {
+        dictionaries = dictionariesIn(owner.file, visiting)
+        importedFiles.set(owner.file, dictionaries)
+      }
+      const dictionary = dictionaries.find(candidate => candidate.name === owner.name)
+      if (dictionary === undefined) return undefined
+      return ts.factory.createObjectLiteralExpression(dictionary.keys.map(key => ts.factory.createPropertyAssignment(
+        ts.factory.createStringLiteral(key), dictionary.templates[key] === undefined
+          ? ts.factory.createIdentifier('undefined') : ts.factory.createStringLiteral(dictionary.templates[key]),
+      )))
+    }
+    if (ts.isCallExpression(value) && ts.isIdentifier(value.expression) && value.arguments.length === 0) {
+      return resolveDictionary(factoryReturns.get(value.expression.text), next)
+    }
+    if (!ts.isObjectLiteralExpression(value)) return undefined
+    const properties = new Map<string, ts.PropertyAssignment>()
+    for (const property of value.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        const spread = resolveDictionary(property.expression, next)
+        if (spread === undefined) throw new Error(`cannot verify dictionary spread in ${rel}`)
+        for (const inherited of spread.properties) {
+          if (ts.isPropertyAssignment(inherited) && (ts.isIdentifier(inherited.name) || ts.isStringLiteral(inherited.name))) {
+            properties.set(inherited.name.text, inherited)
+          }
+        }
+      } else if (ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))) {
+        properties.set(property.name.text, property)
+      } else throw new Error(`cannot verify dictionary property in ${rel}`)
+    }
+    return ts.factory.createObjectLiteralExpression([...properties.values()])
+  }
+
   for (const statement of source.statements) {
     if (!ts.isVariableStatement(statement)) continue
     if (statement.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword) !== true) continue
     for (const decl of statement.declarationList.declarations) {
       if (!ts.isIdentifier(decl.name)) continue
-      const literal = unwrap(decl.initializer)
-      if (literal === undefined || !ts.isObjectLiteralExpression(literal)) continue
       if (localeOf(decl.name.text) === undefined) continue
+      const literal = resolveDictionary(decl.initializer)
+      if (literal === undefined) throw new Error(`cannot verify dictionary ${decl.name.text} in ${rel}`)
       found.push({ file: rel, name: decl.name.text, keys: keysOf(literal), templates: templatesOf(literal) })
     }
   }
@@ -157,15 +226,10 @@ function dictionariesIn(file: string): Dictionary[] {
         if (ns === undefined || tag === undefined || !ts.isStringLiteral(tag)) return
         if (!SHIPPED_LOCALE_IDS.some(id => id === tag.text)) return
         const raw = unwrap(dict)
-        const literal = raw !== undefined && ts.isIdentifier(raw)
-          ? (() => {
-            const resolved = moduleConsts.get(raw.text)
-            return resolved === undefined ? undefined : unwrap(resolved)
-          })()
-          : raw
+        const literal = resolveDictionary(raw)
         const why = raw !== undefined && ts.isIdentifier(raw)
-          ? `third argument ${raw.text} does not resolve to an inline or module-scope object literal`
-          : 'third argument is neither an object literal nor a resolvable dictionary variable'
+          ? `third argument ${raw.text} does not resolve to a static dictionary`
+          : 'third argument is not a statically resolvable dictionary'
         if (literal === undefined || !ts.isObjectLiteralExpression(literal)) {
           // The dictionary argument must resolve to an object literal; the
           // gate refuses rather than skips, so the symmetry it verifies never
@@ -184,7 +248,7 @@ function dictionariesIn(file: string): Dictionary[] {
       for (const element of node.elements) {
         if (!ts.isArrayLiteralExpression(element) || element.elements.length !== 2) continue
         const [tag, dict] = element.elements
-        const literal = unwrap(dict)
+        const literal = resolveDictionary(dict)
         if (tag === undefined || !ts.isStringLiteral(tag)) continue
         if (literal === undefined || !ts.isObjectLiteralExpression(literal)) continue
         if (!SHIPPED_LOCALE_IDS.some(id => id === tag.text)) continue
@@ -197,7 +261,43 @@ function dictionariesIn(file: string): Dictionary[] {
   return found
 }
 
-/** Literal templates; shared spread dictionaries are checked at their own declaration. */
+function inspectDictionarySource(source: string, siblings: Readonly<Record<string, string>> = {}): Dictionary[] {
+  const directory = mkdtempSync(resolve(tmpdir(), 'dsh-locale-source-'))
+  try {
+    const file = resolve(directory, 'locales.ts')
+    writeFileSync(file, source)
+    for (const [name, text] of Object.entries(siblings)) writeFileSync(resolve(directory, name), text)
+    return dictionariesIn(file)
+  } finally { rmSync(directory, { recursive: true, force: true }) }
+}
+
+describe('static locale dictionary sources', () => {
+  it.each([
+    ['local spread', "const base = { label: 'old', extra: 'value' }; export const en = { ...base, label: 'Hello {name}' }", {}],
+    ['local alias', "const base = { extra: 'value', label: 'Hello {name}' }; export const en = base", {}],
+    ['copy factory', "const base = { extra: 'value', label: 'Hello {name}' }; function copy() { return { ...base } } export const en = copy()", {}],
+    ['imported spread', "import { baseEn as base } from './base.ts'; export const en = { ...base, label: 'Hello {name}' }",
+      { 'base.ts': "export const baseEn = { label: 'old', extra: 'value' }" }],
+  ] as const)('retains inherited keys, overrides and templates through %s', (_name, source, siblings) => {
+    const dictionary = inspectDictionarySource(source, siblings).find(item => item.name === 'en')
+    expect(dictionary?.keys).toEqual(['extra', 'label'])
+    expect(dictionary?.templates).toEqual({ extra: 'value', label: 'Hello {name}' })
+  })
+
+  it.each([
+    ['unknown spread', 'export const en = { ...missing }', {}],
+    ['cyclic spread', 'const base = { ...base }; export const en = { ...base }', {}],
+    ['dynamic factory', "function copy() { sideEffect(); return { label: 'text' } } export const en = copy()", {}],
+    ['factory argument', "function copy(value: string) { return { label: value } } export const en = copy('text')", {}],
+    ['computed key', "export const en = { [dynamic]: 'text' }", {}],
+    ['cyclic import', "import { baseEn } from './base.ts'; export const en = { ...baseEn }",
+      { 'base.ts': "import { en } from './locales.ts'; export const baseEn = { ...en }" }],
+  ] as const)('refuses %s instead of skipping its keys', (_name, source, siblings) => {
+    expect(() => inspectDictionarySource(source, siblings)).toThrow('cannot verify')
+  })
+})
+
+/** Literal templates in a statically resolved dictionary. */
 function templatesOf(literal: ts.ObjectLiteralExpression): Readonly<Record<string, string>> {
   const templates: Record<string, string> = {}
   for (const property of literal.properties) {

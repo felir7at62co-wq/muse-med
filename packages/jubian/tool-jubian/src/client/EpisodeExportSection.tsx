@@ -56,9 +56,15 @@ export function EpisodeExportSection({ useEpisodeState, useRecoveryState, useRes
     {!state.connected && <p className={css.notice}>{t('episodeOffline')}</p>}
     <div className={css.actions}>
       <Button size="sm" variant="outline" disabled={!available}
-        onClick={() => { if (episode !== null) checkEpisode({ projectDir: project, episode }) }}>{t('episodeCheck')}</Button>
+        onClick={() => {
+          // oxlint-disable-next-line typescript/no-non-null-assertion -- The native button is disabled without a valid episode.
+          checkEpisode({ projectDir: project, episode: episode! })
+        }}>{t('episodeCheck')}</Button>
       <Button size="sm" variant="outline" disabled={!available}
-        onClick={() => { if (episode !== null) loadEpisodeHistory({ projectDir: project, episode }) }}>{t('episodeHistory')}</Button>
+        onClick={() => {
+          // oxlint-disable-next-line typescript/no-non-null-assertion -- The native button is disabled without a valid episode.
+          loadEpisodeHistory({ projectDir: project, episode: episode! })
+        }}>{t('episodeHistory')}</Button>
     </div>
     {loading && <div className={css.loading}><StateDot state="ongoing" /></div>}
     {ready.status === 'failed' && <p className={css.notice}>{t('episodeCheckFailed')}</p>}
@@ -75,7 +81,10 @@ export function EpisodeExportSection({ useEpisodeState, useRecoveryState, useRes
         <code>{t('episodeAttempt', { id: entry.attempt })}</code><code>{t('recoverySha', { hash: entry.digest })}</code>
         <p className={css.line}>{t(entry.recordedState === null ? 'episodeRecordedUnknown' : stateKeys[entry.recordedState])}</p>
         <Button size="sm" variant="outline" disabled={!available || history.status !== 'live' || state.historyAddress === ''}
-          onClick={() => { if (episode !== null) selectEpisodeOriginal({ projectDir: project, episode, digest: entry.digest }, state.historyAddress) }}>{t('episodeSelect')}</Button>
+          onClick={() => {
+            // oxlint-disable-next-line typescript/no-non-null-assertion -- Selection requires an available episode and live history.
+            selectEpisodeOriginal({ projectDir: project, episode: episode!, digest: entry.digest }, state.historyAddress)
+          }}>{t('episodeSelect')}</Button>
       </div>)}
     </div>}
     {observed.status === 'failed' && <p className={css.notice}>{t('episodeStatusFailed')}</p>}

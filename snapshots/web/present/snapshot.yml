@@ -3,6 +3,7 @@ scenario: present
 profile: web
 composition: web-ptc
 recording: live
+writerOutput: true
 header:
   class: web-ptc
 workspace:

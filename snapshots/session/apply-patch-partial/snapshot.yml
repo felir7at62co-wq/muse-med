@@ -3,6 +3,7 @@ scenario: apply-patch-partial
 profile: headless
 composition: apply-patch
 recording: live
+writerOutput: true
 header:
   class: apply-patch
 platform: posix

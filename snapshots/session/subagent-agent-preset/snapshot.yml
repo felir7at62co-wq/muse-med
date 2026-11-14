@@ -3,6 +3,7 @@ scenario: subagent-agent-preset
 profile: headless
 composition: subagent-agent-preset
 recording: authored
+writerOutput: true
 header:
   class: subagent-agent-preset
   pin: true

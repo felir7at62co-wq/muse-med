@@ -82,6 +82,68 @@ async function reconstructPersistedInbox(
 }
 
 describe('ReactLoopInbox', () => {
+  it('projects both pending queues and filters only discarded claim identities', async () => {
+    const { ctx, session, inbox } = await inboxAgent('inbox-wire-pending-step')
+    expect(inbox.claimDurably('next-step', 1, 1)).toEqual([])
+    inbox.filterClaim(1, 1, [])
+    inbox.settleClaim(1, 1)
+    const step = createUserMessage({ content: [{ type: 'text', text: 'step' }], source: { kind: 'user' } })
+    const turn = createUserMessage({ content: [{ type: 'text', text: 'turn' }], source: { kind: 'user' } })
+    inbox.append('next-step', step)
+    inbox.append('next-turn', turn)
+    const pending = { 'next-turn': [turn], 'next-step': [step] }
+    expect(ctx.sessionProjections.snapshot(session).values.inbox).toEqual(pending)
+    expect(inboxProjectionDefinition.wire.viewSchema.parse(pending)).toEqual(pending)
+    expect(inbox.claimDurably('next-step', 1, 1)).toEqual([step])
+    const beforeFilter = session.snapshotEvents().length
+    inbox.filterClaim(1, 1, [step])
+    expect(session.snapshotEvents()).toHaveLength(beforeFilter)
+    inbox.filterClaim(1, 1, [])
+    inbox.settleClaim(1, 1)
+    expect(inbox.nextTurn).toEqual([turn])
+    expect(inbox.nextStep).toEqual([])
+  })
+
+  it.each(['duplicate claim', 'wrong identity', 'missing filter claim', 'duplicate discard', 'unknown discard', 'unsettled claim'])(
+    'rejects persisted claim history with %s', async (fault) => {
+      const pending = createUserMessage({ content: [{ type: 'text', text: 'pending' }], source: { kind: 'user' } })
+      const other = createUserMessage({ content: [{ type: 'text', text: 'other' }], source: { kind: 'user' } })
+      const error = await reconstructPersistedInbox(`inbox-invalid-${fault}`, (session) => {
+        session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [pending] })
+        if (fault === 'missing filter claim') {
+          session.append('agent/inbox/claim-filtered', { turn: 1, step: 1, discarded: [pending.id] })
+          return
+        }
+        const claim = { turn: 1, step: 1, nextStep: [], nextTurn: [fault === 'wrong identity' ? other.id : pending.id] }
+        session.append('agent/inbox/claim', claim)
+        if (fault === 'duplicate claim') session.append('agent/inbox/claim', claim)
+        if (fault === 'duplicate discard') session.append('agent/inbox/claim-filtered', { turn: 1, step: 1, discarded: [pending.id, pending.id] })
+        if (fault === 'unknown discard') session.append('agent/inbox/claim-filtered', { turn: 1, step: 1, discarded: [other.id] })
+        if (fault === 'unsettled claim') session.append('agent/inbox/claim-settled', { turn: 1, step: 1 })
+      })
+      expect(error.message).toMatch(/durable inbox claim/u)
+    },
+  )
+
+  it('restores unaccepted claims after a failed turn and drops user-canceled claims', async () => {
+    const { session, inbox } = await inboxAgent('inbox-turn-restoration')
+    const pending = createUserMessage({ content: [{ type: 'text', text: 'pending' }], source: { kind: 'user' } })
+    inbox.append('next-turn', pending)
+    inbox.claimDurably('next-turn', 1, 1)
+    session.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'interrupted provider', code: 'NETWORK' } } })
+    expect(inbox.nextTurn).toEqual([pending])
+    inbox.claimDurably('next-turn', 2, 1)
+    session.append('turn/end', { turn: 2, reason: { kind: 'aborted', reason: { kind: 'legacy' } } })
+    expect(inbox.nextTurn).toEqual([pending])
+    inbox.claimDurably('next-turn', 3, 1)
+    session.append('turn/end', { turn: 3, reason: { kind: 'aborted', reason: { kind: 'user' } } })
+    expect(inbox.nextTurn).toEqual([])
+  })
+
+  it.each([1n, Number.NaN, () => {}])('rejects non-JSON values in pending wire messages: %s', (value) => {
+    expect(() => inboxProjectionDefinition.wire.viewSchema.parse({ 'next-turn': [value], 'next-step': [] })).toThrow()
+  })
+
   it('projects claimed identities across reconnects without exposing claimed content', async () => {
     const { ctx, session, inbox } = await inboxAgent('inbox-wire-claim')
     const steered = createUserMessage({ content: [{ type: 'text', text: 'private steering text' }], source: { kind: 'user' } })

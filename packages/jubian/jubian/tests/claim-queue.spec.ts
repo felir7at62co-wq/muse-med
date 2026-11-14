@@ -2,8 +2,12 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { randomUUID } from 'node:crypto'
-import { describe, expect, it } from 'vitest'
+import * as fs from 'node:fs/promises'
+import * as atomic from '@deepseek-ai/dsh-atomic-write'
+import { describe, expect, it, vi } from 'vitest'
 import { withLedgerQueue } from '../src/claim-queue.ts'
+
+vi.mock('node:fs/promises', async original => ({ ...await original<typeof import('node:fs/promises')>() }))
 
 describe('ledger operation queue', () => {
   it('keeps a following operation behind a rejected reservation and releases the queue afterward', async () => {
@@ -31,24 +35,28 @@ describe('ledger operation queue', () => {
   })
 
   it('uses one Windows queue for ledger paths with different casing', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'jubian-queue-'))
+    const root = join(tmpdir(), `Ledger-${randomUUID()}`)
     const descriptor = Object.getOwnPropertyDescriptor(process, 'platform')!
     const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
     const events: string[] = []
     let first: Promise<void> | undefined, second: Promise<void> | undefined
+    const directory = vi.spyOn(fs, 'mkdir').mockResolvedValue(undefined)
+    const lock = vi.spyOn(atomic, 'withFileLock').mockImplementation((_filename, operation) => operation())
     Object.defineProperty(process, 'platform', { value: 'win32' })
     try {
       first = withLedgerQueue(root.toUpperCase(), async () => {
         events.push('first entered'); entered.resolve(undefined); await release.promise; events.push('first finished')
       })
-      await entered.promise
+      await Promise.race([entered.promise, first])
       second = withLedgerQueue(root.toLowerCase(), async () => { events.push('second entered') })
+      await withLedgerQueue(`${root}-independent`, async () => {})
+      expect(events).toEqual(['first entered'])
       release.resolve(undefined); await Promise.all([first, second])
       expect(events).toEqual(['first entered', 'first finished', 'second entered'])
     } finally {
       release.resolve(undefined); await Promise.allSettled([...(first ? [first] : []), ...(second ? [second] : [])])
       Object.defineProperty(process, 'platform', descriptor)
-      await rm(root, { recursive: true, force: true })
+      lock.mockRestore(); directory.mockRestore()
     }
   })
 
@@ -58,18 +66,21 @@ describe('ledger operation queue', () => {
     const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
     const events: string[] = []
     let first: Promise<void> | undefined, second: Promise<void> | undefined
+    const directory = vi.spyOn(fs, 'mkdir').mockResolvedValue(undefined)
+    const lock = vi.spyOn(atomic, 'withFileLock').mockImplementation((_filename, operation) => operation())
     Object.defineProperty(process, 'platform', { ...descriptor, value: 'linux' })
     try {
       first = withLedgerQueue(root.toUpperCase(), async () => {
         events.push('first entered'); entered.resolve(undefined); await release.promise; events.push('first finished')
       })
-      await entered.promise
+      await Promise.race([entered.promise, first])
       second = withLedgerQueue(root.toLowerCase(), async () => { events.push('second entered') })
       await expect.poll(() => events).toContain('second entered')
       expect(events).not.toContain('first finished')
     } finally {
       release.resolve(undefined); await Promise.allSettled([...(first ? [first] : []), ...(second ? [second] : [])])
       Object.defineProperty(process, 'platform', descriptor)
+      lock.mockRestore(); directory.mockRestore()
     }
   })
 })

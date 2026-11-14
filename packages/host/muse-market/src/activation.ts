@@ -100,7 +100,7 @@ export default class MuseMarketActivation extends TypertRemoteService {
     await registration.ctx.plugin({ inject: ['skills'], apply: (scope) => {
       scope.effect(() => scope.skills.registerProvider((control) => {
         this.controls.set(agent, control)
-        scope.effect(() => () => { if (this.controls.get(agent) === control) this.controls.delete(agent) })
+        scope.effect(() => () => { this.controls.delete(agent) })
         return createMarketSkillProvider(this.local, this.ctx.museMarket.publicationStorage(), selection, `muse-market-${agent.id}`)
       }))
     } }).await()

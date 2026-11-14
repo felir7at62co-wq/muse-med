@@ -262,7 +262,7 @@ type NavigatorProps = FactoryComponentPropsOf<'sidebar.files.navigator'>
  * @param shared - the harness's typed data, hooks, actions, and copy.
  * @returns props shared by the navigator and its toggle.
  */
-function factoryProps(
+export function factoryProps(
   shared: Omit<NavigatorProps, keyof typeof unusedFactoryProps | 'page'>,
 ) {
   return { ...unusedFactoryProps, ...shared } satisfies Omit<NavigatorProps, 'page'>

@@ -179,3 +179,44 @@ it('accounts for a durable claim rejected after an explicit discard', () => {
   session.append('turn/end', { turn: 1, reason: { kind: 'blocked' } })
   expect(foldConsumedWork(session.snapshotEvents()).end?.data.turn).toBe(1)
 })
+
+it('does not attribute a durable claim or discard to a turn absent from an owned log suffix', () => {
+  const session = Session.create(SessionId('durable-owned-suffix')), pending = message('pending')
+  session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [pending] })
+  session.append('turn/start', { turn: 1 })
+  const claim = session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [], nextTurn: [pending.id] })
+  session.append('agent/inbox/claim-filtered', { turn: 1, step: 1, discarded: [pending.id] })
+  session.append('turn/end', { turn: 1, reason: { kind: 'blocked' } })
+  expect(foldConsumedWork(session.snapshotEvents().filter(event => event.seq >= claim.seq))).toEqual({ droppedUnrun: false })
+})
+
+it('accounts for a claimed user message persisted before a pre-step failure', () => {
+  const session = Session.create(SessionId('claimed-message-written')), pending = message('pending')
+  session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [pending] })
+  session.append('turn/start', { turn: 1 })
+  session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [], nextTurn: [pending.id] })
+  session.append('user/message', pending, { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'Step checkpoint failed', code: 'UNKNOWN' } } })
+  expect(foldConsumedWork(session.snapshotEvents()).end?.data.turn).toBe(1)
+})
+
+it('does not count unclaimed context messages as consumed queue input', () => {
+  const session = Session.create(SessionId('unclaimed-context')), pending = message('pending')
+  const context = () => createUserMessage({ source: { kind: 'system-prompt' }, content: [{ type: 'text', text: 'Assembly context' }] })
+  session.append('user/message', context(), { surfaceOp: 'append' })
+  session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [pending] })
+  session.append('turn/start', { turn: 1 })
+  session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [], nextTurn: [pending.id] })
+  session.append('user/message', context(), { surfaceOp: 'append' })
+  session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind: 'parent' } } })
+  expect(foldConsumedWork(session.snapshotEvents())).toEqual({ droppedUnrun: false })
+})
+
+it.each(['user', 'parent'] as const)('accounts for an unaccepted durable claim only when %s cancellation drops it', (kind) => {
+  const session = Session.create(SessionId(`durable-${kind}-cancellation`)), pending = message('pending')
+  session.append('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [pending] })
+  session.append('turn/start', { turn: 1 })
+  session.append('agent/inbox/claim', { turn: 1, step: 1, nextStep: [], nextTurn: [pending.id] })
+  session.append('turn/end', { turn: 1, reason: { kind: 'aborted', reason: { kind } } })
+  expect(foldConsumedWork(session.snapshotEvents()).end?.data.turn).toBe(kind === 'user' ? 1 : undefined)
+})

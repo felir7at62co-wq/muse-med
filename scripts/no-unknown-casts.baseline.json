@@ -779,10 +779,6 @@
   "packages/context/tmux-context/tests/tmux-context.spec.ts": {
     "5e3fc1855973e9e446f90c73a47d0cef895eb497cd26b00f5a5f7dce394a66ac": 1
   },
-  "packages/core/agent-loop/src/inbox.ts": {
-    "ac3a6c2bec4be0657823b6adf699a6e56e05fbc68a3250d3d98f05df1c81e101": 1,
-    "f7d46b129c95cc2d52a940d4ccab8c913b24394647a8197a7a3cc80075769e19": 1
-  },
   "packages/core/agent-loop/tests/agent.spec.ts": {
     "f0f9e71eb2182866cc4cca844d07ecc66244a1643b49e66db197b1528aca0030": 1
   },

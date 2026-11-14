@@ -1383,6 +1383,33 @@ describe('installLlmReplay (through the real LlmRuntime)', () => {
       expect(resolveScriptedEntry(entry, requestMessages)).toBe(entry)
     })
 
+    it.each([String.raw`C:\work\a "quoted" card.html`, '/work/a "quoted" card.html', 'line one\nline two\tend'])
+    ('escapes the captured value for a JSON tool argument: %s', (path) => {
+      const messages = [createUserMessage({ content: [{ type: 'text', text: `saved copy at ${path}<end>` }], source: { kind: 'user' } })]
+      const entry: ReplayEntry = { kind: 'chunks', chunks: scriptedCall('{"path":"{{fromRequestJson:saved copy at ([\\s\\S]+)<end>}}"}') }
+      const resolved = resolveScriptedEntry(entry, messages)
+      if (resolved.kind !== 'chunks') throw new Error('expected chunks entry')
+      const delta = resolved.chunks.find(chunk => chunk.type === 'tool-call-delta')
+      if (delta?.type !== 'tool-call-delta') throw new Error('expected tool arguments')
+      expect(JSON.parse(delta.argumentsDelta)).toEqual({ path })
+    })
+
+    it.each([
+      '{"raw":"{{fromRequest:goal-[0-9a-z]+}}","json":"{{fromRequestJson:goal-[0-9a-z]+}}"}',
+      '{"json":"{{fromRequestJson:goal-[0-9a-z]+}}","raw":"{{fromRequest:goal-[0-9a-z]+}}"}',
+    ])('resolves raw and JSON captures in their original order', (argumentsDelta) => {
+      const resolved = resolveScriptedEntry({ kind: 'chunks', chunks: scriptedCall(argumentsDelta) }, requestMessages)
+      if (resolved.kind !== 'chunks') throw new Error('expected chunks entry')
+      const delta = resolved.chunks.find(chunk => chunk.type === 'tool-call-delta')
+      if (delta?.type !== 'tool-call-delta') throw new Error('expected tool arguments')
+      expect(JSON.parse(delta.argumentsDelta)).toEqual({ raw: 'goal-42ab', json: 'goal-42ab' })
+    })
+
+    it('rejects an unterminated JSON capture', () => {
+      const entry: ReplayEntry = { kind: 'chunks', chunks: scriptedCall('{"path":"{{fromRequestJson:goal-1"}') }
+      expect(() => resolveScriptedEntry(entry, requestMessages)).toThrow(/placeholder is unterminated/)
+    })
+
     it('skips non-string request leaves when building the corpus', () => {
       const messages = requestMessages.map(message => ({ ...message, seq: 7 })) as GenerateOptions['messages']
       const entry: ReplayEntry = { kind: 'chunks', chunks: scriptedCall('{"goal_id":"{{fromRequest:goal-42[a-z]+}}"}') }
