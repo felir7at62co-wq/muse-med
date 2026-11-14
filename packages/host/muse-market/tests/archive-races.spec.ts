@@ -107,13 +107,17 @@ describe('cloud archive races', () => {
     const f = await fixture(policy, archive), epoch = Date.now() - 60_000
     const refusals: string[] = []
     for (let step = 1; step <= 10; step += 1) {
-      const reading = attempt(f.store, f.publication.id)
+      // Settle the read's own refusal as soon as it happens: the metadata write below runs
+      // while the reader is still inside it, so its rejection must not stay unobserved.
+      const reading = attempt(f.store, f.publication.id).then(code => code, (error: unknown) => error)
       // The retained blob is read in a few milliseconds; place the metadata write inside it,
       // after the opened-handle check and before the trailing exact-length check.
       await settle(f.scratch, 12 * step)
       const stamp = new Date(epoch + step * 1000)
       await utimes(f.blob, stamp, stamp)
-      refusals.push(await reading)
+      const outcome = await reading
+      if (typeof outcome !== 'string') throw outcome
+      refusals.push(outcome)
     }
     expect(refusals).toContain('corrupt-storage')
   })
