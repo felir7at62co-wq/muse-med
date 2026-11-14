@@ -75,6 +75,7 @@ it('cancels installation, retries and highlights the enabled plugin at 40% alpha
     const loseActiveReply = Promise.withResolvers<undefined>()
     const unknownReplies: Promise<WithheldInstallReply>[] = []
     let stopObservingInstall: (() => void) | undefined
+    const unknownTerminal = Promise.withResolvers<'terminal' | 'teardown'>()
     try {
       const profile = join(scaffold.harnessHome, 'profiles', 'scaffold')
       const manifestPath = join(profile, 'package.json')
@@ -273,7 +274,10 @@ it('cancels installation, retries and highlights the enabled plugin at 40% alpha
       stopObservingInstall = scaffold.ctx.on('plugin-manager/operation', (operation) => {
         if (operation.reason !== 'install' || operation.target !== 'recovered-package') return
         if (operation.phase === 'started') recoveredInstall.started.push(operation.id)
-        else if (recoveredInstall.started.includes(operation.id)) recoveredInstall.terminal.push(operation)
+        else if (recoveredInstall.started.includes(operation.id)) {
+          recoveredInstall.terminal.push(operation)
+          unknownTerminal.resolve('terminal')
+        }
       })
       installBundleRoute = (route) => {
         const reply = (async () => {
@@ -284,7 +288,8 @@ it('cancels installation, retries and highlights the enabled plugin at 40% alpha
           } catch (error) {
             delivery = { kind: 'transport-failed', error }
           } finally {
-            // Host completion is independent of ending this browser request.
+            // This scene loses a reply only after its Host operation has ended.
+            await unknownTerminal.promise
             abortError = await route.abort('failed').then(() => undefined, (error: unknown) => error)
           }
           return { delivery, abortError }
@@ -318,6 +323,7 @@ it('cancels installation, retries and highlights the enabled plugin at 40% alpha
       delivery.resolve(undefined)
       cancellationReply.resolve(undefined)
       loseActiveReply.resolve(undefined)
+      unknownTerminal.resolve('teardown')
       try { await browser.close() } finally {
         try { await Promise.all(unknownReplies) } finally { stopObservingInstall?.() }
       }
