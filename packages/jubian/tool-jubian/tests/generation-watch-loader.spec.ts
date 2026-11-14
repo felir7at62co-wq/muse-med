@@ -520,6 +520,33 @@ it('rejects a different model while an actual native continuation holds its exec
   }
 })
 
+it('rejects a tool dispatch after the held native workspace membership is detached', async () => {
+  const f = await parkedNativeDelivery()
+  const entered = Promise.withResolvers<undefined>(), release = Promise.withResolvers<undefined>()
+  const maintenance = f.agent.runMaintenance(async () => { entered.resolve(undefined); await release.promise })
+  try {
+    await entered.promise
+    expect(await f.deliver(f.saved.sessionId, f.notice, new AbortController().signal, undefined, undefined, f.saved)).toBe('pending')
+    const workspace = f.host.workspaceRegistry.get(f.h.binding.workspaceId)
+    if (workspace === undefined) throw new Error('Original native workspace is missing')
+    await workspace.detachSession(f.agent.id)
+    expect(workspace.sessionIds).not.toContain(f.agent.id)
+    const before = [...f.h.calls]
+    const output = join(f.h.root, 'revoked-workspace.mp4')
+    const result = await executeToolFixture(f.host, { callId: ToolCallId('revoked-workspace-download'), name: 'jubian_media',
+      arguments: { method: 'download', media_url: video, media_kind: 'video', output_path: output, resume: true },
+      signal: new AbortController().signal, agent: f.agent })
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain('GENERATION_WATCH_BINDING_CHANGED:')
+    expect(f.h.calls).toEqual(before)
+    await expect(readFile(output)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally {
+    release.resolve(undefined)
+    await maintenance
+    await f.agent.whenIdle()
+  }
+})
+
 it('rechecks a settled native notice after a flush failure without starting another turn', async () => {
   const h = await originalVideoFixture([textResponse('Existing result reviewed.')])
   h.complete()
