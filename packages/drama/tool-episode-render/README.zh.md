@@ -249,6 +249,16 @@ Host 调用方可提供 `SourceQaStagedAccess`，从私有捕获副本渲染，�
 
 严格归档还要求实测音画流边界和新核查的独立音轨草稿。草稿回执绑定已核查的整集原声位置、静音的正文片段，以及可编辑字幕的文字和时间。
 
+短剧项目及明确要求源审查的流程，归档还读取 `_probe/delivery-config/film-reviews.json`。`films` 中对应记录须绑定当前成片路径和 SHA-256，设置 `reviewed: true`，`picture`、`audio`、`subtitle`、`spec` 均为 `ok`，且没有未决 `issues`。技术 `verify` 结果不能提供这项审查。
+
+`content_review.version: 1` 包含按选片顺序排列的 `sources`、最终 `output` 及 `audio`。每项画面记录当前 `source`、`sha256`、原片适用的 `shot`，以及实际完整视频观察工具给出的 `inspection: {path, sha256, session_id, review_id}`。`checks` 须用 `start_seconds`、`end_seconds`、`status: "ok"`、依据剧本的 `expected`、实际观察 `reason` 和至少两个不同的 `frame_ids`，覆盖完整时长的 `physical_logic` 与 `continuity`。每个检测到的观察帧都须在两项判断中被处理，最终分包接缝两侧均须有观察。物理逻辑依据所选剧情和媒介判断，包括有意安排的特效，不套用统一写实规则。Host 核对当前会话的真实工具发行、已展示图片、当前文件及未决观察疑点；这些记录支持判断，不证明语义检测绝对正确。
+
+`audio` 包含 `status: "ok"`、`session_id`、`question_call_id`，以及覆盖完整时长、状态为 `ok` 且有非空理由的 `pronunciation` 区间。回答必须来自实际 `ask_user_question` 调用，使用 `contentListeningQuestion` 返回的当前输出专属问题；只有明确选择已完成试听的选项才通过。ASR吻合、模型自写通过、待回答和带未决自定义备注的回答均不能替代。核验只读取已有回答，不自动提问或购买转写。只接受本会话继承前缀之后自行发出的问题和回答；恢复同一会话仍可使用原回答。Host 初始化须等待观察及试听读取器就绪并持有它们，才发布此核验。未绑定的普通编辑保留原行为。既有 `speech_coverage` 继续标出 ASR 与文本差异；声明某项为 `asr_error` 不能替代实际听校。当前短剧声音验收仍需实际听校证据，这项检查不是无人声学审查器，也不能证明已实现无人值守发音修复。
+
+短剧明确的字幕字体证据还须将 `muse-review.json`、随稿字体与许可证字节、每个非水印原生字幕跨度绑定到请求的受管字族。归档独立核对产品媒体清单和保存后的 `font.path` 引用，顶层 `delivery_ready` 标记不足以放行。候选回执以 `draft_font: {snapshot_path, snapshot_sha256}` 保留 `muse-original-draft-content.json`，它逐字节复制首次通过核验的原生 JSON，创建时不覆盖其他版本，摘要须匹配原始 `draft_content.json` 来源记录。用户后续在剪映编辑或保存当前草稿，不会改写这份原始证据；修改后的草稿需要另行验收，也不会改动已验 MP4。发布前再次核对原片、成片、审查、快照与字体摘要。未绑定短剧的通用工作保留原有字体行为。
+
+归档回执保留审查和观察文件摘要，最终文件展示及附件出口再次核对。替换源片或局部修复会使旧片审查与重新合成的成片审查失效。未验收作品保留工作候选并可继续独立任务，不能进入 `01_可交付视频` 或报告已经交付。
+
 逐镜编码缓存要求源字节哈希、可执行程序和完整编码参数（包括时长）一致。只有编码成功且输出非空才发布缓存身份；身份缺失或来源、设置变化时自动重编。`force` 仍可跳过复用。
 
 可选 BGM 计划形如 `episodes:[{episode:"02",body_duration_seconds:12,segments:[{track:"name",source:"music.mp3",start_seconds:0,end_seconds:12,reason:"scene mood"}]}]`。正文时长必须与当前时间线一致，段落时间必须有效、按起点排序且不越界。`prepare` 保留已准备文件，将可选计划读取或校验失败作为警告，计划仍未核对；`render` 继续在编码前拒绝这些失败。留白、重叠、单曲和重复主题仍是创作选择。复用提示只比较同一计划内按顺序解析的来源路径，不折叠大小写、不做音频指纹。音轨哈希把声明关联到本次渲染输入，但不证明音轨确实含这些曲目或适合场景。

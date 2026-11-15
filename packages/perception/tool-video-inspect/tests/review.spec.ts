@@ -647,6 +647,35 @@ it('retains an unresolvable old review when another source has no saved review a
   expect(reviewsOf(h.readReviews, h.agent.session)[oldSource]).toEqual({ ...before, follow_up: { status: 'closed' } })
 })
 
+it('requires a review ID when formerly separate saved sources become filesystem aliases', async () => {
+  const h = await fixture(), primary = join(h.root, 'primary'), secondary = join(h.root, 'secondary')
+  const alias = join(h.root, 'source-alias'), primaryFile = join(primary, 'episode.mp4'), secondaryFile = join(secondary, 'episode.mp4')
+  await mkdir(primary)
+  await mkdir(secondary)
+  await copyFile(h.input, primaryFile)
+  await copyFile(h.input, secondaryFile)
+  await symlink(primary, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  await h.run(h.call('scan', { file_path: primaryFile }), h.call('scan', { file_path: secondaryFile }), undefined)
+  const saved = reviewsOf(h.readReviews, h.agent.session), first = saved[primaryFile]!, second = saved[secondaryFile]!
+  expect(first.id).not.toBe(second.id)
+  const aliasFile = join(alias, 'episode.mp4')
+  expect((await h.ctx.fs.resolve(aliasFile)).targetKey).toBe((await h.ctx.fs.resolve(primaryFile)).targetKey)
+  await h.run({ name: 'video_inspect', args: { method: 'status', file_path: aliasFile, review_id: first.id } },
+    { name: 'video_inspect', args: { method: 'status', file_path: aliasFile } }, undefined)
+  expect(h.results().slice(-2).map(result => result.isError)).toEqual([false, false])
+  expect(reviewsOf(h.readReviews, h.agent.session)).toBe(saved)
+  await rm(secondary, { recursive: true, force: true })
+  await symlink(primary, secondary, process.platform === 'win32' ? 'junction' : 'dir')
+  expect((await h.ctx.fs.resolve(secondaryFile)).targetKey).toBe((await h.ctx.fs.resolve(primaryFile)).targetKey)
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: aliasFile } }, undefined)
+  expect(JSON.stringify(h.results().at(-1))).toContain('VIDEO_REVIEW_SELECTOR')
+  expect(reviewsOf(h.readReviews, h.agent.session)).toBe(saved)
+  await h.run({ name: 'video_inspect', args: { method: 'close', file_path: aliasFile, review_id: first.id } }, undefined)
+  expect(h.results().at(-1)?.isError).toBe(false)
+  expect(reviewsOf(h.readReviews, h.agent.session)[primaryFile]).toEqual({ ...first, follow_up: { status: 'closed' } })
+  expect(reviewsOf(h.readReviews, h.agent.session)[secondaryFile]).toBe(second)
+})
+
 it('accepts matching file path and review ID without changing saved evidence', async () => {
   const h = await fixture()
   await h.run(h.call('scan'), undefined)

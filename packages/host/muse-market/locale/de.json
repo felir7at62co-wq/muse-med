@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "Lokale Skill-Veröffentlichungen",
-    "description": "Bereitet lokale Skill-Versionen vor und speichert sie."
+    "title": "Skill Veröffentlichungen in Muse",
+    "description": "Speichert lokale Skill Veröffentlichungen mit separater Aktivierung und optionalen, mit dem Konto verknüpften Cloud Diensten."
   }
 }

@@ -1,13 +1,45 @@
 import { Buffer } from 'node:buffer'
 import { spawnSync } from 'node:child_process'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import ts from 'typescript'
 import { expect, it, onTestFinished } from 'vitest'
-import { assertInstallerNegativeControl, assertVisualCppPrerequisiteReceipt, createInstallerTestPagesSource, createInstallerTestSource } from '../scripts/windows-installer-test-fixture.mjs'
+import { assertInstallerNegativeControl, assertVisualCppPrerequisiteReceipt, createInstallerTestPagesSource, createInstallerTestSource, prepareInstallerTestFixtures } from '../scripts/windows-installer-test-fixture.mjs'
+
+async function wrapperFixtureSources(appRoot: string, languageOutput: string): Promise<unknown> {
+  const source = await readFile(new URL('../scripts/test-windows-installer.mjs', import.meta.url), 'utf8')
+  const parsed = ts.createSourceFile('test-windows-installer.mjs', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.JS)
+  const helpers = { assertInstallerNegativeControl, assertVisualCppPrerequisiteReceipt,
+    createInstallerTestPagesSource, createInstallerTestSource, prepareInstallerTestFixtures }
+  const bindings: Record<string, unknown> = {}
+  for (const statement of parsed.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)
+      || statement.moduleSpecifier.text !== './windows-installer-test-fixture.mjs') continue
+    const imports = statement.importClause?.namedBindings
+    if (imports === undefined || !ts.isNamedImports(imports)) continue
+    for (const element of imports.elements) {
+      const helper = Object.entries(helpers).find(([name]) => name === (element.propertyName ?? element.name).text)
+      if (helper !== undefined) bindings[element.name.text] = helper[1]
+    }
+  }
+  const expressions: string[] = []
+  const visit = (node: ts.Node): void => {
+    if (ts.isVariableStatement(node) && node.declarationList.declarations.some((declaration) => {
+      const initializer = declaration.initializer
+      const expression = initializer !== undefined && ts.isAwaitExpression(initializer) ? initializer.expression : initializer
+      return expression !== undefined && ts.isCallExpression(expression) && ts.isIdentifier(expression.expression)
+        && Object.hasOwn(helpers, expression.expression.text)
+    })) expressions.push(node.getText(parsed))
+    ts.forEachChild(node, visit)
+  }
+  visit(parsed)
+  // Execute the launcher's actual fixture declarations with only its real imported helpers; no build or GUI runs.
+  return runInNewContext(`(async () => { ${expressions.join('\n')}\nreturn { fixture, pages } })()`,
+    { ...bindings, readFile, join, appRoot, languageOutput })
+}
 
 async function wrapperPowerShellCalls(language: string): Promise<{ file: string; args: string[] }[]> {
   const source = await readFile(new URL('../scripts/test-windows-installer.mjs', import.meta.url), 'utf8')
@@ -89,6 +121,40 @@ it.runIf(process.platform === 'win32')('rejects missing Language before the extr
   expect(positive.status, positive.stderr).toBe(0)
   expect(positive.stderr).toBe('')
   expect(await readFile(marker, 'utf8')).toBe('bound:ja_JP')
+})
+
+it('prepares both actual launcher fixture files before the installer build consumes their paths', async () => {
+  const output = await mkdtemp(join(tmpdir(), 'installer-fixture-sources-'))
+  onTestFinished(async () => { await rm(output, { recursive: true, force: true }) })
+  const appRoot = fileURLToPath(new URL('..', import.meta.url))
+  const fixture = join(output, 'installer.nsh'), pages = join(output, 'pages.nsh')
+  expect(await wrapperFixtureSources(appRoot, output)).toEqual({ fixture, pages })
+  const [writtenFixture, writtenPages, productionFixture, productionPages] = await Promise.all([
+    readFile(fixture, 'utf8'), readFile(pages, 'utf8'),
+    readFile(join(appRoot, 'scripts', 'installer.nsh'), 'utf8'), readFile(join(appRoot, 'installer', 'pages.nsh'), 'utf8'),
+  ])
+  expect(writtenFixture).toBe(createInstallerTestSource(productionFixture, appRoot))
+  expect(writtenPages).toBe(createInstallerTestPagesSource(productionPages))
+  expect(writtenFixture).toContain('Call MuseEnsureVCRuntime')
+  expect(writtenPages).toContain('Function InstallerFinishLeave')
+})
+
+it('rejects unavailable or invalid production sources before writing launcher fixture files', async () => {
+  const project = await mkdtemp(join(tmpdir(), 'installer-fixture-invalid-'))
+  onTestFinished(async () => { await rm(project, { recursive: true, force: true }) })
+  const output = join(project, 'output')
+  await Promise.all([mkdir(join(project, 'scripts')), mkdir(join(project, 'installer')), mkdir(output)])
+  await expect(prepareInstallerTestFixtures(project, output)).rejects.toMatchObject({ code: 'ENOENT' })
+  const [source, pages] = await Promise.all([
+    readFile(new URL('../scripts/installer.nsh', import.meta.url), 'utf8'),
+    readFile(new URL('../installer/pages.nsh', import.meta.url), 'utf8'),
+  ])
+  await Promise.all([
+    writeFile(join(project, 'scripts', 'installer.nsh'), source),
+    writeFile(join(project, 'installer', 'pages.nsh'), pages.replace('Function InstallerFinishLeave\n', '')),
+  ])
+  await expect(prepareInstallerTestFixtures(project, output)).rejects.toThrow('Installer page fixture requires one production marker')
+  expect(await readdir(output)).toEqual([])
 })
 
 it('copies production prerequisite checks and confines the reboot switch to private fixtures', async () => {

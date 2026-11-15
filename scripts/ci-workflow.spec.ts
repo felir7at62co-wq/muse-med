@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { runInNewContext } from 'node:vm'
 import * as yaml from 'js-yaml'
 import { describe, expect, it } from 'vitest'
@@ -467,6 +468,33 @@ describe('CI workflow', () => {
       })
     }
   })
+
+  it.each(['node-24-lint', 'windows-build', 'windows-coverage', 'windows-native-tests'] as const)(
+    'keeps standard hosted defaults available to forks for %s without overriding explicit failover', (name) => {
+      const windows = name.startsWith('windows-')
+      const workflow = loadWorkflow(`.github/workflows/${windows ? 'ci-windows' : 'ci'}.yml`)
+      const selector = workflowJob(workflow, name)['runs-on']
+      const variable = windows ? 'DSH_CI_FAILOVER_WINDOWS' : 'DSH_CI_FAILOVER_LINUX'
+      const enterprise = windows ? 'dsh-windows-2025-16core' : 'dsh-ubuntu-24-04-16core'
+      const standard = windows ? 'windows-2025' : 'ubuntu-24.04'
+      const blacksmith = windows
+        ? `blacksmith-${name === 'windows-native-tests' ? 2 : 16}vcpu-windows-2025`
+        : 'blacksmith-8vcpu-ubuntu-2404'
+      const pool = windows ? ['self-hosted', 'dsh-win-ci', 'windows'] : ['self-hosted', 'linux', 'x64', 'vm-backup']
+      for (const repository of ['deepseek-harness/deepseek-harness', 'felir7at62co-wq/muse-med', 'example/fork']) {
+        const hosted = repository === 'deepseek-harness/deepseek-harness' ? enterprise : standard
+        for (const login of ['maintainer', 'dependabot[bot]']) {
+          for (const mode of ['', 'hosted', 'unexpected', 'selfhosted', 'blacksmith']) {
+            const expected = mode === 'blacksmith' ? blacksmith : mode === 'selfhosted' && login !== 'dependabot[bot]' ? pool : hosted
+            expect(evaluateRunsOn(selector, {
+              vars: { [variable]: mode }, fromJSON: JSON.parse,
+              github: { repository, event: { pull_request: { user: { login } } } },
+            }), `${name} ${repository} ${login} ${mode}`).toEqual(expected)
+          }
+        }
+      }
+    },
+  )
 
   it('keeps split native Windows PR jobs with failover in their own workflow, plus a master-only standby', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
@@ -1902,6 +1930,57 @@ function workflowJob(workflow: Record<string, unknown>, job: string): Record<str
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
+
+describe('Recovery decoder coverage preparation', () => {
+  function preparation(file: string, jobName: string, coverageName: string): Record<string, unknown> & { run: string } {
+    const job = workflowJob(loadWorkflow(file), jobName)
+    if (!Array.isArray(job.steps)) throw new TypeError('coverage job must define steps')
+    const steps = job.steps.filter(isRecord)
+    const media = steps.findIndex(step => step.name === 'Prepare media test executables')
+    const coverage = steps.findIndex(step => step.name === coverageName)
+    expect(media).toBeGreaterThanOrEqual(0)
+    expect(coverage).toBeGreaterThan(media)
+    const step = steps[media]
+    if (step === undefined || typeof step.run !== 'string') throw new TypeError('media preparation must run a command')
+    return { ...step, run: step.run }
+  }
+
+  it('uses the locked Windows preparation before coverage without extra secrets', () => {
+    const step = preparation('.github/workflows/ci-windows.yml', 'windows-coverage', 'Run Windows coverage')
+    expect(step).toEqual({ name: 'Prepare media test executables', shell: 'pwsh', run: 'pnpm exec tsx scripts/prepare-ci-ffmpeg.ts' })
+    expect(JSON.stringify(step)).not.toContain('secrets.')
+  })
+
+  it.each(['valid', 'missing', 'directory', 'version-failure', 'prepare-failure'] as const)(
+    'publishes only a qualified installed Linux decoder: %s', (mode) => {
+      const step = preparation('.github/workflows/ci.yml', 'node-24-coverage', 'Run exhaustive coverage')
+      const fixtureRoot = mkdtempSync(join(tmpdir(), 'ci-recovery-decoder-'))
+      try {
+        const environmentFile = join(fixtureRoot, 'github-env')
+        writeFileSync(environmentFile, 'ORIGINAL_ENV=retained\n')
+        writeFileSync(join(fixtureRoot, 'ffmpeg'), '#!/bin/sh\nprintf \'%s\\n\' "$*" >> decoder-calls\nexit '
+          + (mode === 'version-failure' ? '9' : '0') + '\n', { mode: 0o700 })
+        const discovery = mode === 'missing' ? 'return 1;'
+          : mode === 'directory' ? 'printf \'%s\\n\' "$PWD";' : 'printf \'%s/ffmpeg\\n\' "$PWD";'
+        const prelude = 'sudo() { return ' + (mode === 'prepare-failure' ? '9' : '0') + '; }\ncommand() { ' + discovery + ' }\n'
+        const bash = process.platform === 'win32'
+          ? join(process.env.ProgramFiles ?? 'C:/Program Files', 'Git', 'bin', 'bash.exe') : 'bash'
+        const result = spawnSync(bash, ['-eu', '-c', prelude + step.run], { cwd: fixtureRoot,
+          env: { ...process.env, GITHUB_ENV: 'github-env' }, encoding: 'utf8', timeout: 10_000, windowsHide: true })
+        expect(result.error).toBeUndefined()
+        const published = readFileSync(environmentFile, 'utf8')
+        if (mode === 'valid') {
+          expect(result.status, result.stderr).toBe(0)
+          expect(published).toMatch(/^ORIGINAL_ENV=retained\nMUSE_RECOVERY_TEST_FFMPEG=\/[^\n]+\/ffmpeg\n$/)
+          expect(readFileSync(join(fixtureRoot, 'decoder-calls'), 'utf8')).toBe('-version\n')
+        } else {
+          expect(result.status).not.toBe(0)
+          expect(published).toBe('ORIGINAL_ENV=retained\n')
+        }
+      } finally { rmSync(fixtureRoot, { recursive: true, force: true }) }
+    },
+  )
+})
 
 describe('Policy workflow shells', () => {
   it.each(['pr-check-on-head-branch.yml', 'pr-check-after-approve.yml', 'pr-check-on-base-branch.yml'])(

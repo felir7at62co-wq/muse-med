@@ -5,9 +5,9 @@
  */
 
 import type { MessageId } from '@deepseek-ai/dsh-llm'
-import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { Session, SessionEventMap, UserMessage } from '@deepseek-ai/dsh-session'
+import { isJsonValue, type JsonValue } from '@deepseek-ai/dsh-util-values'
 import type {
   AgentEventDispatch,
   Inbox as InboxContract,
@@ -17,11 +17,6 @@ import type {
 } from '@deepseek-ai/dsh-agent'
 import { z } from 'zod'
 
-/** Preserve the JSON representation used when pending messages cross the wire. */
-function wireMessage(message: UserMessage): JsonValue {
-  return JSON.parse(JSON.stringify(message)) as JsonValue
-}
-
 /** Wire validation for pending agent input reconstructed from durable inbox splices. */
 export const inboxProjectionSchema = z.object({
   'next-turn': z.array(z.custom<UserMessage>()).readonly(),
@@ -29,6 +24,14 @@ export const inboxProjectionSchema = z.object({
   claim: z.object({ turn: z.number().int().nonnegative(), step: z.number().int().positive(),
     nextStep: z.array(z.custom<UserMessage>()).readonly(), nextTurn: z.array(z.custom<UserMessage>()).readonly() }).optional(),
 }).readonly()
+
+const inboxWireSchema = z.object({
+  'next-turn': z.array(z.custom<JsonValue>(isJsonValue)),
+  'next-step': z.array(z.custom<JsonValue>(isJsonValue)),
+  activeClaim: z.object({ turn: z.number().int().nonnegative(), step: z.number().int().positive(),
+    nextStep: z.array(z.custom<MessageId>()).readonly(), nextTurn: z.array(z.custom<MessageId>()).readonly() }).optional(),
+}).transform(({ activeClaim, ...pending }): InboxWireState => activeClaim === undefined
+  ? pending : { ...pending, activeClaim }) satisfies z.ZodType<InboxWireState>
 
 /** Standard fold that reconstructs pending input and rejects invalid durable splice history. */
 export const inboxProjectionDefinition = {
@@ -106,15 +109,8 @@ export const inboxProjectionDefinition = {
   wire: {
     // Pending messages round-trip the session log as lossless JSON. Claims expose
     // only the identities and positions needed to follow later queue restoration.
-    viewSchema: z.object({ 'next-turn': z.array(z.json()),
-      'next-step': z.array(z.json()),
-      activeClaim: z.object({ turn: z.number().int().nonnegative(), step: z.number().int().positive(),
-        nextStep: z.array(z.custom<MessageId>()).readonly(), nextTurn: z.array(z.custom<MessageId>()).readonly() }).optional(),
-    }).transform(({ activeClaim, ...pending }): InboxWireState => ({ ...pending,
-      ...(activeClaim === undefined ? {} : { activeClaim }),
-    })),
-    view: (state: InboxState): InboxWireState => ({
-      'next-turn': state['next-turn'].map(wireMessage), 'next-step': state['next-step'].map(wireMessage),
+    viewSchema: inboxWireSchema,
+    view: (state: InboxState) => inboxWireSchema.parse({ 'next-turn': state['next-turn'], 'next-step': state['next-step'],
       ...state.claim === undefined ? {} : { activeClaim: { turn: state.claim.turn, step: state.claim.step,
         nextStep: state.claim.nextStep.map(message => message.id), nextTurn: state.claim.nextTurn.map(message => message.id) } },
     }),

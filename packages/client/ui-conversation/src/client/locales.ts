@@ -802,7 +802,7 @@ export const en = {
   'terminal.session': 'Terminal {sessionId}',
 } satisfies Record<ConversationKey, string>
 
-/** Fixed English copy for fields that do not yet have a translation. */
+/** Fixed English copy shared until these specific keys receive translations. */
 const englishFallback = {
   'attachment.workspaceUnavailable': en['attachment.workspaceUnavailable'],
   'attachment.workspaceDropTitle': en['attachment.workspaceDropTitle'],
@@ -814,12 +814,9 @@ const englishFallback = {
   'hero.poetry': en['hero.poetry'],
 }
 
-
-
 /** Japanese copy, checked against the English keys. */
 export const ja = {
   ...englishFallback,
-  ...en,
   'quote.remove': '引用を削除',
   'shortcut.newline': '改行',
   'shortcut.complementary': '補助のキュー / 実行中の指示変更を使用',
@@ -1216,7 +1213,6 @@ export const ja = {
 /** Spanish dictionary, checked against the English keys. */
 export const es = {
   ...englishFallback,
-  ...en,
   'quote.remove': 'Eliminar cotización',
   'shortcut.newline': 'Nueva linea',
   'shortcut.complementary': 'Usar la acción alternativa de poner en cola o redirigir',
@@ -1615,7 +1611,6 @@ export const es = {
 /** French dictionary, checked against the English keys. */
 export const fr = {
   ...englishFallback,
-  ...en,
   'quote.remove': 'Supprimer le devis',
   'shortcut.newline': 'Nouvelle ligne',
   'shortcut.complementary': 'Utiliser l’action alternative de mise en attente ou de guidage',
@@ -2014,7 +2009,6 @@ export const fr = {
 /** German dictionary, checked against the English keys. */
 export const de = {
   ...englishFallback,
-  ...en,
   'quote.remove': 'Zitat entfernen',
   'shortcut.newline': 'Neue Zeile',
   'shortcut.complementary': 'Die alternative Aktion zum Vormerken oder Lenken verwenden',
@@ -2413,7 +2407,6 @@ export const de = {
 /** Russian dictionary, checked against the English keys. */
 export const ru = {
   ...englishFallback,
-  ...en,
   'quote.remove': 'Удалить цитату',
   'shortcut.newline': 'Новая линия',
   'shortcut.complementary': 'Использовать альтернативное действие: поставить в очередь или направить',
@@ -2812,7 +2805,6 @@ export const ru = {
 /** Portuguese dictionary, checked against the English keys. */
 export const pt = {
   ...englishFallback,
-  ...en,
   'quote.remove': 'Remover cotação',
   'shortcut.newline': 'Nova linha',
   'shortcut.complementary': 'Usar a ação alternativa de enfileirar ou orientar',

@@ -2,10 +2,10 @@
 
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { lstatSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import ts from 'typescript'
-import { retainedPluginSourcePrefixes } from './retained-plugin-sources.ts'
+import { retainedPluginSourcePrefixes, createRegularRepositorySourceReader, readRetainedPluginOrigins, type RetainedPluginOrigin } from './retained-plugin-sources.ts'
 
 const root = resolve(import.meta.dirname, '..')
 const baselinePath = 'scripts/no-unknown-casts.baseline.json'
@@ -47,16 +47,35 @@ function assertsUnknown(type: ts.TypeNode): boolean {
  * @returns assertions in AST traversal order; comments, strings, aliases and unknown containers do not match.
  */
 export function findUnknownCasts(file: string, text: string): UnknownCast[] {
+  return unknownCastSyntax(file, text).map(item => item.cast)
+}
+
+interface UnknownCastSyntax {
+  cast: UnknownCast
+  kind: ts.SyntaxKind
+  start: ts.LineAndCharacter
+  end: ts.LineAndCharacter
+}
+
+function unknownCastSyntax(file: string, text: string): UnknownCastSyntax[] {
   const normalized = file.replaceAll('\\', '/')
   const source = ts.createSourceFile(normalized, text, ts.ScriptTarget.Latest, true)
-  const casts: UnknownCast[] = []
+  const casts: UnknownCastSyntax[] = []
   const visit = (node: ts.Node): void => {
     if (ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
       if (assertsUnknown(node.type)) {
-        casts.push({
+        const children = node.getChildren(source)
+        const operatorKind = ts.isAsExpression(node) ? ts.SyntaxKind.AsKeyword : ts.SyntaxKind.LessThanToken
+        const operator = children.find(child => child.kind === operatorKind)
+        const end = ts.isAsExpression(node) ? node.type : children.find(child => child.kind === ts.SyntaxKind.GreaterThanToken)
+        if (operator === undefined || end === undefined) throw new Error(`unknown assertion operator is missing: ${normalized}`)
+        casts.push({ cast: {
           file: normalized,
           line: source.getLineAndCharacterOfPosition(node.type.getStart(source)).line + 1,
           fingerprint: syntaxFingerprint(node, source),
+        }, kind: node.kind,
+        start: source.getLineAndCharacterOfPosition(operator.getStart(source)),
+        end: source.getLineAndCharacterOfPosition(end.getEnd()),
         })
       }
     }
@@ -64,6 +83,32 @@ export function findUnknownCasts(file: string, text: string): UnknownCast[] {
   }
   visit(source)
   return casts
+}
+
+function authoredUnknownCasts(file: string, text: string, origin: RetainedPluginOrigin | undefined): UnknownCast[] {
+  if (origin?.kind === 'exact') return []
+  const current = unknownCastSyntax(file, text)
+  if (origin === undefined) return current.map(item => item.cast)
+  const originals = unknownCastSyntax(file, origin.upstream)
+  const oldLines = origin.upstream.split('\n')
+  const newLines = text.replaceAll('\r\n', '\n').split('\n')
+  const used = new Set<number>()
+  return current.filter((item) => {
+    let first: number | undefined
+    for (let line = item.start.line; line <= item.end.line; line++) {
+      const original = origin.originalLine(line + 1)
+      if (original === undefined || newLines[line] === undefined || newLines[line] !== oldLines[original - 1]) return true
+      first ??= original - 1
+      if (original - 1 !== first + line - item.start.line) return true
+    }
+    if (first === undefined) return true
+    const index = originals.findIndex(old => old.kind === item.kind && old.start.line === first
+      && old.end.line === first + item.end.line - item.start.line
+      && old.start.character === item.start.character && old.end.character === item.end.character)
+    if (index < 0 || used.has(index)) return true
+    used.add(index)
+    return false
+  }).map(item => item.cast)
 }
 
 function isSource(file: string): boolean {
@@ -81,22 +126,23 @@ function isSource(file: string): boolean {
  * @throws if discovery omits a required source area or an eligible path is a symlink.
  */
 export function scanUnknownCasts(repoRoot: string): UnknownCast[] {
+  const retained = readRetainedPluginOrigins(repoRoot)
   const files = [...new Set(execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
     cwd: repoRoot,
     encoding: 'utf8',
     maxBuffer: 16 * 1024 * 1024,
   }).split('\0').map(file => file.replaceAll('\\', '/')).filter(isSource))].sort()
-  const present = files.filter((file) => {
-    const stat = lstatSync(resolve(repoRoot, file), { throwIfNoEntry: false })
-    if (stat?.isSymbolicLink()) throw new Error(`verify-no-unknown-casts: source symlink is unsupported: ${file}`)
-    return stat?.isFile() === true
-  })
+  const readSource = createRegularRepositorySourceReader(repoRoot)
+  const present = new Map(files.flatMap((file) => {
+    const bytes = readSource(file)
+    return bytes === undefined ? [] : [[file, bytes.toString('utf8')] as const]
+  }))
   for (const area of ['packages/', 'apps/', 'scripts/', 'website/']) {
-    if (!present.some(file => file.startsWith(area))) {
+    if (![...present.keys()].some(file => file.startsWith(area))) {
       throw new Error(`verify-no-unknown-casts: source discovery omitted ${area}`)
     }
   }
-  return present.flatMap(file => findUnknownCasts(file, readFileSync(resolve(repoRoot, file), 'utf8')))
+  return [...present].flatMap(([file, text]) => authoredUnknownCasts(file, text, retained.get(file)))
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

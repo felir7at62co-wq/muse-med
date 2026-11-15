@@ -7,7 +7,7 @@ import { canonicalizeSchema, schemaDigest } from './persistence-schema-model.ts'
 import type { SchemaNode } from './persistence-schema-model.ts'
 import { COVERAGE_TEST_TIMEOUT_ENV, coverageTestTimeoutOptions } from './coverage-partitions.ts'
 
-// Use the existing instrumentation lane budget, just as the parent test program does.
+// Full source-program extraction uses the coverage lane's existing budget under instrumentation.
 const schemaTimeout = coverageTestTimeoutOptions(process.env[COVERAGE_TEST_TIMEOUT_ENV]).testTimeout ?? 60_000
 
 function property(nodes: readonly SchemaNode[], index: number, name: string): number {

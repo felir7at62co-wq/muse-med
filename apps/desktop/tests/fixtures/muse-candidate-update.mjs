@@ -28,6 +28,17 @@ async function fileDigest(path) {
   return { size, sha256: sha256.digest('hex'), sha512: sha512.digest('base64') }
 }
 
+/** Keep the failed retry reason in the private receipt without URLs, credentials or arbitrary updater fields. */
+function updateStateDiagnostic(state) {
+  const diagnostic = { phase: state.phase }
+  if (state.phase !== 'error') return diagnostic
+  const redact = value => value.replaceAll(root, '[private-root]')
+    .replace(/https?:\/\/\S+/giu, '[url]').replace(/\bBearer\s+\S+/giu, 'Bearer [redacted]').slice(0, 4096)
+  return { ...diagnostic,
+    ...(typeof state.message === 'string' ? { message: redact(state.message) } : {}),
+    ...(typeof state.preparationFailure === 'string' ? { preparationFailure: redact(state.preparationFailure) } : {}) }
+}
+
 async function main() {
   await app.whenReady()
   const spec = JSON.parse(await readFile(join(root, 'spec.json'), 'utf8'))
@@ -160,7 +171,10 @@ async function main() {
     assert.equal(report.requests.length, requestCount, 'Automatic check must not retry a failed candidate download')
     report.cases.push({ name: 'partial-real-installer-download-fails-without-automatic-retry', passed: true, bytes: partial.bytes })
     await persist()
-    assert.equal((await recovery.coordinator.download(spec.version)).phase, 'ready')
+    const retried = await recovery.coordinator.download(spec.version)
+    report.explicitRetry = updateStateDiagnostic(retried)
+    await persist()
+    assert.equal(retried.phase, 'ready')
     assert.equal(typeof recovery.downloadedFile(), 'string')
     const { filename, ...identity } = spec.payload
     const downloaded = await fileDigest(recovery.downloadedFile())

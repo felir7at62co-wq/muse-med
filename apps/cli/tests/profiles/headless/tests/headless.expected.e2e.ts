@@ -1011,8 +1011,13 @@ describe('headless stream-json snapshots', () => {
       expect(result.stderr).toBe('')
       expect(parseJsonl(result.stdout).at(-1)).toMatchObject({ type: 'result', output: 'DONE' })
       expect(server.requests).toHaveLength(3)
+      // pi-ai joins adjacent text users; the task and runtime facts must survive together.
       for (const request of server.requests) {
         expect(JSON.stringify(request.messages)).toContain('read task.txt and follow it')
+        const userContent = (request.messages as JsonObject[]).find(message => message.role === 'user')?.content
+        expect(userContent).toEqual(expect.stringContaining('read task.txt and follow it'))
+        expect(userContent).toEqual(expect.stringContaining('Current runtime context.'))
+        expect(userContent).toEqual(expect.stringContaining('Current working directory:'))
       }
       expect(server.requests.map(piAiTranscript)).toMatchInlineSnapshot(`
         [

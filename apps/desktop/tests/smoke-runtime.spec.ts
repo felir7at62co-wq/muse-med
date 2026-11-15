@@ -2,7 +2,9 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync,
 import { join, dirname, relative, isAbsolute } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runInNewContext } from 'node:vm'
-import { inspect } from 'node:util'
+import { getCallSites, inspect } from 'node:util'
+import { EventEmitter } from 'node:events'
+import { pathToFileURL } from 'node:url'
 import { ToolCallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import type { ToolBatchInput, ToolBatchResult, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -166,7 +168,27 @@ function fixture(packaged = false) {
   }
   const creationSkills = [...skills]
   const selected = new Set<string>()
-  const agent = { preset: 'short-drama', id: 'smoke-agent', session: {
+  const agentFiber = { uid: 101 as number | null, state: 2, runtime: { name: 'scope' } }
+  const agentCtx = { fiber: agentFiber }
+  const ownerFiber = { uid: 100 as number | null, state: 2, runtime: { name: 'desktop-runtime-product-smoke-plugin' } }
+  type LifecycleListener = (fiber: typeof agentFiber, oldState?: number) => void
+  const lifecycleListeners = new Map<string, Set<LifecycleListener>>()
+  const observerDisposers: ReturnType<typeof vi.fn>[] = []
+  const emitLifecycle = (event: string, fiber: typeof agentFiber, oldState?: number) => {
+    for (const listener of lifecycleListeners.get(event) ?? []) listener(fiber, oldState)
+  }
+  type CreatedPayload = { agent: { session: { id: string }; ctx: { fiber: typeof agentFiber } }; signal?: AbortSignal }
+  type CreatedListener = (payload: CreatedPayload) => void
+  type FixtureEvents = { 'internal/plugin': LifecycleListener; 'internal/status': LifecycleListener; 'agent/created': CreatedListener }
+  const createdListeners = new Set<CreatedListener>(), createdDisposers: ReturnType<typeof vi.fn>[] = []
+  const creationController = new AbortController()
+  const eventListeners: { [K in keyof FixtureEvents]: Set<FixtureEvents[K]> } = {
+    'internal/plugin': new Set(), 'internal/status': new Set(), 'agent/created': createdListeners,
+  }
+  lifecycleListeners.set('internal/plugin', eventListeners['internal/plugin'])
+  lifecycleListeners.set('internal/status', eventListeners['internal/status'])
+  const agent = { preset: 'short-drama', id: 'smoke-agent', ctx: agentCtx, session: {
+    id: 'smoke-session',
     append: vi.fn((type: string, data: {
       turn?: number
       step?: number
@@ -188,7 +210,6 @@ function fixture(packaged = false) {
       return { seq: 1 }
     }),
   } }
-  const agentCtx = {}
   const dispose = vi.fn(async () => {})
   const mount = vi.fn(async (_context: object, _id: string) => {})
   const names = ['jubian_asset', 'jubian_catalog', 'jubian_model', 'jubian_storyboard', 'jubian_video', 'jubian_budget',
@@ -208,6 +229,16 @@ function fixture(packaged = false) {
     return skill === undefined ? undefined : { ...skill, content: readFileSync(skill.path, 'utf8') }
   }
   class TestContext {
+    root = this
+    fiber = ownerFiber
+    on<K extends keyof FixtureEvents>(event: K, listener: FixtureEvents[K]) {
+      const listeners = eventListeners[event]
+      listeners.add(listener)
+      const release = vi.fn(() => { listeners.delete(listener) })
+      if (event === 'agent/created') createdDisposers.push(release)
+      else observerDisposers.push(release)
+      return release
+    }
     museAccount: { feedback?: () => void } = { feedback: () => {} }
     webServer = { register: vi.fn((value: NonNullable<typeof route>) => {
       route = value
@@ -223,8 +254,14 @@ function fixture(packaged = false) {
       serviceFor: vi.fn((agent: { preset: string }, name: string) => agent.preset === 'creation' && name === 'skills'
         ? { list: vi.fn(async () => creationSkills), get: vi.fn(async (name: string) => loadSkill(creationSkills, name)) } : undefined),
     }
-    agents = { create: vi.fn(async (options: { setup: (context: object) => Promise<void>; meta: { agentPreset: string } }) => {
+    agents = { get: vi.fn((id: string) => id === agent.id ? agent : undefined), create: vi.fn(async (options: {
+      setup: (context: object) => Promise<void>
+      meta: { agentPreset: string }
+    }) => {
       await options.setup(agentCtx)
+      if (options.meta.agentPreset === 'short-drama') {
+        for (const listener of createdListeners) listener({ agent, signal: creationController.signal })
+      }
       return { agent: options.meta.agentPreset === 'short-drama' ? agent : { preset: options.meta.agentPreset }, dispose }
     }) }
     toolDiscovery = { state: vi.fn(() => ({ loaded: [...selected], pinned: [] })) }
@@ -277,24 +314,31 @@ function fixture(packaged = false) {
     }
   }
   // Execute exactly the emitted plugin body; fixture services never impersonate a real prepared-runtime smoke.
+  const collectCallSites = vi.fn((frames: number, options: { sourceMap: boolean }) => getCallSites(frames, options))
+  const rejectionEvents = Object.assign(new EventEmitter(), { platform: process.platform })
+  const diagnosticLog = vi.fn((_line: string) => {})
   const source = desktopSmokePluginSource(root, home)
   expect(source).toMatch(/export const inject = \[[^\]]*'credentials'/u)
   const body = source.replace(/^import .*$/gmu, '').replace(/^export /gmu, '')
   const register = runInNewContext(`${body}\napply`, {
     Context: TestContext, ToolCallId, createToolResultMessage, AbortSignal, existsSync, realpathSync, writeFileSync,
-    join, relative, isAbsolute, inspect, process: { platform: process.platform },
+    join, relative, isAbsolute, inspect, getCallSites: collectCallSites, process: rejectionEvents, console: { log: diagnosticLog },
   }) as (ctx: TestContext) => void
+  let responseText = ''
   const request = async () => {
     if (route === undefined) throw new Error('smoke route was not registered')
     expect(route.path).toBe('/desktop-product-smoke')
     let text = ''
     const response = { statusCode: 200, end(value: string) { text = value } }
     await route.handler({}, response)
+    responseText = text
     if (response.statusCode !== 200) throw new Error(text)
   }
   const apply = async (ctx: TestContext) => { register(ctx); await request() }
   return { ctx: new TestContext(), apply, register, request, agent, agentCtx, mount, dispose, names,
-    sourceCapabilityNames, editingCapabilityNames, selected, skills, creationSkills, cordisSkill, skillRoot, layout, home, root }
+    sourceCapabilityNames, editingCapabilityNames, selected, skills, creationSkills, cordisSkill, skillRoot, layout, home, root,
+    agentFiber, ownerFiber, emitLifecycle, observerDisposers, lifecycleListeners, collectCallSites,
+    creationController, createdListeners, createdDisposers, rejectionEvents, diagnosticLog, responseText: () => responseText }
 }
 
 it('defers preset checks until the Host-ready caller requests them', async () => {
@@ -327,54 +371,420 @@ it('awaits full preset mounting and reads agent-scoped tools and bundled skills 
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
-it('retains the failing preset, Agent and primary cause when teardown also rejects', async () => {
+it.each([
+  { call: 0, index: 0, phase: 'assemble-initial' },
+  { call: 1, index: 0, phase: 'assemble-loaded' },
+  { call: 2, index: 0, phase: 'assemble-released' },
+  { call: 3, index: 1, phase: 'assemble-initial' },
+])('reports preset, instance $index and $phase with the original foreign-realm stack', async ({ call, index, phase }) => {
   const f = fixture()
-  f.ctx.systemPrompt.assemble.mockRejectedValueOnce(new Error('PRIMARY_ASSEMBLY_FAILURE'))
-  f.dispose.mockRejectedValueOnce(new Error('SECONDARY_DISPOSAL_FAILURE'))
-  await expect(f.apply(f.ctx)).rejects.toThrow('PRIMARY_ASSEMBLY_FAILURE')
-  const failure = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
-  expect(failure).toContain('preset short-drama, agent 1 (smoke-agent), assemble initial prompt failed')
-  expect(failure).toContain('SECONDARY_DISPOSAL_FAILURE')
+  const failure = runInNewContext("new Error('foreign assembly failure')") as Error
+  failure.stack = 'Error: foreign assembly failure\n    at foreign-owner.mjs:41:7'
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  let calls = 0
+  f.ctx.systemPrompt.assemble.mockImplementation(async (context) => {
+    if (calls++ === call) throw failure
+    return assemble(context)
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow('preset=short-drama index=' + String(index) + ' phase=' + phase)
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(report).toContain(failure.stack)
   expect(f.dispose).toHaveBeenCalledTimes(2)
   expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it('attempts every owned disposal before rejecting a cleanup failure', async () => {
+it('reports a second-instance creation failure and disposes the first instance', async () => {
   const f = fixture()
-  f.dispose.mockRejectedValueOnce(new Error('FIRST_DISPOSAL_FAILURE'))
-  await expect(f.apply(f.ctx)).rejects.toThrow('FIRST_DISPOSAL_FAILURE')
-  expect(f.dispose).toHaveBeenCalledTimes(2)
+  const failure = new Error('second instance could not mount')
+  const create = f.ctx.agents.create.getMockImplementation()!
+  f.ctx.agents.create.mockImplementationOnce(create).mockRejectedValueOnce(failure)
+  await expect(f.apply(f.ctx)).rejects.toThrow('preset=short-drama index=1 phase=create')
+  expect(readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')).toContain(failure.stack)
+  expect(f.dispose).toHaveBeenCalledTimes(1)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
   expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it('identifies second-Agent creation failures and releases the first Agent', async () => {
+it('awaits every reverse-order disposal and reports all cleanup failures', async () => {
   const f = fixture()
+  const firstEntered = Promise.withResolvers<undefined>()
+  const firstRelease = Promise.withResolvers<undefined>()
+  const secondEntered = Promise.withResolvers<undefined>()
+  const secondRelease = Promise.withResolvers<undefined>()
+  const order: number[] = []
+  const failures = [new Error('cleanup instance zero'), new Error('cleanup instance one')]
   const create = f.ctx.agents.create.getMockImplementation()!
-  f.ctx.agents.create.mockImplementationOnce(create).mockRejectedValueOnce(new Error('SECOND_AGENT_CREATION_FAILURE'))
-  await expect(f.apply(f.ctx)).rejects.toThrow('SECOND_AGENT_CREATION_FAILURE')
-  const failure = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
-  expect(failure).toContain('preset short-drama, agent 2 (desktop-product-smoke-short-drama-1), create and mount failed')
-  expect(f.dispose).toHaveBeenCalledOnce()
+  let created = 0
+  f.ctx.agents.create.mockImplementation(async (options) => {
+    const index = created++
+    const handle = await create(options)
+    return { ...handle, dispose: vi.fn(async (): Promise<void> => {
+      order.push(index)
+      if (index === 1) {
+        firstEntered.resolve(undefined)
+        await firstRelease.promise
+      } else {
+        secondEntered.resolve(undefined)
+        await secondRelease.promise
+      }
+      throw failures[index]
+    }) }
+  })
+  const run = f.apply(f.ctx)
+  const rejected = expect(run).rejects.toThrow('preset checks or cleanup failed')
+  await firstEntered.promise
+  expect(order).toEqual([1])
+  expect(existsSync(join(f.home, '.desktop-product-smoke-error'))).toBe(false)
+  firstRelease.resolve(undefined)
+  await secondEntered.promise
+  expect(order).toEqual([1, 0])
+  expect(existsSync(join(f.home, '.desktop-product-smoke-error'))).toBe(false)
+  secondRelease.resolve(undefined)
+  await rejected
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(report).toContain('preset=short-drama index=1 phase=dispose')
+  expect(report).toContain('preset=short-drama index=0 phase=dispose')
+  for (const failure of failures) expect(report).toContain(failure.stack)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
 })
 
-it('waits for Agent teardown before checking later presets or marking completion', async () => {
+it('retains the primary failure before both disposal failures', async () => {
+  const f = fixture()
+  const primary = new Error('primary assembly failure')
+  const lastCleanup = new Error('last instance cleanup failure')
+  const firstCleanup = new Error('first instance cleanup failure')
+  f.ctx.systemPrompt.assemble.mockRejectedValueOnce(primary)
+  f.dispose.mockRejectedValueOnce(lastCleanup).mockRejectedValueOnce(firstCleanup)
+  await expect(f.apply(f.ctx)).rejects.toThrow('preset checks or cleanup failed')
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  for (const failure of [primary, lastCleanup, firstCleanup]) expect(report).toContain(failure.stack)
+  const primaryPosition = report.indexOf('preset=short-drama index=0 phase=assemble-initial')
+  const lastCleanupPosition = report.indexOf('preset=short-drama index=1 phase=dispose')
+  const firstCleanupPosition = report.indexOf('preset=short-drama index=0 phase=dispose')
+  expect(primaryPosition).toBeGreaterThanOrEqual(0)
+  expect(lastCleanupPosition).toBeGreaterThan(primaryPosition)
+  expect(firstCleanupPosition).toBeGreaterThan(lastCleanupPosition)
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('records synchronous retirement during assembly before explicit cleanup and retains its original cause', async () => {
   const f = fixture()
   const entered = Promise.withResolvers<undefined>()
-  const release = Promise.withResolvers<undefined>()
-  f.dispose.mockImplementationOnce(async () => { entered.resolve(undefined); await release.promise })
-  const request = f.apply(f.ctx)
-  try {
-    await entered.promise
-    expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
-    expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
-    release.resolve(undefined)
-    await request
-    expect(f.dispose).toHaveBeenCalledTimes(15)
-  } finally {
-    release.resolve(undefined)
-    await request
+  const release = Promise.withResolvers<never>()
+  const primary = new Error('working directory owner retired during inspection')
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async () => { entered.resolve(undefined); return release.promise })
+  const run = f.apply(f.ctx)
+  const rejected = expect(run).rejects.toThrow(primary.message)
+  await entered.promise
+  f.agentFiber.uid = null
+  f.emitLifecycle('internal/plugin', f.agentFiber)
+  f.agentFiber.state = 5
+  f.emitLifecycle('internal/status', f.agentFiber, 2)
+  release.reject(primary)
+  await rejected
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(report).toContain(primary.stack)
+  expect(report).toContain('preset=short-drama index=0 phase=assemble-initial')
+  expect(report).toContain('\nDesktop lifecycle diagnostics: ')
+  const diagnostic = JSON.parse(report.split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: {
+      sequence: number
+      event: string
+      phase: string
+      fiber?: { birthUID: number; uid: number | null; state: number }
+      stack?: string
+    }[]
   }
+  const retired = diagnostic.records.find(record => record.event === 'internal/plugin' && record.fiber?.uid === null)
+  expect(retired).toMatchObject({ phase: 'assemble-initial', fiber: { birthUID: 101, uid: null, state: 2 } })
+  expect(retired?.stack).toContain('emitLifecycle')
+  const status = diagnostic.records.find(record => record.event === 'internal/status')
+  expect(status).toMatchObject({ fiber: { birthUID: 101, uid: null, state: 5 } })
+  const cleanup = diagnostic.records.find(record => record.event === 'before-dispose')
+  expect(cleanup?.sequence).toBeGreaterThan(retired!.sequence)
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(f.observerDisposers).toHaveLength(2)
+  for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
+  for (const listeners of f.lifecycleListeners.values()) expect(listeners.size).toBe(0)
+})
+
+it('bounds lifecycle observations and isolates observer failures without changing successful checks', async () => {
+  const f = fixture()
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    const unreadable = { state: 2, runtime: { name: 'unreadable-observer-fixture' } }
+    Object.defineProperty(unreadable, 'uid', { get() { throw new Error('observer-only getter failure') } })
+    f.emitLifecycle('internal/plugin', unreadable as typeof f.agentFiber)
+    for (let index = 0; index < 600; index++) f.emitLifecycle('internal/status', f.agentFiber, 1)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const response = f.responseText()
+  expect(response).toContain('\nDesktop lifecycle diagnostics: ')
+  const diagnostic = JSON.parse(response.split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: object[]
+    droppedRecords: number
+    observerErrors: { message: string }[]
+  }
+  expect(diagnostic.records).toHaveLength(512)
+  expect(diagnostic.droppedRecords).toBeGreaterThan(0)
+  expect(diagnostic.observerErrors.some(error => error.message.includes('observer-only getter failure'))).toBe(true)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+  expect(f.dispose).toHaveBeenCalledTimes(15)
+  for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
+  for (const listeners of f.lifecycleListeners.values()) expect(listeners.size).toBe(0)
+})
+
+it('retains a disposal initiator beyond the default Error stack without changing global stack settings', async () => {
+  const f = fixture(), stackLimit = Error.stackTraceLimit, prepareStack = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace')
+  const assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    function descend(depth: number): void {
+      if (depth > 0) { descend(depth - 1); return }
+      f.agentFiber.uid = null
+      f.emitLifecycle('internal/plugin', f.agentFiber)
+    }
+    function smokeDisposalInitiator(): void { descend(24) }
+    smokeDisposalInitiator()
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { event: string; disposalCallSites?: { fn: string; file: string; line: number; column: number }[] }[]
+  }
+  const sites = diagnostic.records.find(record => record.event === 'internal/plugin' && record.disposalCallSites)?.disposalCallSites
+  expect(sites?.length).toBeGreaterThan(10)
+  expect(sites?.length).toBeLessThanOrEqual(48)
+  expect(sites?.findIndex(site => site.fn === 'smokeDisposalInitiator')).toBeGreaterThan(10)
+  expect(f.collectCallSites).toHaveBeenCalledExactlyOnceWith(48, { sourceMap: false })
+  expect(Error.stackTraceLimit).toBe(stackLimit)
+  expect(Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace')).toEqual(prepareStack)
+  for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
+})
+
+it('abbreviates disposal frame roots and bounds each function and script name', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.collectCallSites.mockReturnValueOnce([
+    { functionName: 'f'.repeat(200), scriptName: pathToFileURL(join(f.root, 'r'.repeat(400))).href,
+      lineNumber: 17, columnNumber: 23, scriptId: '1' },
+    { functionName: 'homeFrame', scriptName: pathToFileURL(join(f.home, 'plugin.js')).href,
+      lineNumber: 31, columnNumber: 7, scriptId: '2' },
+  ])
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    f.agentFiber.uid = null
+    f.emitLifecycle('internal/plugin', f.agentFiber)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { disposalCallSites?: { fn: string; file: string; line: number; column: number }[] }[]
+  }
+  const sites = diagnostic.records.find(record => record.disposalCallSites)?.disposalCallSites
+  expect(sites).toEqual([
+    { fn: 'f'.repeat(96), file: ('<runtime>/' + 'r'.repeat(400)).slice(0, 320), line: 17, column: 23 },
+    { fn: 'homeFrame', file: '<home>/plugin.js', line: 31, column: 7 },
+  ])
+})
+
+it('retains the disposal event when native call-site collection fails', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.collectCallSites.mockImplementationOnce(() => { throw new Error('call-site collection unavailable') })
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    f.agentFiber.uid = null
+    f.emitLifecycle('internal/plugin', f.agentFiber)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { event: string; fiber?: { uid: number | null }; disposalCallSites?: object[] }[]
+    observerErrors: { event: string; message: string }[]
+  }
+  expect(diagnostic.records.find(record => record.event === 'internal/plugin' && record.fiber?.uid === null))
+    .toMatchObject({ disposalCallSites: [] })
+  expect(diagnostic.observerErrors).toHaveLength(1)
+  expect(diagnostic.observerErrors[0]?.event).toBe('getCallSites')
+  expect(diagnostic.observerErrors[0]?.message).toContain('call-site collection unavailable')
+  expect(f.dispose).toHaveBeenCalledTimes(15)
+  for (const dispose of f.observerDisposers) expect(dispose).toHaveBeenCalledOnce()
+})
+
+it('records the owned creation abort synchronously before scope retirement and retains the original failure', async () => {
+  const f = fixture(), primary = new Error('assembly rejected after owned abort')
+  f.agent.session.id = 'desktop-product-smoke-short-drama-0'
+  const reason = new Error('agent setup aborted: owner disposed during setup')
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async () => {
+    f.creationController.abort(reason)
+    f.agentFiber.uid = null
+    f.emitLifecycle('internal/plugin', f.agentFiber)
+    throw primary
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow(primary.message)
+  const report = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  const diagnostic = JSON.parse(report.split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: {
+      sequence: number
+      event: string
+      fiber?: { uid: number | null }
+      reason?: { summary: string; stack?: string }
+      callSites?: object[]
+    }[]
+  }
+  const aborted = diagnostic.records.find(record => record.event === 'agent-abort')
+  const retired = diagnostic.records.find(record => record.event === 'internal/plugin' && record.fiber?.uid === null)
+  expect(aborted).toMatchObject({ fiber: { uid: 101 }, reason: { summary: reason.message, stack: reason.stack } })
+  expect(aborted?.callSites?.length).toBeGreaterThan(0)
+  expect(aborted!.sequence).toBeLessThan(retired!.sequence)
+  expect(report).toContain(primary.stack)
+  expect(f.createdListeners.size).toBe(0)
+  for (const dispose of f.createdDisposers) expect(dispose).toHaveBeenCalledOnce()
+})
+
+it('removes owned abort listeners after success and ignores unrelated sessions', async () => {
+  const ignored = fixture(), ignoredAdd = vi.spyOn(ignored.creationController.signal, 'addEventListener')
+  await ignored.apply(ignored.ctx)
+  expect(ignoredAdd).not.toHaveBeenCalled()
+  const f = fixture()
+  f.agent.session.id = 'desktop-product-smoke-short-drama-0'
+  const added = vi.spyOn(f.creationController.signal, 'addEventListener')
+  const removed = vi.spyOn(f.creationController.signal, 'removeEventListener')
+  await f.apply(f.ctx)
+  expect(added).toHaveBeenCalledExactlyOnceWith('abort', expect.any(Function), { once: true })
+  expect(removed).toHaveBeenCalledExactlyOnceWith('abort', added.mock.calls[0]![1])
+  const before = f.responseText()
+  f.creationController.abort(new Error('late abort after smoke cleanup'))
+  expect(f.responseText()).toBe(before)
+  expect(f.collectCallSites).not.toHaveBeenCalled()
+  expect(f.createdListeners.size).toBe(0)
+  for (const dispose of f.createdDisposers) expect(dispose).toHaveBeenCalledOnce()
+})
+
+it('contains throwing abort reason access without changing successful smoke checks', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.agent.session.id = 'desktop-product-smoke-short-drama-0'
+  const reason = Object.defineProperties({}, {
+    message: { get() { throw new Error('abort reason message unreadable') } },
+    stack: { get() { throw new Error('abort reason stack unreadable') } },
+  })
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    f.creationController.abort(reason)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { event: string; reason?: { summary: string } }[]
+    observerErrors: { event: string }[]
+  }
+  expect(diagnostic.records.find(record => record.event === 'agent-abort')?.reason?.summary).toBe('Abort reason unavailable')
+  expect(diagnostic.observerErrors.map(error => error.event)).toEqual(['abort-reason-summary', 'abort-reason-stack'])
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
+  expect(f.createdListeners.size).toBe(0)
+})
+
+it('observes only the first unhandled rejection before the existing handlers and retains the original failure', async () => {
+  const f = fixture(), order: string[] = []
+  const reason = new Error('first fixture rejection'), promise = Promise.resolve()
+  const later = new Error('second fixture rejection'), laterPromise = Promise.resolve()
+  const firstHandler = vi.fn(() => { order.push('first handler') })
+  const secondHandler = vi.fn(() => { order.push('second handler') })
+  f.rejectionEvents.on('unhandledRejection', firstHandler).on('unhandledRejection', secondHandler)
+  const original = f.rejectionEvents.rawListeners('unhandledRejection')
+  f.diagnosticLog.mockImplementation(() => { order.push('diagnostic') })
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async () => {
+    f.rejectionEvents.emit('unhandledRejection', reason, promise)
+    f.rejectionEvents.emit('unhandledRejection', later, laterPromise)
+    throw reason
+  })
+  await expect(f.apply(f.ctx)).rejects.toThrow(reason.message)
+  expect(order).toEqual(['diagnostic', 'first handler', 'second handler', 'first handler', 'second handler'])
+  for (const handler of [firstHandler, secondHandler]) {
+    expect(handler).toHaveBeenNthCalledWith(1, reason, promise)
+    expect(handler).toHaveBeenNthCalledWith(2, later, laterPromise)
+  }
+  expect(f.rejectionEvents.rawListeners('unhandledRejection')).toEqual(original)
+  expect(f.diagnosticLog).toHaveBeenCalledOnce()
+  const line = f.diagnosticLog.mock.calls[0]![0]
+  const record = JSON.parse(line.slice('Desktop unhandled rejection: '.length)) as {
+    event: string
+    phase: string
+    reason: { message: string; stack: string }
+    callSites: object[]
+  }
+  expect(record).toMatchObject({ event: 'unhandled-rejection', phase: 'assemble-initial',
+    reason: { message: reason.message, stack: reason.stack!.slice(0, 4096) } })
+  expect(record.callSites.length).toBeGreaterThan(0)
+  expect(record.callSites.length).toBeLessThanOrEqual(48)
+  expect(readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')).toContain(reason.stack)
+})
+
+it('does not install an unhandled rejection handler where Node has none', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    expect(f.rejectionEvents.listenerCount('unhandledRejection')).toBe(0)
+    expect(f.rejectionEvents.emit('unhandledRejection', new Error('unobserved fixture value'), Promise.resolve())).toBe(false)
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  expect(f.diagnosticLog).not.toHaveBeenCalled()
+  expect(f.rejectionEvents.listenerCount('unhandledRejection')).toBe(0)
+})
+
+it('limits rejection diagnostics to bounded safe fields and removes its listener after success', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  const reason = Object.assign(new Error('request failed https://example.invalid/path?token=fixture-private\nAuthorization: Bearer fixture-private'), {
+    code: 'E_FIXTURE', configuration: { password: 'fixture-private' },
+  })
+  reason.stack = 'Error: private request https://example.invalid/?key=fixture-private\nCookie: sid=fixture-private\n' + 'x'.repeat(5000)
+  const handler = vi.fn()
+  f.rejectionEvents.on('unhandledRejection', handler)
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    f.rejectionEvents.emit('unhandledRejection', reason, Promise.resolve())
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  const line = f.diagnosticLog.mock.calls[0]![0]
+  expect(line).not.toContain('fixture-private')
+  expect(line).not.toContain('configuration')
+  const record = JSON.parse(line.slice('Desktop unhandled rejection: '.length)) as {
+    reason: { message: string; code: string; stack: string }
+  }
+  expect(record.reason.message).toContain('request failed [URL omitted]')
+  expect(record.reason.code).toBe('E_FIXTURE')
+  expect(record.reason.message.length).toBeLessThanOrEqual(512)
+  expect(record.reason.stack.length).toBeLessThanOrEqual(4096)
+  expect(f.rejectionEvents.rawListeners('unhandledRejection')).toEqual([handler])
+  f.rejectionEvents.emit('unhandledRejection', new Error('after cleanup'), Promise.resolve())
+  expect(handler).toHaveBeenCalledTimes(2)
+  expect(f.diagnosticLog).toHaveBeenCalledOnce()
+})
+
+it('contains rejection diagnostic getter and output failures without suppressing existing handlers', async () => {
+  const f = fixture(), assemble = f.ctx.systemPrompt.assemble.getMockImplementation()!
+  const reason = Object.defineProperties({}, {
+    message: { get() { throw new Error('do not invoke message getter') } },
+    stack: { get() { throw new Error('do not invoke stack getter') } },
+  })
+  const handler = vi.fn()
+  f.rejectionEvents.on('unhandledRejection', handler)
+  f.diagnosticLog.mockImplementationOnce(() => { throw new Error('fixture output failure') })
+  f.ctx.systemPrompt.assemble.mockImplementationOnce(async (context) => {
+    expect(() => f.rejectionEvents.emit('unhandledRejection', reason, Promise.resolve())).not.toThrow()
+    return assemble(context)
+  })
+  await f.apply(f.ctx)
+  expect(handler).toHaveBeenCalledOnce()
+  expect(f.rejectionEvents.rawListeners('unhandledRejection')).toEqual([handler])
+  const diagnostic = JSON.parse(f.responseText().split('\nDesktop lifecycle diagnostics: ')[1]!) as {
+    records: { event: string; reason: { kind: string; unreadable?: boolean } }[]
+    observerErrors: { event: string }[]
+  }
+  expect(diagnostic.records.find(record => record.event === 'unhandled-rejection')?.reason)
+    .toEqual({ kind: 'object', unreadable: true })
+  expect(diagnostic.observerErrors.map(error => error.event)).toContain('unhandled-rejection-output')
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(true)
 })
 
 it('accepts product skills loaded from the installed ASAR unpack directory', async () => {
@@ -1076,5 +1486,55 @@ it('loads default transcription, writing and shot-writing skills through the sco
     const directory = join(f.root, 'node_modules/@deepseek-ai/dsh-desktop-host/skills', name)
     expect(existsSync(join(directory, 'SKILL.md'))).toBe(false)
     expect(existsSync(join(directory, 'SKILL.md.disabled'))).toBe(true)
+  }
+})
+
+it('retains the failing preset, Agent and primary cause when teardown also rejects', async () => {
+  const f = fixture()
+  f.ctx.systemPrompt.assemble.mockRejectedValueOnce(new Error('PRIMARY_ASSEMBLY_FAILURE'))
+  f.dispose.mockRejectedValueOnce(new Error('SECONDARY_DISPOSAL_FAILURE'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('PRIMARY_ASSEMBLY_FAILURE')
+  const failure = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(failure).toContain('preset short-drama, agent 1 (smoke-agent), assemble initial prompt failed')
+  expect(failure).toContain('SECONDARY_DISPOSAL_FAILURE')
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('attempts every owned disposal before rejecting a cleanup failure', async () => {
+  const f = fixture()
+  f.dispose.mockRejectedValueOnce(new Error('FIRST_DISPOSAL_FAILURE'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('FIRST_DISPOSAL_FAILURE')
+  expect(f.dispose).toHaveBeenCalledTimes(2)
+  expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+})
+
+it('identifies second-Agent creation failures and releases the first Agent', async () => {
+  const f = fixture()
+  const create = f.ctx.agents.create.getMockImplementation()!
+  f.ctx.agents.create.mockImplementationOnce(create).mockRejectedValueOnce(new Error('SECOND_AGENT_CREATION_FAILURE'))
+  await expect(f.apply(f.ctx)).rejects.toThrow('SECOND_AGENT_CREATION_FAILURE')
+  const failure = readFileSync(join(f.home, '.desktop-product-smoke-error'), 'utf8')
+  expect(failure).toContain('preset short-drama, agent 2 (desktop-product-smoke-short-drama-1), create and mount failed')
+  expect(f.dispose).toHaveBeenCalledOnce()
+})
+
+it('waits for Agent teardown before checking later presets or marking completion', async () => {
+  const f = fixture()
+  const entered = Promise.withResolvers<undefined>()
+  const release = Promise.withResolvers<undefined>()
+  f.dispose.mockImplementationOnce(async () => { entered.resolve(undefined); await release.promise })
+  const request = f.apply(f.ctx)
+  try {
+    await entered.promise
+    expect(f.ctx.agents.create).toHaveBeenCalledTimes(2)
+    expect(existsSync(join(f.home, '.desktop-product-smoke-complete'))).toBe(false)
+    release.resolve(undefined)
+    await request
+    expect(f.dispose).toHaveBeenCalledTimes(15)
+  } finally {
+    release.resolve(undefined)
+    await request
   }
 })

@@ -124,6 +124,29 @@ def write_episode_source_receipt(draft, stage, episode, retained, timeline, subt
     if master_audio is not None:
         verify_independent_tracks(saved, tracks, groups, materials, local_file(master_audio, (stage,)),
                                   [local_file(path, (stage,)) for _, path in sorted(videos.items())], subtitle)
+    font_proof = None
+    review_path = draft / 'muse-review.json'
+    if review_path.is_file():
+        review_bytes = review_path.read_bytes()
+        review = json.loads(review_bytes.decode('utf-8-sig'))
+        if not isinstance(review, dict) or not isinstance(review.get('subtitle_font', {}), dict):
+            raise ValueError('Saved draft font review must be an object')
+        font = review.get('subtitle_font', {})
+        if font.get('binding') == 'local_file':
+            from jianying_draft import verify_saved_subtitle_font
+            checked = verify_saved_subtitle_font(content, font)
+            if not checked['delivery_ready'] or checked['status'] != 'localFileBound':
+                raise ValueError('Saved local font files and subtitle references do not match')
+            for key, hash_key in (('path', 'sha256'), ('license_path', 'license_sha256')):
+                selected = local_file(Path(checked[key]), (draft,))
+                if file_sha256(selected) != checked[hash_key]:
+                    raise ValueError('Saved local font or licence changed before receipt')
+                materials[selected] = checked[hash_key]
+            font_proof = {key: checked[key] for key in (
+                'requested', 'resolved', 'binding', 'path', 'sha256', 'license_path', 'license_sha256',
+                'status', 'binding_verified', 'delivery_ready', 'resource_id')}
+            font_proof.update(review_path=str(review_path), review_sha256=hashlib.sha256(review_bytes).hexdigest())
+            files.append({'path': 'muse-review.json', 'sha256': font_proof['review_sha256']})
     receipt = {
         'version': 1,
         'episode': f'{episode:02d}',
@@ -133,6 +156,7 @@ def write_episode_source_receipt(draft, stage, episode, retained, timeline, subt
         'videos': video_rows,
         'files': files,
         'materials': [{'path': str(path), 'sha256': digest} for path, digest in sorted(materials.items())],
+        **({'subtitle_font': font_proof} if font_proof is not None else {}),
         **({'master_audio_sha256': master, 'track_verification': 'independent-v1'} if master is not None else {}),
     }
     if master is not None and draft.parent.name == EPISODE_DRAFTS and stage.parent == draft.parent.parent / EPISODE_MATERIALS:
