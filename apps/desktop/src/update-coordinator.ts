@@ -219,7 +219,7 @@ export class DesktopUpdateCoordinator {
   }
 
   /**
-   * Retries recheck any source that has not matched the confirmed release.
+   * A retry restarts mirror selection and rechecks the confirmed release identity before downloading.
    * @param version - Version shown in the user's download confirmation.
    * @param revision - Revision captured by the download confirmation; omitted uses the current target.
    * @returns Download readiness or failure, without authorizing installation.
@@ -236,6 +236,10 @@ export class DesktopUpdateCoordinator {
       this.assertLive()
       if (this.candidate === undefined) throw new Error('desktop update: no checked update is available')
       if (version !== this.candidate) throw new Error('desktop update: download confirmation is stale')
+      if (this.current.phase === 'error' && this.current.failedOperation === 'download' && this.sources.length > 1) {
+        this.sourceIndex = 0
+        this.sourceValidated = false
+      }
       this.setState({ phase: 'downloading', version, percent: 0 })
       try {
         await this.downloadFromSource()
