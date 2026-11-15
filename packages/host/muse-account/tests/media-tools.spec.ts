@@ -8,7 +8,7 @@ import { ToolCallId } from '@deepseek-ai/dsh-llm'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { afterEach, expect, it, vi } from 'vitest'
 import { mountMuseMediaTools } from '../src/media-tools.ts'
-import { MuseMediaError, type MuseMediaClient } from '../src/media.ts'
+import { MuseMediaClient, MuseMediaError } from '../src/media.ts'
 import { MuseMediaImportError, type MuseMediaImporter } from '../src/media-import.ts'
 import type { MuseMediaJobId } from '../src/media-types.ts'
 
@@ -42,13 +42,13 @@ it('keeps cloud pending and partial results distinct from local files while reus
   const f = await fixture(), job = brandString<MuseMediaJobId>('80000000-0000-4000-8000-000000000001')
   f.client.download.mockResolvedValue({ state: 'pending', job_id: job, automatic_resubmit: false })
   for (let n = 0; n < 2; n++) {
-    const result = await f.call('muse_media_download', { url: 'https://www.douyin.com/video/7126745726494821640', requestId: 'same-key' })
+    const result = await f.call('muse_media_download', { url: 'https://www.tiktok.com/@creator/video/7126745726494821640', requestId: 'same-key' })
     expect(JSON.stringify(result)).toContain('pending')
     expect(JSON.stringify(result)).not.toContain('local_ready')
   }
   expect(f.client.download.mock.calls.map(args => args[0])).toEqual([
-    { url: 'https://www.douyin.com/video/7126745726494821640', requestId: 'same-key', skip_existing: true },
-    { url: 'https://www.douyin.com/video/7126745726494821640', requestId: 'same-key', skip_existing: true },
+    { url: 'https://www.tiktok.com/@creator/video/7126745726494821640', requestId: 'same-key', skip_existing: true },
+    { url: 'https://www.tiktok.com/@creator/video/7126745726494821640', requestId: 'same-key', skip_existing: true },
   ])
   f.client.get.mockResolvedValue({ state: 'partial', job_id: job, files: [] })
   expect(JSON.stringify(await f.call('muse_media_task', { action: 'status', jobId: job }))).toContain('partial')
@@ -87,8 +87,8 @@ it('presents reads, cloud execution and local edits without implying a completed
   const { ctx } = await fixture()
   expect(ctx.tools.get('muse_media_data')?.presentCall?.({ action: 'status' }))
     .toEqual({ card: 'generic', title: 'status', kind: 'read' })
-  expect(ctx.tools.get('muse_media_download')?.presentCall?.({ url: 'https://www.douyin.com/video/123', requestId: 'chosen-work' }))
-    .toEqual({ card: 'generic', title: 'https://www.douyin.com/video/123', kind: 'execute' })
+  expect(ctx.tools.get('muse_media_download')?.presentCall?.({ url: 'https://www.tiktok.com/@creator/video/123', requestId: 'chosen-work' }))
+    .toEqual({ card: 'generic', title: 'https://www.tiktok.com/@creator/video/123', kind: 'execute' })
   expect(ctx.tools.get('muse_media_task')?.presentCall?.({ action: 'list' }))
     .toEqual({ card: 'generic', title: 'list', kind: 'read' })
   expect(ctx.tools.get('muse_media_task')?.presentCall?.({ action: 'status', jobId: '80000000-0000-4000-8000-000000000001' }))
@@ -176,7 +176,7 @@ it.each(['unconfirmed', 'account-changed'] as const)('retains the original submi
   const error = new MuseMediaError(code)
   error.message = 'private-session-cookie-and-upstream-response'
   f.client.download.mockRejectedValue(error)
-  const result = await f.call('muse_media_download', { url: 'https://www.douyin.com/video/123', requestId: 'original-request' })
+  const result = await f.call('muse_media_download', { url: 'https://www.bilibili.com/video/BV1xx411c7mD', requestId: 'original-request' })
   expect(result.value).toMatchObject({ state: 'failed', code, requestId: 'original-request' })
   expect(JSON.stringify(result.value)).toContain(code === 'unconfirmed' ? 'Query the original receipt' : 'No local file was delivered')
   expect(JSON.stringify(result.value)).not.toContain(error.message)
@@ -244,4 +244,20 @@ it.each(['local-conflict', 'read-only'] as const)('keeps %s imports failed witho
   expect(JSON.stringify(result.value)).not.toContain('local_ready')
   if (code === 'local-conflict') expect(JSON.stringify(result.value)).toContain('It was not replaced')
   expect(f.importer.import).toHaveBeenCalledTimes(1)
+})
+
+it('refuses Douyin through the executor with the real client and points the model to the data-station tool', async () => {
+  const ctx = new Context(); contexts.push(ctx)
+  await mountAgentLoopTestDependencies(ctx)
+  const fetcher = vi.fn<typeof fetch>()
+  const client = new MuseMediaClient({ baseUrl: 'https://muse.test', sessionFile: '/nonexistent/muse-session.json', requestTimeoutMs: 1000,
+    fileTimeoutMs: 1000, maxReplyBytes: 1024, maxFileBytes: 1024, fetcher })
+  await ctx.plugin({ inject: ['tools'], apply: (scope: Context) => { mountMuseMediaTools(scope, client, { import: vi.fn<MuseMediaImporter['import']>() }) } })
+  const result = await executeToolFixture(ctx, { name: 'muse_media_download', callId: ToolCallId('media-douyin'),
+    signal: new AbortController().signal, arguments: { url: '复制打开抖音 https://v.douyin.com/iRNBho6u/', requestId: 'douyin-work' } })
+  expect(result.value).toMatchObject({ state: 'failed', code: 'douyin-unsupported', requestId: 'douyin-work' })
+  expect(JSON.stringify(result.value)).toContain('Use douyin_download')
+  expect(ctx.tools.schemas().find(row => row.name === 'muse_media_download')?.description).toContain('Douyin works are refused here')
+  expect(fetcher).not.toHaveBeenCalled()
+  await client.dispose()
 })

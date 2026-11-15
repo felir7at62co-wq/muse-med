@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Sign in to MUSE from Desktop Settings without entering a password in a model conversation. Use the account model catalog, optional web search, cloud transcription, feedback and desktop remote access through the configured Muse gateway. Account credentials remain in Host storage.
+Sign in to MUSE from Desktop Settings without entering a password in a model conversation. Use the account model catalog, optional web search, cloud transcription, feedback, data-station Douyin downloads and desktop remote access through the configured Muse gateway. Account credentials remain in Host storage.
 
 ## Table of Contents
 
@@ -65,9 +65,16 @@ Search refuses redirects, observes its own `searchRequestTimeoutMs` deadline, ca
 
 ### Company media
 
-With `mediaTools: true`, four deferred tools use the current private Muse login: `muse_media_data`, `muse_media_download`, `muse_media_task`, and `muse_media_import`. Desktop enables them without asking employees for an upstream API key. The matching [company media gateway](../../../services/muse-media/gateway/README.md) checks company membership, task ownership and per-account limits. Permission rejection does not delete the Muse login. Every call captures the current login revision and rejects delivery after an account change; unload aborts and settles requests and local helpers.
+With `mediaTools: true`, four deferred tools use the current private Muse login: `muse_media_data`, `muse_media_download`, `muse_media_task`, and `muse_media_import`. `muse_media_download` saves TikTok and Bilibili works only; a Douyin platform or any Douyin host in its URL or share text fails with `douyin-unsupported` before the login is read, and the result directs the model to `douyin_download`. Desktop enables them without asking employees for an upstream API key. The matching [company media gateway](../../../services/muse-media/gateway/README.md) checks company membership, task ownership and per-account limits. Permission rejection does not delete the Muse login. Every call captures the current login revision and rejects delivery after an account change; unload aborts and settles requests and local helpers.
 
 Cloud submission requires a stable `requestId`; uncertainty requires querying the original job, never a new submission key. `cloud_saved` describes complete cloud storage only. `partial` exposes only individually accepted files and remains partial after importing one of them. Import uses the exact filename from the cloud manifest, including accepted spaces and parentheses, without renaming it. Manifest and import validation share the same filename policy: an ASCII letter or digit first, at most 128 characters from letters, digits, dot, underscore, hyphen, space and parentheses, with no `..` or path separators. The importer requires an initiating local workspace, rejects read-only policy and existing-file replacement, and uses the configured OS sandbox for workspace-write helpers and media verification. Complete byte counts, SHA-256, FFprobe metadata and full FFmpeg decoding must pass before publication. `local_ready` identifies one verified image or video, with its source job state and file coverage; images do not establish video success. Use the existing `present` tool with the returned path for file cards and video inventory. The private helper is bundled inline, has no public executable, and receives no account credential.
+
+<a id="data-station-douyin-downloads"></a>
+### Data-station Douyin downloads
+
+With `douyinDownloadTool: true`, the deferred `douyin_download` tool is the only Douyin video downloader. It sends the current Muse session token in `X-Muse-Account-Token` to the data station at `douyinStationPath` on the `baseUrl` origin; the public `/data/` proxy clears `Authorization`, and the station refuses requests carrying `Origin`. Requests carry no cookie, `Origin` or requester name, refuse redirects, bound the complete JSON reply with `douyinMaxReplyBytes`, and reject a reply that echoes the token. The station checks the token with the Muse gateway, admits only its team list, and records the verified member as the requester.
+
+`action: download` queues one work from a URL, share text or `aweme_id`, or every episode of one series from `mix_id` or a `douyin.com/collection/<id>` link. A `v.douyin.com` share link is resolved by one redirect read within `douyinLinkTimeoutMs`, without its body or any account credential. `action: query` reads existing records without submitting, and `action: quota` reports availability and the daily allowance that the station shares between its web page and Muse. `wait_seconds` from 0 to `douyinMaxWaitSeconds` polls records every `douyinPollIntervalMs` until every work is `done` or `failed`; cancellation ends the wait. A query requests at most `douyinListLimit` records. Results list each work's state and, when done, its public storage address; a private-mode record reads its signed address and `expiresAt`. These addresses are not local files. The station does not download a queued or saved work again, and resubmitting a failed work queues it again. Fixed codes report sign-in, team list, daily allowance, station availability, account change, unconfirmed submission, timeout and cancellation without station response text. Every request rechecks the login revision captured when the call started.
 
 ### Shared voice registration
 
@@ -126,6 +133,14 @@ The Desktop Host mounts this row from [`desktop.cordis.patch.yml`](../../../apps
 | `mediaCommandMaxOutputBytes` | 65,536 | Complete helper report and diagnostic cap, 1 KiB–1 MiB. |
 | `mediaMaxPixels` | 67,108,864 | Maximum imported width × height; positive safe integer. |
 | `mediaMaxDurationSeconds` | 7,200 | Maximum accepted video duration, 1–86,400 seconds. |
+| `douyinDownloadTool` | `false` | Register the deferred data-station `douyin_download` tool; Desktop enables it. |
+| `douyinStationPath` | `/data/api/muse-client/douyin` | Absolute route prefix joined to the `baseUrl` origin; slash-separated segments of letters, digits, `.`, `_`, `~` or `-`, without `.` or `..` segments or a trailing slash. |
+| `douyinRequestTimeoutMs` | 15,000 | One station request and its complete reply, 1,000–120,000 ms. |
+| `douyinLinkTimeoutMs` | 10,000 | One share-link redirect read, 1,000–60,000 ms. |
+| `douyinMaxReplyBytes` | 1,048,576 | Complete station JSON reply cap, 1 KiB–16 MiB. |
+| `douyinMaxWaitSeconds` | 60 | Largest `wait_seconds`, 0–600. |
+| `douyinPollIntervalMs` | 5,000 | Pause between record queries while waiting, 1,000–60,000 ms. |
+| `douyinListLimit` | 300 | Records requested by one query, 1–500; the station page holds at most 500. |
 | `feedbackExcerptChars` | 1,000 | Visible characters per optional related request or answer excerpt, from 100 to 1,200. |
 | `activityReportIntervalMs` | 30,000 | Minimum interval between activity reports for one login, from 1,000 to 3,600,000 milliseconds. |
 | `activityRequestTimeoutMs` | 5,000 | Best-effort activity request deadline, from 100 to 30,000 milliseconds. |
@@ -189,11 +204,11 @@ No runtime invariant companion is published because the account controller and m
 
 #### What the model sees
 
-Model requests use the selected account provider and model. Optional account search returns validated sources through the existing `web_search` tool. The package contributes no account-status or knowledge-base tool schemas. Passwords and cookies stay outside tool arguments and results. When the configured model image budget is exceeded, the composed image-offload executor logs placeholders for the oldest image occurrences; the model can read their original attachments again.
+Model requests use the selected account provider and model. Optional account search returns validated sources through the existing `web_search` tool. With `douyinDownloadTool`, the deferred [`douyin_download`](../../../docs/tool-catalog.md#deepseek-aidsh-muse-account) schema describes data-station Douyin downloads in Chinese; its results contain work states, public storage addresses and fixed failure codes. The package contributes no account-status or knowledge-base tool schemas. Passwords and cookies stay outside tool arguments and results. When the configured model image budget is exceeded, the composed image-offload executor logs placeholders for the oldest image occurrences; the model can read their original attachments again.
 
 #### Token effect
 
-When `feedbackTools` is enabled, two feedback tool schemas join the model request; receipt results enter normal tool history. With feedback and media tools disabled, the package adds no tool schemas or system-prompt text. Enabling `mediaTools` registers four deferred schemas; discovery controls admission, while accepted results enter ordinary logged tool history. Optional account search uses the existing web tool schema and appends its returned sources to the conversation.
+When `feedbackTools` is enabled, two feedback tool schemas join the model request; receipt results enter normal tool history. With feedback and media tools disabled, the package adds no tool schemas or system-prompt text. Enabling `mediaTools` registers four deferred schemas; discovery controls admission, while accepted results enter ordinary logged tool history. Enabling `douyinDownloadTool` registers one deferred schema; a whole-series result lists every returned episode with its address, so up to `douyinListLimit` work entries enter tool history. Optional account search uses the existing web tool schema and appends its returned sources to the conversation.
 
 #### KV Cache effect
 
@@ -207,6 +222,7 @@ These limits apply to the bundled Desktop account flow.
 
 - **Same-user file access** — the saved cookie is outside the model conversation, but an agent process running as the same OS user may be able to read the session file through file tools. UI and Remote routing do not provide complete isolation; stronger separation requires OS credential storage, a separate account, or narrower sandbox read permissions.
 - **Gateway dependency** — account-authorized models, web search and speech require matching deployed gateway services. Source packaging alone does not enable them.
+- **Data-station dependency** — `douyin_download` requires the data station's account-token routes under `douyinStationPath` and its team list. Without them, every action reports `unavailable` or `team-access-required`; no local downloader takes over.
 
 <a id="dev-note"></a>
 ### Dev Note

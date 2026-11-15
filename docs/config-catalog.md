@@ -2944,7 +2944,7 @@ export interface Config {
 
 - `inject`: `tools` · `llm` · `sessionProjections` · `agentDefaultModel` · `sessions`
 - `refs`: [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
-- `source`: [`packages/host/muse-account/src/index.ts:47`](../packages/host/muse-account/src/index.ts)
+- `source`: [`packages/host/muse-account/src/index.ts:51`](../packages/host/muse-account/src/index.ts)
 
 ```ts config-catalog
 /** Product-configured gateway and optional account storage directory. */
@@ -3019,6 +3019,22 @@ export interface Config {
   readonly mediaMaxPixels: number
   /** Maximum complete video duration accepted by the local importer. */
   readonly mediaMaxDurationSeconds: number
+  /** Register `douyin_download`, which queues Douyin works on the data station with the current private Muse login. */
+  readonly douyinDownloadTool: boolean
+  /** Data-station Douyin route prefix joined to the `baseUrl` origin. */
+  readonly douyinStationPath: string
+  /** Deadline for one data-station request and its complete reply. */
+  readonly douyinRequestTimeoutMs: number
+  /** Deadline for reading one `v.douyin.com` share link's redirect. */
+  readonly douyinLinkTimeoutMs: number
+  /** Maximum complete JSON reply accepted from the data station. */
+  readonly douyinMaxReplyBytes: number
+  /** Largest `wait_seconds` one tool call may spend waiting for downloads. */
+  readonly douyinMaxWaitSeconds: number
+  /** Pause between record queries while a tool call waits. */
+  readonly douyinPollIntervalMs: number
+  /** Records requested by one query; the station serves at most 500 and queues at most its own series limit. */
+  readonly douyinListLimit: number
   /** Minimum interval between best-effort human-task activity reports for the same login. */
   readonly activityReportIntervalMs: number
   /** Maximum lifetime of one best-effort activity request, independent of model or task work. */

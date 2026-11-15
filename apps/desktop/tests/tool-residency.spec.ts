@@ -25,7 +25,7 @@ const config = row.config as Discovery.Config
 const core = ['read', 'write', 'bash', 'read_image', 'video_inspect', 'hongguo_download', 'ask_user_question', 'show_view', 'visualize', 'muse_feedback_submit', 'muse_feedback_status', 'present', 'todo_write', 'todo_update']
 const professional = ['drama_shot', 'manuscript_revision', 'drama_project', 'source_recover', 'muse_production',
   'jubian_catalog', 'jubian_organize', 'jubian_find', 'drama_character_reference_project',
-  'drama_character_references', 'drama_character_reference_view', 'drama_render', 'douyin_data', 'douyin_download']
+  'drama_character_references', 'drama_character_reference_view', 'drama_render', 'muse_media_data', 'douyin_download']
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'muse-desktop-tool-residency-'))
@@ -85,9 +85,10 @@ it.each([
   ['查找剧变剧本', 'jubian_find'],
   ['编写分镜镜头脚本', 'drama_shot'],
   ['查看角色参考图', 'drama_character_reference_view'],
-  ['抖音作品数据', 'douyin_data'],
-  ['查看抖音链接数据', 'douyin_data'],
+  ['抖音作品数据', 'muse_media_data'],
+  ['查看抖音链接数据', 'muse_media_data'],
   ['抖音下载', 'douyin_download'],
+  ['抖音合集下载', 'douyin_download'],
   ['mcp__example__read', 'mcp__example__read'],
 ])('loads complete definitions after Chinese discovery and executes %s', async (query, name) => {
   const f = await fixture()

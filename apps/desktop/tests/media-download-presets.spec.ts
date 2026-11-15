@@ -1,4 +1,4 @@
-/** Download tools belong to each creative preset and disappear with its scope. */
+/** Download tools belong to each creative preset and disappear with its scope; no preset loads a local Douyin downloader. */
 import { readFileSync } from 'node:fs'
 import { Context } from '@deepseek-ai/cordis'
 import SessionProjections from '@deepseek-ai/dsh-session-projection'
@@ -12,7 +12,6 @@ import { createScope } from '@deepseek-ai/dsh-scope'
 import * as yaml from 'js-yaml'
 import { expect, it } from 'vitest'
 import * as Hongguo from '../../../third_party/plugins/muse-hongguo-download/src/index.js'
-import * as Douyin from '../../../third_party/plugins/muse-douyin-download/src/index.js'
 import * as Reverse from '../../../third_party/plugins/muse-reverse-tools/src/index.js'
 import * as Fanqie from '../../../third_party/plugins/muse-fanqie-download/src/index.js'
 
@@ -37,7 +36,7 @@ it('bundles one open-engine runtime configuration under the standalone patch con
   expect(Object.keys(row ?? {}).sort()).toEqual(['config', 'id', 'name'])
 })
 
-it('registers local analysis and download tools in creative scopes and leaves minimal and global scopes empty', async () => {
+it('registers local analysis and download tools in creative scopes, leaves Douyin to the data station and keeps minimal and global scopes empty', async () => {
   const ctx = new Context()
   try {
     await ctx.plugin(SystemPrompt)
@@ -56,31 +55,25 @@ it('registers local analysis and download tools in creative scopes and leaves mi
       const key = {}
       const scope = createScope(ctx, key)
       try {
+        expect(douyin, preset).toBeUndefined()
         if (preset === 'minimal') {
           expect(hongguo).toBeUndefined()
-          expect(douyin).toBeUndefined()
           expect(reverse).toBeUndefined()
           expect(fanqie).toBeUndefined()
         } else {
           expect(hongguo?.name, preset).toBe('muse-hongguo-download')
           expect(hongguo?.config?.quality, preset).toBe('1080p')
           expect(hongguo?.config).not.toHaveProperty('legacyBackend')
-          expect(douyin?.name, preset).toBe('muse-douyin-download')
-          expect(douyin?.config?.pythonExecutable, preset).toEqual({ __jsExpr: 'process.env.MUSE_DOUYIN_PYTHON_PATH || null' })
-          expect(douyin?.config?.ffmpegExecutable, preset).toEqual({ __jsExpr: 'process.env.DSH_FFMPEG_PATH || process.env.FFMPEG_PATH || null' })
-          expect(douyin?.config?.ffprobeExecutable, preset).toEqual({ __jsExpr: 'process.env.DSH_FFPROBE_PATH || process.env.FFPROBE_PATH || null' })
           if (preset === 'creation') expect(reverse, preset).toBeUndefined()
           else expect(reverse?.name, preset).toBe('muse-reverse-tools')
           expect(fanqie?.name, preset).toBe('muse-fanqie-download')
           expect(fanqie?.config?.pythonExecutable, preset).toEqual({ __jsExpr: "process.env.MUSE_FANQIE_PYTHON_PATH || process.env.MUSE_HONGGUO_PYTHON_PATH || ''" })
           await scope.ctx.plugin(Hongguo, { sourceMode: 'legacy', signTokenEnv: 'MUSE_HONGGUO_SIGN_TOKEN' })
-          await scope.ctx.plugin(Douyin)
           await scope.ctx.plugin(Reverse)
           await scope.ctx.plugin(Fanqie)
         }
         expect(ctx.tools.schemas(key).map(tool => tool.name), preset).toEqual(preset === 'minimal' ? [] : [
           'hongguo_download_info', 'hongguo_download', 'hongguo_download_task', 'hongguo_merge',
-          'douyin_download', 'douyin_download_task', 'douyin_data',
           'reverse_skill', 'reverse_analyze', 'fanqie_search', 'fanqie_download_info', 'fanqie_download',
         ])
         expect(ctx.tools.schemas()).toEqual([])

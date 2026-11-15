@@ -74,9 +74,10 @@ it('defaults ordinary sessions to short-drama and retains Main Session routing',
     expect(await ctx.agentPresets.resolve('bot-coordinator')).toMatchObject({ id: 'bot-coordinator' })
     const recovery = (await ctx.agentPresets.readDocument('bot-coordinator')).content
     expect(recovery).not.toMatch(/name: (?:ds-bot|['"]ds-bot['"])/)
-    for (const name of ['@deepseek-ai/dsh-tool-jobs', '@deepseek-ai/dsh-tool-subagent', 'muse-qimao-data', 'muse-source-research', 'muse-douyin-download']) {
+    for (const name of ['@deepseek-ai/dsh-tool-jobs', '@deepseek-ai/dsh-tool-subagent', 'muse-qimao-data', 'muse-source-research']) {
       expect(recovery).toContain(name)
     }
+    expect(recovery).not.toContain('muse-douyin-download')
     expect((await ctx.agentPresets.list()).find(row => row.id === 'bot-coordinator')).toMatchObject({
       name: '历史会话恢复', description: '读取既有主控会话并使用通用工具继续工作；不恢复 Bot 团队或自动编排。',
     })

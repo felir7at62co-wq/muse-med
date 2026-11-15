@@ -16,7 +16,8 @@ function rejected(error: unknown) {
       : code === 'unconfirmed' ? 'The cloud request may have been accepted. Retain the original requestId and identical arguments. Query the original receipt; never submit with a new key.'
         : code === 'local-conflict' ? 'A local file or receipt already exists. It was not replaced. Inspect that file before requesting a separate import.'
           : code === 'account-changed' ? 'The signed-in Muse account changed. No local file was delivered. Check the original account receipt before another submission.'
-            : 'The requested media operation did not complete. Report this code without inventing a downloaded file, retry or successful result.' }
+            : code === 'douyin-unsupported' ? 'Company media no longer saves Douyin works and nothing was submitted. Use douyin_download, which queues the work on the data station and returns its video address.'
+              : 'The requested media operation did not complete. Report this code without inventing a downloaded file, retry or successful result.' }
 }
 
 function required(value: string | undefined): string {
@@ -77,9 +78,9 @@ export function mountMuseMediaTools(ctx: Context, client: Pick<MuseMediaClient, 
   }))
   ctx.tools.register(defineTool({
     name: 'muse_media_download', deferLoading: true,
-    description: 'Save one user-selected Douyin, TikTok or Bilibili work to the company cloud using the signed-in account. Supply a stable requestId and reuse identical arguments after uncertainty; do not create another key or automatically retry. pending/unconfirmed is unfinished. cloud_saved means the cloud manifest is complete, never that a local file exists. partial preserves only its listed verified files and does not mean the full video succeeded. Query the returned Muse job_id with muse_media_task; import a listed file separately with muse_media_import.',
+    description: 'Save one user-selected TikTok or Bilibili work to the company cloud using the signed-in account. Douyin works are refused here; use douyin_download for them. Supply a stable requestId and reuse identical arguments after uncertainty; do not create another key or automatically retry. pending/unconfirmed is unfinished. cloud_saved means the cloud manifest is complete, never that a local file exists. partial preserves only its listed verified files and does not mean the full video succeeded. Query the returned Muse job_id with muse_media_task; import a listed file separately with muse_media_import.',
     parameters: {
-      url: { type: 'string', required: true, description: 'Selected official platform URL or share text, at most 8192 characters.' },
+      url: { type: 'string', required: true, description: 'Selected official TikTok or Bilibili URL or share text, at most 8192 characters.' },
       requestId: { type: 'string', required: true, description: 'Stable 1–128-character submission key. Reuse unchanged with identical arguments after uncertainty.' },
       skipExisting: { type: 'boolean', description: 'Reuse an already stored cloud work when available; defaults to true.' },
       part: { type: 'integer', description: 'Bilibili part number, 1–10000; omission uses the selected URL or first part.' },

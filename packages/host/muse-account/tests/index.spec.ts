@@ -505,3 +505,59 @@ it('loads explicit feedback tools through Loader, submits one authenticated rece
   await plugin.dispose()
   expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(previous)
 })
+
+it('keeps the data-station Douyin tool opt-in and validates its route prefix and bounds', () => {
+  expect(Config({ baseUrl })).toMatchObject({ douyinDownloadTool: false, douyinStationPath: '/data/api/muse-client/douyin',
+    douyinRequestTimeoutMs: 15_000, douyinLinkTimeoutMs: 10_000, douyinMaxReplyBytes: 1_048_576, douyinMaxWaitSeconds: 60,
+    douyinPollIntervalMs: 5_000, douyinListLimit: 300 })
+  for (const douyinStationPath of ['data/api', '/data/', '/data/../api', '/data/./api', '/data api', '/data?x=1']) {
+    expect(() => Config({ baseUrl, douyinStationPath }), douyinStationPath).toThrow()
+  }
+  for (const bound of [{ douyinListLimit: 501 }, { douyinPollIntervalMs: 999 }, { douyinMaxWaitSeconds: 601 },
+    { douyinRequestTimeoutMs: 999 }]) {
+    expect(() => Config({ baseUrl, ...bound })).toThrow()
+  }
+})
+
+it('loads the data-station Douyin tool through Loader, sends only the account token and removes it on unload', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'muse-douyin-plugin-')); homes.push(home)
+  const loaded = await oldSessionFixture(false, home), ctx = loaded.ctx
+  contexts.push(ctx)
+  const token = 'douyin-account-private', awemeId = '7570000000000000001'
+  const requests: { method: string | undefined; url: string; headers: Headers; body: unknown }[] = []
+  const url = `https://muse.tos-cn-beijing.volces.com/download-video-date/douyin/20261115/${awemeId}/video/000-${awemeId}.mp4`
+  await writeMuseSession(join(home, 'session.json'), { baseUrl, username: 'alice', cookie: `__Host-muse=${token}` })
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (input, init) => {
+    const target = new URL(input instanceof Request ? input.url : input)
+    // An empty catalog keeps model registration and default-selection writes out of this tool lifecycle.
+    if (target.pathname === '/api/desktop-models/providers') return Response.json({ providers: [] })
+    if (!target.pathname.startsWith('/station/douyin/')) throw Error('Unexpected fixture request')
+    requests.push({ method: init?.method, url: target.href, headers: new Headers(init?.headers), body: init?.body })
+    const record = { id: 'r1', awemeId, mixId: null, episode: null, title: '作品', state: 'done', url, error: null }
+    if (init?.method === 'POST') return Response.json({ queued: [record], existing: [], skipped: 0 }, { status: 202 })
+    return Response.json([record])
+  }))
+  const previous = ctx.tools.schemas().map(tool => tool.name)
+  ctx.loader.builtins['douyin-account'] = { inject: accountInject, Config, apply }
+  const id = await ctx.loader.create({ name: 'cordis:douyin-account', config: { baseUrl, accountHome: home, douyinDownloadTool: true,
+    douyinStationPath: '/station/douyin', douyinListLimit: 20 } })
+  await ctx.loader.await()
+  const plugin = ctx.loader.resolve(id).fiber
+  if (plugin === undefined) throw Error('Account plugin fiber was not created')
+  await plugin.await()
+  expect(ctx.tools.schemas().map(tool => tool.name)).toEqual([...previous, 'douyin_download'])
+  const result = await executeToolFixture(ctx, { name: 'douyin_download', callId: ToolCallId('douyin-opt-in'),
+    signal: new AbortController().signal, arguments: { action: 'download', url: `https://www.douyin.com/video/${awemeId}` } })
+  expect(result.value).toMatchObject({ state: 'done', works: [{ awemeId, state: 'done', url }] })
+  expect(requests.map(request => [request.method, request.url, request.body])).toEqual([
+    ['POST', `${baseUrl}/station/douyin/downloads`, JSON.stringify({ awemeId })],
+    ['GET', `${baseUrl}/station/douyin/downloads?limit=20&awemeIds=${awemeId}`, undefined]])
+  for (const request of requests) {
+    expect(request.headers.get('x-muse-account-token')).toBe(token)
+    expect(request.headers.has('origin')).toBe(false)
+    expect(request.headers.has('cookie')).toBe(false)
+  }
+  expect(JSON.stringify(result)).not.toContain(token)
+  await plugin.dispose()
+  expect(ctx.tools.schemas().map(tool => tool.name)).toEqual(previous)
+})
