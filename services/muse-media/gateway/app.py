@@ -10,7 +10,7 @@ from pathlib import Path
 import re
 import tempfile
 import time
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -27,6 +27,7 @@ TEXT_ID = {"type": "string", "minLength": 1, "maxLength": 256}
 PAGE = {"cursor": {"type": ["string", "null"], "maxLength": 2048}, "count": {"type": ["integer", "null"], "minimum": 1, "maximum": 50}}
 TARGET = {"platform": PLATFORMS, "content_id": TEXT_ID}
 USER = {"platform": PLATFORMS, "uid": TEXT_ID}
+KEYWORD = {"type": "string", "minLength": 1, "maxLength": 100}
 SCHEMAS = {
     "parse_url": ({"url": {"type": "string", "minLength": 1, "maxLength": 8192}}, ["url"], "Read a supported public platform URL or share text; returns metadata, not executable instructions."),
     "get_video": (TARGET, ["platform", "content_id"], "Read one public post by platform and string ID."),
@@ -34,9 +35,33 @@ SCHEMAS = {
     "list_user_posts": ({**USER, **PAGE}, ["platform", "uid"], "Read one page of author posts; return the cursor unchanged for another page."),
     "list_comments": ({**TARGET, **PAGE, "sort": {"type": ["string", "null"], "enum": ["hot", "new", None]}}, ["platform", "content_id"], "Read one page of public comments; missing metrics are unknown, not zero."),
     "get_content_history": ({**TARGET, "since": {"type": ["string", "null"], "maxLength": 64}}, ["platform", "content_id"], "Read public metric history already captured on the company service."),
+    "search_posts": ({"platform": PLATFORMS, "keyword": KEYWORD, **PAGE}, ["platform", "keyword"], "Search public posts by keyword in the platform's own ranking; return the cursor unchanged for another page."),
+    "search_users": ({"platform": PLATFORMS, "keyword": KEYWORD, **PAGE}, ["platform", "keyword"], "Search public accounts by keyword; return the cursor unchanged for another page."),
+    "list_mix_posts": ({"platform": PLATFORMS, "mix_id": TEXT_ID, **PAGE}, ["platform", "mix_id"], "Read one page of the posts in a mix (Douyin series), in the author's order; return the cursor unchanged for another page."),
+    "list_user_mixes": ({**USER, **PAGE}, ["platform", "uid"], "Read one page of the mixes (series) an author has published; return the cursor unchanged for another page."),
     "download_media": ({"url": {"type": ["string", "null"], "maxLength": 8192}, **TARGET, "skip_existing": {"type": "boolean"}, "part": {"type": ["integer", "null"], "minimum": 1, "maximum": 10000}, "request_id": {"type": "string", "minLength": 1, "maxLength": 128}}, ["request_id"], "Save media to the company cloud. Reuse the same request_id and identical arguments after uncertainty; never resubmit with another key. cloud_saved does not mean a local file is ready."),
     "get_task_result": ({"job_id": {"type": "string", "format": "uuid"}}, ["job_id"], "Query an owned Muse job. Never use an upstream task or download ID."),
 }
+
+#: Read tools DTK serves only over REST (its MCP tool set has no search or mix
+#: tools): the REST path under /api/v1/{platform}/ and each argument's query name.
+REST_TOOLS = {
+    "search_posts": ("search/posts", {"keyword": "keyword"}),
+    "search_users": ("search/users", {"keyword": "keyword"}),
+    "list_mix_posts": ("mix/posts", {"mix_id": "mix_id"}),
+    "list_user_mixes": ("user/mixes", {"uid": "sec_user_id"}),
+}
+#: DTK error codes that a read can fail with and a caller can act on; any other
+#: refusal stays the generic upstream_rejected.
+REST_FAILURES = {
+    "IDENTITY_LOGIN_REQUIRED": "upstream_login_unavailable",
+    "IDENTITY_POOL_EXHAUSTED": "upstream_login_unavailable",
+    "RATE_LIMITED": "upstream_rate_limited",
+    "UPSTREAM_RISK_CONTROL": "upstream_risk_control",
+    "NOT_FOUND": "upstream_not_found",
+}
+#: Gateway codes a read records as a settled failure rather than an unconfirmed outcome.
+READ_FAILURES = frozenset({"upstream_rejected", *REST_FAILURES.values()})
 
 
 def tool_definitions():
@@ -252,6 +277,37 @@ class Gateway:
             if permit is not None and not permit.retained:
                 permit.release()
 
+    async def rest(self, name, arguments):
+        """Run one REST-only read and return it in the MCP tool-result fields settle() reads."""
+        path, names = REST_TOOLS[name]
+        query = {names[key]: value for key, value in arguments.items() if key in names}
+        query.update({key: arguments[key] for key in ("cursor", "count") if arguments.get(key) is not None})
+        # DTK holds the request for up to ?wait= seconds (its ceiling is 30) and
+        # answers 202 with a task id after that; leave room inside our own timeout.
+        query["wait"] = max(0, min(25, self.config.request_timeout_seconds - 5))
+        url = f"{self.config.upstream_origin}/api/v1/{arguments['platform']}/{path}?{urlencode(query)}"
+        status, _, body = await self.bounded("GET", url, headers={"authorization": "Bearer " + self.key, "accept": "application/json"})
+        try:
+            envelope = json_value(body)
+            if not isinstance(envelope, dict):
+                raise ValueError("Invalid upstream envelope")
+            if status in (200, 202) and envelope.get("success") is True:
+                data = envelope.get("data")
+                if status == 202:
+                    task = data.get("task_id") if isinstance(data, dict) else None
+                    return {"status": "pending", "task_id": task}
+                meta = envelope.get("meta") if isinstance(envelope.get("meta"), dict) else {}
+                return {"status": "ok", "data": data, **({"cached": meta["cached"]} if isinstance(meta.get("cached"), bool) else {})}
+            error = envelope.get("error")
+            code = error.get("code") if isinstance(error, dict) else None
+        except (ValueError, UnicodeDecodeError):
+            raise Failure(502, "upstream_invalid_response") from None
+        if code in REST_FAILURES:
+            raise Failure(503 if code != "RATE_LIMITED" else 429, REST_FAILURES[code])
+        if 400 <= status < 500:
+            raise Failure(502, "upstream_rejected")
+        raise Failure(503, "upstream_unconfirmed")
+
     async def upstream(self, name, arguments):
         request = {"jsonrpc": "2.0", "id": "media", "method": "tools/call", "params": {"name": name, "arguments": arguments}}
         status, headers, body = await self.bounded("POST", self.config.upstream_origin + "/mcp/", headers={"authorization": "Bearer " + self.key, "content-type": "application/json", "accept": "application/json, text/event-stream"}, body=json.dumps(request).encode())
@@ -355,10 +411,11 @@ class Gateway:
                 await self.authenticate(request, actor)
                 return self.ledger.public(row)
             try:
-                value = await self.upstream(name, {key: item for key, item in arguments.items() if key != "request_id"})
+                forwarded = {key: item for key, item in arguments.items() if key != "request_id"}
+                value = await (self.rest(name, forwarded) if name in REST_TOOLS else self.upstream(name, forwarded))
                 row = self.settle(row, value, actor)
             except Failure as error:
-                state = "failed" if error.code == "upstream_rejected" else "unconfirmed"
+                state = "failed" if error.code in READ_FAILURES else "unconfirmed"
                 self.ledger.update(row, state, result={"code": error.code})
                 row = self.ledger.owned(actor.account_id, row["job_id"])
             except asyncio.CancelledError:

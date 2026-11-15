@@ -13,6 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 _TOOLS = frozenset({
     "parse_url", "get_video", "get_user", "list_user_posts", "list_comments",
     "get_content_history", "download_media", "get_task_result",
+    "search_posts", "search_users", "list_mix_posts", "list_user_mixes",
 })
 _PLATFORMS = frozenset({"douyin", "tiktok", "bilibili"})
 _PUBLIC_DOMAINS = ("douyin.com", "tiktok.com", "bilibili.com", "b23.tv")
