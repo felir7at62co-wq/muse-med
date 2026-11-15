@@ -29,7 +29,7 @@ import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { coordinationDomain, latest, reportTask, reservesWorker, revise, routingTask } from './ledger.ts'
 import { imageAt, outlineTurns, scanSteps, stepItems } from './history-views.ts'
 import { SessionQueryError } from '@deepseek-ai/dsh-session-query'
-import type { ImageBlock } from '@deepseek-ai/dsh-llm'
+import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { Assignment, AssignmentStatus, CoordinationTask, CoordinationTaskId, CoordinationReport, DispatchRequest, ReconcileRequest, RoutingMode, RoutingTaskList, WorkerReport } from './types.ts'
 import { ToolArgsError, ToolContextUnavailableError } from '@deepseek-ai/dsh-tools'
 import type { ToolExecution, ToolGuardDenial } from '@deepseek-ai/dsh-tools'
@@ -245,18 +245,7 @@ export class SessionCoordinator extends TypertRemoteService {
    */
   @Remote({ mode: 'stream' })
   async *watchMain(signal: AbortSignal): AsyncIterable<SessionId | null> {
-    const combined = AbortSignal.any([signal, this.lifetime.signal])
-    while (!combined.aborted) {
-      const generation = this.generation
-      yield this.entry.get('main') ?? null
-      if (generation !== this.generation) continue
-      await new Promise<void>((resolve) => {
-        const wake = (): void => { this.observers.delete(wake); combined.removeEventListener('abort', wake); resolve() }
-        this.observers.add(wake)
-        combined.addEventListener('abort', wake, { once: true })
-        if (combined.aborted || generation !== this.generation) wake()
-      })
-    }
+    yield* this.observe(signal, () => this.entry.get('main') ?? null)
   }
 
   /**
@@ -524,7 +513,7 @@ export class SessionCoordinator extends TypertRemoteService {
    * @param index - Zero-based position among that event's images.
    * @returns A caption and the stored image reference.
    */
-  async image(main: Agent, sessionId: SessionId, seq: number, index: number): Promise<{ text: string; attachment: ImageBlock['attachment'] }> {
+  async image(main: Agent, sessionId: SessionId, seq: number, index: number): Promise<{ text: string; attachment: ImageAttachmentRef }> {
     await this.requireMain(main)
     const snapshot = await this.ctx.sessionQuery.readSession(sessionId)
     const block = imageAt(snapshot.events, seq, index)
@@ -751,10 +740,20 @@ export class SessionCoordinator extends TypertRemoteService {
    */
   @Remote({ mode: 'stream' })
   async *watch(sessionId: SessionId, signal: AbortSignal): AsyncIterable<CoordinationTask[]> {
+    yield* this.observe(signal, () => this.list(sessionId))
+  }
+
+  /**
+   * Yield a fresh read now and after every coordinator state change, until the client or plugin unload aborts.
+   * @param signal - Client cancellation.
+   * @param read - Reads the current value.
+   * @returns the initial value and one value per observed generation.
+   */
+  private async *observe<T>(signal: AbortSignal, read: () => T): AsyncGenerator<T> {
     const combined = AbortSignal.any([signal, this.lifetime.signal])
     while (!combined.aborted) {
       const generation = this.generation
-      yield this.list(sessionId)
+      yield read()
       if (generation !== this.generation) continue
       await new Promise<void>((resolve) => {
         const wake = (): void => { this.observers.delete(wake); combined.removeEventListener('abort', wake); resolve() }

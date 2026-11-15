@@ -3710,6 +3710,42 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'JSON events and an explicit next position; no history is activated.',
       },
       {
+        signature: 'async outline(main: Agent, sessionId: SessionId): Promise<string>',
+        description: 'List every turn of a Session or subagent in one line each; the newest turns are kept within `readChars`.',
+        parameters: [{ name: 'main', description: 'Exact routing Agent.' }, { name: 'sessionId', description: 'Session or subagent in the same local owner profile.' }],
+        returns: 'JSON turn outlines, oldest first, with the count of earlier turns left out.',
+      },
+      {
+        signature: 'async steps(main: Agent, sessionId: SessionId, fromSeq: number): Promise<string>',
+        description: 'Page compact task inputs, replies, tool calls, results and turn boundaries of a Session or subagent.',
+        parameters: [{ name: 'main', description: 'Exact routing Agent.' }, { name: 'sessionId', description: 'Session or subagent in the same local owner profile.' }, { name: 'fromSeq', description: 'Inclusive first sequence, such as a turn\'s `startSeq`.' }],
+        returns: 'JSON step items within `readChars` and the next position, or null when complete.',
+      },
+      {
+        signature: 'async searchEvents(main: Agent, sessionId: SessionId, query: string): Promise<string>',
+        description: 'Find events of one Session that match a query: full-text search when the deployment has an index, otherwise a case-insensitive scan of the Session\'s step items.',
+        parameters: [{ name: 'main', description: 'Exact routing Agent.' }, { name: 'sessionId', description: 'Session or subagent in the same local owner profile.' }, { name: 'query', description: 'Full-text query, or plain text for the scan.' }],
+        returns: 'JSON hits with sequence, event or step type and snippet, at most `searchLimit` within `readChars`.',
+      },
+      {
+        signature: 'async jobs(main: Agent, sessionId: SessionId, jobId?: string, from?: number): Promise<string>',
+        description: 'List one Session\'s background jobs, or read one job\'s output without consuming the Session\'s own unread output.',
+        parameters: [{ name: 'main', description: 'Exact routing Agent.' }, { name: 'sessionId', description: 'Owner Session of the jobs.' }, { name: 'jobId', description: 'Job to read; omitted lists the Session\'s jobs.' }, { name: 'from', description: 'Byte offset to read from; omitted reads the last `readChars` bytes.' }],
+        returns: 'JSON job rows, or one job row with its output text, resume offset and loss flag.',
+      },
+      {
+        signature: 'async settings(main: Agent, namespace?: string): Promise<string>',
+        description: 'Read the current settings with secrets redacted.',
+        parameters: [{ name: 'main', description: 'Exact routing Agent.' }, { name: 'namespace', description: 'Namespace to read; omitted reads every namespace that fits `readChars`.' }],
+        returns: 'JSON effective values per namespace, or the namespace names when all values do not fit.',
+      },
+      {
+        signature: 'async image(main: Agent, sessionId: SessionId, seq: number, index: number): Promise<{ text: string; attachment: ImageAttachmentRef }>',
+        description: 'Return one image a Session or subagent\'s model received, for Main to view.',
+        parameters: [{ name: 'main', description: 'Exact routing Agent.' }, { name: 'sessionId', description: 'Session or subagent in the same local owner profile.' }, { name: 'seq', description: 'Sequence of the `user/message` or `tool/result` event holding the image.' }, { name: 'index', description: 'Zero-based position among that event\'s images.' }],
+        returns: 'A caption and the stored image reference.',
+      },
+      {
         signature: 'async dispatch(main: Agent, request: DispatchRequest): Promise<CoordinationTask>',
         description: 'Record and deliver one new goal or an explicit revision, reusing an identical key. A new key whose `instructions` or `reason` exceeds `noteChars` fails before any intent is recorded. A fresh worker is created only when `maxWorkers` permits and no older fresh-worker dispatch is waiting; otherwise the recorded intent waits as `dispatching` and starts automatically. With `taskRoot`, every revision runs in the task\'s folder; another `cwd` or a reused Session in another directory fails before any intent is recorded. The request source is Main\'s latest human message, or schedule reminder when unattended.',
         parameters: [{ name: 'main', description: 'Exact routing Agent.' }, { name: 'request', description: 'Agent-selected existing or fresh ordinary worker and bounded routing notes.' }],

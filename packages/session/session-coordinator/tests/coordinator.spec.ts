@@ -58,7 +58,7 @@ describe('routing-only Main Session', () => {
     expect(repeated).toBe(first)
     expect((await identities.next()).value).toBe(first)
     controller.abort()
-    await identities.return?.()
+    expect((await identities.next()).done).toBe(true)
     const agent = test.ctx.agents.get(first)
     const initial = await test.ctx.workspaceController.initializeDefault(new AbortController().signal)
     expect(initial).toBeDefined()
