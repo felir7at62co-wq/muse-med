@@ -3747,7 +3747,7 @@ export interface JsonRpcConfig {
 ## `@deepseek-ai/dsh-session-activity`
 
 - `inject`: `sessions` · `sessionProjections` · `agents`
-- `source`: [`packages/session/session-activity/src/index.ts:27`](../packages/session/session-activity/src/index.ts)
+- `source`: [`packages/session/session-activity/src/index.ts:28`](../packages/session/session-activity/src/index.ts)
 
 ```ts config-catalog
 /** Deployment choices for status digests. */
@@ -3760,6 +3760,8 @@ export interface Config {
   readonly stallMs?: number
   /** Delay that merges a burst of events into one status evaluation. Defaults to 1000. */
   readonly coalesceMs?: number
+  /** Watch every running subagent for the Session that started it, from `subagent/start` until `subagent/end`. Defaults to true. */
+  readonly subagents?: boolean
 }
 ```
 <!-- END GENERATED config-catalog:@deepseek-ai/dsh-session-activity -->

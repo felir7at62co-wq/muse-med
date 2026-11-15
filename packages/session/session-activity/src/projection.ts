@@ -1,12 +1,13 @@
 /**
- * The host-only `sessionActivity` unit: a pure fold of one Session's turn boundaries and latest
- * tool call, the facts a status line needs beyond the live Agent state.
+ * The host-only `sessionActivity` unit: a pure fold of one Session's turn boundaries, latest tool
+ * call and direct subagent labels, the facts a status line needs beyond the live Agent state.
  *
  * @module @deepseek-ai/dsh-session-activity/projection
  */
 
 import { z } from 'zod'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
+import type {} from '@deepseek-ai/dsh-subagent'
 
 /** Characters kept from a tool call's arguments or a turn failure. */
 export const ACTIVITY_TEXT_CHARS = 160
@@ -41,6 +42,8 @@ export interface SessionActivityState {
   readonly lastTool: LastToolCall | null
   /** The latest turn end; null before the first. */
   readonly lastTurnEnd: LastTurnEnd | null
+  /** Display labels of this Session's direct subagents, `name: label`, keyed by child Session id. */
+  readonly children: Readonly<Record<string, string>>
 }
 
 const stateSchema: z.ZodType<SessionActivityState> = z.object({
@@ -48,6 +51,7 @@ const stateSchema: z.ZodType<SessionActivityState> = z.object({
   turnStartedAt: z.number().nullable(),
   lastTool: z.object({ name: z.string(), time: z.number(), arguments: z.string() }).strict().nullable(),
   lastTurnEnd: z.object({ time: z.number(), kind: z.string(), text: z.string() }).strict().nullable(),
+  children: z.record(z.string(), z.string()),
 }).strict()
 
 /**
@@ -63,16 +67,16 @@ export function boundActivityText(text: string, chars = ACTIVITY_TEXT_CHARS): st
 
 /**
  * Initial state for an empty log.
- * @returns No open turn, tool call or turn end.
+ * @returns No open turn, tool call, turn end or subagent.
  */
 export function initialActivity(): SessionActivityState {
-  return { openTurn: null, turnStartedAt: null, lastTool: null, lastTurnEnd: null }
+  return { openTurn: null, turnStartedAt: null, lastTool: null, lastTurnEnd: null, children: {} }
 }
 
 /** The `sessionActivity` unit registered on `ctx.sessionProjections`. */
 export const sessionActivityProjectionDefinition = {
   key: 'sessionActivity',
-  stateVersion: 2,
+  stateVersion: 3,
   stateSchema,
   init: initialActivity,
   apply: (state, event) => {
@@ -86,6 +90,12 @@ export const sessionActivityProjectionDefinition = {
       }
       case 'tool/call':
         return { ...state, lastTool: { name: event.data.name, time: event.time, arguments: boundActivityText(event.data.arguments) } }
+      case 'subagent/catalog': {
+        const entry = event.data
+        const label = [entry.version === 3 ? entry.name : undefined, entry.label]
+          .filter(part => part !== undefined && part !== '').join(': ')
+        return label === '' ? state : { ...state, children: { ...state.children, [entry.childId]: boundActivityText(label, 80) } }
+      }
       default:
         // Other and plugin-declared events change no status fact.
         return state

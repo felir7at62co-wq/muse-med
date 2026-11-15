@@ -78,7 +78,7 @@ describe('session status digests', () => {
   })
 
   it('keeps one replaceable status digest pending until something else wakes the parent', async () => {
-    const { ctx, parent, child, digests } = await fixture({}, undefined, false)
+    const { ctx, parent, child, digests } = await fixture({ subagents: false }, undefined, false)
     ctx.on('workspace/session-activity', async ({ sessionId }, next) => {
       const rest = await next()
       return sessionId === child.id ? [{ kind: 'job', items: [{ id: 'j1', label: 'ffmpeg cut' }, { id: 'j2' }] }, { kind: 'job' }, { kind: 'turn' }, ...rest] : rest

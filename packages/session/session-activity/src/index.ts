@@ -2,7 +2,7 @@
  * Session status lines as the session list shows them, and watched-Session status digests: the
  * `sessionActivity` service reads live Agent state, pending questions and approvals, and running
  * jobs and subagents, and delivers one coalesced, replaceable notice to each parent whose watched
- * Sessions changed status.
+ * Sessions, including its running subagents, changed status.
  *
  * @module @deepseek-ai/dsh-session-activity
  */
@@ -16,6 +16,7 @@ import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-workspace'
 import type {} from '@deepseek-ai/dsh-api-gateway/types'
+import type {} from '@deepseek-ai/dsh-subagent'
 import { renderDigest, statusKey, statusText } from './digest.ts'
 import type { DigestEntry, SessionStatus, SessionStatusKind } from './digest.ts'
 import { initialActivity, sessionActivityProjectionDefinition, type SessionActivityState } from './projection.ts'
@@ -33,6 +34,8 @@ export interface Config {
   readonly stallMs?: number
   /** Delay that merges a burst of events into one status evaluation. Defaults to 1000. */
   readonly coalesceMs?: number
+  /** Watch every running subagent for the Session that started it, from `subagent/start` until `subagent/end`. Defaults to true. */
+  readonly subagents?: boolean
 }
 
 type ResolvedConfig = Required<Config>
@@ -73,6 +76,7 @@ export class SessionActivityDigests extends Service implements SessionActivityWa
     maxChars: z.natural().min(200).default(1200),
     stallMs: z.natural().default(600_000),
     coalesceMs: z.natural().default(1000),
+    subagents: z.boolean().default(true),
   })
 
   private readonly config: ResolvedConfig
@@ -117,6 +121,19 @@ export class SessionActivityDigests extends Service implements SessionActivityWa
         this.schedule(parentId, watch)
       }
     }, { global: true })
+    if (this.config.subagents) this.watchSubagents()
+  }
+
+  /** Watch each subagent run for its direct creator; delivery labels it from the creator's subagent catalog. */
+  private watchSubagents(): void {
+    const runs = new Map<string, () => void>()
+    this.ctx.on('subagent/start', (info) => {
+      runs.set(info.runId, this.watch(info.parentSessionId, info.id, 'subagent'))
+    })
+    this.ctx.on('subagent/end', (info) => {
+      runs.get(info.runId)?.()
+      runs.delete(info.runId)
+    })
   }
 
   watch(parent: SessionId, child: SessionId, label: string): () => void {
@@ -236,12 +253,15 @@ export class SessionActivityDigests extends Service implements SessionActivityWa
     const entries: DigestEntry[] = []
     const sent: [ChildWatch, SessionStatusKind][] = []
     const keys = new Map<SessionId, string>()
+    // A direct subagent's own name and task read better than the watcher's label.
+    const catalog = new Map(Object.entries(this.handle.stateOf(agent.session).children))
     for (const [id, child] of watch.children) {
       const status = await this.status(id)
       keys.set(id, statusKey(status))
       sent.push([child, status.kind])
+      const label = catalog.get(id) ?? child.label
       entries.push({
-        label: child.label, sessionId: id, status, delivered: child.delivered, notified: child.notified, stalledMs: child.stalledMs,
+        label, sessionId: id, status, delivered: child.delivered, notified: child.notified, stalledMs: child.stalledMs,
       })
     }
     const digest = renderDigest(entries, this.config, Date.now())

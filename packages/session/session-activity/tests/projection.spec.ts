@@ -23,7 +23,7 @@ describe('sessionActivity fold', () => {
     const start = log.append('turn/start', { turn: 1 })
     const call = log.append('tool/call', { turn: 1, step: 1, callId: ToolCallId('a'), name: 'video_inspect', arguments: '{\n "path": "ep1.mp4"\n}' })
     expect(fold([start, call])).toEqual({
-      openTurn: 1, turnStartedAt: start.time, lastTurnEnd: null,
+      openTurn: 1, turnStartedAt: start.time, lastTurnEnd: null, children: {},
       lastTool: { name: 'video_inspect', time: call.time, arguments: '{ "path": "ep1.mp4" }' },
     })
     const failed = log.append('turn/end', { turn: 1, reason: { kind: 'error', error: { message: 'Muse model request failed.', code: 'UNKNOWN' } } })
@@ -32,6 +32,18 @@ describe('sessionActivity fold', () => {
     })
     const completed = log.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
     expect(fold([completed]).lastTurnEnd).toEqual({ time: completed.time, kind: 'completed', text: '' })
+  })
+
+  it('labels direct subagents from the parent catalog', async () => {
+    const log = await session()
+    const child = (id: string) => ({ childId: SessionId(id), childCreatedAt: 1 })
+    const state = fold([
+      log.append('subagent/catalog', { ...child('a'), version: 3, name: 'ep001-writer', mode: 'continuable', label: '转写第001集' }),
+      log.append('subagent/catalog', { ...child('b'), version: 3, name: 'checker', mode: 'external' }),
+      log.append('subagent/catalog', { ...child('c'), version: 0, mode: 'one-shot', label: 'look up names' }),
+      log.append('subagent/catalog', { ...child('d'), version: 2, mode: 'external' }),
+    ])
+    expect(state.children).toEqual({ a: 'ep001-writer: 转写第001集', b: 'checker', c: 'look up names' })
   })
 
   it('keeps the reference for events that change no status fact', async () => {

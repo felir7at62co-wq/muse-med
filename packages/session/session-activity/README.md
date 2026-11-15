@@ -34,6 +34,7 @@ Mount the plugin in the Host beside the Session store, the projection registry a
     maxChars: 1200
     stallMs: 600000
     coalesceMs: 1000
+    subagents: true
 ```
 
 | Field | Meaning |
@@ -42,6 +43,7 @@ Mount the plugin in the Host beside the Session store, the projection registry a
 | `maxChars` | Characters of the complete digest text |
 | `stallMs` | Running time without a new event after which the watched Session wakes its parent once; `0` disables |
 | `coalesceMs` | Delay that merges a burst of events into one evaluation |
+| `subagents` | Watch every running subagent for the Session that started it, from `subagent/start` until `subagent/end` |
 
 ### Status lines
 
@@ -60,7 +62,7 @@ The duration counts from the open turn's start for running and waiting states an
 
 ### Watches and digests
 
-`watch(parent, child, label)` returns a disposer. Watching the same pair again adds a reference and replaces the label; the watch ends when every reference is released, after one last evaluation delivers a change the coalescing delay has not reached yet.
+With `subagents` on, a Session that starts a subagent receives that subagent's line in the same digests, labelled `name: task` from its own subagent catalog, until the subagent settles; the subagent's closing notice still arrives separately. `watch(parent, child, label)` returns a disposer. Watching the same pair again adds a reference and replaces the label; the watch ends when every reference is released, after one last evaluation delivers a change the coalescing delay has not reached yet.
 
 - A digest lists each watched Session whose line changed, apart from its duration. A Session that is not open yet is left out of the first digest.
 - A digest that reports no state needing the parent is injected: it waits in the parent's inbox until the parent's next step and never opens a turn by itself.
@@ -91,7 +93,7 @@ Without a live parent Agent the plugin skips delivery and keeps the baseline. A 
 
 ### Data model
 
-The unit folds `turn/start`, `turn/end` and `tool/call` into the open turn and its start time, the latest tool call with its bounded arguments, and the latest turn end with its error text. Everything else in a status line is read live when the line is rendered.
+The unit folds `turn/start`, `turn/end`, `tool/call` and `subagent/catalog` into the open turn and its start time, the latest tool call with its bounded arguments, the latest turn end with its error text, and the `name: task` labels of the Session's direct subagents. Everything else in a status line is read live when the line is rendered.
 
 ### Delivery state
 
@@ -134,7 +136,6 @@ Digests are appended as ordinary logged user messages; earlier messages, the sys
 - **Process-local baselines** — after a restart the first digest repeats every watched line, and stall detection waits for the next watched event.
 - **Waiting states need the gateway** — without a Typert gateway a Session waiting for an answer reads as idle or running.
 - **Sessions that are not open** show no latest tool or turn end; their lines say `not open`.
-- **Subagents are not watched yet** — the coordinator watches its worker Sessions; delivering subagent status to the parent Agent is planned.
 
 <a id="dev-note"></a>
 ### Dev Note
