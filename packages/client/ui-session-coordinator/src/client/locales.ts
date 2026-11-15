@@ -20,6 +20,7 @@ export const en = {
   attention: 'Inspect the execution chat before continuing this task', details: 'Diagnostics', files: 'Files', dispatching: 'Waiting to start', reconciling: 'Preparing reconciliation', accepted: 'Delivered', running: 'Running', finishing: 'Finishing',
   'needs-report': 'Awaiting report', interrupted: 'Needs attention', stopped: 'Stopped', completed: 'Worker completed',
   blocked: 'Blocked', 'needs-input': 'Needs your input', failed: 'Failed', receipt: 'Worker report; awaiting your acceptance',
+  unattendedAttention: 'Needs a person: automatic handling stopped',
 } as const
 /** Chinese task labels. */
 export const zh: Record<keyof typeof en, string> = {
@@ -32,6 +33,7 @@ export const zh: Record<keyof typeof en, string> = {
   attention: '请先检查执行会话，再决定如何续做', details: '诊断信息', files: '交付文件', dispatching: '等待开始', reconciling: '准备核对', accepted: '已送达', running: '执行中', finishing: '等待执行结束',
   'needs-report': '待执行会话汇报', interrupted: '需要跟进', stopped: '已停止', completed: '执行会话已完成',
   blocked: '遇到阻碍', 'needs-input': '需要补充信息', failed: '执行失败', receipt: '执行会话回执，等待你验收',
+  unattendedAttention: '需要人工处理：自动处理已停止',
 }
 /** Japanese task labels. */
 export const ja: Record<keyof typeof en, string> = {

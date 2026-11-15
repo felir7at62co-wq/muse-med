@@ -9,7 +9,7 @@ English | [中文](guide.zh.md)
 
 ## Change
 
-The optional Muse coordinator writes version 2 records in the `muse_coordination` storage domain. The current reader also accepts version 1 records. Reconciliation adds a `reconciling` state and retains the inspected worker input positions in each new assignment revision. Session logs and previous assignment revisions remain intact.
+The optional Muse coordinator writes version 2 records in the `muse_coordination` storage domain. The current reader also accepts version 1 records. Reconciliation adds a `reconciling` state and retains the inspected worker input positions in each new assignment revision. Session logs and previous assignment revisions remain intact. Unattended deployments also record automatic re-dispatch revisions and attention marks as optional fields of version 2 revisions.
 
 Older builds do not support these records. The JSON per-record backend treats an unsupported version as absent, so opening an upgraded profile with an older coordinator can hide tasks; it is not a supported downgrade. Report metadata also admits the new state; older Clients may display the raw tool result instead of the report card.
 

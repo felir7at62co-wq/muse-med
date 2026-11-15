@@ -25,6 +25,8 @@ Successful paired `coordinator_show_report` calls render task reports inline in 
 
 Each report can open its execution conversation and delivery files. The open button appears only while the Session list contains that execution conversation, so a task that is waiting to start, or that stopped or failed before starting, has none. File previews use that worker's Session and directory, including relative paths. The report has no task-mutation buttons. Malformed, unsupported, nested and failed report results remain in the ordinary tool details without adding report cards. A report's identity includes its Turn so later model reuse of a call id does not replace earlier reports.
 
+Task cards above the Main conversation show each task's latest status, worker report and diagnostics. A task that the unattended coordinator stopped resolving shows that it needs a person, with the recorded reason.
+
 Cordis disposal releases registrations, resource streams, generated Remote bindings and action feedback. Re-enabling restores navigation without dispatching work or changing ordinary Sessions.
 
 The retained Main conversation opens on startup when access is available and no user navigation or draft supersedes it. The Muse spider button sits below New Session, shares its left and right edges in the expanded sidebar, and returns to the Main conversation from another conversation. Ordinary Workspace lists omit that conversation but retain execution Sessions. Disabling this plugin removes the button and navigation registrations; re-enabling retains the same Main Session.

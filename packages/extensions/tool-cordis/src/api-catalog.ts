@@ -3692,7 +3692,7 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: 'async dispatch(main: Agent, request: DispatchRequest): Promise<CoordinationTask>',
-        description: 'Record and deliver one new goal or an explicit revision, reusing an identical key. A new key whose `instructions` or `reason` exceeds `noteChars` fails before any intent is recorded. A fresh worker is created only when `maxWorkers` permits and no older fresh-worker dispatch is waiting; otherwise the recorded intent waits as `dispatching` and starts automatically.',
+        description: 'Record and deliver one new goal or an explicit revision, reusing an identical key. A new key whose `instructions` or `reason` exceeds `noteChars` fails before any intent is recorded. A fresh worker is created only when `maxWorkers` permits and no older fresh-worker dispatch is waiting; otherwise the recorded intent waits as `dispatching` and starts automatically. With `taskRoot`, every revision runs in the task\'s folder; another `cwd` or a reused Session in another directory fails before any intent is recorded. The request source is Main\'s latest human message, or schedule reminder when unattended.',
         parameters: [{ name: 'main', description: 'Exact routing Agent.' }, { name: 'request', description: 'Agent-selected existing or fresh ordinary worker and bounded routing notes.' }],
         returns: 'authoritative task; `dispatching` for a waiting fresh worker; acceptance is not execution completion.',
       },
@@ -6921,7 +6921,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Assignment',
-    declaration: 'export interface Assignment {\n    readonly revision: number;\n    readonly key: string;\n    readonly requestHash: string;\n    readonly instructions: string;\n    readonly reason: string;\n    readonly sourceSeq: number;\n    readonly reconciliation?: {\n        readonly throughSeq: number;\n        readonly humanSeq: number;\n        readonly humanMessageId: MessageId;\n    } | undefined;\n    readonly messageId: MessageId;\n    readonly briefId: MessageId;\n    readonly forwardedIds: readonly MessageId[];\n    readonly sessionId: SessionId;\n    readonly createSession: boolean;\n    readonly cwd: string;\n    readonly sourceCwd: string | null;\n    readonly videoKey: string | null;\n    readonly status: AssignmentStatus;\n    readonly report: WorkerReport | null;\n    readonly issue: string | null;\n    readonly noticeId: MessageId;\n    readonly notifiedStatus: AssignmentStatus | null;\n    readonly changedInputSeq?: number | undefined;\n    readonly notifiedInputSeq?: number | undefined;\n}',
+    declaration: 'export interface Assignment {\n    readonly revision: number;\n    readonly key: string;\n    readonly requestHash: string;\n    readonly instructions: string;\n    readonly reason: string;\n    readonly sourceSeq: number;\n    readonly reconciliation?: {\n        readonly throughSeq: number;\n        readonly humanSeq: number;\n        readonly humanMessageId: MessageId;\n    } | undefined;\n    readonly messageId: MessageId;\n    readonly briefId: MessageId;\n    readonly forwardedIds: readonly MessageId[];\n    readonly sessionId: SessionId;\n    readonly createSession: boolean;\n    readonly cwd: string;\n    readonly sourceCwd: string | null;\n    readonly videoKey: string | null;\n    readonly status: AssignmentStatus;\n    readonly report: WorkerReport | null;\n    readonly issue: string | null;\n    readonly noticeId: MessageId;\n    readonly notifiedStatus: AssignmentStatus | null;\n    readonly changedInputSeq?: number | undefined;\n    readonly notifiedInputSeq?: number | undefined;\n    readonly redispatch?: {\n        readonly after: AssignmentStatus;\n    } | undefined;\n    readonly attention?: TaskAttention | undefined;\n}',
   },
   {
     name: 'AssignmentStatus',
@@ -9877,7 +9877,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'RoutingTask',
-    declaration: 'export interface RoutingTask {\n    readonly id: CoordinationTaskId;\n    readonly title: string;\n    readonly revision: number;\n    readonly sessionId: SessionId;\n    readonly cwd: string;\n    readonly status: AssignmentStatus;\n    readonly issue: string | null;\n    readonly report: {\n        readonly outcome: WorkerReport[\'outcome\'];\n        readonly summary: string;\n        readonly fileCount: number;\n    } | null;\n}',
+    declaration: 'export interface RoutingTask {\n    readonly id: CoordinationTaskId;\n    readonly title: string;\n    readonly revision: number;\n    readonly sessionId: SessionId;\n    readonly cwd: string;\n    readonly status: AssignmentStatus;\n    readonly issue: string | null;\n    readonly report: {\n        readonly outcome: WorkerReport[\'outcome\'];\n        readonly summary: string;\n        readonly fileCount: number;\n    } | null;\n    readonly attention?: TaskAttention;\n}',
   },
   {
     name: 'RoutingTaskList',
@@ -11278,6 +11278,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TableValueOf',
     declaration: 'export type TableValueOf<S extends DomainSpec, N extends keyof S[\'tables\']> = S[\'tables\'][N] extends DomainTableSpec<string, infer V> ? V : never;',
+  },
+  {
+    name: 'TaskAttention',
+    declaration: 'export interface TaskAttention {\n    readonly reason: string;\n    readonly at: number;\n}',
   },
   {
     name: 'TeamTaskAction',

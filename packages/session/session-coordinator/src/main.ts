@@ -1,4 +1,5 @@
 /** Routing-only preset capabilities, enforced independently of prompt wording. */
+import { scopeOf } from '@deepseek-ai/dsh-scope'
 import { apply as applyPolicy } from './policy.ts'
 import { installDisplayTools } from './display-tools.ts'
 import type { Context } from '@deepseek-ai/cordis'
@@ -33,6 +34,19 @@ export async function apply(ctx: Context): Promise<void> {
   applyPolicy(ctx)
   const fiber = ctx.inject(['sessionCoordinator'], (scope) => {
     const service = scope.sessionCoordinator
+    const { unattended, humanTools } = service.mode
+    if (unattended) {
+      const deny = (target: Context): void => {
+        scope.effect(() => target.tools.restrict({ futureDeny: humanTools, includeOwn: true }))
+        scope.effect(() => target.tools.guard(exec => humanTools.includes(exec.name)
+          ? 'This run is unattended and nobody answers questions; route or record the result without asking.' : undefined))
+      }
+      if (scopeOf(scope) !== undefined) deny(scope)
+      else {
+        scope.on('agent/created', ({ agent }) => { deny(agent.ctx) })
+        for (const agent of scope.agents.list()) deny(agent.ctx)
+      }
+    }
     installDisplayTools(scope, service)
     scope.tools.register(defineTool({
       name: 'coordinator_sessions', description: 'Search the local owner’s ordinary Sessions across workspaces; no Session is resumed. Empty query lists recent candidates.',
