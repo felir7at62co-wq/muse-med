@@ -251,11 +251,20 @@ class EmbeddedSourceRangeTests(unittest.TestCase):
         self.content['tracks'][0]['segments'][0] = self.segment(3_500_000, 500_000, 0, 500_000)
         self.verify()
 
-    def test_full_source_probe_rejects_inflated_metadata(self):
-        with self.assertRaisesRegex(ValueError, 'material.duration 超出探测'):
+    def test_full_source_probe_requires_complete_material_metadata(self):
+        with self.assertRaisesRegex(ValueError, 'material.duration.*完整源时长不一致'):
             self.verify(durations={self.source: 3_999_999})
         self.content['materials']['videos'][0]['duration'] = 1_500_000
-        self.assertIsNone(self.verify(durations={self.source: 4_000_000}))
+        with self.assertRaisesRegex(ValueError, 'material.duration.*完整源时长不一致'):
+            self.verify(durations={self.source: 4_000_000})
+
+    def test_short_timeline_window_cannot_hide_three_second_material_metadata(self):
+        self.content['materials']['videos'][0]['duration'] = 3_000_000
+        self.content['tracks'][0]['segments'][0] = self.segment(0, 2_000_000, 0, 2_000_000)
+        with self.assertRaisesRegex(ValueError, 'material.duration.*完整源时长不一致'):
+            self.verify(durations={self.source: 8_100_000})
+        self.content['materials']['videos'][0]['duration'] = 8_100_000
+        self.assertIsNone(self.verify(durations={self.source: 8_100_000}))
 
     def test_container_audio_tail_does_not_invalidate_a_playable_video_window(self):
         self.content['materials']['videos'][0]['duration'] = 74_210_975
@@ -320,6 +329,107 @@ class EmbeddedSourceRangeTests(unittest.TestCase):
                     MODULE.verify_embedded_source_ranges(content, [self.source])
         with self.assertRaises(ValueError):
             MODULE.verify_embedded_source_ranges(self.content, [])
+
+
+class NativeMaterialDurationTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.source = self.root / '完整 原片.mp4'
+        self.durations = {self.source: 8_100_000}
+        self.row = {'type': 'video', 'path': str(self.source), 'title': 'segment-one',
+                    'metadata': {'duration_us': 8_100_000, 'width': 240.0, 'height': 426.0}}
+        self.document = {'protocol': 'xmldraft', 'written': False, 'resource_map': [self.row]}
+
+    def verify(self):
+        return MODULE.verify_native_material_durations(self.document, self.durations)
+
+    def test_native_full_duration_survives_readback_without_mutation(self):
+        self.row['metadata']['duration_us'] = 8_100_000.0
+        before = copy.deepcopy(self.document)
+        result = self.root / 'native-resource-readback.json'
+        result.write_text(json.dumps(self.document), encoding='utf-8')
+        self.assertIsNone(MODULE.verify_native_material_durations(
+            json.loads(result.read_text(encoding='utf-8')), self.durations))
+        self.assertEqual(self.document, before)
+
+    def test_three_second_or_other_incomplete_source_duration_is_rejected(self):
+        for duration in (3_000_000, 2_000_000, 8_099_999, 8_100_001):
+            with self.subTest(duration=duration):
+                self.row['metadata']['duration_us'] = duration
+                with self.assertRaisesRegex(ValueError, 'duration_us.*完整源时长不一致'):
+                    self.verify()
+
+    def test_missing_fractional_or_nonfinite_native_duration_is_rejected(self):
+        for duration in (None, True, False, 0, -1, '8100000', 8_100_000.5,
+                         float('inf'), float('-inf'), float('nan')):
+            with self.subTest(duration=duration):
+                self.row['metadata']['duration_us'] = duration
+                with self.assertRaisesRegex(ValueError, '有限正整数微秒'):
+                    self.verify()
+
+    def test_all_repeated_uses_of_the_same_source_must_have_complete_duration(self):
+        duplicate = copy.deepcopy(self.row)
+        duplicate['title'] = 'segment-two'
+        self.document['resource_map'].append(duplicate)
+        self.assertIsNone(self.verify())
+        duplicate['metadata']['duration_us'] = 3_000_000
+        with self.assertRaisesRegex(ValueError, '完整源时长不一致'):
+            self.verify()
+        self.document['resource_map'].reverse()
+        with self.assertRaisesRegex(ValueError, '完整源时长不一致'):
+            self.verify()
+
+    def test_every_selected_source_is_required_and_unselected_resources_are_ignored(self):
+        self.document['resource_map'].extend([None, {'type': 'photo', 'path': str(self.root / 'ending.png')},
+                                              {'type': 'video', 'path': 'invalid legacy relative path'}])
+        self.assertIsNone(self.verify())
+        other = self.root / 'second.mp4'
+        self.durations[other] = 4_000_000
+        with self.assertRaisesRegex(ValueError, '未包含所有选定正文视频'):
+            self.verify()
+        self.document['resource_map'].append({'type': 'video', 'path': str(other),
+                                               'metadata': {'duration_us': 4_000_000}})
+        self.assertIsNone(self.verify())
+
+    def test_readback_requires_native_protocol_and_no_write(self):
+        for change in ({'protocol': None}, {'protocol': 'another-protocol'},
+                       {'written': None}, {'written': True}, {'written': 0}, {'written': 'false'}):
+            with self.subTest(change=change):
+                document = {**self.document, **change}
+                with self.assertRaisesRegex(ValueError, 'xmldraft.*written=false'):
+                    MODULE.verify_native_material_durations(document, self.durations)
+        with self.assertRaisesRegex(ValueError, 'xmldraft.*written=false'):
+            MODULE.verify_native_material_durations([], self.durations)
+
+    def test_selected_video_needs_native_type_metadata_and_resource_array(self):
+        for change, message in (({'type': 'photo'}, '类型不是 video'),
+                                ({'metadata': None}, '缺少 metadata'),
+                                ({'metadata': {}}, '有限正整数微秒')):
+            with self.subTest(change=change):
+                self.document['resource_map'] = [{**self.row, **change}]
+                with self.assertRaisesRegex(ValueError, message):
+                    self.verify()
+        for resources in (None, {}, 'not-an-array'):
+            self.document['resource_map'] = resources
+            with self.assertRaisesRegex(ValueError, 'resource_map 数组'):
+                self.verify()
+
+    def test_native_uri_and_windows_aliases_identify_the_same_source(self):
+        self.row['path'] = self.source.as_uri()
+        self.assertIsNone(self.verify())
+        self.row['path'] = 'local:///C:/media/%E5%AE%8C%E6%95%B4%20%E5%8E%9F%E7%89%87.mp4'
+        self.durations = {r'c:\MEDIA\完整 原片.mp4': 8_100_000}
+        self.assertIsNone(self.verify())
+
+    def test_expected_sources_need_unambiguous_positive_integer_durations(self):
+        for durations in (None, {}, [], {self.source: True}, {self.source: 0},
+                          {self.source: 8_100_000.0}, {'relative.mp4': 8_100_000},
+                          {self.source: 8_100_000, self.source.as_uri(): 8_000_000}):
+            with self.subTest(durations=durations):
+                with self.assertRaises(ValueError):
+                    MODULE.verify_native_material_durations(self.document, durations)
 
 
 if __name__ == '__main__':

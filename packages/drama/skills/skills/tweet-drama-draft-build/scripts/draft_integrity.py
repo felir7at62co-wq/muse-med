@@ -167,12 +167,67 @@ def _source_bounds(durations, selected, label):
     return bounds
 
 
+def verify_native_material_durations(document, source_durations):
+    """Require read-only native resource metadata to retain each complete source.
+
+    ``source_durations`` maps selected video paths to measured positive integer
+    microseconds. A native ``xmldraft`` readback must report ``written: false``
+    and include every selected path. Every matching video record, including
+    repeated uses of one file, must retain its complete source duration. Native
+    integral floats are accepted; missing, fractional or non-finite values fail.
+    Unselected resources are ignored, and this function changes no input data.
+    """
+    if (not isinstance(document, dict) or document.get('protocol') != 'xmldraft'
+            or document.get('written') is not False):
+        raise ValueError('原生素材回读必须使用 xmldraft 协议且 written=false')
+    if not isinstance(source_durations, Mapping) or not source_durations:
+        raise ValueError('原生素材时长校验缺少选定正文视频的完整源时长')
+    measured = {}
+    for path, duration in source_durations.items():
+        try:
+            key = _path_key(path)
+        except (TypeError, ValueError) as error:
+            raise ValueError('选定正文视频必须使用本地绝对路径') from error
+        expected = _positive_duration(duration, '探测的完整源时长')
+        if key in measured and measured[key] != expected:
+            raise ValueError('同一选定视频存在互相冲突的完整源时长')
+        measured[key] = expected
+    resources = document.get('resource_map')
+    if not isinstance(resources, list):
+        raise ValueError('原生素材回读缺少 resource_map 数组')
+    seen = set()
+    for resource in resources:
+        if not isinstance(resource, dict):
+            continue
+        try:
+            key = _path_key(resource.get('path'))
+        except (TypeError, ValueError):
+            continue
+        if key not in measured:
+            continue
+        if resource.get('type') != 'video':
+            raise ValueError('选定正文视频的原生素材类型不是 video')
+        metadata = resource.get('metadata')
+        if not isinstance(metadata, dict):
+            raise ValueError('选定正文视频的原生素材缺少 metadata')
+        duration = metadata.get('duration_us')
+        if (type(duration) not in (int, float) or duration <= 0
+                or (isinstance(duration, float) and (not math.isfinite(duration) or not duration.is_integer()))):
+            raise ValueError('原生素材 duration_us 必须是有限正整数微秒')
+        if duration != measured[key]:
+            raise ValueError('原生素材 duration_us 与探测的完整源时长不一致')
+        seen.add(key)
+    if seen != set(measured):
+        raise ValueError('原生素材回读未包含所有选定正文视频')
+
+
 def verify_embedded_source_ranges(content, selected_paths, source_durations=None, *, source_window_durations=None):
     """Check selected embedded body-video windows in saved, readable draft JSON.
 
     ``selected_paths`` contains absolute body-video paths, not ending images/effects.
     Optional ``source_durations`` maps those paths to probed full-container integer
-    microseconds; material duration cannot exceed this bound. The optional keyword
+    microseconds; material duration must retain this complete value, even when
+    only a shorter source window is selected on the timeline. The optional keyword
     ``source_window_durations`` separately bounds source windows by playable video
     stream duration, which may be shorter than a container with an audio tail.
     Every selected path must occur in a video segment. Split segments and nonzero
@@ -207,8 +262,8 @@ def verify_embedded_source_ranges(content, selected_paths, source_durations=None
         if material.get('type', 'video') != 'video':
             raise ValueError('选定正文视频材料被保存为非视频类型')
         duration = _positive_duration(material.get('duration'), '选定正文视频 material.duration')
-        if measured is not None and duration > measured[key]:
-            raise ValueError('选定正文视频 material.duration 超出探测的完整源时长')
+        if measured is not None and duration != measured[key]:
+            raise ValueError('选定正文视频 material.duration 与探测的完整源时长不一致')
         body[identifier] = (key, duration)
     if any(all_ids[identifier] != 1 for identifier in body):
         raise ValueError('选定正文视频的 material_id 重复，无法确定源材料')
