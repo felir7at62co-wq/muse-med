@@ -124,6 +124,9 @@ export function createSourceQaStagedAccess(project: string, stage: string, files
     const handle = await open(file.stagedPath, constants.O_RDONLY | constants.O_NOFOLLOW)
     try {
       const start = await handle.stat()
+      /* v8 ignore if -- the swap must land in the single lstat-to-open gap of this probe; the
+      continuous-rename regression does trigger it on some runs (proven on a Linux lane) but the
+      window is one microtask wide, so the gate counts the arm as not deterministically reachable. */
       if (!start.isFile() || start.ino !== before.ino || start.dev !== before.dev) throw new Error('Source QA stage file changed')
       const sha = createHash('sha256'), buffer = Buffer.alloc(65536), chunks: Buffer[] = []
       let size = 0

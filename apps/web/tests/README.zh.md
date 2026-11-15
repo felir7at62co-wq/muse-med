@@ -24,6 +24,8 @@ pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps 
 
 当天消息的 golden 使用共享的 `WEB_FIXTURE_TIME`：预置会话将它传为 `createdAt`，并通过 `pinBrowserClock` 固定浏览器日期；提交实时消息的场景还使用 `pinHostClock`，在清理后恢复。固定后的时钟随真实耗时前进，保留原生定时器，因此跨午夜不会改变场景的日期标签。
 
+消息操作的分叉场景向两个 helper 传入同一个原生 `performance.timeOrigin + performance.now()` 时间锚。Host 摘要与浏览器占位行因此在重载前后使用同一条持续前进的时间线。其他调用方省略此可选时间锚，仍使用每个文档各自起算的浏览器时钟。
+
 只有根会话的记录会话 owner 可以通过 [`writerOutput`](../../../packages/test-support/session-snapshot/README.zh.md) 保留规范 replay 输入。scaffold 将被驱动的根会话与单独的当前 writer 输出比较基准比较，并检查其精确清单；Web 的此选项会拒绝规范子会话角色。refresh 可以在清理阶段收集根会话比较基准之前检查清单；replay 始终要求该文件存在。
 
 构建产物的 jsdom 用例共用 `installAssembledBootEnv`，提供不匹配的媒体查询，并在每项测试后恢复浏览器全局对象；真实媒体查询行为由浏览器用例验证。

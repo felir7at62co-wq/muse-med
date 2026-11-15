@@ -79,9 +79,32 @@ it('withholds the submitting model when the original Session was never persisted
   const verifyHost = vi.fn(async () => true)
   expect(await f.ctx.sessionPersistence.stat(sessionId)).toBeUndefined()
   expect(await createGenerationWatchSubmissionModelReader(f.ctx.sessionPersistence, f.ledger, verifyHost)(owner, f.root)).toBeUndefined()
+  expect(await createGenerationWatchOwnerAttestor(f.ctx.sessionPersistence, f.ledger, verifyHost)(owner, f.root)).toBe(false)
   expect(await f.ctx.sessionPersistence.stat(sessionId)).toBeUndefined()
   expect(verifyHost).not.toHaveBeenCalled()
   expect(await f.ledger.find(f.key)).toEqual(before)
+})
+
+it.each(['preview', 'project'] as const)('refuses a relative %s path before reading ownership evidence', async (kind) => {
+  const f = await persistedArgumentEvidence(), sessionId = SessionId('relative-owner-path')
+  const owner = { key: f.key, runId: f.runId, sessionId, previewPath: kind === 'preview' ? 'preview.json' : f.previewPath }
+  const verifyHost = vi.fn(async () => true)
+  const open = vi.spyOn(f.ctx.sessionPersistence, 'open')
+  const attest = createGenerationWatchOwnerAttestor(f.ctx.sessionPersistence, f.ledger, verifyHost)
+  expect(await attest(owner, kind === 'project' ? 'relative-project' : f.root)).toBe(false)
+  expect(open).not.toHaveBeenCalled()
+  expect(verifyHost).not.toHaveBeenCalled()
+})
+
+it('withholds the model recorded by a persisted subagent Session', async () => {
+  const f = await persistedArgumentEvidence(), sessionId = SessionId('subagent-submitter')
+  const header: SessionHeader = { ...Session.create(sessionId).header, origin: 'subagent', cwd: f.root }
+  const writer = await f.ctx.sessionPersistence.create(header)
+  try { await writer.flush() } finally { await writer.close() }
+  const verifyHost = vi.fn(async () => true)
+  const owner = { key: f.key, runId: f.runId, sessionId, previewPath: f.previewPath }
+  expect(await createGenerationWatchSubmissionModelReader(f.ctx.sessionPersistence, f.ledger, verifyHost)(owner, f.root)).toBeUndefined()
+  expect(verifyHost).not.toHaveBeenCalled()
 })
 
 it.each(['malformed arguments', 'mismatched binding model'] as const)(
@@ -279,6 +302,18 @@ it('reads the original evidence from a real JSONL Session without taking its wri
       expect(await changingReader({ key, runId, sessionId, previewPath }, root)).toBeUndefined()
       const deniedReader = createGenerationWatchSubmissionModelReader(ctx.sessionPersistence, ledger, async () => false)
       expect(await deniedReader({ key, runId, sessionId, previewPath }, root)).toBeUndefined()
+      // The reader snapshots the revision before and after attestation. When attestation
+      // itself observed one stable revision and the Session moved afterwards, the model is
+      // withheld: the evidence the verifier accepted is no longer the evidence on disk.
+      // stat is a provider double here because no product hook runs between the verifier's
+      // last read and the reader's closing read.
+      let driftingCalls = 0
+      const driftingRevisions = [1, 2, 2, 3]
+      const driftingReader = createGenerationWatchSubmissionModelReader({
+        stat: async () => ({ revision: driftingRevisions[Math.min(driftingCalls++, driftingRevisions.length - 1)] as number }),
+        open: async (id, access) => ctx.sessionPersistence.open(id, access),
+      }, ledger, async () => true)
+      expect(await driftingReader({ key, runId, sessionId, previewPath }, root)).toBeUndefined()
       const lookup = createGenerationWatchOwnerResolver(store, ctx.sessionPersistence, ledger, async () => true)
       expect(await lookup.resolve(key, previewPath, root)).toEqual({ key, runId, sessionId, previewPath })
       expect(await lookup.resolve(key, join(root, 'wrong'), root)).toBeUndefined()

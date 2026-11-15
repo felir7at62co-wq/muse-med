@@ -213,11 +213,11 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     await seedSession(scaffold, raw, SEED_ID, undefined, { createdAt: WEB_FIXTURE_TIME - 90_000 })
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
-    // Fork summaries use Host time; placeholders use browser time. Each pin
-    // starts at the fixture date, so keep these calls adjacent: setup between
-    // them can create enough clock skew to reverse the fork order.
-    hostClock = pinHostClock()
-    unpinBrowserClock = await pinBrowserClock(page)
+    // Host summaries and browser placeholders share one advancing origin,
+    // including after a document reload, so fork recency cannot mix epochs.
+    const clockOrigin = performance.timeOrigin + performance.now()
+    hostClock = pinHostClock(clockOrigin)
+    unpinBrowserClock = await pinBrowserClock(page, clockOrigin)
     tripwire = watchConsole(page)
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })

@@ -1,7 +1,7 @@
 /** Fixture-day clock pins keep page scheduling native at every real-to-fixture distance. */
 import { chromium, type Browser } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { newEnglishPage, pinBrowserClock, WEB_FIXTURE_TIME } from './support.ts'
+import { newEnglishPage, pinBrowserClock, pinHostClock, WEB_FIXTURE_TIME } from './support.ts'
 
 // Host clock shifts spread over one 2^32 ms period of the real-to-fixture
 // distance; Playwright's page clock stopped page timers in half of that period.
@@ -57,4 +57,26 @@ describe('web e2e: pinned fixture clocks', () => {
       }
     }
   }, 60_000)
+
+  it('keeps a shared Host and browser elapsed-time origin through reload', async () => {
+    const origin = performance.timeOrigin + performance.now() - 60_000
+    const hostClock = pinHostClock(origin)
+    const page = await newEnglishPage(browser)
+    try {
+      await pinBrowserClock(page, origin)
+      await page.goto('data:text/html,<body>shared clock</body>')
+      for (const reload of [false, true]) {
+        if (reload) await page.reload({ waitUntil: 'load' })
+        const before = Date.now()
+        const browserTime = await page.evaluate(() => Date.now())
+        const after = Date.now()
+        // Each process floors a native high-resolution clock to milliseconds.
+        expect(browserTime).toBeGreaterThanOrEqual(before - 1)
+        expect(browserTime).toBeLessThanOrEqual(after + 1)
+        expect(browserTime).toBeGreaterThanOrEqual(WEB_FIXTURE_TIME + 60_000)
+      }
+    } finally {
+      try { await page.close() } finally { hostClock.mockRestore() }
+    }
+  })
 })
