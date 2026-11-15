@@ -353,7 +353,9 @@ describe('approved episode service', () => {
     const secondReady = await f.service.episodeReadiness({ projectDir: f.project, episode: 2 })
     if (secondReady.digest === null) throw new Error(secondReady.issues.join())
     const secondInput = { projectDir: f.project, episode: 2, digest: secondReady.digest }
-    await f.service.admitEpisode(input); await f.renderer.entered
+    // Entering the renderer only proves the attempt started; the queued cancellation below
+    // asserts on the encode counter, so wait for the arming the fixture publishes.
+    await f.service.admitEpisode(input); await f.renderer.entered; await f.renderer.armed
     const second = await f.service.admitEpisode(secondInput)
     await f.recovery.configure({ enabled: false, projectDir: f.project })
     const cancelled = await f.service.episodeStatus(secondInput)

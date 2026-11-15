@@ -88,8 +88,9 @@ export function VideoTimeline({ shots, currentTime, selectedShotId, duration, pi
   if (ticks.at(-1) !== duration) ticks.push(duration)
 
   const updateEdges = useCallback(() => {
-    // oxlint-disable-next-line typescript/no-non-null-assertion -- Attached handlers share this scroll ref.
-    const scroll = scrollRef.current!
+    const scroll = scrollRef.current
+    /* v8 ignore next 2 -- defensive: a queued scroll, resize or observer notification can outlive the unmounted timeline. */
+    if (scroll === null) return
     const max = Math.max(0, scroll.scrollWidth - scroll.clientWidth)
     const before = max > 0 && scroll.scrollLeft > 0
     const after = max > 0 && scroll.scrollLeft < max
