@@ -11,6 +11,9 @@
 # A unified diff needs one space to mark a blank context line.
 integrations/muse-kb/*.patch whitespace=-blank-at-eol
 
+# DTK patches apply to the pinned upstream source as unified diffs.
+services/muse-media/deploy/patches/*.patch whitespace=-blank-at-eol
+
 # The reviewed optional-adapter patch stays byte-identical to its pinned hash;
 # a unified diff needs one space to mark a blank context line.
 third_party/optional-plugins/*/*.patch whitespace=-blank-at-eol
