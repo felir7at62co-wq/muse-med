@@ -25,6 +25,8 @@ import type { KvTable } from '@deepseek-ai/dsh-storage-domain'
 import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import { coordinationDomain, latest, reportTask, reservesWorker, revise, routingTask } from './ledger.ts'
+import { imageAt, outlineTurns, stepItems } from './history-views.ts'
+import type { ImageBlock } from '@deepseek-ai/dsh-llm'
 import type { Assignment, AssignmentStatus, CoordinationTask, CoordinationTaskId, CoordinationReport, DispatchRequest, ReconcileRequest, RoutingMode, RoutingTaskList, WorkerReport } from './types.ts'
 import { ToolArgsError, ToolContextUnavailableError } from '@deepseek-ai/dsh-tools'
 import type { ToolExecution, ToolGuardDenial } from '@deepseek-ai/dsh-tools'
@@ -372,6 +374,67 @@ export class SessionCoordinator extends TypertRemoteService {
       chars += text.length
     }
     return JSON.stringify({ session: snapshot.session, events, nextSeq, complete: nextSeq === null })
+  }
+
+  /**
+   * List every turn of a Session or subagent in one line each; the newest turns are kept within `readChars`.
+   * @param main - Exact routing Agent.
+   * @param sessionId - Session or subagent in the same local owner profile.
+   * @returns JSON turn outlines, oldest first, with the count of earlier turns left out.
+   */
+  async outline(main: Agent, sessionId: SessionId): Promise<string> {
+    await this.requireMain(main)
+    const snapshot = await this.ctx.sessionQuery.readSession(sessionId)
+    const turns = outlineTurns(snapshot.events)
+    const kept = []
+    let chars = 0
+    for (const turn of turns.toReversed()) {
+      const length = JSON.stringify(turn).length
+      if (chars + length > this.config.readChars && kept.length > 0) break
+      kept.push(turn)
+      chars += length
+    }
+    return JSON.stringify({ session: snapshot.session, turns: kept.toReversed(), omittedEarlier: turns.length - kept.length,
+      guidance: 'Read one turn with view=steps and from_seq set to its startSeq.' })
+  }
+
+  /**
+   * Page compact task inputs, replies, tool calls, results and turn boundaries of a Session or subagent.
+   * @param main - Exact routing Agent.
+   * @param sessionId - Session or subagent in the same local owner profile.
+   * @param fromSeq - Inclusive first sequence, such as a turn's `startSeq`.
+   * @returns JSON step items within `readChars` and the next position, or null when complete.
+   */
+  async steps(main: Agent, sessionId: SessionId, fromSeq: number): Promise<string> {
+    await this.requireMain(main)
+    if (!Number.isSafeInteger(fromSeq) || fromSeq < 0) throw new Error('History cursor must be a nonnegative integer')
+    const snapshot = await this.ctx.sessionQuery.readSession(sessionId)
+    const items = []
+    let chars = 0
+    let nextSeq: number | null = null
+    for (const item of stepItems(snapshot.events, fromSeq)) {
+      const length = JSON.stringify(item).length
+      if (chars + length > this.config.readChars && items.length > 0) { nextSeq = item.seq; break }
+      items.push(item)
+      chars += length
+    }
+    return JSON.stringify({ session: snapshot.session, items, nextSeq, complete: nextSeq === null })
+  }
+
+  /**
+   * Return one image a Session or subagent's model received, for Main to view.
+   * @param main - Exact routing Agent.
+   * @param sessionId - Session or subagent in the same local owner profile.
+   * @param seq - Sequence of the `user/message` or `tool/result` event holding the image.
+   * @param index - Zero-based position among that event's images.
+   * @returns A caption and the stored image reference.
+   */
+  async image(main: Agent, sessionId: SessionId, seq: number, index: number): Promise<{ text: string; attachment: ImageBlock['attachment'] }> {
+    await this.requireMain(main)
+    const snapshot = await this.ctx.sessionQuery.readSession(sessionId)
+    const block = imageAt(snapshot.events, seq, index)
+    if (block === undefined) throw new ToolArgsError([`Event ${seq} of Session ${sessionId} has no image ${index}`])
+    return { text: `Image ${index} of event ${seq} in Session ${sessionId}.`, attachment: block.attachment }
   }
 
   /**

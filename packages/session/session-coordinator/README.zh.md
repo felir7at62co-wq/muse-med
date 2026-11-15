@@ -75,7 +75,7 @@ Host 同时挂载 [`dsh-session-activity`](../session-activity/README.zh.md) 时
 <a id="what-the-model-sees"></a>
 #### 模型可见内容
 
-主会话获得调度说明及 `coordinator_sessions`、`coordinator_read`、`coordinator_dispatch`、`coordinator_reconcile`、`coordinator_tasks`、`coordinator_stop`、`coordinator_show_report` 和 `coordinator_display_skill`。已安装的 `show_view` 与 `visualize` 保持常驻且排除于 Tool Search。执行会话先接收写入日志的 `muse-coordination` 任务说明，再接收保留原文的已核实用户消息，用 `coordinator_report` 明确汇报结果。`coordinator_read` 默认返回摘要片段，事件视图分页返回原始历史并带后续游标；任务列表和路由结果是统计交付文件数量的有界任务行，回执摘要受 `summaryChars` 限制；回执区分等待开始、准备核对、送达、执行、收尾、中断、停止和执行会话报告完成。 无人值守模式下，主会话的工具列表不含 `humanTools`，回执要求主会话只记录结果、不提问，并带上已有的 `attention`；任务行在有标记时包含 `attention`；执行会话的任务说明用无人值守说明替换提问指引。
+主会话获得调度说明及 `coordinator_sessions`、`coordinator_read`、`coordinator_view_image`、`coordinator_dispatch`、`coordinator_reconcile`、`coordinator_tasks`、`coordinator_stop`、`coordinator_show_report` 和 `coordinator_display_skill`。已安装的 `show_view` 与 `visualize` 保持常驻且排除于 Tool Search。执行会话先接收写入日志的 `muse-coordination` 任务说明，再接收保留原文的已核实用户消息，用 `coordinator_report` 明确汇报结果。`coordinator_read` 像人打开会话一样读取：`summary`（默认）给出最近的输入和回复片段；`outline` 每轮一行，写明输入、工具计数、图片数、失败结果、结束原因和回复，在 `readChars` 内保留最新的轮次；`steps` 从 `from_seq` 游标开始分页列出精简的任务输入、回复、工具调用、附带图片数的结果和轮次边界，不含运行时上下文；`events` 分页返回原始历史。`outline`、`steps` 和 `coordinator_view_image` 也能读取子代理会话，`events` 仍只限普通会话。`coordinator_view_image` 按事件序号和从 0 开始的序号返回一张已存储的图片，让主会话按需查看某一帧；状态摘要和其他视图都不带图片。任务列表和路由结果是统计交付文件数量的有界任务行，回执摘要受 `summaryChars` 限制；回执区分等待开始、准备核对、送达、执行、收尾、中断、停止和执行会话报告完成。 无人值守模式下，主会话的工具列表不含 `humanTools`，回执要求主会话只记录结果、不提问，并带上已有的 `attention`；任务行在有标记时包含 `attention`；执行会话的任务说明用无人值守说明替换提问指引。
 
 <a id="token-effect"></a>
 #### Token 影响

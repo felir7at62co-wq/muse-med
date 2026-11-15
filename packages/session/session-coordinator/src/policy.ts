@@ -13,8 +13,8 @@ export const name = 'muse-main-session-policy'
 /** Role checks are installed before queued Agent work is released. */
 export const inject = ['agents', 'tools', 'systemPrompt']
 
-const names = ['coordinator_sessions', 'coordinator_read', 'coordinator_dispatch', 'coordinator_reconcile', 'coordinator_tasks', 'coordinator_stop',
-  'coordinator_show_report', 'coordinator_display_skill', 'ask_user_question', 'show_view', 'visualize']
+const names = ['coordinator_sessions', 'coordinator_read', 'coordinator_view_image', 'coordinator_dispatch', 'coordinator_reconcile',
+  'coordinator_tasks', 'coordinator_stop', 'coordinator_show_report', 'coordinator_display_skill', 'ask_user_question', 'show_view', 'visualize']
 
 /**
  * Restrict this preset's actual tool subjects to coordination, display and human questions.

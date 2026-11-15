@@ -60,6 +60,12 @@
       "path": "../session-activity"
     },
     {
+      "path": "../../attachment/attachment"
+    },
+    {
+      "path": "../../util/values"
+    },
+    {
       "path": "../../preset/agent-preset-registry"
     },
     {
