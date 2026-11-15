@@ -81,6 +81,15 @@ it('reports the shared daily allowance and a disabled station without submitting
   expect(f.station.submit).not.toHaveBeenCalled()
 })
 
+it('tells the model that an unlimited account is not bound by the daily allowance', async () => {
+  const f = await fixture()
+  f.station.status.mockResolvedValueOnce({ enabled: true, dailyLimit: 50, usedToday: 0, unlimited: true, maxMixEpisodes: 300 })
+  const result = await f.call({ action: 'quota' })
+  expect(result).toMatchObject({ state: 'ok', enabled: true, unlimited: true })
+  expect(JSON.stringify(result)).toContain('不受每日额度限制')
+  expect(JSON.stringify(result)).not.toContain('不能再提交')
+})
+
 it('submits a work from share text and returns its public address without waiting', async () => {
   const f = await fixture()
   f.station.submit.mockResolvedValue({ queued: [item({ state: 'queued', url: null })], existing: [], skipped: 0 })

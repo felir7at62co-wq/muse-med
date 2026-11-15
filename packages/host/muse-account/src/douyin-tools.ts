@@ -42,12 +42,16 @@ function failed(error: unknown) {
   return { state: 'error' as const, code, guidance: failureGuidance[code] }
 }
 
+function quotaGuidance(status: MuseDouyinStatus): string {
+  if (!status.enabled) return '数据站当前未开放抖音下载，reason 说明原因。不要改用其他方式下载抖音视频。'
+  if (status.unlimited === true) return '当前账号不受每日额度限制，可以直接提交；dailyLimit 不约束这个账号。'
+  return '今日额度由网页和 Muse 共用；usedToday 达到 dailyLimit 后当天不能再提交新作品。'
+}
+
 function quota(status: MuseDouyinStatus) {
   return { state: 'ok' as const, enabled: status.enabled, ...(status.reason === undefined ? {} : { reason: status.reason }),
     dailyLimit: status.dailyLimit, usedToday: status.usedToday, ...(status.unlimited === undefined ? {} : { unlimited: status.unlimited }),
-    maxMixEpisodes: status.maxMixEpisodes,
-    guidance: status.enabled ? '今日额度由网页和 Muse 共用；usedToday 达到 dailyLimit 后当天不能再提交新作品。'
-      : '数据站当前未开放抖音下载，reason 说明原因。不要改用其他方式下载抖音视频。' }
+    maxMixEpisodes: status.maxMixEpisodes, guidance: quotaGuidance(status) }
 }
 
 function work(item: MuseDouyinRecord, link: MuseDouyinFileLink | null) {
