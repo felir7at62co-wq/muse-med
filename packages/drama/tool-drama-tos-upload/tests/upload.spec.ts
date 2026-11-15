@@ -3,18 +3,19 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { executeUpload, publicUrl, resolveUpload, type FileKind, type RemoteObject, type TosUploadClient, type UploadLimits, type UploadLocation, type UploadRequest } from '../src/upload.ts'
+import { executeUpload, publicUrl, resolveUpload, type FileKind, type Platform, type RemoteObject, type TosUploadClient, type UploadLimits, type UploadLocation, type UploadRequest } from '../src/upload.ts'
 
 const LOCATION: UploadLocation = {
   bucket: 'muse',
-  keyPrefix: 'download-video-',
+  rootFolder: 'download-video-date',
   publicBaseUrl: 'https://muse.tos-cn-beijing.volces.com',
   timeZone: 'Asia/Shanghai',
 }
 const LIMITS: UploadLimits = { maxFiles: 10, maxFileBytes: 1_000, maxTotalBytes: 2_000 }
 // 2026-11-14T17:30:00Z is already 2026-11-15 in Asia/Shanghai.
 const NOW = new Date('2026-11-14T17:30:00.123Z')
-const DIRECTORY = 'download-video-20261115/hongguo/7470000000000000001/'
+const DIRECTORY = 'download-video-date/hongguo/20261115/7470000000000000001/'
+const UNKNOWN_PLATFORM: string = 'douyin'
 
 let root: string
 
@@ -32,7 +33,7 @@ async function file(name: string, content: string): Promise<string> {
 }
 
 function request(overrides: Partial<UploadRequest> = {}): UploadRequest {
-  return { seriesId: '7470000000000000001', files: [], ...overrides }
+  return { platform: 'hongguo', workId: '7470000000000000001', files: [], ...overrides }
 }
 
 function signal(): AbortSignal {
@@ -76,7 +77,8 @@ describe('resolveUpload', () => {
     }), LOCATION, LIMITS, NOW, signal())
 
     expect(plan).toEqual({
-      seriesId: '7470000000000000001',
+      platform: 'hongguo',
+      workId: '7470000000000000001',
       title: '万物有声鉴宝天骄',
       date: '20261115',
       directory: DIRECTORY,
@@ -101,7 +103,8 @@ describe('resolveUpload', () => {
   })
 
   it.each([
-    ['a non-numeric series id', { seriesId: '74x' }, 'TOS_UPLOAD_INVALID_REQUEST'],
+    ['an unknown platform', { platform: UNKNOWN_PLATFORM as Platform }, 'TOS_UPLOAD_INVALID_REQUEST'],
+    ['a non-numeric work id', { workId: '74x' }, 'TOS_UPLOAD_INVALID_REQUEST'],
     ['an over-long title', { title: '剧'.repeat(201) }, 'TOS_UPLOAD_INVALID_REQUEST'],
     ['a malformed date', { date: '2026-11-15' }, 'TOS_UPLOAD_INVALID_REQUEST'],
     ['an impossible date', { date: '20260230' }, 'TOS_UPLOAD_INVALID_REQUEST'],
@@ -159,6 +162,13 @@ describe('resolveUpload', () => {
     await expect(resolveUpload(request({ files }), LOCATION, LIMITS, NOW, signal())).rejects.toThrow('一次上传总量不能超过')
   })
 
+  it('places a 番茄 novel and its screenplay below the fanqie folder', async () => {
+    const novel = await file('book.txt', '第一章')
+    const plan = await resolveUpload({ platform: 'fanqie', workId: '7001', files: [{ path: novel, kind: 'novel' }] }, LOCATION, LIMITS, NOW, signal())
+    expect(plan.directory).toBe('download-video-date/fanqie/20261115/7001/')
+    expect(plan.files.map(entry => [entry.key, entry.contentType])).toEqual([['download-video-date/fanqie/20261115/7001/novel/book.txt', 'text/plain; charset=utf-8']])
+  })
+
   it('stops before reading local files when the call is cancelled', async () => {
     const path = await file('a.txt', 'a')
     const controller = new AbortController()
@@ -189,7 +199,7 @@ describe('executeUpload', () => {
     })
     expect(bucket.calls).toEqual([`head ${DIRECTORY}video/001.mp4`, `upload ${DIRECTORY}video/001.mp4`, `head ${DIRECTORY}video/001.mp4`, `put ${manifestKey}`])
     expect(JSON.parse(bucket.objects.get(manifestKey)?.body ?? '')).toEqual({
-      version: 1, source: 'hongguo', series_id: '7470000000000000001', title: '剧名', date: '20261115', created_at: NOW.toISOString(),
+      version: 1, platform: 'hongguo', work_id: '7470000000000000001', title: '剧名', date: '20261115', created_at: NOW.toISOString(),
       objects: [{ kind: 'video', key: `${DIRECTORY}video/001.mp4`, bytes: 7, sha256: sha256('video-1') }],
     })
     await expect(readFile(video, 'utf8')).resolves.toBe('video-1')
@@ -251,6 +261,6 @@ describe('executeUpload', () => {
 })
 
 it('percent-encodes each key segment in public URLs', () => {
-  expect(publicUrl('https://muse.tos-cn-beijing.volces.com', 'download-video-20261115/hongguo/1/scripts/剧 本#1.docx'))
-    .toBe('https://muse.tos-cn-beijing.volces.com/download-video-20261115/hongguo/1/scripts/%E5%89%A7%20%E6%9C%AC%231.docx')
+  expect(publicUrl('https://muse.tos-cn-beijing.volces.com', 'download-video-date/hongguo/20261115/1/scripts/剧 本#1.docx'))
+    .toBe('https://muse.tos-cn-beijing.volces.com/download-video-date/hongguo/20261115/1/scripts/%E5%89%A7%20%E6%9C%AC%231.docx')
 })

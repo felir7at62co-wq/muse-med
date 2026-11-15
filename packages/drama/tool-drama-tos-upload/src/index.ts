@@ -1,6 +1,7 @@
 /**
- * The model-facing `drama_tos_upload` tool: stores one 红果 drama's source
- * videos and transcription materials in a dated Volcengine TOS folder.
+ * The model-facing `drama_tos_upload` tool: stores one work's source material
+ * and scripts (a 红果 drama's videos and transcription materials, or a 番茄/七猫
+ * novel and its screenplay) in a platform and date folder on Volcengine TOS.
  * @module @deepseek-ai/dsh-tool-drama-tos-upload
  */
 import type { Context } from '@deepseek-ai/cordis'
@@ -9,10 +10,10 @@ import { HarnessError } from '@deepseek-ai/dsh-error'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import z from '@deepseek-ai/schemastery'
 import { createTosUploadClient, loadTosSdk, type TosClientSettings, type TosCredentials, type TosSdkModule } from './tos-client.ts'
-import { FILE_KINDS, executeUpload, resolveUpload, type FileKind, type UploadLimits, type UploadLocation, type UploadResult } from './upload.ts'
+import { FILE_KINDS, PLATFORMS, executeUpload, resolveUpload, type FileKind, type UploadLimits, type UploadLocation, type UploadResult } from './upload.ts'
 
-export { FILE_KINDS, SOURCE_FOLDER, publicUrl } from './upload.ts'
-export type { FileKind, UploadRequest, UploadResult } from './upload.ts'
+export { FILE_KINDS, PLATFORMS, publicUrl } from './upload.ts'
+export type { FileKind, Platform, UploadRequest, UploadResult } from './upload.ts'
 
 /** Cordis plugin name. */
 export const name = 'drama-tos-upload'
@@ -33,8 +34,8 @@ export interface Config {
   readonly endpoint: string
   /** Public `https://` origin of the bucket, without a trailing slash. */
   readonly publicBaseUrl: string
-  /** Prefix that the `YYYYMMDD` folder date follows; lowercase letters, digits and `-`, ending with `-`. */
-  readonly keyPrefix: string
+  /** Top folder that holds the platform folders; lowercase letters, digits and `-`. */
+  readonly rootFolder: string
   /** IANA time zone that decides the default folder date. */
   readonly timeZone: string
   /** Maximum number of files in one call. */
@@ -59,7 +60,7 @@ const MIB = 1024 * 1024
 
 /**
  * Schemastery definition. Location defaults are the deployment the owner chose
- * on 2026-11-15: the `muse` bucket in `cn-beijing` with `download-video-<date>/` folders.
+ * on 2026-11-15: the `muse` bucket in `cn-beijing` with platform and date folders below `download-video-date/`.
  */
 export const Config = z.object({
   accessKeyIdRef: z.string().role('credential-ref').required(),
@@ -68,7 +69,7 @@ export const Config = z.object({
   region: z.string().default('cn-beijing'),
   endpoint: z.string().default('tos-cn-beijing.volces.com'),
   publicBaseUrl: z.string().default('https://muse.tos-cn-beijing.volces.com'),
-  keyPrefix: z.string().default('download-video-'),
+  rootFolder: z.string().default('download-video-date'),
   timeZone: z.string().default('Asia/Shanghai'),
   maxFiles: z.number().step(1).min(1).max(2_000).default(400),
   maxFileBytes: z.number().step(1).min(1).max(5 * 1024 * MIB).default(1024 * MIB),
@@ -101,7 +102,7 @@ function resolveConfig(config: Config): ResolvedConfig {
     throw misconfigured(`endpoint must be tos-${config.region}.volces.com or tos-${config.region}.ivolces.com`)
   }
   if (!/^https:\/\/[a-z0-9.-]+$/.test(config.publicBaseUrl)) throw misconfigured('publicBaseUrl must be an https origin without a path or trailing slash')
-  if (!/^[a-z0-9][a-z0-9-]{0,62}-$/.test(config.keyPrefix)) throw misconfigured('keyPrefix must use lowercase letters, digits and -, and end with -')
+  if (!/^[a-z0-9][a-z0-9-]{0,62}$/.test(config.rootFolder)) throw misconfigured('rootFolder must use only lowercase letters, digits and -')
   try {
     new Intl.DateTimeFormat('en-CA', { timeZone: config.timeZone })
   } catch (error) {
@@ -110,7 +111,7 @@ function resolveConfig(config: Config): ResolvedConfig {
   return {
     accessKeyIdRef: credentialRef(config.accessKeyIdRef),
     secretAccessKeyRef: credentialRef(config.secretAccessKeyRef),
-    location: { bucket: config.bucket, keyPrefix: config.keyPrefix, publicBaseUrl: config.publicBaseUrl, timeZone: config.timeZone },
+    location: { bucket: config.bucket, rootFolder: config.rootFolder, publicBaseUrl: config.publicBaseUrl, timeZone: config.timeZone },
     limits: { maxFiles: config.maxFiles, maxFileBytes: config.maxFileBytes, maxTotalBytes: config.maxTotalBytes },
     client: {
       bucket: config.bucket, region: config.region, endpoint: config.endpoint, partSizeBytes: config.partSizeBytes,
@@ -194,12 +195,13 @@ export function apply(ctx: Context, config: Config, dependencies: Dependencies =
   const { location } = resolved
   ctx.tools.register(defineTool({
     name: 'drama_tos_upload',
-    description: `把一部红果剧的原片和转写材料存到 TOS，位置是 ${location.keyPrefix}<日期>/hongguo/<series_id>/<kind>/<文件名>，`
+    description: `把一部作品的原始素材和剧本存到 TOS：红果剧的原片和转写材料，或番茄、七猫小说的原文和改成的剧本。位置是 ${location.rootFolder}/<platform>/<日期>/<work_id>/<kind>/<文件名>，`
       + '文件公开可读，返回每个文件的公开地址和本次清单。远端已有同名同内容的文件记为已存在，同名不同内容的不会覆盖；不会删除远端文件。'
       + 'remove_local 为 true 时，全部文件核对成功后才删除这些本地文件。',
     parameters: {
-      series_id: { type: 'string', required: true, description: '红果剧的 series_id，纯数字。' },
-      title: { type: 'string', description: '剧名，写进清单。' },
+      platform: { type: 'string', enum: PLATFORMS, required: true, description: 'hongguo 红果短剧，fanqie 番茄小说，qimao 七猫小说。' },
+      work_id: { type: 'string', required: true, description: '作品在该平台上的纯数字 ID：红果剧的 series_id，或小说的书籍 ID。' },
+      title: { type: 'string', description: '作品名，写进清单。' },
       date: { type: 'string', description: `目录日期 YYYYMMDD；不填用 ${location.timeZone} 的今天。` },
       files: {
         type: 'array',
@@ -210,7 +212,7 @@ export function apply(ctx: Context, config: Config, dependencies: Dependencies =
           additionalProperties: false,
           properties: {
             path: { type: 'string', required: true, description: '本地文件的绝对路径。' },
-            kind: { type: 'string', enum: FILE_KINDS, required: true, description: 'video 原片，asr 语音转写，ocr 字幕识别，observations 看帧记录，scripts 剧本。' },
+            kind: { type: 'string', enum: FILE_KINDS, required: true, description: 'video 原片，novel 小说原文，asr 语音转写，ocr 字幕识别，observations 看帧记录，scripts 剧本。' },
             name: { type: 'string', description: '远端文件名，默认用本地文件名。' },
           },
         },
@@ -225,7 +227,8 @@ export function apply(ctx: Context, config: Config, dependencies: Dependencies =
       const files = args.files.map((file): { path: string; kind: FileKind; name?: string } => (
         { path: file.path, kind: file.kind, ...(file.name === undefined ? {} : { name: file.name }) }))
       const plan = await resolveUpload({
-        seriesId: args.series_id,
+        platform: args.platform,
+        workId: args.work_id,
         ...(args.title === undefined ? {} : { title: args.title }),
         ...(args.date === undefined ? {} : { date: args.date }),
         files,

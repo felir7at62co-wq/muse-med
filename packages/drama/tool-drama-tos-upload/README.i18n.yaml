@@ -3,23 +3,23 @@
 # After editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/drama/tool-drama-tos-upload/README.md
 /:
-  en: b69460c79fcd6f72
-  zh: cf9e0f5fd8ffc633
+  en: 7b8ba164837790a0
+  zh: 77b997435f20efc9
 /deepseek-ai-dsh-tool-drama-tos-upload:
   en: ea9958a6c32f3778
   zh: 2a84460788319216
 /deepseek-ai-dsh-tool-drama-tos-upload/summary:
-  en: 55a19946247fc115
-  zh: e81f14ca50712b00
+  en: 4ccab4be878bdde6
+  zh: 2a5e34fad73a1982
 /deepseek-ai-dsh-tool-drama-tos-upload/table-of-contents:
   en: 85d7b1dd2cd9b783
   zh: 7aa0d477064a4334
 /deepseek-ai-dsh-tool-drama-tos-upload/use-this-package:
-  en: 766c65fe080d5df7
-  zh: 8019bc7272c4fdc5
+  en: edc9f37e2e35bdfa
+  zh: 41a78e6da3f58325
 /deepseek-ai-dsh-tool-drama-tos-upload/write-safety:
-  en: fa62af507b032137
-  zh: 762100bfec1ca3c1
+  en: 54a0818b0b2b20b9
+  zh: 7805b7463d70193b
 /deepseek-ai-dsh-tool-drama-tos-upload/understand-the-implementation:
   en: a3f7087c2cf9528e
   zh: 372270b3e81bed1c
@@ -33,8 +33,8 @@
   en: 3e2f1c4c04472a21
   zh: b2985cac2e18f6a4
 /deepseek-ai-dsh-tool-drama-tos-upload/model-experience/drama-media-upload/what-the-model-sees:
-  en: ffbd1987bb0d7f67
-  zh: aa47a1ad21cad065
+  en: c1aecfa5ab40de24
+  zh: 17215c4b4f90da69
 /deepseek-ai-dsh-tool-drama-tos-upload/model-experience/drama-media-upload/what-the-model-sees/tool-description:
   en: 163f477a7dd52e3f
   zh: 489ef7ec88dee135
@@ -45,8 +45,8 @@
   en: 2b0e92529612c967
   zh: 4efbb4078fd6510d
 /deepseek-ai-dsh-tool-drama-tos-upload/known-limitations-and-deferred-work:
-  en: 1342b5559e8142e9
-  zh: c591af6507d0cee1
+  en: ee983b09e2e91afe
+  zh: dc50bb62a1fbf8a7
 /deepseek-ai-dsh-tool-drama-tos-upload/known-limitations-and-deferred-work/dev-note:
   en: 7b9db8e3815e1efe
   zh: f88a7f9f4abc2e90

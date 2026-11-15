@@ -1,6 +1,7 @@
 /**
- * Upload planning and execution for one 红果 drama's source videos and
- * transcription materials. Remote writes stay under the configured key prefix,
+ * Upload planning and execution for one work's source material and scripts:
+ * a 红果 drama's videos and transcription materials, or a 番茄/七猫 novel and its
+ * screenplay. Remote writes stay under the configured root folder,
  * never replace an existing object with different bytes, and never delete.
  * @module @deepseek-ai/dsh-tool-drama-tos-upload/upload
  */
@@ -10,16 +11,19 @@ import { lstat, unlink } from 'node:fs/promises'
 import { basename, extname, isAbsolute } from 'node:path'
 import { HarnessError } from '@deepseek-ai/dsh-error'
 
-/** Material kinds; each becomes one folder below the drama directory. */
-export const FILE_KINDS = ['video', 'asr', 'ocr', 'observations', 'scripts'] as const
+/** Material kinds; each becomes one folder below the work directory. */
+export const FILE_KINDS = ['video', 'novel', 'asr', 'ocr', 'observations', 'scripts'] as const
 
 /** One material kind from {@link FILE_KINDS}. */
 export type FileKind = typeof FILE_KINDS[number]
 
-/** Platform folder written below the dated prefix; only 红果 dramas are supported. */
-export const SOURCE_FOLDER = 'hongguo'
+/** Platform folders below the root folder: 红果 dramas and 番茄/七猫 novels. */
+export const PLATFORMS = ['hongguo', 'fanqie', 'qimao'] as const
 
-const SERIES_ID = /^[0-9]{1,32}$/
+/** One platform from {@link PLATFORMS}. */
+export type Platform = typeof PLATFORMS[number]
+
+const WORK_ID = /^[0-9]{1,32}$/
 const DATE = /^[0-9]{8}$/
 const MAX_NAME_BYTES = 200
 const MAX_TITLE_CHARS = 200
@@ -43,11 +47,13 @@ export interface UploadFileRequest {
   readonly name?: string
 }
 
-/** One drama upload as requested by the model. */
+/** One work's upload as requested by the model. */
 export interface UploadRequest {
-  /** 红果 `series_id`, digits only. */
-  readonly seriesId: string
-  /** Drama title recorded in the manifest. */
+  /** Platform folder the work belongs to. */
+  readonly platform: Platform
+  /** Work id on that platform (红果 `series_id`, 番茄/七猫 book id), digits only. */
+  readonly workId: string
+  /** Work title recorded in the manifest. */
   readonly title?: string
   /** `YYYYMMDD` folder date; defaults to today in the configured time zone. */
   readonly date?: string
@@ -71,8 +77,8 @@ export interface UploadLimits {
 export interface UploadLocation {
   /** Bucket name, reported in results. */
   readonly bucket: string
-  /** Key prefix that the `YYYYMMDD` date follows, for example `download-video-`. */
-  readonly keyPrefix: string
+  /** Top folder that holds the platform folders, for example `download-video-date`. */
+  readonly rootFolder: string
   /** Public `https://` origin of the bucket, without a trailing slash. */
   readonly publicBaseUrl: string
   /** IANA time zone that decides the default folder date. */
@@ -130,7 +136,8 @@ export interface PlannedFile {
 
 /** Validated upload with every destination key computed. */
 export interface UploadPlan {
-  readonly seriesId: string
+  readonly platform: Platform
+  readonly workId: string
   readonly title: string | null
   readonly date: string
   /** Drama folder key, ending with `/`. */
@@ -231,7 +238,8 @@ async function sha256File(path: string, signal: AbortSignal): Promise<string> {
  */
 export async function resolveUpload(request: UploadRequest, location: UploadLocation, limits: UploadLimits,
   now: Date, signal: AbortSignal): Promise<UploadPlan> {
-  if (!SERIES_ID.test(request.seriesId)) throw invalid('series_id 必须是红果剧的纯数字 series_id')
+  if (!(PLATFORMS as readonly string[]).includes(request.platform)) throw invalid(`platform 只能是 ${PLATFORMS.join('、')}：${request.platform}`)
+  if (!WORK_ID.test(request.workId)) throw invalid('work_id 必须是作品在该平台上的纯数字 ID')
   const title = request.title?.trim() || null
   if (title !== null && title.length > MAX_TITLE_CHARS) throw invalid(`title 不能超过 ${MAX_TITLE_CHARS} 个字符`)
   const date = request.date ?? today(location.timeZone, now)
@@ -240,7 +248,7 @@ export async function resolveUpload(request: UploadRequest, location: UploadLoca
   if (request.files.length > limits.maxFiles) {
     throw new HarnessError(`一次最多上传 ${limits.maxFiles} 个文件，请分批调用`, 'TOS_UPLOAD_LIMIT')
   }
-  const directory = `${location.keyPrefix}${date}/${SOURCE_FOLDER}/${request.seriesId}/`
+  const directory = `${location.rootFolder}/${request.platform}/${date}/${request.workId}/`
   const keys = new Set<string>()
   const files: PlannedFile[] = []
   let total = 0
@@ -265,7 +273,7 @@ export async function resolveUpload(request: UploadRequest, location: UploadLoca
     const sha256 = await sha256File(file.path, signal)
     files.push({ path: file.path, kind: file.kind, key, bytes: stat.size, sha256, contentType: contentType(name) })
   }
-  return { seriesId: request.seriesId, title, date, directory, files, removeLocal: request.removeLocal === true }
+  return { platform: request.platform, workId: request.workId, title, date, directory, files, removeLocal: request.removeLocal === true }
 }
 
 function verified(remote: RemoteObject | null, file: { bytes: number; sha256: string }): boolean {
@@ -307,8 +315,8 @@ export async function executeUpload(plan: UploadPlan, client: TosUploadClient, l
   const manifestKey = `${plan.directory}manifest-${manifestStamp(now)}.json`
   const manifest = new TextEncoder().encode(JSON.stringify({
     version: 1,
-    source: SOURCE_FOLDER,
-    series_id: plan.seriesId,
+    platform: plan.platform,
+    work_id: plan.workId,
     title: plan.title,
     date: plan.date,
     created_at: now.toISOString(),

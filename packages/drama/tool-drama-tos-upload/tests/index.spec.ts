@@ -14,7 +14,7 @@ import * as plugin from '../src/index.ts'
 import type { TosSdkClient, TosSdkModule } from '../src/tos-client.ts'
 
 const NOW = new Date('2026-11-15T02:00:00.000Z')
-const DIRECTORY = 'download-video-20261115/hongguo/7470000000000000001/'
+const DIRECTORY = 'download-video-date/hongguo/20261115/7470000000000000001/'
 
 function config(overrides: Partial<plugin.Config> = {}): plugin.Config {
   return {
@@ -24,7 +24,7 @@ function config(overrides: Partial<plugin.Config> = {}): plugin.Config {
     region: 'cn-beijing',
     endpoint: 'tos-cn-beijing.volces.com',
     publicBaseUrl: 'https://muse.tos-cn-beijing.volces.com',
-    keyPrefix: 'download-video-',
+    rootFolder: 'download-video-date',
     timeZone: 'Asia/Shanghai',
     maxFiles: 10,
     maxFileBytes: 1_000,
@@ -112,10 +112,11 @@ describe('drama_tos_upload', () => {
   it('registers the model-facing description and removes the tool when its fiber is disposed', async () => {
     const { ctx, fiber } = await bench()
     const definition = ctx.tools.get('drama_tos_upload')
-    expect(definition?.description).toBe('把一部红果剧的原片和转写材料存到 TOS，位置是 download-video-<日期>/hongguo/<series_id>/<kind>/<文件名>，'
+    expect(definition?.description).toBe('把一部作品的原始素材和剧本存到 TOS：红果剧的原片和转写材料，或番茄、七猫小说的原文和改成的剧本。'
+      + '位置是 download-video-date/<platform>/<日期>/<work_id>/<kind>/<文件名>，'
       + '文件公开可读，返回每个文件的公开地址和本次清单。远端已有同名同内容的文件记为已存在，同名不同内容的不会覆盖；不会删除远端文件。'
       + 'remove_local 为 true 时，全部文件核对成功后才删除这些本地文件。')
-    expect(definition?.presentCall?.({ series_id: '1', files: [{ path: '/a.mp4', kind: 'video' }] }))
+    expect(definition?.presentCall?.({ platform: 'hongguo', work_id: '1', files: [{ path: '/a.mp4', kind: 'video' }] }))
       .toEqual({ card: 'generic', title: 'Upload drama media to TOS', kind: 'other' })
     await fiber.dispose()
     expect(ctx.tools.get('drama_tos_upload')).toBeUndefined()
@@ -127,7 +128,7 @@ describe('drama_tos_upload', () => {
     const video = join(root, '001.mp4')
     await writeFile(video, 'video-1')
 
-    const result = await call({ series_id: '7470000000000000001', title: '剧名', date: '20261115',
+    const result = await call({ platform: 'hongguo', work_id: '7470000000000000001', title: '剧名', date: '20261115',
       files: [{ path: video, kind: 'video', name: 'ep001.mp4' }], remove_local: true })
 
     expect(result.isError).toBe(false)
@@ -144,7 +145,7 @@ describe('drama_tos_upload', () => {
     const { call } = await bench({ credentials: KEYS })
     const asr = join(root, '001.json')
     await writeFile(asr, '{}')
-    const result = await call({ series_id: '7470000000000000001', files: [{ path: asr, kind: 'asr' }] })
+    const result = await call({ platform: 'hongguo', work_id: '7470000000000000001', files: [{ path: asr, kind: 'asr' }] })
     expect(result.isError).toBe(false)
     expect(result.value).toMatchObject({ date: '20261115', removed_local: [], kept_local: [{ path: asr }] })
   })
@@ -157,16 +158,16 @@ describe('drama_tos_upload', () => {
     const { call } = await bench(credentials === undefined ? {} : { credentials })
     const asr = join(root, '001.json')
     await writeFile(asr, '{}')
-    const result = await call({ series_id: '7470000000000000001', files: [{ path: asr, kind: 'asr' }] })
+    const result = await call({ platform: 'hongguo', work_id: '7470000000000000001', files: [{ path: asr, kind: 'asr' }] })
     expect(result.isError).toBe(true)
     expect(JSON.stringify(result.error)).toContain('TOS 密钥')
   })
 
   it('validates the request before reading credentials in the shipped plugin form', async () => {
     const { call } = await bench({ real: true })
-    const result = await call({ series_id: 'abc', files: [{ path: '/tmp/x.mp4', kind: 'video' }] })
+    const result = await call({ platform: 'hongguo', work_id: 'abc', files: [{ path: '/tmp/x.mp4', kind: 'video' }] })
     expect(result.isError).toBe(true)
-    expect(JSON.stringify(result.error)).toContain('series_id')
+    expect(JSON.stringify(result.error)).toContain('work_id')
   })
 })
 
@@ -186,7 +187,7 @@ describe('configuration', () => {
     ['region', { region: 'beijing' }, 'region'],
     ['endpoint', { endpoint: 'tos-cn-shanghai.volces.com' }, 'endpoint'],
     ['public origin', { publicBaseUrl: 'https://muse.tos-cn-beijing.volces.com/' }, 'publicBaseUrl'],
-    ['key prefix', { keyPrefix: 'download-video' }, 'keyPrefix'],
+    ['root folder', { rootFolder: 'download-video-date/' }, 'rootFolder'],
     ['time zone', { timeZone: 'Mars/Olympus' }, 'timeZone'],
   ])('fails at load for an invalid %s', (_label, overrides, field) => {
     expect(() => { plugin.apply(new Context(), config(overrides)) }).toThrow(new RegExp(`drama-tos-upload: ${field}`))

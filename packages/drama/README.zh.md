@@ -28,7 +28,7 @@ kind: "package-group"
 | [`screenplay-project/`](screenplay-project/README.zh.md) | 以来源为依据写作、独立事实与分集审校、程序生成引用和可恢复的人物知情状态 |
 | [`session-video/`](session-video/README.zh.md) | 会话视频清单、授权媒体访问，以及带来源版本检查的画面切镜检测 |
 | [`tool-audio-transcribe/`](tool-audio-transcribe/README.zh.md) | 模型可见的 `audio_transcribe` 工具：通过当前账号云端转写本地媒体，保存持久任务收据和版本化转写稿 |
-| [`tool-drama-tos-upload/`](tool-drama-tos-upload/README.zh.md) | 模型可见的 `drama_tos_upload` 工具：把一部剧的原片和转写材料存进火山引擎 TOS 的按日期目录，不覆盖也不删除远端对象 |
+| [`tool-drama-tos-upload/`](tool-drama-tos-upload/README.zh.md) | 模型可见的 `drama_tos_upload` 工具：把一部作品的原始素材和剧本（红果剧的原片和转写材料，或番茄、七猫小说的原文和剧本）存进火山引擎 TOS 的平台与日期目录，不覆盖也不删除远端对象 |
 | [`tool-shot-script/`](tool-shot-script/README.zh.md) | 模型可见的 `drama_shot` 工具：默认严格编译脚本，Muse 短剧模式采用提示型内容检查、分包建议和独立检查草稿 |
 | [`bgm-license-info/`](bgm-license-info/README.zh.md) | 曲库与渲染使用方共享的音乐权利声明、明确的未知元数据及用途冲突提示 |
 | [`tool-bgm-compose/`](tool-bgm-compose/README.zh.md) | 模型可见的 `drama_bgm` 工具：源曲分析、确定性交叉淡化合成、无覆盖发布与固定 WAV 核验 |
