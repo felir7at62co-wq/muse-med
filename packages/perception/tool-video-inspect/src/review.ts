@@ -206,7 +206,8 @@ export async function applyCompleteReview(ctx: Context, config: Config,
       + 'timeline按实际时间并列记录、事件笔记和ASR；时间窗不是换场或动作分界，不自动编造动作。'
       + 'compare配合draft_path只读对照事件、对白时间与实际正文，不自动判定覆盖或拦截交付。'
       + '待查看或未记录帧保留为当前视频的证据缺口，不拦截Word导出或present。不把声学编号当角色身份，不凭单帧编造动作。'
-      + (config.offloadObservedFrames ? '已看过的帧图之后会从上下文移除，显示为image omitted占位；当时的observe仍有效，再看用revisit。' : ''),
+      + (config.offloadObservedFrames ? '已看过的帧图之后会从上下文移除，显示为image omitted占位；当时的observe仍有效，再看用revisit。' : '')
+      + (config.reviewObserveNextBatch ? 'observe记录后若仍有待看帧，结果直接附带下一批图片，不必再调用next。' : ''),
     parameters: { file_path: { type: 'string', description: '当前集实际完整视频路径；与review_id至少提供一项，同时提供时须指向同一记录。' },
       review_id: { type: 'string', description: '本会话已保存的review_id；不按集号或其他来源回退。status和close可仅凭此ID操作保存状态。' },
       reason: { type: 'string', description: 'close或reopen的可选原因；不改变未查看、未记录帧。' },
@@ -571,7 +572,10 @@ export async function applyCompleteReview(ctx: Context, config: Config,
             const labels = new Set([...notes.keys()].map(id => `${reviewId}/${id}`))
             offloadFrameImages(session, readFrameImages, label => labels.has(label))
           }
-          return describe(review)
+          // With the option, recorded observations continue into the next batch below instead of costing a separate next step.
+          if (!config.reviewObserveNextBatch || !review.scan_complete || review.frames.every(frame => frame.observation !== undefined)) {
+            return describe(review)
+          }
         }
         if (args.method === 'status') return describe(review)
         if (!review.scan_complete) throw Error('VIDEO_SCAN_INCOMPLETE: 请先完成scan。')

@@ -47,6 +47,8 @@ export interface Config {
    * successful request; requires the `image/offload` projection of `@deepseek-ai/dsh-compaction-image-offload`.
    */
   offloadObservedFrames: boolean
+  /** When `observe` leaves frames pending in a completely scanned review, return the next batch's images in the same result. */
+  reviewObserveNextBatch: boolean
   /** Thumbnail rate for cumulative appearance changes. */
   reviewAnalysisFps: number
   /** Normalized RGB difference against the last retained thumbnail. */
@@ -171,6 +173,7 @@ export const Config: Schema<Partial<Config>, Config> = Schema.object({
   sourceReviewCompanion: Schema.boolean().default(false),
   reviewBatchFrames: Schema.number().step(1).min(1).max(8).default(4),
   offloadObservedFrames: Schema.boolean().default(false),
+  reviewObserveNextBatch: Schema.boolean().default(false),
   reviewAnalysisFps: Schema.number().min(1).max(30).default(4),
   reviewChangeThreshold: Schema.number().min(0.01).max(1).default(0.12),
   reviewCheckpointSeconds: Schema.number().min(0.25).max(60).default(5),

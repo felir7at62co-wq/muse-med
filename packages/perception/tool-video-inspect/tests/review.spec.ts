@@ -2212,6 +2212,24 @@ it('omits a labelled frame image in a Host user message after a second successfu
     .every(block => block.type === 'image' && block.offloaded === true)).toBe(true)
 })
 
+it.each([true, false])('returns the next batch from observe only when reviewObserveNextBatch is %s', async (enabled) => {
+  const h = await fixture({ config: { reviewObserveNextBatch: enabled } })
+  await h.run(h.call('scan'), h.record, undefined)
+  const pending = h.review().frames.filter(frame => frame.observation === undefined)
+  expect(pending.length).toBeGreaterThan(0)
+  const images = h.results()[1]!.content.filter(block => block.type === 'image').length
+  expect(images).toBe(enabled ? Math.min(2, pending.length) : 0)
+  expect(h.ctx.tools.get('video_inspect')!.description.includes('不必再调用next')).toBe(enabled)
+})
+
+it('returns no further images from observe once every frame is recorded', async () => {
+  const h = await fixture({ config: { reviewObserveNextBatch: true } })
+  await h.run(h.call('scan'), undefined)
+  for (let step = 0; step < 40 && h.review().frames.some(frame => frame.observation === undefined); step++) await h.run(h.record, undefined)
+  expect(h.review().frames.every(frame => frame.observation !== undefined)).toBe(true)
+  expect(h.results().at(-1)!.content.some(block => block.type === 'image')).toBe(false)
+})
+
 it('shrinks a partially oversized new batch to its retained pending count rather than always to one', async () => {
   const h = await fixture({ offload: true, config: { reviewBatchFrames: 3 } })
   await h.run(h.call('scan'), 'offload', undefined)

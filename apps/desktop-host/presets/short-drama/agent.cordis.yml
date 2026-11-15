@@ -260,6 +260,8 @@
   config:
     requireCompleteReview: true
     offloadObservedFrames: true
+    reviewBatchFrames: 8
+    reviewObserveNextBatch: true
     frameFormat: jpeg
     frameJpegQuality: 3
     ocrEngine: rapidocr

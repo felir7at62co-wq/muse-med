@@ -5998,6 +5998,8 @@ export interface Config {
    * successful request; requires the `image/offload` projection of `@deepseek-ai/dsh-compaction-image-offload`.
    */
   offloadObservedFrames: boolean
+  /** When `observe` leaves frames pending in a completely scanned review, return the next batch's images in the same result. */
+  reviewObserveNextBatch: boolean
   /** Thumbnail rate for cumulative appearance changes. */
   reviewAnalysisFps: number
   /** Normalized RGB difference against the last retained thumbnail. */
