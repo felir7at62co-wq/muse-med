@@ -3,5 +3,6 @@ scenario: feedback-command
 profile: web
 composition: web-default
 recording: live
+writerOutput: true
 header:
   class: web-default

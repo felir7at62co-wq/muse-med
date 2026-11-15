@@ -1,4 +1,4 @@
-import { mkdir, readdir, readFile, realpath, rename, symlink, unlink } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, rename, symlink, truncate, unlink } from 'node:fs/promises'
 import { dirname, join, sep } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fileSha256 } from '../src/cache.ts'
@@ -14,6 +14,8 @@ import { readTimeline } from '../src/timeline.ts'
 import { runDramaVideo } from '../src/video.ts'
 import { cleanup, decodeHandler, probeHandler, srtDocument, stubChannel, tempProject, timelineJson, writePlaceholder } from './harness.ts'
 import { sourceQaFixture, verifiedSourceQaFixture } from './source-qa-fixture.ts'
+import { contentReviewFixture } from './content-review-fixture.ts'
+import { draftFontFixture } from './draft-font-fixture.ts'
 
 const temporary: string[] = []
 
@@ -235,10 +237,13 @@ async function reviewedFixture(strict = false, separate = false) {
   const packagePath = join(f.project, 'episode_packages', '26', 'package.json')
   const reviewPath = join(f.project, 'reviews', 'ep26-p01.json')
   const frame = join(f.project, 'review.png'), download = join(f.project, 'download.json')
-  const audio = separate ? join(f.project, 'original-audio.wav') : f.shot
+  const audio = separate ? join(f.project, 'original-audio.mp4') : f.shot
   if (separate) await writePlaceholder(audio, 'reviewed independent audio')
   const audioSha = await fileSha256(audio), sha = f.source.videos[0]!.sha256
   const qa = await sourceQaFixture(f.project, f.shot)
+  const originalQa = separate ? await sourceQaFixture(f.project, audio, 'original') : undefined
+  const selectedDownload = separate ? join(f.project, 'clean-download.json') : download
+  const cleanUrlSha = 'c'.repeat(64)
   await Promise.all([
     writePlaceholder(join(f.project, 'project_config.json'), JSON.stringify({
       project_bible: { delivery: { require_source_review: true } },
@@ -246,13 +251,21 @@ async function reviewedFixture(strict = false, separate = false) {
     writePlaceholder(frame, 'review frame'),
     writePlaceholder(packagePath, JSON.stringify({ episode: '26', video_tasks: [{ shots: [1] }] })),
     writePlaceholder(download, JSON.stringify({ version: 1, kind: 'video', media_type: 'video/mp4',
-      path: f.shot, sha256: `sha256:${sha}`, source_sha256: 'b'.repeat(64) })),
+      path: audio, sha256: `sha256:${audioSha}`, source_sha256: 'b'.repeat(64) })),
   ])
+  if (separate) await writePlaceholder(selectedDownload, JSON.stringify({ version: 1, kind: 'video', media_type: 'video/mp4',
+    path: f.shot, sha256: `sha256:${sha}`, source_sha256: cleanUrlSha }))
   await writePlaceholder(reviewPath, JSON.stringify({ episode: '26', package: 1, status: 'approved',
-    subtitle_cleanup: 'not_required', video_path: f.shot, video_sha256: sha,
+    subtitle_cleanup: separate ? 'clean' : 'not_required', video_path: f.shot, video_sha256: sha,
     audio_path: audio, audio_sha256: audioSha,
     package_sha256: await fileSha256(packagePath), original_download_receipt_path: download, review_frames: [frame],
-    source_qa: { version: 1, selected: qa.declaration },
+    source_qa: { version: 1, selected: qa.declaration,
+      ...(originalQa === undefined ? {} : { original: originalQa.declaration,
+        affected_intervals: [{ start_seconds: 2, end_seconds: 3 }] }),
+    },
+    ...(separate ? { subtitle_erasure: { stage: 'erase_subtitle', source_task_id: 629024,
+      operation_task_id: 700001, result_id: 700002, output_url_sha256: cleanUrlSha,
+      download_receipt_path: selectedDownload } } : {}),
     content_review: { identity: 'pass', wardrobe: 'pass', scene: 'pass', prop: 'pass', action_and_dialogue: 'pass',
       visible_artifacts: 'pass', continuity: 'pass', voice_and_speaker: 'pass', av_sync: 'pass',
       sensitive_content: 'pass', embedded_subtitles: 'absent' },
@@ -279,11 +292,75 @@ async function reviewedFixture(strict = false, separate = false) {
   await writePlaceholder(join(f.project, 'transcript/raw/reviewed-v1.json'), JSON.stringify([
     { start: 1, end: 2, words: [{ text: '现在做饭', start: 1, end: 2 }] },
   ]))
+  await contentReviewFixture({ project: f.project, episode: f.input.episode, output: f.input.output, duration: 7,
+    sources: [{ shot: 1, path: f.shot, duration: 5 }] })
   return { ...f, audio, audioSha, reviewPath, qa, verified,
-    input: { ...f.input, sourceQaVerifier: verifiedSourceQaFixture, transcriptsPath } }
+    input: { ...f.input, sourceQaVerifier: verifiedSourceQaFixture, transcriptsPath,
+      contentReviewVerifier: async () => {} } }
+}
+
+async function fontBoundFixture() {
+  const f = await reviewedFixture(), bound = await draftFontFixture(f.project, f.draft)
+  const files = [...f.source.files.filter(row => row.path !== 'draft_content.json'), ...bound.source.files]
+  await writePlaceholder(f.draftSourcePath, JSON.stringify({ ...f.source, material_scope: 'episode', files,
+    materials: [...f.source.materials, ...bound.source.materials], subtitle_font: bound.source.subtitle_font }))
+  await changeRender(f, (row) => {
+    ;(row.delivery_inputs as Record<string, unknown>).subtitle_visual_verification = {
+      version: 1, subtitle_sha256: f.source.subtitle_sha256, report_path: 'layout.json', report_sha256: 'f'.repeat(64),
+      requested_font: bound.input.expectedFamily, delivery: { width: 1440, height: 2560, fps: 60 },
+      visual: { schema_version: 1, reference_width: 1080, reference_height: 1920, font_size_px: 40,
+        outline_px: 2, center_y_ratio: 0.74, max_width_ratio: 0.9 }, checks: [],
+    }
+  })
+  return { ...f, bound, input: { ...f.input, settings: { ...f.input.settings, fontsDir: bound.input.fontsDir } } }
 }
 
 describe('stageEpisodeDelivery', () => {
+  it('rejects independent audio presented as an untreated source', async () => {
+    const f = await reviewedFixture(true, true)
+    await changeJson(f.reviewPath, (review) => { review.subtitle_cleanup = 'not_required' })
+    await expect(verifySelectedSourceReviews(f.paths, [{ shot: 1, package: 1, video: f.shot, audio: f.audio }],
+      true, true, verifiedSourceQaFixture)).rejects.toThrow('独立原声音轨缺少可验证的原片复验')
+    await expectNoDelivery(f)
+  })
+
+  it('stages an explicit short-drama font only with retained native span evidence', async () => {
+    const f = await fontBoundFixture()
+    expect((await stageEpisodeDelivery(f.input, f.draft)).delivery_package?.status).toBe('candidate')
+    const snapshot = join(f.draft, 'muse-original-draft-content.json')
+    expect(await fileSha256(snapshot)).toBe(await fileSha256(join(f.draft, 'draft_content.json')))
+    const receipt: unknown = JSON.parse(await readFile(f.receipt, 'utf8'))
+    expect(receipt).toHaveProperty('draft_font', {
+      snapshot_path: snapshot, snapshot_sha256: await fileSha256(snapshot),
+    })
+    expect((await stageEpisodeDelivery(f.input, f.draft)).delivery_package?.reused).toBe(true)
+  })
+
+  it.each(['stale', 'changed during publication'])('rejects a %s initial font snapshot', async (kind) => {
+    const f = await fontBoundFixture(), snapshot = join(f.draft, 'muse-original-draft-content.json')
+    if (kind === 'stale') await writePlaceholder(snapshot, 'another draft')
+    else storage.afterCopy = async () => {
+      storage.afterCopy = undefined
+      await writePlaceholder(snapshot, 'changed snapshot')
+    }
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/字体快照.*不一致|字体快照已变化/u)
+    await expectNoDelivery(f)
+  })
+
+  it.each(['missing manifest', 'manifest directory', 'oversized manifest', 'changed after copying'])(
+    'rejects %s before publishing an explicit-font short drama', async (kind) => {
+      const f = await fontBoundFixture()
+      if (kind === 'missing manifest') await unlink(f.bound.manifestPath)
+      if (kind === 'manifest directory') { await unlink(f.bound.manifestPath); await mkdir(f.bound.manifestPath) }
+      if (kind === 'oversized manifest') await truncate(f.bound.manifestPath, 64 * 1024 * 1024 + 1)
+      if (kind === 'changed after copying') storage.afterCopy = async () => {
+        storage.afterCopy = undefined
+        await writePlaceholder(f.bound.fontPath, 'changed after copying')
+      }
+      await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow(/字体证据必须|草稿字体文件/u)
+      await expectNoDelivery(f)
+    })
+
   it.each([false, true])('recognizes the parent short-drama project when staging an episode subdirectory (local config: %s)', async (localConfig) => {
     const f = await fixture(undefined, undefined, undefined, true)
     await writePlaceholder(join(f.projectRoot, 'project_config.json'), JSON.stringify({ jubian_script_id: 5933 }))
@@ -347,6 +424,24 @@ describe('stageEpisodeDelivery', () => {
     expect(receipt).toMatchObject({ source_qa_sha256: f.verified.sha256 })
     expect(receipt).toHaveProperty('speech_evidence_sha256', expect.stringMatching(/^[0-9a-f]{64}$/u))
     expect(await fileSha256(f.audio)).toBe(before)
+  })
+
+  it('keeps a fully encoded episode unarchived when its real content verifier is unavailable', async () => {
+    const f = await reviewedFixture(true, true)
+    const { contentReviewVerifier: _verifier, ...input } = f.input
+    await expect(stageEpisodeDelivery(input, f.draft)).rejects.toThrow('真实观察和试听')
+    await expectNoDelivery(f)
+  })
+
+  it('rechecks content evidence after staging bytes and preserves the source when review changes', async () => {
+    const f = await reviewedFixture(true, true)
+    storage.afterCopy = async () => {
+      storage.afterCopy = undefined
+      await writePlaceholder(join(f.project, '_probe/delivery-config/film-reviews.json'), '{}')
+    }
+    await expect(stageEpisodeDelivery(f.input, f.draft)).rejects.toThrow('归档期间内容审查证据已变化')
+    await expectNoDelivery(f)
+    expect((await readdir(f.project)).filter(name => name.startsWith('.delivery-stage-'))).toEqual([])
   })
 
   it.each(['missing transcripts', 'missing stream clock', 'stale source review'] as const)(
@@ -424,7 +519,9 @@ describe('stageEpisodeDelivery', () => {
     const input = { ...f.input, sourceQaVerifier: verifiedSourceQaFixture }
     await expect(stageEpisodeDelivery(input, f.draft)).rejects.toThrow(/保留同集素材/u)
     await writePlaceholder(f.draftSourcePath, JSON.stringify({ ...f.source, material_scope: 'episode' }))
-    expect((await stageEpisodeDelivery(input, f.draft)).delivery_package?.status).toBe('candidate')
+    await contentReviewFixture({ project: f.project, episode: f.input.episode, output: f.input.output, duration: 7,
+      sources: [{ shot: 1, path: f.shot, duration: 5 }] })
+    expect((await stageEpisodeDelivery({ ...input, contentReviewVerifier: async () => {} }, f.draft)).delivery_package?.status).toBe('candidate')
   })
 
   it.each([

@@ -254,6 +254,7 @@ describe('web e2e: sidebar search alignment and row action targets', () => {
     { usedSearch: true, entry: 'toggle-with-query' },
   ] as const)('lands the header at its final rail-to-wide geometry ($entry, prior search: $usedSearch)', async ({ usedSearch, entry }) => {
     onTestFailed(() => saveFailureShot(page, `web-e2e-sidebar-rail-${entry}-${String(usedSearch)}`))
+    const expandedRegionWidth = await page.locator('[class*="regionArea"]').evaluate(element => element.getBoundingClientRect().width)
     if (usedSearch) {
       await page.getByRole('button', { name: 'Search sessions', exact: true }).click()
       const input = page.getByPlaceholder('Search session names', { exact: true })
@@ -285,6 +286,7 @@ describe('web e2e: sidebar search alignment and row action targets', () => {
           gap: Number.parseFloat(style.columnGap),
           transitionDuration: style.transitionDuration,
           searchExpanded: header.querySelector('button[aria-label="Search sessions"]')?.getAttribute('aria-expanded'),
+          regionWidth: header.closest('[class*="regionArea"]')!.getBoundingClientRect().width,
         }
       }
       const first = await new Promise<ReturnType<typeof measure>>((resolve) => {
@@ -316,6 +318,7 @@ describe('web e2e: sidebar search alignment and row action targets', () => {
     expect(samples.headerTransitions).toEqual([])
     expect(samples.first.transitionDuration).toBe('0s')
     expect(samples.first).toEqual(samples.last)
+    expect(samples.first.regionWidth).toBe(expandedRegionWidth)
     expect(samples.first).toMatchObject(entry !== 'toggle'
       ? { marginRight: 0, paddingLeft: 4, paddingRight: 4, gap: 0, searchExpanded: 'true' }
       : { marginRight: -4, paddingLeft: 12, paddingRight: 1, gap: 4, searchExpanded: 'false' })
@@ -415,7 +418,7 @@ describe('web e2e: sidebar search alignment and row action targets', () => {
     expect(tripwire.pageErrors).toEqual([])
   })
 
-  it.each([false, true])('keeps account footer geometry in wide and rail layouts (signed in: %s)', async (signedIn) => {
+  it.each([false, true])('keeps non-Muse Desktop account footer geometry in wide and rail layouts through a browser carrier (signed in: %s)', async (signedIn) => {
     onTestFailed(() => saveFailureShot(page, `web-e2e-sidebar-account-${String(signedIn)}`))
     const account = scaffold.ctx.deepseekAccount
     const state: AccountView = {
@@ -436,7 +439,13 @@ describe('web e2e: sidebar search alignment and row action targets', () => {
       }),
     ] : []
     try {
-      if (signedIn) await page.reload({ waitUntil: 'load' })
+      await scaffold.ctx.settings.update('ui-settings-account', { step: 'done', completion: 'completed' })
+      // This account launcher is supported only on non-Muse Desktop carriers.
+      // Other geometry scenarios keep their ordinary plain-Web surface.
+      await page.addInitScript(() => {
+        Object.defineProperty(globalThis, 'dshDesktop', { value: { protocolVersion: 1 } })
+      })
+      await page.reload({ waitUntil: 'load' })
       const accountButton = page.getByRole('button', { name: 'Account menu', exact: true })
       await expect.poll(() => accountButton.getAttribute('data-signed-out')).toBe(String(!signedIn))
       const measure = () => accountButton.evaluate((element) => {

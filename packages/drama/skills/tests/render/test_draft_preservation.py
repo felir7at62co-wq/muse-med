@@ -16,7 +16,7 @@ SCRIPT = Path(__file__).resolve().parents[2] / 'skills/tweet-drama-draft-build/s
 class DraftPreservationTests(unittest.TestCase):
     def test_new_episode_drafts_do_not_share_library_template_ids(self):
         original_path = sys.path[:]
-        with patch.dict(sys.modules, {'pyJianYingDraft': types.SimpleNamespace()}):
+        with patch.dict(sys.modules, {'pyJianYingDraft': types.SimpleNamespace(TextSegment=type('TextSegment', (), {}))}):
             try:
                 spec = importlib.util.spec_from_file_location('draft_identity', SCRIPT)
                 module = importlib.util.module_from_spec(spec)
@@ -46,7 +46,7 @@ class DraftPreservationTests(unittest.TestCase):
 
     def test_save_failure_or_missing_content_cannot_be_reported_as_success(self):
         original_path = sys.path[:]
-        with patch.dict(sys.modules, {'pyJianYingDraft': types.SimpleNamespace()}):
+        with patch.dict(sys.modules, {'pyJianYingDraft': types.SimpleNamespace(TextSegment=type('TextSegment', (), {}))}):
             try:
                 spec = importlib.util.spec_from_file_location('draft_save_contract', SCRIPT)
                 module = importlib.util.module_from_spec(spec)
@@ -161,7 +161,7 @@ class DraftPreservationTests(unittest.TestCase):
                 raise RuntimeError('Reached draft preparation')
 
         original_path = sys.path[:]
-        with patch.dict(sys.modules, {'pyJianYingDraft': types.SimpleNamespace(DraftFolder=DraftFolder)}):
+        with patch.dict(sys.modules, {'pyJianYingDraft': types.SimpleNamespace(DraftFolder=DraftFolder, TextSegment=type('TextSegment', (), {}))}):
             try:
                 spec = importlib.util.spec_from_file_location('draft_required_bgm', SCRIPT)
                 module = importlib.util.module_from_spec(spec)
@@ -196,7 +196,7 @@ class DraftPreservationTests(unittest.TestCase):
                 raise AssertionError('missing episode must fail before writing a draft')
 
         original_path = sys.path[:]
-        with patch.dict(sys.modules, {'pyJianYingDraft': types.SimpleNamespace(DraftFolder=DraftFolder)}):
+        with patch.dict(sys.modules, {'pyJianYingDraft': types.SimpleNamespace(DraftFolder=DraftFolder, TextSegment=type('TextSegment', (), {}))}):
             try:
                 spec = importlib.util.spec_from_file_location('draft_batch_missing_media', SCRIPT)
                 module = importlib.util.module_from_spec(spec)
@@ -230,7 +230,7 @@ class DraftPreservationTests(unittest.TestCase):
 
     def test_draft_subtitles_must_match_approved_srt_text_and_timing(self):
         original_path = sys.path[:]
-        with patch.dict(sys.modules, {'pyJianYingDraft': types.SimpleNamespace()}):
+        with patch.dict(sys.modules, {'pyJianYingDraft': types.SimpleNamespace(TextSegment=type('TextSegment', (), {}))}):
             try:
                 spec = importlib.util.spec_from_file_location('draft_subtitle_comparison', SCRIPT)
                 module = importlib.util.module_from_spec(spec)
@@ -259,7 +259,7 @@ class DraftPreservationTests(unittest.TestCase):
                 created.append(name)
                 raise AssertionError('existing draft must not be recreated')
 
-        fake_library = types.SimpleNamespace(DraftFolder=DraftFolder)
+        fake_library = types.SimpleNamespace(DraftFolder=DraftFolder, TextSegment=type('TextSegment', (), {}))
         original_path = sys.path[:]
         with patch.dict(sys.modules, {'pyJianYingDraft': fake_library}):
             try:
@@ -296,7 +296,7 @@ class DraftPreservationTests(unittest.TestCase):
             def create_draft(self, _name, **_options):
                 raise AssertionError('invalid draft name must not reach the writer')
 
-        fake_library = types.SimpleNamespace(DraftFolder=DraftFolder)
+        fake_library = types.SimpleNamespace(DraftFolder=DraftFolder, TextSegment=type('TextSegment', (), {}))
         original_path = sys.path[:]
         with patch.dict(sys.modules, {'pyJianYingDraft': fake_library}):
             try:

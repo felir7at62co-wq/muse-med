@@ -71,10 +71,9 @@ interface ResolvedSource {
 }
 
 function trimCache<T>(cache: Map<string, T>, maximum: number): void {
-  while (cache.size > maximum) {
-    const oldest = cache.keys().next()
-    if (oldest.done) return
-    cache.delete(oldest.value)
+  for (const oldest of cache.keys()) {
+    if (cache.size <= maximum) return
+    cache.delete(oldest)
   }
 }
 
@@ -319,7 +318,11 @@ export default class SessionVideo extends TypertRemoteService {
       let offset = start, pending: Promise<void> | undefined, closed = false
       let controller: ReadableStreamDefaultController<Uint8Array>
       const release = (): void => { closed = true; if (pending === undefined) this.streams.delete(owner); operation.removeEventListener('abort', abort) }
-      const abort = (): void => { if (!closed) { release(); controller.error(operation.reason) } }
+      const abort = (): void => {
+        /* v8 ignore else -- release() sets closed and removes this very abort listener in one
+        synchronous step, and Node dispatches abort synchronously, so abort never sees closed true. */
+        if (!closed) { release(); controller.error(operation.reason) }
+      }
       const body = new ReadableStream<Uint8Array>({
         start(value) { controller = value; operation.addEventListener('abort', abort, { once: true }); if (operation.aborted) abort() },
         pull: (output) => {

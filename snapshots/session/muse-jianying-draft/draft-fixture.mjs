@@ -1,5 +1,6 @@
 /** Exercise Host warning persistence with external Python substituted; this does not verify Python input decoding, saved editor compatibility or acoustics. */
 import { importSnapshotModule } from '../muse-fixture-import.mjs'
+import { consumeDraftSeed } from './draft-seed.mjs'
 
 const Draft = await importSnapshotModule(
   new URL('../../../apps/desktop-host/src/jianying-draft.ts', import.meta.url),
@@ -15,6 +16,7 @@ export const inject = ['subprocess', 'tools', 'systemPrompt']
 
 /** Mount the real tool and retain the real managed process provider. */
 export async function apply(ctx) {
+  await consumeDraftSeed(process.cwd())
   const original = ctx.subprocess.spawn.bind(ctx.subprocess)
   const python = `
     const fs = require('node:fs'), path = require('node:path');

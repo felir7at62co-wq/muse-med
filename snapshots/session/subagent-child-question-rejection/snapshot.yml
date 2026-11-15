@@ -7,4 +7,6 @@ header:
   class: child-question
   pin: true
   systemPromptSource: text-turn
+replay:
+  override: true
 writerOutput: true

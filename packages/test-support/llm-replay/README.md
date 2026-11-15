@@ -79,6 +79,8 @@ When replay serves `deepseek-official` with `ctx.deepseekLlmApiExtensions`, it p
 
 Two failure modes are not reconstructable from a durable Assistant settlement alone: a pure throw before any chunk has no exception-bearing stream member, and a cancel/hang requires nontermination rather than a replayed finite prefix. A scenario that needs those supplies an optional sidecar (`<scenario>/replay.override.json`) that either replaces the derived script with a bare `ReplayEntry[]` or augments it with `{ patches: [{ at, entry }] }`, which keeps every derived call and swaps the named 0-based call indexes; `at` equal to the derived length appends the retry attempt after an injected transient throw. A `throw` entry accepts DeepSeek request extensions when it has prefix chunks; a zero-chunk throw defaults to pre-2xx non-acceptance and may set `accepted: true` for a post-2xx failure. A `hang` entry may name `readyFile`, which replay writes before waiting for cancellation so an external driver can cancel deterministically.
 
+`{{fromRequest:<regex>}}` inserts text captured from the live request. Within a quoted JSON string in tool-call arguments, replay escapes the captured value so Windows paths, quotes, and control characters retain their exact value after JSON decoding. Argument deltas retain the JSON string position across chunks of the same block. Ordinary text and unquoted JSON positions keep literal substitution; replay does not repair malformed argument templates or recursively resolve captured placeholders.
+
 ### What can go wrong
 
 - **The fixture is not fully consumed** — `assertConsumed()` at teardown turns a scenario that silently drove fewer model calls than recorded into a crisp diagnostic; call it when installing replay directly in a test.

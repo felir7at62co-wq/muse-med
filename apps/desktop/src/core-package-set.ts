@@ -26,6 +26,7 @@ export const DESKTOP_CODEX_PACKAGE = 'dsh-plugin-subscriptions'
 export const DESKTOP_HOST_RUNTIME_FILES = [
   'lib/index.js',
   'lib/cli.js',
+  'lib/workspace-owned-storage.js',
   'lib/approved-episode-render.js',
   'lib/episode-render-worker.js',
   'lib/retired-bot.js',

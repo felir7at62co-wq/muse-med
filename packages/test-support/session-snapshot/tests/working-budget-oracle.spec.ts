@@ -25,7 +25,7 @@ describe('recorded working-budget expectations', () => {
     expect(second.size).toBe(first.size)
     expect([...first.values()]).not.toEqual([...second.values()])
     assertWorkingBudgetExpectations(first, first)
-    expect(() => assertWorkingBudgetExpectations(first, second)).toThrow('differs from expected-input estimate')
+    expect(() => { assertWorkingBudgetExpectations(first, second) }).toThrow('differs from expected-input estimate')
   })
 
   it('rejects a one-token measurement error and a deleted model-visible input', async () => {
@@ -35,16 +35,16 @@ describe('recorded working-budget expectations', () => {
     const first = measured.entries().next().value
     if (first === undefined) throw new Error('Missing recorded budget')
     measured.set(first[0], first[1] + 1)
-    expect(() => assertWorkingBudgetExpectations(measured, expected)).toThrow('differs from expected-input estimate')
+    expect(() => { assertWorkingBudgetExpectations(measured, expected) }).toThrow('differs from expected-input estimate')
     // The fixture's long task stays a valid logged message; removing its text must alter the exact price.
-    const lines: Record<string, unknown>[] = original.log.split('\n').filter(Boolean).map(line => JSON.parse(line))
+    const lines = original.log.split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
     const user = lines.find(row => row.type === 'user/message')
     if (user === undefined) throw new Error('Missing recorded user input')
     const data = user.data as { content: { type: string; text?: string }[] }
     data.content = data.content.map(block => block.type === 'text' ? { ...block, text: '' } : block)
     const withoutInput = deriveWorkingBudgetExpectations({ ...original, log: lines.map(row => JSON.stringify(row)).join('\n') + '\n' })
     expect(withoutInput).not.toEqual(expected)
-    expect(() => assertWorkingBudgetExpectations(expected, withoutInput)).toThrow('differs from expected-input estimate')
+    expect(() => { assertWorkingBudgetExpectations(expected, withoutInput) }).toThrow('differs from expected-input estimate')
     expect(original.log).toBe((await input('muse-creation-source-id-recovery', '/tmp/replay')).log)
   })
 
@@ -56,7 +56,7 @@ describe('recorded working-budget expectations', () => {
     const first = measured.entries().next().value
     if (first === undefined) throw new Error('Missing recorded compaction span')
     measured.set(first[0], first[1] + 1)
-    expect(() => assertWorkingBudgetExpectations(measured, expected)).toThrow('differs from expected-input estimate')
+    expect(() => { assertWorkingBudgetExpectations(measured, expected) }).toThrow('differs from expected-input estimate')
     const longer = deriveShadowedBudgetExpectations({ ...original, cwd: '/tmp/a-longer-workspace-parent/replay' })
     expect(longer).not.toEqual(expected)
   })
@@ -67,7 +67,7 @@ describe('recorded working-budget expectations', () => {
       expect(original.log).toContain('"op":"replace"')
       const expected = deriveWorkingBudgetExpectations(original)
       expect(expected.size).toBeGreaterThan(0)
-      const rows: Record<string, unknown>[] = original.log.split('\n').filter(Boolean).map(line => JSON.parse(line))
+      const rows = original.log.split('\n').filter(Boolean).map(line => JSON.parse(line) as Record<string, unknown>)
       const replacements = rows.flatMap((row, index) => typeof row.surfaceOp === 'object' && row.surfaceOp !== null
         ? [{ index, op: row.surfaceOp as { startSeq: number; endSeq: number } }] : [])
       const last = replacements.at(-1)
@@ -87,7 +87,7 @@ describe('recorded working-budget expectations', () => {
       const retainedData = retained.data as { content: { type: string; text: string }[] }
       retainedData.content[0]!.text += '\nA retained input must remain priced. '.repeat(8)
       const changedRetained = deriveWorkingBudgetExpectations({ ...original, log: rows.map(row => JSON.stringify(row)).join('\n') + '\n' })
-      expect(() => assertWorkingBudgetExpectations(expected, changedRetained)).toThrow('differs from expected-input estimate')
+      expect(() => { assertWorkingBudgetExpectations(expected, changedRetained) }).toThrow('differs from expected-input estimate')
     },
   )
 })

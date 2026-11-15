@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { Suspense, useLayoutEffect, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { VideoTimeline } from '../src/client/VideoTimeline.tsx'
 import type { VideoTimelineProps } from '../src/client/VideoTimeline.tsx'
@@ -292,4 +293,114 @@ it('retains the grabbed offset and uses rendered media width under page scaling 
   fireEvent.click(lane, { clientX: 175.8, detail: 1 })
   expect(input.onSeek).toHaveBeenCalledTimes(2)
   expect(vi.mocked(input.onSeek).mock.lastCall?.[0]).toBeCloseTo(5, 10)
+})
+
+it('keeps shot selection without inventing media time when the track has no measurable width', () => {
+  const input = props(), view = render(<VideoTimeline {...input} />)
+  fireEvent.click(view.getByRole('button', { name: '镜头 2，3–10' }), { detail: 1, clientX: 10, clientY: 40 })
+  expect(input.onSelectShot).toHaveBeenCalledExactlyOnceWith('last')
+  expect(input.onSeek).not.toHaveBeenCalled()
+})
+
+it('does not seek a stationary grabbed pointer even when its vertical coordinate changes', () => {
+  const input = props(), view = render(<VideoTimeline {...input} />)
+  geometry(view.getByRole('group'))
+  const slider = view.getByRole('slider'), capture = pointerCapture(slider)
+  fireEvent.pointerDown(slider, { pointerId: 3, button: 0, clientX: 151, clientY: 1 })
+  fireEvent.pointerMove(window, { pointerId: 3, clientX: 151, clientY: 40 })
+  fireEvent.pointerUp(window, { pointerId: 3, clientX: 151, clientY: 40 })
+  expect(input.onSeek).not.toHaveBeenCalled()
+  expect(capture.release).toHaveBeenCalledExactlyOnceWith(3)
+})
+
+it('distinguishes a real viewport-left mouse click from keyboard activation', () => {
+  const input = props(), view = render(<VideoTimeline {...input} />)
+  const scroll = view.getByRole('group')
+  geometry(scroll)
+  scroll.scrollLeft = 200
+  fireEvent.click(view.getByRole('button', { name: '镜头 2，3–10' }), { detail: 1, clientX: 0, clientY: 40 })
+  expect(input.onSelectShot).toHaveBeenCalledExactlyOnceWith('last')
+  expect(vi.mocked(input.onSeek).mock.lastCall?.[0]).toBeCloseTo(4.45)
+})
+
+it('ignores a queued resize observation after the timeline has unmounted', () => {
+  const input = props(), view = render(<VideoTimeline {...input} />)
+  const observer = observers[0]!
+  view.unmount()
+  expect(observer.disconnect).toHaveBeenCalledOnce()
+  expect(() => { act(() => { observer.notify() }) }).not.toThrow()
+  expect(input.onSeek).not.toHaveBeenCalled()
+})
+
+it('ignores a real resize after DOM removal and before passive observer cleanup', () => {
+  const input = props(), added = vi.spyOn(window, 'addEventListener'), removed = vi.spyOn(window, 'removeEventListener')
+  const duringLayout: { detached: boolean; listenerRemoved: boolean; observerDisconnected: boolean }[] = []
+  function Parent({ visible }: { visible: boolean }) {
+    useLayoutEffect(() => {
+      if (visible) return
+      duringLayout.push({ detached: !scroll.isConnected,
+        listenerRemoved: removed.mock.calls.some(([type, callback]) => type === 'resize' && callback === resize),
+        observerDisconnected: vi.mocked(observer.disconnect).mock.calls.length > 0 })
+      window.dispatchEvent(new Event('resize'))
+    }, [visible])
+    return visible ? <VideoTimeline {...input} /> : null
+  }
+  const view = render(<Parent visible />), scroll = view.getByRole('group')
+  geometry(scroll)
+  const observer = observers[0]!, resize = added.mock.calls.find(([type]) => type === 'resize')?.[1]
+  expect(resize).toBeDefined()
+  const measure = vi.fn(() => 622)
+  Object.defineProperty(scroll, 'scrollWidth', { configurable: true, get: measure })
+  act(() => { window.dispatchEvent(new Event('resize')) })
+  expect(measure).toHaveBeenCalledOnce()
+  measure.mockClear()
+  view.rerender(<Parent visible={false} />)
+  expect(duringLayout).toEqual([{ detached: true, listenerRemoved: false, observerDisconnected: false }])
+  expect(observer.disconnect).toHaveBeenCalledOnce()
+  expect(removed.mock.calls.filter(([type, callback]) => type === 'resize' && callback === resize)).toHaveLength(1)
+  act(() => { window.dispatchEvent(new Event('resize')) })
+  expect(measure).not.toHaveBeenCalled()
+  expect(input.onSeek).not.toHaveBeenCalled()
+  expect(observers).toHaveLength(1)
+})
+
+it('releases an active pointer when Suspense hides the timeline and accepts a fresh gesture after reveal', async () => {
+  const pending = Promise.withResolvers<undefined>(), input = props()
+  function Pending({ blocked, children }: { blocked: boolean; children: ReactNode }) {
+    if (blocked) throw pending.promise
+    return children
+  }
+  const tree = (blocked: boolean) => <Suspense fallback={<span>Waiting for media</span>}>
+    <Pending blocked={blocked}><VideoTimeline {...input} /></Pending>
+  </Suspense>
+  const view = render(tree(false))
+  const lane = geometry(view.getByRole('group'))
+  const slider = view.getByRole('slider'), capture = pointerCapture(slider)
+  fireEvent.pointerDown(slider, { pointerId: 7, button: 0, clientX: 151 })
+  view.rerender(tree(true))
+  expect(view.getByText('Waiting for media')).toBeDefined()
+  expect(capture.release).toHaveBeenCalledExactlyOnceWith(7)
+  fireEvent.resize(window)
+  fireEvent.pointerMove(window, { pointerId: 7, clientX: 211 })
+  fireEvent.click(lane, { detail: 1, clientX: 211, clientY: 40 })
+  expect(input.onSeek).not.toHaveBeenCalled()
+  view.rerender(tree(false))
+  expect(view.getByRole('slider')).toBe(slider)
+  fireEvent.pointerMove(window, { pointerId: 7, clientX: 231 })
+  expect(input.onSeek).not.toHaveBeenCalled()
+  fireEvent.pointerDown(slider, { pointerId: 8, button: 0, clientX: 151 })
+  fireEvent.pointerMove(window, { pointerId: 8, clientX: 191 })
+  expect(input.onSeek).toHaveBeenCalledExactlyOnceWith(2)
+  view.unmount()
+  await act(async () => { pending.resolve(undefined) })
+})
+
+it('retains a non-grid media endpoint when the ruler uses a coarse scale', () => {
+  const input = props({ pixelsPerSecond: 8, duration: 10.1, currentTime: 20 })
+  const view = render(<VideoTimeline {...input} />)
+  expect(view.getByRole('slider').getAttribute('aria-valuenow')).toBe('10.1')
+  const end = view.container.querySelector<HTMLElement>('[data-end="true"]')!
+  expect(end.getAttribute('data-major')).toBe('true')
+  expect(end.style.getPropertyValue('--video-tick-left')).toBe('80.8px')
+  expect(end.textContent).toBe('00:10')
 })

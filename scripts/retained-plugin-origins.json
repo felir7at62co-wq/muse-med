@@ -1,0 +1,274 @@
+{
+  "version": 1,
+  "files": [
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/src/auth/rpc.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "c42f62ffe08b163489b74b829457cb263dffb5ad054a7f9e0fd7d49e98275a39",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/src/auth/store.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "c261e171e6b74f5e5f35a434f45cf88f5282c87c4c29450a79c9aa1d93c3c696",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/src/client/index.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "1ac7258c6bc86d7411fa1c2f953dc903a1c6519dd831a75ae1aa73d58e3747bb",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/src/http.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "1f442a8e193dbd16dfa188d7a226454b9c39051979fbed8159c5fd12e3d23c67",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/src/providers/codex-search.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "6e99ef061679d7c369cc02794a676a7b1ce6dd456d0d80094bf178dffc34fe68",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/src/providers/rate-limit.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "df403d645740543b0e799162377cc23c3d3deb431c9aec41b9b68077adbab1a4",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/src/translate/antigravity.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "69d5b87b413d558731d252eddf55866f863b4cb8d8ac86eb1852244bd2d6de43",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/test/catalog-refresh-schedule.spec.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "4281ec8a870dc3a7dc5965b23c63b804a56f8e97bf659625bd50d6810f0f8279",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/test/client-speed.spec.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "4f2ff41424021e5d4a10a45a7044c818fae3ed19e0326746953d6b086312a60b",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/test/model-selection-latency.spec.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "55ba69e7387983f12433f41dd70f0f4f96811156b6acb5345868371d7462880a",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/test/models.spec.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "3f390126203784734ca916b1c47e582acde8db1464a5d8ccba8e776d9c9436a6",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/test/subagent-speed.spec.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "a2d78757f843a36124f80f2dcf8276adc29c32cfb582428411ffcac347b3684e",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/test/subscription-usage-browser.fixture.tsx",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "d1e4b8ce5021412a9f33cb23905f117028db866da399ed610693b99a6dd55fb8",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/test/tool-registration.spec.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "8aa7fe4fa799494a98adf001ba2683a72966002fe4a5b62f58bc37a79ebad2a5",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/test/tools.spec.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "a8b6e9b27830178ba396b101647bbcb3955994c6d5eee341bf10bde9547beb51",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/test/translate.spec.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "5d4b2531ed5623e7694fe32d57911af3064ea6c6531debb23667f3ede0e274d4",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-plugin-subscriptions/test/translate/antigravity.spec.ts",
+      "repository": "https://github.com/V1ki/dsh-plugin-subscriptions",
+      "commit": "b8023110864494acefc6f5963c2a197d85dda20c",
+      "sha256": "a30e05ccfbd438ed3dcbaed71c27a04674633b87e1de13bea659baf4a982a8bd",
+      "license": "MIT"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/src/client/card-state.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "4cef2e748627b3e53fa1a1998bd7df3d1c469873097891688c752f0d0d059246",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/src/client/settings.tsx",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "1e1da552b8fdc9d0c4d07b6793916cb9e6344b8b5ed8d81be58f15d7deebd139",
+      "upstreamText": "scripts/fixtures/retained-plugin-origins/dsh-visualize/src/client/settings.tsx.upstream.txt",
+      "license": "BSD-3-Clause",
+      "licenseFile": "third_party/plugins/dsh-visualize/LICENSE"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/src/images.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "14c4cf6e5bcaeee7e6d237473a28649cf7aca7990a3c1f8b47bc21e5b0ecf1c8",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/src/index.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "c54cff730cdde17c71dccdda1d21ccbb6badb54af646ca44a15bfa7ca0beafb8",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/src/self-repair.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "e7b184d0bb7c39e3428ee25458aa829ffcdacef6f5708917191c0e9ad0114467",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/src/style-setting.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "0554168e8fa04796fde2de4e97097484b8937a4f8bd0c691bbd995f60fc1281d",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/tests/card-images.spec.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "bd04d320a71f8cbb2d2e60a7549f328f5af432e6b524082f658c538e75ef915e",
+      "upstreamText": "scripts/fixtures/retained-plugin-origins/dsh-visualize/tests/card-images.spec.ts.upstream.txt",
+      "license": "BSD-3-Clause",
+      "licenseFile": "third_party/plugins/dsh-visualize/LICENSE"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/tests/images.spec.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "7ee33355102629464e1b7f2aa1f163796a258cb9b01c72bb23ed08ece0f11d4e",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/tests/lint-gate.spec.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "8dfe634cb7d0cf548a435ea8488bc6cf7094df8310a5b7c649561db3e749ff65",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/tests/live-style.spec.tsx",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "bbfdf340310fed7a79e571f793031dfb56b9a0316813a45bb1f81ea93105c12d",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/tests/page-mode.spec.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "127a4066530d10f64d0ee3f7b57fe345de36d8df4201b1b78d99914eafe4709e",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/tests/run-frame.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "7a5a8d5a190e34fb584965d66f96be1482729f7668efcc398d4b0ee09ea1e759",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/tests/self-repair.spec.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "fa0e33303336fe920a56821e2687d11eb86d2c608db50780065fe5c00229f17e",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/tests/settings-section.spec.tsx",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "00ed7861ceab89e1fffbef7815ca1651163ad1973fbc651a5526e2b7d58fd9e1",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/tests/storage.spec.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "a56c830a0b9adfbc6944f0b2c8c4468ccebece02dfef8103d979b83d9e0e365e",
+      "upstreamText": "scripts/fixtures/retained-plugin-origins/dsh-visualize/tests/storage.spec.ts.upstream.txt",
+      "license": "BSD-3-Clause",
+      "licenseFile": "third_party/plugins/dsh-visualize/LICENSE"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/tests/stream-assembly.spec.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "69a4939f3a2bf5e6dc04c66a7e998aba964fd1873f584cb114b5a40783b8f740",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/tests/style-setting.spec.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "d039d32e89b22c18a5b489a6bfe30c53fea551a61ff7087c264078eddc50ddb3",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/tests/style.spec.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "296aeb1cb837617cb8eda69595498dfbf902835100d3fbb9f2b8d3db072eb341",
+      "license": "BSD-3-Clause"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/tests/tool.spec.ts",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "8947246170a19a9531096d234c83f7305a2e5a93023e2bbe75f15581b9e69514",
+      "upstreamText": "scripts/fixtures/retained-plugin-origins/dsh-visualize/tests/tool.spec.ts.upstream.txt",
+      "license": "BSD-3-Clause",
+      "licenseFile": "third_party/plugins/dsh-visualize/LICENSE"
+    },
+    {
+      "path": "third_party/plugins/dsh-visualize/tests/turn-cards.spec.tsx",
+      "repository": "https://github.com/felir7at62co-wq/dsh-visualize",
+      "commit": "cf6b3a3f5a3f02b83a380890a5b672a350715344",
+      "sha256": "e7e359b505b17cab121843fbe9979e0a39fc9e7c12e5c013a8646eaf989f1ef0",
+      "upstreamText": "scripts/fixtures/retained-plugin-origins/dsh-visualize/tests/turn-cards.spec.tsx.upstream.txt",
+      "license": "BSD-3-Clause",
+      "licenseFile": "third_party/plugins/dsh-visualize/LICENSE"
+    }
+  ]
+}

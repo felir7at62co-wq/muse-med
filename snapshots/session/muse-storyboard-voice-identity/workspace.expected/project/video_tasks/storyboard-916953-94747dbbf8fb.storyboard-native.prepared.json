@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "operation": "prepare_storyboard_native_video",
+  "status": "prepared",
+  "createdAt": "2026-09-29T11:40:41.000Z",
+  "scriptId": 2708,
+  "storyboardId": 916953,
+  "idempotencyKey": "94747dbbf8fba25a8474c5536f7c51d67070439fa0ef814824967f8a5c6e56b2",
+  "estimatedSubmissions": 1,
+  "assetSummary": {
+    "count": 2,
+    "orderedAssets": [
+      {
+        "assetId": "asset-window",
+        "materialAssetId": 11,
+        "materialKey": "lead",
+        "materialName": "二十楼落地窗前",
+        "imageUrl": "https://cdn.example.test/window.png"
+      },
+      {
+        "assetId": "asset-qiaomai",
+        "materialAssetId": 12,
+        "materialKey": "guest",
+        "materialName": "乔麦",
+        "imageUrl": "https://cdn.example.test/qiaomai.png"
+      }
+    ]
+  },
+  "payload": {
+    "id": 916953,
+    "scriptId": 2708,
+    "episodeId": 9,
+    "isGenerate": 1,
+    "storyboardName": "EP50 voiceover with reference",
+    "modelConfig": "{\"standardId\":61,\"modelId\":\"doubao-seedance-2-5-260628\",\"platformId\":\"FANG_ZHOU\",\"genType\":3,\"modelGenerationTypeId\":71,\"videoStandardId\":338,\"duration\":26,\"ratio\":\"9:16\",\"resolution\":\"480p\",\"genNum\":1,\"prompt\":\"真人短剧写实风格，9:16竖屏，现代都市豪门夜戏，冷调环境光与暖黄小办公室灯光形成对比，画面干净、影调通透，人物面部自然不过曝。\\n场景为@[二十楼落地窗前](lead)：二十楼整层开放空间，整面落地玻璃外是城市夜景与万家灯火，室内一侧有沙发、茶几与落地灯；同层靠墙有一间亮着暖黄灯光的小办公室，白色木门。\\n出镜人物为@[乔麦](guest)（白色高支棉衬衫、黑色烟管裤、胸前挂工牌，低马尾）。她站在落地窗前，手里端着半盒叉烧饭，饭盒里还剩几块浸着酱汁的叉烧肉。本段乔麦的心声与台词声音参考为@[乔麦·声线](voice-lead)。\\n镜头1：中近景，相机轻推，乔麦咀嚼叉烧肉，脸颊微鼓，视线落在窗外城市灯火上。\\n镜头2：近景，她在原地转头，瞥向那间亮着暖黄灯光的小办公室，嘴里仍在咀嚼，目光短暂停留。\\n镜头3：特写，小办公室白色木门上的铜字门牌在暖光下泛出微光，铜字为“特别事务观察部·主管”。\\n镜头4：近景横移，小办公室桌面上放着一只打开的空保温盒，盒内已空；镜头平移到茶几上的一只白瓷茶壶，壶身干净，旁有一只白瓷杯。\\n镜头5：中近景，镜头缓慢推近，乔麦仍站在原地咀嚼，目光留在小办公室方向，神情由随意转为感慨。这一镜是她的画外心声，嘴唇不动，不对口型。乔麦（在心里感慨）：在这栋巨大的大厦里，所有人先前都戴着面具，你算我，我提防你。\\n镜头6：中近景，取乔麦的肩背和她视线前方的小办公室，她保持咀嚼，目光未收回，情绪在感慨中逐渐舒展。这一镜同样是画外心声，嘴唇不动，不对口型。乔麦（在心里感慨）：但现在，这片浑浊深黑的泥潭，好像被我这擦地的，生生用拖把给揉搓出了一片清亮见底的水洼。\\n六个镜头在同一空间内连续发生，乔麦的站位、手中饭盒、小办公室与门窗的相对位置保持一致；本段只有乔麦入画。夜晚空旷楼层的轻微底噪，室内安静。\\n\",\"materialList\":[{\"assetId\":\"asset-window\",\"materialAssetId\":11,\"fileName\":\"二十楼落地窗前\",\"materialKey\":\"lead\",\"materialType\":\"image\",\"materialUrl\":\"https://cdn.example.test/window.png\",\"sortOrder\":1,\"official\":true,\"asset_status\":\"confirmed\"},{\"assetId\":\"asset-qiaomai\",\"materialAssetId\":12,\"fileName\":\"乔麦\",\"materialKey\":\"guest\",\"materialType\":\"image\",\"materialUrl\":\"https://cdn.example.test/qiaomai.png\",\"sortOrder\":2,\"official\":true,\"asset_status\":\"confirmed\"},{\"materialKey\":\"voice-lead\",\"materialType\":\"audio\",\"materialUrl\":\"https://cdn.example.test/qiaomai.wav\",\"sortOrder\":1,\"audioDuration\":2}],\"backupModelList\":[]}",
+    "storyboardMaterialList": [
+      {
+        "assetId": "asset-window",
+        "materialAssetId": 11,
+        "fileName": "二十楼落地窗前",
+        "materialKey": "lead",
+        "materialType": "image",
+        "materialUrl": "https://cdn.example.test/window.png",
+        "sortOrder": 1,
+        "official": true,
+        "asset_status": "confirmed"
+      },
+      {
+        "assetId": "asset-qiaomai",
+        "materialAssetId": 12,
+        "fileName": "乔麦",
+        "materialKey": "guest",
+        "materialType": "image",
+        "materialUrl": "https://cdn.example.test/qiaomai.png",
+        "sortOrder": 2,
+        "official": true,
+        "asset_status": "confirmed"
+      },
+      {
+        "materialKey": "voice-lead",
+        "materialType": "audio",
+        "materialUrl": "https://cdn.example.test/qiaomai.wav",
+        "sortOrder": 1,
+        "audioDuration": 2
+      }
+    ]
+  },
+  "nextAction": "核对 preview 的项目、主体、配置、预计费用与已有任务。用户最新请求若为只预览或先看，到此展示结果，不沿用此前制作授权提交；本次请求包含已授权生成时才调用 submit_video。prepare 本身不 PUT、不创建任务、不收费。"
+}

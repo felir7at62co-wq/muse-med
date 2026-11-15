@@ -29,16 +29,19 @@ const requireHeadless = createLazyRequire<typeof import('@xterm/headless')>('@xt
 
 function utf8Tail(text: string, maxBytes: number): { text: string; truncated: boolean } {
   if (Buffer.byteLength(text) <= maxBytes) return { text, truncated: false }
-  const chars = Array.from(text)
   let bytes = 0
-  let start = chars.length
+  let start = text.length
   while (start > 0) {
-    const next = Buffer.byteLength(chars[start - 1] as string)
+    const last = text.charCodeAt(start - 1)
+    const previous = start > 1 ? text.charCodeAt(start - 2) : 0
+    const paired = last >= 0xdc00 && last <= 0xdfff && previous >= 0xd800 && previous <= 0xdbff
+    const next = paired ? 4 : last < 0x80 ? 1 : last < 0x800 ? 2 : 3
     if (bytes + next > maxBytes) break
     bytes += next
-    start -= 1
+    start -= paired ? 2 : 1
   }
-  return { text: chars.slice(start).join(''), truncated: true }
+  // Own only the bounded suffix without replacing lone surrogates.
+  return { text: Buffer.from(text.slice(start), 'utf16le').toString('utf16le'), truncated: true }
 }
 
 // Bound pending string fragments independently of deployment retention limits.

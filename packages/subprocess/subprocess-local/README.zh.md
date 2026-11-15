@@ -54,6 +54,8 @@ Windows 普通子进程通过 `windowsHide` 启动私有 Job runner，并为原�
 
 普通 spawn 可以请求 [subprocess 控制管道](../subprocess/README.zh.md#using-a-control-pipe)。Node 目标在所有受支持的宿主上均收到 fd 7；Windows 描述符编号依赖 CRT 初始化。POSIX runner 在 `execve` 时保留该描述符；Windows Job 和 ACL runner 在 Node 初始化前通过子进程的 CRT 启动表建立它，并在 spawn 后关闭自身的承载副本。标准流与 runner 的私有管理通道保持独立。
 
+Linux 私有 runner 在 `execve` 前将标准描述符 0、1、2 恢复为阻塞状态，同时保留其他文件状态标志，避免 Node 提前初始化流后让原生命令继承非阻塞的标准输入或输出。fd 7 控制传输保留原有状态标志，与这次标准流调整独立。描述符操作失败时会在目标运行前拒绝启动。
+
 <a id="running-terminal-sessions"></a>
 ### 运行终端会话
 
